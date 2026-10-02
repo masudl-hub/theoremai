@@ -106,6 +106,7 @@ function baseModelBinding(apiId: string): import('../src/kernel/types.ts').Model
     return {
       protocol: 'geminiInteractions',
       provider: 'google',
+      persistViaInteractionId: false,
       apiId,
       efforts: { normal: 'minimal' },
       summaries: false,

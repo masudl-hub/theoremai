@@ -12,6 +12,7 @@ import {
 import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type { EgressEnforcer, GuardrailContext } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import { CANARY_OPENING } from '../fixtures/canary.ts';
 
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
@@ -68,7 +69,10 @@ Deno.test('createProgressiveYieldGate scans only the canary without a host polic
 
 Deno.test('createProgressiveYieldGate blocks sensitive spans via the bundled policy', async () => {
   const gate = createProgressiveYieldGate({ context: ctx(), enforce: standardEgressEnforce });
-  const result = await gate.process(`key=${TEST_OPENAI_KEY}`);
+  // The key could still run on, so it is held, not yet a match.
+  const held = await gate.process(`key=${TEST_OPENAI_KEY}`);
+  assertEquals(held, { blocked: false, emit: 'key=' });
+  const result = await gate.process(' and more');
   assertEquals(result.blocked, true);
   if (result.blocked) {
     assertEquals(
@@ -81,7 +85,7 @@ Deno.test('createProgressiveYieldGate blocks sensitive spans via the bundled pol
 Deno.test('createProgressiveYieldGate holdback covers split canary across chunks', async () => {
   const canary = mintCanary();
   const gate = createProgressiveYieldGate({ context: ctx(canary) });
-  const half = Math.ceil(canary.length / 2);
+  const half = CANARY_OPENING;
   const first = await gate.process(canary.slice(0, half));
   assertEquals(first.blocked, false);
   if (!first.blocked) {
@@ -159,7 +163,7 @@ Deno.test('createProgressiveYieldGate canary-only releases at once what cannot s
 Deno.test('createProgressiveYieldGate canary-only holds a separated opening across chunks', async () => {
   const gate = createProgressiveYieldGate({ context: ctx(FIXED_CANARY) });
   const spoken = [...FIXED_CANARY.toUpperCase()].join(' - ');
-  const half = Math.ceil(spoken.length / 2);
+  const half = CANARY_OPENING * ' - X'.length;
   const first = await gate.process(`Sure: ${spoken.slice(0, half)}`);
   assertEquals(first, { blocked: false, emit: 'Sure: ' });
   assertEquals((await gate.process(spoken.slice(half))).blocked, true);
@@ -283,8 +287,8 @@ Deno.test('a canary-shaped tail is held from where it begins in the unreleased t
   const canary = mintCanary();
   const gate = createProgressiveYieldGate({ context: ctx(canary) });
   assertEquals(await gate.process('w'.repeat(50)), { blocked: false, emit: 'w'.repeat(50) });
-  assertEquals(await gate.process(canary.slice(0, 3)), { blocked: false, emit: '' });
-  assertEquals(gate.unreleased(), canary.slice(0, 3));
+  assertEquals(await gate.process(canary.slice(0, 4)), { blocked: false, emit: '' });
+  assertEquals(gate.unreleased(), canary.slice(0, 4));
 });
 
 Deno.test('draining the unreleased tail takes only what was not yet released, and flush then adds nothing', async () => {
@@ -294,4 +298,71 @@ Deno.test('draining the unreleased tail takes only what was not yet released, an
   assertEquals(gate.unreleased(), '');
   assertEquals(await gate.flush(), { blocked: false, emit: '' });
   assertEquals(gate.accumulated(), 'abcdefghij');
+});
+
+Deno.test('createProgressiveYieldGate reads the carry in front of its window', async () => {
+  const canary = mintCanary();
+  const half = CANARY_OPENING;
+  const first = createProgressiveYieldGate({ context: ctx(canary) });
+  // No letters or digits in the lead-in: they could extend the opening in some reading.
+  assertEquals(await first.process(`>> ${canary.slice(0, half)}`), {
+    blocked: false,
+    emit: '>> ',
+  });
+  assertEquals((await first.flush()).blocked, false);
+  // The next window of the same canary completes the token: one match.
+  const second = createProgressiveYieldGate({ context: ctx(canary), carry: first.carryOut() });
+  assertEquals((await second.process(canary.slice(half))).blocked, true);
+});
+
+Deno.test('createProgressiveYieldGate holds a window opening that continues the carry', async () => {
+  const canary = 'abcdef0123456789abcdef0123456789';
+  const gate = createProgressiveYieldGate({ context: ctx(canary), carry: 'abcdef' });
+  // "0123" continues the carried opening, so it is held; "5" breaks it, so "zz, 5" goes.
+  assertEquals(await gate.process('0123'), { blocked: false, emit: '' });
+  const other = createProgressiveYieldGate({ context: ctx(canary), carry: 'abcdef' });
+  assertEquals(await other.process('zz, 5'), { blocked: false, emit: 'zz, 5' });
+});
+
+Deno.test('createProgressiveYieldGate carries only the tail that could open a leak', async () => {
+  const gate = createProgressiveYieldGate({ context: ctx(FIXED_CANARY) });
+  await gate.process('nothing to carry here');
+  assertEquals(gate.carryOut(), 're');
+  assertEquals(createProgressiveYieldGate({ context: ctx() }).carryOut(), '');
+});
+
+Deno.test('createProgressiveYieldGate releases a three-character opening and blocks the leak it grows into', async () => {
+  const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  const gate = createProgressiveYieldGate({ context: ctx(canary) });
+  // Shorter than an opening the hold keeps back: it goes out.
+  assertEquals(await gate.process(`Here: ${canary.slice(0, 3)}`), {
+    blocked: false,
+    emit: `Here: ${canary.slice(0, 3)}`,
+  });
+  // The rest of the token still reads as one leak with what was released.
+  const next = await gate.process(canary.slice(3));
+  assertEquals(next.blocked, true);
+});
+
+Deno.test('createProgressiveYieldGate holds a four-character opening', async () => {
+  const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  const gate = createProgressiveYieldGate({ context: ctx(canary) });
+  assertEquals(await gate.process(`Here: ${canary.slice(0, 4)}`), {
+    blocked: false,
+    emit: 'Here: ',
+  });
+  assertEquals((await gate.process(canary.slice(4))).blocked, true);
+});
+
+Deno.test('createProgressiveYieldGate carries a released short opening into the next window', async () => {
+  const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  const first = createProgressiveYieldGate({ context: ctx(canary) });
+  assertEquals(await first.process(`Here: ${canary.slice(0, 3)}`), {
+    blocked: false,
+    emit: `Here: ${canary.slice(0, 3)}`,
+  });
+  assertEquals(await first.flush(), { blocked: false, emit: '' });
+  // Three released characters and fifteen more make one sixteen-character run.
+  const next = createProgressiveYieldGate({ context: ctx(canary), carry: first.carryOut() });
+  assertEquals((await next.process(canary.slice(3, 18))).blocked, true);
 });

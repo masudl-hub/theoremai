@@ -135,7 +135,7 @@ Deno.test('runTurn traces explicit Interactions state controls', async () => {
       {
         profile: 'chat',
         previousInteractionId: 'v1_prev',
-        store: false,
+        store: true,
         input: { text: 'continue' },
       },
       { complete: fakeComplete },
@@ -148,7 +148,7 @@ Deno.test('runTurn traces explicit Interactions state controls', async () => {
   }
   const call = modelCall(record);
   assertEquals(call.attributes['gen_ai.request.previous_response.id'], 'v1_prev');
-  assertEquals(call.attributes['theorem.request.store'], false);
+  assertEquals(call.attributes['theorem.request.store'], true);
 });
 
 Deno.test('runTurn forwards Interactions state controls and preserves host metadata', async () => {

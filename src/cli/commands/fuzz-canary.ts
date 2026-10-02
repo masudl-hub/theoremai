@@ -10,7 +10,9 @@ import {
   buildCanaryEgressAttacks,
   type CanaryEgressAttack,
   FIXED_CANARY,
+  FUZZ_SYSTEM,
 } from '../../guardrails/corpus/canary-egress-attacks.ts';
+import { givenUrlSets } from '../../guardrails/egress-urls.ts';
 import {
   createLiveOutboundGateSession,
   finalizeLiveOutboundTurn,
@@ -23,7 +25,10 @@ import {
   registerProfile,
   resolveTurn,
 } from '../../kernel/default-scope.ts';
-import { yieldProviderEvents } from '../../kernel/engine/runner/stream.ts';
+import {
+  type OutboundStreamControl,
+  yieldProviderEvents,
+} from '../../kernel/engine/runner/stream.ts';
 import { providerCompleteRequest } from '../../kernel/registry/provider-request.ts';
 import { defaultKernelScope } from '../../kernel/scope.ts';
 import type { ProviderEvent, ResolvedGeneration, TurnEvent } from '../../kernel/types.ts';
@@ -137,6 +142,8 @@ async function runStreamChannel(
   canary: string,
 ): Promise<ChannelResult> {
   const events: TurnEvent[] = [];
+  // Every provider call of one turn shares its canary: each attack turn is a step.
+  const control: OutboundStreamControl = { withholdVisible: false };
   for (const turn of attack.turns) {
     const streamed = await collectEvents(
       yieldProviderEvents({
@@ -145,11 +152,13 @@ async function runStreamChannel(
         request: providerCompleteRequest(
           defaultKernelScope.tools,
           generation,
-          bindCanary('fuzz system', canary),
+          bindCanary(FUZZ_SYSTEM, canary),
         ),
         provider: { complete: () => replay(turn) },
         // The fuzz reads what reaches the client, not the trace.
         call: { tap: () => {}, observe: () => {} },
+        control,
+        givenUrls: givenUrlSets(),
       }),
     );
     // The runner reads the call's `done`; the client never receives it.
@@ -167,7 +176,11 @@ async function runLiveBatchChannel(
   attack: CanaryEgressAttack,
   canary: string,
 ): Promise<ChannelResult> {
-  const session = createLiveOutboundGateSession(getProfile(FUZZ_PROFILE_ID), canary);
+  const session = createLiveOutboundGateSession(
+    getProfile(FUZZ_PROFILE_ID),
+    canary,
+    bindCanary(FUZZ_SYSTEM, canary),
+  );
   const events: TurnEvent[] = [];
   for (const turn of attack.turns) {
     for (const result of [

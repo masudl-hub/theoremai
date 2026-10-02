@@ -6,7 +6,7 @@ import { hitFromSpan } from './hits.ts';
 import { injectionSpans } from './injection.ts';
 import { type DetectionOptions, detectionForTrust, resolveGuardrailPolicy } from './policy.ts';
 import { SANITIZE_RULES } from './rules.ts';
-import { sensitiveSpans } from './sensitive.ts';
+import { anySensitive, resolveSensitive, sensitiveSpans } from './sensitive.ts';
 import type { GuardrailHit, GuardrailStage, TrustLevel } from './types.ts';
 
 function detectText(
@@ -14,14 +14,11 @@ function detectText(
   options?: Partial<DetectionOptions>,
 ): { text: string; hits: GuardrailHit[] } {
   const sanitizeInput = options?.sanitizeInput ?? true;
-  const redactSensitive = options?.redactSensitive ?? true;
-  if (!sanitizeInput && !redactSensitive) {
+  const groups = resolveSensitive(options?.redactSensitive);
+  if (!sanitizeInput && !anySensitive(groups)) {
     return { text, hits: [] };
   }
-  const spans = [
-    ...(sanitizeInput ? injectionSpans(text) : []),
-    ...(redactSensitive ? sensitiveSpans(text) : []),
-  ];
+  const spans = [...(sanitizeInput ? injectionSpans(text) : []), ...sensitiveSpans(text, groups)];
   const hits: GuardrailHit[] = spans.map((span) =>
     hitFromSpan(
       text,

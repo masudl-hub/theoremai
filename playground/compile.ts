@@ -1,8 +1,3 @@
-/**
- * Egress compiles to the kernel's real `standardEgressEnforce`. A function does not survive
- * JSON, so the playground server puts it back after the run-tab handoff.
- */
-
 import {
   type DecisionEntry,
   type DecisionQuestion,
@@ -19,11 +14,18 @@ import {
   type ProfileTurnBehaviourSpec,
   resolveGuardrailPolicy,
   type SpeechProfileDefinition,
-  standardEgressEnforce,
   type TextProfileDefinition,
   TheoremError,
 } from '../mod.ts';
 import { validateLexiconOverrides } from '../src/guardrails/lexicon.ts';
+import {
+  type EgressChecks,
+  egressChecksProblem,
+  type ResolvedEgressChecks,
+  resolveEgressChecks,
+  type UrlCheck,
+} from '../src/guardrails/egress.ts';
+import { SENSITIVE_GROUPS, type SensitiveGroups } from '../src/guardrails/sensitive.ts';
 import type { DecisionProfileDefinition, HostProfileDefinition } from '../src/kernel/mod.ts';
 import { outOfScopeFields } from '../src/kernel/profile-scope.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
@@ -48,11 +50,11 @@ import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import {
   GOOGLE_SPEECH_FORMATS,
   GOOGLE_THINKING_LEVELS,
-  googleInteractionsPersistence,
 } from '../src/presets/google.ts';
 import { PLAYGROUND_KEY_SLOT_CAP } from './browser-connection.ts';
 import type {
   DecisionDraft,
+  EgressChecksDraft,
   GuardrailsDraft,
   ImageDraft,
   ImageReferenceDraft,
@@ -67,6 +69,7 @@ import type {
   SpeechDraft,
   ToolSpecDraft,
   TurnBehaviourDraft,
+  UrlCheckDraft,
 } from './draft.ts';
 import { draftAllows, draftFacets, INLINE_WORDING, takesContinueInstruction } from './draft.ts';
 import {
@@ -225,6 +228,9 @@ function compileBinding(
   ) {
     report(nodeId, 'Temperature must be zero or more.', 'temperature');
   }
+  if (onGoogleInteractions(binding) && binding.persistViaInteractionId && binding.store === false) {
+    report(nodeId, 'Chaining needs Google storage on.', 'persistViaInteractionId');
+  }
 
   return {
     protocol: binding.protocol,
@@ -239,15 +245,17 @@ function compileBinding(
     ...(binding.maxOutputTokens !== null ? { maxOutputTokens: binding.maxOutputTokens } : {}),
     ...(binding.temperature !== null ? { temperature: binding.temperature } : {}),
     ...(binding.builtInTools.length ? { builtInTools: [...binding.builtInTools] } : {}),
-    // Google sometimes breaks a chain mid-turn (python-genai#3003), so every step sends full history.
-    ...(onGoogleInteractions(binding, type) ? googleInteractionsPersistence(false) : {}),
+    ...(onGoogleInteractions(binding)
+      ? {
+          ...(binding.store !== null ? { store: binding.store } : {}),
+          persistViaInteractionId: binding.persistViaInteractionId,
+        }
+      : {}),
   };
 }
 
-function onGoogleInteractions(binding: ModelBindingDraft, type: PlaygroundProfileType): boolean {
-  return (
-    type === 'text' && binding.protocol === 'geminiInteractions' && binding.provider === 'google'
-  );
+function onGoogleInteractions(binding: ModelBindingDraft): boolean {
+  return binding.protocol === 'geminiInteractions' && binding.provider === 'google';
 }
 
 function compileModels(
@@ -743,19 +751,10 @@ function compileEgress(
     guardrails.egressMaxRetries,
     0,
   );
-  checkWhole(
-    report,
-    'guardrails',
-    'egressHoldback',
-    'Egress holdback',
-    guardrails.egressHoldback,
-    0,
-  );
   return {
-    enforce: standardEgressEnforce,
+    checks: compileEgressChecks(guardrails.egressChecks, report),
     ...(guardrails.egressOnBlock ? { onBlock: guardrails.egressOnBlock } : {}),
     ...(guardrails.egressMaxRetries !== null ? { maxRetries: guardrails.egressMaxRetries } : {}),
-    ...(guardrails.egressHoldback !== null ? { holdback: guardrails.egressHoldback } : {}),
   };
 }
 
@@ -775,6 +774,61 @@ function compileNetwork(
   };
 }
 
+/** The URL check as it differs from `fallback`: omitted when it does not, `false` when off. */
+function compileUrlCheck(
+  name: 'images' | 'links',
+  check: UrlCheckDraft,
+  fallback: UrlCheck | undefined,
+  report: Report,
+): boolean | UrlCheck | undefined {
+  const hosts = check.hosts.map((host) => host.trim());
+  const blank = hosts.indexOf('');
+  if (blank !== -1) {
+    report('guardrails', 'Egress hosts cannot be blank.', `egressChecks.${name}.hosts`, blank);
+  }
+  if (!check.on) return fallback ? false : undefined;
+  const named = hosts.filter(Boolean);
+  const options: UrlCheck = {
+    ...(named.length ? { hosts: named } : {}),
+    ...(check.fromTools ? {} : { fromTools: false }),
+  };
+  if (Object.keys(options).length) return options;
+  return fallback ? undefined : true;
+}
+
+/** The checks that differ from the bundled defaults: `true` when none does, `false` when all are off. */
+function compileEgressChecks(draft: EgressChecksDraft, report: Report): boolean | EgressChecks {
+  const defaults: ResolvedEgressChecks = resolveEgressChecks();
+  const sensitive = compileRedactSensitive(draft.sensitive, defaults.sensitive);
+  const checks: EgressChecks = {
+    ...(sensitive === undefined ? {} : { sensitive }),
+    ...(draft.boundary === defaults.boundary ? {} : { boundary: draft.boundary }),
+    ...(draft.injection === defaults.injection ? {} : { injection: draft.injection }),
+  };
+  const images = compileUrlCheck('images', draft.images, defaults.images, report);
+  const links = compileUrlCheck('links', draft.links, defaults.links, report);
+  if (images !== undefined) checks.images = images;
+  if (links !== undefined) checks.links = links;
+  const problem = egressChecksProblem('Egress checks', checks);
+  if (problem !== undefined) report('guardrails', problem, 'egressChecks');
+  const allOff =
+    sensitive === false && !draft.boundary && !draft.injection && !draft.images.on && !draft.links.on;
+  if (allOff) return false;
+  return Object.keys(checks).length ? checks : true;
+}
+
+/** The groups that differ from the defaults; `false` when every group is off. */
+function compileRedactSensitive(
+  groups: SensitiveGroups,
+  defaults: SensitiveGroups,
+): ProfileGuardrailsSpec['redactSensitive'] {
+  if (SENSITIVE_GROUPS.every((group) => !groups[group])) return false;
+  const changed = SENSITIVE_GROUPS.filter((group) => groups[group] !== defaults[group]);
+  return changed.length === 0
+    ? undefined
+    : Object.fromEntries(changed.map((group) => [group, groups[group]]));
+}
+
 function compileGuardrails(
   guardrails: GuardrailsDraft,
   report: Report,
@@ -784,10 +838,7 @@ function compileGuardrails(
     canary: compileCanary(guardrails),
     sanitizeInput:
       guardrails.sanitizeInput !== defaults.sanitizeInput ? guardrails.sanitizeInput : undefined,
-    redactSensitive:
-      guardrails.redactSensitive !== defaults.redactSensitive
-        ? guardrails.redactSensitive
-        : undefined,
+    redactSensitive: compileRedactSensitive(guardrails.redactSensitive, defaults.redactSensitive),
     quota: compileQuota(guardrails, report),
     egress: compileEgress(guardrails, report),
     network: compileNetwork(guardrails, report),

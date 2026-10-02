@@ -18,6 +18,7 @@ const BINDING = {
   protocol: 'geminiInteractions',
   provider: 'google',
   apiId: 'gemini-3.5-flash-lite',
+  persistViaInteractionId: false,
 } as const;
 
 const textProfile = (over: Loose = {}): Loose => ({
@@ -33,6 +34,9 @@ const textProfile = (over: Loose = {}): Loose => ({
 });
 
 const modelWith = (over: Loose): Loose => ({ models: { m: { ...BINDING, ...over } } });
+
+/** A local model, clearing the Gemini-only chaining field `BINDING` carries. */
+const LOCAL = { protocol: 'openAi', provider: 'local', persistViaInteractionId: undefined };
 
 const decisionProfile = (over: Loose = {}): Loose => ({
   id: 'd',
@@ -124,7 +128,13 @@ Deno.test('a model route names its protocol, provider and apiId, and the pair mu
     ],
     [
       'a protocol the type cannot use',
-      textProfile(modelWith({ protocol: 'geminiLive', provider: 'google' })),
+      textProfile(
+        modelWith({
+          protocol: 'geminiLive',
+          provider: 'google',
+          persistViaInteractionId: undefined,
+        }),
+      ),
       `${at}: type 'text' cannot use protocol 'geminiLive'. Supported: geminiInteractions, openAi`,
     ],
   ]);
@@ -268,7 +278,12 @@ Deno.test('efforts are thinking levels with a default among them', () => {
 
 Deno.test('cache, persistence and server fields are only valid on the bindings they belong to', () => {
   const at = "Profile p model 'm'";
-  const openRouter = { protocol: 'openAi', provider: 'openrouter', apiId: 'x/y' };
+  const openRouter = {
+    protocol: 'openAi',
+    provider: 'openrouter',
+    apiId: 'x/y',
+    persistViaInteractionId: undefined,
+  };
   table([
     [
       'cache on gemini',
@@ -284,6 +299,16 @@ Deno.test('cache, persistence and server fields are only valid on the bindings t
       'bad cache ttl',
       textProfile(modelWith({ ...openRouter, cache: { mode: 'system', ttl: '2h' } })),
       `${at}: cache.ttl must be one of 5m | 1h`,
+    ],
+    [
+      'chaining left unset on gemini',
+      textProfile(modelWith({ persistViaInteractionId: undefined })),
+      `${at}: persistViaInteractionId is required on a 'geminiInteractions' binding — true chains on Google's stored interaction, false sends the host's history plus this turn's steps every call`,
+    ],
+    [
+      'chaining with storage off',
+      textProfile(modelWith({ persistViaInteractionId: true, store: false })),
+      `${at}: persistViaInteractionId: true needs store left on — Google chains only from a stored interaction`,
     ],
     [
       'store on openrouter',
@@ -319,9 +344,7 @@ Deno.test('cache, persistence and server fields are only valid on the bindings t
   check(said(textProfile(modelWith({ store: true }))), 'defined', 'store on interactions');
   for (const server of ['', '   ', 5]) {
     check(
-      said(
-        textProfile(modelWith({ protocol: 'openAi', provider: 'local', server, key: undefined })),
-      ),
+      said(textProfile(modelWith({ ...LOCAL, server, key: undefined }))),
       `${at}: server must be a non-empty string`,
       `server ${JSON.stringify(server)}`,
     );
@@ -330,7 +353,7 @@ Deno.test('cache, persistence and server fields are only valid on the bindings t
     said(
       textProfile({
         key: undefined,
-        ...modelWith({ protocol: 'openAi', provider: 'local', server: 'http://x' }),
+        ...modelWith({ ...LOCAL, server: 'http://x' }),
       }),
     ),
     'defined',

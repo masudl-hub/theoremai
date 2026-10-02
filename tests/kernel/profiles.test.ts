@@ -1,5 +1,8 @@
 import { assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { z } from 'zod';
+import { compileEgressRules } from '../../src/guardrails/compile-egress.ts';
+import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { egressPolicy } from '../../src/guardrails/egress-policy.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import {
   clearProfiles,
@@ -19,11 +22,7 @@ import { isModelProfile, requireModelProfile } from '../../src/kernel/registry/r
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { resolveTurnTools } from '../../src/kernel/tools/resolve.ts';
 import type { ModelProvider } from '../../src/kernel/types.ts';
-import {
-  googleEfforts,
-  googleInteractionsPersistence,
-  registerGooglePreset,
-} from '../../src/presets/google.ts';
+import { googleEfforts, registerGooglePreset } from '../../src/presets/google.ts';
 import { geminiModels, HOST_BINDINGS, modelBindings } from '../fixtures/models.ts';
 
 registerGooglePreset();
@@ -136,6 +135,60 @@ Deno.test('defineProfile rejects observability.sampleRate outside 0–1', () => 
     Error,
     'sampleRate',
   );
+});
+
+Deno.test('defineProfile rejects a holdback with a policy the stream reads exactly', () => {
+  const rules = [{ rule: 'acme.account', pattern: /ACCT-\d{6}/ }];
+  const hostRules = egressPolicy({ rules, compiled: compileEgressRules(rules) });
+  for (const enforce of [standardEgressEnforce, hostRules]) {
+    assertThrows(
+      () =>
+        defineProfile({
+          id: 'bundled_holdback',
+          type: 'text',
+          identity: { handle: 'bundled_holdback' },
+          models: modelBindings('gemini35FlashLite'),
+          key: 'slotA',
+          tools: { allow: [] },
+          inputs: { text: true },
+          guardrails: { egress: { enforce, holdback: 96 } },
+        }),
+      TheoremError,
+      'applies only to a host egress.enforce',
+    );
+  }
+});
+
+Deno.test('defineProfile takes enforce or checks for egress, one of the two, and only checks there are', () => {
+  const profile = (egress: Record<string, unknown>) => () =>
+    defineProfile({
+      id: 'egress_checks',
+      type: 'text',
+      identity: { handle: 'egress_checks' },
+      models: modelBindings('gemini35FlashLite'),
+      key: 'slotA',
+      tools: { allow: [] },
+      inputs: { text: true },
+      guardrails: { egress },
+    });
+  const oneOf = 'one of the two';
+  assertThrows(profile({}), TheoremError, oneOf);
+  assertThrows(profile({ onBlock: 'refuse_to_user' }), TheoremError, oneOf);
+  assertThrows(profile({ enforce: standardEgressEnforce, checks: true }), TheoremError, oneOf);
+  assertThrows(profile({ enforce: 'standard' }), TheoremError, 'must be a function');
+  assertThrows(profile({ checks: { imageHosts: [] } }), TheoremError, 'no check "imageHosts"');
+  assertThrows(
+    profile({ checks: { links: { hosts: ['https://docs.acme.io'] } } }),
+    TheoremError,
+    'guardrails.egress.checks.links.hosts lists',
+  );
+  assertThrows(
+    profile({ checks: true, holdback: 96 }),
+    TheoremError,
+    'applies only to a host egress.enforce',
+  );
+  profile({ checks: false })();
+  profile({ checks: { sensitive: { network: true }, links: { hosts: ['docs.acme.io'] } } })();
 });
 
 Deno.test('defineProfile rejects a non-integer or negative egress count', () => {
@@ -540,6 +593,29 @@ Deno.test('host profile accepts only the guardrails that fire on the invokeTool 
   assertEquals(profile.guardrails?.network?.allowedHosts, ['example.test']);
 });
 
+Deno.test('redactSensitive takes a boolean per group, and only the groups there are', () => {
+  registerProfile({
+    type: 'host',
+    id: 'host_redact_groups',
+    tools: { allow: [] },
+    guardrails: { redactSensitive: { network: false } },
+  });
+  assertEquals(getProfile('host_redact_groups').guardrails?.redactSensitive, { network: false });
+  for (const redactSensitive of [{ keys: false }, { ids: 'yes' }]) {
+    assertThrows(
+      () =>
+        registerProfile({
+          type: 'host',
+          id: 'host_redact_bad',
+          tools: { allow: [] },
+          guardrails: { redactSensitive },
+        } as Parameters<typeof registerProfile>[0]),
+      TheoremError,
+      'guardrails.redactSensitive.',
+    );
+  }
+});
+
 Deno.test('host profile rejects guardrails that only a model turn can run', () => {
   const base = { type: 'host' as const, id: 'host_guardrails_bad', tools: { allow: [] } };
   const cases: Array<[string, Record<string, unknown>]> = [
@@ -764,7 +840,8 @@ Deno.test('defineProfile accepts Interactions store/persist and rejects them on 
     models: {
       gemini35FlashLite: {
         ...HOST_BINDINGS.gemini35FlashLite,
-        ...googleInteractionsPersistence(true),
+        store: true,
+        persistViaInteractionId: true,
       },
     },
     key: 'main',
@@ -773,10 +850,6 @@ Deno.test('defineProfile accepts Interactions store/persist and rejects them on 
   });
   assertEquals(ok.models.gemini35FlashLite.store, true);
   assertEquals(ok.models.gemini35FlashLite.persistViaInteractionId, true);
-  assertEquals(googleInteractionsPersistence(false), {
-    store: false,
-    persistViaInteractionId: false,
-  });
 
   assertThrows(
     () =>

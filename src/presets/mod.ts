@@ -12,7 +12,6 @@ export type {
   GoogleImageOutputMime,
   GoogleImagePins,
   GoogleImageResolution,
-  GoogleInteractionsPersistence,
   GoogleSpeechVoice,
   GoogleThinkingLevel,
   GoogleVoiceInputMime,
@@ -34,7 +33,6 @@ export {
   googleBindingViolation,
   googleEfforts,
   googleFreeTierBuiltins,
-  googleInteractionsPersistence,
   registerGooglePreset,
 } from './google.ts';
 export { OPENROUTER_IMAGES_IGNORED_INPUTS, OPENROUTER_IMAGES_INPUT_MIMES } from './openrouter.ts';

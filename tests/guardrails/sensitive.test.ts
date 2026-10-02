@@ -13,6 +13,13 @@ Deno.test('sensitiveSpans detects SSN and API keys from corpus secrets', () => {
   assertEquals(sensitiveSpans(`AWS ${TEST_AWS_KEY}1`).length > 0, true);
 });
 
+Deno.test('sensitiveSpans skips network addresses when network is off', () => {
+  const text = 'host 10.0.0.1 and 2001:0db8:85a3:0000:0000:8a2e:0370:7334';
+  assertEquals(sensitiveSpans(text).length, 2);
+  assertEquals(sensitiveSpans(text, { network: false }).length, 0);
+  assertEquals(sensitiveSpans(`key ${TEST_OPENAI_KEY}`, { network: false }).length > 0, true);
+});
+
 Deno.test('sensitiveSpans detects Luhn-valid card numbers', () => {
   assertEquals(sensitiveSpans(`Card: ${TEST_VISA}`).length > 0, true);
 });

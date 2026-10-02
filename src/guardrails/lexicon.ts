@@ -57,6 +57,9 @@ export const LEXICON_KEYS = [
   'egress.rejection',
   'egress.invalid_verdict',
   'egress.policy_failed',
+  'thought.omitted_image',
+  'thought.omitted_link',
+  'thought.omitted_instructions',
   'session.abandon_gated',
   'session.tool_denied',
   'session.tool_aborted',
@@ -248,6 +251,10 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'egress.rejection': 'Egress blocked: {rules}',
   'egress.invalid_verdict': 'Egress policy returned an invalid verdict shape',
   'egress.policy_failed': 'Egress policy failed to reach a decision',
+  // A space ends a URL the text before runs up to; no brackets, which after a `!` or `]` would open an image or link.
+  'thought.omitted_image': ' (omitted - image)',
+  'thought.omitted_link': ' (omitted - link)',
+  'thought.omitted_instructions': ' (omitted - instructions)',
   'session.abandon_gated': "User cancelled gated tool '{tool}' to send a new message.",
   'session.tool_denied': "User denied execution of '{tool}'.",
   'session.tool_aborted': "'{tool}' was stopped before it ran.",
@@ -397,6 +404,12 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
     "The reason recorded when the host's egress policy returns an answer of the wrong shape.",
   'egress.policy_failed':
     "The reason recorded when the host's egress policy throws before reaching a decision.",
+  'thought.omitted_image':
+    'Shown in a thought in place of an image from an address the model was not given. Start it with a space and leave out brackets, so it neither runs into nor opens a link.',
+  'thought.omitted_link':
+    'Shown in a thought in place of a link to an address the model was not given. Start it with a space and leave out brackets.',
+  'thought.omitted_instructions':
+    'Shown in a thought in place of the canary, words repeated from the system prompt, or the user-data markers.',
   'session.abandon_gated':
     'Told to the model when the user sends a new message instead of answering a step waiting for approval. Takes {tool}.',
   'session.tool_denied':

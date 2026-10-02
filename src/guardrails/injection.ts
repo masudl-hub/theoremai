@@ -1,107 +1,13 @@
 import { blobAt, type RedactSpan, spansFromPatterns } from '../observability/spans.ts';
+import { REVERSED_INJECTION_PATTERNS } from './egress-automata.ts';
+import {
+  BASE64_BLOB,
+  HEX_BLOB,
+  INJECTION_PATTERNS,
+  PIPE_SEPARATED,
+  SPACED_LETTERS,
+} from './injection-patterns.ts';
 import { normalizeForDetection } from './normalize.ts';
-
-const IGNORE_PREVIOUS =
-  /ignore\s+(all\s+)?(previous|prior)\s+((?:safety|security|system|operational|internal|core|original|initial|existing|given|stated|provided|defined|specified|established)\s+)?(instructions?|rules?|guidelines?|constraints?|directives?)/gi;
-const DISREGARD_INSTRUCTIONS =
-  /disregard\s+(all\s+)?(previous|prior|above)\s+(instructions?|rules?|guidelines?|constraints?|directives?)/gi;
-const FORGET_INSTRUCTIONS =
-  /forget\s+(all\s+)?(previous|prior|above)\s+(instructions?|rules?|guidelines?|constraints?|directives?)/gi;
-const NEW_INSTRUCTIONS = /new\s+instructions?:/gi;
-const DO_NOT_FOLLOW = /do\s+not\s+follow\s+(the\s+)?(system|developer|previous|original)/gi;
-const SUPERSEDE_INSTRUCTIONS =
-  /supersedes?\s+(all\s+)?(prior|previous)\s+(instructions?|rules?|guidelines?|constraints?|directives?)/gi;
-const VOID_INSTRUCTIONS =
-  /(all\s+)?(previous|prior)\s+instructions?\s+(are|is)\s+(void|invalid|null|obsolete|cancelled|revoked)/gi;
-const DEVELOPER_MODE = /you\s+are\s+now\s+(in\s+)?developer\s+mode/gi;
-const ENTER_SPECIAL_MODE =
-  /enter\s+(developer|admin|debug|maintenance)\s+mode(?!\s+(?:in|on|via|through|from|using|for)\b)/gi;
-const ACTIVATE_SPECIAL_MODE =
-  /activate\s+(developer|admin|debug|jailbreak)\s+mode(?!\s+(?:in|on|via|through|from|using|for)\b)/gi;
-const SYSTEM_OVERRIDE = /\bsystem\s+override\b/gi;
-const OVERRIDE_INSTRUCTIONS =
-  /override\s+(your\s+)?(instructions?|rules?|guidelines?|constraints?|directives?)/gi;
-const REVEAL_PROMPT =
-  /reveal\s+((?:your?|yoru|yuor|the|my|its|his|her|our|their)\s+)?((?:(?:full|hidden|complete|internal|secret|original|entire|exact|actual|real)\s+){0,2})((?:system|systme|sysetm|systemp?)\s+)?prompt\b/gi;
-const SHOW_PROMPT =
-  /show\s+(me\s+)?((?:your?|yoru|yuor|the|my|its|his|her|our|their)\s+)((?:system|systme|sysetm|systemp?)\s+)?prompt\b/gi;
-const WHAT_INSTRUCTIONS = /what\s+(are|were)\s+(your\s+)?(exact\s+)?instructions/gi;
-const REPEAT_INSTRUCTIONS = /repeat\s+(the\s+)?(text|instructions?)\s+(above|before)/gi;
-const OUTPUT_PROMPT = /output\s+(your\s+)?(initial|original|system)\s+(prompt|instructions?)/gi;
-const REMOVE_RESTRICTIONS = /you\s+are\s+no\s+longer\s+(bound|restricted|limited)/gi;
-const ACT_UNBOUND = /act\s+as\s+if\s+(you('re|\s+are)\s+)?not\s+bound/gi;
-const PRETEND_DIFFERENT =
-  /pretend\s+(you('re|\s+are)\s+)?(a\s+)?different\s+(ai|assistant|model)/gi;
-const IDENTITY_HIJACK =
-  /you\s+are\s+now\s+(?:(?:a|an)\s+)?\w+.{0,40}(without\s+(any\s+)?restrict|ignor\w*\s+(all|any|every|prev)|bypass|unrestrict|unlimit|obey\s+only|no\s+(rules|limits|restrict|boundari))/gi;
-const DAN_JAILBREAK = /\bDAN\b[\s\S]{0,120}\bdo\s+anything\s+now\b/g;
-const JAILBREAK_MODE = /jailbreak(ed)?\s+(mode|prompt)/gi;
-const DO_ANYTHING_NOW = /\bdo\s+anything\s+now\b/gi;
-const BYPASS_SAFETY =
-  /bypass\s+(your\s+)?(safety|security|content|ethical)\s+(filters?|measures?|guidelines?|restrictions?)/gi;
-const DISABLE_SAFETY =
-  /(disable|delete|remove|turn\s+off|eliminate)\s+(all\s+)?(your\s+)?(safety|security|content)\s+(filters?|measures?|rules?|guidelines?|restrictions?)/gi;
-const IGNORE_SAFETY =
-  /(ignore|disregard)\s+(all\s+)?(your\s+)?(safety|security|ethical|content)\s+(guidelines?|rules?|restrictions?|measures?|filters?|polic(?:y|ies)|protocols?)/gi;
-/** Bound whitespace so tag scanners cannot polynomial-backtrack on long runs. */
-const TAG_WS = String.raw`[^\S\r\n]{0,32}`;
-const SYSTEM_TAG = new RegExp(`<${TAG_WS}\\/?${TAG_WS}system${TAG_WS}\\/?>`, 'gi');
-const ROLE_TAG = new RegExp(
-  `<${TAG_WS}\\/?${TAG_WS}(assistant|developer|tool|function)${TAG_WS}\\/?>`,
-  'gi',
-);
-const ROLE_DELIMITER = /\][^\S\r\n]{0,32}\n[^\S\r\n]{0,32}\[?(system|assistant|user)\]?:/gi;
-const BRACKETED_ROLE =
-  /\[[^\S\r\n]{0,32}(System[^\S\r\n]{0,8}Message|System|Assistant|Internal)[^\S\r\n]{0,32}\]/gi;
-const SYSTEM_YOU_ARE = /^[^\S\r\n]{0,32}System:[^\S\r\n]{1,32}(you\s+are|ignore|override)/gim;
-const CONTROL_TOKEN = /<\|(?:im_start|im_end|eot_id|start_header_id|end_header_id|endoftext)\|>/g;
-const DEEPSEEK_CONTROL = /<｜(?:end▁of▁sentence|begin▁of▁sentence)｜>/g;
-const LLAMA_INST = /\[\/?INST\]/gi;
-const IGNORE_YOUR_INSTRUCTIONS = /ignore\s+(all\s+)?(your\s+)?(instructions?|rules?)\b/gi;
-const UNRESTRICTED_MODE = /\bunrestricted\s+(ai|mode|model)\b/gi;
-const IGNORE_MULTILANG =
-  /\b(?:ignorieren|ignorez|ignora|ignorer|oubliez|vergessen|olvida|desestima|missachten)\b[\s\S]{0,50}\b(?:anweisungen|instructions?|instrucciones|directives?|r[eè]gles|reglas)\b/gi;
-
-const INJECTION_PATTERNS = [
-  IGNORE_PREVIOUS,
-  DISREGARD_INSTRUCTIONS,
-  FORGET_INSTRUCTIONS,
-  NEW_INSTRUCTIONS,
-  DO_NOT_FOLLOW,
-  SUPERSEDE_INSTRUCTIONS,
-  VOID_INSTRUCTIONS,
-  DEVELOPER_MODE,
-  ENTER_SPECIAL_MODE,
-  ACTIVATE_SPECIAL_MODE,
-  SYSTEM_OVERRIDE,
-  OVERRIDE_INSTRUCTIONS,
-  REVEAL_PROMPT,
-  SHOW_PROMPT,
-  WHAT_INSTRUCTIONS,
-  REPEAT_INSTRUCTIONS,
-  OUTPUT_PROMPT,
-  REMOVE_RESTRICTIONS,
-  ACT_UNBOUND,
-  PRETEND_DIFFERENT,
-  IDENTITY_HIJACK,
-  DAN_JAILBREAK,
-  JAILBREAK_MODE,
-  DO_ANYTHING_NOW,
-  BYPASS_SAFETY,
-  DISABLE_SAFETY,
-  IGNORE_SAFETY,
-  SYSTEM_TAG,
-  ROLE_TAG,
-  ROLE_DELIMITER,
-  BRACKETED_ROLE,
-  SYSTEM_YOU_ARE,
-  CONTROL_TOKEN,
-  DEEPSEEK_CONTROL,
-  LLAMA_INST,
-  IGNORE_YOUR_INSTRUCTIONS,
-  UNRESTRICTED_MODE,
-  IGNORE_MULTILANG,
-];
 
 const TYPO_TARGETS = [
   'ignore',
@@ -127,11 +33,6 @@ const TYPO_TARGETS = [
   'measures',
 ];
 
-const BASE64_BLOB = /[A-Za-z0-9+/]{16,}={0,2}/g;
-const HEX_BLOB = /(?:[0-9a-f]{2}[\s]?){8,}/gi;
-const SPACED_LETTERS = /\b(?:[A-Za-z] ){3,}[A-Za-z]\b/g;
-/** Three+ alphabetic tokens joined by `|` (no shell spaces around pipes). */
-const PIPE_SEPARATED = /\b(?:[A-Za-z]+\|){2,}[A-Za-z]+\b/g;
 /** Pipe evasion only when the first token is a known injection lead-in. */
 const PIPE_HEAD_VERBS =
   /^(ignore|disregard|forget|bypass|reveal|show|repeat|output|disable|override|new|jailbreak|pretend|act|enter|activate|void|supersede|do)$/i;
@@ -240,52 +141,43 @@ function tryHex(blob: string): string | undefined {
   return out;
 }
 
-function encodedFrom(
-  text: string,
-  pattern: RegExp,
-  decode: (blob: string) => string | undefined,
-): RedactSpan[] {
+function base64Hit(blob: string): boolean {
+  const decoded = tryBase64(blob);
+  return decoded !== undefined && decodedHits(decoded);
+}
+
+function hexHit(blob: string): boolean {
+  const decoded = tryHex(blob);
+  return decoded !== undefined && decodedHits(decoded);
+}
+
+function spacedHit(blob: string): boolean {
+  const collapsed = blob.replaceAll(' ', '');
+  return injectionSpansOn(`${collapsed} previous instructions`).length > 0;
+}
+
+function pipeHit(blob: string): boolean {
+  const head = blob.split('|')[0]?.toLowerCase();
+  if (!head || !PIPE_HEAD_VERBS.test(head)) return false;
+  return injectionSpansOn(blob.replaceAll('|', ' ')).length > 0;
+}
+
+/** Blob patterns whose match is a hit only when the blob decodes to an injection. */
+const INJECTION_BLOBS: readonly { pattern: RegExp; hit: (blob: string) => boolean }[] = [
+  { pattern: BASE64_BLOB, hit: base64Hit },
+  { pattern: HEX_BLOB, hit: hexHit },
+  { pattern: SPACED_LETTERS, hit: spacedHit },
+  { pattern: PIPE_SEPARATED, hit: pipeHit },
+];
+
+function blobSpans(text: string): RedactSpan[] {
   const spans: RedactSpan[] = [];
-  for (const match of text.matchAll(pattern)) {
-    const found = blobAt(match);
-    if (found) {
-      const decoded = decode(found.blob);
-      if (decoded && decodedHits(decoded)) {
+  for (const { pattern, hit } of INJECTION_BLOBS) {
+    for (const match of text.matchAll(pattern)) {
+      const found = blobAt(match);
+      if (found && hit(found.blob)) {
         spans.push({ start: found.index, end: found.index + found.blob.length, kind: 'injection' });
       }
-    }
-  }
-  return spans;
-}
-
-function encodedSpans(text: string): RedactSpan[] {
-  return [...encodedFrom(text, BASE64_BLOB, tryBase64), ...encodedFrom(text, HEX_BLOB, tryHex)];
-}
-
-function spacedSpans(text: string): RedactSpan[] {
-  const spans: RedactSpan[] = [];
-  for (const match of text.matchAll(SPACED_LETTERS)) {
-    const found = blobAt(match);
-    if (found) {
-      const collapsed = found.blob.replaceAll(' ', '');
-      if (injectionSpansOn(`${collapsed} previous instructions`).length > 0) {
-        spans.push({ start: found.index, end: found.index + found.blob.length, kind: 'injection' });
-      }
-    }
-  }
-  return spans;
-}
-
-function pipeSeparatedSpans(text: string): RedactSpan[] {
-  const spans: RedactSpan[] = [];
-  for (const match of text.matchAll(PIPE_SEPARATED)) {
-    const found = blobAt(match);
-    if (!found) continue;
-    const head = found.blob.split('|')[0]?.toLowerCase();
-    if (!head || !PIPE_HEAD_VERBS.test(head)) continue;
-    const collapsed = found.blob.replaceAll('|', ' ');
-    if (injectionSpansOn(collapsed).length > 0) {
-      spans.push({ start: found.index, end: found.index + found.blob.length, kind: 'injection' });
     }
   }
   return spans;
@@ -298,18 +190,24 @@ function tryRot13(text: string): string {
   });
 }
 
-function tryUrlDecode(text: string): string | undefined {
-  if (!text.includes('%')) return undefined;
-  try {
-    const decoded = decodeURIComponent(text);
-    return decoded !== text ? decoded : undefined;
-  } catch {
-    return undefined;
-  }
+const URL_ESCAPES = /(?:%[0-9A-Fa-f]{2})+/g;
+const UTF8 = new TextDecoder();
+
+/** Each run of `%XX` escapes decoded on its own, so one stray `%` cannot switch decoding off. */
+function decodeUrlRuns(text: string): string {
+  return text.replace(URL_ESCAPES, (run) => {
+    const bytes = new Uint8Array(run.length / 3);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = Number.parseInt(run.slice(i * 3 + 1, i * 3 + 3), HEX_RADIX);
+    }
+    return UTF8.decode(bytes);
+  });
 }
 
-function tryReverse(text: string): string {
-  return [...text].reverse().join('');
+function tryUrlDecode(text: string): string | undefined {
+  if (!text.includes('%')) return undefined;
+  const decoded = decodeUrlRuns(text);
+  return decoded !== text ? decoded : undefined;
 }
 
 const LEET_MAP: Record<string, string> = {
@@ -333,18 +231,22 @@ function tryLeet(text: string): string | undefined {
   return decoded !== text ? decoded : undefined;
 }
 
+/**
+ * Text written backwards reads as an injection: each pattern reversed
+ * (`REVERSED_INJECTION_PATTERNS`), matched on the text as written.
+ */
+function reversedHits(text: string): boolean {
+  return spansFromPatterns(text, REVERSED_INJECTION_PATTERNS, 'injection').length > 0;
+}
+
 function decodedTextSpans(text: string): RedactSpan[] {
   const attempts: (string | undefined)[] = [tryRot13(text), tryUrlDecode(text), tryLeet(text)];
-  const reversed = tryReverse(text);
-  if (reversed !== text) {
-    attempts.push(reversed);
-  }
-  for (const decoded of attempts) {
-    if (decoded && decoded !== text && injectionSpansOn(decoded).length > 0) {
-      return [{ start: 0, end: text.length, kind: 'injection' }];
-    }
-  }
-  return [];
+  const decodedHit = attempts.some(
+    (decoded) => decoded && decoded !== text && injectionSpansOn(decoded).length > 0,
+  );
+  return decodedHit || reversedHits(text)
+    ? [{ start: 0, end: text.length, kind: 'injection' }]
+    : [];
 }
 
 function injectionSpans(text: string): RedactSpan[] {
@@ -368,15 +270,15 @@ function injectionSpans(text: string): RedactSpan[] {
     }
   }
 
-  return [
-    ...direct,
-    ...typo,
-    ...unicodeHits,
-    ...encodedSpans(text),
-    ...spacedSpans(text),
-    ...pipeSeparatedSpans(text),
-    ...decodedTextSpans(text),
-  ];
+  return [...direct, ...typo, ...unicodeHits, ...blobSpans(text), ...decodedTextSpans(text)];
 }
 
-export { injectionSpans };
+export {
+  decodeUrlRuns,
+  INJECTION_BLOBS,
+  injectionSpans,
+  TYPO_TARGETS,
+  tryLeet,
+  tryRot13,
+  typoNormalize,
+};

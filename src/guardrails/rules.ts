@@ -16,9 +16,20 @@ export const SANITIZE_RULES = {
 /** What the bundled egress policy finds in the model's outbound text. */
 export const EGRESS_RULES = {
   canary: 'egress.canary-leak',
+  /** The reply repeats the system prompt (`guardrails.promptEcho`). */
+  promptEcho: 'egress.prompt-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  /**
+   * A provider-side built-in tool carried the canary or the system prompt. It
+   * ran before Theorem saw it: the data already left, so this is an incident.
+   */
+  providerToolLeak: 'egress.provider-tool-leak', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   sensitive: 'egress.sensitive-echo',
   boundary: 'egress.system-boundary',
   injection: 'egress.injection-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  /** An image loads a URL the model was not given, from a host not allowed. */
+  image: 'egress.image-exfil', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  /** A link goes to a URL the model was not given, on a host not allowed. */
+  link: 'egress.link-exfil', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /** Payload could not be rendered for inspection — released output is unverified. */
   unscannable: 'egress.unscannable', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   enforcerError: 'egress.enforcer-error', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)

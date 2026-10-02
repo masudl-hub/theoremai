@@ -621,7 +621,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.persistViaInteractionId': field(
     'boolean',
-    "Whether turns continue from Google's stored interaction instead of resending the history (Gemini Interactions only).",
+    'Whether Google builds the context from its stored interaction (true) or every call sends the history the host passes plus the steps of this turn (false); Gemini Interactions only, and true needs storing on.',
   ),
   'models.*.server': field(
     'string',
@@ -913,13 +913,24 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'boolean',
     'Plants a secret token in the system instruction and stops the reply if the model repeats it.',
   ),
+  'guardrails.promptEcho': field(
+    'boolean',
+    'With the canary on, also stops a reply that repeats 12 words in a row of the system instruction. On by default; turn it off when the instruction holds text meant to be quoted.',
+  ),
   'guardrails.sanitizeInput': field(
     'boolean',
     'Replaces prompt-injection text in user input, history and tool results before the model sees it.',
   ),
   'guardrails.redactSensitive': field(
+    'boolean | SensitiveSwitches',
+    'Replaces credentials and personal data in user input, history and tool results before the model sees them. true (the default) covers every group, false none; an object turns groups off one by one.',
+  ),
+  'guardrails.redactSensitive.ids': field('boolean', 'US SSN, ITIN and EIN numbers.'),
+  'guardrails.redactSensitive.financial': field('boolean', 'IBANs and card numbers.'),
+  'guardrails.redactSensitive.network': field('boolean', 'IPv4 and IPv6 addresses.'),
+  'guardrails.redactSensitive.credentials': field(
     'boolean',
-    'Replaces credentials and personal data in user input, history and tool results before the model sees them.',
+    'API keys, access tokens, bearer tokens and private keys.',
   ),
   'guardrails.egress': field(
     'ProfileEgressSpec',
@@ -927,7 +938,54 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.egress.enforce': field(
     'EgressEnforcer',
-    'Your check on the reply, run as it streams and when it ends. Return allow, flag (log only), redact (swap in your text) or block (see onBlock); a block or redact holds the rest of the stream, and a throw counts as a block. Bundled: standardEgressEnforce.',
+    'Your own check on the reply, run as it streams and when it ends. Return allow, flag (log only), redact (swap in your text) or block (see onBlock); a block or redact holds the rest of the stream, and a throw counts as a block. Set this or checks, not both.',
+  ),
+  'guardrails.egress.checks': field(
+    'boolean | EgressChecks',
+    'The bundled checks on the reply, blocking on what they find. true runs each at its default, false none but the system-prompt leak checks, and an object switches the ones it names. Set this or enforce, not both.',
+  ),
+  'guardrails.egress.checks.sensitive': field(
+    'boolean | SensitiveSwitches',
+    'Credentials and personal data in the reply, by group. Every group but network by default: an address in a reply is not a secret.',
+  ),
+  'guardrails.egress.checks.sensitive.ids': field('boolean', 'US SSN, ITIN and EIN numbers.'),
+  'guardrails.egress.checks.sensitive.financial': field('boolean', 'IBANs and card numbers.'),
+  'guardrails.egress.checks.sensitive.network': field('boolean', 'IPv4 and IPv6 addresses.'),
+  'guardrails.egress.checks.sensitive.credentials': field(
+    'boolean',
+    'API keys, access tokens, bearer tokens and private keys.',
+  ),
+  'guardrails.egress.checks.boundary': field(
+    'boolean',
+    'The markers the kernel puts around user data, and the canary note, repeated in the reply.',
+  ),
+  'guardrails.egress.checks.injection': field(
+    'boolean',
+    'Prompt-injection phrasing in the reply, as written or disguised.',
+  ),
+  'guardrails.egress.checks.images': field(
+    'boolean | UrlCheck',
+    'Images in the reply that load a URL the model was not given, which would send data off the device with no click.',
+  ),
+  'guardrails.egress.checks.images.hosts': field(
+    'string[]',
+    'Hostnames whose images load whatever their URL, such as your own CDN.',
+  ),
+  'guardrails.egress.checks.images.fromTools': field(
+    'boolean',
+    'Whether a URL a tool returned counts as given. Off keeps only what the system prompt, the user and history gave.',
+  ),
+  'guardrails.egress.checks.links': field(
+    'boolean | UrlCheck',
+    'Links in the reply to a URL the model was not given. Turn it on when your app unfurls links into previews.',
+  ),
+  'guardrails.egress.checks.links.hosts': field(
+    'string[]',
+    'Hostnames whose links pass whatever their URL; the images hosts pass too.',
+  ),
+  'guardrails.egress.checks.links.fromTools': field(
+    'boolean',
+    'Whether a URL a tool returned counts as given. Off keeps only what the system prompt, the user and history gave.',
   ),
   'guardrails.egress.onBlock': field(
     unionType(EGRESS_ON_BLOCK),
@@ -946,7 +1004,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.egress.holdback': field(
     'number',
-    'How many characters the stream holds back so enforce can catch text split across chunks.',
+    'How many characters the stream holds back so your own enforce can catch text split across chunks (default 256; 96 on Live). The bundled policy holds exactly what it needs and ignores this.',
   ),
   'guardrails.network': field(
     'NetworkGuardrailSpec',

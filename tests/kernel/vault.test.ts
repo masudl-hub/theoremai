@@ -29,6 +29,7 @@ const google: ModelBinding = {
   protocol: 'geminiInteractions',
   provider: 'google',
   apiId: 'gemini-3.5-flash-lite',
+  persistViaInteractionId: false,
 };
 
 function defineError(extra: Record<string, unknown>, binding: ModelBinding = google): string {
@@ -102,6 +103,7 @@ Deno.test('defineProfile rejects a google model with no key of its own and no pr
           protocol: 'geminiInteractions',
           provider: 'google',
           apiId: 'gemini-3.5-flash-lite',
+          persistViaInteractionId: false,
         },
       },
       tools: { allow: [] },

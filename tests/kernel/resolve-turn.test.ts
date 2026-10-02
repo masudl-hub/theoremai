@@ -20,7 +20,12 @@ function check(actual: unknown, expected: unknown, label: string): void {
 
 type Loose = Record<string, unknown>;
 
-const GEMINI = { protocol: 'geminiInteractions', provider: 'google', apiId: 'g' } as const;
+const GEMINI = {
+  protocol: 'geminiInteractions',
+  provider: 'google',
+  apiId: 'g',
+  persistViaInteractionId: true,
+} as const;
 const SONAR = { protocol: 'openAi', provider: 'openrouter', apiId: 'x/y' } as const;
 
 function define(id: string, over: Loose = {}): void {
@@ -190,18 +195,23 @@ Deno.test('the transport follows the model, streaming follows the profile, and c
     'the id rides when chaining',
   );
   check(
-    gen('nochain', { previousInteractionId: 'i1' }).previousInteractionId,
-    undefined,
-    'dropped when not chaining',
+    resolved(turn('nochain', { previousInteractionId: 'i1' })),
+    "Profile nochain model 'm': previousInteractionId needs a binding with persistViaInteractionId: true",
+    'refused when not chaining',
   );
   check(
-    gen('router', { previousInteractionId: 'i1' }).previousInteractionId,
-    undefined,
-    'dropped on openrouter',
+    resolved(turn('router', { previousInteractionId: 'i1' })),
+    "Profile router model 'm': previousInteractionId needs a binding with persistViaInteractionId: true",
+    'refused on openrouter',
   );
   check(gen('nochain').store, true, 'the binding store');
   check(gen('nochain', { store: false }).store, false, 'the turn overrides it');
   check(gen('gem').store, undefined, 'no store');
+  check(
+    resolved(turn('gem', { store: false })),
+    "Profile gem model 'm': store: false cannot apply to a binding with persistViaInteractionId: true — Google chains only from a stored interaction",
+    'a chaining turn keeps storage on',
+  );
 });
 
 Deno.test('a continue turn needs a counter inside the profile cap, and takes no text', () => {
@@ -242,7 +252,14 @@ Deno.test('image, speech and live profiles carry their own spec onto the generat
   define('img', {
     type: 'image',
     image: { aspectRatio: '1:1' },
-    models: { m: { protocol: 'geminiInteractions', provider: 'google', apiId: 'gi' } },
+    models: {
+      m: {
+        protocol: 'geminiInteractions',
+        provider: 'google',
+        apiId: 'gi',
+        persistViaInteractionId: false,
+      },
+    },
     outputs: { structured: null },
   });
   const generation = resolved(turn('img')) as unknown as Record<string, unknown>;

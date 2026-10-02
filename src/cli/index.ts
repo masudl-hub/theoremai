@@ -8,6 +8,7 @@
 
 import { argv, exit } from 'node:process';
 import { benchCommand } from './commands/bench.ts';
+import { egressCompileCommand } from './commands/egress-compile.ts';
 import { evalCommand } from './commands/eval.ts';
 import { fuzzCanaryCommand } from './commands/fuzz-canary.ts';
 import { fuzzGuardrailsCommand } from './commands/fuzz-guardrails.ts';
@@ -27,6 +28,10 @@ COMMANDS:
     --chunks <n>       Text chunks per mock turn (default: 200)
     --iterations <n>   Measurement iterations (default: 50)
     --warmup <n>       Warmup iterations (default: 5)
+
+  egress-compile <module>  Compile a module's egress rules for egressPolicy
+    --export <name>    The export holding the rules (default: rules)
+    --out <path>       Where to write the compiled module
 
   eval <suite>         Run an eval suite live or over recorded traces
     --recorded <path>  Grade a JSONL file or directory of trace records instead of running
@@ -227,6 +232,25 @@ function handleProfile(flags: ParsedFlags): void {
   showProfileCommand(id);
 }
 
+async function handleEgressCompile(flags: ParsedFlags): Promise<void> {
+  const module = flags._[1];
+  if (!module || typeof flags.out !== 'string') {
+    console.error('Error: usage `agents egress-compile <module> --out <path> [--export <name>]`');
+    exit(1);
+  }
+  try {
+    const count = await egressCompileCommand({
+      module,
+      exportName: typeof flags.export === 'string' ? flags.export : undefined,
+      out: flags.out,
+    });
+    console.log(`Compiled ${count} egress rule${count === 1 ? '' : 's'} to ${flags.out}`);
+  } catch (err) {
+    console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    exit(1);
+  }
+}
+
 /** Unknown or omitted commands print help; a command that cannot continue exits 1. */
 export async function main(cliArgs: string[] = argv.slice(2)): Promise<void> {
   const flags = parseFlags(cliArgs);
@@ -242,6 +266,8 @@ export async function main(cliArgs: string[] = argv.slice(2)): Promise<void> {
     if (!ok) {
       exit(1);
     }
+  } else if (command === 'egress-compile') {
+    await handleEgressCompile(flags);
   } else if (command === 'bench') {
     await benchCommand({
       chunks: typeof flags.chunks === 'string' ? Number(flags.chunks) : undefined,

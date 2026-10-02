@@ -71,7 +71,7 @@ A `Profile` binds:
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
 | `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`) on `text` / `image` / `speech`; `allowSteering` on **text and live** (inject gate via `profileAllowsInject`; see [`stages.md`](stages.md)). Live must omit `turnBehaviour.resumption` (use `live.sessionResumption`) |
-| `guardrails` | Quota, canary, sanitize, redact, egress, network, taint — on `host` narrowed to `HostGuardrailsSpec` (`sanitizeInput`, `redactSensitive`, `network`); on `decision`, only pre-dispatch `disclosure` is active |
+| `guardrails` | Quota, canary, prompt echo, sanitize, redact, egress, network, taint — on `host` narrowed to `HostGuardrailsSpec` (`sanitizeInput`, `redactSensitive`, `network`); on `decision`, only pre-dispatch `disclosure` is active. A guarded `live` profile (canary or `egress.enforce`) always requests its output transcript: `resolveTurn` sets `live.transcription.output` |
 | `observability` | Trace destination, scrub, include, sampling (`writeTo`, `sampleRate`, …) |
 
 Closed unions (`protocol`, `provider`, `thinking`, stop kinds, turn stages,
@@ -204,8 +204,8 @@ Each `ModelBinding` in `profile.models` carries wire ids (`apiId`), optional
 `efforts` / `defaultEffort`, `summaries`, `maxOutputTokens`, `temperature`,
 `builtInTools`, vault `key` (required on every non-local model, unless the
 profile sets `key`), optional `compaction`, optional OpenRouter
-`cache` (`mode` / `ttl`; openrouter-only), and Gemini Interactions optional
-`store` / `persistViaInteractionId` (Interactions-only), and an optional local
+`cache` (`mode` / `ttl`; openrouter-only), Gemini Interactions `store`
+(optional) and `persistViaInteractionId` (required; Interactions-only), and an optional local
 `server` name (local-only; traces report it as `gen_ai.provider.name`).
 
 `TurnRequest.sessionId` is an optional sticky routing key forwarded to OpenRouter
@@ -264,13 +264,18 @@ Live sessions emit the same stage names around utterance cycles and
    turn the opening input is already the last message of turn history.
 6. **Provider stream** — `provider.complete` yields partial events; runner may
    drop thoughts per `outputs.streaming.streamThoughts`. Reply text passes the
-   progressive-yield gate; thoughts are never guarded ([guardrails](./guardrails.md)).
+   progressive-yield gate; thoughts never stop the turn, but their leaks are
+   omitted ([guardrails](./guardrails.md)). Each provider call has its own gate;
+   the turn carries a possible canary opening from one call into the next
+   (`canaryCarry` and `thoughtCarry` on the step state), so a token split across
+   tool steps is one match.
 7. **Tool loop** — while under `maxSteps`, tool calls execute via `executeRegisteredTool`
    (shared with `invokeTool`), threading the host's `credentials` source (`ToolCredentialSource`, read one slot at a time as a signed-in tool runs) for authenticated HTTP/MCP tools and the opaque `host` context slot; `pre_tool` / `post_tool` stages + `preTool` run on that path. After each
-   settled tool, `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch. `generation.transport` selects
-   Interactions continuation (`previous_interaction_id` + `continuation`: the tool
-   results and stage injects as kernel messages, which the adapter maps like
-   history) vs OpenAI-compat tool-call history. Server-side `codeExecution` does not consume a runner step.
+   settled tool, `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch. `generation.chains`
+   (a binding with `persistViaInteractionId: true`) selects an Interactions continuation
+   (`previous_interaction_id` + `continuation`: the tool results and stage injects as
+   kernel messages, which the adapter maps like history); otherwise the step's calls and
+   results go in tool-call history. Server-side `codeExecution` does not consume a runner step.
 8. **`before_end`** — stage before egress/validation; inject re-enters the step
    loop when under `maxSteps`.
 9. **Validation / repair** — structured output validators (`outputs.validation`)
@@ -278,10 +283,10 @@ Live sessions emit the same stage names around utterance cycles and
    user message in turn history (image and speech: it replaces the prompt
    input). A retry is not resolved again: it keeps the turn's canary, tool set
    and system prompt.
-10. **Egress** — progressive-yield lookback on the provider stream (canary,
-   sensitive/PII, host `guardrails.egress.enforce`) releases cleared prefixes
-   while holding a rolling window; end-of-attempt may still refuse, repair, or
-   withhold. SSE streaming and egress can both stay enabled.
+10. **Egress** — progressive yield on the provider stream (canary, prompt
+   echo, `guardrails.egress`) releases cleared prefixes: the bundled
+   policy holds exactly what could still become a match, a host enforce a
+   fixed window; end-of-attempt may still refuse, repair, or withhold. SSE streaming and egress can both stay enabled.
 11. **Trace** — the turn records one `invoke_agent` span tree (model calls,
    HTTP tries, tools, stage events) and writes it as one `TraceRecord` to the
    request's sink, else `profile.observability`; failures are swallowed.
@@ -330,7 +335,7 @@ throws `config`.
 
 | `type` | Payload highlights |
 | --- | --- |
-| `thought` | Model reasoning stream (unguarded; dropped when `streamThoughts: false`) |
+| `thought` | Model reasoning stream (leaks omitted, never stopped: images, links, canary, prompt echo, boundary markers; dropped when `streamThoughts: false`) |
 | `text` | User-visible assistant text |
 | `tool` | Tool call (`phase`: `running` / `progress` / `complete` / `gate` / `error` / `cancel`, …; `pause` deprecated) |
 | `structured` | Parsed JSON object when the profile names a structured schema |
@@ -769,7 +774,7 @@ Profile `guardrails`:
 | `quota` | Host HTTP helper only (`@theoremjs/agents/guardrails`); not enforced inside `runTurn` |
 | `canary` | Per-turn canary token; egress checks leakage |
 | `sanitizeInput` / `redactSensitive` | Pre-provider text/blob scrub |
-| `egress` | Host `enforce` hook; `onBlock`: `reject_to_agent` or `refuse_to_user`; `maxRetries`; `holdback`; repair guidance is the lexicon's `egress.default_repair_guidance` (mid-stream lookback, default 256) |
+| `egress` | Exactly one of `checks` (the bundled checks: `true`, `false` or `EgressChecks`) or a host `enforce` hook; `onBlock`: `reject_to_agent` or `refuse_to_user`; `maxRetries`; `holdback` (host enforce only: mid-stream lookback, default 256; 96 on Live; the bundled policy holds exactly and rejects it); repair guidance is the lexicon's `egress.default_repair_guidance` |
 
 ## Compaction
 
@@ -1069,6 +1074,14 @@ Beyond compaction rules (above), `registerProfile` / `defineProfile` assert:
   `protocol: 'geminiInteractions'` and `provider: 'google'`.
   **Breaking:** previously these fields were accepted on any binding and ignored
   at runtime; `defineProfile` now rejects them outside Interactions+google.
+- `models.*.persistViaInteractionId` is required on every
+  `geminiInteractions` binding (`config`): `true` chains each step and turn on
+  Google's stored interaction, `false` sends the host's history (`input.history`)
+  plus this turn's steps every call. There is
+  no default, so chaining is always a choice the profile states. `true` with
+  `store: false` is refused, since Google chains only from a stored interaction.
+  At turn time `resolveTurn` refuses (`request`) a `previousInteractionId` on a
+  model that does not chain, and a `store: false` turn on one that does.
 
 Runtime structured validation uses `outputs.validation.fields` keyed by dotted
 paths; failures can trigger repair turns via `input.repair`.

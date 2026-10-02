@@ -32,7 +32,6 @@ import type {
 } from '../../src/kernel/types.ts';
 import { contentOf } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes } from '../../src/observability/trace-span.ts';
-import { googleInteractionsPersistence } from '../../src/presets/google.ts';
 import {
   eventsOf,
   failureOf,
@@ -1247,7 +1246,7 @@ Deno.test('an Interactions binding that does not persist sends full history ever
       models: {
         gemini35FlashLite: {
           ...HOST_BINDINGS.gemini35FlashLite,
-          ...googleInteractionsPersistence(false),
+          persistViaInteractionId: false,
         },
       },
       key: 'main',
@@ -1283,7 +1282,6 @@ Deno.test('an Interactions binding that does not persist sends full history ever
     {
       profile: 'host_assistant_unchained',
       input: { text: 'Check soil' },
-      previousInteractionId: 'v1_earlier_turn',
       onStage: ({ stage }) =>
         stage === 'post_tool'
           ? { inject: [{ role: 'user', content: 'also check light' }] }
@@ -1318,7 +1316,7 @@ Deno.test('a step that makes parallel calls records them in one assistant messag
       models: {
         gemini35FlashLite: {
           ...HOST_BINDINGS.gemini35FlashLite,
-          ...googleInteractionsPersistence(false),
+          persistViaInteractionId: false,
         },
       },
       key: 'main',

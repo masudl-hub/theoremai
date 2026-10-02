@@ -5,6 +5,24 @@ const HTTP_STATUS_MIN = 100;
 const HTTP_STATUS_MAX = 599;
 
 /**
+ * Google refuses a bad key as a 400 `INVALID_ARGUMENT`, so the status reads as
+ * a request THEOREM cannot make; the `ErrorInfo` reason is what says it is the
+ * key. An expired key carries the same reason.
+ */
+const AUTH_REASONS: ReadonlySet<string> = new Set(['API_KEY_INVALID']);
+
+/** Whether an error's `details` name a key Google refused. */
+function refusesKey(details: unknown): boolean {
+  return (
+    Array.isArray(details) &&
+    details.some((detail) => {
+      const reason = asRecord(detail)?.reason;
+      return typeof reason === 'string' && AUTH_REASONS.has(reason);
+    })
+  );
+}
+
+/**
  * The HTTP status behind each named code Google puts on an Interactions error
  * (https://ai.google.dev/gemini-api/docs/api-errors). A code it does not list
  * is the snake_case name of the HTTP status, so those names are here too.
@@ -78,9 +96,10 @@ export function readGeminiApiError(record: Record<string, unknown>): TheoremErro
   if (!error) {
     return null;
   }
-  const { code, message, status } = error;
-  const kind =
-    typeof code === 'number' && code >= HTTP_STATUS_MIN && code <= HTTP_STATUS_MAX
+  const { code, message, status, details } = error;
+  const kind: ErrorKind = refusesKey(details)
+    ? 'auth'
+    : typeof code === 'number' && code >= HTTP_STATUS_MIN && code <= HTTP_STATUS_MAX
       ? kindOfHttpStatus(code)
       : typeof code === 'string'
         ? kindOfNamedCode(code)
@@ -91,7 +110,7 @@ export function readGeminiApiError(record: Record<string, unknown>): TheoremErro
   return new TheoremError(kind, typeof status === 'string' ? `${status}: ${message}` : message);
 }
 
-/** The kind is always the HTTP status's, whatever code the body names. */
+/** The kind is the HTTP status's, unless the body names a refused key. */
 export async function readNonOkError(response: Response): Promise<TheoremError> {
   const kind = kindOfHttpStatus(response.status);
   const text = await response.text().catch(() => '');
@@ -100,7 +119,10 @@ export async function readNonOkError(response: Response): Promise<TheoremError> 
   }
   const parsed = parseRecord(text);
   const stated = parsed ? readGeminiApiError(parsed) : null;
-  return new TheoremError(kind, stated?.message ?? `Gemini HTTP ${response.status}: ${text}`);
+  return new TheoremError(
+    stated?.kind === 'auth' ? 'auth' : kind,
+    stated?.message ?? `Gemini HTTP ${response.status}: ${text}`,
+  );
 }
 
 function parseRecord(text: string): Record<string, unknown> | undefined {

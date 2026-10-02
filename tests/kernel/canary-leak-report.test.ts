@@ -1,4 +1,6 @@
 import '../fixtures/test-host.ts';
+import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import { runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
@@ -44,17 +46,25 @@ Deno.test('a canary split across text fragments reaches the host in no part', as
   assertEquals(seen.includes(canary.slice(0, 8)), false);
 });
 
-Deno.test('a thought restating the canary is unguarded and the reply still streams', async () => {
+Deno.test('a thought restating the canary loses it, says so, and the reply still streams', async () => {
   const { events, canary } = await hostEvents((c) => [
     { type: 'thought', text: `The note says ${c.slice(0, -4)}` },
     { type: 'thought', text: `${c.slice(-4)}; keep it private.` },
     { type: 'text', text: 'Hello.' },
   ]);
   assertEquals(
-    events.some((e) => e.type === 'error' || e.type === 'guardrail'),
+    events.some((e) => e.type === 'error'),
     false,
   );
-  assertEquals(visibleText(events), `The note says ${canary}; keep it private.Hello.`);
+  const guardrail = firstOf(events, 'guardrail')?.guardrail;
+  assertEquals([guardrail?.stage, guardrail?.action], ['thought', 'redact']);
+  assertEquals(
+    guardrail?.hits?.map((hit) => hit.rule),
+    [EGRESS_RULES.canary],
+  );
+  const omitted = lexiconDefault('thought.omitted_instructions');
+  assertEquals(visibleText(events), `The note says${omitted}; keep it private.Hello.`);
+  assertEquals(visibleText(events).includes(canary.slice(0, 8)), false);
 });
 
 Deno.test('a base64-encoded canary is blocked and never shown to the host', async () => {

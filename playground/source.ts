@@ -1,9 +1,8 @@
 /**
- * One serializer writes the values: `standardEgressEnforce` as that identifier, and each tool's
- * schemas as the Zod expressions `zodFromJsonSchema` would build.
+ * One serializer writes the values, and each tool's schemas as the Zod expressions
+ * `zodFromJsonSchema` would build.
  */
 
-import { standardEgressEnforce } from '../mod.ts';
 import type { CompiledPlayground } from './compile.ts';
 import type { ToolRegistration } from './registrations.ts';
 import { stubOutputFromSchema } from './stub.ts';
@@ -19,10 +18,6 @@ const INLINE_ARRAY_WIDTH = 60;
 
 function literal(value: unknown, depth: number): string {
   if (value instanceof Expr) return value.code;
-  if (value === standardEgressEnforce) return 'standardEgressEnforce';
-  if (typeof value === 'function') {
-    throw new Error('Only standardEgressEnforce can be written into playground source.');
-  }
   if (typeof value === 'string') return quoteSource(value);
   const pad = '  '.repeat(depth + 1);
   const close = '  '.repeat(depth);
@@ -62,13 +57,11 @@ function toolSource(tool: ToolRegistration): string {
 
 export function playgroundSource(compiled: CompiledPlayground): string {
   const { profile, customTools, structured } = compiled;
-  const egress = profile.guardrails !== undefined && 'egress' in profile.guardrails;
   const imports = [
     'defineProfile',
     'registerProfile',
     ...(structured ? ['registerStructured'] : []),
     ...(customTools.length ? ['registerTool'] : []),
-    ...(egress ? ['standardEgressEnforce'] : []),
   ];
   const blocks = [
     [

@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
-import { isKeySlotName, standardEgressEnforce } from '../../mod.ts';
+import { isKeySlotName } from '../../mod.ts';
 import {
   compilePlayground,
   createBlankDraft,
@@ -82,8 +82,67 @@ Deno.test('the example draft compiles to the travel concierge', () => {
   assertEquals(profile.defaultModel, 'fast');
   assertEquals(result.customTools.length, demoToolSpecs().length);
   assert(profile.type === 'text' && profile.tools?.allow?.includes('geocode_city'));
-  assertEquals(profile.guardrails?.egress?.enforce, standardEgressEnforce);
+  assertEquals(profile.guardrails?.egress?.checks, true);
+  assertEquals(profile.guardrails?.egress?.enforce, undefined);
   assertEquals(profile.observability?.writeTo, 'playground');
+});
+
+Deno.test('egress checks compile to what differs from the bundled defaults', () => {
+  const draft = createExampleDraft();
+  const checks = (egressChecks: Partial<PlaygroundDraft['guardrails']['egressChecks']>) => {
+    const { guardrails } = draft;
+    return compiled({
+      ...draft,
+      guardrails: { ...guardrails, egressChecks: { ...guardrails.egressChecks, ...egressChecks } },
+    }).profile.guardrails?.egress?.checks;
+  };
+  const { egressChecks } = draft.guardrails;
+  assertEquals(checks({}), true);
+  assertEquals(
+    checks({
+      sensitive: { ...egressChecks.sensitive, network: true },
+      injection: false,
+      images: { on: true, hosts: [' cdn.acme.io '], fromTools: true },
+      links: { on: true, hosts: [], fromTools: false },
+    }),
+    {
+      sensitive: { network: true },
+      injection: false,
+      images: { hosts: ['cdn.acme.io'] },
+      links: { fromTools: false },
+    },
+  );
+  assertEquals(checks({ links: { on: true, hosts: [], fromTools: true } }), { links: true });
+  assertEquals(checks({ images: { ...egressChecks.images, on: false } }), { images: false });
+  assertEquals(
+    checks({
+      sensitive: { ids: false, financial: false, network: false, credentials: false },
+      boundary: false,
+      injection: false,
+      images: { ...egressChecks.images, on: false },
+    }),
+    false,
+  );
+});
+
+Deno.test('a blank egress host is reported at its check', () => {
+  const draft = createExampleDraft();
+  const { guardrails } = draft;
+  const result = compilePlayground({
+    ...draft,
+    guardrails: {
+      ...guardrails,
+      egressChecks: {
+        ...guardrails.egressChecks,
+        links: { on: true, hosts: ['docs.acme.io', ' '], fromTools: true },
+      },
+    },
+  });
+  if (result.ok) throw new Error('expected issues');
+  assertEquals(
+    result.issues.map(({ nodeId, field, index }) => ({ nodeId, field, index })),
+    [{ nodeId: 'guardrails', field: 'egressChecks.links.hosts', index: 1 }],
+  );
 });
 
 Deno.test('a blank draft reports its identity issues', () => {
@@ -200,6 +259,49 @@ Deno.test('summaries compile on, off, or left to the provider', () => {
   assertEquals(summaries(true), true);
   assertEquals(summaries(false), false);
   assertEquals(summaries(null), undefined);
+});
+
+Deno.test('a Gemini Interactions binding always compiles its chaining, and storage only when set', () => {
+  const draft = createExampleDraft();
+  const [fast, ...rest] = draft.modelBindings;
+  const model = (patch: Partial<typeof fast>) =>
+    compiled({ ...draft, modelBindings: [{ ...fast, ...patch }, ...rest] }).profile.models[
+      fast.modelId
+    ];
+  const unset = model({});
+  assertEquals(unset.persistViaInteractionId, false);
+  assertEquals(unset.store, undefined);
+  const chained = model({ store: true, persistViaInteractionId: true });
+  assertEquals([chained.store, chained.persistViaInteractionId], [true, true]);
+  assertEquals(model({ store: false }).store, false);
+});
+
+Deno.test('chaining with storage off is an issue on its binding', () => {
+  const draft = createExampleDraft();
+  const [fast, ...rest] = draft.modelBindings;
+  const result = compilePlayground({
+    ...draft,
+    modelBindings: [{ ...fast, store: false, persistViaInteractionId: true }, ...rest],
+  });
+  assertEquals(issueNodes(result), [modelBindingNodeId(fast.key)]);
+  assert(!result.ok && result.issues[0].field === 'persistViaInteractionId');
+});
+
+Deno.test('chaining and storage compile only on Gemini Interactions', () => {
+  const draft = createExampleDraft();
+  const [fast, ...rest] = draft.modelBindings;
+  const routed = {
+    ...fast,
+    protocol: 'openAi' as const,
+    provider: 'openrouter' as const,
+    apiId: OPENROUTER_PLAYGROUND_API_ID,
+    store: true,
+    persistViaInteractionId: true,
+  };
+  const model = compiled({ ...draft, modelBindings: [routed, ...rest] }).profile.models[
+    fast.modelId
+  ];
+  assertEquals([model.store, model.persistViaInteractionId], [undefined, undefined]);
 });
 
 Deno.test('a duplicate tool name is keyed to the second tool', () => {
@@ -469,8 +571,8 @@ Deno.test('playgroundNodeRef resolves only nodes the draft has', () => {
 Deno.test('playgroundSource writes a module that registers the profile', () => {
   const source = playgroundSource(compiled(createExampleDraft()));
   assertStringIncludes(source, "import { z } from 'zod';");
-  assertStringIncludes(source, "  standardEgressEnforce,\n} from '@theoremjs/agents';");
-  assertStringIncludes(source, 'enforce: standardEgressEnforce,');
+  assert(!source.includes('standardEgressEnforce'));
+  assertStringIncludes(source, 'checks: true,');
   assertStringIncludes(source, "name: 'geocode_city',");
   assertStringIncludes(source, 'registerProfile(profile);');
 });
@@ -545,6 +647,17 @@ Deno.test('quoteSource writes a string that evaluates back to itself, script-saf
   const quoted = quoteSource(text);
   assertEquals(new Function(`return ${quoted};`)(), text);
   assertEquals(/[<>\u2028\u2029]/.test(quoted), false);
+});
+
+Deno.test('redactSensitive compiles to the groups the draft changes, false when none are on', () => {
+  const draft = includeFacet(createExampleDraft(), 'guardrails');
+  const groups = { ids: true, financial: true, network: true, credentials: true };
+  const redact = (redactSensitive: typeof groups) =>
+    compiled({ ...draft, guardrails: { ...draft.guardrails, redactSensitive } }).profile.guardrails
+      ?.redactSensitive;
+  assertEquals(redact(groups), undefined);
+  assertEquals(redact({ ...groups, network: false }), { network: false });
+  assertEquals(redact({ ids: false, financial: false, network: false, credentials: false }), false);
 });
 
 Deno.test('a host draft compiles to its tools, with no model or identity', () => {

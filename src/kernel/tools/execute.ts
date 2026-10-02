@@ -1,6 +1,7 @@
 import { errorKind, isAbortError, throwIfAborted } from '../../guardrails/error.ts';
 import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
+import { resolveSensitive } from '../../guardrails/sensitive.ts';
 import {
   checkTaintGate,
   guardToolFailureText,
@@ -1153,7 +1154,7 @@ function* guardFailure(
   const checked = guardToolFailureText(failure.message, guard.provenance, {
     ...guard.policy,
     sanitizeInput: true,
-    redactSensitive: true,
+    redactSensitive: resolveSensitive(true),
   });
   recordToolCheck(guard.span, 'tool_failure', performance.now() - start, checked.event);
   if (checked.event) {

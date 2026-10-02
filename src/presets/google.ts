@@ -239,18 +239,6 @@ const GOOGLE_BUILTIN_TOOLS = [
   },
 ];
 
-type GoogleInteractionsPersistence = Required<
-  Pick<ModelBinding, 'store' | 'persistViaInteractionId'>
->;
-
-/**
- * Google chains a turn (`previous_interaction_id`) only onto a stored interaction, so
- * both settings move together; `false` stores nothing and the host resends history.
- */
-function googleInteractionsPersistence(chained: boolean): GoogleInteractionsPersistence {
-  return { store: chained, persistViaInteractionId: chained };
-}
-
 /** Registers into the default scope; a scope of its own takes `GOOGLE_BUILTIN_TOOLS`. */
 function registerGooglePreset(): void {
   registerTools(GOOGLE_BUILTIN_TOOLS);
@@ -264,7 +252,6 @@ export type {
   GoogleImageOutputMime,
   GoogleImagePins,
   GoogleImageResolution,
-  GoogleInteractionsPersistence,
   GoogleLivePins,
   GoogleSpeechPins,
   GoogleSpeechVoice,
@@ -288,6 +275,5 @@ export {
   googleBindingViolation,
   googleEfforts,
   googleFreeTierBuiltins,
-  googleInteractionsPersistence,
   registerGooglePreset,
 };

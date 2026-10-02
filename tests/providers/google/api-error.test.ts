@@ -42,6 +42,25 @@ Deno.test('readGeminiApiError reads the named code of a stream error', () => {
     })?.kind,
     'rate_limit',
   );
+  // As sent mid-stream on 28/09/2026 by gemma-4-31b-it and gemini-3.7-flash.
+  assertEquals(
+    readGeminiApiError({
+      error: {
+        message:
+          'gemini-3.7-flash is currently experiencing high demand, spikes in demand are usually temporary. Please try again later.',
+        code: 'service_unavailable',
+      },
+      event_type: 'error',
+    })?.kind,
+    'unavailable',
+  );
+  assertEquals(
+    readGeminiApiError({
+      error: { message: 'Internal error encountered.', code: 'api_error' },
+      event_type: 'error',
+    })?.kind,
+    'unavailable',
+  );
   assertEquals(
     readGeminiApiError({ error: { code: 'something_new', message: 'x' } })?.kind,
     'bad_response',
@@ -106,5 +125,30 @@ Deno.test('readNonOkError takes the kind from the status and the detail from the
   assertEquals(shape(await readNonOkError(new Response('{"error":{}}', { status: 429 }))), {
     kind: 'rate_limit',
     message: 'Gemini returned an error.',
+  });
+});
+
+/** Google's body for a bad key: a 400, named as the key only by its `ErrorInfo` reason. */
+const INVALID_KEY = {
+  error: {
+    code: 400,
+    message: 'API key not valid. Please pass a valid API key.',
+    status: 'INVALID_ARGUMENT',
+    details: [
+      {
+        '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+        reason: 'API_KEY_INVALID',
+        domain: 'googleapis.com',
+      },
+    ],
+  },
+};
+
+Deno.test('a refused key is auth, not the 400 it arrives as', async () => {
+  assertEquals(readGeminiApiError(INVALID_KEY)?.kind, 'auth');
+  const response = new Response(JSON.stringify(INVALID_KEY), { status: 400 });
+  assertEquals(shape(await readNonOkError(response)), {
+    kind: 'auth',
+    message: 'INVALID_ARGUMENT: API key not valid. Please pass a valid API key.',
   });
 });

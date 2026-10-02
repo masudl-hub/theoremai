@@ -355,6 +355,7 @@ const GUARDRAIL_STAGE_OPTIONS: Readonly<Record<GuardrailStage, TraceOptionMeta>>
   tool_result: { label: 'Tool result', doc: 'What a tool returned.' },
   output_delta: { label: 'Streaming output', doc: 'The answer as it streamed.' },
   output_final: { label: 'Final output', doc: 'The whole answer.' },
+  thought: { label: 'Thinking', doc: "The model's thoughts as they streamed." },
   network: { label: 'Network', doc: 'A URL the agent was about to reach.' },
   live_inbound: { label: 'Live inbound', doc: 'What arrived from a Live session.' },
   live_outbound: { label: 'Live outbound', doc: 'What was sent into a Live session.' },
@@ -378,6 +379,22 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
   'egress.canary-leak': {
     label: 'Instructions leaked',
     doc: "The reply contained the turn's canary, a secret marker planted in the instructions, so the model was repeating them.",
+  },
+  'egress.prompt-echo': {
+    label: 'Instructions repeated',
+    doc: 'The reply repeated 12 or more words in a row of the instructions.',
+  },
+  'egress.provider-tool-leak': {
+    label: 'Instructions sent to a provider tool',
+    doc: "A provider's built-in tool, such as search, was sent the canary or the instructions. It ran before Theorem saw it, so the data had already left.",
+  },
+  'egress.image-exfil': {
+    label: 'Image from an unknown address',
+    doc: 'The reply showed an image from an address the model was not given, on a host the profile does not allow. Loading it could send data out.',
+  },
+  'egress.link-exfil': {
+    label: 'Link to an unknown address',
+    doc: 'The reply linked an address the model was not given, on a host the profile does not allow.',
   },
   'egress.sensitive-echo': {
     label: 'Sensitive data in reply',

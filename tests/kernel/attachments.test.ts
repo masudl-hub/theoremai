@@ -448,3 +448,79 @@ Deno.test('text attachments are decoded, scrubbed of injections and secrets, and
   check(clip.voice?.length, 1, 'voice passes through');
   check(clip.attachments, undefined, 'no attachments stays undefined');
 });
+
+Deno.test('every text type is scrubbed, UTF-8 is read as UTF-8, and a padded size is exact', () => {
+  const decode = (data: string) =>
+    new TextDecoder().decode(Uint8Array.from(atob(data), (c) => c.charCodeAt(0)));
+  const withCap = (maxBytes: number) =>
+    profile({
+      inputs: { ...(profile() as { inputs: object }).inputs, maxBytes, maxTurnBytes: 100 },
+    });
+  const wide = withCap(100);
+  const tight = withCap(11);
+  const run = (mimeType: string, data: string) =>
+    (sanitizeTurnBlobs(wide, [{ mimeType, data }] as never, undefined).attachments?.[0] as TurnBlob)
+      .data;
+  for (const mimeType of ['text/csv', 'text/plain', 'text/markdown']) {
+    check(
+      decode(run(mimeType, b64('ssn 000-11-2222'))).includes('000-11-2222'),
+      false,
+      `${mimeType} is scrubbed`,
+    );
+  }
+  const utf8 = btoa(String.fromCharCode(...new TextEncoder().encode('café')));
+  check(decode(run('text/plain', utf8)), 'café', 'UTF-8 bytes are read as UTF-8');
+
+  check(
+    thrown(() =>
+      assertTurnAttachments(
+        tight,
+        [{ mimeType: 'text/plain', data: b64('hello world') }],
+        undefined,
+      ),
+    ),
+    undefined,
+    'eleven bytes behind one pad character fit eleven',
+  );
+  check(
+    thrown(() =>
+      assertTurnAttachments(
+        tight,
+        [{ mimeType: 'text/plain', data: b64('hello world!') }],
+        undefined,
+      ),
+    )?.message,
+    'attachments refused: file_too_large',
+    'twelve do not',
+  );
+});
+
+Deno.test('a channel that takes nothing is the only issue named, and copy keeps only the params it has', () => {
+  check(
+    attachmentIssues(
+      { voice: ['audio/wav'], limits: LIMITS },
+      [{ mimeType: 'image/png', sizeBytes: 99 }],
+      [],
+    ).map((issue) => issue.code),
+    ['attachments_not_accepted'],
+    'limits are not read once a channel is refused',
+  );
+  check(
+    Object.keys(
+      attachmentIssueCopy({
+        code: 'file_too_large',
+        params: { maxBytes: 3, maxFiles: undefined },
+        fileName: 'a.png',
+      }).params ?? {},
+    ),
+    ['maxBytes', 'fileName'],
+    'an absent param is not a key',
+  );
+  check(
+    Object.keys(
+      attachmentIssueCopy({ code: 'file_too_large', params: { maxBytes: 3 } }).params ?? {},
+    ),
+    ['maxBytes'],
+    'no file name, no key',
+  );
+});

@@ -887,3 +887,187 @@ Deno.test('a live profile checks its context compression numbers and window', ()
   check(said(live({ triggerTokens: 50, slidingWindow: {} })), 'defined', 'only a trigger');
   check(said(live({ slidingWindow: { targetTokens: 50 } })), 'defined', 'only a target');
 });
+
+Deno.test('a required field is named when null, empty or missing, shallowest first', () => {
+  check(
+    said(textProfile({ identity: { handle: null } })),
+    "Profile p: type 'text' must set identity.handle",
+    'null handle',
+  );
+  check(
+    said(textProfile({ identity: { handle: '' } })),
+    "Profile p: type 'text' must set identity.handle",
+    'empty handle',
+  );
+  check(
+    said(textProfile({ identity: { handle: '' }, models: undefined })),
+    "Profile p: type 'text' must set models",
+    'a missing parent is named before a missing leaf',
+  );
+  check(
+    said(
+      textProfile(modelWith({ compaction: { compactAt: 0.5, previousExchanges: 1, timing: 'x' } })),
+    ),
+    "Profile p: type 'text' must set models.*.compaction.maxTokens",
+    'a nested field under a model',
+  );
+});
+
+Deno.test('a field the type may carry only as its off value names that value', () => {
+  check(
+    said(textProfile({ type: 'image', outputs: { structured: 'x' } })).includes(
+      'must not set outputs.structured (other than null) — ',
+    ),
+    true,
+    'structured off value',
+  );
+  check(
+    said({
+      id: 's',
+      type: 'speech',
+      identity: { handle: 's' },
+      models: { m: { ...BINDING } },
+      key: 'main',
+      speech: { voice: 'Kore', format: 'pcm' },
+      guardrails: { canary: true },
+    }).includes('must not set guardrails.canary (other than false) — '),
+    true,
+    'canary off value',
+  );
+  check(
+    said(textProfile({ type: 'live', inputs: { text: true } })).startsWith(
+      "Profile p: type 'live' must not set inputs — ",
+    ),
+    true,
+    'no off value to name',
+  );
+});
+
+Deno.test('redactSensitive is a boolean or a map of known groups to booleans', () => {
+  const bad = (selection: unknown) =>
+    said(textProfile({ guardrails: { redactSensitive: selection } }));
+  check(bad(true), 'defined', 'true');
+  check(bad(false), 'defined', 'false');
+  check(bad({ ids: true }), 'defined', 'a group');
+  check(
+    bad({ nope: true }),
+    'Profile p: guardrails.redactSensitive.nope is not a group (ids, financial, network, credentials) set to a boolean',
+    'unknown group',
+  );
+  check(
+    bad({ ids: 'yes' }),
+    'Profile p: guardrails.redactSensitive.ids is not a group (ids, financial, network, credentials) set to a boolean',
+    'non-boolean value',
+  );
+});
+
+Deno.test('a registry refuses an unknown id, and finds, lists and clears what it holds', () => {
+  const registry = createProfileRegistry(createToolRegistry());
+  let message = 'returned';
+  try {
+    registry.get('nope');
+  } catch (err) {
+    if (!(err instanceof TheoremError)) throw err;
+    message = refusal(err);
+  }
+  check(message, "Unknown profile 'nope'", 'get unknown');
+  registry.register(textProfile() as never);
+  check(registry.find('p')?.id, 'p', 'find');
+  check(registry.find('q'), undefined, 'find unknown');
+  check(registry.has('p'), true, 'has');
+  check(
+    registry.list().map((profile) => profile.id),
+    ['p'],
+    'list',
+  );
+  registry.clear();
+  check(registry.has('p'), false, 'cleared');
+});
+
+Deno.test('a live profile defines without compression, a speech profile carries only its handle', () => {
+  const live = {
+    id: 'l',
+    type: 'live',
+    identity: { handle: 'l', system: 'hi' },
+    models: { m: { protocol: 'geminiLive', provider: 'google', apiId: 'lv' } },
+    key: 'main',
+    tools: { allow: [] },
+    live: { voice: 'Aoede' },
+  };
+  check(said(live), 'defined', 'live without compression');
+  const speech = defineProfile({
+    id: 's',
+    type: 'speech',
+    identity: { handle: 's' },
+    models: { m: { ...BINDING } },
+    key: 'main',
+    speech: { voice: 'Kore', format: 'pcm' },
+  } as never);
+  check(Object.keys(speech.identity), ['handle'], 'speech identity');
+  const text = defineProfile(textProfile({ identity: { handle: 'p', system: 'sys' } }) as never);
+  check(text.identity, { handle: 'p', system: 'sys' }, 'text identity');
+});
+
+Deno.test('a cache needs openrouter, a live profile needs a channel, a lexicon key must exist', () => {
+  check(
+    said(textProfile(modelWith({ ...LOCAL, cache: { mode: 'automatic' } }))),
+    "Profile p model 'm': cache is only valid when protocol is 'openAi' and provider is 'openrouter'",
+    'cache on a local model',
+  );
+  check(
+    said({
+      id: 'l',
+      type: 'live',
+      identity: { handle: 'l' },
+      models: { m: { protocol: 'geminiLive', provider: 'google', apiId: 'lv' } },
+      key: 'main',
+      tools: { allow: [] },
+      live: { voice: 'Aoede', ingress: { audio: false, video: false, text: false } },
+    }),
+    "Profile 'l': at least one live.ingress channel (audio, video, text) must be enabled",
+    'no live ingress',
+  );
+  check(
+    said(textProfile({ lexicon: { nope: 'x' } })),
+    "Profile p: unknown lexicon key 'nope'",
+    'lexicon key',
+  );
+});
+
+Deno.test('a compaction profile must be a text profile', () => {
+  const registry = createProfileRegistry(createToolRegistry());
+  registry.register({
+    id: 'pic',
+    type: 'image',
+    identity: { handle: 'pic' },
+    models: { m: { ...BINDING } },
+    key: 'main',
+    image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/png' },
+    tools: { allow: [] },
+    inputs: { text: true },
+  } as never);
+  let message = 'registered';
+  try {
+    registry.register(
+      textProfile(
+        modelWith({
+          compaction: {
+            profile: 'pic',
+            maxTokens: 100,
+            compactAt: 0.5,
+            previousExchanges: 2,
+            timing: 'before',
+          },
+        }),
+      ) as never,
+    );
+  } catch (err) {
+    if (!(err instanceof TheoremError)) throw err;
+    message = refusal(err);
+  }
+  check(
+    message,
+    "Profile p model m compaction: compaction profile 'pic' must be a text profile that takes text",
+    'image compactor',
+  );
+});

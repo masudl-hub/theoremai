@@ -225,8 +225,7 @@ function attachmentsRefused(issues: readonly AttachmentValidationIssue[]): Theor
 }
 
 function factsOf(item: TurnBlob | TurnMediaRef): AttachmentFacts {
-  const facts: AttachmentFacts = { mimeType: item.mimeType };
-  if (item.name) facts.name = item.name;
+  const facts: AttachmentFacts = { mimeType: item.mimeType, name: item.name };
   if (isTurnMediaRef(item)) return facts;
   if (!B64_BODY.test(item.data)) {
     // lexicon-exempt: developer-facing wire-format diagnostic, not product copy
@@ -280,9 +279,6 @@ function sanitizeTurnBlobs(
   attachments: Array<TurnBlob | TurnMediaRef> | undefined,
   voice: TurnBlob[] | undefined,
 ): { attachments?: Array<TurnBlob | TurnMediaRef>; voice?: TurnBlob[] } {
-  if (!hasTurnBlobs(attachments, voice)) {
-    return { attachments, voice };
-  }
   assertTurnAttachments(profile, attachments, voice);
   return {
     attachments: attachments?.length ? attachments.map(sanitizeAttachment) : attachments,

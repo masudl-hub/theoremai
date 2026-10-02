@@ -190,14 +190,13 @@ function validateDecisionBinding(
 
 function validateDecisionModel(input: DecisionProfileDefinition): void {
   const modelId = input.models ? soleModelId(input.models) : undefined;
-  const binding = modelId ? input.models[modelId] : undefined;
-  if (!modelId || !binding) {
+  if (!modelId) {
     throw new TheoremError(
       'config',
       `Profile ${input.id}: type 'decision' must declare exactly one model`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  validateDecisionBinding(input.id, modelId, binding);
+  validateDecisionBinding(input.id, modelId, input.models[modelId]);
 }
 
 function validateDecisionConfig(input: DecisionProfileDefinition): void {
@@ -211,7 +210,7 @@ function validateDecisionConfig(input: DecisionProfileDefinition): void {
       `Profile ${input.id}: decision inputs.maxStateBytes must be a positive integer`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  if (!input.decision.contract?.trim()) {
+  if (!input.decision.contract.trim()) {
     throw new TheoremError('config', `Profile ${input.id}: decision.contract must be non-empty`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
@@ -246,8 +245,8 @@ function defineHostProfile(input: HostProfileDefinition): HostProfile {
   } satisfies HostProfile;
 }
 
-function assertHostTools(profileId: string, tools: HostProfileToolsSpec | undefined): void {
-  if (!Array.isArray(tools?.allow)) {
+function assertHostTools(profileId: string, tools: HostProfileToolsSpec): void {
+  if (!Array.isArray(tools.allow)) {
     throw new TheoremError('config', `Profile ${profileId}: type 'host' must set tools.allow`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
@@ -286,7 +285,7 @@ function assertModelBinding(profileId: string, modelId: ModelId, binding: ModelB
   assertModelRoute(profileId, modelId, binding);
   assertModelEfforts(profileId, modelId, binding);
   if (binding.cache) {
-    assertCacheSpec(profileId, modelId, binding);
+    assertCacheSpec(profileId, modelId, binding, binding.cache);
   }
   assertInteractionsPersistence(profileId, modelId, binding);
   assertLocalServer(profileId, modelId, binding);
@@ -505,8 +504,10 @@ function assertFieldScope(input: ProfileDefinition): void {
   );
 }
 
-function assertTurnBehaviour(profileId: string, input: ProfileDefinition): void {
-  if (input.type === 'host' || input.type === 'decision') return;
+function assertTurnBehaviour(
+  profileId: string,
+  input: Exclude<ProfileDefinition, HostProfileDefinition | DecisionProfileDefinition>,
+): void {
   const tb = input.turnBehaviour as ProfileTurnBehaviourSpec | undefined;
   assertResumption(profileId, tb?.resumption);
 }
@@ -573,9 +574,6 @@ function assertRedactSensitive(profileId: string, guardrails: unknown): void {
 }
 
 function assertObservability(profileId: string, spec: ProfileObservabilitySpec | undefined): void {
-  if (!spec) {
-    return;
-  }
   try {
     const policy = resolveObservabilityPolicy(spec);
     if (!Number.isFinite(policy.retainForDays)) {
@@ -830,7 +828,7 @@ function assertCompactionSpec(
       `${tag}: compaction profile '${spec.profile}' must be registered before '${owner.id}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  if (compactor.type !== 'text' || compactor.inputs?.text === false) {
+  if (compactor.type !== 'text' || compactor.inputs.text === false) {
     throw new TheoremError(
       'config',
       `${tag}: compaction profile '${spec.profile}' must be a text profile that takes text`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -838,11 +836,12 @@ function assertCompactionSpec(
   }
 }
 
-function assertCacheSpec(profileId: string, modelId: ModelId, binding: ModelBinding): void {
-  const spec = binding.cache;
-  if (!spec) {
-    return;
-  }
+function assertCacheSpec(
+  profileId: string,
+  modelId: ModelId,
+  binding: ModelBinding,
+  spec: NonNullable<ModelBinding['cache']>,
+): void {
   const tag = `Profile ${profileId} model '${modelId}'`;
   if (binding.provider !== 'openrouter' || binding.protocol !== 'openAi') {
     throw new TheoremError(
@@ -909,15 +908,13 @@ function assertCompactionRetain(tag: string, spec: CompactionSpec): void {
   if (spec.previousExchanges < 0) {
     throw new TheoremError('config', `${tag}: previousExchanges must be >= 0`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  if (spec.previousExchanges > 0 && spec.previousExchanges < 1) {
-    if (spec.previousExchanges >= spec.compactAt) {
-      throw new TheoremError(
-        'config',
-        `${tag}: previousExchanges as fraction (${spec.previousExchanges}) must be < compactAt (${spec.compactAt})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
+  if (spec.previousExchanges < 1 && spec.previousExchanges >= spec.compactAt) {
+    throw new TheoremError(
+      'config',
+      `${tag}: previousExchanges as fraction (${spec.previousExchanges}) must be < compactAt (${spec.compactAt})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
-  if (spec.previousExchanges >= 1 && !Number.isInteger(spec.previousExchanges)) {
+  if (spec.previousExchanges > 1 && !Number.isInteger(spec.previousExchanges)) {
     throw new TheoremError('config', `${tag}: previousExchanges >= 1 must be an integer`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
@@ -937,9 +934,6 @@ function assertCustomToolsOnly(tools: ToolRegistry, profile: Profile): void {
 }
 
 function assertProfileToolLoader(tools: ToolRegistry, profile: Profile): void {
-  if (profile.type === 'live' || profile.type === 'host') {
-    return;
-  }
   const loaderId = profileToolsSpec(profile)?.t2Loader;
   if (!loaderId) {
     return;

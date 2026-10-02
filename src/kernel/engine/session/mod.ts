@@ -1,5 +1,12 @@
 import { bindCanary, bindUserDataNote } from '../../../guardrails/canary.ts';
 import {
+  addHistoryUrls,
+  addRequestUrls,
+  addSeenUrls,
+  type GivenUrlSets,
+  givenUrlSets,
+} from '../../../guardrails/egress-urls.ts';
+import {
   describeError,
   errorKind,
   TheoremError,
@@ -366,6 +373,8 @@ function buildLiveSession(args: {
   canary: string;
   connection: Awaited<ReturnType<typeof openGoogleLiveSession>>;
   gate: LiveOutboundGateSession;
+  /** Every URL the model has been given this session (`GuardrailContext.givenUrls`). */
+  givenUrls: GivenUrlSets;
   signal?: AbortSignal;
   onStage?: StageHandler;
   host?: unknown;
@@ -386,6 +395,7 @@ function buildLiveSession(args: {
     canary,
     connection,
     gate,
+    givenUrls,
     signal,
     onStage,
     host: sessionHost,
@@ -420,7 +430,9 @@ function buildLiveSession(args: {
 
   const recordUserText = (text: string) => {
     const trimmed = text.trim();
-    if (trimmed) history.push({ role: 'user', content: trimmed });
+    if (!trimmed) return;
+    history.push({ role: 'user', content: trimmed });
+    addSeenUrls(givenUrls.request, trimmed);
   };
 
   const recordAssistantText = (text: string) => {
@@ -459,6 +471,7 @@ function buildLiveSession(args: {
         content: readBack,
       },
     );
+    addSeenUrls(givenUrls.tools, readBack);
   };
 
   const enqueuePending = (ev: TurnEvent) => {
@@ -1176,7 +1189,15 @@ async function openTracedSession(
     canary: generation.canary,
   });
 
-  const gate = createLiveOutboundGateSession(profile, generation.canary || undefined);
+  const givenUrls = givenUrlSets();
+  addRequestUrls(givenUrls, completeReq);
+  addHistoryUrls(givenUrls, req.history ?? []);
+  const gate = createLiveOutboundGateSession(
+    profile,
+    generation.canary || undefined,
+    system,
+    givenUrls,
+  );
   const connection = await openGoogleLiveSession(
     completeReq,
     { ...options.gemini, vault: options.vault },
@@ -1190,6 +1211,7 @@ async function openTracedSession(
     canary: generation.canary,
     connection,
     gate,
+    givenUrls,
     signal: safe.signal,
     onStage: req.onStage,
     host: req.host,

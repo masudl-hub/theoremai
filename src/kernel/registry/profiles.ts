@@ -1,5 +1,8 @@
+import { egressChecksProblem } from '../../guardrails/egress.ts';
+import { streamPlanOf } from '../../guardrails/egress-stream.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { type LexiconOverrides, validateLexiconOverrides } from '../../guardrails/lexicon.ts';
+import { SENSITIVE_GROUPS } from '../../guardrails/sensitive.ts';
 import type {
   DecisionGuardrailsSpec,
   HostGuardrailsSpec,
@@ -523,14 +526,55 @@ function speechGuardrails(input: SpeechProfileDefinition): SpeechProfile['guardr
 }
 
 function assertEgress(profileId: string, guardrails: ProfileGuardrailsSpec | undefined): void {
+  const egress = guardrails?.egress;
+  const fail = (message: string) => new TheoremError('config', `Profile ${profileId}: ${message}`);
+  if (egress && (egress.enforce === undefined) === (egress.checks === undefined)) {
+    throw fail(
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'guardrails.egress takes enforce (your own check) or checks (the bundled ones), one of the two',
+    );
+  }
+  if (egress?.enforce !== undefined && typeof egress.enforce !== 'function') {
+    throw fail('guardrails.egress.enforce must be a function'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  const problem =
+    egress?.checks === undefined
+      ? undefined
+      : egressChecksProblem('guardrails.egress.checks', egress.checks);
+  if (problem !== undefined) throw fail(problem);
   for (const key of ['maxRetries', 'holdback'] as const) {
-    const value = guardrails?.egress?.[key];
+    const value = egress?.[key];
     if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
       throw new TheoremError(
         'config',
         `Profile ${profileId}: guardrails.egress.${key} must be a non-negative integer`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
+  }
+  if (
+    egress?.holdback !== undefined &&
+    (egress.enforce === undefined || streamPlanOf(egress.enforce))
+  ) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId}: guardrails.egress.holdback applies only to a host egress.enforce; the bundled policy holds exactly what could still become a match`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
+/** A misspelt group would leave the group it meant on, silently. */
+function assertRedactSensitive(profileId: string, guardrails: unknown): void {
+  const selection = (guardrails as ProfileGuardrailsSpec | undefined)?.redactSensitive;
+  if (selection === undefined || typeof selection === 'boolean') return;
+  const groups = new Set<string>(SENSITIVE_GROUPS);
+  const bad = Object.entries(selection).find(
+    ([group, on]) => !groups.has(group) || typeof on !== 'boolean',
+  );
+  if (bad !== undefined) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId}: guardrails.redactSensitive.${bad[0]} is not a group (${SENSITIVE_GROUPS.join(', ')}) set to a boolean`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
 }
 
@@ -576,6 +620,7 @@ function defineProfile(input: ProfileDefinition): Profile {
   assertFieldScope(input);
   assertRequiredFields(input);
   if (input.lexicon) validateLexiconOverrides(input.lexicon, `Profile ${input.id}`);
+  assertRedactSensitive(input.id, input.guardrails);
   if (input.type === 'host') {
     return defineHostProfile(input);
   }

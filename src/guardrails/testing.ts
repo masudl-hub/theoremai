@@ -17,6 +17,7 @@ export {
   buildLiveAttacks,
   canaryEgressCatalog,
   FIXED_CANARY,
+  FUZZ_SYSTEM,
   filterLiveAttacks,
   inboundFuzzPayloads,
   inboundPayloadByName,

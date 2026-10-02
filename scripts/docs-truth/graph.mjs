@@ -413,9 +413,16 @@ function collectChangedLineRanges(repoRoot, base) {
     }
   };
 
-  merge(readGit(repoRoot, ['diff', `${base}...HEAD`]));
-  merge(readGit(repoRoot, ['diff']));
-  merge(readGit(repoRoot, ['diff', '--cached']));
+  // One diff from the fork point to the working tree: its line numbers are the
+  // doc as read from disk. Committed hunks alone are in HEAD's numbering, which
+  // shifts under uncommitted edits above them.
+  const forkPoint = readGit(repoRoot, ['merge-base', base, 'HEAD']).trim();
+  if (forkPoint) {
+    merge(readGit(repoRoot, ['diff', forkPoint]));
+  } else {
+    merge(readGit(repoRoot, ['diff']));
+    merge(readGit(repoRoot, ['diff', '--cached']));
+  }
   return rangesByFile;
 }
 

@@ -1,5 +1,6 @@
 // `profileInterfaceSchema` keeps only the JSON it names, so host functions never reach the view.
 
+import { egressChecksOf, type ResolvedEgressChecks, type UrlCheck } from '../guardrails/egress.ts';
 import { clientLexicon } from '../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import type { ProfileGuardrailsSpec } from '../guardrails/types.ts';
@@ -14,11 +15,13 @@ import { inputsFromSpec } from './inputs.ts';
 import { profileInterfaceSchema } from './profile-interface.ts';
 import type {
   ComposerProfileInterface,
+  EgressChecksView,
   LiveProfileInterface,
   ProfileGuardrailsView,
   ProfileInterface,
   ProfileObservabilityView,
   ProfileToolsView,
+  UrlCheckView,
 } from './types.ts';
 
 /** Resolved, not raw: a host sees what the kernel will enforce, not defaults of its own. */
@@ -30,6 +33,22 @@ function guardrailsView(guardrails?: ProfileGuardrailsSpec): ProfileGuardrailsVi
     sanitizeInput: policy.sanitizeInput,
     redactSensitive: policy.redactSensitive,
     hasEgress: Boolean(policy.egress),
+    egressChecks: egressChecksView(egressChecksOf(policy.egress?.enforce)),
+  };
+}
+
+function urlCheckView(check: UrlCheck | undefined): UrlCheckView {
+  return check ? { hosts: [...(check.hosts ?? [])], fromTools: check.fromTools ?? true } : false;
+}
+
+function egressChecksView(checks: ResolvedEgressChecks | undefined): EgressChecksView | null {
+  if (!checks) return null;
+  return {
+    sensitive: { ...checks.sensitive },
+    boundary: checks.boundary,
+    injection: checks.injection,
+    images: urlCheckView(checks.images),
+    links: urlCheckView(checks.links),
   };
 }
 

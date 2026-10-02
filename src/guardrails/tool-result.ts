@@ -2,6 +2,7 @@ import { type LexiconOverrides, lexiconText } from './lexicon.ts';
 import { detectionForTrust } from './policy.ts';
 import { TOOL_RULES } from './rules.ts';
 import { sanitizeText } from './sanitize.ts';
+import { anySensitive } from './sensitive.ts';
 import { textForScan } from './serialize.ts';
 import { advisoryLevel, directiveHits } from './tool-directives.ts';
 import type {
@@ -204,14 +205,14 @@ function guardToolFailureText(
  * for.
  */
 function inspectToolArguments(args: unknown, policy: ResolvedGuardrailPolicy): Verdict {
-  if (!policy.redactSensitive) {
+  if (!anySensitive(policy.redactSensitive)) {
     return { action: 'allow' };
   }
   const rendered = textForScan(args);
   if (rendered.unscannable) {
     return { action: 'allow' };
   }
-  const options = { sanitizeInput: false, redactSensitive: true };
+  const options = { sanitizeInput: false, redactSensitive: policy.redactSensitive };
   if (sanitizeText(rendered.text, options) === rendered.text) {
     return { action: 'allow' };
   }

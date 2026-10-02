@@ -10,6 +10,8 @@ import {
   profileAllowsInject,
   resolveGuardrailPolicy,
 } from '../mod.ts';
+import { type ResolvedEgressChecks, resolveEgressChecks, type UrlCheck } from '../src/guardrails/egress.ts';
+import type { SensitiveGroups } from '../src/guardrails/sensitive.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import { profileTypesForField } from '../src/kernel/profile-scope.ts';
@@ -146,20 +148,37 @@ export interface TurnBehaviourDraft {
   allowSteering: boolean;
 }
 
+/** A URL check's switch, and its options kept while it is off. */
+export interface UrlCheckDraft {
+  on: boolean;
+  hosts: string[];
+  fromTools: boolean;
+}
+
+/** The bundled egress checks, one switch each. */
+export interface EgressChecksDraft {
+  sensitive: SensitiveGroups;
+  boundary: boolean;
+  injection: boolean;
+  images: UrlCheckDraft;
+  links: UrlCheckDraft;
+}
+
 export interface GuardrailsDraft {
   canary: boolean;
   canaryBindNote: string;
   sanitizeInput: boolean;
-  redactSensitive: boolean;
+  /** One switch per sensitive-data group. */
+  redactSensitive: SensitiveGroups;
   quotaEnabled: boolean;
   quotaPerDay: number | null;
   quotaMessage: string;
-  /** Wires the kernel's `standardEgressEnforce`. */
+  /** Runs the bundled egress policy with `egressChecks`. */
   egressEnabled: boolean;
+  egressChecks: EgressChecksDraft;
   egressOnBlock: EgressOnBlock | '';
   egressMaxRetries: number | null;
   egressRepairGuidance: string;
-  egressHoldback: number | null;
   allowPrivateNetworks: boolean;
   allowedHosts: string[];
 }
@@ -316,6 +335,20 @@ export function defaultToolSpec(partial?: Partial<ToolSpecDraft>): ToolSpecDraft
   };
 }
 
+function urlCheckDraft(check: UrlCheck | undefined): UrlCheckDraft {
+  return { on: check !== undefined, hosts: [...(check?.hosts ?? [])], fromTools: check?.fromTools ?? true };
+}
+
+function egressChecksDraft(checks: ResolvedEgressChecks): EgressChecksDraft {
+  return {
+    sensitive: { ...checks.sensitive },
+    boundary: checks.boundary,
+    injection: checks.injection,
+    images: urlCheckDraft(checks.images),
+    links: urlCheckDraft(checks.links),
+  };
+}
+
 function defaultGuardrails(): GuardrailsDraft {
   const resolved = resolveGuardrailPolicy(undefined);
   return {
@@ -327,10 +360,10 @@ function defaultGuardrails(): GuardrailsDraft {
     quotaPerDay: null,
     quotaMessage: '',
     egressEnabled: false,
+    egressChecks: egressChecksDraft(resolveEgressChecks()),
     egressOnBlock: '',
     egressMaxRetries: null,
     egressRepairGuidance: '',
-    egressHoldback: null,
     allowPrivateNetworks: false,
     allowedHosts: [],
   };

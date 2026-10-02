@@ -16,6 +16,7 @@
     "tests/interface/**/*.ts",
     "tests/react/**/*.ts",
     "tests/fixtures/**/*.ts",
+    "tests/cassettes/**/*.ts",
     "tests/fixtures/**/*.js",
     "react/src/index.ts",
     "react/src/ui/index.ts",
@@ -79,6 +80,8 @@
     "minLines": 5,
     "minOccurrences": 2,
     "ignoreImports": true,
+    // Generated tables (scripts/gen-egress-automata.ts): repeated rows are data.
+    "ignore": ["src/guardrails/egress-automata.ts"],
     // Hard ceiling: any meaningful duplication fails until clone groups are cleared.
     "threshold": 0.5
   },

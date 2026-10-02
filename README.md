@@ -59,7 +59,7 @@ or UI copy. Keys, credentials, trace storage, and policy all come from the host.
 ### Guardrails on every turn
 
 - 🛡️ **Input sanitization by trust level** — system prompts you wrote go through untouched; host-assembled prompts, user text, history, attachments, and tool results are scanned for injection and sensitive data.
-- 🐤 **Canary tokens** — each turn binds a fresh token into the system prompt. A leak is caught as written or in base64, in any case and whatever separates its characters, even when the stream splits it across chunks.
+- 🐤 **Canary tokens** — each turn binds a fresh token into the system prompt. A leak is caught as written, reversed, in ROT13, spelled out, as character codes or in base64, in any case, through lookalike characters and separators, even when the stream splits it across chunks, tool steps, or Live cycles.
 - 🚪 **Egress checks with repair** — your policy sees every reply (text and structured) before release. It can allow, flag, redact, or block, and a block can send the model back to try again.
 - 🧪 **Tested against attacks** — adversarial corpora, fuzzing, and mutation testing cover the guardrail code, and the corpora ship for hosts to test their own profiles.
 
@@ -152,7 +152,7 @@ One profile, two models from two providers. It takes text, files, and voice note
 different JSON schema depending on who's asking, and turns on every guardrail.
 
 ```ts
-import { defineProfile, registerProfile, standardEgressEnforce } from "@theoremjs/agents";
+import { defineProfile, registerProfile } from "@theoremjs/agents";
 
 const support = defineProfile({
   type: "text",
@@ -240,7 +240,7 @@ const support = defineProfile({
     redactSensitive: true,
     canary: true,
     egress: {
-      enforce: standardEgressEnforce,
+      checks: { links: true },
       onBlock: "reject_to_agent",
       maxRetries: 2,
     },
@@ -334,7 +334,7 @@ egress policy run at each conversational turn inside it, and tools go through th
 pipeline as text turns.
 
 ```ts
-import { defineProfile, registerProfile, runSession, standardEgressEnforce } from "@theoremjs/agents";
+import { defineProfile, registerProfile, runSession } from "@theoremjs/agents";
 
 registerProfile(defineProfile({
   type: "live",
@@ -359,7 +359,7 @@ registerProfile(defineProfile({
     contextCompression: { slidingWindow: {} },
   },
   turnBehaviour: { allowSteering: true },
-  guardrails: { canary: true, sanitizeInput: true, egress: { enforce: standardEgressEnforce } },
+  guardrails: { canary: true, sanitizeInput: true, egress: { checks: true } },
 }));
 
 const session = await runSession({ profile: "support.voice" }, { vault });
@@ -500,7 +500,7 @@ flowchart TD
 
   REQ --> SAN --> MEDIA --> QUOTA --> PICK --> SNAP --> SYS --> PRE --> PROV
   PROV -->|text| GATE -->|cleared prefix| HOST
-  PROV -->|thoughts, unguarded| HOST
+  PROV -->|thoughts, leaks omitted| HOST
   PROV -->|tool calls| TOOLS -->|guarded results| PROV
   PROV -->|stream ends| EGR
   EGR -->|block + reject_to_agent| PROV
@@ -513,18 +513,26 @@ flowchart TD
 
 Text reaches your client as it clears the progressive-yield window. The window holds back the
 last stretch of output so a secret split across chunks can't slip out. It holds what the scan can
-catch: for the canary, only a tail that could still be the start of a leak (usually nothing, so
-canary-only output streams almost at once); with `egress.enforce`, also `egress.holdback`
-characters (256 by default). The end-of-attempt verdict is final: anything held
+catch: for the canary, only a tail of 4 or more characters that could still be the start of a leak
+(usually nothing, so canary-only output streams almost at once; a blocked leak shows at most 3); with the bundled
+`egress.checks` or an `egressPolicy`, only what could still become a match, so a blocked match shows none of its characters; with your own
+`egress.enforce`, `egress.holdback` characters (256 by default; 96 on Live, where held transcript holds its audio too). The end-of-attempt verdict is final: anything held
 back mid-stream that the final check clears gets released, not dropped.
 
-Thoughts are not guarded: no canary scan, no egress. A thinking model restates its system
-prompt as it reasons, and a host that shows thoughts (`outputs.streaming.streamThoughts`)
-accepts what they hold.
+Thoughts are omitted from, never stopped. A host that shows thoughts
+(`outputs.streaming.streamThoughts`) gets each one with the canary, system-prompt echo,
+user-data markers and any image or link the bundled checks would block swapped for a
+placeholder, and a `guardrail` event at stage `thought`; the rest of the thought streams on.
 
-In Live, the spoken reply's transcript runs through the same window and audio waits behind it:
-speech plays only once its transcript has cleared. Canary-only, that is almost at once; under
-`egress.enforce` a guarded voice reply starts up to the lookback later.
+In Live, the spoken reply's transcript runs through the same window. A native-audio model's
+transcript trails its audio and carries no timing, so a guarded profile (canary or
+`egress.enforce`) holds each audio chunk until the transcript of its own message has passed
+(or, for a message with none, the next transcript), then streams it: a chunk's own words have been read before it is heard, and the rest of the reply
+goes when the model finishes generating. As with text, what was heard before a later hit stays
+heard; the gate withholds from the hit onward. Guarded
+Live profiles always ask the provider for the output transcript (`live.transcription.output` is
+forced on). Audio from a reply that produced no transcript is dropped, not played. A profile with
+neither a canary nor `egress.enforce` streams audio as it arrives.
 
 ### Stage hooks
 
@@ -853,7 +861,7 @@ flowchart LR
   RETRY --> MODEL
 ```
 
-- **Canary** — each turn mints a fresh random 32-hex token and binds it into the system prompt. If it shows up in the output, as written or base64-encoded, in any case and with anything between its characters, the system prompt has leaked. The leaking text is held back, and the client gets a generic public error, never the leaked fragment.
+- **Canary** — each turn mints a fresh random 32-hex token and binds it into the system prompt. If it shows up in the output — as written, reversed, in ROT13, spelled out, as character codes or base64-encoded, in any case, through lookalike characters, with words or symbols between its characters, or just 16 characters of it — the system prompt has leaked. The prompt itself is guarded too: a reply that repeats 12 consecutive words of it, token or not, is stopped at its twelfth word (`guardrails.promptEcho`, on with the canary; set it `false` if your prompt holds text the agent should quote verbatim). A leaking token is held back, and the client gets a generic public error, never the leaked fragment.
 - **Egress** — your `EgressEnforcer` sees every outbound payload (streamed text, structured JSON, live transcripts) with its stage and canary, and returns one of four verdicts:
 
 | Verdict | Effect |
@@ -866,7 +874,9 @@ flowchart LR
 - **Validation** — `outputs.validation.fields` runs your checks on dotted paths in the structured result, and failures get their own repair rounds.
 - **Fails closed** — a payload that can't be scanned, or an enforcer that throws, is treated as a block (`egress.enforcer-error`), never as an allow.
 
-Most hosts start from the standard policy and add their own rules:
+Most hosts turn on the bundled checks with `egress.checks`: `true` runs each at its default, and
+an object switches the ones it names (`{ sensitive: { network: true }, links: { hosts: ["docs.example.com"] } }`).
+A host with checks of its own starts from the standard policy instead:
 
 ```ts
 import { type EgressEnforcer, standardEgressEnforce } from "@theoremjs/agents";
@@ -883,8 +893,14 @@ const egress: EgressEnforcer = (payload, ctx) => {
 // guardrails: { egress: { enforce: egress, onBlock: "reject_to_agent", maxRetries: 2 } }
 ```
 
-Streaming doesn't mean giving up these checks. Text is released as it clears a lookback window
-(under `egress.enforce`, 256 characters by default; for the canary, only what could start a leak),
+Rules that only block can go through `egressPolicy` instead, which holds them as exactly as the
+standard checks: `agents egress-compile ./rules.ts --out ./rules.compiled.ts` compiles your regexes
+at build time, and `egressPolicy({ rules, compiled: compiledEgressRules })` runs them beside the
+standard checks (see [Guardrails → Host egress rules](docs/contracts/guardrails.md#host-egress-rules)).
+
+Streaming doesn't mean giving up these checks. Text is released as it clears the checks
+(under the bundled checks and the canary, only what could still become a match waits; under your own
+`egress.enforce`, a 256-character window by default),
 so a secret split across chunks is caught before the first half reaches the client. Live sessions apply the same gate at each turn
 boundary.
 
@@ -1013,13 +1029,13 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | --- | --- |
 | Guardrails errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `publicError`, `toErrorEvent`, `describeError`, `isAbortError`, `throwIfAborted` |
 | Network guardrails | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions` |
-| Guardrail vocabulary | `AdvisoryLevel`, `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailAction`, `GuardrailContext`, `GuardrailEvent`, `guardrailEventSchema`, `OutboundPayload`, `Provenance`, `ToolOrigin`, `ScanText`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `DetectionOptions`, `GuardedToolText`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `TOOL_ORIGINS`, `EGRESS_ON_BLOCK` |
+| Guardrail vocabulary | `AdvisoryLevel`, `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailAction`, `GuardrailContext`, `GuardrailEvent`, `guardrailEventSchema`, `OutboundPayload`, `Provenance`, `ToolOrigin`, `ScanText`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `ResolvedEgressSpec`, `DetectionOptions`, `SensitiveGroup`, `SensitiveSelection`, `SensitiveSwitches`, `GuardedToolText`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `TOOL_ORIGINS`, `EGRESS_ON_BLOCK` |
 | Guardrail policy | `resolveGuardrailPolicy`, `detectionForTrust`, `detectionForProfile`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `runEnforcer` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `DIRECTIVE_RULES`, `ADVISORY_LEVELS`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `textForScan`, `scanTextOf` |
 | Quota | `QuotaSlotStatus`, `QuotaExhausted`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 | Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |
 | Sanitize | `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `redactSensitiveOnly`, `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |
-| Canary / egress | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `redactCanary`, `OMIT_CANARY`, `createCanaryStreamGate`, `eventHasCanary`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate`, `standardEgressEnforce`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
+| Canary / egress | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `redactCanary`, `OMIT_CANARY`, `createCanaryStreamGate`, `eventHasCanary`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate`, `standardEgressEnforce`, `egressPolicy`, `EgressPolicyOptions`, `EgressChecks`, `UrlCheck`, `GivenUrls`, `EgressRule`, `CompiledEgressRules`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `LIVE_DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Compaction | `compactHistory`, `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
 | Token estimate | `loadTokenEstimator`, `mediaTokenFamily`, `TOKEN_TEXT_ENCODING`, `MediaPayload`, `MediaTokenFamily`, `TokenCount`, `TokenEstimator`, `sumTokens` |
 | Runner | `runTurn`, `runSession`, `runDecision`, `validateDecisionRequest`, `RunSessionOptions`, `SignInGatePolicy`, `RunDecisionOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
@@ -1082,7 +1098,7 @@ Document health is enforced by `npm run lint:docs` — the **first** step of
 - Doc + **section** freshness on every code change (no Export-only gaming)
 - Behavioral sections require `contract_test` evidence (≥2 supports each)
 - Publish gates keep `docs/` and `src/**/*.md` out of npm/JSR (`verify-publish-bundle`)
-- Freshness diffs use a 32 MiB `git` buffer so large `origin/main...HEAD` patches
+- Freshness diffs use a 32 MiB `git` buffer so large patches against `origin/main`
   are not silently dropped (`ENOBUFS`)
 - Pre-commit runs `lint:docs` automatically (`prepare` installs the hook on `npm install`)
 

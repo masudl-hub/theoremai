@@ -11,6 +11,7 @@ import type {
   ModelId,
   ModelProfile,
   Profile,
+  ProfileLiveSpec,
   ProjectedProfile,
   ProviderTransport,
   ResolvedGeneration,
@@ -222,6 +223,21 @@ function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
   }
 }
 
+/**
+ * A guarded Live profile (canary or `egress.enforce`) always transcribes its
+ * own speech: the outbound gate can only check audio through its transcript.
+ */
+function resolveLiveSpec(
+  live: ProfileLiveSpec | undefined,
+  guardrails: ModelProfile['guardrails'],
+): ProfileLiveSpec | undefined {
+  const policy = resolveGuardrailPolicy(guardrails);
+  if (!policy.canary && !policy.egress?.enforce) {
+    return live;
+  }
+  return { ...live, transcription: { ...live?.transcription, output: true } };
+}
+
 function resolveTurnInRegistry(
   registry: KernelRegistry,
   req: TurnRequest,
@@ -273,7 +289,7 @@ function resolveTurnInRegistry(
         : null,
       image: resolveImageFormat(profile),
       speech: profile.type === 'speech' ? profile.speech : undefined,
-      live: profile.type === 'live' ? profile.live : undefined,
+      live: profile.type === 'live' ? resolveLiveSpec(profile.live, profile.guardrails) : undefined,
       input: resolveInputParts(profile, safe),
       ...keys,
       canary: resolveGuardrailPolicy(profile.guardrails).canary ? mintCanary() : '',

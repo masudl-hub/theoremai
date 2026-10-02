@@ -1,8 +1,11 @@
 // Must not import from `src/kernel/`: the kernel type-imports `ProfileGuardrailsSpec`, and that edge
 // stays one-directional. Other modules under `src/guardrails/` may import kernel types.
 
+import type { EgressChecks } from './egress.ts';
+import type { GivenUrls } from './egress-urls.ts';
 import type { GuardrailEvent, GuardrailHit, Provenance } from './event-schemas.ts';
 import type { LexiconOverrides } from './lexicon.ts';
+import type { SensitiveGroups, SensitiveSelection } from './sensitive.ts';
 
 export type { GuardrailEvent, GuardrailHit, Provenance };
 
@@ -25,6 +28,7 @@ export const GUARDRAIL_STAGES = [
   'tool_result',
   'output_delta',
   'output_final',
+  'thought',
   'network',
   'live_inbound',
   'live_outbound',
@@ -137,10 +141,22 @@ export interface GuardrailContext {
   trust: TrustLevel;
   profileId: string;
   canary?: string;
+  /**
+   * The system prompt as sent, when the profile guards it against echo
+   * (`guardrails.promptEcho`): a reply repeating it is a leak.
+   */
+  system?: string;
   role?: string;
   slots?: Record<string, string>;
   /** Set on tool-shaped stages; absent for user and system text. */
   provenance?: Provenance;
+  /**
+   * Canonical absolute URLs in what the model was given this turn or session:
+   * the system prompt, the user's input and history, and apart, tool results.
+   * An image or link in the reply to any other URL can carry data to its
+   * server. The kernel adds to them as the model is given more. Unset: none.
+   */
+  givenUrls?: GivenUrls;
   /** The profile's lexicon, so a policy's rejection reads in the host's wording. */
   lexicon?: LexiconOverrides;
 }
@@ -160,15 +176,23 @@ export type EgressEnforcer = (
   context: GuardrailContext,
 ) => Verdict | Promise<Verdict>;
 
+/** `enforce` or `checks`, never both. */
 export interface ProfileEgressSpec {
-  enforce: EgressEnforcer;
+  /** The host's own check. */
+  enforce?: EgressEnforcer;
+  /**
+   * The bundled policy's checks: `true` runs each at its default, `false` none
+   * but the system-prompt leak checks, and an object switches the ones it names.
+   */
+  checks?: boolean | EgressChecks;
   onBlock?: EgressOnBlock;
   maxRetries?: number;
   /**
-   * Characters the progressive gate holds back so `enforce` sees a match split
-   * across stream chunks before any of it is released (default
-   * `DEFAULT_HOLDBACK`, 256). Smaller releases the reply sooner and covers
-   * shorter splits; a tail that could start a canary leak is always held regardless.
+   * For a host `enforce` only: characters the progressive gate holds back so
+   * `enforce` sees a match split across stream chunks before any of it is
+   * released (default `DEFAULT_HOLDBACK`, 256; on Live `LIVE_DEFAULT_HOLDBACK`,
+   * 96). The bundled `standardEgressEnforce` holds exactly what could still
+   * become a match, and setting this with it is a profile error.
    */
   holdback?: number;
 }
@@ -199,8 +223,20 @@ export interface ProfileGuardrailsSpec {
    * may replace it).
    */
   canary?: boolean;
+  /**
+   * With the canary on, also treat a reply that repeats `PROMPT_ECHO_WORDS`
+   * (12) consecutive words of the system prompt as a leak: the dump the token
+   * alone cannot see. Default true; set false when the prompt holds text the
+   * agent is meant to quote word for word.
+   */
+  promptEcho?: boolean;
   sanitizeInput?: boolean;
-  redactSensitive?: boolean;
+  /**
+   * Redact sensitive data from untrusted text before the model reads it:
+   * `true` (the default) every group, `false` none, an object the groups it
+   * switches, the rest on (`ids`, `financial`, `network`, `credentials`).
+   */
+  redactSensitive?: SensitiveSelection;
   egress?: ProfileEgressSpec;
   network?: NetworkGuardrailSpec;
   taint?: TaintGuardrailSpec;
@@ -242,10 +278,16 @@ export type HostGuardrailsSpec = Pick<
 
 export interface ResolvedGuardrailPolicy {
   sanitizeInput: boolean;
-  redactSensitive: boolean;
+  redactSensitive: SensitiveGroups;
   canary: boolean;
-  egress?: ProfileEgressSpec;
+  promptEcho: boolean;
+  /** `checks` resolved to the bundled policy's `enforce`. */
+  egress?: ResolvedEgressSpec;
   network?: NetworkGuardrailSpec;
   quota?: QuotaGuardrailSpec;
   taint?: TaintGuardrailSpec;
 }
+
+export type ResolvedEgressSpec = Omit<ProfileEgressSpec, 'enforce' | 'checks'> & {
+  enforce: EgressEnforcer;
+};

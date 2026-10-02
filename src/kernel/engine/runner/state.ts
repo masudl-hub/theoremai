@@ -1,4 +1,5 @@
-import type { TurnTaint } from '../../../guardrails/types.ts';
+import { type GivenUrlSets, givenUrlSets } from '../../../guardrails/egress-urls.ts';
+import type { GuardrailHit, TurnTaint } from '../../../guardrails/types.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
 import type {
@@ -38,8 +39,16 @@ interface StepExecutionState {
    * streamed, so the attempt gate must release the buffered text rather than drop it.
    */
   withheldVisible?: boolean;
+  /** The canary opening the last provider call ended on, read in front of the next call's reply. */
+  canaryCarry?: string;
+  /** What the last provider call's thoughts ended on, read in front of the next call's thoughts. */
+  thoughtCarry?: string;
+  /** System-prompt leaks withheld under a host policy; they pin the end-of-attempt verdict to block. */
+  promptLeaks?: GuardrailHit[];
   /** Untrusted content read so far, so a later tool call is judged against all the turn ingested. */
   taint?: TurnTaint;
+  /** Every URL the model has been given this turn (`GuardrailContext.givenUrls`). */
+  givenUrls: GivenUrlSets;
   /** Last provider stop from a discarded provider `done` event. */
   lastStop?: TurnStop;
   lastInteractionId?: string;
@@ -98,6 +107,7 @@ function openTurnState(args: {
     mediaFamily: args.mediaFamily,
     allEmittedEvents: args.allEmittedEvents ?? [],
     attemptEvents: [],
+    givenUrls: givenUrlSets(),
   };
   if (profile.type === 'text') {
     appendUserInput(state, generation.input);

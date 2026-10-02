@@ -199,6 +199,16 @@ Deno.test('Live closes that name a quota are rate_limit, whatever their code', a
   assertEquals(item?.type === 'closed' ? item.error?.kind : 'not closed', 'rate_limit');
 });
 
+Deno.test('Live closes that name a refused key are auth, not unsupported', async () => {
+  const reason = 'API key not valid. Please pass a valid API key.';
+  assertEquals((await setupFailure((ws) => ws.onclose?.({ code: 1007, reason }))).kind, 'auth');
+  // A 1007 for anything else is still what its code says.
+  assertEquals(
+    (await setupFailure((ws) => ws.onclose?.({ code: 1007, reason: 'Invalid frame' }))).kind,
+    'unsupported',
+  );
+});
+
 Deno.test('Live setup: a socket error is network, an error frame is its status kind', async () => {
   assertEquals((await setupFailure((ws) => ws.onerror?.())).kind, 'network');
   const denied = await setupFailure((ws) =>

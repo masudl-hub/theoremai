@@ -55,6 +55,11 @@ const decisionModel = (over: Loose): Loose => ({
   models: { m: { protocol: 'decision', provider: 'openrouter', apiId: 'x/y', ...over } },
 });
 
+/** The message, with its kind when that is not `config`: every profile error is a config error. */
+function refusal(err: TheoremError): string {
+  return err.kind === 'config' ? err.message : `[${err.kind}] ${err.message}`;
+}
+
 /** What defining the profile says, or `defined` when it takes. */
 function said(definition: Loose): string {
   try {
@@ -62,7 +67,7 @@ function said(definition: Loose): string {
     return 'defined';
   } catch (err) {
     if (!(err instanceof TheoremError)) throw err;
-    return err.message;
+    return refusal(err);
   }
 }
 
@@ -78,7 +83,7 @@ function saidAtRegistration(
     return 'registered';
   } catch (err) {
     if (!(err instanceof TheoremError)) throw err;
-    return err.message;
+    return refusal(err);
   }
 }
 
@@ -692,7 +697,7 @@ Deno.test('compaction names a registered text profile and keeps its numbers in r
       return 'registered';
     } catch (err) {
       if (!(err instanceof TheoremError)) throw err;
-      return err.message;
+      return refusal(err);
     }
   };
   const at = 'Profile p model m compaction';
@@ -768,4 +773,102 @@ Deno.test('a structured output maps only the choices of an existing slot', () =>
     true,
     'no slots at all',
   );
+});
+
+Deno.test('an image profile checks its pins, its references and its attachment types', () => {
+  const image = (image: Loose, over: Loose = {}) =>
+    textProfile({ id: 'i', type: 'image', image: { aspectRatio: '1:1', ...image }, ...over });
+  const png = { mimeType: 'image/png', data: 'x' };
+  check(said(image({})), 'defined', 'plain');
+  check(said(image({ n: 1, seed: 0, outputCompression: 0 })), 'defined', 'lower edges');
+  check(said(image({ outputCompression: 100 })), 'defined', 'upper edge');
+  table([
+    ['n zero', image({ n: 0 }), 'Profile i: image.n must be a whole number of 1 or more'],
+    ['n fraction', image({ n: 1.5 }), 'Profile i: image.n must be a whole number of 1 or more'],
+    ['seed fraction', image({ seed: 1.5 }), 'Profile i: image.seed must be a whole number'],
+    [
+      'compression over',
+      image({ outputCompression: 101 }),
+      'Profile i: image.outputCompression must be a whole number from 0 to 100',
+    ],
+    [
+      'compression under',
+      image({ outputCompression: -1 }),
+      'Profile i: image.outputCompression must be a whole number from 0 to 100',
+    ],
+    [
+      'reference not an image',
+      image({ references: [png, { mimeType: 'video/mp4', data: 'x' }] }),
+      "Profile i: image.references[1] must be an image, not 'video/mp4'",
+    ],
+    [
+      'reference without bytes',
+      image({ references: [{ mimeType: 'image/png', data: '' }] }),
+      'Profile i: image.references[0] needs its bytes or its uri',
+    ],
+    [
+      'reference without uri',
+      image({ references: [{ mimeType: 'image/png', uri: '' }] }),
+      'Profile i: image.references[0] needs its bytes or its uri',
+    ],
+    [
+      'attachments outside images',
+      image({}, { inputs: { text: true, attachments: { accept: ['image/png', 'text/csv'] } } }),
+      "Profile i: an image profile's attachments take images, video and PDF only, not text/csv",
+    ],
+  ]);
+  check(
+    said(image({ references: [png, { mimeType: 'image/png', uri: 'gs://b/o' }] })),
+    'defined',
+    'refs',
+  );
+});
+
+Deno.test('a live profile checks its context compression numbers and window', () => {
+  const live = (contextCompression: Loose) => ({
+    id: 'l',
+    type: 'live',
+    identity: { handle: 'l' },
+    models: { m: { protocol: 'geminiLive', provider: 'google', apiId: 'lv' } },
+    key: 'main',
+    tools: { allow: [] },
+    live: { voice: 'Aoede', contextCompression },
+  });
+  const at = 'Profile l live.contextCompression';
+  check(said(live({ triggerTokens: 100, slidingWindow: { targetTokens: 50 } })), 'defined', 'ok');
+  check(said(live({ slidingWindow: {} })), 'defined', 'provider defaults');
+  table([
+    [
+      'trigger zero',
+      live({ triggerTokens: 0, slidingWindow: {} }),
+      `${at}.triggerTokens must be a whole number above 0`,
+    ],
+    [
+      'trigger fraction',
+      live({ triggerTokens: 1.5, slidingWindow: {} }),
+      `${at}.triggerTokens must be a whole number above 0`,
+    ],
+    [
+      'target zero',
+      live({ slidingWindow: { targetTokens: 0 } }),
+      `${at}.slidingWindow.targetTokens must be a whole number above 0`,
+    ],
+    [
+      'target equals trigger',
+      live({ triggerTokens: 50, slidingWindow: { targetTokens: 50 } }),
+      `${at}: slidingWindow.targetTokens must be below triggerTokens`,
+    ],
+    [
+      'target above trigger',
+      live({ triggerTokens: 50, slidingWindow: { targetTokens: 60 } }),
+      `${at}: slidingWindow.targetTokens must be below triggerTokens`,
+    ],
+  ]);
+  check(
+    said(live({ triggerTokens: 50, slidingWindow: { targetTokens: 49 } })),
+    'defined',
+    'just below',
+  );
+  check(said(live({ triggerTokens: 50, slidingWindow: {} })), 'defined', 'only a trigger');
+  check(said(live({ slidingWindow: { targetTokens: 50 } })), 'defined', 'only a target');
 });

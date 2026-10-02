@@ -788,7 +788,7 @@ compaction: {
   maxTokens: 2000,
   compactAt: 0.75,
   previousExchanges: 8,
-  profile: "my.compactor",
+  profile: "my.compactor", // leave out to compact itself
   timing: "after",
   meter: "history",
   trigger: (ctx) =>
@@ -871,6 +871,11 @@ registerProfile(defineProfile({
   guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
 }));
 ```
+
+Leave `profile` out and the agent compacts its own history. The summary turn
+runs on the model being compacted for, with the agent's own instructions and no
+tools, so the agent writes the summary as itself. Only a text profile that
+takes text can compact itself, and that summary turn never compacts.
 
 Compaction applies to `runTurn` profiles (`text`, `image`, `speech`);
 `live` compacts with `live.contextCompression`.

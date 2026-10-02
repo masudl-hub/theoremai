@@ -32,15 +32,18 @@ import type {
   CompactionResult,
   CompactionSignal,
   CompactionSpec,
+  ModelId,
   ModelProfile,
   ModelProvider,
   Profile,
+  ProfileId,
   ResolvedGeneration,
   TurnEvent,
   TurnEventOf,
   TurnHistoryMessage,
   TurnRequest,
   TurnTokens,
+  TurnToolSnapshot,
 } from '../../types.ts';
 import { findLast } from '../../util/find-last.ts';
 import {
@@ -107,6 +110,11 @@ function getCompactionSpec(profile: ModelProfile, modelId: string): CompactionSp
 }
 
 /** Errors only the host can fix: the compactor throws them rather than failing quietly every turn. */
+/** A turn's tools when it offers none: an agent summarising its own history. */
+function noTools(): TurnToolSnapshot {
+  return { builtins: [], gated: [], visible: [], executable: [], wire: [] };
+}
+
 const COMPACTOR_THROWS: ReadonlySet<ErrorKind> = new Set(['config', 'request', 'auth', 'internal']);
 
 function turnError(events: readonly TurnEvent[]): TurnEventOf<'error'> | undefined {
@@ -117,10 +125,13 @@ function turnError(events: readonly TurnEvent[]): TurnEventOf<'error'> | undefin
  * Run the compaction profile as a turn under `span`: its spans join that
  * record and it writes none of its own. Anything short of a completed,
  * non-empty summary is a failure; the host's abort and `COMPACTOR_THROWS`
- * errors are thrown.
+ * errors are thrown. With no `spec.profile` the owner compacts itself, on the
+ * model it is compacting for and with no tools.
  */
 async function runCompactor(args: {
   registry: KernelRegistry;
+  owner: ProfileId;
+  model: ModelId;
   toCompact: TurnHistoryMessage[];
   spec: CompactionSpec;
   provider: ModelProvider;
@@ -128,11 +139,15 @@ async function runCompactor(args: {
   canaries: string[];
   signal?: AbortSignal;
 }): Promise<CompactorRun> {
-  const compactor = args.registry.profiles.get(args.spec.profile);
+  const self = args.spec.profile === undefined;
+  const compactorId = args.spec.profile ?? args.owner;
+  const compactor = args.registry.profiles.get(compactorId) as ModelProfile;
   const { history, droppedMedia } = compactorHistory(args.toCompact, compactor);
   if (history.length === 0) return { droppedMedia, failure: { unreadable: true } };
   const req: TurnRequest = {
-    profile: args.spec.profile,
+    profile: compactorId,
+    // The turn already passed model selection; its default needs no naming.
+    ...(self && args.model !== compactor.defaultModel ? { model: args.model } : {}),
     input: { text: lexiconText('compaction.request', {}, compactor.lexicon), history },
     signal: args.signal,
   };
@@ -142,7 +157,7 @@ async function runCompactor(args: {
     args.parent.child(`invoke_agent ${req.profile}`, turnSpanOptions(req)),
     args.canaries,
   );
-  ctx.compacting = true;
+  ctx.compacting = self ? 'self' : 'other';
   ctx.observability = resolveObservabilityPolicy(ctx.known?.observability);
 
   const events: TurnEvent[] = [];
@@ -165,7 +180,7 @@ async function runCompactor(args: {
   if (reported && COMPACTOR_THROWS.has(reported.errorKind)) {
     throw new TheoremError(
       reported.errorKind,
-      `Compactor '${args.spec.profile}' failed: ${reported.errorInternal ?? reported.error}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Compactor '${compactorId}' failed: ${reported.errorInternal ?? reported.error}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const error = reported?.errorKind;
@@ -234,6 +249,8 @@ function compactionOutcome(
 
 async function compactHistoryBeforeTurn(args: {
   registry: KernelRegistry;
+  owner: ProfileId;
+  model: ModelId;
   spec: CompactionSpec;
   family: MediaTokenFamily | undefined;
   history: TurnHistoryMessage[];
@@ -451,8 +468,11 @@ type TraceCtx = {
   root: SpanHandle;
   /** Step-state trace handle, once the turn's model binding is known. */
   trace?: TurnTraceState;
-  /** True for the compaction profile's own nested turn, which never compacts. */
-  compacting: boolean;
+  /**
+   * Set on the compaction profile's own nested turn, which never compacts:
+   * `self` when the agent summarises its own history, and then offers no tools.
+   */
+  compacting: false | 'self' | 'other';
   canary: string;
   /** Every canary bound in this record; a nested turn shares its parent's list. */
   canaries: string[];
@@ -612,6 +632,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   }
   const { profile, generation: gen } = resolveTurnInRegistry(ctx.registry, ctx.safe);
   await expandT1Policy(ctx.registry.tools, gen.tools, profile, ctx.safe);
+  if (ctx.compacting === 'self') gen.tools = noTools();
   gen.builtins = gen.tools.builtins;
   ctx.generation = gen;
   ctx.canary = gen.canary;
@@ -645,6 +666,7 @@ function compactorProvider(
   provider: ModelProvider,
 ): ModelProvider {
   if (ctx.req.compactionProvider) return ctx.req.compactionProvider;
+  if (spec.profile === undefined) return provider;
   const compactor = ctx.registry.profiles.get(spec.profile) as ModelProfile;
   const own = ctx.trace?.binding;
   const theirs = compactor.models[compactor.defaultModel];
@@ -673,6 +695,8 @@ async function maybeCompactBefore(
   if (!gen.history?.length) return undefined;
   const compaction = await compactHistoryBeforeTurn({
     registry: ctx.registry,
+    owner: profile.id,
+    model: gen.model,
     spec: compactionSpec,
     family: ctx.mediaFamily,
     history: gen.history,
@@ -717,12 +741,13 @@ async function compactHistoryInRegistry(
   sinkOverride?: TraceSink,
 ): Promise<CompactionResult | undefined> {
   const profile = registry.profiles.get(req.profile) as ModelProfile;
-  const binding = requireModelBinding(profile, req.model ?? profile.defaultModel);
+  const model = req.model ?? profile.defaultModel;
+  const binding = requireModelBinding(profile, model);
   const spec = binding.compaction;
   if (!spec) {
     throw new TheoremError(
       'config',
-      `Profile ${profile.id} model '${req.model ?? profile.defaultModel}' has no compaction`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profile.id} model '${model}' has no compaction`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const family = mediaTokenFamily(binding);
@@ -746,6 +771,8 @@ async function compactHistoryInRegistry(
   try {
     const run = await runCompactor({
       registry,
+      owner: profile.id,
+      model,
       toCompact: split.toCompact,
       spec,
       provider,

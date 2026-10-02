@@ -1,12 +1,14 @@
 import '../fixtures/test-host.ts';
 import { assertRejects, assertThrows } from '@std/assert';
 import { encode } from 'gpt-tokenizer/encoding/o200k_base';
+import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { sanitizeTurnRequest } from '../../src/guardrails/sanitize.ts';
 import {
   compactHistory,
   getProfile,
   registerProfile,
+  registerTool,
   runTurn,
 } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -1921,3 +1923,101 @@ for (const type of ['speech', 'image'] as const) {
     );
   });
 }
+
+Deno.test('a profile with no compaction profile compacts itself, on its own model and with no tools', async () => {
+  registerTool({
+    type: 'function',
+    name: 'compaction_self_lookup',
+    description: 'lookup',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({}),
+    handler: () => ({}),
+  });
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'self', system: 'You are the concierge.' },
+      tools: { allow: ['compaction_self_lookup'] },
+      id: 'compaction.self',
+      models: {
+        main: HOST_BINDINGS.gemini35FlashLite,
+        deep: { ...HOST_BINDINGS.gemini35FlashLite, compaction: BEFORE_SPEC },
+      },
+      defaultModel: 'main',
+      allowModelSelect: true,
+      key: 'main',
+      inputs: { text: true },
+      guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
+    }),
+  );
+
+  const calls: { model: string; system: string; tools: number }[] = [];
+  const provider: ModelProvider = {
+    complete: (req) => {
+      calls.push({ model: req.model, system: req.system, tools: req.wireTools?.length ?? 0 });
+      return (async function* () {
+        yield { type: 'text' as const, text: calls.length === 1 ? 'Summary' : 'ok' };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
+      })();
+    },
+  };
+  const events: TurnEvent[] = [];
+  for await (const ev of runTurn(
+    {
+      profile: 'compaction.self',
+      model: 'deep',
+      input: {
+        text: 'q',
+        historyTokens: 600,
+        history: [
+          ...exchange('old 1', 'a1'),
+          ...exchange('old 2', 'a2'),
+          ...exchange('old 3', 'a3'),
+          ...exchange('r1', 'ra1'),
+          ...exchange('r2', 'ra2'),
+        ],
+      },
+    },
+    provider,
+  )) {
+    events.push(ev);
+  }
+
+  assertEquals(calls.length, 2);
+  const [summary, turn] = calls;
+  assertEquals(summary.model, turn.model);
+  assertEquals(summary.system.includes('You are the concierge.'), true);
+  assertEquals(summary.tools, 0);
+  assertEquals(turn.tools, 1);
+  assertEquals(firstOf(events, 'compaction')?.summary, 'Summary');
+});
+
+Deno.test('a profile that compacts itself must be a text profile that takes text', () => {
+  assertThrows(
+    () =>
+      registerProfile(
+        defineProfile({
+          type: 'text',
+          identity: { handle: 'test', system: 'test' },
+          tools: { allow: [] },
+          inputs: {
+            text: false,
+            attachments: { accept: ['image/png'] },
+            maxFiles: 1,
+            maxBytes: 1000,
+            maxTurnBytes: 1000,
+          },
+          id: 'compaction.self.no_text',
+          key: 'main',
+          models: { m: { ...HOST_BINDINGS.gemini35FlashLite, compaction: BEFORE_SPEC } },
+        }),
+      ),
+    Error,
+    'Profile compaction.self.no_text model m compaction: a profile that compacts itself must be a text profile that takes text',
+  );
+});

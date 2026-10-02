@@ -38,7 +38,7 @@ const modelBinding = z.object({
       maxTokens: z.number(),
       compactAt: z.number(),
       previousExchanges: z.number(),
-      profile: z.string(),
+      profile: z.string().optional(),
       timing: z.enum(COMPACTION_TIMINGS),
       meter: z.enum(COMPACTION_METERS).optional(),
     })

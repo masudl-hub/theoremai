@@ -50,7 +50,7 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'models.*.compaction.maxTokens': { required: true },
   'models.*.compaction.compactAt': { required: true },
   'models.*.compaction.previousExchanges': { required: true },
-  'models.*.compaction.profile': { required: true },
+  'models.*.compaction.profile': { unset: 'The agent itself' },
   'models.*.compaction.timing': { required: true },
   'models.*.compaction.meter': { unset: 'history' },
   'models.*.cache': { unset: 'Off' },

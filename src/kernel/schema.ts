@@ -575,7 +575,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.compaction.profile': field(
     'ProfileId',
-    'The profile that writes the summary; register it before this one.',
+    'The profile that writes the summary; register it before this one. Leave it out and the agent summarises its own history, with its own instructions and model and no tools.',
   ),
   'models.*.compaction.timing': field(
     unionType(COMPACTION_TIMINGS),

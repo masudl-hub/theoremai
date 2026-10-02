@@ -253,8 +253,11 @@ export interface CompactionSpec {
    * next one). `≥ 1` = exchange count, `(0, 1)` = fraction of `maxTokens`, `0` = compact all.
    */
   previousExchanges: number;
-  /** Profile id of the compaction agent. Must be registered before the owning profile. */
-  profile: ProfileId;
+  /**
+   * Profile id of the compaction agent. Must be registered before the owning profile.
+   * Omit it and the agent compacts its own history: the same instructions and model, no tools.
+   */
+  profile?: ProfileId;
   /**
    * When compaction runs relative to the primary turn.
    * - `'before'`: kernel compacts synchronously before the turn; user pays latency on this turn.

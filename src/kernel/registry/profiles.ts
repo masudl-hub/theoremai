@@ -804,21 +804,30 @@ function assertWholeTokens(tag: string, value: number | undefined) {
 
 function assertCompactionSpec(
   registered: ReadonlyMap<string, Profile>,
-  profileId: string,
+  owner: Profile,
   modelId: ModelId,
   spec: CompactionSpec,
 ): void {
-  const tag = `Profile ${profileId} model ${modelId} compaction`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  const tag = `Profile ${owner.id} model ${modelId} compaction`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   assertCompactionBudget(tag, spec);
   assertCompactionRetain(tag, spec);
   if (spec.meter != null && spec.meter !== 'history' && spec.meter !== 'input') {
     throw new TheoremError('config', `${tag}: meter must be 'history' or 'input'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
+  if (spec.profile === undefined) {
+    if (owner.type !== 'text' || owner.inputs?.text === false) {
+      throw new TheoremError(
+        'config',
+        `${tag}: a profile that compacts itself must be a text profile that takes text`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    return;
+  }
   const compactor = registered.get(spec.profile);
   if (!compactor) {
     throw new TheoremError(
       'config',
-      `${tag}: compaction profile '${spec.profile}' must be registered before '${profileId}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `${tag}: compaction profile '${spec.profile}' must be registered before '${owner.id}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (compactor.type !== 'text' || compactor.inputs?.text === false) {
@@ -1019,7 +1028,7 @@ function createProfileRegistry(tools: ToolRegistry): ProfileRegistry {
       assertMediaLimits(profile);
       for (const [modelId, binding] of Object.entries(profile.models)) {
         if (binding.compaction) {
-          assertCompactionSpec(profiles, profile.id, modelId, binding.compaction);
+          assertCompactionSpec(profiles, profile, modelId, binding.compaction);
         }
       }
     }

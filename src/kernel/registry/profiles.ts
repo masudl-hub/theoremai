@@ -813,7 +813,7 @@ function assertCompactionSpec(
     throw new TheoremError('config', `${tag}: meter must be 'history' or 'input'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (spec.profile === undefined) {
-    if (owner.type !== 'text' || owner.inputs?.text === false) {
+    if (owner.type !== 'text' || owner.inputs.text === false) {
       throw new TheoremError(
         'config',
         `${tag}: a profile that compacts itself must be a text profile that takes text`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -843,7 +843,7 @@ function assertCacheSpec(
   spec: NonNullable<ModelBinding['cache']>,
 ): void {
   const tag = `Profile ${profileId} model '${modelId}'`;
-  if (binding.provider !== 'openrouter' || binding.protocol !== 'openAi') {
+  if (binding.provider !== 'openrouter') {
     throw new TheoremError(
       'config',
       `${tag}: cache is only valid when protocol is 'openAi' and provider is 'openrouter'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -865,7 +865,7 @@ function assertInteractionsPersistence(
   modelId: ModelId,
   binding: ModelBinding,
 ): void {
-  if (binding.protocol === 'geminiInteractions' && binding.provider === 'google') {
+  if (binding.protocol === 'geminiInteractions') {
     if (binding.persistViaInteractionId === undefined) {
       throw new TheoremError(
         'config',

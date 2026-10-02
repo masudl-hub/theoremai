@@ -524,3 +524,32 @@ Deno.test('a channel that takes nothing is the only issue named, and copy keeps 
     'no file name, no key',
   );
 });
+
+Deno.test('a turn with no blobs needs no limits, a refusal carries its copy, an image is not scrubbed', () => {
+  const noLimits = profile({ inputs: { text: true } });
+  for (const [attachments, voice] of [
+    [undefined, undefined],
+    [[], []],
+    [[], undefined],
+    [undefined, []],
+  ] as const) {
+    check(
+      thrown(() => assertTurnAttachments(noLimits, attachments as never, voice as never)),
+      undefined,
+      `no blobs: ${JSON.stringify([attachments, voice])}`,
+    );
+  }
+  const refused = attachmentsRefused([{ code: 'too_many_files', params: { maxFiles: 4 } }]);
+  check(
+    refused.copy,
+    [{ key: 'attachments.too_many_files', params: { maxFiles: 4 } }],
+    'copy rides on the refusal',
+  );
+  const bytes = btoa(String.fromCharCode(0xff, 0xfe, 0x3d, 0x31));
+  const png = { mimeType: 'image/png', data: bytes };
+  check(
+    sanitizeTurnBlobs(profile(), [png] as never, undefined).attachments?.[0],
+    png,
+    'image bytes are not decoded as text',
+  );
+});

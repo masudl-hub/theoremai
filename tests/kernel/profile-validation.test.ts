@@ -905,6 +905,22 @@ Deno.test('a required field is named when null, empty or missing, shallowest fir
     'a missing parent is named before a missing leaf',
   );
   check(
+    said(textProfile({ identity: { handle: '' }, inputs: undefined })),
+    "Profile p: type 'text' must set inputs",
+    'a late shallow field beats an early deeper one',
+  );
+  check(
+    said(
+      textProfile({
+        identity: { handle: '' },
+        inputs: undefined,
+        models: { m: { provider: 'google', apiId: 'x' } },
+      }),
+    ),
+    "Profile p: type 'text' must set inputs",
+    'the shallowest of three depths',
+  );
+  check(
     said(
       textProfile(modelWith({ compaction: { compactAt: 0.5, previousExchanges: 1, timing: 'x' } })),
     ),
@@ -1069,5 +1085,100 @@ Deno.test('a compaction profile must be a text profile', () => {
     message,
     "Profile p model m compaction: compaction profile 'pic' must be a text profile that takes text",
     'image compactor',
+  );
+});
+
+Deno.test('egress names its one of two, its function, its holdback and its checks', () => {
+  const enforce = () => ({ action: 'allow' as const });
+  const egress = (over: Loose) => said(textProfile({ guardrails: { egress: over } }));
+  const oneOf =
+    'Profile p: guardrails.egress takes enforce (your own check) or checks (the bundled ones), one of the two';
+  check(egress({}), oneOf, 'neither');
+  check(egress({ enforce, checks: true }), oneOf, 'both');
+  check(
+    egress({ enforce: 'standard' }),
+    'Profile p: guardrails.egress.enforce must be a function',
+    'enforce not a function',
+  );
+  check(
+    egress({ checks: { imageHosts: [] } }).startsWith('Profile p: guardrails.egress.checks'),
+    true,
+    'checks problem',
+  );
+  check(
+    egress({ checks: true, holdback: 96 }),
+    'Profile p: guardrails.egress.holdback applies only to a host egress.enforce; the bundled policy holds exactly what could still become a match',
+    'holdback on the bundled policy',
+  );
+  check(egress({ checks: false }), 'defined', 'checks off');
+});
+
+Deno.test('a trigger above the window defines, a profile compacting itself must take text', () => {
+  const live = (compression: Loose) => ({
+    id: 'l',
+    type: 'live',
+    identity: { handle: 'l' },
+    models: { m: { protocol: 'geminiLive', provider: 'google', apiId: 'lv' } },
+    key: 'main',
+    tools: { allow: [] },
+    live: { voice: 'Aoede', contextCompression: compression },
+  });
+  check(
+    said(live({ triggerTokens: 1000, slidingWindow: { targetTokens: 500 } })),
+    'defined',
+    'target below trigger',
+  );
+  check(
+    said(live({ triggerTokens: 1000, slidingWindow: { targetTokens: 1000 } })),
+    'Profile l live.contextCompression: slidingWindow.targetTokens must be below triggerTokens',
+    'target at trigger',
+  );
+
+  const self = { maxTokens: 100, compactAt: 0.5, previousExchanges: 2, timing: 'before' };
+  const at = 'Profile p model m compaction';
+  check(saidAtRegistration(textProfile(modelWith({ compaction: self }))), 'registered', 'text');
+  check(
+    saidAtRegistration(
+      textProfile({ ...modelWith({ compaction: self }), inputs: { text: false } }),
+    ),
+    `${at}: a profile that compacts itself must be a text profile that takes text`,
+    'text off',
+  );
+  check(
+    saidAtRegistration({
+      id: 'p',
+      type: 'image',
+      identity: { handle: 'p' },
+      models: { m: { ...BINDING, compaction: self } },
+      key: 'main',
+      image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/png' },
+      tools: { allow: [] },
+      inputs: { text: true },
+    }),
+    `${at}: a profile that compacts itself must be a text profile that takes text`,
+    'an image profile',
+  );
+});
+
+Deno.test('an image profile names the types its attachments may not take', () => {
+  check(
+    said({
+      id: 'p',
+      type: 'image',
+      identity: { handle: 'p' },
+      models: { m: { ...BINDING } },
+      key: 'main',
+      image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/png' },
+      tools: { allow: [] },
+      inputs: {
+        text: true,
+        attachments: { accept: ['image/png', 'audio/wav', 'text/plain'] },
+        maxFiles: 1,
+        maxBytes: 1,
+        maxTurnBytes: 1,
+      },
+    }),
+    "Profile p: an image profile's attachments take images, video and PDF only, not audio/wav, text/plain",
+    'outside types',
   );
 });

@@ -71,7 +71,13 @@ import type {
   TurnBehaviourDraft,
   UrlCheckDraft,
 } from './draft.ts';
-import { draftAllows, draftFacets, INLINE_WORDING, takesContinueInstruction } from './draft.ts';
+import {
+  COMPACTION_DRAFT_DEFAULTS,
+  draftAllows,
+  draftFacets,
+  INLINE_WORDING,
+  takesContinueInstruction,
+} from './draft.ts';
 import {
   decisionQuestionViolation,
   GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS,
@@ -241,6 +247,7 @@ function compileBinding(
     report(nodeId, 'Chaining needs Google storage on.', 'persistViaInteractionId');
   }
   const cache = compileCache(binding, nodeId, report);
+  const compaction = compileCompaction(binding, type, nodeId, report);
   const server = binding.provider === 'local' ? binding.server?.trim() : undefined;
 
   return {
@@ -257,6 +264,7 @@ function compileBinding(
     ...(binding.temperature !== null ? { temperature: binding.temperature } : {}),
     ...(binding.builtInTools.length ? { builtInTools: [...binding.builtInTools] } : {}),
     ...(cache ? { cache } : {}),
+    ...(compaction ? { compaction } : {}),
     ...(server ? { server } : {}),
     ...(onGoogleInteractions(binding)
       ? {
@@ -278,6 +286,48 @@ function compileCache(
     report(nodeId, 'Prompt caching runs only on OpenRouter with openAi.', 'cacheMode');
   }
   return { mode: binding.cacheMode, ...(binding.cacheTtl ? { ttl: binding.cacheTtl } : {}) };
+}
+
+/**
+ * The agent compacts its own history: the playground registers one agent, so
+ * there is no other to name.
+ */
+function compileCompaction(
+  binding: ModelBindingDraft,
+  type: PlaygroundProfileType,
+  nodeId: string,
+  report: Report,
+): ModelBinding['compaction'] {
+  const timing = binding.compactTiming;
+  if (!timing) return undefined;
+  if (type !== 'text') {
+    report(nodeId, 'Only a text agent compacts its own history.', 'compactTiming');
+  }
+  const maxTokens = binding.compactMaxTokens ?? null;
+  const compactAt = binding.compactAt ?? COMPACTION_DRAFT_DEFAULTS.compactAt;
+  const keep = binding.compactKeep ?? null;
+  if (maxTokens === null) report(nodeId, 'Compaction needs a budget.', 'compactMaxTokens');
+  checkWhole(report, nodeId, 'compactMaxTokens', 'Budget', maxTokens, 1);
+  if (!(compactAt > 0 && compactAt < 1)) {
+    report(nodeId, 'Compaction must start between 0 and 1 of the budget.', 'compactAt');
+  }
+  const keepValid =
+    keep !== null &&
+    (keep === 0 || (Number.isInteger(keep) && keep >= 1) || (keep > 0 && keep < compactAt));
+  if (!keepValid) {
+    report(
+      nodeId,
+      'Keep a whole number of exchanges, a fraction of the budget below where compaction starts, or 0.',
+      'compactKeep',
+    );
+  }
+  return {
+    maxTokens: maxTokens ?? 0,
+    compactAt,
+    previousExchanges: keep ?? 0,
+    timing,
+    ...(binding.compactMeter ? { meter: binding.compactMeter } : {}),
+  };
 }
 
 function onGoogleInteractions(binding: ModelBindingDraft): boolean {

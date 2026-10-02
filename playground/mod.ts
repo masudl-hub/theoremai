@@ -8,6 +8,7 @@ export {
   type PlaygroundTurnProfileDefinition,
 } from './compile.ts';
 export {
+  COMPACTION_DRAFT_DEFAULTS,
   createBlankDraft,
   type DecisionCriterionDraft,
   type DecisionDraft,

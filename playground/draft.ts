@@ -19,6 +19,8 @@ import { profileTypesForField } from '../src/kernel/profile-scope.ts';
 import { CONTINUE_INSTRUCTION_TYPES } from '../src/kernel/stop.ts';
 import {
   type CacheMode,
+  type CompactionMeter,
+  type CompactionTiming,
   type CacheTtl,
   type ContinueStopKind,
   type EgressOnBlock,
@@ -117,7 +119,24 @@ export interface ModelBindingDraft {
   cacheTtl?: CacheTtl | '';
   /** The local server running the model, recorded on traces; local models only. */
   server?: string;
+  /** When the agent compacts its own history; `''` or absent leaves compaction off. Text only. */
+  compactTiming?: CompactionTiming | '';
+  /** The token budget `compactAt` is a fraction of. */
+  compactMaxTokens?: number | null;
+  /** The fraction of the budget, between 0 and 1, at which compaction starts. */
+  compactAt?: number;
+  /** Recent history kept word for word: exchanges, a fraction of the budget, or 0 for none. */
+  compactKeep?: number | null;
+  /** What counts toward the budget; `''` or absent is history. */
+  compactMeter?: CompactionMeter | '';
 }
+
+/** Where compaction starts when a builder turns it on; every number stays theirs to change. */
+export const COMPACTION_DRAFT_DEFAULTS = {
+  compactMaxTokens: 32_000,
+  compactAt: 0.75,
+  compactKeep: 4,
+} as const satisfies Partial<ModelBindingDraft>;
 
 export interface ToolsDraft {
   /** Function tool that promotes T2 tools; empty omits it. */

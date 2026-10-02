@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
-import { isKeySlotName } from '../../mod.ts';
+import { isKeySlotName, registerProfile } from '../../mod.ts';
 import {
+  COMPACTION_DRAFT_DEFAULTS,
   compilePlayground,
   createBlankDraft,
   createExampleDraft,
@@ -874,6 +875,44 @@ Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () =
     refused.issues.map((issue) => issue.field),
     ['cacheMode'],
   );
+});
+
+Deno.test('compaction compiles as the agent compacting itself, and registers', () => {
+  // No tools, so the profile registers without them.
+  const plain = { ...createExampleDraft(), toolSpecs: [], tools: { t2Loader: '' } };
+  const draft = updateModelBinding(plain, plain.modelBindings[0].key, {
+    ...COMPACTION_DRAFT_DEFAULTS,
+    compactTiming: 'before',
+    compactMeter: 'input',
+  });
+  const { profile } = compiled(draft);
+  assertEquals(profile.models.fast.compaction, {
+    maxTokens: 32_000,
+    compactAt: 0.75,
+    previousExchanges: 4,
+    timing: 'before',
+    meter: 'input',
+  });
+  registerProfile({ ...profile, id: 'playground.compaction.self' });
+  assertEquals(compiled(plain).profile.models.fast.compaction, undefined);
+});
+
+Deno.test('compaction reports a missing budget, a bad start and a bad keep on their fields', () => {
+  const draft = createExampleDraft();
+  const bad = compilePlayground(
+    updateModelBinding(draft, draft.modelBindings[0].key, {
+      compactTiming: 'after',
+      compactMaxTokens: null,
+      compactAt: 1,
+      compactKeep: 1.5,
+    }),
+  );
+  assert(!bad.ok);
+  assertEquals(bad.issues.map((issue) => issue.field).sort(), [
+    'compactAt',
+    'compactKeep',
+    'compactMaxTokens',
+  ]);
 });
 
 Deno.test('a local server name compiles only on a local model', () => {

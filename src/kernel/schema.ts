@@ -1222,10 +1222,6 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     'string',
     'A credential for one connection test, never saved.',
   ),
-  'playground.system': field(
-    'string',
-    'Wrap what must not leak in {private: …}; only that is guarded. With none, the whole prompt is.',
-  ),
   'playground.stubOutput': {
     ...field('Record<string, unknown>', 'The result a function tool returns in the playground.'),
     unset: 'A stand-in built from the output schema',

@@ -19,6 +19,7 @@ import {
   playgroundTree,
   setProfileType,
 } from '../../playground/mod.ts';
+import { defineProfile } from '../../src/kernel/mod.ts';
 
 function withQuestions(
   draft: PlaygroundDraft,
@@ -280,4 +281,26 @@ Deno.test('playgroundSource writes the questions beside the profile', () => {
   assertStringIncludes(source, 'type DecisionQuestion');
   assertStringIncludes(source, 'satisfies Record<string, DecisionQuestion>;');
   assertStringIncludes(source, "contract: 'guardrails.tool_call.v1'");
+});
+
+Deno.test('the hosted decision request keeps the key slots the draft chose', () => {
+  const draft = setProfileType(createExampleDraft(), 'decision');
+  const compiled = compilePlayground({
+    ...draft,
+    models: { ...draft.models, key: 'house' },
+    modelBindings: [{ ...draft.modelBindings[0], keySlot: 'openrouter' }],
+  });
+  assert(compiled.ok);
+  const { profile, questions } = compiled;
+  const parsed = playgroundDecisionRequestSchema.parse({ profile, questions, state: 'test' });
+  assertEquals(parsed.profile.key, 'house');
+  assertEquals(Object.values(parsed.profile.models)[0].key, 'openrouter');
+  defineProfile(parsed.profile as typeof profile);
+  assert(
+    !playgroundDecisionRequestSchema.safeParse({
+      profile: { ...profile, key: 'not a slot' },
+      questions,
+      state: 'test',
+    }).success,
+  );
 });

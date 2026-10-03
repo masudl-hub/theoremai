@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { KEY_SLOT_NAME } from '../src/kernel/schema.ts';
 import {
   PLAYGROUND_DECISION_MAX_CRITERIA,
   PLAYGROUND_DECISION_MAX_CRITERION_CHARS,
@@ -13,6 +14,7 @@ import {
 const name = z.string().trim().min(1).max(PLAYGROUND_DECISION_MAX_NAME_CHARS);
 const id = z.string().trim().min(1).max(PLAYGROUND_DECISION_MAX_ID_CHARS);
 const entry = z.string().trim().min(1).max(PLAYGROUND_DECISION_MAX_CRITERION_CHARS);
+const slot = z.string().regex(KEY_SLOT_NAME);
 const labelled = z.record(name, entry)
   .refine((record) =>
     Object.keys(record).length > 0 && Object.keys(record).length <= PLAYGROUND_DECISION_MAX_CRITERIA
@@ -40,6 +42,7 @@ export const playgroundDecisionRequestSchema = z.object({
         protocol: z.literal('decision'),
         provider: z.enum(['typesafe', 'openrouter']),
         apiId: id,
+        key: slot.optional(),
         timeoutMs: z.number().int().min(1).max(PLAYGROUND_DECISION_TIMEOUT_MS).default(
           PLAYGROUND_DECISION_TIMEOUT_MS,
         ),
@@ -50,6 +53,7 @@ export const playgroundDecisionRequestSchema = z.object({
       maxStateBytes: z.number().int().min(1).max(PLAYGROUND_DECISION_MAX_STATE_BYTES),
     }),
     decision: z.object({ contract: id }),
+    key: slot.optional(),
     observability: z.record(z.string(), z.unknown()).optional(),
     lexicon: z.record(z.string(), z.unknown()).optional(),
   }),

@@ -8,10 +8,13 @@ import type {
   ToolPermission,
 } from '../src/kernel/schema.ts';
 
+/** The tool types a playground draft builds; agent tools come with more than one agent per draft. */
+export type PlaygroundToolType = Exclude<CustomToolType, 'agent'>;
+
 /** Serializable tool facet seed — UI adds `kind` / `expanded` in the frontend. */
 export type PlaygroundToolSpecSeed = {
   toolName: string;
-  toolType: CustomToolType;
+  toolType: PlaygroundToolType;
   description: string;
   category: string;
   access: ToolAccess;

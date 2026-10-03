@@ -25,7 +25,17 @@ import type {
   TurnToolSnapshot,
   WireFunctionTool,
 } from '../turn-events.ts';
-import type { InteractionPart, Profile, ToolId, TurnInput, TurnTraceLink } from '../types.ts';
+import type {
+  InteractionPart,
+  ModelId,
+  ModelProvider,
+  Profile,
+  ProfileId,
+  ToolId,
+  TurnInput,
+  TurnRequest,
+  TurnTraceLink,
+} from '../types.ts';
 
 export type {
   AuthUnauthenticatedPolicy,
@@ -224,11 +234,83 @@ export interface McpToolDef<TIn = unknown, TOut = unknown>
   auth?: ToolAuthConfig;
 }
 
+/** What the calling model sends an agent tool. */
+export interface AgentToolInput {
+  text: string;
+}
+
+/** What an agent tool returns: the called agent's reply. Media rides as `parts`. */
+export interface AgentToolOutput {
+  text: string;
+  structured?: unknown;
+  parts?: InteractionPart[];
+}
+
+/**
+ * A tool whose call runs one turn of another registered agent. That agent is a
+ * standalone profile; the tool is how another agent's model calls it. What the
+ * call carries beyond the model's text is the host's choice (`onAgentCall`).
+ */
+export interface AgentToolDef extends ToolBase {
+  type: 'agent';
+  /** A text, image or speech profile, registered before this tool. Nothing it can call may gate. */
+  profile: ProfileId;
+  /** Calls to this tool in one turn of its caller. Omit: only `maxSteps` bounds them. */
+  maxCallsPerTurn?: number;
+  preTool?: ToolHostHooks<AgentToolInput>['preTool'];
+  exposeToModel?: boolean;
+}
+
+export interface RegisteredAgentTool extends AgentToolDef, ToolHostHooks<AgentToolInput> {
+  input: z.ZodType<AgentToolInput>;
+  output: z.ZodType<AgentToolOutput>;
+}
+
+/** An agent tool call, as the host's `onAgentCall` sees it before the agent runs. */
+export interface AgentCall {
+  /** The agent tool's name. */
+  tool: string;
+  callId: string;
+  /** The agent the tool runs. */
+  profile: ProfileId;
+  input: AgentToolInput;
+  /** The agent whose model made the call. */
+  caller: ProfileId;
+  /** 1 for a call from the host's own turn; one more for each agent tool it came through. */
+  depth: number;
+  /** The outermost request's `metadata`. */
+  metadata?: Record<string, unknown>;
+  signal?: AbortSignal;
+}
+
+/**
+ * What the host sets on the called agent's turn. The kernel fixes its profile,
+ * signal, trace parent and hook. `provider` runs the turn; omit it to use the
+ * caller's, which works only when both are on the same provider and protocol.
+ */
+export interface AgentCallRequest
+  extends Partial<
+    Pick<TurnRequest, 'input' | 'effort' | 'metadata' | 'onStage' | 'conversationId'>
+  > {
+  model?: ModelId;
+  provider?: ModelProvider;
+}
+
+/** Return nothing to run the agent on the model's text alone; `refuse` is read back to the model. */
+export type AgentCallHook = (
+  call: AgentCall,
+) =>
+  | AgentCallRequest
+  | { refuse: string }
+  | undefined
+  | Promise<AgentCallRequest | { refuse: string } | undefined>;
+
 export type RegisteredTool<TIn = unknown, TOut = unknown> =
   | BuiltinToolDef
   | FunctionToolDef<TIn, TOut>
   | HttpToolDef<TIn, TOut>
-  | McpToolDef<TIn, TOut>;
+  | McpToolDef<TIn, TOut>
+  | RegisteredAgentTool;
 
 export type ToolDefinitionInput<TIn = unknown, TOut = unknown> =
   | BuiltinToolDef
@@ -243,7 +325,8 @@ export type ToolDefinitionInput<TIn = unknown, TOut = unknown> =
   | (Omit<McpToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
       input: z.ZodType<TIn>;
       output: z.ZodType<TOut>;
-    });
+    })
+  | AgentToolDef;
 
 export interface PromoteLoadedResult {
   promoted: ToolId[];
@@ -298,6 +381,10 @@ export interface InvokeToolRequest {
   links?: TurnTraceLink[];
   /** Receives `pre_tool` / `post_tool` only. */
   onStage?: import('../stages.ts').StageHandler;
+  /** Runs an agent tool's turn; an agent tool needs it, or `onAgentCall` returning one. */
+  provider?: ModelProvider;
+  /** As `TurnRequest.onAgentCall`, for an agent tool this invoke runs. */
+  onAgentCall?: AgentCallHook;
 }
 
 export interface ProfileToolsSpec {

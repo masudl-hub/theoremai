@@ -848,7 +848,7 @@ labelled.
 
 | Field | Meaning |
 | --- | --- |
-| `origin` | `local`, `builtin`, `http`, `mcp` (`delegated` is in the schema, but no tool type produces it) |
+| `origin` | `local`, `builtin`, `http`, `mcp`, `delegated` (an agent tool whose agent has tools; one with none is `local`) |
 | `tool` | Registered tool name |
 | `depth` | Hops from the user's turn; always `1` today |
 

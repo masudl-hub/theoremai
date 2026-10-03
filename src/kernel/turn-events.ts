@@ -79,6 +79,7 @@ const interactionPart = z.union([
   interactionMediaRefPart,
 ]);
 true satisfies Equals<z.infer<typeof interactionPart>, InteractionPart>;
+export const interactionPartSchema: z.ZodType<InteractionPart> = interactionPart;
 
 export interface TurnHistoryMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -630,9 +631,17 @@ export type ToolPhaseEvent = ToolPhaseBase &
         readBack?: string;
         parts?: InteractionPart[];
         activityPast?: string;
+        /** An agent tool's call: the called agent's own usage, which the caller's `done.tokens` includes. */
+        tokens?: TurnTokens;
       }
     | { phase: 'gate'; gate: ToolGate; readBack?: string }
-    | { phase: 'error'; failure: ToolFailure; readBack?: string }
+    | {
+        phase: 'error';
+        failure: ToolFailure;
+        readBack?: string;
+        /** An agent tool's call: the called agent's own usage, as on `complete`. */
+        tokens?: TurnTokens;
+      }
     | { phase: 'cancel' }
   );
 export type ToolCallPhase = ToolPhaseEvent['phase'];
@@ -655,6 +664,7 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     readBack: z.string().optional(),
     parts: z.array(interactionPart).optional(),
     activityPast: z.string().optional(),
+    tokens: turnTokens.optional(),
   }),
   z.object({
     ...toolPhaseBase,
@@ -667,6 +677,7 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     phase: z.literal('error'),
     failure: toolFailure,
     readBack: z.string().optional(),
+    tokens: turnTokens.optional(),
   }),
   z.object({ ...toolPhaseBase, phase: z.literal('cancel') }),
 ]);

@@ -19,9 +19,10 @@ import {
 } from '../engine/tool-trace.ts';
 import { type InjectUnit, isAwaitingUserInput } from '../stages.ts';
 import type { Source } from '../turn-events.ts';
-import type { InteractionPart, Profile, TurnEvent } from '../types.ts';
+import type { InteractionPart, Profile, TurnEvent, TurnTokens } from '../types.ts';
 import { isRecord } from '../util/record.ts';
 import { fillActivityLabel } from './activity-label.ts';
+import { type AgentCaller, AgentCallFailed, agentToolOrigin } from './agent.ts';
 import {
   failureEvent,
   messageOf,
@@ -70,10 +71,13 @@ import {
   type ToolStageSupport,
 } from './stage-run.ts';
 import type {
+  AgentToolInput,
+  AgentToolOutput,
   FunctionToolDef,
   HttpToolDef,
   McpToolDef,
   ModelToolResult,
+  RegisteredAgentTool,
   RegisteredTool,
   ToolBodyOutcome,
   ToolContext,
@@ -91,15 +95,18 @@ export {
   permissionGranted,
 } from './permission.ts';
 
-function originOfTool(type: RegisteredTool['type']): ToolOrigin {
-  if (type === 'http') return 'http';
-  if (type === 'mcp') return 'mcp';
-  if (type === 'builtin') return 'builtin';
+function originOfTool(tool: RegisteredTool, tools: ToolRegistry): ToolOrigin {
+  if (tool.type === 'agent') return agentToolOrigin(tools.findProfile(tool.profile));
+  if (tool.type === 'http') return 'http';
+  if (tool.type === 'mcp') return 'mcp';
+  if (tool.type === 'builtin') return 'builtin';
   return 'local';
 }
 
-function provenanceFor(tool: RegisteredTool, depth = 1): Provenance {
-  return { origin: originOfTool(tool.type), tool: tool.name, depth };
+/** A delegated reply is one hop past the called agent's own tools. */
+function provenanceFor(tool: RegisteredTool, tools: ToolRegistry): Provenance {
+  const origin = originOfTool(tool, tools);
+  return { origin, tool: tool.name, depth: origin === 'delegated' ? 2 : 1 };
 }
 
 function isStreamHandler(handler: unknown): boolean {
@@ -475,12 +482,13 @@ function settleToolFailure(
 }
 
 function resultGuard(
+  tools: ToolRegistry,
   tool: RegisteredTool,
   ctx: ToolContext,
   snapshot: TurnToolSnapshot | undefined,
   span: SpanHandle | undefined,
 ): ResultGuard {
-  const provenance = provenanceFor(tool);
+  const provenance = provenanceFor(tool, tools);
   const policy = resolveGuardrailPolicy(ctx.profile.guardrails);
   const callableTools = snapshot?.executable ?? [];
   const inputs = { provenance, policy, callableTools, lexicon: ctx.profile.lexicon, span };
@@ -577,8 +585,10 @@ export async function* executeFunction(
   base: ToolCallBase,
   snapshot?: TurnToolSnapshot,
   stages?: ToolStageSupport,
+  /** Set when `tool` runs an agent tool: its trust, and its handler's failures and faults. */
+  agent?: RegisteredAgentTool,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
-  const guard = resultGuard(tool, ctx, snapshot, stages?.span);
+  const guard = resultGuard(tools, agent ?? tool, ctx, snapshot, stages?.span);
   const callId = base.callId;
   const parsed = yield* startToolExecution(tool, rawInput, ctx, base);
   if (!parsed.ok) {
@@ -655,6 +665,11 @@ export async function* executeFunction(
     output = yield* runHandler(tool.handler, input as never, handlerCtx, base);
     checks.record();
   } catch (err) {
+    if (agent) {
+      // Anything but a settled failure is the host's to fix, as a compactor's is.
+      if (err instanceof AgentCallFailed) return yield* fail(err.failure);
+      throw err;
+    }
     if (signedIn.prepared && err instanceof CredentialRefusedError) {
       checks.record();
       const refused = yield* refusedCredentialOutcome(
@@ -877,6 +892,8 @@ interface RegisteredToolCall {
   openSpan?: (name: string, attributes: TraceAttributes) => SpanHandle;
   /** Defaults to `turnReadBack`; a transport that sends something else (Live's `functionResponse`) passes its own. */
   readBack?: (settlement: ToolExecuteSettlement) => ToolCallEnd['result'];
+  /** Runs agent tool calls; without it an agent tool fails as a type the transport can't run. */
+  agents?: AgentCaller;
 }
 
 function turnReadBack({ modelResult }: ToolExecuteSettlement): ToolCallEnd['result'] {
@@ -887,7 +904,7 @@ function turnReadBack({ modelResult }: ToolExecuteSettlement): ToolCallEnd['resu
 
 /** The service a refused sign-in names, from the tool's own auth config. */
 function refusedSignInService(tool: RegisteredTool, resume: ToolContext['resume']) {
-  if (!resume?.signIn || tool.type === 'builtin') return undefined;
+  if (!resume?.signIn || tool.type === 'builtin' || tool.type === 'agent') return undefined;
   return tool.auth?.service;
 }
 
@@ -976,7 +993,7 @@ export async function* executeRegisteredTool(
     name: args.name,
     callId: args.callId,
     call: { arguments: toolCallArguments(plainToolInput(args.input)) },
-    origin: tool ? originOfTool(tool.type) : undefined,
+    origin: tool ? originOfTool(tool, args.tools) : undefined,
     permission: tool && 'permission' in tool ? tool.permission : undefined,
     approved: resumeApproval(args.ctx.resume),
     step: args.ctx.turn?.step,
@@ -1055,7 +1072,7 @@ async function* runRegisteredTool(
 
   if (isGateResumeDenied(ctx.resume)) {
     return yield* settleToolFailure(
-      resultGuard(tool, { ...ctx, callId, profile }, snapshot, stages?.span),
+      resultGuard(args.tools, tool, { ...ctx, callId, profile }, snapshot, stages?.span),
       base,
       refusalFailure(tool, ctx.resume, profile.lexicon),
       stages,
@@ -1065,7 +1082,7 @@ async function* runRegisteredTool(
 
   const fullCtx: ToolContext = { ...ctx, callId, profile };
   const policy = resolveGuardrailPolicy(profile.guardrails);
-  const provenance = provenanceFor(tool);
+  const provenance = provenanceFor(tool, args.tools);
 
   const argsStart = performance.now();
   const argEvent = toolCallEvent(inspectToolArguments(safeInput, policy), provenance);
@@ -1091,7 +1108,99 @@ async function* runRegisteredTool(
     return { ...earlyFailure(failure), denied: true };
   }
 
-  return yield* settleByType(args.tools, tool, safeInput, fullCtx, base, snapshot, stages);
+  return yield* settleByType(
+    args.tools,
+    tool,
+    safeInput,
+    fullCtx,
+    base,
+    snapshot,
+    stages,
+    args.agents,
+  );
+}
+
+/**
+ * An agent tool runs as a function tool whose handler is the called agent's
+ * turn, so input checks, gates, stages and the result guard are the same. The
+ * agent's events stream as the call's `progress`, and its usage rides on the
+ * call's last phase.
+ */
+async function* executeAgentTool(args: {
+  tools: ToolRegistry;
+  tool: RegisteredAgentTool;
+  safeInput: unknown;
+  ctx: ToolContext;
+  base: ToolCallBase;
+  snapshot: TurnToolSnapshot | undefined;
+  stages: ToolStageSupport | undefined;
+  agents: AgentCaller | undefined;
+}): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
+  const { tool, ctx, base, agents } = args;
+  if (!agents) {
+    const failure: ToolFailure = {
+      code: 'unknown_tool',
+      kind: 'unsupported',
+      message: lexiconText('tool.unsupported_type', { tool: tool.name }, ctx.profile.lexicon),
+    };
+    yield failureEvent(base, failure);
+    return earlyFailure(failure);
+  }
+  let tokens: TurnTokens | undefined;
+  const span = args.stages?.span;
+  const handler = async function* (
+    input: unknown,
+    handlerCtx: ToolContext,
+  ): AsyncGenerator<ToolStreamEvent<AgentToolOutput>> {
+    const run = agents.run({
+      tool,
+      callId: handlerCtx.callId,
+      // Checked against the tool's input schema before the handler runs.
+      input: input as AgentToolInput,
+      caller: handlerCtx.profile,
+      ...(span ? { span } : {}),
+      ...(handlerCtx.signal ? { signal: handlerCtx.signal } : {}),
+    });
+    for (;;) {
+      const next = await run.next();
+      if (next.done) {
+        tokens = next.value.tokens;
+        if ('failure' in next.value) throw new AgentCallFailed(next.value.failure);
+        yield { kind: 'complete', output: next.value.output };
+        return;
+      }
+      yield { kind: 'progress', data: { agent: tool.profile, event: next.value } };
+    }
+  };
+  // Its hooks take `AgentToolInput`, which the input schema has already checked.
+  const asFunction = { ...tool, type: 'function', handler } as FunctionToolDef;
+  const exec = executeFunction(
+    args.tools,
+    asFunction,
+    args.safeInput,
+    ctx,
+    base,
+    args.snapshot,
+    args.stages,
+    tool,
+  );
+  for (;;) {
+    const next = await exec.next();
+    if (next.done) return next.value;
+    yield withAgentTokens(next.value, base.callId, tokens);
+  }
+}
+
+/** The called agent's usage on the call's `complete` or `error` phase. */
+function withAgentTokens(
+  event: TurnEvent,
+  callId: string,
+  tokens: TurnTokens | undefined,
+): TurnEvent {
+  if (!tokens || event.type !== 'tool' || event.tool.callId !== callId) return event;
+  const { tool } = event;
+  if (tool.phase !== 'complete' && tool.phase !== 'error') return event;
+  return { ...event, tool: { ...tool, tokens } };
 }
 
 async function* settleByType(
@@ -1102,10 +1211,23 @@ async function* settleByType(
   base: ToolCallBase,
   snapshot: TurnToolSnapshot | undefined,
   stages: ToolStageSupport | undefined,
+  agents: AgentCaller | undefined,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const { name } = tool;
   if (tool.type === 'function') {
     return yield* executeFunction(tools, tool, safeInput, fullCtx, base, snapshot, stages);
+  }
+  if (tool.type === 'agent') {
+    return yield* executeAgentTool({
+      tools,
+      tool,
+      safeInput,
+      ctx: fullCtx,
+      base,
+      snapshot,
+      stages,
+      agents,
+    });
   }
 
   if (tool.type !== 'http' && tool.type !== 'mcp') {
@@ -1126,7 +1248,7 @@ async function* settleByType(
     callId: base.callId,
     safeInput,
     stages,
-    guard: resultGuard(tool, fullCtx, snapshot, stages?.span),
+    guard: resultGuard(tools, tool, fullCtx, snapshot, stages?.span),
     lexicon: fullCtx.profile.lexicon,
   });
 }

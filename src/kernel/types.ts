@@ -27,6 +27,12 @@ import type {
 import type { StageHandler } from './stages.ts';
 import type { GateDecision } from './tools/gate-answer.ts';
 import type {
+  AgentCall,
+  AgentCallHook,
+  AgentCallRequest,
+  AgentToolDef,
+  AgentToolInput,
+  AgentToolOutput,
   BuiltinWire,
   HostProfileToolsSpec,
   InvokeToolRequest,
@@ -73,6 +79,12 @@ import type {
 } from './turn-events.ts';
 
 export type {
+  AgentCall,
+  AgentCallHook,
+  AgentCallRequest,
+  AgentToolDef,
+  AgentToolInput,
+  AgentToolOutput,
   CacheMode,
   CacheTtl,
   CallDone,
@@ -854,6 +866,12 @@ export interface TurnRequest {
   resolveHost?: ResolveHost;
   /** Text `runTurn` emits stages and applies the returned affordances. */
   onStage?: StageHandler;
+  /**
+   * Runs before each agent tool call in this turn, and in the turns those
+   * calls run. Shape the called agent's request (history, model, provider) or
+   * refuse the call. Omit it: the agent runs on the model's text alone.
+   */
+  onAgentCall?: AgentCallHook;
 }
 
 export interface ProjectedProfile extends ProfileModelFields {

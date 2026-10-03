@@ -10,8 +10,11 @@ interface KernelRegistry {
 }
 
 function createKernelRegistry(): KernelRegistry {
-  const tools = createToolRegistry();
-  return { tools, profiles: createProfileRegistry(tools), schemas: createSchemaRegistry() };
+  // An agent tool names a profile, and a profile allows tools: each registry reads
+  // the other. Tools look profiles up only when one registers, after both exist.
+  const tools = createToolRegistry((id) => profiles.find(id));
+  const profiles = createProfileRegistry(tools);
+  return { tools, profiles, schemas: createSchemaRegistry() };
 }
 
 export type { KernelRegistry };

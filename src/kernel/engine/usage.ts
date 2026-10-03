@@ -125,6 +125,24 @@ export function sumEventTokens(events: readonly TurnEvent[]): TurnTokens | undef
 }
 
 /**
+ * A turn's usage with its agent tool calls': its own `tokens` events plus each
+ * call's `tokens` on the tool's `complete` or `error`. `done.tokens` reads it;
+ * the turn's span keeps `sumEventTokens`, since each call has its own span.
+ */
+export function sumTurnTokens(events: readonly TurnEvent[]): TurnTokens | undefined {
+  return sumTokens(
+    events.flatMap((event) => {
+      if (event.type === 'tokens') return [event.tokens];
+      if (event.type !== 'tool') return [];
+      const { tool } = event;
+      return (tool.phase === 'complete' || tool.phase === 'error') && tool.tokens
+        ? [tool.tokens]
+        : [];
+    }),
+  );
+}
+
+/**
  * A side is `estimated` when any call estimated it. Cost is `partial` when some call reported none;
  * a missing `upstreamUsd` is not missing data (OpenRouter reports it only for BYOK).
  */

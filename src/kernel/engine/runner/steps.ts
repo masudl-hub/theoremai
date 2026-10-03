@@ -397,6 +397,7 @@ async function* handleModelCalls(
     const settlement = yield* forwardToolEvents(
       executeRegisteredTool({
         tools: state.tools,
+        ...(state.agents ? { agents: state.agents } : {}),
         profile,
         name: call.name,
         input: call.arguments,

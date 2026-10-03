@@ -205,7 +205,7 @@ export type HttpMethod = (typeof HTTP_METHODS)[number];
 export const AUTH_UNAUTHENTICATED_POLICIES = ['gate', 'report_to_model'] as const;
 export type AuthUnauthenticatedPolicy = (typeof AUTH_UNAUTHENTICATED_POLICIES)[number];
 
-export const TOOL_TYPES = ['builtin', 'function', 'http', 'mcp'] as const;
+export const TOOL_TYPES = ['builtin', 'function', 'http', 'mcp', 'agent'] as const;
 
 export const TOOL_ACCESS = ['read-only', 'read-write', 'destructive'] as const;
 export type ToolAccess = (typeof TOOL_ACCESS)[number];
@@ -1112,6 +1112,7 @@ const TOOL_TYPE_FIELD = field(unionType(TOOL_TYPES), 'How the tool runs.', TOOL_
   function: 'Your handler runs it.',
   http: 'The kernel calls your HTTP endpoint.',
   mcp: 'The kernel calls a tool on a remote MCP server.',
+  agent: 'The kernel runs one turn of another registered agent and returns its reply.',
 });
 
 const CREDENTIAL_KINDS = {

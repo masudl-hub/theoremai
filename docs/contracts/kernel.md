@@ -388,6 +388,10 @@ Media is counted by the model family's verified rule (see
 unknown. A call that failed with no usage emits no `tokens` event — what was
 billed is unknown.
 
+**Agent tool calls.** An agent tool's call carries the called agent's usage
+as `tokens` on its `complete` or `error`, and `done.tokens` adds it in
+([Agent tools](#agent-tools)); the call emits no `tokens` event of its own.
+
 **Totals.** `sumTokens(calls)` is the one way to total calls — a turn, a
 session, any range. Counts and shares add up; a side is `estimated` when any
 call estimated it (its shares then cover only what providers reported);
@@ -498,6 +502,60 @@ unchanged. The call's `execute_tool` span records the cited sources as a
 `theorem.grounding` event, and every tool warning (the tool's own and
 `sources_invalid`) as a `theorem.tool.warning` event. A tool that cites nothing
 omits `sources`.
+
+### Agent tools
+
+An agent tool (`type: 'agent'`) runs one turn of another registered profile and
+returns its reply. The called agent is a standalone profile, not a part of the
+caller: any agent may call it, and it answers the caller, never the user. The
+kernel chooses nothing beyond running the one turn; any routing, chaining or
+state is the host's, through `onAgentCall` and stages.
+
+| Field | Meaning |
+| --- | --- |
+| `profile` | The agent to run: a `text`, `image` or `speech` profile that takes text, registered before the tool |
+| `maxCallsPerTurn` | Calls allowed in one turn of the caller; a call past it fails `call_limit` (`declined`) |
+| `preTool` | As on a function tool, with the input `{ text }` |
+
+Input is always `{ text }`. Output is `{ text, structured?, parts? }`: the
+reply's text, its last structured reply, and its images or audio as `parts`.
+
+**Registration.** `register` throws `config` when the profile is missing, is
+another type, takes no text, allows a tool that is not registered, or allows a
+tool that can stop on a gate (permission other than `auto`, or a sign-in
+other than `onUnauthenticated: 'report_to_model'`). A gate inside the called
+agent would have no one to answer it. A `live` profile can't allow an agent
+tool. Agents call agents only in registration order, so calls can't loop.
+
+**The host's hook.** `TurnRequest.onAgentCall(call)` (and the same field on
+`InvokeToolRequest`) runs before each call with `{ tool, callId, profile,
+input, caller, depth, metadata?, signal? }`. It returns nothing to run the call
+as is, `{ refuse }` to fail it (`refused_by_host`, `declined`, the model reads
+`refuse`), or fields for the called agent's request: `input`, `model`,
+`effort`, `metadata`, `onStage`, `conversationId`, `provider`. The hook passes
+down to the called agent's own calls, with `depth` counting up from 1.
+
+**Provider.** The hook's `provider`, else the caller's when the called agent's
+model has the same provider and protocol; otherwise the call throws `config`.
+`invokeTool` uses `InvokeToolRequest.provider` (or the hook's) as given.
+
+**Outcomes.** The call completes with the reply when the agent's turn completes.
+Any other stop, or an error the agent's turn reports, fails the call
+(`agent_failed`, with the agent's error kind or `failed`). `config`,
+`request`, `auth` and `internal` errors are the host's to fix and are thrown, as
+a compactor's are. Host abort cancels both turns.
+
+**Events and trace.** The called agent's events stream as the call's
+`progress` (`data: { agent, event }`). Its `invoke_agent` span is a child of the
+call's `execute_tool` span in the caller's record, sharing its canaries.
+
+**Trust.** A called agent with no tools and no model builtins read only what it
+was sent, so its result is `origin: 'local'`. One with tools is `delegated`
+(depth 2) and taints the turn like any remote result.
+
+**Usage.** The call's `complete` or `error` carries the called agent's own
+`tokens`. The caller's `done.tokens` includes them; the caller's span keeps
+only its own calls.
 
 ### Host context slot
 

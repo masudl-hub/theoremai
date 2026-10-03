@@ -45,7 +45,7 @@ point it.
 It stays out of your product. There are no bundled prompts, personas, databases, `.env` reads,
 or UI copy. Keys, credentials, trace storage, and policy all come from the host.
 
-**Current release: `0.4.0`** — `jsr:@theoremjs/agents` · npm `@theoremjs/agents`.
+**Current release: `0.3.0`** — `jsr:@theoremjs/agents` · npm `@theoremjs/agents`.
 
 ## Highlights
 

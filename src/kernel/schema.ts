@@ -463,7 +463,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'identity.system': field(
     'string | Array<string | { private: string }>',
-    'The instruction the model gets on every turn unless a systemByRole entry replaces it; OpenRouter image profiles send it only with includeText on. Parts are sent concatenated as written; with no { private } part all of it is private, and with one the plain parts are shareable and only private text is guarded from being repeated.',
+    'The instruction the model gets on every turn unless a systemByRole entry replaces it; OpenRouter image profiles send it only with includeText on. Mark what must not leak as { private: text }; only that is guarded. With none, the whole prompt is.',
   ),
   'identity.systemByRole': field(
     'Record<string, string | Array<string | { private: string }>>',
@@ -562,7 +562,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.compaction': field(
     'CompactionSpec',
-    'Summarises older history with another profile once it grows past a threshold.',
+    'Summarises older history once it grows past a threshold; the agent writes the summary unless profile names another.',
   ),
   'models.*.compaction.maxTokens': field('number', 'The token budget compactAt is a fraction of.'),
   'models.*.compaction.compactAt': field(
@@ -596,7 +596,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
         'The prompt tokens the provider reported for the last call, or the count the host passes in.',
     },
   ),
-  'models.*.cache': field('CacheSpec', 'Prompt caching on OpenRouter.'),
+  'models.*.cache': field(
+    'CacheSpec',
+    'Prompt caching on OpenRouter: reuses the start of a prompt it has already seen.',
+  ),
   'models.*.cache.mode': field(
     unionType(CACHE_MODES),
     'Which part of the prompt is cached.',
@@ -640,7 +643,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   tools: field(
     '{ allow: ToolId[]; t1Policy?; t2Loader? }',
-    'Which of your registered tools this profile may use, and how they load.',
+    'Which of your registered tools this profile may use, and how they load; built-in tools are turned on per model.',
   ),
   'tools.allow': field(
     'ToolId[]',
@@ -846,7 +849,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'number',
     'How many times the model may rewrite a reply that fails your checks before it goes out as it is; the larger of this and egress.maxRetries applies to both.',
   ),
-  'outputs.streaming': field('ProfileStreamingSpec', 'How the reply reaches the host.'),
+  'outputs.streaming': field(
+    'ProfileStreamingSpec',
+    'How the reply reaches the host, and whether its thinking does.',
+  ),
   'outputs.streaming.mode': field(
     unionType(STREAM_MODES),
     'Whether the provider call streams.',
@@ -1224,7 +1230,10 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     'A credential for one connection test, never saved.',
   ),
   'playground.stubOutput': {
-    ...field('Record<string, unknown>', 'The result a function tool returns in the playground.'),
+    ...field(
+      'Record<string, unknown>',
+      'The playground has no code to run, so a function tool returns this.',
+    ),
     unset: 'A stand-in built from the output schema',
   },
   'playground.sampleInput': field(
@@ -1274,6 +1283,10 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     },
   ),
   category: field('string', 'A label for grouping tools; nothing reads it yet.'),
+  labels: field(
+    'ToolLabels',
+    "What the transcript says about a call. Each {path} is filled from the call; {results.0.name} steps into a list, and {path|text} shows the text when it's empty.",
+  ),
   'labels.activity': {
     ...field(
       'string',

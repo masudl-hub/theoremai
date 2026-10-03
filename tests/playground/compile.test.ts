@@ -859,69 +859,72 @@ Deno.test('instructions by role, slots and limits by type compile from their JSO
   ]);
 });
 
-Deno.test('system parts compile to the text alone until one is private', () => {
+Deno.test('the system prompt compiles its {private: sections to parts', () => {
   const draft = createExampleDraft();
-  const withSystem = (system: unknown) =>
-    compilePlayground({
-      ...draft,
-      identity: { ...draft.identity, system: system as PlaygroundDraft['identity']['system'] },
-    });
+  const withSystem = (system: string) =>
+    compilePlayground({ ...draft, identity: { ...draft.identity, system } });
   const system = (result: PlaygroundCompileResult) => {
     assert(result.ok && result.profile.type === 'text');
     return result.profile.identity.system;
   };
 
+  assertEquals(system(withSystem(' Be brief. ')), 'Be brief.');
+  assertEquals(system(withSystem(' ')), undefined);
+  assertEquals(system(withSystem('Say "hi". {private: Code 7731.}')), [
+    'Say "hi". ',
+    { private: 'Code 7731.' },
+  ]);
+
+  const kept = compilePlayground({
+    ...draft,
+    identity: { ...draft.identity, system: [{ text: 'x', private: true }] as never },
+  });
+  assert(!kept.ok);
   assertEquals(
-    system(
-      withSystem([
-        { text: ' Be brief. ', private: false },
-        { text: '  ', private: true },
-        { text: 'Be kind.', private: false },
-      ]),
-    ),
-    'Be brief. Be kind.',
-  );
-  assertEquals(system(withSystem([{ text: ' ', private: false }])), undefined);
-  assertEquals(
-    system(
-      withSystem([
-        { text: 'Say "hi". ', private: false },
-        { text: 'Code 7731.', private: true },
-      ]),
-    ),
-    ['Say "hi". ', { private: 'Code 7731.' }],
+    kept.issues.map((issue) => issue.message),
+    ['The system prompt must be text.'],
   );
 
-  const bad = withSystem([{ text: 'x', private: 'yes' }]);
+  const bad = withSystem('Say "hi". {private: Code 7731.');
   assert(!bad.ok);
   assertEquals(
-    bad.issues.map(({ nodeId, field }) => ({ nodeId, field })),
-    [{ nodeId: 'identity', field: 'system' }],
+    bad.issues.map(({ nodeId, field, message }) => ({ nodeId, field, message })),
+    [
+      {
+        nodeId: 'identity',
+        field: 'system',
+        message: 'The {private: section on line 1 has no closing }.',
+      },
+    ],
   );
 });
 
-Deno.test('instructions by role take parts', () => {
+Deno.test('instructions by role take {private: sections or parts', () => {
   const draft = createExampleDraft();
   const { profile } = compiled({
     ...draft,
     identity: {
       ...draft.identity,
-      systemByRoleJson: '{"support":["Hello. ",{"private":"Refund code R1."}]}',
+      systemByRoleJson:
+        '{"support":"Hello. {private: Refund code R1.}","desk":["Hi. ",{"private":"Key K."}]}',
     },
   });
   assert(profile.type === 'text');
   assertEquals(profile.identity.systemByRole, {
     support: ['Hello. ', { private: 'Refund code R1.' }],
+    desk: ['Hi. ', { private: 'Key K.' }],
   });
-  const bad = compilePlayground({
-    ...draft,
-    identity: { ...draft.identity, systemByRoleJson: '{"support":[{"private":""}]}' },
-  });
-  assert(!bad.ok);
-  assertEquals(
-    bad.issues.map((issue) => issue.field),
-    ['systemByRoleJson'],
-  );
+  for (const json of ['{"support":[{"private":""}]}', '{"support":"{private: open"}']) {
+    const bad = compilePlayground({
+      ...draft,
+      identity: { ...draft.identity, systemByRoleJson: json },
+    });
+    assert(!bad.ok);
+    assertEquals(
+      bad.issues.map((issue) => issue.field),
+      ['systemByRoleJson'],
+    );
+  }
 });
 
 Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () => {

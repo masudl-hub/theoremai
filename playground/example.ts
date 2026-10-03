@@ -51,7 +51,7 @@ export function createExampleDraft(): PlaygroundDraft {
       agentId: 'travel.concierge',
       profileType: 'text',
       handle: 'concierge',
-      system: [{ text: DEMO_CONCIERGE_SYSTEM, private: false }],
+      system: DEMO_CONCIERGE_SYSTEM,
       systemByRoleJson: '',
     },
     included: ['outputs', 'turnBehaviour', 'guardrails', 'observability', 'wording'],

@@ -80,5 +80,4 @@ function sectionNote(id: SectionId, fill: Readonly<Record<string, string>> = {})
   return note;
 }
 
-export type { SectionId };
-export { SECTION_NOTES, sectionNote };
+export { sectionNote };

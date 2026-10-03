@@ -132,7 +132,7 @@ export {
 } from './concierge-demo.ts';
 export type { PlaygroundDemoHandler } from './demo-handlers.ts';
 export { playgroundDemoHandler } from './demo-handlers.ts';
-export { SECTION_NOTES, type SectionId, sectionNote } from './section-notes.ts';
+export { sectionNote } from './section-notes.ts';
 export { sampleToolInput, stubOutputFromSchema } from './stub.ts';
 export type { PlaygroundInputsSpec, PlaygroundToolSeed, PlaygroundToolSpecSeed } from './types.ts';
 export type { PlaygroundLiveDraftMessage } from './live-connection.ts';

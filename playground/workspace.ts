@@ -164,6 +164,44 @@ export function createBlankWorkspace(): PlaygroundWorkspace {
   return workspaceFromDraft(createBlankDraft());
 }
 
+/**
+ * One agent as the editor shows it: its own settings, with the whole library
+ * as its tools. Which of them it allows stays on the agent (`setToolAllowed`).
+ */
+export function libraryDraft(workspace: PlaygroundWorkspace, key: string): PlaygroundDraft | undefined {
+  const agent = workspace.agents.find((candidate) => candidate.key === key);
+  return agent && { ...draftOf(agent, []), toolSpecs: workspace.toolSpecs };
+}
+
+/**
+ * Writes back a `libraryDraft`. Its tools become the library: a tool it
+ * dropped leaves every agent, and a tool it added is allowed on this agent.
+ */
+export function withLibraryDraft(
+  workspace: PlaygroundWorkspace,
+  key: string,
+  draft: PlaygroundDraft,
+): PlaygroundWorkspace {
+  const agent = workspace.agents.find((candidate) => candidate.key === key);
+  if (!agent) return workspace;
+  const kept = new Set(draft.toolSpecs.map((tool) => tool.key));
+  const known = new Set(workspace.toolSpecs.map((tool) => tool.key));
+  const added = draft.toolSpecs.filter((tool) => !known.has(tool.key)).map((tool) => tool.key);
+  const keep = (allow: string[]) => allow.filter((toolKey) => kept.has(toolKey));
+  const { toolSpecs: _library, tools, ...rest } = draft;
+  return {
+    ...workspace,
+    toolSpecs: draft.toolSpecs,
+    agents: workspace.agents.map((each) =>
+      each.key === key
+        ? { ...rest, key, tools: { ...tools, allow: [...keep(each.tools.allow), ...added] } }
+        : each.tools.allow.every((toolKey) => kept.has(toolKey))
+        ? each
+        : { ...each, tools: { ...each.tools, allow: keep(each.tools.allow) } }
+    ),
+  };
+}
+
 /** Appends `draft` as a new agent; its tools join the library unless the library has them by key. */
 export function addAgent(
   workspace: PlaygroundWorkspace,

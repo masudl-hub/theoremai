@@ -8,6 +8,7 @@ import {
   createExampleDraft,
   createSpanExampleDraft,
   duplicateAgent,
+  libraryDraft,
   modelBindingNodeId,
   newToolSpec,
   type PlaygroundTreeNode,
@@ -17,6 +18,7 @@ import {
   setToolAllowed,
   toolSpecNodeId,
   withAgentDraft,
+  withLibraryDraft,
   workspaceFromDraft,
   workspaceNodeRef,
   workspaceTree,
@@ -171,4 +173,31 @@ Deno.test('removing a library tool takes it off every agent', () => {
   assert(!workspace.toolSpecs.some((spec) => spec.key === tool));
   for (const agent of workspace.agents) assert(!agent.tools.allow.includes(tool));
   assertEquals(workspace.selected, agentNodeId(must(keys(workspace)[0])));
+});
+
+Deno.test('the editor sees the whole library; a tool it adds is allowed only here, one it drops goes everywhere', () => {
+  const example = workspaceFromDraft(createExampleDraft());
+  const workspace = addAgent(example, createSpanExampleDraft());
+  const [first, second] = workspace.agents.map((agent) => agent.key);
+  const shown = must(libraryDraft(workspace, must(second)));
+  assertEquals(shown.toolSpecs, workspace.toolSpecs);
+  assertEquals(allow(workspace, 1), []);
+
+  const added = newToolSpec(shown);
+  const [dropped, ...rest] = shown.toolSpecs;
+  const next = withLibraryDraft(workspace, must(second), {
+    ...shown,
+    toolSpecs: [...rest, added],
+  });
+  assertEquals(
+    next.toolSpecs.map((tool) => tool.key),
+    [...rest, added].map((tool) => tool.key),
+  );
+  assertEquals(allow(next, 1), [added.key]);
+  assert(!allow(next, 0).includes(must(dropped).key));
+  assertEquals(allow(next, 0).length, rest.length);
+  assertEquals(
+    must(agentDraft(next, must(first))).identity,
+    must(agentDraft(workspace, must(first))).identity,
+  );
 });

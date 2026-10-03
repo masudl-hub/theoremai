@@ -504,9 +504,8 @@ export function newDecisionQuestion(
   draft: PlaygroundDraft,
   type: DecisionQuestionType = 'choice',
 ): DecisionQuestionDraft {
-  const taken = new Set(draft.decision.questions.map((question) => question.id));
-  let id = 'question';
-  for (let n = 2; taken.has(id); n++) id = `question_${n}`;
+  const taken = draft.decision.questions.map((question) => question.id);
+  const id = freeName('question', taken, (n) => `question_${n}`);
   return { key: draftKey('question'), id, type, instructions: '', criteria: newCriteria(type) };
 }
 
@@ -702,18 +701,23 @@ export function removeModelBinding(draft: PlaygroundDraft, bindingKey: string): 
 export function newModelBinding(draft: PlaygroundDraft): ModelBindingDraft {
   const chosen = draft.identity.profileType;
   const type = chosen && chosen !== 'host' ? chosen : 'text';
-  const taken = new Set(draft.modelBindings.map((binding) => binding.modelId));
+  const taken = draft.modelBindings.map((binding) => binding.modelId);
   const seed = defaultBindingForProfileType(type);
-  let modelId = seed.modelId;
-  for (let n = 2; taken.has(modelId); n++) modelId = `${seed.modelId}${n}`;
+  const modelId = freeName(seed.modelId, taken, (n) => `${seed.modelId}${n}`);
   return defaultModelBinding({ ...seed, modelId });
 }
 
 export function newToolSpec(draft: PlaygroundDraft): ToolSpecDraft {
-  const taken = new Set(draft.toolSpecs.map((tool) => tool.toolName));
-  let toolName = 'my_tool';
-  for (let n = 2; taken.has(toolName); n++) toolName = `my_tool_${n}`;
-  return defaultToolSpec({ toolName });
+  const taken = draft.toolSpecs.map((tool) => tool.toolName);
+  return defaultToolSpec({ toolName: freeName('my_tool', taken, (n) => `my_tool_${n}`) });
+}
+
+/** `first` if nothing has taken it, else the first `nth(2)`, `nth(3)`, … that is free. */
+export function freeName(first: string, taken: Iterable<string>, nth: (n: number) => string): string {
+  const used = new Set(taken);
+  let name = first;
+  for (let n = 2; used.has(name); n++) name = nth(n);
+  return name;
 }
 
 /**

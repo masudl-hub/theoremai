@@ -7,8 +7,15 @@ export function modelBindingNodeId(key: string): string {
   return `modelBinding:${key}`;
 }
 
+const TOOL_SPEC_PREFIX = 'toolSpec:';
+
 export function toolSpecNodeId(key: string): string {
-  return `toolSpec:${key}`;
+  return `${TOOL_SPEC_PREFIX}${key}`;
+}
+
+/** The inverse of `toolSpecNodeId`; `undefined` for any other id. */
+export function toolSpecKeyOf(id: string): string | undefined {
+  return id.startsWith(TOOL_SPEC_PREFIX) ? id.slice(TOOL_SPEC_PREFIX.length) : undefined;
 }
 
 export type PlaygroundNodeRef =
@@ -38,8 +45,9 @@ export function playgroundNodeRef(
   if (facet === 'modelBinding' && key !== undefined) {
     return draft.modelBindings.some((binding) => binding.key === key) ? { facet, key } : undefined;
   }
-  if (facet === 'toolSpec' && key !== undefined) {
-    return draft.toolSpecs.some((tool) => tool.key === key) ? { facet, key } : undefined;
+  const tool = toolSpecKeyOf(id);
+  if (tool !== undefined) {
+    return draft.toolSpecs.some((spec) => spec.key === tool) ? { facet: 'toolSpec', key: tool } : undefined;
   }
   const facets = draftFacets(draft) as string[];
   if (key !== undefined || !facets.includes(id)) return undefined;

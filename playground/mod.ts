@@ -120,8 +120,8 @@ export {
   playgroundNodeRef,
   playgroundTree,
   type PlaygroundTreeNode,
+  toolSpecKeyOf,
   toolSpecNodeId,
-  toolSpecNodes,
 } from './tree.ts';
 export {
   addAgent,
@@ -131,7 +131,6 @@ export {
   type AgentToolsDraft,
   createBlankWorkspace,
   duplicateAgent,
-  findAgent,
   PLAYGROUND_WORKSPACE_VERSION,
   type PlaygroundWorkspace,
   removeAgent,

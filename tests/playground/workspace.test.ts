@@ -117,6 +117,12 @@ Deno.test('writing an agent back edits the library for everyone and only its own
     toolSpecs: [{ ...first, description: 'changed' }, ...draft.toolSpecs.slice(2), added],
   });
   assertEquals(must(next.agents[0]).identity.handle, 'renamed');
+  // An edit that leaves the tools alone keeps the library as it was.
+  const renamed = withAgentDraft(workspace, must(a), {
+    ...draft,
+    identity: { ...draft.identity, handle: 'x' },
+  });
+  assert(renamed.toolSpecs === workspace.toolSpecs);
   assertEquals(must(next.toolSpecs.find((tool) => tool.key === first.key)).description, 'changed');
   assertEquals(must(must(agentDraft(next, must(b))).toolSpecs[0]).description, 'changed');
   // Dropped from a's draft: gone from a, kept in the library and on b.

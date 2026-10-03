@@ -5,12 +5,20 @@
  * its allowed tools back, and `withAgentDraft`, which takes them out again.
  */
 
-import { createBlankDraft, draftKey, type PlaygroundDraft, type ToolSpecDraft, type ToolsDraft } from './draft.ts';
+import {
+  createBlankDraft,
+  draftKey,
+  freeName,
+  type PlaygroundDraft,
+  type ToolSpecDraft,
+  type ToolsDraft,
+} from './draft.ts';
 import {
   type PlaygroundNodeRef,
   playgroundNodeRef,
   playgroundTree,
   type PlaygroundTreeNode,
+  toolSpecKeyOf,
   toolSpecNodeId,
   toolSpecNodes,
 } from './tree.ts';
@@ -47,14 +55,18 @@ export function agentNodeId(agentKey: string, inner = 'identity'): string {
   return inner === 'identity' ? `${AGENT_PREFIX}${agentKey}` : `${AGENT_PREFIX}${agentKey}/${inner}`;
 }
 
-/** A library tool's id has no agent in it: every agent shares the tool. */
-function isToolId(id: string): boolean {
-  return id.startsWith('toolSpec:');
+/** The inverse of `agentNodeId`; `undefined` for an id that isn't an agent's. */
+function parseAgentNodeId(id: string): { key: string; inner: string } | undefined {
+  if (!id.startsWith(AGENT_PREFIX)) return undefined;
+  const rest = id.slice(AGENT_PREFIX.length);
+  const slash = rest.indexOf('/');
+  if (slash < 0) return { key: rest, inner: 'identity' };
+  return { key: rest.slice(0, slash), inner: rest.slice(slash + 1) };
 }
 
-/** A single draft's node id, under `agentKey`; a tool's id is kept as is. */
+/** A single draft's node id, under `agentKey`. Tools carry no agent: every agent shares them. */
 function scopedNodeId(agentKey: string, id: string): string {
-  return isToolId(id) ? id : agentNodeId(agentKey, id);
+  return toolSpecKeyOf(id) === undefined ? agentNodeId(agentKey, id) : id;
 }
 
 export type WorkspaceNodeRef =
@@ -66,32 +78,52 @@ export function workspaceNodeRef(
   workspace: PlaygroundWorkspace,
   id: string,
 ): WorkspaceNodeRef | undefined {
-  if (isToolId(id)) {
-    const key = id.slice('toolSpec:'.length);
-    return workspace.toolSpecs.some((tool) => tool.key === key) ? { tool: key } : undefined;
+  const tool = toolSpecKeyOf(id);
+  if (tool !== undefined) {
+    return workspace.toolSpecs.some((spec) => spec.key === tool) ? { tool } : undefined;
   }
-  if (!id.startsWith(AGENT_PREFIX)) return undefined;
-  const rest = id.slice(AGENT_PREFIX.length);
-  const slash = rest.indexOf('/');
-  const key = slash < 0 ? rest : rest.slice(0, slash);
-  const inner = slash < 0 ? 'identity' : rest.slice(slash + 1);
-  const draft = agentDraft(workspace, key);
-  if (!draft || isToolId(inner)) return undefined;
-  const ref = playgroundNodeRef(draft, inner);
-  return ref ? { agent: key, ref } : undefined;
+  const parsed = parseAgentNodeId(id);
+  const agent = parsed && workspace.agents.find((candidate) => candidate.key === parsed.key);
+  if (!parsed || !agent || toolSpecKeyOf(parsed.inner) !== undefined) return undefined;
+  const ref = playgroundNodeRef(draftOf(agent, []), parsed.inner);
+  return ref ? { agent: agent.key, ref } : undefined;
 }
 
-export function findAgent(workspace: PlaygroundWorkspace, key: string): AgentDraft | undefined {
-  return workspace.agents.find((agent) => agent.key === key);
+/** `agent` as a single draft whose tools are the ones it allows from `library`, in library order. */
+function draftOf(agent: AgentDraft, library: ToolSpecDraft[]): PlaygroundDraft {
+  const { key: _key, tools: { allow, ...tools }, ...rest } = agent;
+  const allowed = new Set(allow);
+  return { ...rest, tools, toolSpecs: library.filter((tool) => allowed.has(tool.key)) };
 }
 
 /** One agent as a single draft: its tools are the library's it allows, in library order. */
 export function agentDraft(workspace: PlaygroundWorkspace, key: string): PlaygroundDraft | undefined {
-  const agent = findAgent(workspace, key);
-  if (!agent) return undefined;
-  const { key: _key, tools: { allow, ...tools }, ...rest } = agent;
-  const allowed = new Set(allow);
-  return { ...rest, tools, toolSpecs: workspace.toolSpecs.filter((tool) => allowed.has(tool.key)) };
+  const agent = workspace.agents.find((candidate) => candidate.key === key);
+  return agent && draftOf(agent, workspace.toolSpecs);
+}
+
+/** A single draft as an agent allowing every tool it holds. */
+function agentFromDraft(draft: PlaygroundDraft, key: string = draftKey('agent')): AgentDraft {
+  const { toolSpecs, tools, ...rest } = draft;
+  return { ...rest, key, tools: { ...tools, allow: toolSpecs.map((tool) => tool.key) } };
+}
+
+/** `toolSpecs` written into `library`: same keys replace, new keys append. Unchanged keeps the array. */
+function mergeLibrary(library: ToolSpecDraft[], toolSpecs: ToolSpecDraft[]): ToolSpecDraft[] {
+  const byKey = new Map(toolSpecs.map((tool) => [tool.key, tool]));
+  const known = new Set(library.map((tool) => tool.key));
+  const added = toolSpecs.filter((tool) => !known.has(tool.key));
+  const changed = library.some((tool) => (byKey.get(tool.key) ?? tool) !== tool);
+  if (!changed && added.length === 0) return library;
+  return [...library.map((tool) => byKey.get(tool.key) ?? tool), ...added];
+}
+
+function mapAgent(
+  workspace: PlaygroundWorkspace,
+  key: string,
+  change: (agent: AgentDraft) => AgentDraft,
+): AgentDraft[] {
+  return workspace.agents.map((agent) => (agent.key === key ? change(agent) : agent));
 }
 
 /**
@@ -104,27 +136,12 @@ export function withAgentDraft(
   key: string,
   draft: PlaygroundDraft,
 ): PlaygroundWorkspace {
-  const agent = findAgent(workspace, key);
-  if (!agent) return workspace;
-  const { toolSpecs, tools, ...rest } = draft;
-  const byKey = new Map(toolSpecs.map((tool) => [tool.key, tool]));
-  const known = new Set(workspace.toolSpecs.map((tool) => tool.key));
-  const library = [
-    ...workspace.toolSpecs.map((tool) => byKey.get(tool.key) ?? tool),
-    ...toolSpecs.filter((tool) => !known.has(tool.key)),
-  ];
-  const next: AgentDraft = { ...rest, key, tools: { ...tools, allow: toolSpecs.map((tool) => tool.key) } };
+  if (!workspace.agents.some((agent) => agent.key === key)) return workspace;
   return {
     ...workspace,
-    toolSpecs: library,
-    agents: workspace.agents.map((candidate) => (candidate.key === key ? next : candidate)),
+    toolSpecs: mergeLibrary(workspace.toolSpecs, draft.toolSpecs),
+    agents: mapAgent(workspace, key, () => agentFromDraft(draft, key)),
   };
-}
-
-/** A single draft as an agent of `workspace`, allowing every tool it holds. */
-function agentFromDraft(draft: PlaygroundDraft, key: string = draftKey('agent')): AgentDraft {
-  const { toolSpecs, tools, ...rest } = draft;
-  return { ...rest, key, tools: { ...tools, allow: toolSpecs.map((tool) => tool.key) } };
 }
 
 /**
@@ -152,13 +169,13 @@ export function addAgent(
   workspace: PlaygroundWorkspace,
   draft: PlaygroundDraft = createBlankDraft(),
 ): PlaygroundWorkspace {
-  const agent = agentFromDraft({ ...draft, toolSpecs: [] });
-  const added: PlaygroundWorkspace = {
+  const agent = agentFromDraft(draft);
+  return {
     ...workspace,
     agents: [...workspace.agents, agent],
+    toolSpecs: mergeLibrary(workspace.toolSpecs, draft.toolSpecs),
     selected: agentNodeId(agent.key),
   };
-  return withAgentDraft(added, agent.key, draft);
 }
 
 /** A copy of an agent right after it, allowing the same tools, with an id it doesn't share. */
@@ -166,15 +183,10 @@ export function duplicateAgent(workspace: PlaygroundWorkspace, key: string): Pla
   const index = workspace.agents.findIndex((agent) => agent.key === key);
   const source = workspace.agents[index];
   if (!source) return workspace;
-  const taken = new Set(workspace.agents.map((agent) => agent.identity.agentId));
   const base = source.identity.agentId.trim() || 'agent';
-  let agentId = `${base}_copy`;
-  for (let n = 2; taken.has(agentId); n++) agentId = `${base}_copy${n}`;
-  const copy: AgentDraft = {
-    ...structuredClone(source),
-    key: draftKey('agent'),
-    identity: { ...structuredClone(source.identity), agentId },
-  };
+  const taken = workspace.agents.map((agent) => agent.identity.agentId);
+  const copy: AgentDraft = { ...structuredClone(source), key: draftKey('agent') };
+  copy.identity.agentId = freeName(`${base}_copy`, taken, (n) => `${base}_copy${n}`);
   const agents = [...workspace.agents];
   agents.splice(index + 1, 0, copy);
   return { ...workspace, agents, selected: agentNodeId(copy.key) };
@@ -189,9 +201,9 @@ export function removeAgent(workspace: PlaygroundWorkspace, key: string): Playgr
   const index = workspace.agents.findIndex((agent) => agent.key === key);
   if (index < 0 || workspace.agents.length === 1) return workspace;
   const agents = workspace.agents.filter((agent) => agent.key !== key);
-  const neighbour = (agents[index] ?? agents[index - 1] ?? agents[0]) as AgentDraft;
-  const ref = workspaceNodeRef(workspace, workspace.selected);
-  const selectedGone = ref !== undefined && 'agent' in ref && ref.agent === key;
+  const neighbour = agents[Math.min(index, agents.length - 1)];
+  if (!neighbour) return workspace;
+  const selectedGone = parseAgentNodeId(workspace.selected)?.key === key;
   return {
     ...workspace,
     agents,
@@ -207,29 +219,28 @@ export function setToolAllowed(
   toolKey: string,
   allowed: boolean,
 ): PlaygroundWorkspace {
-  const agent = findAgent(workspace, agentKey);
+  const agent = workspace.agents.find((candidate) => candidate.key === agentKey);
   if (!agent || !workspace.toolSpecs.some((tool) => tool.key === toolKey)) return workspace;
-  const has = agent.tools.allow.includes(toolKey);
-  if (has === allowed) return workspace;
+  if (agent.tools.allow.includes(toolKey) === allowed) return workspace;
   const allow = allowed ? [...agent.tools.allow, toolKey] : agent.tools.allow.filter((key) => key !== toolKey);
   return {
     ...workspace,
-    agents: workspace.agents.map((candidate) =>
-      candidate.key === agentKey ? { ...candidate, tools: { ...candidate.tools, allow } } : candidate
-    ),
+    agents: mapAgent(workspace, agentKey, () => ({ ...agent, tools: { ...agent.tools, allow } })),
   };
 }
 
 /** Removes a tool from the library and from every agent that allowed it. */
 export function removeLibraryTool(workspace: PlaygroundWorkspace, toolKey: string): PlaygroundWorkspace {
   if (!workspace.toolSpecs.some((tool) => tool.key === toolKey)) return workspace;
+  const agents = workspace.agents.map((agent) =>
+    agent.tools.allow.includes(toolKey)
+      ? { ...agent, tools: { ...agent.tools, allow: agent.tools.allow.filter((key) => key !== toolKey) } }
+      : agent
+  );
   return {
     ...workspace,
+    agents,
     toolSpecs: workspace.toolSpecs.filter((tool) => tool.key !== toolKey),
-    agents: workspace.agents.map((agent) => ({
-      ...agent,
-      tools: { ...agent.tools, allow: agent.tools.allow.filter((key) => key !== toolKey) },
-    })),
     selected: workspace.selected === toolSpecNodeId(toolKey)
       ? agentNodeId(workspace.agents[0]?.key ?? '')
       : workspace.selected,
@@ -239,8 +250,8 @@ export function removeLibraryTool(workspace: PlaygroundWorkspace, toolKey: strin
 function scopeTree(agentKey: string, node: PlaygroundTreeNode): PlaygroundTreeNode {
   return {
     ...node,
-    id: scopedNodeId(agentKey, node.id),
-    children: node.children.filter((child) => !isToolId(child.id)).map((child) => scopeTree(agentKey, child)),
+    id: agentNodeId(agentKey, node.id),
+    children: node.children.map((child) => scopeTree(agentKey, child)),
   };
 }
 
@@ -253,9 +264,7 @@ export interface WorkspaceTree {
 
 export function workspaceTree(workspace: PlaygroundWorkspace): WorkspaceTree {
   return {
-    agents: workspace.agents.map((agent) =>
-      scopeTree(agent.key, playgroundTree(agentDraft(workspace, agent.key) as PlaygroundDraft))
-    ),
+    agents: workspace.agents.map((agent) => scopeTree(agent.key, playgroundTree(draftOf(agent, [])))),
     tools: toolSpecNodes(workspace.toolSpecs),
   };
 }

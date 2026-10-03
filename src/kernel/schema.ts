@@ -463,7 +463,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'identity.system': field(
     'string | Array<string | { private: string }>',
-    'The instruction the model gets on every turn unless a systemByRole entry replaces it; OpenRouter image profiles send it only with includeText on. Parts are sent concatenated as written; with no { private } part all of it is private, and with one the plain parts are shareable and only private text is guarded from being repeated.',
+    'The instruction the model gets on every turn unless a systemByRole entry replaces it; OpenRouter image profiles send it only with includeText on. Mark secret parts { private: text } to guard only those; with none, all of it is guarded.',
   ),
   'identity.systemByRole': field(
     'Record<string, string | Array<string | { private: string }>>',
@@ -1221,6 +1221,10 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   'playground.testCredential': field(
     'string',
     'A credential for one connection test, never saved.',
+  ),
+  'playground.system': field(
+    'string',
+    'Read before every turn. Wrap secrets in {private: …} to guard only those; unwrapped, the whole prompt is guarded.',
   ),
   'playground.stubOutput': {
     ...field('Record<string, unknown>', 'The result a function tool returns in the playground.'),

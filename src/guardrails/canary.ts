@@ -53,21 +53,24 @@ function wrapUserData(text: string): string {
  * `{canary}` placeholder when it is set — a note without the token binds nothing.
  */
 function bindCanary(system: string, canary: string, lexicon?: LexiconOverrides): string {
-  if (!canary) {
+  const note = canaryNote(canary, lexicon);
+  if (!note) {
     return system;
   }
-  const note = lexiconText('canary.bind_note', { canary }, lexicon);
   if (!system) {
     return note;
   }
   return `${system}\n\n${note}`;
 }
 
-/** Appends the lexicon's `user_data.note`, which tells the model what `wrapUserData`'s tags mean. */
-function bindUserDataNote(system: string, lexicon?: LexiconOverrides): string {
-  const note = lexiconText('user_data.note', {}, lexicon);
-  if (!note) return system;
-  return system ? `${system}\n\n${note}` : note;
+/** The note `bindCanary` appends, or nothing without a canary. */
+function canaryNote(canary: string, lexicon?: LexiconOverrides): string {
+  return canary ? lexiconText('canary.bind_note', { canary }, lexicon) : '';
+}
+
+/** The lexicon's `user_data.note`, which tells the model what `wrapUserData`'s tags mean. */
+function userDataNote(lexicon?: LexiconOverrides): string {
+  return lexiconText('user_data.note', {}, lexicon);
 }
 
 /**
@@ -914,9 +917,11 @@ function canaryCarry(text: string, canary: string): string {
  * What the next window of the same turn or session scans in front of its own:
  * a possible canary opening, and the words a prompt echo could continue from.
  */
-function promptLeakCarry(text: string, canary: string, system?: string): string {
+function promptLeakCarry(text: string, canary: string, privateSystem?: readonly string[]): string {
   const canaryTail = text.length - canaryCarry(text, canary).length;
-  const from = system ? Math.min(canaryTail, promptEchoScanFrom(text, text.length)) : canaryTail;
+  const from = privateSystem
+    ? Math.min(canaryTail, promptEchoScanFrom(text, text.length))
+    : canaryTail;
   return text.slice(from);
 }
 
@@ -1020,10 +1025,13 @@ interface CanaryStreamGate {
 }
 
 /**
- * Call `flush` at stream end to release the held tail. With `system`, a reply
+ * Call `flush` at stream end to release the held tail. With `privateSystem`, a reply
  * echoing the system prompt (`scanTextForPromptEcho`) is a leak too.
  */
-function createCanaryStreamGate(canary: string, system?: string): CanaryStreamGate {
+function createCanaryStreamGate(
+  canary: string,
+  privateSystem?: readonly string[],
+): CanaryStreamGate {
   const scanner = createCanaryScanner(canary);
   let pending = '';
   /** Released text an opening or a prompt echo could still continue from, read but never re-released. */
@@ -1038,10 +1046,10 @@ function createCanaryStreamGate(canary: string, system?: string): CanaryStreamGa
     const text = released + window;
     return (
       scanner.push(fragment) ||
-      (system !== undefined &&
+      (privateSystem !== undefined &&
         scanTextForPromptEcho(
           text.slice(promptEchoScanFrom(text, released.length)),
-          system,
+          privateSystem,
           canary,
         ))
     );
@@ -1056,7 +1064,9 @@ function createCanaryStreamGate(canary: string, system?: string): CanaryStreamGa
     const emit = window.slice(0, safeEnd);
     pending = window.slice(safeEnd);
     released += emit;
-    const echoFrom = system ? promptEchoScanFrom(released, released.length) : released.length;
+    const echoFrom = privateSystem
+      ? promptEchoScanFrom(released, released.length)
+      : released.length;
     released = released.slice(Math.min(echoFrom, Math.max(0, released.length - RELEASED_LOOKBACK)));
     return { leak: false, emit };
   }
@@ -1101,10 +1111,10 @@ function redactCanary(event: TurnEvent, canary: string): TurnEvent {
 export type { CanaryGateResult, CanaryScanner, CanaryStreamGate, StreamedReplyEvent };
 export {
   bindCanary,
-  bindUserDataNote,
   CANARY_LEAK_REACH,
   canaryHoldFrom,
   canaryLeakRanges,
+  canaryNote,
   canaryOpeningFrom,
   createCanaryScanner,
   createCanaryStreamGate,
@@ -1120,6 +1130,7 @@ export {
   scanTextForCanaryLeak,
   USER_CLOSE,
   USER_OPEN,
+  userDataNote,
   wordStartAcross,
   wrapUserData,
 };

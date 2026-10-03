@@ -113,6 +113,8 @@ async function* yieldProviderEvents(args: {
   profile: Profile;
   generation: ResolvedGeneration;
   request: ProviderCompleteRequest;
+  /** The private stretches of `request.system` (`BoundSystem.private`). */
+  privateSystem: readonly string[];
   provider: ModelProvider;
   /** This call's recorder: sees every tap row and every provider event before any gate. */
   call: Pick<CallTrace, 'tap' | 'observe'> & Partial<Pick<CallTrace, 'guardTime'>>;
@@ -121,7 +123,17 @@ async function* yieldProviderEvents(args: {
   /** Every URL the model has been given this turn. */
   givenUrls: GivenUrls;
 }): AsyncGenerator<StreamEvent> {
-  const { profile, generation, request, provider, call, signal, control, givenUrls } = args;
+  const {
+    profile,
+    generation,
+    request,
+    privateSystem,
+    provider,
+    call,
+    signal,
+    control,
+    givenUrls,
+  } = args;
   /** Runs one stream check and adds the run to the call's record of that check. */
   async function timed<T>(check: StreamCheck, run: () => T | Promise<T>): Promise<T> {
     const start = performance.now();
@@ -140,7 +152,7 @@ async function* yieldProviderEvents(args: {
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(canary ? { canary } : {}),
     // The system prompt is guarded against echo alongside the canary that binds it.
-    ...(canary && policy.promptEcho && request.system ? { system: request.system } : {}),
+    ...(canary && policy.promptEcho && privateSystem.length > 0 ? { privateSystem } : {}),
     givenUrls,
   };
   const { canaryCarry, thoughtCarry } = control ?? {};
@@ -280,7 +292,9 @@ async function* yieldProviderEvents(args: {
     }
 
     const leaks = canary
-      ? await timed('stream_canary', () => eventPromptLeakHits(event, canary, context.system))
+      ? await timed('stream_canary', () =>
+          eventPromptLeakHits(event, canary, context.privateSystem),
+        )
       : [];
     if (leaks.length > 0) {
       yield* yieldCanaryLeak(leaks);

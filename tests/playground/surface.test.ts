@@ -134,7 +134,10 @@ Deno.test('set applies good settings and rejects the rest one by one', async () 
 
 Deno.test("the person's edit makes a write stale and is noted", async () => {
   const { runtime, person, draft, notes } = setup();
-  person({ ...draft(), identity: { ...draft().identity, system: 'be brief' } });
+  person({
+    ...draft(),
+    identity: { ...draft().identity, system: [{ text: 'be brief', private: false }] },
+  });
   assertEquals(notes.length, 1);
   assertStringIncludes(notes[0] ?? '', 'the person changed Identity');
   const stale = (await runtime.answer(

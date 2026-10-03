@@ -7,6 +7,7 @@ import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
 import { profileAllowsInject, stageAbortStop } from '../../stop.ts';
+import type { BoundSystem } from '../../system-parts.ts';
 import { failureEvent, type ToolCallBase, toolCallRequestEvent } from '../../tools/events.ts';
 import type { ToolExecuteSettlement } from '../../tools/execute.ts';
 import { executeRegisteredTool, type ToolStageSupport } from '../../tools/execute.ts';
@@ -96,7 +97,7 @@ async function* executeAutonomousStep(
   args: {
     profile: Profile;
     generation: ResolvedGeneration;
-    system: string;
+    system: BoundSystem;
     provider: ModelProvider;
     signal?: AbortSignal;
   },
@@ -108,14 +109,14 @@ async function* executeAutonomousStep(
   const { generation, system, provider, signal } = args;
   const continuation = state.interactionsContinuation;
   const usage = startCallUsage(
-    system,
+    system.text,
     continuation && state.lastCall
       ? { previous: state.lastCall, continuation: continuation.messages }
       : { history: state.currentHistory, input: generation.input },
   );
   state.lastCall = usage;
   const genForStep = generationForProviderStep(generation, state);
-  const request = providerCompleteRequest(state.tools, genForStep, system);
+  const request = providerCompleteRequest(state.tools, genForStep, system.text);
   addRequestUrls(state.givenUrls, request);
   state.trace.calls += 1;
   const call = startCallTrace((name, options) => state.trace.root.child(name, options), {
@@ -142,6 +143,7 @@ async function* executeAutonomousStep(
       profile: args.profile,
       generation: genForStep,
       request,
+      privateSystem: system.private,
       provider,
       call,
       signal,
@@ -431,7 +433,7 @@ async function* executeAttempt(args: {
   safe: TurnRequest;
   profile: Profile;
   generation: ResolvedGeneration;
-  system: string;
+  system: BoundSystem;
   provider: ModelProvider;
   state: StepExecutionState;
 }): AsyncGenerator<TurnEvent, { latestStructured?: unknown }> {

@@ -1,7 +1,7 @@
 // TTFE: time to first event (profile resolve + provider setup). TTFT: time to first text delta.
 // Overhead: total wall-clock delta vs. raw provider consumption.
 
-import { bindCanary, eventHasCanary, mintCanary } from '../../guardrails/canary.ts';
+import { canaryNote, eventHasCanary, mintCanary } from '../../guardrails/canary.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
 import {
   clearProfiles,
@@ -13,6 +13,7 @@ import {
 import { startCallUsage } from '../../kernel/engine/runner/usage.ts';
 import { startCallTrace } from '../../kernel/engine/turn-trace.ts';
 import { pickSystemRole } from '../../kernel/registry/system-role.ts';
+import { bindSystem } from '../../kernel/system-parts.ts';
 import type {
   ModelProvider,
   ProviderCompleteRequest,
@@ -303,10 +304,9 @@ function measureSetupPhases(): PhaseTimings {
   const t2 = performance.now();
 
   pickSystemRole(profile, safe.input?.role);
-  const sys = profile.type === 'speech' ? '' : (profile.identity.system ?? '');
   const t3 = performance.now();
 
-  bindCanary(sys, generation.canary);
+  bindSystem(generation.resolvedSystem, [canaryNote(generation.canary)]);
   const t4 = performance.now();
 
   return {
@@ -340,7 +340,7 @@ function printPhaseBreakdown(iterations: number): void {
   console.log(`  sanitizeTurnRequest    ${fmtMs(sanitize).padStart(10)}`);
   console.log(`  resolveTurn            ${fmtMs(resolve).padStart(10)}`);
   console.log(`  pickSystemRole         ${fmtMs(system).padStart(10)}`);
-  console.log(`  bindCanary             ${fmtMs(canary).padStart(10)}`);
+  console.log(`  bindSystem             ${fmtMs(canary).padStart(10)}`);
   console.log(`  ─────────────────────────────`);
   console.log(`  Total setup            ${fmtMs(total).padStart(10)}`);
 }

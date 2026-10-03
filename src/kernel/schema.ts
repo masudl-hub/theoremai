@@ -462,15 +462,15 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     "The agent's display name for hosts and users (the model never sees it), and the systemByRole entry a turn gets when it names no known role.",
   ),
   'identity.system': field(
-    'string',
-    'The instruction the model gets on every turn unless a systemByRole entry replaces it; OpenRouter image profiles send it only with includeText on.',
+    'string | Array<string | { private: string }>',
+    'The instruction the model gets on every turn unless a systemByRole entry replaces it; OpenRouter image profiles send it only with includeText on. Parts are sent concatenated as written; with no { private } part all of it is private, and with one the plain parts are shareable and only private text is guarded from being repeated.',
   ),
   'identity.systemByRole': field(
-    'Record<string, string>',
+    'Record<string, string | Array<string | { private: string }>>',
     'Other system instructions, picked by the role a turn names.',
   ),
   'identity.systemByRole.*': field(
-    'string',
+    'string | Array<string | { private: string }>',
     'The instruction that replaces identity.system when a turn names this role.',
   ),
   models: field(
@@ -911,7 +911,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.promptEcho': field(
     'boolean',
-    'With the canary on, also stops a reply that repeats 12 words in a row of the system instruction. On by default; turn it off when the instruction holds text meant to be quoted.',
+    'With the canary on, also stops a reply that repeats 12 words in a row of the private system instruction. On by default; mark the lines meant to be quoted as shareable parts, or turn it off when the whole instruction is meant to be quoted.',
   ),
   'guardrails.sanitizeInput': field(
     'boolean',

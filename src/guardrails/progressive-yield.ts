@@ -165,7 +165,9 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     echoedFrom += from;
     return [
       ...(scanner?.push(fresh) ? [CANARY_HIT] : []),
-      ...(context.system ? promptEchoHits(echoed, context.system, context.canary) : []),
+      ...(context.privateSystem
+        ? promptEchoHits(echoed, context.privateSystem, context.canary)
+        : []),
     ];
   }
 
@@ -210,7 +212,9 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     if (!context.canary) {
       return accumulated.length;
     }
-    const echo = context.system ? echoHoldFrom(context.system, context.canary) : held.length;
+    const echo = context.privateSystem
+      ? echoHoldFrom(context.privateSystem, context.canary)
+      : held.length;
     return emitted + Math.min(canaryFrom(context.canary), echo);
   }
 
@@ -234,12 +238,15 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
   }
 
   /** `promptEchoHoldFrom` on the held text, read from its last few words. */
-  function echoHoldFrom(system: string, canary?: string): number {
+  function echoHoldFrom(privateSystem: readonly string[], canary?: string): number {
     // Until this window releases anything, its opening may continue the carry.
     const lead = emitted === 0 ? carry : '';
     const leadFrom = carry.length + emitted - lead.length;
     const [text, from] = echoedFrom >= leadFrom ? [echoed, echoedFrom] : [lead + held, leadFrom];
-    return Math.max(0, from + promptEchoHoldFrom(text, system, canary) - carry.length - emitted);
+    return Math.max(
+      0,
+      from + promptEchoHoldFrom(text, privateSystem, canary) - carry.length - emitted,
+    );
   }
 
   /** Where the host policy holds from: exactly for the bundled one, a fixed lookback otherwise. */
@@ -288,7 +295,9 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     unreleased: () => held,
     drainUnreleased: () => take(held.length),
     carryOut: () =>
-      context.canary ? promptLeakCarry(carry + accumulated, context.canary, context.system) : '',
+      context.canary
+        ? promptLeakCarry(carry + accumulated, context.canary, context.privateSystem)
+        : '',
   };
 }
 

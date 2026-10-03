@@ -26,6 +26,7 @@ export {
   excludeFacet,
   type GuardrailsDraft,
   type IdentityDraft,
+  type SystemPartDraft,
   type ImageDraft,
   type ImageReferenceDraft,
   includableFacets,

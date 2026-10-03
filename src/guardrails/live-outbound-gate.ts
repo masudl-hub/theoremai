@@ -90,7 +90,7 @@ function liveHoldback(policy: ResolvedGuardrailPolicy): ResolvedGuardrailPolicy 
 function createLiveOutboundGateSession(
   profile: Profile,
   canary?: string,
-  system?: string,
+  privateSystem?: readonly string[],
   givenUrls?: GivenUrls,
 ): LiveOutboundGateSession {
   const policy = liveHoldback(resolveGuardrailPolicy(profile.guardrails));
@@ -101,7 +101,7 @@ function createLiveOutboundGateSession(
     profileId: profile.id,
     ...(useCanary ? { canary } : {}),
     // The system prompt is guarded against echo alongside the canary that binds it.
-    ...(useCanary && policy.promptEcho && system ? { system } : {}),
+    ...(useCanary && policy.promptEcho && privateSystem?.length ? { privateSystem } : {}),
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(givenUrls ? { givenUrls } : {}),
   };
@@ -306,7 +306,7 @@ async function processLiveOutboundBatch(
     }
 
     const leaks = session.context.canary
-      ? eventPromptLeakHits(event, session.context.canary, session.context.system)
+      ? eventPromptLeakHits(event, session.context.canary, session.context.privateSystem)
       : [];
     if (leaks.length > 0) {
       return withholdResult(promptLeakReason(leaks), leaks, toEmit);

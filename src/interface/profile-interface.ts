@@ -144,10 +144,18 @@ const common = {
   observability: observability.optional(),
 };
 
+const systemPrompt = z.union([
+  z.string(),
+  z
+    .array(z.union([z.string(), z.strictObject({ private: z.string().min(1) })]))
+    .min(1)
+    .readonly(),
+]);
+
 const identity = z.object({
   handle: z.string(),
-  system: z.string().optional(),
-  systemByRole: z.record(z.string(), z.string()).optional(),
+  system: systemPrompt.optional(),
+  systemByRole: z.record(z.string(), systemPrompt).optional(),
 });
 
 const profileInterface = z.discriminatedUnion('type', [

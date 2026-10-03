@@ -859,6 +859,71 @@ Deno.test('instructions by role, slots and limits by type compile from their JSO
   ]);
 });
 
+Deno.test('system parts compile to the text alone until one is private', () => {
+  const draft = createExampleDraft();
+  const withSystem = (system: unknown) =>
+    compilePlayground({
+      ...draft,
+      identity: { ...draft.identity, system: system as PlaygroundDraft['identity']['system'] },
+    });
+  const system = (result: PlaygroundCompileResult) => {
+    assert(result.ok && result.profile.type === 'text');
+    return result.profile.identity.system;
+  };
+
+  assertEquals(
+    system(
+      withSystem([
+        { text: ' Be brief. ', private: false },
+        { text: '  ', private: true },
+        { text: 'Be kind.', private: false },
+      ]),
+    ),
+    'Be brief. Be kind.',
+  );
+  assertEquals(system(withSystem([{ text: ' ', private: false }])), undefined);
+  assertEquals(
+    system(
+      withSystem([
+        { text: 'Say "hi". ', private: false },
+        { text: 'Code 7731.', private: true },
+      ]),
+    ),
+    ['Say "hi". ', { private: 'Code 7731.' }],
+  );
+
+  const bad = withSystem([{ text: 'x', private: 'yes' }]);
+  assert(!bad.ok);
+  assertEquals(
+    bad.issues.map(({ nodeId, field }) => ({ nodeId, field })),
+    [{ nodeId: 'identity', field: 'system' }],
+  );
+});
+
+Deno.test('instructions by role take parts', () => {
+  const draft = createExampleDraft();
+  const { profile } = compiled({
+    ...draft,
+    identity: {
+      ...draft.identity,
+      systemByRoleJson: '{"support":["Hello. ",{"private":"Refund code R1."}]}',
+    },
+  });
+  assert(profile.type === 'text');
+  assertEquals(profile.identity.systemByRole, {
+    support: ['Hello. ', { private: 'Refund code R1.' }],
+  });
+  const bad = compilePlayground({
+    ...draft,
+    identity: { ...draft.identity, systemByRoleJson: '{"support":[{"private":""}]}' },
+  });
+  assert(!bad.ok);
+  assertEquals(
+    bad.issues.map((issue) => issue.field),
+    ['systemByRoleJson'],
+  );
+});
+
 Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () => {
   const draft = createExampleDraft();
   const withCache = (index: number) =>

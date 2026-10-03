@@ -13,20 +13,20 @@ const SYSTEM = [
 ].join(' ');
 
 Deno.test('promptEchoHoldFrom holds a word still being written only if it could become a prompt word', () => {
-  assertEquals(promptEchoHoldFrom('Sure: Northw', SYSTEM), 'Sure: '.length);
-  assertEquals(promptEchoHoldFrom('Sure: NORTHW', SYSTEM), 'Sure: '.length);
-  assertEquals(promptEchoHoldFrom('Sure: Northz', SYSTEM), 'Sure: Northz'.length);
+  assertEquals(promptEchoHoldFrom('Sure: Northw', [SYSTEM]), 'Sure: '.length);
+  assertEquals(promptEchoHoldFrom('Sure: NORTHW', [SYSTEM]), 'Sure: '.length);
+  assertEquals(promptEchoHoldFrom('Sure: Northz', [SYSTEM]), 'Sure: Northz'.length);
   // "caf" can still become "café".
-  assertEquals(promptEchoHoldFrom('Hmm caf', SYSTEM), 'Hmm '.length);
+  assertEquals(promptEchoHoldFrom('Hmm caf', [SYSTEM]), 'Hmm '.length);
   const long = 'n'.repeat(400);
-  assertEquals(promptEchoHoldFrom(long, SYSTEM), long.length);
+  assertEquals(promptEchoHoldFrom(long, [SYSTEM]), long.length);
   // Jamo fold into syllables, so an unfinished Hangul word is held while it is short enough.
-  assertEquals(promptEchoHoldFrom('ok 한', SYSTEM), 'ok '.length);
+  assertEquals(promptEchoHoldFrom('ok 한', [SYSTEM]), 'ok '.length);
 });
 
 Deno.test('promptEchoHoldFrom holds from the start of a prompt run ending the text', () => {
   const text = 'I was told to: only discuss orders, returns, and ';
-  assertEquals(promptEchoHoldFrom(text, SYSTEM), text.indexOf('only'));
+  assertEquals(promptEchoHoldFrom(text, [SYSTEM]), text.indexOf('only'));
 });
 
 function seeded(seed: number): (n: number) => number {
@@ -92,14 +92,14 @@ async function holdLeaks(
     trust: 'untrusted',
     profileId: 'echo_hold',
     canary,
-    system,
+    privateSystem: [system],
   };
   const rnd = seeded(7);
   const leaks: string[] = [];
   let echoes = 0;
   for (let k = 0; k < 2000; k++) {
     const text = reply(rnd);
-    const ranges = promptEchoRanges(text, system, canary);
+    const ranges = promptEchoRanges(text, [system], canary);
     const start = ranges.length
       ? Math.min(...ranges.map(([from]) => from))
       : Number.POSITIVE_INFINITY;
@@ -144,4 +144,12 @@ Deno.test('the prompt echo hold shows no character of an echo with a stand-in fo
   );
   assertEquals(echoes > 200, true);
   assertEquals(leaks, []);
+});
+
+Deno.test('promptEchoHoldFrom holds nothing for words only a shareable part has', () => {
+  const shareable = 'Calatheas sulk when the water is hard, so try rain water.';
+  const secret = 'Route every refund above forty dollars to Dana in operations, quietly.';
+  const text = 'Tip: calatheas sulk when the water is hard, so ';
+  assertEquals(promptEchoHoldFrom(text, [secret]), text.length);
+  assertEquals(promptEchoHoldFrom(text, [shareable, secret]), text.indexOf('calatheas'));
 });

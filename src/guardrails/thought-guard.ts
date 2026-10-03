@@ -103,7 +103,7 @@ interface ThoughtGuardOptions {
   checks?: ResolvedEgressChecks;
   canary?: string;
   /** Guarded against echo alongside the canary. */
-  system?: string;
+  privateSystem?: readonly string[];
   given?: GivenUrls;
   lexicon?: LexiconOverrides;
   /** Shown text an earlier thought ended on (`carryOut`), read in front and never shown again. */
@@ -147,7 +147,7 @@ const MAX_LEAKS = 16;
  */
 function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
   const { checks, canary, given, lexicon } = options;
-  const system = canary ? options.system : undefined;
+  const privateSystem = canary ? options.privateSystem : undefined;
   const scope = (check: object) => ({ ...check, ...(given ? { given } : {}) });
   /** The placeholder for `kind` after `before`, without a second space. */
   function placeholder(kind: OmissionKind, before: string): string {
@@ -194,10 +194,10 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     const urlHit = stream?.push(text) !== undefined;
     const canaryHit = scanner?.push(text) ?? false;
     let echoHit = false;
-    if (system) {
+    if (privateSystem) {
       const whole = (out + held).slice(0, readTo);
       const from = promptEchoScanFrom(whole, echoed);
-      echoHit = promptEchoRanges(whole.slice(from), system, canary).length > 0;
+      echoHit = promptEchoRanges(whole.slice(from), privateSystem, canary).length > 0;
       echoed = whole.length;
     }
     return urlHit || canaryHit || echoHit;
@@ -231,8 +231,8 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
         spans.push({ start, end, kind: 'instructions', hit: CANARY_HIT });
       }
     }
-    if (system) {
-      for (const [start, end] of promptEchoRanges(text, system, canary)) {
+    if (privateSystem) {
+      for (const [start, end] of promptEchoRanges(text, privateSystem, canary)) {
         spans.push({ start, end, kind: 'instructions', hit: PROMPT_ECHO_HIT });
       }
     }
@@ -296,7 +296,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
         at = mark.end;
       }
       // An echo run is counted in words: read back until it fits, or the thought starts.
-      if (!system || from === 0 || promptEchoScanFrom(view.text, view.held) > 0) return view;
+      if (!privateSystem || from === 0 || promptEchoScanFrom(view.text, view.held) > 0) return view;
     }
   }
 
@@ -310,8 +310,8 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
         ranges.push([start, end, CANARY_HIT]);
       }
     }
-    if (system) {
-      for (const [start, end] of promptEchoRanges(view.text, system, canary)) {
+    if (privateSystem) {
+      for (const [start, end] of promptEchoRanges(view.text, privateSystem, canary)) {
         ranges.push([start, end, PROMPT_ECHO_HIT]);
       }
     }
@@ -437,7 +437,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     const end = out.length + held.length;
     const url = stream ? stream.holdFrom() : end;
     const leak = canary ? canaryFrom(canary) : end;
-    const echo = system ? out.length + promptEchoHoldFrom(held, system, canary) : end;
+    const echo = privateSystem ? out.length + promptEchoHoldFrom(held, privateSystem, canary) : end;
     const from = Math.min(url, leak, echo, rawHoldFrom() ?? end, open ?? end);
     return offMark(
       from < out.length ? from : out.length + wordStartAcross(held, from - out.length),
@@ -469,7 +469,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     if (!view) return undefined;
     const rest = view.text.slice(view.held);
     const leak = canary ? canaryHoldFrom(rest, canary, view.text.slice(0, view.held)) : rest.length;
-    const echo = system ? promptEchoHoldFrom(rest, system, canary) : rest.length;
+    const echo = privateSystem ? promptEchoHoldFrom(rest, privateSystem, canary) : rest.length;
     return shownAt(view, view.held + Math.min(leak, echo));
   }
 
@@ -501,7 +501,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
       }
       const shown = held;
       const whole = out + held;
-      out = canary ? promptLeakCarry(whole, canary, system) : '';
+      out = canary ? promptLeakCarry(whole, canary, privateSystem) : '';
       const shift = out.length - whole.length;
       marks = marks
         .filter((mark) => mark.start + shift >= 0)
@@ -529,12 +529,12 @@ function thoughtGuardFor(
 ): ThoughtGuard | undefined {
   const known = egressChecksOf(enforce);
   const checks = known ? thoughtChecks(known) : undefined;
-  const { canary, system, givenUrls, lexicon } = context;
+  const { canary, privateSystem, givenUrls, lexicon } = context;
   if (!(checks || canary)) return undefined;
   return createThoughtGuard({
     ...(checks ? { checks } : {}),
     ...(canary ? { canary } : {}),
-    ...(system ? { system } : {}),
+    ...(privateSystem ? { privateSystem } : {}),
     ...(givenUrls ? { given: givenUrls } : {}),
     ...(lexicon ? { lexicon } : {}),
     ...(carry ? { carry } : {}),

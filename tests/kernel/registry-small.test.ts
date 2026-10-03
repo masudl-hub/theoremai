@@ -16,6 +16,7 @@ import {
 import { createSchemaRegistry } from '../../src/kernel/registry/schemas.ts';
 import { resolveTurnSystemPrompt } from '../../src/kernel/registry/system-prompt.ts';
 import { pickSystemRole } from '../../src/kernel/registry/system-role.ts';
+import { systemText } from '../../src/kernel/system-parts.ts';
 
 /** The kind and message a call throws as a TheoremError, or 'returned'. */
 function thrown(body: () => unknown): string {
@@ -163,34 +164,44 @@ Deno.test('a system role picks its own prompt, falls back to the profile prompt,
   const profile = (identity: object, type = 'text') => ({ ...base, type, identity }) as never;
   const roled = { handle: 'h', system: 'base', systemByRole: { editor: 'edit', empty: '' } };
   check(
-    resolveTurnSystemPrompt(profile(roled), { input: { role: 'editor' } } as never),
+    systemText(resolveTurnSystemPrompt(profile(roled), { input: { role: 'editor' } } as never)),
     'edit',
     'role',
   );
   check(
-    resolveTurnSystemPrompt(profile(roled), { input: { role: 'empty' } } as never),
+    systemText(resolveTurnSystemPrompt(profile(roled), { input: { role: 'empty' } } as never)),
     'base',
     'empty role falls back',
   );
   check(
-    resolveTurnSystemPrompt(profile(roled), { input: { role: 'other' } } as never),
+    systemText(resolveTurnSystemPrompt(profile(roled), { input: { role: 'other' } } as never)),
     'base',
     'unknown role',
   );
-  check(resolveTurnSystemPrompt(profile(roled), {} as never), 'base', 'no input at all');
-  check(resolveTurnSystemPrompt(profile({ handle: 'h' }), {} as never), '', 'no prompt');
   check(
-    resolveTurnSystemPrompt(profile({ handle: 'h' }), { system: 'turn' } as never),
+    systemText(resolveTurnSystemPrompt(profile(roled), {} as never)),
+    'base',
+    'no input at all',
+  );
+  check(
+    systemText(resolveTurnSystemPrompt(profile({ handle: 'h' }), {} as never)),
+    '',
+    'no prompt',
+  );
+  check(
+    systemText(resolveTurnSystemPrompt(profile({ handle: 'h' }), { system: 'turn' } as never)),
     'turn',
     'turn system alone',
   );
   check(
-    resolveTurnSystemPrompt(profile(roled), { system: 'turn' } as never),
+    systemText(resolveTurnSystemPrompt(profile(roled), { system: 'turn' } as never)),
     'base\n\nturn',
     'joined',
   );
   check(
-    resolveTurnSystemPrompt(profile({ handle: 'h', system: 'spoken' }, 'speech'), {} as never),
+    systemText(
+      resolveTurnSystemPrompt(profile({ handle: 'h', system: 'spoken' }, 'speech'), {} as never),
+    ),
     '',
     'speech has no system prompt',
   );
@@ -206,7 +217,11 @@ Deno.test("the profile prompt is the host's own text, so the profile guardrails 
     'the probe is changed by the profile policy',
   );
   const profile = { ...base, guardrails, identity: { handle: 'h', system: probe } } as never;
-  check(resolveTurnSystemPrompt(profile, {} as never), probe, 'trusted text is kept whole');
+  check(
+    systemText(resolveTurnSystemPrompt(profile, {} as never)),
+    probe,
+    'trusted text is kept whole',
+  );
 });
 
 Deno.test('a role is taken only when the profile declares it as its own property', () => {

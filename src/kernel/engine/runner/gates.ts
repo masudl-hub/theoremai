@@ -15,6 +15,7 @@ import type {
 import { resolveInputParts } from '../../registry/ingress.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
+import type { BoundSystem } from '../../system-parts.ts';
 import type {
   ModelProvider,
   Profile,
@@ -352,7 +353,7 @@ async function* executeSingleAttemptCycle(args: {
   flow: AttemptFlowState;
   state: StepExecutionState;
   profile: Profile;
-  system: string;
+  system: BoundSystem;
   provider: ModelProvider;
   maxRetries: number;
 }): AsyncGenerator<TurnEvent, AttemptStepAction> {
@@ -455,7 +456,7 @@ async function* runAttemptsWithValidation(
   safe: TurnRequest,
   profile: Profile,
   generation: ResolvedGeneration,
-  system: string,
+  system: BoundSystem,
   provider: ModelProvider,
   state: StepExecutionState,
 ): AsyncGenerator<TurnEvent> {

@@ -26,6 +26,7 @@ import {
   THINKING_LEVELS,
 } from '../schema.ts';
 import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
+import { assertSystemPrompt } from '../system-parts.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import { profileToolAllow, profileToolsSpec } from '../tools/resolve.ts';
 import type {
@@ -597,6 +598,15 @@ function assertObservability(profileId: string, spec: ProfileObservabilitySpec |
   }
 }
 
+function assertIdentitySystem(input: ProfileDefinition): void {
+  if (input.type === 'host' || input.type === 'decision' || input.type === 'speech') return;
+  const { system, systemByRole } = input.identity;
+  if (system !== undefined) assertSystemPrompt(system, `Profile ${input.id} identity.system`);
+  for (const [role, prompt] of Object.entries(systemByRole ?? {})) {
+    assertSystemPrompt(prompt, `Profile ${input.id} identity.systemByRole.${role}`);
+  }
+}
+
 function defineProfile(input: TextProfileDefinition): TextProfile;
 function defineProfile(input: ImageProfileDefinition): ImageProfile;
 function defineProfile(input: SpeechProfileDefinition): SpeechProfile;
@@ -612,6 +622,7 @@ function defineProfile(input: ProfileDefinition): Profile {
   assertFieldScope(input);
   assertRequiredFields(input);
   if (input.lexicon) validateLexiconOverrides(input.lexicon, `Profile ${input.id}`);
+  assertIdentitySystem(input);
   assertRedactSensitive(input.id, input.guardrails);
   if (input.type === 'host') {
     return defineHostProfile(input);

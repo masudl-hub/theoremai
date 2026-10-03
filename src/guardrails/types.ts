@@ -142,10 +142,11 @@ export interface GuardrailContext {
   profileId: string;
   canary?: string;
   /**
-   * The system prompt as sent, when the profile guards it against echo
-   * (`guardrails.promptEcho`): a reply repeating it is a leak.
+   * The private stretches of the system prompt as sent (`BoundSystem.private`),
+   * when the profile guards it against echo (`guardrails.promptEcho`): a reply
+   * repeating one is a leak.
    */
-  system?: string;
+  privateSystem?: readonly string[];
   role?: string;
   slots?: Record<string, string>;
   /** Set on tool-shaped stages; absent for user and system text. */

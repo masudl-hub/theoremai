@@ -92,7 +92,7 @@ Deno.test('runTurn answers a pinned leak with the host policy refusal', async ()
 
 Deno.test('finalizeLiveOutboundTurn never releases a leak a host policy allows', async () => {
   const canary = '0123456789abcdef0123456789abcdef';
-  const s = createLiveOutboundGateSession(getProfile(register('invariant_live')), canary, SYSTEM);
+  const s = createLiveOutboundGateSession(getProfile(register('invariant_live')), canary, [SYSTEM]);
   await processLiveOutboundBatch(s, [{ type: 'text', text: `say ${canary}` }]);
   const end = await finalizeLiveOutboundTurn(s);
   assertEquals(end.action, 'withhold');
@@ -137,7 +137,7 @@ Deno.test('a provider tool report carrying the canary is an incident, not a prev
 });
 
 Deno.test('the canary-only helpers catch a system-prompt echo', () => {
-  const session = createCanaryGateSession('0123456789abcdef0123456789abcdef', SYSTEM);
+  const session = createCanaryGateSession('0123456789abcdef0123456789abcdef', [SYSTEM]);
   const words = SYSTEM.split(' ');
   assertEquals(
     filterCanaryGatedEvents(session, [{ type: 'text', text: words.slice(0, 7).join(' ') }]).leaked,
@@ -148,7 +148,7 @@ Deno.test('the canary-only helpers catch a system-prompt echo', () => {
       .leaked,
     true,
   );
-  const tool = createCanaryGateSession('0123456789abcdef0123456789abcdef', SYSTEM);
+  const tool = createCanaryGateSession('0123456789abcdef0123456789abcdef', [SYSTEM]);
   assertEquals(
     filterCanaryGatedEvents(tool, [
       { type: 'tool', tool: { name: 'note', arguments: { text: SYSTEM }, callId: 't1' } },

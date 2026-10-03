@@ -355,7 +355,7 @@ Deno.test('speech profiles store canary off and resolve no system prompt or cana
   registerProfile(profile);
   const { generation } = resolveTurn({ profile: 'speech_contract', input: { text: 'hi' } });
   assertEquals(generation.canary, '');
-  assertEquals(generation.resolvedSystem, '');
+  assertEquals(generation.resolvedSystem, []);
 });
 
 Deno.test('speech profiles reject a system prompt and a canary', () => {

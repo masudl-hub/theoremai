@@ -1,4 +1,4 @@
-import { bindCanary, bindUserDataNote } from '../../../guardrails/canary.ts';
+import { canaryNote, userDataNote } from '../../../guardrails/canary.ts';
 import {
   addHistoryUrls,
   addRequestUrls,
@@ -50,6 +50,7 @@ import {
   stageEventFields,
 } from '../../stages.ts';
 import { profileAllowsInject, stageAbortStop } from '../../stop.ts';
+import { bindSystem } from '../../system-parts.ts';
 import { failureEvent } from '../../tools/events.ts';
 import {
   executeRegisteredTool,
@@ -1179,12 +1180,12 @@ async function openTracedSession(
   const hasInitialInput = Boolean(req.input && req.input.length > 0);
   generation = applyInitialInput(generation, req.input);
 
-  const system = bindUserDataNote(
-    bindCanary(generation.resolvedSystem, generation.canary, profile.lexicon),
-    profile.lexicon,
-  );
+  const system = bindSystem(generation.resolvedSystem, [
+    canaryNote(generation.canary, profile.lexicon),
+    userDataNote(profile.lexicon),
+  ]);
   const completeReq: ProviderCompleteRequest = {
-    ...providerCompleteRequest(registry.tools, generation, system),
+    ...providerCompleteRequest(registry.tools, generation, system.text),
     signal: safe.signal,
     tapUpstream: trace.sent,
   };
@@ -1194,7 +1195,7 @@ async function openTracedSession(
     generation,
     binding,
     family: binding ? mediaTokenFamily(binding) : undefined,
-    system,
+    system: system.text,
     canary: generation.canary,
   });
 
@@ -1204,7 +1205,7 @@ async function openTracedSession(
   const gate = createLiveOutboundGateSession(
     profile,
     generation.canary || undefined,
-    system,
+    system.private,
     givenUrls,
   );
   const connection = await openGoogleLiveSession(

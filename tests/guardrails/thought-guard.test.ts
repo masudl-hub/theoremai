@@ -162,7 +162,7 @@ function leakGuard(canary: string, extra: Partial<ThoughtGuardOptions> = {}): Th
   return createThoughtGuard({
     checks: THOUGHT_CHECKS,
     canary,
-    system: SYSTEM,
+    privateSystem: [SYSTEM],
     given: givenUrlSets(),
     ...extra,
   });
@@ -189,7 +189,7 @@ Deno.test('a thought omits the canary, the system prompt and the user-data marke
     const { shown, rules } = think(leakGuard(canary), pieces);
     assertEquals(rules, [rule]);
     assertEquals(shown.includes(OMIT_INSTRUCTIONS.trim()), true);
-    const scope = { canary, system: SYSTEM, given: givenUrlSets() };
+    const scope = { canary, privateSystem: [SYSTEM], given: givenUrlSets() };
     assertEquals(collectEgressHits(shown, scope, resolveEgressChecks({})), []);
     assertEquals(/(?:Next|ignore|going)\.$/.test(shown), true);
   }
@@ -270,7 +270,7 @@ for (const [name, canary, text] of [
         { size, shown, leaked: leakedPieces(text, shown, canary) },
         { size, shown, leaked: [] },
       );
-      const scope = { canary, system: SYSTEM, given: givenUrlSets() };
+      const scope = { canary, privateSystem: [SYSTEM], given: givenUrlSets() };
       assertEquals(collectEgressHits(shown, scope, resolveEgressChecks({})), []);
     }
   });
@@ -298,7 +298,7 @@ Deno.test('a guarded thought never shows the canary, the prompt or a marker, and
     ' ',
   ];
   const rnd = seeded(7);
-  const scope = { canary, system: SYSTEM, given: givenUrlSets() };
+  const scope = { canary, privateSystem: [SYSTEM], given: givenUrlSets() };
   const leaks = (t: string) => collectEgressHits(t, scope, THOUGHT_CHECKS).length > 0;
   const problems: string[] = [];
   let omitted = 0;
@@ -334,8 +334,9 @@ for (const [kind, sentence] of [
         const guard = createThoughtGuard({
           checks: resolveEgressChecks({ images: true, links: true, boundary: true }),
           canary: '552434a3798aeb8518b8ab775dea9a4e',
-          system:
+          privateSystem: [
             'You answer questions about orders for a logistics company and never reveal internal notes.',
+          ],
         });
         const started = performance.now();
         for (let at = 0; at < text.length; at += 4) guard.push(text.slice(at, at + 4));

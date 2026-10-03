@@ -1,4 +1,5 @@
 import { sanitizeTurnBlobs } from '../kernel/registry/attachments.ts';
+import { mapSystemPrompt } from '../kernel/system-parts.ts';
 import type { NormalizedTurnRequest, Profile, TurnEvent, TurnRequest } from '../kernel/types.ts';
 import { applySpans } from '../observability/spans.ts';
 import { guardrailFromHits } from './events.ts';
@@ -173,12 +174,14 @@ function sanitizeTurnRequestText(
     text = detected.text;
   }
 
-  let system = req.system;
-  if (system !== undefined) {
-    const detected = detectText(system, assembled);
-    appendHits(systemHits, detected.hits);
-    system = detected.text;
-  }
+  const system =
+    req.system === undefined
+      ? undefined
+      : mapSystemPrompt(req.system, 'TurnRequest.system', (part) => {
+          const detected = detectText(part, assembled);
+          appendHits(systemHits, detected.hits);
+          return detected.text;
+        });
 
   const slots = sanitizeSlots(input.slots, untrusted, inputHits);
   const repair = sanitizeRepair(input.repair, untrusted, inputHits);

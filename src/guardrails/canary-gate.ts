@@ -11,23 +11,30 @@ import { scanTextForPromptEcho } from './prompt-echo.ts';
 export interface CanaryGateSession {
   canary: string;
   /** The system prompt as sent, when replies echoing it are leaks too. */
-  system?: string;
+  privateSystem?: readonly string[];
   gate: CanaryStreamGate;
 }
 
 /** Pass the system prompt as sent to catch replies that echo it, as `runTurn` and Live do. */
-function createCanaryGateSession(canary: string, system?: string): CanaryGateSession {
+function createCanaryGateSession(
+  canary: string,
+  privateSystem?: readonly string[],
+): CanaryGateSession {
   return {
     canary,
-    ...(system ? { system } : {}),
-    gate: createCanaryStreamGate(canary, system),
+    ...(privateSystem ? { privateSystem } : {}),
+    gate: createCanaryStreamGate(canary, privateSystem),
   };
 }
 
-function echoesPrompt(event: TurnEvent, canary: string, system?: string): boolean {
+function echoesPrompt(
+  event: TurnEvent,
+  canary: string,
+  privateSystem?: readonly string[],
+): boolean {
   return (
-    system !== undefined &&
-    guardedEventTexts(event).some((text) => scanTextForPromptEcho(text, system, canary))
+    privateSystem !== undefined &&
+    guardedEventTexts(event).some((text) => scanTextForPromptEcho(text, privateSystem, canary))
   );
 }
 
@@ -53,7 +60,7 @@ function filterCanaryGatedEvents(
     }
     if (
       eventHasCanary(event, session.canary) ||
-      echoesPrompt(event, session.canary, session.system)
+      echoesPrompt(event, session.canary, session.privateSystem)
     ) {
       return { leaked: true };
     }

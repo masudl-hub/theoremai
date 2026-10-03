@@ -486,10 +486,30 @@ export interface ProfileOutputsSpec {
   streaming?: ProfileStreamingSpec;
 }
 
+/** Text a reply may not repeat when the rest of its prompt is marked shareable. */
+export interface PrivateSystemPart {
+  private: string;
+}
+
+export type SystemPart = string | PrivateSystemPart;
+
+/**
+ * A system prompt: a string, or parts sent concatenated as written. A string,
+ * or parts none of which is `{ private }`, is private throughout; once one
+ * part is `{ private }`, the plain strings beside it are shareable.
+ */
+export type SystemPrompt = string | readonly SystemPart[];
+
+/** A stretch of the system prompt as sent, and whether a reply may repeat it. */
+export interface SystemPiece {
+  text: string;
+  private: boolean;
+}
+
 export interface ProfileIdentity {
   handle: string;
-  system?: string;
-  systemByRole?: Record<string, string>;
+  system?: SystemPrompt;
+  systemByRole?: Record<string, SystemPrompt>;
 }
 
 export interface ProfileCommon {
@@ -783,7 +803,7 @@ export interface TurnRequest {
   /** Selected effort alias when the binding has `allowEffortSelect`. */
   effort?: string;
   /** Host-provided dynamic system prompt combined with profile persona */
-  system?: string;
+  system?: SystemPrompt;
   sessionPermissions?: string[];
   /** Host channel/path for catalog `paths` filtering. */
   path?: string;
@@ -906,7 +926,7 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   canary: string;
   sessionResumptionHandle?: string;
   /** Snapshotted synchronously before any async work; the runner binds the canary on top. */
-  resolvedSystem: string;
+  resolvedSystem: readonly SystemPiece[];
   /** `TurnRequest.host`, carried to tool contexts only. Never sent to providers or traces. */
   host?: unknown;
 }
@@ -952,7 +972,7 @@ export interface ModelProvider {
 export interface SessionRequest {
   profile: ProfileId;
   /** Host-built system prompt merged with profile identity.system. */
-  system?: string;
+  system?: SystemPrompt;
   /** Override `profile.live.voice` for this session. */
   voice?: string;
   path?: string;

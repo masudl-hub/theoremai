@@ -1,4 +1,4 @@
-import { bindCanary, bindUserDataNote } from '../../../guardrails/canary.ts';
+import { canaryNote, userDataNote } from '../../../guardrails/canary.ts';
 import type { ErrorKind } from '../../../guardrails/error.ts';
 import {
   isAbortError,
@@ -25,6 +25,7 @@ import { profileTypesForField } from '../../profile-scope.ts';
 import { requireModelBinding } from '../../registry/catalog.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { resolveTurnInRegistry } from '../../registry/resolve.ts';
+import { type BoundSystem, bindSystem } from '../../system-parts.ts';
 import { cloneTurnToolSnapshot, expandT1Policy } from '../../tools/resolve.ts';
 import { turnDoneOf } from '../../turn-events.ts';
 import type {
@@ -340,7 +341,7 @@ async function* emitTurn(args: {
   safe: TurnRequest;
   profile: Profile;
   generation: ResolvedGeneration;
-  system: string;
+  system: BoundSystem;
   provider: ModelProvider;
   trace: TurnTraceState;
   mediaFamily: MediaTokenFamily | undefined;
@@ -476,7 +477,7 @@ type TraceCtx = {
   canary: string;
   /** Every canary bound in this record; a nested turn shares its parent's list. */
   canaries: string[];
-  system?: string;
+  system?: BoundSystem;
   generation?: ResolvedGeneration;
   mediaFamily?: MediaTokenFamily;
   safe?: TurnRequest;
@@ -647,10 +648,12 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   const compaction = await maybeCompactBefore(ctx, profile, gen, compactionSpec, provider);
   if (compaction) yield deliver(ctx, projectForObs(compaction, ctx.observability));
 
-  const system = bindCanary(gen.resolvedSystem, ctx.canary, profile.lexicon);
-  ctx.system = profileTypesForField('identity.system').includes(profile.type)
-    ? bindUserDataNote(system, profile.lexicon)
-    : system;
+  ctx.system = bindSystem(gen.resolvedSystem, [
+    canaryNote(ctx.canary, profile.lexicon),
+    profileTypesForField('identity.system').includes(profile.type)
+      ? userDataNote(profile.lexicon)
+      : '',
+  ]);
 
   yield* streamTurnEvents(ctx, profile, gen, provider, compactionSpec);
 }

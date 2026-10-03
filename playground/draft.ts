@@ -58,12 +58,19 @@ export type PlaygroundTurnProfileType = Exclude<PlaygroundProfileType, 'decision
 
 export const PLAYGROUND_PROFILE_TYPES: readonly PlaygroundProfileType[] = PROFILE_TYPES;
 
+/** One part of the system prompt; a private part's text is one no reply may repeat. */
+export interface SystemPartDraft {
+  text: string;
+  /** Once one part is private, the parts not marked are shareable. */
+  private: boolean;
+}
+
 export interface IdentityDraft {
   agentId: string;
   profileType: PlaygroundProfileType | '';
   handle: string;
-  /** Unused on speech, which has no system channel. */
-  system: string;
+  /** Sent one after another as written. Unused on speech, which has no system channel. */
+  system: SystemPartDraft[];
   /** Other instructions by the role a turn names, as a JSON object of strings; blank omits it. */
   systemByRoleJson: string;
 }
@@ -514,7 +521,13 @@ export function newCriteria(type: DecisionQuestionType): DecisionCriterionDraft[
  */
 export function createBlankDraft(): PlaygroundDraft {
   return {
-    identity: { agentId: '', profileType: '', handle: '', system: '', systemByRoleJson: '' },
+    identity: {
+      agentId: '',
+      profileType: '',
+      handle: '',
+      system: [{ text: '', private: false }],
+      systemByRoleJson: '',
+    },
     included: ['observability', 'wording'],
     models: { defaultModel: '', allowModelSelect: false, maxSteps: null, key: '' },
     modelBindings: [],

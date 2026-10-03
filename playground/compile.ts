@@ -36,6 +36,7 @@ import {
   isValidProfileProtocol,
   protocolsForProfileType,
 } from '../src/kernel/schema.ts';
+import { systemPromptProblem } from '../src/kernel/system-parts.ts';
 import { activityLabelProblem } from '../src/kernel/tools/activity-label.ts';
 import type {
   LiveContextCompressionSpec,
@@ -45,6 +46,7 @@ import type {
   ProfileLiveSpec,
   ProfileOutputsSpec,
   ProfileSpeechSpec,
+  SystemPrompt,
 } from '../src/kernel/types.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import {
@@ -67,6 +69,7 @@ import type {
   PlaygroundProfileType,
   PlaygroundTurnProfileType,
   SpeechDraft,
+  SystemPartDraft,
   ToolSpecDraft,
   TurnBehaviourDraft,
   UrlCheckDraft,
@@ -410,6 +413,34 @@ function parseHeaders(raw: string | undefined): Record<string, string> | undefin
 }
 
 /** A record field's value, reporting `message` on `field` when it doesn't parse. */
+const isSystemPrompt = (value: unknown): value is SystemPrompt =>
+  systemPromptProblem(value, 'system') === undefined;
+
+function isSystemPartDraft(value: unknown): value is SystemPartDraft {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as SystemPartDraft).text === 'string' &&
+    typeof (value as SystemPartDraft).private === 'boolean'
+  );
+}
+
+/**
+ * Blank parts are left out. Without a private part the prompt is private
+ * throughout, so it compiles to the text alone.
+ */
+function compileSystem(parts: unknown, report: Report): SystemPrompt | undefined {
+  if (!Array.isArray(parts) || !parts.every(isSystemPartDraft)) {
+    report('identity', 'Each part of the system prompt is text with a private switch.', 'system');
+    return undefined;
+  }
+  const written = parts.filter((part) => part.text.trim());
+  if (!written.some((part) => part.private)) {
+    return written.map((part) => part.text).join('').trim() || undefined;
+  }
+  return written.map((part) => (part.private ? { private: part.text } : part.text));
+}
+
 function recordField<T>(
   raw: string,
   isValue: (value: unknown) => value is T,
@@ -1474,9 +1505,13 @@ function assemble(
 ): Omit<CompiledPlayground, 'agentId'> {
   const facets = new Set<string>(draftFacets(draft));
   const allows = (path: string) => draftAllows(draft, path);
-  const system = draft.identity.system.trim();
-  const systemByRole = recordField(draft.identity.systemByRoleJson, isString, () => {
-    report('identity', 'Instructions by role must be a JSON object of text.', 'systemByRoleJson');
+  const system = compileSystem(draft.identity.system, report);
+  const systemByRole = recordField(draft.identity.systemByRoleJson, isSystemPrompt, () => {
+    report(
+      'identity',
+      'Instructions by role must be a JSON object of text, or of lists of text and { "private": text }.',
+      'systemByRoleJson',
+    );
   });
   const modelFields = compileModels(draft, type, report);
   const { outputs, structured } = facets.has('outputs')

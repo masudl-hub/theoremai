@@ -3,7 +3,9 @@
  *
  * The canary proves the token leaked; a reply that restates the system prompt
  * while leaving the token out trips nothing. This check reads the reply for a
- * run of `PROMPT_ECHO_WORDS` consecutive words of the system prompt. Words are
+ * run of `PROMPT_ECHO_WORDS` consecutive words of one private stretch of the
+ * system prompt (`BoundSystem.private`); text the host marked shareable is
+ * not read, and no run reaches across it. Words are
  * compared case-folded after Unicode compatibility folding, punctuation and
  * markup between them ignored, and bare numbers skipped, so reformatting a
  * dump as a numbered or bulleted list does not hide it. Where the prompt has
@@ -48,29 +50,39 @@ function echoWords(text: string): EchoWord[] {
 /** Where the canary stood in the prompt's words: any one word or none matches it. */
 const SLOT = '\u0000';
 
+interface PromptReadings {
+  /** Each stretch's words as written, and with the canary left out where it has one. */
+  plain: string[][];
+  /** Each stretch with the canary, its words with the canary as `SLOT`. */
+  slotted: string[][];
+}
+
 /**
- * The prompt's words as a run can repeat them: as written, with the canary
- * left out, and with the canary as `SLOT`.
+ * The private stretches' words as a run can repeat them: as written, with the
+ * canary left out, and with the canary as `SLOT`.
  */
-function promptReadings(
-  system: string,
-  canary?: string,
-): { plain: string[][]; slotted?: string[] } {
-  const words = echoWords(system).map((entry) => entry.word);
+function promptReadings(stretches: readonly string[], canary?: string): PromptReadings {
   const token = canary ? echoWords(canary).map((entry) => entry.word) : [];
-  if (token.length === 0) return { plain: [words] };
-  const slotted: string[] = [];
-  for (let at = 0; at < words.length; ) {
-    if (token.every((word, k) => words[at + k] === word)) {
-      slotted.push(SLOT);
-      at += token.length;
-    } else {
-      slotted.push(words[at] as string);
-      at++;
+  const readings: PromptReadings = { plain: [], slotted: [] };
+  for (const stretch of stretches) {
+    const words = echoWords(stretch).map((entry) => entry.word);
+    readings.plain.push(words);
+    if (token.length === 0) continue;
+    const slotted: string[] = [];
+    for (let at = 0; at < words.length; ) {
+      if (token.every((word, k) => words[at + k] === word)) {
+        slotted.push(SLOT);
+        at += token.length;
+      } else {
+        slotted.push(words[at] as string);
+        at++;
+      }
     }
+    if (!slotted.includes(SLOT)) continue;
+    readings.plain.push(slotted.filter((word) => word !== SLOT));
+    readings.slotted.push(slotted);
   }
-  if (!slotted.includes(SLOT)) return { plain: [words] };
-  return { plain: [words, slotted.filter((word) => word !== SLOT)], slotted };
+  return readings;
 }
 
 /** A run with a slot, keyed by where the slot is and the words around it. */
@@ -87,12 +99,7 @@ interface RunSet {
 }
 
 /** A run may not start on the canary's place unless `leading`: a stand-in for it is not prompt text. */
-function addRuns(
-  set: RunSet,
-  readings: ReturnType<typeof promptReadings>,
-  lengths: number[],
-  leading: boolean,
-): void {
+function addRuns(set: RunSet, readings: PromptReadings, lengths: number[], leading: boolean): void {
   for (const words of readings.plain) {
     for (const length of lengths) {
       for (let from = 0; from + length <= words.length; from++) {
@@ -100,14 +107,15 @@ function addRuns(
       }
     }
   }
-  const slotted = readings.slotted ?? [];
-  for (const length of lengths) {
-    for (let from = 0; from + length <= slotted.length; from++) {
-      const run = slotted.slice(from, from + length);
-      const slot = run.indexOf(SLOT);
-      if (slot === -1 || (slot === 0 && !leading)) continue;
-      set.slotted.add(slotKey(run, slot));
-      set.slots.add(slot);
+  for (const slotted of readings.slotted) {
+    for (const length of lengths) {
+      for (let from = 0; from + length <= slotted.length; from++) {
+        const run = slotted.slice(from, from + length);
+        const slot = run.indexOf(SLOT);
+        if (slot === -1 || (slot === 0 && !leading)) continue;
+        set.slotted.add(slotKey(run, slot));
+        set.slots.add(slot);
+      }
     }
   }
 }
@@ -121,16 +129,24 @@ function matchRun(set: RunSet, run: readonly string[]): number | undefined {
   return undefined;
 }
 
-let gramsCache: { system: string; canary?: string; grams: RunSet } | undefined;
+function sameStretches(a: readonly string[], b: readonly string[]): boolean {
+  return a === b || (a.length === b.length && a.every((stretch, k) => stretch === b[k]));
+}
 
-/** Every run of `PROMPT_ECHO_WORDS` words in the system prompt. */
-function promptGrams(system: string, canary?: string): RunSet {
-  if (gramsCache?.system === system && gramsCache.canary === canary) {
+let gramsCache: { stretches: readonly string[]; canary?: string; grams: RunSet } | undefined;
+
+/** Every run of `PROMPT_ECHO_WORDS` words in a private stretch. */
+function promptGrams(stretches: readonly string[], canary?: string): RunSet {
+  if (
+    gramsCache &&
+    gramsCache.canary === canary &&
+    sameStretches(gramsCache.stretches, stretches)
+  ) {
     return gramsCache.grams;
   }
   const grams: RunSet = { plain: new Set(), slotted: new Set(), slots: new Set() };
-  addRuns(grams, promptReadings(system, canary), [PROMPT_ECHO_WORDS], true);
-  gramsCache = { system, canary, grams };
+  addRuns(grams, promptReadings(stretches, canary), [PROMPT_ECHO_WORDS], true);
+  gramsCache = { stretches, canary, grams };
   return grams;
 }
 
@@ -143,19 +159,23 @@ interface PromptShape {
   longest: number;
 }
 
-let shapeCache: { system: string; canary?: string; shape: PromptShape } | undefined;
+let shapeCache: { stretches: readonly string[]; canary?: string; shape: PromptShape } | undefined;
 
-function promptShape(system: string, canary?: string): PromptShape {
-  if (shapeCache?.system === system && shapeCache.canary === canary) {
+function promptShape(stretches: readonly string[], canary?: string): PromptShape {
+  if (
+    shapeCache &&
+    shapeCache.canary === canary &&
+    sameStretches(shapeCache.stretches, stretches)
+  ) {
     return shapeCache.shape;
   }
-  const readings = promptReadings(system, canary);
+  const readings = promptReadings(stretches, canary);
   const shape: PromptShape = {
     runs: { plain: new Set(), slotted: new Set(), slots: new Set() },
     prefixes: new Set(),
     longest: 0,
   };
-  for (const word of readings.plain[0] as string[]) {
+  for (const word of readings.plain.flat()) {
     shape.longest = Math.max(shape.longest, word.length);
     for (let end = 1; end <= word.length && ASCII.test(word.charAt(end - 1)); end++) {
       shape.prefixes.add(word.slice(0, end));
@@ -167,7 +187,7 @@ function promptShape(system: string, canary?: string): PromptShape {
     Array.from({ length: PROMPT_ECHO_WORDS - 1 }, (_, k) => k + 1),
     false,
   );
-  shapeCache = { system, canary, shape };
+  shapeCache = { stretches, canary, shape };
   return shape;
 }
 
@@ -190,7 +210,7 @@ function mayBecomePromptWord(partial: string, shape: PromptShape): boolean {
  * word still being written when that is earlier and could become a prompt
  * word. Any echo that completes later starts there or after.
  */
-function promptEchoHoldFrom(text: string, system: string, canary?: string): number {
+function promptEchoHoldFrom(text: string, stretches: readonly string[], canary?: string): number {
   const tail = promptEchoScanFrom(text, text.length);
   const words = echoWords(text.slice(tail));
   let writing = text.length;
@@ -198,7 +218,7 @@ function promptEchoHoldFrom(text: string, system: string, canary?: string): numb
   const complete = words.filter(
     (entry) => tail + entry.to < text.length || writing === text.length,
   );
-  const shape = promptShape(system, canary);
+  const shape = promptShape(stretches, canary);
   const hold = mayBecomePromptWord(text.slice(writing), shape) ? writing : text.length;
   for (
     let from = Math.max(0, complete.length - (PROMPT_ECHO_WORDS - 1));
@@ -213,9 +233,13 @@ function promptEchoHoldFrom(text: string, system: string, canary?: string): numb
   return hold;
 }
 
-/** Offsets `[start, end)` of `text` that repeat the system prompt, ordered by start. */
-function promptEchoRanges(text: string, system: string, canary?: string): Array<[number, number]> {
-  const grams = promptGrams(system, canary);
+/** Offsets `[start, end)` of `text` that repeat a private stretch, ordered by start. */
+function promptEchoRanges(
+  text: string,
+  stretches: readonly string[],
+  canary?: string,
+): Array<[number, number]> {
+  const grams = promptGrams(stretches, canary);
   if (!text || grams.plain.size === 0) {
     return [];
   }
@@ -233,9 +257,13 @@ function promptEchoRanges(text: string, system: string, canary?: string): Array<
   return ranges;
 }
 
-/** Whether `text` repeats `PROMPT_ECHO_WORDS` consecutive words of the system prompt. */
-function scanTextForPromptEcho(text: string, system: string, canary?: string): boolean {
-  return promptEchoRanges(text, system, canary).length > 0;
+/** Whether `text` repeats `PROMPT_ECHO_WORDS` consecutive words of a private stretch. */
+function scanTextForPromptEcho(
+  text: string,
+  stretches: readonly string[],
+  canary?: string,
+): boolean {
+  return promptEchoRanges(text, stretches, canary).length > 0;
 }
 
 /**

@@ -108,7 +108,7 @@ function testTurnRequest(payloads: InboundFuzzPayload[]): InboundFuzzResult[] {
     };
     try {
       const safe = sanitizeTurnRequest(sysReq, getProfile(sysReq.profile));
-      const output = safe.system ?? '';
+      const output = typeof safe.system === 'string' ? safe.system : '';
       results.push({
         payload: p,
         channel: 'req.system',

@@ -154,6 +154,7 @@ async function runStreamChannel(
           generation,
           bindCanary(FUZZ_SYSTEM, canary),
         ),
+        privateSystem: [bindCanary(FUZZ_SYSTEM, canary)],
         provider: { complete: () => replay(turn) },
         // The fuzz reads what reaches the client, not the trace.
         call: { tap: () => {}, observe: () => {} },
@@ -176,11 +177,9 @@ async function runLiveBatchChannel(
   attack: CanaryEgressAttack,
   canary: string,
 ): Promise<ChannelResult> {
-  const session = createLiveOutboundGateSession(
-    getProfile(FUZZ_PROFILE_ID),
-    canary,
+  const session = createLiveOutboundGateSession(getProfile(FUZZ_PROFILE_ID), canary, [
     bindCanary(FUZZ_SYSTEM, canary),
-  );
+  ]);
   const events: TurnEvent[] = [];
   for (const turn of attack.turns) {
     for (const result of [

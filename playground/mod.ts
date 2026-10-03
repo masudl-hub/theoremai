@@ -121,7 +121,29 @@ export {
   playgroundTree,
   type PlaygroundTreeNode,
   toolSpecNodeId,
+  toolSpecNodes,
 } from './tree.ts';
+export {
+  addAgent,
+  type AgentDraft,
+  agentDraft,
+  agentNodeId,
+  type AgentToolsDraft,
+  createBlankWorkspace,
+  duplicateAgent,
+  findAgent,
+  PLAYGROUND_WORKSPACE_VERSION,
+  type PlaygroundWorkspace,
+  removeAgent,
+  removeLibraryTool,
+  setToolAllowed,
+  withAgentDraft,
+  workspaceFromDraft,
+  type WorkspaceNodeRef,
+  workspaceNodeRef,
+  type WorkspaceTree,
+  workspaceTree,
+} from './workspace.ts';
 
 export {
   DEMO_ALLOWED_HOSTS,

@@ -55,15 +55,18 @@ function branchNodes(draft: PlaygroundDraft, facet: ProfileGraphFacetId): Playgr
       children: [],
     }));
   }
-  if (facet === 'tools') {
-    return draft.toolSpecs.map((tool) => ({
-      id: toolSpecNodeId(tool.key),
-      ref: { facet: 'toolSpec', key: tool.key },
-      label: tool.toolName.trim() || facetLabel('toolSpec'),
-      children: [],
-    }));
-  }
+  if (facet === 'tools') return toolSpecNodes(draft.toolSpecs);
   return [];
+}
+
+/** One leaf per tool, as the Tools facet lists them. */
+export function toolSpecNodes(toolSpecs: PlaygroundDraft['toolSpecs']): PlaygroundTreeNode[] {
+  return toolSpecs.map((tool) => ({
+    id: toolSpecNodeId(tool.key),
+    ref: { facet: 'toolSpec', key: tool.key },
+    label: tool.toolName.trim() || facetLabel('toolSpec'),
+    children: [],
+  }));
 }
 
 /** The root is labelled with the profile id; its children are the compiled facets in `PROFILE_GRAPH` order. */

@@ -354,7 +354,9 @@ export interface PlaygroundDraft {
   wording: WordingDraft;
 }
 
-export function draftKey(prefix: 'model' | 'tool' | 'question' | 'criterion' | 'reference'): string {
+export function draftKey(
+  prefix: 'agent' | 'model' | 'tool' | 'question' | 'criterion' | 'reference',
+): string {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 

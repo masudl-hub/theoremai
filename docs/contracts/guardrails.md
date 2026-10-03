@@ -733,7 +733,7 @@ always private. Adjacent private parts read as one stretch; a run of words never
 bridges a shareable part, and shareable text never stops a reply, even where it
 repeats private words. The contract: no reply carries 12 or more consecutive
 words of private prompt text, Theorem's notes, or the canary. A paraphrase is
-not caught, so a secret belongs outside the prompt. A profile whose prompt is
+not caught, and secrets never belong in the prompt. A profile whose prompt is
 quoted throughout can still set `promptEcho: false`.
 
 Trusted text reaches the provider verbatim. Injection redaction would strip a

@@ -4,6 +4,7 @@
  */
 import {
   createKernelScope,
+  createProvider,
   defineProfile,
   type KernelScope,
   type Profile,
@@ -12,7 +13,7 @@ import {
 } from '../mod.ts';
 import type { ResolveHost } from '../src/guardrails/network.ts';
 import type { TaintGate } from '../src/guardrails/types.ts';
-import type { ModelProvider } from '../src/kernel/types.ts';
+import type { AgentCall, AgentCallHook, ModelProvider } from '../src/kernel/types.ts';
 import type { CreateProviderOptions } from '../src/providers/create-provider.ts';
 import { PLAYGROUND_KEY_SLOT_CAP, playgroundKeySlots } from './browser-connection.ts';
 import { modelBindingViolation } from './policy.ts';
@@ -25,6 +26,35 @@ export interface PlaygroundRuntime {
   provider?: (profile: Profile, model?: string) => ModelProvider;
   resolveHost?: ResolveHost;
   remoteTools?: boolean;
+  /** Before each agent tool call runs its agent: return `refuse` to stop it. */
+  onAgentCall?: (
+    call: AgentCall,
+  ) => { refuse: string } | void | Promise<{ refuse: string } | void>;
+}
+
+/** The provider a profile's turn runs on: the runtime's own, or one from its vault. */
+export function runtimeProvider(
+  runtime: PlaygroundRuntime,
+  profile: Profile,
+  model?: string,
+): ModelProvider {
+  return (
+    runtime.provider?.(profile, model) ??
+    createProvider(profile, runtime.providers ?? {}, model)
+  );
+}
+
+/**
+ * Each called agent runs on a provider of its own, so it reads its own key
+ * slots and may use another provider than its caller. The runtime may refuse
+ * the call first.
+ */
+export function agentCallHook(scope: KernelScope, runtime: PlaygroundRuntime): AgentCallHook {
+  return async (call) => {
+    const refused = await runtime.onAgentCall?.(call);
+    if (refused) return refused;
+    return { provider: runtimeProvider(runtime, scope.profiles.get(call.profile)) };
+  };
 }
 
 /**

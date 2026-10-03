@@ -38,6 +38,8 @@ import {
 } from '../src/kernel/schema.ts';
 import { systemPromptProblem } from '../src/kernel/system-parts.ts';
 import { activityLabelProblem } from '../src/kernel/tools/activity-label.ts';
+import { agentToolInput, agentToolOutput } from '../src/kernel/tools/agent.ts';
+import { jsonSchemaFromZod } from '../src/kernel/tools/schema.ts';
 import type {
   LiveContextCompressionSpec,
   ModelBinding,
@@ -150,6 +152,14 @@ export type PlaygroundCompileResult =
 
 type Report = (nodeId: string, message: string, field?: string, index?: number) => void;
 
+/**
+ * The agent id another agent of the workspace has, by its draft key; `undefined` when
+ * none has that key. A single draft names no other agent.
+ */
+export type AgentIdOf = (key: string) => string | undefined;
+
+const NO_AGENTS: AgentIdOf = () => undefined;
+
 function cleanList(list: readonly string[] | undefined): string[] {
   return (list ?? []).map((item) => item.trim()).filter(Boolean);
 }
@@ -234,6 +244,7 @@ function compileBinding(
   binding: ModelBindingDraft,
   type: PlaygroundProfileType,
   report: Report,
+  agentIdOf: AgentIdOf,
 ): ModelBinding {
   const nodeId = modelBindingNodeId(binding.key);
   const apiId = checkBindingRoute(binding, type, report);
@@ -250,7 +261,7 @@ function compileBinding(
     report(nodeId, 'Chaining needs Google storage on.', 'persistViaInteractionId');
   }
   const cache = compileCache(binding, nodeId, report);
-  const compaction = compileCompaction(binding, type, nodeId, report);
+  const compaction = compileCompaction(binding, type, nodeId, report, agentIdOf);
   const server = binding.provider === 'local' ? binding.server?.trim() : undefined;
 
   return {
@@ -291,15 +302,13 @@ function compileCache(
   return { mode: binding.cacheMode, ...(binding.cacheTtl ? { ttl: binding.cacheTtl } : {}) };
 }
 
-/**
- * The agent compacts its own history: the playground registers one agent, so
- * there is no other to name.
- */
+/** The agent compacts its own history, or another agent of the workspace writes the summary. */
 function compileCompaction(
   binding: ModelBindingDraft,
   type: PlaygroundProfileType,
   nodeId: string,
   report: Report,
+  agentIdOf: AgentIdOf,
 ): ModelBinding['compaction'] {
   const timing = binding.compactTiming;
   if (!timing) return undefined;
@@ -324,9 +333,15 @@ function compileCompaction(
       'compactKeep',
     );
   }
+  const compactWith = binding.compactWith ?? '';
+  const profile = compactWith ? agentIdOf(compactWith) : undefined;
+  if (compactWith && !profile) {
+    report(nodeId, 'The agent that summarised is gone. Pick another, or this agent.', 'compactWith');
+  }
   return {
     maxTokens: maxTokens ?? 0,
     compactAt,
+    ...(profile ? { profile } : {}),
     previousExchanges: keep ?? 0,
     timing,
     ...(binding.compactMeter ? { meter: binding.compactMeter } : {}),
@@ -341,6 +356,7 @@ function compileModels(
   draft: PlaygroundDraft,
   type: PlaygroundProfileType,
   report: Report,
+  agentIdOf: AgentIdOf,
 ): Pick<
   ProfileDefinitionBase,
   'models' | 'defaultModel' | 'allowModelSelect' | 'maxSteps' | 'key' | 'fallbackKey'
@@ -348,7 +364,7 @@ function compileModels(
   const { models: policy, modelBindings } = draft;
   const models: Record<string, ModelBinding> = {};
   for (const binding of modelBindings) {
-    const compiled = compileBinding(binding, type, report);
+    const compiled = compileBinding(binding, type, report, agentIdOf);
     const modelId = binding.modelId.trim();
     const nodeId = modelBindingNodeId(binding.key);
     if (!modelId) report(nodeId, 'Model id is required.', 'modelId');
@@ -503,10 +519,7 @@ function toolCommon(tool: ToolSpecDraft, fail: Fail) {
   checkToolName(name, fail);
   const description = tool.description.trim();
   if (!description) fail('Description is required.', 'description');
-  const input = parseJsonSchema(tool.inputJson, 'Input');
-  if (!input.ok) fail(input.error, 'inputJson');
-  const output = parseJsonSchema(tool.outputJson, 'Output');
-  if (!output.ok) fail(output.error, 'outputJson');
+  const schemas = tool.toolType === 'agent' ? AGENT_TOOL_SCHEMAS : toolSchemas(tool, fail);
   const paths = cleanList(tool.paths);
   return {
     name,
@@ -516,10 +529,26 @@ function toolCommon(tool: ToolSpecDraft, fail: Fail) {
     permission: tool.permission,
     loadTier: tool.loadTier,
     paths: paths.length ? paths : ['*'],
+    ...schemas,
+  };
+}
+
+function toolSchemas(tool: ToolSpecDraft, fail: Fail) {
+  const input = parseJsonSchema(tool.inputJson, 'Input');
+  if (!input.ok) fail(input.error, 'inputJson');
+  const output = parseJsonSchema(tool.outputJson, 'Output');
+  if (!output.ok) fail(output.error, 'outputJson');
+  return {
     inputSchema: input.ok ? input.schema : {},
     outputSchema: output.ok ? output.schema : {},
   };
 }
+
+/** An agent tool takes the calling model's text and returns the agent's reply: the kernel fixes both. */
+const AGENT_TOOL_SCHEMAS = {
+  inputSchema: jsonSchemaFromZod(agentToolInput, 'input'),
+  outputSchema: jsonSchemaFromZod(agentToolOutput, 'output'),
+};
 
 type ToolCommon = ReturnType<typeof toolCommon>;
 
@@ -632,9 +661,40 @@ function functionTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): Tool
   };
 }
 
-const TOOL_COMPILERS = { http: httpTool, mcp: mcpTool, function: functionTool };
+function agentTool(
+  tool: ToolSpecDraft,
+  common: ToolCommon,
+  fail: Fail,
+  agentIdOf: AgentIdOf,
+): ToolRegistration {
+  const key = tool.agentKey ?? '';
+  const profile = key ? agentIdOf(key) : undefined;
+  if (!key) fail('Pick the agent this tool runs.', 'agentKey');
+  else if (!profile) fail('The agent this tool ran is gone. Pick another.', 'agentKey');
+  const max = tool.maxCallsPerTurn ?? null;
+  if (max !== null && !(Number.isInteger(max) && max >= 1)) {
+    fail('Calls per turn must be a positive whole number.', 'maxCallsPerTurn');
+  }
+  return {
+    type: 'agent',
+    ...common,
+    profile: profile ?? '',
+    ...(max !== null ? { maxCallsPerTurn: max } : {}),
+  };
+}
 
-function compileTool(tool: ToolSpecDraft, report: Report): ToolRegistration | undefined {
+const TOOL_COMPILERS = {
+  http: httpTool,
+  mcp: mcpTool,
+  function: functionTool,
+  agent: agentTool,
+};
+
+function compileTool(
+  tool: ToolSpecDraft,
+  report: Report,
+  agentIdOf: AgentIdOf,
+): ToolRegistration | undefined {
   const nodeId = toolSpecNodeId(tool.key);
   let failed = false;
   const fail: Fail = (message, field) => {
@@ -643,15 +703,20 @@ function compileTool(tool: ToolSpecDraft, report: Report): ToolRegistration | un
   };
   const common = toolCommon(tool, fail);
   const labels = toolLabels(tool, common, fail);
-  const compiled = TOOL_COMPILERS[tool.toolType](tool, common, fail);
+  const compiled = TOOL_COMPILERS[tool.toolType](tool, common, fail, agentIdOf);
   return failed ? undefined : { ...compiled, ...(labels ? { labels } : {}) };
 }
 
-function compileTools(draft: PlaygroundDraft, withLoader: boolean, report: Report) {
+function compileTools(
+  draft: PlaygroundDraft,
+  withLoader: boolean,
+  report: Report,
+  agentIdOf: AgentIdOf,
+) {
   const customTools: ToolRegistration[] = [];
   const names = new Set<string>();
   for (const tool of draft.toolSpecs) {
-    const compiled = compileTool(tool, report);
+    const compiled = compileTool(tool, report, agentIdOf);
     if (!compiled) continue;
     if (names.has(compiled.name)) {
       report(toolSpecNodeId(tool.key), `Tool name '${compiled.name}' is used twice.`, 'toolName');
@@ -1478,9 +1543,13 @@ function compileDecision(
 }
 
 /** A host: its custom tools, called directly, and the guardrails, trace and wording a host keeps. */
-function compileHost(draft: PlaygroundDraft, report: Report): Omit<CompiledPlayground, 'agentId'> {
+function compileHost(
+  draft: PlaygroundDraft,
+  report: Report,
+  agentIdOf: AgentIdOf,
+): Omit<CompiledPlayground, 'agentId'> {
   const facets = new Set<string>(draftFacets(draft));
-  const { customTools, tools } = compileTools(draft, false, report);
+  const { customTools, tools } = compileTools(draft, false, report, agentIdOf);
   if (!customTools.length) {
     report('tools', 'Add at least one tool: a host runs only its tools.');
   }
@@ -1502,6 +1571,7 @@ function assemble(
   type: PlaygroundTurnProfileType,
   report: Report,
   mode: PlaygroundConnectionMode,
+  agentIdOf: AgentIdOf,
 ): Omit<CompiledPlayground, 'agentId'> {
   const facets = new Set<string>(draftFacets(draft));
   const allows = (path: string) => draftAllows(draft, path);
@@ -1513,12 +1583,12 @@ function assemble(
       'systemByRoleJson',
     );
   });
-  const modelFields = compileModels(draft, type, report);
+  const modelFields = compileModels(draft, type, report, agentIdOf);
   const { outputs, structured } = facets.has('outputs')
     ? compileOutputs(draft.outputs, allows('outputs.structured'), report)
     : {};
   const { customTools, tools } = facets.has('tools')
-    ? compileTools(draft, allows('tools.t2Loader'), report)
+    ? compileTools(draft, allows('tools.t2Loader'), report, agentIdOf)
     : { customTools: [] };
   const turnBehaviour = facets.has('turnBehaviour')
     ? compileTurnBehaviour(draft.turnBehaviour, allows('turnBehaviour.resumption'), report)
@@ -1549,10 +1619,11 @@ function assemble(
   return { profile, customTools, ...(structured ? { structured } : {}) };
 }
 
-/** Every issue is reported, not just the first. */
+/** Every issue is reported, not just the first. `agentIdOf` resolves the agents a workspace draft names. */
 export function compilePlayground(
   draft: PlaygroundDraft,
   mode: PlaygroundConnectionMode = 'demo',
+  agentIdOf: AgentIdOf = NO_AGENTS,
 ): PlaygroundCompileResult {
   const issues: PlaygroundIssue[] = [];
   const report: Report = (nodeId, message, field, index) => {
@@ -1593,8 +1664,8 @@ export function compilePlayground(
     type === 'decision'
       ? compileDecision(draft, report)
       : type === 'host'
-        ? compileHost(draft, report)
-        : assemble(draft, type, report, mode);
+        ? compileHost(draft, report, agentIdOf)
+        : assemble(draft, type, report, mode, agentIdOf);
   if (issues.length) return { ok: false, issues };
 
   try {

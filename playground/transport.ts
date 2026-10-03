@@ -40,8 +40,15 @@ import { registerPlaygroundTools } from './tools.ts';
 import type { Equals } from '../src/kernel/util/exact-type.ts';
 import type { PlaygroundTraceLine } from './traces.ts';
 
+/** The agents the payload's agent names come first, so its agent tools find them. */
 export function playgroundInterface(payload: PlaygroundRunPayload): ProfileInterface {
-  const tools = createToolRegistry();
+  const profiles = new Map<string, Profile>();
+  const tools = createToolRegistry((id) => profiles.get(id));
+  for (const dependency of payload.dependencies ?? []) {
+    registerPlaygroundTools(tools, dependency.customTools);
+    const profile = defineProfile(dependency.profile);
+    profiles.set(profile.id, profile);
+  }
   registerPlaygroundTools(tools, payload.customTools);
   return interfaceFromProfile(defineProfile(payload.profile), tools);
 }
@@ -91,6 +98,7 @@ export function createPlaygroundTransport(
     profile: payload.profile,
     customTools: payload.customTools,
     structured: payload.structured,
+    dependencies: payload.dependencies,
   };
   const traces = options.traces ?? createTraceFeed();
   /** The server's steer inbox for each turn, by the client's turn id. */
@@ -170,7 +178,11 @@ export function createPlaygroundHostTransport(
   payload: PlaygroundRunPayload,
   options: PlaygroundTransportOptions = {},
 ): HostTransport {
-  const compiled = { profile: payload.profile, customTools: payload.customTools };
+  const compiled = {
+    profile: payload.profile,
+    customTools: payload.customTools,
+    dependencies: payload.dependencies,
+  };
   const traces = options.traces ?? createTraceFeed();
   let sessionPermissions: string[] = [];
   return {

@@ -8,7 +8,7 @@ import { stubOutputFromSchema } from './stub.ts';
 import { zodFromJsonSchema } from './tool-schema.ts';
 
 function registerCustomTool(tools: ToolRegistry, tool: ToolRegistration): void {
-  const shared = {
+  const base = {
     name: tool.name,
     description: tool.description,
     category: tool.category,
@@ -16,9 +16,21 @@ function registerCustomTool(tools: ToolRegistry, tool: ToolRegistration): void {
     paths: tool.paths,
     loadTier: tool.loadTier,
     permission: tool.permission,
+    ...(tool.labels ? { labels: tool.labels } : {}),
+  };
+  if (tool.type === 'agent') {
+    tools.register({
+      ...base,
+      type: 'agent',
+      profile: tool.profile,
+      ...(tool.maxCallsPerTurn !== undefined ? { maxCallsPerTurn: tool.maxCallsPerTurn } : {}),
+    });
+    return;
+  }
+  const shared = {
+    ...base,
     input: zodFromJsonSchema(tool.inputSchema),
     output: zodFromJsonSchema(tool.outputSchema),
-    ...(tool.labels ? { labels: tool.labels } : {}),
   };
   if (tool.type === 'http') {
     tools.register({

@@ -124,6 +124,13 @@ export {
   toolSpecNodeId,
 } from './tree.ts';
 export {
+  compileWorkspace,
+  type CompiledWorkspace,
+  type WorkspaceCompileResult,
+  workspaceRunAgent,
+} from './compile-workspace.ts';
+export type { PlaygroundDependency } from './runtime-scope.ts';
+export {
   addAgent,
   type AgentDraft,
   agentDraft,
@@ -159,6 +166,7 @@ export type { PlaygroundInputsSpec, PlaygroundToolSeed, PlaygroundToolSpecSeed }
 export type { PlaygroundLiveDraftMessage } from './live-connection.ts';
 export { playgroundLiveConnection } from './live-connection.ts';
 export type {
+  AgentToolRegistration,
   FunctionToolRegistration,
   HttpToolRegistration,
   McpToolRegistration,

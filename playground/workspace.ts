@@ -65,7 +65,7 @@ function parseAgentNodeId(id: string): { key: string; inner: string } | undefine
 }
 
 /** A single draft's node id, under `agentKey`. Tools carry no agent: every agent shares them. */
-function scopedNodeId(agentKey: string, id: string): string {
+export function scopedNodeId(agentKey: string, id: string): string {
   return toolSpecKeyOf(id) === undefined ? agentNodeId(agentKey, id) : id;
 }
 

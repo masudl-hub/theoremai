@@ -136,6 +136,8 @@ export interface ModelBindingDraft {
   compactKeep?: number | null;
   /** What counts toward the budget; `''` or absent is history. */
   compactMeter?: CompactionMeter | '';
+  /** The workspace agent that writes the summary, by key; `''` or absent: this agent. */
+  compactWith?: string;
 }
 
 /** Where compaction starts when a builder turns it on; every number stays theirs to change. */

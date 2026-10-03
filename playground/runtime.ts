@@ -23,7 +23,11 @@ import {
 import { PLAYGROUND_TRACE_DESTINATION } from './policy.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import type { PlaygroundRunPayload } from './run-payload.ts';
-import { type PlaygroundRuntime, playgroundScope } from './runtime-scope.ts';
+import {
+  type PlaygroundDependency,
+  type PlaygroundRuntime,
+  playgroundScope,
+} from './runtime-scope.ts';
 import { createPlaygroundTraceRouter, type PlaygroundTraceLine } from './traces.ts';
 import type { PlaygroundSteerLine } from './transport.ts';
 
@@ -70,6 +74,8 @@ export async function* streamPlaygroundTurn(args: {
   effort?: string;
   signal?: AbortSignal;
   runtime: PlaygroundRuntime;
+  /** The agents this one names, registered before it. */
+  dependencies?: PlaygroundDependency[];
   /** Where the turn's mid-turn steers queue. */
   steer: SteerInbox;
   /** The paused calls the message walks away from, each as the browser replays it. */
@@ -80,6 +86,7 @@ export async function* streamPlaygroundTurn(args: {
     args.customTools,
     args.structured,
     args.runtime,
+    args.dependencies,
   );
   assertNotLiveProfile(profile.type, 'turn runner — use runSession');
   const abandon = args.abandon ?? [];
@@ -215,12 +222,14 @@ export async function* streamPlaygroundInvoke(args: {
   answer: TheoremInvokeRequest;
   signal?: AbortSignal;
   runtime: PlaygroundRuntime;
+  dependencies?: PlaygroundDependency[];
 }): AsyncGenerator<TurnEvent | PlaygroundTraceLine> {
   const { scope, profile } = playgroundScope(
     args.profile,
     args.customTools,
     args.structured,
     args.runtime,
+    args.dependencies,
   );
   assertNotLiveProfile(profile.type, 'invoke');
   const { gateId, decision, input, secret, replay = {} } = args.answer;
@@ -245,12 +254,14 @@ export async function* streamPlaygroundCall(args: {
   sessionPermissions?: string[];
   signal?: AbortSignal;
   runtime: PlaygroundRuntime;
+  dependencies?: PlaygroundDependency[];
 }): AsyncGenerator<TurnEvent | PlaygroundTraceLine> {
   const { scope, profile } = playgroundScope(
     args.profile,
     args.customTools,
     undefined,
     args.runtime,
+    args.dependencies,
   );
   if (profile.type !== 'host') {
     // lexicon-exempt: internal diagnostic; the user reads error.request
@@ -269,7 +280,7 @@ export async function* streamPlaygroundCall(args: {
   );
 }
 
-export { type PlaygroundRuntime, playgroundScope } from './runtime-scope.ts';
+export { type PlaygroundDependency, type PlaygroundRuntime, playgroundScope } from './runtime-scope.ts';
 
 /** Both hosts run decisions through the kernel; the browser supplies its provider vault. */
 export async function runPlaygroundDecision(

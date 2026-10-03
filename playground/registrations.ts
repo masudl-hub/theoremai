@@ -74,7 +74,26 @@ export type McpToolRegistration = {
 	labels?: PlaygroundToolLabels;
 };
 
+/** Runs one turn of another registered agent; its schemas are the kernel's fixed ones. */
+export type AgentToolRegistration = {
+	type: 'agent';
+	name: string;
+	description: string;
+	category: string;
+	access: ToolAccess;
+	permission: ToolPermission;
+	loadTier: ToolLoadTier;
+	paths: string[];
+	/** The agent's profile id, registered before this tool. */
+	profile: string;
+	maxCallsPerTurn?: number;
+	inputSchema: Record<string, unknown>;
+	outputSchema: Record<string, unknown>;
+	labels?: PlaygroundToolLabels;
+};
+
 export type ToolRegistration =
 	| FunctionToolRegistration
 	| HttpToolRegistration
-	| McpToolRegistration;
+	| McpToolRegistration
+	| AgentToolRegistration;

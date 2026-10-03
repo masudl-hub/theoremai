@@ -117,18 +117,29 @@ function registerDraft(
   return defined;
 }
 
+/** An agent the run's agent names, registered before it: one its agent tools run, or its summariser. */
+export interface PlaygroundDependency {
+  profile: ProfileDefinition;
+  customTools: readonly ToolRegistration[];
+  structured?: StructuredRegistration;
+}
+
 /**
  * A new scope holding one request's draft, and the profile to run on it. Never cache or share it:
  * the scope also holds MCP sessions, and a shared one would hand a keyless server's session to
- * every visitor and keep it past the request.
+ * every visitor and keep it past the request. `dependencies` are registered first, in order.
  */
 export function playgroundScope(
   profile: ProfileDefinition,
   customTools: readonly ToolRegistration[],
   structured: StructuredRegistration | undefined,
   runtime: PlaygroundRuntime,
+  dependencies: readonly PlaygroundDependency[] = [],
 ): { scope: KernelScope; profile: Profile } {
   const scope = createKernelScope();
+  for (const dependency of dependencies) {
+    registerDraft(scope, dependency.profile, dependency.customTools, dependency.structured, runtime);
+  }
   return {
     scope,
     profile: registerDraft(scope, profile, customTools, structured, runtime),

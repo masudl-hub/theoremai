@@ -8,8 +8,8 @@ import type {
   ToolPermission,
 } from '../src/kernel/schema.ts';
 
-/** The tool types a playground draft builds; agent tools come with more than one agent per draft. */
-export type PlaygroundToolType = Exclude<CustomToolType, 'agent'>;
+/** The tool types a playground draft builds. */
+export type PlaygroundToolType = CustomToolType;
 
 /** Serializable tool facet seed — UI adds `kind` / `expanded` in the frontend. */
 export type PlaygroundToolSpecSeed = {
@@ -34,6 +34,10 @@ export type PlaygroundToolSpecSeed = {
   bodyParam?: string;
   serverUrl?: string;
   mcpToolName?: string;
+  /** An agent tool's agent, by its workspace key. */
+  agentKey?: string;
+  /** An agent tool's calls in one turn of its caller; `null` or absent: no cap but max steps. */
+  maxCallsPerTurn?: number | null;
   authType?: PlaygroundAuthType;
   authSlot?: string;
   authService?: string;

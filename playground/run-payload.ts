@@ -1,5 +1,6 @@
 import type { DecisionQuestion, ProfileDefinition } from '../mod.ts';
 import type { PlaygroundConnectionMode } from './policy.ts';
+import type { PlaygroundDependency } from './runtime-scope.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import {
 	clearPlaygroundRunPayloadRecord,
@@ -44,6 +45,8 @@ export type PlaygroundRunPayload = {
 	structured?: StructuredRegistration;
 	/** A decision profile's questions, by id. */
 	questions?: Record<string, DecisionQuestion>;
+	/** The agents this one names, each after the agents it names; registered before it. */
+	dependencies?: PlaygroundDependency[];
 };
 
 /** `localStorage`, not `sessionStorage`: session storage is per-tab, so a `window.open` handoff would lose it. */

@@ -83,6 +83,7 @@ export function createBrowserPlaygroundTransport(
     profile: payload.profile,
     customTools: payload.customTools,
     structured: payload.structured,
+    dependencies: payload.dependencies,
     runtime,
   };
   const route = (onEvent: TurnEventSink, onInbox = (_inbox: string) => {}) =>
@@ -147,6 +148,7 @@ export function createBrowserPlaygroundHostTransport(
   const compiled = {
     profile: payload.profile,
     customTools: payload.customTools,
+    dependencies: payload.dependencies,
     runtime,
   };
   const route = (onEvent: TurnEventSink) => routePlaygroundLines(onEvent, traces, () => {});

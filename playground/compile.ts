@@ -69,7 +69,6 @@ import type {
   PlaygroundProfileType,
   PlaygroundTurnProfileType,
   SpeechDraft,
-  SystemPartDraft,
   ToolSpecDraft,
   TurnBehaviourDraft,
   UrlCheckDraft,
@@ -107,6 +106,7 @@ import {
   inputLimitsRequired,
   keySlotRequired,
 } from './requirements.ts';
+import { parseSystemMarkup, type SystemMarkup } from './system-markup.ts';
 import { parseJsonSchema } from './tool-schema.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 
@@ -412,35 +412,39 @@ function parseHeaders(raw: string | undefined): Record<string, string> | undefin
   return parseRecord(raw, isString);
 }
 
-/** A record field's value, reporting `message` on `field` when it doesn't parse. */
 const isSystemPrompt = (value: unknown): value is SystemPrompt =>
   systemPromptProblem(value, 'system') === undefined;
 
-function isSystemPartDraft(value: unknown): value is SystemPartDraft {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as SystemPartDraft).text === 'string' &&
-    typeof (value as SystemPartDraft).private === 'boolean'
-  );
-}
-
-/**
- * Blank parts are left out. Without a private part the prompt is private
- * throughout, so it compiles to the text alone.
- */
-function compileSystem(parts: unknown, report: Report): SystemPrompt | undefined {
-  if (!Array.isArray(parts) || !parts.every(isSystemPartDraft)) {
-    report('identity', 'Each part of the system prompt is text with a private switch.', 'system');
+/** Each role's text takes `{private: …}` sections like the system prompt; a list of parts passes as written. */
+function compileSystemByRole(
+  raw: string,
+  report: (message: string) => void,
+): Record<string, SystemPrompt> | undefined {
+  const byRole = parseRecord(raw, isSystemPrompt);
+  if (byRole === null) {
+    report(
+      'Instructions by role must be a JSON object of text, or of lists of text and { "private": text }.',
+    );
     return undefined;
   }
-  const written = parts.filter((part) => part.text.trim());
-  if (!written.some((part) => part.private)) {
-    return written.map((part) => part.text).join('').trim() || undefined;
+  if (!byRole) return undefined;
+  const compiled: Record<string, SystemPrompt> = {};
+  for (const [role, prompt] of Object.entries(byRole)) {
+    if (typeof prompt !== 'string') {
+      compiled[role] = prompt;
+      continue;
+    }
+    const parsed = parseSystemMarkup(prompt);
+    if (!parsed.ok) {
+      report(`${role}: ${parsed.message}`);
+      return undefined;
+    }
+    if (parsed.prompt !== undefined) compiled[role] = parsed.prompt;
   }
-  return written.map((part) => (part.private ? { private: part.text } : part.text));
+  return compiled;
 }
 
+/** A record field's value, reporting `message` on `field` when it doesn't parse. */
 function recordField<T>(
   raw: string,
   isValue: (value: unknown) => value is T,
@@ -1505,13 +1509,14 @@ function assemble(
 ): Omit<CompiledPlayground, 'agentId'> {
   const facets = new Set<string>(draftFacets(draft));
   const allows = (path: string) => draftAllows(draft, path);
-  const system = compileSystem(draft.identity.system, report);
-  const systemByRole = recordField(draft.identity.systemByRoleJson, isSystemPrompt, () => {
-    report(
-      'identity',
-      'Instructions by role must be a JSON object of text, or of lists of text and { "private": text }.',
-      'systemByRoleJson',
-    );
+  const parsedSystem: SystemMarkup =
+    typeof draft.identity.system === 'string'
+      ? parseSystemMarkup(draft.identity.system)
+      : { ok: false, message: 'The system prompt must be text.' };
+  if (!parsedSystem.ok) report('identity', parsedSystem.message, 'system');
+  const system = parsedSystem.ok ? parsedSystem.prompt : undefined;
+  const systemByRole = compileSystemByRole(draft.identity.systemByRoleJson, (message) => {
+    report('identity', message, 'systemByRoleJson');
   });
   const modelFields = compileModels(draft, type, report);
   const { outputs, structured } = facets.has('outputs')

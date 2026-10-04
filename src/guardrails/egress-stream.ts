@@ -18,13 +18,23 @@
  * @module
  */
 
-import { DEFAULT_CHECKS, type ResolvedEgressChecks, standardEgressEnforce } from './egress.ts';
+import {
+  DEFAULT_CHECKS,
+  egressScope,
+  type ResolvedEgressChecks,
+  standardEgressEnforce,
+} from './egress.ts';
 import {
   FORWARD_AUTOMATON,
   REVERSED_AUTOMATON,
   REVERSED_INJECTION_PATTERNS,
 } from './egress-automata.ts';
-import { EGRESS_PATTERNS, type EgressPattern, type EgressPatternKind } from './egress-patterns.ts';
+import {
+  EGRESS_PATTERNS,
+  type EgressPattern,
+  type EgressPatternKind,
+  notePattern,
+} from './egress-patterns.ts';
 import { type EgressAutomatonData, globalPattern } from './egress-rules.ts';
 import {
   type GivenUrls,
@@ -103,6 +113,51 @@ function compile(data: EgressAutomatonData): Automaton {
 
 let forward: Automaton | undefined;
 let backward: Automaton | undefined;
+
+/** The code units a case-insensitive regex reads as each one: ES `Canonicalize` without `u`. */
+let caseUnits: Map<number, number[]> | undefined;
+
+function canonicalUnit(unit: number): number {
+  const upper = String.fromCharCode(unit).toUpperCase();
+  if (upper.length !== 1) return unit;
+  const code = upper.charCodeAt(0);
+  return unit >= 0x80 && code < 0x80 ? unit : code;
+}
+
+function unitsLike(unit: number): number[] {
+  if (!caseUnits) {
+    caseUnits = new Map();
+    for (let u = 0; u < UNITS; u++) {
+      const canon = canonicalUnit(u);
+      const units = caseUnits.get(canon);
+      if (units) units.push(u);
+      else caseUnits.set(canon, [u]);
+    }
+  }
+  return caseUnits.get(canonicalUnit(unit)) ?? [unit];
+}
+
+/** Literal automata, kept per text so each is built once. */
+const literalAutomata = new Map<string, Automaton>();
+
+/** An automaton for `text` as written, case aside, as `notePattern` reads it. */
+function literalAutomaton(text: string): Automaton {
+  const cached = literalAutomata.get(text);
+  if (cached) return cached;
+  const positions = Array.from({ length: text.length }, (_, i) => unitsLike(text.charCodeAt(i)));
+  const units = [...new Set(positions.flat())].sort((a, b) => a - b);
+  const classStarts = [0];
+  for (const unit of units) {
+    if (classStarts.at(-1) !== unit) classStarts.push(unit);
+    if (unit + 1 < UNITS) classStarts.push(unit + 1);
+  }
+  const classOfUnit = (unit: number) => classStarts.indexOf(unit);
+  const charsets = positions.map((like) => like.map(classOfUnit));
+  const nodes = [...positions.map((_, i) => [0, 0, i + 1, i]), [0, 1]];
+  const automaton = compile({ classStarts, charsets, initials: [0], nodes });
+  literalAutomata.set(text, automaton);
+  return automaton;
+}
 
 /** The first edges of the given patterns, per character class. */
 function startEdges(automaton: Automaton, patterns: readonly number[]): Int32Array[] {
@@ -692,6 +747,8 @@ interface EgressStreamOptions {
   };
   /** The URLs the model was given, for the image and link checks. */
   given?: GivenUrls;
+  /** The words of the profile's own canary note, for the boundary check (`boundaryNote`). */
+  note?: string;
 }
 
 /** Compiled host automata, kept per table so each is built once. */
@@ -741,6 +798,11 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
       scan(urlView(reply), forward, injection),
     );
   }
+  if (checks.boundary && options.note) {
+    const { rule, severity } = KIND_RULES.boundary;
+    const regex = notePattern(options.note);
+    scans.push(scan(raw, literalAutomaton(options.note), [{ rule, severity, id: 0, regex }]));
+  }
   if (options.host) {
     let automaton = hostAutomata.get(options.host.automaton);
     if (!automaton) {
@@ -775,7 +837,10 @@ type EgressStreamPlan = (context: GuardrailContext) => EgressStream;
 const STREAM_PLANS = new WeakMap<EgressEnforcer, EgressStreamPlan>([
   [
     standardEgressEnforce,
-    (context) => createEgressStream(context.givenUrls ? { given: context.givenUrls } : {}),
+    (context) => {
+      const { given, note } = egressScope(context);
+      return createEgressStream({ ...(given ? { given } : {}), ...(note ? { note } : {}) });
+    },
   ],
 ]);
 

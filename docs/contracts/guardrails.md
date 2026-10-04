@@ -162,7 +162,7 @@ interface GuardrailHit {
 ```
 
 `standardEgressEnforce` blocks canary leaks, sensitive echoes (credentials,
-cards, SSNs — not IP addresses), system-boundary markers (the canary note's wording, or a
+cards, SSNs — not IP addresses), system-boundary markers (the canary note's own words, as the profile's `canary.bind_note` words it, or a
 `user_data` fence tag, closed or not), injection-pattern
 echoes, and reply images that could carry data off the device (see
 [Reply images and links](#reply-images-and-links)); `EGRESS_RULES` names the
@@ -200,7 +200,7 @@ rules. `interfaceFromProfile` reports the checks a profile runs as
 | Check | Default | Blocks |
 | --- | --- | --- |
 | `sensitive` | every group but `network` | Sensitive data by group (see [Sensitive data](#sensitive-data)): `true`, `false`, or `{ ids?, financial?, network?, credentials? }` |
-| `boundary` | on | The fence the kernel puts around user data, and the canary's note |
+| `boundary` | on | The fence the kernel puts around user data, and the canary note's own words, as the profile's `canary.bind_note` words it |
 | `injection` | on | Injection phrasing, as written or disguised |
 | `images` | on | `egress.image-exfil`: an image that loads a URL the model was not given |
 | `links` | off | `egress.link-exfil`: a link to a URL the model was not given |

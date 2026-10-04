@@ -68,6 +68,18 @@ function canaryNote(canary: string, lexicon?: LexiconOverrides): string {
   return canary ? lexiconText('canary.bind_note', { canary }, lexicon) : '';
 }
 
+/**
+ * The words of the note `lexicon` binds, without the canary: its text before
+ * the canary, or after it when nothing comes before. A reply repeating them
+ * repeats the system prompt. Undefined when the note has no words of its own.
+ */
+function canaryNoteMarker(lexicon?: LexiconOverrides): string | undefined {
+  const pieces = canaryNote('\u0000', lexicon)
+    .split('\u0000')
+    .map((piece) => piece.trim());
+  return pieces.find((piece) => piece.length > 0);
+}
+
 /** The lexicon's `user_data.note`, which tells the model what `wrapUserData`'s tags mean. */
 function userDataNote(lexicon?: LexiconOverrides): string {
   return lexiconText('user_data.note', {}, lexicon);
@@ -1115,6 +1127,7 @@ export {
   canaryHoldFrom,
   canaryLeakRanges,
   canaryNote,
+  canaryNoteMarker,
   canaryOpeningFrom,
   createCanaryScanner,
   createCanaryStreamGate,

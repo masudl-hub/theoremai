@@ -1048,7 +1048,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.egress.checks.boundary': field(
     'boolean',
-    'The markers the kernel puts around user data, and the default canary note, repeated in the reply.',
+    "The markers the kernel puts around user data, and the words of the canary note (the profile's canary.bind_note, or the default), repeated in the reply.",
   ),
   'guardrails.egress.checks.injection': field(
     'boolean',

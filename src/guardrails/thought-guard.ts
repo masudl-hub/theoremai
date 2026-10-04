@@ -20,13 +20,14 @@ import {
   wordStartAcross,
 } from './canary.ts';
 import {
+  boundaryNote,
   CANARY_HIT,
   egressChecksOf,
   NO_CHECKS,
   PROMPT_ECHO_HIT,
   type ResolvedEgressChecks,
 } from './egress.ts';
-import { SYSTEM_BOUNDARY } from './egress-patterns.ts';
+import { notePattern, SYSTEM_BOUNDARY } from './egress-patterns.ts';
 import { createEgressStream, type EgressStream } from './egress-stream.ts';
 import { type GivenUrls, imageLeakSpans, linkLeakSpans } from './egress-urls.ts';
 import { type LexiconOverrides, lexiconText } from './lexicon.ts';
@@ -148,6 +149,7 @@ const MAX_LEAKS = 16;
 function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
   const { checks, canary, given, lexicon } = options;
   const privateSystem = canary ? options.privateSystem : undefined;
+  const note = boundaryNote({ canary, lexicon });
   const scope = (check: object) => ({ ...check, ...(given ? { given } : {}) });
   /** The placeholder for `kind` after `before`, without a second space. */
   function placeholder(kind: OmissionKind, before: string): string {
@@ -181,7 +183,9 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
 
   /** Fresh readers over `text`, as if it had streamed: true when it already holds a leak. */
   function restart(text: string): boolean {
-    stream = checks ? createEgressStream({ checks, ...(given ? { given } : {}) }) : undefined;
+    stream = checks
+      ? createEgressStream({ checks, ...(given ? { given } : {}), ...(note ? { note } : {}) })
+      : undefined;
     scanner = canary ? createCanaryScanner(canary) : undefined;
     echoed = 0;
     readTo = 0;
@@ -216,7 +220,11 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
       }
     }
     if (checks?.boundary) {
-      for (const match of text.matchAll(new RegExp(SYSTEM_BOUNDARY.source, 'gi'))) {
+      const patterns = [
+        new RegExp(SYSTEM_BOUNDARY.source, 'gi'),
+        ...(note ? [notePattern(note)] : []),
+      ];
+      for (const match of patterns.flatMap((pattern) => [...text.matchAll(pattern)])) {
         const start = match.index;
         spans.push({
           start,

@@ -59,5 +59,10 @@ const EGRESS_PATTERNS: readonly EgressPattern[] = [
   ...LINK_PATTERNS.map((pattern) => ({ kind: 'link' as const, pattern })),
 ];
 
+/** A reply repeating `note`, a canary note's own words (`canaryNoteMarker`), as written, case aside. */
+function notePattern(note: string): RegExp {
+  return new RegExp(note.replace(/[\\^$.*+?()[\]{}|/-]/g, '\\$&'), 'gi');
+}
+
 export type { EgressPattern, EgressPatternKind };
-export { EGRESS_PATTERNS, SYSTEM_BOUNDARY };
+export { EGRESS_PATTERNS, notePattern, SYSTEM_BOUNDARY };

@@ -1,7 +1,7 @@
 import type { ProviderEvent, ProviderEvidence } from '../kernel/types.ts';
 import { isRecord } from '../kernel/util/record.ts';
-import { guardedEventTexts, scanTextForCanaryLeak } from './canary.ts';
-import { SYSTEM_BOUNDARY } from './egress-patterns.ts';
+import { canaryNoteMarker, guardedEventTexts, scanTextForCanaryLeak } from './canary.ts';
+import { notePattern, SYSTEM_BOUNDARY } from './egress-patterns.ts';
 import { type GivenUrls, imageLeakSpans, linkLeakSpans, type UrlScope } from './egress-urls.ts';
 import { describeError } from './error.ts';
 import { hitFromSpan } from './hits.ts';
@@ -231,6 +231,8 @@ interface EgressScope {
   privateSystem?: readonly string[];
   /** The URLs the model was given this turn. */
   given?: GivenUrls;
+  /** The words of the profile's own canary note (`boundaryNote`). */
+  note?: string;
 }
 
 function urlScope(check: UrlCheck, given: GivenUrls | undefined): UrlScope {
@@ -255,16 +257,20 @@ function collectEgressHits(
       ),
     );
   }
-  const boundary = checks.boundary ? SYSTEM_BOUNDARY.exec(text) : null;
-  if (boundary && boundary.index !== undefined) {
-    hits.push(
-      hitFromSpan(
-        text,
-        { start: boundary.index, end: boundary.index + boundary[0].length },
-        EGRESS_RULES.boundary,
-        'medium',
-      ),
-    );
+  if (checks.boundary) {
+    for (const pattern of [SYSTEM_BOUNDARY, ...(scope.note ? [notePattern(scope.note)] : [])]) {
+      const boundary = pattern.exec(text);
+      if (boundary) {
+        hits.push(
+          hitFromSpan(
+            text,
+            { start: boundary.index, end: boundary.index + boundary[0].length },
+            EGRESS_RULES.boundary,
+            'medium',
+          ),
+        );
+      }
+    }
   }
   if (checks.injection) {
     hits.push(...hitsFromSpans(text, injectionSpans(text), EGRESS_RULES.injection, 'medium')); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -414,11 +420,26 @@ function hitsEnforcer(
 
 /** What the bundled policy reads from a gate's context. */
 function egressScope(context: GuardrailContext): EgressScope {
+  const note = boundaryNote(context);
   return {
     ...(context.canary ? { canary: context.canary } : {}),
     ...(context.privateSystem ? { privateSystem: context.privateSystem } : {}),
     ...(context.givenUrls ? { given: context.givenUrls } : {}),
+    ...(note ? { note } : {}),
   };
+}
+
+/**
+ * The words of the canary note a turn binds, when the profile's lexicon
+ * rewords it so that `SYSTEM_BOUNDARY` no longer reads them.
+ */
+function boundaryNote({
+  canary,
+  lexicon,
+}: Pick<GuardrailContext, 'canary' | 'lexicon'>): string | undefined {
+  if (!canary) return undefined;
+  const marker = canaryNoteMarker(lexicon);
+  return marker && !SYSTEM_BOUNDARY.test(marker) ? marker : undefined;
 }
 
 /** Default egress enforce: every bundled check at its default (`EgressChecks`). */
@@ -529,6 +550,7 @@ async function runEnforcer(
 
 export type { EgressChecks, EgressScope, ResolvedEgressChecks, UrlCheck };
 export {
+  boundaryNote,
   CANARY_HIT,
   collectEgressHits,
   DEFAULT_CHECKS,

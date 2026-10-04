@@ -37,10 +37,14 @@ export type GateAnswer =
   | { decision: 'approve'; edited?: { from: Record<string, unknown> } }
   | { decision: 'deny' | 'abandon' };
 
-/** `signIn` when the gate answered is a sign-in, so a refusal tells the model so. */
+/** `signIn` when the gate answered is a sign-in, so the model is told the person signed in or why not. */
 export function resumeForAnswer(answer: GateAnswer, signIn = false): InvokeToolResume {
   if (answer.decision === 'approve') {
-    return answer.edited ? { granted: true, edited: answer.edited } : { granted: true };
+    return {
+      granted: true,
+      ...(answer.edited ? { edited: answer.edited } : {}),
+      ...(signIn ? { signIn } : {}),
+    };
   }
   return {
     granted: false,
@@ -112,6 +116,7 @@ export function answerGatedCall(
   return {
     resume: resumeForAnswer(
       input === undefined ? { decision } : { decision, edited: { from: call.arguments } },
+      call.auth !== undefined,
     ),
     input: input ?? call.arguments,
     sessionPermissions: sessionPermissionsAfterApproval(

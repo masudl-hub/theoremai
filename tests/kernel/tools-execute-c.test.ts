@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
+import { memoryCredentialSource } from '../../src/kernel/auth/credential-source.ts';
 import { AWAITING_USER_INPUT_STATUS } from '../../src/kernel/schema.ts';
 import { createKernelScope, type KernelScope } from '../../src/kernel/scope.ts';
 import {
@@ -330,6 +331,45 @@ Deno.test('a refused gate settles as the failure its cause and sign-in name', as
     check(errors.length, 1, `${row.label}: one error event`);
     check(errors[0]?.failure.message, row.expected.message, `${row.label}: event message`);
   }
+});
+
+Deno.test('a call the person signed in for tells the model so before its result', async () => {
+  const profile = profileOf(['docs', 'broken']);
+  const scope = scopeOf(
+    fnTool('docs', { auth: DOCS_AUTH }),
+    fnTool('broken', {
+      auth: DOCS_AUTH,
+      handler: () => {
+        throw new Error('backend down');
+      },
+    }),
+  );
+  const credentials = memoryCredentialSource({ docs: { type: 'api_key', key: 'typed-key' } });
+  const note = 'The person signed in to Docs. The call continues.';
+  const signedIn = await run({
+    scope,
+    profile,
+    name: 'docs',
+    ctx: { resume: { granted: true, signIn: true }, credentials },
+  });
+  const text = signedIn.settlement.modelResult?.modelText ?? '';
+  check(text.startsWith(`${note}\n\n`), true, 'note first');
+  check(text.includes('ok'), true, 'then the result');
+  check(toolEventsOf(signedIn.events, 'complete')[0]?.readBack, text, 'the event reads the same');
+  const failed = await run({
+    scope,
+    profile,
+    name: 'broken',
+    ctx: { resume: { granted: true, signIn: true }, credentials },
+  });
+  check(failed.settlement.modelResult?.modelText?.startsWith(note), true, 'a failure too');
+  const approved = await run({
+    scope,
+    profile,
+    name: 'docs',
+    ctx: { resume: { granted: true }, credentials },
+  });
+  check(approved.settlement.modelResult?.modelText?.includes(note), false, 'approval alone');
 });
 
 Deno.test('a refused call reaches post_tool with the call, and no body runs', async () => {

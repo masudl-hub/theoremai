@@ -429,7 +429,7 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
   'sign_in.pending':
     'Told to the model while a step waits for the user to sign in to a service. Takes {service}.',
   'sign_in.done':
-    'Told to the model when the user has signed in and the waiting step runs. Takes {service}.',
+    'Told to the model before the result of a call the user signed in for. Takes {service}.',
   'sign_in.declined':
     'Told to the model when the user chooses not to sign in to a service. Takes {service}.',
   'sign_in.expired':

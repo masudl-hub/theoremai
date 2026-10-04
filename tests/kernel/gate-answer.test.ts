@@ -99,10 +99,10 @@ Deno.test('a typed key answers only a sign-in gate, as its slot credential', () 
     [],
   );
   assertEquals(answered.typed?.slot, 'tracker');
-  assertEquals(answered.resume, { granted: true });
+  assertEquals(answered.resume, { granted: true, signIn: true });
 });
 
-Deno.test('a refused sign-in gate resumes as a sign-in, so the model reads its sign-in note', () => {
+Deno.test('an answered sign-in gate resumes as a sign-in, so the model reads its sign-in note', () => {
   const signInCall: HeldGatedCall = {
     name: 'fetch_report',
     arguments: {},
@@ -118,5 +118,8 @@ Deno.test('a refused sign-in gate resumes as a sign-in, so the model reads its s
     cause: 'abandoned',
     signIn: true,
   });
-  assertEquals(resumeForAnswer({ decision: 'approve' }, true), { granted: true });
+  assertEquals(answerGatedCall({ callId: 'c1', decision: 'approve' }, signInCall, []).resume, {
+    granted: true,
+    signIn: true,
+  });
 });

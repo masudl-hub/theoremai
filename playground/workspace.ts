@@ -242,21 +242,37 @@ export function duplicateAgent(workspace: PlaygroundWorkspace, key: string): Pla
 }
 
 /**
- * Removes an agent; the last one stays. Agents that name it keep the name, so
- * compile can show the broken reference where it is. The open node and the
- * chat move to a neighbour when they were on it.
+ * Removes an agent; the last one stays. Nothing is left pointing at it: the
+ * agent tools that ran it leave the library and every agent, and a model it
+ * summarised for goes back to summarising itself. The open node and the chat
+ * move to a neighbour when they were on it.
  */
 export function removeAgent(workspace: PlaygroundWorkspace, key: string): PlaygroundWorkspace {
   const index = workspace.agents.findIndex((agent) => agent.key === key);
   if (index < 0 || workspace.agents.length === 1) return workspace;
-  const agents = workspace.agents.filter((agent) => agent.key !== key);
-  const neighbour = agents[Math.min(index, agents.length - 1)];
+  const neighbour = workspace.agents[index + 1] ?? workspace.agents[index - 1];
   if (!neighbour) return workspace;
-  const selectedGone = parseAgentNodeId(workspace.selected)?.key === key;
+  const ranIt = new Set(
+    workspace.toolSpecs
+      .filter((tool) => tool.toolType === 'agent' && tool.agentKey === key)
+      .map((tool) => tool.key),
+  );
+  const agents = workspace.agents
+    .filter((agent) => agent.key !== key)
+    .map((agent) => ({
+      ...agent,
+      tools: { ...agent.tools, allow: agent.tools.allow.filter((toolKey) => !ranIt.has(toolKey)) },
+      modelBindings: agent.modelBindings.map((binding) =>
+        binding.compactWith === key ? { ...binding, compactWith: undefined } : binding
+      ),
+    }));
+  const gone = parseAgentNodeId(workspace.selected)?.key === key ||
+    [...ranIt].some((toolKey) => workspace.selected === toolSpecNodeId(toolKey));
   return {
     ...workspace,
     agents,
-    selected: selectedGone ? agentNodeId(neighbour.key) : workspace.selected,
+    toolSpecs: workspace.toolSpecs.filter((tool) => !ranIt.has(tool.key)),
+    selected: gone ? agentNodeId(neighbour.key) : workspace.selected,
     chatWith: workspace.chatWith === key ? neighbour.key : workspace.chatWith,
   };
 }

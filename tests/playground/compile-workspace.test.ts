@@ -14,6 +14,7 @@ import {
   type PlaygroundIssue,
   type PlaygroundWorkspace,
   playgroundInterface,
+  removeAgent,
   setProfileType,
   type ToolSpecDraft,
   toolSpecNodeId,
@@ -205,4 +206,30 @@ Deno.test('a single draft names no other agent', () => {
   const result = compilePlayground({ ...helperDraft(), toolSpecs: [agentTool('')] });
   assert(!result.ok);
   assertEquals(must(result.issues[0]).message, 'Pick the agent this tool runs.');
+});
+
+Deno.test('removing an agent leaves nothing pointing at it', () => {
+  const calling = conciergeCallingHelper();
+  const [concierge, helper] = calling.agents.map((agent) => must(agent).key);
+  const draft = must(agentDraft(calling, must(concierge)));
+  const binding = must(draft.modelBindings[0]);
+  const workspace = withAgentDraft(calling, must(concierge), {
+    ...draft,
+    modelBindings: [
+      {
+        ...binding,
+        compactTiming: 'before',
+        compactMaxTokens: 32_000,
+        compactAt: 0.75,
+        compactKeep: 4,
+        compactWith: must(helper),
+      },
+      ...draft.modelBindings.slice(1),
+    ],
+  });
+  const removed = removeAgent(workspace, must(helper));
+  assert(!removed.toolSpecs.some((tool) => tool.toolName === 'ask_helper'));
+  assertEquals(must(removed.agents[0]).modelBindings[0]?.compactWith, undefined);
+  const result = compileWorkspace(removed);
+  assert(result.ok, JSON.stringify(!result.ok && result.issues));
 });

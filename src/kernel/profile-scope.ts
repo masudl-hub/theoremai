@@ -56,10 +56,6 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
       'maxOutputTokens',
       'temperature',
       'builtInTools',
-      'cache',
-      'store',
-      'persistViaInteractionId',
-      'server',
       'fallbackKey',
     ].map((field) => [
       `models.*.${field}`,
@@ -69,6 +65,22 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
       },
     ]),
   ),
+  'models.*.cache': {
+    profileTypes: ['text'],
+    reason: 'only an OpenRouter text call carries a cache marker',
+  },
+  'models.*.store': {
+    profileTypes: ['text', 'image', 'speech'],
+    reason: 'only Gemini Interactions stores an interaction; live runs on Gemini Live',
+  },
+  'models.*.persistViaInteractionId': {
+    profileTypes: ['text', 'image', 'speech'],
+    reason: 'only Gemini Interactions stores an interaction; live runs on Gemini Live',
+  },
+  'models.*.server': {
+    profileTypes: ['text'],
+    reason: 'a local server serves text profiles only',
+  },
   'models.*.timeoutMs': {
     profileTypes: ['decision'],
     reason: 'only decision bindings configure a request timeout here',
@@ -230,16 +242,16 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     reason: 'the decision path runs none of the turn guardrails',
   },
   'guardrails.egress': {
-    profileTypes: turnGuardrailTypes('egress'),
-    reason: 'egress gates user-visible model text in the turn runner',
+    profileTypes: ['text', 'image', 'live'],
+    reason: 'egress reads the reply text, which speech, decision and host profiles never write',
   },
   'guardrails.network': {
-    profileTypes: turnGuardrailTypes('network'),
-    reason: 'the decision path calls no tools',
+    profileTypes: ['text', 'image', 'live', 'host'],
+    reason: 'speech and decision profiles call no tools',
   },
   'guardrails.taint': {
-    profileTypes: turnGuardrailTypes('taint'),
-    reason: 'the decision path calls no tools',
+    profileTypes: ['text', 'image', 'live'],
+    reason: 'speech and decision profiles call no tools, and a host profile runs no turn to taint',
   },
   'guardrails.disclosure': {
     profileTypes: ['decision'],

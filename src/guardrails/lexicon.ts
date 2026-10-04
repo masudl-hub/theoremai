@@ -379,16 +379,16 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
   'repair.default_guidance':
     "Sent to the model when a validator rejects its output and the host gives no guidance of its own; also the Repair guidance setting's default.",
   'repair.prompt_header':
-    'The heading that opens the repair request sent to the model after a validator rejects its output.',
+    'The heading that opens the repair request sent to the model after a validator or the egress check rejects its output.',
   'repair.prompt_intro':
     'The first line of the repair request, saying why the model is asked to revise.',
   'repair.prompt_instructions': 'The numbered steps at the end of the repair request.',
   'repair.history_heading':
-    'The heading over the recent conversation in the repair request. Takes {count}, the number of turns shown.',
+    'The heading over the recent conversation in the repair request. Takes {count}, the number of messages shown.',
   'repair.section_previous_output':
     "The heading over the model's rejected output in the repair request.",
   'repair.section_validator_rejection':
-    "The heading over the validator's reason in the repair request.",
+    "The heading over the validator's or egress check's reason in the repair request.",
   'repair.section_repair_guidance': 'The heading over the repair guidance in the repair request.',
   'repair.section_instructions': 'The heading over the numbered steps in the repair request.',
   'compaction.request':
@@ -402,7 +402,7 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
   'egress.refusal':
     'Shown to the user in place of a reply the egress check blocked, when it is set to refuse rather than retry.',
   'egress.rejection':
-    'The reason recorded when the egress check blocks a reply, and given to the model on a retry. Takes {rules}, the rules it broke.',
+    'The reason recorded when the bundled egress checks or a system-prompt leak block a reply, and given to the model on a retry; your own enforce gives its own reason. Takes {rules}, the rules it broke.',
   'egress.invalid_verdict':
     "The reason recorded when the host's egress policy returns an answer of the wrong shape.",
   'egress.policy_failed':

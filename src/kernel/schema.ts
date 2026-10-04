@@ -523,7 +523,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
       live: 'For talking in real time. One continuous voice and video session over Gemini Live, rather than separate turns.',
       decision:
         'For when your app needs a judgement, not a reply. It answers questions about a JSON state, each with a choice, a score or a number.',
-      host: 'A governed passthrough to your tool registry, with no model. It calls MCP, HTTP and in-app function tools under the same permissions, guardrails and traces as any agent.',
+      host: 'A governed passthrough to your tool registry, with no model. It calls MCP, HTTP and in-app function tools under the same permissions and traces as any agent, guarded by sanitizeInput, redactSensitive and network.',
     },
   ),
   identity: field(
@@ -572,7 +572,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     {
       google: "Google's Gemini API.",
       openrouter: 'OpenRouter, which routes to many model vendors.',
-      local: "A server you run (Ollama, llama.cpp, vLLM); it can't serve image profiles.",
+      local: 'A server you run (Ollama, llama.cpp, vLLM), for text profiles only.',
       typesafe: 'TypeSafe, serving its native decision models.',
     },
   ),
@@ -591,7 +591,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.efforts': field(
     'Record<string, ThinkingLevel>',
-    'Named thinking levels for this model, which a turn can pick between when allowEffortSelect is on; local models ignore them.',
+    'Named thinking levels for this model, which a turn can pick between when allowEffortSelect is on; local models, speech and OpenRouter image without includeText ignore them.',
   ),
   'models.*.efforts.*': field(
     unionType(THINKING_LEVELS),
@@ -616,10 +616,13 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'boolean',
     'Asks Gemini Interactions for summaries of its thinking; on OpenRouter, off only hides thoughts, and other providers ignore it.',
   ),
-  'models.*.maxOutputTokens': field('number', 'The most tokens the model may write in one reply.'),
+  'models.*.maxOutputTokens': field(
+    'number',
+    'The most tokens the model may write in one reply; OpenRouter speech, and OpenRouter image without includeText, never send it.',
+  ),
   'models.*.temperature': field(
     'number',
-    "How varied the model's wording is; higher is more random.",
+    "How varied the model's wording is; higher is more random. OpenRouter speech, and OpenRouter image without includeText, never send it.",
   ),
   'models.*.builtInTools': field(
     'BuiltinToolId[]',
@@ -627,28 +630,32 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.key': field(
     'KeySlot',
-    "The key slot this model's calls use, ahead of the profile's key.",
+    "The key slot this model's calls use, ahead of the profile's key; a local model uses only its own.",
   ),
   'models.*.fallbackKey': field(
     'KeySlot',
-    "The key slot this model's calls retry on when its key is refused for quota, ahead of the profile's fallbackKey.",
+    "The key slot this model's calls retry on when its key is refused for quota, ahead of the profile's fallbackKey; a local model uses only its own.",
   ),
   'models.*.compaction': field(
     'CompactionSpec',
-    'Summarises older history once it grows past a threshold; the agent writes the summary unless profile names another.',
+    'Summarises older history once it grows past a threshold; a text agent can write its own summary, other types must name a compaction profile.',
   ),
   'models.*.compaction.maxTokens': field('number', 'The token budget compactAt is a fraction of.'),
+  'models.*.compaction.trigger': field(
+    '(ctx: CompactionTriggerContext) => boolean | Promise<boolean>',
+    'Your function that decides when to compact, in place of compactAt and maxTokens.',
+  ),
   'models.*.compaction.compactAt': field(
     'number',
-    'The fraction of maxTokens, between 0 and 1, at which compaction starts.',
+    'The fraction of maxTokens, between 0 and 1, at which compaction starts, unless trigger decides.',
   ),
   'models.*.compaction.previousExchanges': field(
     'number',
-    'How much recent history compaction keeps: a number of exchanges (1 or more), a fraction of maxTokens (between 0 and 1), or 0 to compact it all.',
+    'How much recent history compaction keeps: a number of exchanges (1 or more), a fraction of maxTokens below compactAt, or 0 to compact it all.',
   ),
   'models.*.compaction.profile': field(
     'ProfileId',
-    'The profile that writes the summary; register it before this one. Leave it out and the agent summarises its own history, with its own instructions and model and no tools.',
+    'The text profile that writes the summary; register it before this one. Leave it out and a text agent summarises its own history, with its own instructions and model and no tools. Unless the turn passes compactionProvider, it must use the same provider and protocol as a text agent.',
   ),
   'models.*.compaction.timing': field(
     unionType(COMPACTION_TIMINGS),
@@ -671,7 +678,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.cache': field(
     'CacheSpec',
-    'Prompt caching on OpenRouter: reuses the start of a prompt it has already seen.',
+    'Prompt caching on OpenRouter text profiles: reuses the start of a prompt it has already seen. With the canary on, the system instruction changes every turn, so a cache is reused only within a turn.',
   ),
   'models.*.cache.mode': field(
     unionType(CACHE_MODES),
@@ -679,7 +686,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     CACHE_MODES,
     {
       automatic: 'The whole request, so the cached part grows with the conversation.',
-      system: 'The system instruction only; nothing is cached without one.',
+      system: "The system instruction only, with the kernel's notes after it.",
     },
   ),
   'models.*.cache.ttl': field(
@@ -707,12 +714,15 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   allowModelSelect: field('boolean', 'Lets a turn pick a model; needs two or more models.'),
   maxSteps: field(
     'number',
-    'The most model calls one turn may make while using tools, where 1 runs the tools asked for but never sends their results back; live sessions ignore it.',
+    'The most model calls one turn may make while using tools, counted afresh for each rewrite; 1 runs the tools asked for but never sends their results back. Live sessions ignore it.',
   ),
-  key: field('KeySlot', 'The key slot used when a model has no key of its own.'),
+  key: field(
+    'KeySlot',
+    'The key slot a hosted model uses when it has no key of its own; local models never use it.',
+  ),
   fallbackKey: field(
     'KeySlot',
-    'The key slot a call retries on once when its key is refused for quota. Off unless set.',
+    'The key slot a hosted call retries on when its key is refused for quota. Off unless set.',
   ),
   tools: field(
     '{ allow: ToolId[]; t1Policy?; t2Loader? }',
@@ -724,11 +734,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'tools.t1Policy': field(
     '(ctx) => ToolId[] | Promise<ToolId[]>',
-    'Your function that picks, at the start of each turn, which T1 tools to load.',
+    'Your function that picks, at the start of each turn, which T1 tools to load; it loads no other tier.',
   ),
   'tools.t2Loader': field(
     'ToolId',
-    'The function tool the model calls to load T2 tools; it must be in allow and return the ids to load.',
+    'The function tool the model calls to load T2 tools; it must be in allow and return { loaded: ToolId[] }. One id it may not load fails the whole load; ids off the turn path are skipped.',
   ),
   inputs: field(
     'ProfileInputsSpec | DecisionInputsSpec',
@@ -796,15 +806,15 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'image.quality': field(
     'string',
-    'How much effort the model spends on each image; OpenRouter takes auto, low, medium or high.',
+    'How much effort the model spends on each image; OpenRouter takes auto, low, medium or high, and Google refuses it.',
   ),
   'image.background': field(
     'string',
-    'The background of generated images; OpenRouter takes auto, transparent or opaque.',
+    'The background of generated images; OpenRouter takes auto, transparent or opaque, and Google refuses it.',
   ),
   'image.n': field(
     'number',
-    'How many images one request makes; only OpenRouter `/images` takes it, up to 10.',
+    'How many images one request makes; only OpenRouter `/images` takes it.',
   ),
   'image.seed': field(
     'number',
@@ -816,7 +826,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'image.references': field(
     'Array<TurnBlob | TurnMediaRef>',
-    'Reference images sent with every turn, ahead of the ones the user attaches; each is bytes (`data`) or a link (`uri`).',
+    'Reference images sent with every turn, ahead of the ones the user attaches; each is bytes (`data`) or a link (`uri`). OpenRouter `/images` takes only http(s) links, and with includeText no links at all.',
   ),
   'image.includeText': field(
     'boolean',
@@ -905,7 +915,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'live.transcription': field('LiveTranscriptionSpec', "Text transcripts of the session's speech."),
   'live.transcription.input': field('boolean', "Whether the user's speech is transcribed."),
-  'live.transcription.output': field('boolean', "Whether the model's speech is transcribed."),
+  'live.transcription.output': field(
+    'boolean',
+    "Whether the model's speech is transcribed; always on while the canary or egress.enforce is, since they read the transcript.",
+  ),
   'outputs.validation': field(
     'ProfileValidationSpec',
     'Your checks on a structured reply, and how many rewrites a failure gets.',
@@ -916,11 +929,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'outputs.validation.fields.*': field(
     '(candidate: unknown, slots?: Record<string, string>) => ValidationResult | Promise<ValidationResult>',
-    'Your check on this part of the reply; a failure sends its error back to the model to rewrite.',
+    'Your check on this part of the reply, reached through object properties only; a failure sends its error back to the model to rewrite while retries remain.',
   ),
   'outputs.validation.maxRetries': field(
     'number',
-    'How many times the model may rewrite a reply that fails your checks before it goes out as it is; the larger of this and egress.maxRetries applies to both.',
+    "How many times the model may rewrite a reply that fails your checks or the schema's required keys before it goes out as it is; text already streamed stays. The larger of this and egress.maxRetries applies to both.",
   ),
   'outputs.streaming': field(
     'ProfileStreamingSpec',
@@ -931,7 +944,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'Whether the provider call streams.',
     STREAM_MODES,
     {
-      sse: 'Events arrive as the model writes.',
+      sse: 'Events arrive as the model writes; OpenRouter image and speech always answer in one piece.',
       buffered: 'One non-streaming call; its events arrive together when it answers.',
     },
   ),
@@ -959,7 +972,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'turnBehaviour.resumption.autoContinue': field(
     'ContinueStopKind[]',
-    'Which early stops the host continues once without asking; each must also be in allowContinue.',
+    'Which early stops the host continues without asking; each must also be in allowContinue.',
     CONTINUE_STOP_KINDS,
     {
       length: 'The reply hit the output token limit.',
@@ -978,34 +991,34 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   guardrails: field('ProfileGuardrailsSpec', "Protections for this profile's turns."),
   'guardrails.quota': field(
     'QuotaGuardrailSpec',
-    "A daily turn limit your server middleware enforces; runTurn itself doesn't count turns.",
+    "A daily turn limit your server middleware enforces with takeSlot; runTurn itself doesn't count turns.",
   ),
   'guardrails.quota.perDay': field(
     'number',
-    'Turns each client IP may run on this profile per UTC day.',
+    'Turns each client IP may run on this profile per UTC day, one at a time; counts live in the process, and a loopback caller is not counted.',
   ),
   'guardrails.canary': field(
     'boolean',
-    'Plants a secret token in the system instruction and stops the reply if the model repeats it.',
+    'Plants a secret token in the system instruction and stops the reply if the model repeats it; a thought that repeats it has it cut out instead.',
   ),
   'guardrails.promptEcho': field(
     'boolean',
-    'With the canary on, also stops a reply that repeats 12 words in a row of the private system instruction. On by default; mark the lines meant to be quoted as shareable parts, or turn it off when the whole instruction is meant to be quoted.',
+    'With the canary on, also stops a reply that repeats 12 words in a row of the private system instruction. On by default; wrap the private lines as { private: text } so the plain ones may be quoted, or turn it off when the whole instruction may be.',
   ),
   'guardrails.sanitizeInput': field(
     'boolean',
-    'Replaces prompt-injection text in user input, history and tool results before the model sees it.',
+    "Replaces prompt-injection text in user input, slots, history, tool results and the turn's own system text before the model sees it.",
   ),
   'guardrails.redactSensitive': field(
     'boolean | SensitiveSwitches',
-    'Replaces credentials and personal data in user input, history and tool results before the model sees them. true (the default) covers every group, false none; an object turns groups off one by one.',
+    "Replaces credentials and personal data in user input, slots, history, tool results and the turn's own system text before the model sees them. true (the default) covers every group, false none; an object turns groups off one by one.",
   ),
   'guardrails.redactSensitive.ids': field('boolean', 'US SSN, ITIN and EIN numbers.'),
   'guardrails.redactSensitive.financial': field('boolean', 'IBANs and card numbers.'),
   'guardrails.redactSensitive.network': field('boolean', 'IPv4 and IPv6 addresses.'),
   'guardrails.redactSensitive.credentials': field(
     'boolean',
-    'API keys, access tokens, bearer tokens and private keys.',
+    'Known API key and token formats (AWS, Google, OpenAI, Anthropic, OpenRouter, GitHub, Slack), bearer tokens and PEM private keys.',
   ),
   'guardrails.egress': field(
     'ProfileEgressSpec',
@@ -1013,11 +1026,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.egress.enforce': field(
     'EgressEnforcer',
-    'Your own check on the reply, run as it streams and when it ends. Return allow, flag (log only), redact (swap in your text) or block (see onBlock); a block or redact holds the rest of the stream, and a throw counts as a block. Set this or checks, not both.',
+    'Your own check on the reply, run as it streams and when it ends. Return allow, flag (log only), redact (your text replaces what is not yet shown) or block (see onBlock); a block or redact holds the rest of the stream, and a throw counts as a block. Set exactly one of this and checks.',
   ),
   'guardrails.egress.checks': field(
     'boolean | EgressChecks',
-    'The bundled checks on the reply, blocking on what they find. true runs each at its default, false none but the system-prompt leak checks, and an object switches the ones it names. Set this or enforce, not both.',
+    'The bundled checks on the reply, blocking on what they find. true runs each at its default, false none but the system-prompt leak checks, and an object switches the ones it names. Set exactly one of this and enforce.',
   ),
   'guardrails.egress.checks.sensitive': field(
     'boolean | SensitiveSwitches',
@@ -1028,11 +1041,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'guardrails.egress.checks.sensitive.network': field('boolean', 'IPv4 and IPv6 addresses.'),
   'guardrails.egress.checks.sensitive.credentials': field(
     'boolean',
-    'API keys, access tokens, bearer tokens and private keys.',
+    'Known API key and token formats (AWS, Google, OpenAI, Anthropic, OpenRouter, GitHub, Slack), bearer tokens and PEM private keys.',
   ),
   'guardrails.egress.checks.boundary': field(
     'boolean',
-    'The markers the kernel puts around user data, and the canary note, repeated in the reply.',
+    'The markers the kernel puts around user data, and the default canary note, repeated in the reply.',
   ),
   'guardrails.egress.checks.injection': field(
     'boolean',
@@ -1064,22 +1077,22 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.egress.onBlock': field(
     unionType(EGRESS_ON_BLOCK),
-    'What happens when enforce blocks the reply.',
+    'What happens when enforce or checks blocks the reply.',
     EGRESS_ON_BLOCK,
     {
       reject_to_agent:
-        'The model reads why and rewrites the reply, up to maxRetries times; once retries run out, the reply is withheld and the turn ends with a safety error.',
+        'The model reads why and rewrites the reply, up to maxRetries times; once retries run out, the reply is withheld and the turn ends with a safety error. Live never rewrites: it withholds at once.',
       refuse_to_user:
         'The user sees the egress.refusal wording in place of the reply, and the turn ends.',
     },
   ),
   'guardrails.egress.maxRetries': field(
     'number',
-    'How many times the model may rewrite a blocked reply; the larger of this and outputs.validation.maxRetries applies to both.',
+    'How many times the model may rewrite a blocked reply; the larger of this and outputs.validation.maxRetries applies to both. Live ignores it.',
   ),
   'guardrails.egress.holdback': field(
     'number',
-    'How many characters the stream holds back so your own enforce can catch text split across chunks (default 256; 96 on Live). The bundled policy holds exactly what it needs and ignores this.',
+    'How many characters the stream holds back so your own enforce can catch text split across chunks (default 256; 96 on Live). Only for your own enforce: the bundled checks hold exactly what they need, and setting it with them is refused.',
   ),
   'guardrails.network': field(
     'NetworkGuardrailSpec',
@@ -1091,7 +1104,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.network.allowedHosts': field(
     'string[]',
-    "Hostnames tools may reach even when they resolve to a private address; public hosts don't need listing.",
+    "Hostnames tools may reach even when they resolve to a private address; public hosts don't need listing. Names are resolved only when the host passes resolveHost.",
   ),
   'guardrails.network.allowedSchemes': field('string[]', 'The URL schemes tools may use.'),
   'guardrails.taint': field(
@@ -1130,16 +1143,16 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'observability.writeTo': field(
     'false | string | TraceSink',
-    'Where traces are written: a destination id you registered, your own writer, or false for none; a sink passed straight to runTurn replaces it.',
+    'Where traces are written: a destination id you registered, your own writer, or false for none; an unregistered id fails the turn before it starts, and a sink passed straight to runTurn replaces it.',
   ),
   'observability.sampleRate': field(
     'number',
-    'The share of traces kept, from 0 to 1, each kept or dropped whole.',
+    'The share of traces kept, from 0 to 1, each kept or dropped whole; a sink passed straight to runTurn keeps every trace.',
   ),
   'observability.include': field('TraceIncludeSpec', 'Which optional parts of a trace are kept.'),
   'observability.include.upstreamLog': field(
     'boolean',
-    'Keeps each row the provider sent back, scrubbed, as it arrived.',
+    'Keeps each row the provider sent back, scrubbed, as it arrived, with media bytes replaced by their sha256.',
   ),
   'observability.include.outboundWire': field(
     'boolean',
@@ -1147,13 +1160,16 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'observability.include.evidenceRaw': field(
     'boolean',
-    "Keeps the provider's raw payload on grounding results such as search citations.",
+    "Keeps the provider's raw payload on grounding results such as search citations; upstreamLog rows keep their own copy.",
   ),
-  'observability.include.usage': field('boolean', 'Keeps token counts and other usage figures.'),
+  'observability.include.usage': field(
+    'boolean',
+    'Keeps token counts and other usage figures on spans; upstreamLog rows keep their own.',
+  ),
   'observability.include.guardrailDecisions': field('boolean', 'Keeps each guardrail decision.'),
   'observability.include.guardrailMatchPreview': field(
     'boolean',
-    "Keeps the exact text each guardrail matched, on the trace and the host's event stream; for debugging only.",
+    "Keeps the exact text each guardrail matched, unscrubbed, on the trace and the host's event stream; for debugging only.",
   ),
   'observability.resource': field(
     'Record<string, TraceAttributeValue>',
@@ -1169,12 +1185,12 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'observability.scrub.injection': field(
     'boolean',
-    'Removes prompt-injection text from stored traces.',
+    'Removes prompt-injection text, found by the built-in pattern detector, from stored traces.',
   ),
   'observability.scrub.canary': field('boolean', 'Removes the canary token from stored traces.'),
   'observability.retainForDays': field(
     'number',
-    'How many days each trace is kept; 0 or less keeps them forever.',
+    'How many days each trace file is kept, by its UTC day, removed on the next write; 0 or less keeps them forever.',
   ),
   'observability.rotateAfterMiB': field(
     'number',
@@ -1182,7 +1198,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'observability.onWriteError': field(
     '(err: unknown) => void',
-    "Your function called when a trace can't be built or written; the turn carries on, and a destination's own error handler takes priority.",
+    "Your function called when a trace can't be built or written; the turn carries on, and a destination's own error handler takes priority. An unregistered writeTo id is a config error instead.",
   ),
 });
 
@@ -1212,7 +1228,10 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     'ZodSchema',
     "The Zod schema for the tool's arguments, sent to the model and checked on every call.",
   ),
-  output: field('ZodSchema', 'The Zod schema every result must match.'),
+  output: field(
+    'ZodSchema',
+    "The Zod schema every result the tool returns must match; the kernel's own not-signed-in note is not checked.",
+  ),
   handler: field(
     'ToolHandler',
     'Your function that runs the tool; it can also yield progress as it goes.',
@@ -1228,7 +1247,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   ),
   headers: field(
     'Record<string, string>',
-    "Headers sent with every request to the tool's own host, never to a host it redirects to.",
+    "Headers sent with every request to the tool's own origin, never once a redirect leaves it.",
   ),
   mapping: field(
     '{ pathParams?, queryParams?, bodyParam? }',
@@ -1251,7 +1270,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   },
   'auth.type': field(
     unionType(TOOL_AUTH_TYPES),
-    'The kind of credential the tool expects, shown when a turn stops to ask for one.',
+    "The kind of credential the tool expects, shown when a turn stops to ask for one; the header follows the stored credential's own kind.",
     TOOL_AUTH_TYPES,
     CREDENTIAL_KINDS,
   ),
@@ -1261,17 +1280,23 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     'The service the person signs in to, as they know it, named when a turn stops to ask for a credential.',
   ),
   'auth.headerName': {
-    ...field('string', 'The header the credential goes in.'),
+    ...field(
+      'string',
+      "The header the credential goes in; an API key's own headerName comes first.",
+    ),
     unset: 'Authorization',
   },
   'auth.headerPrefix': {
-    ...field('string', 'Text put before the credential in the header.'),
+    ...field(
+      'string',
+      "Text put before the credential in the header; an API key's own headerPrefix comes first.",
+    ),
     unset: '"Bearer " for tokens, nothing for API keys',
   },
   'auth.onUnauthenticated': {
     ...field(
       unionType(AUTH_UNAUTHENTICATED_POLICIES),
-      "What happens when the credential is missing, expired or can't be refreshed.",
+      "What happens when the credential is missing, expired, can't be refreshed or is refused by the service.",
       AUTH_UNAUTHENTICATED_POLICIES,
       {
         gate: 'The turn stops and asks the host for a credential.',
@@ -1282,7 +1307,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   },
   'auth.scopes': field(
     'string[]',
-    'The OAuth scopes the tool needs, shown when a turn stops to ask for a credential.',
+    'The OAuth scopes the tool needs, shown when a turn stops to ask for a credential. A service asking for any other scope fails the call, with no new sign-in.',
   ),
   'auth.clientId': field(
     'string',
@@ -1300,12 +1325,12 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   ),
   'playground.testCredential': field(
     'string',
-    'A credential for one connection test, never saved.',
+    "A credential for this tool's connection tests, kept in the tab and never saved.",
   ),
   'playground.stubOutput': {
     ...field(
       'Record<string, unknown>',
-      'The playground has no code to run, so a function tool returns this.',
+      'The playground has no code to run, so a function tool returns this, unless the playground has a demo handler by that name.',
     ),
     unset: 'A stand-in built from the output schema',
   },
@@ -1358,7 +1383,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   category: field('string', 'A label for grouping tools; nothing reads it yet.'),
   labels: field(
     'ToolLabels',
-    "What the transcript says about a call. Each {path} is filled from the call; {results.0.name} steps into a list, and {path|text} shows the text when it's empty.",
+    'What the transcript says about a call. Each {path} is filled from the call; {results.0.name} steps into a list, and {path|text} shows the text when the value is missing, blank or not text or a number. Without a fallback, such a value drops the whole label.',
   ),
   'labels.activity': {
     ...field(
@@ -1377,7 +1402,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   paths: {
     ...field(
       'string[]',
-      'The turn paths this tool is offered on, where * means every path; a turn with no path gets only * tools.',
+      'The turn paths this tool is offered on, where * means every path; a turn with no path gets only * tools. Host profiles ignore it.',
     ),
     unset: 'Every path',
   },

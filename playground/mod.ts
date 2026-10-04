@@ -142,6 +142,7 @@ export {
   type PlaygroundWorkspace,
   removeAgent,
   removeLibraryTool,
+  scopedNodeId,
   setToolAllowed,
   withAgentDraft,
   withLibraryDraft,

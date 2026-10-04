@@ -40,6 +40,7 @@ const jsonObject = z.record(z.string(), z.unknown());
 
 const nonEmptyText = z.string().trim().min(1);
 
+/** A text part of a history message. */
 export interface InteractionTextPart {
   type: 'text';
   text: string;
@@ -47,6 +48,7 @@ export interface InteractionTextPart {
 const interactionTextPart = z.object({ type: z.literal('text'), text: z.string() });
 true satisfies Equals<z.infer<typeof interactionTextPart>, InteractionTextPart>;
 
+/** A media part of a history message, carried inline as base64. */
 export interface InteractionMediaPart {
   type: MediaInputKind;
   mimeType: string;
@@ -72,6 +74,7 @@ const interactionMediaRefPart = z.object({
 });
 true satisfies Equals<z.infer<typeof interactionMediaRefPart>, InteractionMediaRefPart>;
 
+/** A part of a history message: text or media. */
 export type InteractionPart = InteractionTextPart | InteractionMediaPart | InteractionMediaRefPart;
 const interactionPart = z.union([
   interactionTextPart,
@@ -80,6 +83,7 @@ const interactionPart = z.union([
 ]);
 true satisfies Equals<z.infer<typeof interactionPart>, InteractionPart>;
 
+/** One message of a conversation history the host replays into a turn. */
 export interface TurnHistoryMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content?: string;
@@ -114,6 +118,7 @@ const turnHistoryMessage = z.object({
   metadata: jsonObject.optional(),
 });
 true satisfies Equals<z.infer<typeof turnHistoryMessage>, TurnHistoryMessage>;
+/** The schema a history message parses against. */
 export const turnHistoryMessageSchema: z.ZodType<TurnHistoryMessage> = turnHistoryMessage;
 
 /** Why a turn or live utterance ended. */
@@ -125,8 +130,10 @@ const turnStop = z.object({ kind: z.enum(TURN_STOP_KINDS), native: z.string().op
 true satisfies Equals<z.infer<typeof turnStop>, TurnStop>;
 
 const TURN_TOKEN_SIDES = ['input', 'output'] as const;
+/** Whether tokens were counted on the way in or the way out. */
 export type TurnTokenSide = (typeof TURN_TOKEN_SIDES)[number];
 
+/** What a turn cost, as the provider reports it. */
 export interface TurnCost {
   /** What the provider charged, in US dollars. */
   usd: number;
@@ -235,6 +242,7 @@ true satisfies Equals<z.infer<typeof turnResponse>, TurnResponse>;
 const SOURCE_TYPES = ['web', 'maps'] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
+/** A source a grounded answer cites. */
 export interface Source {
   title: string;
   uri: string;
@@ -281,6 +289,7 @@ const evidenceBase = {
   partial: z.boolean().optional(),
 };
 
+/** What a provider returned beside the answer, such as code it ran or search results it used. */
 export type ProviderEvidence =
   | (EvidenceBase & {
       kind: 'code_execution_call';
@@ -373,7 +382,9 @@ export type SessionEvent =
   | { kind: 'closing_soon'; timeLeftMs?: number }
   | { kind: 'ended'; timeLeftMs?: number; ended: SessionEnded; message: string }
   | { kind: 'waiting_for_input' | 'turn_complete' | 'working' | 'idle' };
+/** The kind of a live session event. */
 export type SessionEventKind = SessionEvent['kind'];
+/** The live session event of kind `K`. */
 export type SessionEventOf<K extends SessionEventKind> = Extract<SessionEvent, { kind: K }>;
 const sessionEvent = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('closing_soon'), timeLeftMs: z.number().optional() }),
@@ -387,6 +398,7 @@ const sessionEvent = z.discriminatedUnion('kind', [
 ]);
 true satisfies Equals<z.infer<typeof sessionEvent>, SessionEvent>;
 
+/** Why a tool call failed, for the builder and for the user. */
 export interface ToolFailure {
   /** What went wrong, for the builder. Stable per failure site. */
   code: string;
@@ -457,6 +469,7 @@ const toolGate = z.discriminatedUnion('kind', [
   z.object({ ...toolGateBase, kind: z.literal('auth'), authChallenge: toolAuthChallenge }),
 ]);
 true satisfies Equals<z.infer<typeof toolGate>, ToolGate>;
+/** The schema a tool gate parses against. */
 export const toolGateSchema: z.ZodType<ToolGate> = toolGate;
 
 export interface ToolWarning {
@@ -506,8 +519,10 @@ const awaitingUserInput = z.discriminatedUnion('kind', [
   z.object({ ...awaitingBase, kind: z.literal('choice'), options: z.array(nonEmptyText).min(1) }),
 ]);
 true satisfies Equals<z.infer<typeof awaitingUserInput>, AwaitingUserInput>;
+/** The schema a pause for user input parses against. */
 export const awaitingUserInputSchema: z.ZodType<AwaitingUserInput> = awaitingUserInput;
 
+/** A function tool as it is sent to the model. */
 export interface WireFunctionTool {
   type: 'function';
   name: string;
@@ -522,6 +537,7 @@ const wireFunctionTool = z.object({
 });
 true satisfies Equals<z.infer<typeof wireFunctionTool>, WireFunctionTool>;
 
+/** The tools a turn was offered: provider builtins, gated ids and the wire definitions. */
 export interface TurnToolSnapshot {
   builtins: string[];
   /** Tool ids eligible this turn (custom: allow + path; builtin: model builtInTools + path). */
@@ -544,6 +560,7 @@ const turnToolSnapshot = z.object({
   wire: z.array(wireFunctionTool),
 });
 true satisfies Equals<z.infer<typeof turnToolSnapshot>, TurnToolSnapshot>;
+/** The schema a tool snapshot parses against. */
 export const turnToolSnapshotSchema: z.ZodType<TurnToolSnapshot> = turnToolSnapshot;
 
 export interface ToolEventBase {
@@ -672,10 +689,12 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
 ]);
 true satisfies Equals<z.infer<typeof toolPhaseEvent>, ToolPhaseEvent>;
 
+/** A tool call event: the model's request or a phase of running it. */
 export type ToolCallEvent = ToolCallRequest | ToolPhaseEvent;
 const toolCallEvent = z.union([toolPhaseEvent, toolCallRequest]);
 true satisfies Equals<z.infer<typeof toolCallEvent>, ToolCallEvent>;
 
+/** A note that a stage handler's result was partly or wholly ignored, and why. */
 export interface StageApplyWarning {
   code: StageApplyWarningCode;
   message: string;
@@ -849,8 +868,10 @@ export type TurnEvent =
       errorInternal?: string;
     };
 
+/** The `type` of a turn event. */
 export type TurnEventType = TurnEvent['type'];
 
+/** The turn event whose `type` is `K`. */
 export type TurnEventOf<K extends TurnEventType> = Extract<TurnEvent, { type: K }>;
 
 /**
@@ -883,7 +904,9 @@ export type DoneFields = DoneBase & { stop: TurnStop };
  * (a live session forwarding a call's `done`), such a stop has no host `done`.
  */
 export function turnDoneOf(done: DoneFields, tools: TurnToolSnapshot): TurnEventOf<'done'>;
+/** Builds the `done` event from a model call's end, with the tools the turn was offered. */
 export function turnDoneOf(done: DoneFields): TurnEventOf<'done'> | undefined;
+/** Builds the `done` event from a model call's end, or `undefined` when it carries no stop. */
 export function turnDoneOf(
   done: DoneFields,
   tools?: TurnToolSnapshot,
@@ -1016,6 +1039,7 @@ const turnEvent = z.union([
   TURN_EVENTS.done,
 ]);
 true satisfies Equals<z.infer<typeof turnEvent>, TurnEvent>;
+/** The schema any turn event parses against. */
 export const turnEventSchema: z.ZodType<TurnEvent> = turnEvent;
 
 /** Every `TurnEvent` kind and its schema: a wire parser tells a kind it doesn't know from a malformed one it does. */

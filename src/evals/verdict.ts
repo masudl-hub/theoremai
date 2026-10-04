@@ -1,7 +1,9 @@
 import type { EvalCase, EvalPassRule, EvalResult } from './types.ts';
 
+/** How a trial ended: passed, failed, errored or ungraded. */
 type TrialOutcome = 'passed' | 'failed' | 'errored' | 'ungraded';
 
+/** The outcome of a trial from its results. */
 function trialOutcome(results: readonly EvalResult[]): TrialOutcome {
   if (results.some((result) => result.errorType !== undefined)) return 'errored';
   const decided = results.filter((result) => result.passed !== undefined);
@@ -9,6 +11,7 @@ function trialOutcome(results: readonly EvalResult[]): TrialOutcome {
   return decided.every((result) => result.passed) ? 'passed' : 'failed';
 }
 
+/** A case's verdict across its trials, under the pass rule. */
 interface CaseVerdict {
   case: string;
   kind: EvalCase['kind'];
@@ -32,11 +35,13 @@ function trialsNeeded(rule: EvalPassRule): number {
   return typeof rule === 'object' ? rule.atLeast : 1;
 }
 
+/** The name of a pass rule, as the trace records it. */
 function passRuleName(rule: EvalPassRule): 'all' | 'any' | 'at_least' {
   return typeof rule === 'string' ? rule : 'at_least';
 }
 
 // An errored trial is one that could not be graded (a provider error, a judge that failed), so the rule reads it as a trial that never ran: a rate limit never counts against the agent.
+/** The verdict of a case from its trials' results. */
 function caseVerdict(
   evalCase: EvalCase,
   trials: readonly (readonly EvalResult[])[],

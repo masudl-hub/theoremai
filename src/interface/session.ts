@@ -10,6 +10,7 @@ import type { TranscriptBlock, UserTurnDraft } from './types.ts';
 
 export type { ToolGateAuth };
 
+/** A tool call held at a gate: the tool, its call id and arguments. */
 export type GatedToolContext = {
   name: string;
   callId: string;
@@ -23,6 +24,7 @@ export type GatedToolContext = {
   auth?: ToolGateAuth;
 };
 
+/** A tool call that paused the turn to ask the user: the tool, its call id and arguments. */
 export type AwaitingToolContext = {
   name: string;
   callId: string;
@@ -32,6 +34,7 @@ export type AwaitingToolContext = {
   options?: string[];
 };
 
+/** The state a client keeps between turns: history, interaction id and permissions. */
 export type InterfaceTurnSession = {
   history: TurnHistoryMessage[];
   /** Google Interactions id for server-side continuity; cleared on branch. */
@@ -59,6 +62,7 @@ export type InterfaceTurnSession = {
   selectedEffort?: string;
 };
 
+/** A session with no history and no permissions. */
 function emptyInterfaceTurnSession(): InterfaceTurnSession {
   return {
     history: [],
@@ -111,6 +115,7 @@ function gatedToolFromEvents(events: readonly TurnEvent[]): GatedToolContext | n
   return gatedToolsFromEvents(events)[0] ?? null;
 }
 
+/** The tool call a turn paused on to ask the user, or `null`. */
 function awaitingFromEvents(events: readonly TurnEvent[]): AwaitingToolContext | null {
   const call = findLast(toolCallsOf(events), (c) => c.state?.phase === 'complete');
   if (call?.state?.phase !== 'complete') return null;
@@ -126,6 +131,7 @@ function awaitingFromEvents(events: readonly TurnEvent[]): AwaitingToolContext |
   };
 }
 
+/** The session after the turn events are applied to it. */
 function applyTurnEventsToSession(
   session: InterfaceTurnSession,
   events: readonly TurnEvent[],

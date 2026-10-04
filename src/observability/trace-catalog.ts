@@ -48,6 +48,7 @@ type TraceValueFormat =
   /** A unix-nanosecond timestamp string. */
   | 'time';
 
+/** The groups the attribute catalog sorts attributes into. */
 type TraceAttributeGroup =
   | 'agent'
   | 'request'
@@ -62,11 +63,13 @@ type TraceAttributeGroup =
   | 'decision'
   | 'evaluation';
 
+/** A label and description for one option in a catalog. */
 interface TraceOptionMeta {
   label: string;
   doc: string;
 }
 
+/** What the catalog says about a span attribute: its label, description and format. */
 interface TraceAttributeMeta {
   label: string;
   doc: string;
@@ -79,6 +82,7 @@ interface TraceAttributeMeta {
   fields?: Readonly<Record<string, TraceAttributeMeta>>;
 }
 
+/** What the catalog says about a span event: its label, description and keys. */
 interface TraceEventMeta {
   label: string;
   doc: string;
@@ -107,6 +111,7 @@ interface TraceSpanMeta {
   subject?: string;
 }
 
+/** Labels and descriptions for each attribute group. */
 const TRACE_ATTRIBUTE_GROUPS: Readonly<Record<TraceAttributeGroup, TraceOptionMeta>> = {
   agent: { label: 'Agent', doc: 'Which agent ran, for which conversation, and how it ended.' },
   request: { label: 'Request', doc: 'What THEOREM asked the provider for.' },
@@ -125,6 +130,7 @@ const TRACE_ATTRIBUTE_GROUPS: Readonly<Record<TraceAttributeGroup, TraceOptionMe
   evaluation: { label: 'Evaluation', doc: 'How an eval graded this trace, and by which suite.' },
 };
 
+/** Labels and descriptions for each span status. */
 const TRACE_STATUS: Readonly<Record<TraceSpan['status']['code'], TraceOptionMeta>> = {
   OK: { label: 'OK', doc: 'Finished as intended.' },
   ERROR: { label: 'Error', doc: 'Failed; the error kind says why.' },
@@ -1611,6 +1617,7 @@ function traceEventAttributeMeta(event: string, key: string): TraceAttributeMeta
   return TRACE_EVENTS[event]?.attributes[key] ?? traceAttributeMeta(key);
 }
 
+/** Labels and descriptions for each span type. */
 const TRACE_SPAN_TYPES: Readonly<Record<TraceSpanType, TraceOptionMeta>> = {
   turn: { label: 'Turn', doc: 'One exchange: the model calls and tool calls it took to answer.' },
   session: { label: 'Live session', doc: 'A Live session, from setup to close.' },
@@ -1634,6 +1641,7 @@ function withSubject(type: TraceSpanType, subject: string | undefined): TraceSpa
   return subject ? { ...meta, subject } : meta;
 }
 
+/** The label, subject and description to show for a span. */
 function traceSpanMeta(span: TraceSpan): TraceSpanMeta {
   switch (stringAttribute(span, 'gen_ai.operation.name')) {
     case 'invoke_agent':

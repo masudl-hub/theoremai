@@ -51,22 +51,26 @@ async function resultAttributes(
   };
 }
 
+/** A grader's result with the identity of the grader that gave it. */
 interface GradedResult {
   result: EvalResult;
   graderIdentity: string;
 }
 
+/** What a trial's record is built from. */
 interface TrialRecordInput {
   trial: Trial;
   policy: ResolvedObservabilityPolicy;
   clock?: TraceClock;
 }
 
+/** A trial record being built: its `traceparent` and a `finish` that writes it with the results. */
 interface OpenTrialRecord {
   traceparent: string;
   finish: (results: readonly GradedResult[]) => Promise<{ record: TraceRecord; span: TraceSpan }>;
 }
 
+/** Opens the record of a trial. */
 function startTrialRecord(input: TrialRecordInput): OpenTrialRecord {
   const { trial, policy } = input;
   const tree = startTrace(TRIAL_SPAN, {
@@ -98,6 +102,7 @@ function startTrialRecord(input: TrialRecordInput): OpenTrialRecord {
   return { traceparent: tree.root.traceparent(), finish };
 }
 
+/** What a run's record is built from: the suite, the verdicts and the trial spans. */
 interface RunRecordInput {
   suite: Pick<EvalSuite, 'id' | 'trials'>;
   verdicts: readonly CaseVerdict[];
@@ -122,6 +127,7 @@ function verdictAttributes(verdict: CaseVerdict): TraceAttributes {
   };
 }
 
+/** Builds the record of a whole run. */
 function buildRunRecord(input: RunRecordInput): Promise<TraceRecord> {
   const rule = input.suite.trials.pass ?? 'all';
   const tree = startTrace(RUN_SPAN, {

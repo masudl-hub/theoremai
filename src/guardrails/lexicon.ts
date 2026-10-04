@@ -3,6 +3,7 @@
 
 import { TheoremError } from './theorem-error.ts';
 
+/** Values that fill a lexicon template's `{param}` placeholders. */
 export type LexiconParams = Record<string, string | number>;
 
 /** Keys are stable API. */
@@ -102,6 +103,7 @@ export const LEXICON_KEYS = [
   'tool.unsupported_type',
 ] as const;
 
+/** One of {@linkcode LEXICON_KEYS}. */
 export type LexiconKey = (typeof LEXICON_KEYS)[number];
 
 /**
@@ -151,6 +153,7 @@ export const CLIENT_LEXICON_KEYS = [
   'voice.empty',
 ] as const satisfies readonly LexiconKey[];
 
+/** One of {@linkcode CLIENT_LEXICON_KEYS}. */
 export type ClientLexiconKey = (typeof CLIENT_LEXICON_KEYS)[number];
 
 /** Host-supplied replacement templates, `{param}` placeholders included. */
@@ -579,6 +582,7 @@ export function overrideLexicon(entries: LexiconOverrides): void {
   }
 }
 
+/** Remove every lexicon override. */
 export function resetLexicon(): void {
   overrides.clear();
 }
@@ -590,6 +594,7 @@ function substitute(template: string, params: LexiconParams): string {
   });
 }
 
+/** The wording for a key, with a profile's override applied and the params filled in. */
 export function lexiconText(
   key: LexiconKey,
   params: LexiconParams = {},

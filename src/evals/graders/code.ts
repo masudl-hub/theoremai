@@ -32,6 +32,7 @@ function quote(text: string): string {
   return JSON.stringify(text);
 }
 
+/** Graders over the text the turn delivered to the user. */
 interface DeliveredGraders {
   includes: (text: string) => EvalGrader;
   regex: (pattern: string, flags?: string) => EvalGrader;
@@ -40,6 +41,7 @@ interface DeliveredGraders {
   json: () => EvalGrader;
 }
 
+/** Graders over the text the turn delivered to the user. */
 const delivered: DeliveredGraders = {
   includes(text: string): EvalGrader {
     return codeGrader('delivered_includes', `delivered.includes:${text}`, false, (trial) => {
@@ -149,6 +151,7 @@ function trajectoryMatches(mode: TrajectoryMode, expected: string[], actual: str
   }
 }
 
+/** Grades the tools a turn called against the expected ones, by order or by set. */
 function toolTrajectory(options: { expect?: string[]; mode: TrajectoryMode }): EvalGrader {
   const identity = `toolTrajectory:${options.mode}:${options.expect ? JSON.stringify(options.expect) : 'case'}`;
   return codeGrader('tool_trajectory', identity, options.expect === undefined, (trial) => {
@@ -168,6 +171,7 @@ function toolTrajectory(options: { expect?: string[]; mode: TrajectoryMode }): E
   });
 }
 
+/** Grades that the turn stopped with one of the given kinds. */
 function stopKind(kind: string | string[]): EvalGrader {
   const kinds = Array.isArray(kind) ? kind : [kind];
   return codeGrader('stop_kind', `stopKind:${kinds.join('|')}`, false, (trial) => {
@@ -203,6 +207,7 @@ function guardrail(options: { fired: boolean; action?: 'redact' | 'flag' | 'bloc
   });
 }
 
+/** Limits a trial must stay under: cost, tokens, steps and time. */
 interface BudgetOptions {
   maxCostUsd?: number;
   maxTokens?: number;
@@ -251,6 +256,7 @@ function budget(options: BudgetOptions): EvalGrader {
   });
 }
 
+/** A grader that passes when `check` accepts the trial. */
 function outcome(
   name: string,
   check: (trial: Trial) => boolean | EvalResult | Promise<boolean | EvalResult>,

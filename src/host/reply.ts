@@ -1,8 +1,12 @@
 import { type ErrorKind, errorKind } from '../guardrails/error.ts';
 
+/** HTTP status for a success. */
 const HTTP_OK = 200;
+/** HTTP status for an unknown route. */
 const HTTP_NOT_FOUND = 404;
+/** HTTP status for a method the route does not take. */
 const HTTP_METHOD = 405;
+/** HTTP status for a request refused because the host is busy. */
 const HTTP_BUSY = 429;
 
 const STATUS_BY_KIND: Readonly<Record<ErrorKind, number>> = {
@@ -26,6 +30,7 @@ const STATUS_BY_KIND: Readonly<Record<ErrorKind, number>> = {
   internal: 500,
 };
 
+/** A JSON response with the status and the CORS headers. */
 function json(status: number, body: unknown, cors: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -33,6 +38,7 @@ function json(status: number, body: unknown, cors: Record<string, string>): Resp
   });
 }
 
+/** The HTTP status for a caught error, by its kind. */
 function caughtStatus(err: unknown): number {
   return STATUS_BY_KIND[errorKind(err)];
 }

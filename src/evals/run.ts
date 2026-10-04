@@ -26,12 +26,14 @@ import type {
 } from './types.ts';
 import { type CaseVerdict, caseVerdict, type TrialOutcome, trialOutcome } from './verdict.ts';
 
+/** Names a trial by suite, case and trial number. */
 interface EvalStamp {
   suite: string;
   case: string;
   trial: number;
 }
 
+/** The size of a turn: its duration and the model and tool calls it made. */
 interface TurnShape {
   durationMs: number;
   modelCalls: number;
@@ -39,6 +41,7 @@ interface TurnShape {
   stop?: string;
 }
 
+/** One trial's outcome, results and records. */
 interface TrialReport {
   case?: EvalCase;
   index: number;
@@ -56,6 +59,7 @@ interface TrialReport {
   trialRecord?: TraceRecord;
 }
 
+/** Options for `runSuite`: the providers, the judge and how often to repeat. */
 interface RunSuiteOptions {
   provider?: ModelProvider;
   judgeProvider?: ModelProvider;
@@ -72,6 +76,7 @@ interface RunSuiteOptions {
   signal?: AbortSignal;
 }
 
+/** A finished suite run: its mode and its cases' trials and verdicts. */
 interface SuiteRun {
   suite: string;
   mode: 'live' | 'recorded';
@@ -520,6 +525,7 @@ async function ranOf(grading: Grading, repeat: number, options: RunSuiteOptions)
   return runLive(grading, options.provider, repeat, options);
 }
 
+/** Runs every case of a suite and returns the graded run. */
 async function runSuite(loaded: LoadedSuite, options: RunSuiteOptions = {}): Promise<SuiteRun> {
   const warnings = checkSuite(loaded, options);
   const { suite } = loaded;

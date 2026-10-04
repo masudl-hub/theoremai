@@ -74,6 +74,7 @@ export interface BuiltinToolDef extends ToolBase {
   conflictsWith?: string[];
 }
 
+/** How a held tool call resumes: approved, refused or retried after sign-in. */
 export interface InvokeToolResume {
   /**
    * `true` skips the confirm / permission / `preTool` re-ask (an `edited` call runs `preTool` in full);
@@ -224,6 +225,7 @@ export interface McpToolDef<TIn = unknown, TOut = unknown>
   auth?: ToolAuthConfig;
 }
 
+/** A tool in a registry: builtin, function, HTTP or MCP. */
 export type RegisteredTool<TIn = unknown, TOut = unknown> =
   | BuiltinToolDef
   | FunctionToolDef<TIn, TOut>
@@ -250,6 +252,7 @@ export interface PromoteLoadedResult {
   failure?: ToolFailure;
 }
 
+/** What a tool's loader is told: the profile, the input and the path. */
 export interface ToolLoadContext {
   profile: Profile;
   input?: TurnInput;
@@ -264,6 +267,7 @@ export interface ToolLoadContext {
 /** Picks which eligible T1 tools to wire at turn start. */
 export type ToolPolicy = (ctx: ToolLoadContext) => ToolId[] | Promise<ToolId[]>;
 
+/** A request to run a held tool call outside a turn. */
 export interface InvokeToolRequest {
   profile: string;
   name: string;
@@ -300,6 +304,7 @@ export interface InvokeToolRequest {
   onStage?: import('../stages.ts').StageHandler;
 }
 
+/** The tools a profile may use and how they load. */
 export interface ProfileToolsSpec {
   /** Custom tools only; builtins live on `models.*.builtInTools`. */
   allow: ToolId[];

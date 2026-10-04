@@ -1,8 +1,10 @@
 import { ALL_PROFILE_TYPES, profileTypesForField } from './profile-scope.ts';
 import type { ProfileType } from './schema.ts';
 
+/** The editor a graph facet is edited with: schema-driven or structural. */
 export type ProfileGraphEditor = 'schema' | 'structural';
 
+/** Where a facet sits in the graph: root, spine or branch. */
 export type ProfileGraphRole = 'root' | 'spine' | 'branch';
 
 interface ProfileGraphFacetDef {
@@ -148,6 +150,7 @@ const PROFILE_GRAPH_DEF = [
   },
 ] as const satisfies readonly ProfileGraphFacetDef[];
 
+/** The id of a profile graph facet. */
 export type ProfileGraphFacetId = (typeof PROFILE_GRAPH_DEF)[number]['id'];
 
 /** `profilePath` is a PROFILE_FIELDS key (section root) or a dynamic path (`models.*`). */
@@ -175,6 +178,7 @@ const FACET_PROFILE_TYPES: Partial<Record<ProfileGraphFacetId, readonly ProfileT
   inputs: profileTypesForField('inputs').filter((type) => type !== 'decision'),
 };
 
+/** The profile graph: each facet, with the profile types it applies to. */
 export const PROFILE_GRAPH: readonly ProfileGraphFacet[] = PROFILE_GRAPH_DEF.map((facet) => ({
   ...facet,
   profileTypes: FACET_PROFILE_TYPES[facet.id] ?? profileTypesForField(facet.profilePath),
@@ -188,6 +192,7 @@ function spineFacetsForProfileType(type: ProfileType): ProfileGraphFacet[] {
   );
 }
 
+/** The facet with this id, or `undefined`. */
 function profileGraphFacet(id: ProfileGraphFacetId): ProfileGraphFacet | undefined {
   return PROFILE_GRAPH.find((facet) => facet.id === id);
 }

@@ -9,6 +9,7 @@ export type { TurnStop };
  */
 export const CONTINUE_INSTRUCTION_TYPES: readonly ProfileType[] = ['text'];
 
+/** The stop kinds that offer Continue when a profile names none. */
 export const DEFAULT_ALLOW_CONTINUE: readonly ContinueStopKind[] = CONTINUE_STOP_KINDS;
 
 /** Hosts wait briefly, then continue once on their own. */
@@ -17,6 +18,7 @@ export const DEFAULT_AUTO_CONTINUE: readonly ContinueStopKind[] = ['length', 'st
 /** Pause before the one-shot auto-continue so a flaky tunnel can settle. */
 export const AUTO_CONTINUE_DELAY_MS = 1_500;
 
+/** Which stops a profile offers Continue for, and which the host continues on its own. */
 export interface ProfileTurnResumptionSpec {
   /**
    * The host's UI policy for offering Continue: the kernel does not refuse a `continueFrom`
@@ -35,6 +37,7 @@ export interface ProfileTurnResumptionSpec {
 
 const CONTINUE_KIND_SET = new Set<string>(CONTINUE_STOP_KINDS);
 
+/** True when the stop kind can be continued. */
 export function isContinueStopKind(kind: string): kind is ContinueStopKind {
   return CONTINUE_KIND_SET.has(kind);
 }
@@ -69,6 +72,7 @@ export interface TurnContinueFrom {
 
 const RESUMEABLE_DEFAULT = new Set<ContinueStopKind>(DEFAULT_ALLOW_CONTINUE);
 
+/** True when the stop can be continued under the allowed kinds. */
 export function isResumeableStop(
   stop: TurnStop | undefined,
   allowContinue?: readonly ContinueStopKind[],
@@ -87,6 +91,7 @@ export function stageAbortStop(
     : { kind: 'cancelled' };
 }
 
+/** True when the user cancelled the turn. */
 export function isUserCancelledStop(stop: TurnStop | undefined): boolean {
   return stop?.kind === 'cancelled';
 }
@@ -101,6 +106,7 @@ export function shouldAutoContinue(
   return auto.includes(stop.kind) && isResumeableStop(stop, policy?.allowContinue);
 }
 
+/** The profile's resumption policy, or `undefined` for a live profile. */
 export function profileTurnResumption(profile: {
   type: string;
   turnBehaviour?: ProfileTurnBehaviourSpec;
@@ -192,6 +198,7 @@ export function turnStopFromClientStreamEnd(opts: {
   return { kind: 'stream_incomplete' };
 }
 
+/** Thrown when a model call stops before it finishes, carrying the stop. */
 export class GenerationStopError extends Error {
   override readonly name = 'GenerationStopError';
   readonly stop: TurnStop;

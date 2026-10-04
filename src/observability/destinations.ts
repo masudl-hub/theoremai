@@ -5,6 +5,7 @@ import type { TraceSink } from './trace-sink.ts';
 
 const destinations = new Map<string, TraceSink>();
 
+/** True when the value is a trace sink. */
 function isTraceSink(value: unknown): value is TraceSink {
   return (
     typeof value === 'object' &&
@@ -14,6 +15,7 @@ function isTraceSink(value: unknown): value is TraceSink {
   );
 }
 
+/** Register a trace sink under an id; throws when the id is empty. */
 function registerTraceDestination(id: string, destination: TraceSink): void {
   const key = id.trim();
   if (!key) {
@@ -26,10 +28,12 @@ function registerTraceDestination(id: string, destination: TraceSink): void {
   destinations.set(key, destination);
 }
 
+/** The sink registered under the id, or `undefined`. */
 function getTraceDestination(id: string): TraceSink | undefined {
   return destinations.get(id);
 }
 
+/** The sink registered under the id; throws when there is none. */
 function requireTraceDestination(id: string): TraceSink {
   const found = getTraceDestination(id);
   if (!found) {
@@ -38,6 +42,7 @@ function requireTraceDestination(id: string): TraceSink {
   return found;
 }
 
+/** The registered destination ids, sorted. */
 function listTraceDestinationIds(): string[] {
   return [...destinations.keys()].sort();
 }

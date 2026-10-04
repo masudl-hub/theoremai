@@ -138,25 +138,33 @@ export type {
   WireFunctionTool,
 };
 
+/** A host-chosen key naming one model binding in a profile's `models`. */
 export type ModelId = string;
 
+/** The id of a provider-side tool such as web search. */
 export type BuiltinToolId = string;
+/** The id a profile lists in `tools.allow` and the model calls a tool by. */
 export type ToolId = string;
 
+/** The id of a registered structured-output schema. */
 export type StructuredSchemaId = string;
 
+/** A structured-output schema resolved to its JSON Schema. */
 export interface ResolvedStructured {
   id: StructuredSchemaId;
   jsonSchema: Record<string, unknown>;
 }
 
+/** A provider-side tool and the wire shape it is sent as. */
 export interface ProviderBuiltin {
   id: BuiltinToolId;
   wire: BuiltinWire;
 }
 
+/** The id a profile is registered and run under. */
 export type ProfileId = string;
 
+/** The roles a history message can carry. */
 export type ChatRole = 'system' | 'user' | 'assistant';
 
 /** Host strings (presets own the vocabularies); an unpinned value is the provider default. */
@@ -174,6 +182,7 @@ export interface ProfileImageSpec {
   includeText?: boolean;
 }
 
+/** One model a profile can run: the protocol, provider and provider model id it calls, with its generation settings. */
 export interface ModelBinding {
   protocol: Protocol;
   provider: Provider;
@@ -231,6 +240,7 @@ export interface CacheSpec {
   ttl?: CacheTtl;
 }
 
+/** What a compaction trigger sees when it decides whether to compact. */
 export interface CompactionTriggerContext {
   tokens: number;
   maxTokens: number;
@@ -240,6 +250,7 @@ export interface CompactionTriggerContext {
   unknownMedia: number;
 }
 
+/** When history compacts and how: the meter, the token budget and the compactor. */
 export interface CompactionSpec {
   /**
    * Token budget compared by the trigger (`compactAt * maxTokens`).
@@ -289,10 +300,12 @@ export interface CompactHistoryRequest {
   metadata?: Record<string, unknown>;
 }
 
+/** A structured-output schema given inline. */
 export interface StructuredSpec {
   jsonSchema: Record<string, unknown>;
 }
 
+/** Caps on the files a turn may attach. */
 export interface MediaLimits {
   maxFiles: number;
   maxBytes: number;
@@ -300,12 +313,14 @@ export interface MediaLimits {
   limitsByMime?: Record<string, number>;
 }
 
+/** The input kinds a profile accepts, with their limits. */
 export interface MimeInputs extends Partial<MediaLimits> {
   text?: boolean;
   attachments?: { accept: string[] };
   voice?: { accept: string[] };
 }
 
+/** Why an attachment was refused. */
 export type AttachmentValidationCode =
   | 'mime_not_allowed'
   | 'too_many_files'
@@ -334,12 +349,14 @@ export interface AttachmentValidationIssue {
   fileName?: string;
 }
 
+/** Picks the structured-output schema by the value of a turn slot, with a fallback. */
 export interface StructuredBySlot {
   by: string;
   map: Record<string, string>;
   fallback: string;
 }
 
+/** What a host validator returns for a candidate output. */
 export interface ValidationResult {
   isValid: boolean;
   error?: string;
@@ -347,11 +364,13 @@ export interface ValidationResult {
   data?: Record<string, unknown>;
 }
 
+/** A host function that checks one structured-output field. */
 export type ProfileValidator = (
   candidate: unknown,
   slots?: Record<string, string>,
 ) => ValidationResult | Promise<ValidationResult>;
 
+/** Host validators a profile runs on its structured output. */
 export interface ProfileValidationSpec {
   /**
    * Host domain validators keyed by dotted paths into structured output
@@ -369,6 +388,7 @@ export interface ProfileSpeechSpec {
   format?: SpeechAudioFormat;
 }
 
+/** Voice activity detection settings for a live session. */
 export interface LiveVadSpec {
   activityHandling?: LiveActivityHandling;
   startSensitivity?: LiveStartSensitivity;
@@ -393,6 +413,7 @@ export interface LiveContextCompressionSpec {
   slidingWindow: LiveSlidingWindowSpec;
 }
 
+/** Sliding-window context compression for a live session. */
 export interface LiveSlidingWindowSpec {
   /**
    * Tokens to keep after compressing. A whole number above 0, below
@@ -401,6 +422,7 @@ export interface LiveSlidingWindowSpec {
   targetTokens?: number;
 }
 
+/** Which sides of a live session are transcribed. */
 export interface LiveTranscriptionSpec {
   input?: boolean;
   output?: boolean;
@@ -420,6 +442,7 @@ export interface LiveIngressSpec {
   text?: boolean;
 }
 
+/** The settings only a live profile has: ingress, voice, detection, windowing, transcription and resumption. */
 export interface ProfileLiveSpec {
   ingress?: LiveIngressSpec;
   voice?: string;
@@ -430,6 +453,7 @@ export interface ProfileLiveSpec {
   transcription?: LiveTranscriptionSpec;
 }
 
+/** How a profile's reply streams. */
 export interface ProfileStreamingSpec {
   mode?: StreamMode;
   /** When false, filter `thought` events from the turn stream. */
@@ -455,6 +479,7 @@ import type { ProfileObservabilitySpec } from '../observability/types.ts';
 import type { ToolCredentialSource } from './auth/credential-source.ts';
 import type { MediaTurnBehaviourSpec, ProfileTurnBehaviourSpec, TurnContinueFrom } from './stop.ts';
 
+/** The model fields every model-running profile shares. */
 export interface ProfileModelFields {
   /** Host-named models. Each key is a selectable model id when `allowModelSelect` is set. */
   models: Record<ModelId, ModelBinding>;
@@ -469,6 +494,7 @@ export interface ProfileModelFields {
   fallbackKey?: KeySlot;
 }
 
+/** What a profile accepts as input. */
 export interface ProfileInputsSpec {
   text?: boolean;
   attachments?: { accept: string[] };
@@ -480,6 +506,7 @@ export interface ProfileInputsSpec {
   slots?: Record<string, string[]>;
 }
 
+/** What a profile returns: its structured schema, validation and streaming. */
 export interface ProfileOutputsSpec {
   structured?: StructuredSchemaId | StructuredBySlot | null;
   validation?: ProfileValidationSpec;
@@ -491,6 +518,7 @@ export interface PrivateSystemPart {
   private: string;
 }
 
+/** One part of a system prompt: plain text or a part kept out of traces. */
 export type SystemPart = string | PrivateSystemPart;
 
 /**
@@ -506,12 +534,14 @@ export interface SystemPiece {
   private: boolean;
 }
 
+/** A profile's handle and system prompt. */
 export interface ProfileIdentity {
   handle: string;
   system?: SystemPrompt;
   systemByRole?: Record<string, SystemPrompt>;
 }
 
+/** The fields every profile type shares. */
 export interface ProfileCommon {
   id: ProfileId;
   identity: ProfileIdentity;
@@ -529,6 +559,7 @@ export interface ProfileCommon {
   lexicon?: LexiconOverrides;
 }
 
+/** Any JSON value; the state a decision reads. */
 export type DecisionJson =
   | null
   | string
@@ -544,6 +575,7 @@ export interface DecisionModelBinding extends Pick<ModelBinding, 'apiId' | 'key'
   timeoutMs?: number;
 }
 
+/** What a decision profile accepts: JSON state up to a byte cap. */
 export interface DecisionInputsSpec {
   state: 'json';
   maxStateBytes?: number;
@@ -575,29 +607,34 @@ export interface DecisionProfile {
 /** Text or nested text instruction entries. Non-text leaves are rejected locally. */
 export type DecisionEntry = string | DecisionEntry[] | { [key: string]: DecisionEntry };
 
+/** A question answered by picking one of the named criteria. */
 export interface DecisionChoiceQuestion {
   type: 'choice';
   instructions: DecisionEntry;
   criteria: Record<string, DecisionEntry>;
 }
 
+/** A question answered with a single number, optionally with named criteria. */
 export interface DecisionNoulQuestion {
   type: 'noul';
   instructions: DecisionEntry;
   criteria?: Record<string, DecisionEntry>;
 }
 
+/** A question answered by scoring against an ordered list of criteria. */
 export interface DecisionScoreQuestion {
   type: 'score';
   instructions: DecisionEntry;
   criteria: readonly DecisionEntry[];
 }
 
+/** One question a decision answers. */
 export type DecisionQuestion =
   | DecisionChoiceQuestion
   | DecisionNoulQuestion
   | DecisionScoreQuestion;
 
+/** A request to `runDecision`: the profile, the state to judge and the questions to answer. */
 export interface DecisionRequest {
   profile: ProfileId;
   state: Exclude<DecisionJson, null>;
@@ -613,6 +650,7 @@ export interface DecisionRequest {
   traceparent?: string;
 }
 
+/** The model's answer to one decision question. */
 export type DecisionAnswer =
   | { type: 'choice'; choice: string; confidence: number; probabilities: Record<string, number> }
   | { type: 'noul'; noul: number }
@@ -624,6 +662,7 @@ export type DecisionAnswer =
       probabilities: Record<string, number>;
     };
 
+/** What `runDecision` returns: the model and an answer for each question. */
 export interface DecisionResult {
   model: string;
   answers: Record<string, DecisionAnswer>;
@@ -631,6 +670,7 @@ export interface DecisionResult {
   usage?: { inputTokens: number; outputTokens: number; costUsd?: number };
 }
 
+/** A profile that runs text turns. */
 export interface TextProfile extends ProfileCommon {
   type: 'text';
   tools: ProfileToolsSpec;
@@ -645,6 +685,7 @@ export interface TextProfile extends ProfileCommon {
  */
 export type ImageInputsSpec = Omit<ProfileInputsSpec, 'voice'>;
 
+/** A profile that generates images. */
 export interface ImageProfile extends ProfileCommon {
   type: 'image';
   image: ProfileImageSpec;
@@ -670,6 +711,7 @@ export interface SpeechProfile extends Omit<ProfileCommon, 'identity' | 'guardra
   turnBehaviour?: MediaTurnBehaviourSpec;
 }
 
+/** A profile that holds a live audio session. */
 export interface LiveProfile extends Omit<ProfileCommon, 'outputs'> {
   type: 'live';
   live: ProfileLiveSpec;
@@ -694,6 +736,7 @@ export interface HostProfile {
   lexicon?: LexiconOverrides;
 }
 
+/** Any profile, discriminated by `type`. */
 export type Profile =
   | TextProfile
   | ImageProfile
@@ -705,6 +748,7 @@ export type Profile =
 /** Profiles that run a model turn — every type except `host` and `decision` (which runs through `runDecision`). */
 export type ModelProfile = Exclude<Profile, HostProfile | DecisionProfile>;
 
+/** The image a profile asks the model to return. */
 export interface ImageResponseFormat {
   type: 'image';
   mimeType?: string;
@@ -719,6 +763,7 @@ export interface ImageResponseFormat {
   includeText: boolean;
 }
 
+/** A file sent inline with a turn. */
 export interface TurnBlob {
   mimeType: string;
   data: string;
@@ -737,12 +782,14 @@ export interface TurnMediaRef {
   name?: string;
 }
 
+/** A rejected output and the guidance to retry it with. */
 export interface TurnRepairRequest {
   previousOutput: string;
   rejection: string;
   guidance?: string;
 }
 
+/** What the user sent for a turn: text, slots, attachments, voice and history. */
 export interface TurnInput {
   text?: string;
   role?: string;
@@ -765,6 +812,7 @@ export interface TurnInput {
   sessionResumptionHandle?: string;
 }
 
+/** A turn request whose `input` is always present. */
 export type NormalizedTurnRequest = TurnRequest & { input: TurnInput };
 
 /**
@@ -780,6 +828,7 @@ export interface TurnTraceLink {
   stop?: TurnStopKind;
 }
 
+/** A request to `runTurn`: the profile, the input and the host's hooks and keys. */
 export interface TurnRequest {
   profile: ProfileId;
   projectId?: string;
@@ -856,6 +905,7 @@ export interface TurnRequest {
   onStage?: StageHandler;
 }
 
+/** A profile projected for a client, with its secrets and server-only fields removed. */
 export interface ProjectedProfile extends ProfileModelFields {
   id: string;
   type: ModelProfile['type'];
@@ -868,6 +918,7 @@ export interface ProjectedProfile extends ProfileModelFields {
   live?: ProfileLiveSpec | null;
 }
 
+/** The generation settings a provider call is made with. */
 export interface ProviderGenerationConfig {
   model: ModelId;
   apiId: string;
@@ -890,8 +941,10 @@ export interface ProviderGenerationConfig {
   sessionId?: string;
 }
 
+/** The transport a provider adapter speaks. */
 export type ProviderTransport = 'interactions' | 'geminiLive' | 'openAiCompat';
 
+/** A generation config after the profile and request are resolved, with its transport. */
 export interface ResolvedGeneration extends ProviderGenerationConfig {
   transport: ProviderTransport;
   /**
@@ -961,6 +1014,7 @@ export interface ProviderCompleteRequest
   signal?: AbortSignal;
 }
 
+/** A provider adapter: one `complete` call that streams the model's events. */
 export interface ModelProvider {
   complete: (req: ProviderCompleteRequest) => AsyncIterable<ProviderEvent>;
 }
@@ -1046,6 +1100,7 @@ export type LiveAnswerToolCallArgs = {
   events: readonly TurnEvent[];
 };
 
+/** What running a tool call during a live session returns. */
 export type LiveExecuteToolResult = {
   outputRaw?: unknown;
   outputModel?: ModelToolResult;

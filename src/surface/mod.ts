@@ -2,6 +2,8 @@
  * Surfaces: one protocol for an agent to see and work in a client's screen. A page mounts a
  * surface (nodes with fields and actions); the agent uses two tools, `look` and `act`, and the
  * runtime projects every answer so secrets reach it only as cards.
+ *
+ * @module
  */
 
 export type { SecretCard } from './formats.ts';

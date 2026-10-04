@@ -77,6 +77,7 @@ export type ProfileDefinitionBase = {
   lexicon?: LexiconOverrides;
 };
 
+/** What a host writes to define a text profile. */
 export type TextProfileDefinition = ProfileDefinitionBase & {
   type: 'text';
   tools: ProfileToolsSpec;
@@ -84,6 +85,7 @@ export type TextProfileDefinition = ProfileDefinitionBase & {
   turnBehaviour?: ProfileTurnBehaviourSpec;
 };
 
+/** What a host writes to define an image profile. */
 export type ImageProfileDefinition = ProfileDefinitionBase & {
   type: 'image';
   image: NonNullable<ImageProfile['image']>;
@@ -92,6 +94,7 @@ export type ImageProfileDefinition = ProfileDefinitionBase & {
   turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
+/** What a host writes to define a speech profile. */
 export type SpeechProfileDefinition = Omit<ProfileDefinitionBase, 'identity' | 'guardrails'> & {
   type: 'speech';
   identity: SpeechProfile['identity'];
@@ -100,6 +103,7 @@ export type SpeechProfileDefinition = Omit<ProfileDefinitionBase, 'identity' | '
   turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
+/** What a host writes to define a live profile. */
 export type LiveProfileDefinition = ProfileDefinitionBase & {
   type: 'live';
   live: NonNullable<LiveProfile['live']>;
@@ -108,6 +112,7 @@ export type LiveProfileDefinition = ProfileDefinitionBase & {
   turnBehaviour?: Pick<ProfileTurnBehaviourSpec, 'allowSteering'>;
 };
 
+/** What a host writes to define a decision profile. */
 export type DecisionProfileDefinition = {
   type: 'decision';
   id: Profile['id'];
@@ -122,6 +127,7 @@ export type DecisionProfileDefinition = {
   lexicon?: LexiconOverrides;
 };
 
+/** What a host writes to define a host profile, which runs tools and no model. */
 export type HostProfileDefinition = {
   type: 'host';
   id: Profile['id'];
@@ -132,6 +138,7 @@ export type HostProfileDefinition = {
   lexicon?: LexiconOverrides;
 };
 
+/** Any profile definition, discriminated by `type`. */
 export type ProfileDefinition =
   | TextProfileDefinition
   | ImageProfileDefinition
@@ -607,15 +614,22 @@ function assertIdentitySystem(input: ProfileDefinition): void {
   }
 }
 
+/** Validate a definition and return the profile; throws on a malformed one. */
 function defineProfile(input: TextProfileDefinition): TextProfile;
+/** Validate an image definition and return the profile. */
 function defineProfile(input: ImageProfileDefinition): ImageProfile;
+/** Validate a speech definition and return the profile. */
 function defineProfile(input: SpeechProfileDefinition): SpeechProfile;
+/** Validate a live definition and return the profile. */
 function defineProfile(input: LiveProfileDefinition): LiveProfile;
+/** Validate a decision definition and return the profile. */
 function defineProfile(input: DecisionProfileDefinition): DecisionProfile;
+/** Validate a host definition and return the profile. */
 function defineProfile(input: HostProfileDefinition): HostProfile;
 function defineProfile(
   input: Exclude<ProfileDefinition, LiveProfileDefinition | HostProfileDefinition>,
 ): Exclude<Profile, LiveProfile | HostProfile>;
+/** Validate any definition and return the profile. */
 function defineProfile(input: ProfileDefinition): Profile;
 function defineProfile(input: ProfileDefinition): Profile {
   assertProfileShape(input);
@@ -1010,6 +1024,7 @@ function assertMediaLimits(profile: ModelProfile): void {
   }
 }
 
+/** A set of registered profiles, kept by id. */
 interface ProfileRegistry {
   register(profileInput: Profile | ProfileDefinition): void;
   registerMany(profilesList: Array<Profile | ProfileDefinition>): void;

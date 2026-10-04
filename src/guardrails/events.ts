@@ -10,6 +10,7 @@ import type {
   Verdict,
 } from './types.ts';
 
+/** Wraps a guardrail event as a turn event. */
 function guardrailTurnEvent(guardrail: GuardrailEvent): TurnEventOf<'guardrail'> {
   return { type: 'guardrail', guardrail };
 }
@@ -36,6 +37,7 @@ function guardrailFromVerdict(
   });
 }
 
+/** Builds the guardrail event for the hits found at a stage. */
 function guardrailFromHits(
   stage: GuardrailStage,
   trust: TrustLevel,
@@ -55,10 +57,12 @@ function guardrailFromHits(
   });
 }
 
+/** The guardrail turn event, with the matched text kept or dropped. */
 function projectGuardrailTurnEvent(
   event: TurnEventOf<'guardrail'>,
   includeMatch: boolean,
 ): TurnEventOf<'guardrail'>;
+/** The turn event unchanged, or a guardrail one with the matched text kept or dropped. */
 function projectGuardrailTurnEvent(event: TurnEvent, includeMatch: boolean): TurnEvent;
 function projectGuardrailTurnEvent(event: TurnEvent, includeMatch: boolean): TurnEvent {
   if (event.type !== 'guardrail') {

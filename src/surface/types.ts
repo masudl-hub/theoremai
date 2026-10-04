@@ -10,6 +10,7 @@ import type { z } from 'zod';
  */
 export type SurfaceFieldFormat = 'secret' | 'url' | 'headers' | 'text';
 
+/** One value on a surface: what it holds and how the agent should read it. */
 export interface SurfaceField {
   value: unknown;
   /** The kind of value, as the agent should read it ("boolean", "one of …"). */
@@ -47,11 +48,13 @@ export type SurfaceEffect = 'read' | 'run' | 'write';
 /** Who a change is by, for the surface to record: notes are told only about the person's. */
 export type SurfaceAuthor = 'person' | 'agent';
 
+/** What an action run is told: its call id and who started it. */
 export interface SurfaceActionContext {
   callId: string;
   by: SurfaceAuthor;
 }
 
+/** What an action run returns: any rejections and its result. */
 export interface SurfaceActionOutcome {
   rejected?: SurfaceRejection[];
   /** What the action found or made; scrubbed like everything else. */
@@ -60,6 +63,7 @@ export interface SurfaceActionOutcome {
   node?: string;
 }
 
+/** Something the agent can do on a node: its description, effect, input schema and `run`. */
 export interface SurfaceAction<Input = Record<string, unknown>> {
   description: string;
   effect: SurfaceEffect;
@@ -73,6 +77,7 @@ export interface SurfaceAction<Input = Record<string, unknown>> {
   ): SurfaceActionOutcome | Promise<SurfaceActionOutcome>;
 }
 
+/** One part of a surface, with its fields and actions. */
 export interface SurfaceNode {
   /** Unique in its surface. The root's is `''`, addressed by the surface id alone. */
   id: string;
@@ -94,6 +99,7 @@ export interface SurfaceNode {
   actions?: Record<string, SurfaceAction<never>>;
 }
 
+/** A recorded change to a surface: its revision, author and the nodes it touched. */
 export interface SurfaceChange {
   revision: number;
   by: SurfaceAuthor;

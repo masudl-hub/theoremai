@@ -7,10 +7,12 @@ import { isRecord } from '../kernel/util/record.ts';
 import type { TraceRecord } from '../observability/trace-record.ts';
 import type { TraceAttributeValue, TraceSpan } from '../observability/trace-span.ts';
 
+/** Whether a case probes what the profile can do (`capability`) or guards what it already did (`regression`). */
 export type EvalCaseKind = 'capability' | 'regression';
 const evalCaseKind = z.enum(['capability', 'regression']);
 true satisfies Equals<z.infer<typeof evalCaseKind>, EvalCaseKind>;
 
+/** An attachment carried in the case file as base64. */
 export interface EvalInlineAttachment {
   mimeType: string;
   /** Base64 bytes. */
@@ -39,10 +41,12 @@ const evalFileAttachment = z.object({
 });
 true satisfies Equals<z.infer<typeof evalFileAttachment>, EvalFileAttachment>;
 
+/** An attachment a case sends: inline bytes or a file on disk. */
 export type EvalAttachment = EvalInlineAttachment | EvalFileAttachment;
 const evalAttachment = z.union([evalInlineAttachment, evalFileAttachment]);
 true satisfies Equals<z.infer<typeof evalAttachment>, EvalAttachment>;
 
+/** A single-turn case input. */
 export interface EvalTurnInput {
   text?: string;
   attachments?: EvalAttachment[];
@@ -53,6 +57,7 @@ const evalTurnInput = z.object({
 });
 true satisfies Equals<z.infer<typeof evalTurnInput>, EvalTurnInput>;
 
+/** One message of a session case, sent once the previous step's turn completes. */
 export interface EvalSessionStep {
   text: string;
   until: 'turn_complete';
@@ -60,12 +65,14 @@ export interface EvalSessionStep {
 const evalSessionStep = z.object({ text: z.string(), until: z.literal('turn_complete') });
 true satisfies Equals<z.infer<typeof evalSessionStep>, EvalSessionStep>;
 
+/** A multi-step session case input. */
 export interface EvalSessionInput {
   session: { steps: EvalSessionStep[] };
 }
 const evalSessionInput = z.object({ session: z.object({ steps: z.array(evalSessionStep) }) });
 true satisfies Equals<z.infer<typeof evalSessionInput>, EvalSessionInput>;
 
+/** A case input: one turn or a session. */
 export type EvalCaseInput = EvalTurnInput | EvalSessionInput;
 const evalCaseInput = z.union([evalSessionInput, evalTurnInput]);
 true satisfies Equals<z.infer<typeof evalCaseInput>, EvalCaseInput>;
@@ -85,6 +92,7 @@ const evalAnswer = z.object({
 });
 true satisfies Equals<z.infer<typeof evalAnswer>, EvalAnswer>;
 
+/** What a case expects: tools, JSON fields, a transcription or an answer. */
 export interface EvalExpect {
   tools?: string[];
   json?: Record<string, unknown>;
@@ -103,6 +111,7 @@ const evalExpect = z.object({
 });
 true satisfies Equals<z.infer<typeof evalExpect>, EvalExpect>;
 
+/** How hard a case is, from 1 to 5. */
 export type EvalDifficulty = 1 | 2 | 3 | 4 | 5;
 const evalDifficulty = z.union([
   z.literal(1),
@@ -113,6 +122,7 @@ const evalDifficulty = z.union([
 ]);
 true satisfies Equals<z.infer<typeof evalDifficulty>, EvalDifficulty>;
 
+/** One eval case: its input and what the reply is expected to be. */
 export interface EvalCase {
   id: string;
   kind: EvalCaseKind;
@@ -130,13 +140,16 @@ const evalCase = z.object({
   tags: z.array(z.string()).optional(),
 });
 true satisfies Equals<z.infer<typeof evalCase>, EvalCase>;
+/** The schema an eval case parses against. */
 export const evalCaseSchema: z.ZodType<EvalCase> = evalCase;
 
+/** The operation a trace span records. */
 export type TraceOperation = 'invoke_agent' | 'chat' | 'generate_content' | 'execute_tool';
 
 /** A message as the trace stores it: `{ role, parts: [...] }`, parts by hash; resolve them with `text` / `content`. */
 export type TrialMessage = Record<string, TraceAttributeValue>;
 
+/** Tokens and cost a trial used. */
 export interface TrialUsage {
   tokens: TurnTokens;
   costUsd?: number;
@@ -159,10 +172,12 @@ export interface Trial {
   usage: () => TrialUsage;
 }
 
+/** Whether a result came from code or from a model. */
 export type EvalResultSource = 'code' | 'model';
 const evalResultSource = z.enum(['code', 'model']);
 true satisfies Equals<z.infer<typeof evalResultSource>, EvalResultSource>;
 
+/** One grader's verdict on a trial: a score, a label and why. */
 export interface EvalResult {
   name: string;
   source: EvalResultSource;
@@ -184,8 +199,10 @@ const evalResult = z.object({
   judgeTraceparents: z.array(z.string()).optional(),
 });
 true satisfies Equals<z.infer<typeof evalResult>, EvalResult>;
+/** The schema an eval result parses against. */
 export const evalResultSchema: z.ZodType<EvalResult> = evalResult;
 
+/** How many trials of a case must pass for the case to pass. */
 export type EvalPassRule = 'all' | 'any' | { atLeast: number };
 const evalPassRule = z.union([
   z.literal('all'),
@@ -194,6 +211,7 @@ const evalPassRule = z.union([
 ]);
 true satisfies Equals<z.infer<typeof evalPassRule>, EvalPassRule>;
 
+/** How often a case runs, and the rule across those runs. */
 export interface EvalTrials {
   /** Trials per case. No default: it is a cost decision, so the suite states it. `1` cannot tell noise from change. */
   repeat: number;
@@ -205,6 +223,7 @@ const evalTrials = z.object({
 });
 true satisfies Equals<z.infer<typeof evalTrials>, EvalTrials>;
 
+/** What a grader gets besides the trial: the judge model and its trace parent. */
 export interface EvalGradeContext {
   judge?: string;
   judgeProvider?: ModelProvider;
@@ -227,6 +246,7 @@ export type EvalMediaResolver = (
   ref: EvalMediaRef,
 ) => string | undefined | Promise<string | undefined>;
 
+/** Grades one trial of a case, from its trace. */
 export interface EvalGrader {
   name: string;
   /** Stable text naming exactly what this grader checks; its sha256 is written as `theorem.evaluation.grader.version`, so a later reader can tell which rubric produced which score. */
@@ -249,6 +269,7 @@ function isGrader(value: unknown): value is EvalGrader {
 }
 const evalGrader = z.custom<EvalGrader>(isGrader);
 
+/** A suite: a profile, a mode, a cases file and the graders to run. */
 export interface EvalSuite {
   id: string;
   profile: string;
@@ -268,4 +289,5 @@ const evalSuite = z.object({
   judge: z.object({ profile: z.string().min(1) }).optional(),
 });
 true satisfies Equals<z.infer<typeof evalSuite>, EvalSuite>;
+/** The schema an eval suite parses against. */
 export const evalSuiteSchema: z.ZodType<EvalSuite> = evalSuite;

@@ -6,8 +6,10 @@ import type { UserTurnDraft } from './types.ts';
 
 /** Display order: steers, then queues, then stashes. */
 export const COMPOSER_PENDING_KINDS = ['steer', 'queue', 'stash'] as const;
+/** One of {@linkcode COMPOSER_PENDING_KINDS}. */
 export type ComposerPendingKind = (typeof COMPOSER_PENDING_KINDS)[number];
 
+/** A message the user has set aside while a turn runs. */
 export interface ComposerPendingMessage {
   id: string;
   kind: ComposerPendingKind;
@@ -16,6 +18,7 @@ export interface ComposerPendingMessage {
   updatedAt: number;
 }
 
+/** What `createComposerPendingMessage` takes: the kind and the draft. */
 export type CreateComposerPendingMessageArgs = {
   kind: ComposerPendingKind;
   draft: UserTurnDraft;
@@ -29,6 +32,7 @@ function createPendingId(): string {
     : `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** True when the draft holds text, an attachment or voice. */
 function userDraftHasPayload(draft: UserTurnDraft): boolean {
   return Boolean(
     draft.text?.trim() ||
@@ -63,6 +67,7 @@ function createComposerPendingMessage(
   };
 }
 
+/** A copy of the draft that shares nothing with the original. */
 function cloneUserTurnDraft(draft: UserTurnDraft): UserTurnDraft {
   return {
     ...(draft.text !== undefined ? { text: draft.text } : {}),
@@ -112,6 +117,7 @@ function removeLandedSteers(
   return messages.filter((m) => !(m.kind === 'steer' && landed.has(m.id)));
 }
 
+/** The messages without the one with this id. */
 function removeComposerPendingMessage(
   messages: readonly ComposerPendingMessage[],
   id: string,
@@ -119,6 +125,7 @@ function removeComposerPendingMessage(
   return messages.filter((m) => m.id !== id);
 }
 
+/** The messages with this id's draft replaced. */
 function updateComposerPendingDraft(
   messages: readonly ComposerPendingMessage[],
   id: string,
@@ -139,6 +146,7 @@ function updateComposerPendingDraft(
   );
 }
 
+/** The messages with this id moved one place up or down among those of its kind. */
 function moveComposerPendingWithinKind(
   messages: readonly ComposerPendingMessage[],
   id: string,
@@ -195,6 +203,7 @@ function consumeNextComposerQueue(messages: readonly ComposerPendingMessage[]): 
   };
 }
 
+/** The messages with this id changed to another kind. */
 function promoteComposerPendingKind(
   messages: readonly ComposerPendingMessage[],
   id: string,

@@ -17,8 +17,10 @@ export type { GuardrailEvent, GuardrailHit, Provenance };
  * - `untrusted` — user input, tool results, attachments, delegated agents.
  */
 export const TRUST_LEVELS = ['trusted', 'assembled', 'untrusted'] as const;
+/** One of {@linkcode TRUST_LEVELS}. */
 export type TrustLevel = (typeof TRUST_LEVELS)[number];
 
+/** The points a guardrail can run: input, history, system, attachments, tool calls and results, output, thoughts, network, live audio and traces. */
 export const GUARDRAIL_STAGES = [
   'input',
   'history',
@@ -34,13 +36,17 @@ export const GUARDRAIL_STAGES = [
   'live_outbound',
   'trace',
 ] as const;
+/** One of {@linkcode GUARDRAIL_STAGES}. */
 export type GuardrailStage = (typeof GUARDRAIL_STAGES)[number];
 
 /** Does not decide what happens next; that is `onBlock`. */
 export const SEVERITIES = ['info', 'low', 'medium', 'high'] as const;
+/** One of {@linkcode SEVERITIES}. */
 export type Severity = (typeof SEVERITIES)[number];
 
+/** What a blocked egress does: tell the agent, or refuse to the user. */
 export const EGRESS_ON_BLOCK = ['reject_to_agent', 'refuse_to_user'] as const;
+/** One of {@linkcode EGRESS_ON_BLOCK}. */
 export type EgressOnBlock = (typeof EGRESS_ON_BLOCK)[number];
 
 /**
@@ -72,6 +78,7 @@ export const GUARDRAIL_ACTIONS = [
   'flag',
   'block',
 ] as const satisfies readonly Verdict['action'][];
+/** One of {@linkcode GUARDRAIL_ACTIONS}. */
 export type GuardrailAction = (typeof GUARDRAIL_ACTIONS)[number];
 
 /**
@@ -81,6 +88,7 @@ export type GuardrailAction = (typeof GUARDRAIL_ACTIONS)[number];
  * reads as authoritative, which is why depth is tracked separately.
  */
 export const TOOL_ORIGINS = ['local', 'builtin', 'http', 'mcp', 'delegated'] as const;
+/** One of {@linkcode TOOL_ORIGINS}. */
 export type ToolOrigin = (typeof TOOL_ORIGINS)[number];
 
 /**
@@ -105,9 +113,12 @@ export interface TurnTaint {
  * named a tool the model can call, or several signals agreed.
  */
 export const ADVISORY_LEVELS = ['none', 'elevated', 'high'] as const;
+/** One of {@linkcode ADVISORY_LEVELS}. */
 export type AdvisoryLevel = (typeof ADVISORY_LEVELS)[number];
 
+/** Which tool access levels refuse to run once a turn has read untrusted content. */
 export const TAINT_GATES = ['off', 'destructive', 'write'] as const;
+/** One of {@linkcode TAINT_GATES}. */
 export type TaintGate = (typeof TAINT_GATES)[number];
 
 /**
@@ -172,6 +183,7 @@ export interface OutboundPayload {
   structured?: unknown;
 }
 
+/** A function that judges an outbound payload and returns a verdict. */
 export type EgressEnforcer = (
   payload: OutboundPayload,
   context: GuardrailContext,
@@ -198,6 +210,7 @@ export interface ProfileEgressSpec {
   holdback?: number;
 }
 
+/** Which hosts and networks a tool's requests may reach. */
 export interface NetworkGuardrailSpec {
   /** Allows localhost, loopback and private subnets (local dev and testing). Default false. */
   allowPrivateNetworks?: boolean;
@@ -215,6 +228,7 @@ export interface QuotaGuardrailSpec {
   perDay: number;
 }
 
+/** The guardrails a profile turns on, each with its own settings. */
 export interface ProfileGuardrailsSpec {
   /** Omitted means quota enforcement is not configured. */
   quota?: QuotaGuardrailSpec;
@@ -277,6 +291,7 @@ export type HostGuardrailsSpec = Pick<
   (typeof HOST_GUARDRAIL_FIELDS)[number]
 >;
 
+/** A profile's guardrails after defaults are applied. */
 export interface ResolvedGuardrailPolicy {
   sanitizeInput: boolean;
   redactSensitive: SensitiveGroups;
@@ -289,6 +304,7 @@ export interface ResolvedGuardrailPolicy {
   taint?: TaintGuardrailSpec;
 }
 
+/** A profile's egress rules with `checks` resolved to the enforcer that runs them. */
 export type ResolvedEgressSpec = Omit<ProfileEgressSpec, 'enforce' | 'checks'> & {
   enforce: EgressEnforcer;
 };

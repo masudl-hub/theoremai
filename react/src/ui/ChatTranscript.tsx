@@ -35,6 +35,7 @@ import {
 	groupTranscriptBlocks,
 	pendingPromptOf,
 	promptReplyKey,
+	promptTime,
 	replyKey,
 	toolCallLabel,
 	type TraceItem,
@@ -762,7 +763,7 @@ function ChatTranscriptBody({
 		const next = groups[index + 1];
 		const error = isBareFailure(next) ? failureOf(next) : undefined;
 		const status = index === lastUser ? (delivery ?? undefined) : undefined;
-		return <UserTurn key={group.key} blocks={group.blocks} at={timeOf(group.key)} status={status} error={error} />;
+		return <UserTurn key={group.key} blocks={group.blocks} at={promptTime(groups, index, timeOf)} status={status} error={error} />;
 	};
 
 	const turns = groups.flatMap((group, index) => {

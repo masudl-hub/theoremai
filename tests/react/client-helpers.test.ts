@@ -33,6 +33,7 @@ import {
   composeAssistantTurn,
   groupTranscriptBlocks,
   pendingPromptOf,
+  promptTime,
   replyKey,
   type TranscriptTurnGroup,
   toolCallLabel,
@@ -578,6 +579,17 @@ Deno.test('a committed reply carries its work on its latest turn-done, and its g
     reread?.kind === 'assistant' ? [reread.workedMs, reread.endedAt] : undefined,
     [4200, 99],
   );
+});
+
+Deno.test('promptTime dates a sent prompt from its stopped reply, so a restored chat keeps it', () => {
+  const groups: TranscriptTurnGroup[] = [
+    { kind: 'user', key: 'u1', blocks: [] },
+    { kind: 'assistant', key: 'turn-1', blocks: [], workedMs: 4, endedAt: 15 },
+    { kind: 'user', key: 'u2', blocks: [] },
+  ];
+  const timeOf = () => 99;
+  assertEquals(promptTime(groups, 0, timeOf), 11);
+  assertEquals(promptTime(groups, 2, timeOf), 99);
 });
 
 Deno.test('assistantTurnTiming keys replies by their prompt; a stopped reply reads its time from its blocks', () => {

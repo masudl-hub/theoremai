@@ -61,6 +61,8 @@ interface TurnFixtureOptions {
   /** Wall time of the whole turn, ms. */
   durationMs?: number;
   metadata?: Record<string, unknown>;
+  /** Nest the turn under this span, as a host does that runs the turn inside its own request. */
+  traceparent?: string;
   clock?: TraceClock & { tickMs: (ms: number) => void };
   /** The policy the record is built under; default scrubs stored text. */
   policy?: ResolvedObservabilityPolicy;
@@ -148,6 +150,7 @@ function turnRecord(options: TurnFixtureOptions = {}): Promise<TraceRecord> {
   const clock = options.clock ?? manualClock();
   const tree = startTrace('invoke_agent translator', {
     clock,
+    ...(options.traceparent ? { traceparent: options.traceparent } : {}),
     attributes: { 'gen_ai.operation.name': 'invoke_agent', 'gen_ai.agent.name': 'translator' },
   });
   const delivered = deliveredParts(options);

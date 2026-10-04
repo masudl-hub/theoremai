@@ -37,6 +37,22 @@ Deno.test('the root is the invoke_agent no span parents, even when its record co
   assertEquals(trial.spans('invoke_agent').length, 2);
 });
 
+Deno.test('a turn the host nested under its own span is still the root; the host span is the top', async () => {
+  const clock = manualClock();
+  const host = startTrace('host.request', { clock });
+  clock.tickMs(40);
+  const turn = await turnRecord({ traceparent: host.root.traceparent(), clock, durationMs: 100 });
+  clock.tickMs(25);
+  host.root.end();
+  const hostRecord = await buildRecord({ spans: host.collect(), policy: POLICY });
+  const trial = buildTrial({ suite: 's', case: CASE, index: 0, records: [hostRecord, turn] });
+  assertEquals(trial.root.spanId, turn.spans[0]?.spanId);
+  assertEquals(trial.top.spanId, host.root.spanId);
+  // Without the host record the turn is its own top, as for a host that writes no span.
+  const alone = buildTrial({ suite: 's', case: CASE, index: 0, records: [turn] });
+  assertEquals(alone.top.spanId, alone.root.spanId);
+});
+
 Deno.test('delivered text and structured output resolve through the merged content', async () => {
   const turn = await turnRecord({ text: 'hola', structured: { lang: 'es' } });
   const trial = buildTrial({ suite: 's', case: CASE, index: 0, records: [turn] });

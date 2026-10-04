@@ -198,8 +198,13 @@ export interface Trial {
   /** 0..k-1. */
   index: number;
   records: TraceRecord[];
-  /** The `invoke_agent` span no other span in the set parents; never assumed to be first. */
+  /** The `invoke_agent` span with no agent above it in the set; never assumed to be first. */
   root: TraceSpan;
+  /**
+   * The topmost span above `root` in the set: the host's own span when the host
+   * nested the turn under it, else `root`. Its length is the trial's time.
+   */
+  top: TraceSpan;
   /** Spans by operation, in start order, across every record. */
   spans: (operation: TraceOperation) => TraceSpan[];
   /** The spans one span parents, in start order (a model call's HTTP tries, a response's tool calls). */

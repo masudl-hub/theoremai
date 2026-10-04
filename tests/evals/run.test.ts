@@ -5,6 +5,7 @@
  */
 
 import { stopKind } from '../../src/evals/graders/code.ts';
+import { spanDurationMs } from '../../src/evals/graders/shared.ts';
 import { runSuite, type SuiteRun, type TrialReport } from '../../src/evals/run.ts';
 import { type LoadedSuite, loadSuite, readTraceRecords } from '../../src/evals/suite.ts';
 import type { EvalCase, EvalSuite } from '../../src/evals/types.ts';
@@ -17,9 +18,10 @@ import {
 import type { TurnEvent } from '../../src/kernel/turn-events.ts';
 import type { ModelProvider } from '../../src/kernel/types.ts';
 import { memorySink } from '../../src/observability/trace.ts';
-import type { TraceRecord } from '../../src/observability/trace-record.ts';
+import { buildRecord, type TraceRecord } from '../../src/observability/trace-record.ts';
+import { startTrace } from '../../src/observability/trace-span.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
-import { turnRecord } from './fixture.ts';
+import { manualClock, POLICY, turnRecord } from './fixture.ts';
 import { TRANSLATOR } from './translator/profile.ts';
 
 const SUITE_PATH = 'tests/evals/translator/suite.ts';
@@ -329,6 +331,35 @@ Deno.test('recorded traces with no stamp for this suite are graded without a cas
     run.verdicts.every((verdict) => !verdict.passed && verdict.trials === 0),
     true,
   );
+});
+
+Deno.test('a turn a host ran under its own span grades, timed by the host span', async () => {
+  const loaded = await loadSuite(SUITE_PATH);
+  const clock = manualClock();
+  const host = startTrace('host.request', { clock });
+  clock.tickMs(40);
+  const turn = await turnRecord({
+    structured: { lang: 'es', text: 'La tetera está encendida.' },
+    traceparent: host.root.traceparent(),
+    clock,
+    durationMs: 100,
+  });
+  clock.tickMs(25);
+  host.root.end();
+  const hostRecord = await buildRecord({
+    spans: host.collect(),
+    policy: POLICY,
+    metadata: { eval: { suite: loaded.suite.id, case: 'es-01', trial: 0 } },
+  });
+  const run = await runSuite(loaded, { recorded: [hostRecord, turn] });
+  assertEquals(run.caseless, []);
+  const [trial] = run.trials;
+  assertEquals(trial?.case?.id, 'es-01');
+  const [hostSpan] = hostRecord.spans;
+  const [turnSpan] = turn.spans;
+  if (!hostSpan || !turnSpan) throw new Error('fixture has no spans');
+  assertEquals(trial?.turn?.durationMs, spanDurationMs(hostSpan));
+  assertEquals(spanDurationMs(hostSpan) > spanDurationMs(turnSpan), true);
 });
 
 Deno.test('a grader that throws is a grader_error result, not a crash', async () => {

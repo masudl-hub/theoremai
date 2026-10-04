@@ -3,8 +3,10 @@
  * a recorded run hands it what a file held. Both build the same trial, so the
  * same graders give the same results.
  *
- * The root is the `invoke_agent` span that no span in the set parents. It is
- * never assumed to be the first record: a compaction turn's record can be
+ * The root is the `invoke_agent` span with no agent above it in the set; a host
+ * span above it (the host's request, when the host nests the turn under its own
+ * span) does not hide it, and the topmost span above it is the trial's `top`. It
+ * is never assumed to be the first record: a compaction turn's record can be
  * written before its parent's (P9).
  *
  * @module
@@ -32,16 +34,28 @@ function allSpans(records: TraceRecord[]): TraceSpan[] {
   return records.flatMap((record) => record.spans).sort(byStart);
 }
 
+/** The spans above `span` in the set, nearest first; a parent outside the set ends the walk. */
+function ancestorsOf(span: TraceSpan, byId: ReadonlyMap<string, TraceSpan>): TraceSpan[] {
+  const above: TraceSpan[] = [];
+  const seen = new Set([span.spanId]);
+  let parent = span.parentSpanId === undefined ? undefined : byId.get(span.parentSpanId);
+  while (parent && !seen.has(parent.spanId)) {
+    above.push(parent);
+    seen.add(parent.spanId);
+    parent = parent.parentSpanId === undefined ? undefined : byId.get(parent.parentSpanId);
+  }
+  return above;
+}
+
 /**
- * The `invoke_agent` span whose parent is absent or outside the set; the
+ * The `invoke_agent` span with no `invoke_agent` above it in the set; the
  * earliest when several qualify (a session root before its responses).
  */
-function rootOf(spans: TraceSpan[]): TraceSpan {
-  const ids = new Set(spans.map((span) => span.spanId));
+function rootOf(spans: TraceSpan[], byId: ReadonlyMap<string, TraceSpan>): TraceSpan {
   const roots = spans.filter(
     (span) =>
       operationOf(span) === 'invoke_agent' &&
-      (span.parentSpanId === undefined || !ids.has(span.parentSpanId)),
+      !ancestorsOf(span, byId).some((above) => operationOf(above) === 'invoke_agent'),
   );
   const [root] = roots;
   if (!root) {
@@ -130,13 +144,15 @@ function buildTrial(args: {
 }): Trial {
   const merged = mergedRecord(args.records);
   const spans = allSpans(args.records);
-  const root = rootOf(spans);
+  const byId = new Map(spans.map((span) => [span.spanId, span]));
+  const root = rootOf(spans, byId);
   return {
     suite: args.suite,
     ...(args.case ? { case: args.case } : {}),
     index: args.index,
     records: args.records,
     root,
+    top: ancestorsOf(root, byId).at(-1) ?? root,
     spans: (operation: TraceOperation) => spans.filter((span) => operationOf(span) === operation),
     children: (parent: TraceSpan) => spans.filter((span) => span.parentSpanId === parent.spanId),
     content: (value: unknown) => inlineContent(merged, value),

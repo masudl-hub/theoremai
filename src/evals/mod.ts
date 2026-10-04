@@ -12,6 +12,7 @@
  * @module
  */
 
+export { attachmentData } from './attachments.ts';
 export type { GroupSummary, Spread } from './breakdown.ts';
 export { groupSummaries } from './breakdown.ts';
 export type { AnswerLabel, AnswerSource } from './graders/answer.ts';
@@ -33,13 +34,13 @@ export type {
 export { buildRunRecord, startTrialRecord } from './record.ts';
 export type { EvalRubric, EvalRubricQuestion } from './rubrics/mod.ts';
 export { fillRubric, rubric, rubrics } from './rubrics/mod.ts';
-export type { RunSuiteOptions, SuiteRun, TrialReport, TurnShape } from './run.ts';
+export type { EvalStamp, RunSuiteOptions, SuiteRun, TrialReport, TurnShape } from './run.ts';
 export { runSuite } from './run.ts';
 export type { LoadedSuite } from './suite.ts';
 export { loadSuite, readJsonl, readTraceRecords } from './suite.ts';
 export type { RunSummary, TrialSummary } from './summary.ts';
 export { summarizeRun } from './summary.ts';
-export { buildTrial, groupByTrace } from './trial.ts';
+export { buildTrial, groupByTrace, hasTurn } from './trial.ts';
 export type {
   EvalAnswer,
   EvalAttachment,

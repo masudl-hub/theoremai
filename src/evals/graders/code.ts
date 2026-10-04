@@ -272,7 +272,7 @@ function budgetReadings(trial: Trial): Record<keyof BudgetOptions, number | unde
     maxCostUsd: usage.costUsd,
     maxTokens: usage.tokens.total,
     maxSteps: numberAttribute(trial.root, 'theorem.steps'),
-    maxDurationMs: spanDurationMs(trial.root),
+    maxDurationMs: spanDurationMs(trial.top),
     maxTimeToFirstChunkMs: firstChunks.length > 0 ? Math.max(...firstChunks) * MS_PER_S : undefined,
   };
 }

@@ -304,7 +304,7 @@ async function gradeRecords(
     results,
     traceId: trial.root.traceId,
     turn: {
-      durationMs: spanDurationMs(trial.root),
+      durationMs: spanDurationMs(trial.top),
       modelCalls: modelCalls(trial).length,
       toolCalls: trial.spans('execute_tool').length,
       ...(typeof trial.root.attributes['theorem.stop.kind'] === 'string'
@@ -675,5 +675,5 @@ async function runSuite(loaded: LoadedSuite, options: RunSuiteOptions = {}): Pro
   };
 }
 
-export type { RunSuiteOptions, SuiteRun, TrialReport, TurnShape };
+export type { EvalStamp, RunSuiteOptions, SuiteRun, TrialReport, TurnShape };
 export { runSuite };

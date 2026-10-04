@@ -102,8 +102,9 @@ async function* executeAutonomousStep(
     signal?: AbortSignal;
   },
   state: StepExecutionState,
-  buffer: { holdLate: boolean } = {
+  buffer: { holdLate: boolean; holdVisible: boolean } = {
     holdLate: false,
+    holdVisible: false,
   },
 ): AsyncGenerator<TurnEvent, { calls: ModelCall[]; latestStructured?: unknown }> {
   const { generation, system, provider, signal } = args;
@@ -179,7 +180,7 @@ async function* executeAutonomousStep(
       // stream unguarded; holdLate only buffers non-visible events (e.g.
       // structured) for validation.
       const isUserVisible =
-        event.type === 'thought' || event.type === 'text' || event.type === 'media';
+        event.type === 'thought' || (!buffer.holdVisible && isWithheldOnBlock(event));
       const streamNow = !buffer.holdLate || isUserVisible;
       if (streamNow) {
         yield event;
@@ -443,10 +444,11 @@ async function* executeAttempt(args: {
   // Text streams via progressive-yield under egress, thoughts unguarded; validation and egress
   // both hold non-visible events (structured) until the attempt gate, so a policy
   // sees the structured payload before any of it reaches the host.
+  const validation = profileTurnOutputs(profile)?.validation;
   const holdLate = Boolean(
-    profileTurnOutputs(profile)?.validation ||
-      resolveGuardrailPolicy(profile.guardrails).egress?.enforce,
+    validation || resolveGuardrailPolicy(profile.guardrails).egress?.enforce,
   );
+  const holdVisible = validation?.holdUntilValid === true;
 
   // Ceiling is cumulative `state.stepCount` across before_end inject re-entries
   // within this attempt. Validation/egress repair resets stepCount at the start
@@ -459,7 +461,7 @@ async function* executeAttempt(args: {
     const stepResult = yield* executeAutonomousStep(
       { profile, generation, system, provider, signal: args.safe.signal },
       state,
-      { holdLate },
+      { holdLate, holdVisible },
     );
     if (stepResult.latestStructured !== undefined) {
       latestStructured = stepResult.latestStructured;

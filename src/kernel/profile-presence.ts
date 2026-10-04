@@ -72,6 +72,7 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'inputs.slots': { unset: 'No slots' },
   'outputs.structured': { unset: 'Free text' },
   'outputs.validation.maxRetries': { unset: '0' },
+  'outputs.validation.holdUntilValid': { unset: 'Off' },
   'outputs.streaming.mode': { unset: 'sse' },
   'outputs.streaming.streamThoughts': { unset: 'On' },
   'turnBehaviour.resumption.allowContinue': { unset: 'All three' },

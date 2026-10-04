@@ -58,6 +58,7 @@ import type {
   ProfileOutputsSpec,
   ProfileToolsSpec,
   ProfileTurnBehaviourSpec,
+  ProfileValidationSpec,
   SpeechGuardrailsSpec,
   SpeechProfile,
   TextProfile,
@@ -542,6 +543,18 @@ function speechGuardrails(input: SpeechProfileDefinition): SpeechProfile['guardr
   return { ...input.guardrails, canary: false };
 }
 
+function assertValidation(profileId: string, validation: ProfileValidationSpec | undefined): void {
+  const fail = (message: string) => new TheoremError('config', `Profile ${profileId}: ${message}`);
+  const retries = validation?.maxRetries;
+  if (retries !== undefined && (!Number.isInteger(retries) || retries < 0)) {
+    throw fail('outputs.validation.maxRetries must be a non-negative integer'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  const hold = validation?.holdUntilValid;
+  if (hold !== undefined && typeof hold !== 'boolean') {
+    throw fail('outputs.validation.holdUntilValid must be a boolean'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+}
+
 function assertEgress(profileId: string, guardrails: ProfileGuardrailsSpec | undefined): void {
   const egress = guardrails?.egress;
   const fail = (message: string) => new TheoremError('config', `Profile ${profileId}: ${message}`);
@@ -640,11 +653,13 @@ function defineProfile(input: LiveProfileDefinition): LiveProfile;
 function defineProfile(input: DecisionProfileDefinition): DecisionProfile;
 /** Validate a host definition and return the profile. */
 function defineProfile(input: HostProfileDefinition): HostProfile;
+/** Validate a definition of any type except live and host, and return the profile. */
 function defineProfile(
   input: Exclude<ProfileDefinition, LiveProfileDefinition | HostProfileDefinition>,
 ): Exclude<Profile, LiveProfile | HostProfile>;
 /** Validate any definition and return the profile. */
 function defineProfile(input: ProfileDefinition): Profile;
+/** Validate any definition and return the profile. */
 function defineProfile(input: ProfileDefinition): Profile {
   assertProfileShape(input);
   assertFieldScope(input);
@@ -661,6 +676,7 @@ function defineProfile(input: ProfileDefinition): Profile {
   assertModelsNonEmpty(input.id, input.models);
   assertTurnBehaviour(input.id, input);
   assertEgress(input.id, input.guardrails as ProfileGuardrailsSpec | undefined);
+  if (input.type === 'text') assertValidation(input.id, input.outputs?.validation);
   assertObservability(input.id, input.observability);
   assertSlotName(input.id, 'key', input.key);
   assertSlotName(input.id, 'fallbackKey', input.fallbackKey);

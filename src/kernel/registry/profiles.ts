@@ -11,6 +11,7 @@ import type {
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../../observability/types.ts';
 import { assertLiveIngressConfigured } from '../engine/live-ingress.ts';
+import { schemaReaches } from '../engine/runner/schema-validation.ts';
 import { outOfScopeFields } from '../profile-scope.ts';
 import {
   CACHE_MODES,
@@ -63,6 +64,7 @@ import type {
 } from '../types.ts';
 import { isTurnMediaRef } from './attachments.ts';
 import { mediaKindForMime, mimeAllowed, profileInputs } from './catalog.ts';
+import type { SchemaRegistry } from './schemas.ts';
 import { soleModelId } from './sole-model.ts';
 
 /** Not shared by host profiles, which invoke tools without a model turn. */
@@ -1027,6 +1029,50 @@ function assertModelBuiltInTools(tools: ToolRegistry, profile: ModelProfile): vo
   }
 }
 
+/** The schema ids `outputs.structured` can pick, by slot and fallback. */
+function structuredIds(profile: ModelProfile): string[] {
+  const structured = profile.type === 'text' ? profile.outputs?.structured : undefined;
+  if (!structured) return [];
+  if (typeof structured === 'string') return [structured];
+  return [...new Set([...Object.values(structured.map), structured.fallback])];
+}
+
+/**
+ * Every schema `outputs.structured` names is registered, and every
+ * `outputs.validation.fields` path reaches a property of one of them.
+ */
+function assertStructuredSchemas(schemas: SchemaRegistry, profile: ModelProfile): void {
+  const specs = structuredIds(profile).map((id) => {
+    const spec = schemas.find(id);
+    if (!spec) {
+      throw new TheoremError(
+        'config',
+        `Profile ${profile.id}: outputs.structured names '${id}', which is not a registered schema; register it before the profile`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    return spec;
+  });
+  const fields = Object.keys(
+    (profile.type === 'text' ? profile.outputs?.validation?.fields : undefined) ?? {},
+  );
+  if (!fields.length) return;
+  if (!specs.length) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id}: outputs.validation.fields checks a structured reply, so it needs outputs.structured`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  const unreached = fields.filter(
+    (path) => !specs.some((spec) => schemaReaches(spec.jsonSchema, path)),
+  );
+  if (unreached.length) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id}: outputs.validation.fields has ${unreached.join(', ')}, which no structured schema reaches through object properties`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
 function assertMediaLimits(profile: ModelProfile): void {
   const inputs = profileInputs(profile);
   if (!inputs) {
@@ -1065,8 +1111,8 @@ interface ProfileRegistry {
   clear(): void;
 }
 
-/** Profiles are checked against `tools`, so register a scope's tools before its profiles. */
-function createProfileRegistry(tools: ToolRegistry): ProfileRegistry {
+/** Profiles are checked against `tools` and `schemas`, so register a scope's tools and schemas before its profiles. */
+function createProfileRegistry(tools: ToolRegistry, schemas: SchemaRegistry): ProfileRegistry {
   const profiles = new Map<string, Profile>();
   const register = (profileInput: Profile | ProfileDefinition) => {
     const profile = defineProfile(profileInput as ProfileDefinition);
@@ -1075,6 +1121,7 @@ function createProfileRegistry(tools: ToolRegistry): ProfileRegistry {
     if (profile.type !== 'host' && profile.type !== 'decision') {
       assertModelBuiltInTools(tools, profile);
       assertMediaLimits(profile);
+      assertStructuredSchemas(schemas, profile);
       for (const [modelId, binding] of Object.entries(profile.models)) {
         if (binding.compaction) {
           assertCompactionSpec(profiles, profile, modelId, binding.compaction);

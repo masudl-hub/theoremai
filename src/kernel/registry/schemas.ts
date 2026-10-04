@@ -5,6 +5,7 @@ interface SchemaRegistry {
   register(id: string, spec: StructuredSpec): void;
   /** Throws when there is none. */
   get(id: string): StructuredSpec;
+  find(id: string): StructuredSpec | undefined;
 }
 
 function createSchemaRegistry(): SchemaRegistry {
@@ -36,6 +37,7 @@ function createSchemaRegistry(): SchemaRegistry {
       }
       return spec;
     },
+    find: (id) => schemas.get(id),
   };
 }
 

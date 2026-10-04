@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { createProfileRegistry, defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { createSchemaRegistry } from '../../src/kernel/registry/schemas.ts';
 import { createToolRegistry } from '../../src/kernel/tools/mod.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 
@@ -73,11 +74,15 @@ function said(definition: Loose): string {
 
 function saidAtRegistration(
   definition: Loose,
-  setup?: (tools: ReturnType<typeof createToolRegistry>) => void,
+  setup?: (
+    tools: ReturnType<typeof createToolRegistry>,
+    schemas: ReturnType<typeof createSchemaRegistry>,
+  ) => void,
 ) {
   const tools = createToolRegistry();
-  setup?.(tools);
-  const registry = createProfileRegistry(tools);
+  const schemas = createSchemaRegistry();
+  setup?.(tools, schemas);
+  const registry = createProfileRegistry(tools, schemas);
   try {
     registry.register(definition as never);
     return 'registered';
@@ -731,7 +736,7 @@ Deno.test('compaction names a registered text profile and keeps its numbers in r
       }),
     );
   const run = (definition: Loose, others: Loose[] = [compactor]) => {
-    const registry = createProfileRegistry(createToolRegistry());
+    const registry = createProfileRegistry(createToolRegistry(), createSchemaRegistry());
     try {
       for (const other of others) registry.register(other as never);
       registry.register(definition as never);
@@ -1008,7 +1013,7 @@ Deno.test('redactSensitive is a boolean or a map of known groups to booleans', (
 });
 
 Deno.test('a registry refuses an unknown id, and finds, lists and clears what it holds', () => {
-  const registry = createProfileRegistry(createToolRegistry());
+  const registry = createProfileRegistry(createToolRegistry(), createSchemaRegistry());
   let message = 'returned';
   try {
     registry.get('nope');
@@ -1081,7 +1086,7 @@ Deno.test('a cache needs openrouter, a live profile needs a channel, a lexicon k
 });
 
 Deno.test('a compaction profile must be a text profile', () => {
-  const registry = createProfileRegistry(createToolRegistry());
+  const registry = createProfileRegistry(createToolRegistry(), createSchemaRegistry());
   registry.register({
     id: 'pic',
     type: 'image',
@@ -1210,5 +1215,57 @@ Deno.test('an image profile names the types its attachments may not take', () =>
     }),
     "Profile p: an image profile's attachments take images, video and PDF only, not audio/wav, text/plain",
     'outside types',
+  );
+});
+
+Deno.test('a structured profile registers only after its schemas, and its checks reach into them', () => {
+  const answer = {
+    jsonSchema: {
+      type: 'object',
+      properties: { diagram: { type: 'object', properties: { mermaid: { type: 'string' } } } },
+      required: ['title'],
+    },
+  };
+  const reg = (definition: Loose) =>
+    saidAtRegistration(definition, (_tools, schemas) => schemas.register('answer', answer));
+  const pass = () => ({ isValid: true });
+  const withOutputs = (outputs: Loose) =>
+    textProfile({ inputs: { text: true, slots: { mode: ['a', 'b'] } }, outputs });
+
+  check(reg(withOutputs({ structured: 'answer' })), 'registered', 'registered schema');
+  check(
+    reg(withOutputs({ structured: 'missing' })),
+    "Profile p: outputs.structured names 'missing', which is not a registered schema; register it before the profile",
+    'unregistered schema',
+  );
+  check(
+    reg(withOutputs({ structured: { by: 'mode', map: { a: 'answer' }, fallback: 'missing' } })),
+    "Profile p: outputs.structured names 'missing', which is not a registered schema; register it before the profile",
+    'unregistered slot fallback',
+  );
+  check(
+    reg(
+      withOutputs({
+        structured: 'answer',
+        validation: { fields: { 'diagram.mermaid': pass, title: pass } },
+      }),
+    ),
+    'registered',
+    'a property path and a required key',
+  );
+  check(
+    reg(
+      withOutputs({
+        structured: 'answer',
+        validation: { fields: { 'diagram.svg': pass, 'title.text': pass, toString: pass } },
+      }),
+    ),
+    'Profile p: outputs.validation.fields has diagram.svg, title.text, toString, which no structured schema reaches through object properties',
+    'unreachable paths',
+  );
+  check(
+    reg(withOutputs({ validation: { fields: { title: pass } } })),
+    'Profile p: outputs.validation.fields checks a structured reply, so it needs outputs.structured',
+    'checks with no schema',
   );
 });

@@ -7,13 +7,15 @@ import {
   registerProfile,
   registerTool,
   resetTools,
+  runSession,
   runTurn,
 } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
 import { eventsOf, failureOf, lastTool, toolEventsOf } from '../fixtures/events.ts';
-import { geminiModels } from '../fixtures/models.ts';
+import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
+import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
 const remote: Provenance = { origin: 'http', tool: 'web_fetch', depth: 1 };
 const local: Provenance = { origin: 'local', tool: 'db_read', depth: 1 };
@@ -254,4 +256,62 @@ Deno.test('recordTaint keeps directive hits from the content that carried them',
   assertEquals(after.suspicious.length, 1);
   // A local result contributes nothing, even if hits were somehow supplied.
   assertEquals(recordTaint(undefined, local, hits).suspicious.length, 0);
+});
+
+Deno.test('a Live write after a remote read is refused in that cycle and allowed in the next', async () => {
+  resetTools();
+  const restore = registerReadThenWrite();
+  registerProfile(
+    defineProfile({
+      type: 'live',
+      id: 'deputy_live',
+      identity: { handle: 'deputy', system: 'hi' },
+      models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
+      live: { voice: 'Aoede', ingress: { text: true } },
+      tools: { allow: ['web_fetch', 'send_email'] },
+      guardrails: { taint: { afterRemoteRead: 'destructive' } },
+    }),
+  );
+  let mock: MockLiveWebSocket | undefined;
+  const session = await runSession(
+    { profile: 'deputy_live' },
+    {
+      vault: { slotA: 'test-key' },
+      openWebSocket: () => {
+        const socket = new MockLiveWebSocket();
+        mock = socket;
+        setTimeout(() => socket.open(), 0);
+        return Promise.resolve(socket as unknown as WebSocket);
+      },
+    },
+  );
+  const events: TurnEvent[] = [];
+  const drain = (async () => {
+    for await (const event of session.events()) events.push(event);
+  })();
+  const until = async (done: () => boolean) => {
+    for (let i = 0; i < 50 && !done(); i++) await new Promise((r) => setTimeout(r, 0));
+  };
+  const call = async (id: string, name: string, args: Record<string, unknown>) => {
+    (mock as MockLiveWebSocket).deliver({ toolCall: { functionCalls: [{ id, name, args }] } });
+    await until(() => events.some((e) => e.type === 'tool' && e.tool.callId === id));
+    return await session.executeTool({ callId: id });
+  };
+  try {
+    await session.sendText('read the page');
+    await call('c1', 'web_fetch', { url: 'https://api.example.com/page' });
+    const sameCycle = await call('c2', 'send_email', { to: 'attacker@example.com' });
+
+    (mock as MockLiveWebSocket).deliver({ serverContent: { turnComplete: true } });
+    await until(() => events.some((e) => e.type === 'done'));
+    await session.sendText('now email my colleague');
+    const nextCycle = await call('c3', 'send_email', { to: 'colleague@example.com' });
+
+    assertEquals([sameCycle.failure?.code, nextCycle.failure?.code], ['tainted_turn', undefined]);
+  } finally {
+    (mock as MockLiveWebSocket | undefined)?.close();
+    await session.close();
+    await drain.catch(() => undefined);
+    restore();
+  }
 });

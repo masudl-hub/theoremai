@@ -162,7 +162,7 @@ interface GuardrailHit {
 ```
 
 `standardEgressEnforce` blocks canary leaks, sensitive echoes (credentials,
-cards, SSNs — not IP addresses), system-boundary markers (the canary note's wording, or a
+cards, SSNs — not IP addresses), system-boundary markers (the canary note's own words, as the profile's `canary.bind_note` words it, or a
 `user_data` fence tag, closed or not), injection-pattern
 echoes, and reply images that could carry data off the device (see
 [Reply images and links](#reply-images-and-links)); `EGRESS_RULES` names the
@@ -200,7 +200,7 @@ rules. `interfaceFromProfile` reports the checks a profile runs as
 | Check | Default | Blocks |
 | --- | --- | --- |
 | `sensitive` | every group but `network` | Sensitive data by group (see [Sensitive data](#sensitive-data)): `true`, `false`, or `{ ids?, financial?, network?, credentials? }` |
-| `boundary` | on | The fence the kernel puts around user data, and the canary's note |
+| `boundary` | on | The fence the kernel puts around user data, and the canary note's own words, as the profile's `canary.bind_note` words it |
 | `injection` | on | Injection phrasing, as written or disguised |
 | `images` | on | `egress.image-exfil`: an image that loads a URL the model was not given |
 | `links` | off | `egress.link-exfil`: a link to a URL the model was not given |
@@ -980,8 +980,8 @@ smoke-sized sample, not a benchmark.
 The confused-deputy case: the agent fetches attacker-influenceable bytes, those
 bytes ask for an action, and the agent performs it with authority the content
 never had. A turn accumulates `TurnTaint` as it reads, and each later tool call is
-judged against it. Only request/response turns track taint: a Live session
-accumulates none, so `afterRemoteRead` has no effect there.
+judged against it. On a Live session the unit is the cycle, from the input that
+opens it to its `done`: taint starts empty each cycle, as it does each turn.
 
 Only remote origins taint. A local host tool returns bytes the host's own code
 produced, and treating those as attacker-influenceable would make the gate useless

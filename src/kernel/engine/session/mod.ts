@@ -25,6 +25,8 @@ import {
 } from '../../../guardrails/live-outbound-gate.ts';
 import type { ResolveHost } from '../../../guardrails/network.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
+import { recordTaint } from '../../../guardrails/tool-result.ts';
+import type { TurnTaint } from '../../../guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
 import type { TraceSink } from '../../../observability/trace-sink.ts';
 import type { GeminiOptions } from '../../../providers/google/keys.ts';
@@ -97,6 +99,7 @@ import { type LiveCloser, type LiveTrace, startLiveTrace } from './session-trace
 
 export type { LiveSession, SessionRequest };
 
+/** Options for opening a live session: the key vault, Gemini settings, a WebSocket opener, how long a gated call waits for its decision, and the sign-in gate policy. */
 export interface RunSessionOptions {
   /** The host's keys by slot; the session uses the slots its profile names. */
   vault: KeyVault;
@@ -118,6 +121,7 @@ export interface RunSessionOptions {
   signInGate?: SignInGatePolicy;
 }
 
+/** How a sign-in gate behaves in a live session: `hold` waits for the decision, `answer` tells the model the sign-in is pending and releases the call. */
 export type SignInGatePolicy = 'hold' | 'answer';
 
 type HeldCall = {
@@ -424,6 +428,8 @@ function buildLiveSession(args: {
 
   let cycle: 'idle' | 'open' = 'idle';
   let cycleStep = 0;
+  /** What this cycle's tool results read from outside the host; a cycle starts clean, as a turn does. */
+  let cycleTaint: TurnTaint | undefined;
   const history: TurnHistoryMessage[] = args.historySeed?.length
     ? (structuredClone(args.historySeed) as TurnHistoryMessage[])
     : [];
@@ -672,6 +678,7 @@ function buildLiveSession(args: {
     if (cycle === 'open') return { aborted: false };
     cycle = 'open';
     cycleStep += 1;
+    cycleTaint = undefined;
     const pre = await runCycleStage('pre_turn');
     if (pre.abort) {
       await cancelCycle(pre.abort);
@@ -743,7 +750,7 @@ function buildLiveSession(args: {
         signal,
         resume,
         host,
-        turn: { step: Math.max(1, cycleStep) },
+        turn: { step: Math.max(1, cycleStep), taint: cycleTaint },
       },
       snapshot,
       stages: {
@@ -813,6 +820,10 @@ function buildLiveSession(args: {
         failure,
         awaiting: s.awaiting,
       };
+    }
+
+    if (s.modelResult?.provenance) {
+      cycleTaint = recordTaint(cycleTaint, s.modelResult.provenance, s.modelResult.suspicious);
     }
 
     const { pendingInject } = s;

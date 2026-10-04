@@ -119,13 +119,15 @@ function egressPolicy({
   });
   const scan: EgressStreamOptions['host'] =
     compiled && host.length > 0 ? { automaton: compiled.automaton, rules: host } : undefined;
-  registerStreamPlan(enforce, (context) =>
-    createEgressStream({
+  registerStreamPlan(enforce, (context) => {
+    const { given, note } = egressScope(context);
+    return createEgressStream({
       checks,
       ...(scan ? { host: scan } : {}),
-      ...(context.givenUrls ? { given: context.givenUrls } : {}),
-    }),
-  );
+      ...(given ? { given } : {}),
+      ...(note ? { note } : {}),
+    });
+  });
   registerEgressChecks(enforce, checks);
   return enforce;
 }

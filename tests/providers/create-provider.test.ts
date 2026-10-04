@@ -101,6 +101,21 @@ Deno.test('createProvider throws for openAi/local image profile', () => {
   );
 });
 
+Deno.test('createProvider throws for openAi/local speech profile', () => {
+  const profile = baseProfile({ protocol: 'openAi', provider: 'local' }, 'speech');
+  let thrown: unknown;
+  try {
+    createProvider(profile, {});
+  } catch (err) {
+    thrown = err;
+  }
+  assertEquals(thrown instanceof TheoremError, true);
+  assertEquals(
+    (thrown as Error).message,
+    'createProvider: type speech requires openrouter provider for openAi protocol',
+  );
+});
+
 Deno.test('createProvider returns a speech provider for openAi/openrouter speech profile', () => {
   const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'speech');
   const provider = createProvider(profile, {

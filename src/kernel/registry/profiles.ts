@@ -25,7 +25,11 @@ import {
   protocolsForProfileType,
   THINKING_LEVELS,
 } from '../schema.ts';
-import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
+import {
+  DEFAULT_ALLOW_CONTINUE,
+  isContinueStopKind,
+  type ProfileTurnResumptionSpec,
+} from '../stop.ts';
 import { assertSystemPrompt } from '../system-parts.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import { profileToolAllow, profileToolsSpec } from '../tools/resolve.ts';
@@ -435,6 +439,14 @@ function assertResumption(
   if (!resumption) return;
   assertContinueKindList(profileId, 'allowContinue', resumption.allowContinue);
   assertContinueKindList(profileId, 'autoContinue', resumption.autoContinue);
+  const allowed: readonly string[] = resumption.allowContinue ?? DEFAULT_ALLOW_CONTINUE;
+  const unallowed = resumption.autoContinue?.filter((kind) => !allowed.includes(kind)) ?? [];
+  if (unallowed.length) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId}: turnBehaviour.resumption.autoContinue has ${unallowed.join(', ')}, which allowContinue leaves out`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -741,7 +753,18 @@ function defineProfile(input: ProfileDefinition): Profile {
   }
   assertStructuredSlot(profile);
   assertTypeProtocols(profile);
+  assertMaxSteps(profile);
   return profile;
+}
+
+/** The step loop reads 0 or less as no cap, so only a positive whole number is a cap. */
+function assertMaxSteps(profile: ModelProfile): void {
+  const { maxSteps } = profile;
+  if (maxSteps === undefined || (Number.isInteger(maxSteps) && maxSteps > 0)) return;
+  throw new TheoremError(
+    'config',
+    `Profile ${profile.id}: maxSteps must be a whole number of 1 or more; leave it out for no cap`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
 }
 
 /** A turn can pass no value outside the slot's choices, so any other mapped key is dead. */

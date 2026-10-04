@@ -119,6 +119,16 @@ Deno.test('a definition must be an object with an id and a known type', () => {
   );
 });
 
+Deno.test('maxSteps is a whole number of 1 or more, or left out', () => {
+  const refused =
+    'Profile p: maxSteps must be a whole number of 1 or more; leave it out for no cap';
+  for (const maxSteps of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '3']) {
+    check(said(textProfile({ maxSteps })), refused, `maxSteps ${String(maxSteps)}`);
+  }
+  check(said(textProfile({ maxSteps: 3 })), 'defined', 'maxSteps 3');
+  check(said(textProfile({ maxSteps: undefined })), 'defined', 'no maxSteps');
+});
+
 Deno.test('a model route names its protocol, provider and apiId, and the pair must be valid', () => {
   const at = "Profile p model 'm'";
   table([
@@ -393,6 +403,22 @@ Deno.test('resumption lists name only continue stop kinds', () => {
     check(said(resumption({ [path]: [] })), 'defined', `${path} empty`);
   }
   check(said(textProfile({ turnBehaviour: {} })), 'defined', 'no resumption');
+});
+
+Deno.test('autoContinue names only kinds allowContinue lets through', () => {
+  const resumption = (over: Loose) => textProfile({ turnBehaviour: { resumption: over } });
+  check(
+    said(resumption({ allowContinue: ['length'], autoContinue: ['length', 'stream_incomplete'] })),
+    'Profile p: turnBehaviour.resumption.autoContinue has stream_incomplete, which allowContinue leaves out',
+    'outside allowContinue',
+  );
+  check(
+    said(resumption({ allowContinue: ['length'], autoContinue: ['length'] })),
+    'defined',
+    'inside',
+  );
+  check(said(resumption({ autoContinue: ['provider_error'] })), 'defined', 'default allow');
+  check(said(resumption({ allowContinue: [] })), 'defined', 'default auto is filtered at runtime');
 });
 
 Deno.test('egress counts are non-negative integers', () => {
@@ -951,9 +977,13 @@ Deno.test('a field the type may carry only as its off value names that value', (
     'canary off value',
   );
   check(
-    said(textProfile({ type: 'live', inputs: { text: true } })).startsWith(
-      "Profile p: type 'live' must not set inputs — ",
-    ),
+    said(
+      textProfile({
+        type: 'live',
+        models: { m: { ...BINDING, persistViaInteractionId: undefined } },
+        inputs: { text: true },
+      }),
+    ).startsWith("Profile p: type 'live' must not set inputs — "),
     true,
     'no off value to name',
   );

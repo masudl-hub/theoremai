@@ -6,7 +6,20 @@ const ITIN = /\b9\d{2}-\d{2}-\d{4}\b/g;
 const EIN = /\b\d{2}-\d{7}\b/g;
 const IBAN = /\b[A-Z]{2}\d{2}[A-Z0-9]{13,30}\b/g;
 const IPV4 = /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b/g;
-const IPV6 = /\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b/gi;
+const HEX_GROUP = '[0-9a-f]{1,4}';
+const DOTTED_QUAD =
+  '(?:(?:25[0-5]|2[0-4]\\d|[01]?\\d\\d?)\\.){3}(?:25[0-5]|2[0-4]\\d|[01]?\\d\\d?)';
+/** Every RFC 4291 text form: full, `::`-compressed, and with a dotted IPv4 tail. */
+const IPV6_FORMS = [
+  `(?:${HEX_GROUP}:){6}${DOTTED_QUAD}`,
+  `(?:${HEX_GROUP}:){1,5}:${DOTTED_QUAD}`,
+  `::(?:${HEX_GROUP}:){0,5}${DOTTED_QUAD}`,
+  `(?:${HEX_GROUP}:){7}${HEX_GROUP}`,
+  `(?:${HEX_GROUP}:){1,6}(?::${HEX_GROUP}){1,6}`,
+  `(?:${HEX_GROUP}:){1,7}:`,
+  `:(?::${HEX_GROUP}){1,7}`,
+];
+const IPV6 = new RegExp(`(?<![\\w:.])(?:${IPV6_FORMS.join('|')})(?![\\w:])`, 'gi');
 const AWS_ACCESS = /\bAKIA[0-9A-Z]{16,20}\b/g;
 const GOOGLE_API = /\bAIza[0-9A-Za-z_-]{35}\b/g;
 const OPENAI_KEY = /\bsk-\s*[A-Za-z0-9]{20,}\b/g;
@@ -18,7 +31,7 @@ const SLACK_TOKEN = /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g;
 const BEARER = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi;
 /** Bounded payload so PEM redaction cannot ReDoS on repeated BEGIN markers. */
 const PEM_KEY =
-  /-----BEGIN (?:RSA )?PRIVATE KEY-----[\s\S]{0,16384}?-----END (?:RSA )?PRIVATE KEY-----/g;
+  /-----BEGIN (?:(?:RSA|DSA|EC|OPENSSH|ENCRYPTED|PGP) )?PRIVATE KEY(?: BLOCK)?-----[\s\S]{0,16384}?-----END (?:(?:RSA|DSA|EC|OPENSSH|ENCRYPTED|PGP) )?PRIVATE KEY(?: BLOCK)?-----/g;
 const CARD_CANDIDATE = /\b(?:\d[\s.-]*?){13,19}\b/g;
 
 /**

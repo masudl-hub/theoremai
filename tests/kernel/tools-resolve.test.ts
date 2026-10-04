@@ -533,10 +533,10 @@ Deno.test('expandT1Policy wraps a failing or malformed policy as a config error 
   }
 });
 
-Deno.test('expandT1Policy promotes only gated, registered, non-T0 selections and recomputes executable', async () => {
+Deno.test('expandT1Policy promotes only gated, registered T1 selections and recomputes executable', async () => {
   const state = snapshot({
     builtins: ['b0'],
-    gated: ['f0', 'f1', 'f2', 'b0', 'b1', 'ca', 'cb', 'ghost'],
+    gated: ['f0', 'f1', 'f2', 'b0', 'b1', 'b2', 'ca', 'cb', 'ghost'],
     visible: ['f0', 'b0'],
     executable: ['stale'],
   });
@@ -545,7 +545,20 @@ Deno.test('expandT1Policy promotes only gated, registered, non-T0 selections and
     type: 'text',
     tools: {
       allow: [],
-      t1Policy: () => ['f0', 'b0', 'ungated', 'f2b', 'ghost', 'f1', 'b1', 'ca', 'cb', 'f1'],
+      t1Policy: () => [
+        'f0',
+        'b0',
+        'ungated',
+        'f2b',
+        'f2',
+        'b2',
+        'ghost',
+        'f1',
+        'b1',
+        'ca',
+        'cb',
+        'f1',
+      ],
     },
   });
   await expandT1Policy(tools, state, profile, req());

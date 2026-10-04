@@ -487,8 +487,9 @@ Deno.test('tools mutation coverage exercises policy and function execution trans
     }),
     asValue<TurnRequest>({ path: 'web', input: { text: 'x' } }),
   );
-  assertEquals(state.visible, ['record_lookup']);
-  assertEquals(state.executable, ['record_lookup']);
+  // record_lookup is T2: only tools.t2Loader loads it.
+  assertEquals(state.visible, []);
+  assertEquals(state.executable, []);
   await expandT1Policy(
     defaultKernelScope.tools,
     state,

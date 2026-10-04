@@ -144,10 +144,10 @@ export function createProvider(
   }
 
   if (protocol === 'openAi' && provider === 'local') {
-    if (isImageRole(profile)) {
+    if (isImageRole(profile) || isSpeechRole(profile)) {
       throw new TheoremError(
         'config',
-        'createProvider: type image requires openrouter provider for openAi protocol',
+        `createProvider: type ${profile.type} requires openrouter provider for openAi protocol`,
       );
     }
     // A profile can name `local`; only the host can say a local server is there to reach.

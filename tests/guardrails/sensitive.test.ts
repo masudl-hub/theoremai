@@ -206,3 +206,34 @@ Deno.test('cardSpans span kind is sensitive not empty string', () => {
   assertEquals(spans.length > 0, true);
   assertEquals(spans[0]?.kind, 'sensitive');
 });
+
+Deno.test('sensitiveSpans finds IPv6 in every RFC 4291 text form', () => {
+  for (const address of [
+    '2001:db8::1',
+    '::1',
+    'fe80::1',
+    '2001:db8::',
+    '::ffff:192.168.1.1',
+    '64:ff9b::192.0.2.33',
+    '2001:0db8:85a3:0000:0000:8a2e:0370:7334',
+  ]) {
+    const text = `host ${address} up`;
+    const found = sensitiveSpans(text).map((s) => text.slice(s.start, s.end));
+    assertEquals({ address, found: found.includes(address) }, { address, found: true });
+  }
+});
+
+Deno.test('sensitiveSpans leaves colon text that is not an address', () => {
+  for (const text of ['std::vector', 'at 10:00::done', '12:30', '00:1a:2b:3c:4d:5e', 'see ::']) {
+    assertEquals({ text, spans: sensitiveSpans(text) }, { text, spans: [] });
+  }
+});
+
+Deno.test('sensitiveSpans finds every PEM private key kind', () => {
+  for (const kind of ['', 'RSA ', 'DSA ', 'EC ', 'OPENSSH ', 'ENCRYPTED ']) {
+    const pem = `-----BEGIN ${kind}PRIVATE KEY-----\nMIIEvg\n-----END ${kind}PRIVATE KEY-----`;
+    assertEquals({ kind, found: sensitiveSpans(pem).length > 0 }, { kind, found: true });
+  }
+  const pgp = '-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQOY\n-----END PGP PRIVATE KEY BLOCK-----';
+  assertEquals(sensitiveSpans(pgp).length > 0, true);
+});

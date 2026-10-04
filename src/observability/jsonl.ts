@@ -8,7 +8,6 @@
 import { appendFile, mkdir, readdir, rm, stat } from 'node:fs/promises';
 import { cwd } from 'node:process';
 import { TheoremError } from '../guardrails/error.ts';
-import { isRecord } from '../kernel/util/record.ts';
 import type { TraceSink } from './trace-sink.ts';
 
 const HOURS_PER_DAY = 24;
@@ -19,7 +18,7 @@ const KIB = 1024;
 const OWNER_ONLY_DIR = 0o700;
 const OWNER_ONLY_FILE = 0o600;
 const MIB = KIB * KIB;
-const FILE_DAY = /^turns-(\d{4}-\d{2}-\d{2})(?:-\d+)?\.jsonl$/;
+const FILE_PART = /^turns-(\d{4}-\d{2}-\d{2})(?:-(\d+))?\.jsonl$/;
 
 /** Retention and rotation are not here: they arrive with each write (`TraceWriteContext`) from the profile. */
 export interface JsonlSinkOptions {
@@ -31,7 +30,7 @@ function dayStamp(ms: number): string {
 }
 
 function fileDay(name: string): string | undefined {
-  return FILE_DAY.exec(name)?.[1];
+  return FILE_PART.exec(name)?.[1];
 }
 
 /** Remove day files older than `retainForDays`; `<= 0` keeps every file. */
@@ -49,30 +48,26 @@ async function pruneTraces(dir: string, now: number, retainForDays: number): Pro
   }
 }
 
-function isMissing(err: unknown): boolean {
-  return isRecord(err) && err.code === 'ENOENT';
-}
-
+/** The day's newest file while it has room, else a new one stamped `now`. */
 async function pickFile(dir: string, now: number, rotateBytes: number): Promise<string> {
   const day = dayStamp(now);
-  const base = `${dir}/turns-${day}.jsonl`;
-  try {
-    if ((await stat(base)).size < rotateBytes) {
-      return base;
-    }
-  } catch (err) {
-    if (isMissing(err)) {
-      return base;
-    }
-    throw err;
-  }
-  return `${dir}/turns-${day}-${now}.jsonl`;
+  const newest = (await readdir(dir))
+    .map((name) => ({ name, part: FILE_PART.exec(name) }))
+    .filter(({ part }) => part?.[1] === day)
+    .map(({ name, part }) => ({ name, stamp: Number(part?.[2] ?? 0) }))
+    .reduce<{ name: string; stamp: number } | undefined>(
+      (latest, file) => (latest && latest.stamp >= file.stamp ? latest : file),
+      undefined,
+    );
+  if (!newest) return `${dir}/turns-${day}.jsonl`;
+  const path = `${dir}/${newest.name}`;
+  return (await stat(path)).size < rotateBytes ? path : `${dir}/turns-${day}-${now}.jsonl`;
 }
 
 /**
  * Daily rotating JSONL files under an absolute, host-chosen `dir`. Each write removes day files
- * older than the record's retention (`<= 0` keeps every file) and starts a new file once the
- * day's reaches the profile's `rotateAfterMiB`.
+ * older than the record's retention (`<= 0` keeps every file) and appends to the day's newest file
+ * until it reaches the profile's `rotateAfterMiB`, then starts another.
  */
 export function jsonlSink(dir: string, options: JsonlSinkOptions = {}): TraceSink {
   const safeDir = validateTraceDir(dir);

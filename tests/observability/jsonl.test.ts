@@ -69,6 +69,27 @@ Deno.test('jsonl sink starts a new file once the day file reaches the profile ro
   assertEquals(await exists(`${dir}/turns-2026-08-16-${at}.jsonl`), true);
   await sink.write(stubRecord(), { ...STUB_WRITE, rotateAfterMiB: 2 });
   const day = await Deno.readTextFile(`${dir}/turns-2026-08-16.jsonl`);
-  assertEquals(day.endsWith('"content":{}}\n'), true);
+  assertEquals(day.length, 1024 * 1024);
+  await Deno.remove(dir, { recursive: true });
+});
+
+Deno.test('jsonl sink keeps writing to the newest file until it too is full', async () => {
+  const dir = await Deno.makeTempDir();
+  let at = Date.parse('2026-08-16T00:00:00.000Z');
+  const sink = jsonlSink(dir, { now: () => at });
+  await Deno.writeTextFile(`${dir}/turns-2026-08-16.jsonl`, 'x'.repeat(1024 * 1024));
+  for (let i = 0; i < 3; i++) {
+    at += 1;
+    await sink.write(stubRecord(), { ...STUB_WRITE, rotateAfterMiB: 1 });
+  }
+  const start = Date.parse('2026-08-16T00:00:00.000Z');
+  const names = (await Array.fromAsync(Deno.readDir(dir))).map((e) => e.name).sort();
+  assertEquals(names, ['turns-2026-08-16-' + (start + 1) + '.jsonl', 'turns-2026-08-16.jsonl']);
+  const rotated = await Deno.readTextFile(`${dir}/turns-2026-08-16-${start + 1}.jsonl`);
+  assertEquals(rotated.trimEnd().split('\n').length, 3);
+  await Deno.writeTextFile(`${dir}/turns-2026-08-16-${start + 1}.jsonl`, 'x'.repeat(1024 * 1024));
+  at += 1;
+  await sink.write(stubRecord(), { ...STUB_WRITE, rotateAfterMiB: 1 });
+  assertEquals(await exists(`${dir}/turns-2026-08-16-${at}.jsonl`), true);
   await Deno.remove(dir, { recursive: true });
 });

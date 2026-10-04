@@ -980,8 +980,8 @@ smoke-sized sample, not a benchmark.
 The confused-deputy case: the agent fetches attacker-influenceable bytes, those
 bytes ask for an action, and the agent performs it with authority the content
 never had. A turn accumulates `TurnTaint` as it reads, and each later tool call is
-judged against it. Only request/response turns track taint: a Live session
-accumulates none, so `afterRemoteRead` has no effect there.
+judged against it. On a Live session the unit is the cycle, from the input that
+opens it to its `done`: taint starts empty each cycle, as it does each turn.
 
 Only remote origins taint. A local host tool returns bytes the host's own code
 produced, and treating those as attacker-influenceable would make the gate useless

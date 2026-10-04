@@ -22,7 +22,8 @@ export function permissionGranted(toolName: string, sessionPermissions?: string[
   return sessionPermissions.includes('*') || sessionPermissions.includes(toolName);
 }
 
-type GateDetails = Pick<ToolGateBase, 'access' | 'request'>;
+/** What a gate says about the call beyond its kind: the tool's access and its filled request. */
+export type GateDetails = Pick<ToolGateBase, 'access' | 'request'>;
 
 /** What an approval card says about a call: what it would do, and what the tool can change. */
 export function gateDetails(

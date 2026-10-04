@@ -9,10 +9,9 @@ import {
   type StageResult,
   stageEventFields,
 } from '../stages.ts';
-import type { ToolGateBase } from '../turn-events.ts';
 import type { Profile, TurnEvent, TurnHistoryMessage } from '../types.ts';
 import { type ToolCallBase, toolEvent } from './events.ts';
-import { gateDetails, isGateResumeGranted } from './permission.ts';
+import { type GateDetails, gateDetails, isGateResumeGranted } from './permission.ts';
 import { plainToolInput } from './schema.ts';
 import type { ModelToolResult, ToolContext, ToolFailure, ToolGate, ToolLabels } from './types.ts';
 
@@ -125,7 +124,7 @@ async function* runPreToolStages(args: {
   callId: string;
   input: unknown;
   toolPreTool?: StageResult | undefined;
-  details: Pick<ToolGateBase, 'access' | 'request'>;
+  details: GateDetails;
 }): AsyncGenerator<
   TurnEvent,
   Exclude<PreBodyOutcome, { ok: true }> | { ok: true; input: unknown; mutated: boolean }

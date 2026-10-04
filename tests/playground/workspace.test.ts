@@ -3,10 +3,12 @@ import {
   addAgent,
   agentDraft,
   agentNodeId,
+  agentToolTarget,
   compilePlayground,
   createBlankDraft,
   createExampleDraft,
   createSpanExampleDraft,
+  defaultToolSpec,
   duplicateAgent,
   libraryDraft,
   modelBindingNodeId,
@@ -211,4 +213,19 @@ Deno.test('an added agent gets a free id and shares the tools the library has by
   assertEquals(workspace.toolSpecs, example.toolSpecs);
   assertEquals(second.tools.allow, first.tools.allow);
   assert(compilePlayground(must(agentDraft(workspace, second.key))).ok);
+});
+
+Deno.test("picking an agent tool's agent fills a stub description, never one the builder wrote", () => {
+  assertEquals(agentToolTarget(defaultToolSpec({ toolType: 'agent' }), 'k', 'travel.helper'), {
+    agentKey: 'k',
+    description: 'Asks travel.helper and returns its answer.',
+  });
+  assertEquals(
+    agentToolTarget(
+      defaultToolSpec({ toolType: 'agent', description: 'Mine.' }),
+      'k',
+      'travel.helper',
+    ),
+    { agentKey: 'k' },
+  );
 });

@@ -376,12 +376,14 @@ export function defaultModelBinding(partial?: Partial<ModelBindingDraft>): Model
   };
 }
 
+const STUB_TOOL_DESCRIPTION = 'Playground stub tool — returns a fixed result.';
+
 export function defaultToolSpec(partial?: Partial<ToolSpecDraft>): ToolSpecDraft {
   return {
     key: draftKey('tool'),
     toolName: 'my_tool',
     toolType: 'function',
-    description: 'Playground stub tool — returns a fixed result.',
+    description: STUB_TOOL_DESCRIPTION,
     category: 'playground',
     access: TOOL_ACCESS[0],
     permission: TOOL_PERMISSION[0],
@@ -391,6 +393,19 @@ export function defaultToolSpec(partial?: Partial<ToolSpecDraft>): ToolSpecDraft
     outputJson: DEFAULT_TOOL_OUTPUT_SCHEMA,
     ...partial,
   };
+}
+
+/**
+ * The change that points an agent tool at an agent. A description that is
+ * still the new tool's stub, or empty, comes to say what the tool now does.
+ */
+export function agentToolTarget(
+  tool: ToolSpecDraft,
+  agentKey: string,
+  agentId: string,
+): Partial<ToolSpecDraft> {
+  const isStub = !tool.description.trim() || tool.description === STUB_TOOL_DESCRIPTION;
+  return isStub && agentId ? { agentKey, description: `Asks ${agentId} and returns its answer.` } : { agentKey };
 }
 
 function urlCheckDraft(check: UrlCheck | undefined): UrlCheckDraft {

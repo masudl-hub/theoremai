@@ -3,7 +3,6 @@ import { asRecord, nonEmptyString } from '../../kernel/engine/record.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type { ModelProvider, ProviderCompleteRequest, ProviderEvent } from '../../kernel/types.ts';
 import { networkFetch } from '../shared/upstream-tap.ts';
-import { bearerFetch } from '../shared/vault.ts';
 import type { OpenAiGatewayTransport } from '../types.ts';
 import { buildChatMessages, httpErrorEvent, openAiGatewayHeaders } from './openai/compat.ts';
 import {
@@ -13,6 +12,7 @@ import {
 } from './openai/image-payload.ts';
 import { openAiUsageTokens } from './openai/usage.ts';
 import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
+import { openRouterFetch } from './transport.ts';
 
 const HTTP_OK = 200;
 export const OPENROUTER_IMAGE_TOOL = 'openrouter:image_generation';
@@ -92,7 +92,7 @@ async function postJson(
   path: string,
   body: Record<string, unknown>,
 ): Promise<Response> {
-  const fetchFn = bearerFetch(req, networkFetch(config.fetch ?? fetch), config.vault, apiKey);
+  const fetchFn = networkFetch(openRouterFetch(req, config, apiKey));
   return await fetchFn(`${baseUrl(config)}${path}`, {
     method: 'POST',
     headers: buildImageHeaders(apiKey, config),

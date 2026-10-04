@@ -32,11 +32,13 @@ interface TraceJson {
   $json: TraceAttributeValue;
 }
 
+/** A link from a span to another trace, by its `traceparent`. */
 interface SpanLinkInput {
   traceparent: string;
   attributes?: TraceAttributes;
 }
 
+/** Options for starting a span: its kind, attributes and links. */
 interface SpanOptions {
   kind?: TraceSpanKind;
   attributes?: TraceAttributes;
@@ -69,6 +71,7 @@ interface SpanHandle {
   nowUnixNano: () => string;
 }
 
+/** A trace being built: its root span and the clock it shares. */
 interface TraceTree {
   root: SpanHandle;
   /** The trace's clock; pass it to `startTrace` so related trees share one timeline. */
@@ -77,6 +80,7 @@ interface TraceTree {
   collect: () => TraceSpan[];
 }
 
+/** The clock a trace reads its timestamps from. */
 interface TraceClock {
   nowUnixNano: () => bigint;
 }
@@ -142,10 +146,12 @@ function formatTraceparent(traceId: string, spanId: string): string {
   return `00-${traceId}-${spanId}-${SAMPLED_FLAGS}`;
 }
 
+/** Marks text as message content, which the trace stores by hash. */
 function traceContent(text: string): TraceContent {
   return { $content: text };
 }
 
+/** Marks base64 data as bytes, which the trace stores by hash. */
 function traceBytes(base64: string): TraceBytes {
   return { $bytes: base64 };
 }

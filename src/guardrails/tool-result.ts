@@ -17,12 +17,14 @@ import type {
   Verdict,
 } from './types.ts';
 
+/** The closing tag of the fence a tool result is wrapped in. */
 const TOOL_CLOSE = '</tool_data>';
 const TOOL_OPEN = '<tool_data';
 
 /** Origins whose bytes the host does not author and cannot vouch for. */
 const REMOTE_ORIGINS: ReadonlySet<ToolOrigin> = new Set<ToolOrigin>(['http', 'mcp', 'delegated']);
 
+/** True when the tool's bytes come from outside the host. */
 function isRemoteOrigin(origin: ToolOrigin): boolean {
   return REMOTE_ORIGINS.has(origin);
 }
@@ -98,6 +100,7 @@ function advisoryNotice(advisory: AdvisoryLevel, lexicon: LexiconOverrides | und
   return lexiconText(key, {}, lexicon);
 }
 
+/** A tool result after the guard: the text the model sees, any event and the suspicious hits. */
 export interface GuardedToolText {
   text: string;
   /** Emitted when the guard did anything worth recording. */
@@ -222,6 +225,7 @@ function inspectToolArguments(args: unknown, policy: ResolvedGuardrailPolicy): V
   };
 }
 
+/** The guardrail event for a tool call verdict, or `undefined` when it was allowed. */
 function toolCallEvent(verdict: Verdict, provenance: Provenance): GuardrailEvent | undefined {
   if (verdict.action === 'allow') {
     return undefined;
@@ -253,10 +257,12 @@ function recordTaint(
   return { sources: [...sources, provenance], suspicious: [...prior, ...suspicious] };
 }
 
+/** True when the turn has read content from outside the host. */
 function isTainted(taint: TurnTaint | undefined): boolean {
   return (taint?.sources.length ?? 0) > 0;
 }
 
+/** True when something the turn read looked like instructions. */
 function isSuspicious(taint: TurnTaint | undefined): boolean {
   return (taint?.suspicious.length ?? 0) > 0;
 }

@@ -19,6 +19,7 @@ import {
   googleEfforts,
 } from './google-limits.ts';
 
+/** The image MIME types a Gemini profile can take as input. */
 const GOOGLE_IMAGE_INPUT_MIMES = [
   'image/png',
   'image/jpeg',
@@ -27,6 +28,7 @@ const GOOGLE_IMAGE_INPUT_MIMES = [
   'image/heif',
 ] as const;
 
+/** The audio MIME types a Gemini profile can take as voice input. */
 const GOOGLE_VOICE_INPUT_MIMES = ['audio/webm', 'audio/wav', 'audio/mpeg', 'audio/mp4'] as const;
 
 /**
@@ -103,6 +105,7 @@ function googleFreeTierBuiltins(apiId: string): Array<'googleSearch' | 'googleMa
   return (['googleSearch', 'googleMaps'] as const).filter((id) => allowed[id]);
 }
 
+/** A Gemini binding field that breaks a Gemini rule, and what is wrong with it. */
 interface GoogleBindingViolation {
   field: 'apiId' | 'efforts' | 'summaries' | 'builtInTools';
   message: string;
@@ -154,14 +157,17 @@ function googleBindingViolation(
   return undefined;
 }
 
+/** The speech settings a Gemini profile may pin, with the voice narrowed to Gemini's. */
 type GoogleSpeechPins = Omit<ProfileSpeechSpec, 'voice'> & {
   voice?: GoogleSpeechVoice;
 };
 
+/** The live settings a Gemini profile may pin, with the voice narrowed to Gemini's. */
 type GoogleLivePins = Omit<ProfileLiveSpec, 'voice'> & {
   voice?: GoogleSpeechVoice;
 };
 
+/** The aspect ratios a Gemini image model can return. */
 const GOOGLE_IMAGE_ASPECT_RATIOS = [
   '1:1',
   '3:2',
@@ -175,23 +181,31 @@ const GOOGLE_IMAGE_ASPECT_RATIOS = [
   '21:9',
 ] as const;
 
+/** The resolutions a Gemini image model can return. */
 const GOOGLE_IMAGE_RESOLUTIONS = ['1K', '2K', '4K'] as const;
 
 /** What a Gemini image model can be asked to return. */
 const GOOGLE_IMAGE_OUTPUT_MIMES = ['image/png', 'image/jpeg'] as const;
 
+/** One of {@linkcode GOOGLE_IMAGE_INPUT_MIMES}. */
 type GoogleImageInputMime = (typeof GOOGLE_IMAGE_INPUT_MIMES)[number];
+/** One of {@linkcode GOOGLE_VOICE_INPUT_MIMES}. */
 type GoogleVoiceInputMime = (typeof GOOGLE_VOICE_INPUT_MIMES)[number];
+/** One of {@linkcode GOOGLE_IMAGE_ASPECT_RATIOS}. */
 type GoogleImageAspectRatio = (typeof GOOGLE_IMAGE_ASPECT_RATIOS)[number];
+/** One of {@linkcode GOOGLE_IMAGE_RESOLUTIONS}. */
 type GoogleImageResolution = (typeof GOOGLE_IMAGE_RESOLUTIONS)[number];
+/** One of {@linkcode GOOGLE_IMAGE_OUTPUT_MIMES}. */
 type GoogleImageOutputMime = (typeof GOOGLE_IMAGE_OUTPUT_MIMES)[number];
 
+/** The image settings a Gemini profile may pin, narrowed to what Gemini accepts. */
 type GoogleImagePins = Omit<ProfileImageSpec, 'aspectRatio' | 'resolution' | 'mimeType'> & {
   aspectRatio?: GoogleImageAspectRatio;
   resolution?: GoogleImageResolution;
   mimeType?: GoogleImageOutputMime;
 };
 
+/** The tools Gemini runs itself, as `builtin` tool definitions. */
 const GOOGLE_BUILTIN_TOOLS = [
   {
     type: 'builtin' as const,

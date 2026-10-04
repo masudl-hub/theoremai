@@ -1,6 +1,6 @@
 {
   "name": "@theoremjs/agents",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A flat TypeScript agent kernel for typed profiles, deterministic turn execution, registered tools, provider adapters, guardrails, and host-injected traces.",
   "license": "MIT",
   "keywords": [
@@ -55,6 +55,7 @@
       "stryker.guardrails-targeted.config.json",
       "stryker.guardrails.config.json",
       "stryker.tools.config.json",
+      "stryker.*.json",
       "stryker.log",
       ".stryker-tmp/",
       ".stryker-cache/",

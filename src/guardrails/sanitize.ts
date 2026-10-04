@@ -10,6 +10,7 @@ import { SANITIZE_RULES } from './rules.ts';
 import { anySensitive, resolveSensitive, sensitiveSpans } from './sensitive.ts';
 import type { GuardrailHit, GuardrailStage, TrustLevel } from './types.ts';
 
+/** Runs detection over text and returns the cleaned text with the hits. */
 function detectText(
   text: string,
   options?: Partial<DetectionOptions>,
@@ -31,10 +32,12 @@ function detectText(
   return { text: applySpans(text, spans), hits };
 }
 
+/** Runs detection over text and returns the cleaned text. */
 function sanitizeText(text: string, options?: Partial<DetectionOptions>): string {
   return detectText(text, options).text;
 }
 
+/** Redacts sensitive values from text and leaves everything else. */
 function redactSensitiveOnly(text: string): string {
   return detectText(text, { sanitizeInput: false, redactSensitive: true }).text;
 }
@@ -64,6 +67,7 @@ function sanitizeSlots(
 
 const PROJECT_ID_OK = /^[A-Za-z0-9._-]+$/;
 
+/** The project id trimmed, or `undefined` when it is empty or has illegal characters. */
 function sanitizeProjectId(id: string | undefined): string | undefined {
   const trimmed = id?.trim();
   return trimmed && PROJECT_ID_OK.test(trimmed) ? trimmed : undefined;
@@ -133,6 +137,7 @@ function sanitizeHistory(
   });
 }
 
+/** The detection options a profile sets for content at this trust level. */
 function detectionForProfile(profile: Profile, trust: TrustLevel): DetectionOptions {
   return detectionForTrust(resolveGuardrailPolicy(profile.guardrails), trust);
 }
@@ -210,6 +215,7 @@ function sanitizeTurnRequestText(
   };
 }
 
+/** The turn request with its input cleaned under the profile's guardrails. */
 function sanitizeTurnRequest(req: TurnRequest, profile: Profile): NormalizedTurnRequest {
   return sanitizeTurnRequestWithEvents(req, profile).request;
 }

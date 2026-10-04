@@ -5,6 +5,7 @@ export function toBase64Url(bytes: Uint8Array): string {
   return bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+/** Decodes base64url text into bytes. */
 export function fromBase64Url(base64url: string): Uint8Array<ArrayBuffer> {
   let base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
   while (base64.length % 4 !== 0) {
@@ -50,6 +51,7 @@ export async function computeCodeChallenge(verifier: string): Promise<string> {
   return toBase64Url(new Uint8Array(digest));
 }
 
+/** What a sealed PKCE state carries between starting and finishing a sign-in. */
 export interface SealedStatePayload {
   codeVerifier: string;
   expectedIssuer: string;
@@ -172,6 +174,7 @@ export async function sealStatePayload(
   return [ENVELOPE_VERSION, envelope].join('.');
 }
 
+/** Opens a sealed PKCE state; throws when the secret or the seal is wrong. */
 export async function unsealStatePayload(
   sealed: string,
   secret: string,
@@ -211,6 +214,7 @@ function assertKeyVersion(keyVersion: number): void {
   }
 }
 
+/** What `sealSecret` takes: the plaintext and the sealing key. */
 export interface SealSecretInput {
   plaintext: string;
   /** The host's sealing key: at least 32 bytes, kept apart from where sealed values are stored. */
@@ -233,6 +237,7 @@ export async function sealSecret(input: SealSecretInput): Promise<string> {
   return [ENVELOPE_VERSION, String(input.keyVersion), envelope].join('.');
 }
 
+/** What `openSecret` takes: the sealed value and the keys still in use. */
 export interface OpenSecretInput {
   sealed: string;
   /** Every key still in use, by version. */

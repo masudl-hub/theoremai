@@ -22,11 +22,14 @@ export function resolveGateTtlMs(owner: string, gateTtlMs: number | undefined): 
   return ttl;
 }
 
+/** True when the gate has waited as long as its time limit. */
 export function gateExpired(createdAt: number, now: number, ttlMs: number): boolean {
   return now - createdAt >= ttlMs;
 }
 
+/** How a user can answer a tool gate: approve it, deny it or walk away. */
 export const GATE_DECISIONS = ['approve', 'deny', 'abandon'] as const;
+/** One of {@linkcode GATE_DECISIONS}. */
 export type GateDecision = (typeof GATE_DECISIONS)[number];
 
 /** `edited.from` is the input the model proposed. */
@@ -58,6 +61,7 @@ export function sessionPermissionsAfterApproval(
   return [...sessionPermissions, toolName];
 }
 
+/** The user's answer to a held tool call. */
 export type GateAnswerRequest = {
   callId: string;
   decision: GateDecision;
@@ -67,6 +71,7 @@ export type GateAnswerRequest = {
   secret?: string;
 };
 
+/** A tool call held at a gate, with what answering it needs. */
 export type HeldGatedCall = {
   name: string;
   arguments: Record<string, unknown>;
@@ -75,6 +80,7 @@ export type HeldGatedCall = {
   auth?: ToolGateAuth;
 };
 
+/** A tool call's gate once answered: how the call resumes and the permissions after. */
 export type AnsweredGate = {
   resume: InvokeToolResume;
   input: unknown;

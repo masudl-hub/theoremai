@@ -1,10 +1,12 @@
 import type { KeyVault } from '../kernel/types.ts';
+import type { Wait } from './shared/retry.ts';
 
 export interface OpenAiGatewayConfig {
   baseUrl?: string;
   siteUrl?: string;
   siteName?: string;
   fetch?: typeof fetch;
+  wait?: Wait;
 }
 
 export interface LocalProviderConfig {

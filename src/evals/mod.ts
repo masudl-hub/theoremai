@@ -1,17 +1,10 @@
 /**
- * Evals over traces. A host says, for any profile: here are the cases, here is
- * what "good" means, run it k times and tell me, from the trace alone, whether
- * it passed. Graders read the v3 `TraceRecord` and nothing else; results are
- * trace records too, written through the same `TraceSink`.
- *
- * Hosts own the cases, the judge (a text model, Jev, or both) and the pass
- * rule. THEOREM owns the runner, the code graders and the result record;
- * viewing, labelling and comparing runs belong to the trace tool the host
- * already uses.
+ * Evals over traces: graders read the v3 `TraceRecord` and nothing else; results are trace records too, written through the same `TraceSink`.
  *
  * @module
  */
 
+export { attachmentData } from './attachments.ts';
 export type { GroupSummary, Spread } from './breakdown.ts';
 export { groupSummaries } from './breakdown.ts';
 export type { AnswerLabel, AnswerSource } from './graders/answer.ts';
@@ -33,13 +26,13 @@ export type {
 export { buildRunRecord, startTrialRecord } from './record.ts';
 export type { EvalRubric, EvalRubricQuestion } from './rubrics/mod.ts';
 export { fillRubric, rubric, rubrics } from './rubrics/mod.ts';
-export type { RunSuiteOptions, SuiteRun, TrialReport, TurnShape } from './run.ts';
+export type { EvalStamp, RunSuiteOptions, SuiteRun, TrialReport, TurnShape } from './run.ts';
 export { runSuite } from './run.ts';
 export type { LoadedSuite } from './suite.ts';
 export { loadSuite, readJsonl, readTraceRecords } from './suite.ts';
 export type { RunSummary, TrialSummary } from './summary.ts';
 export { summarizeRun } from './summary.ts';
-export { buildTrial, groupByTrace } from './trial.ts';
+export { buildTrial, groupByTrace, hasTurn } from './trial.ts';
 export type {
   EvalAnswer,
   EvalAttachment,

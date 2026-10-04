@@ -1,11 +1,3 @@
-/**
- * Code graders: deterministic checks over a trial's trace. Each returns one
- * pass/fail result with the reason in plain words. Outcome first: what was
- * delivered and what it cost matter more than the path taken.
- *
- * @module
- */
-
 import { collectValidationFailures } from '../../kernel/engine/runner/schema-validation.ts';
 import { isRecord } from '../../kernel/util/record.ts';
 import type { TraceSpan } from '../../observability/trace-span.ts';
@@ -32,7 +24,6 @@ function numberAttribute(span: TraceSpan, key: string): number | undefined {
   return typeof value === 'number' ? value : undefined;
 }
 
-/** Deep structural equality over JSON values. */
 function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -41,28 +32,17 @@ function quote(text: string): string {
   return JSON.stringify(text);
 }
 
-// ── delivered ───────────────────────────────────────
-
-/** Graders over what the host received: the model's own text and JSON. */
+/** Graders over the text the turn delivered to the user. */
 interface DeliveredGraders {
-  /** The delivered text contains `text`. */
   includes: (text: string) => EvalGrader;
-  /** The delivered text matches `pattern` (a JavaScript regular expression source). */
   regex: (pattern: string, flags?: string) => EvalGrader;
-  /** The delivered text equals `text` exactly. */
   equals: (text: string) => EvalGrader;
-  /**
-   * The delivered JSON validates against a JSON Schema object (required
-   * fields present, recursively). The structured part is read when the
-   * profile has one; otherwise the text is parsed.
-   */
   jsonSchema: (schema: Record<string, unknown>) => EvalGrader;
-  /** Every field of the case's `expect.json` is present in the delivered JSON with the same value. */
   json: () => EvalGrader;
 }
 
+/** Graders over the text the turn delivered to the user. */
 const delivered: DeliveredGraders = {
-  /** The delivered text contains `text`. */
   includes(text: string): EvalGrader {
     return codeGrader('delivered_includes', `delivered.includes:${text}`, false, (trial) => {
       const actual = deliveredText(trial, undefined);
@@ -74,7 +54,6 @@ const delivered: DeliveredGraders = {
       );
     });
   },
-  /** The delivered text matches `pattern` (a JavaScript regular expression source). */
   regex(pattern: string, flags = ''): EvalGrader {
     const re = new RegExp(pattern, flags);
     return codeGrader('delivered_regex', `delivered.regex:/${pattern}/${flags}`, false, (trial) => {
@@ -88,7 +67,6 @@ const delivered: DeliveredGraders = {
       );
     });
   },
-  /** The delivered text equals `text` exactly. */
   equals(text: string): EvalGrader {
     return codeGrader('delivered_equals', `delivered.equals:${text}`, false, (trial) => {
       const actual = deliveredText(trial, undefined);
@@ -100,11 +78,6 @@ const delivered: DeliveredGraders = {
       );
     });
   },
-  /**
-   * The delivered JSON validates against a JSON Schema object (required
-   * fields present, recursively). The structured part is read when the
-   * profile has one; otherwise the text is parsed.
-   */
   jsonSchema(schema: Record<string, unknown>): EvalGrader {
     return codeGrader(
       'delivered_json_schema',
@@ -125,7 +98,6 @@ const delivered: DeliveredGraders = {
       },
     );
   },
-  /** Every field of the case's `expect.json` is present in the delivered JSON with the same value. */
   json(): EvalGrader {
     return codeGrader('delivered_json', 'delivered.json', true, (trial) => {
       const expected = trial.case?.expect?.json;
@@ -149,15 +121,7 @@ const delivered: DeliveredGraders = {
   },
 };
 
-// ── tool trajectory ─────────────────────────────────
-
-/**
- * How the called tools are compared with the expected list:
- * - `exact`: the same tools in the same order, nothing more;
- * - `in_order`: the expected tools appear in that order, others may interleave;
- * - `any_order`: the same tools, order ignored;
- * - `subset`: every tool called is one that was expected (none unexpected; some may be missing).
- */
+/** `in_order` lets other tools interleave; `subset` means none unexpected, though some expected may be missing. */
 type TrajectoryMode = 'exact' | 'in_order' | 'any_order' | 'subset';
 
 function inOrder(expected: string[], actual: string[]): boolean {
@@ -187,7 +151,7 @@ function trajectoryMatches(mode: TrajectoryMode, expected: string[], actual: str
   }
 }
 
-/** The tools the agent called, in start order, against `expect` or the case's `expect.tools`. */
+/** Grades the tools a turn called against the expected ones, by order or by set. */
 function toolTrajectory(options: { expect?: string[]; mode: TrajectoryMode }): EvalGrader {
   const identity = `toolTrajectory:${options.mode}:${options.expect ? JSON.stringify(options.expect) : 'case'}`;
   return codeGrader('tool_trajectory', identity, options.expect === undefined, (trial) => {
@@ -207,9 +171,7 @@ function toolTrajectory(options: { expect?: string[]; mode: TrajectoryMode }): E
   });
 }
 
-// ── stop, guardrail, budget ─────────────────────────
-
-/** The turn stopped for one of these reasons (`theorem.stop.kind`). */
+/** Grades that the turn stopped with one of the given kinds. */
 function stopKind(kind: string | string[]): EvalGrader {
   const kinds = Array.isArray(kind) ? kind : [kind];
   return codeGrader('stop_kind', `stopKind:${kinds.join('|')}`, false, (trial) => {
@@ -245,7 +207,7 @@ function guardrail(options: { fired: boolean; action?: 'redact' | 'flag' | 'bloc
   });
 }
 
-/** Ceilings the trial must stay under; every one that is crossed is named. */
+/** Limits a trial must stay under: cost, tokens, steps and time. */
 interface BudgetOptions {
   maxCostUsd?: number;
   maxTokens?: number;
@@ -272,7 +234,7 @@ function budgetReadings(trial: Trial): Record<keyof BudgetOptions, number | unde
     maxCostUsd: usage.costUsd,
     maxTokens: usage.tokens.total,
     maxSteps: numberAttribute(trial.root, 'theorem.steps'),
-    maxDurationMs: spanDurationMs(trial.root),
+    maxDurationMs: spanDurationMs(trial.top),
     maxTimeToFirstChunkMs: firstChunks.length > 0 ? Math.max(...firstChunks) * MS_PER_S : undefined,
   };
 }
@@ -294,12 +256,7 @@ function budget(options: BudgetOptions): EvalGrader {
   });
 }
 
-// ── outcome ─────────────────────────────────────────
-
-/**
- * The host's own check of the end state (a booking exists, a row changed):
- * "host decides". Return a boolean, or a full result to score and explain.
- */
+/** A grader that passes when `check` accepts the trial. */
 function outcome(
   name: string,
   check: (trial: Trial) => boolean | EvalResult | Promise<boolean | EvalResult>,

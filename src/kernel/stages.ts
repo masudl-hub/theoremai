@@ -19,7 +19,9 @@ import { isRecord } from './util/record.ts';
 
 export type { AwaitingUserInput, ToolGate };
 
+/** What a stage handler can ask for: inject messages, abort, deny a tool call, ask for confirmation or mutate it. */
 export const STAGE_AFFORDANCES = ['inject', 'abort', 'deny', 'confirm', 'mutate'] as const;
+/** One of {@linkcode STAGE_AFFORDANCES}. */
 export type StageAffordance = (typeof STAGE_AFFORDANCES)[number];
 
 /** Inject still needs the inject gate at apply time. Empty = observe only. */
@@ -47,6 +49,7 @@ export type StageCallBag = {
   gate?: ToolGate;
 };
 
+/** What a stage handler is given: the stage, the step and what has happened so far. */
 export interface StageContext extends StageCallBag {
   stage: TurnStage;
   /** 1-based provider step (text) or utterance cycle index (live). */
@@ -56,6 +59,7 @@ export interface StageContext extends StageCallBag {
   host?: unknown;
 }
 
+/** What a stage handler returns: what it asks the turn to do. */
 export interface StageResult {
   inject?: TurnHistoryMessage[];
   /**
@@ -72,14 +76,17 @@ export interface StageResult {
   mutate?: StageMutate;
 }
 
+/** A rewrite of a tool call's input or output. */
 export type StageMutate = { input: unknown } | { output: unknown };
 
+/** A host function the turn calls at each stage. */
 export type StageHandler = (
   ctx: StageContext,
 ) => StageResult | undefined | Promise<StageResult | undefined>;
 
 export type { StageApplyWarning, StageApplyWarningCode };
 
+/** A stage handler's result and the stage it came from, to be applied. */
 export interface StageApplyInput {
   stage: TurnStage;
   result: unknown;
@@ -98,6 +105,7 @@ export interface InjectUnit {
   messages: TurnHistoryMessage[];
 }
 
+/** A stage handler's result after validation: the parts the turn will act on. */
 export interface StageApplyOutput {
   inject?: InjectUnit;
   abort?: boolean | { reason?: string };
@@ -121,6 +129,7 @@ function warn(
   warnings.push({ code, field, message });
 }
 
+/** True when a tool output asks the turn to pause for the user. */
 export function isAwaitingUserInput(output: unknown): output is AwaitingUserInput {
   return awaitingUserInputSchema.safeParse(output).success;
 }
@@ -465,6 +474,7 @@ export function applyStageResult(input: StageApplyInput): StageApplyOutput {
   return out;
 }
 
+/** What a `stage` event records beside the stage: the tool call, its gate and any injected messages. */
 export type StageEventExtra = {
   callId?: string;
   toolName?: string;

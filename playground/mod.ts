@@ -164,6 +164,7 @@ export {
 } from './concierge-demo.ts';
 export type { PlaygroundDemoHandler } from './demo-handlers.ts';
 export { playgroundDemoHandler } from './demo-handlers.ts';
+export { PLAYGROUND_TAINT_NOTE, playgroundNetworkNote } from './runtime-scope.ts';
 export { sectionNote } from './section-notes.ts';
 export { sampleToolInput, stubOutputFromSchema } from './stub.ts';
 export type { PlaygroundInputsSpec, PlaygroundToolSeed, PlaygroundToolSpecSeed } from './types.ts';

@@ -28,7 +28,7 @@ through `withOpenInference` and `phoenixAnnotations`).
 | Path | Role |
 | --- | --- |
 | `src/evals/types.ts` | Suite, case, result and grader shapes (zod schemas + `Trial` view) |
-| `src/evals/trial.ts` | `buildTrial` (records → one `Trial`), `groupByTrace` |
+| `src/evals/trial.ts` | `buildTrial` (records → one `Trial`), `groupByTrace`, `hasTurn` |
 | `src/evals/graders/shared.ts` | `codeGrader`, `passFail`, delivered text/JSON readers |
 | `src/evals/graders/code.ts` | Code graders for any turn: `delivered`, `toolTrajectory`, `stopKind`, `guardrail`, `budget`, `outcome` |
 | `src/evals/graders/answer.ts` | `answer`: a dataset case's answer against its accepted, partial and rejected names, by code |
@@ -41,7 +41,7 @@ through `withOpenInference` and `phoenixAnnotations`).
 | `src/evals/verdict.ts` | `trialOutcome`, `caseVerdict`, `passRuleName` |
 | `src/evals/record.ts` | `startTrialRecord` (`theorem.eval.trial`), `buildRunRecord` (`theorem.eval.run`) |
 | `src/evals/suite.ts` | `loadSuite` (module + cases + host exports), `readJsonl`, `readTraceRecords` |
-| `src/evals/attachments.ts` | File attachments pinned by hash at load, read when their trial runs |
+| `src/evals/attachments.ts` | File attachments pinned by hash at load, read when their trial runs (`attachmentData`) |
 | `src/evals/run.ts` | `runSuite`: live or recorded, every case `repeat` times, records written, verdicts returned |
 | `src/evals/summary.ts` | `summarizeRun`: a run as the JSON document `eval --json` prints |
 | `src/evals/breakdown.ts` | `groupSummaries`: the run overall and by tag, as the table and the summary report it |
@@ -96,12 +96,16 @@ error, fails.
 ## Trials
 
 `buildTrial({ suite, case?, index, records })` folds one or more records of the
-same trace into a `Trial`. The root is the `invoke_agent` span whose parent is
-absent or not in the trace, chosen by start time when several qualify, so a
-compaction turn recorded before its parent does not become the root. No root, or
+same trace into a `Trial`. The root is the `invoke_agent` span with no
+`invoke_agent` above it in the trace, chosen by start time when several qualify,
+so a compaction turn recorded before its parent does not become the root, and a
+turn the host ran under its own span (the host's request, joined through
+`traceparent`) is found under it. The topmost span above the root is the
+trial's `top`: the host's span when the host's record is among the trial's, else
+the root. No root, or
 no records, is a `TheoremError('config')`.
 
-A `Trial` exposes: `root`, `spans(operation)` in start order across records,
+A `Trial` exposes: `root`, `top`, `spans(operation)` in start order across records,
 `children(span)` (the spans one span parents, such as a model call's HTTP tries),
 `content(value)` / `text(value)` resolving stored content markers against the
 merged content of every record, `delivered()` (root `gen_ai.output.messages`,
@@ -109,6 +113,7 @@ or a Live turn's `theorem.output.delivered` from its response spans, parts left
 as stored markers) and `usage()` (tokens, thinking share and cost from the root).
 
 `groupByTrace(records)` keeps records of one trace together, first seen first.
+`hasTurn(records)` says whether they hold a turn at all (an `invoke_agent` span).
 
 ```ts
 const trial = buildTrial({ suite: 'translator.v1', case: cases[0], index: 0, records });
@@ -148,7 +153,7 @@ whichever answered first.
 | `toolTrajectory({ mode, expect? })` | `execute_tool` spans | `exact`, `in_order`, `any_order`, or `subset` (nothing unexpected was called) |
 | `stopKind(kind \| kinds)` | root `theorem.stop.kind` | it is one of the kinds |
 | `guardrail({ fired, action? })` | root `theorem.guardrail` events | fired (any action but `allow`) matches, and the action when given |
-| `budget({ maxCostUsd, maxTokens, maxSteps, maxDurationMs, maxTimeToFirstChunkMs })` | root usage, span times, chat `time_to_first_chunk` | no ceiling is crossed; a ceiling the trace cannot show fails as "not recorded" |
+| `budget({ maxCostUsd, maxTokens, maxSteps, maxDurationMs, maxTimeToFirstChunkMs })` | root usage, `top` span time, chat `time_to_first_chunk` | no ceiling is crossed; a ceiling the trace cannot show fails as "not recorded" |
 | `outcome(name, check)` | whatever the host checks | the host's boolean, or the host's full result |
 | `turnLatency({ maxMs })` | turn start, HTTP tries, `time_to_first_chunk`, Live `voice_activity` events | every reply began within `maxMs` of the person finishing their input |
 | `transcription.includes(text?)` / `.regex(pattern?, flags?)` | output transcription text parts, final only | the transcript matches (argument or case `expect.transcription`) |
@@ -406,6 +411,13 @@ case again later; recorded mode (`recorded`) groups records by trace and
 matches each to a case by that stamp. Both build the same `Trial`, so the same
 records grade to byte-identical results either way.
 
+A host that runs its turns itself (through its own request path, so the trial
+is the product, not `runTurn`) stamps one record of each trial's trace with
+`metadata.eval` (`EvalStamp`) and hands the records to recorded mode.
+`attachmentData(attachment)` gives an attachment's base64 bytes, a file
+attachment checked against its pinned hash, so the host sends what the case
+pinned.
+
 | Option | Effect |
 | --- | --- |
 | `provider` | Live mode: the host's provider for the profile under test |
@@ -465,8 +477,9 @@ nothing between runs.
 prints for CI: verdicts and results keep their shapes, trials drop their
 records and keep their `turn`.
 
-Each trial that produced a trace reports its `turn`: `durationMs` (the root
-span, from the input handed over to the last word), `modelCalls`,
+Each trial that produced a trace reports its `turn`: `durationMs` (the `top`
+span, from the input handed over to the last word: the host's whole request
+when its record is in the trace), `modelCalls`,
 `toolCalls` and `stop` (the root's `theorem.stop.kind`). `groupSummaries(run)` reports every cased trial (`all`), then each
 tag's trials in name order; the summary carries them as `groups` and the table
 prints them under the cases. A group gives its cases and how many met the
@@ -499,7 +512,8 @@ whose cost went unreported` when some did (a free model's reported `$0` is
 | `EvalResult`, `EvalResultSource`, `EvalGrader` | type |
 | `Trial`, `TrialMessage`, `TrialUsage`, `TraceOperation` | type |
 | `evalSuiteSchema`, `evalCaseSchema`, `evalResultSchema` | const |
-| `buildTrial`, `groupByTrace` | function |
+| `buildTrial`, `groupByTrace`, `hasTurn`, `attachmentData` | function |
+| `EvalStamp` | type |
 | `delivered`, `toolTrajectory`, `stopKind`, `guardrail`, `budget`, `outcome` | function |
 | `DeliveredGraders`, `TrajectoryMode`, `BudgetOptions` | type |
 | `answer` | function |

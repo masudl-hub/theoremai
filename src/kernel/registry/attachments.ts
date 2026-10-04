@@ -27,6 +27,7 @@ const B64_TRIPLET = 3;
 const CSV_FORMULA = /(^|,)(\s*)("?)(?:([=@])|([+-])(?![0-9."]))/gm;
 const B64_BODY = /^[A-Za-z0-9+/]*={0,2}$/;
 const TEXT_MIMES = new Set(['text/csv', 'text/plain', 'text/markdown']);
+/** The media limits an inputs spec sets, or `undefined` when it sets none. */
 function resolveMediaLimits(inputs: MimeInputs): MediaLimits | undefined {
   const { maxFiles, maxBytes, maxTurnBytes, limitsByMime } = inputs;
   if (maxFiles && maxBytes && maxTurnBytes) {
@@ -55,6 +56,7 @@ function isTurnMediaRef(item: TurnBlob | TurnMediaRef): item is TurnMediaRef {
   return 'uri' in item;
 }
 
+/** The profile's media limits; throws when it takes no media. */
 function requireMediaLimits(profile: Profile): MediaLimits {
   if (profile.type === 'speech') {
     throw new TheoremError('request', `Profile ${profile.id} (speech) does not accept media input`); // lexicon-exempt: developer contract error
@@ -201,6 +203,7 @@ const ISSUE_KEYS: Record<AttachmentValidationIssue['code'], LexiconKey> = {
   limits_unconfigured: 'attachments.limits_unconfigured',
 };
 
+/** The user-facing wording key and params for an attachment issue. */
 function attachmentIssueCopy(issue: AttachmentValidationIssue): ErrorCopy {
   const params: LexiconParams = {};
   for (const [key, value] of Object.entries(issue.params ?? {})) {
@@ -210,11 +213,13 @@ function attachmentIssueCopy(issue: AttachmentValidationIssue): ErrorCopy {
   return { key: ISSUE_KEYS[issue.code], params };
 }
 
+/** The user-facing text for an attachment issue. */
 function attachmentIssueText(issue: AttachmentValidationIssue, lexicon?: LexiconOverrides): string {
   const copy = attachmentIssueCopy(issue);
   return lexiconText(copy.key, copy.params, lexicon);
 }
 
+/** The error for a turn whose attachments were refused. */
 function attachmentsRefused(issues: readonly AttachmentValidationIssue[]): TheoremError {
   return new TheoremError(
     'input',

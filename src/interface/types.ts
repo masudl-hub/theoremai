@@ -93,6 +93,7 @@ export type ComposerInterfaceFields = {
   canStop: true;
 };
 
+/** A text profile as a client sees it, without its server-only fields. */
 export type TextProfileInterface = Omit<
   TextProfile,
   'inputs' | 'tools' | 'guardrails' | 'observability' | 'lexicon' | 'models' | 'outputs'
@@ -103,18 +104,21 @@ export type TextProfileInterface = Omit<
     allowSteering: boolean;
   };
 
+/** An image profile as a client sees it, without its server-only fields. */
 export type ImageProfileInterface = Omit<
   ImageProfile,
   'inputs' | 'tools' | 'guardrails' | 'observability' | 'lexicon' | 'models' | 'outputs'
 > &
   ComposerInterfaceFields & { tools: ProfileToolsView };
 
+/** A speech profile as a client sees it, without its server-only fields. */
 export type SpeechProfileInterface = Omit<
   SpeechProfile,
   'guardrails' | 'observability' | 'lexicon' | 'models' | 'outputs'
 > &
   ComposerInterfaceFields;
 
+/** A live profile as a client sees it, without its server-only fields. */
 export type LiveProfileInterface = Omit<
   LiveProfile,
   'tools' | 'guardrails' | 'observability' | 'lexicon' | 'models'
@@ -127,6 +131,7 @@ export type LiveProfileInterface = Omit<
   observability?: ProfileObservabilityView;
 };
 
+/** Any profile as a client sees it. */
 export type ProfileInterface =
   | TextProfileInterface
   | ImageProfileInterface
@@ -136,6 +141,7 @@ export type ProfileInterface =
 /** Turn/chat composer profiles — excludes live (realtime streams, no turn inputs block). */
 export type ComposerProfileInterface = Exclude<ProfileInterface, LiveProfileInterface>;
 
+/** The kinds of block a transcript holds. */
 export type TranscriptBlockKind =
   | 'user-text'
   | 'user-attachment'
@@ -269,6 +275,7 @@ export interface TurnDoneBlock extends TranscriptBlockBase {
   endedAt?: number;
 }
 
+/** One block of a transcript: a message, an attachment, a thought, a tool call or a notice. */
 export type TranscriptBlock =
   | UserTextBlock
   | UserAttachmentBlock
@@ -283,6 +290,7 @@ export type TranscriptBlock =
   | ErrorBlock
   | TurnDoneBlock;
 
+/** A file the user has picked but not yet sent. */
 export interface PendingAttachment {
   name: string;
   mimeType: string;
@@ -291,22 +299,26 @@ export interface PendingAttachment {
   data?: string;
 }
 
+/** Whether the pending attachments pass the profile's limits, and the issues if not. */
 export interface AttachmentValidationResult {
   ok: boolean;
   issues: AttachmentValidationIssue[];
 }
 
+/** What the user has composed and not yet sent. */
 export interface UserTurnDraft {
   text?: string;
   attachments?: PendingAttachment[];
   voice?: PendingAttachment[];
 }
 
+/** Options for folding turn events into transcript blocks. */
 export interface FoldTurnEventsOptions {
   showThoughts?: boolean;
   idPrefix?: string;
 }
 
+/** True unless the profile turns thought streaming off. */
 function streamThoughtsEnabled(outputs?: ProfileOutputsSpec): boolean {
   return outputs?.streaming?.streamThoughts !== false;
 }

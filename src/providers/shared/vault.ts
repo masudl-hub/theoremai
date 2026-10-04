@@ -27,21 +27,23 @@ export function fallbackKey(
 }
 
 /**
- * A tapped fetch for a provider that takes a bearer token. A quota refusal retries once with the
- * fallback slot's key, when the profile names one; each try's slot is on the tape.
+ * A tapped fetch for a provider that takes a bearer token. `backoff` wraps each key's tapped
+ * fetch, so every try is on the tape. A quota refusal, after any backoff, retries with the
+ * fallback slot's key when the profile names one; each try's slot is on the tape.
  */
 export function bearerFetch(
   req: Pick<ProviderCompleteRequest, 'tapUpstream' | 'keySlot' | 'fallbackKeySlot'>,
   send: typeof fetch,
   vault: KeyVault | undefined,
   primary: string,
+  backoff: (send: typeof fetch) => typeof fetch = (tapped) => tapped,
 ): typeof fetch {
-  const first = tapFetch(req.tapUpstream, send, req.keySlot);
+  const first = backoff(tapFetch(req.tapUpstream, send, req.keySlot));
   const fallback = req.keySlot ? fallbackKey(req.fallbackKeySlot, vault, primary) : undefined;
   if (!fallback) {
     return first;
   }
-  const second = tapFetch(req.tapUpstream, send, fallback.slot);
+  const second = backoff(tapFetch(req.tapUpstream, send, fallback.slot));
   return async (url, init) => {
     const res = await first(url, init);
     if (res.status !== HTTP_QUOTA) {

@@ -1,6 +1,7 @@
 import { TheoremError } from '../../guardrails/error.ts';
 import type { LiveIngressSpec, LiveProfile, Profile } from '../types.ts';
 
+/** A channel a live session can take input on: audio, video or text. */
 export type LiveIngressChannel = keyof LiveIngressSpec;
 
 const LIVE_INGRESS_CHANNELS: LiveIngressChannel[] = ['audio', 'video', 'text'];
@@ -17,6 +18,7 @@ export function liveIngressChannelDefault(channel: LiveIngressChannel): boolean 
   return channel !== 'text';
 }
 
+/** True when the ingress spec enables the channel. */
 export function liveIngressEnabledFromSpec(
   ingress: LiveIngressSpec | undefined,
   channel: LiveIngressChannel,
@@ -26,11 +28,13 @@ export function liveIngressEnabledFromSpec(
   return value;
 }
 
+/** True when the live profile enables the channel. */
 export function liveIngressEnabled(profile: Profile, channel: LiveIngressChannel): boolean {
   const live = assertLiveProfile(profile);
   return liveIngressEnabledFromSpec(live.live.ingress, channel);
 }
 
+/** True when the live profile enables at least one channel. */
 export function hasAnyLiveIngress(profile: Profile): boolean {
   const live = assertLiveProfile(profile);
   return LIVE_INGRESS_CHANNELS.some((channel) =>
@@ -38,6 +42,7 @@ export function hasAnyLiveIngress(profile: Profile): boolean {
   );
 }
 
+/** Throws when the live profile enables no input channel. */
 export function assertLiveIngressConfigured(profile: Profile): void {
   const live = assertLiveProfile(profile);
   if (hasAnyLiveIngress(live)) return;
@@ -47,6 +52,7 @@ export function assertLiveIngressConfigured(profile: Profile): void {
   );
 }
 
+/** Throws when the live profile does not enable the channel. */
 export function assertLiveIngress(profile: Profile, channel: LiveIngressChannel): void {
   if (liveIngressEnabled(profile, channel)) return;
   throw new TheoremError(

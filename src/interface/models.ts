@@ -6,11 +6,13 @@ export type ModelSelectProfile = Pick<
   'id' | 'models' | 'defaultModel' | 'allowModelSelect'
 >;
 
+/** One model a user can pick from. */
 export type InterfaceModelOption = {
   id: ModelId;
   label: string;
 };
 
+/** One effort level a user can pick from, by alias. */
 export type InterfaceEffortOption = {
   alias: string;
   level: string;
@@ -24,16 +26,19 @@ function bindingFor(
   return profile.models[modelId];
 }
 
+/** True when the profile lets the user pick between two or more models. */
 function modelSelectEnabled(profile: ModelSelectProfile): boolean {
   return Boolean(profile.allowModelSelect && Object.keys(profile.models).length >= 2);
 }
 
+/** True when the model lets the user pick between two or more effort levels. */
 function effortSelectEnabled(profile: ModelSelectProfile, modelId: ModelId | undefined): boolean {
   const binding = bindingFor(profile, modelId);
   if (!binding?.allowEffortSelect) return false;
   return Object.keys(binding.efforts ?? {}).length >= 2;
 }
 
+/** True when the user has any model or effort choice to make. */
 function generationSelectEnabled(
   profile: ModelSelectProfile,
   modelId: ModelId | undefined,
@@ -54,6 +59,7 @@ function defaultInterfaceEffort(
   return keys[0];
 }
 
+/** The models the user can pick from, or none when the choice is off. */
 function interfaceModelOptions(profile: ModelSelectProfile): InterfaceModelOption[] {
   if (!modelSelectEnabled(profile)) return [];
   return Object.entries(profile.models).map(([id, binding]) => ({
@@ -62,6 +68,7 @@ function interfaceModelOptions(profile: ModelSelectProfile): InterfaceModelOptio
   }));
 }
 
+/** The effort levels the user can pick from for this model, or none when the choice is off. */
 function interfaceEffortOptions(
   profile: ModelSelectProfile,
   modelId: ModelId | undefined,

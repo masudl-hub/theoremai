@@ -13,9 +13,12 @@ import { profileFieldScope } from './profile-scope.ts';
 
 export { EGRESS_ON_BLOCK, type EgressOnBlock };
 
+/** The kinds of profile: each fixes which fields and models a profile may use. */
 export const PROFILE_TYPES = ['text', 'image', 'speech', 'live', 'decision', 'host'] as const;
+/** One of {@linkcode PROFILE_TYPES}. */
 export type ProfileType = (typeof PROFILE_TYPES)[number];
 
+/** Reasoning effort levels, lowest to highest; a model accepts only the levels its catalog row lists. */
 export const THINKING_LEVELS = [
   'none',
   'minimal',
@@ -25,12 +28,17 @@ export const THINKING_LEVELS = [
   'xhigh',
   'max',
 ] as const;
+/** One of {@linkcode THINKING_LEVELS}. */
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
+/** The wire protocols a model binding can speak. */
 export const PROTOCOLS = ['geminiInteractions', 'geminiLive', 'openAi', 'decision'] as const;
+/** One of {@linkcode PROTOCOLS}. */
 export type Protocol = (typeof PROTOCOLS)[number];
 
+/** The providers `createProvider` and `runDecision` can bind a model to. */
 export const PROVIDERS = ['google', 'openrouter', 'local', 'typesafe'] as const;
+/** One of {@linkcode PROVIDERS}. */
 export type Provider = (typeof PROVIDERS)[number];
 
 /** Turn pairs are handled by `createProvider`; decision pairs by `runDecision`. */
@@ -41,6 +49,7 @@ export const PROTOCOL_PROVIDERS = {
   decision: ['typesafe', 'openrouter'],
 } as const satisfies Record<Protocol, readonly Provider[]>;
 
+/** The protocols each profile type may bind; `host` profiles bind no model. */
 export const PROFILE_TYPE_PROTOCOLS = {
   text: ['geminiInteractions', 'openAi'],
   image: ['geminiInteractions', 'openAi'],
@@ -50,12 +59,15 @@ export const PROFILE_TYPE_PROTOCOLS = {
   host: [],
 } as const satisfies Record<ProfileType, readonly Protocol[]>;
 
+/** The protocols a profile of type `T` may bind. */
 export type ProfileTypeProtocol<T extends ProfileType> = (typeof PROFILE_TYPE_PROTOCOLS)[T][number];
 
+/** The protocols a profile type may bind. */
 export function protocolsForProfileType(type: ProfileType): readonly Protocol[] {
   return PROFILE_TYPE_PROTOCOLS[type];
 }
 
+/** True when a profile of this type may bind this protocol. */
 export function isValidProfileProtocol(type: ProfileType, protocol: Protocol): boolean {
   return (PROFILE_TYPE_PROTOCOLS[type] as readonly string[]).includes(protocol);
 }
@@ -66,40 +78,60 @@ export type KeySlot = string;
 /** Letters, digits, `-` and `_`, up to 32 characters, starting with a letter or digit. */
 export const KEY_SLOT_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/;
 
+/** True when the value is a legal key slot name. */
 export function isKeySlotName(value: unknown): value is KeySlot {
   return typeof value === 'string' && KEY_SLOT_NAME.test(value);
 }
 
+/** The host-filled keys by slot name; a slot with no key is `undefined`. */
 export type KeyVault = Readonly<Record<KeySlot, string | undefined>>;
 
+/** The kinds of media a model can take as input. */
 export const MEDIA_INPUT_KIND_VALUES = ['image', 'audio', 'video', 'document'] as const;
+/** One of {@linkcode MEDIA_INPUT_KIND_VALUES}. */
 export type MediaInputKind = (typeof MEDIA_INPUT_KIND_VALUES)[number];
 
+/** Whether the provider returns thought summaries (`auto`) or none. */
 export const SUMMARY_MODES = ['auto', 'none'] as const;
+/** One of {@linkcode SUMMARY_MODES}. */
 export type SummaryMode = (typeof SUMMARY_MODES)[number];
 
+/** How a reply arrives: as server-sent events, or buffered into one response. */
 export const STREAM_MODES = ['sse', 'buffered'] as const;
+/** One of {@linkcode STREAM_MODES}. */
 export type StreamMode = (typeof STREAM_MODES)[number];
 
+/** Audio encodings a speech profile can return. */
 export const SPEECH_AUDIO_FORMATS = ['pcm', 'mp3'] as const;
+/** One of {@linkcode SPEECH_AUDIO_FORMATS}. */
 export type SpeechAudioFormat = (typeof SPEECH_AUDIO_FORMATS)[number];
 
+/** What the user starting to speak does to a live model that is mid-reply. */
 export const LIVE_ACTIVITY_HANDLINGS = ['START_OF_ACTIVITY_INTERRUPTS', 'NO_INTERRUPTION'] as const;
+/** One of {@linkcode LIVE_ACTIVITY_HANDLINGS}. */
 export type LiveActivityHandling = (typeof LIVE_ACTIVITY_HANDLINGS)[number];
 
+/** How readily live voice detection decides the user has started speaking. */
 export const LIVE_START_SENSITIVITIES = [
   'START_SENSITIVITY_LOW',
   'START_SENSITIVITY_HIGH',
 ] as const;
+/** One of {@linkcode LIVE_START_SENSITIVITIES}. */
 export type LiveStartSensitivity = (typeof LIVE_START_SENSITIVITIES)[number];
 
+/** How readily live voice detection decides the user has stopped speaking. */
 export const LIVE_END_SENSITIVITIES = ['END_SENSITIVITY_LOW', 'END_SENSITIVITY_HIGH'] as const;
+/** One of {@linkcode LIVE_END_SENSITIVITIES}. */
 export type LiveEndSensitivity = (typeof LIVE_END_SENSITIVITIES)[number];
 
+/** What compaction counts against its token limit: the stored history or the next request's input. */
 export const COMPACTION_METERS = ['history', 'input'] as const;
+/** One of {@linkcode COMPACTION_METERS}. */
 export type CompactionMeter = (typeof COMPACTION_METERS)[number];
 
+/** Whether compaction runs before or after a turn. */
 export const COMPACTION_TIMINGS = ['before', 'after'] as const;
+/** One of {@linkcode COMPACTION_TIMINGS}. */
 export type CompactionTiming = (typeof COMPACTION_TIMINGS)[number];
 
 /**
@@ -108,14 +140,20 @@ export type CompactionTiming = (typeof COMPACTION_TIMINGS)[number];
  * - `dropped`: the compactor failed over `maxTokens`, so the compacted messages were dropped.
  */
 export const COMPACTION_OUTCOMES = ['compacted', 'deferred', 'dropped'] as const;
+/** One of {@linkcode COMPACTION_OUTCOMES}. */
 export type CompactionOutcome = (typeof COMPACTION_OUTCOMES)[number];
 
+/** How prompt caching is requested: left to the provider, or pinned on the system prompt. */
 export const CACHE_MODES = ['automatic', 'system'] as const;
+/** One of {@linkcode CACHE_MODES}. */
 export type CacheMode = (typeof CACHE_MODES)[number];
 
+/** How long a provider keeps a cached prompt. */
 export const CACHE_TTLS = ['5m', '1h'] as const;
+/** One of {@linkcode CACHE_TTLS}. */
 export type CacheTtl = (typeof CACHE_TTLS)[number];
 
+/** Why a turn stopped, as `done.stop.kind` reports it. */
 export const TURN_STOP_KINDS = [
   'completed',
   'length',
@@ -131,12 +169,15 @@ export const TURN_STOP_KINDS = [
   /** Live: model finished generating audio/text for this utterance; turn may still be open. */
   'generation_complete',
 ] as const;
+/** One of {@linkcode TURN_STOP_KINDS}. */
 export type TurnStopKind = (typeof TURN_STOP_KINDS)[number];
 
 /** Every other stop resumes by another host path, or not at all. */
 export const CONTINUE_STOP_KINDS = ['length', 'stream_incomplete', 'provider_error'] as const;
+/** One of {@linkcode CONTINUE_STOP_KINDS}. */
 export type ContinueStopKind = (typeof CONTINUE_STOP_KINDS)[number];
 
+/** The points in a turn where a stage handler runs. */
 export const TURN_STAGES = [
   'pre_turn',
   'pre_tool',
@@ -144,40 +185,50 @@ export const TURN_STAGES = [
   'before_end',
   'post_turn',
 ] as const;
+/** One of {@linkcode TURN_STAGES}. */
 export type TurnStage = (typeof TURN_STAGES)[number];
 
 const TURN_STAGE_SET = new Set<string>(TURN_STAGES);
 
+/** True when the value names a turn stage. */
 export function isTurnStage(value: unknown): value is TurnStage {
   return typeof value === 'string' && TURN_STAGE_SET.has(value);
 }
 
 /** Stages where an inject can land; the inject gate still applies. */
 export const TURN_INJECT_STAGES = ['pre_turn', 'post_tool', 'before_end'] as const;
+/** One of {@linkcode TURN_INJECT_STAGES}. */
 export type TurnInjectStage = (typeof TURN_INJECT_STAGES)[number];
 
 const TURN_INJECT_STAGE_SET = new Set<string>(TURN_INJECT_STAGES);
 
+/** True when the value names a stage an inject can land in. */
 export function isTurnInjectStage(value: unknown): value is TurnInjectStage {
   return typeof value === 'string' && TURN_INJECT_STAGE_SET.has(value);
 }
 
 /** `pre_tool` gates; not `awaiting_user_input`. */
 export const TOOL_GATE_KINDS = ['confirmation', 'permission', 'auth'] as const;
+/** One of {@linkcode TOOL_GATE_KINDS}. */
 export type ToolGateKind = (typeof TOOL_GATE_KINDS)[number];
 
 /** Why a refused gate settles: the user said no, walked away, or let it run out. */
 export const TOOL_RESUME_CAUSES = ['declined', 'abandoned', 'expired'] as const;
+/** One of {@linkcode TOOL_RESUME_CAUSES}. */
 export type ToolResumeCause = (typeof TOOL_RESUME_CAUSES)[number];
 
 const TOOL_GATE_KIND_SET = new Set<string>(TOOL_GATE_KINDS);
 
+/** True when the value names a tool gate kind. */
 export function isToolGateKind(value: unknown): value is ToolGateKind {
   return typeof value === 'string' && TOOL_GATE_KIND_SET.has(value);
 }
+/** The questions a turn can pause to ask the user. */
 export const AWAITING_USER_INPUT_KINDS = ['confirm', 'choice', 'text'] as const;
+/** One of {@linkcode AWAITING_USER_INPUT_KINDS}. */
 export type AwaitingUserInputKind = (typeof AWAITING_USER_INPUT_KINDS)[number];
 
+/** Why a stage handler's result was partly or wholly ignored. */
 export const STAGE_APPLY_WARNING_CODES = [
   'affordance_not_allowed',
   'inject_not_allowed',
@@ -191,36 +242,52 @@ export const STAGE_APPLY_WARNING_CODES = [
   'unknown_field',
   'result_invalid',
 ] as const;
+/** One of {@linkcode STAGE_APPLY_WARNING_CODES}. */
 export type StageApplyWarningCode = (typeof STAGE_APPLY_WARNING_CODES)[number];
 
+/** The `done.status` of a turn paused for a user answer. */
 export const AWAITING_USER_INPUT_STATUS = 'awaiting_user_input' as const;
 /** Enforced by the kernel at resolve time. */
 export const TOOL_LOAD_TIERS = ['T0', 'T1', 'T2'] as const;
+/** One of {@linkcode TOOL_LOAD_TIERS}. */
 export type ToolLoadTier = (typeof TOOL_LOAD_TIERS)[number];
 
+/** The HTTP methods an `http` tool may use. */
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+/** One of {@linkcode HTTP_METHODS}. */
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
 /** When remote tool auth is missing or expired. */
 export const AUTH_UNAUTHENTICATED_POLICIES = ['gate', 'report_to_model'] as const;
+/** One of {@linkcode AUTH_UNAUTHENTICATED_POLICIES}. */
 export type AuthUnauthenticatedPolicy = (typeof AUTH_UNAUTHENTICATED_POLICIES)[number];
 
+/** The kinds of tool a profile can list. */
 export const TOOL_TYPES = ['builtin', 'function', 'http', 'mcp', 'agent'] as const;
 
+/** How much a tool can change: nothing, data, or irreversibly. */
 export const TOOL_ACCESS = ['read-only', 'read-write', 'destructive'] as const;
+/** One of {@linkcode TOOL_ACCESS}. */
 export type ToolAccess = (typeof TOOL_ACCESS)[number];
 
+/** When the user must approve a tool call: never, once per session, or every call. */
 export const TOOL_PERMISSION = ['auto', 'session_consent', 'always_confirm'] as const;
+/** One of {@linkcode TOOL_PERMISSION}. */
 export type ToolPermission = (typeof TOOL_PERMISSION)[number];
 
+/** The credential shapes a remote tool can authenticate with. */
 export const TOOL_AUTH_TYPES = ['bearer', 'api_key', 'oauth2'] as const;
+/** One of {@linkcode TOOL_AUTH_TYPES}. */
 export type ToolAuthType = (typeof TOOL_AUTH_TYPES)[number];
 
 /** Adds UI-only `none`, which omits auth at compile time. */
 export const PLAYGROUND_AUTH_TYPES = ['none', ...TOOL_AUTH_TYPES] as const;
+/** One of {@linkcode PLAYGROUND_AUTH_TYPES}. */
 export type PlaygroundAuthType = (typeof PLAYGROUND_AUTH_TYPES)[number];
 
+/** One of {@linkcode TOOL_TYPES}. */
 export type ToolType = (typeof TOOL_TYPES)[number];
+/** A tool type the host defines, which is every type but `builtin`. */
 export type CustomToolType = Exclude<ToolType, 'builtin'>;
 
 /**
@@ -289,6 +356,7 @@ function mimesOf(kind: MediaInputKind): string[] {
   return Object.keys(MEDIA_INPUT_KINDS).filter((mime) => MEDIA_INPUT_KINDS[mime] === kind);
 }
 
+/** The MIME types a text profile's `accept` entries may list. */
 export const ATTACHMENT_ACCEPT_MIMES: readonly string[] = [
   'image/*',
   'video/*',
@@ -310,12 +378,15 @@ export const IMAGE_ATTACHMENT_ACCEPT_MIMES: readonly string[] = [
   'application/pdf',
 ];
 
+/** The MIME types a voice profile's `accept` entries may list. */
 export const VOICE_ACCEPT_MIMES: readonly string[] = ['audio/*', ...mimesOf('audio')];
 
+/** The providers that can serve a protocol. */
 export function providersFor(protocol: Protocol): readonly Provider[] {
   return PROTOCOL_PROVIDERS[protocol];
 }
 
+/** The protocols a provider can serve. */
 export function protocolsFor(provider: Provider): readonly Protocol[] {
   const found: Protocol[] = [];
   for (const protocol of PROTOCOLS) {
@@ -349,6 +420,7 @@ function unionType(values: readonly string[]): string {
   return values.map((value) => `'${value}'`).join(' | ');
 }
 
+/** What the catalog records about one profile field: its type, description, options and when it applies. */
 export type FieldMeta = {
   type: string;
   doc: string;
@@ -400,6 +472,7 @@ export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
   'outputs.validation.fields',
 ]);
 
+/** Turns a key path into its catalog path, replacing host-chosen map keys with `*`. */
 export function catalogPathFor(keys: readonly string[]): string {
   const resolved: string[] = [];
   for (const key of keys) {
@@ -1130,6 +1203,7 @@ const CREDENTIAL_KINDS = {
   oauth2: 'An OAuth sign-in; the host supplies the token.',
 };
 
+/** The catalog of the fields `registerTool` takes, keyed by path like `PROFILE_FIELDS`. */
 export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   /** Playground / UI path — avoids collision with profile `type` in fieldMeta(). */
   'registerTool.type': TOOL_TYPE_FIELD,

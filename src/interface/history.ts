@@ -30,6 +30,7 @@ function blobToPart(blob: TurnBlob): InteractionPart {
   return { type: kind, mimeType: blob.mimeType, data: blob.data };
 }
 
+/** The files a user turn adds to the history beside its text. */
 export type UserTurnHistoryMedia = {
   attachments?: TurnBlob[];
   voice?: TurnBlob[];
@@ -60,6 +61,7 @@ function userDraftToSteerInject(draft: UserTurnDraft): TurnHistoryMessage[] {
   );
 }
 
+/** The history with the user's draft added as a user message. */
 function appendUserDraftToHistory(
   history: TurnHistoryMessage[],
   draft: UserTurnDraft,
@@ -110,6 +112,7 @@ function appendToolCallPair(
   ];
 }
 
+/** The history with a tool call and its result added. */
 function appendToolExchangeToHistory(
   history: TurnHistoryMessage[],
   call: ToolCall,
@@ -126,6 +129,7 @@ function historyToolCall(call: ToolCall): ToolCallRequest {
   };
 }
 
+/** The history with a denied tool call and the reason added. */
 function appendToolDenialToHistory(
   history: TurnHistoryMessage[],
   tool: ToolCallRequest & {
@@ -178,6 +182,7 @@ function appendToolStepToHistory(
 /** Whether a call waiting on its gate enters history: left out, or open without a result. */
 type GatedCalls = 'omit' | 'open';
 
+/** The history with the assistant's reply from the turn events added. */
 function appendAssistantEventsToHistory(
   history: TurnHistoryMessage[],
   events: readonly TurnEvent[],
@@ -324,6 +329,7 @@ function openCallsMismatch(
   );
 }
 
+/** Throws unless the history's open tool calls are exactly these ids. */
 function assertOpenToolCalls(history: readonly TurnHistoryMessage[], ids: readonly string[]): void {
   const open = openToolCallIds(history);
   if (open.length !== ids.length || open.some((id) => !ids.includes(id))) {

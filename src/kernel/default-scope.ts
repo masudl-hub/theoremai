@@ -24,26 +24,32 @@ function registerTool<TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>): Registere
   return scope.tools.register(def);
 }
 
+/** Register or replace several tools in the default scope. */
 function registerTools(defs: ToolDefinitionInput[]): RegisteredTool[] {
   return scope.tools.registerMany(defs);
 }
 
+/** The default scope's tool `name`, or `undefined`. */
 function getTool(name: string): RegisteredTool | undefined {
   return scope.tools.get(name);
 }
 
+/** The default scope's tool `name`; throws when there is none. */
 function requireTool(name: string): RegisteredTool {
   return scope.tools.require(name);
 }
 
+/** True when the default scope has a tool `name`. */
 function hasTool(name: string): boolean {
   return scope.tools.has(name);
 }
 
+/** Every tool in the default scope. */
 function listTools(): RegisteredTool[] {
   return scope.tools.list();
 }
 
+/** Remove every tool from the default scope. */
 function resetTools(): void {
   scope.tools.reset();
 }
@@ -53,6 +59,7 @@ function registerProfile(profile: Profile | ProfileDefinition): void {
   scope.profiles.register(profile);
 }
 
+/** Define, validate and register several profiles in the default scope. */
 function registerProfiles(profiles: Array<Profile | ProfileDefinition>): void {
   scope.profiles.registerMany(profiles);
 }
@@ -62,18 +69,22 @@ function getProfile(id: string): Profile {
   return scope.profiles.get(id);
 }
 
+/** True when the default scope has a profile `id`. */
 function hasProfile(id: string): boolean {
   return scope.profiles.has(id);
 }
 
+/** Every profile in the default scope. */
 function listProfiles(): Profile[] {
   return scope.profiles.list();
 }
 
+/** Remove every profile from the default scope. */
 function clearProfiles(): void {
   scope.profiles.clear();
 }
 
+/** Register a structured-output schema in the default scope under `id`. */
 function registerStructured(id: string, spec: StructuredSpec): void {
   scope.schemas.register(id, spec);
 }
@@ -83,6 +94,7 @@ function getStructured(id: string): StructuredSpec {
   return scope.schemas.get(id);
 }
 
+/** Run one turn of a profile in the default scope, streaming its events. */
 function runTurn(
   req: TurnRequest,
   provider: ModelProvider,
@@ -91,6 +103,7 @@ function runTurn(
   return scope.runTurn(req, provider, sinkOverride);
 }
 
+/** Open a live session for a live profile in the default scope. */
 function runSession(
   req: SessionRequest,
   options: RunSessionOptions,
@@ -99,6 +112,7 @@ function runSession(
   return scope.runSession(req, options, sinkOverride);
 }
 
+/** Compact a conversation history with the model, or `undefined` when it needs none. */
 function compactHistory(
   req: CompactHistoryRequest,
   provider: ModelProvider,
@@ -107,6 +121,7 @@ function compactHistory(
   return scope.compactHistory(req, provider, sinkOverride);
 }
 
+/** Run a held tool call in the default scope, streaming the events of the turn it resumes. */
 function invokeTool(
   request: InvokeToolRequest,
   sinkOverride?: TraceSink,
@@ -114,14 +129,17 @@ function invokeTool(
   return scope.invokeTool(request, sinkOverride);
 }
 
+/** Resolve a turn request in the default scope: its profile, model and generation settings. */
 function resolveTurn(req: TurnRequest): ReturnType<typeof scope.resolveTurn> {
   return scope.resolveTurn(req);
 }
 
+/** The profile `id` projected for a client, with server-only fields removed. */
 function projectProfile(id: string): ProjectedProfile {
   return scope.projectProfile(id);
 }
 
+/** Answer a decision request with the profile's model in the default scope. */
 function runDecision(
   request: DecisionRequest,
   options: RunDecisionOptions,

@@ -1,15 +1,3 @@
-/**
- * Records → `Trial`. A live run hands the runner what its memory sink caught;
- * a recorded run hands it what a file held. Both build the same trial, so the
- * same graders give the same results.
- *
- * The root is the `invoke_agent` span that no span in the set parents. It is
- * never assumed to be the first record: a compaction turn's record can be
- * written before its parent's (P9).
- *
- * @module
- */
-
 import { TheoremError } from '../guardrails/error.ts';
 import type { TurnTokens } from '../kernel/turn-events.ts';
 import { contentOf, inlineContent, type TraceRecord } from '../observability/trace-record.ts';
@@ -27,21 +15,28 @@ function operationOf(span: TraceSpan): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
-/** Every span of every record, in start order. */
 function allSpans(records: TraceRecord[]): TraceSpan[] {
   return records.flatMap((record) => record.spans).sort(byStart);
 }
 
-/**
- * The `invoke_agent` span whose parent is absent or outside the set; the
- * earliest when several qualify (a session root before its responses).
- */
-function rootOf(spans: TraceSpan[]): TraceSpan {
-  const ids = new Set(spans.map((span) => span.spanId));
+function ancestorsOf(span: TraceSpan, byId: ReadonlyMap<string, TraceSpan>): TraceSpan[] {
+  const above: TraceSpan[] = [];
+  const seen = new Set([span.spanId]);
+  let parent = span.parentSpanId === undefined ? undefined : byId.get(span.parentSpanId);
+  while (parent && !seen.has(parent.spanId)) {
+    above.push(parent);
+    seen.add(parent.spanId);
+    parent = parent.parentSpanId === undefined ? undefined : byId.get(parent.parentSpanId);
+  }
+  return above;
+}
+
+/** The earliest `invoke_agent` span with no `invoke_agent` above it; never assumed to be the first record, since a compaction turn's record can be written before its parent's (P9). */
+function rootOf(spans: TraceSpan[], byId: ReadonlyMap<string, TraceSpan>): TraceSpan {
   const roots = spans.filter(
     (span) =>
       operationOf(span) === 'invoke_agent' &&
-      (span.parentSpanId === undefined || !ids.has(span.parentSpanId)),
+      !ancestorsOf(span, byId).some((above) => operationOf(above) === 'invoke_agent'),
   );
   const [root] = roots;
   if (!root) {
@@ -72,7 +67,6 @@ function isMessageList(value: unknown): value is TrialMessage[] {
   return Array.isArray(value) && value.every(isObject);
 }
 
-/** The root's usage attributes as `TurnTokens`; zero when the root recorded none. */
 function usageOf(root: TraceSpan): TrialUsage {
   const input = numberAttribute(root, 'gen_ai.usage.input_tokens') ?? 0;
   const output = numberAttribute(root, 'gen_ai.usage.output_tokens') ?? 0;
@@ -105,11 +99,7 @@ function usageOf(root: TraceSpan): TrialUsage {
   return costUsd === undefined ? { tokens } : { tokens, costUsd };
 }
 
-/**
- * What the host received. A turn's root carries `gen_ai.output.messages`; a
- * Live session's root carries none, and each response span carries its own
- * `theorem.output.delivered`, taken in start order.
- */
+/** A turn's root carries `gen_ai.output.messages`; a Live session's root carries none, and each response span carries its own `theorem.output.delivered`. */
 function deliveredOf(root: TraceSpan, spans: TraceSpan[]): TrialMessage[] {
   const own = root.attributes['gen_ai.output.messages'];
   if (isMessageList(own)) return own;
@@ -121,7 +111,6 @@ function deliveredOf(root: TraceSpan, spans: TraceSpan[]): TrialMessage[] {
     });
 }
 
-/** Build the trial every grader receives from the records that share one trace. */
 function buildTrial(args: {
   suite: string;
   case?: EvalCase;
@@ -130,13 +119,15 @@ function buildTrial(args: {
 }): Trial {
   const merged = mergedRecord(args.records);
   const spans = allSpans(args.records);
-  const root = rootOf(spans);
+  const byId = new Map(spans.map((span) => [span.spanId, span]));
+  const root = rootOf(spans, byId);
   return {
     suite: args.suite,
     ...(args.case ? { case: args.case } : {}),
     index: args.index,
     records: args.records,
     root,
+    top: ancestorsOf(root, byId).at(-1) ?? root,
     spans: (operation: TraceOperation) => spans.filter((span) => operationOf(span) === operation),
     children: (parent: TraceSpan) => spans.filter((span) => span.parentSpanId === parent.spanId),
     content: (value: unknown) => inlineContent(merged, value),
@@ -146,7 +137,6 @@ function buildTrial(args: {
   };
 }
 
-/** Group records by trace id, in first-seen order. */
 function groupByTrace(records: TraceRecord[]): Map<string, TraceRecord[]> {
   const groups = new Map<string, TraceRecord[]>();
   for (const record of records) {
@@ -159,7 +149,6 @@ function groupByTrace(records: TraceRecord[]): Map<string, TraceRecord[]> {
   return groups;
 }
 
-/** Whether these records hold a turn at all: an `invoke_agent` span. An eval run record does not. */
 function hasTurn(records: readonly TraceRecord[]): boolean {
   return records.some((record) =>
     record.spans.some((span) => operationOf(span) === 'invoke_agent'),

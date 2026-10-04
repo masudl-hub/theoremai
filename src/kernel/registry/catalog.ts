@@ -11,6 +11,7 @@ import type {
 } from '../types.ts';
 import { mimeEssence } from '../util/mime.ts';
 
+/** Where a media input arrives: as an attachment or as voice. */
 type MediaInputChannel = 'attachments' | 'voice';
 
 /** Rules support a subtype wildcard such as `image/*`; parameter values are ignored. */
@@ -25,6 +26,7 @@ function mimeAllowed(accept: readonly string[], mime: string): boolean {
   });
 }
 
+/** The kind of media a MIME type is, or `undefined` when it is not accepted. */
 function mediaKindForMime(mime: string): MediaInputKind | undefined {
   return MEDIA_INPUT_KINDS[mimeEssence(mime)];
 }
@@ -55,6 +57,7 @@ function mediaChannelForMime(profile: Profile, mime: string): MediaInputChannel 
   return undefined;
 }
 
+/** The profile's binding for the model id; throws when there is none. */
 function requireModelBinding(profile: ModelProfile, modelId: ModelId): ModelBinding {
   const binding = profile.models[modelId];
   if (!binding) {
@@ -86,10 +89,12 @@ function clampLevels(binding: ModelBinding | undefined, level: ThinkingLevel): T
   return legal[0] ?? level;
 }
 
+/** The level, lowered to the nearest the binding accepts. */
 function clampThinkingLevel(binding: ModelBinding, level: ThinkingLevel): ThinkingLevel {
   return clampLevels(binding, level);
 }
 
+/** The binding whose provider model id is `apiId`, or `undefined`. */
 function modelEntryByApiId(
   bindings: Record<string, ModelBinding>,
   apiId: string,
@@ -97,6 +102,7 @@ function modelEntryByApiId(
   return Object.values(bindings).find((m) => m.apiId === apiId);
 }
 
+/** The level, lowered to the nearest the binding for this provider model id accepts. */
 function clampThinkingLevelForApiId(
   bindings: Record<string, ModelBinding>,
   apiId: string,

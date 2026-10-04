@@ -5,14 +5,7 @@ import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../../src/kernel/registry/profiles.ts';
 import { requireModelProfile } from '../../../src/kernel/registry/resolve.ts';
 import type { KeyVault } from '../../../src/kernel/types.ts';
-import {
-  backoffMs,
-  fetchGemini,
-  isTransientHttp,
-  isTransientThrown,
-  waitDefault,
-  withApiKey,
-} from '../../../src/providers/google/keys.ts';
+import { fetchGemini, withApiKey } from '../../../src/providers/google/keys.ts';
 import { fallbackKey, requireKey } from '../../../src/providers/shared/vault.ts';
 
 const vault: KeyVault = {
@@ -275,46 +268,6 @@ Deno.test('fetchGemini tapes every try under the slot it was sent with', async (
   );
 });
 
-Deno.test('isTransientHttp flags retryable status codes only', () => {
-  assertEquals(isTransientHttp(408), true);
-  assertEquals(isTransientHttp(429), true);
-  assertEquals(isTransientHttp(500), true);
-  assertEquals(isTransientHttp(502), true);
-  assertEquals(isTransientHttp(503), true);
-  assertEquals(isTransientHttp(504), true);
-  assertEquals(isTransientHttp(200), false);
-  assertEquals(isTransientHttp(400), false);
-  assertEquals(isTransientHttp(401), false);
-  assertEquals(isTransientHttp(403), false);
-  assertEquals(isTransientHttp(404), false);
-});
-
-Deno.test('isTransientThrown matches known transient network error shapes', () => {
-  assertEquals(isTransientThrown(new Error('dns lookup failed')), true);
-  assertEquals(isTransientThrown(new Error('ECONNRESET')), true);
-  assertEquals(isTransientThrown(new Error('fetch failed')), true);
-  assertEquals(isTransientThrown(new Error('503 service unavailable')), true);
-  assertEquals(isTransientThrown(new Error('socket hang up')), true);
-  assertEquals(isTransientThrown(new Error('temporarily unavailable')), true);
-});
-
-Deno.test('isTransientThrown never retries abort errors', () => {
-  const abort = new DOMException('The operation was aborted.', 'AbortError');
-  assertEquals(isTransientThrown(abort), false);
-});
-
-Deno.test('isTransientThrown is false for unrelated errors', () => {
-  assertEquals(isTransientThrown(new Error('invalid input')), false);
-});
-
-Deno.test('backoffMs follows the configured schedule and falls back after it', () => {
-  assertEquals(backoffMs(0), 1000);
-  assertEquals(backoffMs(1), 2000);
-  assertEquals(backoffMs(2), 4000);
-  assertEquals(backoffMs(3), 2000);
-  assertEquals(backoffMs(10), 2000);
-});
-
 Deno.test('fallbackKey offers only a named, filled, different key', () => {
   assertEquals(fallbackKey(undefined, vault, 'free-a-key'), undefined);
   assertEquals(fallbackKey('spare', { ...vault, spare: undefined }, 'free-a-key'), undefined);
@@ -360,9 +313,4 @@ Deno.test('requireKey throws TheoremError when the slot has no key', () => {
 
 Deno.test('requireKey returns the key when present', () => {
   assertEquals(requireKey(vault, 'slot_a'), 'free-a-key');
-});
-
-Deno.test('waitDefault returns a promise', () => {
-  const result = waitDefault(0);
-  assertEquals(typeof result.then, 'function');
 });

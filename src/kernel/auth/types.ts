@@ -26,6 +26,7 @@ export interface AuthorizationServerMetadata {
   [key: string]: unknown;
 }
 
+/** The tokens an OAuth server returns. */
 export interface OAuthTokens {
   access_token: string;
   token_type?: string;
@@ -35,6 +36,7 @@ export interface OAuthTokens {
   [key: string]: unknown;
 }
 
+/** An OAuth sign-in a tool authenticates with. */
 export interface OAuth2Credential {
   type: 'oauth2';
   issuer: string;
@@ -49,11 +51,13 @@ export interface OAuth2Credential {
   scope?: string;
 }
 
+/** A bearer token a tool authenticates with. */
 export interface BearerCredential {
   type: 'bearer';
   token: string;
 }
 
+/** An API key a tool authenticates with. */
 export interface ApiKeyCredential {
   type: 'api_key';
   key: string;
@@ -61,6 +65,7 @@ export interface ApiKeyCredential {
   headerPrefix?: string;
 }
 
+/** Any credential a tool can authenticate with. */
 export type ToolCredential = OAuth2Credential | BearerCredential | ApiKeyCredential;
 
 /** Every discovery and token request clears the network policy and never follows a redirect. */
@@ -72,6 +77,7 @@ export interface OAuthTransportOptions {
   fetchFn?: typeof fetch;
 }
 
+/** The endpoints of an OAuth authorization server. */
 export interface OAuthEndpoints {
   issuer: string;
   authorizationEndpoint: string;
@@ -80,6 +86,7 @@ export interface OAuthEndpoints {
   issParameterSupported?: boolean;
 }
 
+/** Options for starting a PKCE authorization. */
 export interface CreatePkceFlowOptions extends OAuthTransportOptions {
   /**
    * An https URL (e.g. the MCP server) and the token's audience (RFC 8707). Without
@@ -114,6 +121,7 @@ export interface CreatePkceFlowOptions extends OAuthTransportOptions {
   authorizationParams?: Readonly<Record<string, string>>;
 }
 
+/** A started PKCE authorization: the URL to send the user to and the values to keep. */
 export interface PkceFlowResult {
   authorizationUrl: string;
   state: string;
@@ -122,6 +130,7 @@ export interface PkceFlowResult {
   resource: string;
 }
 
+/** Options for trading an authorization code for tokens. */
 export interface ExchangePkceCodeOptions extends OAuthTransportOptions {
   code: string;
   state: string;
@@ -136,11 +145,13 @@ export interface ExchangePkceCodeOptions extends OAuthTransportOptions {
   clientSecret?: string;
 }
 
+/** The tokens and credential a PKCE exchange yields. */
 export interface ExchangePkceCodeResult {
   tokens: OAuthTokens;
   credential: OAuth2Credential;
 }
 
+/** Options for refreshing an OAuth access token. */
 export interface RefreshOAuthTokenOptions extends OAuthTransportOptions {
   refreshToken: string;
   tokenEndpoint: string;

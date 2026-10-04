@@ -6,7 +6,7 @@
  * Core: @astryxdesign/core@0.6.3
  */
 
-import { tablerIcons } from "../icons";
+import { tablerIcons } from "../icons.js";
 /**
  * theorem theme — built by `npx astryx theme build`
  * Import the CSS file alongside this module:
@@ -513,6 +513,26 @@ export const theoremTheme = {
           "height": "0",
           "paddingTop": "0",
           "contentVisibility": "hidden"
+        }
+      }
+    },
+    "citation": {
+      "base": {
+        ":where(*) > [aria-hidden=\"true\"]": {
+          "backgroundColor": "transparent",
+          "borderWidth": "0",
+          "borderRadius": "0"
+        },
+        ":where(*) > [aria-hidden=\"true\"] > img": {
+          "width": "100%",
+          "height": "100%"
+        }
+      }
+    },
+    "chat-tool-calls": {
+      "base": {
+        ":where(*) [role=\"button\"][aria-expanded] > span:not(:first-child):not(:has(svg))": {
+          "alignSelf": "baseline"
         }
       }
     },

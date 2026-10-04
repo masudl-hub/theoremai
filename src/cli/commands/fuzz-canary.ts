@@ -1,13 +1,4 @@
-/**
- * Adversarial canary egress fuzzer.
- *
- * Pipes synthetic model leak attempts through the real runTurn stream gate
- * and Live batch gate, then reports bypasses — output where the attack's
- * encoded canary still reached the client. The check reads the attack's own
- * payload, not the detector under test.
- *
- * @module
- */
+// A bypass is judged from the attack's own encoded canary, not from the detector under test.
 
 import {
   bindCanary,
@@ -19,18 +10,28 @@ import {
   buildCanaryEgressAttacks,
   type CanaryEgressAttack,
   FIXED_CANARY,
+  FUZZ_SYSTEM,
 } from '../../guardrails/corpus/canary-egress-attacks.ts';
+import { givenUrlSets } from '../../guardrails/egress-urls.ts';
 import {
   createLiveOutboundGateSession,
   finalizeLiveOutboundTurn,
   processLiveOutboundBatch,
 } from '../../guardrails/live-outbound-gate.ts';
 import { scanTextOf } from '../../guardrails/serialize.ts';
-import { yieldProviderEvents } from '../../kernel/engine/runner/stream.ts';
-import { clearProfiles, getProfile, registerProfile } from '../../kernel/registry/profiles.ts';
+import {
+  clearProfiles,
+  getProfile,
+  registerProfile,
+  resolveTurn,
+} from '../../kernel/default-scope.ts';
+import {
+  type OutboundStreamControl,
+  yieldProviderEvents,
+} from '../../kernel/engine/runner/stream.ts';
 import { providerCompleteRequest } from '../../kernel/registry/provider-request.ts';
-import { resolveTurn } from '../../kernel/registry/resolve.ts';
-import type { ResolvedGeneration, TurnEvent } from '../../kernel/types.ts';
+import { defaultKernelScope } from '../../kernel/scope.ts';
+import type { ProviderEvent, ResolvedGeneration, TurnEvent } from '../../kernel/types.ts';
 
 const FUZZ_PROFILE_ID = '__fuzz_canary__';
 
@@ -53,6 +54,7 @@ function registerFuzzCanaryProfile(): void {
         protocol: 'openAi',
         provider: 'openrouter',
         apiId: 'fuzz-model',
+        key: 'fuzz',
         efforts: { normal: 'none' },
         summaries: false,
         maxOutputTokens: 4096,
@@ -75,8 +77,8 @@ function resolveFuzzGeneration(canary: string): ResolvedGeneration {
   return { ...generation, canary };
 }
 
-async function collectEvents(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
+async function collectEvents<E>(gen: AsyncIterable<E>): Promise<E[]> {
+  const out: E[] = [];
   for await (const event of gen) {
     out.push(event);
   }
@@ -129,8 +131,7 @@ function channelResult(
   };
 }
 
-/** A provider stream that yields one attack turn's model output. */
-async function* replay(turn: TurnEvent[]): AsyncGenerator<TurnEvent> {
+async function* replay(turn: ProviderEvent[]): AsyncGenerator<ProviderEvent> {
   await Promise.resolve();
   yield* turn;
 }
@@ -141,17 +142,28 @@ async function runStreamChannel(
   canary: string,
 ): Promise<ChannelResult> {
   const events: TurnEvent[] = [];
+  // Every provider call of one turn shares its canary: each attack turn is a step.
+  const control: OutboundStreamControl = { withholdVisible: false };
   for (const turn of attack.turns) {
-    const turnEvents = await collectEvents(
+    const streamed = await collectEvents(
       yieldProviderEvents({
         profile: getProfile(FUZZ_PROFILE_ID),
         generation,
-        request: providerCompleteRequest(generation, bindCanary('fuzz system', canary)),
+        request: providerCompleteRequest(
+          defaultKernelScope.tools,
+          generation,
+          bindCanary(FUZZ_SYSTEM, canary),
+        ),
+        privateSystem: [bindCanary(FUZZ_SYSTEM, canary)],
         provider: { complete: () => replay(turn) },
         // The fuzz reads what reaches the client, not the trace.
         call: { tap: () => {}, observe: () => {} },
+        control,
+        givenUrls: givenUrlSets(),
       }),
     );
+    // The runner reads the call's `done`; the client never receives it.
+    const turnEvents = streamed.flatMap((event) => (event.type === 'done' ? [] : [event]));
     events.push(...turnEvents);
     if (turnEvents.some((event) => event.type === 'error')) {
       return channelResult(attack, 'runTurn.stream', true, events);
@@ -165,7 +177,9 @@ async function runLiveBatchChannel(
   attack: CanaryEgressAttack,
   canary: string,
 ): Promise<ChannelResult> {
-  const session = createLiveOutboundGateSession(getProfile(FUZZ_PROFILE_ID), canary);
+  const session = createLiveOutboundGateSession(getProfile(FUZZ_PROFILE_ID), canary, [
+    bindCanary(FUZZ_SYSTEM, canary),
+  ]);
   const events: TurnEvent[] = [];
   for (const turn of attack.turns) {
     for (const result of [
@@ -248,14 +262,12 @@ export async function fuzzCanaryCommand(options?: { canary?: string }): Promise<
     return false;
   }
 
-  // Sanity: mint path uses same shape
   const minted = mintCanary();
   if (!/^[0-9a-f]{32}$/.test(minted)) {
     console.error(`mintCanary produced unexpected shape: ${minted}`);
     return false;
   }
 
-  // Spot-check scan helper matches expectations
   if (!scanTextForCanaryLeak(canary, canary)) {
     console.error('scanTextForCanaryLeak failed to detect literal canary');
     return false;

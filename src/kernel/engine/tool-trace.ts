@@ -1,41 +1,73 @@
-/**
- * The `execute_tool` span: one tool call Theorem ran or settled, from before
- * `pre_tool` to settlement, so it covers the hooks, the gates and the body.
- *
- * Provider-run tools (search, maps, code execution) are not spans here:
- * Theorem did not run them; they are parts of the model call's output.
- *
- * @module
- */
-
 import { errorKind } from '../../guardrails/error.ts';
-import type { ToolOrigin } from '../../guardrails/types.ts';
+import type { GuardrailEvent, GuardrailStage, ToolOrigin } from '../../guardrails/types.ts';
 import {
   type SpanHandle,
   type TraceAttributes,
   traceContent,
   traceJson,
 } from '../../observability/trace-span.ts';
+import { authScopeRefusedSchema } from '../auth/scope-refusal.ts';
 import type { ToolPermission } from '../schema.ts';
 import type { ToolFailure, ToolGate } from '../tools/types.ts';
 import type { InteractionPart, TurnEvent } from '../types.ts';
 import {
+  type GuardrailCheck,
   guardrailAttributes,
+  guardrailCheckAttributes,
   optional,
   recordException,
+  type SentToolCall,
   toolArgumentsText,
   tracePart,
 } from './turn-trace.ts';
 
+/** A check at the tool boundary: the call's arguments, the remote-content gate, the result, or the network target. */
+type ToolCheck = Extract<
+  GuardrailCheck,
+  'tool_arguments' | 'taint' | 'tool_result' | 'tool_failure' | 'network' | 'network_request'
+>;
+
+const TOOL_CHECK_STAGE: Readonly<Record<ToolCheck, GuardrailStage>> = {
+  tool_arguments: 'tool_call',
+  taint: 'tool_call',
+  tool_result: 'tool_result',
+  tool_failure: 'tool_result',
+  network: 'network',
+  network_request: 'network',
+};
+
+/** Decisions already recorded with their check's time, so `observe` does not record them twice. */
+const timedDecisions = new WeakSet<GuardrailEvent>();
+
+/**
+ * Records one tool-boundary check on the tool's span with the time it took:
+ * its decision, or a pass (`allow`) when it let the call or result through.
+ * Trace only; the host still hears about decisions alone. An untraced call has no span.
+ */
+function recordToolCheck(
+  span: SpanHandle | undefined,
+  check: ToolCheck,
+  durationMs: number,
+  guardrail: GuardrailEvent | undefined,
+): void {
+  if (!span) return;
+  if (guardrail) timedDecisions.add(guardrail);
+  span.event(
+    'theorem.guardrail',
+    guardrailCheckAttributes(check, durationMs, guardrail, {
+      stage: TOOL_CHECK_STAGE[check],
+      trust: 'untrusted',
+    }),
+  );
+}
+
 /** How a tool call ended. Only `error` is a failure; the rest were stopped or finished. */
 type ToolOutcome = 'ok' | 'error' | 'denied' | 'gated' | 'paused' | 'cancelled';
 
-/** What is known about a call when its span opens. */
 interface ToolCallStart {
   name: string;
   callId: string;
-  /** The call as the model or host sent it; see `toolArgumentsText`. */
-  call: Pick<NonNullable<TurnEvent['tool']>, 'arguments' | 'failure'>;
+  call: SentToolCall;
   /** Absent when the tool is not registered. */
   origin?: ToolOrigin;
   permission?: ToolPermission;
@@ -45,7 +77,6 @@ interface ToolCallStart {
   step?: number;
 }
 
-/** How a call settled. */
 interface ToolCallEnd {
   outcome: ToolOutcome;
   /** What the model reads back: its text and any media. Absent when nothing is read back. */
@@ -58,10 +89,8 @@ interface ToolCallEnd {
   thrown?: unknown;
 }
 
-/** Recorder for one tool call's span. */
 interface ToolCallTrace {
   span: SpanHandle;
-  /** Every event the call emitted. */
   observe: (event: TurnEvent) => void;
   end: (end: ToolCallEnd) => void;
 }
@@ -86,7 +115,7 @@ function toolSpanAttributes(start: ToolCallStart): TraceAttributes {
 
 /** A gate as `theorem.gate` event attributes. The auth `state` is a secret and never recorded. */
 function gateAttributes(gate: ToolGate): TraceAttributes {
-  const auth = gate.authChallenge;
+  const auth = gate.kind === 'auth' ? gate.authChallenge : undefined;
   return {
     kind: gate.kind,
     ...optional('permission', gate.permission),
@@ -96,6 +125,7 @@ function gateAttributes(gate: ToolGate): TraceAttributes {
           auth: {
             slot: auth.slot,
             type: auth.authType,
+            service: auth.service,
             ...optional('issuer', auth.issuer),
             ...optional('resource', auth.resource),
             ...optional('required_scopes', auth.requiredScopes),
@@ -115,8 +145,9 @@ const OUTCOME_STATUS: Record<ToolOutcome, 'OK' | 'ERROR' | 'UNSET'> = {
 };
 
 /**
- * Open the `execute_tool` span for one call. `open` places it: a child of the
- * turn's root, or the root of a host-invoked tool's own record.
+ * Spans from before `pre_tool` to settlement, so it covers the hooks, the gates and the body.
+ * Provider-run tools (search, maps, code execution) get no span: Theorem did not run them.
+ * `open` places it: a child of the turn's root, or the root of a host-invoked tool's own record.
  */
 function startToolTrace(
   open: (name: string, attributes: TraceAttributes) => SpanHandle,
@@ -126,9 +157,29 @@ function startToolTrace(
   return {
     span,
     observe: (event) => {
-      if (event.guardrail) span.event('theorem.guardrail', guardrailAttributes(event.guardrail));
-      if (event.tool?.phase === 'gate' && event.tool.gate) {
+      if (event.type === 'guardrail' && !timedDecisions.has(event.guardrail)) {
+        span.event('theorem.guardrail', guardrailAttributes(event.guardrail));
+      }
+      if (event.type === 'tool' && event.tool.phase === 'gate') {
         span.event('theorem.gate', gateAttributes(event.tool.gate));
+      }
+      if (event.type === 'tool' && event.tool.phase === 'progress') {
+        const refused = authScopeRefusedSchema.safeParse(event.tool.data);
+        if (refused.success) {
+          const { slot, requested, declared } = refused.data;
+          span.event('theorem.auth.scope_refused', { slot, requested, declared });
+        }
+      }
+      if (event.type === 'tool' && event.tool.phase === 'warning') {
+        const { code, message, severity } = event.tool.warning;
+        span.event('theorem.tool.warning', {
+          code,
+          message: traceContent(message),
+          ...optional('severity', severity),
+        });
+      }
+      if (event.type === 'citation') {
+        span.event('theorem.grounding', { sources: traceJson(event.sources) });
       }
     },
     end: (end) => {
@@ -153,5 +204,5 @@ function startToolTrace(
   };
 }
 
-export type { ToolCallEnd, ToolCallStart, ToolCallTrace, ToolOutcome };
-export { startToolTrace, toolSpanName };
+export type { ToolCallEnd, ToolCallStart, ToolCallTrace, ToolCheck, ToolOutcome };
+export { recordToolCheck, startToolTrace, toolSpanName };

@@ -1,24 +1,23 @@
-/**
- * The tool boundary — untrusted bytes re-entering the model's context carrying the
- * model's own authority. Remote results are fenced and labelled, remote failure
- * messages are redacted, and every decision surfaces as a guardrail event.
- */
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { guardToolResult } from '../../src/guardrails/tool-result.ts';
-import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import {
-  executeRegisteredTool,
-  formatToolFailureForModel,
-  formatToolResult,
-} from '../../src/kernel/tools/execute.ts';
-import { registerTool, resetTools } from '../../src/kernel/tools/registry.ts';
+  getProfile,
+  registerProfile,
+  registerTool,
+  resetTools,
+} from '../../src/kernel/default-scope.ts';
+import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { executeRegisteredTool } from '../../src/kernel/tools/execute.ts';
+import { formatToolFailureForModel, formatToolResult } from '../../src/kernel/tools/model-text.ts';
 import type { ModelToolResult } from '../../src/kernel/tools/types.ts';
 import type { Profile, TurnEvent } from '../../src/kernel/types.ts';
+import { eventsOf, toolEventsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const OMITTED_INJECTION = '[omitted - injection]';
@@ -91,6 +90,7 @@ async function run(
 ): Promise<{ events: TurnEvent[]; result: ModelToolResult | undefined }> {
   const events: TurnEvent[] = [];
   const exec = executeRegisteredTool({
+    tools: defaultKernelScope.tools,
     profile,
     name,
     input,
@@ -105,10 +105,7 @@ async function run(
   return { events, result: step.value.modelResult };
 }
 
-const guardrails = (events: TurnEvent[]) =>
-  events.filter((e) => e.type === 'guardrail').map((e) => e.guardrail);
-
-// ── fencing and provenance ───────────────────────────────────────────────────
+const guardrails = (events: TurnEvent[]) => eventsOf(events, 'guardrail').map((e) => e.guardrail);
 
 Deno.test('a remote tool result is fenced and labelled with its origin', async () => {
   const profile = toolProfile();
@@ -151,8 +148,6 @@ Deno.test('a remote result cannot forge its own fence to escape the wrapper', as
     restore();
   }
 });
-
-// ── detection across the boundary ────────────────────────────────────────────
 
 Deno.test('injection in a remote tool result is redacted and reported', async () => {
   const profile = toolProfile();
@@ -200,8 +195,6 @@ Deno.test('injection hidden in the structured data half is still caught', async 
   assertEquals(text.includes(INJ_IGNORE), false);
 });
 
-// ── tool arguments ───────────────────────────────────────────────────────────
-
 Deno.test('a credential in tool arguments is flagged, not rewritten', async () => {
   const profile = toolProfile();
   resetTools();
@@ -225,16 +218,13 @@ Deno.test('ordinary tool arguments raise nothing', async () => {
   );
 });
 
-// ── failure messages ─────────────────────────────────────────────────────────
-
 Deno.test('a remote failure message cannot smuggle instructions to the model', async () => {
   const profile = toolProfile();
   resetTools();
   const restore = registerRemote({ error: INJ_IGNORE }, 500);
   try {
     const { events } = await run(profile, 'remote_lookup', { q: 'x' });
-    const failure = events.find((e) => e.type === 'tool' && e.tool?.phase === 'error')?.tool
-      ?.failure;
+    const failure = toolEventsOf(events, 'error')[0]?.failure;
     assertEquals(failure !== undefined, true);
     if (!failure) return;
 
@@ -267,8 +257,6 @@ Deno.test('a host that disables detection keeps the raw failure message', () => 
   );
   assertEquals(guarded.finding.includes(INJ_IGNORE), true);
 });
-
-// ── advisory annotation on the fence ─────────────────────────────────────────
 
 Deno.test('clean remote content carries no advisory', async () => {
   const profile = toolProfile();

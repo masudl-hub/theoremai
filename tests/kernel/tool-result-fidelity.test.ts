@@ -1,14 +1,8 @@
-/**
- * Tool-result fidelity: project → history shape → adapter wire.
- */
 import '../fixtures/test-host.ts';
 import { assertEquals } from '@std/assert';
 import { historyMessageParts, wireInteractionPart } from '../../src/kernel/interaction-parts.ts';
-import {
-  coerceToolResultParts,
-  formatToolResult,
-  projectForModel,
-} from '../../src/kernel/tools/execute.ts';
+import { coerceToolResultParts, projectForModel } from '../../src/kernel/tools/execute.ts';
+import { formatToolResult } from '../../src/kernel/tools/model-text.ts';
 import type { FunctionToolDef } from '../../src/kernel/tools/types.ts';
 import { historyStep } from '../../src/providers/google/interactions/framing.ts';
 import { wireMessageContent } from '../../src/providers/openrouter/openai/compat.ts';
@@ -89,4 +83,10 @@ Deno.test('coerceToolResultParts drops empty media and unknown shapes', () => {
   );
   assertEquals(coerceToolResultParts([]), undefined);
   assertEquals(coerceToolResultParts('nope'), undefined);
+});
+
+Deno.test('coerceToolResultParts skips entries that are not parts instead of failing on them', () => {
+  assertEquals(coerceToolResultParts([null, 5, 'x', { type: 3 }, { type: 'text', text: 'kept' }]), [
+    { type: 'text', text: 'kept' },
+  ]);
 });

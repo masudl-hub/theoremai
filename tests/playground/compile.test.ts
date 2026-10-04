@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
-import { standardEgressEnforce } from '../../mod.ts';
+import { isKeySlotName, registerProfile } from '../../mod.ts';
 import {
+  COMPACTION_DRAFT_DEFAULTS,
   compilePlayground,
   createBlankDraft,
   createExampleDraft,
@@ -25,16 +26,47 @@ import {
   playgroundNodeRef,
   playgroundSource,
   playgroundTree,
+  removeModelBinding,
   setProfileType,
   toolSpecNodeId,
+  updateModelBinding,
   zodFromJsonSchema,
 } from '../../playground/mod.ts';
 import { quoteSource } from '../../playground/tool-schema.ts';
 
+Deno.test('renaming a binding preserves the selected default and leaves other bindings alone', () => {
+  const draft = createExampleDraft();
+  const renamed = updateModelBinding(draft, draft.modelBindings[0].key, { modelId: 'primary' });
+  assertEquals(renamed.models.defaultModel, 'primary');
+  assertEquals(renamed.modelBindings[0].key, draft.modelBindings[0].key);
+  assertEquals(renamed.modelBindings.slice(1), draft.modelBindings.slice(1));
+  assert(compilePlayground(renamed).ok);
+  const other = updateModelBinding(renamed, draft.modelBindings[1].key, { modelId: 'secondary' });
+  assertEquals(other.models.defaultModel, 'primary');
+  assert(compilePlayground(other).ok);
+});
+
+Deno.test('removing the default binding clears the default and turns model select off', () => {
+  const draft = createExampleDraft();
+  const first = draft.modelBindings[0];
+  const removed = removeModelBinding(
+    { ...draft, models: { ...draft.models, defaultModel: first.modelId, allowModelSelect: true } },
+    first.key,
+  );
+  assertEquals(removed.modelBindings, draft.modelBindings.slice(1));
+  assertEquals(removed.models.defaultModel, '');
+  assertEquals(removed.models.allowModelSelect, draft.modelBindings.length > 2);
+  assertEquals(removeModelBinding(draft, 'missing'), draft);
+});
+
+/** A turn draft's compile; decision and host drafts have their own tests. */
 function compiled(draft: PlaygroundDraft) {
   const result = compilePlayground(draft);
   if (!result.ok) throw new Error(`unexpected issues: ${JSON.stringify(result.issues)}`);
-  return result;
+  const { profile } = result;
+  if (profile.type === 'decision' || profile.type === 'host')
+    throw new Error('expected a turn profile');
+  return { ...result, profile };
 }
 
 function issueNodes(result: PlaygroundCompileResult): string[] {
@@ -51,8 +83,67 @@ Deno.test('the example draft compiles to the travel concierge', () => {
   assertEquals(profile.defaultModel, 'fast');
   assertEquals(result.customTools.length, demoToolSpecs().length);
   assert(profile.type === 'text' && profile.tools?.allow?.includes('geocode_city'));
-  assertEquals(profile.guardrails?.egress?.enforce, standardEgressEnforce);
+  assertEquals(profile.guardrails?.egress?.checks, true);
+  assertEquals(profile.guardrails?.egress?.enforce, undefined);
   assertEquals(profile.observability?.writeTo, 'playground');
+});
+
+Deno.test('egress checks compile to what differs from the bundled defaults', () => {
+  const draft = createExampleDraft();
+  const checks = (egressChecks: Partial<PlaygroundDraft['guardrails']['egressChecks']>) => {
+    const { guardrails } = draft;
+    return compiled({
+      ...draft,
+      guardrails: { ...guardrails, egressChecks: { ...guardrails.egressChecks, ...egressChecks } },
+    }).profile.guardrails?.egress?.checks;
+  };
+  const { egressChecks } = draft.guardrails;
+  assertEquals(checks({}), true);
+  assertEquals(
+    checks({
+      sensitive: { ...egressChecks.sensitive, network: true },
+      injection: false,
+      images: { on: true, hosts: [' cdn.acme.io '], fromTools: true },
+      links: { on: true, hosts: [], fromTools: false },
+    }),
+    {
+      sensitive: { network: true },
+      injection: false,
+      images: { hosts: ['cdn.acme.io'] },
+      links: { fromTools: false },
+    },
+  );
+  assertEquals(checks({ links: { on: true, hosts: [], fromTools: true } }), { links: true });
+  assertEquals(checks({ images: { ...egressChecks.images, on: false } }), { images: false });
+  assertEquals(
+    checks({
+      sensitive: { ids: false, financial: false, network: false, credentials: false },
+      boundary: false,
+      injection: false,
+      images: { ...egressChecks.images, on: false },
+    }),
+    false,
+  );
+});
+
+Deno.test('a blank egress host is reported at its check', () => {
+  const draft = createExampleDraft();
+  const { guardrails } = draft;
+  const result = compilePlayground({
+    ...draft,
+    guardrails: {
+      ...guardrails,
+      egressChecks: {
+        ...guardrails.egressChecks,
+        links: { on: true, hosts: ['docs.acme.io', ' '], fromTools: true },
+      },
+    },
+  });
+  if (result.ok) throw new Error('expected issues');
+  assertEquals(
+    result.issues.map(({ nodeId, field, index }) => ({ nodeId, field, index })),
+    [{ nodeId: 'guardrails', field: 'egressChecks.links.hosts', index: 1 }],
+  );
 });
 
 Deno.test('a blank draft reports its identity issues', () => {
@@ -84,6 +175,23 @@ Deno.test('a model with several efforts and no default is an issue on its defaul
   assertEquals(
     result.issues.map(({ nodeId, field }) => ({ nodeId, field })),
     [{ nodeId: modelBindingNodeId(fast.key), field: 'defaultEffort' }],
+  );
+});
+
+Deno.test('a thinking level the protocol does not take is an issue on that effort', () => {
+  const draft = createExampleDraft();
+  const [fast, ...rest] = draft.modelBindings;
+  const result = compilePlayground({
+    ...draft,
+    modelBindings: [
+      { ...fast, efforts: [fast.efforts[0], { ...fast.efforts[1], level: 'none' }] },
+      ...rest,
+    ],
+  });
+  assert(!result.ok);
+  assertEquals(
+    result.issues.map(({ nodeId, field, index }) => ({ nodeId, field, index })),
+    [{ nodeId: modelBindingNodeId(fast.key), field: 'efforts', index: 1 }],
   );
 });
 
@@ -154,6 +262,49 @@ Deno.test('summaries compile on, off, or left to the provider', () => {
   assertEquals(summaries(null), undefined);
 });
 
+Deno.test('a Gemini Interactions binding always compiles its chaining, and storage only when set', () => {
+  const draft = createExampleDraft();
+  const [fast, ...rest] = draft.modelBindings;
+  const model = (patch: Partial<typeof fast>) =>
+    compiled({ ...draft, modelBindings: [{ ...fast, ...patch }, ...rest] }).profile.models[
+      fast.modelId
+    ];
+  const unset = model({});
+  assertEquals(unset.persistViaInteractionId, false);
+  assertEquals(unset.store, undefined);
+  const chained = model({ store: true, persistViaInteractionId: true });
+  assertEquals([chained.store, chained.persistViaInteractionId], [true, true]);
+  assertEquals(model({ store: false }).store, false);
+});
+
+Deno.test('chaining with storage off is an issue on its binding', () => {
+  const draft = createExampleDraft();
+  const [fast, ...rest] = draft.modelBindings;
+  const result = compilePlayground({
+    ...draft,
+    modelBindings: [{ ...fast, store: false, persistViaInteractionId: true }, ...rest],
+  });
+  assertEquals(issueNodes(result), [modelBindingNodeId(fast.key)]);
+  assert(!result.ok && result.issues[0].field === 'persistViaInteractionId');
+});
+
+Deno.test('chaining and storage compile only on Gemini Interactions', () => {
+  const draft = createExampleDraft();
+  const [fast, ...rest] = draft.modelBindings;
+  const routed = {
+    ...fast,
+    protocol: 'openAi' as const,
+    provider: 'openrouter' as const,
+    apiId: OPENROUTER_PLAYGROUND_API_ID,
+    store: true,
+    persistViaInteractionId: true,
+  };
+  const model = compiled({ ...draft, modelBindings: [routed, ...rest] }).profile.models[
+    fast.modelId
+  ];
+  assertEquals([model.store, model.persistViaInteractionId], [undefined, undefined]);
+});
+
 Deno.test('a duplicate tool name is keyed to the second tool', () => {
   const draft = createExampleDraft();
   const copy = defaultToolSpec({ toolName: draft.toolSpecs[0].toolName });
@@ -167,7 +318,7 @@ Deno.test('setProfileType to live swaps bindings and hides facets live lacks', (
   assertEquals(live.modelBindings[0].protocol, 'geminiLive');
   assertEquals(live.modelBindings[0].apiId, GEMINI_PLAYGROUND_LIVE_DEFAULT_API_ID);
   assertEquals(live.models.defaultModel, '');
-  assertEquals(live.models.key, 'slotA');
+  assertEquals(live.models.key, createExampleDraft().models.key);
   assertEquals(draftFacets(live).includes('outputs'), false);
   const { profile } = compiled(live);
   assertEquals(profile.type, 'live');
@@ -289,13 +440,34 @@ Deno.test('a draft compiles only the fields its type takes in the schema', () =>
     },
   });
   assertEquals(profile.type, 'image');
-  assertEquals(profile.turnBehaviour, { resumption: { autoContinue: [] } });
+  assertEquals(profile.turnBehaviour, { resumption: { allowContinue: [], autoContinue: [] } });
   assertEquals(profile.lexicon, undefined);
 
   const live = setProfileType(image, 'live');
   const liveProfile = compiled({ ...live, tools: { t2Loader: 'not_checked' } }).profile;
   assert(liveProfile.type === 'live');
   assertEquals(Object.keys(liveProfile.tools), ['allow']);
+});
+
+Deno.test('continuing set to Never compiles to an empty allow list, not the kernel default', () => {
+  const text = includeFacet(createExampleDraft(), 'turnBehaviour');
+  const never = compiled({
+    ...text,
+    turnBehaviour: { ...text.turnBehaviour, resumeEnabled: false },
+  });
+  assertEquals(never.profile.turnBehaviour, { resumption: { allowContinue: [] } });
+  const some = compiled({
+    ...text,
+    turnBehaviour: {
+      ...text.turnBehaviour,
+      resumeEnabled: true,
+      allowContinue: ['length'],
+      autoContinue: ['length'],
+    },
+  });
+  assertEquals(some.profile.turnBehaviour, {
+    resumption: { allowContinue: ['length'], autoContinue: ['length'] },
+  });
 });
 
 Deno.test('the continue instruction and canary bind note compile into the profile lexicon', () => {
@@ -326,6 +498,19 @@ Deno.test('the continue instruction and canary bind note compile into the profil
   assertEquals(off.profile.lexicon, undefined);
 });
 
+Deno.test('Wording compiles into the profile lexicon; lines edited beside their setting come from there', () => {
+  const draft = {
+    ...createExampleDraft(),
+    wording: {
+      'error.rate_limit': ' Busy, try again soon. ',
+      'error.timeout': '  ',
+      'quota.exhausted': 'Ignored.',
+    },
+  };
+  assertEquals(compiled(draft).profile.lexicon, { 'error.rate_limit': 'Busy, try again soon.' });
+  assertEquals(compiled(excludeFacet(draft, 'wording')).profile.lexicon, undefined);
+});
+
 Deno.test('a canary bind note without {canary} is an issue on the guardrails node', () => {
   const text = includeFacet(createExampleDraft(), 'guardrails');
   const result = compilePlayground({
@@ -339,8 +524,8 @@ Deno.test('includeFacet only adds facets the type allows', () => {
   const live = setProfileType(createBlankDraft(), 'live');
   assertEquals(includeFacet(live, 'outputs'), live);
   const withGuardrails = includeFacet(live, 'guardrails');
-  assertEquals(withGuardrails.included, ['observability', 'guardrails']);
-  assertEquals(excludeFacet(withGuardrails, 'guardrails').included, ['observability']);
+  assertEquals(withGuardrails.included, ['observability', 'wording', 'guardrails']);
+  assertEquals(excludeFacet(withGuardrails, 'guardrails').included, ['observability', 'wording']);
 });
 
 Deno.test('new bindings and tools get unused names', () => {
@@ -357,7 +542,16 @@ Deno.test('the tree nests bindings and tools under their facets', () => {
   assertEquals(tree.label, 'travel.concierge');
   assertEquals(
     tree.children.map((node) => node.id),
-    ['models', 'tools', 'inputs', 'outputs', 'turnBehaviour', 'guardrails', 'observability'],
+    [
+      'models',
+      'tools',
+      'inputs',
+      'outputs',
+      'turnBehaviour',
+      'guardrails',
+      'observability',
+      'wording',
+    ],
   );
   const models = tree.children.find((node) => node.id === 'models');
   assertEquals(
@@ -378,8 +572,8 @@ Deno.test('playgroundNodeRef resolves only nodes the draft has', () => {
 Deno.test('playgroundSource writes a module that registers the profile', () => {
   const source = playgroundSource(compiled(createExampleDraft()));
   assertStringIncludes(source, "import { z } from 'zod';");
-  assertStringIncludes(source, "  standardEgressEnforce,\n} from '@theoremai/agents';");
-  assertStringIncludes(source, 'enforce: standardEgressEnforce,');
+  assert(!source.includes('standardEgressEnforce'));
+  assertStringIncludes(source, 'checks: true,');
   assertStringIncludes(source, "name: 'geocode_city',");
   assertStringIncludes(source, 'registerProfile(profile);');
 });
@@ -407,8 +601,8 @@ Deno.test('playgroundSource writes structured output and function stubs', () => 
 Deno.test('a new text profile starts on the playground Gemini model', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
   assertEquals(draft.modelBindings[0].apiId, GEMINI_PLAYGROUND_DEFAULT_API_ID);
-  assertEquals(draft.models.key, 'slotA');
-  assertEquals(draft.included, ['observability']);
+  assert(isKeySlotName(draft.models.key));
+  assertEquals(draft.included, ['observability', 'wording']);
   assertEquals(draft.observability.writeTo, 'playground');
 });
 
@@ -416,7 +610,7 @@ Deno.test('a new image profile starts on the playground Gemini image model', () 
   const draft = setProfileType(createBlankDraft(), 'image');
   assertEquals(draft.modelBindings[0].provider, 'google');
   assertEquals(draft.modelBindings[0].apiId, GEMINI_PLAYGROUND_IMAGE_DEFAULT_API_ID);
-  assertEquals(draft.models.key, 'slotA');
+  assert(isKeySlotName(draft.models.key));
 });
 
 Deno.test('modelBindingViolation holds the playground to its free-tier keys', () => {
@@ -438,9 +632,394 @@ Deno.test('zodFromJsonSchema keeps required fields and passes extras', () => {
   assertEquals(schema.parse({ name: 'a', extra: 1 }), { name: 'a', extra: 1 });
 });
 
+Deno.test('zodFromJsonSchema keeps a text answer as text and a nullable field nullable', () => {
+  assertEquals(zodFromJsonSchema({ type: 'string' }).parse('docs'), 'docs');
+  const schema = zodFromJsonSchema({
+    type: 'object',
+    properties: { content: { type: ['string', 'null'] } },
+    required: ['content'],
+  });
+  assertEquals(schema.parse({ content: null }), { content: null });
+  assert(!schema.safeParse({ content: 1 }).success);
+});
+
 Deno.test('quoteSource writes a string that evaluates back to itself, script-safe', () => {
   const text = `it's "quoted" \\ </script> \u2028\u2029 done`;
   const quoted = quoteSource(text);
   assertEquals(new Function(`return ${quoted};`)(), text);
   assertEquals(/[<>\u2028\u2029]/.test(quoted), false);
+});
+
+Deno.test('redactSensitive compiles to the groups the draft changes, false when none are on', () => {
+  const draft = includeFacet(createExampleDraft(), 'guardrails');
+  const groups = { ids: true, financial: true, network: true, credentials: true };
+  const redact = (redactSensitive: typeof groups) =>
+    compiled({ ...draft, guardrails: { ...draft.guardrails, redactSensitive } }).profile.guardrails
+      ?.redactSensitive;
+  assertEquals(redact(groups), undefined);
+  assertEquals(redact({ ...groups, network: false }), { network: false });
+  assertEquals(redact({ ids: false, financial: false, network: false, credentials: false }), false);
+});
+
+Deno.test('a host draft compiles to its tools, with no model or identity', () => {
+  const host = setProfileType(createExampleDraft(), 'host');
+  const result = compilePlayground(host);
+  if (!result.ok) throw new Error(`unexpected issues: ${JSON.stringify(result.issues)}`);
+  const { profile } = result;
+  assertEquals(profile.type, 'host');
+  assert(!('models' in profile));
+  assert(!('identity' in profile));
+  assertEquals(result.customTools.length, demoToolSpecs().length);
+  assert(profile.type === 'host' && profile.tools?.allow?.includes('get_weather'));
+});
+
+Deno.test('a host draft switches back to text with its tools', () => {
+  const text = setProfileType(setProfileType(createExampleDraft(), 'host'), 'text');
+  const { profile } = compiled(text);
+  assertEquals(profile.type, 'text');
+  assert(profile.type === 'text' && profile.tools?.allow?.includes('get_weather'));
+});
+
+Deno.test('a header that looks like a credential is refused; Auth holds secrets', () => {
+  const draft = createExampleDraft();
+  const geocode = draft.toolSpecs.find((tool) => tool.toolName === 'geocode_city');
+  assert(geocode);
+  const withHeaders = (headers: Record<string, string>) =>
+    compilePlayground({
+      ...draft,
+      toolSpecs: draft.toolSpecs.map((tool) =>
+        tool.key === geocode.key ? { ...tool, headersJson: JSON.stringify(headers) } : tool,
+      ),
+    });
+  for (const name of ['Authorization', 'X-API-Key', 'Cookie', 'X-Access-Token', 'Mcp-Session-Id']) {
+    const result = withHeaders({ [name]: 'value' });
+    assert(!result.ok, name);
+    assertEquals(result.issues[0].field, 'headersJson');
+    assertStringIncludes(result.issues[0].message, `${name} looks like a credential`);
+  }
+  assert(withHeaders({ 'User-Agent': 'demo', Accept: 'application/json' }).ok);
+});
+
+Deno.test('a tool compiles its activity labels, each placeholder checked against its schemas', () => {
+  const draft = createExampleDraft();
+  const geocode = draft.toolSpecs.find((tool) => tool.toolName === 'geocode_city');
+  assert(geocode);
+  const withLabels = (activity: string, activityPast: string) =>
+    compilePlayground({
+      ...draft,
+      toolSpecs: draft.toolSpecs.map((tool) =>
+        tool.key === geocode.key ? { ...tool, activity, activityPast } : tool,
+      ),
+    });
+  const ok = withLabels('Finding {name}', 'Found {results.0.name}, {results.0.country_code}');
+  assert(ok.ok);
+  assertEquals(ok.customTools.find((tool) => tool.name === 'geocode_city')?.labels, {
+    activity: 'Finding {name}',
+    activityPast: 'Found {results.0.name}, {results.0.country_code}',
+  });
+  const issue = (activity: string, activityPast: string) => {
+    const result = withLabels(activity, activityPast);
+    assert(!result.ok);
+    return { field: result.issues[0].field, message: result.issues[0].message };
+  };
+  assertEquals(issue('Finding {results.0.name}', 'Found it'), {
+    field: 'activity',
+    message: "{results.0.name} is not a field of this tool's input. Try {name}.",
+  });
+  assertEquals(issue('Finding {name}', 'Found {results.first.name}'), {
+    field: 'activityPast',
+    message:
+      "{results.first.name} is not a field of this tool's input or output. " +
+      'Try {results.0.name}, {results.0.latitude}, {results.0.longitude} or {results.0.country_code}.',
+  });
+  assertEquals(issue('Finding {name}', 'Found {results}'), {
+    field: 'activityPast',
+    message:
+      '{results} is a list or group; a label shows text or a number. ' +
+      'Try {results.0.name}, {results.0.latitude}, {results.0.longitude} or {results.0.country_code}.',
+  });
+  assertEquals(
+    issue('Finding { }', 'Found it').message,
+    'Put a field name between the braces, like {name}.',
+  );
+  assertEquals(
+    issue('Finding {output.results.0.name}', 'Found it').message,
+    '{output.results.0.name} is only there once the call is done; use it in the Done label.',
+  );
+  assertEquals(
+    issue('Finding {name}', 'Found {output.name}').message,
+    "{output.name} is not a field of this tool's output. Try {output.results.0.name}, " +
+      '{output.results.0.latitude}, {output.results.0.longitude} or {output.results.0.country_code}.',
+  );
+  assert(withLabels('Finding {{name}}', 'Found {results.length}, first {results.-1.name|none}').ok);
+  assertEquals(issue(`Finding ${'x'.repeat(121)}`, 'Found it').field, 'activity');
+});
+
+Deno.test('an activity label follows nullable, union and referenced schemas', () => {
+  const draft = createExampleDraft();
+  const geocode = draft.toolSpecs.find((tool) => tool.toolName === 'geocode_city');
+  assert(geocode);
+  const compile = (output: unknown, activityPast: string) =>
+    compilePlayground({
+      ...draft,
+      toolSpecs: draft.toolSpecs.map((tool) =>
+        tool.key === geocode.key
+          ? { ...tool, outputJson: JSON.stringify(output), activityPast }
+          : tool,
+      ),
+    });
+  const place = { type: 'object', properties: { name: { type: 'string' } } };
+  const nullable = { type: ['array', 'null'], items: place };
+  assert(compile({ type: 'object', properties: { r: nullable } }, 'Found {r.0.name}').ok);
+  const union = { anyOf: [place, { type: 'null' }] };
+  assert(compile({ type: 'object', properties: { p: union } }, 'Found {p.name}').ok);
+  const referenced = { $ref: '#/$defs/place' };
+  assert(compile({ type: 'object', properties: { p: referenced } }, 'Found {p.name}').ok);
+  const flag = compile({ type: 'object', properties: { ok: { type: 'boolean' } } }, 'Done: {ok}');
+  assert(!flag.ok);
+  assertEquals(flag.issues[0].message, '{ok} is true or false; a label shows text or a number.');
+});
+
+Deno.test('an image draft pins references and output settings, and reports what it cannot send', () => {
+  const draft = setProfileType(createExampleDraft(), 'image');
+  const pinned = compiled({
+    ...draft,
+    image: {
+      ...draft.image,
+      quality: ' high ',
+      seed: 7,
+      references: [
+        { key: 'reference-a', name: 'a.png', mimeType: 'image/png', data: 'AAAA' },
+        { key: 'reference-b', uri: 'https://example.com/b.JPG?v=1' },
+      ],
+    },
+  }).profile;
+  assert(pinned.type === 'image');
+  assertEquals(pinned.image, {
+    quality: 'high',
+    seed: 7,
+    references: [
+      { mimeType: 'image/png', data: 'AAAA', name: 'a.png' },
+      { mimeType: 'image/jpeg', uri: 'https://example.com/b.JPG?v=1' },
+    ],
+  });
+
+  const refused = compilePlayground({
+    ...draft,
+    image: {
+      ...draft.image,
+      n: 0,
+      outputCompression: 101,
+      references: [
+        { key: 'reference-a', name: 'a.pdf', mimeType: 'application/pdf', data: 'AAAA' },
+        { key: 'reference-b', uri: 'ftp://example.com/b.png' },
+        { key: 'reference-c', uri: '' },
+      ],
+    },
+  });
+  assert(!refused.ok);
+  assertEquals(
+    refused.issues.map(({ nodeId, field, index }) => ({ nodeId, field, index })),
+    [
+      { nodeId: 'image', field: 'n', index: undefined },
+      { nodeId: 'image', field: 'outputCompression', index: undefined },
+      { nodeId: 'image', field: 'references', index: 0 },
+      { nodeId: 'image', field: 'references', index: 1 },
+      { nodeId: 'image', field: 'references', index: 2 },
+    ],
+  );
+});
+
+Deno.test('instructions by role, slots and limits by type compile from their JSON fields', () => {
+  const draft = createExampleDraft();
+  const { profile } = compiled({
+    ...draft,
+    identity: { ...draft.identity, systemByRoleJson: '{"support":"Answer as support."}' },
+    inputs: {
+      ...draft.inputs,
+      limitsByMimeJson: '{"application/pdf":2000000}',
+      slotsJson: '{"language":["en","fr"]}',
+    },
+  });
+  assert(profile.type === 'text');
+  assertEquals(profile.identity.systemByRole, { support: 'Answer as support.' });
+  assertEquals(profile.inputs?.limitsByMime, { 'application/pdf': 2000000 });
+  assertEquals(profile.inputs?.slots, { language: ['en', 'fr'] });
+
+  const bad = compilePlayground({
+    ...draft,
+    identity: { ...draft.identity, systemByRoleJson: '{"support":1}' },
+    inputs: { ...draft.inputs, limitsByMimeJson: '{"image/*":0}', slotsJson: '{"language":[]}' },
+  });
+  assert(!bad.ok);
+  assertEquals(bad.issues.map((issue) => issue.field).sort(), [
+    'limitsByMimeJson',
+    'slotsJson',
+    'systemByRoleJson',
+  ]);
+});
+
+Deno.test('the system prompt compiles its {private: sections to parts', () => {
+  const draft = createExampleDraft();
+  const withSystem = (system: string) =>
+    compilePlayground({ ...draft, identity: { ...draft.identity, system } });
+  const system = (result: PlaygroundCompileResult) => {
+    assert(result.ok && result.profile.type === 'text');
+    return result.profile.identity.system;
+  };
+
+  assertEquals(system(withSystem(' Be brief. ')), 'Be brief.');
+  assertEquals(system(withSystem(' ')), undefined);
+  assertEquals(system(withSystem('Say "hi". {private: Code 7731.}')), [
+    'Say "hi". ',
+    { private: 'Code 7731.' },
+  ]);
+
+  const kept = compilePlayground({
+    ...draft,
+    identity: { ...draft.identity, system: [{ text: 'x', private: true }] as never },
+  });
+  assert(!kept.ok);
+  assertEquals(
+    kept.issues.map((issue) => issue.message),
+    ['The system prompt must be text.'],
+  );
+
+  const bad = withSystem('Say "hi". {private: Code 7731.');
+  assert(!bad.ok);
+  assertEquals(
+    bad.issues.map(({ nodeId, field, message }) => ({ nodeId, field, message })),
+    [
+      {
+        nodeId: 'identity',
+        field: 'system',
+        message: 'The {private: section on line 1 has no closing }.',
+      },
+    ],
+  );
+});
+
+Deno.test('instructions by role take {private: sections or parts', () => {
+  const draft = createExampleDraft();
+  const { profile } = compiled({
+    ...draft,
+    identity: {
+      ...draft.identity,
+      systemByRoleJson:
+        '{"support":"Hello. {private: Refund code R1.}","desk":["Hi. ",{"private":"Key K."}]}',
+    },
+  });
+  assert(profile.type === 'text');
+  assertEquals(profile.identity.systemByRole, {
+    support: ['Hello. ', { private: 'Refund code R1.' }],
+    desk: ['Hi. ', { private: 'Key K.' }],
+  });
+  for (const json of ['{"support":[{"private":""}]}', '{"support":"{private: open"}']) {
+    const bad = compilePlayground({
+      ...draft,
+      identity: { ...draft.identity, systemByRoleJson: json },
+    });
+    assert(!bad.ok);
+    assertEquals(
+      bad.issues.map((issue) => issue.field),
+      ['systemByRoleJson'],
+    );
+  }
+});
+
+Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () => {
+  const draft = createExampleDraft();
+  const withCache = (index: number) =>
+    updateModelBinding(draft, draft.modelBindings[index].key, {
+      cacheMode: 'system',
+      cacheTtl: '1h',
+    });
+  const { profile } = compiled(withCache(2));
+  assertEquals(profile.models.open.cache, { mode: 'system', ttl: '1h' });
+  assertEquals(profile.models.fast.cache, undefined);
+  const refused = compilePlayground(withCache(0));
+  assert(!refused.ok);
+  assertEquals(
+    refused.issues.map((issue) => issue.field),
+    ['cacheMode'],
+  );
+});
+
+Deno.test('compaction compiles as the agent compacting itself, and registers', () => {
+  // No tools, so the profile registers without them.
+  const plain = { ...createExampleDraft(), toolSpecs: [], tools: { t2Loader: '' } };
+  const draft = updateModelBinding(plain, plain.modelBindings[0].key, {
+    ...COMPACTION_DRAFT_DEFAULTS,
+    compactTiming: 'before',
+    compactMeter: 'input',
+  });
+  const { profile } = compiled(draft);
+  assertEquals(profile.models.fast.compaction, {
+    maxTokens: 32_000,
+    compactAt: 0.75,
+    previousExchanges: 4,
+    timing: 'before',
+    meter: 'input',
+  });
+  registerProfile({ ...profile, id: 'playground.compaction.self' });
+  assertEquals(compiled(plain).profile.models.fast.compaction, undefined);
+});
+
+Deno.test('compaction reports a missing budget, a bad start and a bad keep on their fields', () => {
+  const draft = createExampleDraft();
+  const bad = compilePlayground(
+    updateModelBinding(draft, draft.modelBindings[0].key, {
+      compactTiming: 'after',
+      compactMaxTokens: null,
+      compactAt: 1,
+      compactKeep: 1.5,
+    }),
+  );
+  assert(!bad.ok);
+  assertEquals(bad.issues.map((issue) => issue.field).sort(), [
+    'compactAt',
+    'compactKeep',
+    'compactMaxTokens',
+  ]);
+});
+
+Deno.test('a local server name compiles only on a local model', () => {
+  const draft = createExampleDraft();
+  const { profile } = compiled(
+    updateModelBinding(draft, draft.modelBindings[2].key, { server: 'ollama' }),
+  );
+  assertEquals(profile.models.open.server, undefined);
+});
+
+Deno.test('prompt echo, schemes, taint and trace resource compile when set', () => {
+  const draft = createExampleDraft();
+  const { profile } = compiled({
+    ...draft,
+    guardrails: {
+      ...draft.guardrails,
+      promptEcho: false,
+      allowedSchemes: ['https', ' '],
+      taintAfterRemoteRead: 'write',
+    },
+    observability: { ...draft.observability, resourceJson: '{"service.name":"concierge"}' },
+  });
+  assertEquals(profile.guardrails?.promptEcho, false);
+  assertEquals(profile.guardrails?.network?.allowedSchemes, ['https']);
+  assertEquals(profile.guardrails?.taint, { afterRemoteRead: 'write' });
+  assertEquals(profile.observability?.resource, { 'service.name': 'concierge' });
+
+  const plain = compiled(draft).profile;
+  assertEquals(plain.guardrails?.promptEcho, undefined);
+  assertEquals(plain.guardrails?.taint, undefined);
+  assertEquals(plain.observability?.resource, undefined);
+
+  const bad = compilePlayground({
+    ...draft,
+    observability: { ...draft.observability, resourceJson: '[1]' },
+  });
+  assert(!bad.ok);
+  assertEquals(
+    bad.issues.map((issue) => issue.field),
+    ['resourceJson'],
+  );
 });

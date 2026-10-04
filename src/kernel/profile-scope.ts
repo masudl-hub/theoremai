@@ -1,16 +1,4 @@
-/**
- * Which profile types each profile field belongs to — the one owner of that fact.
- *
- * `defineProfile` enforces it, `PROFILE_FIELDS` exposes it on every field's
- * `FieldMeta`, and `PROFILE_GRAPH` takes its facets' types from it, so an
- * authoring UI projects the same rule the kernel enforces. A path with no entry
- * inherits its nearest ancestor's scope; a path with none at all belongs to
- * every type.
- *
- * Leaf module: `schema.ts` and `profile-graph.ts` both read it at load time.
- *
- * @module
- */
+// Leaf module: `schema.ts` and `profile-graph.ts` read it at load time.
 
 /** lexicon-exempt-file: authoring field-meta scope reasons — not runtime user or model copy (P2) */
 
@@ -30,22 +18,24 @@ export const ALL_PROFILE_TYPES: readonly ProfileType[] = [
   'host',
 ];
 
-/** Types that bind models — `host` never runs a model. */
 const MODEL_PROFILE_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live', 'decision'];
 
-/** Types that run a model turn: everything but `decision` and `host`. */
 const TURN_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live'];
 
+/** Types whose `inputs` are turn inputs (text, files, slots) rather than decision state. */
+const TURN_INPUT_TYPES: readonly ProfileType[] = ['text', 'image'];
+
+const TURN_INPUT_REASON = 'a decision takes JSON state, not turn text, files or slots';
+
 export interface ProfileFieldScope {
-  /** The profile types the field may be set on. */
   profileTypes: readonly ProfileType[];
   /** Why other types can't take it — shown in `defineProfile` errors and authoring UIs. */
   reason: string;
   /**
-   * The one value other types may still carry: the field's "off" value, which
-   * `defineProfile` itself writes (speech stores `guardrails.canary: false`).
+   * The one value other types may still carry: the field's "off" value (speech stores
+   * `guardrails.canary: false`; `outputs.structured: null` asks for no schema).
    */
-  offValue?: false;
+  offValue?: false | null;
 }
 
 /** Guardrails a host profile may set keep `host`; the rest guard a model turn. */
@@ -55,11 +45,34 @@ function turnGuardrailTypes(key: string): readonly ProfileType[] {
     : TURN_TYPES;
 }
 
-/**
- * Profile paths scoped to some profile types, keyed like `PROFILE_FIELDS`
- * (`models.*` matches every model binding).
- */
+/** Keyed like `PROFILE_FIELDS`; `models.*` matches every model binding. */
 export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = {
+  ...Object.fromEntries(
+    [
+      'efforts',
+      'defaultEffort',
+      'allowEffortSelect',
+      'summaries',
+      'maxOutputTokens',
+      'temperature',
+      'builtInTools',
+      'cache',
+      'store',
+      'persistViaInteractionId',
+      'server',
+      'fallbackKey',
+    ].map((field) => [
+      `models.*.${field}`,
+      {
+        profileTypes: TURN_TYPES,
+        reason: 'only model turns use this setting; decisions send state and questions',
+      },
+    ]),
+  ),
+  'models.*.timeoutMs': {
+    profileTypes: ['decision'],
+    reason: 'only decision bindings configure a request timeout here',
+  },
   identity: {
     profileTypes: MODEL_PROFILE_TYPES,
     reason: 'a host profile has no agent identity — it runs no model',
@@ -67,19 +80,31 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   'identity.system': {
     profileTypes: ['text', 'image', 'live'],
     reason:
-      'speech has no system channel (the input text is the transcript) and a decision prompts through decision.contract',
+      'speech has no system channel (the input text is the transcript) and a decision is asked only through its questions',
   },
   'identity.systemByRole': {
     profileTypes: ['text', 'image', 'live'],
     reason:
-      'speech has no system channel (the input text is the transcript) and a decision prompts through decision.contract',
+      'speech has no system channel (the input text is the transcript) and a decision is asked only through its questions',
   },
   models: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
+  'models.*.protocol': {
+    profileTypes: MODEL_PROFILE_TYPES,
+    reason: 'a host profile runs no model',
+  },
+  'models.*.provider': {
+    profileTypes: MODEL_PROFILE_TYPES,
+    reason: 'a host profile runs no model',
+  },
   'models.*.compaction': {
-    profileTypes: ['text'],
-    reason: 'only text turns keep a history to compact',
+    profileTypes: ['text', 'image', 'speech'],
+    reason: 'live compacts with live.contextCompression',
   },
   key: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
+  fallbackKey: {
+    profileTypes: TURN_TYPES,
+    reason: 'a host profile runs no model and a decision makes one call on its key',
+  },
   defaultModel: {
     profileTypes: TURN_TYPES,
     reason: 'a host profile runs no model and a decision declares exactly one',
@@ -119,10 +144,55 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     profileTypes: ['text'],
     reason: 'no image model reads audio, and a decision takes JSON state',
   },
+  'inputs.text': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.attachments': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.maxFiles': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.maxBytes': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.maxTurnBytes': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.limitsByMime': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.slots': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.state': {
+    profileTypes: ['decision'],
+    reason: 'only a decision reads JSON state; a turn takes text, files and slots',
+  },
+  'inputs.maxStateBytes': {
+    profileTypes: ['decision'],
+    reason: 'only a decision reads JSON state; a turn takes text, files and slots',
+  },
   outputs: {
     profileTypes: ['text', 'image', 'speech'],
     reason:
       'live output is the realtime session, and decision and host profiles produce no turn output',
+  },
+  'outputs.structured': {
+    profileTypes: ['text'],
+    reason: 'only a text reply has a JSON shape; image and speech turns return media',
+    offValue: null,
+  },
+  'outputs.validation': {
+    profileTypes: ['text'],
+    reason: 'validation checks a structured reply, which only text profiles make',
   },
   turnBehaviour: {
     profileTypes: TURN_TYPES,
@@ -144,6 +214,11 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     profileTypes: ['text', 'image', 'live'],
     reason:
       'the canary is minted into a system prompt, which speech, decision and host profiles lack',
+    offValue: false,
+  },
+  'guardrails.promptEcho': {
+    profileTypes: ['text', 'image', 'live'],
+    reason: 'the echo is of a system prompt, which speech, decision and host profiles lack',
     offValue: false,
   },
   'guardrails.sanitizeInput': {
@@ -185,12 +260,10 @@ export function profileFieldScope(path: string): ProfileFieldScope | undefined {
   return undefined;
 }
 
-/** The profile types `path` may be set on. */
 export function profileTypesForField(path: string): readonly ProfileType[] {
   return profileFieldScope(path)?.profileTypes ?? ALL_PROFILE_TYPES;
 }
 
-/** A field set on a profile type outside its scope, at its concrete path. */
 export interface OutOfScopeField {
   /** e.g. `models.fast.compaction` for the `models.*.compaction` scope. */
   path: string;

@@ -54,10 +54,6 @@ export function takeSsePayloads(
   return { rest, payloads, pendingEvent: sseEvent };
 }
 
-/**
- * Async SSE stream chunk reader built on `takeSsePayloads`.
- * Yields every raw payload record (including `sse_done` and `sse_unparsed`).
- */
 export async function* readSseChunks(
   body: ReadableStream<Uint8Array>,
 ): AsyncGenerator<Record<string, unknown>> {
@@ -78,11 +74,7 @@ export async function* readSseChunks(
   }
 }
 
-/**
- * Generic async SSE stream parser built on `readSseChunks`.
- * Yields parsed JSON objects from `data:` lines; silently skips malformed
- * payloads and terminates on `[DONE]`.
- */
+/** Silently skips malformed payloads, unlike `readSseChunks`. */
 export async function* parseSseStream(
   body: ReadableStream<Uint8Array>,
 ): AsyncGenerator<Record<string, unknown>> {

@@ -1,26 +1,22 @@
-/**
- * Taint — what a turn may still do after it has read untrusted remote content.
- *
- * The attack this gates is the confused deputy: the agent fetches attacker-
- * influenceable bytes, those bytes ask for an action, and the agent performs it
- * with authority the content never had.
- */
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { checkTaintGate, isTainted, recordTaint } from '../../src/guardrails/tool-result.ts';
 import type { Provenance, TaintGate, TurnTaint } from '../../src/guardrails/types.ts';
+import {
+  registerProfile,
+  registerTool,
+  resetTools,
+  runTurn,
+} from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { registerTool, resetTools } from '../../src/kernel/tools/registry.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import { eventsOf, failureOf, lastTool, toolEventsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const remote: Provenance = { origin: 'http', tool: 'web_fetch', depth: 1 };
 const local: Provenance = { origin: 'local', tool: 'db_read', depth: 1 };
-
-// ── recording ────────────────────────────────────────────────────────────────
 
 Deno.test('only remote origins taint a turn', () => {
   assertEquals(isTainted(recordTaint(undefined, local)), false);
@@ -43,8 +39,6 @@ Deno.test('a delegated agent result taints like any other remote read', () => {
   const delegated: Provenance = { origin: 'delegated', tool: 'sub_agent', depth: 2 };
   assertEquals(isTainted(recordTaint(undefined, delegated)), true);
 });
-
-// ── the gate ─────────────────────────────────────────────────────────────────
 
 function gate(taint: TurnTaint | undefined, access: string, afterRemoteRead?: TaintGate) {
   const policy = resolveGuardrailPolicy(
@@ -88,8 +82,6 @@ Deno.test('a refusal names what the turn read, so the model can explain itself',
   if (verdict.action !== 'block') return;
   assertEquals(verdict.rejection.includes('web_fetch'), true);
 });
-
-// ── end to end ───────────────────────────────────────────────────────────────
 
 function registerReadThenWrite(): () => void {
   registerTool({
@@ -185,15 +177,13 @@ Deno.test('a write after a remote read is refused when the profile gates it', as
   const restore = registerReadThenWrite();
   try {
     const events = await runGated('deputy_gated', 'destructive');
-    const failure = events.find(
-      (e) => e.type === 'tool' && e.tool?.name === 'send_email' && e.tool?.phase === 'error',
-    );
-    assertEquals(failure?.tool?.failure?.code, 'tainted_turn');
-    assertEquals(failure?.tool?.failure?.kind, 'blocked');
+    const failure = failureOf(lastTool(events, 'send_email'));
+    assertEquals(failure?.code, 'tainted_turn');
+    assertEquals(failure?.kind, 'blocked');
 
-    const blocked = events.find((e) => e.type === 'guardrail' && e.guardrail?.action === 'block');
-    assertEquals(blocked?.guardrail?.stage, 'tool_call');
-    assertEquals(blocked?.guardrail?.hits[0]?.rule, 'tool_call.tainted-turn');
+    const blocked = eventsOf(events, 'guardrail').find((e) => e.guardrail.action === 'block');
+    assertEquals(blocked?.guardrail.stage, 'tool_call');
+    assertEquals(blocked?.guardrail.hits[0]?.rule, 'tool_call.tainted-turn');
   } finally {
     restore();
   }
@@ -204,24 +194,18 @@ Deno.test('the same turn is reported but allowed when the profile does not gate'
   const restore = registerReadThenWrite();
   try {
     const events = await runGated('deputy_ungated');
-    const refused = events.some(
-      (e) => e.type === 'tool' && e.tool?.failure?.code === 'tainted_turn',
-    );
+    const refused = toolEventsOf(events, 'error').some((e) => e.failure.code === 'tainted_turn');
     assertEquals(refused, false);
 
     // Still observable: the risky call was flagged even without enforcement.
-    const flagged = events.find(
-      (e) =>
-        e.type === 'guardrail' &&
-        e.guardrail?.hits.some((h) => h.rule === 'tool_call.tainted-turn'),
+    const flagged = eventsOf(events, 'guardrail').find((e) =>
+      e.guardrail.hits.some((h) => h.rule === 'tool_call.tainted-turn'),
     );
-    assertEquals(flagged?.guardrail?.action, 'flag');
+    assertEquals(flagged?.guardrail.action, 'flag');
   } finally {
     restore();
   }
 });
-
-// ── content signals never gate ───────────────────────────────────────────────
 
 const steered: TurnTaint = {
   sources: [remote],

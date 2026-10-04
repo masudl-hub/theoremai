@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { type LexiconOverrides, type SessionEvent, TheoremError } from '../../../../mod.ts';
-import { type ClientFailure, clientFailure } from '../../client/failure';
-import { applyLiveTurnToolEvent } from '../../client/live/apply-live-turn-tool-event';
+import { type LexiconOverrides, type SessionEventOf, TheoremError } from '@theoremjs/agents';
+import { type ClientFailure, clientFailure } from '../../client/failure.ts';
+import { applyLiveTurnToolEvent } from '../../client/live/apply-live-turn-tool-event.ts';
 import {
 	clearLiveCaptionInterim,
 	emptyLiveCaptionState,
 	type LiveCaptionState,
-} from '../../client/live/live-captions';
-import type { LiveToolGatePrompt } from '../../client/live/live-tool';
-import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video';
-import { sessionEndedText } from '../../client/live/session-ended';
-import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live-client';
-import type { ToolGateResolution } from '../../client/tool-resume';
+} from '../../client/live/live-captions.ts';
+import type { LiveGateAnswer, LiveToolGatePrompt } from '../../client/live/live-tool.ts';
+import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video.ts';
+import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live/live-state.ts';
+import type { ToolGateResolution } from '../../client/tool-resume.ts';
 
 /** UI + media state bag for the live runner. `lexicon` is the interface's: the profile's wording. */
 export function useLiveRunnerUiState(lexicon: LexiconOverrides) {
@@ -60,10 +59,10 @@ export function useLiveRunnerUiState(lexicon: LexiconOverrides) {
 	}, []);
 
 	const reportSessionEnded = useCallback(
-		(session: SessionEvent) => {
-			setSessionEnded(sessionEndedText(session, lexicon));
+		(session: SessionEventOf<'ended'>) => {
+			setSessionEnded(session.message);
 		},
-		[lexicon],
+		[],
 	);
 
 	const clearSessionEnded = useCallback(() => {
@@ -137,13 +136,23 @@ export function useLiveRunnerGate(args: {
 	const [gatePrompt, setGatePrompt] = useState<LiveToolGatePrompt | null>(null);
 	const gatePromptRef = useRef(gatePrompt);
 	gatePromptRef.current = gatePrompt;
-	const gateResolverRef = useRef<((resolution: ToolGateResolution) => void) | null>(null);
+	const gateResolverRef = useRef<((answer: LiveGateAnswer) => void) | null>(null);
 	const gateRejectRef = useRef<((reason: Error) => void) | null>(null);
+
+	const answerGate = useCallback((answer: LiveGateAnswer) => {
+		gateResolverRef.current?.(answer);
+		gateResolverRef.current = null;
+		gateRejectRef.current = null;
+		setGatePrompt(null);
+	}, []);
 
 	const handleLiveTurnEvent = useCallback(
 		(event: Parameters<typeof applyLiveTurnToolEvent>[0]) => {
 			applyLiveTurnToolEvent(event, {
-				gateOpen: Boolean(gatePromptRef.current),
+				gateCallId: gatePromptRef.current?.callId,
+				withdrawGate: () => {
+					answerGate('withdrawn');
+				},
 				clearInterim: () => {
 					args.setCaptions((prev) => clearLiveCaptionInterim(prev));
 				},
@@ -154,23 +163,23 @@ export function useLiveRunnerGate(args: {
 				setActiveTool: args.setActiveTool,
 			});
 		},
-		[args],
+		[args, answerGate],
 	);
 
 	const waitForGateDecision = useCallback((prompt: LiveToolGatePrompt) => {
-		return new Promise<ToolGateResolution>((resolve, reject) => {
+		return new Promise<LiveGateAnswer>((resolve, reject) => {
 			setGatePrompt(prompt);
 			gateResolverRef.current = resolve;
 			gateRejectRef.current = reject;
 		});
 	}, []);
 
-	const resolveGateDecision = useCallback((resolution: ToolGateResolution) => {
-		gateResolverRef.current?.(resolution);
-		gateResolverRef.current = null;
-		gateRejectRef.current = null;
-		setGatePrompt(null);
-	}, []);
+	const resolveGateDecision = useCallback(
+		(resolution: ToolGateResolution) => {
+			answerGate(resolution);
+		},
+		[answerGate],
+	);
 
 	const cancelGateDecision = useCallback(() => {
 		// lexicon-exempt: internal diagnostic; the user reads error.cancelled

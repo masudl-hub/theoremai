@@ -1,54 +1,40 @@
-/**
- * Request sanitization utilities for THEOREM.
- *
- * @module
- */
-
 import { sanitizeTurnBlobs } from '../kernel/registry/attachments.ts';
-import { getProfile } from '../kernel/registry/profiles.ts';
-import type { NormalizedTurnRequest, TurnEvent, TurnRequest } from '../kernel/types.ts';
+import { mapSystemPrompt } from '../kernel/system-parts.ts';
+import type { NormalizedTurnRequest, Profile, TurnEvent, TurnRequest } from '../kernel/types.ts';
 import { applySpans } from '../observability/spans.ts';
 import { guardrailFromHits } from './events.ts';
 import { hitFromSpan } from './hits.ts';
 import { injectionSpans } from './injection.ts';
 import { type DetectionOptions, detectionForTrust, resolveGuardrailPolicy } from './policy.ts';
-import { sensitiveSpans } from './sensitive.ts';
+import { SANITIZE_RULES } from './rules.ts';
+import { anySensitive, resolveSensitive, sensitiveSpans } from './sensitive.ts';
 import type { GuardrailHit, GuardrailStage, TrustLevel } from './types.ts';
 
-/**
- * Detect and redact injection / sensitive spans. Returns hits for observability
- * (rule + offsets + optional exact `match` for debugging).
- */
 function detectText(
   text: string,
   options?: Partial<DetectionOptions>,
 ): { text: string; hits: GuardrailHit[] } {
   const sanitizeInput = options?.sanitizeInput ?? true;
-  const redactSensitive = options?.redactSensitive ?? true;
-  if (!sanitizeInput && !redactSensitive) {
+  const groups = resolveSensitive(options?.redactSensitive);
+  if (!sanitizeInput && !anySensitive(groups)) {
     return { text, hits: [] };
   }
-  const spans = [
-    ...(sanitizeInput ? injectionSpans(text) : []),
-    ...(redactSensitive ? sensitiveSpans(text) : []),
-  ];
+  const spans = [...(sanitizeInput ? injectionSpans(text) : []), ...sensitiveSpans(text, groups)];
   const hits: GuardrailHit[] = spans.map((span) =>
     hitFromSpan(
       text,
       span,
-      span.kind === 'injection' ? 'sanitize.injection' : 'sanitize.sensitive',
+      span.kind === 'injection' ? SANITIZE_RULES.injection : SANITIZE_RULES.sensitive,
       'high',
     ),
   );
   return { text: applySpans(text, spans), hits };
 }
 
-/** Sanitize one text value using prompt-injection and sensitive-data detectors. */
 function sanitizeText(text: string, options?: Partial<DetectionOptions>): string {
   return detectText(text, options).text;
 }
 
-/** Redact only sensitive data (credentials, PII) — skip injection patterns. */
 function redactSensitiveOnly(text: string): string {
   return detectText(text, { sanitizeInput: false, redactSensitive: true }).text;
 }
@@ -78,7 +64,6 @@ function sanitizeSlots(
 
 const PROJECT_ID_OK = /^[A-Za-z0-9._-]+$/;
 
-/** Trims and validates a project identifier, returning undefined for invalid input. */
 function sanitizeProjectId(id: string | undefined): string | undefined {
   const trimmed = id?.trim();
   return trimmed && PROJECT_ID_OK.test(trimmed) ? trimmed : undefined;
@@ -110,9 +95,6 @@ function sanitizeRepair(
 }
 
 /**
- * Sanitize the text of each history message; tool calls, ids, and metadata pass
- * through untouched.
- *
  * Exported because every path that injects messages into a turn needs it — turn
  * history, and host steer injects mid-turn. A second copy would drift.
  */
@@ -151,20 +133,8 @@ function sanitizeHistory(
   });
 }
 
-/**
- * Detection switches for one profile at one trust level.
- *
- * Falls back to full detection when the profile is not registered yet, so an
- * unknown id never silently disables guardrails.
- */
-function detectionForProfile(profileId: string, trust: TrustLevel): DetectionOptions {
-  let spec: import('./types.ts').ProfileGuardrailsSpec | undefined;
-  try {
-    spec = getProfile(profileId)?.guardrails;
-  } catch {
-    // If profile not registered yet, default to full guardrails.
-  }
-  return detectionForTrust(resolveGuardrailPolicy(spec), trust);
+function detectionForProfile(profile: Profile, trust: TrustLevel): DetectionOptions {
+  return detectionForTrust(resolveGuardrailPolicy(profile.guardrails), trust);
 }
 
 function pushStageEvent(
@@ -180,21 +150,16 @@ function pushStageEvent(
 }
 
 /**
- * Sanitize user-controlled text fields; leave attachments/voice untouched.
- *
- * Returns `{ type: 'guardrail' }` events for stages that redacted something.
- * Clean surfaces emit nothing.
- *
  * `req.system` is host-assembled per turn — it interpolates retrieval and user
  * data, so it is treated as `assembled`, not trusted. `identity.system` never
  * reaches this path and stays verbatim.
  */
 function sanitizeTurnRequestText(
   req: TurnRequest,
-  profileId: string,
+  profile: Profile,
 ): { request: NormalizedTurnRequest; events: TurnEvent[] } {
-  const untrusted = detectionForProfile(profileId, 'untrusted');
-  const assembled = detectionForProfile(profileId, 'assembled');
+  const untrusted = detectionForProfile(profile, 'untrusted');
+  const assembled = detectionForProfile(profile, 'assembled');
   const input = req.input ?? {};
   const events: TurnEvent[] = [];
   const inputHits: GuardrailHit[] = [];
@@ -209,12 +174,14 @@ function sanitizeTurnRequestText(
     text = detected.text;
   }
 
-  let system = req.system;
-  if (system !== undefined) {
-    const detected = detectText(system, assembled);
-    appendHits(systemHits, detected.hits);
-    system = detected.text;
-  }
+  const system =
+    req.system === undefined
+      ? undefined
+      : mapSystemPrompt(req.system, 'TurnRequest.system', (part) => {
+          const detected = detectText(part, assembled);
+          appendHits(systemHits, detected.hits);
+          return detected.text;
+        });
 
   const slots = sanitizeSlots(input.slots, untrusted, inputHits);
   const repair = sanitizeRepair(input.repair, untrusted, inputHits);
@@ -243,24 +210,23 @@ function sanitizeTurnRequestText(
   };
 }
 
-/** Sanitize all user-controlled text and blobs in a turn request. */
-function sanitizeTurnRequest(req: TurnRequest): NormalizedTurnRequest {
-  return sanitizeTurnRequestWithEvents(req).request;
+function sanitizeTurnRequest(req: TurnRequest, profile: Profile): NormalizedTurnRequest {
+  return sanitizeTurnRequestWithEvents(req, profile).request;
 }
 
-/**
- * Sanitize a turn request and return guardrail events for any redactionsactions spans.
- * Attachments/voice are validated but do not emit content-span events.
- */
-function sanitizeTurnRequestWithEvents(req: TurnRequest): {
+/** Attachments and voice are validated but emit no guardrail events. */
+function sanitizeTurnRequestWithEvents(
+  req: TurnRequest,
+  profile: Profile,
+): {
   request: NormalizedTurnRequest;
   events: TurnEvent[];
 } {
-  const { request: textSafe, events } = sanitizeTurnRequestText(req, req.profile);
+  const { request: textSafe, events } = sanitizeTurnRequestText(req, profile);
   const input = textSafe.input ?? {};
   const { attachments, voice } =
     input.attachments?.length || input.voice?.length
-      ? sanitizeTurnBlobs(getProfile(req.profile), input.attachments, input.voice)
+      ? sanitizeTurnBlobs(profile, input.attachments, input.voice)
       : input;
   return {
     request: {

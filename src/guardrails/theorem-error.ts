@@ -1,13 +1,8 @@
-/**
- * Contract-failure error class for THEOREM, and the kinds of failure it names.
- *
- * Lives in its own module so `lexicon.ts` can throw it without importing
- * `error.ts` (which resolves public copy through the lexicon).
- *
- * @module
- */
+// Its own module so `lexicon.ts` can throw it without importing `error.ts`, which reads the lexicon.
 
-import type { LexiconKey, LexiconParams } from './lexicon.ts';
+import type { ErrorCopies, ErrorCopy } from './event-schemas.ts';
+
+export type { ErrorCopies, ErrorCopy };
 
 /**
  * What kind of failure happened, decided where it happens. Both worlds read it:
@@ -51,27 +46,16 @@ export const ERROR_KINDS = [
   'internal',
 ] as const;
 
-/** What kind of failure happened. */
 export type ErrorKind = (typeof ERROR_KINDS)[number];
 
-/** Wording for the user more specific than its kind's: a lexicon key and its parameters. */
-export interface ErrorCopy {
-  key: LexiconKey;
-  params?: LexiconParams;
-}
-
-/**
- * Options for a `TheoremError`: the standard `cause`, and the user wording when
- * it is more specific than the kind's — one line, or one per problem found.
- */
 export interface TheoremErrorOptions extends ErrorOptions {
-  copy?: ErrorCopy | readonly ErrorCopy[];
+  /** User wording more specific than the kind's: one line, or one per problem found. */
+  copy?: ErrorCopies;
 }
 
-/** Error class used for expected THEOREM contract failures. */
 export class TheoremError extends Error {
   readonly kind: ErrorKind;
-  readonly copy?: ErrorCopy | readonly ErrorCopy[];
+  readonly copy?: ErrorCopies;
 
   constructor(kind: ErrorKind, message: string, options?: TheoremErrorOptions) {
     super(message, options);

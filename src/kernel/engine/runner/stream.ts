@@ -1,12 +1,25 @@
-import { eventHasCanary, isStreamedCanaryEvent } from '../../../guardrails/canary.ts';
-import { CANARY_HIT, WITHHELD_REASON } from '../../../guardrails/egress.ts';
+import { isStreamedCanaryEvent, type StreamedReplyEvent } from '../../../guardrails/canary.ts';
+import {
+  CANARY_HIT,
+  eventPromptLeakHits,
+  isPromptLeakHit,
+  promptLeakReason,
+  WITHHELD_REASON,
+} from '../../../guardrails/egress.ts';
+import type { GivenUrls } from '../../../guardrails/egress-urls.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromHits } from '../../../guardrails/events.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import {
   createOutboundProgressiveGate,
   type ProgressiveYieldGate,
+  type ProgressiveYieldResult,
 } from '../../../guardrails/progressive-yield.ts';
+import {
+  type ThoughtGuard,
+  type ThoughtRelease,
+  thoughtGuardFor,
+} from '../../../guardrails/thought-guard.ts';
 import type {
   GuardrailContext,
   GuardrailHit,
@@ -17,40 +30,78 @@ import type {
   ModelProvider,
   Profile,
   ProviderCompleteRequest,
+  ProviderEvent,
   ResolvedGeneration,
-  TurnEvent,
 } from '../../types.ts';
-import type { CallTrace } from '../turn-trace.ts';
+import type { CallTrace, StreamCheck } from '../turn-trace.ts';
 
-/** Mutable control flags shared with the step runner during one provider stream. */
+/** What the stream yields to the step runner: every provider event but `response`, which only the trace reads. */
+export type StreamEvent = Exclude<ProviderEvent, { type: 'response' }>;
+
 interface OutboundStreamControl {
-  /** Stop releasing text/media to the host; keep recording for egress. Thoughts are unguarded. */
+  /** Stop releasing text/media to the host; keep recording for egress. */
   withholdVisible: boolean;
+  /**
+   * The canary opening the turn's earlier steps ended on (`canaryCarry`): read
+   * in front of this call's reply, and replaced by where this call ends.
+   */
+  canaryCarry?: string;
+  /** System-prompt leak hits this call withheld under a host policy; they pin its verdict. */
+  promptLeaks?: GuardrailHit[];
+  /** What the turn's thoughts so far ended on (`ThoughtGuard.carryOut`): read in front of this call's, and replaced. */
+  thoughtCarry?: string;
 }
 
-function shouldSkipStreamEvent(event: TurnEvent, profile: Profile): boolean {
+function shouldSkipStreamEvent(event: ProviderEvent, profile: Profile): boolean {
   return (
     event.type === 'thought' && profileTurnOutputs(profile)?.streaming?.streamThoughts === false
   );
 }
 
 /** The offending text never reaches the host: redaction cannot cover a partial or encoded token. */
-function* yieldCanaryLeak(): Generator<TurnEvent> {
-  yield* yieldDeltaBlock([CANARY_HIT]);
-  yield toErrorEvent(new TheoremError('safety', WITHHELD_REASON.canary));
+function* yieldCanaryLeak(hits: GuardrailHit[] = [CANARY_HIT]): Generator<StreamEvent> {
+  yield* yieldDeltaBlock(hits);
+  const reason = promptLeakReason(hits);
+  yield toErrorEvent(new TheoremError('safety', reason));
   // The turn ends because our guardrail blocked the output, not because the model finished.
-  yield { type: 'done', stop: { kind: 'filtered', native: 'canary' } };
+  const native =
+    reason === WITHHELD_REASON.canary
+      ? 'canary'
+      : reason === WITHHELD_REASON.promptEcho
+        ? 'prompt_echo'
+        : 'provider_tool_leak';
+  yield { type: 'done', stop: { kind: 'filtered', native } };
 }
 
-function* yieldDeltaBlock(hits: GuardrailHit[]): Generator<TurnEvent> {
+function* yieldDeltaBlock(hits: GuardrailHit[]): Generator<StreamEvent> {
   const guardrail = guardrailFromHits('output_delta', 'untrusted', hits, 'block');
   if (guardrail) {
     yield guardrail;
   }
 }
 
-/** Host-visible output a mid-stream block withholds. Thoughts are not guarded (`isGuardedOutput`). */
-function isWithheldOnBlock(event: TurnEvent): boolean {
+/** What the guard released, after the event saying what it omitted from it. */
+function* yieldThought(
+  { text, hits }: ThoughtRelease,
+  event: StreamEvent & { type: 'thought' },
+): Generator<StreamEvent> {
+  const guardrail = guardrailFromHits('thought', 'untrusted', hits, 'redact');
+  if (guardrail) yield guardrail;
+  if (text) yield { ...event, text };
+}
+
+/** The thought held at the end of a call, and what the next call's thoughts read on from. */
+function* flushThoughts(
+  thoughts: ThoughtGuard | undefined,
+  control: OutboundStreamControl | undefined,
+): Generator<StreamEvent> {
+  if (!thoughts) return;
+  yield* yieldThought(thoughts.flush(), { type: 'thought', text: '' });
+  if (control) control.thoughtCarry = thoughts.carryOut();
+}
+
+/** Host-visible output a mid-stream block withholds. A thought is never withheld, only omitted from. */
+function isWithheldOnBlock(event: ProviderEvent): boolean {
   return event.type === 'text' || event.type === 'media';
 }
 
@@ -61,15 +112,37 @@ function canaryOnlyImmediateStop(policy: ResolvedGuardrailPolicy): boolean {
 async function* yieldProviderEvents(args: {
   profile: Profile;
   generation: ResolvedGeneration;
-  /** What the adapter is asked to send (`providerCompleteRequest`). */
   request: ProviderCompleteRequest;
+  /** The private stretches of `request.system` (`BoundSystem.private`). */
+  privateSystem: readonly string[];
   provider: ModelProvider;
   /** This call's recorder: sees every tap row and every provider event before any gate. */
-  call: Pick<CallTrace, 'tap' | 'observe'>;
+  call: Pick<CallTrace, 'tap' | 'observe'> & Partial<Pick<CallTrace, 'guardTime'>>;
   signal?: AbortSignal;
   control?: OutboundStreamControl;
-}): AsyncGenerator<TurnEvent> {
-  const { profile, generation, request, provider, call, signal, control } = args;
+  /** Every URL the model has been given this turn. */
+  givenUrls: GivenUrls;
+}): AsyncGenerator<StreamEvent> {
+  const {
+    profile,
+    generation,
+    request,
+    privateSystem,
+    provider,
+    call,
+    signal,
+    control,
+    givenUrls,
+  } = args;
+  /** Runs one stream check and adds the run to the call's record of that check. */
+  async function timed<T>(check: StreamCheck, run: () => T | Promise<T>): Promise<T> {
+    const start = performance.now();
+    try {
+      return await run();
+    } finally {
+      call.guardTime?.(check, performance.now() - start);
+    }
+  }
   const { canary } = generation;
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const context: GuardrailContext = {
@@ -78,11 +151,29 @@ async function* yieldProviderEvents(args: {
     profileId: profile.id,
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(canary ? { canary } : {}),
+    // The system prompt is guarded against echo alongside the canary that binds it.
+    ...(canary && policy.promptEcho && privateSystem.length > 0 ? { privateSystem } : {}),
+    givenUrls,
   };
-  const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(policy, context);
+  const { canaryCarry, thoughtCarry } = control ?? {};
+  const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(
+    policy,
+    context,
+    canaryCarry,
+  );
+  const thoughts = thoughtGuardFor(policy.egress?.enforce, context, thoughtCarry);
   /** The streamed event whose reply sits in the gate's lookback; released tails keep its shape. */
-  let pendingStream: TurnEvent | null = null;
+  let pendingStream: StreamedReplyEvent | null = null;
   let withholdVisible = false;
+
+  /**
+   * Under a host policy a withheld system-prompt leak goes to the
+   * end-of-attempt verdict, which it pins to block: no verdict may release it.
+   */
+  function recordPromptLeak(hits: GuardrailHit[]): void {
+    const leaks = hits.filter(isPromptLeakHit);
+    if (control && leaks.length > 0) control.promptLeaks = leaks;
+  }
 
   function armWithhold(): void {
     withholdVisible = true;
@@ -95,8 +186,8 @@ async function* yieldProviderEvents(args: {
 
   async function* drainBlockedDelta(
     hits: GuardrailHit[],
-    template: TurnEvent,
-  ): AsyncGenerator<TurnEvent, void> {
+    template: StreamedReplyEvent,
+  ): AsyncGenerator<StreamEvent, void> {
     yield* yieldDeltaBlock(hits);
     // Arm withhold before recording the unreleased tail so the step runner
     // does not forward that text to the host.
@@ -105,30 +196,42 @@ async function* yieldProviderEvents(args: {
     if (tail) yield { ...template, text: tail };
   }
 
-  async function* flushGate(): AsyncGenerator<TurnEvent, 'stop' | 'pass'> {
+  async function* flushGate(): AsyncGenerator<StreamEvent, 'stop' | 'pass'> {
     if (!(gate && pendingStream)) {
       return 'pass';
     }
     const template = pendingStream;
-    const result = await gate.flush();
+    const result = await timed('output_stream', () => gate.flush());
     pendingStream = null;
+    return (yield* releaseOrBlock(result, template)) === 'stop' ? 'stop' : 'pass';
+  }
+
+  /**
+   * Act on one gate step: release what it cleared, or block — stopping the turn
+   * when no host policy decides later, otherwise withholding for its verdict.
+   */
+  async function* releaseOrBlock(
+    result: ProgressiveYieldResult,
+    template: StreamedReplyEvent,
+  ): AsyncGenerator<StreamEvent, 'stop' | 'go'> {
     if (result.blocked) {
       if (canary && canaryOnlyImmediateStop(policy)) {
-        yield* yieldCanaryLeak();
+        yield* yieldCanaryLeak(result.hits);
         return 'stop';
       }
+      recordPromptLeak(result.hits);
       yield* drainBlockedDelta(result.hits, template);
-      return 'pass';
+      return 'go';
     }
     if (result.emit) {
       yield { ...template, text: result.emit };
     }
-    return 'pass';
+    return 'go';
   }
 
   async function* gateStreamEvent(
-    event: TurnEvent,
-  ): AsyncGenerator<TurnEvent, 'continue' | 'stop'> {
+    event: StreamedReplyEvent,
+  ): AsyncGenerator<StreamEvent, 'continue' | 'stop'> {
     if (!gate) {
       yield event;
       return 'continue';
@@ -139,19 +242,26 @@ async function* yieldProviderEvents(args: {
       return 'continue';
     }
     pendingStream = event;
-    const result = await gate.process(event.text ?? '');
-    if (result.blocked) {
-      if (canary && canaryOnlyImmediateStop(policy)) {
-        yield* yieldCanaryLeak();
-        return 'stop';
-      }
-      yield* drainBlockedDelta(result.hits, event);
-      return 'continue';
-    }
-    if (result.emit) {
-      yield { ...event, text: result.emit };
-    }
-    return 'continue';
+    const result = await timed('output_stream', () => gate.process(event.text ?? ''));
+    return (yield* releaseOrBlock(result, event)) === 'stop' ? 'stop' : 'continue';
+  }
+
+  /** Whether a thought has streamed since the guard last flushed. */
+  let thinking = false;
+
+  /** A thought, through the guard when there is one; false for any other event. */
+  function* guardThought(event: StreamEvent): Generator<StreamEvent, boolean> {
+    if (event.type !== 'thought' || !thoughts) return false;
+    thinking = true;
+    yield* yieldThought(thoughts.push(event.text), event);
+    return true;
+  }
+
+  /** The reply ends the thought: release its hold, as a call's end does, reading on from the carry. */
+  function* endThought(): Generator<StreamEvent> {
+    if (!thinking) return;
+    thinking = false;
+    yield* flushThoughts(thoughts, control);
   }
 
   throwIfAborted(signal);
@@ -164,7 +274,10 @@ async function* yieldProviderEvents(args: {
       continue;
     }
 
+    if (yield* guardThought(event)) continue;
+
     if (isStreamedCanaryEvent(event)) {
+      yield* endThought();
       const status = yield* gateStreamEvent(event);
       if (status === 'stop') {
         return;
@@ -178,8 +291,13 @@ async function* yieldProviderEvents(args: {
       return;
     }
 
-    if (canary && eventHasCanary(event, canary)) {
-      yield* yieldCanaryLeak();
+    const leaks = canary
+      ? await timed('stream_canary', () =>
+          eventPromptLeakHits(event, canary, context.privateSystem),
+        )
+      : [];
+    if (leaks.length > 0) {
+      yield* yieldCanaryLeak(leaks);
       return;
     }
 
@@ -192,12 +310,18 @@ async function* yieldProviderEvents(args: {
     if (event.type === 'error') {
       providerFailed = true;
     }
+    if (event.type === 'done') yield* flushThoughts(thoughts, control);
     yield event;
   }
+
+  yield* flushThoughts(thoughts, control);
 
   const flushed = yield* flushGate();
   if (flushed === 'stop') {
     return;
+  }
+  if (control && gate) {
+    control.canaryCarry = gate.carryOut();
   }
   if (providerFailed) {
     // An error from the provider outranks any `done` it sent: the call's output is not whole.

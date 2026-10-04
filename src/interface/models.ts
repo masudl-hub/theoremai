@@ -1,9 +1,3 @@
-/**
- * Profile model selection for composer hosts.
- *
- * @module
- */
-
 import type { ModelBinding, ModelId } from '../kernel/types.ts';
 import type { ComposerProfileInterface } from './types.ts';
 
@@ -30,19 +24,16 @@ function bindingFor(
   return profile.models[modelId];
 }
 
-/** True when the host should render a model picker before sending turns. */
 function modelSelectEnabled(profile: ModelSelectProfile): boolean {
   return Boolean(profile.allowModelSelect && Object.keys(profile.models).length >= 2);
 }
 
-/** True when the selected model exposes two or more effort aliases. */
 function effortSelectEnabled(profile: ModelSelectProfile, modelId: ModelId | undefined): boolean {
   const binding = bindingFor(profile, modelId);
   if (!binding?.allowEffortSelect) return false;
   return Object.keys(binding.efforts ?? {}).length >= 2;
 }
 
-/** Show generation controls when model or effort can be chosen at turn time. */
 function generationSelectEnabled(
   profile: ModelSelectProfile,
   modelId: ModelId | undefined,
@@ -50,7 +41,7 @@ function generationSelectEnabled(
   return modelSelectEnabled(profile) || effortSelectEnabled(profile, modelId);
 }
 
-/** Default effort alias for a model binding. */
+/** `defaultEffort` when it names an alias, else the first alias. */
 function defaultInterfaceEffort(
   profile: ModelSelectProfile,
   modelId: ModelId | undefined,
@@ -63,7 +54,6 @@ function defaultInterfaceEffort(
   return keys[0];
 }
 
-/** Selectable models for the composer UI (empty when selection is disabled). */
 function interfaceModelOptions(profile: ModelSelectProfile): InterfaceModelOption[] {
   if (!modelSelectEnabled(profile)) return [];
   return Object.entries(profile.models).map(([id, binding]) => ({
@@ -72,7 +62,6 @@ function interfaceModelOptions(profile: ModelSelectProfile): InterfaceModelOptio
   }));
 }
 
-/** Effort aliases for the selected model (empty when effort selection is disabled). */
 function interfaceEffortOptions(
   profile: ModelSelectProfile,
   modelId: ModelId | undefined,

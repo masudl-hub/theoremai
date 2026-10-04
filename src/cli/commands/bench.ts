@@ -1,26 +1,19 @@
-/**
- * Synthetic performance benchmark for the THEOREM kernel pipeline.
- *
- * Measures overhead added by profile resolution, sanitization, canary
- * binding, stream processing, and event dispatch vs. a bare provider call.
- *
- * Metrics:
- *   TTFE  — time to first event (profile resolve + provider setup)
- *   TTFT  — time to first text delta
- *   T/s   — text tokens per second throughput
- *   Overhead — total wall-clock delta vs. raw provider consumption
- *
- * @module
- */
+// TTFE: time to first event (profile resolve + provider setup). TTFT: time to first text delta.
+// Overhead: total wall-clock delta vs. raw provider consumption.
 
-import { bindCanary, eventHasCanary, mintCanary } from '../../guardrails/canary.ts';
+import { canaryNote, eventHasCanary, mintCanary } from '../../guardrails/canary.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
+import {
+  clearProfiles,
+  getProfile,
+  registerProfile,
+  resolveTurn,
+  runTurn,
+} from '../../kernel/default-scope.ts';
 import { startCallUsage } from '../../kernel/engine/runner/usage.ts';
-import { runTurn } from '../../kernel/engine/runner.ts';
 import { startCallTrace } from '../../kernel/engine/turn-trace.ts';
-import { clearProfiles, registerProfile } from '../../kernel/registry/profiles.ts';
-import { resolveTurn } from '../../kernel/registry/resolve.ts';
 import { pickSystemRole } from '../../kernel/registry/system-role.ts';
+import { bindSystem } from '../../kernel/system-parts.ts';
 import type {
   ModelProvider,
   ProviderCompleteRequest,
@@ -84,7 +77,7 @@ function generateChunks(count: number): TurnEvent[] {
     type: 'tokens',
     tokens: { input: 10, output: count, total: 10 + count },
   });
-  events.push({ type: 'done' });
+  events.push({ type: 'done', stop: { kind: 'completed' } });
   return events;
 }
 
@@ -138,7 +131,6 @@ async function measureRawProvider(provider: ModelProvider): Promise<TimingResult
   let gotFirst = false;
   let gotFirstText = false;
 
-  // Simulate what a bare consumer does — no kernel overhead
   const fakeReq = benchProviderRequest(req.input?.text ?? '');
 
   for await (const event of provider.complete(fakeReq)) {
@@ -305,17 +297,16 @@ function measureSetupPhases(): PhaseTimings {
   const req = buildBenchRequest();
 
   const t0 = performance.now();
-  const safe = sanitizeTurnRequest(req);
+  const safe = sanitizeTurnRequest(req, getProfile(req.profile));
   const t1 = performance.now();
 
   const { profile, generation } = resolveTurn(safe);
   const t2 = performance.now();
 
   pickSystemRole(profile, safe.input?.role);
-  const sys = profile.type === 'speech' ? '' : (profile.identity.system ?? '');
   const t3 = performance.now();
 
-  bindCanary(sys, generation.canary);
+  bindSystem(generation.resolvedSystem, [canaryNote(generation.canary)]);
   const t4 = performance.now();
 
   return {
@@ -349,7 +340,7 @@ function printPhaseBreakdown(iterations: number): void {
   console.log(`  sanitizeTurnRequest    ${fmtMs(sanitize).padStart(10)}`);
   console.log(`  resolveTurn            ${fmtMs(resolve).padStart(10)}`);
   console.log(`  pickSystemRole         ${fmtMs(system).padStart(10)}`);
-  console.log(`  bindCanary             ${fmtMs(canary).padStart(10)}`);
+  console.log(`  bindSystem             ${fmtMs(canary).padStart(10)}`);
   console.log(`  ─────────────────────────────`);
   console.log(`  Total setup            ${fmtMs(total).padStart(10)}`);
 }
@@ -500,7 +491,7 @@ function microSanitizeScaling(): void {
     const runs = 500;
     const start = performance.now();
     for (let i = 0; i < runs; i++) {
-      sanitizeTurnRequest(req);
+      sanitizeTurnRequest(req, getProfile(req.profile));
     }
     const elapsed = performance.now() - start;
     const perCall = elapsed / runs;
@@ -550,19 +541,16 @@ export async function benchCommand(options: BenchOptions = {}): Promise<void> {
 
   registerBenchProfile();
 
-  // Warmup
   for (let i = 0; i < warmup; i++) {
     await measureRawProvider(provider);
     await measureKernelPipeline(provider);
   }
 
-  // Collect raw baseline
   const rawResults: TimingResult[] = [];
   for (let i = 0; i < iterations; i++) {
     rawResults.push(await measureRawProvider(provider));
   }
 
-  // Collect kernel pipeline
   const kernelResults: TimingResult[] = [];
   for (let i = 0; i < iterations; i++) {
     kernelResults.push(await measureKernelPipeline(provider));
@@ -577,7 +565,6 @@ export async function benchCommand(options: BenchOptions = {}): Promise<void> {
   printPhaseBreakdown(iterations);
   await printMicroBenchmarks(chunks, iterations);
 
-  // Cleanup
   clearProfiles();
 
   console.log('\n');

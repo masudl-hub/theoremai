@@ -1,16 +1,9 @@
-/**
- * Shared tool execution core for model-initiated and host-initiated calls.
- *
- * @module
- */
-
-import { isAbortError, throwIfAborted } from '../../guardrails/error.ts';
+import { errorKind, isAbortError, throwIfAborted } from '../../guardrails/error.ts';
 import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
-import { sanitizeText } from '../../guardrails/sanitize.ts';
+import { resolveSensitive } from '../../guardrails/sensitive.ts';
 import {
   checkTaintGate,
-  composeToolText,
   guardToolFailureText,
   guardToolResult,
   inspectToolArguments,
@@ -18,26 +11,57 @@ import {
 } from '../../guardrails/tool-result.ts';
 import type { Provenance, ToolOrigin } from '../../guardrails/types.ts';
 import type { SpanHandle, TraceAttributes } from '../../observability/trace-span.ts';
-import { startToolTrace, type ToolCallEnd, type ToolOutcome } from '../engine/tool-trace.ts';
-import { isAwaitingUserInput } from '../stages.ts';
-import type { InteractionPart, Profile, TurnEvent, TurnHistoryMessage } from '../types.ts';
+import {
+  recordToolCheck,
+  startToolTrace,
+  type ToolCallEnd,
+  type ToolOutcome,
+} from '../engine/tool-trace.ts';
+import { type InjectUnit, isAwaitingUserInput } from '../stages.ts';
+import type { Source } from '../turn-events.ts';
+import type { InteractionPart, Profile, TurnEvent } from '../types.ts';
 import { isRecord } from '../util/record.ts';
-import { failureEvent, messageOf, startToolExecution, toolEvent } from './events.ts';
+import { fillActivityLabel } from './activity-label.ts';
+import {
+  failureEvent,
+  messageOf,
+  networkBlocked,
+  networkBlockedEvent,
+  requestChecks,
+  sourceEvents,
+  startToolExecution,
+  type ToolCallBase,
+  toolCallArguments,
+  toolEvent,
+} from './events.ts';
+import { formatToolFailureForModel, formatToolResult } from './model-text.ts';
 import {
   checkPermission,
   isGateResumeDenied,
   isGateResumeGranted,
   isResumeContinuation,
 } from './permission.ts';
-import { getTool } from './registry.ts';
+import type { ToolRegistry } from './registry.ts';
 import {
   executeHttpTool,
   executeMcpTool,
+  failureWithoutSecret,
   modelResultFromOutput,
+  omitSecret,
+  outcomeFromUnauth,
   parseToolOutput,
+  refusedCredentialOutcome,
+  resolveToolAuth,
+  withMedia,
 } from './remote.ts';
-import { profileToolAllow, profileToolsSpec, promoteLoadedTools } from './resolve.ts';
+import {
+  extractLoadedIds,
+  profileToolAllow,
+  profileToolsSpec,
+  promoteLoadedTools,
+} from './resolve.ts';
 import { plainToolInput } from './schema.ts';
+import { CredentialRefusedError, signedInFetch } from './signed-in-fetch.ts';
 import {
   emitGateSettlement,
   type PostToolStageOutcome,
@@ -52,10 +76,10 @@ import type {
   ModelToolResult,
   RegisteredTool,
   ToolBodyOutcome,
-  ToolCallEvent,
   ToolContext,
   ToolFailure,
   ToolGate,
+  ToolLabels,
   ToolStreamEvent,
   TurnToolSnapshot,
 } from './types.ts';
@@ -67,7 +91,6 @@ export {
   permissionGranted,
 } from './permission.ts';
 
-/** Map a registered tool's type onto the origin its bytes carry. */
 function originOfTool(type: RegisteredTool['type']): ToolOrigin {
   if (type === 'http') return 'http';
   if (type === 'mcp') return 'mcp';
@@ -88,7 +111,7 @@ function isStreamHandler(handler: unknown): boolean {
 
 const MEDIA_PART_TYPES = new Set(['image', 'audio', 'video', 'document']);
 
-/** Validate host-emitted InteractionPart shapes; drop invalid entries. */
+/** Invalid entries are dropped. */
 export function coerceToolResultParts(raw: unknown): InteractionPart[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
   const parts: InteractionPart[] = [];
@@ -115,7 +138,6 @@ export function coerceToolResultParts(raw: unknown): InteractionPart[] | undefin
   return parts.length > 0 ? parts : undefined;
 }
 
-/** Copy tool output for model `data`, omitting media `parts`. */
 export function leanToolResultData(output: unknown): unknown {
   if (!isRecord(output)) return output;
   const { parts: _parts, ...rest } = output;
@@ -123,7 +145,7 @@ export function leanToolResultData(output: unknown): unknown {
 }
 
 export function* yieldHandlerSideEvent(
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
+  base: ToolCallBase,
   event: Exclude<ToolStreamEvent, { kind: 'complete' }>,
 ): Generator<TurnEvent> {
   if (event.kind === 'progress') {
@@ -137,12 +159,11 @@ export function* yieldHandlerSideEvent(
   }
 }
 
-/** Run the handler, yielding stream side-events live; returns terminal output. */
 async function* runHandler<TIn, TOut>(
   handler: FunctionToolDef<TIn, TOut>['handler'],
   input: TIn,
   ctx: ToolContext,
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
+  base: ToolCallBase,
 ): AsyncGenerator<TurnEvent, TOut | undefined> {
   if (isStreamHandler(handler)) {
     let output: TOut | undefined;
@@ -187,7 +208,6 @@ export function projectForModel(
   const parts =
     isRecord(output) && 'parts' in output ? coerceToolResultParts(output.parts) : undefined;
   const lean = leanToolResultData(output);
-  // A tool's own summary leads; the rest of its output follows as data, the summary not repeated.
   const summarized = isRecord(lean) && 'finding' in lean;
   const { finding: summary, ...rest } = summarized ? lean : {};
   const result = summarized
@@ -199,51 +219,12 @@ export function projectForModel(
   return { ...result, ...(parts ? { parts } : {}) };
 }
 
-/**
- * Format model-facing tool output for provider history continuation.
- *
- * Text projection only — never embeds `parts[].data`; media travels on
- * `TurnHistoryMessage.parts` and adapters wire it from there.
- *
- * `executeRegisteredTool` guards at the boundary and leaves `modelText` behind, so
- * the common path returns already-fenced text. A result recorded elsewhere — a
- * host replaying a transcript — is guarded here instead, under full detection.
- */
-export function formatToolResult(result: ModelToolResult): string {
-  if (result.modelText !== undefined) {
-    return result.modelText;
-  }
-  return sanitizeText(composeToolText(result.finding, result.data));
-}
-
-/**
- * Format a tool failure for provider history — structured so the model (or host)
- * sees the code.
- *
- * The message is remote-authored on HTTP and MCP tools, so it is redacted before
- * the kernel frames it as a system report.
- */
-export function formatToolFailureForModel(
-  failure: Pick<ToolFailure, 'code' | 'message' | 'details'>,
-  provenance?: Provenance,
-  policy: ReturnType<typeof resolveGuardrailPolicy> = resolveGuardrailPolicy(undefined),
-): ModelToolResult {
-  const safe = provenance
-    ? guardToolFailureText(failure.message, provenance, policy).text
-    : sanitizeText(failure.message);
-  return {
-    finding: `Tool error (${failure.code}): ${safe}`,
-    // The finding already says the code and message; only details are new.
-    ...(failure.details !== undefined ? { data: { details: failure.details } } : {}),
-  };
-}
-
-/** True when this tool is the profile's T2 loader: its output drives the snapshot. */
 function loadsT2(tool: FunctionToolDef, ctx: ToolContext): boolean {
   return profileToolsSpec(ctx.profile)?.t2Loader === tool.name;
 }
 
 function applyT2LoaderPromotion(
+  tools: ToolRegistry,
   tool: FunctionToolDef,
   checkedData: unknown,
   ctx: ToolContext,
@@ -277,7 +258,12 @@ function applyT2LoaderPromotion(
       },
     };
   }
-  const { promoted, failure: promoteFailure } = promoteLoadedTools(snapshot, loaded, ctx.profile);
+  const { promoted, failure: promoteFailure } = promoteLoadedTools(
+    tools,
+    snapshot,
+    loaded,
+    ctx.profile,
+  );
   if (promoteFailure) {
     return { ok: false, failure: promoteFailure };
   }
@@ -297,54 +283,112 @@ function applyT2LoaderPromotion(
   return { ok: true, output: rechecked.data };
 }
 
-/** Settlement returned from `executeRegisteredTool` / function execute. */
 export type ToolExecuteSettlement = {
   modelResult?: ModelToolResult;
   gated?: ToolGate;
+  /** A sign-in gate's note to the model; the gate event carries it as `readBack`. */
+  gateReadBack?: string;
   aborted?: boolean | { reason?: string };
   callNotStarted?: boolean;
   awaiting?: boolean;
   failure?: ToolFailure;
-  /** Raw tool output when the body completed (incl. awaiting). */
+  /** Set when the body completed, including awaiting. */
   outputRaw?: unknown;
-  /** A policy or the host refused the call; `failure` says why. */
   denied?: true;
-  /**
-   * post_tool inject messages — apply after recording the provider tool result
-   * so Interactions continuation exists.
-   */
-  pendingInject?: TurnHistoryMessage[];
+  /** Landed after the provider tool result is recorded: the Interactions continuation must exist first. */
+  pendingInject?: InjectUnit[];
 };
 
-/** Transport-specific validate + project for a host-mutated output, unguarded. */
+/** Unguarded; `settleToolCall` guards the result. */
 type Reproject = (
   output: unknown,
 ) =>
   | { ok: true; outputRaw: unknown; modelResult: ModelToolResult }
   | { ok: false; failure: ToolFailure };
 
-/** Guard bound to one call: fence, redaction, provenance for whatever the model will see. */
-type ResultGuard = (result: ModelToolResult) => Generator<TurnEvent, ModelToolResult>;
+/** Guards what the model reads back from a call: a result, or a failure's message and then its framing. */
+interface ResultGuard {
+  result: (result: ModelToolResult) => Generator<TurnEvent, ModelToolResult>;
+  failure: (failure: ToolFailure) => Generator<TurnEvent, ModelToolResult>;
+}
 
-/** What the transport produced before `post_tool`: a completed body or a failure. */
 type Provisional =
   | { outputRaw: unknown; modelResult: ModelToolResult }
   | {
       failure: ToolFailure;
-      modelResult: ModelToolResult;
       callNotStarted?: boolean;
       denied?: true;
     };
 
+/** What a post-tool stage's deny or `mutate` settles the call with instead; `undefined` when it keeps the result. */
+function* reviseAfterStages(
+  post: PostToolStageOutcome,
+  guard: ResultGuard,
+  reproject: Reproject | undefined,
+): Generator<
+  TurnEvent,
+  | { failure?: ToolFailure; outputRaw: unknown; modelResult: ModelToolResult; awaiting: boolean }
+  | undefined
+> {
+  if (post.deny) {
+    const failure: ToolFailure = {
+      code: post.deny.code,
+      kind: 'blocked',
+      message: post.deny.message,
+    };
+    return {
+      failure,
+      outputRaw: undefined,
+      modelResult: yield* guard.failure(failure),
+      awaiting: false,
+    };
+  }
+  if (!post.mutate || !reproject) return undefined;
+  const next = reproject(plainToolInput(post.mutate.output));
+  if (!next.ok) {
+    return {
+      failure: next.failure,
+      outputRaw: undefined,
+      modelResult: yield* guard.failure(next.failure),
+      awaiting: false,
+    };
+  }
+  return {
+    outputRaw: next.outputRaw,
+    modelResult: yield* guard.result(next.modelResult),
+    awaiting: isAwaitingUserInput(next.outputRaw),
+  };
+}
+
+function completeEvent(
+  base: ToolCallBase,
+  settled: {
+    input: unknown;
+    outputRaw: unknown;
+    modelResult: ModelToolResult;
+    labels?: ToolLabels;
+  },
+): TurnEvent {
+  const { input, outputRaw, modelResult } = settled;
+  const activityPast = fillActivityLabel(settled.labels?.activityPast, {
+    input,
+    output: outputRaw,
+  });
+  return toolEvent(base, {
+    phase: 'complete',
+    output: outputRaw,
+    readBack: formatToolResult(modelResult),
+    ...(modelResult.parts?.length ? { parts: modelResult.parts } : {}),
+    ...(activityPast ? { activityPast } : {}),
+  });
+}
+
 /**
- * Settle a tool call, once, for every transport: guard the provisional result,
- * run `post_tool`, apply a host `deny` or `mutate` (re-projected and re-guarded),
- * then emit the single terminal `tool` event with what the model actually gets.
- * `reproject` is absent when the kernel owns the output (the T2 loader), which
- * makes `mutate` a warning instead of a replacement.
+ * The one settlement for every transport. `reproject` is absent when the kernel owns the
+ * output (the T2 loader), which makes a host `mutate` a warning instead of a replacement.
  */
 async function* settleToolCall(args: {
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>;
+  base: ToolCallBase;
   toolName: string;
   callId: string;
   input?: unknown;
@@ -352,9 +396,14 @@ async function* settleToolCall(args: {
   provisional: Provisional;
   guard: ResultGuard;
   reproject?: Reproject;
+  /** Run on the output the call settles with, after any `mutate`. */
+  sources?: (output: unknown) => Source[];
+  labels?: ToolLabels;
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
-  const { base, toolName, callId, input, stages, provisional, guard, reproject } = args;
-  let modelResult = yield* guard(provisional.modelResult);
+  const { base, toolName, callId, input, stages, provisional, guard, reproject, sources } = args;
+  let modelResult = yield* 'failure' in provisional
+    ? guard.failure(provisional.failure)
+    : guard.result(provisional.modelResult);
   let failure = 'failure' in provisional ? provisional.failure : undefined;
   let outputRaw = 'outputRaw' in provisional ? provisional.outputRaw : undefined;
   const callNotStarted = 'callNotStarted' in provisional ? provisional.callNotStarted : undefined;
@@ -363,10 +412,8 @@ async function* settleToolCall(args: {
   let post: PostToolStageOutcome | undefined;
 
   if (stages) {
-    // Do not applyInject here — the text runner records the tool result first.
-    const { applyInject: _apply, ...rest } = stages;
     post = yield* runPostToolStages({
-      stages: rest,
+      stages,
       toolName,
       callId,
       input,
@@ -377,31 +424,17 @@ async function* settleToolCall(args: {
       awaiting: awaiting || undefined,
       mutable: !failure && reproject !== undefined,
     });
-    if (post.deny) {
-      denied = true;
-      failure = { code: post.deny.code, kind: 'blocked', message: post.deny.message };
-      modelResult = yield* guard(formatToolFailureForModel(failure));
-      outputRaw = undefined;
-      awaiting = false;
-    } else if (post.mutate && reproject) {
-      const next = reproject(plainToolInput(post.mutate.output));
-      if (next.ok) {
-        failure = undefined;
-        outputRaw = next.outputRaw;
-        modelResult = yield* guard(next.modelResult);
-        awaiting = isAwaitingUserInput(outputRaw);
-      } else {
-        failure = next.failure;
-        modelResult = yield* guard(formatToolFailureForModel(next.failure));
-        outputRaw = undefined;
-        awaiting = false;
-      }
+    const revised = yield* reviseAfterStages(post, guard, reproject);
+    if (revised) {
+      ({ failure, outputRaw, modelResult, awaiting } = revised);
+      if (post.deny) denied = true;
     }
   }
 
+  if (!failure && sources) yield* sourceEvents(base, sources, outputRaw);
   yield failure
-    ? failureEvent(base, failure)
-    : toolEvent(base, { phase: 'complete', output: outputRaw });
+    ? failureEvent(base, failure, formatToolResult(modelResult))
+    : completeEvent(base, { input, outputRaw, modelResult, labels: args.labels });
   return {
     modelResult,
     ...(failure ? { failure } : { outputRaw }),
@@ -409,14 +442,13 @@ async function* settleToolCall(args: {
     ...(callNotStarted ? { callNotStarted: true as const } : {}),
     ...(awaiting ? { awaiting: true as const } : {}),
     ...(post?.abort !== undefined ? { aborted: post.abort } : {}),
-    ...(post?.inject?.length ? { pendingInject: post.inject } : {}),
+    ...(post?.inject.length ? { pendingInject: post.inject } : {}),
   };
 }
 
-/** Settle a call that failed before or during its body. */
 function settleToolFailure(
   guard: ResultGuard,
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
+  base: ToolCallBase,
   failure: ToolFailure,
   stages: ToolStageSupport | undefined,
   args: {
@@ -436,31 +468,33 @@ function settleToolFailure(
     guard,
     provisional: {
       failure,
-      modelResult: formatToolFailureForModel(failure),
       ...(args.callNotStarted ? { callNotStarted: true } : {}),
       ...(args.denied ? { denied: true } : {}),
     },
   });
 }
 
-/** The one guard every model-facing tool result passes through, bound to this call. */
 function resultGuard(
   tool: RegisteredTool,
   ctx: ToolContext,
   snapshot: TurnToolSnapshot | undefined,
+  span: SpanHandle | undefined,
 ): ResultGuard {
   const provenance = provenanceFor(tool);
   const policy = resolveGuardrailPolicy(ctx.profile.guardrails);
   const callableTools = snapshot?.executable ?? [];
-  return (result) => guardResult(result, provenance, policy, callableTools, ctx.profile.lexicon);
+  const inputs = { provenance, policy, callableTools, lexicon: ctx.profile.lexicon, span };
+  return {
+    result: (result) => guardResult(result, inputs),
+    failure: (failure) => guardFailure(failure, inputs),
+  };
 }
 
-/** Tool `preTool` + host `pre_tool` + mutate re-parse, mapped onto a function-tool settlement. */
 async function* runFunctionPreBodyStages(args: {
   tool: FunctionToolDef;
   input: unknown;
   ctx: ToolContext;
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>;
+  base: ToolCallBase;
   stages?: ToolStageSupport;
   guard: ResultGuard;
 }): AsyncGenerator<TurnEvent, { ok: true; input: unknown } | ToolExecuteSettlement> {
@@ -475,17 +509,13 @@ async function* runFunctionPreBodyStages(args: {
   }
   return yield* settleToolFailure(guard, base, pre.failure, stages, {
     toolName: tool.name,
-    callId: base.callId ?? '',
+    callId: base.callId,
     input: args.input,
     callNotStarted: true,
     ...(pre.denied ? { denied: true } : {}),
   });
 }
 
-/**
- * Build the `Reproject` for a host `post_tool` mutate: re-validate the replacement
- * output through the transport's own parser, then project it the transport's way.
- */
 type ParsedOutput =
   | { success: true; data: unknown }
   | { success: false; error: { flatten: () => unknown } };
@@ -512,16 +542,44 @@ function makeReproject(
   };
 }
 
+type FunctionSignIn = {
+  /** Set when the tool signs in and its credential resolved. */
+  prepared?: { authHeaders: Record<string, string>; audience?: string };
+  secret?: string;
+  /** Set when the call settles here: a gate, the model told it is not signed in, or a failure. */
+  outcome?: ToolBodyOutcome;
+};
+
+/** Order as for remote tools: schema → permission → auth → preTool/host stages → body. */
+async function* resolveFunctionSignIn(
+  tool: FunctionToolDef,
+  ctx: ToolContext,
+  base: ToolCallBase,
+): AsyncGenerator<TurnEvent, FunctionSignIn> {
+  if (!tool.auth) return {};
+  const resolved = yield* resolveToolAuth(tool.name, tool.auth, ctx, base);
+  const outcome = outcomeFromUnauth(resolved);
+  if (outcome) return { outcome };
+  return {
+    prepared: {
+      authHeaders: resolved.headers,
+      ...(resolved.audience ? { audience: resolved.audience } : {}),
+    },
+    ...(resolved.secret ? { secret: resolved.secret } : {}),
+  };
+}
+
 export async function* executeFunction(
+  tools: ToolRegistry,
   tool: FunctionToolDef,
   rawInput: unknown,
   ctx: ToolContext,
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
+  base: ToolCallBase,
   snapshot?: TurnToolSnapshot,
   stages?: ToolStageSupport,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
-  const guard = resultGuard(tool, ctx, snapshot);
-  const callId = base.callId ?? '';
+  const guard = resultGuard(tool, ctx, snapshot, stages?.span);
+  const callId = base.callId;
   const parsed = yield* startToolExecution(tool, rawInput, ctx, base);
   if (!parsed.ok) {
     return yield* settleToolFailure(
@@ -545,11 +603,31 @@ export async function* executeFunction(
     ctx.resume,
   );
   if (permissionGate) {
-    yield* emitGateSettlement({ base, gate: permissionGate, callId, toolName: tool.name });
+    yield* emitGateSettlement({
+      base,
+      gate: permissionGate,
+      callId,
+      toolName: tool.name,
+      lexicon: ctx.profile.lexicon,
+    });
     return { gated: permissionGate, callNotStarted: true };
   }
 
   throwIfAborted(ctx.signal);
+
+  const settleOutcome = (outcome: ToolBodyOutcome) =>
+    settleBodyOutcome({
+      outcome,
+      tool,
+      base,
+      callId,
+      safeInput: input,
+      stages,
+      guard,
+      lexicon: ctx.profile.lexicon,
+    });
+  const signedIn = yield* resolveFunctionSignIn(tool, ctx, base);
+  if (signedIn.outcome) return yield* settleOutcome(signedIn.outcome);
 
   const preBody = yield* runFunctionPreBodyStages({ tool, input, ctx, base, stages, guard });
   if (!('ok' in preBody)) {
@@ -558,15 +636,44 @@ export async function* executeFunction(
   input = preBody.input;
 
   throwIfAborted(ctx.signal);
+  const { secret } = signedIn;
   const fail = (failure: ToolFailure) =>
-    settleToolFailure(guard, base, failure, stages, { toolName: tool.name, callId, input });
+    settleToolFailure(
+      guard,
+      base,
+      secret ? failureWithoutSecret(failure, secret) : failure,
+      stages,
+      { toolName: tool.name, callId, input },
+    );
 
+  const checks = requestChecks(stages?.span);
+  const handlerCtx: ToolContext = signedIn.prepared
+    ? { ...ctx, signedInFetch: signedInFetch(signedIn.prepared, ctx, checks) }
+    : ctx;
   let output: unknown;
   try {
-    output = yield* runHandler(tool.handler, input as never, ctx, base);
+    output = yield* runHandler(tool.handler, input as never, handlerCtx, base);
+    checks.record();
   } catch (err) {
+    if (signedIn.prepared && err instanceof CredentialRefusedError) {
+      checks.record();
+      const refused = yield* refusedCredentialOutcome(
+        tool,
+        err.refusal,
+        signedIn.prepared.authHeaders,
+        ctx,
+        base,
+      );
+      if (refused) return yield* settleOutcome(refused);
+    }
+    if (signedIn.prepared && errorKind(err) === 'blocked') {
+      const blocked = networkBlockedEvent();
+      checks.record(blocked);
+      return yield* fail(yield* networkBlocked(err, blocked));
+    }
     return yield* fail({ code: 'handler_error', kind: 'failed', message: messageOf(err) });
   }
+  if (secret) output = omitSecret(output, secret);
   if (output === undefined) {
     return yield* fail({
       code: 'invalid_output',
@@ -583,12 +690,12 @@ export async function* executeFunction(
       details: checked.error.flatten(),
     });
   }
-  const promoted = applyT2LoaderPromotion(tool, checked.data, ctx, snapshot);
+  const promoted = applyT2LoaderPromotion(tools, tool, checked.data, ctx, snapshot);
   if (!promoted.ok) {
     return yield* fail(promoted.failure);
   }
 
-  // The T2 loader's output drives the snapshot; the kernel owns it, so no mutate.
+  // The T2 loader's output drives the snapshot, so the host may not mutate it.
   const ownsOutput = loadsT2(tool, ctx);
   return yield* settleToolCall({
     base,
@@ -601,6 +708,8 @@ export async function* executeFunction(
       outputRaw: promoted.output,
       modelResult: projectForModel(tool, promoted.output, ctx.profile.lexicon),
     },
+    sources: tool.sources,
+    labels: tool.labels,
     ...(ownsOutput
       ? {}
       : {
@@ -626,17 +735,6 @@ export function notLoadedMessage(
   return lexiconText('tool.not_visible', { tool: tool.name }, lexicon);
 }
 
-export function extractLoadedIds(output: unknown): string[] | undefined {
-  if (!output || typeof output !== 'object' || Array.isArray(output)) {
-    return undefined;
-  }
-  const loaded = (output as { loaded?: unknown }).loaded;
-  if (!Array.isArray(loaded) || !loaded.every((id) => typeof id === 'string')) {
-    return undefined;
-  }
-  return loaded;
-}
-
 function earlyFailure(failure: ToolFailure): ToolExecuteSettlement {
   return { failure, callNotStarted: true, modelResult: formatToolFailureForModel(failure) };
 }
@@ -644,7 +742,7 @@ function earlyFailure(failure: ToolFailure): ToolExecuteSettlement {
 export async function* executeBuiltin(
   tool: { name: string },
   ctx: ToolContext,
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
+  base: ToolCallBase,
   snapshot: TurnToolSnapshot,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   yield toolEvent(base, { phase: 'running' });
@@ -667,9 +765,8 @@ export async function* executeBuiltin(
   return earlyFailure(failure);
 }
 
-/** Snapshot / allowlist / load-tier checks before body execution. */
 function registeredEligibilityFailure(args: {
-  tool: NonNullable<ReturnType<typeof getTool>>;
+  tool: RegisteredTool;
   profile: Profile;
   name: string;
   resume: ToolContext['resume'];
@@ -709,10 +806,11 @@ function registeredEligibilityFailure(args: {
   return undefined;
 }
 
-async function* settleRemoteOutcome(args: {
+/** Settles an outcome the kernel reached without a handler's own result: a remote body, or a sign-in. */
+async function* settleBodyOutcome(args: {
   outcome: ToolBodyOutcome;
-  tool: HttpToolDef | McpToolDef;
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>;
+  tool: HttpToolDef | McpToolDef | FunctionToolDef;
+  base: ToolCallBase;
   callId: string;
   safeInput: unknown;
   stages?: ToolStageSupport;
@@ -726,8 +824,14 @@ async function* settleRemoteOutcome(args: {
     if (outcome.gate.kind === 'confirmation') {
       return { gated: outcome.gate, callNotStarted: true };
     }
-    yield* emitGateSettlement({ base, gate: outcome.gate, callId, toolName: name });
-    return { gated: outcome.gate, callNotStarted: true };
+    const gateReadBack = yield* emitGateSettlement({
+      base,
+      gate: outcome.gate,
+      callId,
+      toolName: name,
+      lexicon,
+    });
+    return { gated: outcome.gate, callNotStarted: true, ...(gateReadBack ? { gateReadBack } : {}) };
   }
   if (outcome.kind === 'aborted') {
     return { aborted: outcome.aborted, callNotStarted: true };
@@ -749,16 +853,19 @@ async function* settleRemoteOutcome(args: {
     stages,
     guard,
     provisional: { outputRaw: outcome.outputRaw, modelResult: outcome.modelResult },
+    sources: tool.sources,
+    labels: tool.labels,
     reproject: makeReproject(
       (v) => parseToolOutput(tool.output, v),
-      modelResultFromOutput,
+      // A hook's edit replaces the value; the media the tool returned stays.
+      (data) => withMedia(modelResultFromOutput(data), outcome.modelResult.parts),
       lexicon,
     ),
   });
 }
 
-/** One registered-tool call: who asks, what for, and where it records. */
 interface RegisteredToolCall {
+  tools: ToolRegistry;
   profile: Profile;
   name: string;
   input: unknown;
@@ -766,35 +873,73 @@ interface RegisteredToolCall {
   ctx: Omit<ToolContext, 'callId' | 'profile'>;
   snapshot?: TurnToolSnapshot;
   stages?: ToolStageSupport;
-  /**
-   * Opens this call's `execute_tool` span (a turn's child, or a host invoke's
-   * root). The span then carries `pre_tool` / `post_tool` and is handed to
-   * the tool as `ctx.traceparent`. Omitted: the call is not traced.
-   */
+  /** Omitted: the call is not traced. The span is handed to the tool as `ctx.traceparent`. */
   openSpan?: (name: string, attributes: TraceAttributes) => SpanHandle;
-  /**
-   * What the model reads back from a settled call, as the span records it.
-   * Default: the text and media a turn sends (`turnReadBack`). A transport that
-   * sends something else (Live's `functionResponse`) passes its own.
-   */
+  /** Defaults to `turnReadBack`; a transport that sends something else (Live's `functionResponse`) passes its own. */
   readBack?: (settlement: ToolExecuteSettlement) => ToolCallEnd['result'];
 }
 
-/** What a turn sends the model for a settled call: the formatted text and any media. */
 function turnReadBack({ modelResult }: ToolExecuteSettlement): ToolCallEnd['result'] {
   return modelResult
     ? { text: formatToolResult(modelResult), parts: modelResult.parts }
     : undefined;
 }
 
-/** The gate answer a resumed call carries: approved, refused, or none. */
+/** The service a refused sign-in names, from the tool's own auth config. */
+function refusedSignInService(tool: RegisteredTool, resume: ToolContext['resume']) {
+  if (!resume?.signIn || tool.type === 'builtin') return undefined;
+  return tool.auth?.service;
+}
+
+/**
+ * A gate nobody answered: a sign-in for `expiredService` whose link expired, or any other gate
+ * left behind. Both settle as `cancelled`.
+ */
+export function lapsedGateFailure(
+  toolName: string,
+  expiredService: string | undefined,
+  lexicon: LexiconOverrides | undefined,
+): ToolFailure {
+  if (expiredService) {
+    return {
+      code: 'expired',
+      kind: 'cancelled',
+      message: lexiconText('sign_in.expired', { service: expiredService }, lexicon),
+    };
+  }
+  return {
+    code: 'cancelled',
+    kind: 'cancelled',
+    message: lexiconText('session.abandon_gated', { tool: toolName }, lexicon),
+  };
+}
+
+/** `abandoned` and `expired` settle as `cancelled`. */
+function refusalFailure(
+  tool: RegisteredTool,
+  resume: ToolContext['resume'],
+  lexicon: LexiconOverrides | undefined,
+): ToolFailure {
+  const service = refusedSignInService(tool, resume);
+  const cause = resume?.cause ?? 'declined';
+  if (cause === 'declined') {
+    return {
+      code: 'denied',
+      kind: 'declined',
+      message: service
+        ? lexiconText('sign_in.declined', { service }, lexicon)
+        : lexiconText('session.tool_denied', { tool: tool.name }, lexicon),
+    };
+  }
+  return lapsedGateFailure(tool.name, cause === 'expired' ? service : undefined, lexicon);
+}
+
 function resumeApproval(resume: ToolContext['resume']): boolean | undefined {
   if (isGateResumeGranted(resume)) return true;
   if (isGateResumeDenied(resume)) return false;
   return undefined;
 }
 
-/** How a settled call ends its span. */
 function toolCallEnd(
   settlement: ToolExecuteSettlement,
   readBack: NonNullable<RegisteredToolCall['readBack']>,
@@ -820,14 +965,10 @@ function toolCallEnd(
   };
 }
 
-/**
- * Execute one registered tool call through the shared pipeline, recording it
- * as an `execute_tool` span when `openSpan` is given.
- */
 export async function* executeRegisteredTool(
   args: RegisteredToolCall,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
-  const tool = getTool(args.name);
+  const tool = args.tools.get(args.name);
   if (!args.openSpan) {
     return yield* runRegisteredTool(args, tool);
   }
@@ -862,17 +1003,12 @@ export async function* executeRegisteredTool(
     trace.end(isAbortError(err) ? { outcome: 'cancelled' } : { outcome: 'error', thrown: err });
     throw err;
   } finally {
-    // The host stopped reading mid-call: close the body and say so.
+    // The host stopped reading mid-call.
     if (!trace.span.ended) {
       trace.end({ outcome: 'cancelled' });
       await exec.return({});
     }
   }
-}
-
-/** Tool arguments as an object, the shape tool events carry. */
-export function toolCallArguments(safeInput: unknown): Record<string, unknown> {
-  return isRecord(safeInput) ? safeInput : { value: safeInput };
 }
 
 async function* runRegisteredTool(
@@ -881,7 +1017,7 @@ async function* runRegisteredTool(
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const { profile, name, input, callId, ctx, snapshot, stages } = args;
   const safeInput = plainToolInput(input);
-  const base = { name, callId, arguments: toolCallArguments(safeInput) };
+  const base = { name, callId };
   if (!tool) {
     const failure: ToolFailure = {
       code: 'unknown_tool',
@@ -917,16 +1053,11 @@ async function* runRegisteredTool(
     return earlyFailure(eligibility);
   }
 
-  // Host denied after a gate — synthetic failure + post_tool, no body.
   if (isGateResumeDenied(ctx.resume)) {
     return yield* settleToolFailure(
-      resultGuard(tool, { ...ctx, callId, profile }, snapshot),
+      resultGuard(tool, { ...ctx, callId, profile }, snapshot, stages?.span),
       base,
-      {
-        code: 'denied',
-        kind: 'declined',
-        message: lexiconText('session.tool_denied', { tool: name }, profile.lexicon),
-      },
+      refusalFailure(tool, ctx.resume, profile.lexicon),
       stages,
       { toolName: name, callId, input: safeInput, callNotStarted: true, denied: true },
     );
@@ -936,13 +1067,17 @@ async function* runRegisteredTool(
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const provenance = provenanceFor(tool);
 
+  const argsStart = performance.now();
   const argEvent = toolCallEvent(inspectToolArguments(safeInput, policy), provenance);
+  recordToolCheck(stages?.span, 'tool_arguments', performance.now() - argsStart, argEvent);
   if (argEvent) {
     yield { type: 'guardrail', guardrail: argEvent };
   }
 
+  const taintStart = performance.now();
   const taintVerdict = checkTaintGate(ctx.turn?.taint, tool.access, policy, profile.lexicon);
   const taintEvent = toolCallEvent(taintVerdict, provenance);
+  recordToolCheck(stages?.span, 'taint', performance.now() - taintStart, taintEvent);
   if (taintEvent) {
     yield { type: 'guardrail', guardrail: taintEvent };
   }
@@ -956,21 +1091,21 @@ async function* runRegisteredTool(
     return { ...earlyFailure(failure), denied: true };
   }
 
-  return yield* settleByType(tool, safeInput, fullCtx, base, snapshot, stages);
+  return yield* settleByType(args.tools, tool, safeInput, fullCtx, base, snapshot, stages);
 }
 
-/** Run the body for the tool's transport and settle it through `settleToolCall`. */
 async function* settleByType(
+  tools: ToolRegistry,
   tool: RegisteredTool,
   safeInput: unknown,
   fullCtx: ToolContext,
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
+  base: ToolCallBase,
   snapshot: TurnToolSnapshot | undefined,
   stages: ToolStageSupport | undefined,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const { name } = tool;
   if (tool.type === 'function') {
-    return yield* executeFunction(tool, safeInput, fullCtx, base, snapshot, stages);
+    return yield* executeFunction(tools, tool, safeInput, fullCtx, base, snapshot, stages);
   }
 
   if (tool.type !== 'http' && tool.type !== 'mcp') {
@@ -980,44 +1115,72 @@ async function* settleByType(
       message: lexiconText('tool.unsupported_type', { tool: name }, fullCtx.profile.lexicon),
     });
   }
-  // HTTP / MCP: schema → permission → auth → preTool → body (inside remote).
   const remoteOutcome: ToolBodyOutcome =
     tool.type === 'http'
       ? yield* executeHttpTool(tool, safeInput, fullCtx, base, stages)
-      : yield* executeMcpTool(tool, safeInput, fullCtx, base, stages);
-  return yield* settleRemoteOutcome({
+      : yield* executeMcpTool(tool, safeInput, fullCtx, base, stages, tools.mcpSessions);
+  return yield* settleBodyOutcome({
     outcome: remoteOutcome,
     tool,
     base,
-    callId: base.callId ?? '',
+    callId: base.callId,
     safeInput,
     stages,
-    guard: resultGuard(tool, fullCtx, snapshot),
+    guard: resultGuard(tool, fullCtx, snapshot, stages?.span),
     lexicon: fullCtx.profile.lexicon,
   });
 }
 
+/** Every tool returns through here, so a new tool type cannot skip the fence, redaction or provenance label. */
+interface GuardInputs {
+  provenance: Provenance;
+  policy: ReturnType<typeof resolveGuardrailPolicy>;
+  callableTools: readonly string[];
+  lexicon: LexiconOverrides | undefined;
+  span: SpanHandle | undefined;
+}
+
 /**
- * Guard a tool result before it becomes model context.
- *
- * Every tool returns through here, so the fence, the redaction, and the
- * provenance label are applied once and cannot be skipped by adding a tool type.
+ * A failure's message is redacted under full detection, whatever the profile
+ * enables: the kernel frames it for the model as a system report, and a remote
+ * server writes its own error strings. What it changed is a decision like any
+ * other, reported and timed; the framed message is then guarded as a result.
  */
+function* guardFailure(
+  failure: ToolFailure,
+  guard: GuardInputs,
+): Generator<TurnEvent, ModelToolResult> {
+  const start = performance.now();
+  const checked = guardToolFailureText(failure.message, guard.provenance, {
+    ...guard.policy,
+    sanitizeInput: true,
+    redactSensitive: resolveSensitive(true),
+  });
+  recordToolCheck(guard.span, 'tool_failure', performance.now() - start, checked.event);
+  if (checked.event) {
+    yield { type: 'guardrail', guardrail: checked.event };
+  }
+  return yield* guardResult(
+    formatToolFailureForModel({ ...failure, message: checked.text }),
+    guard,
+  );
+}
+
 function* guardResult(
   result: ModelToolResult,
-  provenance: Provenance,
-  policy: ReturnType<typeof resolveGuardrailPolicy>,
-  callableTools: readonly string[],
-  lexicon: LexiconOverrides | undefined,
+  guard: GuardInputs,
 ): Generator<TurnEvent, ModelToolResult> {
+  const { provenance, span } = guard;
+  const start = performance.now();
   const guarded = guardToolResult(
     result.finding,
     result.data,
     provenance,
-    policy,
-    callableTools,
-    lexicon,
+    guard.policy,
+    guard.callableTools,
+    guard.lexicon,
   );
+  recordToolCheck(span, 'tool_result', performance.now() - start, guarded.event);
   if (guarded.event) {
     yield { type: 'guardrail', guardrail: guarded.event };
   }
@@ -1031,7 +1194,3 @@ function* guardResult(
 
 export type { RegisteredToolCall, ToolStageSupport };
 export { startToolExecution };
-
-export function newCallId(name: string): string {
-  return `call_${name}_${Date.now()}`;
-}

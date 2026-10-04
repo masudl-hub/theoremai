@@ -1,12 +1,13 @@
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { liveIngressEnabledFromSpec } from '../../../../mod.ts';
-import type { LiveProfileInterface } from '../../../../src/interface/mod.ts';
-import type { LiveCaptionState, LiveCaptionTurn } from '../../client/live/live-captions';
-import { liveState } from '../../client/live/live-state';
-import { createTraceFeed } from '../../client/trace-feed';
-import { useLiveRunnerControls } from './use-live-runner-controls';
-import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui';
-import { useLiveSessionClient } from './use-live-session-client';
+import { liveIngressEnabledFromSpec } from '@theoremjs/agents';
+import type { LiveProfileInterface } from '@theoremjs/agents/interface';
+import type { LiveCaptionState, LiveCaptionTurn } from '../../client/live/live-captions.ts';
+import type { LiveConnection } from '../../client/live-client.ts';
+import { liveState } from '../../client/live/live-state.ts';
+import { createTraceFeed } from '../../client/trace-feed.ts';
+import { useLiveRunnerControls } from './use-live-runner-controls.ts';
+import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui.ts';
+import { useLiveSessionClient } from './use-live-session-client.ts';
 
 type LiveControls = ReturnType<typeof useLiveRunnerControls>;
 
@@ -71,12 +72,12 @@ function useLiveCallLifecycle(
 
 /**
  * Owns LiveRunner state, session client, and stage callbacks.
- * `registerProfile` resolves the live profile id the relay should open — hosts
- * with a fixed profile return it directly; the playground registers its draft.
+ * `connection` resolves what the call opens: a host with a fixed profile returns
+ * its id; the playground returns its draft as the relay's open message.
  */
 export function useLiveRunnerModel(
 	iface: LiveProfileInterface,
-	registerProfile: () => Promise<string>,
+	connection: () => LiveConnection | Promise<LiveConnection>,
 ) {
 	const ui = useLiveRunnerUiState(iface.lexicon);
 	const gate = useLiveRunnerGate({
@@ -84,8 +85,8 @@ export function useLiveRunnerModel(
 		setActiveTool: ui.setActiveTool,
 		reportFailure: ui.reportFailure,
 	});
-	const registerProfileRef = useRef(registerProfile);
-	registerProfileRef.current = registerProfile;
+	const connectionRef = useRef(connection);
+	connectionRef.current = connection;
 
 	const voiceAvailable = liveIngressEnabledFromSpec(iface.live.ingress, 'audio');
 	const videoAvailable = liveIngressEnabledFromSpec(iface.live.ingress, 'video');
@@ -118,7 +119,6 @@ export function useLiveRunnerModel(
 		setConnectPhase: ui.setConnectPhase,
 		setStatus: ui.setStatus,
 		setSessionActive: ui.setSessionActive,
-		lexicon: iface.lexicon,
 		reportFailure: ui.reportFailure,
 		clearFailure: ui.clearFailure,
 		reportSessionEnded: ui.reportSessionEnded,
@@ -137,7 +137,7 @@ export function useLiveRunnerModel(
 		clientRef,
 		videoCaptureRef: ui.videoCaptureRef,
 		captionsRef: ui.captionsRef,
-		registerProfileRef,
+		connectionRef,
 		statusRef: ui.statusRef,
 		isMutedRef: ui.isMutedRef,
 		sessionPermissionsRef: ui.sessionPermissionsRef,

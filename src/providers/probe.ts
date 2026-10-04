@@ -1,14 +1,7 @@
 /**
- * Import-isolation probe for `createProvider`'s lazy adapter loader.
- *
- * Only `create-provider.ts` calls this. Adapters must not import it.
- * When `THEOREM_IMPORT_PROBE=1`, writes `LOADED:<label>` to stdout once per
- * lazy load so subprocess tests can assert adapters stay unloaded until
- * `complete` runs. No-op in normal hosts.
- *
- * @module
+ * With `THEOREM_IMPORT_PROBE=1`, lets subprocess tests assert adapters stay unloaded
+ * until `complete` runs. Only `create-provider.ts` may call it.
  */
-
 export function markModuleLoad(label: string): void {
   try {
     const d = (globalThis as Record<string, unknown>).Deno as

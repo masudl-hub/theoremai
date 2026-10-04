@@ -39,7 +39,7 @@ export function stubProfile(opts: {
       id,
       identity: { handle: id },
       ...modelFields,
-      image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/png' },
+      image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/png' },
       tools: { allow: [] },
       inputs: { text: true },
       guardrails,

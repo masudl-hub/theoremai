@@ -12,7 +12,7 @@ One record is written per `runTurn` (one exchange). The other writers:
 - A Live session writes one record per model response, one per tool call, and one for the session root (§4.12).
 - A tool the host invokes (`invokeTool`) writes its own record, rooted at its `execute_tool` span (§4.4).
 - A specialist run by a tool writes its own record in the same trace (§4.7).
-- A host that records a side effect made after a turn (for example an image cutout) writes one more record with a single `cutout` span (CLIENT) under the turn's root, using `flushMintTrace` from `@theoremai/agents/host`. The span carries `server.address`, `url.path`, the host's input and output hashes (`theorem.cutout.input.sha256`, `theorem.cutout.output.sha256`), the upstream exchange as a `theorem.upstream.row`, and any error text as an `exception` stored by hash.
+- A host that records a side effect made after a turn (for example an image cutout) writes one more record with a single `cutout` span (CLIENT) under the turn's root, using `flushMintTrace` from `@theoremjs/agents/host`. The span carries `server.address`, `url.path`, the host's input and output hashes (`theorem.cutout.input.sha256`, `theorem.cutout.output.sha256`), the upstream exchange as a `theorem.upstream.row`, and any error text as an `exception` stored by hash.
 
 ```ts
 interface TraceRecord {
@@ -80,6 +80,7 @@ The shipped wording for every span, attribute, event and value is the trace cata
 | `theorem.error.public` | hash of the error the caller received, on a failed turn |
 | `error.type` | the failure's kind (`rate_limit`, `unavailable`, … — see [Public errors](../contracts/guardrails.md#public-errors)), or the failing stop (`provider_error`, `stream_incomplete`) when nothing named a kind |
 | `theorem.clock` | `io` inside a Cloudflare Worker (P6) |
+| `theorem.turn.time_to_first_text` | seconds from the turn's start to the first text the host received, after guardrail holdback |
 
 **Status:** `ERROR` for `provider_error`, `stream_incomplete` or a throw. `OK` for `completed`, `length` and `generation_complete`. `UNSET` for the stops a person or policy chose (`tool`, `gate`, `filtered`, `cancelled`, `interrupted`).
 
@@ -102,7 +103,8 @@ The shipped wording for every span, attribute, event and value is the trace cata
   "provenance": { "origin": "http", "tool": "track_shipment", "depth": 1 } }
 ```
 
-- `action` is `redact`, `flag` or `block`.
+- `action` is `redact`, `flag` or `block`; the input and egress checks also record a pass as `allow`.
+- `check` and `duration_ms` name the check and how long it took: `input` and `egress` on the turn (`live_input` on a live session); `output_stream`, `stream_canary` and `live_output` on a model call, once per call with `runs`; and `tool_arguments`, `taint`, `tool_result`, `tool_failure`, `network` and `network_request` on a tool's span.
 - `start` / `end` are present when the check had offsets.
 - `match` is kept only under `guardrailMatchPreview`.
 - The whole event is kept only under `guardrailDecisions`.
@@ -120,10 +122,12 @@ The shipped wording for every span, attribute, event and value is the trace cata
 | `gen_ai.request.temperature`, `.max_tokens`, `.reasoning.level` | as requested |
 | `gen_ai.request.previous_response.id` | Interactions continuation |
 | `theorem.request.builtins` | provider-run tools requested (`[]` when none) |
-| `theorem.request.store`, `.summaries`, `.structured`, `.session_id`, `.cache`, `.image`, `.speech`, `.live` | request controls semconv has no names for, as requested. `live` holds voice, VAD, session resumption, context compression, proactive audio, transcription and `resumed`; a resumption handle is a credential and is never recorded. |
+| `theorem.request.store`, `.summaries`, `.structured`, `.session_id`, `.cache`, `.image`, `.speech`, `.live` | request controls semconv has no names for, as requested. `live` holds voice, VAD, session resumption, context compression, transcription and `resumed`; a resumption handle is a credential and is never recorded. |
 | `gen_ai.response.id` | as the provider reported it; absent when not reported |
 | `gen_ai.response.finish_reasons` (chat) / `gen_ai.response.status` (Gemini) | the provider's own stop value. Absent when the call was stopped (cancelled, interrupted), because the provider never said. |
 | `gen_ai.response.time_to_first_chunk` | seconds from the start of the successful streamed HTTP try to its first chunk |
+| `theorem.response.time_to_first_text` | seconds from the call's start to its first text |
+| `theorem.guardrail.stream_ms` | milliseconds the stream checks spent on this call, the sum of their `theorem.guardrail` events; absent when they took none |
 | `gen_ai.system_instructions`, `gen_ai.tool.definitions` | hash parts (identical across calls, so one hash each) |
 | `gen_ai.input.messages` | everything the model read on this call, in kernel order. On a continuation this includes the stored interaction. |
 | `theorem.input.sent_from` | index in `input.messages` where the wire payload starts (continuations send only the tail) |
@@ -146,7 +150,7 @@ The shipped wording for every span, attribute, event and value is the trace cata
 
 **Events:**
 - `theorem.upstream.row`: each provider data row at its arrival time. Media is replaced by its hash, and any string equal to a known content text is replaced by its text reference; the row is a JSON reference. Kept only under `upstreamLog`.
-- `theorem.grounding`: `{ sources, search_html?, raw? }` from Google grounding, or `{ provider, sources?, citations?, annotations?, raw? }` from other evidence, each payload a JSON reference. Citation annotations live here, not on text parts. `raw` is kept only under `evidenceRaw`.
+- `theorem.grounding`: `{ search_html?, raw? }` from Google grounding, `{ sources }` from a `citation` (a provider's on the model call span, a tool's on its `execute_tool` span), or `{ provider, raw? }` from other evidence, each payload a JSON reference. Citation annotations live here, not on text parts. `raw` is kept only under `evidenceRaw`.
 - `theorem.guardrail`: output-scan decisions.
 - `exception`: one per provider error (`exception.type: "provider_error"`, message by hash), plus a throw.
 
@@ -178,8 +182,11 @@ The shipped wording for every span, attribute, event and value is the trace cata
 
 **Events:**
 - `theorem.stage`: `pre_tool` / `post_tool`, same shape as on the turn.
-- `theorem.gate`: `{ kind, permission?, summary?, auth? }`. `kind` is `permission`, `confirmation` or `auth`; `summary` is a hash; `auth` is `{ slot, type, issuer?, resource?, required_scopes? }` and never the challenge state.
+- `theorem.gate`: `{ kind, permission?, summary?, auth? }`. `kind` is `permission`, `confirmation` or `auth`; `summary` is a hash; `auth` is `{ slot, type, service, issuer?, resource?, required_scopes? }` and never the challenge state.
+- `theorem.auth.scope_refused`: `{ slot, requested, declared }` — the service asked for scopes outside the tool's declared `auth.scopes`, so the call failed `out_of_scope` with no sign-in offered.
 - `theorem.guardrail`: sensitive arguments and the taint gate (stage `tool_call`), and redaction and directive signals on the result (stage `tool_result`).
+- `theorem.tool.warning`: `{ code, message, severity? }`, one per warning: the ones the tool streams and the kernel's `sources_invalid`. `message` is a hash.
+- `theorem.grounding`: `{ sources }`, the sources the tool cited.
 - `exception`.
 
 **Status:** `ERROR` only when the tool failed. `denied`, `gated`, `paused` and `cancelled` are `UNSET`: the tool did not fail, a policy or the user stopped it.

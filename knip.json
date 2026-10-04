@@ -3,10 +3,12 @@
   "entry": [
     "mod.ts",
     "src/host/mod.ts",
-    "src/cli/index.ts",
+    "src/cli/bin.ts",
     "src/presets/mod.ts",
     "src/presets/google.ts",
-    "scripts/*.{ts,mjs}"
+    "scripts/*.{ts,mjs}",
+    "tests/evals/*/suite.ts",
+    "tests/evals/judge/{jev,both}.ts"
   ],
   "project": ["src/**/*.ts", "tests/**/*.ts"],
   "ignore": ["node_modules/**", "coverage/**", "npm/**"],

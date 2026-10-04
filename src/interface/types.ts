@@ -1,33 +1,41 @@
-/**
- * Headless interface contracts — profile-driven UI spec and transcript blocks.
- *
- * `ProfileInterface` is `Profile` with resolved `inputs`/`tools` and serializable
- * `guardrails` / `observability` views. No parallel schema.
- *
- * @module
- */
-
 import type { LexiconOverrides } from '../guardrails/lexicon.ts';
+import type { SensitiveGroups } from '../guardrails/sensitive.ts';
 import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
-import type { LiveProfileToolsSpec, ProfileToolsSpec } from '../kernel/tools/types.ts';
+import type {
+  LiveProfileToolsSpec,
+  ProfileToolsSpec,
+  ToolCallEdit,
+  ToolPhaseEvent,
+} from '../kernel/tools/types.ts';
 import type {
   AttachmentValidationIssue,
+  CompactionSpec,
   GroundingEvent,
   ImageProfile,
   LiveProfile,
-  Profile,
+  ModelBinding,
+  ModelId,
   ProfileOutputsSpec,
-  ProjectedProfile,
-  ProviderEvidenceEvent,
-  RegisteredTool,
+  ProviderEvidence,
+  Source,
   SpeechProfile,
   TextProfile,
-  ToolCallEvent,
-  ToolId,
   TurnStop,
   TurnTokens,
 } from '../kernel/types.ts';
 import type { ResolvedObservabilityPolicy } from '../observability/types.ts';
+
+/** A URL check as it runs; `false` when off. */
+export type UrlCheckView = false | { hosts: string[]; fromTools: boolean };
+
+/** The bundled egress checks a profile's reply runs through. */
+export interface EgressChecksView {
+  sensitive: SensitiveGroups;
+  boundary: boolean;
+  injection: boolean;
+  images: UrlCheckView;
+  links: UrlCheckView;
+}
 
 /** Guardrails visible to UI — egress enforcer functions are omitted. */
 export type ProfileGuardrailsView = Pick<
@@ -35,6 +43,8 @@ export type ProfileGuardrailsView = Pick<
   'quota' | 'canary' | 'sanitizeInput' | 'redactSensitive'
 > & {
   hasEgress: boolean;
+  /** `null` with no egress check, or a host `enforce` whose checks are its own. */
+  egressChecks: EgressChecksView | null;
 };
 
 /** Observability visible to UI — TraceSink / onWriteError functions are omitted. */
@@ -42,8 +52,8 @@ export type ProfileObservabilityView = Pick<
   ResolvedObservabilityPolicy,
   'record' | 'sampleRate' | 'include' | 'scrub' | 'resource' | 'retainForDays' | 'rotateAfterMiB'
 > & {
-  /** false | registered id | 'custom' when writeTo is an inline TraceSink. */
-  writeTo: false | string | 'custom' | undefined;
+  /** false | registered id | 'custom' when writeTo is an inline TraceSink; absent when unset. */
+  writeTo?: false | string;
   hasOnWriteError: boolean;
 };
 
@@ -59,66 +69,60 @@ export interface ProfileInputsInterface {
   slots?: Record<string, string[]>;
 }
 
-/** `profile.tools` plus resolved registry entries (turn profiles). */
-export type ResolvedTools = ProfileToolsSpec & {
-  resolved: Array<RegisteredTool | { name: ToolId; missing: true }>;
+/** A tool's definition (handler, schemas, endpoint, headers) stays on the host; `t1Policy` too. */
+export type ProfileToolsView = Pick<ProfileToolsSpec, 'allow' | 't2Loader'>;
+
+/** A model binding as the interface carries it: a compaction `trigger` is a host function. */
+export type ModelBindingView = Omit<ModelBinding, 'compaction'> & {
+  compaction?: Omit<CompactionSpec, 'trigger'>;
 };
 
-/** Live `profile.tools` — allowlist only, plus resolved registry entries. */
-export type LiveResolvedTools = LiveProfileToolsSpec & {
-  resolved: Array<RegisteredTool | { name: ToolId; missing: true }>;
+/** `profile.outputs` as the interface carries it: validators are host functions. */
+export type ProfileOutputsView = Omit<ProfileOutputsSpec, 'validation'>;
+
+/** What the text, image and speech interfaces carry in place of their profile's own fields. */
+export type ComposerInterfaceFields = {
+  models: Record<ModelId, ModelBindingView>;
+  outputs?: ProfileOutputsView;
+  /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
+  lexicon: LexiconOverrides;
+  inputs: ProfileInputsInterface;
+  guardrails?: ProfileGuardrailsView;
+  observability?: ProfileObservabilityView;
+  /** Always true — composer turns cancel via `TurnRequest.signal`. */
+  canStop: true;
 };
 
 export type TextProfileInterface = Omit<
   TextProfile,
-  'inputs' | 'tools' | 'guardrails' | 'observability' | 'lexicon'
-> & {
-  /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
-  lexicon: LexiconOverrides;
-  inputs: ProfileInputsInterface;
-  tools: ResolvedTools;
-  guardrails?: ProfileGuardrailsView;
-  observability?: ProfileObservabilityView;
-  /** Always true — composer turns cancel via `TurnRequest.signal`. */
-  canStop: true;
-  /** From `turnBehaviour.allowSteering` (default true on text). */
-  allowSteering: boolean;
-};
+  'inputs' | 'tools' | 'guardrails' | 'observability' | 'lexicon' | 'models' | 'outputs'
+> &
+  ComposerInterfaceFields & {
+    tools: ProfileToolsView;
+    /** From `turnBehaviour.allowSteering` (default true on text). */
+    allowSteering: boolean;
+  };
 
 export type ImageProfileInterface = Omit<
   ImageProfile,
-  'inputs' | 'tools' | 'guardrails' | 'observability' | 'lexicon'
-> & {
-  /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
-  lexicon: LexiconOverrides;
-  inputs: ProfileInputsInterface;
-  tools: ResolvedTools;
-  guardrails?: ProfileGuardrailsView;
-  observability?: ProfileObservabilityView;
-  /** Always true — composer turns cancel via `TurnRequest.signal`. */
-  canStop: true;
-};
+  'inputs' | 'tools' | 'guardrails' | 'observability' | 'lexicon' | 'models' | 'outputs'
+> &
+  ComposerInterfaceFields & { tools: ProfileToolsView };
 
 export type SpeechProfileInterface = Omit<
   SpeechProfile,
-  'guardrails' | 'observability' | 'lexicon'
-> & {
-  /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
-  lexicon: LexiconOverrides;
-  inputs: ProfileInputsInterface;
-  guardrails?: ProfileGuardrailsView;
-  observability?: ProfileObservabilityView;
-  /** Always true — composer turns cancel via `TurnRequest.signal`. */
-  canStop: true;
-};
+  'guardrails' | 'observability' | 'lexicon' | 'models' | 'outputs'
+> &
+  ComposerInterfaceFields;
 
 export type LiveProfileInterface = Omit<
   LiveProfile,
-  'tools' | 'guardrails' | 'observability' | 'lexicon'
+  'tools' | 'guardrails' | 'observability' | 'lexicon' | 'models'
 > & {
+  models: Record<ModelId, ModelBindingView>;
   /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
   lexicon: LexiconOverrides;
-  tools: LiveResolvedTools;
+  tools: LiveProfileToolsSpec;
   guardrails?: ProfileGuardrailsView;
   observability?: ProfileObservabilityView;
 };
@@ -132,8 +136,6 @@ export type ProfileInterface =
 /** Turn/chat composer profiles — excludes live (realtime streams, no turn inputs block). */
 export type ComposerProfileInterface = Exclude<ProfileInterface, LiveProfileInterface>;
 
-export type ProfileInterfaceSource = Profile | ProjectedProfile;
-
 export type TranscriptBlockKind =
   | 'user-text'
   | 'user-attachment'
@@ -144,6 +146,7 @@ export type TranscriptBlockKind =
   | 'structured'
   | 'media'
   | 'grounding'
+  | 'citation'
   | 'evidence'
   | 'error'
   | 'turn-done';
@@ -177,9 +180,40 @@ export interface TextBlock extends TranscriptBlockBase {
   text: string;
 }
 
+/** Where a call stands: the latest phase that changes its status. */
+export type ToolCallState = Extract<
+  ToolPhaseEvent,
+  { phase: 'running' | 'gate' | 'complete' | 'error' | 'cancel' }
+>;
+
+/** One tool call: the model's raw call joined with its phase events by `callId` (`toolCallsOf`). */
+export interface ToolCall {
+  name: string;
+  callId: string;
+  /** What the model proposed. */
+  arguments: Record<string, unknown>;
+  /** The call's `ToolCallRequest.thoughtSignature`: history replays the call with it. */
+  thoughtSignature?: string;
+  /** The call's `ToolCallRequest.stepId`: calls sharing it replay as one assistant message. */
+  stepId?: string;
+  /** The user's edit on approval; `to` is what ran. */
+  edited?: ToolCallEdit;
+  /** What the call is doing, in the tool's words, from its last `running` phase. */
+  activity?: string;
+  /** What the call did, from its `complete` phase. */
+  activityPast?: string;
+  /** Absent while the call has only been made. */
+  state?: ToolCallState;
+  /** When it last started running (epoch ms). */
+  startedAt?: number;
+  /** When it last settled: complete, failed, cancelled or gated (epoch ms). */
+  endedAt?: number;
+  artifacts: unknown[];
+}
+
 export interface ToolBlock extends TranscriptBlockBase {
   kind: 'tool';
-  tool: ToolCallEvent & { id?: string };
+  tool: ToolCall;
 }
 
 export interface StructuredBlock extends TranscriptBlockBase {
@@ -190,15 +224,9 @@ export interface StructuredBlock extends TranscriptBlockBase {
 export interface MediaBlock extends TranscriptBlockBase {
   kind: 'media';
   mimeType: string;
-  /**
-   * Base64 payload for model-generated or attached media.
-   * Absent when `url` is set (tool-result URL promotion).
-   */
+  /** Base64 for model-generated or attached media. Absent when `url` is set. */
   data?: string;
-  /**
-   * Remote http(s) URL promoted from completed tool output.
-   * Absent when `data` is set (kernel `media` events).
-   */
+  /** Remote http(s) URL promoted from completed tool output. Absent when `data` is set. */
   url?: string;
   /** A smaller copy of `url` for previews, when the tool output offered one. */
   previewUrl?: string;
@@ -209,9 +237,16 @@ export interface GroundingBlock extends TranscriptBlockBase {
   grounding: GroundingEvent;
 }
 
+/** Sources a provider or a tool cited; `callId` names the tool call when a tool did. */
+export interface CitationBlock extends TranscriptBlockBase {
+  kind: 'citation';
+  sources: Source[];
+  callId?: string;
+}
+
 export interface EvidenceBlock extends TranscriptBlockBase {
   kind: 'evidence';
-  evidence: ProviderEvidenceEvent;
+  evidence: ProviderEvidence;
 }
 
 export interface ErrorBlock extends TranscriptBlockBase {
@@ -225,6 +260,13 @@ export interface TurnDoneBlock extends TranscriptBlockBase {
   tokens?: TurnTokens;
   interactionId?: string;
   compaction?: boolean;
+  /**
+   * How long the reply has worked so far (ms), approval waits excluded. The host
+   * client stamps it when a run ends, so the time travels with the transcript.
+   */
+  workedMs?: number;
+  /** When the reply last stopped (epoch ms), stamped with `workedMs`. */
+  endedAt?: number;
 }
 
 export type TranscriptBlock =
@@ -236,6 +278,7 @@ export type TranscriptBlock =
   | StructuredBlock
   | MediaBlock
   | GroundingBlock
+  | CitationBlock
   | EvidenceBlock
   | ErrorBlock
   | TurnDoneBlock;
@@ -264,7 +307,6 @@ export interface FoldTurnEventsOptions {
   idPrefix?: string;
 }
 
-/** Whether `foldTurnEvents` should emit thought blocks for this profile. */
 function streamThoughtsEnabled(outputs?: ProfileOutputsSpec): boolean {
   return outputs?.streaming?.streamThoughts !== false;
 }

@@ -1,9 +1,3 @@
-/**
- * Tool JSON Schema validation and Zod → wire schema conversion.
- *
- * @module
- */
-
 import { type ZodType, z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 
@@ -117,7 +111,6 @@ function walkSchema(
   }
 }
 
-/** Validate a tool wire schema for provider compatibility. */
 function validateToolWireSchema(
   schema: JsonSchema,
   mode: 'gemini' | 'structural' = 'gemini',
@@ -130,7 +123,6 @@ function validateToolWireSchema(
   }
 }
 
-/** Validate a tool parameter schema for provider compatibility. */
 function validateToolInputSchema(
   schema: JsonSchema,
   mode: 'gemini' | 'structural' = 'gemini',
@@ -138,7 +130,6 @@ function validateToolInputSchema(
   validateToolWireSchema(schema, mode, 'input');
 }
 
-/** Validate a tool result schema at registration. */
 function validateToolOutputSchema(
   schema: JsonSchema,
   mode: 'gemini' | 'structural' = 'structural',
@@ -164,7 +155,6 @@ function stripBranches(branches: unknown[]): unknown[] {
   );
 }
 
-/** Derive provider wire JSON Schema from a Zod type. */
 function stripUnsupportedGeminiKeys(schema: JsonSchema): JsonSchema {
   const out: JsonSchema = {};
   for (const [key, value] of Object.entries(schema)) {
@@ -202,7 +192,7 @@ function jsonSchemaFromZod(schema: ZodType, io: 'input' | 'output' = 'output'): 
 
 export { jsonSchemaFromZod, validateToolInputSchema, validateToolOutputSchema };
 
-/** Strip prototype-pollution keys from provider/host tool args or host-mutated values before validation. */
+/** Strips prototype-pollution keys before validation. */
 export function plainToolInput(input: unknown): unknown {
   if (input === null || typeof input !== 'object') {
     return input;
@@ -220,11 +210,7 @@ export function plainToolInput(input: unknown): unknown {
   return out;
 }
 
-/**
- * The scheme and authority of an endpoint template. They are fixed text: a
- * placeholder there would let the tool's input choose the host its credential
- * is sent to, so the template is refused.
- */
+/** A placeholder in the scheme or authority would let tool input choose where the credential goes. */
 export function assertFixedEndpointOrigin(endpoint: string): void {
   const origin = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i.exec(endpoint)?.[0];
   if (!origin || /[{}]/.test(origin)) {

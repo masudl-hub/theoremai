@@ -1,19 +1,13 @@
-/**
- * URI media references (`TurnMediaRef` / `InteractionMediaRefPart`): MIME
- * acceptance still applies; base64 and byte limits do not; the uri passes
- * through untouched for the Google adapter to wire.
- */
 import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { publicError, TheoremError } from '../../src/guardrails/error.ts';
+import { getProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
 import { isMediaRefPart, wireInteractionPart } from '../../src/kernel/interaction-parts.ts';
 import {
   assertTurnAttachments,
   isTurnMediaRef,
   sanitizeTurnBlobs,
 } from '../../src/kernel/registry/attachments.ts';
-import { getProfile } from '../../src/kernel/registry/profiles.ts';
-import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
 import type { InteractionPart, Profile } from '../../src/kernel/types.ts';
 
 /** The chat fixture with a one-file, one-byte ceiling. */

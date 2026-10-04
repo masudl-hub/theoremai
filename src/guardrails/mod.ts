@@ -1,11 +1,6 @@
 /**
- * Generic inbound and outbound guardrail primitives.
- *
- * Owns sanitization, injection/sensitive detection, canary egress gates,
- * bundled egress policy, and public error mapping.
- * App-specific policy copy remains host-owned.
- *
- * Adversarial corpus and fuzz runners: `@theoremai/agents/guardrails/testing`.
+ * Inbound and outbound guardrail primitives: sanitization, injection and sensitive detection,
+ * canary egress gates, egress policy and public error mapping. App-specific policy copy stays host-owned.
  *
  * @module
  */
@@ -26,14 +21,18 @@ export {
 } from './canary.ts';
 export type { CanaryGateSession } from './canary-gate.ts';
 export { createCanaryGateSession, filterCanaryGatedEvents } from './canary-gate.ts';
+export type { EgressChecks, UrlCheck } from './egress.ts';
 export {
   collectEgressHits,
-  EGRESS_RULES,
   hitRules,
   runEnforcer,
   standardEgressEnforce,
 } from './egress.ts';
-export type { ErrorCopy, ErrorKind, TheoremErrorOptions } from './error.ts';
+export type { EgressPolicyOptions } from './egress-policy.ts';
+export { egressPolicy } from './egress-policy.ts';
+export type { CompiledEgressRules, EgressRule } from './egress-rules.ts';
+export type { GivenUrls } from './egress-urls.ts';
+export type { ErrorCopies, ErrorCopy, ErrorKind, TheoremErrorOptions } from './error.ts';
 export {
   describeError,
   ERROR_KINDS,
@@ -47,6 +46,7 @@ export {
   toErrorEvent,
   withPublicWording,
 } from './error.ts';
+export { errorCopiesSchema, errorKindSchema, guardrailEventSchema } from './event-schemas.ts';
 export {
   guardrailFromHits,
   guardrailFromVerdict,
@@ -89,7 +89,9 @@ export {
   createOutboundProgressiveGate,
   createProgressiveYieldGate,
   DEFAULT_HOLDBACK,
+  LIVE_DEFAULT_HOLDBACK,
 } from './progressive-yield.ts';
+export { PROMPT_ECHO_WORDS, scanTextForPromptEcho } from './prompt-echo.ts';
 export type { QuotaSlotStatus } from './quota.ts';
 export {
   clientIp,
@@ -99,6 +101,14 @@ export {
   skipQuota,
   takeSlot,
 } from './quota.ts';
+export type { GuardrailRule } from './rules.ts';
+export {
+  DIRECTIVE_RULES,
+  EGRESS_RULES,
+  NETWORK_RULES,
+  SANITIZE_RULES,
+  TOOL_RULES,
+} from './rules.ts';
 export {
   detectionForProfile,
   detectText,
@@ -109,12 +119,17 @@ export {
   sanitizeTurnRequest,
   sanitizeTurnRequestWithEvents,
 } from './sanitize.ts';
-export { sensitiveSpans } from './sensitive.ts';
+export type {
+  SensitiveGroup,
+  SensitiveGroups,
+  SensitiveSelection,
+  SensitiveSwitches,
+} from './sensitive.ts';
+export { SENSITIVE_GROUPS, sensitiveSpans } from './sensitive.ts';
 export type { ScanText } from './serialize.ts';
 export { scanTextOf, textForScan } from './serialize.ts';
 export {
   advisoryLevel,
-  DIRECTIVE_RULES,
   directiveHits,
   looksDirective,
 } from './tool-directives.ts';
@@ -149,6 +164,7 @@ export type {
   ProfileGuardrailsSpec,
   Provenance,
   QuotaGuardrailSpec,
+  ResolvedEgressSpec,
   ResolvedGuardrailPolicy,
   Severity,
   TaintGate,

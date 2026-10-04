@@ -1,6 +1,7 @@
-import type { TurnTaint } from '../../../guardrails/types.ts';
+import { type GivenUrlSets, givenUrlSets } from '../../../guardrails/egress-urls.ts';
+import type { GuardrailHit, TurnTaint } from '../../../guardrails/types.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
-import type { TurnToolSnapshot } from '../../tools/types.ts';
+import type { ToolRegistry } from '../../tools/registry.ts';
 import type {
   InteractionPart,
   ModelBinding,
@@ -14,19 +15,18 @@ import type {
 import type { MediaTokenFamily } from '../token-estimate.ts';
 import type { CallUsage } from './usage.ts';
 
-/** Where this turn's spans go. */
 interface TurnTraceState {
   /** The turn's `invoke_agent` span; model calls and tools open under it. */
   root: SpanHandle;
   /** Validation / egress attempt the next model call belongs to (0-based). */
   attempt: number;
-  /** Model calls made so far. */
   calls: number;
-  /** The turn's model binding, for `gen_ai.provider.name`. */
   binding: ModelBinding | undefined;
 }
 
 interface StepExecutionState {
+  /** The turn's scope's tools: calls and provider builtins are looked up here. */
+  tools: ToolRegistry;
   trace: TurnTraceState;
   currentHistory: TurnHistoryMessage[];
   stepCount: number;
@@ -35,30 +35,24 @@ interface StepExecutionState {
   allEmittedEvents: TurnEvent[];
   attemptEvents: TurnEvent[];
   /**
-   * True when progressive yield withheld user-visible events during this attempt.
-   *
-   * The attempt gate needs it: if the mid-stream window tripped but the final
-   * verdict on the whole text passes, nothing was streamed, so the buffered
-   * text must be released rather than silently dropped.
+   * If the mid-stream window tripped but the final verdict on the whole text passes, nothing was
+   * streamed, so the attempt gate must release the buffered text rather than drop it.
    */
   withheldVisible?: boolean;
-  /**
-   * Untrusted remote content this turn has already read.
-   *
-   * Accumulates across tool calls so a later call can be judged against what the
-   * turn has ingested, not just its own arguments.
-   */
+  /** The canary opening the last provider call ended on, read in front of the next call's reply. */
+  canaryCarry?: string;
+  /** What the last provider call's thoughts ended on, read in front of the next call's thoughts. */
+  thoughtCarry?: string;
+  /** System-prompt leaks withheld under a host policy; they pin the end-of-attempt verdict to block. */
+  promptLeaks?: GuardrailHit[];
+  /** Untrusted content read so far, so a later tool call is judged against all the turn ingested. */
   taint?: TurnTaint;
+  /** Every URL the model has been given this turn (`GuardrailContext.givenUrls`). */
+  givenUrls: GivenUrlSets;
   /** Last provider stop from a discarded provider `done` event. */
   lastStop?: TurnStop;
-  /** Tool snapshot at tool pause — emitted on terminal `done` when `stop.kind === 'tool'`. */
-  toolSnapshot?: TurnToolSnapshot;
-  /** Latest Google Interactions id observed on the current provider stream. */
   lastInteractionId?: string;
-  /**
-   * Pending Interactions continuation for the next provider step: tool results
-   * and stage injects, sent as `continuation`.
-   */
+  /** Tool results and stage injects pending for the next step's Interactions `continuation`. */
   interactionsContinuation?: {
     previousInteractionId: string;
     messages: TurnHistoryMessage[];
@@ -97,6 +91,7 @@ function appendUserInput(state: StepExecutionState, parts: readonly InteractionP
  * theirs stays put.
  */
 function openTurnState(args: {
+  tools: ToolRegistry;
   profile: Profile;
   generation: ResolvedGeneration;
   trace: TurnTraceState;
@@ -105,12 +100,14 @@ function openTurnState(args: {
 }): StepExecutionState {
   const { profile, generation } = args;
   const state: StepExecutionState = {
+    tools: args.tools,
     trace: args.trace,
     currentHistory: [...(generation.history ?? [])],
     stepCount: 0,
     mediaFamily: args.mediaFamily,
     allEmittedEvents: args.allEmittedEvents ?? [],
     attemptEvents: [],
+    givenUrls: givenUrlSets(),
   };
   if (profile.type === 'text') {
     appendUserInput(state, generation.input);

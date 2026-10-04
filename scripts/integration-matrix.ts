@@ -1,15 +1,8 @@
-/**
- * Live integration matrix — exercises every registered fixture profile against
- * the real Gemini API. The dev fills the vault slots (THEOREM_VAULT_*, see
- * scripts/host-env.ts) with whichever keys they choose.
- *
- * Usage (profile ids narrow the run; default: every profile):
- *   deno run --allow-read --allow-write --allow-net --allow-sys --allow-env scripts/integration-matrix.ts [profile...]
- */
+/** Profile ids on the command line narrow the run; default: every Gemini fixture profile. */
 
 import '../tests/fixtures/test-host.ts';
 import { testProfileCommand } from '../src/cli/commands/test.ts';
-import { listProfiles } from '../src/kernel/registry/profiles.ts';
+import { listProfiles } from '../src/kernel/default-scope.ts';
 import { isModelProfile } from '../src/kernel/registry/resolve.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
 import { hostVault, loadHostEnv } from './host-env.ts';
@@ -33,7 +26,7 @@ console.log(
   `\nRunning matrix for ${geminiProfiles.length} Gemini profiles: ${geminiProfiles.map((p) => p.id).join(', ')}\n`,
 );
 
-const provider = createProvider(geminiProfiles[0], { gemini: { vault } });
+const provider = createProvider(geminiProfiles[0], { vault });
 
 let success = true;
 if (Deno.args.length === 0) {

@@ -1,4 +1,4 @@
-import { TheoremError } from '../../../../mod.ts';
+import { TheoremError } from '@theoremjs/agents';
 
 const JPEG_QUALITY = 0.62;
 const FRAME_INTERVAL_MS = 400;

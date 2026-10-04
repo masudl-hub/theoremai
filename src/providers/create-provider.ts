@@ -1,41 +1,34 @@
-/**
- * Host provider factory — the single public door for binding a profile to a transport.
- *
- * Routes from the selected model binding's `protocol` / `provider` (and whether the
- * profile is a speech or image role). Adapters under this folder are internal implementation.
- *
- * Every adapter graph is loaded only when that transport's first `complete` runs —
- * not when this module is imported.
- *
- * @module
- */
-
 import { TheoremError } from '../guardrails/error.ts';
 import { requireModelProfile } from '../kernel/registry/resolve.ts';
 import { isValidPair } from '../kernel/schema.ts';
 import type {
+  KeyVault,
   ModelBinding,
   ModelId,
   ModelProvider,
   Profile,
   ProviderCompleteRequest,
-  TurnEvent,
+  ProviderEvent,
 } from '../kernel/types.ts';
-import type { GeminiTransport } from './google/keys.ts';
+import type { GeminiOptions, GeminiTransport } from './google/keys.ts';
 import { markModuleLoad } from './probe.ts';
-import type { LocalProviderConfig, OpenAiGatewayConfig } from './types.ts';
+import type {
+  LocalProviderConfig,
+  LocalTransport,
+  OpenAiGatewayConfig,
+  OpenAiGatewayTransport,
+} from './types.ts';
 
-/** Credentials supplied by the host when creating a provider. */
 export interface CreateProviderOptions {
-  /** Google Interactions (text, image, and speech when protocol is geminiInteractions). */
-  gemini?: GeminiTransport;
   /**
-   * OpenAI-gateway credentials for `openAi` profiles (OpenRouter or compatible).
-   * Used for chat completions, `/images`, or `/audio/speech` depending on output role.
-   * Optional `voice` is a fallback when `speech.voice` is omitted.
+   * The host's keys by slot, for every provider. A model's calls use the slot its profile names
+   * (`key`, `fallbackKey`); a slot holds whatever secret the host put there.
    */
+  vault?: KeyVault;
+  gemini?: GeminiOptions;
+  /** `voice` is the fallback when a speech profile omits `speech.voice`. */
   openAiGateway?: OpenAiGatewayConfig & { voice?: string };
-  /** Local OpenAI-compatible server (Ollama, llama.cpp, vLLM, LM Studio). */
+  /** Required for `local` profiles. */
   local?: LocalProviderConfig;
 }
 
@@ -67,7 +60,7 @@ function bindingForProvider(input: Profile, modelId?: ModelId): ModelBinding {
 function lazyAdapter(label: string, load: () => Promise<ModelProvider>): ModelProvider {
   let pending: Promise<ModelProvider> | undefined;
   return {
-    async *complete(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
+    async *complete(req: ProviderCompleteRequest): AsyncGenerator<ProviderEvent> {
       pending ??= (async () => {
         markModuleLoad(label);
         return await load();
@@ -77,7 +70,7 @@ function lazyAdapter(label: string, load: () => Promise<ModelProvider>): ModelPr
   };
 }
 
-function lazyOpenRouterChat(config: OpenAiGatewayConfig): ModelProvider {
+function lazyOpenRouterChat(config: OpenAiGatewayTransport): ModelProvider {
   return lazyAdapter('openrouter-chat', () =>
     import('./openrouter/chat.ts').then((m) => m.createOpenRouterProvider(config)),
   );
@@ -89,31 +82,25 @@ function lazyGoogleInteractions(config: GeminiTransport): ModelProvider {
   );
 }
 
-function lazySpeech(config: OpenAiGatewayConfig & { voice?: string }): ModelProvider {
+function lazySpeech(config: OpenAiGatewayTransport & { voice?: string }): ModelProvider {
   return lazyAdapter('openrouter-speech', () =>
     import('./openrouter/speech.ts').then((m) => m.createSpeechProvider(config)),
   );
 }
 
-function lazyImage(config: OpenAiGatewayConfig): ModelProvider {
+function lazyImage(config: OpenAiGatewayTransport): ModelProvider {
   return lazyAdapter('openrouter-image', () =>
     import('./openrouter/image.ts').then((m) => m.createImageProvider(config)),
   );
 }
 
-function lazyLocal(config?: LocalProviderConfig): ModelProvider {
+function lazyLocal(config: LocalTransport): ModelProvider {
   return lazyAdapter('local-adapter', () =>
     import('./local/local.ts').then((m) => m.createLocalProvider(config)),
   );
 }
 
-/**
- * Create a `ModelProvider` for a turn-based profile (text / image / speech).
- * Live profiles use `runSession` — `createProvider` rejects geminiLive.
- *
- * When a profile declares multiple models, pass `modelId` to pick the binding used
- * for adapter selection (defaults to `defaultModel` or the sole model key).
- */
+/** Live profiles use `runSession`. `modelId` picks the binding; default `defaultModel`. */
 export function createProvider(
   profile: Profile,
   options: CreateProviderOptions = {},
@@ -129,36 +116,31 @@ export function createProvider(
   }
 
   if (protocol === 'geminiInteractions' && provider === 'google') {
-    if (!options.gemini) {
-      throw new TheoremError(
-        'config',
-        'createProvider requires gemini transport for google Interactions',
-      );
+    if (!options.vault) {
+      throw new TheoremError('config', 'createProvider requires a vault for google models');
     }
-    return lazyGoogleInteractions(options.gemini);
+    return lazyGoogleInteractions({ ...options.gemini, vault: options.vault });
   }
 
   if (protocol === 'geminiLive' && provider === 'google') {
     throw new TheoremError(
       'request',
-      "createProvider does not support type 'live' / geminiLive — use runSession(req, { gemini })",
+      "createProvider does not support type 'live' / geminiLive — use runSession(req, { vault })",
     );
   }
 
   if (protocol === 'openAi' && provider === 'openrouter') {
-    if (!options.openAiGateway) {
-      throw new TheoremError(
-        'config',
-        'createProvider requires openAiGateway config for openAi/openrouter',
-      );
+    if (!options.vault) {
+      throw new TheoremError('config', 'createProvider requires a vault for openrouter models');
     }
+    const gateway = { ...options.openAiGateway, vault: options.vault };
     if (isSpeechRole(profile)) {
-      return lazySpeech(options.openAiGateway);
+      return lazySpeech(gateway);
     }
     if (isImageRole(profile)) {
-      return lazyImage(options.openAiGateway);
+      return lazyImage(gateway);
     }
-    return lazyOpenRouterChat(options.openAiGateway);
+    return lazyOpenRouterChat(gateway);
   }
 
   if (protocol === 'openAi' && provider === 'local') {
@@ -168,7 +150,14 @@ export function createProvider(
         'createProvider: type image requires openrouter provider for openAi protocol',
       );
     }
-    return lazyLocal(options.local);
+    // A profile can name `local`; only the host can say a local server is there to reach.
+    if (!options.local) {
+      throw new TheoremError(
+        'config',
+        'createProvider requires local config for openAi/local', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    return lazyLocal({ ...options.local, vault: options.vault });
   }
 
   throw new TheoremError(

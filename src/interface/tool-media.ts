@@ -1,10 +1,3 @@
-/**
- * Promote http(s) media URLs found in completed tool output into transcript media blocks.
- *
- * @module
- */
-
-/** Guessed media kind + MIME from a URL path extension. */
 export type PromotedToolMedia = {
   url: string;
   mimeType: string;
@@ -40,7 +33,6 @@ function mimeForPathname(pathname: string): string | undefined {
   return EXT_MIME[ext];
 }
 
-/** Return a promoted media descriptor when `raw` is an http(s) media URL. */
 export function promotedMediaFromUrlString(raw: string): PromotedToolMedia | undefined {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return undefined;
@@ -79,11 +71,7 @@ function mediaAsset(url: string): { key: string; width: number } {
   };
 }
 
-/**
- * Depth-first walk of tool output collecting unique http(s) image/video/audio URLs.
- * Order follows first encounter in JSON tree order. One file at several sizes
- * is promoted once: `url` is its largest copy, `previewUrl` its smallest.
- */
+/** One file at several sizes is promoted once: `url` its largest copy, `previewUrl` its smallest. */
 export function collectPromotedMediaFromToolOutput(output: unknown): PromotedToolMedia[] {
   const seen = new Map<string, { index: number; largest: number; smallest: number }>();
   const out: PromotedToolMedia[] = [];

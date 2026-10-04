@@ -4,8 +4,9 @@ import {
   demoToolSpecs,
 } from '../../playground/concierge-demo.ts';
 import { zodFromJsonSchema } from '../../playground/tool-schema.ts';
+import { registerTool, resetTools } from '../../src/kernel/default-scope.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { executeRegisteredTool } from '../../src/kernel/tools/execute.ts';
-import { registerTool, resetTools } from '../../src/kernel/tools/registry.ts';
 import type { Profile } from '../../src/kernel/types.ts';
 
 const profile: Profile = {
@@ -81,6 +82,7 @@ Deno.test({
           await new Promise((r) => setTimeout(r, 1000));
         }
         const exec = executeRegisteredTool({
+          tools: defaultKernelScope.tools,
           profile,
           name,
           input,

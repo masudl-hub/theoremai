@@ -124,6 +124,18 @@ jobs:
           - shard: tools
             config: tools
             mutate: ''
+          - shard: engine
+            config: engine
+            mutate: ''
+          - shard: media-probe
+            config: media-probe
+            mutate: ''
+          - shard: registry
+            config: registry
+            mutate: ''
+          - shard: auth
+            config: auth
+            mutate: ''
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262

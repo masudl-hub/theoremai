@@ -10,7 +10,6 @@ interface Slot {
   busy: boolean;
 }
 
-/** Outcome of reserving a profile's per-client daily quota slot. */
 type QuotaSlotStatus = 'ok' | 'busy' | 'quota' | 'not_configured';
 
 const slots = new Map<string, Slot>();
@@ -85,11 +84,7 @@ function releaseSlot(profile: Profile, ip: string): void {
   }
 }
 
-/**
- * The failure a tripped quota reports, or `undefined` when the profile has no
- * quota configured. Kind `rate_limit`; the user reads `quota.exhausted` from the
- * lexicon (`publicError(err, profile.lexicon)`).
- */
+/** `undefined` when the profile has no quota configured. */
 function quotaExhausted(profile: Profile): TheoremError | undefined {
   const quota = resolveGuardrailPolicy(profile.guardrails).quota;
   if (!quota) {

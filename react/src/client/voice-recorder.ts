@@ -1,6 +1,6 @@
-import { describeError } from '../../../mod.ts';
-import { pickMediaRecorderMime } from '../../../src/interface/mod.ts';
-import { timeDomainBytesToLevel } from './audio-level';
+import { describeError } from '@theoremjs/agents';
+import { pickMediaRecorderMime } from '@theoremjs/agents/interface';
+import { timeDomainBytesToLevel } from './audio-level.ts';
 
 /** Why recording failed; the user reads lexicon `voice.<code>`. */
 export type VoiceRecorderFailureCode = 'unsupported' | 'permission' | 'unavailable' | 'failed' | 'empty';

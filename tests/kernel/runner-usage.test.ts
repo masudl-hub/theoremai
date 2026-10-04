@@ -1,9 +1,15 @@
 import '../fixtures/test-host.ts';
 import { encode } from 'gpt-tokenizer/encoding/o200k_base';
+import { registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider, TurnEvent, TurnTokens } from '../../src/kernel/types.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import type {
+  ModelProvider,
+  ProviderEvent,
+  TurnEvent,
+  TurnTokens,
+} from '../../src/kernel/types.ts';
+import { finalStop } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 function registerToolProfile(id: string): string {
@@ -47,7 +53,7 @@ function tokensOf(events: TurnEvent[]): TurnTokens[] {
 
 const SENSOR_CALL: TurnEvent = {
   type: 'tool',
-  tool: { name: 'fetch_sensor', arguments: { sensor: 'soil' }, id: 'call_1' },
+  tool: { name: 'fetch_sensor', arguments: { sensor: 'soil' }, callId: 'call_1' },
 };
 
 Deno.test('runTurn emits one tokens event per model call, after that call', async () => {
@@ -131,38 +137,36 @@ Deno.test('runTurn emits no tokens for a call that failed with no usage', async 
   const profile = registerToolProfile('usage_failed');
   const events = await collect(
     profile,
-    scriptedProvider([[{ type: 'error', error: 'upstream failed' }]]),
+    scriptedProvider([[{ type: 'error', errorKind: 'internal', error: 'upstream failed' }]]),
   );
   assertEquals(tokensOf(events), []);
 });
-
-const stopOf = (events: TurnEvent[]) => events.findLast((e) => e.type === 'done')?.stop;
 
 Deno.test('runTurn ends a call the provider failed as provider_error, even after its done', async () => {
   const profile = registerToolProfile('stop_provider_error');
   const failed = await collect(
     profile,
-    scriptedProvider([[{ type: 'error', error: 'upstream failed' }]]),
+    scriptedProvider([[{ type: 'error', errorKind: 'internal', error: 'upstream failed' }]]),
   );
-  assertEquals(stopOf(failed), { kind: 'provider_error' });
+  assertEquals(finalStop(failed), { kind: 'provider_error' });
 
   const failedThenDone = await collect(
     profile,
     scriptedProvider([
       [
-        { type: 'error', error: 'row was not JSON' },
+        { type: 'error', errorKind: 'internal', error: 'row was not JSON' },
         { type: 'done', stop: { kind: 'completed', native: 'completed' } },
       ],
     ]),
   );
-  assertEquals(stopOf(failedThenDone), { kind: 'provider_error' });
+  assertEquals(finalStop(failedThenDone), { kind: 'provider_error' });
 });
 
 Deno.test('runTurn estimates an Interactions continuation from the logical prompt', async () => {
   const profile = registerToolProfile('usage_continuation');
   let requests = 0;
-  const calls: TurnEvent[][] = [
-    [{ ...SENSOR_CALL, interactionId: 'v1_sensor' }],
+  const calls: ProviderEvent[][] = [
+    [SENSOR_CALL, { type: 'done', stop: { kind: 'tool' }, interactionId: 'v1_sensor' }],
     [{ type: 'text', text: 'Soil reads 22%.' }],
   ];
   const provider: ModelProvider = {

@@ -1,4 +1,3 @@
-/** Playground demo function tools with real (local) logic — keyed by tool name. */
 export type PlaygroundDemoHandler = (input: Record<string, unknown>) => Record<string, unknown>;
 
 const WMO_WEATHER_LABELS: Record<number, string> = {

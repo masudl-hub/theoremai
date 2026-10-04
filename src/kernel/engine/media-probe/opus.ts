@@ -1,9 +1,3 @@
-/**
- * Opus packet timing, shared by the Ogg and Matroska readers.
- *
- * @module
- */
-
 /** Opus always decodes at 48 kHz. */
 export const OPUS_RATE = 48_000;
 const MS_PER_SECOND = 1000;

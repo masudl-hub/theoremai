@@ -1,12 +1,3 @@
-/**
- * Convert THEOREM turn input into Vercel AI SDK `ModelMessage[]`.
- *
- * Semantic twin of `openai/compat.ts` (REST wire format). OpenRouter's AI SDK
- * adapter uses this module; local and image paths use `buildChatMessages`.
- *
- * @module
- */
-
 import type { ModelMessage } from 'ai';
 import { TheoremError } from '../../../guardrails/error.ts';
 import { historyMessageParts, isMediaRefPart } from '../../../kernel/interaction-parts.ts';
@@ -30,12 +21,6 @@ export function sdkPart(input: InteractionPart): Record<string, unknown> {
     return { type: 'text', text: input.text };
   }
   const part = inlineMediaPart(input);
-  if (part.type === 'image') {
-    return {
-      type: 'image',
-      image: `data:${part.mimeType};base64,${part.data}`,
-    };
-  }
   return { type: 'file', mediaType: part.mimeType, data: part.data };
 }
 
@@ -63,7 +48,6 @@ export function toolResultMessage(msg: TurnHistoryMessage): ModelMessage {
             if (input.type === 'text') {
               return { type: 'text' as const, text: input.text };
             }
-            // image / audio / video / document — AI SDK tool-result file parts
             const part = inlineMediaPart(input);
             return {
               type: 'file' as const,
@@ -118,10 +102,7 @@ export function historyToSdk(msg: TurnHistoryMessage): ModelMessage | null {
   return assistantToolCallMessage(msg) || contentHistoryMessage(msg);
 }
 
-/**
- * Build AI SDK messages for history + user input.
- * Caller supplies `req.system` via `streamText({ instructions })`.
- */
+/** Leaves `req.system` to the caller (`systemDelivery` in chat.ts). */
 export function buildAiSdkMessages(req: ProviderCompleteRequest): ModelMessage[] {
   const messages: ModelMessage[] = [];
   for (const msg of req.history ?? []) {

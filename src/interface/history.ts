@@ -1,40 +1,28 @@
-/**
- * Host conversation history — build `TurnHistoryMessage[]` from drafts, events, and transcript blocks.
- *
- * Uses kernel tool formatting so provider continuation matches `runTurn` / `invokeTool`.
- *
- * @module
- */
+// A settled tool call replays its `readBack`, the text the model read, so provider continuation
+// matches `runTurn` / `invokeTool`.
 
+import { TheoremError } from '../guardrails/error.ts';
 import { type LexiconOverrides, lexiconText } from '../guardrails/lexicon.ts';
 import { mediaKindForMime } from '../kernel/registry/catalog.ts';
-import {
-  formatToolFailureForModel,
-  formatToolResult,
-  projectForModel,
-} from '../kernel/tools/execute.ts';
-import { getTool } from '../kernel/tools/registry.ts';
-import { modelResultFromOutput } from '../kernel/tools/remote.ts';
+import { formatToolFailureForModel, formatToolResult } from '../kernel/tools/model-text.ts';
+import type { ToolCallRequest } from '../kernel/turn-events.ts';
 import type { InteractionPart, TurnBlob, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
-import type { TranscriptBlock, UserTurnDraft } from './types.ts';
+import { applyToolEvent, toolCallRanWith } from './tool-calls.ts';
+import type { ToolCall, TranscriptBlock, UserTurnDraft } from './types.ts';
 
-function toolCallId(tool: { name: string; callId?: string; id?: string }): string {
-  return tool.id ?? tool.callId ?? `call_${tool.name}`;
-}
-
-function toolOutputForHistory(
-  name: string,
-  output: unknown,
-  lexicon: LexiconOverrides | undefined,
-): string {
-  const registered = getTool(name);
-  if (registered?.type === 'function') {
-    return formatToolResult(projectForModel(registered, output, lexicon));
+/**
+ * The kernel sets `readBack` on every `complete` and `error` event, so a call without it did not
+ * come from a run and has no text the model read.
+ */
+function toolReadBack(call: ToolCall): string {
+  const state = call.state;
+  if ((state?.phase !== 'complete' && state?.phase !== 'error') || state.readBack === undefined) {
+    throw new TheoremError(
+      'request',
+      `Tool call '${call.name}' has no readBack: only a settled call from a run carries one.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
-  if (typeof output === 'object' && output !== null && 'finding' in output) {
-    return formatToolResult(output as { finding: string; data?: unknown });
-  }
-  return formatToolResult(modelResultFromOutput(output));
+  return state.readBack;
 }
 
 function blobToPart(blob: TurnBlob): InteractionPart {
@@ -58,10 +46,7 @@ function draftBlobsWithData(
   return mapped?.length ? mapped : undefined;
 }
 
-/**
- * Project a pending/composer draft into history messages for `onStage` inject.
- * Uses base64 on `draft.attachments` / `draft.voice` when present.
- */
+/** For `onStage` inject. Uses base64 on `draft.attachments` / `draft.voice` when present. */
 function userDraftToSteerInject(draft: UserTurnDraft): TurnHistoryMessage[] {
   const attachments = draftBlobsWithData(draft.attachments);
   const voice = draftBlobsWithData(draft.voice);
@@ -75,7 +60,6 @@ function userDraftToSteerInject(draft: UserTurnDraft): TurnHistoryMessage[] {
   );
 }
 
-/** Append a user turn (text and optional encoded media) to host history. */
 function appendUserDraftToHistory(
   history: TurnHistoryMessage[],
   draft: UserTurnDraft,
@@ -101,64 +85,51 @@ function appendUserDraftToHistory(
   return [...history, { role: 'user', parts }];
 }
 
+function toolCallEntry(tool: ToolCallRequest) {
+  return {
+    id: tool.callId,
+    type: 'function' as const,
+    function: { name: tool.name, arguments: JSON.stringify(tool.arguments) },
+    ...(tool.thoughtSignature ? { thoughtSignature: tool.thoughtSignature } : {}),
+  };
+}
+
+function toolResultMessage(tool: ToolCallRequest, content: string): TurnHistoryMessage {
+  return { role: 'tool', tool_call_id: tool.callId, name: tool.name, content };
+}
+
 function appendToolCallPair(
   history: TurnHistoryMessage[],
-  tool: {
-    name: string;
-    callId?: string;
-    id?: string;
-    arguments?: Record<string, unknown>;
-  },
+  tool: ToolCallRequest,
   content: string,
 ): TurnHistoryMessage[] {
-  const callId = toolCallId(tool);
   return [
     ...history,
-    {
-      role: 'assistant',
-      tool_calls: [
-        {
-          id: callId,
-          type: 'function',
-          function: {
-            name: tool.name,
-            arguments: JSON.stringify(tool.arguments ?? {}),
-          },
-        },
-      ],
-    },
-    {
-      role: 'tool',
-      tool_call_id: callId,
-      name: tool.name,
-      content,
-    },
+    { role: 'assistant', tool_calls: [toolCallEntry(tool)] },
+    toolResultMessage(tool, content),
   ];
 }
 
 function appendToolExchangeToHistory(
   history: TurnHistoryMessage[],
-  tool: {
-    name: string;
-    callId?: string;
-    id?: string;
-    arguments?: Record<string, unknown>;
-    output: unknown;
-  },
-  lexicon: LexiconOverrides | undefined,
+  call: ToolCall,
 ): TurnHistoryMessage[] {
-  return appendToolCallPair(history, tool, toolOutputForHistory(tool.name, tool.output, lexicon));
+  return appendToolCallPair(history, historyToolCall(call), toolReadBack(call));
 }
 
-/** Record a host-side tool denial using kernel failure formatting. */
+function historyToolCall(call: ToolCall): ToolCallRequest {
+  return {
+    name: call.name,
+    callId: call.callId,
+    arguments: toolCallRanWith(call),
+    ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}),
+  };
+}
+
 function appendToolDenialToHistory(
   history: TurnHistoryMessage[],
-  tool: {
-    name: string;
-    callId?: string;
-    id?: string;
-    arguments?: Record<string, unknown>;
-    /** Override default deny copy (e.g. send-now cancel while gated). */
+  tool: ToolCallRequest & {
+    /** Override the default deny copy. */
     failure?: { code: string; message: string };
   },
   lexicon: LexiconOverrides | undefined,
@@ -170,14 +141,72 @@ function appendToolDenialToHistory(
   return appendToolCallPair(history, tool, formatToolResult(formatToolFailureForModel(failure)));
 }
 
-/** Fold completed assistant turn events into provider-neutral history rows. */
+/** `undefined` while the call is open. */
+function settledToolContent(call: ToolCall): string | undefined {
+  const phase = call.state?.phase;
+  return phase === 'complete' || phase === 'error' ? toolReadBack(call) : undefined;
+}
+
+/**
+ * One model step's settled calls: a single assistant message holding every call
+ * the step made, then each result. Google replays a step's calls only this way,
+ * with the step's thought signature on its first call. With `gated: 'open'`, a
+ * call waiting on its gate joins the message too, left without a result.
+ */
+function appendToolStepToHistory(
+  history: TurnHistoryMessage[],
+  calls: readonly ToolCall[],
+  gated: GatedCalls = 'omit',
+): TurnHistoryMessage[] {
+  const entries = calls.flatMap((call): { tool: ToolCallRequest; content?: string }[] => {
+    const content = settledToolContent(call);
+    if (content !== undefined) return [{ tool: historyToolCall(call), content }];
+    return gated === 'open' && call.state?.phase === 'gate'
+      ? [{ tool: historyToolCall(call) }]
+      : [];
+  });
+  if (entries.length === 0) return history;
+  return [
+    ...history,
+    { role: 'assistant', tool_calls: entries.map(({ tool }) => toolCallEntry(tool)) },
+    ...entries.flatMap(({ tool, content }) =>
+      content === undefined ? [] : [toolResultMessage(tool, content)],
+    ),
+  ];
+}
+
+/** Whether a call waiting on its gate enters history: left out, or open without a result. */
+type GatedCalls = 'omit' | 'open';
+
 function appendAssistantEventsToHistory(
   history: TurnHistoryMessage[],
   events: readonly TurnEvent[],
-  lexicon: LexiconOverrides | undefined,
+): TurnHistoryMessage[] {
+  return foldAssistantEvents(history, events, 'omit');
+}
+
+/**
+ * A reply paused on its gates, as the model reads it when the user walks away:
+ * its gated calls stay open in their step for the host to answer
+ * (`answerOpenToolCalls`) before the user's next message.
+ */
+function appendPausedTurnToHistory(
+  history: TurnHistoryMessage[],
+  events: readonly TurnEvent[],
+): TurnHistoryMessage[] {
+  return foldAssistantEvents(history, events, 'open');
+}
+
+function foldAssistantEvents(
+  history: TurnHistoryMessage[],
+  events: readonly TurnEvent[],
+  gated: GatedCalls,
 ): TurnHistoryMessage[] {
   let next = history;
   let textBuf = '';
+  // The calls of the step being read, in the order the model made them.
+  let step: { stepId: string | undefined; callIds: string[] } | undefined;
+  const calls = new Map<string, ToolCall>();
 
   const flushText = () => {
     if (!textBuf) {
@@ -186,72 +215,67 @@ function appendAssistantEventsToHistory(
     next = [...next, { role: 'assistant', content: textBuf }];
     textBuf = '';
   };
+  const flushStep = () => {
+    if (!step) {
+      return;
+    }
+    const stepCalls = step.callIds.flatMap((id) => calls.get(id) ?? []);
+    next = appendToolStepToHistory(next, stepCalls, gated);
+    step = undefined;
+  };
 
   for (const event of events) {
     if (event.type === 'text') {
-      textBuf += event.text ?? '';
+      flushStep();
+      textBuf += event.text;
       continue;
     }
     if (event.type === 'structured' && event.structured !== undefined) {
+      flushStep();
       flushText();
       next = [...next, { role: 'assistant', content: JSON.stringify(event.structured) }];
       continue;
     }
-    if (event.type !== 'tool' || !event.tool) {
+    if (event.type !== 'tool') {
       continue;
     }
-    const { tool } = event;
-    if (tool.phase === 'error' && tool.failure) {
-      // A denied or failed call still owes the provider one result for its call id.
+    const call = applyToolEvent(calls.get(event.tool.callId), event.tool);
+    calls.set(call.callId, call);
+    if (event.tool.phase !== undefined) {
+      continue;
+    }
+    // A call opens its step, or joins the one it was made with.
+    if (!step || call.stepId === undefined || step.stepId !== call.stepId) {
+      flushStep();
       flushText();
-      next = appendToolDenialToHistory(
-        next,
-        {
-          name: tool.name,
-          callId: tool.callId,
-          id: tool.id,
-          arguments: tool.arguments,
-          failure: tool.failure,
-        },
-        lexicon,
-      );
-      continue;
+      step = { stepId: call.stepId, callIds: [] };
     }
-    if (tool.phase !== 'complete' || tool.output === undefined) {
-      continue;
-    }
-    flushText();
-    next = appendToolExchangeToHistory(
-      next,
-      {
-        name: tool.name,
-        callId: tool.callId,
-        id: tool.id,
-        arguments: tool.arguments,
-        output: tool.output,
-      },
-      lexicon,
-    );
+    step.callIds.push(call.callId);
   }
 
+  flushStep();
   flushText();
   return next;
 }
 
-/**
- * Rebuild host history from committed transcript blocks (e.g. branch truncation).
- *
- * Text, structured, and completed tool blocks round-trip. Attachment/voice blocks
- * are omitted here — optional preview `data` on those blocks is UI-only and does
- * not rebuild into host history.
- */
-function historyFromTranscriptBlocks(
-  blocks: readonly TranscriptBlock[],
-  lexicon: LexiconOverrides | undefined,
-): TurnHistoryMessage[] {
+/** Attachment and voice blocks are omitted: their preview `data` is UI-only. */
+function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHistoryMessage[] {
   let history: TurnHistoryMessage[] = [];
+  // Consecutive tool blocks from one model step replay together.
+  let step: ToolCall[] = [];
+  const flushStep = () => {
+    history = appendToolStepToHistory(history, step);
+    step = [];
+  };
 
   for (const block of blocks) {
+    if (block.kind === 'tool') {
+      const open = step[0];
+      if (open && (open.stepId === undefined || open.stepId !== block.tool.stepId)) flushStep();
+      step.push(block.tool);
+      continue;
+    }
+    flushStep();
     if (block.kind === 'user-text') {
       history = appendUserDraftToHistory(history, { text: block.text });
       continue;
@@ -262,49 +286,85 @@ function historyFromTranscriptBlocks(
     }
     if (block.kind === 'structured') {
       history = [...history, { role: 'assistant', content: JSON.stringify(block.value) }];
-      continue;
-    }
-    if (block.kind === 'tool' && block.tool.phase === 'error' && block.tool.failure) {
-      history = appendToolDenialToHistory(
-        history,
-        {
-          name: block.tool.name,
-          callId: block.tool.callId,
-          id: block.tool.id,
-          arguments: block.tool.arguments,
-          failure: block.tool.failure,
-        },
-        lexicon,
-      );
-      continue;
-    }
-    if (
-      block.kind === 'tool' &&
-      block.tool.phase === 'complete' &&
-      block.tool.output !== undefined
-    ) {
-      history = appendToolExchangeToHistory(
-        history,
-        {
-          name: block.tool.name,
-          callId: block.tool.callId,
-          id: block.tool.id,
-          arguments: block.tool.arguments,
-          output: block.tool.output,
-        },
-        lexicon,
-      );
     }
   }
 
+  flushStep();
   return history;
 }
 
+function lastToolStep(
+  history: readonly TurnHistoryMessage[],
+): { at: number; calls: NonNullable<TurnHistoryMessage['tool_calls']> } | undefined {
+  const at = history.findLastIndex((message) => message.tool_calls !== undefined);
+  const calls = history[at]?.tool_calls;
+  return calls ? { at, calls } : undefined;
+}
+
+/**
+ * The calls the history leaves open: those of its last step with no result
+ * after it, when nothing but results follows that step. Empty otherwise.
+ */
+function openToolCallIds(history: readonly TurnHistoryMessage[]): string[] {
+  const step = lastToolStep(history);
+  if (!step) return [];
+  const after = history.slice(step.at + 1);
+  if (after.some((message) => message.role !== 'tool')) return [];
+  const answered = new Set(after.map((message) => message.tool_call_id));
+  return step.calls.flatMap((call) => (answered.has(call.id) ? [] : [call.id]));
+}
+
+function openCallsMismatch(
+  history: readonly TurnHistoryMessage[],
+  ids: readonly string[],
+): TheoremError {
+  return new TheoremError(
+    'request',
+    `the history leaves open [${openToolCallIds(history).join(', ')}], not [${ids.join(', ')}]`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+}
+
+function assertOpenToolCalls(history: readonly TurnHistoryMessage[], ids: readonly string[]): void {
+  const open = openToolCallIds(history);
+  if (open.length !== ids.length || open.some((id) => !ids.includes(id))) {
+    throw openCallsMismatch(history, ids);
+  }
+}
+
+/**
+ * `answers` holds, by call id, the text the model reads for each open call. Results follow their
+ * step in the order the model made the calls. Throws unless `answers` names exactly the open calls.
+ */
+function answerOpenToolCalls(
+  history: readonly TurnHistoryMessage[],
+  answers: ReadonlyMap<string, string>,
+): TurnHistoryMessage[] {
+  const ids = [...answers.keys()];
+  assertOpenToolCalls(history, ids);
+  const step = lastToolStep(history);
+  if (!step) return [...history];
+  const results = new Map(
+    history.slice(step.at + 1).map((message) => [message.tool_call_id, message]),
+  );
+  const resultOf = (call: { id: string; function: { name: string } }): TurnHistoryMessage => {
+    const result = results.get(call.id);
+    if (result) return result;
+    const content = answers.get(call.id);
+    if (content === undefined) throw openCallsMismatch(history, ids);
+    return { role: 'tool', tool_call_id: call.id, name: call.function.name, content };
+  };
+  return [...history.slice(0, step.at + 1), ...step.calls.map(resultOf)];
+}
+
 export {
+  answerOpenToolCalls,
   appendAssistantEventsToHistory,
+  appendPausedTurnToHistory,
   appendToolDenialToHistory,
   appendToolExchangeToHistory,
   appendUserDraftToHistory,
+  assertOpenToolCalls,
   historyFromTranscriptBlocks,
+  toolReadBack,
   userDraftToSteerInject,
 };

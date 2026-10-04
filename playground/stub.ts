@@ -1,7 +1,6 @@
 import { demoHttpSampleInput } from './concierge-demo.ts';
 import { parseJsonSchema, sampleFromJsonSchema } from './tool-schema.ts';
 
-/** Build a generic playground stub object from a JSON Schema object. */
 export function stubOutputFromSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const stub: Record<string, unknown> = {};
   const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;

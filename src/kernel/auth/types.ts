@@ -1,20 +1,7 @@
-/**
- * OAuth 2.1 and Model Context Protocol authorization types.
- *
- * Implements current July 28, 2026 MCP specification requirements:
- * - RFC 9728: Protected Resource Metadata
- * - RFC 8414 & OpenID Connect: Authorization Server Metadata
- * - RFC 9207: Authorization Server Issuer Identification (`iss` validation)
- * - RFC 8707: Resource Indicators
- * - RFC 7636: PKCE with S256
- *
- * @module
- */
-
 import type { ResolveHost } from '../../guardrails/network.ts';
 import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
 
-/** RFC 9728 Protected Resource Metadata */
+/** RFC 9728. */
 export interface ProtectedResourceMetadata {
   resource: string;
   authorization_servers: string[];
@@ -24,7 +11,7 @@ export interface ProtectedResourceMetadata {
   [key: string]: unknown;
 }
 
-/** RFC 8414 / OpenID Connect Discovery Metadata */
+/** RFC 8414 / OpenID Connect Discovery. */
 export interface AuthorizationServerMetadata {
   issuer: string;
   authorization_endpoint: string;
@@ -39,38 +26,34 @@ export interface AuthorizationServerMetadata {
   [key: string]: unknown;
 }
 
-/** Standard OAuth 2.1 token response */
 export interface OAuthTokens {
   access_token: string;
   token_type?: string;
   expires_in?: number;
   refresh_token?: string;
   scope?: string;
-  /** Custom extra parameters returned by AS */
   [key: string]: unknown;
 }
 
-/** Normalized OAuth credential for storage / pass-through in TurnRequest */
 export interface OAuth2Credential {
   type: 'oauth2';
   issuer: string;
-  /** The resource (RFC 8707) the token was issued for; it is sent nowhere else. */
+  /** RFC 8707: the token is sent nowhere else. */
   resource: string;
   accessToken: string;
   refreshToken?: string;
-  expiresAt?: number; // epoch timestamp in ms
+  /** Epoch milliseconds. */
+  expiresAt?: number; // epoch ms
   tokenEndpoint: string;
   clientId: string;
   scope?: string;
 }
 
-/** Bearer token credential */
 export interface BearerCredential {
   type: 'bearer';
   token: string;
 }
 
-/** API key credential */
 export interface ApiKeyCredential {
   type: 'api_key';
   key: string;
@@ -78,68 +61,59 @@ export interface ApiKeyCredential {
   headerPrefix?: string;
 }
 
-/** Universal union of supported tool credentials */
 export type ToolCredential = OAuth2Credential | BearerCredential | ApiKeyCredential;
 
-/**
- * How OAuth requests go out. Every discovery and token request clears the
- * network policy and never follows a redirect.
- */
+/** Every discovery and token request clears the network policy and never follows a redirect. */
 export interface OAuthTransportOptions {
-  /** Network policy for discovery and token requests (default: https to public hosts). */
+  /** Default: https to public hosts. */
   network?: NetworkGuardrailSpec;
-  /** Resolves each request's host name; one that resolves to a private address is refused. */
+  /** A host that resolves to a private address is refused. */
   resolveHost?: ResolveHost;
-  /** Optional fetch function for testing or proxying */
   fetchFn?: typeof fetch;
 }
 
-/** An authorization server's endpoints for one flow, discovered or supplied by the host. */
 export interface OAuthEndpoints {
   issuer: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
-  /** The server sends `iss` on authorization responses (RFC 9207); responses without it are refused. */
+  /** RFC 9207: authorization responses without `iss` are then refused. */
   issParameterSupported?: boolean;
 }
 
-/** Options for creating an OAuth 2.1 PKCE authorization flow */
 export interface CreatePkceFlowOptions extends OAuthTransportOptions {
   /**
-   * The protected resource the token is for (e.g. the MCP server URL): an https
-   * URL, and the token's audience (RFC 8707). A resource without metadata of
-   * its own (RFC 9728) is its own authorization server.
+   * An https URL (e.g. the MCP server) and the token's audience (RFC 8707). Without
+   * RFC 9728 metadata of its own it is its own authorization server.
    */
   resourceServerUrl: string;
-  /** The OAuth client id, or the https URL of its Client ID Metadata Document */
+  /** Or the https URL of its Client ID Metadata Document. */
   clientId: string;
-  /**
-   * Redirect URI registered with the OAuth client, without a fragment: https,
-   * http on a loopback host (RFC 8252 §7.3), or a reverse-domain app scheme (§7.1)
-   */
+  /** No fragment: https, http on loopback (RFC 8252 §7.3), or a reverse-domain app scheme (§7.1). */
   redirectUri: string;
-  /** Desired scopes, each a single RFC 6749 §3.3 scope token */
+  /** Each a single RFC 6749 §3.3 scope token. */
   scopes?: string[];
   /**
-   * Secret the stateless state envelope is encrypted under: at least 32 bytes,
-   * and 256 bits of entropy (32 CSPRNG bytes, base64-encoded), so a quantum
-   * search still faces 128-bit work.
+   * Encrypts the state envelope: at least 32 bytes and 256 bits of entropy (32 CSPRNG bytes,
+   * base64-encoded), so a quantum search still faces 128-bit work.
    */
   signingSecret: string;
   /**
-   * A value bound to the user's browser session that an attacker can neither know nor
-   * set — the host's session id, or a random value in an HttpOnly cookie. The callback
-   * must present the same value, so a flow begun in one session can't finish in another
-   * (RFC 6749 §10.12). Only its SHA-256 is sealed into the state.
+   * Bound to the user's session and neither knowable nor settable by an attacker (a session id,
+   * an HttpOnly cookie value). The callback must present it (RFC 6749 §10.12); only its SHA-256 is sealed.
    */
   sessionBinding: string;
-  /** State envelope TTL in milliseconds, a positive number (default: 10 minutes) */
+  /** Milliseconds; default 10 minutes. */
   stateTtlMs?: number;
-  /** The server's endpoints, when the host already knows them; discovery is skipped */
+  /** Skips discovery. */
   preResolved?: OAuthEndpoints;
+  /**
+   * Parameters a provider reads beyond the standard ones (e.g. Google's
+   * `access_type: 'offline'`, without which it issues no refresh token). A name the
+   * flow sets itself is refused.
+   */
+  authorizationParams?: Readonly<Record<string, string>>;
 }
 
-/** Result of initiating a PKCE flow */
 export interface PkceFlowResult {
   authorizationUrl: string;
   state: string;
@@ -148,27 +122,25 @@ export interface PkceFlowResult {
   resource: string;
 }
 
-/** Options for exchanging an authorization code */
 export interface ExchangePkceCodeOptions extends OAuthTransportOptions {
   code: string;
   state: string;
-  /** `iss` parameter returned in the authorization response query (RFC 9207) */
+  /** From the authorization response query (RFC 9207). */
   iss?: string;
-  /** Redirect URI matching the authorization request */
+  /** Must match the authorization request. */
   redirectUri: string;
-  /** Secret the state envelope was sealed with */
   signingSecret: string;
-  /** The same session binding the flow began with, read from the session handling the callback */
+  /** Read from the session handling the callback. */
   sessionBinding: string;
+  /** A confidential client's secret, sent in the token request body (RFC 6749 §2.3.1); never stored. */
+  clientSecret?: string;
 }
 
-/** Result of token exchange */
 export interface ExchangePkceCodeResult {
   tokens: OAuthTokens;
   credential: OAuth2Credential;
 }
 
-/** Options for refreshing an expired OAuth token */
 export interface RefreshOAuthTokenOptions extends OAuthTransportOptions {
   refreshToken: string;
   tokenEndpoint: string;
@@ -176,4 +148,6 @@ export interface RefreshOAuthTokenOptions extends OAuthTransportOptions {
   resource: string;
   scope?: string;
   issuer: string;
+  /** A confidential client's secret, sent in the token request body (RFC 6749 §2.3.1); never stored. */
+  clientSecret?: string;
 }

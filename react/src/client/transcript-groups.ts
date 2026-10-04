@@ -4,11 +4,19 @@
  * (Seance-style), not as separate messages.
  */
 
-import type { TranscriptBlock } from '../../../src/interface/mod.ts';
+import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import { humanize } from './shaped-data.ts';
 
 export type TranscriptTurnGroup =
 	| { kind: 'user'; key: string; blocks: TranscriptBlock[] }
-	| { kind: 'assistant'; key: string; blocks: TranscriptBlock[] };
+	| {
+			kind: 'assistant';
+			key: string;
+			blocks: TranscriptBlock[];
+			/** The reply's work and when it stopped, from its latest stamped `turn-done`. */
+			workedMs?: number;
+			endedAt?: number;
+	  };
 
 export type TraceItem =
 	| { kind: 'reasoning'; id: string; text: string }
@@ -41,6 +49,13 @@ export function groupTranscriptBlocks(blocks: readonly TranscriptBlock[]): Trans
 	const groups: TranscriptTurnGroup[] = [];
 
 	for (const block of blocks) {
+		if (block.kind === 'turn-done') {
+			const last = groups.at(-1);
+			if (last?.kind === 'assistant' && block.workedMs !== undefined) {
+				last.workedMs = block.workedMs;
+				last.endedAt = block.endedAt;
+			}
+		}
 		if (isHiddenTranscriptBlock(block)) continue;
 		const isUser = isUserTranscriptBlock(block);
 		const last = groups.at(-1);
@@ -58,10 +73,11 @@ export function groupTranscriptBlocks(blocks: readonly TranscriptBlock[]): Trans
 	return groups;
 }
 
+/** A reply's text to copy; a failure is the message's status, not part of the reply. */
 export function assistantTurnCopyText(blocks: readonly TranscriptBlock[]): string {
 	return blocks
-		.filter((block) => block.kind === 'text' || block.kind === 'error')
-		.map((block) => ('text' in block ? block.text : 'message' in block ? block.message : ''))
+		.filter((block) => block.kind === 'text')
+		.map((block) => block.text)
 		.filter(Boolean)
 		.join('\n\n');
 }
@@ -84,7 +100,7 @@ export function workStatus(args: {
 function isGatedTool(
 	block: TranscriptBlock,
 ): block is Extract<TranscriptBlock, { kind: 'tool' }> {
-	return block.kind === 'tool' && block.tool.phase === 'gate' && Boolean(block.tool.gate);
+	return block.kind === 'tool' && block.tool.state?.phase === 'gate';
 }
 
 function lastToolIndexOf(blocks: readonly TranscriptBlock[]): number {
@@ -139,15 +155,17 @@ function classifyNonGateBlock(
  *
  * - `thought` → always reasoning in the trace
  * - non-gate `tool` → tool item in the trace
- * - gate `tool` → interactive card outside the collapsed list
+ * - first gate `tool` → interactive card outside the collapsed list; later gates → trace
  * - `text` before/between tools → narration; text and answer kinds after the
  *   latest tool → body (while streaming too, so the answer streams formatted)
  * - No tools: thoughts still go to trace; remaining kinds → body
  */
 export function composeAssistantTurn(blocks: readonly TranscriptBlock[]): ComposedAssistantTurn {
 	const visible = blocks.filter((block) => !isHiddenTranscriptBlock(block));
-	const gatedTools = visible.filter(isGatedTool);
-	const nonGate = visible.filter((block) => !isGatedTool(block));
+	// One card at a time: the gate answered next. The step's later gates wait in the trace.
+	const nextGate = visible.find(isGatedTool);
+	const gatedTools = nextGate ? [nextGate] : [];
+	const nonGate = visible.filter((block) => block !== nextGate);
 	const lastToolIndex = lastToolIndexOf(nonGate);
 	const hasTools = lastToolIndex >= 0;
 
@@ -165,11 +183,6 @@ export function composeAssistantTurn(blocks: readonly TranscriptBlock[]): Compos
 	};
 }
 
-/** The id a group's timestamp is recorded under: its first block, else its key. */
-export function groupTimeKey(group: TranscriptTurnGroup): string {
-	return group.blocks[0]?.id ?? group.key;
-}
-
 /** The trailing user group while its reply has not started streaming back. */
 export function pendingPromptOf(groups: readonly TranscriptTurnGroup[]): TranscriptTurnGroup | undefined {
 	const last = groups.at(-1);
@@ -183,25 +196,60 @@ export type AssistantTurnTiming = {
 	 */
 	key: string;
 	live: boolean;
+	/** While live: when the reply started, its approval waits skipped. */
 	startedAt?: number;
+	/** Once stopped: how long it worked and when it stopped, as its blocks record. */
+	workedMs?: number;
 	endedAt?: number;
 };
 
 /**
- * Key and timing for the assistant group at `index`. Only turns sent in this
- * session are timed; loaded history has no end.
+ * A turn sent in this session, keyed by its prompt: when it last stopped, and
+ * how long it sat paused on approvals, which doesn't count as work.
+ */
+export type TurnSpan = { endedAt?: number; pausedMs: number };
+
+/**
+ * The key of the assistant group at `index`: its prompt's, so the reply keeps
+ * one identity from "Working…" through commit. Block ids restart every reply.
+ */
+export function replyKey(groups: readonly TranscriptTurnGroup[], index: number): string {
+	const prompt = groups[index - 1];
+	return prompt?.kind === 'user' ? promptReplyKey(prompt) : (groups[index]?.key ?? String(index));
+}
+
+/** The key of the reply to `prompt`, before and after it streams. */
+export function promptReplyKey(prompt: TranscriptTurnGroup): string {
+	return `${prompt.key}:reply`;
+}
+
+/**
+ * Key and timing for the assistant group at `index`. A stopped reply reads its
+ * time from its blocks; a live one counts from its span in this session.
  */
 export function assistantTurnTiming(args: {
 	groups: readonly TranscriptTurnGroup[];
 	index: number;
 	streaming: boolean;
-	timeOf: (id: string) => number;
-	turnEnds: ReadonlyMap<string, number>;
+	timeOf: (key: string) => number;
+	spans: ReadonlyMap<string, TurnSpan>;
 }): AssistantTurnTiming {
+	const key = replyKey(args.groups, args.index);
 	const live = args.streaming && args.index === args.groups.length - 1;
+	const group = args.groups[args.index];
+	if (!live) {
+		return group?.kind === 'assistant' && group.workedMs !== undefined
+			? { key, live, workedMs: group.workedMs, endedAt: group.endedAt }
+			: { key, live };
+	}
 	const prompt = args.groups[args.index - 1];
-	if (prompt?.kind !== 'user') return { key: args.groups[args.index]?.key ?? String(args.index), live };
-	const endedAt = args.turnEnds.get(prompt.key);
-	const startedAt = live || endedAt !== undefined ? args.timeOf(groupTimeKey(prompt)) : undefined;
-	return { key: `${prompt.key}:reply`, live, startedAt, endedAt };
+	const span = prompt?.kind === 'user' ? args.spans.get(prompt.key) : undefined;
+	if (!prompt || !span) return { key, live };
+	return { key, live, startedAt: args.timeOf(prompt.key) + span.pausedMs };
+}
+
+export function toolCallLabel(tool: Extract<TranscriptBlock, { kind: 'tool' }>['tool']): string {
+	const phase = tool.state?.phase;
+	if (phase === 'error' || phase === 'cancel') return humanize(tool.name);
+	return (phase === 'complete' ? tool.activityPast : tool.activity) ?? humanize(tool.name);
 }

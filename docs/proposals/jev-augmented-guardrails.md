@@ -5,7 +5,7 @@ separate from the native Jev decision-profile core.
 
 ## Objective
 
-Use Jev as an optional semantic classifier after Theoremai's deterministic
+Use Jev as an optional semantic classifier after Theorem's deterministic
 guardrail checks, for cases that require meaning rather than a lexical match.
 
 It must never turn a deterministic block into an allow, call tools, generate

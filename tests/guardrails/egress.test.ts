@@ -2,8 +2,13 @@ import '../fixtures/test-host.ts';
 import { mintCanary, USER_CLOSE, USER_OPEN } from '../../src/guardrails/canary.ts';
 import { TEST_OPENAI_KEY, TEST_SSN } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
-import { EGRESS_RULES, runEnforcer, standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import {
+  eventPromptLeakHits,
+  runEnforcer,
+  standardEgressEnforce,
+} from '../../src/guardrails/egress.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type {
   EgressEnforcer,
   GuardrailContext,
@@ -11,6 +16,7 @@ import type {
   Verdict,
 } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import type { ProviderEvent } from '../../src/kernel/types.ts';
 
 function egressCtx(canary?: string): GuardrailContext {
   return {
@@ -29,7 +35,6 @@ function enforce(text: string, canary?: string, structured?: unknown): Verdict {
   return standardEgressEnforce(payload, egressCtx(canary));
 }
 
-/** Rule ids on a verdict, or an empty list when nothing was hit. */
 function rules(verdict: Verdict): string[] {
   return verdict.action === 'allow' ? [] : verdict.hits.map((hit) => hit.rule);
 }
@@ -49,6 +54,12 @@ Deno.test('standardEgressEnforce blocks sensitive echo', () => {
   const verdict = enforce(`Your key is ${TEST_OPENAI_KEY}`, mintCanary());
   assertEquals(verdict.action, 'block');
   assertEquals(rules(verdict).includes(EGRESS_RULES.sensitive), true);
+});
+
+Deno.test('standardEgressEnforce releases IP addresses: they are not secrets', () => {
+  const reply =
+    'Your router is usually 192.168.1.1; IPv6 looks like 2001:0db8:85a3:0000:0000:8a2e:0370:7334.';
+  assertEquals(enforce(reply, mintCanary()).action, 'allow');
 });
 
 Deno.test('standardEgressEnforce blocks system boundary markers', () => {
@@ -108,6 +119,13 @@ Deno.test('standardEgressEnforce blocks closing user_data fence tag', () => {
   assertEquals(rules(verdict).includes(EGRESS_RULES.boundary), true);
 });
 
+Deno.test('standardEgressEnforce blocks a fence tag without its closing bracket', () => {
+  // A gemma-4-31b thought restarted mid-tag, leaving `<user_data` run into the next sentence.
+  for (const text of ['inside `<user_dataThe user provided', 'see < /user_data here']) {
+    assertEquals(rules(enforce(text, mintCanary())).includes(EGRESS_RULES.boundary), true);
+  }
+});
+
 Deno.test('standardEgressEnforce carries span offsets on sensitive hits', () => {
   const text = `Your ssn is ${TEST_SSN}`;
   const verdict = enforce(text, mintCanary());
@@ -118,8 +136,6 @@ Deno.test('standardEgressEnforce carries span offsets on sensitive hits', () => 
   assertEquals(typeof hit?.span?.start, 'number');
   assertEquals((hit?.span?.end ?? 0) > (hit?.span?.start ?? 0), true);
 });
-
-// ── structured output is no longer invisible to egress ───────────────────────
 
 Deno.test('standardEgressEnforce inspects structured output for canary leaks', () => {
   const canary = mintCanary();
@@ -137,8 +153,6 @@ Deno.test('standardEgressEnforce inspects structured output for sensitive echo',
 Deno.test('standardEgressEnforce allows clean structured output', () => {
   assertEquals(enforce('All done.', mintCanary(), { answer: 42 }).action, 'allow');
 });
-
-// ── a policy that cannot reach a decision ────────────────────────────────────
 
 Deno.test('runEnforcer converts a thrown policy error into a block', async () => {
   const verdict = await runEnforcer(
@@ -324,4 +338,51 @@ Deno.test('runEnforcer preserves complete canonical verdict variants', async () 
     const actual = await runEnforcer(() => expected, { text: 'untrusted output' }, egressCtx());
     assertEquals(actual, expected);
   }
+});
+
+Deno.test('eventPromptLeakHits names a leak in any provider-run step by its evidence kind', () => {
+  const canary = mintCanary();
+  const ran: ProviderEvent[] = [
+    { type: 'grounding', grounding: { metadata: { query: canary } } },
+    {
+      type: 'evidence',
+      evidence: { provider: 'google', kind: 'url_context', raw: { url: canary } },
+    },
+    {
+      type: 'evidence',
+      evidence: {
+        provider: 'google',
+        kind: 'code_execution_call',
+        code: `print("${canary}")`,
+        id: 'c1',
+      },
+    },
+    {
+      type: 'evidence',
+      evidence: { provider: 'google', kind: 'code_execution_result', result: canary },
+    },
+    {
+      type: 'evidence',
+      evidence: {
+        provider: 'openrouter',
+        kind: 'provider_step',
+        step: 'source',
+        raw: { id: canary },
+      },
+    },
+  ];
+  for (const event of ran) {
+    assertEquals(
+      eventPromptLeakHits(event, canary).map((hit) => hit.rule),
+      [EGRESS_RULES.providerToolLeak],
+    );
+  }
+  const spoken: ProviderEvent = {
+    type: 'evidence',
+    evidence: { provider: 'google', kind: 'output_transcription', raw: { text: canary } },
+  };
+  assertEquals(
+    eventPromptLeakHits(spoken, canary).some((hit) => hit.rule === EGRESS_RULES.providerToolLeak),
+    false,
+  );
 });

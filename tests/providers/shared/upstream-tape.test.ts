@@ -1,9 +1,9 @@
 import '../../fixtures/test-host.ts';
 import { OMIT_CANARY } from '../../../src/guardrails/canary.ts';
+import { runTurn } from '../../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import { sha256 } from '../../../src/kernel/engine/hash.ts';
-import { runTurn } from '../../../src/kernel/engine/runner.ts';
-import type { KeyVault, TurnEvent } from '../../../src/kernel/types.ts';
+import type { KeyVault } from '../../../src/kernel/types.ts';
 import { contentOf, type TraceRecord } from '../../../src/observability/trace-record.ts';
 import type { TraceAttributeValue, TraceSpan } from '../../../src/observability/trace-span.ts';
 import { camelToSnake } from '../../../src/providers/google/interactions/framing.ts';
@@ -15,6 +15,7 @@ import {
   scrubUpstream,
   tapeUpstream,
 } from '../../../src/providers/shared/upstream-tape.ts';
+import { eventTypesByReply, replyText } from '../../fixtures/reply.ts';
 import { catalogedSink, catalogGate } from '../../fixtures/trace-catalog.ts';
 
 const INPUT_TOKENS = 11;
@@ -22,19 +23,11 @@ const OUTPUT_TOKENS = 2;
 const HTTP_OK = 200;
 
 const vault: KeyVault = {
-  slotA: 'free-a-key',
-  slotB: 'free-b-key',
-  slotC: 'free-c-key',
-  paid: 'paid-key',
+  slot_a: 'free-a-key',
+  slot_b: 'free-b-key',
+  slot_c: 'free-c-key',
+  spare: 'spare-key',
 };
-
-async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const event of gen) {
-    out.push(event);
-  }
-  return out;
-}
 
 function spanNamed(record: TraceRecord, name: string): TraceSpan {
   const span = record.spans.find((s) => s.name === name);
@@ -148,15 +141,21 @@ Deno.test('runTurn traces wire, usage, and every Interactions SSE row', async ()
         ]),
       ),
   });
-  const events = await collect(
+  const events = await Array.fromAsync(
     runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, catalogedSink(into)),
   );
   // Text profiles always emit turn stages (`pre_turn` → … → `post_turn`) even
   // when the turn passes no `onStage` handler.
-  assertEquals(
-    events.map((event) => event.type),
-    ['stage', 'text', 'error', 'tokens', 'stage', 'done', 'stage'],
-  );
+  assertEquals(eventTypesByReply(events), [
+    'stage',
+    'text',
+    'error',
+    'tokens',
+    'stage',
+    'done',
+    'stage',
+  ]);
+  assertEquals(replyText(events), 'yo');
   assertEquals(
     events.filter((e) => e.type === 'stage').map((e) => e.stage),
     ['pre_turn', 'before_end', 'post_turn'],
@@ -198,7 +197,9 @@ Deno.test('runTurn traces upstream error response bodies', async () => {
     wait: () => Promise.resolve(),
     fetch: () => Promise.resolve(new Response('quota-detail', { status: 500 })),
   });
-  await collect(runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, catalogedSink(into)));
+  await Array.fromAsync(
+    runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, catalogedSink(into)),
+  );
   const [record] = into;
   if (!record) {
     throw new Error('missing trace');

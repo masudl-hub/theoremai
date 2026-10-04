@@ -1,18 +1,17 @@
 import { assertEquals } from '@std/assert';
-import type { KeySlot, Protocol, Provider } from '../../src/kernel/schema.ts';
+import type { Protocol, Provider } from '../../src/kernel/schema.ts';
 import {
   ATTACHMENT_ACCEPT_MIMES,
   catalogPathFor,
   coerceProtocol,
   coerceProvider,
-  coerceSpeechFormat,
+  EXTRA_FIELDS,
   fieldMeta,
+  isKeySlotName,
   isValidPair,
   isValidProfileProtocol,
-  KEY_SLOTS,
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
-  OVERFLOW_KEY_SLOTS,
   PROFILE_FIELDS,
   PROFILE_TYPE_PROTOCOLS,
   PROFILE_TYPES,
@@ -22,7 +21,6 @@ import {
   protocolsFor,
   protocolsForProfileType,
   providersFor,
-  speechFormatsForProtocol,
   THINKING_LEVELS,
   VOICE_ACCEPT_MIMES,
 } from '../../src/kernel/schema.ts';
@@ -43,8 +41,8 @@ Deno.test('PROFILE_TYPE_PROTOCOLS covers every archetype and only known protocol
   assertEquals([...PROFILE_TYPES].sort().join(), Object.keys(PROFILE_TYPE_PROTOCOLS).sort().join());
   for (const type of PROFILE_TYPES) {
     const allowed = PROFILE_TYPE_PROTOCOLS[type];
-    // host and native decision profiles do not select a chat/live wire protocol.
-    assertEquals(allowed.length > 0, type !== 'host' && type !== 'decision');
+    // Host profiles alone have no model protocol.
+    assertEquals(allowed.length > 0, type !== 'host');
     for (const protocol of allowed) {
       assertEquals(PROTOCOLS.includes(protocol), true);
       assertEquals(isValidProfileProtocol(type, protocol), true);
@@ -68,6 +66,8 @@ Deno.test('PROFILE_TYPE_PROTOCOLS rejects every illegal type/protocol pair', () 
   assertEquals(isValidProfileProtocol('live', 'geminiLive'), true);
   assertEquals(isValidProfileProtocol('text', 'openAi'), true);
   assertEquals(isValidProfileProtocol('text', 'geminiInteractions'), true);
+  assertEquals(isValidProfileProtocol('decision', 'decision'), true);
+  assertEquals(isValidProfileProtocol('text', 'decision'), false);
 });
 
 Deno.test('every PROFILE_TYPE_PROTOCOLS entry has PROTOCOL_PROVIDERS partners', () => {
@@ -82,17 +82,19 @@ Deno.test('providersFor / protocolsFor / coerce stay on PROTOCOL_PROVIDERS', () 
   assertEquals([...providersFor('geminiInteractions')], ['google']);
   assertEquals([...providersFor('geminiLive')], ['google']);
   assertEquals([...providersFor('openAi')].sort().join(), 'local,openrouter');
+  assertEquals([...providersFor('decision')].sort().join(), 'openrouter,typesafe');
   assertEquals([...protocolsFor('google')], ['geminiInteractions', 'geminiLive']);
   assertEquals(coerceProvider('geminiInteractions', 'openrouter'), 'google');
   assertEquals(coerceProtocol('openAi', 'google'), 'geminiInteractions');
   assertEquals(coerceProvider('openAi', 'local'), 'local');
 });
 
-Deno.test('Key slots are KEY_SLOTS without paid', () => {
-  assertEquals([...OVERFLOW_KEY_SLOTS].join(), 'slotA,slotB,slotC');
-  assertEquals(KEY_SLOTS.includes('paid'), true);
-  for (const slot of OVERFLOW_KEY_SLOTS) {
-    assertEquals(KEY_SLOTS.includes(slot), true);
+Deno.test('a key slot is any short name the host picks', () => {
+  for (const name of ['main', 'openai-prod', 'team_2', 'a', 'x'.repeat(32)]) {
+    assertEquals(isKeySlotName(name), true, name);
+  }
+  for (const name of ['', 'my key', 'slot.a', '-lead', 'x'.repeat(33), 7]) {
+    assertEquals(isKeySlotName(name), false, String(name));
   }
 });
 
@@ -104,14 +106,6 @@ Deno.test('MEDIA_INPUT_KINDS values are MediaInputKind', () => {
   assertEquals(ATTACHMENT_ACCEPT_MIMES.includes('image/png'), true);
   assertEquals(VOICE_ACCEPT_MIMES.includes('audio/*'), true);
   assertEquals(VOICE_ACCEPT_MIMES.includes('audio/wav'), true);
-});
-
-Deno.test('speechFormatsForProtocol matches assertSpeechRole rules', () => {
-  assertEquals([...speechFormatsForProtocol('openAi')], ['pcm', 'mp3']);
-  assertEquals([...speechFormatsForProtocol('geminiInteractions')], ['pcm']);
-  assertEquals([...speechFormatsForProtocol('geminiLive')], ['pcm']);
-  assertEquals(coerceSpeechFormat('geminiInteractions', 'mp3'), 'pcm');
-  assertEquals(coerceSpeechFormat('openAi', 'mp3'), 'mp3');
 });
 
 Deno.test('PROFILE_FIELDS protocol / accept / text match live unions', () => {
@@ -143,7 +137,7 @@ Deno.test('catalogPathFor substitutes host map keys with *', () => {
   assertEquals(PROFILE_FIELDS[catalogPathFor(['models', 'pro', 'apiId'])] != null, true);
 });
 
-Deno.test('isValidPair matches createProvider routing table', () => {
+Deno.test('isValidPair matches turn and decision routing tables', () => {
   const legal: Array<[Protocol, Provider]> = [
     ['geminiInteractions', 'google'],
     ['openAi', 'openrouter'],
@@ -160,11 +154,6 @@ Deno.test('isValidPair matches createProvider routing table', () => {
   for (const [protocol, provider] of illegal) {
     assertEquals(isValidPair(protocol, provider as Provider), false);
   }
-});
-
-Deno.test('KeySlot union matches KEY_SLOTS', () => {
-  const sample: KeySlot = 'paid';
-  assertEquals(KEY_SLOTS.includes(sample), true);
 });
 
 Deno.test('EXTRA_FIELDS covers registerTool keys shown in profile docs', () => {
@@ -205,7 +194,6 @@ Deno.test('EXTRA_FIELDS covers registerTool keys shown in profile docs', () => {
   assertEquals(playgroundAuth != null, true, 'missing playground.authType');
   assertEquals(playgroundAuth?.options?.includes('none'), true);
   assertEquals(playgroundAuth?.options?.includes('bearer'), true);
-  assertEquals(fieldMeta('type')?.doc?.includes('archetype'), true);
 });
 
 Deno.test('live wires every load tier; host is a model-less profile type', () => {
@@ -213,8 +201,15 @@ Deno.test('live wires every load tier; host is a model-less profile type', () =>
   assertEquals(PROFILE_TYPE_PROTOCOLS.host, []);
   assertEquals(protocolsForProfileType('host'), []);
   assertEquals(isValidProfileProtocol('host', 'geminiInteractions'), false);
-  assertEquals(fieldMeta('loadTier')?.doc?.includes('wire every allowed tool'), true);
   assertEquals(fieldMeta('tools.t1Policy')?.profileTypes, ['text', 'image']);
   assertEquals(fieldMeta('tools.t2Loader')?.profileTypes, ['text', 'image']);
   assertEquals(fieldMeta('type')?.doc?.includes('host'), true);
+});
+
+Deno.test('every option description names one of its field options', () => {
+  for (const [path, meta] of Object.entries({ ...PROFILE_FIELDS, ...EXTRA_FIELDS })) {
+    for (const key of Object.keys(meta.optionDescriptions ?? {})) {
+      assertEquals(meta.options?.includes(key), true, `${path}: '${key}' is not an option`);
+    }
+  }
 });

@@ -1,13 +1,5 @@
-/**
- * Profile observability vocabulary — destination, scrub, and include policy.
- *
- * This module is the single source of truth for observability profile types. It
- * must not import from `src/kernel/`: the kernel type-imports
- * `ProfileObservabilitySpec` for `ProfileCommon.observability`, and that edge
- * stays one-directional.
- *
- * @module
- */
+// Must not import from src/kernel/: the kernel type-imports ProfileObservabilitySpec, and that
+// edge stays one-directional.
 
 import type { TraceSink } from './trace-sink.ts';
 import type { TraceAttributes } from './trace-span.ts';
@@ -22,22 +14,16 @@ export interface TraceIncludeSpec {
   evidenceRaw?: boolean;
   /** Usage attributes (`gen_ai.usage.*`, `theorem.usage.*`). Default: true. */
   usage?: boolean;
-  /**
-   * Guardrail decisions (`theorem.guardrail` events). Default: true.
-   */
+  /** Guardrail decisions (`theorem.guardrail` events). Default: true. */
   guardrailDecisions?: boolean;
   /**
-   * Keep `GuardrailHit.match` (the exact matched text, whole) on guardrail
-   * events in the live stream and TraceRecord. Default: false — debugging only;
-   * treat like server logs when enabled.
+   * Keep `GuardrailHit.match` (the exact matched text) on guardrail events. Default: false;
+   * debugging only, so treat the store like server logs when enabled.
    */
   guardrailMatchPreview?: boolean;
 }
 
-/**
- * Scrubbing of what is written — independent of turn-path `profile.guardrails`.
- * Defaults are safe for a host-confidential store.
- */
+/** Scrubbing of stored records, independent of turn-path `profile.guardrails`. Defaults are on. */
 export interface TraceScrubSpec {
   /** Strip credentials / PII spans in stored text. Default: true. */
   sensitive?: boolean;
@@ -47,45 +33,26 @@ export interface TraceScrubSpec {
   canary?: boolean;
 }
 
-/**
- * Profile observability — what to record, and where.
- *
- * Omit the whole block → no tracing (noop). Prefer `writeTo: '<registered-id>'`
- * in shared profiles; pass a TraceSink only for tests / custom exporters.
- */
+/** Omit the whole block for no tracing. */
 export interface ProfileObservabilitySpec {
   /**
-   * Destination for completed turn records.
-   *
-   * - `false` — explicitly off
-   * - `string` — host-registered destination id (`registerTraceDestination`)
-   * - `TraceSink` — inline writer (tests, OTEL bridge, etc.)
-   *
+   * `false` is off, a string is a `registerTraceDestination` id, a TraceSink is an inline writer.
    * `runTurn(..., sink)` still overrides this for one call.
    */
   writeTo?: false | string | TraceSink;
 
   /**
-   * Fraction of traces to record, 0–1 inclusive. Decided by trace id, so every
+   * Fraction of traces to record, 0–1 inclusive. Default: 1. Decided by trace id, so every
    * record of one trace is kept or dropped together.
-   * Omitted → 1 (every trace). `0` means record none.
    */
   sampleRate?: number;
 
-  /** Which payloads land in each TraceRecord. */
   include?: TraceIncludeSpec;
 
-  /**
-   * Process attributes stamped on every record this profile writes
-   * (`TraceRecord.resource`), e.g. `{ 'service.name': 'harbor-support' }`.
-   * Omitted → `{}`.
-   */
+  /** Stamped on every record as `TraceRecord.resource`, e.g. `{ 'service.name': 'harbor' }`. */
   resource?: TraceAttributes;
 
-  /**
-   * Scrubbing of stored records — independent of turn-path guardrails.
-   * Defaults stay on even when `guardrails.redactSensitive` is false.
-   */
+  /** Defaults stay on even when `guardrails.redactSensitive` is false. */
   scrub?: TraceScrubSpec;
 
   /**
@@ -95,17 +62,16 @@ export interface ProfileObservabilitySpec {
    */
   retainForDays?: number;
 
-  /** JSONL rotate threshold in MiB when the resolved destination is JSONL. Default: 32. */
+  /**
+   * File size in MiB at which a file-based destination starts a new file, handed to every
+   * destination with the record (`TraceWriteContext`). Default: 32.
+   */
   rotateAfterMiB?: number;
 
-  /**
-   * Called when record build or destination write fails.
-   * Must not throw; tracing never fails the turn.
-   */
+  /** Called when record build or destination write fails. Must not throw. */
   onWriteError?: (err: unknown) => void;
 }
 
-/** Resolved include flags after defaults. */
 export interface ResolvedTraceInclude {
   upstreamLog: boolean;
   outboundWire: boolean;
@@ -115,19 +81,14 @@ export interface ResolvedTraceInclude {
   guardrailMatchPreview: boolean;
 }
 
-/** Resolved scrub flags after defaults. */
 export interface ResolvedTraceScrub {
   sensitive: boolean;
   injection: boolean;
   canary: boolean;
 }
 
-/**
- * Observability policy with defaults applied.
- * Every path resolves through `resolveObservabilityPolicy`.
- */
 export interface ResolvedObservabilityPolicy {
-  /** False when the block is omitted or `writeTo` is `false`/absent. Sampling applies per trace at write time. */
+  /** False when the block is omitted or `writeTo` is `false`/absent. Sampling applies at write. */
   record: boolean;
   writeTo: false | string | TraceSink | undefined;
   sampleRate: number;

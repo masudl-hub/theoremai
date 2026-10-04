@@ -1,11 +1,10 @@
 import '../fixtures/test-host.ts';
+import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
 import {
   clearTraceDestinations,
-  jsonlDestination,
   registerTraceDestination,
   resolveObservabilityPolicy,
   resolveTraceWriter,
@@ -14,14 +13,6 @@ import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceSink, TraceWriteContext } from '../../src/observability/trace-sink.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 import { STUB_WRITE, stubRecord, stubSpan } from '../fixtures/trace-record.ts';
-
-async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const event of gen) {
-    out.push(event);
-  }
-  return out;
-}
 
 async function* fakeComplete(): AsyncGenerator<TurnEvent> {
   await Promise.resolve();
@@ -100,30 +91,14 @@ Deno.test('resolveTraceWriter sampleRate 0 drops writes; override sink ignores s
   clearTraceDestinations();
 });
 
-Deno.test('jsonlDestination rejects empty dir', () => {
-  assertThrows(() => jsonlDestination('  '), Error, 'non-empty');
-});
-
-Deno.test('jsonlDestination rejects relative and checkout-local dirs', () => {
-  assertThrows(() => jsonlDestination('traces'), Error, 'absolute');
-  assertThrows(() => jsonlDestination(`${Deno.cwd()}/traces`), Error, 'outside');
-});
-
-Deno.test('registerTraceDestination revalidates raw jsonl descriptors', () => {
+Deno.test('registerTraceDestination rejects a destination that is not a sink', () => {
   clearTraceDestinations();
+  // A plain-JS host can hand the registry anything; JSON.parse stands in for that caller.
+  const descriptor = JSON.parse('{ "kind": "jsonl", "dir": "/var/log/theorem" }');
   assertThrows(
-    () => registerTraceDestination('raw-jsonl', { kind: 'jsonl', dir: 'traces' }),
+    () => registerTraceDestination('raw-jsonl', descriptor),
     Error,
-    'absolute',
-  );
-  assertThrows(
-    () =>
-      registerTraceDestination('raw-jsonl', {
-        kind: 'jsonl',
-        dir: `${Deno.cwd()}/../${Deno.cwd().split('/').at(-1)}/traces`,
-      }),
-    Error,
-    'outside',
+    'must be a TraceSink',
   );
   clearTraceDestinations();
 });
@@ -140,7 +115,7 @@ Deno.test('runTurn uses profile.observability.writeTo when sink omitted', async 
       observability: { writeTo: 'chat-mem' },
     }),
   );
-  await collect(
+  await Array.fromAsync(
     runTurn(
       {
         profile: 'chat-obs',
@@ -154,7 +129,7 @@ Deno.test('runTurn uses profile.observability.writeTo when sink omitted', async 
   clearTraceDestinations();
 });
 
-Deno.test('every sink receives the retention of the profile that wrote the record', async () => {
+Deno.test('every sink receives the storage policy of the profile that wrote the record', async () => {
   const seen: TraceWriteContext[] = [];
   const hostStore: TraceSink = {
     write: (_record, context) => {
@@ -167,13 +142,14 @@ Deno.test('every sink receives the retention of the profile that wrote the recor
     defineProfile({
       ...base,
       id: 'chat-keep-forever',
-      observability: { writeTo: hostStore, retainForDays: 0 },
+      observability: { writeTo: hostStore, retainForDays: 0, rotateAfterMiB: 4 },
     }),
   );
   const turn = { profile: 'chat-keep-forever', input: { text: 'hi' } };
-  await collect(runTurn(turn, fake));
-  await collect(runTurn(turn, fake, hostStore));
-  assertEquals(seen, [{ retainForDays: 0 }, { retainForDays: 0 }]);
+  await Array.fromAsync(runTurn(turn, fake));
+  await Array.fromAsync(runTurn(turn, fake, hostStore));
+  const context = { retainForDays: 0, rotateAfterMiB: 4 };
+  assertEquals(seen, [context, context]);
 });
 
 Deno.test('runTurn explicit sink overrides profile.observability', async () => {
@@ -189,7 +165,7 @@ Deno.test('runTurn explicit sink overrides profile.observability', async () => {
       observability: { writeTo: 'chat-mem' },
     }),
   );
-  await collect(
+  await Array.fromAsync(
     runTurn(
       {
         profile: 'chat-obs-override',

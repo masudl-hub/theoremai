@@ -1,19 +1,3 @@
-/**
- * OpenAI-compatible `usage` → `TurnTokens`, shared by OpenRouter (chat and
- * images) and local OpenAI-compatible servers.
- *
- * Chat Completions reports `prompt_tokens` / `completion_tokens`; the Images
- * API reports `input_tokens` / `output_tokens`. Both already mean what the
- * OpenTelemetry conventions mean: completion includes reasoning
- * (`completion_tokens_details.reasoning_tokens` is its share) and prompt
- * includes cached tokens. OpenRouter adds `cost`, `cost_details` and
- * `prompt_tokens_details.cache_write_tokens`.
- *
- * `openAiResponse` reads a row's response identity (`id`, `model`).
- *
- * @module
- */
-
 import { asRecord, nonEmptyString } from '../../../kernel/engine/record.ts';
 import { reportedTokens, usageCount } from '../../../kernel/engine/usage.ts';
 import type { TurnCost, TurnResponse, TurnTokens } from '../../../kernel/types.ts';
@@ -25,7 +9,6 @@ function cost(usage: Record<string, unknown>): TurnCost | undefined {
   return { usd, ...(upstreamUsd === undefined ? {} : { upstreamUsd }) };
 }
 
-/** Reported detail counts → `{ modality: tokens }`, or `undefined` when none is reported. */
 function detailCounts(
   details: Record<string, unknown> | undefined,
   keys: Record<string, string>,
@@ -52,7 +35,11 @@ function modalityCounts(
   return { ...(input ? { input } : {}), ...(output ? { output } : {}) };
 }
 
-/** `TurnTokens` from an OpenAI-compatible `usage` object, or `undefined` when it reports nothing. */
+/**
+ * Chat Completions reports `prompt_tokens` / `completion_tokens`, the Images API
+ * `input_tokens` / `output_tokens`. Both already mean what OpenTelemetry means:
+ * completion includes reasoning and prompt includes cached tokens.
+ */
 export function openAiUsageTokens(raw: unknown): TurnTokens | undefined {
   const usage = asRecord(raw);
   if (!usage) return undefined;
@@ -69,7 +56,6 @@ export function openAiUsageTokens(raw: unknown): TurnTokens | undefined {
   });
 }
 
-/** A row's response identity (`id`, `model`), or `undefined` when it sends neither. */
 export function openAiResponse(raw: Record<string, unknown>): TurnResponse | undefined {
   const id = nonEmptyString(raw.id);
   const model = nonEmptyString(raw.model);

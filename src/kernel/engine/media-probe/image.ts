@@ -1,14 +1,6 @@
-/**
- * Image pixel size from headers — PNG, JPEG, GIF, WebP, and HEIF / HEIC.
- * Pixels are never decoded.
- *
- * @module
- */
-
 import { ascii, view } from './bytes.ts';
 import { type Box, boxes, FULL_BOX_HEADER, hasBrand } from './iso-bmff.ts';
 
-/** Pixel dimensions of an image. */
 export interface ImageSize {
   width: number;
   height: number;
@@ -175,7 +167,6 @@ function heifSize(bytes: Uint8Array): ImageSize | undefined {
   });
 }
 
-/** Pixel size from a PNG, JPEG, GIF, WebP, or HEIF / HEIC header; `undefined` for anything else. */
 export function imageSize(bytes: Uint8Array): ImageSize | undefined {
   return pngSize(bytes) ?? jpegSize(bytes) ?? gifSize(bytes) ?? webpSize(bytes) ?? heifSize(bytes);
 }

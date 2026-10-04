@@ -1,5 +1,5 @@
-import { type ProfileDefinition, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { registerStructured } from '../../src/kernel/registry/schemas.ts';
+import { registerProfile, registerStructured } from '../../src/kernel/default-scope.ts';
+import type { ProfileDefinition } from '../../src/kernel/registry/profiles.ts';
 import { registerHarnessTools } from '../../src/kernel/tools/mod.ts';
 import type { GoogleImagePins } from '../../src/presets/google.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
@@ -81,7 +81,7 @@ const chat: ProfileDefinition = {
     gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite,
   },
   maxSteps: 1,
-  key: 'slotA',
+  key: 'slot_a',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -108,7 +108,7 @@ const pinned: ProfileDefinition = {
     },
   },
   maxSteps: 1,
-  key: 'slotA',
+  key: 'slot_a',
   tools: { allow: [] },
   inputs: { text: true },
   outputs: { structured: 'chatTurn' },
@@ -141,7 +141,7 @@ const selector: ProfileDefinition = {
   defaultModel: 'gemini35FlashLite',
   allowModelSelect: true,
   maxSteps: 1,
-  key: 'slotB',
+  key: 'slot_b',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -167,7 +167,7 @@ const formatter: ProfileDefinition = {
     },
   },
   maxSteps: 1,
-  key: 'slotC',
+  key: 'slot_c',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -192,7 +192,7 @@ const image: ProfileDefinition = {
   maxSteps: 1,
   image: {
     aspectRatio: '1:1',
-    size: '1K',
+    resolution: '1K',
     mimeType: 'image/jpeg',
   } satisfies GoogleImagePins,
   tools: { allow: [] },

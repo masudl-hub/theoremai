@@ -133,3 +133,15 @@ jobs:
         run: |
           npm version "0.0.0-pr.${GITHUB_RUN_ID}" --no-git-tag-version
           npm publish --dry-run --access public --tag ci-validate
+
+      - name: Build React package
+        run: |
+          npm ci
+          npm --prefix react ci
+          npm run build:npm:react
+
+      - name: Dry-run React npm publish
+        working-directory: react/npm
+        run: |
+          npm version "0.0.0-pr.${GITHUB_RUN_ID}" --no-git-tag-version
+          npm publish --dry-run --access public --tag ci-validate

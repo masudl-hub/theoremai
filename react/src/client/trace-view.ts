@@ -14,8 +14,8 @@ import {
 	traceAttributeMeta,
 	traceEventMeta,
 	traceSpanMeta,
-} from '../../../mod.ts';
-import { isRecord } from '../../../src/kernel/util/record.ts';
+} from '@theoremjs/agents';
+import { isRecord } from '@theoremjs/agents/kernel';
 
 /**
  * The trace panel's reading of the records a run delivered: one span tree,
@@ -368,6 +368,12 @@ export function filterTraceTree(nodes: readonly TraceNode[], filters: readonly T
 		return hit || children.length > 0 ? { ...node, children } : undefined;
 	};
 	return { nodes: nodes.flatMap((node) => keep(node) ?? []), matches };
+}
+
+/** The ids of the spans under `nodes` that meet every filter; undefined when there are none to meet. */
+export function traceMatchIds(nodes: readonly TraceNode[], filters: readonly TraceFilter[]): Set<string> | undefined {
+	if (filters.length === 0) return undefined;
+	return new Set(traceSpans(nodes).filter((node) => traceMatches(node, filters)).map((node) => node.id));
 }
 
 /** Formats whose value is stored text or structure: shown on click, never inline. */

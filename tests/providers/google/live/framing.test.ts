@@ -1,6 +1,9 @@
 import { assertEquals, assertExists, assertThrows } from '@std/assert';
 import { TheoremError } from '../../../../src/guardrails/error.ts';
-import { registerTool } from '../../../../src/kernel/tools/mod.ts';
+import {
+  formatToolFailureForModel,
+  formatToolResult,
+} from '../../../../src/kernel/tools/model-text.ts';
 import type { ProviderCompleteRequest } from '../../../../src/kernel/types.ts';
 import {
   buildGeminiLiveClientContent,
@@ -13,11 +16,11 @@ import {
   foldGeminiLiveServerMessage,
   type LiveFold,
   newLiveFold,
-  parseFunctionArguments,
   parseGeminiLiveMessage,
   parseGoAwayTimeLeftMs,
   wireFunctionDeclaration,
 } from '../../../../src/providers/google/live/framing.ts';
+import { eventAt, rawCallsOf, toolEventsOf } from '../../../fixtures/events.ts';
 
 /** One server message on a fresh connection. */
 function foldMessage(message: Record<string, unknown>, fold: LiveFold = newLiveFold()) {
@@ -47,13 +50,12 @@ Deno.test('buildGeminiLiveSetupMessage constructs standard setup frame', () => {
       vad: {
         activityHandling: 'START_OF_ACTIVITY_INTERRUPTS',
         startSensitivity: 'START_SENSITIVITY_HIGH',
-        endSensitivity: 'START_SENSITIVITY_LOW',
+        endSensitivity: 'END_SENSITIVITY_LOW',
         prefixPaddingMs: 300,
         silenceDurationMs: 1200,
       },
       sessionResumption: true,
       contextCompression: { triggerTokens: 100_000, slidingWindow: { targetTokens: 40_000 } },
-      proactiveAudio: true,
       transcription: {
         input: true,
         output: true,
@@ -71,7 +73,6 @@ Deno.test('buildGeminiLiveSetupMessage constructs standard setup frame', () => {
       contextWindowCompression: Record<string, unknown>;
       inputAudioTranscription: Record<string, unknown>;
       outputAudioTranscription: Record<string, unknown>;
-      proactivity: Record<string, unknown>;
     };
   };
 
@@ -100,30 +101,8 @@ Deno.test('buildGeminiLiveSetupMessage constructs standard setup frame', () => {
   assertExists(setupMsg.setup.realtimeInputConfig);
   assertExists(setupMsg.setup.inputAudioTranscription);
   assertExists(setupMsg.setup.outputAudioTranscription);
-  assertEquals(setupMsg.setup.proactivity, { proactiveAudio: true });
   // Empty sessions must not gate on clientContent history — that stalls realtime.
   assertEquals((setupMsg.setup as { historyConfig?: unknown }).historyConfig, undefined);
-});
-
-Deno.test('buildGeminiLiveSetupMessage omits proactivity when proactiveAudio is unset', () => {
-  const req: ProviderCompleteRequest = {
-    model: 'gemini-3.1-flash-live-preview',
-    apiId: 'gemini-3.1-flash-live-preview',
-    temperature: 0.7,
-    maxOutputTokens: 2048,
-    system: 'You are a helpful live assistant.',
-    builtins: [],
-    thinking: 'low',
-    input: [],
-    structured: null,
-    image: null,
-    live: { voice: 'Puck', proactiveAudio: false },
-  };
-
-  const setupMsg = buildGeminiLiveSetupMessage(req) as {
-    setup: { proactivity?: unknown };
-  };
-  assertEquals(setupMsg.setup.proactivity, undefined);
 });
 
 Deno.test('buildGeminiLiveSetupMessage omits VAD and compression when profile omits them', () => {
@@ -196,26 +175,13 @@ Deno.test('buildGeminiLiveSetupMessage seeds historyConfig only when history is 
 });
 
 Deno.test('buildGeminiLiveSetupMessage declares builtins as their own tools and functions together', () => {
-  registerTool({
-    type: 'builtin',
-    name: 'liveSearch',
-    description: 'Google Live web search',
-    category: 'web',
-    access: 'read-only',
-    paths: ['*'],
-    loadTier: 'T0',
-    permission: 'auto',
-    wire: { live: 'googleSearch' },
-  });
-
   const req: ProviderCompleteRequest = {
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
     system: '',
-    thinking: 'none',
     maxOutputTokens: 100,
     temperature: 0,
-    builtins: ['liveSearch'],
+    builtins: [{ id: 'liveSearch', wire: { live: 'googleSearch' } }],
     input: [],
     structured: null,
     image: null,
@@ -243,27 +209,15 @@ Deno.test('buildGeminiLiveSetupMessage declares builtins as their own tools and 
 });
 
 Deno.test('buildGeminiLiveSetupMessage rejects a builtin with no Live wire type', () => {
-  registerTool({
-    type: 'builtin',
-    name: 'interactionsOnly',
-    description: 'Interactions-only builtin',
-    category: 'web',
-    access: 'read-only',
-    paths: ['*'],
-    loadTier: 'T0',
-    permission: 'auto',
-    wire: { interactions: 'google_search' },
-  });
   assertThrows(
     () =>
       buildGeminiLiveSetupMessage({
         model: 'gemini-3.1-flash-live-preview',
         apiId: 'gemini-3.1-flash-live-preview',
         system: '',
-        thinking: 'none',
         maxOutputTokens: 100,
         temperature: 0,
-        builtins: ['interactionsOnly'],
+        builtins: [{ id: 'interactionsOnly', wire: { interactions: 'google_search' } }],
         input: [],
         structured: null,
         image: null,
@@ -482,7 +436,6 @@ Deno.test('buildGeminiLiveToolResponses batches multiple function responses', ()
 });
 
 Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions, and interruption', () => {
-  // 1. Text and thinking
   const textEvts = foldMessage({
     serverContent: {
       modelTurn: {
@@ -493,24 +446,20 @@ Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions
       },
     },
   });
-  assertEquals(textEvts.length, 2);
-  assertEquals(textEvts[0]?.type, 'thought');
-  assertEquals(textEvts[0]?.text, 'Thinking about the answer');
-  assertEquals(textEvts[1]?.type, 'text');
-  assertEquals(textEvts[1]?.text, 'Here is the answer');
+  assertEquals(textEvts, [
+    { type: 'thought', text: 'Thinking about the answer' },
+    { type: 'text', text: 'Here is the answer' },
+  ]);
 
-  // 2. Interruption
   const interruptedEvts = foldMessage({
     serverContent: {
       interrupted: true,
     },
   });
-  assertEquals(interruptedEvts.length, 1);
-  assertEquals(interruptedEvts[0]?.type, 'done');
-  assertEquals(interruptedEvts[0]?.interrupted, true);
-  assertEquals(interruptedEvts[0]?.stop?.kind, 'interrupted');
+  assertEquals(interruptedEvts, [
+    { type: 'done', interrupted: true, stop: { kind: 'interrupted' } },
+  ]);
 
-  // 3. Audio chunk wrapped into WAV
   // 4 bytes of PCM (2 samples: 0, 0)
   const pcmBase64 = btoa(String.fromCharCode(0, 0, 0, 0));
   const audioEvts = foldMessage({
@@ -521,11 +470,9 @@ Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions
     },
   });
   assertEquals(audioEvts.length, 1);
-  assertEquals(audioEvts[0]?.type, 'media');
-  assertEquals(audioEvts[0]?.media?.mimeType, 'audio/wav');
-  const wav = new DataView(
-    Uint8Array.from(atob(audioEvts[0]?.media?.data ?? ''), (c) => c.charCodeAt(0)).buffer,
-  );
+  const audio = eventAt(audioEvts, 0, 'media')?.media;
+  assertEquals(audio?.mimeType, 'audio/wav');
+  const wav = new DataView(Uint8Array.from(atob(audio?.data ?? ''), (c) => c.charCodeAt(0)).buffer);
   assertEquals(wav.getUint32(24, true), 24000);
 
   // A mime without a stated rate is not wrapped at a guessed one.
@@ -534,19 +481,26 @@ Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions
       modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm', data: pcmBase64 } }] },
     },
   });
-  assertEquals(unstated[0]?.media, { mimeType: 'audio/pcm', data: pcmBase64 });
+  assertEquals(unstated, [{ type: 'media', media: { mimeType: 'audio/pcm', data: pcmBase64 } }]);
 
-  // 4. Session resumption update
   const resumeEvts = foldMessage({
     sessionResumptionUpdate: {
       newHandle: 'handle_xyz_987',
       resumable: true,
     },
   });
-  assertEquals(resumeEvts.length, 1);
-  assertEquals(resumeEvts[0]?.sessionResumptionHandle, 'handle_xyz_987');
-  assertEquals(resumeEvts[0]?.evidence?.kind, 'session_resumption');
-  assertEquals(resumeEvts[0]?.evidence?.resumable, true);
+  assertEquals(resumeEvts, [
+    {
+      type: 'evidence',
+      sessionResumptionHandle: 'handle_xyz_987',
+      evidence: {
+        provider: 'google',
+        kind: 'session_resumption',
+        resumable: true,
+        raw: { newHandle: 'handle_xyz_987', resumable: true },
+      },
+    },
+  ]);
 });
 
 Deno.test('foldGeminiLiveServerMessage folds output and interim transcriptions mid-turn', () => {
@@ -555,10 +509,13 @@ Deno.test('foldGeminiLiveServerMessage folds output and interim transcriptions m
       outputTranscription: { text: 'spoken by model' },
     },
   });
-  assertEquals(outputOnly.length, 1);
-  assertEquals(outputOnly[0]?.type, 'evidence');
-  assertEquals(outputOnly[0]?.text, 'spoken by model');
-  assertEquals(outputOnly[0]?.evidence?.kind, 'output_transcription');
+  assertEquals(outputOnly, [
+    {
+      type: 'evidence',
+      text: 'spoken by model',
+      evidence: { provider: 'google', kind: 'output_transcription' },
+    },
+  ]);
 
   const both = foldMessage({
     serverContent: {
@@ -566,27 +523,40 @@ Deno.test('foldGeminiLiveServerMessage folds output and interim transcriptions m
       outputTranscription: { text: 'agent hello' },
     },
   });
-  assertEquals(
-    both.map((e) => e.evidence?.kind),
-    ['input_transcription', 'output_transcription'],
-  );
+  assertEquals(both, [
+    {
+      type: 'evidence',
+      text: 'user hello',
+      evidence: { provider: 'google', kind: 'input_transcription' },
+    },
+    {
+      type: 'evidence',
+      text: 'agent hello',
+      evidence: { provider: 'google', kind: 'output_transcription' },
+    },
+  ]);
 
   const interim = foldMessage({
     serverContent: {
       interimInputTranscription: { text: 'hel' },
     },
   });
-  assertEquals(interim[0]?.evidence?.kind, 'input_transcription');
-  assertEquals(interim[0]?.evidence?.interim, true);
+  assertEquals(interim, [
+    {
+      type: 'evidence',
+      text: 'hel',
+      evidence: { provider: 'google', kind: 'input_transcription', interim: true },
+    },
+  ]);
 });
 
 Deno.test('foldGeminiLiveServerMessage folds goAway, tool cancel, waitingForInput, generationComplete', () => {
   const goAway = foldMessage({
     goAway: { timeLeft: '10s' },
   });
-  assertEquals(goAway[0]?.type, 'session');
-  assertEquals(goAway[0]?.session?.kind, 'closing_soon');
-  assertEquals(goAway[0]?.session?.timeLeftMs, 10_000);
+  assertEquals(goAway, [
+    { type: 'session', session: { kind: 'closing_soon', timeLeftMs: 10_000 } },
+  ]);
 
   const fold = newLiveFold();
   foldMessage(
@@ -603,33 +573,40 @@ Deno.test('foldGeminiLiveServerMessage folds goAway, tool cancel, waitingForInpu
   // The wire shape (probe 23/09/2026): ids only.
   const cancel = foldMessage({ toolCallCancellation: { ids: ['call_1', 'call_2'] } }, fold);
   assertEquals(
-    cancel.map((ev) => ev.tool),
+    toolEventsOf(cancel, 'cancel').map(({ at: _at, ...cancelled }) => cancelled),
     [
-      { id: 'call_1', name: 'get_soil_moisture', phase: 'cancel' },
-      { id: 'call_2', name: 'get_light_level', phase: 'cancel' },
+      { phase: 'cancel', name: 'get_soil_moisture', callId: 'call_1' },
+      { phase: 'cancel', name: 'get_light_level', callId: 'call_2' },
     ],
   );
+  assertEquals(cancel.length, 2);
 
   const waiting = foldMessage({
     serverContent: { waitingForInput: true },
   });
-  assertEquals(waiting[0]?.session?.kind, 'waiting_for_input');
+  assertEquals(waiting, [{ type: 'session', session: { kind: 'waiting_for_input' } }]);
 
   const genDone = foldMessage({
     serverContent: { generationComplete: true },
   });
-  assertEquals(genDone[0]?.type, 'done');
-  assertEquals(genDone[0]?.stop?.kind, 'generation_complete');
+  assertEquals(genDone, [{ type: 'done', stop: { kind: 'generation_complete' } }]);
 });
 
 Deno.test('foldGeminiLiveServerMessage emits resumable false without a new handle', () => {
   const evts = foldMessage({
     sessionResumptionUpdate: { resumable: false },
   });
-  assertEquals(evts.length, 1);
-  assertEquals(evts[0]?.evidence?.kind, 'session_resumption');
-  assertEquals(evts[0]?.evidence?.resumable, false);
-  assertEquals(evts[0]?.sessionResumptionHandle, undefined);
+  assertEquals(evts, [
+    {
+      type: 'evidence',
+      evidence: {
+        provider: 'google',
+        kind: 'session_resumption',
+        resumable: false,
+        raw: { resumable: false },
+      },
+    },
+  ]);
 });
 
 Deno.test('parseGoAwayTimeLeftMs reads a protobuf Duration string', () => {
@@ -724,31 +701,32 @@ Deno.test('wireFunctionDeclaration uppercases JSON Schema types for Gemini Live'
   });
 });
 
-Deno.test('parseFunctionArguments handles strings, objects, and malformed inputs', () => {
-  assertEquals(parseFunctionArguments('{"loc": "Paris"}'), {
-    ok: true,
-    value: { loc: 'Paris' },
-  });
-  assertEquals(parseFunctionArguments({ loc: 'Tokyo' }), {
-    ok: true,
-    value: { loc: 'Tokyo' },
-  });
-  assertEquals(parseFunctionArguments('invalid json').ok, false);
-  assertEquals(parseFunctionArguments(123).ok, false);
-  assertEquals(parseFunctionArguments(null), { ok: true, value: {} });
-});
-
 Deno.test('foldGeminiLiveServerMessage emits malformed_arguments on bad tool JSON', () => {
   const events = foldMessage({
     toolCall: {
       functionCalls: [{ id: 'call_bad', name: 'search', args: '{not-json' }],
     },
   });
-  assertEquals(events.length, 1);
-  assertEquals(events[0]?.type, 'tool');
-  assertEquals(events[0]?.tool?.phase, 'error');
-  assertEquals(events[0]?.tool?.failure?.code, 'malformed_arguments');
-  assertEquals(events[0]?.tool?.failure?.kind, 'bad_response');
+  assertEquals(rawCallsOf(events), [{ name: 'search', callId: 'call_bad', arguments: {} }]);
+  const failure = {
+    code: 'malformed_arguments',
+    kind: 'bad_response',
+    message: 'malformed tool arguments JSON',
+    details: { raw: '{not-json' },
+  } as const;
+  assertEquals(
+    toolEventsOf(events, 'error').map(({ at: _at, ...failed }) => failed),
+    [
+      {
+        phase: 'error',
+        name: 'search',
+        callId: 'call_bad',
+        failure,
+        readBack: formatToolResult(formatToolFailureForModel(failure)),
+      },
+    ],
+  );
+  assertEquals(events.length, 2);
 });
 
 Deno.test('foldGeminiLiveServerMessage handles tool calls and usage tokens', () => {
@@ -762,14 +740,10 @@ Deno.test('foldGeminiLiveServerMessage handles tool calls and usage tokens', () 
       totalTokenCount: 20,
     },
   });
-  assertEquals(events.length, 2);
-  assertEquals(events[0]?.type, 'tool');
-  assertEquals(events[0]?.tool?.id, 'call_1');
-  assertEquals(events[0]?.tool?.name, 'search');
-  assertEquals(events[0]?.tool?.arguments, { q: 'deno' });
-  assertEquals(events[1]?.type, 'tokens');
-  assertEquals(events[1]?.tokens?.input, 12);
-  assertEquals(events[1]?.tokens?.output, 8);
+  assertEquals(events, [
+    { type: 'tool', tool: { name: 'search', callId: 'call_1', arguments: { q: 'deno' } } },
+    { type: 'tokens', tokens: { input: 12, output: 8, total: 20 } },
+  ]);
 });
 
 Deno.test('Live client-content history and realtime input reject media references', () => {
@@ -796,7 +770,6 @@ Deno.test('wireLiveTools declares every live function NON_BLOCKING', () => {
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
     system: '',
-    thinking: 'none',
     maxOutputTokens: 100,
     temperature: 0,
     builtins: [],
@@ -854,10 +827,11 @@ Deno.test('foldGeminiLiveServerMessage emits grounding from serverContent.ground
         metadata: groundingMetadata,
         chunks: groundingMetadata.groundingChunks,
         searchHtml: '<div class="chip">chelsea</div>',
-        sources: [
-          { type: 'web', uri: 'https://grounding.example/redirect/a', title: 'rhs.org.uk' },
-        ],
       },
+    },
+    {
+      type: 'citation',
+      sources: [{ type: 'web', uri: 'https://grounding.example/redirect/a', title: 'rhs.org.uk' }],
     },
   ]);
   assertEquals(foldMessage({ serverContent: { grounding_metadata: groundingMetadata } }), []);
@@ -865,11 +839,13 @@ Deno.test('foldGeminiLiveServerMessage emits grounding from serverContent.ground
 
 Deno.test('a Live cancel for a call the connection never issued is an error', () => {
   const events = foldMessage({ toolCallCancellation: { ids: ['call_9'] } });
-  assertEquals(
-    events.map((ev) => ev.type),
-    ['error'],
-  );
-  assertEquals(events[0]?.errorInternal?.includes('call_9'), true);
+  assertEquals(events, [
+    {
+      type: 'error',
+      errorKind: 'bad_response',
+      errorInternal: 'Live cancelled a tool call it never issued: call_9',
+    },
+  ]);
 });
 
 Deno.test('foldGeminiLiveServerMessage folds voiceActivity as evidence', () => {
@@ -906,5 +882,32 @@ Deno.test('foldGeminiLiveServerMessage folds a codeExecutionResult part as evide
       modelTurn: { parts: [{ codeExecutionResult: { outcome: 'OUTCOME_FAILED' } }] },
     },
   });
-  assertEquals(failed[0]?.evidence?.isError, true);
+  assertEquals(failed, [
+    {
+      type: 'evidence',
+      evidence: {
+        provider: 'google',
+        kind: 'code_execution_result',
+        isError: true,
+        raw: { outcome: 'OUTCOME_FAILED' },
+      },
+    },
+  ]);
+});
+
+Deno.test('buildGeminiLiveSetupMessage refuses a thinking level Gemini does not take', () => {
+  const req: ProviderCompleteRequest = {
+    model: 'gemini-3.1-flash-live-preview',
+    apiId: 'gemini-3.1-flash-live-preview',
+    temperature: 0.7,
+    maxOutputTokens: 2048,
+    system: '',
+    builtins: [],
+    thinking: 'xhigh',
+    input: [],
+    structured: null,
+    image: null,
+    live: {},
+  };
+  assertThrows(() => buildGeminiLiveSetupMessage(req), TheoremError, 'xhigh');
 });

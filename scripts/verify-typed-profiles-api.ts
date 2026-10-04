@@ -1,26 +1,16 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
 
-/**
- * Real-provider pressure suite for typed profiles in THEOREM:
- *   - text profiles (OpenRouter & Gemini Interactions)
- *   - image profiles (OpenRouter /images & Gemini Interactions)
- *   - speech profiles (OpenRouter /audio/speech & Gemini TTS)
- *   - live profiles (`type: 'live'` / runSession over Gemini Live)
- *
- * Every test calls the real API and fails on any error event. Pass section
- * names to run a subset: `text`, `image`, `speech`, `live` (default: all).
- *
- * Exercises the entire THEOREM kernel:
- *   defineProfile -> registerProfile -> resolveTurn -> runTurn / runSession -> createProvider -> upstream API
- */
-
 import { z } from 'zod';
-import { runTurn } from '../src/kernel/engine/runner.ts';
-import { runSession } from '../src/kernel/engine/session/mod.ts';
-import { defineProfile, registerProfile } from '../src/kernel/registry/profiles.ts';
-import { projectProfile, resolveTurn } from '../src/kernel/registry/resolve.ts';
-import { registerStructured } from '../src/kernel/registry/schemas.ts';
-import { registerTool } from '../src/kernel/tools/registry.ts';
+import {
+  projectProfile,
+  registerProfile,
+  registerStructured,
+  registerTool,
+  resolveTurn,
+  runSession,
+  runTurn,
+} from '../src/kernel/default-scope.ts';
+import { defineProfile } from '../src/kernel/registry/profiles.ts';
 import type {
   ImageProfile,
   LiveProfile,
@@ -28,23 +18,14 @@ import type {
   SpeechProfile,
   TextProfile,
   TurnEvent,
+  TurnEventOf,
   TurnRequest,
 } from '../src/kernel/types.ts';
 import { memorySink } from '../src/observability/trace.ts';
 import type { TraceRecord } from '../src/observability/trace-record.ts';
 import { registerGooglePreset } from '../src/presets/google.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
-import {
-  hostOpenRouterKey,
-  hostVault,
-  loadHostEnv,
-  OPENROUTER_ENV,
-  VAULT_ENV,
-} from './host-env.ts';
-
-// ---------------------------------------------------------------------------
-// Load Env
-// ---------------------------------------------------------------------------
+import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV, vaultEnv } from './host-env.ts';
 
 loadHostEnv();
 
@@ -60,10 +41,6 @@ console.log(
 console.log('════════════════════════════════════════════════════════════════════════\n');
 
 registerGooglePreset();
-
-// ---------------------------------------------------------------------------
-// Register Test Tools and Schemas
-// ---------------------------------------------------------------------------
 
 registerTool({
   type: 'function',
@@ -111,7 +88,6 @@ if (unknownSections.length > 0) {
   console.error(`Unknown sections: ${unknownSections.join(', ')} (known: ${SECTIONS.join(', ')})`);
   Deno.exit(2);
 }
-/** Sections named on the command line, or every section. */
 const selected = new Set<Section>(Deno.args.length > 0 ? Deno.args.filter(isSection) : SECTIONS);
 
 const GEMINI_TEXT_MODELS = [
@@ -126,7 +102,6 @@ const GEMINI_SPEECH_MODELS = [
   'gemini-3.8-flash-lite-tts',
   'gemini-3.8-flash-tts',
 ] as const;
-/** The default-guardrails speech case; 3.8 lite replaces 3.1-flash-tts-preview. */
 const GEMINI_SPEECH_DEFAULT = 'gemini-3.8-flash-lite-tts';
 /** Live models and the thinking level each accepts: extended-thinking rejects `none` and `minimal` (1007). */
 const GEMINI_LIVE_MODELS = {
@@ -137,11 +112,11 @@ const GEMINI_LIVE_MODELS = {
 type GeminiLiveModel = keyof typeof GEMINI_LIVE_MODELS;
 const GEMINI_LIVE_IDS = Object.keys(GEMINI_LIVE_MODELS) as GeminiLiveModel[];
 
-/** One Interactions text binding; the same knobs for every model under test. */
 function geminiTextBinding(apiId: string) {
   return {
     protocol: 'geminiInteractions',
     provider: 'google',
+    persistViaInteractionId: false,
     apiId,
     efforts: { normal: 'low' },
     maxOutputTokens: 1024,
@@ -174,12 +149,12 @@ function skipTest(name: string, reason: string) {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const geminiTransport = { gemini: { vault, wait: () => Promise.resolve() } };
+const geminiTransport = { vault: vault, gemini: { wait: () => Promise.resolve() } };
 
 function gateway(key: string) {
   return {
+    vault: { ...vault, openrouter: key },
     openAiGateway: {
-      apiKey: key,
       siteUrl: 'https://theorem.agent',
       siteName: 'Theorem Live Pressure Test',
     },
@@ -194,11 +169,10 @@ async function collect(iter: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   return events;
 }
 
-/** Every turn's trace record, in order; the routed model lives only in the trace. */
+/** The routed model lives only in the trace. */
 const traces: TraceRecord[] = [];
 const traceSink = memorySink(traces);
 
-/** The models the last turn's calls reported (`gen_ai.response.model`) and the text Theorem delivered. */
 function turnDiagnostics(events: TurnEvent[]): string {
   const models = (traces.at(-1)?.spans ?? []).flatMap((span) => {
     const model = span.attributes['gen_ai.response.model'];
@@ -208,7 +182,6 @@ function turnDiagnostics(events: TurnEvent[]): string {
   return `routed model: ${routed}; delivered text: ${JSON.stringify(textOf(events).slice(0, 300))}`;
 }
 
-/** Fail on any error event, and on a turn that never reached `done`. */
 function assertClean(events: TurnEvent[]): void {
   const errEvent = events.find((e) => e.type === 'error');
   if (errEvent) {
@@ -223,7 +196,6 @@ function textOf(events: TurnEvent[]): string {
   return events.flatMap((e) => (e.type === 'text' && e.text ? [e.text] : [])).join('');
 }
 
-/** The turn's media, which must carry the expected MIME family and non-empty bytes. */
 function assertMedia(events: TurnEvent[], family: 'image' | 'audio'): void {
   const media = events.flatMap((e) => (e.type === 'media' && e.media ? [e.media] : []));
   if (media.length === 0) throw new Error(`No media event (${family})`);
@@ -238,10 +210,6 @@ function assertMedia(events: TurnEvent[], family: 'image' | 'audio'): void {
   );
 }
 
-// ===========================================================================
-// 1. TEXT PROFILES
-// ===========================================================================
-
 if (selected.has('text')) {
   console.log('─── 1. Text Profiles (type: "text") ───');
 
@@ -251,6 +219,7 @@ if (selected.has('text')) {
         type: 'text',
         id: 'live_test_chat_or_sse',
         identity: { handle: 'assistant', system: 'You are a concise AI assistant.' },
+        key: 'openrouter',
         models: {
           'openrouter/free': {
             protocol: 'openAi',
@@ -287,6 +256,7 @@ if (selected.has('text')) {
         type: 'text',
         id: 'live_test_chat_structured',
         identity: { handle: 'analyzer', system: 'Analyze sentiment in structured JSON.' },
+        key: 'openrouter',
         models: {
           'openrouter/free': {
             protocol: 'openAi',
@@ -325,8 +295,8 @@ if (selected.has('text')) {
   }
 
   for (const apiId of GEMINI_TEXT_MODELS) {
-    if (!vault.slotA) {
-      skipTest(`Gemini Text ${apiId}`, `${VAULT_ENV.slotA} unset`);
+    if (!vault.slot_a) {
+      skipTest(`Gemini Text ${apiId}`, `${vaultEnv('slot_a')} unset`);
       continue;
     }
     const models = { [apiId]: geminiTextBinding(apiId) };
@@ -342,7 +312,7 @@ if (selected.has('text')) {
         },
         models,
         maxSteps: 3,
-        key: 'slotA',
+        key: 'slot_a',
         tools: { allow: ['calculate_sum'] },
         inputs: { text: true },
       }) as TextProfile;
@@ -370,7 +340,7 @@ if (selected.has('text')) {
         id: `live_test_structured_${apiId}`,
         identity: { handle: 'analyzer', system: 'Analyze sentiment in structured JSON.' },
         models,
-        key: 'slotA',
+        key: 'slot_a',
         tools: { allow: [] },
         inputs: { text: true },
         outputs: { structured: 'sentimentAnalysis' },
@@ -400,7 +370,7 @@ if (selected.has('text')) {
         id: `live_test_buffered_${apiId}`,
         identity: { handle: 'assistant', system: 'Be concise.' },
         models,
-        key: 'slotA',
+        key: 'slot_a',
         tools: { allow: [] },
         inputs: { text: true },
         outputs: { streaming: { mode: 'buffered' } },
@@ -423,10 +393,6 @@ if (selected.has('text')) {
   }
 }
 
-// ===========================================================================
-// 2. IMAGE PROFILES
-// ===========================================================================
-
 if (selected.has('image')) {
   console.log('\n─── 2. Image Profiles (type: "image") ───');
 
@@ -436,6 +402,7 @@ if (selected.has('image')) {
         type: 'image',
         id: 'live_test_image_openrouter',
         identity: { handle: 'artist', system: 'Generate one image.' },
+        key: 'openrouter',
         models: {
           seedream: {
             protocol: 'openAi',
@@ -468,8 +435,8 @@ if (selected.has('image')) {
   }
 
   for (const apiId of GEMINI_IMAGE_MODELS) {
-    if (!vault.paid) {
-      skipTest(`Gemini Image ${apiId}`, `${VAULT_ENV.paid} unset`);
+    if (!vault.slot_a) {
+      skipTest(`Gemini Image ${apiId}`, `${vaultEnv('slot_a')} unset`);
       continue;
     }
     await runTest(`Gemini Image ${apiId}: Interactions generation`, async () => {
@@ -481,13 +448,14 @@ if (selected.has('image')) {
           [apiId]: {
             protocol: 'geminiInteractions',
             provider: 'google',
+            persistViaInteractionId: false,
             apiId,
             efforts: { normal: 'minimal' },
             maxOutputTokens: 4096,
-            key: 'paid',
+            key: 'slot_a',
           },
         },
-        image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
+        image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/jpeg' },
         tools: { allow: [] },
         inputs: { text: true },
       }) as ImageProfile;
@@ -506,10 +474,6 @@ if (selected.has('image')) {
   }
 }
 
-// ===========================================================================
-// 3. SPEECH PROFILES
-// ===========================================================================
-
 if (selected.has('speech')) {
   console.log('\n─── 3. Speech Profiles (type: "speech") ───');
 
@@ -519,6 +483,7 @@ if (selected.has('speech')) {
         type: 'speech',
         id: 'live_test_speech_openrouter',
         identity: { handle: 'speaker' },
+        key: 'openrouter',
         models: {
           fishTts: {
             protocol: 'openAi',
@@ -548,13 +513,10 @@ if (selected.has('speech')) {
     skipTest('OpenRouter Speech', `${OPENROUTER_ENV} missing`);
   }
 
-  // Canary off: Gemini TTS rejects any system instruction, and the default
-  // canary binds one. Open contract decision — the default-profile case below
-  // keeps the break visible until it is settled.
   for (const apiId of GEMINI_SPEECH_MODELS) {
     for (const mode of ['sse', 'buffered'] as const) {
-      if (!vault.slotA) {
-        skipTest(`Gemini Speech ${apiId} ${mode}`, `${VAULT_ENV.slotA} unset`);
+      if (!vault.slot_a) {
+        skipTest(`Gemini Speech ${apiId} ${mode}`, `${vaultEnv('slot_a')} unset`);
         continue;
       }
       await runTest(`Gemini Speech ${apiId} (${mode}): TTS synthesis`, async () => {
@@ -566,12 +528,13 @@ if (selected.has('speech')) {
             [apiId]: {
               protocol: 'geminiInteractions',
               provider: 'google',
+              persistViaInteractionId: false,
               apiId,
               efforts: { normal: 'minimal' },
               maxOutputTokens: 2048,
             },
           },
-          key: 'slotA',
+          key: 'slot_a',
           speech: { voice: 'Kore', format: 'pcm' },
           outputs: { streaming: { mode } },
         }) as SpeechProfile;
@@ -591,7 +554,7 @@ if (selected.has('speech')) {
     }
   }
 
-  if (vault.slotA) {
+  if (vault.slot_a) {
     await runTest('Gemini Speech: default profile (guardrails default)', async () => {
       const profile = defineProfile({
         type: 'speech',
@@ -601,12 +564,13 @@ if (selected.has('speech')) {
           [GEMINI_SPEECH_DEFAULT]: {
             protocol: 'geminiInteractions',
             provider: 'google',
+            persistViaInteractionId: false,
             apiId: GEMINI_SPEECH_DEFAULT,
             efforts: { normal: 'minimal' },
             maxOutputTokens: 2048,
           },
         },
-        key: 'slotA',
+        key: 'slot_a',
         speech: { voice: 'Kore', format: 'pcm' },
       }) as SpeechProfile;
       registerProfile(profile);
@@ -624,15 +588,10 @@ if (selected.has('speech')) {
   }
 }
 
-// ===========================================================================
-// 4. LIVE PROFILES
-// ===========================================================================
-
 const LIVE_TURN_TIMEOUT_MS = 60_000;
 /** Quiet time after `turn_complete` before a model that reports no status is taken as done. */
 const LIVE_SETTLE_MS = 3000;
 
-/** The next event, or undefined once `ms` pass without one. */
 async function nextWithin(
   iter: AsyncIterator<TurnEvent>,
   ms: number,
@@ -649,9 +608,8 @@ async function nextWithin(
 }
 
 /**
- * One Live cycle's events. `onEvent` may act on each (run a tool). The cycle
- * ends at `idle`, or — for a model that reports no status — on quiet after
- * `turn_complete` (docs/contracts/providers.md); either only once `settled()`.
+ * Ends at `idle`, or, for a model that reports no status, on quiet after `turn_complete`;
+ * either only once `settled()`.
  */
 async function collectLiveCycle(
   session: LiveSession,
@@ -675,39 +633,37 @@ async function collectLiveCycle(
   return events;
 }
 
-/**
- * Output transcript per model turn. Gemini's transcription deltas carry their
- * own spacing within a turn, and each turn starts fresh, so turns stay apart.
- */
+/** Gemini's transcription deltas carry their own spacing within a turn, so turns stay apart. */
 function transcriptTurns(events: TurnEvent[]): string[] {
   const turns: string[] = [''];
   for (const e of events) {
-    if (e.evidence?.kind === 'output_transcription' && e.text) {
+    if (e.type === 'evidence' && e.evidence.kind === 'output_transcription' && e.text) {
       turns[turns.length - 1] += e.text;
-    } else if (e.type === 'session' && e.session?.kind === 'turn_complete') {
+    } else if (e.type === 'session' && e.session.kind === 'turn_complete') {
       turns.push('');
     }
   }
   return turns.map((turn) => turn.trim()).filter(Boolean);
 }
 
-/** Throw on an error event; return the output transcript per turn and audio chunks. */
-function liveOutput(events: TurnEvent[]): { transcript: string[]; audio: TurnEvent[] } {
+function liveOutput(events: TurnEvent[]): { transcript: string[]; audio: TurnEventOf<'media'>[] } {
   const errEvent = events.find((e) => e.type === 'error');
   if (errEvent) throw new Error(`error event: ${errEvent.errorInternal ?? errEvent.error}`);
   const sessionKinds = events.flatMap((e) =>
-    e.type === 'session' && e.session
+    e.type === 'session'
       ? [e.session.kind]
       : e.type === 'done'
-        ? [`done:${e.stop?.kind}`]
-        : e.type === 'tool' && e.tool
+        ? [`done:${e.stop.kind}`]
+        : e.type === 'tool'
           ? [`tool:${e.tool.name}:${e.tool.phase ?? 'call'}`]
           : [],
   );
   console.log(`    Session events: ${sessionKinds.join(' → ')}`);
   return {
     transcript: transcriptTurns(events),
-    audio: events.filter((e) => e.type === 'media' && e.media?.mimeType.startsWith('audio/')),
+    audio: events.filter(
+      (e): e is TurnEventOf<'media'> => e.type === 'media' && e.media.mimeType.startsWith('audio/'),
+    ),
   };
 }
 
@@ -732,7 +688,7 @@ if (selected.has('live')) {
           efforts: { normal: GEMINI_LIVE_MODELS[apiId] },
           summaries: false,
           builtInTools: [],
-          key: 'slotA',
+          key: 'slot_a',
         },
       },
       live: {
@@ -749,7 +705,7 @@ if (selected.has('live')) {
     let rejected = false;
     try {
       createProvider(profile, {
-        gemini: { vault: { slotA: 'k', slotB: undefined, slotC: undefined, paid: undefined } },
+        vault: { slot_a: 'k' },
       });
     } catch {
       rejected = true;
@@ -758,8 +714,8 @@ if (selected.has('live')) {
   });
 
   for (const apiId of GEMINI_LIVE_IDS) {
-    if (!vault.slotA) {
-      skipTest(`Live ${apiId}`, `${VAULT_ENV.slotA} unset`);
+    if (!vault.slot_a) {
+      skipTest(`Live ${apiId}`, `${vaultEnv('slot_a')} unset`);
       continue;
     }
     await runTest(`Live ${apiId}: runSession text turn`, async () => {
@@ -773,7 +729,7 @@ if (selected.has('live')) {
         if (audio.length === 0) throw new Error('No audio returned');
         if (transcript.length === 0) throw new Error('No output transcription returned');
         console.log(
-          `    Audio: ${audio.length} chunk(s) ${audio[0]?.media?.mimeType}, Transcript: ${JSON.stringify(transcript)}`,
+          `    Audio: ${audio.length} chunk(s) ${audio[0]?.media.mimeType}, Transcript: ${JSON.stringify(transcript)}`,
         );
       } finally {
         clearTimeout(timer);
@@ -793,16 +749,16 @@ if (selected.has('live')) {
         const events = await collectLiveCycle(
           session,
           async (event) => {
-            if (event.type === 'tool' && event.tool && !event.tool.phase) {
-              const settled = await session.executeTool({
-                name: event.tool.name,
-                callId: event.tool.id ?? event.tool.name,
-                input: event.tool.arguments,
-              });
+            if (event.type === 'tool' && event.tool.phase === undefined) {
+              const settled = await session.executeTool({ callId: event.tool.callId });
               if (settled.failure) throw new Error(`tool failed: ${settled.failure.message}`);
               results.push(settled.outputRaw);
             }
-            if (results.length > 0 && event.evidence?.kind === 'output_transcription') {
+            if (
+              results.length > 0 &&
+              event.type === 'evidence' &&
+              event.evidence.kind === 'output_transcription'
+            ) {
               answer += event.text ?? '';
             }
           },
@@ -824,10 +780,6 @@ if (selected.has('live')) {
     });
   }
 }
-
-// ===========================================================================
-// SUMMARY
-// ===========================================================================
 
 console.log('\n════════════════════════════════════════════════════════════════════════');
 console.log(

@@ -1,6 +1,3 @@
-/**
- * Pressure tests for frozen turn-stage shapes and defensive affordance apply.
- */
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
   AWAITING_USER_INPUT_STATUS,
@@ -14,9 +11,9 @@ import {
 } from '../../src/kernel/schema.ts';
 import {
   applyStageResult,
+  injectedStageEvent,
+  injectMessages,
   isAwaitingUserInput,
-  parseAwaitingUserInput,
-  parseToolGate,
   runStage,
   STAGE_AFFORDANCE_MATRIX,
   STAGE_AFFORDANCES,
@@ -24,6 +21,16 @@ import {
   stageEventFields,
 } from '../../src/kernel/stages.ts';
 import { profileAllowsInject, profileAllowsSteering } from '../../src/kernel/stop.ts';
+import {
+  awaitingUserInputSchema,
+  type ToolGate,
+  toolGateSchema,
+} from '../../src/kernel/turn-events.ts';
+
+function gateOf(value: unknown): ToolGate | undefined {
+  const parsed = toolGateSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
 
 Deno.test('TURN_STAGES is the locked five-stage timeline', () => {
   assertEquals([...TURN_STAGES], ['pre_turn', 'pre_tool', 'post_tool', 'before_end', 'post_turn']);
@@ -94,7 +101,7 @@ Deno.test('applyStageResult: inject matrix and gate', () => {
     injectAllowed: true,
     result: { inject: [{ role: 'user', content: 'more' }] },
   });
-  assertEquals(ok.inject?.length, 1);
+  assertEquals(ok.inject?.messages.length, 1);
   assertEquals(ok.warnings.length, 0);
 
   const blockedStage = applyStageResult({
@@ -150,13 +157,12 @@ Deno.test('applyStageResult: inject whitelist — drop tool role and strip junk 
       ],
     },
   });
-  const inject = out.inject ?? [];
+  const inject = out.inject?.messages ?? [];
   assertEquals(inject.length, 2);
   const first = inject[0];
   const second = inject[1];
   assertEquals(first, { role: 'user', content: 'yes', metadata: { a: 1 } });
   assertEquals(second, { role: 'system' });
-  assertEquals((first as unknown as Record<string, unknown>).evil, undefined);
   assertEquals(
     out.warnings.some((w) => w.code === 'inject_invalid_messages'),
     true,
@@ -293,115 +299,120 @@ Deno.test('applyStageResult: abort rules and unknown fields', () => {
     injectAllowed: true,
     result: { pause: { kind: 'interactive' }, inject: [{ role: 'user', content: 'x' }] },
   });
-  assertEquals(unknown.inject?.length, 1);
+  assertEquals(unknown.inject?.messages.length, 1);
   assertEquals(
     unknown.warnings.some((w) => w.code === 'unknown_field' && w.field === 'pause'),
     true,
   );
 });
 
-Deno.test('parseAwaitingUserInput: strict shape', () => {
-  assertEquals(parseAwaitingUserInput(null), undefined);
-  assertEquals(parseAwaitingUserInput({ status: AWAITING_USER_INPUT_STATUS }), undefined);
+Deno.test('awaitingUserInputSchema: strict shape', () => {
+  assertEquals(awaitingUserInputSchema.safeParse(null).data, undefined);
   assertEquals(
-    parseAwaitingUserInput({
+    awaitingUserInputSchema.safeParse({ status: AWAITING_USER_INPUT_STATUS }).data,
+    undefined,
+  );
+  assertEquals(
+    awaitingUserInputSchema.safeParse({
       status: AWAITING_USER_INPUT_STATUS,
       kind: 'text',
       prompt: '  ',
-    }),
+    }).data,
     undefined,
   );
   assertEquals(
-    parseAwaitingUserInput({
+    awaitingUserInputSchema.safeParse({
       status: AWAITING_USER_INPUT_STATUS,
       kind: 'choice',
       prompt: 'Pick',
-    }),
+    }).data,
     undefined,
   );
   assertEquals(
-    parseAwaitingUserInput({
+    awaitingUserInputSchema.safeParse({
       status: AWAITING_USER_INPUT_STATUS,
       kind: 'choice',
       prompt: 'Pick',
       options: ['a', ''],
-    }),
+    }).data,
     undefined,
   );
   assertEquals(
-    parseAwaitingUserInput({
+    awaitingUserInputSchema.safeParse({
       status: AWAITING_USER_INPUT_STATUS,
       kind: 'confirm',
       prompt: 'OK?',
       options: 'nope',
-    }),
+    }).data,
     undefined,
   );
 
-  const ok = parseAwaitingUserInput({
+  const ok = awaitingUserInputSchema.safeParse({
     status: AWAITING_USER_INPUT_STATUS,
     kind: 'choice',
     prompt: ' Pick ',
     options: [' a ', 'b'],
-  });
+  }).data;
   assertEquals(ok !== undefined, true);
   assertEquals(ok, {
     status: AWAITING_USER_INPUT_STATUS,
-    kind: 'choice',
     prompt: 'Pick',
+    kind: 'choice',
     options: ['a', 'b'],
   });
   assertEquals(isAwaitingUserInput(ok), true);
   assertEquals(isAwaitingUserInput({ finding: 'hi' }), false);
 
-  const text = parseAwaitingUserInput({
+  const text = awaitingUserInputSchema.safeParse({
     status: AWAITING_USER_INPUT_STATUS,
     kind: 'text',
     prompt: 'Name?',
-  });
+  }).data;
   assertEquals(text?.kind, 'text');
   assertEquals(text?.options, undefined);
 });
 
-Deno.test('parseToolGate: auth requires challenge; kinds closed', () => {
+Deno.test('toolGateSchema: auth requires challenge; kinds closed', () => {
   assertEquals([...TOOL_GATE_KINDS], ['confirmation', 'permission', 'auth']);
   assertEquals(isToolGateKind('interactive'), false);
   assertEquals(isToolGateKind('pause'), false);
 
-  assertEquals(parseToolGate({ kind: 'confirmation' }), undefined);
-  assertEquals(parseToolGate({ kind: 'confirmation', tool: 'ask' })?.kind, 'confirmation');
+  assertEquals(gateOf({ kind: 'confirmation' }), undefined);
+  assertEquals(gateOf({ kind: 'confirmation', tool: 'ask' })?.kind, 'confirmation');
   assertEquals(
-    parseToolGate({ kind: 'confirmation', tool: '  ask  ', permission: 'always_confirm' })
-      ?.permission,
+    gateOf({ kind: 'confirmation', tool: '  ask  ', permission: 'always_confirm' })?.permission,
     'always_confirm',
   );
-  assertEquals(
-    parseToolGate({ kind: 'confirmation', tool: 'ask', permission: 'nope' })?.permission,
-    undefined,
-  );
+  assertEquals(gateOf({ kind: 'confirmation', tool: 'ask', permission: 'nope' }), undefined);
 
+  const auth = gateOf({
+    kind: 'auth',
+    tool: 'http_tool',
+    authChallenge: { slot: 's', authType: 'oauth2', service: 'Svc', message: 'login' },
+  });
+  assertEquals(auth?.kind === 'auth' ? auth.authChallenge.slot : undefined, 's');
   assertEquals(
-    parseToolGate({
+    gateOf({
       kind: 'auth',
       tool: 'http_tool',
-      authChallenge: { slot: 's', authType: 'oauth2', message: 'login' },
-    })?.authChallenge?.slot,
-    's',
-  );
-  assertEquals(
-    parseToolGate({
-      kind: 'auth',
-      tool: 'http_tool',
-      authChallenge: { slot: 's', authType: 'nope', message: 'login' },
+      authChallenge: { slot: 's', authType: 'nope', service: 'Svc', message: 'login' },
     }),
     undefined,
   );
   assertEquals(
-    parseToolGate({ kind: 'auth', tool: 'http_tool', authChallenge: { slot: 's' } }),
+    gateOf({ kind: 'auth', tool: 'http_tool', authChallenge: { slot: 's' } }),
     undefined,
   );
-  assertEquals(parseToolGate({ kind: 'auth', tool: 'http_tool' }), undefined);
-  assertEquals(parseToolGate({ kind: 'confirmation' }, 'fallback')?.tool, 'fallback');
+  assertEquals(gateOf({ kind: 'auth', tool: 'http_tool' }), undefined);
+  // A challenge on a non-auth gate is not listed there: dropped.
+  assertEquals(
+    gateOf({
+      kind: 'confirmation',
+      tool: 'ask',
+      authChallenge: { slot: 's', authType: 'oauth2', service: 'Svc', message: 'login' },
+    }),
+    { tool: 'ask', kind: 'confirmation' },
+  );
 });
 
 Deno.test('stageEventFields marks stream discriminant and strips junk', () => {
@@ -478,7 +489,7 @@ Deno.test('runStage: handlers run in order, scalars from later handlers win, inj
   assertEquals(events, [{ type: 'stage', stage: 'post_tool', callId: 'c1', toolName: 'lookup' }]);
   assertEquals(next.value.abort, { reason: 'second' });
   assertEquals(
-    next.value.inject.map((m) => m.content),
+    injectMessages(next.value.inject).map((m) => m.content),
     ['one', 'two'],
   );
 });
@@ -536,9 +547,10 @@ Deno.test('runStage: injects run the untrusted sanitize path before they are ret
   });
   let next = await gen.next();
   while (!next.done) next = await gen.next();
-  assertEquals(next.value.inject.length, 1);
-  assertEquals(next.value.inject[0]?.role, 'user');
-  assertEquals(next.value.inject[0]?.content?.includes('Ignore all previous instructions'), false);
+  const landed = injectMessages(next.value.inject);
+  assertEquals(landed.length, 1);
+  assertEquals(landed[0]?.role, 'user');
+  assertEquals(landed[0]?.content?.includes('Ignore all previous instructions'), false);
 });
 
 Deno.test('runStage: inject is refused with a warning when the gate is closed', async () => {
@@ -713,7 +725,7 @@ Deno.test('coerceInjectMessage: every rejected shape warns and every kept field 
       metadata: { k: 1 },
     },
   ]);
-  assertEquals(kept.inject, [
+  assertEquals(kept.inject?.messages, [
     {
       role: 'assistant',
       content: 'c',
@@ -726,7 +738,7 @@ Deno.test('coerceInjectMessage: every rejected shape warns and every kept field 
   assertEquals(kept.warnings, []);
 
   const withCallId = run([{ role: 'user', content: 'x', tool_call_id: 'c' }]);
-  assertEquals(withCallId.inject?.length, 1);
+  assertEquals(withCallId.inject?.messages.length, 1);
   assertEquals(withCallId.warnings[0]?.code, 'inject_invalid_messages');
 
   const notArray = run('x' as unknown as unknown[]);
@@ -737,40 +749,45 @@ Deno.test('coerceInjectMessage: every rejected shape warns and every kept field 
   assertEquals(allDropped.inject, undefined);
 });
 
-Deno.test('parseAwaitingUserInput: each field is checked on its own', () => {
+Deno.test('awaitingUserInputSchema: each field is checked on its own', () => {
   const base = { status: AWAITING_USER_INPUT_STATUS, kind: 'text', prompt: 'p' };
-  assertEquals(parseAwaitingUserInput({ ...base, status: 'done' }), undefined);
-  assertEquals(parseAwaitingUserInput({ ...base, kind: 'menu' }), undefined);
-  assertEquals(parseAwaitingUserInput({ ...base, kind: 7 }), undefined);
-  assertEquals(parseAwaitingUserInput({ ...base, prompt: 7 }), undefined);
-  assertEquals(parseAwaitingUserInput({ ...base, options: [7] }), undefined);
-  assertEquals(parseAwaitingUserInput({ ...base, options: [] })?.options, []);
-  assertEquals(parseAwaitingUserInput({ ...base, kind: 'choice', options: [] }), undefined);
-  assertEquals(parseAwaitingUserInput({ ...base, kind: 'confirm' })?.options, undefined);
-  assertEquals(parseAwaitingUserInput({ ...base, prompt: '  p  ' })?.prompt, 'p');
-  assertEquals(parseAwaitingUserInput([base]), undefined);
-});
-
-Deno.test('parseToolGate: trims, fallbacks, and the auth challenge field by field', () => {
-  assertEquals(parseToolGate({ kind: 'confirmation', tool: '   ' }, '  fb  ')?.tool, 'fb');
-  assertEquals(parseToolGate({ kind: 'confirmation', tool: 'x', summary: '  s ' })?.summary, 's');
+  assertEquals(awaitingUserInputSchema.safeParse({ ...base, status: 'done' }).data, undefined);
+  assertEquals(awaitingUserInputSchema.safeParse({ ...base, kind: 'menu' }).data, undefined);
+  assertEquals(awaitingUserInputSchema.safeParse({ ...base, kind: 7 }).data, undefined);
+  assertEquals(awaitingUserInputSchema.safeParse({ ...base, prompt: 7 }).data, undefined);
+  assertEquals(awaitingUserInputSchema.safeParse({ ...base, options: [7] }).data, undefined);
+  assertEquals(awaitingUserInputSchema.safeParse({ ...base, options: [] }).data?.options, []);
   assertEquals(
-    parseToolGate({ kind: 'confirmation', tool: 'x', summary: ' ' })?.summary,
+    awaitingUserInputSchema.safeParse({ ...base, kind: 'choice', options: [] }).data,
     undefined,
   );
-  assertEquals(parseToolGate({ kind: 'confirmation', tool: 'x', summary: 1 })?.summary, undefined);
   assertEquals(
-    parseToolGate({ kind: 'permission', tool: 'x', permission: 'auto' })?.permission,
-    'auto',
+    awaitingUserInputSchema.safeParse({ ...base, kind: 'confirm' }).data?.options,
+    undefined,
   );
-  assertEquals(parseToolGate({ kind: 'nope', tool: 'x' }), undefined);
-  assertEquals(parseToolGate('x'), undefined);
+  assertEquals(awaitingUserInputSchema.safeParse({ ...base, prompt: '  p  ' }).data?.prompt, 'p');
+  assertEquals(awaitingUserInputSchema.safeParse([base]).data, undefined);
+});
 
-  const auth = (challenge: unknown) =>
-    parseToolGate({ kind: 'auth', tool: 'x', authChallenge: challenge })?.authChallenge;
-  const good = { slot: ' s ', authType: 'bearer', message: ' m ' };
-  assertEquals(auth(good), { slot: 's', authType: 'bearer', message: 'm' });
+Deno.test('toolGateSchema: trims, and checks the auth challenge field by field', () => {
+  assertEquals(gateOf({ kind: 'confirmation', tool: '   ' }), undefined);
+  assertEquals(gateOf({ kind: 'confirmation', tool: ' x ' })?.tool, 'x');
+  assertEquals(gateOf({ kind: 'confirmation', tool: 'x', summary: '  s ' })?.summary, 's');
+  assertEquals(gateOf({ kind: 'confirmation', tool: 'x', summary: ' ' }), undefined);
+  assertEquals(gateOf({ kind: 'confirmation', tool: 'x', summary: 1 }), undefined);
+  assertEquals(gateOf({ kind: 'permission', tool: 'x', permission: 'auto' })?.permission, 'auto');
+  assertEquals(gateOf({ kind: 'nope', tool: 'x' }), undefined);
+  assertEquals(gateOf('x'), undefined);
+
+  const auth = (challenge: unknown) => {
+    const gate = gateOf({ kind: 'auth', tool: 'x', authChallenge: challenge });
+    return gate?.kind === 'auth' ? gate.authChallenge : undefined;
+  };
+  const good = { slot: ' s ', authType: 'bearer', service: ' Svc ', message: ' m ' };
+  assertEquals(auth(good), { slot: 's', authType: 'bearer', service: 'Svc', message: 'm' });
   assertEquals(auth({ ...good, slot: ' ' }), undefined);
+  assertEquals(auth({ ...good, service: ' ' }), undefined);
+  assertEquals(auth({ ...good, service: undefined }), undefined);
   assertEquals(auth({ ...good, slot: 1 }), undefined);
   assertEquals(auth({ ...good, message: ' ' }), undefined);
   assertEquals(auth({ ...good, message: 1 }), undefined);
@@ -784,11 +801,12 @@ Deno.test('parseToolGate: trims, fallbacks, and the auth challenge field by fiel
       state: 'st',
       issuer: 'is',
       resource: 'rs',
-      requiredScopes: [' read ', '', 5, 'write'],
+      requiredScopes: [' read ', 'write'],
     }),
     {
       slot: 's',
       authType: 'bearer',
+      service: 'Svc',
       message: 'm',
       authorizationUrl: 'https://a',
       state: 'st',
@@ -797,9 +815,62 @@ Deno.test('parseToolGate: trims, fallbacks, and the auth challenge field by fiel
       requiredScopes: ['read', 'write'],
     },
   );
+  assertEquals(auth({ ...good, requiredScopes: ['read', ''] }), undefined);
+  assertEquals(auth({ ...good, requiredScopes: ['read', 5] }), undefined);
+  assertEquals(auth({ ...good, requiredScopes: 'read' }), undefined);
+  assertEquals(auth({ ...good, authorizationUrl: 1 }), undefined);
+});
+
+Deno.test('applyStageResult: injectId names the inject; an unusable one refuses it whole', () => {
+  const inject = [{ role: 'user', content: 'more' }];
+  const named = applyStageResult({
+    stage: 'pre_turn',
+    injectAllowed: true,
+    result: { inject, injectId: 's1' },
+  });
+  assertEquals(named.inject, { id: 's1', messages: [{ role: 'user', content: 'more' }] });
+  assertEquals(named.warnings, []);
+
+  for (const injectId of ['', '  ', 7]) {
+    const bad = applyStageResult({
+      stage: 'pre_turn',
+      injectAllowed: true,
+      result: { inject, injectId },
+    });
+    assertEquals(bad.inject, undefined);
+    assertEquals(
+      bad.warnings.map((w) => [w.code, w.field]),
+      [['inject_id_invalid', 'injectId']],
+    );
+  }
+
+  const orphan = applyStageResult({
+    stage: 'pre_turn',
+    injectAllowed: true,
+    result: { injectId: 's1' },
+  });
+  assertEquals(orphan.inject, undefined);
   assertEquals(
-    auth({ ...good, authorizationUrl: 1, state: 1, issuer: 1, resource: 1, requiredScopes: [''] }),
-    { slot: 's', authType: 'bearer', message: 'm' },
+    orphan.warnings.map((w) => w.code),
+    ['inject_id_invalid'],
   );
-  assertEquals(auth({ ...good, requiredScopes: 'read' })?.requiredScopes, undefined);
+});
+
+Deno.test('injectedStageEvent names only the injects the host named', () => {
+  const units = [
+    { id: 'a', messages: [{ role: 'user' as const, content: 'one' }] },
+    { messages: [{ role: 'user' as const, content: 'two' }] },
+  ];
+  assertEquals(
+    injectMessages(units).map((m) => m.content),
+    ['one', 'two'],
+  );
+  assertEquals(injectedStageEvent('post_tool', units, { callId: 'c1', toolName: 't' }), {
+    type: 'stage',
+    stage: 'post_tool',
+    callId: 'c1',
+    toolName: 't',
+    injected: [{ id: 'a' }],
+  });
+  assertEquals(injectedStageEvent('pre_turn', [units[1] ?? { messages: [] }]), undefined);
 });

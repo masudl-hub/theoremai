@@ -160,7 +160,7 @@ const graph = {
           sections: ['Stream events'],
         },
         {
-          paths: ['src/kernel/engine/runner/**', 'src/kernel/engine/runner.ts'],
+          paths: ['src/kernel/engine/runner/**'],
           sections: ['Turn lifecycle'],
         },
         {
@@ -182,8 +182,8 @@ const graph = {
       watches: [
         {
           path: 'src/kernel/registry/vault.ts',
-          reason: 'Gemini vault types feed createProvider',
-          sections: ['Gemini transport', 'createProvider'],
+          reason: 'Key slot resolution feeds every adapter',
+          sections: ['Key vault (provider-neutral)', 'createProvider'],
         },
       ],
       validates: [
@@ -216,7 +216,7 @@ const graph = {
         'Google Live',
         'Local provider',
         'Speech roles',
-        'Gemini transport',
+        'Key vault (provider-neutral)',
         'Exported API',
       ],
       section_triggers: [
@@ -274,7 +274,11 @@ const graph = {
       export: './guardrails',
       doc: 'docs/contracts/guardrails.md',
       owns: ['src/guardrails/'],
-      owns_except: ['src/guardrails/testing.ts'],
+      owns_except: [
+        'src/guardrails/testing.ts',
+        'src/guardrails/compile-egress.ts',
+        'src/guardrails/egress-compiler.ts',
+      ],
       validates: ['tests/guardrails/'],
       required_sections: [
         'Export',
@@ -319,6 +323,24 @@ const graph = {
           ],
           sections: ['Egress'],
         },
+        {
+          paths: ['src/guardrails/egress-policy.ts', 'src/guardrails/egress-rules.ts'],
+          sections: ['Host egress rules'],
+        },
+      ],
+    },
+
+    'guardrails-compile': {
+      export: './guardrails/compile',
+      doc: 'docs/contracts/guardrails.md',
+      owns: ['src/guardrails/compile-egress.ts', 'src/guardrails/egress-compiler.ts'],
+      validates: ['tests/guardrails/egress-policy.test.ts', 'tests/guardrails/egress-stream.test.ts'],
+      required_sections: ['Export', 'Host egress rules', 'Exported API'],
+      section_triggers: [
+        {
+          paths: ['src/guardrails/compile-egress.ts', 'src/guardrails/egress-compiler.ts'],
+          sections: ['Host egress rules'],
+        },
       ],
     },
 
@@ -345,7 +367,11 @@ const graph = {
       export: './observability',
       doc: 'docs/contracts/observability.md',
       owns: ['src/observability/'],
-      owns_except: ['src/observability/openinference.ts'],
+      owns_except: [
+        'src/observability/jsonl.ts',
+        'src/observability/openinference.ts',
+        'src/observability/phoenix.ts',
+      ],
       validates: ['tests/observability/'],
       required_sections: [
         'Export',
@@ -368,6 +394,15 @@ const graph = {
       ],
     },
 
+    'observability-jsonl': {
+      export: './observability/jsonl',
+      doc: 'docs/contracts/observability.md',
+      owns: ['src/observability/jsonl.ts'],
+      validates: ['tests/observability/jsonl.test.ts'],
+      required_sections: ['Export', 'JSONL sink', 'Exported API'],
+      section_triggers: [{ paths: ['src/observability/jsonl.ts'], sections: ['JSONL sink'] }],
+    },
+
     'observability-openinference': {
       export: './observability/openinference',
       doc: 'docs/contracts/observability.md',
@@ -376,6 +411,17 @@ const graph = {
       required_sections: ['Export', 'OpenInference attributes', 'Exported API'],
       section_triggers: [
         { paths: ['src/observability/openinference.ts'], sections: ['OpenInference attributes'] },
+      ],
+    },
+
+    'observability-phoenix': {
+      export: './observability/phoenix',
+      doc: 'docs/contracts/observability.md',
+      owns: ['src/observability/phoenix.ts'],
+      validates: ['tests/observability/phoenix.test.ts'],
+      required_sections: ['Export', 'Phoenix annotations', 'Exported API'],
+      section_triggers: [
+        { paths: ['src/observability/phoenix.ts'], sections: ['Phoenix annotations'] },
       ],
     },
 
@@ -426,7 +472,7 @@ const graph = {
     presets: {
       export: './presets',
       doc: 'docs/contracts/presets.md',
-      owns: ['src/presets/mod.ts'],
+      owns: ['src/presets/mod.ts', 'src/presets/openrouter.ts', 'src/presets/typesafe.ts'],
       watches: [
         {
           path: 'src/presets/google.ts',
@@ -447,7 +493,7 @@ const graph = {
     'presets-google': {
       export: './presets/google',
       doc: 'docs/contracts/presets-google.md',
-      owns: ['src/presets/google.ts'],
+      owns: ['src/presets/google.ts', 'src/presets/google-limits.ts'],
       watches: [
         {
           path: 'src/presets/google/speech-voices.ts',
@@ -474,7 +520,7 @@ const graph = {
     },
 
     interface: {
-      export: '_internal/interface',
+      export: './interface',
       doc: 'docs/contracts/kernel.md',
       owns: ['src/interface/'],
       validates: ['tests/interface/'],
@@ -484,12 +530,67 @@ const graph = {
       ],
     },
 
+    surface: {
+      export: './surface',
+      doc: 'docs/contracts/surface.md',
+      owns: ['src/surface/'],
+      validates: ['tests/surface/'],
+      required_sections: ['Export', 'Ownership', 'Protocol', 'Secrets', 'Exported API'],
+      section_triggers: [
+        { paths: ['src/surface/runtime.ts'], sections: ['Protocol'] },
+        { paths: ['src/surface/formats.ts'], sections: ['Secrets'] },
+        { paths: ['src/surface/mod.ts', 'src/surface/tools.ts'], sections: ['Exported API'] },
+      ],
+    },
+
     schema: {
       export: './schema',
       doc: 'docs/contracts/kernel.md',
       owns: ['src/kernel/schema.ts'],
       validates: ['tests/kernel/schema.test.ts'],
       required_sections: ['Export', 'Ownership', 'Profiles', 'Exported API'],
+    },
+
+    evals: {
+      export: './evals',
+      doc: 'docs/contracts/evals.md',
+      owns: ['src/evals/'],
+      validates: ['tests/evals/'],
+      required_sections: [
+        'Export',
+        'Ownership',
+        'Suites and cases',
+        'Trials',
+        'Graders',
+        'Judges',
+        'Result records',
+        'Running a suite',
+        'Exported API',
+      ],
+      section_triggers: [
+        { paths: ['src/evals/types.ts', 'src/evals/attachments.ts'], sections: ['Suites and cases'] },
+        { paths: ['src/evals/trial.ts'], sections: ['Trials'] },
+        { paths: ['src/evals/graders/'], sections: ['Graders'] },
+        {
+          paths: [
+            'src/evals/graders/judge.ts',
+            'src/evals/graders/media.ts',
+            'src/evals/graders/transcript.ts',
+            'src/evals/rubrics/',
+          ],
+          sections: ['Judges'],
+        },
+        { paths: ['src/evals/record.ts', 'src/evals/verdict.ts'], sections: ['Result records'] },
+        {
+          paths: [
+            'src/evals/run.ts',
+            'src/evals/suite.ts',
+            'src/evals/summary.ts',
+            'src/evals/breakdown.ts',
+          ],
+          sections: ['Running a suite'],
+        },
+      ],
     },
 
     'providers-google-live': {

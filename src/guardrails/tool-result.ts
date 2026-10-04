@@ -1,19 +1,8 @@
-/**
- * Tool boundary guardrails — the surface where untrusted bytes re-enter the
- * model's context carrying the model's own authority.
- *
- * A tool result is not user text: the model asked for it, so it arrives looking
- * like something the turn already trusts. Remote HTTP and MCP servers control
- * their own response bodies (including their error strings), and a delegated
- * agent answers in prose that reads as authoritative. Everything crossing this
- * boundary is therefore fenced, detected, and labelled with where it came from.
- *
- * @module
- */
-
 import { type LexiconOverrides, lexiconText } from './lexicon.ts';
 import { detectionForTrust } from './policy.ts';
+import { TOOL_RULES } from './rules.ts';
 import { sanitizeText } from './sanitize.ts';
+import { anySensitive } from './sensitive.ts';
 import { textForScan } from './serialize.ts';
 import { advisoryLevel, directiveHits } from './tool-directives.ts';
 import type {
@@ -28,14 +17,12 @@ import type {
   Verdict,
 } from './types.ts';
 
-/** Closing delimiter for model-facing fenced tool content. */
 const TOOL_CLOSE = '</tool_data>';
 const TOOL_OPEN = '<tool_data';
 
 /** Origins whose bytes the host does not author and cannot vouch for. */
 const REMOTE_ORIGINS: ReadonlySet<ToolOrigin> = new Set<ToolOrigin>(['http', 'mcp', 'delegated']);
 
-/** True when a result's bytes came from outside the host's own code. */
 function isRemoteOrigin(origin: ToolOrigin): boolean {
   return REMOTE_ORIGINS.has(origin);
 }
@@ -80,8 +67,6 @@ function stripToolFences(text: string): string {
 }
 
 /**
- * Wrap tool output so the model reads it as data and can see where it came from.
- *
  * The origin is on the tag rather than in prose so a result cannot claim a
  * friendlier provenance than it has by writing one into its own body.
  */
@@ -103,8 +88,6 @@ function wrapToolData(
 }
 
 /**
- * The kernel's own statement of what it observed.
- *
  * Deliberately an observation, not an instruction: what the agent should do about
  * it is product behaviour, supplied by the host as lexicon `advisory.guidance`. Emitted
  * only when signals fired, so it stays rare enough to carry weight — a warning on
@@ -115,18 +98,11 @@ function advisoryNotice(advisory: AdvisoryLevel, lexicon: LexiconOverrides | und
   return lexiconText(key, {}, lexicon);
 }
 
-/**
- * Model-facing, fenced tool text and the optional event produced while guardrails
- * prepared it. A missing event means no guardrail action needed recording.
- */
 export interface GuardedToolText {
-  /** Text to hand the model, fenced and redacted. */
   text: string;
   /** Emitted when the guard did anything worth recording. */
   event?: GuardrailEvent;
   /**
-   * Directive signals found in the content.
-   *
    * Reported, never redacted: legitimate tool output is frequently
    * instruction-shaped, so rewriting on this signal would corrupt real data.
    * These raise the turn's taint instead.
@@ -135,8 +111,6 @@ export interface GuardedToolText {
 }
 
 /**
- * Compose the model-facing text for a tool result.
- *
  * `finding` is the tool's summary and `data` its structured payload; both reach
  * the model, so both are guarded together rather than only the prose half.
  */
@@ -152,8 +126,6 @@ function composeToolText(finding: string, data: unknown): string {
 }
 
 /**
- * Guard one tool result on its way into the model's context.
- *
  * Local host tools are still detected — a host tool reading a database returns
  * data the host did not write — but only remote origins are fenced, because
  * fencing a local tool's output would change prompts hosts have already tuned.
@@ -178,7 +150,7 @@ function guardToolResult(
   const fenced = remote ? wrapToolData(redacted, provenance, advisory, lexicon) : redacted;
 
   const hits: GuardrailHit[] = [
-    ...(changed ? [{ rule: 'tool_result.redacted', severity: 'medium' as const }] : []),
+    ...(changed ? [{ rule: TOOL_RULES.resultRedacted, severity: 'medium' as const }] : []),
     ...suspicious,
   ];
   if (hits.length === 0) {
@@ -199,8 +171,6 @@ function guardToolResult(
 }
 
 /**
- * Guard a tool failure message.
- *
  * A remote server authors its own error strings, so an unguarded failure message
  * is the cleanest injection path across this boundary: it reaches the model
  * verbatim and is framed by the kernel as a system report.
@@ -221,15 +191,13 @@ function guardToolFailureText(
       stage: 'tool_result',
       trust: 'untrusted',
       action: 'redact',
-      hits: [{ rule: 'tool_failure.redacted', severity: 'medium' }],
+      hits: [{ rule: TOOL_RULES.failureRedacted, severity: 'medium' }],
       provenance,
     },
   };
 }
 
 /**
- * Inspect model-supplied tool arguments before the call runs.
- *
  * Arguments are model-authored, so the risk is not instruction smuggling but
  * exfiltration: a credential lifted from context and posted outward as a
  * parameter. Detection reports rather than rewrites — silently altering a tool
@@ -237,24 +205,23 @@ function guardToolFailureText(
  * for.
  */
 function inspectToolArguments(args: unknown, policy: ResolvedGuardrailPolicy): Verdict {
-  if (!policy.redactSensitive) {
+  if (!anySensitive(policy.redactSensitive)) {
     return { action: 'allow' };
   }
   const rendered = textForScan(args);
   if (rendered.unscannable) {
     return { action: 'allow' };
   }
-  const options = { sanitizeInput: false, redactSensitive: true };
+  const options = { sanitizeInput: false, redactSensitive: policy.redactSensitive };
   if (sanitizeText(rendered.text, options) === rendered.text) {
     return { action: 'allow' };
   }
   return {
     action: 'flag',
-    hits: [{ rule: 'tool_call.sensitive-argument', severity: 'high' }],
+    hits: [{ rule: TOOL_RULES.sensitiveArgument, severity: 'high' }],
   };
 }
 
-/** Guardrail event for a flagged tool call, for the runner to emit. */
 function toolCallEvent(verdict: Verdict, provenance: Provenance): GuardrailEvent | undefined {
   if (verdict.action === 'allow') {
     return undefined;
@@ -269,8 +236,6 @@ function toolCallEvent(verdict: Verdict, provenance: Provenance): GuardrailEvent
 }
 
 /**
- * Record a tool result against the turn's taint.
- *
  * Only remote origins taint: a local host tool returns bytes the host's own code
  * produced, and treating those as attacker-influenceable would make the gate
  * useless in practice.
@@ -288,12 +253,10 @@ function recordTaint(
   return { sources: [...sources, provenance], suspicious: [...prior, ...suspicious] };
 }
 
-/** True when the turn has already read attacker-influenceable content. */
 function isTainted(taint: TurnTaint | undefined): boolean {
   return (taint?.sources.length ?? 0) > 0;
 }
 
-/** True when remote content this turn read looked like it was steering the agent. */
 function isSuspicious(taint: TurnTaint | undefined): boolean {
   return (taint?.suspicious.length ?? 0) > 0;
 }
@@ -312,8 +275,6 @@ const GATE_RANK: Record<TaintGate, number> = {
 };
 
 /**
- * Decide whether a tool call may proceed given what the turn has already read.
- *
  * A `flag` says the call is happening on a tainted turn and is worth recording; a
  * `block` says the profile asked for it to be refused. Reporting happens whether
  * or not enforcement is configured, so the risk is visible before a host opts in.
@@ -334,7 +295,7 @@ function checkTaintGate(
   const suspicious = isSuspicious(taint);
   const hits = [
     {
-      rule: suspicious ? 'tool_call.steered-turn' : 'tool_call.tainted-turn',
+      rule: suspicious ? TOOL_RULES.steeredTurn : TOOL_RULES.taintedTurn,
       severity: 'high' as const,
     },
   ];

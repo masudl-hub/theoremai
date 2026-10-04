@@ -20,6 +20,7 @@ import { IconButton } from '@astryxdesign/core/IconButton';
 import { Layout, LayoutContent } from '@astryxdesign/core/Layout';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
+import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { ToggleButton } from '@astryxdesign/core/ToggleButton';
 import { Toolbar } from '@astryxdesign/core/Toolbar';
 import { VStack } from '@astryxdesign/core/VStack';
@@ -35,27 +36,38 @@ import {
 	IconVideoOff,
 } from '@tabler/icons-react';
 import { type ReactNode, useEffect, useLayoutEffect, useRef } from 'react';
-import type { LiveProfileInterface } from '../../../src/interface/mod.ts';
-import type { LiveCaptionState } from '../client/live/live-captions';
-import type { LiveToolGatePrompt } from '../client/live/live-tool';
-import type { LiveFacingMode } from '../client/live/live-video';
-import type { ToolGateResolution } from '../client/tool-resume';
-import { InkWaveform } from '../components/InkWaveform';
-import { useLiveRunnerModel } from '../components/live/use-live-runner-model';
-import { NO_FOCUS_RING } from './ChatComposerBar';
-import { liveStateLabel, type TheoremLabels } from './labels';
-import { TheoremLabelsProvider, useLabels } from './labels-provider';
-import { SidePanel, SidePanelHeader, SidePanelToggle, useSidePanel } from './SidePanel';
-import { ApprovalCard, AuthChallengeCard } from './ToolGateCard';
-import { DEFAULT_CHAT_MAX_WIDTH } from './TheoremChat';
-import { useTraceInspector } from './TraceInspector';
+import type { LiveProfileInterface } from '@theoremjs/agents/interface';
+import type { LiveCaptionState } from '../client/live/live-captions.ts';
+import type { LiveConnection } from '../client/live-client.ts';
+import type { LiveToolGatePrompt } from '../client/live/live-tool.ts';
+import type { LiveFacingMode } from '../client/live/live-video.ts';
+import type { ToolGateResolution } from '../client/tool-resume.ts';
+import { InkWaveform } from '../components/InkWaveform.tsx';
+import { useLiveRunnerModel } from '../components/live/use-live-runner-model.ts';
+import { NO_FOCUS_RING } from './ChatComposerBar.tsx';
+import { liveStateLabel, type TheoremLabels } from './labels.ts';
+import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
+import { SidePanel, SidePanelHeader, SidePanelToggle, useSidePanel } from './SidePanel.tsx';
+import { ApprovalCard, AuthChallengeCard } from './ToolGateCard.tsx';
+import { DEFAULT_CHAT_MAX_WIDTH } from './TheoremChat.tsx';
+import { TheoremThemeProvider } from './theme.tsx';
+import { useTraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
 
 export type LiveRunnerProps = {
 	iface: LiveProfileInterface;
-	/** Resolve the live profile id to open on the relay. */
-	registerProfile: () => Promise<string>;
+	/** What the call opens: a profile the host registered, or an open message for the relay. */
+	connection: () => LiveConnection | Promise<LiveConnection>;
+	/** Astryx theme, as on `TheoremChat`. Omit to inherit the host's `<Theme>` or use `theoremTheme`. */
+	theme?: DefinedTheme;
+	mode?: 'system' | 'light' | 'dark';
 	/** Replacement lines by locale, as on `TheoremChat`. */
 	labels?: TheoremLabels;
+	/**
+	 * Show the trace in place of the call, from the host's own control; the
+	 * built-in trace toggle then hides. Omit to keep the toggle. Needs a profile
+	 * that records traces.
+	 */
+	trace?: boolean;
 };
 
 type LiveModel = ReturnType<typeof useLiveRunnerModel>;
@@ -71,20 +83,22 @@ const WAVE_HEIGHT = 320;
  * in a toolbar, and tool gates in a dialog. Offers the trace inspector when
  * the profile records traces.
  */
-export function LiveRunner({ labels, ...props }: LiveRunnerProps) {
+export function LiveRunner({ theme, mode, labels, ...props }: LiveRunnerProps) {
 	return (
-		<TheoremLabelsProvider labels={labels}>
-			<LiveRunnerBody {...props} />
-		</TheoremLabelsProvider>
+		<TheoremThemeProvider theme={theme} mode={mode}>
+			<TheoremLabelsProvider labels={labels}>
+				<LiveRunnerBody {...props} />
+			</TheoremLabelsProvider>
+		</TheoremThemeProvider>
 	);
 }
 
-function LiveRunnerBody({ iface, registerProfile }: Omit<LiveRunnerProps, 'labels'>) {
+function LiveRunnerBody({ iface, connection, trace }: Pick<LiveRunnerProps, 'iface' | 'connection' | 'trace'>) {
 	const t = useLabels();
-	const model = useLiveRunnerModel(iface, registerProfile);
+	const model = useLiveRunnerModel(iface, connection);
 	// Both panels size against the whole live layout, so a third means the same for each.
 	const layoutRef = useRef<HTMLDivElement | null>(null);
-	const inspector = useTraceInspector(iface, layoutRef, model.traces);
+	const inspector = useTraceInspector(iface, model.traces, trace);
 	const captions = useSidePanel(layoutRef, true);
 	const captionLabels = {
 		name: t('@theorem.panel.captions.name'),
@@ -104,54 +118,55 @@ function LiveRunnerBody({ iface, registerProfile }: Omit<LiveRunnerProps, 'label
 
 	if (!model.callStarted) {
 		return (
-			<Layout
-				ref={layoutRef}
-				height="fill"
-				header={<SidePanelHeader>{inspector.toggle}</SidePanelHeader>}
-				end={inspector.panel}
-				content={
-					<LayoutContent padding={0}>
-						<LiveLanding model={model} />
-					</LayoutContent>
-				}
-			/>
+			<WithTrace inspector={inspector}>
+				<Layout
+					ref={layoutRef}
+					height="fill"
+					header={<SidePanelHeader>{inspector.toggle}</SidePanelHeader>}
+					content={
+						<LayoutContent padding={0}>
+							<LiveLanding model={model} />
+						</LayoutContent>
+					}
+				/>
+			</WithTrace>
 		);
 	}
 
 	return (
 		<>
-			{/* One panel per Layout, nested, as Astryx's IDE template does: the trace
-			    on the outer Layout, captions on the inner one beside the stage. */}
-			<Layout
-				ref={layoutRef}
-				height="fill"
-				header={
-					<SidePanelHeader>
-						{captionsToggle}
-						{inspector.toggle}
-					</SidePanelHeader>
-				}
-				end={inspector.panel}
-				content={
-					<LayoutContent padding={0}>
-						<Layout
-							height="fill"
-							end={
-								<SidePanel id={captions.id} labels={captionLabels} resizable={captions.resizable} open={captions.open} padding={0}>
-									<LiveCaptions model={model} />
-								</SidePanel>
-							}
-							content={
-								<LayoutContent padding={0}>
-									<VStack height="100%" paddingInline={3} paddingBlockEnd={3}>
-										<LiveStage model={model} />
-									</VStack>
-								</LayoutContent>
-							}
-						/>
-					</LayoutContent>
-				}
-			/>
+			{/* Captions on an inner Layout beside the stage, as Astryx's IDE template nests its panels. */}
+			<WithTrace inspector={inspector}>
+				<Layout
+					ref={layoutRef}
+					height="fill"
+					header={
+						<SidePanelHeader>
+							{captionsToggle}
+							{inspector.toggle}
+						</SidePanelHeader>
+					}
+					content={
+						<LayoutContent padding={0}>
+							<Layout
+								height="fill"
+								end={
+									<SidePanel id={captions.id} labels={captionLabels} resizable={captions.resizable} open={captions.open} padding={0}>
+										<LiveCaptions model={model} />
+									</SidePanel>
+								}
+								content={
+									<LayoutContent padding={0}>
+										<VStack height="100%" paddingInline={3} paddingBlockEnd={3}>
+											<LiveStage model={model} />
+										</VStack>
+									</LayoutContent>
+								}
+							/>
+						</LayoutContent>
+					}
+				/>
+			</WithTrace>
 			<LiveToolGateDialog prompt={model.gatePrompt} onResolve={model.resolveGateDecision} />
 		</>
 	);

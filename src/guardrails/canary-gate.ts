@@ -1,34 +1,46 @@
-/**
- * Canary-only batch helper for hosts that need stream lookback without full
- * egress. Live production path: `live-outbound-gate.ts` (progressive yield).
- *
- * @module
- */
-
 import type { TurnEvent } from '../kernel/types.ts';
 import {
   type CanaryStreamGate,
   createCanaryStreamGate,
   eventHasCanary,
+  guardedEventTexts,
   isStreamedCanaryEvent,
 } from './canary.ts';
+import { scanTextForPromptEcho } from './prompt-echo.ts';
 
-/** Stateful canary scanner for an ordered sequence of turn events. */
 export interface CanaryGateSession {
   canary: string;
+  /** The system prompt as sent, when replies echoing it are leaks too. */
+  privateSystem?: readonly string[];
   gate: CanaryStreamGate;
 }
 
-/** Creates a canary-only gate session for batched filtering of streamed and non-streamed events. */
-function createCanaryGateSession(canary: string): CanaryGateSession {
-  return { canary, gate: createCanaryStreamGate(canary) };
+/** Pass the system prompt as sent to catch replies that echo it, as `runTurn` and Live do. */
+function createCanaryGateSession(
+  canary: string,
+  privateSystem?: readonly string[],
+): CanaryGateSession {
+  return {
+    canary,
+    ...(privateSystem ? { privateSystem } : {}),
+    gate: createCanaryStreamGate(canary, privateSystem),
+  };
+}
+
+function echoesPrompt(
+  event: TurnEvent,
+  canary: string,
+  privateSystem?: readonly string[],
+): boolean {
+  return (
+    privateSystem !== undefined &&
+    guardedEventTexts(event).some((text) => scanTextForPromptEcho(text, privateSystem, canary))
+  );
 }
 
 /**
- * Filters one event batch, withholding streamed overlap and reporting the first
- * canary leak before an unsafe event is returned to the caller. Only the reply
- * stream (`isStreamedCanaryEvent`) goes through the gate; thoughts are unguarded
- * (`isGuardedOutput`).
+ * Canary-only batch filter for hosts that need stream lookback without full egress. Stops at the
+ * first leak, so no unsafe event is returned; thoughts are unguarded (`isGuardedOutput`).
  */
 function filterCanaryGatedEvents(
   session: CanaryGateSession,
@@ -46,7 +58,10 @@ function filterCanaryGatedEvents(
       }
       continue;
     }
-    if (eventHasCanary(event, session.canary)) {
+    if (
+      eventHasCanary(event, session.canary) ||
+      echoesPrompt(event, session.canary, session.privateSystem)
+    ) {
       return { leaked: true };
     }
     out.push(event);

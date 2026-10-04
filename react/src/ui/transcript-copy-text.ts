@@ -1,4 +1,4 @@
-import type { TranscriptBlock } from '../../../src/interface/mod.ts';
+import type { TranscriptBlock } from '@theoremjs/agents/interface';
 import type { LabelText } from './labels.ts';
 
 /** Plain text copied from a transcript block. */
@@ -15,10 +15,11 @@ export function transcriptBlockCopyText(t: LabelText, block: TranscriptBlock): s
 			return block.text;
 		case 'tool': {
 			const lines = [t('@theorem.transcript.copy_text.tool', { name: block.tool.name })];
-			if (block.tool.output !== undefined) {
-				lines.push(JSON.stringify(block.tool.output, null, 2));
-			} else if (block.tool.failure !== undefined) {
-				lines.push(JSON.stringify(block.tool.failure, null, 2));
+			const { state } = block.tool;
+			if (state?.phase === 'complete' && state.output !== undefined) {
+				lines.push(JSON.stringify(state.output, null, 2));
+			} else if (state?.phase === 'error') {
+				lines.push(JSON.stringify(state.failure, null, 2));
 			}
 			return lines.join('\n\n');
 		}
@@ -28,6 +29,8 @@ export function transcriptBlockCopyText(t: LabelText, block: TranscriptBlock): s
 			return block.url ?? t('@theorem.transcript.copy_text.media', { mimeType: block.mimeType });
 		case 'grounding':
 			return JSON.stringify(block.grounding, null, 2);
+		case 'citation':
+			return JSON.stringify(block.sources, null, 2);
 		case 'evidence':
 			return JSON.stringify(block.evidence, null, 2);
 		case 'error':

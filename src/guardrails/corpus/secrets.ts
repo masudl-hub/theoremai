@@ -1,9 +1,3 @@
-/**
- * Synthetic secrets for adversarial corpus cases (not real credentials).
- *
- * @module
- */
-
 /** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 export const TEST_AWS_KEY = ['AKIA', 'IOSFODNN7EXAMPLE'].join('');
 export const TEST_GOOGLE_KEY = ['AIzaSy', 'A1234567890abcdefghijklmnopqrstuv'].join('');

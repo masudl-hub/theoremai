@@ -22,7 +22,6 @@ import { mapStrings } from '../../kernel/engine/tree.ts';
 
 const DATA_URL = /^data:([^;,]+);base64,/;
 
-/** The key holding a record's inline bytes, when it has any. */
 export function inlineBytesKey(rec: Record<string, unknown>): string | undefined {
   const mime = rec.mime_type ?? rec.mimeType;
   if (typeof mime === 'string' && typeof rec.data === 'string') {
@@ -34,11 +33,9 @@ export function inlineBytesKey(rec: Record<string, unknown>): string | undefined
   return undefined;
 }
 
-/** What an inline hash covers: the decoded bytes, or the text when it was not base64. */
 const BYTES_SHA256 = 'sha256';
 const TEXT_SHA256 = 'text_sha256';
 
-/** The bytes' hash and its kind; text that is not base64 is hashed as text. */
 async function inlineHash(base64: string): Promise<{ kind: string; hash: string }> {
   const digest = await sha256Base64(base64);
   return digest
@@ -88,7 +85,6 @@ export function scrubUpstream(value: unknown): Promise<unknown> {
   return Promise.resolve(value);
 }
 
-/** `text` with every canary leak replaced by the omit marker. */
 export function removeCanaries(text: string, canaries: readonly string[]): string {
   return canaries.reduce((out, canary) => redactCanaryText(out, canary), text);
 }

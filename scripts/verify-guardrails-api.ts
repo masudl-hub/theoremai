@@ -1,47 +1,30 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
 
 /**
- * Guardrails red-team against a real provider API (text turns — not Gemini Live).
- *
- * Stresses the full runTurn stack:
- *   inbound sanitize (injection + sensitive) → canary bind → stream gate → egress
- *
- * Scoring philosophy — only Theorem-owned layers affect PASS/FAIL:
- *   • Inbound sanitize (pre-provider)
- *   • Canary stream gate + egress enforce (post-provider, pre-client)
- * Model refusals or benign replies without a Theorem block are MODEL TURN (neutral).
- * A Theorem egress block (refuse_to_user) is THEOREM BLOCKED (guardrail enforced).
- *
- * Free-tier wire ids (mirror playground-policy):
- *   OpenRouter: openrouter/free
- *   Gemini:     gemini-3.1-flash-lite
- *
- * Usage:
- *   deno task verify:guardrails-api   # vault slots from THEOREM_VAULT_*, see scripts/host-env.ts
- *   deno task verify:guardrails-api -- --provider gemini
- *   deno task verify:guardrails-api -- --inbound-only   # no API calls
- *   deno task verify:guardrails-api -- --category canary,inbound-injection --limit 20
+ * Only Theorem-owned layers (inbound sanitize, canary stream gate, egress) decide PASS/FAIL. A
+ * model refusal without a Theorem block is MODEL TURN and a provider safety refusal PROVIDER
+ * REFUSED, both neutral; a Theorem block is THEOREM BLOCKED. Any other provider error is
+ * ✗ PROVIDER and fails the run. Leak checks read whatever reached the client, blocked or not.
  */
 
-import {
-  injectionSpans,
-  sanitizeTurnRequest,
-  scanTextForCanaryLeak,
-  sensitiveSpans,
-  standardEgressEnforce,
-} from '../src/guardrails/mod.ts';
 import {
   buildLiveAttacks,
   filterLiveAttacks,
   type LiveAttack,
   summarizeAttackBank,
 } from '../src/guardrails/testing.ts';
-import { runTurn } from '../src/kernel/engine/runner.ts';
-import { defineProfile, getProfile, registerProfile } from '../src/kernel/registry/profiles.ts';
-import { resolveTurn } from '../src/kernel/registry/resolve.ts';
-import type { ModelProvider, TurnEvent, TurnRequest } from '../src/kernel/types.ts';
-import { OMIT_INJECTION, OMIT_SENSITIVE } from '../src/observability/spans.ts';
+import { getProfile, registerProfile, runTurn } from '../src/kernel/default-scope.ts';
+import { defineProfile } from '../src/kernel/registry/profiles.ts';
+import { THINKING_LEVELS, type ThinkingLevel } from '../src/kernel/schema.ts';
+import type { ModelProvider, TurnEvent } from '../src/kernel/types.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
+import { recordDraws } from '../tests/fixtures/cassette.ts';
+import {
+  canariesSent,
+  inboundMisses,
+  leaksIn,
+  shownText,
+} from '../tests/fixtures/guardrail-oracle.ts';
 import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV } from './host-env.ts';
 
 const LIVE_PROFILE_ID = '__live_guardrails_redteam__';
@@ -73,6 +56,9 @@ interface GuardrailResult {
   sensitiveLeak: boolean;
   forbiddenLeak: boolean;
   blocked: boolean;
+  /** The provider's own safety refusal (no Theorem block): neutral, like a model turn. */
+  providerRefused: boolean;
+  /** Any other provider error: the case is inconclusive, so the run fails. */
   providerFailed: boolean;
   skippedLive: boolean;
   inboundNotes: string[];
@@ -90,7 +76,11 @@ function hasFlag(flag: string): boolean {
   return Deno.args.includes(flag);
 }
 
-function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
+function registerLiveProfile(
+  providerKind: 'openrouter' | 'gemini',
+  apiId: string,
+  effort: ThinkingLevel | 'default',
+): void {
   const guardrails = {
     canary: true,
     sanitizeInput: true,
@@ -98,7 +88,7 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
     egress: {
       onBlock: 'refuse_to_user' as const,
       maxRetries: 0,
-      enforce: standardEgressEnforce,
+      checks: true,
     },
   };
 
@@ -116,7 +106,7 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
           freeRouter: {
             protocol: 'openAi',
             provider: 'openrouter',
-            apiId: OPENROUTER_VERIFY_API_ID,
+            apiId,
             efforts: { normal: 'none' },
             summaries: false,
             maxOutputTokens: 512,
@@ -125,6 +115,7 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
           },
         },
         maxSteps: 1,
+        key: 'openrouter',
         tools: { allow: [] },
         inputs: { text: true },
         outputs: { structured: null },
@@ -147,10 +138,9 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
         geminiFree: {
           protocol: 'geminiInteractions',
           provider: 'google',
-          apiId: GEMINI_VERIFY_API_ID,
-          efforts: { normal: 'minimal', low: 'low', medium: 'medium', high: 'high' },
-          defaultEffort: 'normal',
-          allowEffortSelect: true,
+          persistViaInteractionId: false,
+          apiId,
+          ...(effort === 'default' ? {} : { efforts: { normal: effort }, defaultEffort: 'normal' }),
           summaries: false,
           maxOutputTokens: 512,
           temperature: 0.2,
@@ -158,7 +148,7 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
         },
       },
       maxSteps: 1,
-      key: 'slotA',
+      key: 'slot_a',
       tools: { allow: [] },
       inputs: { text: true },
       guardrails,
@@ -172,120 +162,66 @@ function createLiveProvider(providerKind: 'openrouter' | 'gemini'): ModelProvide
     const apiKey = hostOpenRouterKey();
     if (!apiKey) throw new Error(`${OPENROUTER_ENV} missing`);
     return createProvider(profile, {
+      vault: { ...hostVault(), openrouter: apiKey },
       openAiGateway: {
-        apiKey,
         siteUrl: 'https://theorem.masudlewis.com',
         siteName: 'Theorem Guardrails Live Red-Team',
       },
     });
   }
-  return createProvider(profile, { gemini: { vault: hostVault() } });
-}
-
-function serializedInbound(req: TurnRequest): string {
-  const safe = sanitizeTurnRequest(req);
-  const parts: string[] = [];
-  if (safe.input?.text) parts.push(safe.input.text);
-  if (safe.input?.slots) parts.push(JSON.stringify(safe.input.slots));
-  if (safe.input?.history) parts.push(JSON.stringify(safe.input.history));
-  return parts.join('\n');
-}
-
-function checkInbound(attack: LiveAttack): { miss: boolean; notes: string[] } {
-  const notes: string[] = [];
-  let miss = false;
-  const rawParts = [
-    attack.request.input?.text ?? '',
-    JSON.stringify(attack.request.input?.slots ?? {}),
-    JSON.stringify(attack.request.input?.history ?? []),
-  ].join('\n');
-  const sanitized = serializedInbound(attack.request);
-
-  if (attack.expectInboundScrub) {
-    const hadInjection = injectionSpans(rawParts).length > 0;
-    const scrubbed =
-      sanitized.includes(OMIT_INJECTION) ||
-      (hadInjection && sanitized.length < rawParts.length && sanitized !== rawParts);
-    if (hadInjection && !scrubbed) {
-      miss = true;
-      notes.push('injection pattern survived sanitize');
-    }
-  }
-
-  for (const secret of attack.inboundSecrets ?? []) {
-    if (rawParts.includes(secret) && sanitized.includes(secret)) {
-      miss = true;
-      notes.push(`secret verbatim in sanitized input: ${secret.slice(0, 10)}…`);
-    }
-    if (
-      rawParts.includes(secret) &&
-      !sanitized.includes(OMIT_SENSITIVE) &&
-      sanitized.includes(secret)
-    ) {
-      miss = true;
-    }
-  }
-
-  return { miss, notes };
-}
-
-function clientAssistantText(events: TurnEvent[]): string {
-  return events
-    .filter((e) => (e.type === 'text' || e.type === 'thought') && e.text)
-    .map((e) => e.text)
-    .join('\n');
+  return createProvider(profile, { vault: hostVault() });
 }
 
 function analyzeLiveResult(
   attack: LiveAttack,
   events: TurnEvent[],
-  canary: string,
+  canaries: readonly string[],
   inbound: { miss: boolean; notes: string[] },
 ): GuardrailResult {
-  const assistantText = clientAssistantText(events);
-  const clientWire = events
-    .filter((e) => e.type !== 'error')
-    .map((e) => JSON.stringify(e))
-    .join('\n');
+  const assistantText = shownText(events);
   const errorEv = events.find((e) => e.type === 'error');
-  const blocked = Boolean(errorEv);
-
-  const canaryBypass =
-    !blocked && (clientWire.includes(canary) || scanTextForCanaryLeak(assistantText, canary));
-
-  const sensitiveLeak = !blocked && sensitiveSpans(assistantText).length > 0;
-
-  const forbiddenLeak =
-    !blocked &&
-    (attack.forbiddenOutput?.some((re) => re.test(assistantText) || re.test(clientWire)) ?? false);
+  // Only a guardrail block is Theorem's; an error without one came from the provider.
+  const blocked = events.some((e) => e.type === 'guardrail' && e.guardrail.action === 'block');
+  const providerRefused = !blocked && errorEv?.errorKind === 'safety';
+  const providerFailed = !blocked && errorEv !== undefined && !providerRefused;
+  const leaks = leaksIn(events, canaries, attack.forbiddenOutput);
 
   return {
     name: attack.name,
     category: attack.category,
     inboundMiss: inbound.miss,
-    canaryBypass,
-    sensitiveLeak,
-    forbiddenLeak,
+    canaryBypass: leaks.canary,
+    sensitiveLeak: leaks.sensitive,
+    forbiddenLeak: leaks.forbidden,
     blocked,
-    providerFailed: false,
+    providerRefused,
+    providerFailed,
     skippedLive: false,
     inboundNotes: inbound.notes,
     assistantPreview: assistantText.slice(0, 180),
-    error: errorEv?.error,
+    error: errorEv ? `${errorEv.errorKind ?? 'error'}: ${errorEv.error}` : undefined,
   };
 }
 
+/** Scored against the canary the model was given: the turn's random draw its requests carry. */
 async function runAttackLive(
   provider: ModelProvider,
   attack: LiveAttack,
   inbound: { miss: boolean; notes: string[] },
 ): Promise<GuardrailResult> {
-  const { generation } = resolveTurn(attack.request);
+  const draws: string[] = [];
+  const sent: string[] = [];
+  const seeing: ModelProvider = {
+    complete(req) {
+      sent.push(JSON.stringify(req));
+      return provider.complete(req);
+    },
+  };
   const events: TurnEvent[] = [];
-  for await (const event of runTurn(attack.request, provider)) {
-    events.push(event);
-  }
-  return analyzeLiveResult(attack, events, generation.canary, inbound);
+  await recordDraws(draws, async () => {
+    for await (const event of runTurn(attack.request, seeing)) events.push(event);
+  });
+  return analyzeLiveResult(attack, events, canariesSent(draws, sent), inbound);
 }
 
 function theoremFailed(r: GuardrailResult): boolean {
@@ -305,7 +241,10 @@ function printReport(
   const forbiddenLeak = results.filter((r) => r.forbiddenLeak);
   const theoremBlocked = results.filter((r) => r.blocked && !theoremFailed(r));
   const inboundOk = results.filter((r) => r.skippedLive && !r.inboundMiss);
-  const modelTurn = results.filter((r) => !r.skippedLive && !r.blocked && !theoremFailed(r));
+  const providerRefused = results.filter((r) => r.providerRefused && !theoremFailed(r));
+  const modelTurn = results.filter(
+    (r) => !r.skippedLive && !r.blocked && !r.providerRefused && !theoremFailed(r),
+  );
 
   console.log(`\n${'═'.repeat(72)}`);
   console.log(`  LIVE GUARDRAILS RED-TEAM  provider=${providerKind}  apiId=${apiId}`);
@@ -317,11 +256,11 @@ function printReport(
     );
   } else {
     console.log(
-      `  CASES: ${results.length} | THEOREM BLOCKED: ${theoremBlocked.length} | MODEL TURN: ${modelTurn.length} | FAIL: ${fails.length}`,
+      `  CASES: ${results.length} | THEOREM BLOCKED: ${theoremBlocked.length} | MODEL TURN: ${modelTurn.length} | PROVIDER REFUSED: ${providerRefused.length} | FAIL: ${fails.length}`,
     );
   }
   console.log(
-    `    inbound miss: ${inboundMiss.length} | canary leak: ${canaryBypass.length} | sensitive leak: ${sensitiveLeak.length} | boundary leak: ${forbiddenLeak.length}`,
+    `    inbound miss: ${inboundMiss.length} | provider error: ${results.filter((r) => r.providerFailed).length} | canary leak: ${canaryBypass.length} | sensitive leak: ${sensitiveLeak.length} | boundary leak: ${forbiddenLeak.length}`,
   );
   console.log(`${'═'.repeat(72)}\n`);
 
@@ -361,6 +300,12 @@ function printReport(
         console.log(`    \x1b[32m✓ THEOREM BLOCKED\x1b[0m ${r.name} — ${r.error ?? 'withheld'}`);
         continue;
       }
+      if (r.providerRefused) {
+        console.log(
+          `    \x1b[90m○ PROVIDER REFUSED\x1b[0m ${r.name} — ${r.error} (model not scored)`,
+        );
+        continue;
+      }
       if (r.skippedLive) {
         console.log(`    \x1b[32m✓ INBOUND OK\x1b[0m ${r.name}`);
         continue;
@@ -372,8 +317,14 @@ function printReport(
     console.log('');
   }
 
-  if (fails.length > 0) {
+  if (fails.some((r) => !r.providerFailed)) {
     console.log('\x1b[31mFAIL: Theorem guardrail layer failed (see above).\x1b[0m\n');
+    return false;
+  }
+  if (fails.length > 0) {
+    console.log(
+      `\x1b[31mINCONCLUSIVE: ${fails.length} case(s) ended in a provider error, so they tested nothing — rerun them.\x1b[0m\n`,
+    );
     return false;
   }
   console.log(
@@ -399,14 +350,21 @@ export async function main(): Promise<void> {
     Deno.exit(1);
   }
 
-  registerLiveProfile(providerKind);
+  const apiId =
+    valueAfterFlag('--model') ??
+    (providerKind === 'openrouter' ? OPENROUTER_VERIFY_API_ID : GEMINI_VERIFY_API_ID);
+  const effort = valueAfterFlag('--effort') ?? 'minimal';
+  if (effort !== 'default' && !(THINKING_LEVELS as readonly string[]).includes(effort)) {
+    console.error(`Invalid --effort (default | ${THINKING_LEVELS.join(' | ')})`);
+    Deno.exit(1);
+  }
+  registerLiveProfile(providerKind, apiId, effort as ThinkingLevel | 'default');
   const allAttacks = buildLiveAttacks(LIVE_PROFILE_ID);
   const categories = parseListFlag('--category');
   const names = parseListFlag('--name');
   const limit = parseLimit();
   const attacks = filterLiveAttacks(allAttacks, { categories, names, limit });
   const bank = summarizeAttackBank(allAttacks);
-  const apiId = providerKind === 'openrouter' ? OPENROUTER_VERIFY_API_ID : GEMINI_VERIFY_API_ID;
 
   if (attacks.length === 0) {
     console.error('No attacks matched filters. Bank size:', bank.total);
@@ -430,7 +388,8 @@ export async function main(): Promise<void> {
   const results: GuardrailResult[] = [];
   for (const attack of attacks) {
     process.stdout.write(`  → ${attack.category}/${attack.name}…`);
-    const inbound = checkInbound(attack);
+    const notes = inboundMisses(attack, getProfile(attack.request.profile));
+    const inbound = { miss: notes.length > 0, notes };
 
     if (inboundOnly) {
       results.push({
@@ -441,6 +400,7 @@ export async function main(): Promise<void> {
         sensitiveLeak: false,
         forbiddenLeak: false,
         blocked: false,
+        providerRefused: false,
         providerFailed: false,
         skippedLive: true,
         inboundNotes: inbound.notes,
@@ -467,6 +427,7 @@ export async function main(): Promise<void> {
         sensitiveLeak: false,
         forbiddenLeak: false,
         blocked: false,
+        providerRefused: false,
         providerFailed: true,
         skippedLive: false,
         inboundNotes: inbound.notes,

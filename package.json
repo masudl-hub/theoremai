@@ -1,6 +1,6 @@
 {
-  "name": "@theoremai/agents",
-  "version": "2.0.1",
+  "name": "@theoremjs/agents",
+  "version": "0.3.0",
   "description": "A flat TypeScript agent kernel for typed profiles, deterministic turn execution, registered tools, provider adapters, guardrails, and host-injected traces.",
   "license": "MIT",
   "repository": {
@@ -8,8 +8,11 @@
     "url": "https://github.com/masudl-hub/theoremai"
   },
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
-    "agents": "./src/cli/index.ts"
+    "agents": "./src/cli/bin.ts"
   },
   "keywords": [
     "agent",
@@ -29,14 +32,20 @@
     "./providers/local": "./src/providers/local/mod.ts",
     "./guardrails": "./src/guardrails/mod.ts",
     "./guardrails/testing": "./src/guardrails/testing.ts",
+    "./guardrails/compile": "./src/guardrails/compile-egress.ts",
     "./observability": "./src/observability/mod.ts",
+    "./observability/jsonl": "./src/observability/jsonl.ts",
     "./observability/openinference": "./src/observability/openinference.ts",
+    "./observability/phoenix": "./src/observability/phoenix.ts",
     "./host": "./src/host/mod.ts",
+    "./interface": "./src/interface/mod.ts",
+    "./surface": "./src/surface/mod.ts",
     "./cli": "./src/cli/index.ts",
     "./presets": "./src/presets/mod.ts",
     "./presets/google": "./src/presets/google.ts",
     "./presets/google/speech-voices": "./src/presets/google/speech-voices.ts",
     "./schema": "./src/kernel/schema.ts",
+    "./evals": "./src/evals/mod.ts",
     "./providers/google/live": "./src/providers/google/live/mod.ts"
   },
   "files": [
@@ -47,17 +56,20 @@
     "src/"
   ],
   "dependencies": {
+    "@eslint-community/regexpp": "4.12.2",
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "ai": "^7.0.108",
-    "gpt-tokenizer": "^4.0.0"
+    "gpt-tokenizer": "^4.0.0",
+    "refa": "0.12.1"
   },
   "peerDependencies": {
     "zod": "^4.1.8"
   },
   "scripts": {
     "build:npm": "deno run --allow-read --allow-write --allow-env --allow-net --allow-run=npm scripts/build-npm.ts",
+    "build:npm:react": "deno run --allow-read --allow-write --allow-run=npx scripts/build-npm-react.ts",
     "test": "deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ tests/",
-    "coverage": "rm -rf coverage && deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ --coverage=coverage tests/ && deno coverage coverage --lcov --output=coverage/lcov.info && node scripts/lcov-to-istanbul.mjs",
+    "coverage": "sh scripts/coverage.sh",
     "check:react": "npm --prefix react ci && npm --prefix react run typecheck && npm --prefix react run theme:check",
     "lint:biome": "biome check --error-on-warnings .",
     "lint:ast-grep": "ast-grep scan",
@@ -69,12 +81,13 @@
     "hooks:install": "node ./scripts/hooks/install.mjs",
     "prepare": "node ./scripts/hooks/install.mjs",
     "lint": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && npm run lint:fallow",
-    "check:ci": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && deno task verify:publish && npm run lint:fallow && deno check mod.ts tests/fixtures/probes/ scripts/*.ts && npm run check:react && deno task test"
+    "check:ci": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && deno task verify:publish && npm run build:npm && npm run lint:fallow && deno check mod.ts tests/fixtures/probes/ scripts/*.ts && npm run check:react && npm run build:npm:react && deno task test"
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.41.0",
     "@biomejs/biome": "^2.5.8",
     "@stryker-mutator/core": "^10.0.0",
+    "@types/node": "^20.19.43",
     "fallow": "3.17.0",
     "intl-messageformat": "^11.2.9"
   }

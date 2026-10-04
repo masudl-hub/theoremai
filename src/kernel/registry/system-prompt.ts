@@ -1,41 +1,41 @@
-/**
- * Synchronous system-prompt resolution for a turn or session.
- * Snapshotted in `resolveTurn` before any async work — never mutate registry per request.
- *
- * @module
- */
-
 import { detectionForTrust, resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { sanitizeText } from '../../guardrails/sanitize.ts';
-import type { ModelProfile, TurnRequest } from '../types.ts';
+import { joinSystemPieces, mapSystemPrompt, systemPieces } from '../system-parts.ts';
+import type { ModelProfile, SystemPiece, TurnRequest } from '../types.ts';
 import { pickSystemRole } from './system-role.ts';
 
 /**
- * Author-time system text for a role (handle or `systemByRole`).
- *
- * Routed through the guardrail policy at `trust: 'trusted'` so the exemption is
- * declared at the point it applies rather than implied by never calling the
- * sanitizer. Trusted resolves to no detection, so the text reaches the provider
- * verbatim — `req.system`, which the host assembles per turn, is handled as
- * `assembled` in `sanitizeTurnRequest` and is not exempt.
+ * Routed through the policy at `trust: 'trusted'` so the exemption is declared where it applies,
+ * not implied by skipping the sanitizer. `req.system` is `assembled` per turn and not exempt.
  */
-function systemFromProfile(profile: ModelProfile, role: string): string {
+function systemFromProfile(profile: ModelProfile, role: string): SystemPiece[] {
   if (profile.type === 'speech') {
-    return '';
+    return [];
   }
   const { systemByRole, system } = profile.identity;
-  const text = systemByRole?.[role] || system || '';
-  if (!text) {
-    return '';
+  const prompt = systemByRole?.[role] || system || '';
+  if (!prompt) {
+    return [];
   }
-  const policy = resolveGuardrailPolicy(profile.guardrails);
-  return sanitizeText(text, detectionForTrust(policy, 'trusted'));
+  const detection = detectionForTrust(resolveGuardrailPolicy(profile.guardrails), 'trusted');
+  return systemPieces(
+    mapSystemPrompt(prompt, `Profile ${profile.id} identity.system`, (text) =>
+      sanitizeText(text, detection),
+    ),
+  );
 }
 
-/** Merge profile + host turn system synchronously at resolve time. */
-function resolveTurnSystemPrompt(profile: ModelProfile, req: TurnRequest): string {
+/**
+ * Synchronous: snapshotted in `resolveTurn` before any async work. Each source
+ * keeps its own marks: a `{ private }` part in `req.system` leaves the
+ * profile's prompt as private as it was written.
+ */
+function resolveTurnSystemPrompt(profile: ModelProfile, req: TurnRequest): SystemPiece[] {
   const role = pickSystemRole(profile, req.input?.role);
-  return [systemFromProfile(profile, role), req.system].filter(Boolean).join('\n\n');
+  return joinSystemPieces([
+    systemFromProfile(profile, role),
+    req.system === undefined ? [] : systemPieces(req.system),
+  ]);
 }
 
 export { resolveTurnSystemPrompt };

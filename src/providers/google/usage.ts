@@ -1,6 +1,5 @@
-/**
- * Google usage lists shared by Interactions and Live, in the spellings the
- * wire sends (probed 23/09/2026):
+/*
+ * Google usage lists, in the spellings the wire sends (probed 23/09/2026):
  *
  * - Interactions: `input_tokens_by_modality` / `output_tokens_by_modality`,
  *   `[{ modality: 'text', tokens }]`; `grounding_tool_count`,
@@ -11,15 +10,12 @@
  * Both list only some modalities (Live listed 126 text of 144 prompt tokens;
  * an image reply listed 1,120 image of 1,378 output tokens), so the shares
  * are kept as reported and never filled to the total.
- *
- * @module
  */
 
 import { asRecord } from '../../kernel/engine/record.ts';
 import { usageCount } from '../../kernel/engine/usage.ts';
 import type { TurnGroundingCount } from '../../kernel/types.ts';
 
-/** A modality list → `{ modality: tokens }` (lower-case), or `undefined` when it reports nothing. */
 export function modalityCounts(
   raw: unknown,
   countKey: 'tokens' | 'tokenCount',
@@ -37,7 +33,6 @@ export function modalityCounts(
   return Object.keys(counts).length > 0 ? counts : undefined;
 }
 
-/** Input and output modality lists → `TurnTokens.byModality`, or `undefined`. */
 export function byModality(
   input: Record<string, number> | undefined,
   output: Record<string, number> | undefined,
@@ -46,7 +41,6 @@ export function byModality(
   return { ...(input ? { input } : {}), ...(output ? { output } : {}) };
 }
 
-/** Interactions `grounding_tool_count` → `TurnTokens.grounding`, or `undefined`. */
 export function groundingCounts(raw: unknown): TurnGroundingCount[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const counts = raw.flatMap((entry): TurnGroundingCount[] => {

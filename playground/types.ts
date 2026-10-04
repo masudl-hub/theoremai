@@ -20,6 +20,8 @@ export type PlaygroundToolSpecSeed = {
   paths: string[];
   inputJson: string;
   outputJson: string;
+  activity?: string;
+  activityPast?: string;
   stubOutputJson?: string;
   endpoint?: string;
   method?: HttpMethod;
@@ -31,6 +33,7 @@ export type PlaygroundToolSpecSeed = {
   mcpToolName?: string;
   authType?: PlaygroundAuthType;
   authSlot?: string;
+  authService?: string;
   authHeaderName?: string;
   authHeaderPrefix?: string;
   authUnauthenticated?: AuthUnauthenticatedPolicy;

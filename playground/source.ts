@@ -1,16 +1,8 @@
 /**
- * The compiled draft as a TypeScript module a host can paste into its own code:
- * `registerTool` for each custom tool, `registerStructured` for the output
- * schema, then `defineProfile` and `registerProfile`.
- *
- * Values are written as object literals by one serializer, which writes the
- * kernel's `standardEgressEnforce` as that identifier and each tool's schemas
- * as the Zod expressions `zodFromJsonSchema` would build.
- *
- * @module
+ * One serializer writes the values, and each tool's schemas as the Zod expressions
+ * `zodFromJsonSchema` would build.
  */
 
-import { standardEgressEnforce } from '../mod.ts';
 import type { CompiledPlayground } from './compile.ts';
 import type { ToolRegistration } from './registrations.ts';
 import { stubOutputFromSchema } from './stub.ts';
@@ -26,10 +18,6 @@ const INLINE_ARRAY_WIDTH = 60;
 
 function literal(value: unknown, depth: number): string {
   if (value instanceof Expr) return value.code;
-  if (value === standardEgressEnforce) return 'standardEgressEnforce';
-  if (typeof value === 'function') {
-    throw new Error('Only standardEgressEnforce can be written into playground source.');
-  }
   if (typeof value === 'string') return quoteSource(value);
   const pad = '  '.repeat(depth + 1);
   const close = '  '.repeat(depth);
@@ -67,27 +55,34 @@ function toolSource(tool: ToolRegistration): string {
   return `registerTool(${literal({ ...functionFields, ...zod, handler }, 0)});\n`;
 }
 
-/** The TypeScript module for a compiled draft. */
 export function playgroundSource(compiled: CompiledPlayground): string {
   const { profile, customTools, structured } = compiled;
-  const egress = profile.guardrails?.egress !== undefined;
   const imports = [
     'defineProfile',
     'registerProfile',
     ...(structured ? ['registerStructured'] : []),
     ...(customTools.length ? ['registerTool'] : []),
-    ...(egress ? ['standardEgressEnforce'] : []),
   ];
   const blocks = [
     [
       ...(customTools.length ? [`import { z } from 'zod';`] : []),
-      `import {\n${imports.map((name) => `  ${name},`).join('\n')}\n} from '@theoremai/agents';\n`,
+      `import {\n${
+        [...(compiled.questions ? ['type DecisionQuestion'] : []), ...imports]
+          .map((name) => `  ${name},`).join('\n')
+      }\n} from '@theoremjs/agents';\n`,
     ].join('\n'),
     ...customTools.map(toolSource),
     ...(structured
       ? [`registerStructured(${quoteSource(structured.id)}, ${literal(structured.spec, 0)});\n`]
       : []),
     `const profile = defineProfile(${literal(profile, 0)});\n\nregisterProfile(profile);\n`,
+    ...(compiled.questions
+      ? [
+        `/** What every decision asks about the state, by id. */\nconst questions = ${
+          literal(compiled.questions, 0)
+        } satisfies Record<string, DecisionQuestion>;\n`,
+      ]
+      : []),
   ];
   return blocks.join('\n');
 }

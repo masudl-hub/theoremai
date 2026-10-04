@@ -1,11 +1,5 @@
-/**
- * Observability policy resolution — profile switches become resolved defaults.
- *
- * Pure: no sinks, no file system. `policy.ts` builds the writer on top of this
- * so type consumers of the kernel never pull the JSONL sink into their graph.
- *
- * @module
- */
+// Pure, with no sinks or file system, so kernel type consumers never pull the JSONL sink into their
+// graph.
 
 import { TheoremError } from '../guardrails/error.ts';
 import type {
@@ -56,12 +50,7 @@ function clampSampleRate(value: number | undefined): number {
   return value;
 }
 
-/**
- * Apply defaults to a profile's observability block.
- *
- * Omitted block → record false (noop). Explicit `writeTo: false` → record false.
- * A writeTo target with sampleRate 0 still resolves record false at write time.
- */
+/** An omitted block or `writeTo: false` resolves `record: false`; `sampleRate` applies at write. */
 function resolveObservabilityPolicy(
   spec: ProfileObservabilitySpec | undefined,
 ): ResolvedObservabilityPolicy {

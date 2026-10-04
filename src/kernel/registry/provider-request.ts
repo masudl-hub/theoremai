@@ -1,7 +1,25 @@
-import type { ProviderCompleteRequest, ResolvedGeneration } from '../types.ts';
+import { TheoremError } from '../../guardrails/error.ts';
+import type { ToolRegistry } from '../tools/registry.ts';
+import type {
+  BuiltinToolId,
+  ProviderBuiltin,
+  ProviderCompleteRequest,
+  ResolvedGeneration,
+} from '../types.ts';
 
-/** Build the provider request projection shared by execution and tracing. */
+function providerBuiltins(tools: ToolRegistry, ids: readonly BuiltinToolId[]): ProviderBuiltin[] {
+  return ids.map((id) => {
+    const tool = tools.get(id);
+    if (tool?.type !== 'builtin') {
+      throw new TheoremError('config', `Builtin '${id}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    return { id, wire: tool.wire };
+  });
+}
+
+/** Shared by execution and tracing. */
 function providerCompleteRequest(
+  tools: ToolRegistry,
   generation: ResolvedGeneration,
   system: string,
 ): ProviderCompleteRequest {
@@ -11,12 +29,12 @@ function providerCompleteRequest(
     apiId: generation.apiId,
     previousInteractionId: isInteractions ? generation.previousInteractionId : undefined,
     store: isInteractions ? generation.store : undefined,
-    stream: isInteractions ? generation.stream : undefined,
+    stream: generation.stream,
     thinking: generation.thinking,
     summaries: generation.summaries,
     maxOutputTokens: generation.maxOutputTokens,
     temperature: generation.temperature,
-    builtins: generation.builtins,
+    builtins: providerBuiltins(tools, generation.builtins),
     googleMapsLocation: isInteractions ? generation.googleMapsLocation : undefined,
     cache: generation.cache,
     sessionId: generation.sessionId,
@@ -31,7 +49,8 @@ function providerCompleteRequest(
     live: generation.live,
     sessionResumptionHandle: generation.sessionResumptionHandle,
     keySlot: generation.keySlot,
+    fallbackKeySlot: generation.fallbackKeySlot,
   };
 }
 
-export { providerCompleteRequest };
+export { providerBuiltins, providerCompleteRequest };

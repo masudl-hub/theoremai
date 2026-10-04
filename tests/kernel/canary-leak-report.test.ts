@@ -1,11 +1,10 @@
-/**
- * A canary block ends the turn without handing the host any piece of the
- * leaked token — not the fragment that completed it, not an encoded form.
- */
 import '../fixtures/test-host.ts';
+import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
+import { runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
+import { firstOf } from '../fixtures/events.ts';
 
 function canaryOf(req: ProviderCompleteRequest): string {
   return /This turn's canary is (\S+)\./.exec(req.system ?? '')?.[1] ?? '';
@@ -41,36 +40,44 @@ Deno.test('a canary split across text fragments reaches the host in no part', as
     { type: 'text', text: `the note says ${c.slice(0, -4)}` },
     { type: 'text', text: c.slice(-4) },
   ]);
-  assertEquals(events.find((e) => e.type === 'error')?.errorInternal, 'canary leaked');
+  assertEquals(firstOf(events, 'error')?.errorInternal, 'canary leaked');
   const seen = visibleText(events);
   assertEquals(seen.includes(canary.slice(-4)), false);
   assertEquals(seen.includes(canary.slice(0, 8)), false);
 });
 
-Deno.test('a thought restating the canary is unguarded and the reply still streams', async () => {
+Deno.test('a thought restating the canary loses it, says so, and the reply still streams', async () => {
   const { events, canary } = await hostEvents((c) => [
     { type: 'thought', text: `The note says ${c.slice(0, -4)}` },
     { type: 'thought', text: `${c.slice(-4)}; keep it private.` },
     { type: 'text', text: 'Hello.' },
   ]);
   assertEquals(
-    events.some((e) => e.type === 'error' || e.type === 'guardrail'),
+    events.some((e) => e.type === 'error'),
     false,
   );
-  assertEquals(visibleText(events), `The note says ${canary}; keep it private.Hello.`);
+  const guardrail = firstOf(events, 'guardrail')?.guardrail;
+  assertEquals([guardrail?.stage, guardrail?.action], ['thought', 'redact']);
+  assertEquals(
+    guardrail?.hits?.map((hit) => hit.rule),
+    [EGRESS_RULES.canary],
+  );
+  const omitted = lexiconDefault('thought.omitted_instructions');
+  assertEquals(visibleText(events), `The note says${omitted}; keep it private.Hello.`);
+  assertEquals(visibleText(events).includes(canary.slice(0, 8)), false);
 });
 
 Deno.test('a base64-encoded canary is blocked and never shown to the host', async () => {
   const { events, canary } = await hostEvents((c) => [
     { type: 'text', text: `encoded ${btoa(c)}` },
   ]);
-  assertEquals(events.find((e) => e.type === 'error')?.errorInternal, 'canary leaked');
+  assertEquals(firstOf(events, 'error')?.errorInternal, 'canary leaked');
   assertEquals(visibleText(events).includes(btoa(canary)), false);
 });
 
 Deno.test('a canary in a non-streamed event is blocked and never shown to the host', async () => {
   const { events, canary } = await hostEvents((c) => [
-    { type: 'error', error: `failed near ${c}` },
+    { type: 'error', errorKind: 'internal', error: `failed near ${c}` },
   ]);
   assertEquals(
     events.find((e) => e.type === 'error' && e.errorInternal === 'canary leaked') !== undefined,

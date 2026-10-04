@@ -1,20 +1,12 @@
-/**
- * Pure / storage helpers for playground run handoff (no package imports).
- * Typed wrappers live in `run-payload.ts`.
- *
- * @module
- */
+/** No package imports; typed wrappers live in `run-payload.ts`. */
 
-/** Storage key root for playground run handoff. */
-export const PLAYGROUND_RUN_PAYLOAD_KEY = 'theoremai.playground.run';
+export const PLAYGROUND_RUN_PAYLOAD_KEY = 'theoremjs.playground.run';
 
-/** Prefix for per-run payload keys: `${prefix}${runId}`. */
 export const PLAYGROUND_RUN_PAYLOAD_KEY_PREFIX = `${PLAYGROUND_RUN_PAYLOAD_KEY}.`;
 
 /** Ordered index of saved run ids (newest first). */
 export const PLAYGROUND_RUN_INDEX_KEY = `${PLAYGROUND_RUN_PAYLOAD_KEY}.index`;
 
-/** Max retained run payloads in localStorage. */
 export const PLAYGROUND_RUN_PAYLOAD_CAP = 8;
 
 export type PlaygroundRunIndexEntry = {
@@ -26,12 +18,10 @@ export type PlaygroundRunIndex = {
 	entries: PlaygroundRunIndexEntry[];
 };
 
-/** Storage key for one run payload. */
 export function playgroundRunPayloadKey(runId: string): string {
 	return `${PLAYGROUND_RUN_PAYLOAD_KEY_PREFIX}${runId}`;
 }
 
-/** Create a new run id (crypto UUID when available). */
 export function createPlaygroundRunId(): string {
 	if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
 		return crypto.randomUUID();
@@ -39,7 +29,6 @@ export function createPlaygroundRunId(): string {
 	return `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** Read `?run=` from a URL string or Location. */
 export function readPlaygroundRunIdFromUrl(
 	url: string | { href: string } = typeof window !== 'undefined' ? globalThis.location : { href: '' },
 ): string | null {
@@ -54,7 +43,6 @@ export function readPlaygroundRunIdFromUrl(
 	}
 }
 
-/** Pure: merge a saved id into the index (newest first) and return ids to delete. */
 export function upsertPlaygroundRunIndex(
 	entries: readonly PlaygroundRunIndexEntry[],
 	runId: string,
@@ -97,7 +85,7 @@ function writeIndex(store: Storage, entries: PlaygroundRunIndexEntry[]): void {
 	store.setItem(PLAYGROUND_RUN_INDEX_KEY, JSON.stringify({ entries } satisfies PlaygroundRunIndex));
 }
 
-/** Persist a JSON payload for `runId`; prune oldest beyond the cap. */
+/** Prunes the oldest payloads beyond the cap. */
 export function savePlaygroundRunPayloadRecord(
 	payload: Record<string, unknown>,
 	runId: string,
@@ -124,7 +112,6 @@ export function savePlaygroundRunPayloadRecord(
 	writeIndex(store, entries);
 }
 
-/** Load a JSON payload for `runId`. */
 export function loadPlaygroundRunPayloadRecord(
 	runId: string,
 	storeOverride?: Storage | null,
@@ -142,7 +129,6 @@ export function loadPlaygroundRunPayloadRecord(
 	}
 }
 
-/** Remove one run payload and its index entry. */
 export function clearPlaygroundRunPayloadRecord(
 	runId: string,
 	storeOverride?: Storage | null,

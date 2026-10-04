@@ -3,12 +3,9 @@ import { assertEquals, assertThrows } from '@std/assert';
 import { wrapUserData } from '../../src/guardrails/canary.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
-import {
-  clearProfiles,
-  defineProfile,
-  registerProfile,
-} from '../../src/kernel/registry/profiles.ts';
-import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
+import { clearProfiles, registerProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { systemText } from '../../src/kernel/system-parts.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const PROFILE_ID = 'resolve-system.test';
@@ -34,7 +31,7 @@ Deno.test('resolveTurn snapshots profile + turn system synchronously', () => {
     system: 'HOST_TURN_SYSTEM',
     input: { text: 'hi' },
   });
-  assertEquals(generation.resolvedSystem, 'STATIC_PROFILE_SYSTEM\n\nHOST_TURN_SYSTEM');
+  assertEquals(systemText(generation.resolvedSystem), 'STATIC_PROFILE_SYSTEM\n\nHOST_TURN_SYSTEM');
 });
 
 Deno.test('resolveTurn turn-only system when profile system empty', () => {
@@ -44,7 +41,7 @@ Deno.test('resolveTurn turn-only system when profile system empty', () => {
     system: 'HOST_ONLY',
     input: { text: 'hi' },
   });
-  assertEquals(generation.resolvedSystem, 'HOST_ONLY');
+  assertEquals(systemText(generation.resolvedSystem), 'HOST_ONLY');
 });
 
 Deno.test('resolveTurn sends the continue instruction as the user message, not system', () => {
@@ -54,7 +51,7 @@ Deno.test('resolveTurn sends the continue instruction as the user message, not s
     input: { history: [{ role: 'assistant', content: 'partial' }] },
     continueFrom: { stop: { kind: 'length' } },
   });
-  assertEquals(generation.resolvedSystem, 'STATIC_PROFILE_SYSTEM');
+  assertEquals(systemText(generation.resolvedSystem), 'STATIC_PROFILE_SYSTEM');
   assertEquals(generation.input, [
     { type: 'text', text: wrapUserData(lexiconDefault('continue.instruction')) },
   ]);

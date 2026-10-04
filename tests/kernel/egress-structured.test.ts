@@ -1,15 +1,11 @@
-/**
- * Regression: the egress gate projected only `text` events, so a profile with
- * `outputs.structured` handed its policy an empty string and always passed.
- * Structured output now travels in the outbound payload.
- */
+// Regression: the egress gate projected only `text` events, so a profile with
+// `outputs.structured` handed its policy an empty string and always passed.
 import '../fixtures/test-host.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import type { Verdict } from '../../src/guardrails/types.ts';
+import { registerProfile, registerStructured, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { registerStructured } from '../../src/kernel/registry/schemas.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 

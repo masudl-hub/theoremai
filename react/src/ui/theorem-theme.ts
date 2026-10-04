@@ -1,6 +1,6 @@
 import { type DefinedTheme, defineTheme } from '@astryxdesign/core/theme';
 import { neutralTheme } from '@astryxdesign/theme-neutral/built';
-import { tablerIcons } from './icons';
+import { tablerIcons } from './icons.ts';
 
 /**
  * Default Theorem look: Astryx neutral (its radius scale, palettes, type)
@@ -34,6 +34,25 @@ export const theoremTheme: DefinedTheme = defineTheme({
 				transition:
 					'height var(--duration-medium) var(--ease-standard), padding-top var(--duration-medium) var(--ease-standard), content-visibility var(--duration-medium) allow-discrete',
 				':where([aria-expanded="false"] + *)': { height: '0', paddingTop: '0', contentVisibility: 'hidden' },
+			},
+		},
+		// A source's favicon sits bare beside its title, without the ring
+		// Astryx draws around a citation icon. Nested keys must open with a
+		// pseudo-class, so `:where(*)` (the citation itself) leads the child rules.
+		citation: {
+			base: {
+				':where(*) > [aria-hidden="true"]': { backgroundColor: 'transparent', borderWidth: '0', borderRadius: '0' },
+				':where(*) > [aria-hidden="true"] > img': { width: '100%', height: '100%' },
+			},
+		},
+		// A call row's name is code type and its target or error note is body type;
+		// centered, their different metrics sit their text on different lines.
+		// Share a baseline instead (the status icon and chevron stay centered).
+		'chat-tool-calls': {
+			base: {
+				':where(*) [role="button"][aria-expanded] > span:not(:first-child):not(:has(svg))': {
+					alignSelf: 'baseline',
+				},
 			},
 		},
 		// Side panels (SidePanel's LayoutPanels) slide open and closed by easing

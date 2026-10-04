@@ -1,11 +1,3 @@
-/**
- * Optional Deno HTTP reply helpers for host applications.
- *
- * Not part of the turn kernel. Prefer importing from `@theoremai/agents/host`.
- *
- * @module
- */
-
 import { type ErrorKind, errorKind } from '../guardrails/error.ts';
 
 const HTTP_OK = 200;
@@ -13,7 +5,6 @@ const HTTP_NOT_FOUND = 404;
 const HTTP_METHOD = 405;
 const HTTP_BUSY = 429;
 
-/** The HTTP status a host replies with for each error kind. */
 const STATUS_BY_KIND: Readonly<Record<ErrorKind, number>> = {
   config: 500,
   request: 400,
@@ -42,7 +33,6 @@ function json(status: number, body: unknown, cors: Record<string, string>): Resp
   });
 }
 
-/** The HTTP status for a caught error, by its kind. */
 function caughtStatus(err: unknown): number {
   return STATUS_BY_KIND[errorKind(err)];
 }

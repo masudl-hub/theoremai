@@ -1,7 +1,7 @@
 # OpenTelemetry-shaped turn traces — proposed specification
 
 **Status:** decisions locked 22/09/2026. Steps 1 (usage), 2 (spans + v3 record, including Live), 3 (retention), 4 (OTLP) and 5 (CLI/docs, Theorem side) implemented 23/09/2026; the theoremai-frontend copy awaits approval; step 6 not yet. The shipped contract is [observability.md](../contracts/observability.md).
-**Version:** ships within `@theoremai/agents` 2.x (decided 22/09/2026). The `TraceRecord` shape changes, so every reader updates in the same change.
+**Version:** ships within `@theoremjs/agents` 2.x (decided 22/09/2026). The `TraceRecord` shape changes, so every reader updates in the same change.
 **Worked example (step-2 target, approved 23/09/2026; `gen_ai.*` names kept wherever semconv defines the exact meaning, `theorem.*` otherwise):** [otel-turn-traces-example.md](./otel-turn-traces-example.md) — the v3 record drawn across a 12-exchange conversation.
 
 ## Goal
@@ -191,7 +191,7 @@ Each assumption was checked against a primary source (live provider calls, the s
 
 ## Host spans (from decisions 4 and 5)
 
-Theorem exports the span builder the kernel itself uses (`@theoremai/agents/observability`), so hosts write the same shape:
+Theorem exports the span builder the kernel itself uses (`@theoremjs/agents/observability`), so hosts write the same shape:
 
 ```ts
 const tree = startTrace('bonsai.turn', { traceparent });            // host root
@@ -208,7 +208,7 @@ Bonsai consumers added:
 - `agent-turn-trace.ts`: `AgentTurnTraceCollector` is replaced by the builder.
 - `run-host-turn.ts`, `load-host-turn-context.ts`, `assemble-host-turn-prompt.ts`, `run-orchestrator-generation.ts`, `handle-agent-turn-policy.ts`, `context/load-live-context.ts`, `paths/web/handler/path-web-authed-turn.ts`: callers move to the builder.
 - `theorem-turn-observability.ts`: the round and tool timing inference is deleted, because the kernel spans replace it.
-- **Frontend:** `frontend/src/lib/agent-turn-timing.ts` (+ test, `web-chat-reply.ts`, `use-web-chat-send.ts`, `use-web-message-actions.ts`) keeps a hand-copied mirror of the backend span and usage types that `done.timing` carries. The hand-copied types are deleted. The frontend imports the span type from `@theoremai/agents/observability`, as it already does for `TurnEvent` from `@theoremai/agents/kernel`.
+- **Frontend:** `frontend/src/lib/agent-turn-timing.ts` (+ test, `web-chat-reply.ts`, `use-web-chat-send.ts`, `use-web-message-actions.ts`) keeps a hand-copied mirror of the backend span and usage types that `done.timing` carries. The hand-copied types are deleted. The frontend imports the span type from `@theoremjs/agents/observability`, as it already does for `TurnEvent` from `@theoremjs/agents/kernel`.
 
 ## Live sessions (from decision 6)
 
@@ -256,7 +256,7 @@ estimator.messages(history);                    // what compaction uses today
 ## Decisions (locked 22/09/2026, round 2)
 
 - **A. Collector.** Theorem ships only `toOtlpJson` (no encoder dependency). Getting data into a viewer goes through the standard OpenTelemetry Collector (OTLP/JSON in, protobuf out). Theorem documents a reference Collector config. The host owns running it: for Bonsai that's local dev tooling in the Bonsai repo, not Theorem.
-- **B. Viewer attributes.** A separate, optional exporter module (`@theoremai/agents/observability/openinference`) adds OpenInference `llm.cost.*` and reasoning-token attributes. The kernel and `toOtlpJson` stay viewer-neutral. Hosts that don't use Phoenix never load it.
+- **B. Viewer attributes.** A separate, optional exporter module (`@theoremjs/agents/observability/openinference`) adds OpenInference `llm.cost.*` and reasoning-token attributes. The kernel and `toOtlpJson` stay viewer-neutral. Hosts that don't use Phoenix never load it.
 - **C. Google counts.** Verified (P3).
 
 ## Other hosts (Theorem is not Bonsai)
@@ -322,7 +322,7 @@ Every Theorem-side item was re-read for Bonsai assumptions:
 
 **Build order:** 1 usage (done) → continuation input → usage sum → CLI label → probe fixture → Live / grounding probes → 2 spans + v3 record → 3 retention → 4 OTLP → 5 CLI/docs → 6 Bonsai. Nothing ships until every step is done.
 
-- **R4-1. `trace-span.ts`** (done): wired in by step 2 and exported from `@theoremai/agents/observability`; the dead-code gate is green.
+- **R4-1. `trace-span.ts`** (done): wired in by step 2 and exported from `@theoremjs/agents/observability`; the dead-code gate is green.
 - **R4-2. Gate order (done).** `check:ci` runs `verify:publish` before `lint:fallow`: fallow writes `coverage/`, which the publish check rejects on purpose. CI is unaffected (separate jobs).
 - **R4-3. Usage sum (done; exported as `sumTokens`).** One function sums `TurnTokens` across calls. It is used by the trace record, the CLI total, and later the `invoke_agent` span. Counts add up. A side is estimated if any call estimated it. `unknownMedia` adds up per side. Cost: summed over the calls that reported it, and marked `partial` when some calls did and others did not. When no call reported a cost, the cost is absent (unknown). `upstreamUsd` sums where present; OpenRouter reports it only for BYOK, so absence is not missing data.
 - **R4-4. Continuation input (done).** `interactionOnlyInput` (raw Interactions steps built by the runner) is replaced by kernel messages that the Google provider maps with `historySteps`. The wire does not change; the public request type does. The runner stops building provider wire. This is a step-2 prerequisite, because chat spans record what each call sent in kernel terms.
@@ -383,11 +383,11 @@ Found and fixed while wiring it:
 
 ## Step 4 (done 23/09/2026)
 
-- **`toOtlpJson(records)`** (`src/observability/otlp.ts`): one `resourceSpans` per record, one scope `@theoremai/agents` with the record's `schemaUrl`, OTLP enum numbers, hex ids, `intValue` as a decimal string, `null` left out. No encoder dependency (decision A); the contract doc carries a reference Collector config (OTLP/JSON in, protobuf out) that the host runs.
+- **`toOtlpJson(records)`** (`src/observability/otlp.ts`): one `resourceSpans` per record, one scope `@theoremjs/agents` with the record's `schemaUrl`, OTLP enum numbers, hex ids, `intValue` as a decimal string, `null` left out. No encoder dependency (decision A); the contract doc carries a reference Collector config (OTLP/JSON in, protobuf out) that the host runs.
 - **References name their kind.** `$json` values were referenced as `content_sha256`, the same key as text, so a reader could not tell stored JSON from text that happens to be JSON. They are now `{ json_sha256 }`; text stays `{ content_sha256 }`; a blob's `content_sha256` sits beside `bytes` and is not in `content`. The worked example changed with it.
 - **`inlineContent(record, value)`** rebuilds any value from its references; `toOtlpJson` and the CLI's `--verbose` rows use it, so a viewer reads standard semconv messages.
 - **Not exported to OTLP:** `metadata` (host-owned; no OTLP slot) and blob bytes (never stored).
-- **`@theoremai/agents/observability/openinference`** (decision B): `withOpenInference(records)` adds `llm.token_count.completion_details.reasoning` and `llm.cost.total` to model-call spans only (an agent's usage is already their sum), and never writes a partial cost as a total. Names checked against the OpenInference spec; Phoenix's GenAI conversion merges beside them without skipping (read in its source, not run).
+- **`@theoremjs/agents/observability/openinference`** (decision B): `withOpenInference(records)` adds `llm.token_count.completion_details.reasoning` and `llm.cost.total` to model-call spans only (an agent's usage is already their sum), and never writes a partial cost as a total. Names checked against the OpenInference spec; Phoenix's GenAI conversion merges beside them without skipping (read in its source, not run).
 - **Not yet verified by a run:** ingest into a Collector or Phoenix. Needs approval to start one.
 
 ## Step 5 (done 23/09/2026, Theorem side)

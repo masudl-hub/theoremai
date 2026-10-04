@@ -1,9 +1,3 @@
-/**
- * Resolve which `systemByRole` key (or handle) applies for a turn.
- *
- * @module
- */
-
 import type { ModelProfile } from '../types.ts';
 
 function pickSystemRole(profile: ModelProfile, requested?: string): string {

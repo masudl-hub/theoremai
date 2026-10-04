@@ -14,12 +14,12 @@ import { stubCompleteRequest } from '../../../fixtures/provider-request.ts';
 
 Deno.test('openGoogleLiveSession rejects when API key is missing', async () => {
   const transport: GeminiTransport = {
-    vault: { slotA: undefined, slotB: undefined, slotC: undefined, paid: undefined },
+    vault: { main: undefined },
   };
   const req = stubCompleteRequest({
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
-    keySlot: 'slotA',
+    keySlot: 'main',
   });
 
   await assertRejects(() => openGoogleLiveSession(req, transport), TheoremError);
@@ -27,7 +27,7 @@ Deno.test('openGoogleLiveSession rejects when API key is missing', async () => {
 
 Deno.test('openGoogleLiveSession rejects when pre-aborted', async () => {
   const transport: GeminiTransport = {
-    vault: { slotA: 'valid-mock-key', slotB: undefined, slotC: undefined, paid: undefined },
+    vault: { main: 'valid-mock-key' },
   };
   const controller = new AbortController();
   controller.abort();
@@ -35,7 +35,7 @@ Deno.test('openGoogleLiveSession rejects when pre-aborted', async () => {
   const req = stubCompleteRequest({
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
-    keySlot: 'slotA',
+    keySlot: 'main',
     signal: controller.signal,
   });
 
@@ -158,7 +158,7 @@ function liveRequest() {
   return stubCompleteRequest({
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
-    keySlot: 'slotA',
+    keySlot: 'main',
   });
 }
 
@@ -197,6 +197,16 @@ Deno.test('Live closes that name a quota are rate_limit, whatever their code', a
   ws.onclose?.({ code: 1011, reason });
   const item = await queue.next();
   assertEquals(item?.type === 'closed' ? item.error?.kind : 'not closed', 'rate_limit');
+});
+
+Deno.test('Live closes that name a refused key are auth, not unsupported', async () => {
+  const reason = 'API key not valid. Please pass a valid API key.';
+  assertEquals((await setupFailure((ws) => ws.onclose?.({ code: 1007, reason }))).kind, 'auth');
+  // A 1007 for anything else is still what its code says.
+  assertEquals(
+    (await setupFailure((ws) => ws.onclose?.({ code: 1007, reason: 'Invalid frame' }))).kind,
+    'unsupported',
+  );
 });
 
 Deno.test('Live setup: a socket error is network, an error frame is its status kind', async () => {

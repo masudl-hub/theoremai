@@ -1,29 +1,25 @@
 import '../../fixtures/test-host.ts';
 import { TheoremError } from '../../../src/guardrails/error.ts';
+import { getProfile, registerProfile, resolveTurn } from '../../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
-import {
-  defineProfile,
-  getProfile,
-  registerProfile,
-} from '../../../src/kernel/registry/profiles.ts';
-import { requireModelProfile, resolveTurn } from '../../../src/kernel/registry/resolve.ts';
+import { defineProfile } from '../../../src/kernel/registry/profiles.ts';
+import { requireModelProfile } from '../../../src/kernel/registry/resolve.ts';
 import type { KeyVault } from '../../../src/kernel/types.ts';
 import {
   backoffMs,
-  canOverflow,
   fetchGemini,
   isTransientHttp,
   isTransientThrown,
-  requireKey,
   waitDefault,
   withApiKey,
 } from '../../../src/providers/google/keys.ts';
+import { fallbackKey, requireKey } from '../../../src/providers/shared/vault.ts';
 
 const vault: KeyVault = {
-  slotA: 'free-a-key',
-  slotB: 'free-b-key',
-  slotC: 'free-c-key',
-  paid: 'paid-key',
+  slot_a: 'free-a-key',
+  slot_b: 'free-b-key',
+  slot_c: 'free-c-key',
+  spare: 'spare-key',
 };
 
 const HTTP_OK = 200;
@@ -38,7 +34,7 @@ function headerApiKey(init?: RequestInit): string {
 }
 
 function responseForKey(key: string): Response {
-  if (key === 'paid-key') {
+  if (key === 'spare-key') {
     return new Response('body', { status: HTTP_OK });
   }
   return new Response('body', { status: HTTP_QUOTA });
@@ -77,23 +73,23 @@ withBuiltins('selector_smart_maps', 'selector', ['googleMaps'], 'gemini31ProPrev
 withBuiltins('chat_url', 'chat', ['urlContext']);
 
 Deno.test('host profiles default to their configured key slots', () => {
-  assertEquals(resolveTurn({ profile: 'chat', input: { text: 'x' } }).generation.keySlot, 'slotA');
-  assertEquals(resolveTurn({ profile: 'pinned', input: {} }).generation.keySlot, 'slotA');
+  assertEquals(resolveTurn({ profile: 'chat', input: { text: 'x' } }).generation.keySlot, 'slot_a');
+  assertEquals(resolveTurn({ profile: 'pinned', input: {} }).generation.keySlot, 'slot_a');
   assertEquals(
     resolveTurn({ profile: 'formatter', input: { text: 'x' } }).generation.keySlot,
-    'slotC',
+    'slot_c',
   );
   assertEquals(
     resolveTurn({ profile: 'selector', model: 'gemini35FlashLite', input: { text: 'x' } })
       .generation.keySlot,
-    'slotB',
+    'slot_b',
   );
 });
 
-Deno.test('image model uses the paid Gemini key', () => {
+Deno.test('the image model uses the slot it pins', () => {
   assertEquals(
     resolveTurn({ profile: 'image', input: { text: 'fox' } }).generation.keySlot,
-    'paid',
+    'slot_b',
   );
 });
 
@@ -104,17 +100,17 @@ Deno.test('pro preview without search or maps stays on the configured key slot',
     input: { text: 'x' },
   });
   assertEquals(generation.model, 'gemini31ProPreview');
-  assertEquals(generation.keySlot, 'slotB');
+  assertEquals(generation.keySlot, 'slot_b');
 });
 
-Deno.test('search forces the paid key when listed on the model', () => {
+Deno.test('search stays on the profile key; no tool picks a key on its own', () => {
   assertEquals(
     resolveTurn({ profile: 'chat_search', input: { text: 'x' } }).generation.keySlot,
-    'paid',
+    'slot_a',
   );
   assertEquals(
     resolveTurn({ profile: 'formatter_search', input: { text: 'x' } }).generation.keySlot,
-    'paid',
+    'slot_c',
   );
   assertEquals(
     resolveTurn({
@@ -122,14 +118,14 @@ Deno.test('search forces the paid key when listed on the model', () => {
       model: 'gemini35FlashLite',
       input: { text: 'x' },
     }).generation.keySlot,
-    'paid',
+    'slot_b',
   );
 });
 
-Deno.test('maps uses profile key slot unless model pins paid or builtin forces paid', () => {
+Deno.test('maps uses the profile key slot', () => {
   assertEquals(
     resolveTurn({ profile: 'chat_maps', input: { text: 'x' } }).generation.keySlot,
-    'slotA',
+    'slot_a',
   );
   assertEquals(
     resolveTurn({
@@ -137,7 +133,7 @@ Deno.test('maps uses profile key slot unless model pins paid or builtin forces p
       model: 'gemini35FlashLite',
       input: { text: 'x' },
     }).generation.keySlot,
-    'slotB',
+    'slot_b',
   );
   assertEquals(
     resolveTurn({
@@ -145,37 +141,66 @@ Deno.test('maps uses profile key slot unless model pins paid or builtin forces p
       model: 'gemini31ProPreview',
       input: { text: 'x' },
     }).generation.keySlot,
-    'slotB',
+    'slot_b',
   );
 });
 
-Deno.test('url context does not force paid', () => {
+Deno.test('url context uses the profile key slot', () => {
   assertEquals(
     resolveTurn({ profile: 'chat_url', input: { text: 'x' } }).generation.keySlot,
-    'slotA',
+    'slot_a',
   );
 });
 
-Deno.test('fetchGemini never starts on paid for a key slot that is not 429', async () => {
+Deno.test('fetchGemini never uses the fallback when the key answers', async () => {
   const used: string[] = [];
-  const res = await fetchGemini('https://example.com/v1', { method: 'POST', body: '{}' }, 'slotB', {
-    vault,
-    wait: noWait,
-    fetch: (_url, init) => {
-      used.push(headerApiKey(init));
-      return Promise.resolve(new Response('ok', { status: HTTP_OK }));
+  const res = await fetchGemini(
+    'https://example.com/v1',
+    { method: 'POST', body: '{}' },
+    'slot_b',
+    {
+      vault,
+      wait: noWait,
+      fetch: (_url, init) => {
+        used.push(headerApiKey(init));
+        return Promise.resolve(new Response('ok', { status: HTTP_OK }));
+      },
     },
-  });
+    undefined,
+    'spare',
+  );
   assertEquals(res.status, HTTP_OK);
   assertEquals(used, ['free-b-key']);
 });
 
-Deno.test('fetchGemini overflows to paid after 429 backoff, not before', async () => {
+Deno.test('fetchGemini retries on the fallback slot after 429 backoff, not before', async () => {
   const used: string[] = [];
   const res = await fetchGemini(
     'https://example.com/v1?key=strip-me',
     { method: 'POST', body: '{}' },
-    'slotA',
+    'slot_a',
+    {
+      vault,
+      wait: noWait,
+      fetch: (_url, init) => {
+        const key = headerApiKey(init);
+        used.push(key);
+        return Promise.resolve(responseForKey(key));
+      },
+    },
+    undefined,
+    'spare',
+  );
+  assertEquals(res.status, HTTP_OK);
+  assertEquals(used, ['free-a-key', 'free-a-key', 'free-a-key', 'spare-key']);
+});
+
+Deno.test('fetchGemini without a fallback slot returns the quota refusal', async () => {
+  const used: string[] = [];
+  const res = await fetchGemini(
+    'https://example.com/v1',
+    { method: 'POST', body: '{}' },
+    'slot_a',
     {
       vault,
       wait: noWait,
@@ -186,15 +211,15 @@ Deno.test('fetchGemini overflows to paid after 429 backoff, not before', async (
       },
     },
   );
-  assertEquals(res.status, HTTP_OK);
-  assertEquals(used, ['free-a-key', 'free-a-key', 'free-a-key', 'paid-key']);
+  assertEquals(res.status, HTTP_QUOTA);
+  assertEquals(used, ['free-a-key', 'free-a-key', 'free-a-key']);
 });
 
-Deno.test('missing free key throws before any fetch', async () => {
+Deno.test('a slot the vault lacks throws before any fetch', async () => {
   let threw = false;
   try {
-    await fetchGemini('https://example.com/v1', {}, 'slotC', {
-      vault: { ...vault, slotC: undefined },
+    await fetchGemini('https://example.com/v1', {}, 'missing', {
+      vault: { ...vault },
       wait: noWait,
       fetch: () => {
         throw new Error('must not fetch');
@@ -208,7 +233,7 @@ Deno.test('missing free key throws before any fetch', async () => {
 
 Deno.test('fetchGemini retries on transient network errors before succeeding', async () => {
   let attempts = 0;
-  const res = await fetchGemini('https://example.com/v1/ping', { method: 'GET' }, 'slotA', {
+  const res = await fetchGemini('https://example.com/v1/ping', { method: 'GET' }, 'slot_a', {
     vault,
     wait: noWait,
     fetch: () => {
@@ -228,18 +253,19 @@ Deno.test('fetchGemini tapes every try under the slot it was sent with', async (
   await fetchGemini(
     'https://example.com/v1?key=strip-me',
     { method: 'POST', body: '{"model":"m"}' },
-    'slotA',
+    'slot_a',
     {
       vault,
       wait: noWait,
       fetch: (_url, init) => Promise.resolve(responseForKey(headerApiKey(init))),
     },
     (row) => rows.push(row),
+    'spare',
   );
   const requests = rows.filter((row) => row.eventType === 'http_request');
   assertEquals(
     requests.map((row) => row.keySlot),
-    ['slotA', 'slotA', 'slotA', 'paid'],
+    ['slot_a', 'slot_a', 'slot_a', 'spare'],
   );
   assertEquals(requests[0]?.url, 'https://example.com/v1');
   assertEquals(requests[0]?.body, { model: 'm' });
@@ -289,11 +315,11 @@ Deno.test('backoffMs follows the configured schedule and falls back after it', (
   assertEquals(backoffMs(10), 2000);
 });
 
-Deno.test('canOverflow only offers the paid key for a distinct key slot', () => {
-  assertEquals(canOverflow('paid', vault, vault.paid ?? ''), undefined);
-  assertEquals(canOverflow('slotA', { ...vault, paid: undefined }, 'free-a-key'), undefined);
-  assertEquals(canOverflow('slotA', vault, 'paid-key'), undefined);
-  assertEquals(canOverflow('slotA', vault, 'free-a-key'), 'paid-key');
+Deno.test('fallbackKey offers only a named, filled, different key', () => {
+  assertEquals(fallbackKey(undefined, vault, 'free-a-key'), undefined);
+  assertEquals(fallbackKey('spare', { ...vault, spare: undefined }, 'free-a-key'), undefined);
+  assertEquals(fallbackKey('spare', vault, 'spare-key'), undefined);
+  assertEquals(fallbackKey('spare', vault, 'free-a-key'), { slot: 'spare', key: 'spare-key' });
 });
 
 Deno.test('withApiKey sets the api key header and Content-Type for non-GET requests', () => {
@@ -325,7 +351,7 @@ Deno.test('withApiKey defaults to GET behavior when no method is given', () => {
 Deno.test('requireKey throws TheoremError when the slot has no key', () => {
   let threw = false;
   try {
-    requireKey({ ...vault, slotA: undefined }, 'slotA');
+    requireKey({ ...vault, slot_a: undefined }, 'slot_a');
   } catch (err) {
     threw = err instanceof TheoremError && err.kind === 'auth';
   }
@@ -333,7 +359,7 @@ Deno.test('requireKey throws TheoremError when the slot has no key', () => {
 });
 
 Deno.test('requireKey returns the key when present', () => {
-  assertEquals(requireKey(vault, 'slotA'), 'free-a-key');
+  assertEquals(requireKey(vault, 'slot_a'), 'free-a-key');
 });
 
 Deno.test('waitDefault returns a promise', () => {

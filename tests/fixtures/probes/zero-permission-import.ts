@@ -1,11 +1,4 @@
-/**
- * Probe: import the kernel and construct createProvider with zero ambient
- * authority. Spawned by `tests/kernel/zero-permission-import.test.ts` under
- * `deno run` with every permission denied (`--deny-read` … `--deny-sys`).
- *
- * Deno loads the static module graph without consulting the permission system;
- * this probe asserts construction itself performs no env/net/fs/run/ffi/sys I/O.
- */
+// Spawned by tests/kernel/zero-permission-import.test.ts under `deno run` with every permission denied.
 import { createProvider, defineProfile } from '../../../mod.ts';
 
 const profile = defineProfile({

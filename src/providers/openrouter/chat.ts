@@ -1,17 +1,8 @@
-/**
- * OpenRouter provider adapter powered by Vercel AI SDK Core.
- *
- * THEOREM keeps the public `ModelProvider` and `TurnEvent` contract; AI SDK
- * owns the OpenRouter call, stream parsing, provider compatibility, and tool
- * call normalization. Message assembly delegates to `openai/sdk-messages.ts`.
- *
- * @module
- */
-
 import { createOpenRouter, type OpenRouterChatSettings } from '@openrouter/ai-sdk-provider';
 import {
   AISDKError,
   APICallError,
+  generateText,
   jsonSchema,
   type LanguageModelUsage,
   type ModelMessage,
@@ -31,19 +22,23 @@ import {
 import { asRecord } from '../../kernel/engine/record.ts';
 import { reportedTokens, usageCount } from '../../kernel/engine/usage.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
-import { requireBuiltinWire } from '../../kernel/tools/registry.ts';
 import type {
   ModelProvider,
   ProviderCompleteRequest,
-  TurnEvent,
+  ProviderEvent,
+  Source,
+  TurnEventOf,
   TurnResponse,
   TurnTokens,
   WireFunctionTool,
 } from '../../kernel/types.ts';
+import { builtinWire } from '../shared/builtin-wire.ts';
 import { foldResponse } from '../shared/response-identity.ts';
 import { structuredEvent } from '../shared/structured-output.ts';
-import { networkError, tapFetch } from '../shared/upstream-tap.ts';
-import type { OpenAiGatewayConfig } from '../types.ts';
+import { malformedToolCall, toolCallEvents } from '../shared/tool-args.ts';
+import { networkError } from '../shared/upstream-tap.ts';
+import { bearerFetch } from '../shared/vault.ts';
+import type { OpenAiGatewayTransport } from '../types.ts';
 import { cacheControlJson } from './cache-control.ts';
 import { openAiGatewayHeaders, resolveResponseFormat } from './openai/compat.ts';
 import { buildAiSdkMessages } from './openai/sdk-messages.ts';
@@ -52,12 +47,14 @@ import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
 
 export interface StreamAccumulator {
   text: string;
-  evidenceSeen: boolean;
+  /** URIs this call has cited: a source cites once, whichever channel names it first. */
+  citedUris: Set<string>;
+  /** Other annotations reported, by their JSON: raw rows and the SDK's metadata repeat them. */
+  reportedAnnotations: Set<string>;
   emittedTokens: boolean;
   errored: boolean;
   finishReason?: string | null;
   nativeFinishReason?: string | null;
-  /** Response identity the raw rows named so far (`id`, `model`). */
   response?: TurnResponse;
 }
 
@@ -87,35 +84,39 @@ export function trimApiKey(explicitKey?: string): string | undefined {
 export function createAccumulator(): StreamAccumulator {
   return {
     text: '',
-    evidenceSeen: false,
+    citedUris: new Set(),
+    reportedAnnotations: new Set(),
     emittedTokens: false,
     errored: false,
   };
 }
 
-export function sourceEvent(part: {
-  sourceType?: string;
-  title?: string | null;
-  url?: string;
-}): TurnEvent {
-  if (part.sourceType !== 'url') {
-    return {
-      type: 'evidence',
-      evidence: {
-        provider: 'openrouter',
-        raw: part as Record<string, unknown>,
-      },
-    };
+export type SourcePart = Extract<TextStreamPart<ToolSet>, { type: 'source' }>;
+
+function webSource(uri: string, title?: string | null): Source {
+  return { title: title || uri, uri, type: 'web' };
+}
+
+function citationEvent(
+  sources: readonly Source[],
+  acc: StreamAccumulator,
+): TurnEventOf<'citation'> | undefined {
+  const fresh: Source[] = [];
+  for (const source of sources) {
+    if (acc.citedUris.has(source.uri)) continue;
+    acc.citedUris.add(source.uri);
+    fresh.push(source);
   }
-  const title = part.title ?? part.url ?? '';
+  return fresh.length > 0 ? { type: 'citation', sources: fresh } : undefined;
+}
+
+export function sourceEvent(part: SourcePart, acc: StreamAccumulator): ProviderEvent | undefined {
+  if (part.sourceType === 'url') {
+    return citationEvent([webSource(part.url, part.title)], acc);
+  }
   return {
     type: 'evidence',
-    evidence: {
-      provider: 'openrouter',
-      raw: part as Record<string, unknown>,
-      citations: part.url ? [part.url] : [],
-      sources: part.url ? [{ title, uri: part.url, type: 'web' as const }] : [],
-    },
+    evidence: { provider: 'openrouter', kind: 'provider_step', step: 'source', raw: { ...part } },
   };
 }
 
@@ -137,12 +138,12 @@ export function buildTools(wireTools?: WireFunctionTool[]): ToolSet | undefined 
   return tools;
 }
 
-/** Builtins as OpenRouter wires them: `web` is `web_search_options`, every other wire a plugin. */
+/** `web` wires as `web_search_options`; every other builtin is a plugin. */
 function openRouterSettings(req: ProviderCompleteRequest): OpenRouterChatSettings | undefined {
   let webSearch = false;
   const plugins: Array<{ id: string }> = [];
-  for (const id of req.builtins) {
-    const pluginId = requireBuiltinWire(id, 'openRouter');
+  for (const builtin of req.builtins) {
+    const pluginId = builtinWire(builtin, 'openRouter');
     if (pluginId === 'web') webSearch = true;
     else plugins.push({ id: pluginId });
   }
@@ -157,10 +158,7 @@ function openRouterSettings(req: ProviderCompleteRequest): OpenRouterChatSetting
   return settings;
 }
 
-/**
- * AI SDK `totalUsage` → `TurnTokens`. Used only when the raw OpenRouter stream
- * carried no `usage` row (`rawEvents` reads that one first, with cost).
- */
+/** Only when the raw stream carried no `usage` row; `rawEvents` reads that one first, with cost. */
 export function tokensFromUsage(usage: LanguageModelUsage): TurnTokens | undefined {
   return reportedTokens({
     input: usageCount(usage.inputTokens),
@@ -169,13 +167,6 @@ export function tokensFromUsage(usage: LanguageModelUsage): TurnTokens | undefin
     cached: usageCount(usage.inputTokenDetails?.cacheReadTokens),
     cacheWrite: usageCount(usage.inputTokenDetails?.cacheWriteTokens),
   });
-}
-
-export function rawRecord(value: unknown): Record<string, unknown> | undefined {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return undefined;
 }
 
 export function stringArray(value: unknown): string[] | undefined {
@@ -190,7 +181,7 @@ export function metadataRecord(
   raw: Record<string, unknown>,
   key: string,
 ): Record<string, unknown> | undefined {
-  return rawRecord(raw[key]);
+  return asRecord(raw[key]);
 }
 
 export function citationCandidates(raw: Record<string, unknown>): unknown[] {
@@ -226,47 +217,61 @@ export function metadataAnnotations(raw: Record<string, unknown>): unknown[] | u
   return undefined;
 }
 
-export function evidenceFromMetadata(
-  metadata: unknown,
-  acc: StreamAccumulator,
-): TurnEvent | undefined {
-  const raw = rawRecord(metadata);
-  if (!raw || acc.evidenceSeen) {
+function annotationSource(annotation: unknown): Source | undefined {
+  const record = asRecord(annotation);
+  const cited = asRecord(record?.url_citation);
+  if (record?.type !== 'url_citation' || typeof cited?.url !== 'string') {
     return undefined;
   }
-  const citations = nestedCitations(raw);
-  const annotations = metadataAnnotations(raw);
-  if (!citations && !annotations) {
-    return undefined;
-  }
-  acc.evidenceSeen = true;
-  return {
-    type: 'evidence',
-    evidence: { provider: 'openrouter', raw, citations, annotations },
-  };
+  return webSource(cited.url, typeof cited.title === 'string' ? cited.title : undefined);
 }
 
-export function toolArguments(input: unknown): Record<string, unknown> | undefined {
-  if (input && typeof input === 'object' && !Array.isArray(input)) {
-    return input as Record<string, unknown>;
+/** Each citation or annotation reports once per call, however many rows repeat it. */
+export function eventsFromMetadata(metadata: unknown, acc: StreamAccumulator): ProviderEvent[] {
+  const raw = asRecord(metadata);
+  if (!raw) {
+    return [];
   }
-  if (input === undefined) {
-    return undefined;
+  const annotations = metadataAnnotations(raw) ?? [];
+  const sources = (nestedCitations(raw) ?? []).map((uri) => webSource(uri));
+  const other: unknown[] = [];
+  for (const annotation of annotations) {
+    const source = annotationSource(annotation);
+    if (source) {
+      sources.push(source);
+      continue;
+    }
+    const key = String(JSON.stringify(annotation));
+    if (acc.reportedAnnotations.has(key)) continue;
+    acc.reportedAnnotations.add(key);
+    other.push(annotation);
   }
-  return { value: input };
+  const events: ProviderEvent[] = [];
+  const citation = citationEvent(sources, acc);
+  if (citation) {
+    events.push(citation);
+  }
+  if (other.length > 0) {
+    events.push({
+      type: 'evidence',
+      evidence: {
+        provider: 'openrouter',
+        kind: 'provider_step',
+        step: 'annotations',
+        raw: { annotations: other },
+      },
+    });
+  }
+  return events;
 }
 
-export function toolResultData(output: unknown): Record<string, unknown> | undefined {
-  return rawRecord(output);
-}
-
-export function rawThoughtEvent(raw: Record<string, unknown>): TurnEvent | undefined {
+export function rawThoughtEvent(raw: Record<string, unknown>): ProviderEvent | undefined {
   const choices = raw.choices;
   if (!Array.isArray(choices)) {
     return undefined;
   }
   for (const choice of choices) {
-    const delta = rawRecord(rawRecord(choice)?.delta);
+    const delta = asRecord(asRecord(choice)?.delta);
     if (typeof delta?.thinking === 'string') {
       return { type: 'thought', text: delta.thinking };
     }
@@ -274,47 +279,27 @@ export function rawThoughtEvent(raw: Record<string, unknown>): TurnEvent | undef
   return undefined;
 }
 
-export function rawChoiceMessageEvidence(
+export function rawChoiceMessageEvents(
   raw: Record<string, unknown>,
   acc: StreamAccumulator,
-): TurnEvent | undefined {
-  const choices = raw.choices;
-  if (!Array.isArray(choices)) {
-    return undefined;
-  }
-  for (const choice of choices) {
-    const message = rawRecord(rawRecord(choice)?.message);
-    if (!message) {
-      continue;
-    }
-    const evidence = evidenceFromMetadata(message, acc);
-    if (evidence) {
-      return evidence;
-    }
-  }
-  return undefined;
+): ProviderEvent[] {
+  const choices = Array.isArray(raw.choices) ? raw.choices : [];
+  return choices.flatMap((choice) => eventsFromMetadata(asRecord(choice)?.message, acc));
 }
 
-export function rawEvents(raw: unknown, acc: StreamAccumulator): TurnEvent[] {
-  const record = rawRecord(raw);
+export function rawEvents(raw: unknown, acc: StreamAccumulator): ProviderEvent[] {
+  const record = asRecord(raw);
   if (!record) {
     return [];
   }
   const identity = foldResponse(acc.response, openAiResponse(record));
   acc.response = identity.known;
-  const events: TurnEvent[] = identity.event ? [identity.event] : [];
+  const events: ProviderEvent[] = identity.event ? [identity.event] : [];
   const thought = rawThoughtEvent(record);
   if (thought) {
     events.push(thought);
   }
-  const evidence = evidenceFromMetadata(record, acc);
-  if (evidence) {
-    events.push(evidence);
-  }
-  const messageEvidence = rawChoiceMessageEvidence(record, acc);
-  if (messageEvidence) {
-    events.push(messageEvidence);
-  }
+  events.push(...eventsFromMetadata(record, acc), ...rawChoiceMessageEvents(record, acc));
   if (!acc.emittedTokens) {
     const usage = openAiUsageTokens(record.usage);
     if (usage) {
@@ -324,109 +309,80 @@ export function rawEvents(raw: unknown, acc: StreamAccumulator): TurnEvent[] {
   }
   const choices = Array.isArray(record.choices) ? record.choices : [];
   for (const choice of choices) {
-    const row = rawRecord(choice);
+    const row = asRecord(choice);
     if (!row) continue;
     if (typeof row.finish_reason === 'string' || row.finish_reason === null) {
-      acc.finishReason = row.finish_reason as string | null;
+      acc.finishReason = row.finish_reason;
     }
     if (typeof row.native_finish_reason === 'string' || row.native_finish_reason === null) {
-      acc.nativeFinishReason = row.native_finish_reason as string | null;
+      acc.nativeFinishReason = row.native_finish_reason;
     }
   }
   return events;
 }
 
-export function toolCallEvent(part: {
-  toolName: string;
-  toolCallId: string;
-  input?: unknown;
-}): TurnEvent {
-  return {
-    type: 'tool',
-    tool: {
-      name: part.toolName,
-      arguments: toolArguments(part.input),
-      id: part.toolCallId,
-    },
-  };
+export type ToolCallPart = Extract<TextStreamPart<ToolSet>, { type: 'tool-call' }>;
+
+/** A call the SDK could not parse or match is the call with no arguments, then its failure. */
+export function toolCallPartEvents(part: ToolCallPart): ProviderEvent[] {
+  if (part.invalid) {
+    const message = part.error instanceof Error ? part.error.message : 'tool call was not valid';
+    return malformedToolCall({ name: part.toolName, callId: part.toolCallId }, message, part.input);
+  }
+  return toolCallEvents({ id: part.toolCallId, name: part.toolName }, part.input);
 }
 
-export function toolResultEvent(part: {
-  toolName: string;
-  toolCallId: string;
-  input?: unknown;
-  output?: unknown;
-}): TurnEvent {
-  const output = typeof part.output === 'string' ? part.output : toolResultData(part.output);
-  return {
-    type: 'tool',
-    tool: {
-      name: part.toolName,
-      arguments: toolArguments(part.input),
-      id: part.toolCallId,
-      phase: 'complete',
-      output,
-    },
-  };
-}
-
-export function tokenEvent(part: { totalUsage: LanguageModelUsage }): TurnEvent | undefined {
+export function tokenEvent(part: { totalUsage: LanguageModelUsage }): ProviderEvent | undefined {
   const tokens = tokensFromUsage(part.totalUsage);
   return tokens ? { type: 'tokens', tokens } : undefined;
 }
 
-export function providerMetadataEvent(
+export function providerMetadataEvents(
   part: TextStreamPart<ToolSet>,
   acc: StreamAccumulator,
-): TurnEvent | undefined {
-  if (!('providerMetadata' in part)) {
-    return undefined;
-  }
-  return evidenceFromMetadata(part.providerMetadata, acc);
+): ProviderEvent[] {
+  return 'providerMetadata' in part ? eventsFromMetadata(part.providerMetadata, acc) : [];
 }
 
-export function eventFromPart(part: TextStreamPart<ToolSet>, acc: StreamAccumulator): TurnEvent[] {
-  const mapped = primaryEventFromPart(part, acc);
-  if (mapped) {
-    return [mapped];
-  }
-  const evidence = providerMetadataEvent(part, acc);
-  return evidence ? [evidence] : [];
-}
-
-export function primaryEventFromPart(
+export function eventFromPart(
   part: TextStreamPart<ToolSet>,
   acc: StreamAccumulator,
-): TurnEvent | undefined {
+): ProviderEvent[] {
+  return [...primaryEventsFromPart(part, acc), ...providerMetadataEvents(part, acc)];
+}
+
+export function primaryEventsFromPart(
+  part: TextStreamPart<ToolSet>,
+  acc: StreamAccumulator,
+): ProviderEvent[] {
   switch (part.type) {
     case 'text-delta':
       acc.text += part.text;
-      return { type: 'text', text: part.text };
+      return [{ type: 'text', text: part.text }];
     case 'reasoning-delta':
-      return { type: 'thought', text: part.text };
+      return [{ type: 'thought', text: part.text }];
     case 'tool-call':
-      return toolCallEvent(part);
-    case 'tool-result':
-      return toolResultEvent(part);
+      return toolCallPartEvents(part);
     case 'source': {
-      if (acc.evidenceSeen) return undefined;
-      acc.evidenceSeen = true;
-      return sourceEvent(part);
+      const event = sourceEvent(part, acc);
+      return event ? [event] : [];
     }
-    case 'finish':
-      return finishEvent(part, acc);
+    case 'finish': {
+      const event = finishEvent(part, acc);
+      return event ? [event] : [];
+    }
     case 'error':
       acc.errored = true;
-      return toErrorEvent(streamPartError(part.error));
+      return [toErrorEvent(streamPartError(part.error))];
     default:
-      return undefined;
+      return [];
   }
 }
 
 export function finishEvent(
   part: { finishReason?: string | null; totalUsage?: LanguageModelUsage },
   acc: StreamAccumulator,
-): TurnEvent | undefined {
+): ProviderEvent | undefined {
   if (part.finishReason != null) {
     acc.finishReason = String(part.finishReason);
   }
@@ -446,7 +402,7 @@ export function finishEvent(
 export function* finalEvents(
   req: ProviderCompleteRequest,
   acc: StreamAccumulator,
-): Generator<TurnEvent> {
+): Generator<ProviderEvent> {
   if (acc.errored) {
     return;
   }
@@ -463,7 +419,7 @@ export function* finalEvents(
 
 function createStreamContext(
   req: ProviderCompleteRequest,
-  config: OpenAiGatewayConfig,
+  config: OpenAiGatewayTransport,
   apiKey: string,
 ): OpenRouterStreamContext {
   const openrouter = createOpenRouter({
@@ -471,7 +427,7 @@ function createStreamContext(
     baseURL: config.baseUrl,
     headers: openAiGatewayHeaders(config),
     // The AI SDK retries internally; tapping its fetch tapes every try.
-    fetch: tapFetch(req.tapUpstream, config.fetch ?? fetch, req.keySlot),
+    fetch: bearerFetch(req, config.fetch ?? fetch, config.vault, apiKey),
     compatibility: 'strict',
   });
   return {
@@ -526,7 +482,7 @@ function streamTextOptions(
   };
 }
 
-function shouldEmitProviderEvent(req: ProviderCompleteRequest, event: TurnEvent): boolean {
+function shouldEmitProviderEvent(req: ProviderCompleteRequest, event: ProviderEvent): boolean {
   return event.type !== 'thought' || req.summaries !== 'none';
 }
 
@@ -534,11 +490,11 @@ async function* yieldAiSdkStream(
   req: ProviderCompleteRequest,
   acc: StreamAccumulator,
   context: OpenRouterStreamContext,
-): AsyncGenerator<TurnEvent> {
+): AsyncGenerator<ProviderEvent> {
   const result = streamText(streamTextOptions(req, context));
   for await (const part of result.stream) {
     if (part.type === 'raw') {
-      req.tapUpstream?.(rawRecord(part.rawValue) ?? { rawValue: part.rawValue });
+      req.tapUpstream?.(asRecord(part.rawValue) ?? { rawValue: part.rawValue });
       for (const event of rawEvents(part.rawValue, acc)) {
         if (shouldEmitProviderEvent(req, event)) {
           yield event;
@@ -554,10 +510,41 @@ async function* yieldAiSdkStream(
   }
 }
 
+async function* yieldAiSdkBuffered(
+  req: ProviderCompleteRequest,
+  acc: StreamAccumulator,
+  context: OpenRouterStreamContext,
+): AsyncGenerator<ProviderEvent> {
+  const { include: _, onError: __, ...options } = streamTextOptions(req, context);
+  const result = await generateText({ ...options, include: { responseBody: true } });
+  const body = asRecord(result.response.body);
+  if (body) {
+    req.tapUpstream?.(body);
+    yield* rawEvents(body, acc).filter((event) => shouldEmitProviderEvent(req, event));
+  }
+  for (const part of result.content) {
+    const events =
+      part.type === 'text'
+        ? [{ type: 'text', text: part.text } as const]
+        : part.type === 'reasoning'
+          ? [{ type: 'thought', text: part.text } as const]
+          : part.type === 'tool-call' || part.type === 'source'
+            ? primaryEventsFromPart(part as TextStreamPart<ToolSet>, acc)
+            : [];
+    if (part.type === 'text') acc.text += part.text;
+    yield* events.filter((event) => shouldEmitProviderEvent(req, event));
+  }
+  yield* eventsFromMetadata(result.providerMetadata, acc).filter((event) =>
+    shouldEmitProviderEvent(req, event),
+  );
+  const tokens = finishEvent(result, acc);
+  if (tokens) yield tokens;
+}
+
 async function* streamOpenRouter(
   req: ProviderCompleteRequest,
-  config: OpenAiGatewayConfig,
-): AsyncGenerator<TurnEvent> {
+  config: OpenAiGatewayTransport,
+): AsyncGenerator<ProviderEvent> {
   let apiKey: string;
   try {
     apiKey = resolveOpenAiGatewayApiKey(config, req.keySlot);
@@ -569,7 +556,9 @@ async function* streamOpenRouter(
   const acc = createAccumulator();
   const context = createStreamContext(req, config, apiKey);
   try {
-    yield* yieldAiSdkStream(req, acc, context);
+    yield* req.stream === false
+      ? yieldAiSdkBuffered(req, acc, context)
+      : yieldAiSdkStream(req, acc, context);
     yield* finalEvents(req, acc);
   } catch (err) {
     if (isAbortError(err)) {
@@ -580,11 +569,9 @@ async function* streamOpenRouter(
 }
 
 /**
- * An AI SDK failure with its kind. A failure that carries OpenRouter's HTTP
- * status (a call's response, or an error sent mid-stream) reports that
- * status; a call that got no response could not reach OpenRouter; a
- * mid-stream error without a status is OpenRouter's own; any other SDK error
- * is a reply the SDK could not read. Retries report their last failure.
+ * An HTTP status wins; a call with no response could not reach OpenRouter; a
+ * mid-stream error without a status is OpenRouter's own; any other SDK error is
+ * a reply the SDK could not read.
  */
 function sdkError(err: unknown): unknown {
   if (RetryError.isInstance(err)) {
@@ -605,10 +592,7 @@ function sdkError(err: unknown): unknown {
   return new TheoremError(kind, err.message, { cause: err });
 }
 
-/**
- * A stream's error part with its kind. Besides SDK errors, a body that breaks
- * mid-read arrives as a plain error: OpenRouter could not be reached.
- */
+/** A body that breaks mid-read arrives as a plain error, not an SDK one. */
 function streamPartError(error: unknown): unknown {
   return AISDKError.isInstance(error) || RetryError.isInstance(error)
     ? sdkError(error)
@@ -617,7 +601,7 @@ function streamPartError(error: unknown): unknown {
 
 export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOptions | undefined {
   const openrouter: Record<string, JsonValue> = {};
-  if (req.thinking && req.thinking !== 'none') {
+  if (req.thinking) {
     openrouter.reasoning = { effort: req.thinking };
   }
   const responseFormat = resolveResponseFormat(req.structured) as
@@ -638,11 +622,8 @@ export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOption
   return { openrouter } as ProviderOptions;
 }
 
-/** Create a `ModelProvider` backed by OpenRouter through AI SDK Core. */
-export function createOpenRouterProvider(config: OpenAiGatewayConfig = {}): ModelProvider {
+export function createOpenRouterProvider(config: OpenAiGatewayTransport = {}): ModelProvider {
   return {
     complete: (req: ProviderCompleteRequest) => streamOpenRouter(req, config),
   };
 }
-
-export type { OpenAiGatewayConfig };

@@ -1,12 +1,5 @@
-/**
- * Google grounding → `grounding` events, for both Google wires. Interactions
- * and Live share one source shape and one dedupe so hosts parse one shape.
- *
- * @module
- */
-
 import { asRecord, nonEmptyString } from '../../kernel/engine/record.ts';
-import type { GroundingEvent, GroundingSource, TurnEvent } from '../../kernel/types.ts';
+import type { GroundingEvent, ProviderEvent, Source } from '../../kernel/types.ts';
 
 /*
  * Grounding reads only the shapes recorded from the wire (probes 23/09/2026):
@@ -25,8 +18,21 @@ import type { GroundingEvent, GroundingSource, TurnEvent } from '../../kernel/ty
  * (segment offsets, `groundingSupports`, `webSearchQueries`) stay in the trace.
  */
 
-/** Interactions place (`result[].places[]` entry) → maps source. */
-function sourceFromPlace(place: Record<string, unknown>): GroundingSource | undefined {
+interface Grounded {
+  grounding: GroundingEvent;
+  sources: Source[];
+}
+
+function groundedEvents(grounded: Grounded | undefined): ProviderEvent[] {
+  if (!grounded) return [];
+  const { grounding, sources } = grounded;
+  return [
+    { type: 'grounding', grounding },
+    ...(sources.length > 0 ? [{ type: 'citation' as const, sources }] : []),
+  ];
+}
+
+function sourceFromPlace(place: Record<string, unknown>): Source | undefined {
   const uri = nonEmptyString(place.url);
   if (!uri) {
     return undefined;
@@ -40,8 +46,7 @@ function sourceFromPlace(place: Record<string, unknown>): GroundingSource | unde
   };
 }
 
-/** Normalized maps chunk (`chunks[].maps`) for a maps source. */
-function chunkFromMapsSource(source: GroundingSource): unknown {
+function chunkFromMapsSource(source: Source): unknown {
   return {
     maps: {
       title: source.title,
@@ -51,8 +56,7 @@ function chunkFromMapsSource(source: GroundingSource): unknown {
   };
 }
 
-/** Live `groundingChunks[].web` → web source. */
-function sourceFromWeb(web: Record<string, unknown>): GroundingSource | undefined {
+function sourceFromWeb(web: Record<string, unknown>): Source | undefined {
   const uri = nonEmptyString(web.uri);
   if (!uri) {
     return undefined;
@@ -60,7 +64,7 @@ function sourceFromWeb(web: Record<string, unknown>): GroundingSource | undefine
   return { type: 'web', uri, title: nonEmptyString(web.title) ?? uri };
 }
 
-function pushUniqueSource(sources: GroundingSource[], source: GroundingSource | undefined): void {
+function pushUniqueSource(sources: Source[], source: Source | undefined): void {
   if (!source) {
     return;
   }
@@ -80,7 +84,6 @@ function pushUniqueSource(sources: GroundingSource[], source: GroundingSource | 
   sources.push(source);
 }
 
-/** Dedupe normalized maps chunks by place id, then uri; other chunks append. */
 function pushUniqueChunk(chunks: unknown[], chunk: unknown): void {
   const maps = asRecord(asRecord(chunk)?.maps);
   if (!maps) {
@@ -107,7 +110,6 @@ function pushUniqueChunk(chunks: unknown[], chunk: unknown): void {
   chunks.push(chunk);
 }
 
-/** Interactions `result[].search_suggestions` — the search chips HTML. */
 function searchSuggestionsHtml(result: unknown): string | undefined {
   if (!Array.isArray(result)) {
     return undefined;
@@ -121,7 +123,7 @@ function searchSuggestionsHtml(result: unknown): string | undefined {
   return undefined;
 }
 
-function sourceFromAnnotation(ann: unknown): GroundingSource | undefined {
+function sourceFromAnnotation(ann: unknown): Source | undefined {
   const record = asRecord(ann);
   const uri = nonEmptyString(record?.url);
   if (!record || !uri) {
@@ -138,7 +140,7 @@ function sourceFromAnnotation(ann: unknown): GroundingSource | undefined {
   return undefined;
 }
 
-function appendAnnotationSources(into: GroundingSource[], annotations: unknown): void {
+function appendAnnotationSources(into: Source[], annotations: unknown): void {
   if (!Array.isArray(annotations)) {
     return;
   }
@@ -147,8 +149,7 @@ function appendAnnotationSources(into: GroundingSource[], annotations: unknown):
   }
 }
 
-/** Interactions `result[].places[]` → maps sources (primary places only). */
-function appendPlaceSources(into: GroundingSource[], result: unknown): void {
+function appendPlaceSources(into: Source[], result: unknown): void {
   if (!Array.isArray(result)) {
     return;
   }
@@ -167,13 +168,9 @@ function appendPlaceSources(into: GroundingSource[], result: unknown): void {
   }
 }
 
-/**
- * Grounding on one Interactions step or `step.delta`: citations, places and
- * search chips. Maps sources also emit normalized `chunks[].maps`
- * (`title` / `uri` / `placeId`) so hosts share one parse shape with Live.
- */
-function groundingFromInteractionsStep(step: Record<string, unknown>): GroundingEvent | undefined {
-  const sources: GroundingSource[] = [];
+/** Maps sources also emit normalized `chunks[].maps` so hosts share one parse shape with Live. */
+function groundingFromInteractionsStep(step: Record<string, unknown>): Grounded | undefined {
+  const sources: Source[] = [];
   appendAnnotationSources(sources, step.annotations);
   if (Array.isArray(step.content)) {
     for (const block of step.content) {
@@ -192,17 +189,16 @@ function groundingFromInteractionsStep(step: Record<string, unknown>): Grounding
     return undefined;
   }
   return {
-    metadata: step,
-    ...(chunks.length > 0 ? { chunks } : {}),
-    ...(html ? { searchHtml: html } : {}),
+    grounding: {
+      metadata: step,
+      ...(chunks.length > 0 ? { chunks } : {}),
+      ...(html ? { searchHtml: html } : {}),
+    },
     sources,
   };
 }
 
-function mergeGrounding(
-  a: GroundingEvent | undefined,
-  b: GroundingEvent | undefined,
-): GroundingEvent | undefined {
+function mergeGrounding(a: Grounded | undefined, b: Grounded | undefined): Grounded | undefined {
   if (!a) {
     return b;
   }
@@ -210,48 +206,48 @@ function mergeGrounding(
     return a;
   }
   const chunks: unknown[] = [];
-  for (const chunk of [...(a.chunks ?? []), ...(b.chunks ?? [])]) {
+  for (const chunk of [...(a.grounding.chunks ?? []), ...(b.grounding.chunks ?? [])]) {
     pushUniqueChunk(chunks, chunk);
   }
   const sources = [...a.sources];
   for (const source of b.sources) {
     pushUniqueSource(sources, source);
   }
+  const searchHtml = b.grounding.searchHtml ?? a.grounding.searchHtml;
+  const metadata = b.grounding.metadata ?? a.grounding.metadata;
   return {
-    metadata: b.metadata ?? a.metadata,
-    ...(chunks.length > 0 ? { chunks } : {}),
-    searchHtml: b.searchHtml ?? a.searchHtml,
+    grounding: {
+      ...(metadata ? { metadata } : {}),
+      ...(chunks.length > 0 ? { chunks } : {}),
+      ...(searchHtml ? { searchHtml } : {}),
+    },
     sources,
   };
 }
 
-/** Grounding on one streamed Interactions `step.delta` payload. */
-function groundingFromDelta(event: Record<string, unknown>): TurnEvent | undefined {
+function groundingFromDelta(event: Record<string, unknown>): ProviderEvent[] {
   const delta = asRecord(event.delta);
-  const grounding = delta ? groundingFromInteractionsStep(delta) : undefined;
-  return grounding ? { type: 'grounding', grounding } : undefined;
+  return groundedEvents(delta ? groundingFromInteractionsStep(delta) : undefined);
 }
 
-/** Grounding across a completed interaction's `steps[]` (buffered body). */
-function groundingFromSteps(steps: unknown[]): TurnEvent | undefined {
-  let grounding: GroundingEvent | undefined;
+function groundingFromSteps(steps: unknown[]): ProviderEvent[] {
+  let grounded: Grounded | undefined;
   for (const stepValue of steps) {
     const step = asRecord(stepValue);
     if (step) {
-      grounding = mergeGrounding(grounding, groundingFromInteractionsStep(step));
+      grounded = mergeGrounding(grounded, groundingFromInteractionsStep(step));
     }
   }
-  return grounding ? { type: 'grounding', grounding } : undefined;
+  return groundedEvents(grounded);
 }
 
-/** Live `serverContent.groundingMetadata` → grounding event (raw kept on `metadata`). */
-function groundingFromLiveMetadata(value: unknown): TurnEvent | undefined {
+function groundingFromLiveMetadata(value: unknown): ProviderEvent[] {
   const metadata = asRecord(value);
   if (!metadata) {
-    return undefined;
+    return [];
   }
   const chunks = Array.isArray(metadata.groundingChunks) ? metadata.groundingChunks : [];
-  const sources: GroundingSource[] = [];
+  const sources: Source[] = [];
   for (const chunk of chunks) {
     const web = asRecord(asRecord(chunk)?.web);
     if (web) {
@@ -259,15 +255,14 @@ function groundingFromLiveMetadata(value: unknown): TurnEvent | undefined {
     }
   }
   const html = nonEmptyString(asRecord(metadata.searchEntryPoint)?.renderedContent);
-  return {
-    type: 'grounding',
+  return groundedEvents({
     grounding: {
       metadata,
       ...(chunks.length > 0 ? { chunks } : {}),
       ...(html ? { searchHtml: html } : {}),
-      sources,
     },
-  };
+    sources,
+  });
 }
 
 export { groundingFromDelta, groundingFromLiveMetadata, groundingFromSteps };

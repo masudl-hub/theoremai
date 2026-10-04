@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { TraceRecord } from '../../../mod.ts';
+import type { TraceRecord } from '@theoremjs/agents';
 import type { TraceFeed } from '../client/trace-feed.ts';
 
 const NONE: readonly TraceRecord[] = [];

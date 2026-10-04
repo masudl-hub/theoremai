@@ -13,6 +13,13 @@ Deno.test('sensitiveSpans detects SSN and API keys from corpus secrets', () => {
   assertEquals(sensitiveSpans(`AWS ${TEST_AWS_KEY}1`).length > 0, true);
 });
 
+Deno.test('sensitiveSpans skips network addresses when network is off', () => {
+  const text = 'host 10.0.0.1 and 2001:0db8:85a3:0000:0000:8a2e:0370:7334';
+  assertEquals(sensitiveSpans(text).length, 2);
+  assertEquals(sensitiveSpans(text, { network: false }).length, 0);
+  assertEquals(sensitiveSpans(`key ${TEST_OPENAI_KEY}`, { network: false }).length > 0, true);
+});
+
 Deno.test('sensitiveSpans detects Luhn-valid card numbers', () => {
   assertEquals(sensitiveSpans(`Card: ${TEST_VISA}`).length > 0, true);
 });
@@ -162,11 +169,8 @@ Deno.test('cardSpans does not flag a 12-digit Luhn-valid number (below CARD_MIN_
 });
 
 Deno.test('cardSpans if (found) vs if (true) mutation: null match should not be processed', () => {
-  // Benign short number sequences should yield 0 spans (blobAt returns null)
   assertEquals(sensitiveSpans('1234').length, 0);
 });
-
-// ── IPV4 range boundary tests ────────────────────────────────────────────────
 
 Deno.test('sensitiveSpans detects IPV4 address with 250-255 octets', () => {
   assertEquals(sensitiveSpans('addr: 255.0.0.255').length > 0, true);
@@ -198,7 +202,6 @@ Deno.test('sensitiveSpans detects 13-digit Luhn-valid card at CARD_MIN_DIGITS bo
 });
 
 Deno.test('cardSpans span kind is sensitive not empty string', () => {
-  // The SSN test at line 163 covers line 95; this test specifically exercises line 86
   const spans = sensitiveSpans('4111111111111111');
   assertEquals(spans.length > 0, true);
   assertEquals(spans[0]?.kind, 'sensitive');

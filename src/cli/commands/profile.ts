@@ -1,4 +1,4 @@
-import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
+import { getProfile, listProfiles } from '../../kernel/default-scope.ts';
 import { profileToolAllow } from '../../kernel/tools/resolve.ts';
 import type { ModelProfile, Profile } from '../../kernel/types.ts';
 

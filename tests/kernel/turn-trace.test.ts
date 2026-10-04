@@ -1,7 +1,12 @@
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { startCallUsage } from '../../src/kernel/engine/runner/usage.ts';
 import { OutputFold, startCallTrace, usageAttributes } from '../../src/kernel/engine/turn-trace.ts';
-import type { ModelBinding, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
+import type {
+  ModelBinding,
+  ProviderCompleteRequest,
+  ProviderEvent,
+  TurnEvent,
+} from '../../src/kernel/types.ts';
 import {
   type SpanHandle,
   type SpanOptions,
@@ -83,13 +88,13 @@ Deno.test('turn trace: a call records what the model read and wrote, before guar
     step: 0,
     attempt: 0,
   });
-  const events: TurnEvent[] = [
+  const events: ProviderEvent[] = [
     { type: 'thought', text: 'Soil ' },
     { type: 'thought', text: 'first.' },
     { type: 'text', text: 'Checking ' },
     { type: 'text', text: 'now.' },
     { type: 'response', response: { id: 'v1_a' } },
-    { type: 'tool', tool: { id: 'c1', name: 'fetch_sensor', arguments: { plant: 'fern' } } },
+    { type: 'tool', tool: { callId: 'c1', name: 'fetch_sensor', arguments: { plant: 'fern' } } },
     { type: 'done', stop: { kind: 'tool', native: 'requires_action' } },
   ];
   for (const event of events) {
@@ -136,8 +141,8 @@ Deno.test('turn trace: a tool call is one part; its execution phases add none', 
   const events: TurnEvent[] = [
     { type: 'text', text: 'Checking.' },
     { type: 'tool', tool: call },
-    { type: 'tool', tool: { ...call, phase: 'running' } },
-    { type: 'tool', tool: { ...call, phase: 'complete', output: { moisture: 0.4 } } },
+    { type: 'tool', tool: { ...call, phase: 'running', at: 1 } },
+    { type: 'tool', tool: { ...call, phase: 'complete', output: { moisture: 0.4 }, at: 2 } },
     { type: 'text', text: 'Moist.' },
   ];
   for (const event of events) {
@@ -145,7 +150,12 @@ Deno.test('turn trace: a tool call is one part; its execution phases add none', 
   }
   assertEquals(fold.parts, [
     { type: 'text', ...traceContent('Checking.') },
-    { type: 'tool_call', name: 'fetch_sensor', arguments: traceContent('{"plant":"fern"}') },
+    {
+      type: 'tool_call',
+      id: 'c1',
+      name: 'fetch_sensor',
+      arguments: traceContent('{"plant":"fern"}'),
+    },
     { type: 'text', ...traceContent('Moist.') },
   ]);
 });
@@ -202,10 +212,10 @@ Deno.test('turn trace: each HTTP try is a POST span with its slot, body and back
   });
   const url = 'https://api.example/v1/interactions?key=secret';
   const body = { stream: true };
-  call.tap({ eventType: 'http_request', method: 'POST', url, keySlot: 'slotA', body });
+  call.tap({ eventType: 'http_request', method: 'POST', url, keySlot: 'main', body });
   call.tap({ eventType: 'http_response', status: HTTP_QUOTA, headers: {} });
   call.tap({ eventType: 'http_error_body', body: 'quota' });
-  call.tap({ eventType: 'http_request', method: 'POST', url, keySlot: 'paid', body });
+  call.tap({ eventType: 'http_request', method: 'POST', url, keySlot: 'spare', body });
   call.tap({ eventType: 'http_response', status: HTTP_OK, headers: {} });
   call.tap({ event_type: 'interaction.created' });
   call.end({ stop: { kind: 'completed' } });
@@ -215,7 +225,7 @@ Deno.test('turn trace: each HTTP try is a POST span with its slot, body and back
   const [quota, ok] = posts as [TraceSpan, TraceSpan];
   assertEquals(attrs(quota)['url.path'], '/v1/interactions');
   assertEquals(attrs(quota)['server.address'], 'api.example');
-  assertEquals(attrs(quota)['theorem.key_slot'], 'slotA');
+  assertEquals(attrs(quota)['theorem.key_slot'], 'main');
   assertEquals(attrs(quota)['http.response.status_code'], HTTP_QUOTA);
   assertEquals(attrs(quota)['error.type'], String(HTTP_QUOTA));
   assertEquals(quota.status.code, 'ERROR');
@@ -224,7 +234,7 @@ Deno.test('turn trace: each HTTP try is a POST span with its slot, body and back
     ['theorem.wire.request', 'theorem.upstream.row'],
   );
   assertEquals(attrs(ok)['http.request.resend_count'], 1);
-  assertEquals(attrs(ok)['theorem.key_slot'], 'paid');
+  assertEquals(attrs(ok)['theorem.key_slot'], 'spare');
   assertEquals(typeof attrs(ok)['theorem.retry.backoff_ms'], 'number');
   assertEquals(ok.status.code, 'OK');
   const chat = spanNamed(spans, 'generate_content gemini-test-flash');
@@ -234,7 +244,7 @@ Deno.test('turn trace: each HTTP try is a POST span with its slot, body and back
   );
   assertEquals(attrs(chat)['gen_ai.request.stream'], true);
   assertEquals(typeof attrs(chat)['gen_ai.response.time_to_first_chunk'], 'number');
-  assertEquals(attrs(chat)['theorem.key_slot'], 'paid');
+  assertEquals(attrs(chat)['theorem.key_slot'], 'spare');
 });
 
 Deno.test('turn trace: a buffered body is not streaming, whatever the request asked', () => {
@@ -258,7 +268,8 @@ Deno.test('turn trace: a buffered body is not streaming, whatever the request as
   call.end({ stop: { kind: 'completed' } });
   const chat = spanNamed(tree.collect(), 'chat gemini-test-flash');
   assertEquals(attrs(chat)['gen_ai.request.stream'], undefined);
-  assertEquals(attrs(chat)['gen_ai.response.time_to_first_chunk'], undefined);
+  // The buffered body is the reply's one chunk; the wait before it is still a wait.
+  assertEquals(typeof attrs(chat)['gen_ai.response.time_to_first_chunk'], 'number');
 });
 
 Deno.test('turn trace: a provider error fails the call; a cancel leaves it unset with no finish', () => {
@@ -313,15 +324,21 @@ Deno.test('turn trace: provider-run tool steps are server tool parts; citations 
   });
   call.observe({
     type: 'evidence',
-    evidence: { provider: 'google', kind: 'code_execution_call', id: 'x1', raw: { code: '1+1' } },
+    evidence: {
+      provider: 'google',
+      kind: 'code_execution_call',
+      id: 'x1',
+      code: '1+1',
+      raw: { code: '1+1' },
+    },
   });
   call.observe({
     type: 'evidence',
     evidence: { provider: 'google', kind: 'code_execution_result', callId: 'x1', raw: { r: 2 } },
   });
   call.observe({
-    type: 'grounding',
-    grounding: { sources: [{ type: 'web', title: 'a', uri: 'https://a.example' }] },
+    type: 'citation',
+    sources: [{ type: 'web', title: 'a', uri: 'https://a.example' }],
   });
   call.end({ stop: { kind: 'completed' } });
   const span = spanNamed(tree.collect(), 'generate_content gemini-test-flash');

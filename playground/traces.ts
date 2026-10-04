@@ -1,21 +1,12 @@
 /**
- * Playground trace delivery: the records a run writes to the playground
- * destination go back to the run tab that asked for them.
- *
- * The server registers one router's `sink` for `PLAYGROUND_TRACE_DESTINATION`.
- * Each run opens a route and passes its `metadata` on the request; the kernel
- * copies request metadata into every record it writes, so the router hands
- * each record to the run that wrote it. Recording, sampling and scrubbing stay
- * the profile's observability policy: a record the policy does not write never
- * reaches the router.
- *
- * @module
+ * The kernel copies request metadata into every record, so one router `sink` hands each record
+ * to the run that wrote it. Recording, sampling and scrubbing stay the profile's observability
+ * policy: a record the policy does not write never reaches the router.
  */
 
 import type { TraceRecord } from '../src/observability/trace-record.ts';
 import type { TraceSink } from '../src/observability/trace-sink.ts';
 
-/** The request metadata key that names the run a record belongs to. */
 export const PLAYGROUND_RUN_METADATA_KEY = 'playgroundRun';
 
 /** A trace record on the playground's run stream (NDJSON line or Live socket message). */

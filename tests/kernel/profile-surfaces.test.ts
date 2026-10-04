@@ -33,7 +33,7 @@ const decision: Profile = {
   type: 'decision',
   id: 'decision-test',
   identity: { handle: 'Decision test' },
-  models: { jev: { apiId: 'jev-latest' } },
+  models: { jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest' } },
   inputs: { state: 'json' },
   decision: { contract: 'test.v1' },
 };

@@ -1,19 +1,20 @@
 #!/usr/bin/env -S deno run --allow-net --allow-read --allow-sys --allow-env
 
 /**
- * Host live harness for Interactions `codeExecution`.
- *
- * Uses the CLI matrix / test APIs (profiles + explicit ModelProvider) plus
- * asserted cases the matrix prompt does not guarantee (error, multi-exec,
- * media, batch, structured pairing).
+ * The CLI matrix plus asserted cases its prompt does not guarantee (error, multi-exec, media,
+ * batch, structured pairing).
  */
 
 import { executeSingleTest, testProfileCommand } from '../src/cli/commands/test.ts';
 import { synthesizeMatrixCombos } from '../src/cli/matrix/synthesizer.ts';
-import { runTurn } from '../src/kernel/engine/runner.ts';
-import { defineProfile, getProfile, registerProfile } from '../src/kernel/registry/profiles.ts';
+import {
+  getProfile,
+  registerProfile,
+  registerStructured,
+  runTurn,
+} from '../src/kernel/default-scope.ts';
+import { defineProfile } from '../src/kernel/registry/profiles.ts';
 import { requireModelProfile } from '../src/kernel/registry/resolve.ts';
-import { registerStructured } from '../src/kernel/registry/schemas.ts';
 import type {
   BuiltinToolId,
   ModelBinding,
@@ -23,7 +24,7 @@ import type {
 } from '../src/kernel/types.ts';
 import { registerGooglePreset } from '../src/presets/google.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
-import { hostVault, loadHostEnv, VAULT_ENV } from './host-env.ts';
+import { hostVault, loadHostEnv, vaultEnv } from './host-env.ts';
 
 function valueAfterFlag(flag: string): string | undefined {
   const idx = Deno.args.indexOf(flag);
@@ -36,8 +37,10 @@ const vault = hostVault();
 const modelId = valueAfterFlag('--model') ?? 'gemini-3.5-flash-lite';
 const thinkingLevel = valueAfterFlag('--thinking') ?? 'high';
 
-if (!vault.slotA) {
-  console.error(`${VAULT_ENV.slotA} unset (this script reads it; Theorem itself never reads env)`);
+if (!vault.slot_a) {
+  console.error(
+    `${vaultEnv('slot_a')} unset (this script reads it; Theorem itself never reads env)`,
+  );
   Deno.exit(1);
 }
 
@@ -71,6 +74,7 @@ function flashBinding(builtInTools: BuiltinToolId[]): ModelBinding {
   return {
     protocol: 'geminiInteractions',
     provider: 'google',
+    persistViaInteractionId: false,
     apiId: modelId,
     efforts: { normal: 'minimal', low: 'low', medium: 'medium', high: 'high' },
     defaultEffort: turnEffort,
@@ -93,7 +97,7 @@ const streamed = defineProfile({
   models: { flash: flashBinding(['codeExecution', 'googleSearch']) },
   defaultModel: 'flash',
   maxSteps: 3,
-  key: 'slotA',
+  key: 'slot_a',
   tools: { allow: [] },
   inputs: { text: true },
   outputs: {},
@@ -120,7 +124,7 @@ registerProfile(
     models: { flash: flashBinding(['codeExecution']) },
     defaultModel: 'flash',
     maxSteps: 1,
-    key: 'slotA',
+    key: 'slot_a',
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: 'liveCodeAnswer' },
@@ -129,8 +133,8 @@ registerProfile(
 );
 
 const provider: ModelProvider = createProvider(getProfile(PROFILE), {
+  vault: vault,
   gemini: {
-    vault,
     wait: () => Promise.resolve(),
   },
 });
@@ -148,10 +152,7 @@ function collect(events: TurnEvent[]) {
   const media = events.filter((e) => e.type === 'media');
   const errors = events.filter((e) => e.type === 'error');
   const structured = events.find((e) => e.type === 'structured')?.structured;
-  const text = events
-    .filter((e) => e.type === 'text')
-    .map((e) => e.text ?? '')
-    .join('');
+  const text = events.flatMap((e) => (e.type === 'text' ? [e.text] : [])).join('');
   return { calls, results, media, errors, structured, text, events };
 }
 
@@ -165,10 +166,12 @@ async function runCase(
   try {
     for await (const event of runTurn(req, provider)) {
       events.push(event);
-      if (event.type === 'evidence' && event.evidence?.kind?.startsWith('code_execution')) {
+      if (event.type === 'evidence' && event.evidence.kind === 'code_execution_call') {
+        console.log(`  evidence ${event.evidence.kind} code=${event.evidence.code.slice(0, 60)}`);
+      } else if (event.type === 'evidence' && event.evidence.kind === 'code_execution_result') {
         const e = event.evidence;
         console.log(
-          `  evidence ${e.kind} code=${(e.code ?? '').slice(0, 60)} result=${(e.result ?? '').slice(0, 60)} isError=${String(e.isError)}`,
+          `  evidence ${e.kind} result=${(e.result ?? '').slice(0, 60)} isError=${String(e.isError)}`,
         );
       } else if (event.type === 'media') {
         console.log(`  media ${event.media?.mimeType} len=${event.media?.data?.length ?? 0}`);
@@ -195,7 +198,6 @@ async function runCase(
 
 const asserted: CaseResult[] = [];
 
-// --- CLI matrix (host registers profile + passes provider) ---
 console.log(`\n${'='.repeat(70)}\n CLI MATRIX via testProfileCommand\n${'='.repeat(70)}`);
 console.log(
   'matrix combos:',

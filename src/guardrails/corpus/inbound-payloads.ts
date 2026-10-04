@@ -1,9 +1,3 @@
-/**
- * Inbound sanitize fuzz payloads — derived from shared corpus strings/secrets.
- *
- * @module
- */
-
 /** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 import { injectionSpans } from '../injection.ts';
 import { sensitiveSpans } from '../sensitive.ts';
@@ -56,7 +50,6 @@ function payload(
   return { name, category, text, expectCaught: expectCaught ?? detected };
 }
 
-/** All inbound sanitize fuzz payloads. */
 export function inboundFuzzPayloads(): InboundFuzzPayload[] {
   const b64 = injBase64();
   const hex = injHexSpaced();
@@ -188,7 +181,6 @@ export function inboundFuzzPayloads(): InboundFuzzPayload[] {
   ];
 }
 
-/** Lookup inbound payload by name (for mutation tests). */
 export function inboundPayloadByName(name: string): InboundFuzzPayload | undefined {
   return inboundFuzzPayloads().find((p) => p.name === name);
 }

@@ -1,26 +1,92 @@
-# `@theoremai/react`
+# `@theoremjs/react`
 
-React projection of the repo-private headless interface (`src/interface/`) — runners, transcript, composer, live stage.
+React projection of the headless interface (`@theoremjs/agents/interface`) — runners, transcript, composer, live stage.
 
-Lives next to the kernel at `theoremai/react/` so React apps depend on:
+## Install
 
-- `@theoremai/agents` (kernel)
-- `@theoremai/react` (this package)
+```bash
+npm install @theoremjs/react @theoremjs/agents zod react react-dom
+# for the chat and live UI (`/ui`, `/live`):
+npm install @astryxdesign/core@0.6.3 @stylexjs/stylex@0.19.0
+# only to build your own theme from the Theorem one (`/ui/theme`):
+npm install @astryxdesign/theme-neutral@0.6.3
+```
+
+Published to npm only: the package ships built JavaScript, declarations and
+stylesheets. `@theoremjs/agents` is a peer, so the host and the UI share one
+kernel. The Astryx peers are optional: the hooks, client and server entry
+points run without them. The declarations need TypeScript 5.7 or later.
+
+`@theoremjs/react/ui` and `@theoremjs/react/live` import their stylesheets
+themselves, so a bundler that handles CSS imports (Vite does) needs no extra
+step. The theme's type is Figtree with a system-font fallback;
+the package does not ship the font, so load it yourself if you want it.
+
+The live UI loads its microphone worklet as an asset
+(`new URL('./worklets/mic-capture.js', import.meta.url)`); Vite ships it
+without configuration, and any bundler that resolves that pattern does too.
 
 No Svelte. The playground site (`theoremai-frontend`) hosts a thin Vite SPA at `apps/run` that imports this package; the info-site graph stays Svelte and only writes a `PlaygroundRunPayload` handoff.
 
 ## Imports
 
 ```ts
-import { useTheoremChat, useTheoremInterface } from '@theoremai/react'; // headless hooks + transport
-import { TheoremChat } from '@theoremai/react/ui'; // Astryx chat UI
-import { LiveRunner } from '@theoremai/react/live'; // Astryx voice / video UI
-import { createTheoremHandler } from '@theoremai/react/server'; // host side
+import { useTheoremChat, useTheoremInterface } from '@theoremjs/react'; // headless hooks + transport
+import { TheoremChat } from '@theoremjs/react/ui'; // Astryx chat UI
+import { LiveRunner } from '@theoremjs/react/live'; // Astryx voice / video UI
+import { createTheoremHandler } from '@theoremjs/react/server'; // host side
 ```
 
+A `host` profile runs no model: the page calls its tools directly. Serve it
+with `createTheoremHostHandler({ profile })` and render `<TheoremHost
+endpoint="/api/host" />` (`createHostTransport` and `useTheoremHost` for a UI
+of your own). `GET` describes each allowed tool with its input and output JSON
+Schema, never its endpoint or credentials; `POST /call` `{ name, input }`
+streams the call's events, and `POST /invoke` answers a gate it paused on, as
+in chat. The console draws the form from the input schema and lays the result
+out from its value: figures, charts, tables, images, audio and Markdown, with
+the raw JSON beside them.
+
 The playground's run-tab handoff (`savePlaygroundRunPayload`,
-`readPlaygroundRunIdFromUrl`, …) lives in `@theoremai/playground`; see
+`readPlaygroundRunIdFromUrl`, …) lives in `@theoremjs/playground`; see
 [`playground/README.md`](../playground/README.md).
+
+## The wire
+
+Turn lines, live envelopes, request bodies, live messages and the profile
+interface `describe` returns are each checked against their schema, both ways:
+
+- **Browser → host.** `createTheoremHandler` reads `/turn`, `/invoke` and
+  `/steer` bodies with `theoremTurnRequestSchema`, `theoremInvokeRequestSchema`
+  and `theoremSteerRequestSchema`; a missing or malformed field is a `request`
+  error (400). `/invoke` answers a paused call by its `gateId` with a
+  `decision`: `approve` (with `input` when the user edited it, `secret` at a
+  sign-in gate) or `deny`; the host settles each one. An answer whose request
+  ends before its call settles (the network drops, the host fails) puts the
+  call back to wait, to be answered again; once it settled, the session keeps
+  the settle (`TheoremSessionState.settled`, pruned with the gates): a second
+  answer is refused with `session.gate_expired`, and a walk-away naming the
+  call reads its result. A message sent while
+  its reply waits walks away in its own `/turn`: `abandon` names the waiting
+  calls, its history leaves exactly those open, and the host settles each
+  cancelled ahead of the message's reply (`checkWalkAway` and `walkAway` for a
+  host with routes of its own). A relay reads the live client's messages with
+  `parseLiveClientMessage`. A host with routes of its own reads a body with
+  `checkRequest(schema, body, what)`, and answers a paused call with
+  `answerGatedCall` (`@theoremjs/agents/kernel`), the rule the handler uses.
+- **Host → browser.** `describe` returns the profile interface as
+  `profileInterfaceSchema` names it: tool ids, never a tool's definition, and
+  no host functions. The transport and the live client read each line or
+  envelope against its kind's schema, and `describe` against
+  `profileInterfaceSchema`. A kind the client does not know reaches
+  the event handler as `unsupported`, and one that fails its check (not JSON,
+  no kind, or a known kind that fails its schema) as `malformed`: a
+  `bad_response` naming what broke, never the value. Either way the reply or
+  call goes on without it. The chat names a skipped part in the composer and
+  the live call in its failure banner, both with the lexicon's
+  `session.part_skipped`; a run built on `streamInterfaceTurn` hears of it
+  through its `view.skipped`. A `describe` reply that fails its schema is
+  `bad_response`.
 
 ## Local layout
 
@@ -49,8 +115,8 @@ and every resumed call.
   credential under that session, then its page calls `notifyOAuthComplete(slot)`.
   The card takes that message only from its own popup and origin, and resumes the
   gate with its id alone.
-- **Refresh** — a refreshed OAuth token is saved to the store as the turn
-  reports it, before the event reaches the browser.
+- **Refresh** — a refreshed OAuth token is saved to the store before the call
+  goes on, so a rotated refresh token is never lost.
 
 ```ts
 const credentialStore = createMemoryCredentialStore();
@@ -89,7 +155,7 @@ export async function oauthCallback(request: Request): Promise<Response> {
 	});
 	const saved = (await credentialStore.load(sessionId)) ?? {};
 	await credentialStore.save(sessionId, { ...saved, tracker: credential });
-	// That page runs `notifyOAuthComplete('tracker')` from `@theoremai/react`.
+	// That page runs `notifyOAuthComplete('tracker')` from `@theoremjs/react`.
 	return Response.redirect(new URL('/oauth/done?slot=tracker', request.url), 303);
 }
 ```
@@ -97,8 +163,8 @@ export async function oauthCallback(request: Request): Promise<Response> {
 A host with its own `session` resolver passes its own session id instead of
 `theoremSessionId`. For voice, the relay you host receives a typed key as `secret`
 on the `executeTool` message: save it with `credentialFromTypedSecret` (from
-`@theoremai/agents/kernel`) under the gate's slot, and read the session's
-credentials from your store for every `executeTool`.
+`@theoremjs/agents/kernel`) under the gate's slot, and pass a
+`ToolCredentialSource` over your store as `credentials` on every `executeTool`.
 
 ## Composer pending intents
 
@@ -113,10 +179,24 @@ This package wires AbortSignal, the pending bar, and playground turn/steer HTTP.
 
 Enter matches the primary action. No keyboard shortcuts for stash/steer.
 
-Send now while gated abandons the tool wait (`abandonGatedInterfaceTool`) without
-continuing the model, then starts a new user turn. Steer POSTs use the Cache API
+Send now while gated walks away from every waiting gate in the message's own request
+(`walkAway` on `streamInterfaceDraftTurn`): the host settles each call cancelled, the
+paused reply commits, and the message's reply follows in the same stream. The message
+leaves the composer only once it posts; if the request fails first, the reply still waits.
+An answer at a gate that fails before its call settles leaves the gate to answer again,
+the failure in the composer; one that fails after keeps the call's result. The gate cards
+show the answer on its way from their owner (`useTheoremChat().answering`, passed as
+`ChatTranscript`'s `answering`, `ApprovalCard`'s `decided`, `AuthChallengeCard`'s
+`submitted`), so a failed answer brings the gate's actions back. Steer POSTs use the Cache API
 on Cloudflare (process Map locally) so mid-turn injects work across isolates.
 Live sessions key the same inbox by `sessionId` from relay `ready`.
+
+A chat can be kept and resumed: `onChatChange` (or `useTheoremChat`'s `onChange`) reports the
+`{ blocks, session }` each time the conversation comes to rest (a turn finished, a message
+added or removed; never while a reply streams or waits on a gate), and `initialChat` (`initial`)
+resumes from one, the session carrying what the next turn is sent with. `chatRef` (`sendText`
+on the hook) sends a message as the composer would and resolves with the blocks the turn added
+once its reply is done, or `null` while a reply streams or waits on a gate.
 
 Pending rows show attachment / voice previews, text, **Queue** (stash → queue),
 and **Send now**. Clicking the text restores the full draft (text + files + voice)
@@ -131,14 +211,14 @@ English. It hands the builder kinds, codes, and states:
   is the profile's wording (`iface.lexicon`, resolved on the host); show it to
   the user. `errorKind` and `errorInternal` are for the builder.
 - Attachment problems are `AttachmentValidationIssue`s; word one with
-  `attachmentIssueText(issue, iface.lexicon)` from `@theoremai/agents`.
+  `attachmentIssueText(issue, iface.lexicon)` from `@theoremjs/agents`.
 - A Live call the provider ended after warning it would is not a failure:
   `LiveSessionClient`'s `onSessionEnded(session)` gives `session.message`, the
   profile's `live.session_ended` wording, and `session.ended` (close code,
   timing, the code's kind) for the builder.
 - Chrome is semantic: `liveState`, `workStatus`, drawer `parts`, hint `id`.
 
-`@theoremai/react/ui` is the default UI. Every line it shows is an Astryx i18n
+`@theoremjs/react/ui` is the default UI. Every line it shows is an Astryx i18n
 message: Theorem's under `@theorem.*` keys (`THEOREM_UI_CATALOG`, each with a
 description and the ICU values it takes), Astryx's own under `@astryx.*`. The
 builder owns all of them; `labels` replaces any line, per locale:

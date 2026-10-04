@@ -1,15 +1,11 @@
-/**
- * `runSession` — long-lived live profile execution.
- *
- * Shares resolve / tools / canary / system / outbound gate with `runTurn`.
- * Does not use `ModelProvider.complete()` — live is a session, not one turn.
- *
- * Stages: `docs/contracts/stages.md` (cycle map + `executeTool`).
- *
- * @module
- */
-
-import { bindCanary } from '../../../guardrails/canary.ts';
+import { canaryNote, userDataNote } from '../../../guardrails/canary.ts';
+import {
+  addHistoryUrls,
+  addRequestUrls,
+  addSeenUrls,
+  type GivenUrlSets,
+  givenUrlSets,
+} from '../../../guardrails/egress-urls.ts';
 import {
   describeError,
   errorKind,
@@ -19,6 +15,7 @@ import {
   withPublicWording,
 } from '../../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
+import { type LexiconOverrides, lexiconText } from '../../../guardrails/lexicon.ts';
 import {
   abortLiveOutboundTurn,
   createLiveOutboundGateSession,
@@ -30,32 +27,57 @@ import type { ResolveHost } from '../../../guardrails/network.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
 import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
 import type { TraceSink } from '../../../observability/trace-sink.ts';
-import type { GeminiTransport } from '../../../providers/google/keys.ts';
+import type { GeminiOptions } from '../../../providers/google/keys.ts';
 import {
+  buildGeminiLiveContext,
   buildGeminiLiveRealtimeInput,
   buildGeminiLiveToolResponse,
-  buildGeminiLiveToolResponses,
   liveFunctionResponsePayload,
 } from '../../../providers/google/live/framing.ts';
 import { openGoogleLiveSession } from '../../../providers/google/live/session.ts';
 import type { GoAwayClose, SessionQueueItem } from '../../../providers/google/live/stream.ts';
-import type { ToolCredential } from '../../auth/types.ts';
+import { memoryCredentialSource, type ToolCredentialSource } from '../../auth/credential-source.ts';
+import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
-import { resolveTurn } from '../../registry/resolve.ts';
+import { resolveTurnInRegistry } from '../../registry/resolve.ts';
 import type { TurnStage } from '../../schema.ts';
-import { runStage, type StageCallBag, type StageHandler } from '../../stages.ts';
-import { profileAllowsInject } from '../../stop.ts';
+import {
+  type InjectUnit,
+  injectedStageEvent,
+  runStage,
+  type StageCallBag,
+  type StageHandler,
+  stageEventFields,
+} from '../../stages.ts';
+import { profileAllowsInject, stageAbortStop } from '../../stop.ts';
+import { bindSystem } from '../../system-parts.ts';
+import { failureEvent } from '../../tools/events.ts';
 import {
   executeRegisteredTool,
-  formatToolFailureForModel,
-  formatToolResult,
+  lapsedGateFailure,
   type ToolExecuteSettlement,
 } from '../../tools/execute.ts';
-import { modelResultFromOutput } from '../../tools/remote.ts';
+import {
+  answerGatedCall,
+  gateExpired,
+  resolveGateTtlMs,
+  resumeForAnswer,
+} from '../../tools/gate-answer.ts';
+import { formatToolFailureForModel, formatToolResult } from '../../tools/model-text.ts';
+import type { ToolRegistry } from '../../tools/registry.ts';
 import { cloneTurnToolSnapshot } from '../../tools/resolve.ts';
-import type { ToolFailure, TurnToolSnapshot } from '../../tools/types.ts';
+import type {
+  InvokeToolResume,
+  ToolFailure,
+  ToolGate,
+  ToolPhaseEvent,
+  TurnToolSnapshot,
+} from '../../tools/types.ts';
+import { type ProviderEvent, turnDoneOf } from '../../turn-events.ts';
 import type {
   InteractionPart,
+  KeyVault,
+  LiveAnswerToolCallArgs,
   LiveExecuteToolArgs,
   LiveExecuteToolResult,
   LiveProfile,
@@ -75,14 +97,49 @@ import { type LiveCloser, type LiveTrace, startLiveTrace } from './session-trace
 
 export type { LiveSession, SessionRequest };
 
-/**
- * Host-provided transport dependencies for `runSession` on a Gemini Live profile.
- * `openWebSocket` exists for non-browser runtimes and deterministic tests.
- */
 export interface RunSessionOptions {
-  gemini: GeminiTransport;
+  /** The host's keys by slot; the session uses the slots its profile names. */
+  vault: KeyVault;
+  gemini?: GeminiOptions;
   /** Override socket open (Cloudflare fetch-upgrade, tests). Default: `new WebSocket(url)`. */
   openWebSocket?: (url: string) => Promise<WebSocket>;
+  /**
+   * Milliseconds a gated call waits for its decision (default 30 minutes). A later decision is
+   * refused (`session.gate_expired`), and the model reads the call as abandoned.
+   */
+  gateTtlMs?: number;
+  /**
+   * `hold` (default): a sign-in gate waits for its decision, as any gate does. `answer`: the
+   * model reads the gate's pending note at once and the call is released, for a host whose
+   * sign-in finishes outside the session. A released call still takes its outcome for
+   * `gateTtlMs` (`executeTool` with a decision, or `answerToolCall`), which the model reads as
+   * the call's next result; unanswered by then, the model reads that the sign-in expired.
+   */
+  signInGate?: SignInGatePolicy;
+}
+
+export type SignInGatePolicy = 'hold' | 'answer';
+
+type HeldCall = {
+  name: string;
+  arguments: Record<string, unknown>;
+  /**
+   * `running` while `executeTool` runs it; a gated call waits for its decision. A `released` call
+   * has already answered the model (a sign-in's pending note) and waits for its outcome.
+   */
+  state: 'open' | 'running' | { gate: ToolGate; createdAt: number; released?: true };
+  /** Settles a released call that waited past `gateTtlMs`. */
+  lapse?: ReturnType<typeof setTimeout>;
+};
+
+function isReleased(held: HeldCall): boolean {
+  return typeof held.state === 'object' && held.state.released === true;
+}
+
+type SettledPhase = Extract<ToolPhaseEvent, { phase: 'complete' | 'error' | 'gate' }>;
+
+function isSettledPhase(tool: ToolPhaseEvent): tool is SettledPhase {
+  return tool.phase === 'complete' || tool.phase === 'error' || tool.phase === 'gate';
 }
 
 /**
@@ -93,6 +150,7 @@ export interface RunSessionOptions {
 function sessionEndedEvent(
   closed: Extract<SessionQueueItem, { type: 'closed' }>,
   goAway: GoAwayClose,
+  lexicon: LexiconOverrides | undefined,
 ): TurnEvent {
   const internal = closed.error ? describeError(closed.error) : closed.reason;
   return {
@@ -100,6 +158,7 @@ function sessionEndedEvent(
     session: {
       kind: 'ended',
       ...(goAway.timeLeftMs !== undefined ? { timeLeftMs: goAway.timeLeftMs } : {}),
+      message: lexiconText('live.session_ended', {}, lexicon),
       ended: {
         cause: 'go_away',
         code: closed.code,
@@ -111,16 +170,15 @@ function sessionEndedEvent(
   };
 }
 
-/** Inject on live is realtime text ingress only: no tool role, no media parts. */
-function liveInjectTexts(messages: readonly TurnHistoryMessage[]): string[] {
-  const out: string[] = [];
+/** Live ingress takes text: an inject's texts, or `undefined` when any message is not plain text. */
+function liveInjectTexts(messages: readonly TurnHistoryMessage[]): string[] | undefined {
+  const texts: string[] = [];
   for (const msg of messages) {
-    if (msg.role === 'tool') continue;
-    if (msg.parts?.length) continue;
-    const text = msg.content?.trim();
-    if (text) out.push(text);
+    const text = msg.role === 'tool' || msg.parts?.length ? undefined : msg.content?.trim();
+    if (!text) return undefined;
+    texts.push(text);
   }
-  return out;
+  return texts;
 }
 
 function assertLiveProfile(profile: Profile): asserts profile is LiveProfile {
@@ -246,7 +304,7 @@ async function applyOutbound(
 
 /**
  * The output a settled Live call sends upstream, or `undefined` when nothing
- * is sent (a gate, or no result). The model reads it as the `functionResponse`:
+ * is sent (a held gate, or no result). The model reads it as the `functionResponse`:
  * the same guarded text a turn sends, never the tool's raw output.
  */
 function liveToolOutput(s: ToolExecuteSettlement): string | undefined {
@@ -261,6 +319,19 @@ function liveReadBack(s: ToolExecuteSettlement): { text: string } | undefined {
   return output === undefined
     ? undefined
     : { text: JSON.stringify(liveFunctionResponsePayload(output)) };
+}
+
+/**
+ * A provider batch as the host receives it: a call's `done` becomes the
+ * host's (`turnDoneOf`); `response` stays with the trace, which read the batch.
+ */
+function hostEventsOf(events: readonly ProviderEvent[], snapshot: TurnToolSnapshot): TurnEvent[] {
+  return events.flatMap((ev): TurnEvent[] => {
+    if (ev.type === 'response') return [];
+    if (ev.type !== 'done') return [ev];
+    const { type: _done, ...done } = ev;
+    return [turnDoneOf(done, snapshot)];
+  });
 }
 
 function* drainPendingHostEvents(pendingHostEvents: TurnEvent[]): Generator<TurnEvent> {
@@ -282,7 +353,6 @@ function boundaryDoneEvents(
   return [{ type: 'done', stop: { kind: 'completed' } }];
 }
 
-/** Yield non-done batch events; return the done subset for boundary handling. */
 function* yieldLiveNonDoneEvents(
   gated: TurnEvent[],
   includeMatch: boolean | undefined,
@@ -300,43 +370,55 @@ function* yieldLiveNonDoneEvents(
 }
 
 function buildLiveSession(args: {
+  tools: ToolRegistry;
   profile: LiveProfile;
   canary: string;
   connection: Awaited<ReturnType<typeof openGoogleLiveSession>>;
   gate: LiveOutboundGateSession;
+  /** Every URL the model has been given this session (`GuardrailContext.givenUrls`). */
+  givenUrls: GivenUrlSets;
   signal?: AbortSignal;
   onStage?: StageHandler;
   host?: unknown;
-  credentials?: Record<string, ToolCredential>;
+  credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;
   sessionPermissions?: string[];
   path?: string;
   snapshot: TurnToolSnapshot;
   /** Seed for StageContext.history (cloned). */
   historySeed?: TurnHistoryMessage[];
-  /** Open cycle for initial setup input when present. */
   openInitialCycle: boolean;
   trace: LiveTrace;
+  gateTtlMs: number;
+  signInGate: SignInGatePolicy;
 }): LiveSession {
   const {
     profile,
     canary,
     connection,
     gate,
+    givenUrls,
     signal,
     onStage,
     host: sessionHost,
-    credentials: sessionCredentials,
     resolveHost,
-    sessionPermissions,
     path,
     snapshot,
     trace,
+    gateTtlMs,
+    signInGate,
   } = args;
+  /** Grows as the user approves `session_consent` tools. */
+  let sessionPermissions = args.sessionPermissions;
+  /** Where keys typed at sign-in gates go when a call brings no source of its own. */
+  const sessionCredentials = args.credentials ?? memoryCredentialSource();
+  const calls = new Map<string, HeldCall>();
 
   let closed = false;
   let withholdClose = false;
   const pendingHostEvents: TurnEvent[] = [];
+  /** Wakes the host's stream when the session queues an event while Gemini is silent. */
+  let wakeHost: (() => void) | undefined;
   const includeMatch = resolveObservabilityPolicy(profile.observability).include
     .guardrailMatchPreview;
 
@@ -350,7 +432,9 @@ function buildLiveSession(args: {
 
   const recordUserText = (text: string) => {
     const trimmed = text.trim();
-    if (trimmed) history.push({ role: 'user', content: trimmed });
+    if (!trimmed) return;
+    history.push({ role: 'user', content: trimmed });
+    addSeenUrls(givenUrls.request, trimmed);
   };
 
   const recordAssistantText = (text: string) => {
@@ -364,25 +448,10 @@ function buildLiveSession(args: {
     history.push({ role: 'assistant', content: trimmed });
   };
 
-  const recordToolSettle = (tool: {
-    name: string;
-    callId: string;
-    input?: unknown;
-    output?: unknown;
-    failure?: ToolFailure;
-  }) => {
-    const args =
-      tool.input && typeof tool.input === 'object' && !Array.isArray(tool.input)
-        ? (tool.input as Record<string, unknown>)
-        : {};
-    const modelResult = tool.failure
-      ? formatToolFailureForModel(tool.failure)
-      : tool.output !== undefined
-        ? modelResultFromOutput(tool.output)
-        : formatToolFailureForModel({
-            code: 'error',
-            message: 'Tool settled without output', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-          });
+  const recordToolSettle = (
+    tool: { name: string; callId: string; arguments: Record<string, unknown> },
+    readBack: string,
+  ) => {
     history.push(
       {
         role: 'assistant',
@@ -392,7 +461,7 @@ function buildLiveSession(args: {
             type: 'function',
             function: {
               name: tool.name,
-              arguments: JSON.stringify(args),
+              arguments: JSON.stringify(tool.arguments),
             },
           },
         ],
@@ -401,20 +470,109 @@ function buildLiveSession(args: {
         role: 'tool',
         tool_call_id: tool.callId,
         name: tool.name,
-        content: formatToolResult(modelResult),
+        content: readBack,
       },
     );
+    addSeenUrls(givenUrls.tools, readBack);
   };
 
   const enqueuePending = (ev: TurnEvent) => {
     pendingHostEvents.push(projectGuardrailTurnEvent(ev, includeMatch));
+    const wake = wakeHost;
+    wakeHost = undefined;
+    wake?.();
   };
 
-  const sendJson = (payload: Record<string, unknown>) => {
+  const hostEventQueued = (): Promise<'queued'> =>
+    pendingHostEvents.length > 0
+      ? Promise.resolve('queued')
+      : new Promise((resolve) => {
+          wakeHost = () => resolve('queued');
+        });
+
+  const assertOpen = () => {
     if (closed) {
       throw new TheoremError('request', 'Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
+  };
+
+  const sendJson = (payload: Record<string, unknown>) => {
+    assertOpen();
     connection.send(payload);
+  };
+
+  const answerModel = (callId: string, held: HeldCall, readBack: string) => {
+    recordToolSettle({ name: held.name, callId, arguments: held.arguments }, readBack);
+    sendJson(buildGeminiLiveToolResponse(callId, held.name, readBack));
+  };
+
+  const settleHeld = (callId: string, held: HeldCall, readBack: string) => {
+    clearTimeout(held.lapse);
+    calls.delete(callId);
+    answerModel(callId, held, readBack);
+  };
+
+  /** A released call nobody answered in time: the model reads that its sign-in expired. */
+  const lapseReleased = (callId: string, held: HeldCall) => {
+    if (closed || calls.get(callId) !== held || typeof held.state !== 'object') return;
+    const { gate } = held.state;
+    const failure = lapsedGateFailure(
+      held.name,
+      gate.kind === 'auth' ? gate.authChallenge.service : undefined,
+      profile.lexicon,
+    );
+    const readBack = formatToolResult(formatToolFailureForModel(failure));
+    enqueuePending(failureEvent({ name: held.name, callId }, failure, readBack));
+    settleHeld(callId, held, readBack);
+  };
+
+  /** A closed session answers nothing more. */
+  const stopLapses = () => {
+    for (const held of calls.values()) clearTimeout(held.lapse);
+  };
+
+  /**
+   * A call that ran into `gate`. A sign-in gate this session answers at once tells the model its
+   * pending note and releases the call; a call already released stays released. Either waits
+   * `gateTtlMs` for its outcome. False: the call is not released, and the caller holds it.
+   */
+  const releaseGated = (
+    callId: string,
+    held: HeldCall,
+    wasReleased: boolean,
+    gate: ToolGate,
+    readBack: string | undefined,
+  ): boolean => {
+    const answersNow = signInGate === 'answer' && gate.kind === 'auth' && readBack !== undefined;
+    if (!answersNow && !wasReleased) return false;
+    if (answersNow) answerModel(callId, held, readBack);
+    clearTimeout(held.lapse);
+    held.state = { gate, createdAt: Date.now(), released: true };
+    held.lapse = setTimeout(() => lapseReleased(callId, held), gateTtlMs);
+    return true;
+  };
+
+  /**
+   * Hold each call the model makes. A call the provider already failed
+   * (malformed arguments) is settled here: the model reads its failure. A
+   * provider cancel lets go of a call that is not running.
+   */
+  const holdCalls = (events: readonly ProviderEvent[]) => {
+    for (const ev of events) {
+      if (ev.type !== 'tool') continue;
+      const tool = ev.tool;
+      if (tool.phase === undefined) {
+        calls.set(tool.callId, { name: tool.name, arguments: tool.arguments, state: 'open' });
+        continue;
+      }
+      const held = calls.get(tool.callId);
+      if (!held) continue;
+      if (tool.phase === 'error' && tool.readBack !== undefined) {
+        settleHeld(tool.callId, held, tool.readBack);
+      } else if (tool.phase === 'cancel' && held.state !== 'running') {
+        calls.delete(tool.callId);
+      }
+    }
   };
 
   const closeSocket = (code: number, reason: string, initiator: LiveCloser) => {
@@ -424,14 +582,15 @@ function buildLiveSession(args: {
 
   /** A `done` names the response span it ends. */
   const stampDone = (ev: TurnEvent): TurnEvent => {
-    const traceparent = ev.type === 'done' ? trace.responseTraceparent() : undefined;
+    if (ev.type !== 'done') return ev;
+    const traceparent = trace.responseTraceparent();
     return traceparent ? { ...ev, traceparent } : ev;
   };
 
   const runCycleStage = async (
     stage: TurnStage,
     extra?: StageCallBag,
-  ): Promise<{ abort?: boolean | { reason?: string }; injectTexts: string[] }> => {
+  ): Promise<{ abort?: boolean | { reason?: string }; inject: InjectUnit[] }> => {
     const gen = runStage({
       ...extra,
       stage,
@@ -451,26 +610,62 @@ function buildLiveSession(args: {
     }
     return {
       abort: result.value.abort,
-      injectTexts: liveInjectTexts(result.value.inject),
+      inject: result.value.inject,
     };
   };
 
   const ingestPreparedLiveText = (text: string) => {
+    const start = performance.now();
     const prepared = prepareLiveInboundText(profile, text);
-    if (prepared.guardrail) {
-      trace.inbound(prepared.guardrail);
-      enqueuePending(prepared.guardrail);
-    }
+    trace.inboundCheck(performance.now() - start, prepared.guardrail);
+    if (prepared.guardrail) enqueuePending(prepared.guardrail);
     recordUserText(prepared.text);
     sendJson(buildGeminiLiveRealtimeInput({ type: 'text', text: prepared.text }));
   };
 
-  const applyInjectTexts = (texts: string[]) => {
-    for (const text of texts) {
-      // Cycle already open — write without re-entering pre_turn.
-      assertLiveIngress(profile, 'text');
-      ingestPreparedLiveText(text);
+  /**
+   * Write each inject whole into the open cycle (no re-entry into pre_turn),
+   * then record the named ones that landed. An inject live cannot write as
+   * text is refused whole with a stage warning, never written in part.
+   */
+  const landInject = (
+    stage: TurnStage,
+    units: readonly InjectUnit[],
+    extra?: { callId?: string; toolName?: string },
+  ) => {
+    const landed: InjectUnit[] = [];
+    for (const unit of units) {
+      const texts = liveInjectTexts(unit.messages);
+      if (!texts) {
+        enqueuePending({
+          ...stageEventFields(stage, extra),
+          stageWarnings: [
+            {
+              code: 'inject_invalid_messages',
+              field: 'inject',
+              message: 'live ingress takes plain-text inject messages only; inject refused', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+            },
+          ],
+        });
+        continue;
+      }
+      for (const text of texts) {
+        assertLiveIngress(profile, 'text');
+        ingestPreparedLiveText(text);
+      }
+      landed.push(unit);
     }
+    const event = injectedStageEvent(stage, landed, extra);
+    if (event) enqueuePending(event);
+  };
+
+  /** A stage's `abort` ends the open cycle: a cancelled `done`, then `post_turn`. */
+  const cancelCycle = async (abort: true | { reason?: string }) => {
+    const stop = stageAbortStop(abort);
+    // Idle first, so a boundary Gemini sends meanwhile does not end the cycle again.
+    cycle = 'idle';
+    enqueuePending({ type: 'done', stop, interrupted: true });
+    await runCycleStage('post_turn', { stop });
   };
 
   const openCycleIfNeeded = async (): Promise<{ aborted: boolean }> => {
@@ -479,19 +674,10 @@ function buildLiveSession(args: {
     cycleStep += 1;
     const pre = await runCycleStage('pre_turn');
     if (pre.abort) {
-      const done: TurnEvent = {
-        type: 'done',
-        stop: { kind: 'cancelled' },
-        interrupted: true,
-      };
-      enqueuePending(done);
-      await runCycleStage('post_turn', { stop: { kind: 'cancelled' } });
-      cycle = 'idle';
+      await cancelCycle(pre.abort);
       return { aborted: true };
     }
-    if (pre.injectTexts.length) {
-      await applyInjectTexts(pre.injectTexts);
-    }
+    landInject('pre_turn', pre.inject);
     return { aborted: false };
   };
 
@@ -509,9 +695,7 @@ function buildLiveSession(args: {
       cycle = 'idle';
       return;
     }
-    if (before.injectTexts.length) {
-      await applyInjectTexts(before.injectTexts);
-    }
+    landInject('before_end', before.inject);
     for (const ev of doneEvents) {
       yield ev;
     }
@@ -529,18 +713,224 @@ function buildLiveSession(args: {
     return next;
   };
 
-  /** The session's events, as the host receives them. */
+  /**
+   * Run a held call through the registry, with stages. A gate holds it for its
+   * decision; any other settlement answers the model and lets it go.
+   */
+  const runHeld = async (
+    callId: string,
+    held: HeldCall,
+    input: unknown,
+    resume: InvokeToolResume | undefined,
+    per: Pick<LiveExecuteToolArgs, 'credentials' | 'host'>,
+  ): Promise<LiveExecuteToolResult> => {
+    const waiting = held.state;
+    const wasReleased = isReleased(held);
+    held.state = 'running';
+    const host = per.host ?? sessionHost;
+    const record = trace.toolRecord(callId);
+    const exec = executeRegisteredTool({
+      tools: args.tools,
+      profile,
+      name: held.name,
+      input,
+      callId,
+      ctx: {
+        sessionPermissions,
+        credentials: per.credentials ?? sessionCredentials,
+        resolveHost,
+        path,
+        signal,
+        resume,
+        host,
+        turn: { step: Math.max(1, cycleStep) },
+      },
+      snapshot,
+      stages: {
+        handlers: onStage ? [onStage] : [],
+        profile,
+        step: Math.max(1, cycleStep),
+        history: () => history,
+        injectAllowed: profileAllowsInject(profile),
+        host,
+        signal,
+      },
+      openSpan: record.open,
+      readBack: liveReadBack,
+    });
+
+    let s: ToolExecuteSettlement;
+    try {
+      while (true) {
+        const next = await exec.next();
+        if (next.done) {
+          s = next.value;
+          break;
+        }
+        enqueuePending(next.value);
+      }
+    } catch (err) {
+      // It did not settle: it waits as it did, to be run again.
+      held.state = waiting;
+      throw err;
+    } finally {
+      record.finish();
+    }
+
+    if (s.gated) {
+      if (!releaseGated(callId, held, wasReleased, s.gated, s.gateReadBack)) {
+        held.state = { gate: s.gated, createdAt: Date.now() };
+      }
+      return { gated: s.gated };
+    }
+
+    if (s.aborted) {
+      // A stage stopped the call. The model still reads an answer, or it
+      // waits for one; then the open cycle ends cancelled, as a turn does.
+      const failure: ToolFailure | undefined = s.callNotStarted
+        ? {
+            code: 'cancelled',
+            kind: 'cancelled',
+            message: lexiconText('session.tool_aborted', { tool: held.name }, profile.lexicon),
+          }
+        : s.failure;
+      if (s.callNotStarted && failure) {
+        const readBack = formatToolResult(formatToolFailureForModel(failure));
+        enqueuePending(failureEvent({ name: held.name, callId }, failure, readBack));
+        settleHeld(callId, held, readBack);
+      } else {
+        const output = liveToolOutput(s);
+        if (output === undefined) calls.delete(callId);
+        else settleHeld(callId, held, output);
+      }
+      const { aborted } = s;
+      await withIngress(async () => {
+        if (cycle === 'open') await cancelCycle(aborted);
+      });
+      return {
+        outputRaw: s.outputRaw,
+        outputModel: s.modelResult,
+        failure,
+        awaiting: s.awaiting,
+      };
+    }
+
+    const { pendingInject } = s;
+    if (pendingInject) {
+      await withIngress(async () => {
+        const opened = await openCycleIfNeeded();
+        if (opened.aborted) return;
+        landInject('post_tool', pendingInject, { callId, toolName: held.name });
+      });
+    }
+
+    const output = liveToolOutput(s);
+    if (output === undefined) calls.delete(callId);
+    else settleHeld(callId, held, output);
+
+    return {
+      outputRaw: s.outputRaw,
+      outputModel: s.modelResult,
+      failure: s.failure,
+      awaiting: s.awaiting,
+    };
+  };
+
+  const gateExpiredError = (callId: string) =>
+    // lexicon-exempt: developer contract / internal diagnostic — the user reads session.gate_expired
+    new TheoremError('request', `gate ${callId} expired`, {
+      copy: { key: 'session.gate_expired' },
+    });
+
+  const gateLapsed = (held: HeldCall): boolean =>
+    typeof held.state === 'object' && gateExpired(held.state.createdAt, Date.now(), gateTtlMs);
+
+  /**
+   * The held call `callId`, when it can run now. A gate that waited past
+   * `gateTtlMs` is settled (a held one as abandoned, a released one as lapsed;
+   * the model reads that), then refused.
+   */
+  const takeHeld = async (callId: string): Promise<HeldCall> => {
+    const held = calls.get(callId);
+    if (!held || held.state === 'running') {
+      throw new TheoremError('request', `call ${callId} is not waiting to run`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    if (gateLapsed(held)) {
+      if (isReleased(held)) lapseReleased(callId, held);
+      else
+        await runHeld(callId, held, held.arguments, resumeForAnswer({ decision: 'abandon' }), {});
+      throw gateExpiredError(callId);
+    }
+    return held;
+  };
+
+  const deliverBatch = async function* (
+    item: Extract<SessionQueueItem, { type: 'batch' }>,
+  ): AsyncGenerator<TurnEvent> {
+    holdCalls(item.events);
+    // Usage is held per response and emitted once, reported or estimated, by `settle`.
+    const hostEvents = hostEventsOf(
+      item.events.filter((ev) => ev.type !== 'tokens'),
+      snapshot,
+    );
+    const gateStart = performance.now();
+    const gated = await applyOutbound(gate, hostEvents, item.turnPhase, () => {
+      withholdClose = true;
+    });
+    // An abort only drops what the gate held; there is no check to time.
+    if (item.turnPhase !== 'abort') trace.outboundTime(performance.now() - gateStart);
+    for (const ev of gated) {
+      if (ev.type === 'guardrail') trace.outbound(ev);
+    }
+
+    const doneBatch = yield* yieldLiveNonDoneEvents(gated, includeMatch, recordAssistantText);
+    const tokens = await trace.settle();
+    if (tokens) yield tokens;
+
+    const interrupted = doneBatch.some((ev) => ev.type === 'done' && ev.interrupted);
+    const completeBoundary =
+      item.turnPhase === 'complete' || item.turnPhase === 'abort' || doneBatch.length > 0;
+
+    // Boundary batches (`interactionStatus: IDLE`, or bare `turnComplete` when the
+    // provider sends no status) often have no folded `done` — still end the cycle.
+    if (completeBoundary && cycle === 'open') {
+      const boundaryDone = boundaryDoneEvents(doneBatch, item.turnPhase, interrupted);
+      for await (const ev of endCycleAroundDone(boundaryDone)) {
+        yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
+      }
+      yield* drainPendingHostEvents(pendingHostEvents);
+    } else if (doneBatch.length > 0) {
+      for (const ev of doneBatch) {
+        yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
+      }
+    }
+  };
+
   const streamToHost = async function* (): AsyncGenerator<TurnEvent> {
     // Who closes the socket when the loop ends: the host, unless THEOREM stops it.
     let closer: LiveCloser = 'host';
     let thrown: unknown;
+    const provider = connection.batches();
+    // The batch being awaited; it stays pending across wakes, so no frame is read twice.
+    let nextBatch: Promise<IteratorResult<SessionQueueItem>> | undefined;
     try {
-      for await (const item of connection.batches()) {
+      while (true) {
+        nextBatch ??= provider.next();
+        // A tool the host ran, or a stage the session fired, reaches the host
+        // now: a model waiting on a call's result sends nothing meanwhile.
+        const woke = await Promise.race([nextBatch, hostEventQueued()]);
         throwIfAborted(signal);
+        if (woke === 'queued') {
+          yield* drainPendingHostEvents(pendingHostEvents);
+          continue;
+        }
+        nextBatch = undefined;
+        if (woke.done) break;
+        const item = woke.value;
         trace.receive(item);
         yield* drainPendingHostEvents(pendingHostEvents);
         if (item.type === 'closed') {
-          if (item.goAway) yield sessionEndedEvent(item, item.goAway);
+          if (item.goAway) yield sessionEndedEvent(item, item.goAway, profile.lexicon);
           else if (item.error) yield toErrorEvent(item.error);
           break;
         }
@@ -552,40 +942,7 @@ function buildLiveSession(args: {
         if (item.type === 'row') {
           continue;
         }
-        // Usage is held per response and emitted once, reported or estimated, by `settle`.
-        const gated = await applyOutbound(
-          gate,
-          item.events.filter((ev) => ev.type !== 'tokens'),
-          item.turnPhase,
-          () => {
-            withholdClose = true;
-          },
-        );
-        for (const ev of gated) {
-          if (ev.guardrail) trace.outbound(ev);
-        }
-
-        const doneBatch = yield* yieldLiveNonDoneEvents(gated, includeMatch, recordAssistantText);
-        const tokens = await trace.settle();
-        if (tokens) yield tokens;
-
-        const interrupted = doneBatch.some((ev) => ev.type === 'done' && ev.interrupted);
-        const completeBoundary =
-          item.turnPhase === 'complete' || item.turnPhase === 'abort' || doneBatch.length > 0;
-
-        // Boundary batches (`interactionStatus: IDLE`, or bare `turnComplete` when the
-        // provider sends no status) often have no folded `done` — still end the cycle.
-        if (completeBoundary && cycle === 'open') {
-          const boundaryDone = boundaryDoneEvents(doneBatch, item.turnPhase, interrupted);
-          for await (const ev of endCycleAroundDone(boundaryDone)) {
-            yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
-          }
-          yield* drainPendingHostEvents(pendingHostEvents);
-        } else if (doneBatch.length > 0) {
-          for (const ev of doneBatch) {
-            yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
-          }
-        }
+        yield* deliverBatch(item);
 
         if (withholdClose) {
           closer = 'theorem';
@@ -598,8 +955,11 @@ function buildLiveSession(args: {
       throw err;
     } finally {
       closed = true;
+      stopLapses();
       if (withholdClose) closeSocket(1011, 'guardrail withheld', closer);
       else closeSocket(1000, 'session-closed', closer);
+      // The socket is closed, so a batch still awaited resolves and the provider can finish.
+      await provider.return(undefined);
       await trace.close({ thrown });
     }
   };
@@ -651,99 +1011,113 @@ function buildLiveSession(args: {
         ingestPreparedLiveText(text);
       });
     },
-    async executeTool(toolArgs: LiveExecuteToolArgs): Promise<LiveExecuteToolResult> {
-      if (closed) {
-        throw new TheoremError('request', 'Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      }
-      const handlers = onStage ? [onStage] : [];
-      const record = trace.toolRecord(toolArgs.callId);
-      const exec = executeRegisteredTool({
-        profile,
-        name: toolArgs.name,
-        input: toolArgs.input ?? {},
-        callId: toolArgs.callId,
-        ctx: {
-          sessionPermissions,
-          credentials: toolArgs.credentials ?? sessionCredentials,
-          resolveHost,
-          path,
-          signal,
-          resume: toolArgs.resume,
-          host: toolArgs.host ?? sessionHost,
-          turn: { step: Math.max(1, cycleStep) },
-        },
-        snapshot,
-        stages: {
-          handlers,
-          profile,
-          step: Math.max(1, cycleStep),
-          history: () => history,
-          injectAllowed: profileAllowsInject(profile),
-          host: toolArgs.host ?? sessionHost,
-          signal,
-        },
-        openSpan: record.open,
-        readBack: liveReadBack,
+    sendContext(text: string): Promise<void> {
+      return withIngress(() => {
+        assertLiveIngress(profile, 'text');
+        const start = performance.now();
+        const prepared = prepareLiveInboundText(profile, text);
+        trace.inboundCheck(performance.now() - start, prepared.guardrail);
+        if (prepared.guardrail) enqueuePending(prepared.guardrail);
+        sendJson(buildGeminiLiveContext(prepared.text));
+        return Promise.resolve();
       });
-
-      let s: ToolExecuteSettlement;
-      try {
-        while (true) {
-          const next = await exec.next();
-          if (next.done) {
-            s = next.value;
-            break;
-          }
-          enqueuePending(next.value);
+    },
+    async executeTool({
+      callId,
+      decision,
+      input,
+      secret,
+      credentials,
+      host,
+    }: LiveExecuteToolArgs): Promise<LiveExecuteToolResult> {
+      assertOpen();
+      const held = await takeHeld(callId);
+      const gate = typeof held.state === 'object' ? held.state.gate : undefined;
+      if (!gate) {
+        if (decision !== undefined || input !== undefined || secret !== undefined) {
+          throw new TheoremError(
+            'request',
+            `call ${callId} is not waiting on a gate; it takes no decision, input or secret`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          );
         }
-      } finally {
-        record.finish();
+        return await runHeld(callId, held, held.arguments, undefined, { credentials, host });
       }
-
-      if (s.gated) {
-        return { gated: s.gated };
+      if (decision === undefined) {
+        throw new TheoremError(
+          'request',
+          `call ${callId} is waiting on a gate; answer it with a decision`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        );
       }
-
-      // post_tool inject on live → schedule text ingress
-      if (s.pendingInject?.length) {
-        const texts = liveInjectTexts(s.pendingInject);
-        if (texts.length) {
-          await withIngress(async () => {
-            const opened = await openCycleIfNeeded();
-            if (!opened.aborted) await applyInjectTexts(texts);
-          });
+      const answered = answerGatedCall(
+        { callId, decision, input, secret },
+        {
+          name: held.name,
+          arguments: held.arguments,
+          permission: gate.permission,
+          ...(gate.kind === 'auth' ? { auth: gate.authChallenge } : {}),
+        },
+        sessionPermissions ?? [],
+      );
+      if (answered.typed) {
+        await (credentials ?? sessionCredentials).set(
+          answered.typed.slot,
+          answered.typed.credential,
+        );
+      }
+      sessionPermissions = answered.sessionPermissions;
+      return await runHeld(callId, held, answered.input, answered.resume, {
+        credentials,
+        host,
+      });
+    },
+    answerToolCall({ callId, events }: LiveAnswerToolCallArgs): LiveExecuteToolResult {
+      assertOpen();
+      const held = calls.get(callId);
+      if (!held || (held.state !== 'open' && !isReleased(held))) {
+        throw new TheoremError('request', `call ${callId} is not waiting for an answer`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      }
+      if (gateLapsed(held)) {
+        lapseReleased(callId, held);
+        throw gateExpiredError(callId);
+      }
+      let settled: SettledPhase | undefined;
+      for (const ev of events) {
+        if (ev.type !== 'tool') continue;
+        if (ev.tool.phase === undefined || ev.tool.callId !== callId) {
+          throw new TheoremError(
+            'request',
+            `the run answering call ${callId} carries a call of its own (${ev.tool.callId})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          );
         }
+        if (isSettledPhase(ev.tool)) settled = ev.tool;
       }
-
-      const outputModel = s.modelResult;
-      const output = liveToolOutput(s);
-      if (output !== undefined) {
-        recordToolSettle({
-          name: toolArgs.name,
-          callId: toolArgs.callId,
-          input: toolArgs.input,
-          output: s.outputRaw ?? outputModel?.data ?? outputModel,
-          failure: s.failure,
-        });
-        sendJson(buildGeminiLiveToolResponse(toolArgs.callId, toolArgs.name, output));
+      if (!settled) {
+        throw new TheoremError('request', `the run answering call ${callId} settled nothing`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
-
-      return {
-        outputRaw: s.outputRaw,
-        outputModel,
-        failure: s.failure,
-        awaiting: s.awaiting,
+      const forward = () => {
+        for (const ev of events) {
+          if (ev.type !== 'done') enqueuePending(ev);
+        }
       };
-    },
-    sendToolResponse(id: string, name: string, output: unknown) {
-      sendJson(buildGeminiLiveToolResponse(id, name, output));
-    },
-    sendToolResponses(responses: Array<{ id: string; name: string; output: unknown }>) {
-      sendJson(buildGeminiLiveToolResponses(responses));
+      if (settled.phase === 'gate') {
+        forward();
+        releaseGated(callId, held, isReleased(held), settled.gate, settled.readBack);
+        return { gated: settled.gate };
+      }
+      const { readBack } = settled;
+      if (readBack === undefined) {
+        throw new TheoremError('request', `the run answering call ${callId} carries no readBack`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      }
+      forward();
+      settleHeld(callId, held, readBack);
+      return settled.phase === 'complete'
+        ? { outputRaw: settled.output, ...(settled.awaiting ? { awaiting: true } : {}) }
+        : { failure: settled.failure };
     },
     close(reason = 'session-closed'): Promise<void> {
       if (!closed) {
         closed = true;
+        stopLapses();
         closeSocket(1000, reason, 'host');
       }
       // The session record is sealed here; frames the host reads after closing are not in it.
@@ -761,21 +1135,22 @@ function buildLiveSession(args: {
 }
 
 /**
- * Open a gated Gemini Live session for a `type: 'live'` profile, and trace it
- * (`session-trace.ts`): the session record is written however the session
- * ends, including when opening it fails.
- *
- * Hosts bridge browser sockets and tool dispatch; THEOREM owns Gemini WS,
- * framing, inbound prep, outbound canary/egress gates, and live stages.
+ * The session record is written however the session ends, including when opening fails. An unknown
+ * profile fails to open and is recorded under the standard observability policy.
  */
-export async function runSession(
+export async function runSessionInRegistry(
+  registry: KernelRegistry,
   req: SessionRequest,
   options: RunSessionOptions,
   sinkOverride?: TraceSink,
 ): Promise<LiveSession> {
-  const trace = startLiveTrace(req, sinkOverride);
+  const trace = startLiveTrace(
+    req,
+    registry.profiles.find(req.profile)?.observability,
+    sinkOverride,
+  );
   try {
-    return await openTracedSession(req, options, trace);
+    return await openTracedSession(registry, req, options, trace);
   } catch (err) {
     await trace.close({ thrown: err });
     throw err;
@@ -783,15 +1158,17 @@ export async function runSession(
 }
 
 async function openTracedSession(
+  registry: KernelRegistry,
   req: SessionRequest,
   options: RunSessionOptions,
   trace: LiveTrace,
 ): Promise<LiveSession> {
+  const gateTtlMs = resolveGateTtlMs('runSession', options.gateTtlMs);
   const turnReq = toTurnRequest(req);
-  const safe = sanitizeTurnRequest(turnReq);
+  const safe = sanitizeTurnRequest(turnReq, registry.profiles.get(turnReq.profile));
   throwIfAborted(safe.signal);
 
-  const { profile, generation: gen0 } = resolveTurn(safe);
+  const { profile, generation: gen0 } = resolveTurnInRegistry(registry, safe);
   assertLiveProfile(profile);
 
   if (req.snapshot) {
@@ -803,9 +1180,12 @@ async function openTracedSession(
   const hasInitialInput = Boolean(req.input && req.input.length > 0);
   generation = applyInitialInput(generation, req.input);
 
-  const system = bindCanary(generation.resolvedSystem, generation.canary, profile.lexicon);
+  const system = bindSystem(generation.resolvedSystem, [
+    canaryNote(generation.canary, profile.lexicon),
+    userDataNote(profile.lexicon),
+  ]);
   const completeReq: ProviderCompleteRequest = {
-    ...providerCompleteRequest(generation, system),
+    ...providerCompleteRequest(registry.tools, generation, system.text),
     signal: safe.signal,
     tapUpstream: trace.sent,
   };
@@ -815,23 +1195,33 @@ async function openTracedSession(
     generation,
     binding,
     family: binding ? mediaTokenFamily(binding) : undefined,
-    system,
+    system: system.text,
     canary: generation.canary,
   });
 
-  const gate = createLiveOutboundGateSession(profile, generation.canary || undefined);
+  const givenUrls = givenUrlSets();
+  addRequestUrls(givenUrls, completeReq);
+  addHistoryUrls(givenUrls, req.history ?? []);
+  const gate = createLiveOutboundGateSession(
+    profile,
+    generation.canary || undefined,
+    system.private,
+    givenUrls,
+  );
   const connection = await openGoogleLiveSession(
     completeReq,
-    options.gemini,
+    { ...options.gemini, vault: options.vault },
     options.openWebSocket,
   );
   trace.setup(connection.setup);
 
   return buildLiveSession({
+    tools: registry.tools,
     profile,
     canary: generation.canary,
     connection,
     gate,
+    givenUrls,
     signal: safe.signal,
     onStage: req.onStage,
     host: req.host,
@@ -843,5 +1233,7 @@ async function openTracedSession(
     historySeed: req.history,
     openInitialCycle: hasInitialInput,
     trace,
+    gateTtlMs,
+    signInGate: options.signInGate ?? 'hold',
   });
 }

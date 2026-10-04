@@ -1,31 +1,3 @@
-/**
- * Live session traces. A session writes several records, each as soon as it
- * is complete, so a long session never holds its whole trace in memory:
- *
- *   invoke_agent {profile}       the session; written when it closes
- *   generate_content {apiId}     one response; written at its `turnComplete`
- *   execute_tool {name}          one `executeTool` call; written when it settles
- *
- * Records join through `traceparent` (a response under the session, a tool
- * under the response that asked for it) and share the session's clock.
- *
- * A response is opened by its first response-scoped event, starts at the first
- * input frame it holds (so its duration includes the time the model spent
- * listening), and holds the input sent since the previous response opened:
- * realtime input, text, and tool responses. A tool response is read by the
- * response after the one that asked (the asking one completes as the result
- * lands), so it is that response's input. Its `gen_ai.input.messages` is that input
- * only, never the whole session: with sliding-window compression the provider
- * drops earlier context, so what the model read of the session is unknowable.
- * Wire frames are recorded where their input is attributed, at the time they
- * were sent.
- *
- * A resumption handle is a credential: frames carrying one are recorded
- * without it, and events record only that a handle was issued.
- *
- * @module
- */
-
 import { errorKind, isAbortError, TheoremError } from '../../../guardrails/error.ts';
 import { resolveTraceWriter } from '../../../observability/policy.ts';
 import { writeTrace } from '../../../observability/trace.ts';
@@ -39,11 +11,14 @@ import {
   type TraceTree,
   traceJson,
 } from '../../../observability/trace-span.ts';
-import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
+import type {
+  ProfileObservabilitySpec,
+  ResolvedObservabilityPolicy,
+} from '../../../observability/types.ts';
 import { liveFrameInput } from '../../../providers/google/live/framing.ts';
-import { LIVE_OVERFLOW_ROW } from '../../../providers/google/live/session.ts';
+import { LIVE_FALLBACK_ROW } from '../../../providers/google/live/session.ts';
 import type { SessionQueueItem } from '../../../providers/google/live/stream.ts';
-import { profileObservability } from '../../registry/profiles.ts';
+import type { ProviderEvent, TurnEventOf } from '../../turn-events.ts';
 import type {
   InteractionPart,
   ModelBinding,
@@ -67,23 +42,23 @@ import {
 import type { MediaTokenFamily, TokenCount } from '../token-estimate.ts';
 import {
   type CallTrace,
+  endThrownSpan,
   guardrailAttributes,
+  guardrailCheckAttributes,
   OutputFold,
   optional,
-  recordException,
   startCallTrace,
   traceLinks,
   usageAttributes,
 } from '../turn-trace.ts';
 import { sumTokens } from '../usage.ts';
 
-/** Who closed the socket. */
 type LiveCloser = 'host' | 'provider' | 'theorem';
 
 /** Events that are the model's output: they mark a response as answering. */
-const OUTPUT_EVENTS = new Set<TurnEvent['type']>(['text', 'thought', 'media', 'tool']);
+const OUTPUT_EVENTS = new Set<ProviderEvent['type']>(['text', 'thought', 'media', 'tool']);
+const MS_PER_S = 1000;
 
-/** What the session trace needs once the profile is resolved. */
 interface LiveTraceBinding {
   request: ProviderCompleteRequest;
   generation: ResolvedGeneration;
@@ -100,7 +75,6 @@ interface PendingFrame {
   body: Record<string, unknown>;
 }
 
-/** One run of audio chunks of one format. */
 interface AudioRun {
   mimeType: string;
   chunks: string[];
@@ -130,7 +104,11 @@ function audioRunParts(run: AudioRun): InteractionPart[] {
   }
 }
 
-/** Input sent for one response, in order. Contiguous audio of one format is one message. */
+/**
+ * Input sent since the previous response opened; a tool response is input to the response after the
+ * one that asked. Never the whole session: under sliding-window compression what the model read of
+ * it is unknowable. Contiguous audio of one format is one message.
+ */
 class LiveInput {
   private readonly items: (TurnHistoryMessage | AudioRun)[] = [];
   private run?: AudioRun;
@@ -175,12 +153,18 @@ function stringAttribute(key: string, value: unknown): TraceAttributes {
 }
 
 /** A provider session signal as `theorem.session` attributes, or `undefined` for a response event. */
-function sessionSignal(event: TurnEvent): TraceAttributes | undefined {
-  if (event.type === 'session' && event.session && event.session.kind !== 'turn_complete') {
-    return { kind: event.session.kind, ...optional('time_left_ms', event.session.timeLeftMs) };
+function sessionSignal(event: ProviderEvent): TraceAttributes | undefined {
+  if (event.type === 'session') {
+    const { session } = event;
+    if (session.kind === 'turn_complete') return undefined;
+    return {
+      kind: session.kind,
+      ...('timeLeftMs' in session ? optional('time_left_ms', session.timeLeftMs) : {}),
+    };
   }
-  const evidence = event.evidence;
-  if (evidence?.kind === 'voice_activity') {
+  if (event.type !== 'evidence') return undefined;
+  const { evidence } = event;
+  if (evidence.kind === 'voice_activity') {
     const raw = asRecord(evidence.raw);
     return {
       kind: 'voice_activity',
@@ -188,7 +172,7 @@ function sessionSignal(event: TurnEvent): TraceAttributes | undefined {
       ...stringAttribute('audio_offset', raw?.audioOffset),
     };
   }
-  if (evidence?.kind === 'session_resumption') {
+  if (evidence.kind === 'session_resumption') {
     return {
       kind: 'session_resumption',
       ...optional('resumable', evidence.resumable),
@@ -214,13 +198,12 @@ interface OpenResponse {
   complete: boolean;
 }
 
-/** How a session ended. */
 interface LiveTraceEnd {
   /** Thrown out of the session (an abort is recorded as cancelled). */
   thrown?: unknown;
 }
 
-/** Recorder for one Live session and the records it writes. */
+// Each record is written as soon as it is complete, so a long session never holds its whole trace.
 class LiveTrace {
   readonly root: SpanHandle;
   private bound?: LiveTraceBinding;
@@ -228,12 +211,11 @@ class LiveTrace {
   private lastResponse?: SpanHandle;
   private pendingFrames: PendingFrame[] = [];
   private pendingInput = new LiveInput();
-  private pendingHeard: TurnEvent[] = [];
+  private pendingHeard: ProviderEvent[] = [];
   /** What the provider holds from answered responses, for estimating unreported usage. */
   private held?: TokenCount;
   private readonly tokens: TurnTokens[] = [];
   private responses = 0;
-  /** Which response asked for each tool call, by call id. */
   private readonly callParents = new Map<string, string>();
   private writes: Promise<void> = Promise.resolve();
   private failure?: Error;
@@ -261,8 +243,8 @@ class LiveTrace {
 
   /** The adapter's `tapUpstream`: every frame sent, as it is sent. */
   readonly sent = (row: Record<string, unknown>): void => {
-    if (row.eventType === LIVE_OVERFLOW_ROW) {
-      this.keyOverflow(row);
+    if (row.eventType === LIVE_FALLBACK_ROW) {
+      this.keyFallback(row);
       return;
     }
     const frame = asRecord(row.body);
@@ -276,20 +258,20 @@ class LiveTrace {
     this.pendingFrames.push({ timeUnixNano: this.root.nowUnixNano(), body });
   };
 
-  /** The pinned key was refused for quota at setup; the session reopens on `paid`, which its responses name. */
-  private keyOverflow(row: Record<string, unknown>): void {
+  /** The pinned key was refused for quota at setup; the session reopens on the fallback slot, which its responses name. */
+  private keyFallback(row: Record<string, unknown>): void {
+    const to = String(row.keySlot);
     this.root.event('theorem.session', {
-      kind: 'key_overflow',
+      kind: 'key_fallback',
       key_slot: String(row.from),
-      to_key_slot: 'paid',
+      to_key_slot: to,
       'error.type': String(row.errorKind),
       error: String(row.error),
     });
     const bound = this.bound;
-    if (bound) this.bound = { ...bound, request: { ...bound.request, keySlot: 'paid' } };
+    if (bound) this.bound = { ...bound, request: { ...bound.request, keySlot: to } };
   }
 
-  /** The server's `setupComplete` frame. */
   setup(frame: Record<string, unknown>): void {
     this.root.event('theorem.upstream.row', { row: traceJson(frame) });
     this.root.event('theorem.session', { kind: 'setup_complete' });
@@ -324,19 +306,35 @@ class LiveTrace {
    * a transcript of the user's speech is input, recorded where it was heard.
    */
   delivered(event: TurnEvent): void {
-    if (event.evidence?.kind === 'input_transcription') return;
+    if (event.type === 'evidence' && event.evidence.kind === 'input_transcription') return;
     this.response?.delivered.add(event, this.root.nowUnixNano());
   }
 
   /** A guardrail decision on the model's output: on the open response. */
-  outbound(event: TurnEvent): void {
-    if (this.response) this.response.call.guardrail(event);
+  outbound(event: TurnEventOf<'guardrail'>): void {
+    if (this.response) this.response.call.guardrail(event.guardrail);
     else this.inbound(event);
   }
 
   /** A guardrail decision on the session (inbound text): on the session span. */
-  inbound(event: TurnEvent): void {
-    if (event.guardrail) this.root.event('theorem.guardrail', guardrailAttributes(event.guardrail));
+  inbound(event: TurnEventOf<'guardrail'>): void {
+    this.root.event('theorem.guardrail', guardrailAttributes(event.guardrail));
+  }
+
+  /** One run of the gate on the model's output, on the open response: a decision after it is its. */
+  outboundTime(ms: number): void {
+    this.response?.call.guardTime('live_output', ms);
+  }
+
+  /** The check on text the host sent into the session, pass or decision, with its time. */
+  inboundCheck(ms: number, event: TurnEventOf<'guardrail'> | undefined): void {
+    this.root.event(
+      'theorem.guardrail',
+      guardrailCheckAttributes('live_input', ms, event?.guardrail, {
+        stage: 'live_inbound',
+        trust: 'untrusted',
+      }),
+    );
   }
 
   /**
@@ -431,9 +429,7 @@ class LiveTrace {
       ...(!aborted && this.endedByGoAway ? { 'theorem.stop.kind': 'go_away' } : {}),
     });
     if (thrown !== undefined) {
-      recordException(this.root, thrown);
-      this.root.set({ 'error.type': errorKind(thrown) });
-      this.root.end({ code: 'ERROR', message: errorKind(thrown) });
+      endThrownSpan(this.root, thrown);
     } else {
       // A warned close is no verdict: neither failed nor known to be fine.
       this.root.end(aborted || this.endedByGoAway ? { code: 'UNSET' } : { code: 'OK' });
@@ -442,21 +438,20 @@ class LiveTrace {
     await this.writes;
   }
 
-  /** Route one provider event: to the session span, or into a response. */
-  private route(event: TurnEvent): void {
+  private route(event: ProviderEvent): void {
     const signal = sessionSignal(event);
     if (signal) {
       this.root.event('theorem.session', signal);
       return;
     }
-    if (event.type === 'tool' && event.tool?.phase === 'cancel') {
+    if (event.type === 'tool' && event.tool.phase === 'cancel') {
       (this.response?.call.span ?? this.root).event('theorem.tool.cancel', {
-        ...optional('gen_ai.tool.call.id', event.tool.id),
+        'gen_ai.tool.call.id': event.tool.callId,
         'gen_ai.tool.name': event.tool.name,
       });
       return;
     }
-    const kind = event.evidence?.kind;
+    const kind = event.type === 'evidence' ? event.evidence.kind : undefined;
     if (kind === 'input_transcription' && !(this.response && !this.response.answering)) {
       // Heard after the model began answering: input for the next response.
       this.pendingHeard.push(event);
@@ -469,18 +464,21 @@ class LiveTrace {
     }
     observeCallEvent(response.usage, event);
     response.call.observe(event);
-    if (OUTPUT_EVENTS.has(event.type) || kind === 'output_transcription') {
+    if (!response.answering && (OUTPUT_EVENTS.has(event.type) || kind === 'output_transcription')) {
+      // The reply's first chunk, from the response's first input frame: what a person waited.
+      response.call.span.set({
+        'gen_ai.response.time_to_first_chunk': response.call.span.msSinceStart() / MS_PER_S,
+      });
       response.answering = true;
     }
-    if (event.type === 'tool' && event.tool?.id) {
-      this.callParents.set(event.tool.id, response.call.span.traceparent());
+    if (event.type === 'tool' && event.tool.phase === undefined) {
+      this.callParents.set(event.tool.callId, response.call.span.traceparent());
     }
-    if (event.type === 'done' && event.stop && response.stop?.kind !== 'interrupted') {
+    if (event.type === 'done' && response.stop?.kind !== 'interrupted') {
       response.stop = event.stop;
     }
   }
 
-  /** A received frame, on the open response or the session span. */
   private row(row: Record<string, unknown>): void {
     const span = this.response?.call.span ?? this.root;
     span.event('theorem.upstream.row', { row: traceJson(withoutHandle(row)) });
@@ -494,6 +492,7 @@ class LiveTrace {
       throw new TheoremError('internal', 'Live trace received a response before it was bound');
     }
     const usage = startCallUsage(bound.system, { history: [], input: [] }, this.held);
+    // A response starts at its first input frame, so its duration includes the model's listening time.
     const startTimeUnixNano = this.pendingFrames[0]?.timeUnixNano;
     let tree: TraceTree | undefined;
     const call = startCallTrace(
@@ -588,12 +587,16 @@ class LiveTrace {
   }
 }
 
-/** Open a session's trace: its `invoke_agent` span under the host's `traceparent`. */
-function startLiveTrace(req: SessionRequest, sinkOverride?: TraceSink): LiveTrace {
-  const { sink, policy } = resolveTraceWriter({
-    override: sinkOverride,
-    observability: profileObservability(req.profile),
-  });
+/**
+ * Open a session's trace: its `invoke_agent` span under the host's `traceparent`,
+ * written under `observability`, the session's profile's block.
+ */
+function startLiveTrace(
+  req: SessionRequest,
+  observability: ProfileObservabilitySpec | undefined,
+  sinkOverride?: TraceSink,
+): LiveTrace {
+  const { sink, policy } = resolveTraceWriter({ override: sinkOverride, observability });
   const identity: TraceAttributes = {
     'gen_ai.agent.name': req.profile,
     ...optional('gen_ai.conversation.id', req.conversationId),

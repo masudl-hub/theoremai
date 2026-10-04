@@ -1,11 +1,12 @@
-import { readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// Usage: node scripts/lcov-to-istanbul.mjs <lcov.info> <coverage-final.json>
+// The output is written whole or not at all: a concurrent reader never sees half a file.
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
-const root = dirname(fileURLToPath(import.meta.url));
-const repoRoot = dirname(root);
-const lcovPath = join(repoRoot, 'coverage', 'lcov.info');
-const outPath = join(repoRoot, 'coverage', 'coverage-final.json');
+const [lcovPath, outPath] = process.argv.slice(2);
+if (!lcovPath || !outPath) {
+  throw new Error('usage: lcov-to-istanbul.mjs <lcov.info> <coverage-final.json>');
+}
 
 function loc(line, column = 0) {
   return { line, column };
@@ -89,5 +90,8 @@ for (const block of lcov.split('end_of_record')) {
   }
 }
 
-await writeFile(outPath, `${JSON.stringify(coverage)}\n`);
+await mkdir(dirname(outPath), { recursive: true });
+const partPath = `${outPath}.${process.pid}.part`;
+await writeFile(partPath, `${JSON.stringify(coverage)}\n`);
+await rename(partPath, outPath);
 console.log(`wrote ${outPath} (${Object.keys(coverage).length} files)`);

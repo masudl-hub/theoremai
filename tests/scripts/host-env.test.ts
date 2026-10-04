@@ -4,7 +4,7 @@ import {
   hostVault,
   loadHostEnv,
   OPENROUTER_ENV,
-  VAULT_ENV,
+  vaultEnv,
 } from '../../scripts/host-env.ts';
 
 const KEYS = ['THEOREM_ENV_FILE', 'HOST_ENV_PLAIN', 'HOST_ENV_QUOTED', 'HOST_ENV_SHELL'];
@@ -49,24 +49,21 @@ Deno.test('loadHostEnv throws when THEOREM_ENV_FILE names a missing file', () =>
   }
 });
 
-Deno.test('hostVault fills each slot from its variable and leaves unset slots undefined', () => {
-  const saved = Object.values(VAULT_ENV).map((key) => [key, Deno.env.get(key)] as const);
+Deno.test('hostVault reads every THEOREM_VAULT_ variable as a slot and skips empty ones', () => {
+  const names = ['THEOREM_VAULT_MAIN', 'THEOREM_VAULT_TEAM_7', 'THEOREM_VAULT_EMPTY'];
+  const saved = Object.entries(Deno.env.toObject()).filter(([name]) =>
+    name.startsWith('THEOREM_VAULT_'),
+  );
   try {
-    for (const key of Object.values(VAULT_ENV)) Deno.env.delete(key);
-    Deno.env.set(VAULT_ENV.slotA, 'key-a');
-    Deno.env.set(VAULT_ENV.paid, ' key-paid ');
-    Deno.env.set(VAULT_ENV.slotC, '');
-    assertEquals(hostVault(), {
-      slotA: 'key-a',
-      slotB: undefined,
-      slotC: undefined,
-      paid: 'key-paid',
-    });
+    for (const [name] of saved) Deno.env.delete(name);
+    Deno.env.set('THEOREM_VAULT_MAIN', 'key-main');
+    Deno.env.set('THEOREM_VAULT_TEAM_7', ' key-team ');
+    Deno.env.set('THEOREM_VAULT_EMPTY', '');
+    assertEquals(hostVault(), { main: 'key-main', team_7: 'key-team' });
+    assertEquals(vaultEnv('team_7'), 'THEOREM_VAULT_TEAM_7');
   } finally {
-    for (const [key, value] of saved) {
-      if (value === undefined) Deno.env.delete(key);
-      else Deno.env.set(key, value);
-    }
+    for (const name of names) Deno.env.delete(name);
+    for (const [name, value] of saved) Deno.env.set(name, value);
   }
 });
 

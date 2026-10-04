@@ -5,9 +5,16 @@
  * Hono, Next route handlers, SvelteKit, Workers) under a catch-all route:
  *
  * - `GET  <base>`         → `{ interface }` client-safe profile interface
- * - `POST <base>/turn`    → NDJSON turn events
- * - `POST <base>/invoke`  → NDJSON events for an approved, paused tool call
+ * - `POST <base>/turn`    → NDJSON turn events; a message sent while the reply
+ *                            waits on gates walks away from them first (`abandon`)
+ * - `POST <base>/invoke`  → NDJSON events for the user's answer to a paused tool call
  * - `POST <base>/steer`   → inject messages into a running turn
+ *
+ * `createTheoremHostHandler` serves a host profile the same way, with no model:
+ *
+ * - `GET  <base>`         → `{ interface }` the tools the page may call, with their schemas
+ * - `POST <base>/call`    → NDJSON events for one call of one of those tools
+ * - `POST <base>/invoke`  → NDJSON events for the user's answer to a paused call
  *
  * Trust boundary: the browser owns the conversation text; the server owns every
  * decision that grants authority. Tool permissions, which paused calls may run
@@ -22,6 +29,7 @@
 import {
 	type CreateProviderOptions,
 	createProvider,
+	defaultKernelScope,
 	defineProfile,
 	errorKind,
 	invokeTool,
@@ -32,45 +40,67 @@ import {
 	publicError,
 	registerProfile,
 	runTurn,
-	type StageHandler,
 	TheoremError,
 	type ToolGate,
 	type TurnEvent,
 	type TurnHistoryMessage,
 	type TurnInput,
-} from '../../../mod.ts';
-import { type ClientTurnOptions, caughtStatus, forClient, HTTP_METHOD } from '../../../src/host/mod.ts';
-import { credentialFromTypedSecret, toBase64Url } from '../../../src/kernel/mod.ts';
+} from '@theoremjs/agents';
 import {
-	gatedToolFromEvents,
+	type ClientTurnOptions,
+	caughtStatus,
+	forClient,
+	HTTP_METHOD,
+} from '@theoremjs/agents/host';
+import {
+	type AnsweredGate,
+	answerGatedCall,
+	type GateAnswerRequest,
+	type ToolCredentialSource,
+	resolveGateTtlMs,
+	toBase64Url,
+} from '@theoremjs/agents/kernel';
+import {
+	hostInterface,
+	type TheoremHostCallRequest,
+	theoremHostCallRequestSchema,
+} from '../client/host-transport.ts';
+import {
+	gatedToolsFromEvents,
 	interfaceFromProfile,
 	type ProfileInterface,
 	promotedToolIdsFromEvents,
+	settlesToolCall,
 	toolSnapshotFromEvents,
-} from '../../../src/interface/mod.ts';
-import { sessionPermissionsAfterApproval } from '../client/tool-resume.ts';
-import type {
-	TheoremInvokeRequest,
-	TheoremSteerRequest,
-	TheoremTurnInput,
-	TheoremTurnRequest,
+} from '@theoremjs/agents/interface';
+import type { z } from '@theoremjs/agents';
+import {
+	type TheoremInvokeRequest,
+	theoremInvokeRequestSchema,
+	type TheoremTurnInput,
+	type TheoremTurnRequest,
+	theoremSteerRequestSchema,
+	theoremTurnRequestSchema,
 } from '../client/transport.ts';
 import {
 	createMemoryCredentialStore,
 	type TheoremCredentialStore,
 	type TheoremCredentials,
 } from './credential-store.ts';
+import { checkRequest } from './request-check.ts';
 import {
 	createMemorySessionStore,
 	emptySessionState,
 	type PendingToolGate,
 	type PerSessionStore,
 	pruneGates,
+	type SettledToolGate,
 	type TheoremSessionState,
 	type TheoremSessionStore,
 } from './session-store.ts';
-import { createMemorySteerInbox, type SteerInbox } from './steer-inbox.ts';
-import { isRecord } from '../../../src/kernel/util/record.ts';
+import { createMemorySteerInbox, type SteerInbox, steerStage, steerUnitOf } from './steer-inbox.ts';
+import { checkWalkAway, walkAway } from './walk-away.ts';
+import { jsonResponse } from './json-response.ts';
 
 export type TheoremRequestContext = {
 	request: Request;
@@ -114,7 +144,7 @@ export type TheoremHandlerOptions = {
 	 * OAuth gate carries no sign-in URL.
 	 */
 	authorizationUrl?: (
-		challenge: NonNullable<ToolGate['authChallenge']>,
+		challenge: Extract<ToolGate, { kind: 'auth' }>['authChallenge'],
 		ctx: { request: Request; sessionId: string },
 	) => string | Promise<string>;
 	/** Default: in-process memory. Use a shared store when turns and steers can land on different instances. */
@@ -128,9 +158,13 @@ export type TheoremHandlerOptions = {
 	onError?: (err: unknown, ctx: { request: Request }) => void;
 };
 
-const STEER_STAGES = new Set(['pre_turn', 'post_tool', 'before_end']);
+/** A host profile runs no model, and takes no turns to steer. */
+export type TheoremHostHandlerOptions = Omit<TheoremHandlerOptions, 'profile' | 'provider' | 'steerInbox'> & {
+	/** Host profile to serve. Registered with the kernel when the handler is created. */
+	profile: Extract<Profile, { type: 'host' }> | Extract<ProfileDefinition, { type: 'host' }>;
+};
+
 const SESSION_COOKIE = 'theorem_session';
-const DEFAULT_GATE_TTL_MS = 30 * 60 * 1000;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 
 const NDJSON_HEADERS = {
@@ -140,13 +174,6 @@ const NDJSON_HEADERS = {
 
 type Session = { id: string; setCookie?: string };
 
-function jsonResponse(status: number, body: unknown): Response {
-	return new Response(JSON.stringify(body), {
-		status,
-		headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
-	});
-}
-
 function withSessionCookie(response: Response, session: Session | undefined): Response {
 	if (session?.setCookie) response.headers.append('set-cookie', session.setCookie);
 	return response;
@@ -154,56 +181,32 @@ function withSessionCookie(response: Response, session: Session | undefined): Re
 
 /** Strip server-only identity (system prompts) from the projected interface. */
 function clientInterface(profile: Profile): ProfileInterface {
-	const iface = interfaceFromProfile(profile);
+	const iface = interfaceFromProfile(profile, defaultKernelScope.tools);
 	return { ...iface, identity: { handle: iface.identity.handle } };
 }
 
-async function readJson<T>(request: Request): Promise<T> {
+/** A JSON body checked against `schema`; a missing or malformed field is a `request` error (400). */
+export async function readBody<T>(request: Request, schema: z.ZodType<T>): Promise<T> {
 	// JSON-only POSTs can't be sent by a cross-site form, and force a CORS preflight.
 	const type = request.headers.get('content-type') ?? '';
 	if (!type.toLowerCase().startsWith('application/json')) {
 		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
 		throw new TheoremError('request', 'Content-Type must be application/json');
 	}
+	let raw: unknown;
 	try {
-		return (await request.json()) as T;
+		raw = await request.json();
 	} catch (cause) {
 		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
 		throw new TheoremError('request', 'Request body must be JSON', { cause });
 	}
-}
-
-
-function assertTurnBody(body: unknown): asserts body is TheoremTurnRequest {
-	// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-	if (!isRecord(body) || !isRecord(body.input)) throw new TheoremError('request', 'input is required');
-}
-
-function assertInvokeBody(body: unknown): asserts body is TheoremInvokeRequest {
-	if (!isRecord(body) || typeof body.gateId !== 'string' || !body.gateId) {
-		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-		throw new TheoremError('request', 'gateId is required');
-	}
-}
-
-function assertSteerBody(body: unknown): asserts body is TheoremSteerRequest {
-	if (!isRecord(body) || typeof body.turnId !== 'string' || !body.turnId.trim()) {
-		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-		throw new TheoremError('request', 'turnId is required');
-	}
-	if (!Array.isArray(body.inject) || body.inject.length === 0) {
-		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-		throw new TheoremError('request', 'inject must be a non-empty array');
-	}
+	return checkRequest(schema, raw, 'request body');
 }
 
 /** Conversation messages a browser may supply — never system instructions. */
-function conversationOnly(messages: unknown): TurnHistoryMessage[] {
-	if (!Array.isArray(messages)) return [];
+function conversationOnly(messages: readonly TurnHistoryMessage[]): TurnHistoryMessage[] {
 	return messages.filter(
-		(message): message is TurnHistoryMessage =>
-			isRecord(message) &&
-			(message.role === 'user' || message.role === 'assistant' || message.role === 'tool'),
+		(message) => message.role === 'user' || message.role === 'assistant' || message.role === 'tool',
 	);
 }
 
@@ -213,19 +216,19 @@ function conversationOnly(messages: unknown): TurnHistoryMessage[] {
  * token-meter overrides, and live resumption handles.
  */
 function userTurnInput(input: TheoremTurnInput): TurnInput {
-	const out: TurnInput = {};
-	if (typeof input.text === 'string') out.text = input.text;
-	if (Array.isArray(input.attachments)) out.attachments = input.attachments;
-	if (Array.isArray(input.voice)) out.voice = input.voice;
-	if (input.history !== undefined) out.history = conversationOnly(input.history);
-	return out;
+	return {
+		...(input.text !== undefined ? { text: input.text } : {}),
+		...(input.attachments ? { attachments: input.attachments } : {}),
+		...(input.voice ? { voice: input.voice } : {}),
+		...(input.history ? { history: conversationOnly(input.history) } : {}),
+	};
 }
 
-/** Last path segment after the mount point: '', 'turn', 'invoke', or 'steer'. */
+/** Last path segment after the mount point: '', 'turn', 'invoke', 'steer', or a host's 'call'. */
 function routeOf(request: Request): string {
 	const segments = new URL(request.url).pathname.split('/').filter(Boolean);
 	const last = segments.at(-1) ?? '';
-	return last === 'turn' || last === 'invoke' || last === 'steer' ? last : '';
+	return last === 'turn' || last === 'invoke' || last === 'steer' || last === 'call' ? last : '';
 }
 
 function readCookie(request: Request, name: string): string | undefined {
@@ -300,12 +303,14 @@ function sessionStateStore(store: TheoremSessionStore, gateTtlMs: number): Locke
 	return lockedStore(store, (state = emptySessionState()) => ({
 		...state,
 		gates: pruneGates(state.gates, Date.now(), gateTtlMs),
+		settled: pruneGates(state.settled, Date.now(), gateTtlMs),
 	}));
 }
 
 /** Everything a request needs from the handler that serves it. */
 type HandlerContext = {
-	options: TheoremHandlerOptions;
+	/** A host's handler has no provider: it runs no model. */
+	options: Omit<TheoremHandlerOptions, 'profile' | 'provider'> & Partial<Pick<TheoremHandlerOptions, 'provider'>>;
 	profile: Profile;
 	inbox: SteerInbox;
 	sessions: LockedStore<TheoremSessionState>;
@@ -353,8 +358,11 @@ function eventStream(ctx: HandlerContext, request: Request, source: () => AsyncI
 }
 
 function providerFor(ctx: HandlerContext, request: Request, model?: string): ModelProvider | Promise<ModelProvider> {
-	if (typeof ctx.options.provider === 'function') return ctx.options.provider({ request, model });
-	return createProvider(ctx.profile, ctx.options.provider, model);
+	const { provider } = ctx.options;
+	// lexicon-exempt: builder config error; the user reads error.config
+	if (!provider) throw new TheoremError('config', `profile ${ctx.profile.id} has no provider`);
+	if (typeof provider === 'function') return provider({ request, model });
+	return createProvider(ctx.profile, provider, model);
 }
 
 /** Steer inboxes are scoped to the session, so a turn id alone can't reach another user's turn. */
@@ -362,25 +370,15 @@ function inboxKey(sessionId: string, turnId: string): string {
 	return `${sessionId}\u0000${turnId}`;
 }
 
-function steerStage(inbox: SteerInbox, key: string): StageHandler {
-	return async ({ stage }) => {
-		if (!STEER_STAGES.has(stage)) return;
-		const inject: TurnHistoryMessage[] | undefined = await inbox.consume(key);
-		return inject?.length ? { inject } : undefined;
-	};
-}
-
 type OutcomeContext = { turnInput: TurnInput; model?: string; promoted?: string[] };
 
-/** The exact paused call the user may now approve, when the stream stopped on a gate. */
-function pendingGateFrom(events: TurnEvent[], context: OutcomeContext): { callId: string; gate: PendingToolGate } | undefined {
-	const gated = gatedToolFromEvents(events);
-	if (!gated?.callId) return undefined;
-	return {
+/** The exact paused calls the user may now approve, when the stream stopped on gates. */
+function pendingGatesFrom(events: TurnEvent[], context: OutcomeContext): { callId: string; gate: PendingToolGate }[] {
+	return gatedToolsFromEvents(events).map((gated) => ({
 		callId: gated.callId,
 		gate: {
 			name: gated.name,
-			input: gated.input,
+			arguments: gated.arguments,
 			gate: { kind: gated.gateKind, permission: gated.permission, ...(gated.auth ? { auth: gated.auth } : {}) },
 			snapshot: toolSnapshotFromEvents(events),
 			promoted: [...new Set([...(context.promoted ?? []), ...promotedToolIdsFromEvents(events)])],
@@ -388,12 +386,12 @@ function pendingGateFrom(events: TurnEvent[], context: OutcomeContext): { callId
 			model: context.model,
 			createdAt: Date.now(),
 		},
-	};
+	}));
 }
 
 /**
  * Record what the stream established: interaction ids for continuation and,
- * when it paused on a gate, the exact call the user may now approve.
+ * when it paused on gates, the exact calls the user may now approve.
  */
 async function recordOutcome(
 	sessions: LockedStore<TheoremSessionState>,
@@ -404,11 +402,11 @@ async function recordOutcome(
 	const interactionIds = events.flatMap((event) =>
 		event.type === 'done' && event.interactionId ? [event.interactionId] : [],
 	);
-	const pending = pendingGateFrom(events, context);
-	if (!interactionIds.length && !pending) return;
+	const pending = pendingGatesFrom(events, context);
+	if (!interactionIds.length && !pending.length) return;
 	await sessions.mutate(sessionId, (state) => {
 		state.interactions.push(...interactionIds);
-		if (pending) state.gates[pending.callId] = pending.gate;
+		for (const { callId, gate } of pending) state.gates[callId] = gate;
 	});
 }
 
@@ -438,12 +436,16 @@ function saveCredential(
 	});
 }
 
-/** The slot a refreshed OAuth token replaced, from its `auth_token_refreshed` event. */
-function refreshedSlot(event: TurnEvent): string | undefined {
-	const data = event.type === 'tool' && event.tool?.phase === 'progress' ? event.tool.data : undefined;
-	return isRecord(data) && data.kind === 'auth_token_refreshed' && typeof data.slot === 'string'
-		? data.slot
-		: undefined;
+/**
+ * The session's credentials as a call reads them: one slot when a tool needs it,
+ * saved the moment the kernel sets one, so a rotated refresh token is never lost
+ * to a closed stream.
+ */
+function sessionCredentials(ctx: HandlerContext, sessionId: string): ToolCredentialSource {
+	return {
+		get: async (slot) => (await ctx.credentials.read(sessionId))[slot],
+		set: (slot, credential) => saveCredential(ctx, sessionId, slot, credential),
+	};
 }
 
 /** An OAuth gate given the host's sign-in URL. */
@@ -453,35 +455,168 @@ async function withAuthorizationUrl(
 	sessionId: string,
 	event: TurnEvent,
 ): Promise<TurnEvent> {
-	const tool = event.type === 'tool' && event.tool?.phase === 'gate' ? event.tool : undefined;
-	const challenge = tool?.gate?.authChallenge;
-	if (!tool?.gate || challenge?.authType !== 'oauth2' || !ctx.options.authorizationUrl) return event;
+	if (event.type !== 'tool' || event.tool.phase !== 'gate') return event;
+	const { tool } = event;
+	const gate = tool.gate.kind === 'auth' ? tool.gate : undefined;
+	if (!gate || gate.authChallenge.authType !== 'oauth2' || !ctx.options.authorizationUrl) return event;
+	const challenge = gate.authChallenge;
 	const authorizationUrl = await ctx.options.authorizationUrl(challenge, { request, sessionId });
 	return {
 		...event,
-		tool: { ...tool, gate: { ...tool.gate, authChallenge: { ...challenge, authorizationUrl } } },
+		tool: { ...tool, gate: { ...gate, authChallenge: { ...challenge, authorizationUrl } } },
 	};
 }
 
-/**
- * The server's side of a turn's credentials. The kernel writes a refreshed
- * token into the `credentials` record it was given: that slot is saved before
- * the event goes on, so a rotated refresh token is never lost to a closed
- * stream. An OAuth gate gets the host's sign-in URL.
- */
-async function* withCredentials(
+/** Every OAuth gate in the stream, given the host's sign-in URL. */
+async function* withAuthorizationUrls(
 	ctx: HandlerContext,
 	request: Request,
 	sessionId: string,
-	credentials: TheoremCredentials,
 	events: AsyncIterable<TurnEvent>,
 ): AsyncGenerator<TurnEvent> {
-	for await (const event of events) {
-		const slot = refreshedSlot(event);
-		const credential = slot ? credentials[slot] : undefined;
-		if (slot && credential) await saveCredential(ctx, sessionId, slot, credential);
-		yield await withAuthorizationUrl(ctx, request, sessionId, event);
+	for await (const event of events) yield await withAuthorizationUrl(ctx, request, sessionId, event);
+}
+
+/** The session's paused call, answered and taken out: each answer settles it once, as the model asked it. */
+type AnsweredCall = { callId: string; pending: PendingToolGate; answer: AnsweredGate };
+
+function answerPendingGate(state: TheoremSessionState, request: GateAnswerRequest): AnsweredCall {
+	const pending = state.gates[request.callId];
+	if (!pending) {
+		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+		throw new TheoremError('request', `gate ${request.callId} is not pending`, {
+			copy: { key: 'session.gate_expired' },
+		});
 	}
+	// A refused answer (a refused secret, an edit without an approval) throws here and leaves the gate pending.
+	const answer = answerGatedCall(
+		request,
+		{
+			name: pending.name,
+			arguments: pending.arguments,
+			permission: pending.gate.permission,
+			...(pending.gate.kind === 'auth' && pending.gate.auth ? { auth: pending.gate.auth } : {}),
+		},
+		state.permissions,
+	);
+	delete state.gates[request.callId];
+	state.permissions = answer.sessionPermissions;
+	return { callId: request.callId, pending, answer };
+}
+
+/** A call a message walks away from: taken from its gate now, or settled by an earlier request its client never heard. */
+type WalkedCall = AnsweredCall | { callId: string; settled: SettledToolGate };
+
+function walkedCallOf(state: TheoremSessionState, callId: string): WalkedCall {
+	const settled = state.settled[callId];
+	return settled ? { callId, settled } : answerPendingGate(state, { callId, decision: 'abandon' });
+}
+
+/**
+ * Take the calls a message walks away from out of the session, answered
+ * `abandon`: every one of them, or none when one is neither waiting nor
+ * settled. The message's history must leave exactly those calls open.
+ */
+function takeWalkedAway(
+	ctx: HandlerContext,
+	session: Session,
+	input: TurnInput,
+	abandon: readonly string[],
+): Promise<WalkedCall[]> {
+	checkWalkAway(input, abandon);
+	// A throw leaves the session unsaved, so no call is taken unless all are.
+	return ctx.sessions.mutate(session.id, (state) => abandon.map((callId) => walkedCallOf(state, callId)));
+}
+
+/**
+ * The run that settles an answered call, as the model asked it. The session
+ * keeps the event that settles it, and `ended` names the call once it has
+ * (see `restoreUnended`).
+ */
+async function* settleAnswered(
+	ctx: HandlerContext,
+	request: Request,
+	session: Session,
+	answered: AnsweredCall,
+	ended: Set<string>,
+): AsyncGenerator<TurnEvent> {
+	const { callId, pending } = answered;
+	for await (const event of invokeAnswered(ctx, request, session.id, answered)) {
+		if (!ended.has(callId) && settlesToolCall(event, callId)) {
+			ended.add(callId);
+			await ctx.sessions.mutate(session.id, (state) => {
+				state.settled[callId] = { event, createdAt: pending.createdAt };
+			});
+		}
+		yield event;
+	}
+}
+
+/**
+ * A request that took calls and ended before they settled (the client went
+ * away, the host failed, an earlier call's run threw) puts each back to wait
+ * as it did, to be answered again, unless it paused on a gate again: the run
+ * recorded that gate with its outcome.
+ */
+async function restoreUnended(
+	ctx: HandlerContext,
+	session: Session,
+	calls: readonly WalkedCall[],
+	ended: ReadonlySet<string>,
+): Promise<void> {
+	const unended = calls.flatMap((call) => ('pending' in call && !ended.has(call.callId) ? [call] : []));
+	if (!unended.length) return;
+	await ctx.sessions.mutate(session.id, (state) => {
+		for (const { callId, pending } of unended) state.gates[callId] ??= pending;
+	});
+}
+
+function invokeAnswered(
+	ctx: HandlerContext,
+	request: Request,
+	sessionId: string,
+	{ callId, pending, answer }: AnsweredCall,
+): AsyncGenerator<TurnEvent> {
+	return invokeTool({
+		profile: ctx.profile.id,
+		name: pending.name,
+		callId,
+		input: answer.input,
+		resume: answer.resume,
+		sessionPermissions: answer.sessionPermissions,
+		credentials: sessionCredentials(ctx, sessionId),
+		turnInput: pending.turnInput,
+		snapshot: pending.snapshot,
+		promoted: pending.promoted,
+		model: pending.model,
+		signal: request.signal,
+		host: ctx.options.host?.(request),
+	});
+}
+
+/** Settles each walked-away call, and returns the input with their answers. */
+async function* walkAwayFrom(
+	ctx: HandlerContext,
+	request: Request,
+	session: Session,
+	walked: { input: TurnInput; calls: readonly WalkedCall[] },
+	ended: Set<string>,
+): AsyncGenerator<TurnEvent, TurnInput | undefined> {
+	return yield* walkAway(
+		walked.input,
+		walked.calls.map((call) => ({
+			callId: call.callId,
+			events:
+				'settled' in call
+					? once(call.settled.event)
+					: settleAnswered(ctx, request, session, call, ended),
+		})),
+	);
+}
+
+/** A settled call's answer, streamed again. */
+async function* once(event: TurnEvent): AsyncGenerator<TurnEvent> {
+	yield event;
 }
 
 async function* turnEvents(
@@ -489,18 +624,24 @@ async function* turnEvents(
 	request: Request,
 	session: Session,
 	body: TheoremTurnRequest,
+	walked: { input: TurnInput; calls: WalkedCall[] },
 ): AsyncGenerator<TurnEvent> {
+	const ended = new Set<string>();
+	let input: TurnInput | undefined;
+	try {
+		input = walked.calls.length ? yield* walkAwayFrom(ctx, request, session, walked, ended) : walked.input;
+	} finally {
+		await restoreUnended(ctx, session, walked.calls, ended);
+	}
+	if (!input) return;
 	const state = await ctx.sessions.read(session.id);
-	const credentials = await ctx.credentials.read(session.id);
 	const provider = await providerFor(ctx, request, body.model);
-	const input = userTurnInput(body.input);
 	// Only continue provider-side conversations this session started.
 	const previousInteractionId =
 		body.previousInteractionId && state.interactions.includes(body.previousInteractionId)
 			? body.previousInteractionId
 			: undefined;
-	const turnId = body.turnId?.trim();
-	const key = turnId ? inboxKey(session.id, turnId) : undefined;
+	const key = body.turnId ? inboxKey(session.id, body.turnId) : undefined;
 	if (key) await ctx.inbox.open(key);
 	try {
 		const events = runTurn(
@@ -509,7 +650,7 @@ async function* turnEvents(
 				input,
 				previousInteractionId,
 				sessionPermissions: state.permissions,
-				credentials,
+				credentials: sessionCredentials(ctx, session.id),
 				signal: request.signal,
 				host: ctx.options.host?.(request),
 				...(body.model ? { model: body.model } : {}),
@@ -518,7 +659,7 @@ async function* turnEvents(
 			},
 			provider,
 		);
-		yield* recorded(ctx.sessions, session.id, withCredentials(ctx, request, session.id, credentials, events), {
+		yield* recorded(ctx.sessions, session.id, withAuthorizationUrls(ctx, request, session.id, events), {
 			turnInput: input,
 			model: body.model,
 		});
@@ -527,128 +668,159 @@ async function* turnEvents(
 	}
 }
 
-/** The key the user typed at a sign-in gate, as the credential its slot waits for. */
-function typedCredential(
-	pending: PendingToolGate,
-	secret: unknown,
-): { slot: string; credential: TheoremCredentials[string] } | undefined {
-	if (secret === undefined) return undefined;
-	const auth = pending.gate.kind === 'auth' ? pending.gate.auth : undefined;
-	if (!auth) {
-		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-		throw new TheoremError('request', 'a typed credential answers only a sign-in gate');
-	}
-	return { slot: auth.slot, credential: credentialFromTypedSecret(auth.authType, secret) };
-}
-
 async function* invokeEvents(
 	ctx: HandlerContext,
 	request: Request,
 	session: Session,
-	body: TheoremInvokeRequest,
+	answered: AnsweredCall,
 ): AsyncGenerator<TurnEvent> {
-	// Take the paused call out of the session: each approval runs it once, exactly as the model asked.
-	const approved = await ctx.sessions.mutate(session.id, (state) => {
-		const pending = state.gates[body.gateId];
-		if (!pending) return undefined;
-		// A refused secret leaves the gate pending, so the user can try again.
-		const typed = typedCredential(pending, body.secret);
-		delete state.gates[body.gateId];
-		state.permissions = sessionPermissionsAfterApproval(
-			state.permissions,
-			pending.name,
-			pending.gate.permission,
-		);
-		return { pending, typed, permissions: [...state.permissions] };
-	});
-	if (!approved) {
-		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-		throw new TheoremError('request', `gate ${body.gateId} is not pending`, {
-			copy: { key: 'session.gate_expired' },
+	const { pending, answer } = answered;
+	const ended = new Set<string>();
+	try {
+		if (answer.typed) await saveCredential(ctx, session.id, answer.typed.slot, answer.typed.credential);
+		const events = settleAnswered(ctx, request, session, answered, ended);
+		yield* recorded(ctx.sessions, session.id, withAuthorizationUrls(ctx, request, session.id, events), {
+			turnInput: pending.turnInput,
+			model: pending.model,
+			promoted: pending.promoted,
 		});
+	} finally {
+		await restoreUnended(ctx, session, [answered], ended);
 	}
-	const { pending, typed, permissions } = approved;
-	if (typed) await saveCredential(ctx, session.id, typed.slot, typed.credential);
-	const credentials = await ctx.credentials.read(session.id);
-	const events = invokeTool({
-		profile: ctx.profile.id,
-		name: pending.name,
-		input: pending.input,
-		resume: { granted: true },
-		sessionPermissions: permissions,
-		credentials,
-		turnInput: pending.turnInput,
-		snapshot: pending.snapshot,
-		promoted: pending.promoted,
-		model: pending.model,
-		signal: request.signal,
-		host: ctx.options.host?.(request),
-	});
-	yield* recorded(ctx.sessions, session.id, withCredentials(ctx, request, session.id, credentials, events), {
-		turnInput: pending.turnInput,
-		model: pending.model,
-		promoted: pending.promoted,
-	});
 }
 
-async function steer(ctx: HandlerContext, session: Session, body: unknown): Promise<Response> {
-	assertSteerBody(body);
-	const inject = conversationOnly(body.inject).filter((message) => message.role === 'user');
-	// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-	if (!inject.length) throw new TheoremError('request', 'inject must contain user messages');
-	const accepted = await ctx.inbox.enqueue(inboxKey(session.id, body.turnId.trim()), inject);
-	if (!accepted) {
+async function steer(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
+	const body = await readBody(request, theoremSteerRequestSchema);
+	if (!(await ctx.inbox.enqueue(inboxKey(session.id, body.turnId), steerUnitOf(body)))) {
 		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-		throw new TheoremError('request', `turn ${body.turnId.trim()} is not running`, {
+		throw new TheoremError('request', `turn ${body.turnId} is not running`, {
 			copy: { key: 'session.turn_ended' },
 		});
 	}
 	return jsonResponse(200, { ok: true });
 }
 
+/** One call of one of a host's tools, run as the page asked it; a gate it pauses on waits in the session. */
+async function* callEvents(
+	ctx: HandlerContext,
+	request: Request,
+	session: Session,
+	body: TheoremHostCallRequest,
+): AsyncGenerator<TurnEvent> {
+	const state = await ctx.sessions.read(session.id);
+	const events = invokeTool({
+		profile: ctx.profile.id,
+		name: body.name,
+		input: body.input,
+		sessionPermissions: state.permissions,
+		credentials: sessionCredentials(ctx, session.id),
+		signal: request.signal,
+		host: ctx.options.host?.(request),
+	});
+	yield* recorded(ctx.sessions, session.id, withAuthorizationUrls(ctx, request, session.id, events), {
+		turnInput: {},
+	});
+}
+
+function answerRequest(body: TheoremInvokeRequest): GateAnswerRequest {
+	return { callId: body.gateId, decision: body.decision, input: body.input, secret: body.secret };
+}
+
+/** A route this profile doesn't serve. */
+function refused(ctx: HandlerContext): Response {
+	return jsonResponse(HTTP_METHOD, {
+		error: lexiconText('error.request', {}, ctx.profile.lexicon),
+		errorKind: 'request',
+	});
+}
+
+/** The user's answer to a paused call. */
+async function invoke(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
+	const body = await readBody(request, theoremInvokeRequestSchema);
+	// Take the answered call before streaming, so a stale answer is a reply status, not a stream error.
+	const answered = await ctx.sessions.mutate(session.id, (state) => answerPendingGate(state, answerRequest(body)));
+	return eventStream(ctx, request, () => invokeEvents(ctx, request, session, answered));
+}
+
+async function hostRoute(
+	ctx: HandlerContext & { profile: Extract<Profile, { type: 'host' }> },
+	request: Request,
+	session: Session,
+): Promise<Response> {
+	const target = routeOf(request);
+	if (request.method === 'GET' && target === '') {
+		const tool = (name: string) => {
+			const registered = defaultKernelScope.tools.get(name);
+			return registered?.type === 'builtin' ? undefined : registered;
+		};
+		return jsonResponse(200, { interface: hostInterface(ctx.profile, tool) });
+	}
+	if (request.method === 'POST' && target === 'call') {
+		const body = await readBody(request, theoremHostCallRequestSchema);
+		return eventStream(ctx, request, () => callEvents(ctx, request, session, body));
+	}
+	if (request.method === 'POST' && target === 'invoke') return invoke(ctx, request, session);
+	return refused(ctx);
+}
+
 async function route(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
+	if (ctx.profile.type === 'host') return hostRoute({ ...ctx, profile: ctx.profile }, request, session);
 	const target = routeOf(request);
 	if (request.method === 'GET' && target === '') return jsonResponse(200, { interface: clientInterface(ctx.profile) });
-	if (request.method !== 'POST' || target === '') {
-		return jsonResponse(HTTP_METHOD, {
-			error: lexiconText('error.request', {}, ctx.profile.lexicon),
-			errorKind: 'request',
-		});
-	}
-	const body = await readJson<unknown>(request);
+	if (request.method !== 'POST' || target === '' || target === 'call') return refused(ctx);
 	if (target === 'turn') {
-		assertTurnBody(body);
-		return eventStream(ctx, request, () => turnEvents(ctx, request, session, body));
+		const body = await readBody(request, theoremTurnRequestSchema);
+		const input = userTurnInput(body.input);
+		// Take the walked-away calls before streaming, so a stale one is a reply status, not a stream error.
+		const calls = body.abandon ? await takeWalkedAway(ctx, session, input, body.abandon) : [];
+		return eventStream(ctx, request, () => turnEvents(ctx, request, session, body, { input, calls }));
 	}
-	if (target === 'invoke') {
-		assertInvokeBody(body);
-		// Resolve the approval before streaming so a stale one is a reply status, not a stream error.
-		const events = invokeEvents(ctx, request, session, body);
-		const first = await events.next();
-		return eventStream(ctx, request, async function* () {
-			if (!first.done) yield first.value;
-			yield* events;
-		});
-	}
-	return steer(ctx, session, body);
+	if (target === 'invoke') return invoke(ctx, request, session);
+	return steer(ctx, request, session);
 }
 
 export function createTheoremHandler(options: TheoremHandlerOptions): (request: Request) => Promise<Response> {
 	const profile = defineProfile(options.profile as ProfileDefinition);
-	if (profile.type === 'live' || profile.type === 'host') {
+	if (profile.type === 'decision') {
+		// lexicon-exempt: builder config error at setup; no user sees it
+		throw new Error("createTheoremHandler serves turn-based profiles; serve type 'decision' with createTheoremDecisionHandler.");
+	}
+	if (profile.type === 'host') {
+		// lexicon-exempt: builder config error at setup; no user sees it
+		throw new Error("createTheoremHandler serves turn-based profiles; serve type 'host' with createTheoremHostHandler.");
+	}
+	if (profile.type === 'live') {
 		// lexicon-exempt: builder config error at setup; no user sees it
 		throw new Error(`createTheoremHandler serves turn-based profiles; got type '${profile.type}'.`);
 	}
-	const gateTtlMs = options.gateTtlMs ?? DEFAULT_GATE_TTL_MS;
-	if (!Number.isFinite(gateTtlMs) || gateTtlMs <= 0) {
+	return serve('createTheoremHandler', profile, options, options.steerInbox);
+}
+
+/**
+ * Serves a host profile to `<TheoremHost />`: the page calls the profile's tools
+ * directly, and every call runs through the kernel's gates and guardrails.
+ */
+export function createTheoremHostHandler(options: TheoremHostHandlerOptions): (request: Request) => Promise<Response> {
+	const profile = defineProfile(options.profile as ProfileDefinition);
+	if (profile.type !== 'host') {
 		// lexicon-exempt: builder config error at setup; no user sees it
-		throw new Error(`createTheoremHandler gateTtlMs must be a positive number of milliseconds; got ${gateTtlMs}.`);
+		throw new Error(`createTheoremHostHandler serves type 'host'; got type '${profile.type}'.`);
 	}
+	return serve('createTheoremHostHandler', profile, options);
+}
+
+function serve(
+	name: string,
+	profile: Profile,
+	options: HandlerContext['options'],
+	steerInbox?: SteerInbox,
+): (request: Request) => Promise<Response> {
+	const gateTtlMs = resolveGateTtlMs(name, options.gateTtlMs);
 	registerProfile(profile);
 	const ctx: HandlerContext = {
 		options,
 		profile,
-		inbox: options.steerInbox ?? createMemorySteerInbox(),
+		inbox: steerInbox ?? createMemorySteerInbox(),
 		sessions: sessionStateStore(options.sessionStore ?? createMemorySessionStore(), gateTtlMs),
 		credentials: lockedStore(options.credentialStore ?? createMemoryCredentialStore(), (saved = {}) => saved),
 	};

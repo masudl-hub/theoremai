@@ -1,37 +1,33 @@
-/**
- * Compile a playground draft into what the playground server registers: a
- * profile definition, its custom tools, and its structured-output schema.
- *
- * Validation runs first and reports every problem it finds, each keyed to the
- * tree node it belongs to (`tree.ts`). Only a draft with no issues is handed to
- * `defineProfile`, whose own checks are the last word.
- *
- * The compiled profile holds the kernel's real `standardEgressEnforce` when
- * egress is on. A function does not survive JSON, so the playground server
- * puts it back after the run-tab handoff.
- *
- * @module
- */
-
 import {
+  type DecisionEntry,
+  type DecisionQuestion,
   defineProfile,
+  describeError,
   type ImageProfileDefinition,
-  liveIngressChannelDefault,
+  type LexiconKey,
+  type LexiconOverrides,
   type LiveProfileDefinition,
+  liveIngressChannelDefault,
   type ProfileDefinitionBase,
   type ProfileGuardrailsSpec,
   type ProfileObservabilitySpec,
   type ProfileTurnBehaviourSpec,
   resolveGuardrailPolicy,
   type SpeechProfileDefinition,
-  standardEgressEnforce,
   type TextProfileDefinition,
-  describeError,
-  type LexiconKey,
-  type LexiconOverrides,
   TheoremError,
 } from '../mod.ts';
 import { validateLexiconOverrides } from '../src/guardrails/lexicon.ts';
+import {
+  type EgressChecks,
+  egressChecksProblem,
+  type ResolvedEgressChecks,
+  resolveEgressChecks,
+  type UrlCheck,
+} from '../src/guardrails/egress.ts';
+import { SENSITIVE_GROUPS, type SensitiveGroups } from '../src/guardrails/sensitive.ts';
+import type { DecisionProfileDefinition, HostProfileDefinition } from '../src/kernel/mod.ts';
+import { outOfScopeFields } from '../src/kernel/profile-scope.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import {
   HTTP_METHODS,
@@ -39,8 +35,9 @@ import {
   isValidPair,
   isValidProfileProtocol,
   protocolsForProfileType,
-  speechFormatsForProtocol,
 } from '../src/kernel/schema.ts';
+import { systemPromptProblem } from '../src/kernel/system-parts.ts';
+import { activityLabelProblem } from '../src/kernel/tools/activity-label.ts';
 import type {
   LiveContextCompressionSpec,
   ModelBinding,
@@ -49,12 +46,20 @@ import type {
   ProfileLiveSpec,
   ProfileOutputsSpec,
   ProfileSpeechSpec,
+  SystemPrompt,
 } from '../src/kernel/types.ts';
-import { outOfScopeFields } from '../src/kernel/profile-scope.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
+import {
+  GOOGLE_SPEECH_FORMATS,
+  GOOGLE_THINKING_LEVELS,
+} from '../src/presets/google.ts';
+import { PLAYGROUND_KEY_SLOT_CAP } from './browser-connection.ts';
 import type {
+  DecisionDraft,
+  EgressChecksDraft,
   GuardrailsDraft,
   ImageDraft,
+  ImageReferenceDraft,
   InputsDraft,
   LiveDraft,
   ModelBindingDraft,
@@ -62,38 +67,66 @@ import type {
   OutputsDraft,
   PlaygroundDraft,
   PlaygroundProfileType,
+  PlaygroundTurnProfileType,
   SpeechDraft,
   ToolSpecDraft,
   TurnBehaviourDraft,
+  UrlCheckDraft,
 } from './draft.ts';
-import { draftAllows, draftFacets, takesContinueInstruction } from './draft.ts';
 import {
+  COMPACTION_DRAFT_DEFAULTS,
+  draftAllows,
+  draftFacets,
+  INLINE_WORDING,
+  takesContinueInstruction,
+} from './draft.ts';
+import {
+  decisionQuestionViolation,
   GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS,
   isProviderBuiltinId,
   modelBindingViolation,
+  PLAYGROUND_DECISION_MAX_CRITERIA,
+  PLAYGROUND_DECISION_MAX_CRITERION_CHARS,
+  PLAYGROUND_DECISION_MAX_ID_CHARS,
+  PLAYGROUND_DECISION_MAX_INSTRUCTIONS_CHARS,
+  PLAYGROUND_DECISION_MAX_NAME_CHARS,
+  PLAYGROUND_DECISION_MAX_QUESTIONS,
+  PLAYGROUND_DECISION_MAX_STATE_BYTES,
+  PLAYGROUND_DECISION_TIMEOUT_MS,
+  type PlaygroundConnectionMode,
 } from './policy.ts';
-import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
+import type {
+  PlaygroundToolLabels,
+  StructuredRegistration,
+  ToolRegistration,
+} from './registrations.ts';
 import {
   defaultEffortRequired,
   defaultModelRequired,
   inputLimitsRequired,
   keySlotRequired,
 } from './requirements.ts';
+import { parseSystemMarkup, type SystemMarkup } from './system-markup.ts';
 import { parseJsonSchema } from './tool-schema.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 
-/** A profile definition the playground authors. */
 export type PlaygroundProfileDefinition =
   | TextProfileDefinition
   | ImageProfileDefinition
   | SpeechProfileDefinition
-  | LiveProfileDefinition;
+  | LiveProfileDefinition
+  | DecisionProfileDefinition
+  | HostProfileDefinition;
+
+/** A profile that runs a model turn: every playground type but decision and host. */
+export type PlaygroundTurnProfileDefinition = Exclude<
+  PlaygroundProfileDefinition,
+  DecisionProfileDefinition | HostProfileDefinition
+>;
 
 /**
- * One problem with the draft, on the tree node it belongs to. `field` names the
- * draft field at fault (a key of that node's draft, e.g. `handle` on identity or
- * `defaultEffort` on a model binding) when one field is; `index` is the entry
- * when that field is a list. Issues about the node as a whole have neither.
+ * `field` is the draft key at fault on that node (e.g. `handle`, `defaultEffort`) and `index`
+ * the list entry; issues about the node as a whole have neither.
  */
 export interface PlaygroundIssue {
   nodeId: string;
@@ -102,12 +135,13 @@ export interface PlaygroundIssue {
   index?: number;
 }
 
-/** What the playground server registers for a run. */
 export interface CompiledPlayground {
   agentId: string;
   profile: PlaygroundProfileDefinition;
   customTools: ToolRegistration[];
   structured?: StructuredRegistration;
+  /** A decision's questions, by id. */
+  questions?: Record<string, DecisionQuestion>;
 }
 
 export type PlaygroundCompileResult =
@@ -116,7 +150,6 @@ export type PlaygroundCompileResult =
 
 type Report = (nodeId: string, message: string, field?: string, index?: number) => void;
 
-/** The list's entries, trimmed, without blanks. */
 function cleanList(list: readonly string[] | undefined): string[] {
   return (list ?? []).map((item) => item.trim()).filter(Boolean);
 }
@@ -134,20 +167,21 @@ function checkWhole(
   report(nodeId, `${label} must be a ${min ? 'positive' : 'non-negative'} whole number.`, field);
 }
 
-// ── identity ────────────────────────────────────────────────────────────────
-
 function checkIdentity(draft: PlaygroundDraft, report: Report): void {
-  if (!draft.identity.agentId.trim()) report('identity', 'Profile id is required.', 'agentId');
-  if (!draft.identity.handle.trim()) report('identity', 'Handle is required.', 'handle');
+  if (!draft.identity.agentId.trim()) {
+    report('identity', 'Profile id is required.', 'agentId');
+  }
+  // A host has no agent identity: it runs no model.
+  if (draft.identity.profileType !== 'host' && !draft.identity.handle.trim()) {
+    report('identity', 'Handle is required.', 'handle');
+  }
 }
 
-// ── models ──────────────────────────────────────────────────────────────────
-
-function compileBinding(
+function checkBindingRoute(
   binding: ModelBindingDraft,
   type: PlaygroundProfileType,
   report: Report,
-): ModelBinding {
+): string {
   const nodeId = modelBindingNodeId(binding.key);
   if (!isValidProfileProtocol(type, binding.protocol)) {
     const legal = protocolsForProfileType(type).join(' or ');
@@ -158,11 +192,16 @@ function compileBinding(
   const apiId = binding.apiId.trim();
   if (!apiId) {
     report(nodeId, 'Wire model id is required.', 'apiId');
-  } else {
-    const violation = modelBindingViolation(binding);
-    if (violation) report(nodeId, violation.message, violation.field);
   }
+  return apiId;
+}
 
+/** The binding's efforts, keyed by alias, and its default; each problem is reported on the binding. */
+function compileEfforts(
+  binding: ModelBindingDraft,
+  nodeId: string,
+  report: Report,
+): { efforts: Record<string, ModelBindingDraft['efforts'][number]['level']>; defaultEffort: string } {
   const efforts: Record<string, ModelBindingDraft['efforts'][number]['level']> = {};
   binding.efforts.forEach(({ alias, level }, index) => {
     const name = alias.trim();
@@ -170,9 +209,16 @@ function compileBinding(
     else if (name in efforts) {
       report(nodeId, `Effort alias '${name}' is used twice.`, 'efforts', index);
     } else efforts[name] = level;
+    if (binding.protocol !== 'openAi' && !(GOOGLE_THINKING_LEVELS as readonly string[]).includes(level)) {
+      report(
+        nodeId,
+        `${binding.protocol} doesn't take the ${level} thinking level.`,
+        'efforts',
+        index,
+      );
+    }
   });
-  const effortCount = Object.keys(efforts).length;
-  if (binding.allowEffortSelect && effortCount < 2) {
+  if (binding.allowEffortSelect && Object.keys(efforts).length < 2) {
     report(nodeId, 'Effort select needs at least two efforts.', 'allowEffortSelect');
   }
   const defaultEffort = binding.defaultEffort.trim();
@@ -181,6 +227,18 @@ function compileBinding(
   } else if (defaultEffort && !(defaultEffort in efforts)) {
     report(nodeId, `Default effort '${defaultEffort}' is not one of the efforts.`, 'defaultEffort');
   }
+  return { efforts, defaultEffort };
+}
+
+function compileBinding(
+  binding: ModelBindingDraft,
+  type: PlaygroundProfileType,
+  report: Report,
+): ModelBinding {
+  const nodeId = modelBindingNodeId(binding.key);
+  const apiId = checkBindingRoute(binding, type, report);
+  const { efforts, defaultEffort } = compileEfforts(binding, nodeId, report);
+  const effortCount = Object.keys(efforts).length;
   checkWhole(report, nodeId, 'maxOutputTokens', 'Max output tokens', binding.maxOutputTokens, 1);
   if (
     binding.temperature !== null &&
@@ -188,11 +246,19 @@ function compileBinding(
   ) {
     report(nodeId, 'Temperature must be zero or more.', 'temperature');
   }
+  if (onGoogleInteractions(binding) && binding.persistViaInteractionId && binding.store === false) {
+    report(nodeId, 'Chaining needs Google storage on.', 'persistViaInteractionId');
+  }
+  const cache = compileCache(binding, nodeId, report);
+  const compaction = compileCompaction(binding, type, nodeId, report);
+  const server = binding.provider === 'local' ? binding.server?.trim() : undefined;
 
   return {
     protocol: binding.protocol,
     provider: binding.provider,
     apiId,
+    ...(binding.keySlot ? { key: binding.keySlot } : {}),
+    ...(binding.fallbackKeySlot ? { fallbackKey: binding.fallbackKeySlot } : {}),
     ...(effortCount ? { efforts } : {}),
     ...(defaultEffort ? { defaultEffort } : {}),
     ...(binding.allowEffortSelect ? { allowEffortSelect: true } : {}),
@@ -200,7 +266,75 @@ function compileBinding(
     ...(binding.maxOutputTokens !== null ? { maxOutputTokens: binding.maxOutputTokens } : {}),
     ...(binding.temperature !== null ? { temperature: binding.temperature } : {}),
     ...(binding.builtInTools.length ? { builtInTools: [...binding.builtInTools] } : {}),
+    ...(cache ? { cache } : {}),
+    ...(compaction ? { compaction } : {}),
+    ...(server ? { server } : {}),
+    ...(onGoogleInteractions(binding)
+      ? {
+          ...(binding.store !== null ? { store: binding.store } : {}),
+          persistViaInteractionId: binding.persistViaInteractionId,
+        }
+      : {}),
   };
+}
+
+/** Prompt caching runs only on OpenRouter's openAi route. */
+function compileCache(
+  binding: ModelBindingDraft,
+  nodeId: string,
+  report: Report,
+): ModelBinding['cache'] {
+  if (!binding.cacheMode) return undefined;
+  if (binding.provider !== 'openrouter' || binding.protocol !== 'openAi') {
+    report(nodeId, 'Prompt caching runs only on OpenRouter with openAi.', 'cacheMode');
+  }
+  return { mode: binding.cacheMode, ...(binding.cacheTtl ? { ttl: binding.cacheTtl } : {}) };
+}
+
+/**
+ * The agent compacts its own history: the playground registers one agent, so
+ * there is no other to name.
+ */
+function compileCompaction(
+  binding: ModelBindingDraft,
+  type: PlaygroundProfileType,
+  nodeId: string,
+  report: Report,
+): ModelBinding['compaction'] {
+  const timing = binding.compactTiming;
+  if (!timing) return undefined;
+  if (type !== 'text') {
+    report(nodeId, 'Only a text agent compacts its own history.', 'compactTiming');
+  }
+  const maxTokens = binding.compactMaxTokens ?? null;
+  const compactAt = binding.compactAt ?? COMPACTION_DRAFT_DEFAULTS.compactAt;
+  const keep = binding.compactKeep ?? null;
+  if (maxTokens === null) report(nodeId, 'Compaction needs a budget.', 'compactMaxTokens');
+  checkWhole(report, nodeId, 'compactMaxTokens', 'Budget', maxTokens, 1);
+  if (!(compactAt > 0 && compactAt < 1)) {
+    report(nodeId, 'Compaction must start between 0 and 1 of the budget.', 'compactAt');
+  }
+  const keepValid =
+    keep !== null &&
+    (keep === 0 || (Number.isInteger(keep) && keep >= 1) || (keep > 0 && keep < compactAt));
+  if (!keepValid) {
+    report(
+      nodeId,
+      'Keep a whole number of exchanges, a fraction of the budget below where compaction starts, or 0.',
+      'compactKeep',
+    );
+  }
+  return {
+    maxTokens: maxTokens ?? 0,
+    compactAt,
+    previousExchanges: keep ?? 0,
+    timing,
+    ...(binding.compactMeter ? { meter: binding.compactMeter } : {}),
+  };
+}
+
+function onGoogleInteractions(binding: ModelBindingDraft): boolean {
+  return binding.protocol === 'geminiInteractions' && binding.provider === 'google';
 }
 
 function compileModels(
@@ -209,7 +343,7 @@ function compileModels(
   report: Report,
 ): Pick<
   ProfileDefinitionBase,
-  'models' | 'defaultModel' | 'allowModelSelect' | 'maxSteps' | 'key'
+  'models' | 'defaultModel' | 'allowModelSelect' | 'maxSteps' | 'key' | 'fallbackKey'
 > {
   const { models: policy, modelBindings } = draft;
   const models: Record<string, ModelBinding> = {};
@@ -237,7 +371,7 @@ function compileModels(
     report('models', 'Max steps must be a whole number.', 'maxSteps');
   }
   if (keySlotRequired(draft) && !policy.key) {
-    report('models', 'Google models need a key slot.', 'key');
+    report('models', 'Choose a key slot.', 'key');
   }
 
   return {
@@ -246,36 +380,96 @@ function compileModels(
     ...(policy.allowModelSelect ? { allowModelSelect: true } : {}),
     ...(policy.maxSteps !== null ? { maxSteps: policy.maxSteps } : {}),
     ...(policy.key ? { key: policy.key } : {}),
+    ...(policy.fallbackKey ? { fallbackKey: policy.fallbackKey } : {}),
   };
 }
 
-// ── tools ───────────────────────────────────────────────────────────────────
-
-function parseHeaders(raw: string | undefined): Record<string, string> | undefined | null {
+/**
+ * A JSON object typed in a field: `undefined` when blank or empty, `null` when it isn't an
+ * object or a value fails `isValue`.
+ */
+function parseRecord<T>(
+  raw: string | undefined,
+  isValue: (value: unknown) => value is T,
+): Record<string, T> | undefined | null {
   if (!raw?.trim()) return undefined;
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-    const headers: Record<string, string> = {};
-    for (const [name, value] of Object.entries(parsed)) {
-      if (typeof value !== 'string') return null;
-      headers[name] = value;
-    }
-    return Object.keys(headers).length ? headers : undefined;
+    parsed = JSON.parse(raw);
   } catch {
     return null;
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const entries = Object.entries(parsed);
+  if (!entries.every(([, value]) => isValue(value))) return null;
+  return entries.length ? Object.fromEntries(entries) as Record<string, T> : undefined;
 }
 
-function compileAuth(tool: ToolSpecDraft): Extract<ToolRegistration, { type: 'http' }>['auth'] {
+const isString = (value: unknown): value is string => typeof value === 'string';
+const isAny = (_value: unknown): _value is unknown => true;
+
+function parseHeaders(raw: string | undefined): Record<string, string> | undefined | null {
+  return parseRecord(raw, isString);
+}
+
+const isSystemPrompt = (value: unknown): value is SystemPrompt =>
+  systemPromptProblem(value, 'system') === undefined;
+
+/** Each role's text takes `{private: …}` sections like the system prompt; a list of parts passes as written. */
+function compileSystemByRole(
+  raw: string,
+  report: (message: string) => void,
+): Record<string, SystemPrompt> | undefined {
+  const byRole = parseRecord(raw, isSystemPrompt);
+  if (byRole === null) {
+    report(
+      'Instructions by role must be a JSON object of text, or of lists of text and { "private": text }.',
+    );
+    return undefined;
+  }
+  if (!byRole) return undefined;
+  const compiled: Record<string, SystemPrompt> = {};
+  for (const [role, prompt] of Object.entries(byRole)) {
+    if (typeof prompt !== 'string') {
+      compiled[role] = prompt;
+      continue;
+    }
+    const parsed = parseSystemMarkup(prompt);
+    if (!parsed.ok) {
+      report(`${role}: ${parsed.message}`);
+      return undefined;
+    }
+    if (parsed.prompt !== undefined) compiled[role] = parsed.prompt;
+  }
+  return compiled;
+}
+
+/** A record field's value, reporting `message` on `field` when it doesn't parse. */
+function recordField<T>(
+  raw: string,
+  isValue: (value: unknown) => value is T,
+  report: () => void,
+): Record<string, T> | undefined {
+  const parsed = parseRecord(raw, isValue);
+  if (parsed === null) report();
+  return parsed ?? undefined;
+}
+
+function compileAuth(
+  tool: ToolSpecDraft,
+  fail: Fail,
+): Extract<ToolRegistration, { type: 'http' }>['auth'] {
   if (!tool.authType || tool.authType === 'none') return undefined;
+  const service = tool.authService?.trim() ?? '';
+  if (!service) fail('Service is required.', 'authService');
   const scopes = cleanList(tool.authScopes);
   return {
     slot: tool.authSlot?.trim() || 'default',
     type: tool.authType,
+    service,
     ...(tool.authHeaderName?.trim() ? { headerName: tool.authHeaderName.trim() } : {}),
     ...(tool.authHeaderPrefix !== undefined ? { headerPrefix: tool.authHeaderPrefix } : {}),
-    onUnauthenticated: tool.authUnauthenticated ?? 'pause',
+    onUnauthenticated: tool.authUnauthenticated ?? 'gate',
     ...(scopes.length ? { scopes } : {}),
     ...(tool.authClientId?.trim() ? { clientId: tool.authClientId.trim() } : {}),
     ...(tool.authRedirectUri?.trim() ? { redirectUri: tool.authRedirectUri.trim() } : {}),
@@ -291,7 +485,6 @@ function isUrl(raw: string): boolean {
   }
 }
 
-/** Reports a problem with one of the tool draft's fields. */
 type Fail = (message: string, field: keyof ToolSpecDraft) => void;
 
 function checkToolName(name: string, fail: Fail): void {
@@ -309,7 +502,6 @@ function checkToolName(name: string, fail: Fail): void {
   }
 }
 
-/** The fields every tool type shares. */
 function toolCommon(tool: ToolSpecDraft, fail: Fail) {
   const name = tool.toolName.trim();
   checkToolName(name, fail);
@@ -335,15 +527,59 @@ function toolCommon(tool: ToolSpecDraft, fail: Fail) {
 
 type ToolCommon = ReturnType<typeof toolCommon>;
 
-/** Headers and auth, which HTTP and MCP tools share. */
+const MAX_ACTIVITY_LABEL_CHARS = 120;
+
+function toolLabels(
+  tool: ToolSpecDraft,
+  common: ToolCommon,
+  fail: Fail,
+): PlaygroundToolLabels | undefined {
+  const labels: PlaygroundToolLabels = {};
+  const schemas = {
+    activity: { input: common.inputSchema },
+    activityPast: { input: common.inputSchema, output: common.outputSchema },
+  };
+  for (const field of ['activity', 'activityPast'] as const) {
+    const label = tool[field]?.trim();
+    if (!label) continue;
+    if (label.length > MAX_ACTIVITY_LABEL_CHARS) {
+      fail(`Activity labels are limited to ${MAX_ACTIVITY_LABEL_CHARS} characters.`, field);
+      continue;
+    }
+    const problem = activityLabelProblem(label, schemas[field]);
+    if (problem) {
+      fail(problem, field);
+      continue;
+    }
+    labels[field] = label;
+  }
+  return Object.keys(labels).length ? labels : undefined;
+}
+
+// Headers are saved in the draft, sent on every run and written into the export; a secret there outlives the call.
+const CREDENTIAL_HEADER = /auth|key|token|secret|passw|cookie|session|signature|credential/i;
+
+/** Why these headers can't be saved, when one of them looks like a credential. */
+export function credentialHeaderProblem(
+  headers: Record<string, string> | undefined,
+): string | undefined {
+  const name = Object.keys(headers ?? {}).find((header) => CREDENTIAL_HEADER.test(header));
+  return name
+    ? `${name} looks like a credential. Put it under Auth instead: Auth asks for it when a call runs and nothing saves it.` // lexicon-exempt: builder diagnostic
+    : undefined;
+}
+
 function remoteToolFields(tool: ToolSpecDraft, fail: Fail) {
   const headers = parseHeaders(tool.headersJson);
-  if (headers === null) fail('Headers must be a JSON object of strings.', 'headersJson');
-  const auth = compileAuth(tool);
+  if (headers === null) {
+    fail('Headers must be a JSON object of strings.', 'headersJson');
+  }
+  const credential = credentialHeaderProblem(headers ?? undefined);
+  if (credential) fail(credential, 'headersJson');
+  const auth = compileAuth(tool, fail);
   return { ...(headers ? { headers } : {}), ...(auth ? { auth } : {}) };
 }
 
-/** A URL field: required, and a full URL. */
 function checkUrl(
   tool: ToolSpecDraft,
   field: 'endpoint' | 'serverUrl',
@@ -380,14 +616,24 @@ function mcpTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegis
   const serverUrl = checkUrl(tool, 'serverUrl', 'MCP server URL', fail);
   const mcpToolName = tool.mcpToolName?.trim() ?? '';
   if (!mcpToolName) fail('MCP tool name is required.', 'mcpToolName');
-  return { type: 'mcp', ...common, serverUrl, mcpToolName, ...remoteToolFields(tool, fail) };
+  return {
+    type: 'mcp',
+    ...common,
+    serverUrl,
+    mcpToolName,
+    ...remoteToolFields(tool, fail),
+  };
 }
 
 function functionTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegistration {
   if (!tool.stubOutputJson?.trim()) return { type: 'function', ...common };
   const stub = parseJsonSchema(tool.stubOutputJson, 'Stub output');
   if (!stub.ok) fail(stub.error.replace(' JSON Schema', ''), 'stubOutputJson');
-  return { type: 'function', ...common, ...(stub.ok ? { stubResponse: stub.schema } : {}) };
+  return {
+    type: 'function',
+    ...common,
+    ...(stub.ok ? { stubResponse: stub.schema } : {}),
+  };
 }
 
 const TOOL_COMPILERS = { http: httpTool, mcp: mcpTool, function: functionTool };
@@ -399,8 +645,10 @@ function compileTool(tool: ToolSpecDraft, report: Report): ToolRegistration | un
     failed = true;
     report(nodeId, message, field);
   };
-  const compiled = TOOL_COMPILERS[tool.toolType](tool, toolCommon(tool, fail), fail);
-  return failed ? undefined : compiled;
+  const common = toolCommon(tool, fail);
+  const labels = toolLabels(tool, common, fail);
+  const compiled = TOOL_COMPILERS[tool.toolType](tool, common, fail);
+  return failed ? undefined : { ...compiled, ...(labels ? { labels } : {}) };
 }
 
 function compileTools(draft: PlaygroundDraft, withLoader: boolean, report: Report) {
@@ -424,21 +672,27 @@ function compileTools(draft: PlaygroundDraft, withLoader: boolean, report: Repor
   return { customTools, tools: { allow, ...(t2Loader ? { t2Loader } : {}) } };
 }
 
-// ── sections ────────────────────────────────────────────────────────────────
-
 function compileInputs(
   inputs: InputsDraft,
   type: PlaygroundProfileType,
   report: Report,
 ): ProfileInputsSpec {
-  const outside = type === 'image'
-    ? inputs.attachmentsAccept.filter((rule) => !mimeAllowed(IMAGE_ATTACHMENT_ACCEPT_MIMES, rule))
-    : [];
+  const outside =
+    type === 'image'
+      ? inputs.attachmentsAccept.filter((rule) => !mimeAllowed(IMAGE_ATTACHMENT_ACCEPT_MIMES, rule))
+      : [];
   if (outside.length) {
     report(
       'inputs',
       `An image profile takes images, video and PDF only, not ${outside.join(', ')}.`,
       'attachmentsAccept',
+    );
+  }
+  if (!inputs.text && !inputs.attachmentsAccept.length && !inputs.voiceAccept.length) {
+    report(
+      'inputs',
+      'Take text, files or voice notes: with none, the agent can be sent nothing.',
+      'text',
     );
   }
   if (inputLimitsRequired(inputs)) {
@@ -455,6 +709,16 @@ function compileInputs(
   checkWhole(report, 'inputs', 'maxFiles', 'Max files', inputs.maxFiles, 1);
   checkWhole(report, 'inputs', 'maxBytes', 'Max bytes', inputs.maxBytes, 1);
   checkWhole(report, 'inputs', 'maxTurnBytes', 'Max turn bytes', inputs.maxTurnBytes, 1);
+  const limitsByMime = recordField(inputs.limitsByMimeJson, isPositiveWhole, () => {
+    report(
+      'inputs',
+      'Limits by type must be a JSON object of positive whole numbers.',
+      'limitsByMimeJson',
+    );
+  });
+  const slots = recordField(inputs.slotsJson, isValueList, () => {
+    report('inputs', 'Slots must be a JSON object of lists of text.', 'slotsJson');
+  });
   return {
     ...(inputs.text ? {} : { text: false }),
     ...(inputs.attachmentsAccept.length
@@ -464,27 +728,44 @@ function compileInputs(
     ...(inputs.maxFiles !== null ? { maxFiles: inputs.maxFiles } : {}),
     ...(inputs.maxBytes !== null ? { maxBytes: inputs.maxBytes } : {}),
     ...(inputs.maxTurnBytes !== null ? { maxTurnBytes: inputs.maxTurnBytes } : {}),
+    ...(limitsByMime ? { limitsByMime } : {}),
+    ...(slots ? { slots } : {}),
   };
 }
 
+const isPositiveWhole = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value > 0;
+const isValueList = (value: unknown): value is string[] =>
+  Array.isArray(value) &&
+  value.length > 0 &&
+  value.every((item) => typeof item === 'string' && item.trim() !== '');
+
+/** `shaped`: the type takes a structured reply and its validation (text only). */
 function compileOutputs(
   outputs: OutputsDraft,
+  shaped: boolean,
   report: Report,
 ): { outputs?: ProfileOutputsSpec; structured?: StructuredRegistration } {
   let structured: StructuredRegistration | undefined;
-  if (outputs.mode === 'structured') {
+  const validationEnabled = shaped && outputs.validationEnabled;
+  if (shaped && outputs.mode === 'structured') {
     const id = outputs.schemaId.trim();
-    if (!id) report('outputs', 'Structured output needs a schema id.', 'schemaId');
+    if (!id) {
+      report('outputs', 'Structured output needs a schema id.', 'schemaId');
+    }
     const schema = parseJsonSchema(outputs.schemaJson, 'Structured output');
     if (!schema.ok) report('outputs', schema.error, 'schemaJson');
-    if (id && schema.ok) structured = { id, spec: { jsonSchema: schema.schema } };
+    if (id && schema.ok) {
+      structured = { id, spec: { jsonSchema: schema.schema } };
+    }
   }
-  if (outputs.validationEnabled) {
+  if (validationEnabled) {
     checkWhole(report, 'outputs', 'maxRetries', 'Validation max retries', outputs.maxRetries, 0);
   }
-  const validation = outputs.validationEnabled && outputs.maxRetries !== null
-    ? { maxRetries: outputs.maxRetries }
-    : {};
+  const validation =
+    validationEnabled && outputs.maxRetries !== null
+      ? { maxRetries: outputs.maxRetries }
+      : {};
   const streaming = {
     ...(outputs.streamMode ? { mode: outputs.streamMode } : {}),
     ...(outputs.streamThoughts ? {} : { streamThoughts: false }),
@@ -501,11 +782,13 @@ function compileOutputs(
 }
 
 function compileResumption(turn: TurnBehaviourDraft, report: Report) {
-  if (!turn.resumeEnabled) return undefined;
+  // "Never" is written out: left out, the kernel lets every continue kind be continued.
+  if (!turn.resumeEnabled) return { allowContinue: [] };
   checkWhole(report, 'turnBehaviour', 'maxContinues', 'Max continues', turn.maxContinues, 1);
   return {
-    ...(turn.allowContinue.length ? { allowContinue: [...turn.allowContinue] } : {}),
-    // Always written: left out, the kernel auto-continues length and stream_incomplete.
+    // Both always written: left out, the kernel continues all three kinds and
+    // auto-continues length and stream_incomplete.
+    allowContinue: [...turn.allowContinue],
     autoContinue: [...turn.autoContinue],
     ...(turn.maxContinues !== null ? { maxContinues: turn.maxContinues } : {}),
   };
@@ -530,11 +813,7 @@ function compileCanary(guardrails: GuardrailsDraft): ProfileGuardrailsSpec['cana
     : undefined;
 }
 
-/**
- * The profile's wording: the drafts' continue instruction, canary bind note,
- * quota message, and repair guidance, each checked by the kernel's own lexicon rules and reported on the
- * node that owns it.
- */
+/** Each line is checked by the kernel's lexicon rules and reported on the node that owns it. */
 function compileLexicon(
   draft: PlaygroundDraft,
   facets: ReadonlySet<string>,
@@ -564,7 +843,7 @@ function compileLexicon(
     entries.push(['guardrails', 'quotaMessage', 'quota.exhausted', guardrails.quotaMessage.trim()]);
   }
   const { outputs } = draft;
-  if (facets.has('outputs') && outputs.validationEnabled) {
+  if (facets.has('outputs') && allows('outputs.validation') && outputs.validationEnabled) {
     entries.push([
       'outputs',
       'repairGuidance',
@@ -579,6 +858,13 @@ function compileLexicon(
       'egress.default_repair_guidance',
       guardrails.egressRepairGuidance.trim(),
     ]);
+  }
+  if (facets.has('wording')) {
+    for (const [key, template] of Object.entries(draft.wording) as [LexiconKey, string][]) {
+      if (!INLINE_WORDING[key]) {
+        entries.push(['wording', key, key, template.trim()]);
+      }
+    }
   }
   const lexicon: LexiconOverrides = {};
   for (const [nodeId, field, key, template] of entries) {
@@ -616,19 +902,10 @@ function compileEgress(
     guardrails.egressMaxRetries,
     0,
   );
-  checkWhole(
-    report,
-    'guardrails',
-    'egressHoldback',
-    'Egress holdback',
-    guardrails.egressHoldback,
-    0,
-  );
   return {
-    enforce: standardEgressEnforce,
+    checks: compileEgressChecks(guardrails.egressChecks, report),
     ...(guardrails.egressOnBlock ? { onBlock: guardrails.egressOnBlock } : {}),
     ...(guardrails.egressMaxRetries !== null ? { maxRetries: guardrails.egressMaxRetries } : {}),
-    ...(guardrails.egressHoldback !== null ? { holdback: guardrails.egressHoldback } : {}),
   };
 }
 
@@ -638,12 +915,71 @@ function compileNetwork(
 ): ProfileGuardrailsSpec['network'] {
   const hosts = guardrails.allowedHosts.map((host) => host.trim());
   const blank = hosts.indexOf('');
-  if (blank !== -1) report('guardrails', 'Allowed hosts cannot be blank.', 'allowedHosts', blank);
-  if (!guardrails.allowPrivateNetworks && !hosts.length) return undefined;
+  if (blank !== -1) {
+    report('guardrails', 'Allowed hosts cannot be blank.', 'allowedHosts', blank);
+  }
+  const schemes = cleanList(guardrails.allowedSchemes);
+  if (!guardrails.allowPrivateNetworks && !hosts.length && !schemes.length) return undefined;
   return {
     ...(guardrails.allowPrivateNetworks ? { allowPrivateNetworks: true } : {}),
     ...(hosts.length ? { allowedHosts: hosts } : {}),
+    ...(schemes.length ? { allowedSchemes: schemes } : {}),
   };
+}
+
+/** The URL check as it differs from `fallback`: omitted when it does not, `false` when off. */
+function compileUrlCheck(
+  name: 'images' | 'links',
+  check: UrlCheckDraft,
+  fallback: UrlCheck | undefined,
+  report: Report,
+): boolean | UrlCheck | undefined {
+  const hosts = check.hosts.map((host) => host.trim());
+  const blank = hosts.indexOf('');
+  if (blank !== -1) {
+    report('guardrails', 'Egress hosts cannot be blank.', `egressChecks.${name}.hosts`, blank);
+  }
+  if (!check.on) return fallback ? false : undefined;
+  const named = hosts.filter(Boolean);
+  const options: UrlCheck = {
+    ...(named.length ? { hosts: named } : {}),
+    ...(check.fromTools ? {} : { fromTools: false }),
+  };
+  if (Object.keys(options).length) return options;
+  return fallback ? undefined : true;
+}
+
+/** The checks that differ from the bundled defaults: `true` when none does, `false` when all are off. */
+function compileEgressChecks(draft: EgressChecksDraft, report: Report): boolean | EgressChecks {
+  const defaults: ResolvedEgressChecks = resolveEgressChecks();
+  const sensitive = compileRedactSensitive(draft.sensitive, defaults.sensitive);
+  const checks: EgressChecks = {
+    ...(sensitive === undefined ? {} : { sensitive }),
+    ...(draft.boundary === defaults.boundary ? {} : { boundary: draft.boundary }),
+    ...(draft.injection === defaults.injection ? {} : { injection: draft.injection }),
+  };
+  const images = compileUrlCheck('images', draft.images, defaults.images, report);
+  const links = compileUrlCheck('links', draft.links, defaults.links, report);
+  if (images !== undefined) checks.images = images;
+  if (links !== undefined) checks.links = links;
+  const problem = egressChecksProblem('Egress checks', checks);
+  if (problem !== undefined) report('guardrails', problem, 'egressChecks');
+  const allOff =
+    sensitive === false && !draft.boundary && !draft.injection && !draft.images.on && !draft.links.on;
+  if (allOff) return false;
+  return Object.keys(checks).length ? checks : true;
+}
+
+/** The groups that differ from the defaults; `false` when every group is off. */
+function compileRedactSensitive(
+  groups: SensitiveGroups,
+  defaults: SensitiveGroups,
+): ProfileGuardrailsSpec['redactSensitive'] {
+  if (SENSITIVE_GROUPS.every((group) => !groups[group])) return false;
+  const changed = SENSITIVE_GROUPS.filter((group) => groups[group] !== defaults[group]);
+  return changed.length === 0
+    ? undefined
+    : Object.fromEntries(changed.map((group) => [group, groups[group]]));
 }
 
 function compileGuardrails(
@@ -653,15 +989,16 @@ function compileGuardrails(
   const defaults = resolveGuardrailPolicy(undefined);
   const parts: ProfileGuardrailsSpec = {
     canary: compileCanary(guardrails),
-    sanitizeInput: guardrails.sanitizeInput !== defaults.sanitizeInput
-      ? guardrails.sanitizeInput
-      : undefined,
-    redactSensitive: guardrails.redactSensitive !== defaults.redactSensitive
-      ? guardrails.redactSensitive
-      : undefined,
+    sanitizeInput:
+      guardrails.sanitizeInput !== defaults.sanitizeInput ? guardrails.sanitizeInput : undefined,
+    redactSensitive: compileRedactSensitive(guardrails.redactSensitive, defaults.redactSensitive),
     quota: compileQuota(guardrails, report),
+    promptEcho: guardrails.promptEcho !== defaults.promptEcho ? guardrails.promptEcho : undefined,
     egress: compileEgress(guardrails, report),
     network: compileNetwork(guardrails, report),
+    taint: guardrails.taintAfterRemoteRead
+      ? { afterRemoteRead: guardrails.taintAfterRemoteRead }
+      : undefined,
   };
   const spec = Object.fromEntries(
     Object.entries(parts).filter(([, value]) => value !== undefined),
@@ -688,6 +1025,9 @@ function compileObservability(
   ) {
     report('observability', 'Rotate after MiB must be more than zero.', 'rotateAfterMiB');
   }
+  const resource = recordField(observability.resourceJson, isAny, () => {
+    report('observability', 'Resource must be a JSON object.', 'resourceJson');
+  });
 
   const include = Object.fromEntries(
     Object.entries(observability.include).filter(
@@ -708,16 +1048,79 @@ function compileObservability(
     ...(observability.rotateAfterMiB !== null
       ? { rotateAfterMiB: observability.rotateAfterMiB }
       : {}),
+    ...(resource
+      ? { resource: resource as NonNullable<ProfileObservabilitySpec['resource']> }
+      : {}),
   };
   return Object.keys(spec).length ? spec : undefined;
 }
 
-function compileImage(image: ImageDraft): ProfileImageSpec {
+/** The image types a reference link may name, by its file extension. */
+const REFERENCE_LINK_MIMES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+};
+
+/** A link's image type, from its path's extension; undefined unless it is an http(s) image link. */
+function referenceLinkMime(uri: string): string | undefined {
+  if (!URL.canParse(uri)) return undefined;
+  const url = new URL(uri);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
+  const extension = url.pathname.split('.').pop()?.toLowerCase() ?? '';
+  return REFERENCE_LINK_MIMES[extension];
+}
+
+type PinnedReference = NonNullable<ProfileImageSpec['references']>[number];
+
+function compileReferences(
+  references: readonly ImageReferenceDraft[],
+  report: Report,
+): PinnedReference[] {
+  return references.flatMap((reference, index): PinnedReference[] => {
+    if ('data' in reference) {
+      if (reference.mimeType.startsWith('image/') && reference.data) {
+        return [{ mimeType: reference.mimeType, data: reference.data, name: reference.name }];
+      }
+      report('image', `${reference.name || 'A reference'} is not an image.`, 'references', index);
+      return [];
+    }
+    const uri = reference.uri.trim();
+    const mimeType = referenceLinkMime(uri);
+    if (mimeType) return [{ mimeType, uri }];
+    report(
+      'image',
+      uri
+        ? 'Link to a .png, .jpg, .webp or .gif image over http(s).'
+        : 'Add a link or remove the reference.',
+      'references',
+      index,
+    );
+    return [];
+  });
+}
+
+function compileImage(image: ImageDraft, report: Report): ProfileImageSpec {
+  checkWhole(report, 'image', 'n', 'Images per request', image.n, 1);
+  checkWhole(report, 'image', 'seed', 'Seed', image.seed, 0);
+  checkWhole(report, 'image', 'outputCompression', 'Compression', image.outputCompression, 0);
+  if (image.outputCompression !== null && image.outputCompression > 100) {
+    report('image', 'Compression goes from 0 to 100.', 'outputCompression');
+  }
+  const references = compileReferences(image.references, report);
   return {
     ...(image.aspectRatio.trim() ? { aspectRatio: image.aspectRatio.trim() } : {}),
-    ...(image.size.trim() ? { size: image.size.trim() } : {}),
+    ...(image.resolution.trim() ? { resolution: image.resolution.trim() } : {}),
     ...(image.mimeType.trim() ? { mimeType: image.mimeType.trim() } : {}),
+    ...(image.quality.trim() ? { quality: image.quality.trim() } : {}),
+    ...(image.background.trim() ? { background: image.background.trim() } : {}),
+    ...(image.n !== null ? { n: image.n } : {}),
+    ...(image.seed !== null ? { seed: image.seed } : {}),
+    ...(image.outputCompression !== null ? { outputCompression: image.outputCompression } : {}),
     ...(image.includeText ? { includeText: true } : {}),
+    ...(references.length ? { references } : {}),
   };
 }
 
@@ -729,7 +1132,8 @@ function compileSpeech(
   const { format } = speech;
   if (format) {
     const refused = draft.modelBindings.find(
-      (binding) => !speechFormatsForProtocol(binding.protocol).includes(format),
+      (binding) =>
+        binding.protocol !== 'openAi' && !(GOOGLE_SPEECH_FORMATS as readonly string[]).includes(format),
     );
     if (refused) {
       report(
@@ -745,7 +1149,11 @@ function compileSpeech(
   };
 }
 
-function compileLive(live: LiveDraft, report: Report): ProfileLiveSpec {
+function compileLive(
+  live: LiveDraft,
+  report: Report,
+  mode: PlaygroundConnectionMode,
+): ProfileLiveSpec {
   if (!live.ingressAudio && !live.ingressVideo && !live.ingressText) {
     report('live', 'Turn on at least one ingress channel.');
   }
@@ -766,9 +1174,13 @@ function compileLive(live: LiveDraft, report: Report): ProfileLiveSpec {
     0,
   );
 
-  if (live.contextCompression) checkCompression(live, report);
+  if (live.contextCompression) checkCompression(live, report, mode);
 
-  const channels = { audio: live.ingressAudio, video: live.ingressVideo, text: live.ingressText };
+  const channels = {
+    audio: live.ingressAudio,
+    video: live.ingressVideo,
+    text: live.ingressText,
+  };
   const ingress = Object.fromEntries(
     Object.entries(channels).filter(
       ([channel, on]) => on !== liveIngressChannelDefault(channel as keyof typeof channels),
@@ -791,16 +1203,12 @@ function compileLive(live: LiveDraft, report: Report): ProfileLiveSpec {
     ...(Object.keys(vad).length ? { vad } : {}),
     ...(live.sessionResumption ? { sessionResumption: true } : {}),
     ...(live.contextCompression ? { contextCompression: contextCompression(live) } : {}),
-    ...(live.proactiveAudio ? { proactiveAudio: true } : {}),
     ...(Object.keys(transcription).length ? { transcription } : {}),
   };
 }
 
-/**
- * The sliding window's numbers: whole, within the free key's input, and the target below the
- * trigger.
- */
-function checkCompression(live: LiveDraft, report: Report): void {
+/** Whole numbers, within the free key's input, and the target below the trigger. */
+function checkCompression(live: LiveDraft, report: Report, mode: PlaygroundConnectionMode): void {
   checkWhole(
     report,
     'live',
@@ -820,14 +1228,18 @@ function checkCompression(live: LiveDraft, report: Report): void {
   const trigger = live.compressionTriggerTokens;
   const target = live.compressionTargetTokens;
   const cap = GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS.toLocaleString('en-US');
-  if (trigger !== null && trigger > GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS) {
+  if (mode === 'demo' && trigger !== null && trigger > GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS) {
     report(
       'live',
       `Compression trigger can't exceed the free key's ${cap} input tokens.`,
       'compressionTriggerTokens',
     );
   }
-  if (target !== null && target >= (trigger ?? GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS)) {
+  if (
+    target !== null &&
+    ((trigger !== null && target >= trigger) ||
+      (mode === 'demo' && trigger === null && target >= GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS))
+  ) {
     report(
       'live',
       trigger !== null
@@ -838,7 +1250,7 @@ function checkCompression(live: LiveDraft, report: Report): void {
   }
 }
 
-/** The draft's sliding window; a blank number is left to the provider. */
+/** A blank number is left to the provider. */
 function contextCompression(live: LiveDraft): LiveContextCompressionSpec {
   const trigger = live.compressionTriggerTokens;
   const target = live.compressionTargetTokens;
@@ -848,8 +1260,6 @@ function contextCompression(live: LiveDraft): LiveContextCompressionSpec {
   };
 }
 
-// ── assemble ────────────────────────────────────────────────────────────────
-
 /** `root` without the value at `segments`; its parents stay, even if left empty. */
 function withoutPath(
   root: Record<string, unknown>,
@@ -857,31 +1267,260 @@ function withoutPath(
 ): Record<string, unknown> {
   const [head, ...rest] = segments;
   const { [head]: child, ...others } = root;
-  if (!rest.length || child === null || typeof child !== 'object') return others;
-  return { ...others, [head]: withoutPath(child as Record<string, unknown>, rest) };
+  if (!rest.length || child === null || typeof child !== 'object') {
+    return others;
+  }
+  return { ...others, [head]: withoutPath(child as Record<string, unknown>, rest),
+  };
 }
 
-/**
- * Drop what the profile type may not set (`PROFILE_FIELD_SCOPE`). A draft keeps
- * every section's values across type changes; the schema decides which compile.
- */
+/** Drop what the type may not set (`PROFILE_FIELD_SCOPE`); the draft keeps it across type changes. */
 function omitOutOfScope(profile: Record<string, unknown> & { type: PlaygroundProfileType }) {
   let out: Record<string, unknown> = profile;
-  for (const { path } of outOfScopeFields(profile)) out = withoutPath(out, path.split('.'));
+  for (const { path } of outOfScopeFields(profile)) {
+    out = withoutPath(out, path.split('.'));
+  }
   return out as PlaygroundProfileDefinition;
+}
+
+/** The draft's decision questions, each problem reported on the Decision facet. */
+function compileQuestions(
+  decision: DecisionDraft,
+  report: Report,
+): Record<string, DecisionQuestion> {
+  const questions: Record<string, DecisionQuestion> = Object.create(null);
+  if (!decision.questions.length) {
+    report('decision', 'Add at least one question.', 'questions');
+  }
+  if (decision.questions.length > PLAYGROUND_DECISION_MAX_QUESTIONS) {
+    report(
+      'decision',
+      `The playground asks at most ${PLAYGROUND_DECISION_MAX_QUESTIONS} questions.`,
+      'questions',
+    );
+  }
+  decision.questions.forEach((question, index) => {
+    const fail = (message: string) => report('decision', message, 'questions', index);
+    const id = question.id.trim();
+    const instructions = question.instructions.trim();
+    if (!id) fail('Each question needs an id.');
+    else if (id.length > PLAYGROUND_DECISION_MAX_NAME_CHARS) {
+      fail(`Question ids are limited to ${PLAYGROUND_DECISION_MAX_NAME_CHARS} characters.`);
+    } else if (Object.hasOwn(questions, id)) {
+      fail(`Question id '${id}' is used twice.`);
+    }
+    if (!instructions) {
+      fail(`Question '${id || index + 1}' needs instructions.`);
+    } else if (instructions.length > PLAYGROUND_DECISION_MAX_INSTRUCTIONS_CHARS) {
+      fail(`Instructions are limited to ${PLAYGROUND_DECISION_MAX_INSTRUCTIONS_CHARS} characters.`);
+    }
+    const rows = question.criteria.map((row) => ({
+      label: row.label.trim(),
+      text: row.text.trim(),
+    }));
+    if (rows.length > PLAYGROUND_DECISION_MAX_CRITERIA) {
+      fail(`A question has at most ${PLAYGROUND_DECISION_MAX_CRITERIA} options or levels.`);
+    }
+    if (rows.some((row) => row.text.length > PLAYGROUND_DECISION_MAX_CRITERION_CHARS)) {
+      fail(
+        `Each option or level is limited to ${PLAYGROUND_DECISION_MAX_CRITERION_CHARS} characters.`,
+      );
+    }
+    if (!id || !instructions) return;
+    if (question.type === 'score') {
+      if (rows.length < 2 || rows.some((row) => !row.text)) {
+        fail(`Score '${id}' needs at least two levels, each described.`);
+      }
+      questions[id] = {
+        type: 'score',
+        instructions,
+        criteria: rows.map((row) => row.text),
+      };
+      return;
+    }
+    const labelled: Record<string, DecisionEntry> = Object.create(null);
+    for (const row of rows) {
+      if (row.label.length > PLAYGROUND_DECISION_MAX_NAME_CHARS) {
+        fail(`Option labels are limited to ${PLAYGROUND_DECISION_MAX_NAME_CHARS} characters.`);
+      }
+      if (!row.label) fail(`Every option of '${id}' needs a label.`);
+      else if (Object.hasOwn(labelled, row.label)) {
+        fail(`Option '${row.label}' of '${id}' is used twice.`);
+      } // A label says enough on its own; its description, when given, says when to pick it.
+      else labelled[row.label] = row.text || row.label;
+    }
+    if (question.type === 'choice') {
+      if (rows.length < 2) fail(`Choice '${id}' needs at least two options.`);
+      questions[id] = { type: 'choice', instructions, criteria: labelled };
+    } else {
+      questions[id] = {
+        type: 'noul',
+        instructions,
+        ...(rows.length ? { criteria: labelled } : {}),
+      };
+    }
+  });
+  return questions;
+}
+
+function compileProfileOptions(
+  draft: PlaygroundDraft,
+  facets: Set<string>,
+  report: Report,
+): Pick<ProfileDefinitionBase, 'observability' | 'lexicon'> {
+  const observability = facets.has('observability')
+    ? compileObservability(draft.observability, report)
+    : undefined;
+  const lexicon = compileLexicon(draft, facets, (path) => draftAllows(draft, path), report);
+  return {
+    ...(observability ? { observability } : {}),
+    ...(lexicon ? { lexicon } : {}),
+  };
+}
+
+function compileDecision(
+  draft: PlaygroundDraft,
+  report: Report,
+): Omit<CompiledPlayground, 'agentId'> {
+  const { decision } = draft;
+  const facets = new Set<string>(draftFacets(draft));
+  const contract = decision.contract.trim();
+  if (!contract) report('decision', 'Contract is required.', 'contract');
+  else if (contract.length > PLAYGROUND_DECISION_MAX_ID_CHARS) {
+    report(
+      'decision',
+      `Contract is limited to ${PLAYGROUND_DECISION_MAX_ID_CHARS} characters.`,
+      'contract',
+    );
+  }
+  if (draft.identity.agentId.trim().length > PLAYGROUND_DECISION_MAX_ID_CHARS) {
+    report(
+      'identity',
+      `Profile id is limited to ${PLAYGROUND_DECISION_MAX_ID_CHARS} characters.`,
+      'agentId',
+    );
+  }
+  if (draft.identity.handle.trim().length > PLAYGROUND_DECISION_MAX_NAME_CHARS) {
+    report(
+      'identity',
+      `Handle is limited to ${PLAYGROUND_DECISION_MAX_NAME_CHARS} characters.`,
+      'handle',
+    );
+  }
+  if (draft.modelBindings.length !== 1) {
+    report('models', 'A decision needs exactly one model binding.');
+  }
+  const binding = draft.modelBindings[0];
+  const nodeId = binding ? modelBindingNodeId(binding.key) : 'models';
+  if (binding) {
+    checkBindingRoute(binding, 'decision', report);
+    if (!binding.modelId.trim()) {
+      report(nodeId, 'Model id is required.', 'modelId');
+    }
+    checkWhole(report, nodeId, 'timeoutMs', 'Timeout', binding.timeoutMs, 1);
+    if ((binding.timeoutMs ?? 0) > PLAYGROUND_DECISION_TIMEOUT_MS) {
+      report(nodeId, `Timeout is limited to ${PLAYGROUND_DECISION_TIMEOUT_MS} ms.`, 'timeoutMs');
+    }
+    if (binding.modelId.trim().length > PLAYGROUND_DECISION_MAX_NAME_CHARS) {
+      report(
+        nodeId,
+        `Model id is limited to ${PLAYGROUND_DECISION_MAX_NAME_CHARS} characters.`,
+        'modelId',
+      );
+    }
+    if (binding.apiId.trim().length > PLAYGROUND_DECISION_MAX_ID_CHARS) {
+      report(
+        nodeId,
+        `API model is limited to ${PLAYGROUND_DECISION_MAX_ID_CHARS} characters.`,
+        'apiId',
+      );
+    }
+  }
+  checkWhole(report, 'decision', 'maxStateBytes', 'Max state', decision.maxStateBytes, 1);
+  if ((decision.maxStateBytes ?? 0) > PLAYGROUND_DECISION_MAX_STATE_BYTES) {
+    report(
+      'decision',
+      `The playground sends at most ${PLAYGROUND_DECISION_MAX_STATE_BYTES} bytes of state.`,
+      'maxStateBytes',
+    );
+  }
+  const questions = compileQuestions(decision, report);
+  if (binding) {
+    decision.questions.forEach((question, index) => {
+      const compiled = questions[question.id.trim()];
+      const violation = compiled && decisionQuestionViolation(binding, compiled);
+      if (violation) report('decision', violation, 'questions', index);
+    });
+  }
+  if (keySlotRequired(draft) && !draft.models.key) {
+    report('models', 'Choose a key slot.', 'key');
+  }
+  const profile: DecisionProfileDefinition = {
+    type: 'decision',
+    id: draft.identity.agentId.trim(),
+    identity: { handle: draft.identity.handle.trim() },
+    models: binding
+      ? {
+          [binding.modelId.trim()]: {
+            protocol: 'decision',
+            provider: binding.provider === 'openrouter' ? 'openrouter' : 'typesafe',
+            apiId: binding.apiId.trim(),
+            ...(binding.keySlot ? { key: binding.keySlot } : {}),
+            timeoutMs: binding.timeoutMs ?? PLAYGROUND_DECISION_TIMEOUT_MS,
+          },
+        }
+      : {},
+    inputs: {
+      state: 'json',
+      maxStateBytes: decision.maxStateBytes ?? PLAYGROUND_DECISION_MAX_STATE_BYTES,
+    },
+    decision: { contract },
+    ...(draft.models.key ? { key: draft.models.key } : {}),
+    ...compileProfileOptions(draft, facets, report),
+  };
+  return { profile, customTools: [], questions };
+}
+
+/** A host: its custom tools, called directly, and the guardrails, trace and wording a host keeps. */
+function compileHost(draft: PlaygroundDraft, report: Report): Omit<CompiledPlayground, 'agentId'> {
+  const facets = new Set<string>(draftFacets(draft));
+  const { customTools, tools } = compileTools(draft, false, report);
+  if (!customTools.length) {
+    report('tools', 'Add at least one tool: a host runs only its tools.');
+  }
+  const guardrails = facets.has('guardrails')
+    ? compileGuardrails(draft.guardrails, report)
+    : undefined;
+  const profile = omitOutOfScope({
+    type: 'host',
+    id: draft.identity.agentId.trim(),
+    tools,
+    ...(guardrails ? { guardrails } : {}),
+    ...compileProfileOptions(draft, facets, report),
+  });
+  return { profile, customTools };
 }
 
 function assemble(
   draft: PlaygroundDraft,
-  type: PlaygroundProfileType,
+  type: PlaygroundTurnProfileType,
   report: Report,
+  mode: PlaygroundConnectionMode,
 ): Omit<CompiledPlayground, 'agentId'> {
   const facets = new Set<string>(draftFacets(draft));
   const allows = (path: string) => draftAllows(draft, path);
-  const system = draft.identity.system.trim();
+  const parsedSystem: SystemMarkup =
+    typeof draft.identity.system === 'string'
+      ? parseSystemMarkup(draft.identity.system)
+      : { ok: false, message: 'The system prompt must be text.' };
+  if (!parsedSystem.ok) report('identity', parsedSystem.message, 'system');
+  const system = parsedSystem.ok ? parsedSystem.prompt : undefined;
+  const systemByRole = compileSystemByRole(draft.identity.systemByRoleJson, (message) => {
+    report('identity', message, 'systemByRoleJson');
+  });
   const modelFields = compileModels(draft, type, report);
   const { outputs, structured } = facets.has('outputs')
-    ? compileOutputs(draft.outputs, report)
+    ? compileOutputs(draft.outputs, allows('outputs.structured'), report)
     : {};
   const { customTools, tools } = facets.has('tools')
     ? compileTools(draft, allows('tools.t2Loader'), report)
@@ -892,32 +1531,34 @@ function assemble(
   const guardrails = facets.has('guardrails')
     ? compileGuardrails(draft.guardrails, report)
     : undefined;
-  const lexicon = compileLexicon(draft, facets, allows, report);
-  const observability = facets.has('observability')
-    ? compileObservability(draft.observability, report)
-    : undefined;
 
   const profile = omitOutOfScope({
     type,
     id: draft.identity.agentId.trim(),
-    identity: { handle: draft.identity.handle.trim(), ...(system ? { system } : {}) },
+    identity: {
+      handle: draft.identity.handle.trim(),
+      ...(system ? { system } : {}),
+      ...(systemByRole ? { systemByRole } : {}),
+    },
     ...modelFields,
-    ...(facets.has('image') ? { image: compileImage(draft.image) } : {}),
+    ...(facets.has('image') ? { image: compileImage(draft.image, report) } : {}),
     ...(facets.has('speech') ? { speech: compileSpeech(draft.speech, draft, report) } : {}),
-    ...(facets.has('live') ? { live: compileLive(draft.live, report) } : {}),
+    ...(facets.has('live') ? { live: compileLive(draft.live, report, mode) } : {}),
     ...(tools ? { tools } : {}),
     ...(facets.has('inputs') ? { inputs: compileInputs(draft.inputs, type, report) } : {}),
     ...(outputs ? { outputs } : {}),
     ...(turnBehaviour ? { turnBehaviour } : {}),
     ...(guardrails ? { guardrails } : {}),
-    ...(observability ? { observability } : {}),
-    ...(lexicon ? { lexicon } : {}),
+    ...compileProfileOptions(draft, facets, report),
   });
   return { profile, customTools, ...(structured ? { structured } : {}) };
 }
 
-/** Validate the draft and compile it; every issue is reported, not just the first. */
-export function compilePlayground(draft: PlaygroundDraft): PlaygroundCompileResult {
+/** Every issue is reported, not just the first. */
+export function compilePlayground(
+  draft: PlaygroundDraft,
+  mode: PlaygroundConnectionMode = 'demo',
+): PlaygroundCompileResult {
   const issues: PlaygroundIssue[] = [];
   const report: Report = (nodeId, message, field, index) => {
     issues.push({
@@ -929,19 +1570,46 @@ export function compilePlayground(draft: PlaygroundDraft): PlaygroundCompileResu
   };
 
   checkIdentity(draft, report);
+  const keySlots = new Set(
+    [
+      draft.models.key,
+      draft.models.fallbackKey,
+      ...draft.modelBindings.flatMap((binding) => [binding.keySlot, binding.fallbackKeySlot]),
+    ].filter(Boolean),
+  );
+  if (keySlots.size > PLAYGROUND_KEY_SLOT_CAP) {
+    report('models', 'The playground supports up to 32 key slots.', 'key');
+  }
+  if (draft.identity.profileType !== 'host') {
+    for (const binding of draft.modelBindings) {
+      if (!binding.apiId.trim()) continue;
+      const violation = modelBindingViolation(binding, mode);
+      if (violation) {
+        report(modelBindingNodeId(binding.key), violation.message, violation.field);
+      }
+    }
+  }
   const type = draft.identity.profileType;
   if (!type) {
     report('identity', 'Pick a profile type.', 'profileType');
     return { ok: false, issues };
   }
-  const compiled = assemble(draft, type, report);
+  const compiled =
+    type === 'decision'
+      ? compileDecision(draft, report)
+      : type === 'host'
+        ? compileHost(draft, report)
+        : assemble(draft, type, report, mode);
   if (issues.length) return { ok: false, issues };
 
   try {
     defineProfile(compiled.profile);
   } catch (err) {
     if (!(err instanceof TheoremError)) throw err;
-    return { ok: false, issues: [{ nodeId: 'identity', message: err.message }] };
+    return {
+      ok: false,
+      issues: [{ nodeId: 'identity', message: err.message }],
+    };
   }
   return { ok: true, agentId: compiled.profile.id, ...compiled };
 }

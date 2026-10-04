@@ -1,5 +1,5 @@
-import { assertEquals } from '@std/assert';
-import type { TurnEvent } from '../../mod.ts';
+import { assertEquals, assertThrows } from '@std/assert';
+import { TheoremError, type ToolGate, type TurnEvent } from '../../mod.ts';
 import {
   float32Rms,
   float32RmsToLevel,
@@ -8,13 +8,19 @@ import {
 } from '../../react/src/client/audio-level.ts';
 import { clientFailure } from '../../react/src/client/failure.ts';
 import { applyLiveTurnToolEvent } from '../../react/src/client/live/apply-live-turn-tool-event.ts';
-import { sessionEndedText } from '../../react/src/client/live/session-ended.ts';
+import { runLiveToolCall } from '../../react/src/client/live/run-live-tool-call.ts';
 import { isPermissionDeniedError } from '../../react/src/client/live-errors.ts';
-import { parseLiveServerEnvelope } from '../../react/src/client/live-messages.ts';
+import {
+  type ExecuteToolOnRelay,
+  parseLiveServerEnvelope,
+} from '../../react/src/client/live-messages.ts';
 import {
   downsampleAndConvertToInt16,
   pcm16BytesToFloat32,
 } from '../../react/src/client/pcm-downsample.ts';
+import type { HostErrorBody } from '../../react/src/client/transport.ts';
+import { parseLiveClientMessage } from '../../react/src/server/request-check.ts';
+import { assertMalformed } from '../fixtures/malformed.ts';
 
 Deno.test('isPermissionDeniedError detects permission denial variants', () => {
   assertEquals(isPermissionDeniedError(null), false);
@@ -32,13 +38,19 @@ Deno.test('isPermissionDeniedError detects permission denial variants', () => {
   assertEquals(isPermissionDeniedError(new Error('User denied audio permission')), true);
 });
 
+/** An envelope as the relay sends it: its JSON text. */
+function readEnvelope(raw: unknown) {
+  return parseLiveServerEnvelope(JSON.stringify(raw));
+}
+
+/** A relay envelope that fails its check: `malformed`, and the call goes on. */
+function assertBadEnvelope(raw: unknown): void {
+  assertMalformed(readEnvelope(raw));
+}
+
 Deno.test('parseLiveServerEnvelope parses ready, events, error, and tool result payloads', () => {
-  assertEquals(parseLiveServerEnvelope(null), null);
-  assertEquals(parseLiveServerEnvelope('string'), null);
-  assertEquals(parseLiveServerEnvelope([]), null);
-
   assertEquals(
-    parseLiveServerEnvelope({
+    readEnvelope({
       type: 'ready',
       profile: 'chat',
       sessionId: 'sess_1',
@@ -51,7 +63,7 @@ Deno.test('parseLiveServerEnvelope parses ready, events, error, and tool result 
   );
 
   assertEquals(
-    parseLiveServerEnvelope({
+    readEnvelope({
       type: 'events',
       events: [{ type: 'thought', text: 'thinking' }],
     }),
@@ -61,35 +73,91 @@ Deno.test('parseLiveServerEnvelope parses ready, events, error, and tool result 
     },
   );
 
-  assertEquals(
-    parseLiveServerEnvelope({
-      type: 'error',
-      error: 'Relay disconnected',
-    }),
-    {
-      type: 'error',
-      body: { type: 'error', error: 'Relay disconnected' },
-    },
-  );
+  assertEquals(readEnvelope({ type: 'error', error: 'Relay disconnected' }), {
+    type: 'error',
+    error: 'Relay disconnected',
+  });
 
+  assertEquals(readEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'settled' }), {
+    type: 'executeToolResult',
+    callId: 'call_1',
+    status: 'settled',
+  });
+  const gate: ToolGate = { kind: 'confirmation', tool: 'getWeather' };
   assertEquals(
-    parseLiveServerEnvelope({
+    readEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'gated', gate }),
+    { type: 'executeToolResult', callId: 'call_1', status: 'gated', gate },
+  );
+  const body: HostErrorBody = {
+    error: 'Sorry, that step is no longer waiting for approval.',
+    errorKind: 'request',
+  };
+  assertEquals(
+    readEnvelope({
       type: 'executeToolResult',
       callId: 'call_1',
-      name: 'getWeather',
-      status: 'complete',
-      output: { temp: 72 },
+      status: 'refused',
+      body,
     }),
-    {
-      type: 'executeToolResult',
-      callId: 'call_1',
-      name: 'getWeather',
-      status: 'complete',
-      output: { temp: 72 },
-      gate: undefined,
-      awaiting: undefined,
-      failure: undefined,
-    },
+    { type: 'executeToolResult', callId: 'call_1', status: 'refused', body },
+  );
+});
+
+Deno.test('an envelope or event of a kind this client does not know arrives as unsupported', () => {
+  const envelope = { type: 'presence', who: 'relay' };
+  assertEquals(readEnvelope(envelope), {
+    type: 'unsupported',
+    received: 'presence',
+    raw: envelope,
+  });
+  const event = { type: 'sparkle', level: 3 };
+  assertEquals(readEnvelope({ type: 'events', events: [event] }), {
+    type: 'events',
+    events: [{ type: 'unsupported', received: 'sparkle', raw: event }],
+  });
+});
+
+Deno.test('a malformed envelope or gate arrives as malformed', () => {
+  assertMalformed(parseLiveServerEnvelope('{not json'));
+  assertBadEnvelope(null);
+  assertBadEnvelope('string');
+  assertBadEnvelope([]);
+  assertBadEnvelope({ type: 'ready', profile: 7 });
+  // A gated reply without its gate, a gate that fails its schema, or a status the relay does not send.
+  assertBadEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'gated' });
+  assertBadEnvelope({
+    type: 'executeToolResult',
+    callId: 'call_1',
+    status: 'gated',
+    gate: { kind: 'confirmation', tool: 7 },
+  });
+  assertBadEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'complete' });
+  assertBadEnvelope({ type: 'error', errorKind: 'secret-value' });
+});
+
+Deno.test("a malformed event arrives as malformed in its place; the envelope's other events stand", () => {
+  const parsed = readEnvelope({
+    type: 'events',
+    events: [
+      { type: 'thought', text: 'before' },
+      { type: 'text', text: { secret: 'secret-value' } },
+      { text: 'no kind' },
+      { type: 'thought', text: 'after' },
+    ],
+  });
+  if (parsed.type !== 'events') throw new Error('expected an events envelope');
+  const [before, badText, noKind, after] = parsed.events;
+  assertEquals(
+    [before, after],
+    [
+      { type: 'thought', text: 'before' },
+      { type: 'thought', text: 'after' },
+    ],
+  );
+  assertEquals(assertMalformed(badText), "a 'text' line failed its wire check: text invalid_type");
+  assertEquals(
+    assertMalformed(noKind),
+    'a line without a kind failed its wire check: type invalid_type',
   );
 });
 
@@ -127,7 +195,8 @@ Deno.test('downsampleAndConvertToInt16 converts sample rates and round-trips wit
 function liveToolFailure(event: TurnEvent) {
   const reported: unknown[] = [];
   applyLiveTurnToolEvent(event, {
-    gateOpen: false,
+    gateCallId: undefined,
+    withdrawGate: () => {},
     clearInterim: () => {},
     clearActiveTool: () => {},
     reportFailure: (err) => reported.push(err),
@@ -142,6 +211,8 @@ Deno.test('a live tool error shows the user wording, never the model message', (
     type: 'tool',
     tool: {
       name: 'search',
+      callId: 'call-1',
+      at: 0,
       phase: 'error',
       failure: {
         code: 'upstream',
@@ -150,7 +221,7 @@ Deno.test('a live tool error shows the user wording, never the model message', (
         error: 'Search is down.',
       },
     },
-  } as TurnEvent);
+  });
   assertEquals(failure, {
     error: 'Search is down.',
     errorKind: 'unavailable',
@@ -158,23 +229,103 @@ Deno.test('a live tool error shows the user wording, never the model message', (
   });
 });
 
-Deno.test('a live tool error without a failure is worded from the lexicon', () => {
-  const failure = liveToolFailure({
-    type: 'tool',
-    tool: { name: 'search', phase: 'error' },
-  } as TurnEvent);
-  assertEquals(failure, { error: 'Tool failed.', errorKind: 'failed' });
+Deno.test('a live gate closes when the model cancels its call, with nothing reported', () => {
+  const seen: string[] = [];
+  const args = {
+    gateCallId: 'call-gated',
+    withdrawGate: () => seen.push('withdraw'),
+    clearInterim: () => {},
+    clearActiveTool: () => seen.push('clear'),
+    reportFailure: () => seen.push('report'),
+    setActiveTool: () => {},
+  };
+  applyLiveTurnToolEvent(
+    { type: 'tool', tool: { name: 'search', callId: 'call-other', at: 0, phase: 'cancel' } },
+    args,
+  );
+  assertEquals(seen, []);
+  applyLiveTurnToolEvent(
+    { type: 'tool', tool: { name: 'lookup', callId: 'call-gated', at: 0, phase: 'cancel' } },
+    args,
+  );
+  assertEquals(seen, ['withdraw', 'clear']);
 });
 
-Deno.test('an ended session reads the host wording, else the profile lexicon', () => {
-  const ended = { cause: 'go_away' as const, code: 1000, closedAfterMs: 0 };
-  assertEquals(sessionEndedText({ kind: 'ended', ended, message: 'Host copy.' }), 'Host copy.');
-  assertEquals(
-    sessionEndedText({ kind: 'ended', ended }),
-    'The call has ended. Please start a new one to carry on.',
+/** A relay that holds every call on a permission gate until it is answered. */
+function gatedRelay(sent: unknown[]): ExecuteToolOnRelay {
+  return (args) => {
+    sent.push(args);
+    return Promise.resolve({
+      status: 'gated',
+      gate: { kind: 'permission', tool: 'lookup', permission: 'always_confirm' },
+    });
+  };
+}
+
+Deno.test('a live call the model withdrew at its gate sends nothing more', async () => {
+  const sent: unknown[] = [];
+  await runLiveToolCall({
+    executeToolOnRelay: gatedRelay(sent),
+    name: 'lookup',
+    toolArgs: {},
+    callId: 'call-gated',
+    sessionPermissions: [],
+    setSessionPermissions: () => {},
+    waitForGateDecision: () => Promise.resolve('withdrawn'),
+  });
+  assertEquals(sent, [{ callId: 'call-gated' }]);
+});
+
+Deno.test('a live deny goes to the session, which settles the call; nothing else is sent', async () => {
+  const sent: unknown[] = [];
+  await runLiveToolCall({
+    executeToolOnRelay: gatedRelay(sent),
+    name: 'lookup',
+    toolArgs: {},
+    callId: 'call-gated',
+    sessionPermissions: [],
+    setSessionPermissions: () => {},
+    waitForGateDecision: () => Promise.resolve({ action: 'deny' }),
+  });
+  assertEquals(sent, [{ callId: 'call-gated' }, { callId: 'call-gated', decision: 'deny' }]);
+});
+
+Deno.test('a relay reads each live message by its schema; a malformed one is a request error', () => {
+  assertEquals(parseLiveClientMessage(JSON.stringify({ type: 'text', text: 'hi', extra: 1 })), {
+    type: 'text',
+    text: 'hi',
+  });
+  assertEquals(parseLiveClientMessage(JSON.stringify({ type: 'context', text: '(page) /' })), {
+    type: 'context',
+    text: '(page) /',
+  });
+  assertThrows(
+    () => parseLiveClientMessage(JSON.stringify({ type: 'context', text: 'x'.repeat(2001) })),
+    TheoremError,
   );
   assertEquals(
-    sessionEndedText({ kind: 'ended', ended }, { 'live.session_ended': 'Call over.' }),
-    'Call over.',
+    parseLiveClientMessage(
+      JSON.stringify({ type: 'executeTool', callId: 'c', decision: 'approve', input: { id: 2 } }),
+    ),
+    { type: 'executeTool', callId: 'c', decision: 'approve', input: { id: 2 } },
   );
+  for (const [text, message] of [
+    ['{nope', 'live message must be JSON'],
+    [
+      JSON.stringify({ type: 'video', data: 'x' }),
+      'live message failed its check: mimeType invalid_type',
+    ],
+    [
+      JSON.stringify({ type: 'executeTool', callId: '' }),
+      'live message failed its check: callId too_small',
+    ],
+    [
+      JSON.stringify({ type: 'executeTool', callId: 'c', decision: 'maybe' }),
+      'live message failed its check: decision invalid_value',
+    ],
+    [JSON.stringify({ type: 'wave' }), 'live message failed its check: type invalid_union'],
+  ] as const) {
+    const err = assertThrows(() => parseLiveClientMessage(text), TheoremError);
+    assertEquals([err.kind, err.message], ['request', message]);
+  }
 });

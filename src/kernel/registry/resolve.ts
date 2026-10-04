@@ -1,21 +1,17 @@
-/**
- * Profile resolution for THEOREM turns.
- *
- * @module
- */
-
 import { mintCanary } from '../../guardrails/canary.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
 import { profileTurnResumption } from '../stop.ts';
 import { projectTools } from '../tools/project.ts';
+import type { ToolRegistry } from '../tools/registry.ts';
 import { resolveTurnTools } from '../tools/resolve.ts';
 import type {
   ModelBinding,
   ModelId,
   ModelProfile,
   Profile,
+  ProfileLiveSpec,
   ProjectedProfile,
   ProviderTransport,
   ResolvedGeneration,
@@ -28,19 +24,18 @@ import { profileInputs, requireModelBinding } from './catalog.ts';
 import {
   assertOutputMode,
   assertSpeechRole,
+  assertTurnSlots,
   resolveImageFormat,
   resolveInputParts,
 } from './ingress.ts';
-import { getProfile } from './profiles.ts';
+import type { KernelRegistry } from './kernel-registry.ts';
 import { resolveTurnSystemPrompt } from './system-prompt.ts';
-import { providerUsesKeySlots, resolveKeySlot } from './vault.ts';
+import { resolveKeySlot } from './vault.ts';
 
-/** True for a profile that runs a model turn; `host` and `decision` never do. */
 function isModelProfile(profile: Profile): profile is ModelProfile {
   return profile.type !== 'host' && profile.type !== 'decision';
 }
 
-/** Narrow to a profile that runs a model turn, or throw naming the door it cannot use. */
 function requireModelProfile(profile: Profile, door: string): ModelProfile {
   if (isModelProfile(profile)) return profile;
   if (profile.type === 'host') {
@@ -55,10 +50,7 @@ function requireModelProfile(profile: Profile, door: string): ModelProfile {
   );
 }
 
-/**
- * Chooses a profile model, honoring an explicit request only when selection is
- * allowed; otherwise the profile's default, which registration guarantees.
- */
+/** A request is honored only when selection is allowed; registration guarantees the default. */
 function pickModel(profile: ModelProfile, requested?: string): ModelId {
   if (requested) {
     if (!profile.allowModelSelect) {
@@ -105,14 +97,8 @@ function resolveEffort(
     }
     return level;
   }
-  const alias = binding.defaultEffort ?? (keys.length === 1 ? keys[0] : undefined);
-  if (!alias) {
-    throw new TheoremError(
-      'config',
-      `Profile ${profile.id} model '${modelId}' must set defaultEffort when more than one effort is declared`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  return efforts[alias];
+  // Registration requires a default whenever more than one effort is declared.
+  return efforts[binding.defaultEffort ?? keys[0]];
 }
 
 function resolveSummaries(binding: ModelBinding): SummaryMode | undefined {
@@ -149,10 +135,6 @@ function resolveStructured(
   return structured.fallback;
 }
 
-/**
- * THEOREM prefers SSE when the host omits `outputs.streaming.mode`.
- * Explicit `'buffered'` opts out; `'sse'` (or omit) yields `stream: true`.
- */
 function resolveStreamFlag(profile: ModelProfile): boolean {
   if (profile.type === 'live') {
     return true;
@@ -165,6 +147,31 @@ function resolveStore(binding: ModelBinding, reqStore: boolean | undefined): boo
     return reqStore;
   }
   return binding.store;
+}
+
+/**
+ * A turn chains only on a binding that says so: an interaction id sent to one
+ * that does not, or a chaining turn that switches storage off, is a request error.
+ */
+function assertTurnChaining(
+  profile: ModelProfile,
+  model: ModelId,
+  chains: boolean,
+  req: TurnRequest,
+  store: boolean | undefined,
+): void {
+  if (req.previousInteractionId && !chains) {
+    throw new TheoremError(
+      'request',
+      `Profile ${profile.id} model '${model}': previousInteractionId needs a binding with persistViaInteractionId: true`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (chains && store === false) {
+    throw new TheoremError(
+      'request',
+      `Profile ${profile.id} model '${model}': store: false cannot apply to a binding with persistViaInteractionId: true — Google chains only from a stored interaction`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
 }
 
 function resolveTransport(profile: ModelProfile, binding: ModelBinding): ProviderTransport {
@@ -210,35 +217,54 @@ function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
   }
 }
 
-/** Resolve a host `TurnRequest` into provider-ready generation state. */
-function resolveTurn(req: TurnRequest): {
+/**
+ * A guarded Live profile (canary or `egress.enforce`) always transcribes its
+ * own speech: the outbound gate can only check audio through its transcript.
+ */
+function resolveLiveSpec(
+  live: ProfileLiveSpec | undefined,
+  guardrails: ModelProfile['guardrails'],
+): ProfileLiveSpec | undefined {
+  const policy = resolveGuardrailPolicy(guardrails);
+  if (!policy.canary && !policy.egress?.enforce) {
+    return live;
+  }
+  return { ...live, transcription: { ...live?.transcription, output: true } };
+}
+
+function resolveTurnInRegistry(
+  registry: KernelRegistry,
+  req: TurnRequest,
+): {
   profile: ModelProfile;
   generation: ResolvedGeneration;
 } {
-  const safe = sanitizeTurnRequest(req);
+  const profile = requireModelProfile(registry.profiles.get(req.profile), 'resolveTurn');
+  assertTurnSlots(profile, req);
+  const safe = sanitizeTurnRequest(req, profile);
   const input = safe.input ?? {};
-  const profile = requireModelProfile(getProfile(safe.profile), 'resolveTurn');
   assertTurnResumption(profile, safe);
   const model = pickModel(profile, safe.model);
   const binding = requireModelBinding(profile, model);
-  const toolSnapshot = resolveTurnTools(profile, safe, model);
+  const toolSnapshot = resolveTurnTools(registry.tools, profile, safe, model);
   const builtins = toolSnapshot.builtins;
-  const structured = resolveStructured(profile, input.slots);
-  assertOutputMode(profile, structured);
-  assertSpeechRole(profile, binding, safe);
-  const keySlot = providerUsesKeySlots(binding.provider)
-    ? resolveKeySlot(profile.key, binding, builtins, binding.provider === 'google')
-    : undefined;
-  const previousInteractionId =
-    binding.persistViaInteractionId === false ? undefined : safe.previousInteractionId;
+  const structuredId = resolveStructured(profile, input.slots);
+  assertOutputMode(profile, structuredId);
+  assertSpeechRole(profile, safe);
+  const keys = resolveKeySlot(profile, binding);
+  const transport = resolveTransport(profile, binding);
+  const chains = binding.persistViaInteractionId === true;
+  const store = resolveStore(binding, safe.store);
+  assertTurnChaining(profile, model, chains, safe, store);
   return {
     profile,
     generation: {
       model,
       apiId: binding.apiId,
-      transport: resolveTransport(profile, binding),
-      previousInteractionId,
-      store: resolveStore(binding, safe.store),
+      transport,
+      chains,
+      previousInteractionId: safe.previousInteractionId,
+      store,
       stream: resolveStreamFlag(profile),
       thinking: resolveEffort(profile, binding, model, safe.effort),
       summaries: resolveSummaries(binding),
@@ -252,12 +278,14 @@ function resolveTurn(req: TurnRequest): {
       sessionPermissions: safe.sessionPermissions,
       history: input.history,
       maxSteps: profile.maxSteps,
-      structured,
+      structured: structuredId
+        ? { id: structuredId, jsonSchema: registry.schemas.get(structuredId).jsonSchema }
+        : null,
       image: resolveImageFormat(profile),
       speech: profile.type === 'speech' ? profile.speech : undefined,
-      live: profile.type === 'live' ? profile.live : undefined,
+      live: profile.type === 'live' ? resolveLiveSpec(profile.live, profile.guardrails) : undefined,
       input: resolveInputParts(profile, safe),
-      keySlot,
+      ...keys,
       canary: resolveGuardrailPolicy(profile.guardrails).canary ? mintCanary() : '',
       sessionResumptionHandle: safe.sessionResumptionHandle ?? input.sessionResumptionHandle,
       resolvedSystem: resolveTurnSystemPrompt(profile, safe),
@@ -270,8 +298,7 @@ function primaryImageSpec(profile: ModelProfile) {
   return profile.type === 'image' ? profile.image : null;
 }
 
-/** Project a profile object into a safe host/UI inspection object. */
-function projectProfileObject(input: Profile): ProjectedProfile {
+function projectProfileObject(tools: ToolRegistry, input: Profile): ProjectedProfile {
   const profile = requireModelProfile(input, 'projectProfile');
   const { identity } = profile;
   const inputs = profileInputs(profile) ?? null;
@@ -285,7 +312,7 @@ function projectProfileObject(input: Profile): ProjectedProfile {
     allowModelSelect: profile.allowModelSelect,
     maxSteps: profile.maxSteps,
     key: profile.key,
-    tools: projectTools(profile),
+    tools: projectTools(tools, profile),
     inputs,
     outputs,
     image: primaryImageSpec(profile),
@@ -294,16 +321,15 @@ function projectProfileObject(input: Profile): ProjectedProfile {
   };
 }
 
-/** Project a registered profile into a safe host/UI inspection object. */
-function projectProfile(id: Profile['id']): ProjectedProfile {
-  return projectProfileObject(getProfile(id));
+function projectProfileInRegistry(registry: KernelRegistry, id: Profile['id']): ProjectedProfile {
+  return projectProfileObject(registry.tools, registry.profiles.get(id));
 }
 
 export {
   isModelProfile,
   pickModel,
-  projectProfile,
+  projectProfileInRegistry,
   projectProfileObject,
   requireModelProfile,
-  resolveTurn,
+  resolveTurnInRegistry,
 };

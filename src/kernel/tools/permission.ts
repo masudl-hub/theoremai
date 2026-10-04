@@ -1,23 +1,13 @@
-/**
- * Declarative catalog permission + gate-resume helpers.
- *
- * Shared by function and HTTP/MCP execute paths (no circular import with remote).
- *
- * @module
- */
-
 import type { InvokeToolResume, ToolGate, ToolPermission } from './types.ts';
 
 export function isResumeContinuation(resume?: InvokeToolResume): boolean {
-  return resume?.value !== undefined || typeof resume?.granted === 'boolean';
+  return typeof resume?.granted === 'boolean';
 }
 
-/** Gate resume — only `granted: true` skips confirm/permission/`preTool` re-ask. */
 export function isGateResumeGranted(resume?: InvokeToolResume): boolean {
   return resume?.granted === true;
 }
 
-/** Host denied after a gate — settle without running the body. */
 export function isGateResumeDenied(resume?: InvokeToolResume): boolean {
   return resume?.granted === false;
 }

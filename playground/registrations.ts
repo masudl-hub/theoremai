@@ -1,19 +1,22 @@
 import type {
-	AuthUnauthenticatedPolicy,
 	HttpMethod,
 	ToolAccess,
-	ToolAuthType,
 	ToolLoadTier,
 	ToolPermission,
 } from '../src/kernel/schema.ts';
+import type { ToolAuthConfig, ToolLabels } from '../src/kernel/tools/types.ts';
 import type { StructuredSpec } from '../src/kernel/types.ts';
+
+/** The kernel's auth config; the host's OAuth endpoints are never set from the playground. */
+export type PlaygroundToolAuth = Omit<ToolAuthConfig, 'preResolved'>;
+
+export type PlaygroundToolLabels = Pick<ToolLabels, 'activity' | 'activityPast'>;
 
 export type StructuredRegistration = {
 	id: string;
 	spec: StructuredSpec;
 };
 
-/** Compiled custom tool ready for host registerTool + export source. */
 export type FunctionToolRegistration = {
 	type: 'function';
 	name: string;
@@ -25,7 +28,8 @@ export type FunctionToolRegistration = {
 	paths: string[];
 	inputSchema: Record<string, unknown>;
 	outputSchema: Record<string, unknown>;
-	/** Playground function stub payload when set (overrides generic stub). */
+	labels?: PlaygroundToolLabels;
+	/** Overrides the generic stub. */
 	stubResponse?: Record<string, unknown>;
 };
 
@@ -46,18 +50,10 @@ export type HttpToolRegistration = {
 		queryParams?: string[];
 		bodyParam?: string;
 	};
-	auth?: {
-		slot: string;
-		type: ToolAuthType;
-		headerName?: string;
-		headerPrefix?: string;
-		onUnauthenticated?: AuthUnauthenticatedPolicy;
-		scopes?: string[];
-		clientId?: string;
-		redirectUri?: string;
-	};
+	auth?: PlaygroundToolAuth;
 	inputSchema: Record<string, unknown>;
 	outputSchema: Record<string, unknown>;
+	labels?: PlaygroundToolLabels;
 };
 
 export type McpToolRegistration = {
@@ -72,18 +68,10 @@ export type McpToolRegistration = {
 	serverUrl: string;
 	mcpToolName: string;
 	headers?: Record<string, string>;
-	auth?: {
-		slot: string;
-		type: ToolAuthType;
-		headerName?: string;
-		headerPrefix?: string;
-		onUnauthenticated?: AuthUnauthenticatedPolicy;
-		scopes?: string[];
-		clientId?: string;
-		redirectUri?: string;
-	};
+	auth?: PlaygroundToolAuth;
 	inputSchema: Record<string, unknown>;
 	outputSchema: Record<string, unknown>;
+	labels?: PlaygroundToolLabels;
 };
 
 export type ToolRegistration =

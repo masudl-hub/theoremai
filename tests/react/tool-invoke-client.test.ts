@@ -1,10 +1,6 @@
 import { assertEquals } from '@std/assert';
 import { filesToPending } from '../../react/src/client/encode-files.ts';
-import {
-  buildInvokeToolResume,
-  continueGatedToolInvocation,
-  sessionPermissionsAfterApproval,
-} from '../../react/src/client/tool-resume.ts';
+import { continueGatedToolInvocation } from '../../react/src/client/tool-resume.ts';
 import {
   buildInvokeRequest,
   buildTurnRequest,
@@ -17,6 +13,11 @@ import {
   interfaceFromProfile,
 } from '../../src/interface/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import {
+  resumeForAnswer,
+  sessionPermissionsAfterApproval,
+} from '../../src/kernel/tools/gate-answer.ts';
 import { checkPermission } from '../../src/kernel/tools/permission.ts';
 import type { ToolGate } from '../../src/kernel/tools/types.ts';
 import type { ModelBinding } from '../../src/kernel/types.ts';
@@ -46,11 +47,12 @@ function textInterface(
       type: 'text',
       identity: { handle: 'invoke_bot', system: 'You reply.' },
       models,
-      key: 'slotA',
+      key: 'main',
       ...extra,
       tools: { allow: [] },
       inputs: { text: true, ...CHAT_MEDIA_LIMITS },
     }),
+    defaultKernelScope.tools,
   );
   if (iface.type !== 'text') throw new Error('expected a text interface');
   return iface;
@@ -58,8 +60,6 @@ function textInterface(
 
 const fast = HOST_BINDINGS.gemini35FlashLite;
 const smart = HOST_BINDINGS.gemini31ProPreview;
-
-// --- session permissions: the registrant's tier decides how long an approval lasts ---
 
 Deno.test('approving a session_consent tool grants it for the session, once', () => {
   const once = sessionPermissionsAfterApproval([], 'delete_resource', 'session_consent');
@@ -83,7 +83,12 @@ Deno.test('an approved always_confirm tool still gates on its next call', () => 
   const after = sessionPermissionsAfterApproval([], 'wire_money', 'always_confirm');
   assertEquals(checkPermission('wire_money', 'always_confirm', after)?.kind, 'permission');
   assertEquals(
-    checkPermission('wire_money', 'always_confirm', after, buildInvokeToolResume()),
+    checkPermission(
+      'wire_money',
+      'always_confirm',
+      after,
+      resumeForAnswer({ decision: 'approve' }),
+    ),
     null,
   );
 });
@@ -96,15 +101,7 @@ Deno.test('session grants never touch other tools, add a wildcard or mutate the 
   assertEquals(next.includes('*'), false);
 });
 
-// --- gate resume ---
-
-Deno.test('buildInvokeToolResume always resumes with granted: true', () => {
-  for (const kind of [undefined, 'confirmation', 'permission', 'auth'] as const) {
-    assertEquals(buildInvokeToolResume(kind), { granted: true });
-  }
-});
-
-Deno.test('continueGatedToolInvocation denies without a resume or new permissions', () => {
+Deno.test('continueGatedToolInvocation denies without new permissions', () => {
   assertEquals(
     continueGatedToolInvocation({
       toolName: 'delete_resource',
@@ -112,49 +109,44 @@ Deno.test('continueGatedToolInvocation denies without a resume or new permission
       sessionPermissions: ['search'],
       resolution: { action: 'deny' },
     }),
-    { kind: 'denied' },
+    { decision: 'deny' },
   );
 });
 
-Deno.test('continueGatedToolInvocation passes a typed secret through without granting', () => {
+Deno.test('continueGatedToolInvocation approves a sign-in with the typed secret, once', () => {
   assertEquals(
     continueGatedToolInvocation({
       toolName: 'fetch_report',
-      gate: { kind: 'auth' },
+      gate: {},
       sessionPermissions: [],
       resolution: { action: 'auth', secret: 't0k' },
     }),
-    { kind: 'auth', secret: 't0k' },
+    { decision: 'approve', secret: 't0k', sessionPermissions: [] },
   );
   // After an OAuth callback there is nothing to send: the server holds the token.
   assertEquals(
     continueGatedToolInvocation({
       toolName: 'fetch_report',
-      gate: { kind: 'auth' },
+      gate: {},
       sessionPermissions: [],
       resolution: { action: 'auth' },
     }),
-    { kind: 'auth', secret: undefined },
+    { decision: 'approve', sessionPermissions: [] },
   );
 });
 
-Deno.test('continueGatedToolInvocation continues with the granted resume', () => {
-  const sessionConsent = continueGatedToolInvocation({
-    toolName: 'delete_resource',
-    gate: DELETE_GATE,
-    sessionPermissions: ['search'],
-    resolution: { action: 'allow' },
-  });
-  assertEquals(sessionConsent, {
-    kind: 'continue',
-    sessionPermissions: ['search', 'delete_resource'],
-    resume: { granted: true },
-  });
+Deno.test('continueGatedToolInvocation approves with the permissions the host will hold', () => {
+  assertEquals(
+    continueGatedToolInvocation({
+      toolName: 'delete_resource',
+      gate: DELETE_GATE,
+      sessionPermissions: ['search'],
+      resolution: { action: 'allow' },
+    }),
+    { decision: 'approve', sessionPermissions: ['search', 'delete_resource'] },
+  );
 
-  for (const gate of [
-    { kind: 'permission', permission: 'always_confirm' },
-    { kind: 'confirmation' },
-  ] as const) {
+  for (const gate of [{ permission: 'always_confirm' }, {}] as const) {
     assertEquals(
       continueGatedToolInvocation({
         toolName: 'send_email',
@@ -162,12 +154,10 @@ Deno.test('continueGatedToolInvocation continues with the granted resume', () =>
         sessionPermissions: ['search'],
         resolution: { action: 'allow' },
       }),
-      { kind: 'continue', sessionPermissions: ['search'], resume: { granted: true } },
+      { decision: 'approve', sessionPermissions: ['search'] },
     );
   }
 });
-
-// --- turn and invoke requests ---
 
 Deno.test('turnInputFromSession carries history and token counters', () => {
   const history = [{ role: 'user', content: 'hi' }] as InterfaceTurnSession['history'];
@@ -255,9 +245,10 @@ Deno.test('buildInvokeRequest replays the snapshot, promoted tools and selected 
       toolSnapshot: snapshot,
       inputTokens: 5,
     }),
-    { gateId: 'call-1', name: 'search', input: { q: 'hotels' } },
+    { gateId: 'call-1', decision: 'approve', name: 'search', input: { q: 'hotels' } },
   );
   assertEquals(body.gateId, 'call-1');
+  assertEquals(body.decision, 'approve');
   assertEquals('secret' in body, false);
   assertEquals(body.replay?.name, 'search');
   assertEquals(body.replay?.input, { q: 'hotels' });
@@ -272,21 +263,18 @@ Deno.test('buildInvokeRequest prefers explicit permissions and omits empty repla
   const iface = textInterface('react.invoke.explicit', { fast });
   const body = buildInvokeRequest(iface, session({ sessionPermissions: ['search'] }), {
     gateId: 'call-2',
+    decision: 'approve',
     name: 'fetch_report',
     input: {},
-    resume: { granted: true },
     sessionPermissions: ['search', 'fetch_report'],
     secret: 't0k',
   });
   assertEquals(body.secret, 't0k');
-  assertEquals(body.replay?.resume, { granted: true });
   assertEquals(body.replay?.sessionPermissions, ['search', 'fetch_report']);
   assertEquals('snapshot' in (body.replay ?? {}), false);
   assertEquals('promoted' in (body.replay ?? {}), false);
   assertEquals('model' in (body.replay ?? {}), false);
 });
-
-// --- files ---
 
 Deno.test('filesToPending keeps name, size and a fallback mime type', () => {
   assertEquals(

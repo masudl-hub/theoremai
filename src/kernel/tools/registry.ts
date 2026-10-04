@@ -1,16 +1,7 @@
-/**
- * Process-local tool registry.
- *
- * Registration is not synchronized — hosts must register tools at startup before
- * concurrent turns or invokeTool calls. Reads during execution are safe under Deno's
- * single-threaded event loop; concurrent mutation of a shared TurnToolSnapshot is
- * avoided by cloneTurnToolSnapshot on invokeTool entry.
- *
- * @module
- */
-
 import type { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
+import { activityLabelProblem } from './activity-label.ts';
+import { createMcpSessionCache, type McpSessionCache } from './mcp-sessions.ts';
 import {
   assertFixedEndpointOrigin,
   jsonSchemaFromZod,
@@ -18,22 +9,50 @@ import {
   validateToolOutputSchema,
 } from './schema.ts';
 import type {
-  BuiltinWire,
   FunctionToolDef,
   HttpToolDef,
   McpToolDef,
   RegisteredTool,
+  ToolAuthConfig,
   ToolDefinitionInput,
+  ToolLabels,
 } from './types.ts';
 
-const tools = new Map<string, RegisteredTool>();
-
-function schemasFromZod<TIn, TOut>(input: z.ZodType<TIn>, output: z.ZodType<TOut>) {
-  const inputSchema = jsonSchemaFromZod(input, 'input');
+function schemasFromZod<TIn, TOut>(def: {
+  name: string;
+  input: z.ZodType<TIn>;
+  output: z.ZodType<TOut>;
+  labels?: ToolLabels;
+}) {
+  const inputSchema = jsonSchemaFromZod(def.input, 'input');
   validateToolInputSchema(inputSchema);
-  const outputSchema = jsonSchemaFromZod(output, 'output');
+  const outputSchema = jsonSchemaFromZod(def.output, 'output');
   validateToolOutputSchema(outputSchema);
+  const labels = {
+    activity: { input: inputSchema },
+    activityPast: { input: inputSchema, output: outputSchema },
+  };
+  for (const field of ['activity', 'activityPast'] as const) {
+    const template = def.labels?.[field];
+    const problem = template ? activityLabelProblem(template, labels[field]) : undefined;
+    if (problem) {
+      throw new TheoremError(
+        'config',
+        `Tool "${def.name}" ${field} label: ${problem}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+  }
   return { inputSchema, outputSchema };
+}
+
+/** The person is told which service they sign in to; the tool's builder names it, never the model or the server. */
+function assertAuthService(name: string, auth: ToolAuthConfig | undefined): void {
+  if (auth && (typeof auth.service !== 'string' || !auth.service.trim())) {
+    throw new TheoremError(
+      'config',
+      `Tool "${name}" signs in with slot "${auth.slot}" but names no service`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
 }
 
 function normalizeHttp<TIn = unknown, TOut = unknown>(
@@ -43,7 +62,8 @@ function normalizeHttp<TIn = unknown, TOut = unknown>(
   },
 ): HttpToolDef<TIn, TOut> {
   assertFixedEndpointOrigin(def.endpoint);
-  return { ...def, type: 'http', ...schemasFromZod(def.input, def.output) };
+  assertAuthService(def.name, def.auth);
+  return { ...def, type: 'http', ...schemasFromZod(def) };
 }
 
 function normalizeMcp<TIn = unknown, TOut = unknown>(
@@ -52,7 +72,8 @@ function normalizeMcp<TIn = unknown, TOut = unknown>(
     output: z.ZodType<TOut>;
   },
 ): McpToolDef<TIn, TOut> {
-  return { ...def, type: 'mcp', ...schemasFromZod(def.input, def.output) };
+  assertAuthService(def.name, def.auth);
+  return { ...def, type: 'mcp', ...schemasFromZod(def) };
 }
 
 function normalizeFunction<TIn = unknown, TOut = unknown>(
@@ -61,7 +82,8 @@ function normalizeFunction<TIn = unknown, TOut = unknown>(
     output: z.ZodType<TOut>;
   },
 ): FunctionToolDef<TIn, TOut> {
-  return { ...def, type: 'function', ...schemasFromZod(def.input, def.output) };
+  assertAuthService(def.name, def.auth);
+  return { ...def, type: 'function', ...schemasFromZod(def) };
 }
 
 function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
@@ -79,80 +101,51 @@ function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
   return normalizeFunction(def);
 }
 
-/** Register or replace a tool definition. */
-function registerTool<TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>): RegisteredTool<TIn, TOut> {
-  const normalized = normalizeToolDefinition(def);
-  tools.set(normalized.name, normalized as RegisteredTool);
-  return normalized;
+interface ToolRegistry {
+  /** Replaces a tool of the same name. */
+  register<TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>): RegisteredTool<TIn, TOut>;
+  registerMany(defs: ToolDefinitionInput[]): RegisteredTool[];
+  get(name: string): RegisteredTool | undefined;
+  /** Throws when there is none. */
+  require(name: string): RegisteredTool;
+  has(name: string): boolean;
+  list(): RegisteredTool[];
+  /** Also forgets the MCP sessions. */
+  reset(): void;
+  /** Sessions for this scope's MCP servers that require one; never shared across scopes. */
+  readonly mcpSessions: McpSessionCache;
 }
 
-/** Register several tools in order. */
-function registerTools(defs: ToolDefinitionInput[]): RegisteredTool[] {
-  return defs.map((def) => registerTool(def));
+/** Registration is not synchronized: register a scope's tools before its turns or invokes run. */
+function createToolRegistry(): ToolRegistry {
+  const tools = new Map<string, RegisteredTool>();
+  const mcpSessions = createMcpSessionCache();
+  const get = (name: string) => tools.get(name);
+  const register = <TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>) => {
+    const normalized = normalizeToolDefinition(def);
+    tools.set(normalized.name, normalized as RegisteredTool);
+    return normalized;
+  };
+  return {
+    register,
+    registerMany: (defs) => defs.map((def) => register(def)),
+    get,
+    require(name) {
+      const tool = get(name);
+      if (!tool) {
+        throw new TheoremError('config', `Tool '${name}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      }
+      return tool;
+    },
+    has: (name) => tools.has(name),
+    list: () => [...tools.values()],
+    reset: () => {
+      tools.clear();
+      mcpSessions.clear();
+    },
+    mcpSessions,
+  };
 }
 
-/** Gets a process-registered tool by name without throwing for an unknown name. */
-function getTool(name: string): RegisteredTool | undefined {
-  return tools.get(name);
-}
-
-/** Gets a process-registered tool or throws when the name is unknown. */
-function requireTool(name: string): RegisteredTool {
-  const tool = getTool(name);
-  if (!tool) {
-    throw new TheoremError('config', `Tool '${name}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  return tool;
-}
-
-/** A registered builtin's wire name on one transport; throws when it has none. */
-function requireBuiltinWire(id: string, transport: keyof BuiltinWire): string {
-  const tool = getTool(id);
-  const wire = tool?.type === 'builtin' ? tool.wire[transport] : undefined;
-  if (!wire) {
-    throw new TheoremError('config', `Builtin '${id}' has no wire.${transport}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  return wire;
-}
-
-/** Returns whether a process-registered tool exists under a name. */
-function hasTool(name: string): boolean {
-  return tools.has(name);
-}
-
-/** Lists current process-registered tools in registration order. */
-function listTools(): RegisteredTool[] {
-  return [...tools.values()];
-}
-
-/** Lists names of registered provider builtins. */
-function listBuiltinIds(): string[] {
-  return listTools()
-    .filter((t) => t.type === 'builtin')
-    .map((t) => t.name);
-}
-
-/** Lists names of registered local function tools. */
-function listFunctionIds(): string[] {
-  return listTools()
-    .filter((t) => t.type === 'function')
-    .map((t) => t.name);
-}
-
-/** Clears the process-local tool registry; primarily useful for test isolation. */
-function resetTools(): void {
-  tools.clear();
-}
-
-export {
-  getTool,
-  hasTool,
-  listBuiltinIds,
-  listFunctionIds,
-  listTools,
-  registerTool,
-  registerTools,
-  requireBuiltinWire,
-  requireTool,
-  resetTools,
-};
+export type { ToolRegistry };
+export { createToolRegistry };

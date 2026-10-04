@@ -12,8 +12,8 @@ import {
 	type LexiconOverrides,
 	lexiconText,
 	publicError,
-} from '../../../mod.ts';
-import type { AttachmentValidationIssue } from '../../../src/interface/mod.ts';
+} from '@theoremjs/agents';
+import type { AttachmentValidationIssue, InterfaceTurnSession } from '@theoremjs/agents/interface';
 import { isTheoremStreamError } from './transport.ts';
 
 export type ClientFailure = {
@@ -52,6 +52,8 @@ export type TurnFailure = ClientFailure & {
 	issues?: AttachmentValidationIssue[];
 	/** The user stopped it; nothing to show. */
 	aborted?: boolean;
+	/** The conversation with what the turn got through before it stopped; the next turn resumes from it. */
+	session?: InterfaceTurnSession;
 };
 
 /** A caught value as a turn failure; an aborted `signal` marks it the user's stop. */

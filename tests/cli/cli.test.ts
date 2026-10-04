@@ -17,7 +17,8 @@ import {
   synthesizeMatrixCombos,
   synthesizeStressCombo,
 } from '../../src/cli/matrix/synthesizer.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, Profile, TurnEvent } from '../../src/kernel/types.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
@@ -31,7 +32,7 @@ const testProfile: Profile = {
   },
   defaultModel: 'fast',
   allowModelSelect: true,
-  key: 'slotA',
+  key: 'main',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -208,11 +209,14 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
   const mockEvents: TurnEvent[] = [
     { type: 'thought', text: 'Thinking step...' },
     { type: 'text', text: 'Hello human!' },
-    { type: 'tool', tool: { name: 'calculator', arguments: { expr: '2+2' } } },
+    {
+      type: 'tool',
+      tool: { name: 'calculator', arguments: { expr: '2+2' }, callId: 'call_calculator' },
+    },
     { type: 'structured', structured: { result: 4 } },
     { type: 'media', media: { mimeType: 'image/png', data: 'abc' } },
-    { type: 'error', error: 'Non-fatal error' },
-    { type: 'done' },
+    { type: 'error', errorKind: 'internal', error: 'Non-fatal error' },
+    { type: 'done', stop: { kind: 'completed' } },
   ];
 
   const mockProvider: ModelProvider = {
@@ -223,7 +227,6 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
     },
   };
 
-  // Run with mock provider via executeSingleTest
   const res = await executeSingleTest(
     { profile: 'chat', input: { text: 'test' } },
     'Host Profile Event Stream Test',
@@ -231,8 +234,6 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
   );
   assertEquals(res.passed, false); // because error event was yielded
 
-  // Test runCommand on OpenAI/OpenRouter profile
-  const { registerProfile, defineProfile } = await import('../../src/kernel/registry/profiles.ts');
   registerProfile(
     defineProfile({
       type: 'text',
@@ -256,7 +257,6 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
     },
   });
 
-  // Test runCommand when runTurn throws exception (e.g. text input disabled)
   registerProfile(
     defineProfile({
       type: 'text',
@@ -277,7 +277,6 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
 });
 
 Deno.test('testProfileCommand and CLI main router test flag parsing and commands', async () => {
-  // Test profile commands via main()
   await main(['profile', 'list']);
   await main(['profile', 'show', 'chat']);
   await main(['profile', 'show', '--profile', 'selector']);
@@ -285,11 +284,9 @@ Deno.test('testProfileCommand and CLI main router test flag parsing and commands
   await main(['--help']);
   await main(['-h']);
 
-  // Invalid profile
   const failedRes = await testProfileCommand('non_existent');
   assertEquals(failedRes, false);
 
-  // Missing profile
   const noProfileRes = await testProfileCommand(undefined, { all: false });
   assertEquals(noProfileRes, false);
 });
@@ -301,7 +298,10 @@ Deno.test('testProfileCommand --all skips profiles that run no model turn', asyn
       type: 'decision',
       id: 'cli_all_decision',
       identity: { handle: 'Decision' },
-      models: { jev: { apiId: 'jev-latest', timeoutMs: 1000 } },
+      key: 'slot_a',
+      models: {
+        jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+      },
       inputs: { state: 'json', maxStateBytes: 1000 },
       decision: { contract: 'test.v1' },
     }),

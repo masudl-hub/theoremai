@@ -1,11 +1,5 @@
-/**
- * Inbound sanitize fuzz runner — exercises all sanitize channels against the corpus.
- *
- * @module
- */
-
 /** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
-import { clearProfiles, registerProfile } from '../../kernel/registry/profiles.ts';
+import { clearProfiles, getProfile, registerProfile } from '../../kernel/default-scope.ts';
 import type { TurnRequest } from '../../kernel/types.ts';
 import { injectionSpans } from '../injection.ts';
 import { sanitizeText, sanitizeTurnRequest } from '../sanitize.ts';
@@ -25,6 +19,7 @@ function registerFuzzProfile(): void {
         protocol: 'openAi',
         provider: 'openrouter',
         apiId: 'fuzz-model',
+        key: 'fuzz',
         efforts: { normal: 'none' },
         summaries: false,
         maxOutputTokens: 4096,
@@ -63,7 +58,7 @@ function testTurnRequest(payloads: InboundFuzzPayload[]): InboundFuzzResult[] {
   for (const p of payloads) {
     const textReq: TurnRequest = { profile: FUZZ_PROFILE_ID, input: { text: p.text } };
     try {
-      const safe = sanitizeTurnRequest(textReq);
+      const safe = sanitizeTurnRequest(textReq, getProfile(textReq.profile));
       const output = safe.input?.text ?? '';
       results.push({
         payload: p,
@@ -87,7 +82,7 @@ function testTurnRequest(payloads: InboundFuzzPayload[]): InboundFuzzResult[] {
       input: { text: 'hello', slots: { payload: p.text } },
     };
     try {
-      const safe = sanitizeTurnRequest(slotReq);
+      const safe = sanitizeTurnRequest(slotReq, getProfile(slotReq.profile));
       const output = safe.input?.slots?.payload ?? '';
       results.push({
         payload: p,
@@ -112,8 +107,8 @@ function testTurnRequest(payloads: InboundFuzzPayload[]): InboundFuzzResult[] {
       input: { text: 'hello' },
     };
     try {
-      const safe = sanitizeTurnRequest(sysReq);
-      const output = safe.system ?? '';
+      const safe = sanitizeTurnRequest(sysReq, getProfile(sysReq.profile));
+      const output = typeof safe.system === 'string' ? safe.system : '';
       results.push({
         payload: p,
         channel: 'req.system',
@@ -136,7 +131,7 @@ function testTurnRequest(payloads: InboundFuzzPayload[]): InboundFuzzResult[] {
       input: { text: 'hello', history: [{ role: 'user', content: p.text }] },
     };
     try {
-      const safe = sanitizeTurnRequest(histReq);
+      const safe = sanitizeTurnRequest(histReq, getProfile(histReq.profile));
       const output = safe.input?.history?.[0]?.content ?? '';
       results.push({
         payload: p,
@@ -163,6 +158,15 @@ function truncate(s: string, max: number): string {
   return `${s.slice(0, max - 3)}...`;
 }
 
+export function missedCause(text: string): string {
+  const injection = injectionSpans(text).length;
+  const sensitive = sensitiveSpans(text).length;
+  if (injection === 0 && sensitive === 0) {
+    return 'no spans detected';
+  }
+  return `spans detected (${injection} injection, ${sensitive} sensitive) but sanitize missed`;
+}
+
 function printInboundFuzzResults(results: InboundFuzzResult[]): InboundFuzzResult[] {
   const failures = results.filter((r) => r.payload.expectCaught && r.survived);
   const caught = results.filter((r) => !r.survived);
@@ -178,6 +182,7 @@ function printInboundFuzzResults(results: InboundFuzzResult[]): InboundFuzzResul
     console.log('\n\x1b[31mMISSED (expected redaction, payload unchanged):\x1b[0m\n');
     for (const r of failures) {
       console.log(`  ✗ ${r.payload.category}/${r.payload.name} [${r.channel}]`);
+      console.log(`    ${missedCause(r.payload.text)}`);
       console.log(`    \x1b[2m${truncate(r.input, 70)}\x1b[0m`);
     }
   }
@@ -189,9 +194,7 @@ function printInboundFuzzResults(results: InboundFuzzResult[]): InboundFuzzResul
   return failures;
 }
 
-/**
- * Run inbound adversarial fuzz against the corpus. Returns false when expected catches are missed.
- */
+/** Returns false when any payload expected to be caught survives a sanitize channel. */
 export function runInboundGuardrailFuzz(options?: { quiet?: boolean }): boolean {
   if (!options?.quiet) {
     console.log('\n🔓 Theorem Guardrail Inbound Fuzz\n');
@@ -211,23 +214,6 @@ export function runInboundGuardrailFuzz(options?: { quiet?: boolean }): boolean 
   const failures = options?.quiet
     ? results.filter((r) => r.payload.expectCaught && r.survived)
     : printInboundFuzzResults(results);
-
-  if (!options?.quiet && failures.length === 0) {
-    const missedDetection = new Map<string, InboundFuzzPayload>();
-    for (const r of results.filter((r) => r.survived && r.payload.expectCaught)) {
-      missedDetection.set(r.payload.name, r.payload);
-    }
-    for (const [, p] of missedDetection) {
-      const iSpans = injectionSpans(p.text);
-      const sSpans = sensitiveSpans(p.text);
-      if (iSpans.length > 0 || sSpans.length > 0) {
-        console.log(
-          `  ⚠ ${p.name}: spans detected (${iSpans.length} injection, ${sSpans.length} sensitive) but sanitize missed on some channel`,
-        );
-      }
-    }
-    console.log('');
-  }
 
   clearProfiles();
   return failures.length === 0;

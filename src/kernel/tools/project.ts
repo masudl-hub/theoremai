@@ -1,16 +1,13 @@
-/**
- * Tool projection for host/UI inspection.
- *
- * @module
- */
-
 import type { Profile, ToolId } from '../types.ts';
-import { getTool } from './registry.ts';
+import type { ToolRegistry } from './registry.ts';
 import { profileToolAllow } from './resolve.ts';
 import type { RegisteredTool } from './types.ts';
 
-function projectTool(name: ToolId): RegisteredTool | { name: ToolId; missing: true } {
-  const tool = getTool(name);
+function projectTool(
+  tools: ToolRegistry,
+  name: ToolId,
+): RegisteredTool | { name: ToolId; missing: true } {
+  const tool = tools.get(name);
   if (!tool) {
     return { name, missing: true };
   }
@@ -30,9 +27,12 @@ function builtInToolIds(profile: Profile): ToolId[] {
   return [...seen];
 }
 
-function projectTools(profile: Profile): Array<RegisteredTool | { name: ToolId; missing: true }> {
+function projectTools(
+  tools: ToolRegistry,
+  profile: Profile,
+): Array<RegisteredTool | { name: ToolId; missing: true }> {
   const ids = [...profileToolAllow(profile), ...builtInToolIds(profile)];
-  return ids.map((name) => projectTool(name));
+  return ids.map((name) => projectTool(tools, name));
 }
 
 export { projectTools };

@@ -1,14 +1,6 @@
-/**
- * Host cutout-trace helpers for apps that record an upstream side effect (for
- * example an image cutout) made after a turn, in that turn's trace.
- *
- * Prefer importing from `@theoremai/agents/host`.
- *
- * @module
- */
-
+import { TheoremError } from '../guardrails/error.ts';
 import { urlAttributes } from '../kernel/engine/turn-trace.ts';
-import { profileObservability } from '../kernel/registry/profiles.ts';
+import type { Profile } from '../kernel/types.ts';
 import { resolveTraceWriter } from '../observability/policy.ts';
 import { writeTrace } from '../observability/trace.ts';
 import { buildRecord, type TraceRecord } from '../observability/trace-record.ts';
@@ -45,15 +37,12 @@ function cutoutAttributes(cutout: CutoutTape): TraceAttributes {
 }
 
 /**
- * Write a turn record the host held back (`memorySink`), then a record holding
- * one `cutout` span whose parent is that turn's root, so both read as one trace.
- * Without a `sink` nothing is written.
- *
- * Both writes go through the observability policy of the profile the turn ran
- * on: the cutout's content is scrubbed and gated like the turn's own, and the
- * sink receives that profile's retention and `onWriteError`.
+ * Writes the held turn record, then one `cutout` span parented on its root, so both read as one
+ * trace. Without a `sink` nothing is written.
  */
 async function flushMintTrace(args: {
+  /** The profile the held turn ran on; its observability governs both writes. */
+  profile: Profile;
   held: TraceRecord[];
   app: Record<string, unknown>;
   cutout: CutoutTape;
@@ -64,10 +53,16 @@ async function flushMintTrace(args: {
   if (!record || !root || !args.sink) {
     return;
   }
-  const profile = root.attributes[AGENT_NAME];
+  const ranOn = root.attributes[AGENT_NAME];
+  if (ranOn !== args.profile.id) {
+    throw new TheoremError(
+      'config',
+      `flushMintTrace: the held turn ran on '${String(ranOn)}', not '${args.profile.id}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
   const { sink, policy } = resolveTraceWriter({
     override: args.sink,
-    observability: typeof profile === 'string' ? profileObservability(profile) : undefined,
+    observability: args.profile.observability,
   });
   await writeTrace(sink, Promise.resolve(record), policy);
   const { cutout } = args;

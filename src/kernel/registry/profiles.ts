@@ -1,14 +1,8 @@
-/**
- * Runtime profile registry for host-owned THEOREM profiles.
- *
- * THEOREM ships profile types — not application profiles and not invented defaults.
- * Hosts must pass required fields explicitly (`type`, `models`, …).
- *
- * @module
- */
-
+import { egressChecksProblem } from '../../guardrails/egress.ts';
+import { streamPlanOf } from '../../guardrails/egress-stream.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { type LexiconOverrides, validateLexiconOverrides } from '../../guardrails/lexicon.ts';
+import { SENSITIVE_GROUPS } from '../../guardrails/sensitive.ts';
 import type {
   DecisionGuardrailsSpec,
   HostGuardrailsSpec,
@@ -22,12 +16,18 @@ import {
   CACHE_MODES,
   CACHE_TTLS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
+  isKeySlotName,
   isValidPair,
   isValidProfileProtocol,
+  PROFILE_FIELDS,
+  PROFILE_TYPES,
+  type ProfileType,
   protocolsForProfileType,
+  THINKING_LEVELS,
 } from '../schema.ts';
 import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
-import { getTool } from '../tools/registry.ts';
+import { assertSystemPrompt } from '../system-parts.ts';
+import type { ToolRegistry } from '../tools/registry.ts';
 import { profileToolAllow, profileToolsSpec } from '../tools/resolve.ts';
 import type {
   CompactionSpec,
@@ -37,6 +37,7 @@ import type {
   HostProfileToolsSpec,
   ImageInputsSpec,
   ImageProfile,
+  KeySlot,
   LiveContextCompressionSpec,
   LiveProfile,
   LiveProfileToolsSpec,
@@ -46,26 +47,21 @@ import type {
   ModelProfile,
   Profile,
   ProfileIdentity,
+  ProfileImageSpec,
   ProfileInputsSpec,
   ProfileModelFields,
   ProfileOutputsSpec,
   ProfileToolsSpec,
   ProfileTurnBehaviourSpec,
-  Protocol,
-  Provider,
   SpeechGuardrailsSpec,
   SpeechProfile,
   TextProfile,
 } from '../types.ts';
-import { mimeAllowed, profileInputs } from './catalog.ts';
+import { isTurnMediaRef } from './attachments.ts';
+import { mediaKindForMime, mimeAllowed, profileInputs } from './catalog.ts';
 import { soleModelId } from './sole-model.ts';
 
-const profiles = new Map<string, Profile>();
-
-/**
- * Common host-authored fields for text, image, speech, and live profiles. A host
- * profile is deliberately separate because it invokes tools without a model turn.
- */
+/** Not shared by host profiles, which invoke tools without a model turn. */
 export type ProfileDefinitionBase = {
   id: Profile['id'];
   identity: ProfileIdentity;
@@ -74,13 +70,13 @@ export type ProfileDefinitionBase = {
   allowModelSelect?: boolean;
   maxSteps?: number;
   key?: ProfileModelFields['key'];
+  fallbackKey?: ProfileModelFields['fallbackKey'];
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
   lexicon?: LexiconOverrides;
 };
 
-/** Host definition for a turn-based text profile with declared tools and input media policy. */
 export type TextProfileDefinition = ProfileDefinitionBase & {
   type: 'text';
   tools: ProfileToolsSpec;
@@ -88,7 +84,6 @@ export type TextProfileDefinition = ProfileDefinitionBase & {
   turnBehaviour?: ProfileTurnBehaviourSpec;
 };
 
-/** Host definition for a turn-based image profile with declared image output constraints. */
 export type ImageProfileDefinition = ProfileDefinitionBase & {
   type: 'image';
   image: NonNullable<ImageProfile['image']>;
@@ -97,7 +92,6 @@ export type ImageProfileDefinition = ProfileDefinitionBase & {
   turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
-/** Host definition for a turn-based speech profile with declared speech output constraints. */
 export type SpeechProfileDefinition = Omit<ProfileDefinitionBase, 'identity' | 'guardrails'> & {
   type: 'speech';
   identity: SpeechProfile['identity'];
@@ -106,7 +100,6 @@ export type SpeechProfileDefinition = Omit<ProfileDefinitionBase, 'identity' | '
   turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
-/** Host definition for a Gemini Live profile with realtime tool and session settings. */
 export type LiveProfileDefinition = ProfileDefinitionBase & {
   type: 'live';
   live: NonNullable<LiveProfile['live']>;
@@ -115,7 +108,6 @@ export type LiveProfileDefinition = ProfileDefinitionBase & {
   turnBehaviour?: Pick<ProfileTurnBehaviourSpec, 'allowSteering'>;
 };
 
-/** Host definition for native Jev execution. */
 export type DecisionProfileDefinition = {
   type: 'decision';
   id: Profile['id'];
@@ -130,18 +122,16 @@ export type DecisionProfileDefinition = {
   lexicon?: LexiconOverrides;
 };
 
-/** Host-driven tool ceiling — no models, identity, inputs, outputs, turnBehaviour, key, or maxSteps. */
 export type HostProfileDefinition = {
   type: 'host';
   id: Profile['id'];
   tools: HostProfileToolsSpec;
-  /** Only the guards that fire on the `invokeTool` path — see {@link HostGuardrailsSpec}. */
+  /** Only the guards that fire on the `invokeTool` path. */
   guardrails?: HostGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
   lexicon?: LexiconOverrides;
 };
 
-/** Host-authored profile definition — discriminated on `type`. No THEOREM defaults. */
 export type ProfileDefinition =
   | TextProfileDefinition
   | ImageProfileDefinition
@@ -150,13 +140,43 @@ export type ProfileDefinition =
   | DecisionProfileDefinition
   | HostProfileDefinition;
 
+function assertModelRoute(
+  profileId: string,
+  modelId: string,
+  binding: Pick<ModelBinding, 'protocol' | 'provider' | 'apiId'>,
+  type?: ProfileType,
+): void {
+  if (type === 'decision' && !binding.apiId.trim()) {
+    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set apiId`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (type === 'decision' && !isValidProfileProtocol(type, binding.protocol)) {
+    throw new TheoremError(
+      'config',
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profileId} model '${modelId}': type 'decision' cannot use protocol '${binding.protocol}'. Supported: decision`,
+    );
+  }
+  if (!isValidPair(binding.protocol, binding.provider)) {
+    throw new TheoremError(
+      'config',
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profileId} model '${modelId}': protocol '${binding.protocol}' is not valid for provider '${binding.provider}'`,
+    );
+  }
+}
+
 function validateDecisionBinding(
   profileId: string,
   modelId: string,
   binding: DecisionModelBinding,
 ): void {
-  if (!binding.apiId?.trim()) {
-    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set apiId`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  assertModelRoute(profileId, modelId, binding, 'decision');
+  if ('retry' in binding) {
+    throw new TheoremError(
+      'config',
+      // lexicon-exempt: developer contract / internal diagnostic
+      `Profile ${profileId} model '${modelId}': decision retry configuration is unsupported; POSTs are never retried`,
+    );
   }
   if (
     binding.timeoutMs !== undefined &&
@@ -167,35 +187,31 @@ function validateDecisionBinding(
       `Profile ${profileId} model '${modelId}' timeoutMs must be > 0`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  if (
-    binding.retry?.maxRetries !== undefined &&
-    (!Number.isInteger(binding.retry.maxRetries) || binding.retry.maxRetries < 0)
-  ) {
-    throw new TheoremError(
-      'config',
-      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      `Profile ${profileId} model '${modelId}' retry.maxRetries must be a non-negative integer`,
-    );
-  }
 }
 
 function validateDecisionModel(input: DecisionProfileDefinition): void {
   const modelId = input.models ? soleModelId(input.models) : undefined;
-  const binding = modelId ? input.models[modelId] : undefined;
-  if (!modelId || !binding) {
+  if (!modelId) {
     throw new TheoremError(
       'config',
       `Profile ${input.id}: type 'decision' must declare exactly one model`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  validateDecisionBinding(input.id, modelId, binding);
+  validateDecisionBinding(input.id, modelId, input.models[modelId]);
 }
 
 function validateDecisionConfig(input: DecisionProfileDefinition): void {
   if (input.inputs.state !== 'json') {
     throw new TheoremError('config', `Profile ${input.id}: decision inputs.state must be 'json'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  if (!input.decision.contract?.trim()) {
+  const cap = input.inputs.maxStateBytes;
+  if (cap !== undefined && !(Number.isInteger(cap) && cap > 0)) {
+    throw new TheoremError(
+      'config',
+      `Profile ${input.id}: decision inputs.maxStateBytes must be a positive integer`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (!input.decision.contract.trim()) {
     throw new TheoremError('config', `Profile ${input.id}: decision.contract must be non-empty`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
@@ -203,6 +219,16 @@ function validateDecisionConfig(input: DecisionProfileDefinition): void {
 function defineDecisionProfile(input: DecisionProfileDefinition): DecisionProfile {
   validateDecisionModel(input);
   validateDecisionConfig(input);
+  assertSlotName(input.id, 'key', input.key);
+  for (const [modelId, binding] of Object.entries(input.models)) {
+    assertSlotName(input.id, `models.${modelId}.key`, binding.key);
+    if (!binding.key && !input.key) {
+      throw new TheoremError(
+        'config',
+        `Profile ${input.id} model '${modelId}': a decision model needs models.*.key or the profile key`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+  }
   assertObservability(input.id, input.observability);
   return { ...input, identity: { handle: input.identity.handle } };
 }
@@ -220,8 +246,8 @@ function defineHostProfile(input: HostProfileDefinition): HostProfile {
   } satisfies HostProfile;
 }
 
-function assertHostTools(profileId: string, tools: HostProfileToolsSpec | undefined): void {
-  if (!Array.isArray(tools?.allow)) {
+function assertHostTools(profileId: string, tools: HostProfileToolsSpec): void {
+  if (!Array.isArray(tools.allow)) {
     throw new TheoremError('config', `Profile ${profileId}: type 'host' must set tools.allow`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
@@ -232,7 +258,6 @@ function assertModelsNonEmpty(profileId: string, models: Record<ModelId, ModelBi
   }
 }
 
-/** The one owner of a model profile's default: the declared one, else the only key. */
 function resolveDefaultModel(profileId: string, input: ProfileDefinitionBase): ModelId {
   const ids = Object.keys(input.models);
   const inferred = input.defaultModel ?? soleModelId(input.models);
@@ -258,27 +283,48 @@ function resolveDefaultModel(profileId: string, input: ProfileDefinitionBase): M
 }
 
 function assertModelBinding(profileId: string, modelId: ModelId, binding: ModelBinding): void {
-  if (!binding.protocol) {
-    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set protocol`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  if (!binding.provider) {
-    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set provider`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  if (!binding.apiId) {
-    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set apiId`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  if (!isValidPair(binding.protocol as Protocol, binding.provider as Provider)) {
-    throw new TheoremError(
-      'config',
-      `Profile ${profileId} model '${modelId}': protocol '${binding.protocol}' is not valid for provider '${binding.provider}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
+  assertModelRoute(profileId, modelId, binding);
   assertModelEfforts(profileId, modelId, binding);
   if (binding.cache) {
-    assertCacheSpec(profileId, modelId, binding);
+    assertCacheSpec(profileId, modelId, binding, binding.cache);
   }
   assertInteractionsPersistence(profileId, modelId, binding);
   assertLocalServer(profileId, modelId, binding);
+}
+
+function assertSlotName(profileId: string, path: string, slot: KeySlot | undefined): void {
+  if (slot !== undefined && !isKeySlotName(slot)) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId}: ${path} '${slot}' is not a key slot name; use letters, digits, '-' and '_', up to 32 characters`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
+/** A model's key and fallback, each its own or the profile's. A fallback is never implied. */
+function assertKeySlot(
+  profileId: string,
+  modelId: ModelId,
+  binding: ModelBinding,
+  profile: { key?: KeySlot; fallbackKey?: KeySlot },
+): void {
+  assertSlotName(profileId, `models.${modelId}.key`, binding.key);
+  assertSlotName(profileId, `models.${modelId}.fallbackKey`, binding.fallbackKey);
+  const key = binding.key ?? profile.key;
+  const fallback = binding.fallbackKey ?? profile.fallbackKey;
+  if (binding.provider !== 'local' && !key) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId} model '${modelId}': a ${binding.provider} model needs models.*.key or the profile key`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (fallback === undefined) return;
+  if (fallback === key) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId} model '${modelId}': fallbackKey '${fallback}' is the same slot as its key`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
 }
 
 function assertLocalServer(profileId: string, modelId: ModelId, binding: ModelBinding): void {
@@ -304,6 +350,14 @@ function assertModelEfforts(profileId: string, modelId: ModelId, binding: ModelB
       );
     }
     return;
+  }
+  for (const [alias, level] of Object.entries(efforts)) {
+    if (!THINKING_LEVELS.includes(level)) {
+      throw new TheoremError(
+        'config',
+        `Profile ${profileId} model '${modelId}' effort '${alias}': '${level}' is not a thinking level (${THINKING_LEVELS.join(', ')})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
   }
   const keys = Object.keys(efforts);
   const defaultAlias = binding.defaultEffort ?? (keys.length === 1 ? keys[0] : undefined);
@@ -346,6 +400,7 @@ function profileModelFields(input: ProfileDefinitionBase): ProfileModelFields {
     allowModelSelect: input.allowModelSelect,
     maxSteps: input.maxSteps,
     key: input.key,
+    fallbackKey: input.fallbackKey,
   };
 }
 
@@ -375,11 +430,70 @@ function assertResumption(
   assertContinueKindList(profileId, 'autoContinue', resumption.autoContinue);
 }
 
-/**
- * Reject any field set on a profile type it doesn't belong to. The scope is
- * `PROFILE_FIELD_SCOPE`, the one owner of which type takes which field; it
- * covers untyped hosts the definition types can't stop.
- */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** `*` spans a map's entries; a path through an absent parent yields nothing. */
+function valuesAt(root: Record<string, unknown>, path: readonly string[]): unknown[] {
+  let level: unknown[] = [root];
+  for (const key of path) {
+    level = level.flatMap((value) => {
+      if (!isRecord(value)) return [];
+      return key === '*' ? Object.values(value) : [value[key]];
+    });
+  }
+  return level;
+}
+
+const REQUIRED_PATHS: readonly (readonly [string, readonly ProfileType[] | undefined])[] =
+  Object.entries(PROFILE_FIELDS)
+    .filter(([, meta]) => meta.required === true)
+    .map(([path, meta]) => [path, meta.profileTypes] as const)
+    .sort(([a], [b]) => a.split('.').length - b.split('.').length);
+
+/** A definition may come over the network (a playground draft), so its shape is checked before anything reads it. */
+function assertProfileShape(input: unknown): asserts input is ProfileDefinition {
+  if (!isRecord(input)) {
+    throw new TheoremError('config', 'Profile definition must be an object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  const id = typeof input.id === 'string' && input.id.trim() ? input.id : undefined;
+  if (!id) {
+    throw new TheoremError('config', 'Profile definition must set id'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  const type = PROFILE_TYPES.find((known) => known === input.type);
+  if (!type) {
+    throw new TheoremError(
+      'config',
+      `Profile ${id}: type must be one of ${PROFILE_TYPES.join(', ')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
+/** A field under an optional parent the definition leaves out is not required. */
+function assertRequiredFields(input: ProfileDefinition): void {
+  const { id, type } = input;
+  const root = input as unknown as Record<string, unknown>;
+  for (const [path, profileTypes] of REQUIRED_PATHS) {
+    if (profileTypes && !profileTypes.includes(type)) continue;
+    const keys = path.split('.');
+    const parents = valuesAt(root, keys.slice(0, -1));
+    const last = keys[keys.length - 1];
+    const missing = parents.some((parent) => {
+      if (!isRecord(parent)) return false;
+      const value = parent[last];
+      return value === undefined || value === null || value === '';
+    });
+    if (missing) {
+      throw new TheoremError(
+        'config',
+        `Profile ${id}: type '${type}' must set ${path}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+  }
+}
+
+/** Covers untyped hosts that the definition types can't stop. */
 function assertFieldScope(input: ProfileDefinition): void {
   const [field] = outOfScopeFields(input);
   if (!field) return;
@@ -391,25 +505,41 @@ function assertFieldScope(input: ProfileDefinition): void {
   );
 }
 
-function assertTurnBehaviour(profileId: string, input: ProfileDefinition): void {
-  if (input.type === 'host' || input.type === 'decision') return;
+function assertTurnBehaviour(
+  profileId: string,
+  input: Exclude<ProfileDefinition, HostProfileDefinition | DecisionProfileDefinition>,
+): void {
   const tb = input.turnBehaviour as ProfileTurnBehaviourSpec | undefined;
   assertResumption(profileId, tb?.resumption);
 }
 
 /**
- * Speech has no system channel: Gemini TTS rejects developer instructions and
- * OpenAI-compatible `/audio/speech` has no field for one. The canary lives in
- * the system prompt, so registration stores it off.
+ * The canary lives in the system prompt, and speech has none: Gemini TTS rejects developer
+ * instructions and OpenAI-compatible `/audio/speech` has no field for one.
  */
 function speechGuardrails(input: SpeechProfileDefinition): SpeechProfile['guardrails'] {
   return { ...input.guardrails, canary: false };
 }
 
-/** Egress counts (`maxRetries`, `holdback`) are whole, non-negative numbers. */
 function assertEgress(profileId: string, guardrails: ProfileGuardrailsSpec | undefined): void {
+  const egress = guardrails?.egress;
+  const fail = (message: string) => new TheoremError('config', `Profile ${profileId}: ${message}`);
+  if (egress && (egress.enforce === undefined) === (egress.checks === undefined)) {
+    throw fail(
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'guardrails.egress takes enforce (your own check) or checks (the bundled ones), one of the two',
+    );
+  }
+  if (egress?.enforce !== undefined && typeof egress.enforce !== 'function') {
+    throw fail('guardrails.egress.enforce must be a function'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  const problem =
+    egress?.checks === undefined
+      ? undefined
+      : egressChecksProblem('guardrails.egress.checks', egress.checks);
+  if (problem !== undefined) throw fail(problem);
   for (const key of ['maxRetries', 'holdback'] as const) {
-    const value = guardrails?.egress?.[key];
+    const value = egress?.[key];
     if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
       throw new TheoremError(
         'config',
@@ -417,12 +547,34 @@ function assertEgress(profileId: string, guardrails: ProfileGuardrailsSpec | und
       );
     }
   }
+  if (
+    egress?.holdback !== undefined &&
+    (egress.enforce === undefined || streamPlanOf(egress.enforce))
+  ) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId}: guardrails.egress.holdback applies only to a host egress.enforce; the bundled policy holds exactly what could still become a match`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
+/** A misspelt group would leave the group it meant on, silently. */
+function assertRedactSensitive(profileId: string, guardrails: unknown): void {
+  const selection = (guardrails as ProfileGuardrailsSpec | undefined)?.redactSensitive;
+  if (selection === undefined || typeof selection === 'boolean') return;
+  const groups = new Set<string>(SENSITIVE_GROUPS);
+  const bad = Object.entries(selection).find(
+    ([group, on]) => !groups.has(group) || typeof on !== 'boolean',
+  );
+  if (bad !== undefined) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId}: guardrails.redactSensitive.${bad[0]} is not a group (${SENSITIVE_GROUPS.join(', ')}) set to a boolean`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
 }
 
 function assertObservability(profileId: string, spec: ProfileObservabilitySpec | undefined): void {
-  if (!spec) {
-    return;
-  }
   try {
     const policy = resolveObservabilityPolicy(spec);
     if (!Number.isFinite(policy.retainForDays)) {
@@ -446,7 +598,15 @@ function assertObservability(profileId: string, spec: ProfileObservabilitySpec |
   }
 }
 
-/** Define a typed profile. Required fields must be set explicitly; optional fields stay optional. */
+function assertIdentitySystem(input: ProfileDefinition): void {
+  if (input.type === 'host' || input.type === 'decision' || input.type === 'speech') return;
+  const { system, systemByRole } = input.identity;
+  if (system !== undefined) assertSystemPrompt(system, `Profile ${input.id} identity.system`);
+  for (const [role, prompt] of Object.entries(systemByRole ?? {})) {
+    assertSystemPrompt(prompt, `Profile ${input.id} identity.systemByRole.${role}`);
+  }
+}
+
 function defineProfile(input: TextProfileDefinition): TextProfile;
 function defineProfile(input: ImageProfileDefinition): ImageProfile;
 function defineProfile(input: SpeechProfileDefinition): SpeechProfile;
@@ -458,8 +618,12 @@ function defineProfile(
 ): Exclude<Profile, LiveProfile | HostProfile>;
 function defineProfile(input: ProfileDefinition): Profile;
 function defineProfile(input: ProfileDefinition): Profile {
+  assertProfileShape(input);
   assertFieldScope(input);
+  assertRequiredFields(input);
   if (input.lexicon) validateLexiconOverrides(input.lexicon, `Profile ${input.id}`);
+  assertIdentitySystem(input);
+  assertRedactSensitive(input.id, input.guardrails);
   if (input.type === 'host') {
     return defineHostProfile(input);
   }
@@ -470,8 +634,11 @@ function defineProfile(input: ProfileDefinition): Profile {
   assertTurnBehaviour(input.id, input);
   assertEgress(input.id, input.guardrails as ProfileGuardrailsSpec | undefined);
   assertObservability(input.id, input.observability);
+  assertSlotName(input.id, 'key', input.key);
+  assertSlotName(input.id, 'fallbackKey', input.fallbackKey);
   for (const [modelId, binding] of Object.entries(input.models)) {
     assertModelBinding(input.id, modelId, binding);
+    assertKeySlot(input.id, modelId, binding, input);
   }
 
   const identity: ProfileIdentity =
@@ -520,6 +687,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         lexicon,
       } satisfies ImageProfile;
       assertImageAccept(profile.id, profile.inputs.attachments?.accept);
+      assertImagePinValues(profile.id, profile.image);
       break;
     case 'speech':
       profile = {
@@ -557,11 +725,60 @@ function defineProfile(input: ProfileDefinition): Profile {
       throw new TheoremError('config', `Unknown profile type '${String(_exhaustive)}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
+  assertStructuredSlot(profile);
   assertTypeProtocols(profile);
   return profile;
 }
 
-/** An image profile's attachments: each `accept` entry within images, video and PDF. */
+/** A turn can pass no value outside the slot's choices, so any other mapped key is dead. */
+function assertStructuredSlot(profile: ModelProfile): void {
+  if (profile.type === 'live') return;
+  const structured = profile.outputs?.structured;
+  if (!structured || typeof structured === 'string') return;
+  const choices = profileInputs(profile)?.slots?.[structured.by];
+  if (!choices) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id}: outputs.structured.by '${structured.by}' is not a slot in inputs.slots`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  const unknown = Object.keys(structured.map).filter((value) => !choices.includes(value));
+  if (unknown.length) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id}: outputs.structured.map maps ${unknown.join(', ')}, not a choice of slot '${structured.by}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
+const IMAGE_PIN_RULES = {
+  n: { ok: (v: number) => Number.isInteger(v) && v >= 1, rule: 'a whole number of 1 or more' }, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  seed: { ok: Number.isInteger, rule: 'a whole number' }, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  outputCompression: {
+    ok: (v: number) => Number.isInteger(v) && v >= 0 && v <= 100,
+    rule: 'a whole number from 0 to 100', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  },
+} as const;
+
+function assertImagePinValues(profileId: string, image: ProfileImageSpec) {
+  for (const [name, { ok, rule }] of Object.entries(IMAGE_PIN_RULES)) {
+    const value = image[name as keyof typeof IMAGE_PIN_RULES];
+    if (value !== undefined && !ok(value)) {
+      throw new TheoremError('config', `Profile ${profileId}: image.${name} must be ${rule}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+  }
+  image.references?.forEach((reference, index) => {
+    const where = `Profile ${profileId}: image.references[${index}]`;
+    if (mediaKindForMime(reference.mimeType) !== 'image') {
+      throw new TheoremError('config', `${where} must be an image, not '${reference.mimeType}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    const source = isTurnMediaRef(reference) ? reference.uri : reference.data;
+    if (!source) {
+      throw new TheoremError('config', `${where} needs its bytes or its uri`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+  });
+}
+
 function assertImageAccept(profileId: string, accept: string[] | undefined) {
   const outside = accept?.filter((rule) => !mimeAllowed(IMAGE_ATTACHMENT_ACCEPT_MIMES, rule));
   if (!outside?.length) return;
@@ -573,7 +790,6 @@ function assertImageAccept(profileId: string, accept: string[] | undefined) {
   );
 }
 
-/** A live profile's compression numbers: whole and above 0, the target below the trigger. */
 function assertLiveCompression(profileId: string, spec: LiveContextCompressionSpec | undefined) {
   if (!spec) return;
   const tag = `Profile ${profileId} live.contextCompression`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -595,28 +811,50 @@ function assertWholeTokens(tag: string, value: number | undefined) {
   throw new TheoremError('config', `${tag} must be a whole number above 0`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 }
 
-function assertCompactionSpec(profileId: string, modelId: ModelId, spec: CompactionSpec): void {
-  const tag = `Profile ${profileId} model ${modelId} compaction`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+function assertCompactionSpec(
+  registered: ReadonlyMap<string, Profile>,
+  owner: Profile,
+  modelId: ModelId,
+  spec: CompactionSpec,
+): void {
+  const tag = `Profile ${owner.id} model ${modelId} compaction`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   assertCompactionBudget(tag, spec);
   assertCompactionRetain(tag, spec);
   if (spec.meter != null && spec.meter !== 'history' && spec.meter !== 'input') {
     throw new TheoremError('config', `${tag}: meter must be 'history' or 'input'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  if (!profiles.has(spec.profile)) {
+  if (spec.profile === undefined) {
+    if (owner.type !== 'text' || owner.inputs.text === false) {
+      throw new TheoremError(
+        'config',
+        `${tag}: a profile that compacts itself must be a text profile that takes text`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    return;
+  }
+  const compactor = registered.get(spec.profile);
+  if (!compactor) {
     throw new TheoremError(
       'config',
-      `${tag}: compaction profile '${spec.profile}' must be registered before '${profileId}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `${tag}: compaction profile '${spec.profile}' must be registered before '${owner.id}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (compactor.type !== 'text' || compactor.inputs.text === false) {
+    throw new TheoremError(
+      'config',
+      `${tag}: compaction profile '${spec.profile}' must be a text profile that takes text`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
 
-function assertCacheSpec(profileId: string, modelId: ModelId, binding: ModelBinding): void {
-  const spec = binding.cache;
-  if (!spec) {
-    return;
-  }
+function assertCacheSpec(
+  profileId: string,
+  modelId: ModelId,
+  binding: ModelBinding,
+  spec: NonNullable<ModelBinding['cache']>,
+): void {
   const tag = `Profile ${profileId} model '${modelId}'`;
-  if (binding.provider !== 'openrouter' || binding.protocol !== 'openAi') {
+  if (binding.provider !== 'openrouter') {
     throw new TheoremError(
       'config',
       `${tag}: cache is only valid when protocol is 'openAi' and provider is 'openrouter'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -638,10 +876,22 @@ function assertInteractionsPersistence(
   modelId: ModelId,
   binding: ModelBinding,
 ): void {
-  if (binding.store === undefined && binding.persistViaInteractionId === undefined) {
+  if (binding.protocol === 'geminiInteractions') {
+    if (binding.persistViaInteractionId === undefined) {
+      throw new TheoremError(
+        'config',
+        `Profile ${profileId} model '${modelId}': persistViaInteractionId is required on a 'geminiInteractions' binding — true chains on Google's stored interaction, false sends the host's history plus this turn's steps every call`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    if (binding.persistViaInteractionId && binding.store === false) {
+      throw new TheoremError(
+        'config',
+        `Profile ${profileId} model '${modelId}': persistViaInteractionId: true needs store left on — Google chains only from a stored interaction`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
     return;
   }
-  if (binding.protocol === 'geminiInteractions' && binding.provider === 'google') {
+  if (binding.store === undefined && binding.persistViaInteractionId === undefined) {
     return;
   }
   const which =
@@ -669,22 +919,20 @@ function assertCompactionRetain(tag: string, spec: CompactionSpec): void {
   if (spec.previousExchanges < 0) {
     throw new TheoremError('config', `${tag}: previousExchanges must be >= 0`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  if (spec.previousExchanges > 0 && spec.previousExchanges < 1) {
-    if (spec.previousExchanges >= spec.compactAt) {
-      throw new TheoremError(
-        'config',
-        `${tag}: previousExchanges as fraction (${spec.previousExchanges}) must be < compactAt (${spec.compactAt})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
+  if (spec.previousExchanges < 1 && spec.previousExchanges >= spec.compactAt) {
+    throw new TheoremError(
+      'config',
+      `${tag}: previousExchanges as fraction (${spec.previousExchanges}) must be < compactAt (${spec.compactAt})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
-  if (spec.previousExchanges >= 1 && !Number.isInteger(spec.previousExchanges)) {
+  if (spec.previousExchanges > 1 && !Number.isInteger(spec.previousExchanges)) {
     throw new TheoremError('config', `${tag}: previousExchanges >= 1 must be an integer`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 
-function assertCustomToolsOnly(profile: Profile): void {
+function assertCustomToolsOnly(tools: ToolRegistry, profile: Profile): void {
   for (const id of profileToolAllow(profile)) {
-    const tool = getTool(id);
+    const tool = tools.get(id);
     if (tool?.type === 'builtin') {
       throw new TheoremError(
         'config',
@@ -696,10 +944,7 @@ function assertCustomToolsOnly(profile: Profile): void {
   }
 }
 
-function assertProfileToolLoader(profile: Profile): void {
-  if (profile.type === 'live' || profile.type === 'host') {
-    return;
-  }
+function assertProfileToolLoader(tools: ToolRegistry, profile: Profile): void {
   const loaderId = profileToolsSpec(profile)?.t2Loader;
   if (!loaderId) {
     return;
@@ -710,7 +955,7 @@ function assertProfileToolLoader(profile: Profile): void {
       `Profile ${profile.id} tools.t2Loader '${loaderId}' must also be listed in tools.allow`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  const tool = getTool(loaderId);
+  const tool = tools.get(loaderId);
   if (tool?.type !== 'function') {
     throw new TheoremError(
       'config',
@@ -719,7 +964,6 @@ function assertProfileToolLoader(profile: Profile): void {
   }
 }
 
-/** Every builtin id declared across a profile's model bindings. */
 function* modelBuiltinIds(profile: ModelProfile): Generator<{ modelId: string; id: string }> {
   for (const [modelId, binding] of Object.entries(profile.models)) {
     for (const id of binding.builtInTools ?? []) {
@@ -728,9 +972,9 @@ function* modelBuiltinIds(profile: ModelProfile): Generator<{ modelId: string; i
   }
 }
 
-function assertModelBuiltInTools(profile: ModelProfile): void {
+function assertModelBuiltInTools(tools: ToolRegistry, profile: ModelProfile): void {
   for (const { modelId, id } of modelBuiltinIds(profile)) {
-    const tool = getTool(id);
+    const tool = tools.get(id);
     if (tool?.type !== 'builtin') {
       throw new TheoremError(
         'config',
@@ -745,96 +989,76 @@ function assertMediaLimits(profile: ModelProfile): void {
   if (!inputs) {
     return;
   }
-  const { attachments, voice, maxFiles, maxBytes, maxTurnBytes } = inputs;
-  if (attachments || voice) {
-    if (!(maxFiles && maxBytes && maxTurnBytes)) {
+  const { attachments, voice, maxFiles, maxBytes, maxTurnBytes, limitsByMime } = inputs;
+  const limits: Record<string, number | undefined> = { maxFiles, maxBytes, maxTurnBytes };
+  if ((attachments || voice) && Object.values(limits).some((value) => value === undefined)) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  for (const [mime, value] of Object.entries(limitsByMime ?? {})) {
+    limits[`limitsByMime['${mime}']`] = value;
+  }
+  for (const [name, value] of Object.entries(limits)) {
+    if (value !== undefined && !(Number.isInteger(value) && value > 0)) {
       throw new TheoremError(
         'config',
-        `Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profile.id}: inputs.${name} must be a positive integer`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
   }
 }
 
-/** Register one host-owned profile in the process-local registry. */
-function registerProfile(profileInput: Profile | ProfileDefinition): void {
-  const profile = defineProfile(profileInput as ProfileDefinition);
-  assertCustomToolsOnly(profile);
-  assertProfileToolLoader(profile);
-  if (profile.type === 'host') {
-    // No models, ingress, media limits, or compaction to validate — the tool ceiling is the whole contract.
-    profiles.set(profile.id, profile);
-    return;
-  }
-  if (profile.type === 'decision') {
-    profiles.set(profile.id, profile);
-    return;
-  }
-  assertModelBuiltInTools(profile);
-  assertMediaLimits(profile);
-  for (const [modelId, binding] of Object.entries(profile.models)) {
-    if (binding.compaction) {
-      assertCompactionSpec(profile.id, modelId, binding.compaction);
+interface ProfileRegistry {
+  register(profileInput: Profile | ProfileDefinition): void;
+  registerMany(profilesList: Array<Profile | ProfileDefinition>): void;
+  /** Throws when there is none. */
+  get(id: string): Profile;
+  find(id: string): Profile | undefined;
+  has(id: string): boolean;
+  list(): Profile[];
+  clear(): void;
+}
+
+/** Profiles are checked against `tools`, so register a scope's tools before its profiles. */
+function createProfileRegistry(tools: ToolRegistry): ProfileRegistry {
+  const profiles = new Map<string, Profile>();
+  const register = (profileInput: Profile | ProfileDefinition) => {
+    const profile = defineProfile(profileInput as ProfileDefinition);
+    assertCustomToolsOnly(tools, profile);
+    assertProfileToolLoader(tools, profile);
+    if (profile.type !== 'host' && profile.type !== 'decision') {
+      assertModelBuiltInTools(tools, profile);
+      assertMediaLimits(profile);
+      for (const [modelId, binding] of Object.entries(profile.models)) {
+        if (binding.compaction) {
+          assertCompactionSpec(profiles, profile, modelId, binding.compaction);
+        }
+      }
     }
-  }
-  profiles.set(profile.id, profile);
+    profiles.set(profile.id, profile);
+  };
+  return {
+    register,
+    registerMany(profilesList) {
+      for (const p of profilesList) {
+        register(p);
+      }
+    },
+    get(id) {
+      const profile = profiles.get(id);
+      if (!profile) {
+        throw new TheoremError('config', `Unknown profile '${id}'`);
+      }
+      return profile;
+    },
+    find: (id) => profiles.get(id),
+    has: (id) => profiles.has(id),
+    list: () => [...profiles.values()],
+    clear: () => profiles.clear(),
+  };
 }
 
-/** Register several host-owned profiles in order. */
-function registerProfiles(profilesList: Array<Profile | ProfileDefinition>): void {
-  for (const p of profilesList) {
-    registerProfile(p);
-  }
-}
-
-/** Return whether a profile id is currently registered. */
-function hasProfile(id: string): boolean {
-  return profiles.has(id);
-}
-
-/**
- * A profile's observability block, or `undefined` when the id is not
- * registered — the trace of a turn on an unknown profile still records its failure.
- */
-function profileObservability(id: string): ProfileObservabilitySpec | undefined {
-  return profiles.get(id)?.observability;
-}
-
-/**
- * A profile's wording overrides, or `undefined` when it sets none or the id
- * is not registered (the caller's own lookup reports that).
- */
-function profileLexicon(id: string): LexiconOverrides | undefined {
-  return profiles.get(id)?.lexicon;
-}
-
-/** List all currently registered profiles. */
-function listProfiles(): Profile[] {
-  return Array.from(profiles.values());
-}
-
-/** Clear the process-local registry; intended for tests and host reloads. */
-function clearProfiles(): void {
-  profiles.clear();
-}
-
-/** Fetch a registered profile or throw a `TheoremError`. */
-function getProfile(id: string): Profile {
-  const profile = profiles.get(id);
-  if (!profile) {
-    throw new TheoremError('config', `Unknown profile '${id}'`);
-  }
-  return profile;
-}
-
-export {
-  clearProfiles,
-  defineProfile,
-  getProfile,
-  hasProfile,
-  listProfiles,
-  profileLexicon,
-  profileObservability,
-  registerProfile,
-  registerProfiles,
-};
+export type { ProfileRegistry };
+export { createProfileRegistry, defineProfile };

@@ -1,12 +1,5 @@
-/**
- * Catalog gate for recorded traces: every attribute, event, value and nested
- * key a test turn records must have a trace-catalog entry. (Every span has a
- * label: one the kernel does not write reads as a host span.)
- *
- * `writeTrace` swallows sink failures (tracing never fails a turn), so the sink
- * cannot throw. It records what it could not name instead, and the test file
- * registers `catalogGate()` last to fail on anything recorded.
- */
+// `writeTrace` swallows sink failures, so the sink records what it cannot name instead of throwing,
+// and `catalogGate()`, registered last, fails on it.
 import { assertEquals } from '@std/assert';
 import { memorySink } from '../../src/observability/trace.ts';
 import {
@@ -43,7 +36,6 @@ function checkValue(
   }
 }
 
-/** Every name in the record that the catalog cannot describe. */
 function uncataloged(record: TraceRecord): string[] {
   const missing = new Set<string>();
   for (const span of record.spans) {

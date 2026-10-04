@@ -1,4 +1,5 @@
-import { runEnforcer, WITHHELD_REASON } from '../../../guardrails/egress.ts';
+import { hitRules, runEnforcer, WITHHELD_REASON } from '../../../guardrails/egress.ts';
+import type { GivenUrls } from '../../../guardrails/egress-urls.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromVerdict } from '../../../guardrails/events.ts';
 import { lexiconText } from '../../../guardrails/lexicon.ts';
@@ -6,24 +7,27 @@ import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
 import type {
   GuardrailContext,
+  GuardrailHit,
   OutboundPayload,
-  ProfileEgressSpec,
+  ResolvedEgressSpec,
+  Verdict,
 } from '../../../guardrails/types.ts';
 import { resolveInputParts } from '../../registry/ingress.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
-import { getStructured } from '../../registry/schemas.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
+import type { BoundSystem } from '../../system-parts.ts';
 import type {
   ModelProvider,
   Profile,
   ProfileOutputsSpec,
   ResolvedGeneration,
   TurnEvent,
+  TurnEventOf,
   TurnRequest,
   TurnStop,
 } from '../../types.ts';
 import { findLast } from '../../util/find-last.ts';
-import { guardrailAttributes } from '../turn-trace.ts';
+import { guardrailCheckAttributes } from '../turn-trace.ts';
 import { collectValidationFailures, formatValidationFailures } from './schema-validation.ts';
 import { applyTurnStage } from './stages.ts';
 import { type AttemptFlowState, appendUserInput, type StepExecutionState } from './state.ts';
@@ -44,12 +48,7 @@ function collectAttemptText(events: TurnEvent[]): string {
   return parts.join('');
 }
 
-/**
- * Project attempt events into the egress payload.
- *
- * Structured output travels alongside text so a profile with `outputs.structured`
- * is covered by its own egress policy rather than passing unexamined.
- */
+// Structured output travels with the text so `outputs.structured` meets egress rather than passing unexamined.
 function projectOutbound(events: TurnEvent[]): OutboundPayload {
   const structured = findLast(events, (e) => e.type === 'structured')?.structured;
   return {
@@ -85,14 +84,19 @@ type EgressOutcome =
   | { action: 'withhold'; event: TurnEvent };
 
 async function evaluateEgressOutcome(args: {
-  egress: ProfileEgressSpec;
+  egress: ResolvedEgressSpec;
   attemptEvents: TurnEvent[];
   generation: ResolvedGeneration;
   request: TurnRequest;
   profile: Profile;
   canRetry: boolean;
-}): Promise<{ outcome: EgressOutcome; guardrail?: TurnEvent }> {
-  const { egress, attemptEvents, generation, request, profile, canRetry } = args;
+  /** System-prompt leaks the stream withheld: they pin the verdict to block. */
+  promptLeaks?: GuardrailHit[];
+  /** Every URL the model has been given this turn. */
+  givenUrls: GivenUrls;
+}): Promise<{ outcome: EgressOutcome; guardrail?: TurnEventOf<'guardrail'> }> {
+  const { egress, attemptEvents, generation, request, profile, canRetry, promptLeaks, givenUrls } =
+    args;
   const payload = projectOutbound(attemptEvents);
   const context: GuardrailContext = {
     stage: 'output_final',
@@ -102,8 +106,20 @@ async function evaluateEgressOutcome(args: {
     ...(generation.canary ? { canary: generation.canary } : {}),
     ...(request.input?.slots ? { slots: request.input.slots } : {}),
     ...(request.input?.role ? { role: request.input.role } : {}),
+    givenUrls,
   };
-  const verdict = await runEnforcer(egress.enforce, payload, context);
+  // The host policy adds checks; it never releases a system-prompt leak.
+  const verdict: Verdict = promptLeaks?.length
+    ? {
+        action: 'block',
+        hits: promptLeaks,
+        rejection: lexiconText(
+          'egress.rejection',
+          { rules: hitRules(promptLeaks).join(', ') },
+          profile.lexicon,
+        ),
+      }
+    : await runEnforcer(egress.enforce, payload, context);
   const guardrail = guardrailFromVerdict('output_final', 'untrusted', verdict);
 
   // `flag` is advisory: the hit is recorded, the turn still releases.
@@ -162,15 +178,15 @@ async function evaluateValidationOutcome(args: {
   if (latestStructured === undefined) {
     return { action: 'pass' };
   }
-  const structuredId = generation.structured;
-  if (!structuredId) {
+  const structured = generation.structured;
+  if (!structured) {
     throw new TheoremError(
       'config',
       'outputs.validation requires outputs.structured with a JSON Schema', // lexicon-exempt: developer contract error
     );
   }
   const failures = await collectValidationFailures(
-    getStructured(structuredId).jsonSchema,
+    structured.jsonSchema,
     latestStructured,
     validation.fields,
     request.input?.slots,
@@ -221,7 +237,7 @@ function updateFlowForRetry(
   state.trace.attempt = flow.currentAttempt;
   state.trace.root.event('theorem.attempt.retry', { attempt: flow.currentAttempt, reason });
   flow.currentReq = nextReq;
-  const safe = sanitizeTurnRequest(nextReq);
+  const safe = sanitizeTurnRequest(nextReq, profile);
   if (profile.type === 'text') {
     // The conversation is already in turn history: the repair is its next user message.
     appendUserInput(
@@ -235,13 +251,14 @@ function updateFlowForRetry(
 }
 
 async function* handleEgressGate(
-  egress: ProfileEgressSpec,
+  egress: ResolvedEgressSpec,
   flow: AttemptFlowState,
   state: StepExecutionState,
   profile: Profile,
   maxRetries: number,
 ): AsyncGenerator<TurnEvent, 'continue' | 'terminal' | 'pass'> {
   const canRetry = flow.currentAttempt < maxRetries;
+  const checkStart = performance.now();
   const { outcome, guardrail } = await evaluateEgressOutcome({
     egress,
     attemptEvents: state.attemptEvents,
@@ -249,12 +266,18 @@ async function* handleEgressGate(
     request: flow.currentReq,
     profile,
     canRetry,
+    ...(state.promptLeaks ? { promptLeaks: state.promptLeaks } : {}),
+    givenUrls: state.givenUrls,
   });
 
+  state.trace.root.event(
+    'theorem.guardrail',
+    guardrailCheckAttributes('egress', performance.now() - checkStart, guardrail?.guardrail, {
+      stage: 'output_final',
+      trust: 'untrusted',
+    }),
+  );
   if (guardrail) {
-    if (guardrail.guardrail) {
-      state.trace.root.event('theorem.guardrail', guardrailAttributes(guardrail.guardrail));
-    }
     state.allEmittedEvents.push(guardrail);
     yield guardrail;
   }
@@ -330,7 +353,7 @@ async function* executeSingleAttemptCycle(args: {
   flow: AttemptFlowState;
   state: StepExecutionState;
   profile: Profile;
-  system: string;
+  system: BoundSystem;
   provider: ModelProvider;
   maxRetries: number;
 }): AsyncGenerator<TurnEvent, AttemptStepAction> {
@@ -347,6 +370,7 @@ async function* executeSingleAttemptCycle(args: {
   for (;;) {
     state.attemptEvents = [];
     state.withheldVisible = false;
+    state.promptLeaks = undefined;
     const attempt = yield* executeAttempt({
       safe: flow.currentReq,
       profile,
@@ -432,7 +456,7 @@ async function* runAttemptsWithValidation(
   safe: TurnRequest,
   profile: Profile,
   generation: ResolvedGeneration,
-  system: string,
+  system: BoundSystem,
   provider: ModelProvider,
   state: StepExecutionState,
 ): AsyncGenerator<TurnEvent> {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import type { ProfileInterface } from '../../../src/interface/mod.ts';
-import { type ClientFailure, clientFailure } from '../client/failure';
-import type { TheoremTransport } from '../client/transport';
+import type { ProfileInterface } from '@theoremjs/agents/interface';
+import { type ClientFailure, clientFailure } from '../client/failure.ts';
+import type { TheoremTransport } from '../client/transport.ts';
 
 /** `failure` is worded with the default lexicon: the profile's is not known until it loads. */
 export type TheoremInterfaceState =

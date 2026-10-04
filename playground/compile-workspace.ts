@@ -65,13 +65,57 @@ function references(workspace: PlaygroundWorkspace): Reference[] {
   ]);
 }
 
+/** Each agent's key, to the keys of the agents it names. */
+function namedBy(workspace: PlaygroundWorkspace, refs: readonly Reference[]): Map<string, Set<string>> {
+  const named = new Map(workspace.agents.map((agent) => [agent.key, new Set<string>()]));
+  for (const ref of refs) if (named.has(ref.to)) named.get(ref.from.key)?.add(ref.to);
+  return named;
+}
+
+/** The agents from `start` to `end`, each naming the next; undefined when `start` never reaches `end`. */
+function chain(named: Map<string, Set<string>>, start: string, end: string): string[] | undefined {
+  // Each agent reached, to the one it was reached from.
+  const via = new Map<string, string | undefined>([[start, undefined]]);
+  const queue = [start];
+  for (let key = queue.shift(); key !== undefined; key = queue.shift()) {
+    if (key === end) {
+      const path: string[] = [];
+      for (let at: string | undefined = key; at !== undefined; at = via.get(at)) path.unshift(at);
+      return path;
+    }
+    for (const next of named.get(key) ?? []) {
+      if (!via.has(next)) {
+        via.set(next, key);
+        queue.push(next);
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Where a reference closes a circle, what it is and how to break it. Each agent
+ * must be set up after the agents it names, so a circle has no first one.
+ */
+function circleMessage(ref: Reference, path: readonly string[], idOf: AgentIdOf): string {
+  const from = `'${idOf(ref.from.key) ?? ''}'`;
+  const to = `'${idOf(ref.to) ?? ''}'`;
+  if (ref.from.key === ref.to) {
+    return ref.field === 'agentKey'
+      ? `${from} has this tool on, and the tool runs ${from} itself. Choose another agent for it to run, or turn it off for ${from}.`
+      : `${from} can't summarise its own conversation. Choose another text agent.`;
+  }
+  const circle = [ref.from.key, ...path].map((key) => idOf(key) ?? '').join(' → ');
+  return ref.field === 'agentKey'
+    ? `${from} has this tool on, and it runs ${to}, which leads back to ${from} (${circle}). Agents can't run each other in a circle: turn this tool off for ${from}, or remove the way back.`
+    : `${to} summarises for ${from}, and ${to} leads back to ${from} (${circle}). Agents can't run each other in a circle: choose another agent to summarise, or remove the way back.`;
+}
+
 /** Agents in workspace order, each after the agents it names; the rest are in a loop. */
 function registrationOrder(
   workspace: PlaygroundWorkspace,
-  refs: readonly Reference[],
+  named: Map<string, Set<string>>,
 ): { ordered: AgentDraft[]; looped: AgentDraft[] } {
-  const named = new Map(workspace.agents.map((agent) => [agent.key, new Set<string>()]));
-  for (const ref of refs) if (named.has(ref.to)) named.get(ref.from.key)?.add(ref.to);
   const done = new Set<string>();
   const ordered: AgentDraft[] = [];
   let progressed = true;
@@ -147,14 +191,12 @@ export function compileWorkspace(
       });
     }
   }
-  const { ordered, looped } = registrationOrder(workspace, refs);
-  for (const agent of looped) {
-    report({
-      nodeId: agentNodeId(agent.key),
-      message: `These agents name each other in a loop: ${
-        looped.map((each) => `'${each.identity.agentId.trim()}'`).join(', ')
-      }. An agent can only name agents that don't name it back.`,
-    });
+  const named = namedBy(workspace, refs);
+  const { ordered, looped } = registrationOrder(workspace, named);
+  // Each reference that closes a circle is an issue on the field that holds it.
+  for (const ref of refs) {
+    const path = chain(named, ref.to, ref.from.key);
+    if (path) report({ nodeId: ref.nodeId, field: ref.field, message: circleMessage(ref, path, agentIdOf) });
   }
 
   const compiled: { key: string; agent: CompiledPlayground }[] = [];

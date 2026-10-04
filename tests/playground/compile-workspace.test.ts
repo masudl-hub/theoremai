@@ -126,17 +126,38 @@ Deno.test('an agent tool runs only a text, image or speech agent', () => {
   );
 });
 
-Deno.test('agents that name each other show the loop on each of them', () => {
+Deno.test('agents that run each other show the circle on each tool, saying how to break it', () => {
   const workspace = conciergeCallingHelper();
+  const [concierge] = workspace.agents;
   const looped = withTool(
     workspace,
     1,
-    agentTool(must(workspace.agents[0]).key, { toolName: 'ask_concierge' }),
+    agentTool(must(concierge).key, { toolName: 'ask_concierge' }),
   );
-  const loops = issuesOf(looped).filter((issue) => issue.message.includes('in a loop'));
+  const circles = issuesOf(looped).filter((issue) => issue.message.includes('in a circle'));
+  const toolKey = (name: string) =>
+    must(looped.toolSpecs.find((tool) => tool.toolName === name)).key;
   assertEquals(
-    loops.map((issue) => issue.nodeId),
-    looped.agents.map((agent) => agentNodeId(agent.key)),
+    circles.map((issue) => [issue.nodeId, issue.field]),
+    [
+      [toolSpecNodeId(toolKey('ask_helper')), 'agentKey'],
+      [toolSpecNodeId(toolKey('ask_concierge')), 'agentKey'],
+    ],
+  );
+  assertEquals(
+    circles[0]?.message,
+    "'travel.concierge' has this tool on, and it runs 'travel.helper', which leads back to 'travel.concierge' (travel.concierge → travel.helper → travel.concierge). Agents can't run each other in a circle: turn this tool off for 'travel.concierge', or remove the way back.",
+  );
+});
+
+Deno.test('an agent with a tool that runs itself is told to pick another agent or turn the tool off', () => {
+  const workspace = conciergeCallingHelper();
+  const concierge = must(workspace.agents[0]);
+  const self = withTool(workspace, 0, agentTool(concierge.key, { toolName: 'ask_myself' }));
+  const issue = must(issuesOf(self).find((each) => each.field === 'agentKey'));
+  assertEquals(
+    issue.message,
+    "'travel.concierge' has this tool on, and the tool runs 'travel.concierge' itself. Choose another agent for it to run, or turn it off for 'travel.concierge'.",
   );
 });
 

@@ -2,10 +2,12 @@
   "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker/master/packages/core/schema/stryker-core.schema.json",
   "testRunner": "command",
   "commandRunner": {
-    "command": "deno test --ignore=tests/kernel/zero-permission-import.test.ts --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/kernel"
+    "command": "deno test --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/surface tests/host tests/presets"
   },
   "mutate": [
-    "src/kernel/auth/**/*.ts"
+    "src/surface/**/*.ts",
+    "src/host/**/*.ts",
+    "src/presets/**/*.ts"
   ],
   "ignorePatterns": [
     "coverage",
@@ -16,7 +18,8 @@
     "node_modules",
     "traces",
     "cov_profile",
-    ".fallow"
+    ".fallow",
+    ".stryker-tmp-surface-host-presets"
   ],
   "reporters": [
     "clear-text",
@@ -24,18 +27,17 @@
   ],
   "coverageAnalysis": "off",
   "incremental": true,
-  "incrementalFile": ".stryker-cache/auth-incremental.json",
+  "incrementalFile": ".stryker-cache/surface-host-presets-incremental.json",
   "thresholds": {
     "high": 85,
     "low": 75,
-    "break": 92
+    "break": null
   },
   "timeoutMS": 120000,
   "concurrency": 4,
   "ignoreStatic": false,
-  "mutator": {
-    "excludedMutations": [
-      "StringLiteral"
-    ]
+  "tempDirName": ".stryker-tmp-surface-host-presets",
+  "jsonReporter": {
+    "fileName": "reports/mutation/surface-host-presets.json"
   }
 }

@@ -89,7 +89,7 @@ function clampLevels(binding: ModelBinding | undefined, level: ThinkingLevel): T
   return legal[0] ?? level;
 }
 
-/** The level, lowered to the nearest the binding accepts. */
+/** The level if the binding accepts it, else the binding's default effort level, else its first listed level. */
 function clampThinkingLevel(binding: ModelBinding, level: ThinkingLevel): ThinkingLevel {
   return clampLevels(binding, level);
 }
@@ -102,7 +102,7 @@ function modelEntryByApiId(
   return Object.values(bindings).find((m) => m.apiId === apiId);
 }
 
-/** The level, lowered to the nearest the binding for this provider model id accepts. */
+/** The level if the binding for this provider model id accepts it, else that binding's default effort level, else its first listed level. */
 function clampThinkingLevelForApiId(
   bindings: Record<string, ModelBinding>,
   apiId: string,

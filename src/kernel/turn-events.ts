@@ -132,7 +132,7 @@ const turnStop = z.object({ kind: z.enum(TURN_STOP_KINDS), native: z.string().op
 true satisfies Equals<z.infer<typeof turnStop>, TurnStop>;
 
 const TURN_TOKEN_SIDES = ['input', 'output'] as const;
-/** Whether tokens were counted on the way in or the way out. */
+/** Which side of a call's tokens, input or output, was estimated rather than reported. */
 export type TurnTokenSide = (typeof TURN_TOKEN_SIDES)[number];
 
 /** What a turn cost, as the provider reports it. */

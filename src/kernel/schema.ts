@@ -91,12 +91,12 @@ export const MEDIA_INPUT_KIND_VALUES = ['image', 'audio', 'video', 'document'] a
 /** One of {@linkcode MEDIA_INPUT_KIND_VALUES}. */
 export type MediaInputKind = (typeof MEDIA_INPUT_KIND_VALUES)[number];
 
-/** Whether the provider returns thought summaries (`auto`) or none. */
+/** Whether thought summaries are asked for (`auto`) or not (`none`). */
 export const SUMMARY_MODES = ['auto', 'none'] as const;
 /** One of {@linkcode SUMMARY_MODES}. */
 export type SummaryMode = (typeof SUMMARY_MODES)[number];
 
-/** How a reply arrives: as server-sent events, or buffered into one response. */
+/** Whether the provider call streams (`sse`) or is one buffered call. */
 export const STREAM_MODES = ['sse', 'buffered'] as const;
 /** One of {@linkcode STREAM_MODES}. */
 export type StreamMode = (typeof STREAM_MODES)[number];
@@ -143,7 +143,7 @@ export const COMPACTION_OUTCOMES = ['compacted', 'deferred', 'dropped'] as const
 /** One of {@linkcode COMPACTION_OUTCOMES}. */
 export type CompactionOutcome = (typeof COMPACTION_OUTCOMES)[number];
 
-/** How prompt caching is requested: left to the provider, or pinned on the system prompt. */
+/** Which part of the prompt is cached: the whole request (`automatic`) or the system instruction only (`system`). */
 export const CACHE_MODES = ['automatic', 'system'] as const;
 /** One of {@linkcode CACHE_MODES}. */
 export type CacheMode = (typeof CACHE_MODES)[number];
@@ -245,7 +245,7 @@ export const STAGE_APPLY_WARNING_CODES = [
 /** One of {@linkcode STAGE_APPLY_WARNING_CODES}. */
 export type StageApplyWarningCode = (typeof STAGE_APPLY_WARNING_CODES)[number];
 
-/** The `done.status` of a turn paused for a user answer. */
+/** The `status` of a tool output that asks the user a question. */
 export const AWAITING_USER_INPUT_STATUS = 'awaiting_user_input' as const;
 /** Enforced by the kernel at resolve time. */
 export const TOOL_LOAD_TIERS = ['T0', 'T1', 'T2'] as const;

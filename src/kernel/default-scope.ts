@@ -112,7 +112,7 @@ function runSession(
   return scope.runSession(req, options, sinkOverride);
 }
 
-/** Compact a conversation history with the model, or `undefined` when it needs none. */
+/** Compact a conversation history with the model, or `undefined` when there is nothing to compact. */
 function compactHistory(
   req: CompactHistoryRequest,
   provider: ModelProvider,

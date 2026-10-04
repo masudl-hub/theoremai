@@ -27,7 +27,7 @@ const B64_TRIPLET = 3;
 const CSV_FORMULA = /(^|,)(\s*)("?)(?:([=@])|([+-])(?![0-9."]))/gm;
 const B64_BODY = /^[A-Za-z0-9+/]*={0,2}$/;
 const TEXT_MIMES = new Set(['text/csv', 'text/plain', 'text/markdown']);
-/** The media limits an inputs spec sets, or `undefined` when it sets none. */
+/** The media limits an inputs spec sets, or `undefined` unless it sets `maxFiles`, `maxBytes` and `maxTurnBytes`. */
 function resolveMediaLimits(inputs: MimeInputs): MediaLimits | undefined {
   const { maxFiles, maxBytes, maxTurnBytes, limitsByMime } = inputs;
   if (maxFiles && maxBytes && maxTurnBytes) {

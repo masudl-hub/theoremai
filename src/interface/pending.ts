@@ -125,7 +125,7 @@ function removeComposerPendingMessage(
   return messages.filter((m) => m.id !== id);
 }
 
-/** The messages with this id's draft replaced. */
+/** The messages with this id's draft replaced; throws when the new draft is empty. */
 function updateComposerPendingDraft(
   messages: readonly ComposerPendingMessage[],
   id: string,

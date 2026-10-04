@@ -173,4 +173,4 @@ function agentRunOf(
 }
 
 export type { RunNestedTurn };
-export { createAgentCaller, NESTED_THROWS, providerFits, turnError };
+export { createAgentCaller, NESTED_THROWS, turnError };

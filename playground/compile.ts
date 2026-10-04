@@ -828,10 +828,12 @@ function compileOutputs(
   if (validationEnabled) {
     checkWhole(report, 'outputs', 'maxRetries', 'Validation max retries', outputs.maxRetries, 0);
   }
-  const validation =
-    validationEnabled && outputs.maxRetries !== null
-      ? { maxRetries: outputs.maxRetries }
-      : {};
+  const validation = validationEnabled
+    ? {
+        ...(outputs.maxRetries !== null ? { maxRetries: outputs.maxRetries } : {}),
+        ...(outputs.holdUntilValid ? { holdUntilValid: true } : {}),
+      }
+    : {};
   const streaming = {
     ...(outputs.streamMode ? { mode: outputs.streamMode } : {}),
     ...(outputs.streamThoughts ? {} : { streamThoughts: false }),

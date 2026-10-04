@@ -1050,3 +1050,26 @@ Deno.test('prompt echo, schemes, taint and trace resource compile when set', () 
     ['resourceJson'],
   );
 });
+
+Deno.test('repair compiles its retries and holding the reply until it passes', () => {
+  const draft = setProfileType(createBlankDraft(), 'text');
+  const validation = (maxRetries: number | null, holdUntilValid: boolean) =>
+    compiled({
+      ...draft,
+      identity: { ...draft.identity, agentId: 'demo.repair', handle: 'demo' },
+      included: ['outputs'],
+      outputs: {
+        ...draft.outputs,
+        mode: 'structured',
+        schemaId: 'answer',
+        schemaJson: '{"type":"object","properties":{"answer":{"type":"string"}}}',
+        validationEnabled: true,
+        maxRetries,
+        holdUntilValid,
+      },
+    }).profile.outputs?.validation;
+  assertEquals(validation(2, true), { maxRetries: 2, holdUntilValid: true });
+  assertEquals(validation(null, true), { holdUntilValid: true });
+  assertEquals(validation(1, false), { maxRetries: 1 });
+  assertEquals(validation(null, false), undefined);
+});

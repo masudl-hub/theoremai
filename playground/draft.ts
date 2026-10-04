@@ -172,6 +172,8 @@ export interface OutputsDraft {
   streamThoughts: boolean;
   validationEnabled: boolean;
   maxRetries: number | null;
+  /** Holds the reply until it passes, so text that fails never streams. */
+  holdUntilValid: boolean;
   repairGuidance: string;
 }
 
@@ -556,6 +558,7 @@ export function createBlankDraft(): PlaygroundDraft {
       streamThoughts: true,
       validationEnabled: false,
       maxRetries: null,
+      holdUntilValid: false,
       repairGuidance: '',
     },
     turnBehaviour: {

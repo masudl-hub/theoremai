@@ -839,7 +839,7 @@ Deno.test('runTurn streams thought and text live while validation buffers struct
   assertDoneThenPostTurn(events);
 });
 
-Deno.test('holdUntilValid keeps a rewritten attempt off the host, and out of retries sends the last as it is', async () => {
+Deno.test('buffered delivery keeps a rewritten attempt off the host, and out of retries sends the last as it is', async () => {
   const holdProfile = (id: string, maxRetries: number) =>
     registerProfile({
       type: 'text',
@@ -857,13 +857,13 @@ Deno.test('holdUntilValid keeps a rewritten attempt off the host, and out of ret
               code === 'good' ? { isValid: true } : { isValid: false, error: 'code must be good' },
           },
           maxRetries,
-          holdUntilValid: true,
         },
+        streaming: { mode: 'buffered' },
       },
       guardrails: { quota: { perDay: 10 } },
     });
-  holdProfile('holdUntilValidRetry', 1);
-  holdProfile('holdUntilValidSpent', 0);
+  holdProfile('bufferedRetry', 1);
+  holdProfile('bufferedSpent', 0);
 
   let callCount = 0;
   async function* mockComplete(): AsyncGenerator<TurnEvent> {
@@ -876,7 +876,7 @@ Deno.test('holdUntilValid keeps a rewritten attempt off the host, and out of ret
   }
 
   const retried = await Array.fromAsync(
-    runTurn({ profile: 'holdUntilValidRetry', input: { text: 'go' } }, { complete: mockComplete }),
+    runTurn({ profile: 'bufferedRetry', input: { text: 'go' } }, { complete: mockComplete }),
   );
   assertEquals(callCount, 2);
   assertEquals(replyText(retried), '{"code":"good"}');
@@ -896,7 +896,7 @@ Deno.test('holdUntilValid keeps a rewritten attempt off the host, and out of ret
 
   callCount = 0;
   const spent = await Array.fromAsync(
-    runTurn({ profile: 'holdUntilValidSpent', input: { text: 'go' } }, { complete: mockComplete }),
+    runTurn({ profile: 'bufferedSpent', input: { text: 'go' } }, { complete: mockComplete }),
   );
   assertEquals(callCount, 1);
   assertEquals(replyText(spent), '{"code":"bad"}');
@@ -907,7 +907,7 @@ Deno.test('holdUntilValid keeps a rewritten attempt off the host, and out of ret
   assertDoneThenPostTurn(spent);
 });
 
-Deno.test('without holdUntilValid, a failed attempt streams and out of retries the last goes out once', async () => {
+Deno.test('streamed delivery shows a failed attempt, and out of retries the last goes out once', async () => {
   registerProfile({
     type: 'text',
     id: 'streamThenRetry',

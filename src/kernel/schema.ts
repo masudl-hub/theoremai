@@ -936,11 +936,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'outputs.validation.maxRetries': field(
     'number',
-    "How many times the model may rewrite a reply that fails your checks or the schema's required keys before it goes out as it is; text already streamed stays unless holdUntilValid is on. The larger of this and egress.maxRetries applies to both.",
-  ),
-  'outputs.validation.holdUntilValid': field(
-    'boolean',
-    'Whether the reply text and media wait until the structured reply passes your checks, so a rewritten attempt never reaches the host; thinking still streams. Once retries run out, the last attempt goes out as it is.',
+    "How many times the model may rewrite a reply that fails your checks or the schema's required keys before it goes out as it is; under sse, an attempt that gets rewritten has already streamed. The larger of this and egress.maxRetries applies to both.",
   ),
   'outputs.streaming': field(
     'ProfileStreamingSpec',
@@ -948,11 +944,12 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'outputs.streaming.mode': field(
     unionType(STREAM_MODES),
-    'Whether the provider call streams.',
+    'Whether the reply reaches the host as the model writes it, or whole.',
     STREAM_MODES,
     {
-      sse: 'Events arrive as the model writes; OpenRouter image and speech always answer in one piece.',
-      buffered: 'One non-streaming call; its events arrive together when it answers.',
+      sse: 'Events arrive as the model writes, so a reply that fails outputs.validation has already streamed when it is rewritten; OpenRouter image and speech always answer in one piece.',
+      buffered:
+        'One non-streaming call, whose events arrive together; under outputs.validation, only once the reply passes or retries run out. Thinking still streams.',
     },
   ),
   'outputs.streaming.streamThoughts': field(

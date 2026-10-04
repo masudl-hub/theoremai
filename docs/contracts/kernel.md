@@ -282,9 +282,10 @@ Live sessions emit the same stage names around utterance cycles and
    may trigger repair turns with `input.repair`. The repair prompt is the next
    user message in turn history (image and speech: it replaces the prompt
    input). A retry is not resolved again: it keeps the turn's canary, tool set
-   and system prompt. Text and media stream as they arrive unless
-   `holdUntilValid` holds them until the reply passes; out of retries, the last
-   attempt goes out as it is, with its buffered events.
+   and system prompt. Under `outputs.streaming.mode: 'sse'` text and media
+   stream as they arrive; under `'buffered'` they are held until the reply
+   passes. Out of retries, the last attempt goes out as it is, with its
+   buffered events.
 10. **Egress** — progressive yield on the provider stream (canary, prompt
    echo, `guardrails.egress`) releases cleared prefixes: the bundled
    policy holds exactly what could still become a match, a host enforce a
@@ -709,7 +710,7 @@ Profile `outputs` pins behavior the kernel enforces before adapters run:
 | --- | --- |
 | `structured` | Schema id or slot-mapped ids; `responseFormat` vs prompt enforcement |
 | `streaming` | `mode`, `streamThoughts` |
-| `validation` | Field validators, `maxRetries`, `holdUntilValid` (repair guidance is the lexicon's `repair.default_guidance`) |
+| `validation` | Field validators, `maxRetries` (repair guidance is the lexicon's `repair.default_guidance`) |
 
 Top-level modality pins (after `model`, not under `outputs`):
 

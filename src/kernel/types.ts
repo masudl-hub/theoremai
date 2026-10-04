@@ -391,7 +391,6 @@ export interface ProfileValidationSpec {
    */
   fields?: Record<string, ProfileValidator>;
   maxRetries?: number;
-  holdUntilValid?: boolean;
 }
 
 /** `voice` is the TTS voice id, not ingress audio (`inputs.voice`). */

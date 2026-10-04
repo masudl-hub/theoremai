@@ -432,7 +432,8 @@ async function* executeSingleAttemptCycle(args: {
     // Progressive-yield already released text and media live under egress — unless it
     // withheld them mid-stream. A passing final verdict on the full text supersedes
     // that partial-window decision, so the buffer is released instead of dropped.
-    const heldVisible = state.withheldVisible || validation?.holdUntilValid === true;
+    const heldVisible =
+      state.withheldVisible || (validation !== undefined && flow.currentGen.stream === false);
     yield* yieldBufferedAttemptEvents(state.attemptEvents, !heldVisible);
   }
 

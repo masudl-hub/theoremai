@@ -448,7 +448,8 @@ async function* executeAttempt(args: {
   const holdLate = Boolean(
     validation || resolveGuardrailPolicy(profile.guardrails).egress?.enforce,
   );
-  const holdVisible = validation?.holdUntilValid === true;
+  // Buffered delivery holds each attempt's text and media until it passes; streamed delivery shows them live.
+  const holdVisible = validation !== undefined && generation.stream === false;
 
   // Ceiling is cumulative `state.stepCount` across before_end inject re-entries
   // within this attempt. Validation/egress repair resets stepCount at the start

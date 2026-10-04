@@ -549,10 +549,6 @@ function assertValidation(profileId: string, validation: ProfileValidationSpec |
   if (retries !== undefined && (!Number.isInteger(retries) || retries < 0)) {
     throw fail('outputs.validation.maxRetries must be a non-negative integer'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  const hold = validation?.holdUntilValid;
-  if (hold !== undefined && typeof hold !== 'boolean') {
-    throw fail('outputs.validation.holdUntilValid must be a boolean'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
 }
 
 function assertEgress(profileId: string, guardrails: ProfileGuardrailsSpec | undefined): void {

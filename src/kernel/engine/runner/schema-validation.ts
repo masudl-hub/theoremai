@@ -146,9 +146,29 @@ async function collectValidationFailures(
   return failures;
 }
 
+/**
+ * Whether a validator keyed by `path` can run against `jsonSchema`: each segment is a
+ * property or required key of an object schema, as `collectValidationFailures` walks it.
+ */
+function schemaReaches(jsonSchema: Record<string, unknown>, path: string): boolean {
+  let schema: unknown = jsonSchema;
+  for (const key of path.split('.')) {
+    const object = asObjectSchema(schema);
+    if (!object) {
+      return false;
+    }
+    const props = propertySchemas(object);
+    if (!Object.hasOwn(props, key) && !requiredKeys(object).includes(key)) {
+      return false;
+    }
+    schema = props[key];
+  }
+  return true;
+}
+
 function formatValidationFailures(failures: ValidationFailure[]): string {
   return failures.map((f) => f.error).join('; ');
 }
 
 export type { ValidationFailure };
-export { collectValidationFailures, formatValidationFailures, isAbsent };
+export { collectValidationFailures, formatValidationFailures, isAbsent, schemaReaches };

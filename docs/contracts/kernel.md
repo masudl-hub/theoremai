@@ -488,6 +488,11 @@ a scope per request and runs on it. `registerHarnessTools()` and
 `registerGooglePreset()` fill the default scope; another scope registers
 `askUserTool` and `GOOGLE_BUILTIN_TOOLS` itself.
 
+Register a scope's tools and schemas before its profiles: a profile is checked
+against them when it registers. An `outputs.structured` id that names no
+registered schema, or an `outputs.validation.fields` path no such schema reaches
+through object properties, is refused then.
+
 ### Tool sources
 
 A function, HTTP or MCP tool may declare `sources: (output) => Source[]`. Once a

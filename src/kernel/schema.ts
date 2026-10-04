@@ -798,7 +798,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'outputs.structured': field(
     'StructuredSchemaId | StructuredBySlot | null',
-    'The registered JSON schema the reply must follow, which can vary by slot.',
+    'The registered JSON schema the reply must follow, which can vary by slot; register it before the profile.',
   ),
   image: field('ProfileImageSpec', 'Settings for the images this profile makes.'),
   'image.aspectRatio': field('string', 'The shape of generated images, such as 16:9.'),
@@ -928,7 +928,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'outputs.validation.fields': field(
     'Record<string, ProfileValidator>',
-    'Your checks, each keyed by a dotted path into the structured reply, such as diagram.mermaid.',
+    'Your checks, each keyed by a dotted path into the structured reply, such as diagram.mermaid; a path no structured schema reaches is refused when the profile registers.',
   ),
   'outputs.validation.fields.*': field(
     '(candidate: unknown, slots?: Record<string, string>) => ValidationResult | Promise<ValidationResult>',

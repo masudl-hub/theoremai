@@ -6,6 +6,7 @@ const GOOGLE_THINKING_LEVELS = ['minimal', 'low', 'medium', 'high'] as const;
 /** The audio format Gemini speech returns (PCM, wrapped as WAV); OpenRouter speech also takes `mp3`. */
 const GOOGLE_SPEECH_FORMATS = ['pcm'] as const;
 
+/** A thinking level Gemini takes: minimal, low, medium or high. */
 type GoogleThinkingLevel = (typeof GOOGLE_THINKING_LEVELS)[number];
 
 /**

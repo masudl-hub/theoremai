@@ -34,6 +34,7 @@ import { TheoremError } from './error.ts';
 import { hitFromSpan } from './hits.ts';
 import type { EgressEnforcer, GuardrailHit, Severity } from './types.ts';
 
+/** Options for the bundled egress policy: host rules, their compiled form, and which bundled checks run. */
 interface EgressPolicyOptions {
   /** Host rules, blocked on alongside the bundled checks. */
   rules?: readonly EgressRule[];

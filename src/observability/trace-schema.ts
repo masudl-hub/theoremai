@@ -25,6 +25,7 @@ const traceAttributeValue: z.ZodType<TraceAttributeValue> = z.lazy(() =>
   ]),
 );
 
+/** A span's or event's attributes, by name. */
 export type TraceAttributes = Record<string, TraceAttributeValue>;
 const traceAttributes = z.record(z.string(), traceAttributeValue);
 true satisfies Equals<z.infer<typeof traceAttributes>, TraceAttributes>;
@@ -59,6 +60,7 @@ const traceSpanLink = z.object({
 });
 true satisfies Equals<z.infer<typeof traceSpanLink>, TraceSpanLink>;
 
+/** A timestamped event on a span, with its attributes. */
 export interface TraceSpanEvent {
   name: string;
   timeUnixNano: string;
@@ -71,6 +73,7 @@ const traceSpanEvent = z.object({
 });
 true satisfies Equals<z.infer<typeof traceSpanEvent>, TraceSpanEvent>;
 
+/** One span of a trace: its ids, name, kind, times, attributes, events, links and status. */
 export interface TraceSpan {
   traceId: string;
   spanId: string;

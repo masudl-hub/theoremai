@@ -26,6 +26,7 @@ import { resolveMedia, trialMedia } from './media.ts';
 import { deliveredJson, deliveredText } from './shared.ts';
 import { rubricView, TRIAL_VARIABLES } from './transcript.ts';
 
+/** The id of the structured schema a text judge answers with, registered when this module loads. */
 const EVAL_JUDGMENT = 'evalJudgment';
 
 const UNKNOWN = 'unknown';
@@ -50,6 +51,7 @@ function turnFailure(trial: Trial): string | undefined {
   return undefined;
 }
 
+/** A judge's answer: one of the rubric's labels, or `unknown`, and why. */
 interface Judgment {
   label: string;
   explanation: string;
@@ -75,6 +77,7 @@ const JUDGMENT_SCHEMA: StructuredSpec = {
 // Importing this module registers the schema, so a host's judge profile can name it at registration.
 registerStructured(EVAL_JUDGMENT, JUDGMENT_SCHEMA);
 
+/** Options for `judge`: the rubric and, optionally, a name, the labels that pass, a judge profile, the rubric's variables, the cost of a wrong pass and an escalation profile. */
 interface JudgeOptions {
   rubric: EvalRubric;
   name?: string;
@@ -349,6 +352,7 @@ function resultOf(
   };
 }
 
+/** A grader in which a model judges the trial against a rubric: a text profile answers directly, a decision profile answers the rubric's question, and an `escalate` text profile takes trials with media a decision judge cannot see. A turn that failed or delivered nothing is not judged; a misconfiguration throws. */
 function judge(options: JudgeOptions): EvalGrader {
   const { rubric } = options;
   const name = options.name ?? rubric.name;

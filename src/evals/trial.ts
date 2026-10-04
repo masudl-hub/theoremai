@@ -111,6 +111,7 @@ function deliveredOf(root: TraceSpan, spans: TraceSpan[]): TrialMessage[] {
     });
 }
 
+/** Builds the `Trial` a grader reads from one trial's trace records: its root and top spans and accessors for spans, children, content, delivered output and usage. */
 function buildTrial(args: {
   suite: string;
   case?: EvalCase;
@@ -137,6 +138,7 @@ function buildTrial(args: {
   };
 }
 
+/** Groups trace records by the trace id of their first span; records with no spans are dropped. */
 function groupByTrace(records: TraceRecord[]): Map<string, TraceRecord[]> {
   const groups = new Map<string, TraceRecord[]>();
   for (const record of records) {
@@ -149,6 +151,7 @@ function groupByTrace(records: TraceRecord[]): Map<string, TraceRecord[]> {
   return groups;
 }
 
+/** True when any record holds an `invoke_agent` span, meaning an agent turn ran. */
 function hasTurn(records: readonly TraceRecord[]): boolean {
   return records.some((record) =>
     record.spans.some((span) => operationOf(span) === 'invoke_agent'),

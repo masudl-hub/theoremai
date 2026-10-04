@@ -99,6 +99,7 @@ function directiveHits(text: string, callableTools: readonly string[] = []): Gua
   return hits;
 }
 
+/** True when there is at least one directive hit. */
 function looksDirective(hits: GuardrailHit[]): boolean {
   return hits.length > 0;
 }

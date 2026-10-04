@@ -209,6 +209,7 @@ export class GenerationStopError extends Error {
   }
 }
 
+/** True when the error is a `GenerationStopError`. */
 export function isGenerationStopError(err: unknown): err is GenerationStopError {
   return err instanceof GenerationStopError;
 }

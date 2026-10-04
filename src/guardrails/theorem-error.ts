@@ -46,13 +46,16 @@ export const ERROR_KINDS = [
   'internal',
 ] as const;
 
+/** Why an operation failed; the user's wording and the HTTP status follow from it. */
 export type ErrorKind = (typeof ERROR_KINDS)[number];
 
+/** Options for a `TheoremError`: the cause and, optionally, wording for the user. */
 export interface TheoremErrorOptions extends ErrorOptions {
   /** User wording more specific than the kind's: one line, or one per problem found. */
   copy?: ErrorCopies;
 }
 
+/** An error that carries a `kind`, from which hosts choose a status and the user's wording. */
 export class TheoremError extends Error {
   readonly kind: ErrorKind;
   readonly copy?: ErrorCopies;

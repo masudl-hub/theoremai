@@ -13,6 +13,7 @@ import {
   sendLiveFrame,
 } from './stream.ts';
 
+/** An open Google Live socket: the setup the session was opened with, `send` for payloads, `batches` for the provider events it receives, and `close`. */
 export interface GoogleLiveConnection {
   readonly setup: Record<string, unknown>;
   send(payload: Record<string, unknown>): void;
@@ -20,6 +21,7 @@ export interface GoogleLiveConnection {
   close(code?: number, reason?: string): void;
 }
 
+/** Opens the WebSocket for a Live session at a URL. */
 export type OpenLiveWebSocket = (url: string) => Promise<WebSocket>;
 
 function defaultOpenWebSocket(url: string): Promise<WebSocket> {
@@ -131,7 +133,12 @@ async function openWithOverflow(
   }
 }
 
-/** @param openWebSocket Host override, e.g. for a Cloudflare fetch-upgrade. */
+/**
+ * Opens a Google Live session for a request: connects, sends the setup and the initial payloads,
+ * and returns the connection. A quota refusal at setup reopens on the profile's fallback key.
+ *
+ * @param openWebSocket Host override, e.g. for a Cloudflare fetch-upgrade.
+ */
 export async function openGoogleLiveSession(
   req: ProviderCompleteRequest,
   transport: GeminiTransport,

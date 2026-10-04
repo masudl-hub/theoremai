@@ -37,4 +37,5 @@ export const GOOGLE_SPEECH_VOICES = [
   'Sulafat',
 ] as const;
 
+/** The name of a Gemini speech voice. */
 export type GoogleSpeechVoice = (typeof GOOGLE_SPEECH_VOICES)[number];

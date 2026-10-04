@@ -7,6 +7,7 @@ interface Spread {
   p90: number;
 }
 
+/** The results of one group of cases: all cases, or the cases with one tag. It counts cases and trials by outcome and, where they apply, the answers by grade, the stop kinds and the spread of duration, model calls and tool calls. */
 interface GroupSummary {
   group: string;
   cases: number;
@@ -83,6 +84,7 @@ function groupOf(
   };
 }
 
+/** Summarizes a run as one group for all cases and one for each tag its cases carry. */
 function groupSummaries(run: Pick<SuiteRun, 'trials' | 'verdicts'>): GroupSummary[] {
   const gradesAnswers = run.trials.some((report) =>
     report.results.some((result) => result.name === 'answer'),

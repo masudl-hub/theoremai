@@ -47,6 +47,7 @@ const askUserTool: ToolDefinitionInput<AskInput, AskOutput> = {
   },
 };
 
+/** Registers the harness tools, currently `askUserTool`, in the default registry. */
 function registerHarnessTools(): void {
   registerTool(askUserTool);
 }

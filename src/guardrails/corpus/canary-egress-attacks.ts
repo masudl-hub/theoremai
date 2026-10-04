@@ -174,6 +174,7 @@ function splitAcrossTurns(canary: string): CanaryEgressAttack {
   };
 }
 
+/** The canary egress attacks for one canary: replies that leak it in some form, each with whether the gate must block it. */
 export function buildCanaryEgressAttacks(canary: string): CanaryEgressAttack[] {
   const attacks: CanaryEgressAttack[] = [
     leakIn('literal-text', 'literal', canary, [`Here is the token: ${canary}`]),
@@ -333,6 +334,7 @@ export function buildCanaryEgressAttacks(canary: string): CanaryEgressAttack[] {
   return attacks;
 }
 
+/** The attacks' names, categories and expected outcomes, without their replies. */
 export function canaryEgressCatalog(canary: string): CanaryEgressCatalogEntry[] {
   return buildCanaryEgressAttacks(canary).map(({ name, category, shouldBlock }) => ({
     name,

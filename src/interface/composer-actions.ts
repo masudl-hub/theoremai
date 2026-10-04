@@ -1,5 +1,6 @@
 import type { ComposerPendingKind } from './pending.ts';
 
+/** Where a run is: idle, streaming, or held at a tool gate. */
 export type ComposerRunPhase = 'idle' | 'streaming' | 'gated';
 
 /** Primary button / Enter target. */
@@ -11,6 +12,7 @@ export type ComposerPrimaryAction = 'send' | 'stop' | 'queue' | 'none';
  */
 export type ComposerMenuAction = ComposerPendingKind | 'send_now';
 
+/** What decides the composer's actions: the run phase, whether there is something to send, and whether steering and stop are allowed. */
 export type ComposerActionContext = {
   phase: ComposerRunPhase;
   hasPayload: boolean;
@@ -20,6 +22,7 @@ export type ComposerActionContext = {
   canStop?: boolean;
 };
 
+/** The action of the primary button and Enter: `send` when idle with a draft, `queue` mid-run with one, `stop` while streaming with none (when stop is allowed), else `none`. */
 function resolveComposerPrimary(ctx: ComposerActionContext): ComposerPrimaryAction {
   const canStop = ctx.canStop !== false;
   if (ctx.phase === 'idle') {
@@ -33,6 +36,7 @@ function resolveComposerPrimary(ctx: ComposerActionContext): ComposerPrimaryActi
   return ctx.hasPayload ? 'queue' : 'none';
 }
 
+/** The split menu's actions: none without a draft; `stash` when idle; mid-run `queue`, `steer` while streaming when steering is allowed, `send_now` and `stash`. */
 function resolveComposerMenuActions(ctx: ComposerActionContext): ComposerMenuAction[] {
   if (!ctx.hasPayload) return [];
 

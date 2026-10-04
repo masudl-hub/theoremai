@@ -286,6 +286,7 @@ function collectEgressHits(
   return hits;
 }
 
+/** The distinct rule names among the hits. */
 function hitRules(hits: GuardrailHit[]): string[] {
   return [...new Set(hits.map((hit) => hit.rule))];
 }

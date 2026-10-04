@@ -10,6 +10,7 @@ interface Slot {
   busy: boolean;
 }
 
+/** What taking a quota slot returned: `ok` (reserved), `busy` (a turn already holds the slot), `quota` (the day's limit is used) or `not_configured` (the profile sets no quota). */
 type QuotaSlotStatus = 'ok' | 'busy' | 'quota' | 'not_configured';
 
 const slots = new Map<string, Slot>();

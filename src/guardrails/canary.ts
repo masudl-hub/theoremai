@@ -9,11 +9,14 @@ import { type LexiconOverrides, lexiconText } from './lexicon.ts';
 import { promptEchoScanFrom, scanTextForPromptEcho } from './prompt-echo.ts';
 import { scanTextOf } from './serialize.ts';
 
+/** The tag that opens the fence around user content. */
 const USER_OPEN = '<user_data>';
+/** The tag that closes the fence around user content. */
 const USER_CLOSE = '</user_data>';
 const CANARY_BYTES = 16;
 const HEX_RADIX = 16;
 const HEX_PAD = 2;
+/** What replaces canary text a reply or event would have carried. */
 const OMIT_CANARY = '[omitted - canary]';
 /** A fence tag as a model could read one: spacing, case and closing `>` aside. */
 const FENCE = /<\s*(?:\/\s*)?user[\s_-]*data\b(?:\s*(?:\/\s*)?>)?/gi;
@@ -1024,6 +1027,7 @@ function eventHasCanary(event: ProviderEvent, canary: string): boolean {
   return guardedEventTexts(event).some((text) => scanTextForCanaryLeak(text, canary));
 }
 
+/** What a canary gate decides about a fragment: a leak, or the text that is safe to emit. */
 type CanaryGateResult = { leak: true } | { leak: false; emit: string };
 
 /**
@@ -1115,6 +1119,7 @@ function isStreamedCanaryEvent(event: ProviderEvent): event is StreamedReplyEven
   );
 }
 
+/** The event with the canary replaced by `OMIT_CANARY` in every string it holds. */
 function redactCanary(event: TurnEvent, canary: string): TurnEvent {
   // Replacing strings keeps the event's shape; the parse re-types it.
   return turnEventSchema.parse(mapStrings(event, (text) => redactCanaryText(text, canary)));

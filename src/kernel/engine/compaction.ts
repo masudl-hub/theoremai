@@ -14,11 +14,13 @@ import type {
 } from '../types.ts';
 import { loadTokenEstimator, type MediaTokenFamily } from './token-estimate.ts';
 
+/** A history divided into the messages to compact and the messages to keep. */
 export interface CompactionSplit {
   toCompact: TurnHistoryMessage[];
   toRetain: TurnHistoryMessage[];
 }
 
+/** The count a compaction trigger sees: the tokens, the meter they were counted by and the media parts left out. */
 export interface CompactionTokens {
   meter: CompactionMeter;
   /** Token count compared to `compactAt * maxTokens`. */
@@ -83,6 +85,7 @@ export async function resolveCompactionTokens(args: {
   return { meter, tokens: fromHost, unknownMedia: 0 };
 }
 
+/** True when the tokens exceed `compactAt` times `maxTokens`. */
 export function compactionNeeded(tokens: number, spec: CompactionSpec): boolean {
   return tokens > spec.compactAt * spec.maxTokens;
 }

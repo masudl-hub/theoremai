@@ -40,6 +40,7 @@ export interface LiveHeldOutput {
   end: number;
 }
 
+/** The gate's state for one live session: its policy and context, the progressive gate, the output held and how far reply text has been released. */
 export interface LiveOutboundGateSession {
   policy: ResolvedGuardrailPolicy;
   context: GuardrailContext;
@@ -59,6 +60,7 @@ export interface LiveOutboundGateSession {
   thoughts?: ThoughtGuard;
 }
 
+/** What the gate does with a batch of a live model's events: `emit` what is released, `withhold` with an error, or stay `idle` when nothing is released yet. */
 export type LiveOutboundBatchResult =
   | { action: 'emit'; events: TurnEvent[] }
   | { action: 'withhold'; error: TheoremError; events?: TurnEvent[] }
@@ -268,6 +270,7 @@ async function holdStreamChunk(
   return applyScan(session, gate, result, into);
 }
 
+/** Passes one provider message's events through the outbound gate: reply text and audio are held until the egress checks clear them, a prompt leak or egress hit withholds, and thoughts go through the thought guard. */
 async function processLiveOutboundBatch(
   session: LiveOutboundGateSession,
   events: TurnEvent[],

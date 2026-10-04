@@ -39,10 +39,12 @@ function writeSpans(
   );
 }
 
+/** A sink that discards every record. */
 function noopSink(): TraceSink {
   return { write: () => Promise.resolve() };
 }
 
+/** A sink that appends each trace record to the given array. */
 function memorySink(into: TraceRecord[]): TraceSink {
   return {
     write: (record) => {

@@ -1,5 +1,6 @@
 const CIRCULAR = '[circular]';
 
+/** A value rendered as text for a guardrail scan, and whether it could not be rendered. */
 export interface ScanText {
   text: string;
   /** True when the payload could not be rendered and was not inspected. */

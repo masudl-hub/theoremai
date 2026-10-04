@@ -4,6 +4,7 @@
 import { inlineContent, type TraceRecord } from './trace-record.ts';
 import type { TraceSpan, TraceSpanKind, TraceSpanStatus } from './trace-span.ts';
 
+/** An OTLP/JSON attribute value. */
 type OtlpAnyValue =
   | { stringValue: string }
   | { boolValue: boolean }
@@ -12,11 +13,13 @@ type OtlpAnyValue =
   | { arrayValue: { values: OtlpAnyValue[] } }
   | { kvlistValue: { values: OtlpKeyValue[] } };
 
+/** An OTLP/JSON attribute: a key and its value. */
 interface OtlpKeyValue {
   key: string;
   value: OtlpAnyValue;
 }
 
+/** A span as OTLP/JSON carries it. */
 interface OtlpSpan {
   traceId: string;
   spanId: string;

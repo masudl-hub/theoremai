@@ -222,6 +222,7 @@ function accumulateToolCalls(
   }
 }
 
+/** Creates a provider for a local OpenAI-compatible server, streaming chat completions from its `/v1/chat/completions`; a failure other than an abort is returned as an error event. */
 function createLocalProvider(config: LocalTransport): ModelProvider {
   const baseUrl = resolveBaseUrl(config);
   return {

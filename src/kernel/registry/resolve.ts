@@ -36,6 +36,7 @@ function isModelProfile(profile: Profile): profile is ModelProfile {
   return profile.type !== 'host' && profile.type !== 'decision';
 }
 
+/** Returns the profile when it runs a model; throws a request error naming `door` for a host or decision profile. */
 function requireModelProfile(profile: Profile, door: string): ModelProfile {
   if (isModelProfile(profile)) return profile;
   if (profile.type === 'host') {
@@ -298,6 +299,7 @@ function primaryImageSpec(profile: ModelProfile) {
   return profile.type === 'image' ? profile.image : null;
 }
 
+/** Projects a profile into the plain object a host reads: its id, type, handle, models, inputs, outputs and the tools it can use. Throws for a host or decision profile. */
 function projectProfileObject(tools: ToolRegistry, input: Profile): ProjectedProfile {
   const profile = requireModelProfile(input, 'projectProfile');
   const { identity } = profile;

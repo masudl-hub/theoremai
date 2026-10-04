@@ -19,6 +19,7 @@ import type { TurnHistoryMessage } from '../kernel/turn-events.ts';
 import type { ProviderCompleteRequest } from '../kernel/types.ts';
 import { textForScan } from './serialize.ts';
 
+/** The URLs a request already contains, split by who controls them: those from the system prompt, user and host history, and those from tool results. */
 interface GivenUrls {
   /** From the system prompt, the user and host history. */
   request: ReadonlySet<string>;

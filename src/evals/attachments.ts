@@ -30,6 +30,7 @@ async function fileBytes(attachment: EvalFileAttachment): Promise<Buffer> {
   return bytes;
 }
 
+/** An attachment's content as base64, read from the file when the attachment is a path. */
 async function attachmentData(attachment: EvalAttachment): Promise<string> {
   return 'data' in attachment ? attachment.data : (await fileBytes(attachment)).toString('base64');
 }

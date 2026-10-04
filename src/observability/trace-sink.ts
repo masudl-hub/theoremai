@@ -11,6 +11,7 @@ export interface TraceWriteContext {
   rotateAfterMiB: number;
 }
 
+/** Where trace records go: `write` takes each record, and `onError` is told when building or writing one failed. */
 export interface TraceSink {
   write: (record: TraceRecord, context: TraceWriteContext) => Promise<void>;
   /** Called when `writeTrace` catches a build or write failure. Must not throw. */

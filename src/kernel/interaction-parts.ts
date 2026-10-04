@@ -11,6 +11,7 @@ export function wireInteractionPart(part: InteractionPart): Record<string, strin
   return { type: part.type, mimeType: part.mimeType, data: part.data };
 }
 
+/** True for a part that is media referenced by `uri` rather than carried as data. */
 export function isMediaRefPart(part: InteractionPart): part is InteractionMediaRefPart {
   return part.type !== 'text' && 'uri' in part;
 }

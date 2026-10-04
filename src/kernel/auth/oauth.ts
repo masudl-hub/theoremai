@@ -540,6 +540,7 @@ export async function exchangeOAuthPkce(
   );
 }
 
+/** Exchanges a refresh token for new tokens at the token endpoint; both the endpoint and the resource must be https URLs. */
 export function refreshOAuthToken(
   options: RefreshOAuthTokenOptions,
 ): Promise<ExchangePkceCodeResult> {

@@ -1,6 +1,7 @@
 import { TheoremError } from '../../guardrails/error.ts';
 import type { StructuredSpec } from '../types.ts';
 
+/** The structured-output schemas a registry holds, by id: `register`, `get` (throws when there is none) and `find`. */
 interface SchemaRegistry {
   register(id: string, spec: StructuredSpec): void;
   /** Throws when there is none. */
@@ -8,6 +9,7 @@ interface SchemaRegistry {
   find(id: string): StructuredSpec | undefined;
 }
 
+/** Creates an empty schema registry; `register` rejects a spec that still carries the removed `enforced` field. */
 function createSchemaRegistry(): SchemaRegistry {
   const schemas = new Map<string, StructuredSpec>();
   return {

@@ -7,6 +7,7 @@ import type { Trial } from '../types.ts';
 import { mediaLabeler, trialMedia } from './media.ts';
 import { deliveredJson, deliveredText, modelCalls, startOf } from './shared.ts';
 
+/** The variables a judge rubric may use, each filled from the trial by `trialVariables`. */
 const TRIAL_VARIABLES = [
   'input',
   'output',
@@ -171,6 +172,7 @@ function transcript(
   ].join('\n\n');
 }
 
+/** Fills each rubric variable from a trial: the last user message, the reply, the tool activity and the conversation as text. */
 function trialVariables(trial: Trial): Record<(typeof TRIAL_VARIABLES)[number], string> {
   const messages = inputMessages(trial);
   const input = messages.findLast((message) => message.role === 'user')?.text ?? '';

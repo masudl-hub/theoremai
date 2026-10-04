@@ -22,6 +22,7 @@ function nextBlockId(prefix: string): string {
   return `${prefix}-${String(turnBlockCounter)}`;
 }
 
+/** Restarts block id numbering at zero. */
 function resetBlockIds(): void {
   turnBlockCounter = 0;
 }
@@ -122,6 +123,7 @@ function appendPromotedToolMedia(
   }
 }
 
+/** Turns a user draft into transcript blocks: a `user-text` block for the trimmed text, then one block per attachment and per voice clip. */
 function buildUserTurnBlocks(draft: UserTurnDraft, idPrefix = 'user'): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = [];
   const text = draft.text?.trim();
@@ -248,6 +250,7 @@ function foldTurnEvents(
   return blocks;
 }
 
+/** One conversation turn as blocks: the user draft's blocks followed by the assistant events folded into blocks. */
 function foldConversationTurn(
   draft: UserTurnDraft,
   assistantEvents: readonly TurnEvent[],

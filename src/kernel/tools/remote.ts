@@ -222,6 +222,7 @@ async function* resolveOAuth2Credential(
   };
 }
 
+/** Finds the auth headers for a call from the host's credential for the tool's slot, refreshing an OAuth token when needed; with no usable credential it returns a gate or a message for the model, per the tool's `onUnauthenticated`. */
 export async function* resolveToolAuth(
   toolName: string,
   authConfig: ToolAuthConfig | undefined,
@@ -279,6 +280,7 @@ export type HttpToolTarget = {
   body?: string;
 };
 
+/** The URL and, for anything but GET, the JSON body of an HTTP tool call: path parameters fill the endpoint, query parameters go on the URL, and the rest of the input (or `bodyParam`) is the body; throws when a path parameter is missing. */
 export function buildHttpToolTarget(
   endpoint: string,
   method: HttpToolDef['method'],
@@ -815,8 +817,10 @@ export const MCP_PROTOCOL_VERSIONS = [
   '2025-03-26',
 ] as const;
 
+/** An MCP protocol version the client can speak. */
 export type McpProtocolVersion = (typeof MCP_PROTOCOL_VERSIONS)[number];
 
+/** A JSON-RPC message from an MCP server: a result or an error. */
 export type McpRpcResponse = {
   jsonrpc?: string;
   id?: unknown;
@@ -861,6 +865,7 @@ export function parseMcpRpcResponse(text: string): McpRpcResponse {
   return last;
 }
 
+/** True when an MCP error says the server does not accept the protocol version sent. */
 export function isUnsupportedMcpProtocolError(error: McpRpcResponse['error']): boolean {
   if (!error) return false;
   const message = error.message.toLowerCase();

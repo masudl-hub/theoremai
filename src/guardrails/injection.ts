@@ -249,6 +249,7 @@ function decodedTextSpans(text: string): RedactSpan[] {
     : [];
 }
 
+/** The spans of injection in the text: direct matches, matches after typo normalization, the whole text when only a Unicode-normalized form matches, and encoded blobs and decoded text. */
 function injectionSpans(text: string): RedactSpan[] {
   const direct = injectionSpansOn(text);
 

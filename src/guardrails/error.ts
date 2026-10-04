@@ -3,6 +3,7 @@ import type { TurnEvent } from '../kernel/types.ts';
 import { type LexiconOverrides, type LexiconParams, lexiconText } from './lexicon.ts';
 import { type ErrorCopies, type ErrorKind, TheoremError } from './theorem-error.ts';
 
+/** True when the value is an error named `AbortError`. */
 function isAbortError(err: unknown): boolean {
   return errorName(err) === 'AbortError';
 }
@@ -16,6 +17,7 @@ function errorName(err: unknown): unknown {
   return err && typeof err === 'object' ? (err as { name?: unknown }).name : undefined;
 }
 
+/** Throws when the signal has aborted: its own abort or timeout reason, else an `AbortError`. */
 function throwIfAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) {
     return;
@@ -35,6 +37,7 @@ function errorKind(err: unknown): ErrorKind {
   return 'internal';
 }
 
+/** The error kind for an HTTP status: 401, 402 and 403 are `auth`; 408, 504 and 524 `timeout`; 429 `rate_limit`; 500 and above `unavailable`; the rest `unsupported`. */
 function kindOfHttpStatus(status: number): ErrorKind {
   if (status === 401 || status === 402 || status === 403) return 'auth';
   if (status === 408 || status === 504 || status === 524) return 'timeout';

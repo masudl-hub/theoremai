@@ -72,6 +72,7 @@ export interface ProfileObservabilitySpec {
   onWriteError?: (err: unknown) => void;
 }
 
+/** Which optional content a trace record includes, each on or off. */
 export interface ResolvedTraceInclude {
   upstreamLog: boolean;
   outboundWire: boolean;
@@ -81,12 +82,14 @@ export interface ResolvedTraceInclude {
   guardrailMatchPreview: boolean;
 }
 
+/** What is scrubbed from the text a trace stores: sensitive values, injection and the canary. */
 export interface ResolvedTraceScrub {
   sensitive: boolean;
   injection: boolean;
   canary: boolean;
 }
 
+/** A profile's observability settings after defaults: whether and where to record, the sample rate, what to include and scrub, and retention and rotation. */
 export interface ResolvedObservabilityPolicy {
   /** False when the block is omitted or `writeTo` is `false`/absent. Sampling applies at write. */
   record: boolean;

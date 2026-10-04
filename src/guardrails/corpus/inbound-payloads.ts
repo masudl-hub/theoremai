@@ -50,6 +50,7 @@ function payload(
   return { name, category, text, expectCaught: expectCaught ?? detected };
 }
 
+/** The hostile texts the inbound fuzz sends through every channel. */
 export function inboundFuzzPayloads(): InboundFuzzPayload[] {
   const b64 = injBase64();
   const hex = injHexSpaced();
@@ -181,6 +182,7 @@ export function inboundFuzzPayloads(): InboundFuzzPayload[] {
   ];
 }
 
+/** The inbound fuzz payload with this name, or `undefined`. */
 export function inboundPayloadByName(name: string): InboundFuzzPayload | undefined {
   return inboundFuzzPayloads().find((p) => p.name === name);
 }

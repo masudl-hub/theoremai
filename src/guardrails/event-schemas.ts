@@ -19,6 +19,7 @@ import {
 
 const errorKind = z.enum(ERROR_KINDS);
 true satisfies Equals<z.infer<typeof errorKind>, ErrorKind>;
+/** The schema an error kind parses against. */
 export const errorKindSchema: z.ZodType<ErrorKind> = errorKind;
 
 /** Wording for the user more specific than its kind's: a lexicon key and its parameters. */
@@ -36,6 +37,7 @@ true satisfies Equals<z.infer<typeof errorCopy>, ErrorCopy>;
 export type ErrorCopies = ErrorCopy | readonly ErrorCopy[];
 const errorCopies = z.union([errorCopy, z.array(errorCopy).readonly()]);
 true satisfies Equals<z.infer<typeof errorCopies>, ErrorCopies>;
+/** The schema error wording parses against. */
 export const errorCopiesSchema: z.ZodType<ErrorCopies> = errorCopies;
 
 /**
@@ -56,6 +58,7 @@ const provenance = z.object({
 });
 true satisfies Equals<z.infer<typeof provenance>, Provenance>;
 
+/** One rule match: the rule id, its severity, where it matched and, when kept, the matched text. */
 export interface GuardrailHit {
   /** Stable rule id, e.g. `egress.canary-leak`. */
   rule: string;
@@ -104,4 +107,5 @@ const guardrailEvent = z.object({
   errorInternal: z.string().optional(),
 });
 true satisfies Equals<z.infer<typeof guardrailEvent>, GuardrailEvent>;
+/** The schema a guardrail event parses against. */
 export const guardrailEventSchema: z.ZodType<GuardrailEvent> = guardrailEvent;

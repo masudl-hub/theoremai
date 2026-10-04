@@ -3,8 +3,10 @@ import type { EvalGrader, EvalResult, Trial } from '../types.ts';
 import { codeGrader, deliveredJson, deliveredText, listOf } from './shared.ts';
 import { toolSteps } from './transcript.ts';
 
+/** Where `answer` reads the agent's answer: a key of the reply's JSON, or an argument of a tool call. */
 type AnswerSource = { json: string } | { tool: string; arg: string };
 
+/** How an answer was graded: `accepted` passes, `partial` and `wrong` fail. */
 type AnswerLabel = 'accepted' | 'partial' | 'wrong';
 
 function normalized(text: string): string {
@@ -103,6 +105,7 @@ function unanswered(trial: Trial, why: string): EvalResult | undefined {
   };
 }
 
+/** A code grader that checks the agent's answer against the case's `expect.answer` lists of accepted, partial and rejected names, normalizing both sides; with `from` it compares the named JSON key or tool argument exactly, otherwise it looks for the names in the reply text. A provider error before an answer errors the trial instead. */
 function answer(options: { from?: AnswerSource } = {}): EvalGrader {
   const { from } = options;
   const identity = `answer:${from ? JSON.stringify(from) : 'reply'}`;

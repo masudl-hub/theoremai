@@ -29,6 +29,7 @@ export interface SurfaceLedgerEntry {
   time: number;
 }
 
+/** Options for a surface runtime: the clock, how to open a declared surface, where notes go and where the ledger is kept. */
 export interface SurfaceRuntimeOptions {
   now?: () => number;
   /** Opens a declared surface that isn't mounted (goes to its page). */
@@ -43,6 +44,7 @@ export interface SurfaceRuntimeOptions {
   };
 }
 
+/** What the host holds to mount surfaces and answer the agent's `look` and `act` calls. */
 export interface SurfaceRuntime {
   /** Mounts a surface until the returned function is called. */
   mount(surface: Surface): () => void;
@@ -57,6 +59,7 @@ export interface SurfaceRuntime {
   stateLine(): string | null;
 }
 
+/** The tools the runtime answers: `look` and `act`. */
 export const SURFACE_TOOL_NAMES = ['look', 'act'] as const;
 
 const lookArgs = z.object({ at: z.string().optional() });
@@ -108,6 +111,7 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** Creates a runtime that mounts surfaces and answers the agent's `look` and `act` calls. */
 export function createSurfaceRuntime(options: SurfaceRuntimeOptions = {}): SurfaceRuntime {
   const now = options.now ?? Date.now;
   const mounted = new Map<string, Surface>();

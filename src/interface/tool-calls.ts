@@ -79,6 +79,7 @@ type SettledToolCallEvent = TurnEventOf<'tool'> & {
   tool: Extract<ToolCallEvent, { phase: 'complete' | 'error' }>;
 };
 
+/** True when the event is the complete or error event of the tool call with this id. */
 function settlesToolCall(event: TurnEvent, callId: string): event is SettledToolCallEvent {
   if (event.type !== 'tool' || event.tool.callId !== callId) return false;
   return event.tool.phase === 'complete' || event.tool.phase === 'error';

@@ -1,6 +1,7 @@
 import { projectGuardrailTurnEvent } from '../guardrails/events.ts';
 import type { TurnEvent } from '../kernel/types.ts';
 
+/** Options for `forClient`: whether to keep provider-native payloads on evidence events. */
 export interface ClientTurnOptions {
   /** Keep provider-native payloads on `evidence` events. Default: false; parsed fields remain. */
   includeEvidenceRaw?: boolean;
@@ -45,6 +46,7 @@ function forClient(event: TurnEvent, options?: ClientTurnOptions): TurnEvent {
   return out;
 }
 
+/** `forClient` over a list of events. */
 function forClientEvents(events: TurnEvent[], options?: ClientTurnOptions): TurnEvent[] {
   return events.map((event) => forClient(event, options));
 }

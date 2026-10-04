@@ -19,6 +19,7 @@ import type {
   OpenAiGatewayTransport,
 } from './types.ts';
 
+/** Settings for the providers `createProvider` builds: the key vault, Gemini settings, the OpenAI-compatible gateway and the local server (required for `local` profiles). */
 export interface CreateProviderOptions {
   /**
    * The host's keys by slot, for every provider. A model's calls use the slot its profile names

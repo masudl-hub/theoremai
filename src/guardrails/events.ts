@@ -64,6 +64,7 @@ function projectGuardrailTurnEvent(
 ): TurnEventOf<'guardrail'>;
 /** The turn event unchanged, or a guardrail one with the matched text kept or dropped. */
 function projectGuardrailTurnEvent(event: TurnEvent, includeMatch: boolean): TurnEvent;
+/** The turn event unchanged, or a guardrail one with the matched text kept or dropped. */
 function projectGuardrailTurnEvent(event: TurnEvent, includeMatch: boolean): TurnEvent {
   if (event.type !== 'guardrail') {
     return event;

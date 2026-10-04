@@ -3,11 +3,13 @@ import { codeGrader, deliveredText, passFail } from './shared.ts';
 
 const OUTPUT_TRANSCRIPTION = 'output_transcription';
 
+/** Graders for the transcript of a live model's spoken output. */
 interface TranscriptionGraders {
   includes: (text?: string) => EvalGrader;
   regex: (pattern?: string, flags?: string) => EvalGrader;
 }
 
+/** Graders for a live reply's output transcription: `includes` (a substring) and `regex`, each taking its pattern as an argument or from the case's `expect.transcription`. */
 const transcription: TranscriptionGraders = {
   includes(text?: string): EvalGrader {
     const identity = `transcription.includes:${text ?? 'case'}`;
@@ -49,6 +51,7 @@ const transcription: TranscriptionGraders = {
   },
 };
 
+/** A grader that passes when the model was interrupted at most `max` times in the trial. */
 function interruptions(options: { max: number }): EvalGrader {
   return codeGrader('interruptions', `interruptions:${options.max}`, false, (trial) => {
     const count = trial

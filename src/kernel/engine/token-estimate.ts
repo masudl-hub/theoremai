@@ -50,13 +50,16 @@ import { imageSize } from './media-probe/image.ts';
 import { pdfPageCount } from './media-probe/pdf.ts';
 import { videoInfo } from './media-probe/video.ts';
 
+/** The encoding the estimator counts text with. */
 export const TOKEN_TEXT_ENCODING = 'o200k_base';
 
 /** Model families with a verified media rule. */
 export type MediaTokenFamily = 'gemini-3';
 
+/** A media file to count: its MIME type and either inline base64 `data` or a `uri`. */
 export type MediaPayload = { mimeType: string; data: string } | { mimeType: string; uri: string };
 
+/** A token count and the number of media parts left out of it. */
 export interface TokenCount {
   tokens: number;
   /** Media parts left out of `tokens` because their count is unknown. */
@@ -257,6 +260,7 @@ function buildEstimator(encode: EncodeFn): TokenEstimator {
 }
 
 // The ranks import lazily, so hosts that never estimate never pay for them.
+/** Loads the token estimator; the `o200k_base` ranks are imported on the first call. */
 export async function loadTokenEstimator(): Promise<TokenEstimator> {
   encodePromise ??= import('gpt-tokenizer/encoding/o200k_base').then((m) => m.encode);
   return buildEstimator(await encodePromise);

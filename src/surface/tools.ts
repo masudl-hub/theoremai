@@ -51,6 +51,7 @@ const actInput = z.object({
     ),
 });
 
+/** Options for `surfaceTools`: the category the tools are registered under, `surface` by default. */
 export interface SurfaceToolsOptions {
   category?: string;
 }

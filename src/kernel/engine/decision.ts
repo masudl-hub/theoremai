@@ -52,6 +52,7 @@ export class DecisionError extends TheoremError {
   }
 }
 
+/** Options for running a decision: the key vault, a fetch, an endpoint and a trace sink that replaces the profile's. */
 export interface RunDecisionOptions {
   /** The host's keys by slot; the profile's `key` (or its model's) names the slot. */
   vault?: KeyVault;

@@ -8,6 +8,7 @@ import {
 } from './canary.ts';
 import { scanTextForPromptEcho } from './prompt-echo.ts';
 
+/** A canary leak gate for one reply: the turn canary, the system prompt to catch echoes of, and the stream gate that holds text back. */
 export interface CanaryGateSession {
   canary: string;
   /** The system prompt as sent, when replies echoing it are leaks too. */

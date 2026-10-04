@@ -165,17 +165,21 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
  * the scope that runs the profile.
  */
 function interfaceFromProfile(input: LiveProfile, tools: ToolRegistry): LiveProfileInterface;
+/** The interface for a profile that is not live. */
 function interfaceFromProfile(
   input: Exclude<Profile, LiveProfile>,
   tools: ToolRegistry,
 ): ComposerProfileInterface;
+/** The interface for any profile. */
 function interfaceFromProfile(input: Profile, tools: ToolRegistry): ProfileInterface;
+/** The interface for any profile. */
 function interfaceFromProfile(input: Profile, tools: ToolRegistry): ProfileInterface {
   // Host profiles never run a model and have no composer surface.
   const profile = requireModelProfile(input, 'interfaceFromProfile');
   return enrich(projectProfileObject(tools, profile), profile);
 }
 
+/** The interface for a profile the host has already projected, without resolving its tools again. */
 function interfaceFromProjected(projected: ProjectedProfile): ProfileInterface {
   return enrich(projected);
 }

@@ -158,6 +158,7 @@ function isPrivateOrLocalIPv6(ip: string): boolean {
   });
 }
 
+/** True for loopback addresses and names reserved for local use: `localhost`, `.local`, `.internal`, `.lan`, `.home.arpa` and `.localdomain`. */
 export function isLocalhostName(hostname: string): boolean {
   let lower = hostname.toLowerCase();
   while (lower.endsWith('.')) {
@@ -182,6 +183,7 @@ export function isLocalhostName(hostname: string): boolean {
   );
 }
 
+/** True when the IP address, or bracketed IPv6 host, is a private or local IPv4 or IPv6 address. */
 export function isPrivateOrLocalAddress(ipOrHost: string): boolean {
   const stripped =
     ipOrHost.startsWith('[') && ipOrHost.endsWith(']') ? ipOrHost.slice(1, -1) : ipOrHost;
@@ -247,6 +249,7 @@ const FETCH_REDIRECT_LIMIT = 20;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
+/** Options for a fetch that checks the network policy on every hop. */
 export interface GuardedFetchOptions {
   policy?: NetworkGuardrailSpec;
   /** Follow redirects, clearing each hop; when false a redirect comes back as the response. */
@@ -366,6 +369,7 @@ export async function fetchGuarded(
   }
 }
 
+/** Options for `dnsOverHttpsResolver`: the DNS JSON endpoint and an optional `fetch`. */
 export interface DnsOverHttpsOptions {
   /** A DNS JSON API endpoint, e.g. `https://cloudflare-dns.com/dns-query`. */
   endpoint: string;

@@ -1,3 +1,4 @@
+/** A media file a tool's output points to: its URL, MIME type and, when the output carried one, a smaller preview URL. */
 export type PromotedToolMedia = {
   url: string;
   mimeType: string;
@@ -33,6 +34,7 @@ function mimeForPathname(pathname: string): string | undefined {
   return EXT_MIME[ext];
 }
 
+/** Reads an http(s) URL string as promoted media, with the MIME type taken from its file extension; returns undefined for an empty or invalid string, another scheme, or an extension it does not know. */
 export function promotedMediaFromUrlString(raw: string): PromotedToolMedia | undefined {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return undefined;

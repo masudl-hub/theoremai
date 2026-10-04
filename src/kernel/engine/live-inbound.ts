@@ -13,6 +13,7 @@ export interface LiveInboundPrepareResult {
 }
 
 // Resolves through the shared policy so Live ingress and the turn engine cannot drift on what an unset switch means.
+/** Prepares text a live session receives from the user: detects and redacts it as untrusted under the profile's guardrails, wraps the result as user data, and returns the guardrail event when something was found. */
 function prepareLiveInboundText(profile: Profile, text: string): LiveInboundPrepareResult {
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const detected = detectText(text, detectionForTrust(policy, 'untrusted'));

@@ -1,5 +1,6 @@
 import type { GuardrailEvent, GuardrailHit, Severity } from './types.ts';
 
+/** A guardrail hit for a span of the text, with the matched text sliced from it. */
 function hitFromSpan(
   text: string,
   span: { start: number; end: number },

@@ -19,6 +19,7 @@ import type {
   TurnRequest,
 } from './types.ts';
 
+/** A kernel scope: its registries and the operations that run against them (turns, live sessions, history compaction, tool invocation, turn resolution, profile projection and decisions). */
 interface KernelScope extends KernelRegistry {
   runTurn(
     req: TurnRequest,

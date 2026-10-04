@@ -11,6 +11,7 @@ import type { TraceAttributes, TraceAttributeValue, TraceSpan } from './trace-sp
 const TRIAL_SPAN = 'theorem.eval.trial';
 const RESULT_EVENT = 'gen_ai.evaluation.result';
 
+/** A Phoenix annotation on a judged trial span: its name, whether an LLM judge or a code grader produced it, the result and metadata. */
 interface PhoenixSpanAnnotation {
   /** The judged root span, as OTLP hex. */
   span_id: string;

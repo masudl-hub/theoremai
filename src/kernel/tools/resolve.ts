@@ -183,6 +183,7 @@ export function resolveTurnTools(
   };
 }
 
+/** Resolves the tools a turn may call into a snapshot, then applies the profile's `t1Policy` to it. */
 export async function prepareTurnToolSnapshot(
   tools: ToolRegistry,
   profile: Profile,

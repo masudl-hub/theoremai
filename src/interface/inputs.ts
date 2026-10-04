@@ -16,6 +16,7 @@ const RECORDER_CANDIDATES = [
   'audio/mpeg',
 ] as const;
 
+/** The accepted MIME types as the value of an HTML `accept` attribute, comma-joined. */
 function attachmentAcceptAttr(accept: string[]): string {
   return accept.join(',');
 }

@@ -16,6 +16,7 @@ import {
 const NANOS_PER_MS = 1_000_000;
 const AGENT_NAME = 'gen_ai.agent.name';
 
+/** The record of a cutout call kept on the trace: whether it succeeded, how long it took, its URL, the hashes of its input and output, the upstream exchange and any error. */
 interface CutoutTape {
   ok: boolean;
   /** How long the cutout took; the span ends now and starts this long before. */

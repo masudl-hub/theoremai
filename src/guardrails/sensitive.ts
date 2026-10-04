@@ -40,6 +40,7 @@ const CARD_CANDIDATE = /\b(?:\d[\s.-]*?){13,19}\b/g;
  */
 const SENSITIVE_GROUPS = ['ids', 'financial', 'network', 'credentials'] as const;
 
+/** A group of sensitive-value checks: ids, financial, network or credentials. */
 type SensitiveGroup = (typeof SENSITIVE_GROUPS)[number];
 
 /** Per group, whether it runs. A group left out keeps its default. */

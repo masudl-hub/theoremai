@@ -9,6 +9,7 @@ import type {
   TrustLevel,
 } from './types.ts';
 
+/** What input detection does: whether to sanitize input and which sensitive groups to redact. */
 export interface DetectionOptions {
   sanitizeInput: boolean;
   redactSensitive: SensitiveSelection;

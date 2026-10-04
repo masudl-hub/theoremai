@@ -29,8 +29,10 @@ const PEM_BEGIN = '-----BEGIN';
 
 export type ProgressiveYieldOk = { blocked: false; emit: string };
 export type ProgressiveYieldBlocked = { blocked: true; hits: GuardrailHit[] };
+/** What one step of the progressive gate returns: the text to emit, or the hits that block the reply. */
 export type ProgressiveYieldResult = ProgressiveYieldOk | ProgressiveYieldBlocked;
 
+/** Settings for the progressive gate: the guardrail context, an optional egress policy to enforce on the held window, and the holdback and other lookback it keeps. */
 export interface ProgressiveYieldGateOptions {
   /** Also carries the turn canary. */
   context: GuardrailContext;

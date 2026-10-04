@@ -15,6 +15,7 @@ import {
   evalSuiteSchema,
 } from './types.ts';
 
+/** A suite with its cases read, the providers and media resolver its module exports, and the module's path. */
 interface LoadedSuite {
   suite: EvalSuite;
   cases: EvalCase[];
@@ -42,6 +43,7 @@ function siblingOf(modulePath: string, relative: string): string {
   return relative.startsWith('/') ? relative : `${dir}/${relative}`;
 }
 
+/** Reads a JSON Lines file, parsing each line against the schema; throws with the file and line number on a line that is not JSON or does not match. */
 async function readJsonl<T>(path: string, schema: z.ZodType<T>, what: string): Promise<T[]> {
   const text = await readFile(path, 'utf8');
   const out: T[] = [];
@@ -68,6 +70,7 @@ async function readJsonl<T>(path: string, schema: z.ZodType<T>, what: string): P
   return out;
 }
 
+/** Reads trace records from a `.jsonl` file, or from every `.jsonl` file in a directory, in name order. */
 async function readTraceRecords(path: string): Promise<TraceRecord[]> {
   const target = absolute(path);
   const info = await stat(target);
@@ -83,6 +86,7 @@ async function readTraceRecords(path: string): Promise<TraceRecord[]> {
   return records;
 }
 
+/** Imports a suite module, checks its default export against `EvalSuite` and reads its cases; throws when a case id repeats. */
 async function loadSuite(modulePath: string): Promise<LoadedSuite> {
   const path = absolute(modulePath);
   const module: unknown = await import(new URL(`file://${path}`).href);

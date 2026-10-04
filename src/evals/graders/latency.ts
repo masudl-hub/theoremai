@@ -73,6 +73,7 @@ function latencyReadings(trial: Trial): LatencyReading[] {
   ];
 }
 
+/** A grader that passes when each reply began within `maxMs`, measured from the start of the response or, for a live reply, from the end of the user's speech; a reply with no reading fails it. */
 function turnLatency(options: { maxMs: number }): EvalGrader {
   return codeGrader('turn_latency', `turnLatency:${options.maxMs}`, false, (trial) => {
     const readings = latencyReadings(trial);

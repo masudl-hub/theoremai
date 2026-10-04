@@ -11,6 +11,7 @@ import type {
   UserTurnDraft,
 } from './types.ts';
 
+/** Applies a profile's input guardrails to a draft's text, redacting sensitive values and sanitizing as its policy asks; returns the draft as it is when neither applies. */
 function sanitizeUserDraft(
   draft: UserTurnDraft,
   guardrails?: ProfileGuardrailsView,
@@ -28,6 +29,7 @@ function sanitizeUserDraft(
   };
 }
 
+/** The result of preparing a user turn: the sanitized draft with its transcript blocks, or the attachment issues that rejected it. */
 export type PrepareUserTurnResult =
   | { ok: true; draft: UserTurnDraft; blocks: TranscriptBlock[] }
   | { ok: false; issues: AttachmentValidationIssue[] };

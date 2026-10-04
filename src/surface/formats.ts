@@ -42,6 +42,7 @@ export interface SecretCard {
   usedBy: string[];
 }
 
+/** What an agent sees of a secret instead of its value: whether it is set, what kind it looks like, the mistakes it shows, and the other secrets with the same value and the places that use it. */
 export function secretCard(
   value: unknown,
   extra: { sameAs?: readonly string[]; usedBy?: readonly string[] } = {},

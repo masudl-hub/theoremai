@@ -201,3 +201,14 @@ Deno.test('the editor sees the whole library; a tool it adds is allowed only her
     must(agentDraft(workspace, must(first))).identity,
   );
 });
+
+Deno.test('an added agent gets a free id and shares the tools the library has by name', () => {
+  const example = workspaceFromDraft(createExampleDraft());
+  const workspace = addAgent(example, createExampleDraft());
+  const first = must(workspace.agents[0]);
+  const second = must(workspace.agents[1]);
+  assertEquals(second.identity.agentId, `${first.identity.agentId}_2`);
+  assertEquals(workspace.toolSpecs, example.toolSpecs);
+  assertEquals(second.tools.allow, first.tools.allow);
+  assert(compilePlayground(must(agentDraft(workspace, second.key))).ok);
+});

@@ -202,16 +202,27 @@ export function withLibraryDraft(
   };
 }
 
-/** Appends `draft` as a new agent; its tools join the library unless the library has them by key. */
+/**
+ * Appends `draft` as a new agent, with an id no other agent has. A tool whose
+ * name the library already has is shared, not copied; the rest join the library.
+ */
 export function addAgent(
   workspace: PlaygroundWorkspace,
   draft: PlaygroundDraft = createBlankDraft(),
 ): PlaygroundWorkspace {
-  const agent = agentFromDraft(draft);
+  const shared = new Map(workspace.toolSpecs.map((tool) => [tool.toolName, tool.key]));
+  const base = draft.identity.agentId.trim();
+  const taken = workspace.agents.map((agent) => agent.identity.agentId);
+  const agentId = base && freeName(base, taken, (n) => `${base}_${n}`);
+  const agent = agentFromDraft({ ...draft, identity: { ...draft.identity, agentId } });
+  agent.tools.allow = draft.toolSpecs.map((tool) => shared.get(tool.toolName) ?? tool.key);
   return {
     ...workspace,
     agents: [...workspace.agents, agent],
-    toolSpecs: mergeLibrary(workspace.toolSpecs, draft.toolSpecs),
+    toolSpecs: [
+      ...workspace.toolSpecs,
+      ...draft.toolSpecs.filter((tool) => !shared.has(tool.toolName)),
+    ],
     selected: agentNodeId(agent.key),
   };
 }
@@ -300,9 +311,15 @@ export interface WorkspaceTree {
   tools: PlaygroundTreeNode[];
 }
 
+/** Beside other agents, one with no id yet is named as an agent, not by its Identity facet. */
+function agentRoot(agent: AgentDraft): PlaygroundTreeNode {
+  const root = scopeTree(agent.key, playgroundTree(draftOf(agent, [])));
+  return agent.identity.agentId.trim() ? root : { ...root, label: 'New agent' };
+}
+
 export function workspaceTree(workspace: PlaygroundWorkspace): WorkspaceTree {
   return {
-    agents: workspace.agents.map((agent) => scopeTree(agent.key, playgroundTree(draftOf(agent, [])))),
+    agents: workspace.agents.map(agentRoot),
     tools: toolSpecNodes(workspace.toolSpecs),
   };
 }

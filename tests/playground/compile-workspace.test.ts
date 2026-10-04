@@ -178,7 +178,9 @@ Deno.test('compaction can name another text agent, which registers first', () =>
 });
 
 Deno.test('agent ids and library tool names are unique across the workspace', () => {
-  const workspace = addAgent(workspaceFromDraft(helperDraft()), helperDraft());
+  const added = addAgent(workspaceFromDraft(helperDraft()), helperDraft('travel.other'));
+  const second = must(added.agents[1]).key;
+  const workspace = withAgentDraft(added, second, helperDraft());
   const issues = issuesOf(
     withTool(withTool(workspace, 0, defaultToolSpec()), 1, defaultToolSpec()),
   );

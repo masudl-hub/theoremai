@@ -98,7 +98,13 @@ export {
   inputLimitsRequired,
   keySlotRequired,
 } from './requirements.ts';
-export { playgroundSource } from './source.ts';
+export {
+  agentModulePath,
+  importSpecifier,
+  playgroundSource,
+  type SourceFile,
+  workspaceSource,
+} from './source.ts';
 export {
   createPlaygroundTraceRouter,
   PLAYGROUND_RUN_METADATA_KEY,

@@ -21,6 +21,7 @@ import {
   withAgentDraft,
   workspaceFromDraft,
   workspaceRunAgent,
+  workspaceSource,
 } from '../../playground/mod.ts';
 import { playgroundScope } from '../../playground/runtime.ts';
 
@@ -232,4 +233,69 @@ Deno.test('removing an agent leaves nothing pointing at it', () => {
   assertEquals(must(removed.agents[0]).modelBindings[0]?.compactWith, undefined);
   const result = compileWorkspace(removed);
   assert(result.ok, JSON.stringify(!result.ok && result.issues));
+});
+
+Deno.test('a workspace exports as tools.ts, a module per agent, and theorem.ts in registration order', () => {
+  const result = compileWorkspace(conciergeCallingHelper());
+  assert(result.ok);
+  const files = workspaceSource(result);
+  assertEquals(
+    files.map((file) => file.path),
+    ['tools.ts', 'agents/travel.helper.ts', 'agents/travel.concierge.ts', 'theorem.ts'],
+  );
+  const code = (path: string) => must(files.find((file) => file.path === path)).code;
+  // The agent tool needs its agent: it is registered in theorem.ts, between the two.
+  assert(!code('tools.ts').includes("name: 'ask_helper'"));
+  const theorem = code('theorem.ts');
+  const at = (text: string) => {
+    const index = theorem.indexOf(text);
+    assert(index >= 0, text);
+    return index;
+  };
+  assert(at('registerToolLibrary();') < at('registerProfile(travelHelper.profile);'));
+  assert(at('registerProfile(travelHelper.profile);') < at("name: 'ask_helper'"));
+  assert(at("name: 'ask_helper'") < at('registerProfile(travelConcierge.profile);'));
+  assert(!code('agents/travel.concierge.ts').includes('register'));
+});
+
+Deno.test('an exported workspace type-checks and registers when theorem.ts runs', async () => {
+  const result = compileWorkspace(conciergeCallingHelper());
+  assert(result.ok);
+  const root = new URL('../../', import.meta.url);
+  const dir = await Deno.makeTempDir();
+  try {
+    for (const file of workspaceSource(result)) {
+      const path = `${dir}/${file.path}`;
+      await Deno.mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true });
+      // The package as the export names it, resolved to this checkout.
+      const local = file.code.replaceAll(
+        "'@theoremjs/agents'",
+        `'${new URL('mod.ts', root).href}'`,
+      );
+      await Deno.writeTextFile(path, local);
+    }
+    await Deno.writeTextFile(
+      `${dir}/main.ts`,
+      "import './theorem';\nimport { getProfile } from '" +
+        new URL('mod.ts', root).href +
+        "';\nconsole.log(getProfile('travel.concierge').id);\n",
+    );
+    const config = new URL('deno.json', root).pathname;
+    const flags = ['--config', config, '--unstable-sloppy-imports', '--quiet'];
+    const check = await new Deno.Command(Deno.execPath(), {
+      args: ['check', ...flags, `${dir}/main.ts`],
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output();
+    assert(check.success, new TextDecoder().decode(check.stderr));
+    const run = await new Deno.Command(Deno.execPath(), {
+      args: ['run', '-A', ...flags, `${dir}/main.ts`],
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output();
+    assert(run.success, new TextDecoder().decode(run.stderr));
+    assertEquals(new TextDecoder().decode(run.stdout).trim(), 'travel.concierge');
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
 });

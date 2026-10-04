@@ -41,7 +41,7 @@ import { createExampleDraft, createSpanExampleDraft } from './example.ts';
 import { type PlaygroundConnectionMode, modelBindingViolation } from './policy.ts';
 import { playgroundNodeRef, playgroundTree, type PlaygroundTreeNode } from './tree.ts';
 
-export type PlaygroundExportFormat = 'tsx' | 'copy' | 'llm';
+export type PlaygroundExportFormat = 'zip' | 'copy' | 'llm';
 
 /** One change to the draft: the top-level draft keys it touched, and who made it. */
 export interface PlaygroundDraftChange {
@@ -462,9 +462,10 @@ export function playgroundSurface(host: PlaygroundSurfaceHost): Surface {
       },
     }),
     export: defineAction({
-      description: 'Download the agent as one .tsx, copy it, or copy it with a brief for an LLM.',
+      description:
+        'Download every agent as a .zip of source files, copy the files, or copy them with a brief for an LLM.',
       effect: 'run',
-      input: z.object({ format: z.enum(['tsx', 'copy', 'llm']) }),
+      input: z.object({ format: z.enum(['zip', 'copy', 'llm']) }),
       run: async ({ format }) => {
         const stop = blocked();
         if (stop) return stop;

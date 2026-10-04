@@ -74,6 +74,10 @@ function sseResponse(chunks: string[]): Response {
   });
 }
 
+function noWait(): Promise<void> {
+  return Promise.resolve();
+}
+
 function createMockTurnRequest(profile: string, text: string): ProviderCompleteRequest {
   const { generation } = resolveTurn({ profile, input: { text } });
   return {
@@ -603,15 +607,66 @@ Deno.test('createOpenRouterProvider yields error on HTTP non-200', async () => {
 });
 
 Deno.test('createOpenRouterProvider reports an unreachable OpenRouter as a network error', async () => {
+  let tries = 0;
   const provider = createOpenRouterProvider({
     vault: { slot_a: 'test-key' },
-    fetch: () => Promise.reject(new TypeError('connection reset')),
+    wait: noWait,
+    fetch: () => {
+      tries++;
+      return Promise.reject(new TypeError('connection reset'));
+    },
   });
   const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'x')));
   assertEquals(
     eventsOf(events, 'error').map((e) => e.errorKind),
     ['network'],
   );
+  assertEquals(tries, 3);
+});
+
+Deno.test('createOpenRouterProvider backs off a transient refusal and streams the answer, taping every try', async () => {
+  const statuses: number[] = [];
+  const answers = [
+    new Response('busy', { status: 503 }),
+    new Response('slow down', { status: 429, headers: { 'retry-after': '1' } }),
+  ];
+  const waits: number[] = [];
+  const provider = createOpenRouterProvider({
+    vault: { slot_a: 'test-key' },
+    wait: (ms) => {
+      waits.push(ms);
+      return Promise.resolve();
+    },
+    fetch: () => Promise.resolve(answers.shift() ?? sseResponse(mockStreamChunks())),
+  });
+  const req = createMockTurnRequest('pinned', 'x');
+  req.structured = null;
+  req.tapUpstream = (row) => {
+    if (row.eventType === 'http_response') statuses.push(row.status as number);
+  };
+  const events = await Array.fromAsync(provider.complete(req));
+  assertEquals(eventsOf(events, 'error'), []);
+  assertEquals(eventsOf(events, 'done').length, 1);
+  assertEquals(statuses, [503, 429, 200]);
+  assertEquals(waits, [1000, 1000]);
+});
+
+Deno.test('createOpenRouterProvider sends a refusal back once its tries run out', async () => {
+  let tries = 0;
+  const provider = createOpenRouterProvider({
+    vault: { slot_a: 'test-key' },
+    wait: noWait,
+    fetch: () => {
+      tries++;
+      return Promise.resolve(new Response('busy', { status: 502 }));
+    },
+  });
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'x')));
+  assertEquals(
+    eventsOf(events, 'error').map((e) => e.errorKind),
+    ['unavailable'],
+  );
+  assertEquals(tries, 3);
 });
 
 Deno.test('createOpenRouterProvider takes a mid-stream error kind from its code', async () => {
@@ -1022,6 +1077,7 @@ Deno.test('createOpenRouterProvider wires reasoning effort to provider options',
 Deno.test('createOpenRouterProvider does not emit done after error', async () => {
   const provider = createOpenRouterProvider({
     vault: { slot_a: 'test-key' },
+    wait: noWait,
     fetch: () => {
       throw new Error('network failure');
     },

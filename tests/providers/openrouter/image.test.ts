@@ -197,16 +197,54 @@ Deno.test('yieldImagesEndpoint maps /images JSON to media and tokens', async () 
   );
 });
 
-Deno.test('yieldImagesEndpoint yields error on HTTP failure', async () => {
-  const mockFetch: typeof fetch = () => Promise.resolve(new Response('nope', { status: 502 }));
+Deno.test('yieldImagesEndpoint backs off a transient refusal, then reads the image', async () => {
+  const answers = [new Response('busy', { status: 503 })];
+  const mockFetch: typeof fetch = () =>
+    Promise.resolve(
+      answers.shift() ??
+        new Response(
+          JSON.stringify({ data: [{ b64_json: 'img-bytes', media_type: 'image/png' }] }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+    );
+  const statuses: unknown[] = [];
   const events = [];
   for await (const event of yieldImagesEndpoint(
-    createMockImageRequest(),
-    { vault: { slot_a: 'key' }, fetch: mockFetch },
+    createMockImageRequest({
+      tapUpstream: (row) => {
+        if (row.eventType === 'http_response') statuses.push(row.status);
+      },
+    }),
+    { vault: { slot_a: 'key' }, fetch: mockFetch, wait: () => Promise.resolve() },
     'key',
   )) {
     events.push(event);
   }
+  assertEquals(
+    events.map((event) => event.type),
+    ['media', 'done'],
+  );
+  assertEquals(statuses, [503, 200]);
+});
+
+Deno.test('yieldImagesEndpoint yields error on HTTP failure once its tries run out', async () => {
+  let tries = 0;
+  const mockFetch: typeof fetch = () => {
+    tries++;
+    return Promise.resolve(new Response('nope', { status: 502 }));
+  };
+  const events = [];
+  for await (const event of yieldImagesEndpoint(
+    createMockImageRequest(),
+    { vault: { slot_a: 'key' }, fetch: mockFetch, wait: () => Promise.resolve() },
+    'key',
+  )) {
+    events.push(event);
+  }
+  assertEquals(tries, 3);
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
   assertEquals((events[0] as { errorKind: string }).errorKind, 'unavailable');

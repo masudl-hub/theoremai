@@ -1,11 +1,11 @@
-import { isAbortError } from '../../guardrails/error.ts';
 import type { KeySlot, KeyVault, ProviderCompleteRequest } from '../../kernel/types.ts';
-import { networkError, tapFetch } from '../shared/upstream-tap.ts';
+import { retryTransient, type Wait } from '../shared/retry.ts';
+import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
 import { fallbackKey, requireKey } from '../shared/vault.ts';
 
 /** A host's Gemini settings; keys come from the one vault. */
 interface GeminiOptions {
-  wait?: (ms: number) => Promise<void>;
+  wait?: Wait;
   fetch?: typeof fetch;
 }
 
@@ -13,50 +13,7 @@ interface GeminiTransport extends GeminiOptions {
   vault: KeyVault;
 }
 
-const ATTEMPTS = 3;
-const LAST_ATTEMPT = ATTEMPTS - 1;
-const BACKOFF_FIRST_MS = 1000;
-const BACKOFF_SECOND_MS = 2000;
-const BACKOFF_THIRD_MS = 4000;
-const BACKOFF_MS = [BACKOFF_FIRST_MS, BACKOFF_SECOND_MS, BACKOFF_THIRD_MS];
-
-const HTTP_TIMEOUT = 408;
 const HTTP_QUOTA = 429;
-const HTTP_SERVER = 500;
-const HTTP_BAD_GATEWAY = 502;
-const HTTP_UNAVAILABLE = 503;
-const HTTP_GATEWAY_TIMEOUT = 504;
-
-const TRANSIENT_THROWN_RE =
-  /name resolution|dns|econnreset|econnrefused|etimedout|network|fetch failed|temporarily unavailable|socket|503|502|504/i;
-
-export function waitDefault(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-export function isTransientHttp(status: number): boolean {
-  return (
-    status === HTTP_TIMEOUT ||
-    status === HTTP_QUOTA ||
-    status === HTTP_SERVER ||
-    status === HTTP_BAD_GATEWAY ||
-    status === HTTP_UNAVAILABLE ||
-    status === HTTP_GATEWAY_TIMEOUT
-  );
-}
-
-export function isTransientThrown(err: unknown): boolean {
-  if (isAbortError(err)) {
-    return false;
-  }
-  return TRANSIENT_THROWN_RE.test(String(err));
-}
-
-export function backoffMs(attempt: number): number {
-  return BACKOFF_MS[attempt] ?? BACKOFF_SECOND_MS;
-}
 
 export function withApiKey(init: RequestInit, apiKey: string): RequestInit {
   const headers = new Headers(init.headers);
@@ -75,31 +32,12 @@ interface FetchAttempt {
   slot: KeySlot;
   transport: GeminiTransport;
   tap: ProviderCompleteRequest['tapUpstream'];
-  attempt: number;
 }
 
 async function fetchWithBackoff(args: FetchAttempt): Promise<Response> {
-  const wait = args.transport.wait ?? waitDefault;
-  const send = tapFetch(args.tap, args.transport.fetch ?? fetch, args.slot);
-  try {
-    const last = await send(args.href, withApiKey(args.init, args.apiKey));
-    if (!isTransientHttp(last.status) || args.attempt === LAST_ATTEMPT) {
-      return last;
-    }
-    if (args.init.signal?.aborted) {
-      throw args.init.signal.reason instanceof Error
-        ? args.init.signal.reason
-        : new DOMException('The operation was aborted.', 'AbortError');
-    }
-    await wait(backoffMs(args.attempt));
-    return fetchWithBackoff({ ...args, attempt: args.attempt + 1 });
-  } catch (err) {
-    if (isAbortError(err) || !isTransientThrown(err) || args.attempt === LAST_ATTEMPT) {
-      throw networkError(err);
-    }
-    await wait(backoffMs(args.attempt));
-    return fetchWithBackoff({ ...args, attempt: args.attempt + 1 });
-  }
+  const tapped = tapFetch(args.tap, args.transport.fetch ?? fetch, args.slot);
+  const send = networkFetch(retryTransient(tapped, args.transport.wait));
+  return await send(args.href, withApiKey(args.init, args.apiKey));
 }
 
 /**
@@ -118,7 +56,7 @@ export async function fetchGemini(
   parsed.searchParams.delete('key');
   const href = parsed.toString();
   const primary = requireKey(transport.vault, slot);
-  const first = { href, init, transport, tap, attempt: 0 };
+  const first = { href, init, transport, tap };
   let last = await fetchWithBackoff({ ...first, apiKey: primary, slot });
   const fallback = fallbackKey(fallbackSlot, transport.vault, primary);
   if (last.status === HTTP_QUOTA && fallback) {

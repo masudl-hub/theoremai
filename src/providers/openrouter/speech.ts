@@ -10,10 +10,10 @@ import { bytesToBase64 } from '../../kernel/util/base64.ts';
 import { mimeEssence } from '../../kernel/util/mime.ts';
 import { pcmFormatFromMime, wrapPcmAsWav } from '../shared/pcm.ts';
 import { networkFetch } from '../shared/upstream-tap.ts';
-import { bearerFetch } from '../shared/vault.ts';
 import type { OpenAiGatewayTransport } from '../types.ts';
 import { httpErrorEvent, openAiGatewayHeaders } from './openai/compat.ts';
 import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
+import { openRouterFetch } from './transport.ts';
 
 const HTTP_OK = 200;
 
@@ -69,7 +69,7 @@ export async function requestSpeech(
   req: ProviderCompleteRequest,
   config: SpeechProviderConfig,
 ): Promise<Response> {
-  const fetchFn = bearerFetch(req, networkFetch(config.fetch ?? fetch), config.vault, apiKey);
+  const fetchFn = networkFetch(openRouterFetch(req, config, apiKey));
   const baseUrl = config.baseUrl?.replace(/\/+$/, '') ?? 'https://openrouter.ai/api/v1';
   const url = `${baseUrl}/audio/speech`;
   return await fetchFn(url, {

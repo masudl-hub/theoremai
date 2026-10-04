@@ -67,6 +67,30 @@ Deno.test('streamSpeech handles HTTP error from speech endpoint', async () => {
   assertEquals((events[0] as { errorKind: string }).errorKind, 'auth');
 });
 
+Deno.test('streamSpeech backs off a network failure, then reads the audio', async () => {
+  let tries = 0;
+  const mockFetch: typeof fetch = () => {
+    tries++;
+    return tries === 1
+      ? Promise.reject(new TypeError('fetch failed'))
+      : Promise.resolve(
+          new Response(new Uint8Array([1, 2]), { headers: { 'Content-Type': 'audio/mpeg' } }),
+        );
+  };
+  const events = await Array.fromAsync(
+    streamSpeech(createMockSpeechRequest('Hello world'), {
+      vault: { slot_a: 'test-key' },
+      fetch: mockFetch,
+      wait: () => Promise.resolve(),
+    }),
+  );
+  assertEquals(tries, 2);
+  assertEquals(
+    events.map((event) => event.type),
+    ['media', 'done'],
+  );
+});
+
 Deno.test('streamSpeech yields error when response is empty', async () => {
   const req = createMockSpeechRequest('Hello world');
   const mockFetch: typeof fetch = () =>

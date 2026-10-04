@@ -38,8 +38,8 @@ Owns every module under `src/providers/`.
 | `google/live/mod.ts` | Live subpath barrel |
 | `google/grounding.ts` | Google grounding → `grounding` events for Interactions and Live: one source shape, one dedupe |
 | `google/keys.ts` | Gemini fetch with backoff and the fallback retry |
-| `openrouter/transport.ts` | Every OpenRouter call's fetch: bearer key, backoff per key, then the fallback retry |
-| `shared/retry.ts` | Transient backoff for Google and OpenRouter (see Retries) |
+| `openrouter/transport.ts` | OpenRouter image and speech fetch: bearer key, backoff per key, then the fallback retry |
+| `shared/retry.ts` | Transient backoff for Google and OpenRouter image and speech (see Retries) |
 | `shared/vault.ts` | Reads a slot from the vault; bearer fetch with the fallback retry |
 | `google/urls.ts` | Interactions API endpoint constants |
 | `local/local.ts` | OpenAI-compat SSE for Ollama / llama.cpp / vLLM / LM Studio |
@@ -147,7 +147,7 @@ the model or profile names in `key`.
 | `baseUrl` | Optional API base override |
 | `siteUrl` / `siteName` | Optional HTTP-Referer / X-Title style metadata |
 | `fetch` | Optional custom fetch |
-| `wait` | Optional backoff wait (see Retries) |
+| `wait` | Optional backoff wait for image and speech (see Retries) |
 | `voice` | Optional fallback when `outputs.speech.voice` omitted |
 
 Chat and speech requests use `ProviderCompleteRequest.apiId` on the wire — same
@@ -396,17 +396,19 @@ provider the model calls. `runDecision` and the decision handler take the same
 
 ### Retries
 
-Every Google and OpenRouter HTTP call (chat, image, speech) makes up to three
-tries (`retryTransient`, `src/providers/shared/retry.ts`). A 408, 429, 500, 502,
-503 or 504, or a network failure, waits the response's `retry-after-ms` or
+Google and OpenRouter image and speech calls make up to three tries
+(`retryTransient`, `src/providers/shared/retry.ts`). A 408, 429, 500, 502, 503
+or 504, or a network failure, waits the response's `retry-after-ms` or
 `Retry-After` when it asks for at most a minute, else 1s then 2s; an abort ends
 the wait. After the third try the answer or error goes back as it came. Each try
-is a span. The AI SDK's own retries are off (`maxRetries: 0`), so OpenRouter chat
-backs off the same way. `wait` (`gemini.wait`, `openAiGateway.wait`) replaces the
-timer, and is given the call's abort signal. A local model is not retried.
+is a span. `wait` (`gemini.wait`, `openAiGateway.wait`) replaces the timer, and is
+given the call's abort signal. OpenRouter chat keeps the AI SDK's own retries
+(`maxRetries` unset: three tries, 2s then 4s, `Retry-After` under a minute),
+which `wait` does not reach. A local model is not retried.
 
-A quota refusal, once the backoff is spent, retries once on the fallback slot
-when the profile names one and the vault holds a different key there. Over HTTP (a 429: `fetchGemini` for
+A quota refusal retries once on the fallback slot when the profile names one
+and the vault holds a different key there: on Google and OpenRouter image and
+speech once the backoff is spent, on OpenRouter chat within each AI SDK try. Over HTTP (a 429: `fetchGemini` for
 Google, `bearerFetch` for OpenRouter and local), each try's span names its
 `theorem.key_slot`. A Live setup refused for quota (`openGoogleLiveSession`) is
 tapped as a `ws_fallback` row; the session trace records

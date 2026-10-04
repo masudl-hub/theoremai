@@ -6,6 +6,7 @@ import {
   jsonSchema,
   type LanguageModelUsage,
   type ModelMessage,
+  RetryError,
   StreamProviderError,
   streamText,
   type TextStreamPart,
@@ -36,13 +37,13 @@ import { foldResponse } from '../shared/response-identity.ts';
 import { structuredEvent } from '../shared/structured-output.ts';
 import { malformedToolCall, toolCallEvents } from '../shared/tool-args.ts';
 import { networkError } from '../shared/upstream-tap.ts';
+import { bearerFetch } from '../shared/vault.ts';
 import type { OpenAiGatewayTransport } from '../types.ts';
 import { cacheControlJson } from './cache-control.ts';
 import { openAiGatewayHeaders, resolveResponseFormat } from './openai/compat.ts';
 import { buildAiSdkMessages } from './openai/sdk-messages.ts';
 import { openAiResponse, openAiUsageTokens } from './openai/usage.ts';
 import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
-import { openRouterFetch } from './transport.ts';
 
 export interface StreamAccumulator {
   text: string;
@@ -425,7 +426,8 @@ function createStreamContext(
     apiKey,
     baseURL: config.baseUrl,
     headers: openAiGatewayHeaders(config),
-    fetch: openRouterFetch(req, config, apiKey),
+    // The AI SDK retries internally; tapping its fetch tapes every try.
+    fetch: bearerFetch(req, config.fetch ?? fetch, config.vault, apiKey),
     compatibility: 'strict',
   });
   return {
@@ -476,8 +478,6 @@ function streamTextOptions(
     providerOptions: providerOptionsFor(req),
     include: { rawChunks: true },
     abortSignal: req.signal,
-    // openRouterFetch backs off on transient failures.
-    maxRetries: 0,
     onError: () => undefined,
   };
 }
@@ -574,6 +574,9 @@ async function* streamOpenRouter(
  * a reply the SDK could not read.
  */
 function sdkError(err: unknown): unknown {
+  if (RetryError.isInstance(err)) {
+    return sdkError(err.lastError);
+  }
   if (!AISDKError.isInstance(err)) {
     return err;
   }
@@ -591,7 +594,9 @@ function sdkError(err: unknown): unknown {
 
 /** A body that breaks mid-read arrives as a plain error, not an SDK one. */
 function streamPartError(error: unknown): unknown {
-  return AISDKError.isInstance(error) ? sdkError(error) : networkError(error);
+  return AISDKError.isInstance(error) || RetryError.isInstance(error)
+    ? sdkError(error)
+    : networkError(error);
 }
 
 export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOptions | undefined {

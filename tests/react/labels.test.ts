@@ -36,7 +36,7 @@ Deno.test('default lines format their values', () => {
   );
   assertEquals(t('@theorem.duration.seconds', { seconds: 3.2 }), '3.2s');
   assertEquals(t('@theorem.voice_note.remove', { name: 'voice.webm' }), 'Remove voice.webm');
-  assertEquals(t('@theorem.gate.tag.always_confirm'), 'always_confirm');
+  assertEquals(t('@theorem.tool.access.read-write'), 'Read and write');
   // Blank unless the host says how it handles the credential.
   assertEquals(t('@theorem.gate.auth.secret_note').trim(), '');
 });

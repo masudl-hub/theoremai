@@ -716,6 +716,7 @@ Deno.test('a tool compiles its activity labels, each placeholder checked against
   assertEquals(ok.customTools.find((tool) => tool.name === 'geocode_city')?.labels, {
     activity: 'Finding {name}',
     activityPast: 'Found {results.0.name}, {results.0.country_code}',
+    request: 'find {name}',
   });
   const issue = (activity: string, activityPast: string) => {
     const result = withLabels(activity, activityPast);
@@ -753,6 +754,32 @@ Deno.test('a tool compiles its activity labels, each placeholder checked against
   );
   assert(withLabels('Finding {{name}}', 'Found {results.length}, first {results.-1.name|none}').ok);
   assertEquals(issue(`Finding ${'x'.repeat(121)}`, 'Found it').field, 'activity');
+});
+
+Deno.test('a tool request label reads only the call input', () => {
+  const draft = createExampleDraft();
+  const withRequest = (request: string) =>
+    compilePlayground({
+      ...draft,
+      toolSpecs: draft.toolSpecs.map((tool) =>
+        tool.toolName === 'geocode_city' ? { ...tool, request } : tool,
+      ),
+    });
+  const ok = withRequest('find {name}');
+  assert(ok.ok);
+  assertEquals(
+    ok.customTools.find((tool) => tool.name === 'geocode_city')?.labels?.request,
+    'find {name}',
+  );
+  const refused = withRequest('find {results.0.name}');
+  assert(!refused.ok);
+  assertEquals(
+    { field: refused.issues[0].field, message: refused.issues[0].message },
+    {
+      field: 'request',
+      message: "{results.0.name} is not a field of this tool's input. Try {name}.",
+    },
+  );
 });
 
 Deno.test('an activity label follows nullable, union and referenced schemas', () => {

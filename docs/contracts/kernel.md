@@ -587,6 +587,12 @@ at 40 characters; numbers keep at most two decimals. The `running` phase carries
 the input and output. When a placeholder has no such value, the phase carries no
 label and the transcript names the tool in words instead.
 
+`labels.request` says what a gated call would do, as the rest of "@agent wants
+to …": `'check the weather in {city}'`. The kernel fills it from the input onto
+the gate (`ToolGate.request`) of a permission or confirmation gate, beside the
+tool's `access`; the approval card names the tool in words when the request is
+unset or a placeholder has no value.
+
 Builtins (`type: 'builtin'`) are provider-native — kernel pins capabilities in
 `generation.builtins` but does not execute handlers.
 Function tools (`type: 'function'`) run host TypeScript handlers.

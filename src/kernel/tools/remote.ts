@@ -31,7 +31,7 @@ import {
   type McpSessionCache,
   mcpSessionKey,
 } from './mcp-sessions.ts';
-import { checkPermission } from './permission.ts';
+import { checkPermission, gateDetails } from './permission.ts';
 import { assertFixedEndpointOrigin } from './schema.ts';
 import { runPreToolPipeline, type ToolStageSupport } from './stage-run.ts';
 import type {
@@ -432,6 +432,7 @@ async function* remoteParseAndPermit(
     tool.permission,
     ctx.sessionPermissions,
     ctx.resume,
+    gateDetails(tool, started.data),
   );
   if (permissionGate) {
     return { ok: false, outcome: { kind: 'gated', gate: permissionGate } };

@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
+import type { ToolAccess } from '../schema.ts';
 import {
   type InjectUnit,
   runStage,
@@ -8,11 +9,12 @@ import {
   type StageResult,
   stageEventFields,
 } from '../stages.ts';
+import type { ToolGateBase } from '../turn-events.ts';
 import type { Profile, TurnEvent, TurnHistoryMessage } from '../types.ts';
 import { type ToolCallBase, toolEvent } from './events.ts';
-import { isGateResumeGranted } from './permission.ts';
+import { gateDetails, isGateResumeGranted } from './permission.ts';
 import { plainToolInput } from './schema.ts';
-import type { ModelToolResult, ToolContext, ToolFailure, ToolGate } from './types.ts';
+import type { ModelToolResult, ToolContext, ToolFailure, ToolGate, ToolLabels } from './types.ts';
 
 export interface ToolStageSupport {
   /** In order: request `onStage`, then turn/session ambient. */
@@ -66,6 +68,8 @@ export async function* runPreToolPipeline(args: {
   tool: {
     name: string;
     input: { safeParse: (value: unknown) => z.ZodSafeParseResult<unknown> };
+    access: ToolAccess;
+    labels?: ToolLabels;
     preTool?: (
       input: never,
       ctx: ToolContext,
@@ -92,6 +96,7 @@ export async function* runPreToolPipeline(args: {
     callId: base.callId,
     input: args.input,
     toolPreTool,
+    details: gateDetails(tool, args.input),
   });
   if (!pre.ok) {
     if (pre.kind === 'gated') yield toolEvent(base, { phase: 'gate', gate: pre.gate });
@@ -120,11 +125,12 @@ async function* runPreToolStages(args: {
   callId: string;
   input: unknown;
   toolPreTool?: StageResult | undefined;
+  details: Pick<ToolGateBase, 'access' | 'request'>;
 }): AsyncGenerator<
   TurnEvent,
   Exclude<PreBodyOutcome, { ok: true }> | { ok: true; input: unknown; mutated: boolean }
 > {
-  const { stages, toolName, callId, input, toolPreTool } = args;
+  const { stages, toolName, callId, input, toolPreTool, details } = args;
   const applied = yield* runStage({
     stage: 'pre_tool',
     step: stages.step,
@@ -156,6 +162,7 @@ async function* runPreToolStages(args: {
       kind: 'confirmation',
       tool: toolName,
       ...(applied.confirm.summary ? { summary: applied.confirm.summary } : {}),
+      ...details,
     };
     yield stageEventFields('pre_tool', { callId, toolName, callNotStarted: true, gate });
     return { ok: false, kind: 'gated', gate };

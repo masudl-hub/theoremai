@@ -10,7 +10,7 @@ import type { StructuredSpec } from '../src/kernel/types.ts';
 /** The kernel's auth config; the host's OAuth endpoints are never set from the playground. */
 export type PlaygroundToolAuth = Omit<ToolAuthConfig, 'preResolved'>;
 
-export type PlaygroundToolLabels = Pick<ToolLabels, 'activity' | 'activityPast'>;
+export type PlaygroundToolLabels = Pick<ToolLabels, 'activity' | 'activityPast' | 'request'>;
 
 export type StructuredRegistration = {
 	id: string;

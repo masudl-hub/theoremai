@@ -560,7 +560,7 @@ function TraceList({ items, streaming }: { items: readonly TraceItem[]; streamin
 	return <VStack gap={2}>{rows}</VStack>;
 }
 
-function GateCard({ block, handlers }: { block: ToolBlock; handlers: BlockHandlers }) {
+function GateCard({ block, handle, handlers }: { block: ToolBlock; handle: string; handlers: BlockHandlers }) {
 	const { tool } = block;
 	if (tool.state?.phase !== 'gate') return null;
 	const { gate } = tool.state;
@@ -580,6 +580,7 @@ function GateCard({ block, handlers }: { block: ToolBlock; handlers: BlockHandle
 		<ApprovalCard
 			gate={gate}
 			toolName={tool.name}
+			agent={handle}
 			input={tool.arguments}
 			decided={answer === 'auth' ? null : answer}
 			onDecision={(action) => handlers.onToolDecision?.(index, action)}
@@ -664,7 +665,7 @@ function AssistantTurn(props: {
 			<VStack gap={3} width="100%">
 				<TurnStatus status={status} trace={trace} hasTrace={hasTrace} streaming={props.streaming} />
 				{gatedTools.map((block) => (
-					<GateCard key={block.id} block={block} handlers={props.handlers} />
+					<GateCard key={block.id} block={block} handle={props.handle} handlers={props.handlers} />
 				))}
 				{rows.map((row, i) => (
 					<BodyRowView

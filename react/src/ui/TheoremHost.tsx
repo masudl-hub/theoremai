@@ -83,7 +83,7 @@ function ToolTokens({ tool }: { tool: HostToolView }) {
 		<HStack gap={1} wrap="wrap">
 			<Token label={t(`@theorem.host.kind.${tool.kind}`)} size="sm" color="gray" />
 			{tool.access === 'read-only' ? null : (
-				<Token label={t(`@theorem.host.access.${tool.access}`)} size="sm" color={tool.access === 'destructive' ? 'red' : 'orange'} />
+				<Token label={t(`@theorem.tool.access.${tool.access}`)} size="sm" color={tool.access === 'destructive' ? 'red' : 'orange'} />
 			)}
 		</HStack>
 	);

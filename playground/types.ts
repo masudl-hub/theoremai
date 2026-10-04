@@ -22,6 +22,7 @@ export type PlaygroundToolSpecSeed = {
   outputJson: string;
   activity?: string;
   activityPast?: string;
+  request?: string;
   stubOutputJson?: string;
   endpoint?: string;
   method?: HttpMethod;

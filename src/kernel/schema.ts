@@ -1399,6 +1399,13 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     ),
     unset: 'The tool name, in words',
   },
+  'labels.request': {
+    ...field(
+      'string',
+      "What the approval card says the agent wants to do, e.g. 'check the weather in {city}'. Each {path} is filled from the call's input.",
+    ),
+    unset: 'The tool name, in words',
+  },
   paths: {
     ...field(
       'string[]',

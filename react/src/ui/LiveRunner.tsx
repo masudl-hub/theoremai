@@ -167,7 +167,10 @@ function LiveRunnerBody({ iface, connection, trace }: Pick<LiveRunnerProps, 'ifa
 					}
 				/>
 			</WithTrace>
-			<LiveToolGateDialog prompt={model.gatePrompt} onResolve={model.resolveGateDecision} />
+			<LiveToolGateDialog
+				prompt={model.gatePrompt}
+				agent={t('@theorem.agent.handle', { handle: model.handle })}
+				onResolve={model.resolveGateDecision} />
 		</>
 	);
 }
@@ -486,9 +489,11 @@ function LiveVideoPreview({ video, facingMode }: { video: HTMLVideoElement; faci
 /** Tool approvals and credential prompts, as a dialog that must be answered. */
 function LiveToolGateDialog({
 	prompt,
+	agent,
 	onResolve,
 }: {
 	prompt: LiveToolGatePrompt | null;
+	agent: string;
 	onResolve: (resolution: ToolGateResolution) => void;
 }) {
 	return (
@@ -514,6 +519,7 @@ function LiveToolGateDialog({
 					<ApprovalCard
 						gate={prompt.gate}
 						toolName={prompt.gate.tool}
+						agent={agent}
 						input={prompt.input}
 						onDecision={(action) => {
 							onResolve({ action });

@@ -23,8 +23,10 @@ import {
   type Provider,
   STAGE_APPLY_WARNING_CODES,
   type StageApplyWarningCode,
+  TOOL_ACCESS,
   TOOL_AUTH_TYPES,
   TOOL_PERMISSION,
+  type ToolAccess,
   type ToolAuthType,
   type ToolPermission,
   TURN_STAGES,
@@ -445,16 +447,23 @@ const toolAuthChallenge = z.object({
 });
 true satisfies Equals<z.infer<typeof toolAuthChallenge>, ToolAuthChallenge>;
 
-/** Fields every gate carries. `tool` and `summary` are trimmed and never blank. */
+/**
+ * Fields every gate carries. `tool`, `summary` and `request` are trimmed and never blank.
+ * `request` is the tool's `labels.request` filled from the call's input; `access` is the tool's.
+ */
 export interface ToolGateBase {
   tool: string;
   permission?: ToolPermission;
   summary?: string;
+  request?: string;
+  access?: ToolAccess;
 }
 const toolGateBase = {
   tool: nonEmptyText,
   permission: z.enum(TOOL_PERMISSION).optional(),
   summary: nonEmptyText.optional(),
+  request: nonEmptyText.optional(),
+  access: z.enum(TOOL_ACCESS).optional(),
 };
 
 /**

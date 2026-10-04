@@ -7,9 +7,9 @@ React projection of the headless interface (`@theoremjs/agents/interface`) — r
 ```bash
 npm install @theoremjs/react @theoremjs/agents zod react react-dom
 # for the chat and live UI (`/ui`, `/live`):
-npm install @astryxdesign/core@0.6.3 @stylexjs/stylex@0.19.0
+npm install @astryxdesign/core@0.6.5 @stylexjs/stylex@0.19.0
 # only to build your own theme from the Theorem one (`/ui/theme`):
-npm install @astryxdesign/theme-neutral@0.6.3
+npm install @astryxdesign/theme-neutral@0.6.5
 ```
 
 Published to npm only: the package ships built JavaScript, declarations and

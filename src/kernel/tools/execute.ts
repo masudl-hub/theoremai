@@ -37,6 +37,7 @@ import {
 import { formatToolFailureForModel, formatToolResult } from './model-text.ts';
 import {
   checkPermission,
+  gateDetails,
   isGateResumeDenied,
   isGateResumeGranted,
   isResumeContinuation,
@@ -601,6 +602,7 @@ export async function* executeFunction(
     tool.permission,
     ctx.sessionPermissions,
     ctx.resume,
+    gateDetails(tool, input),
   );
   if (permissionGate) {
     yield* emitGateSettlement({

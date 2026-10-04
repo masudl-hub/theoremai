@@ -5,28 +5,20 @@ import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Collapsible } from '@astryxdesign/core/Collapsible';
 import { Heading } from '@astryxdesign/core/Heading';
 import { HStack } from '@astryxdesign/core/HStack';
+import { Icon } from '@astryxdesign/core/Icon';
 import { Text } from '@astryxdesign/core/Text';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
+import { type Icon as TablerIcon, IconEye, IconFlame, IconPencil } from '@tabler/icons-react';
 import { useCallback, useEffect, useState } from 'react';
-import type { ToolGate } from '@theoremjs/agents/kernel';
+import type { ToolAccess, ToolGate } from '@theoremjs/agents/kernel';
 import { isOAuthComplete } from '../client/oauth-popup.ts';
 import type { ToolDecisionAction } from '../client/tool-resume.ts';
-import type { LabelText } from './labels.ts';
+import { approvalHeading } from './approval-heading.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 
 export type ToolDecision = ToolDecisionAction;
-
-/** What an approval means is the tool registrant's call: `session_consent` lasts the session. */
-function decisionLabel(t: LabelText, decision: ToolDecision, gate: ToolGate): string {
-	if (decision === 'deny') return t('@theorem.gate.approval.denied');
-	return t(
-		gate.permission === 'session_consent'
-			? '@theorem.gate.approval.approved_session'
-			: '@theorem.gate.approval.approved_once',
-	);
-}
 
 function formatInput(value: unknown): string {
 	if (typeof value === 'string') return value;
@@ -48,11 +40,31 @@ function CardHeader(props: { badge: string; title: string; toolName: string; tag
 	);
 }
 
+const ACCESS_ICON: Record<ToolAccess, TablerIcon> = {
+	'read-only': IconEye,
+	'read-write': IconPencil,
+	destructive: IconFlame,
+};
+
+function ToolAccessTag({ access }: { access: ToolAccess }) {
+	const t = useLabels();
+	return (
+		<HStack gap={1} align="center">
+			<Icon icon={ACCESS_ICON[access]} size="sm" color={access === 'destructive' ? 'error' : 'secondary'} />
+			<Text type="supporting" textWrap="nowrap">
+				{t(`@theorem.tool.access.${access}`)}
+			</Text>
+		</HStack>
+	);
+}
+
 export type ApprovalCardProps = {
 	gate: ToolGate;
 	toolName: string;
+	/** The agent asking, as its name is shown (`@concierge`); the heading names it. */
+	agent?: string;
 	input?: unknown;
-	/** The decision on its way; it shows in place of the buttons until the gate settles, or they return. */
+	/** The decision on its way; its button shows loading and the other is disabled until the gate settles. */
 	decided?: ToolDecision | null;
 	onDecision?: (action: ToolDecision) => void;
 };
@@ -65,33 +77,41 @@ export function ApprovalCard(props: ApprovalCardProps) {
 	);
 }
 
-function ApprovalBody({ gate, toolName, input, decided = null, onDecision }: ApprovalCardProps) {
+function ApprovalBody({ gate, toolName, agent, input, decided = null, onDecision }: ApprovalCardProps) {
 	const t = useLabels();
 	const args = formatInput(input);
 
 	return (
-		<Card padding={4}>
+		<Card elevation="low" maxWidth={400}>
 			<VStack gap={3}>
-				<CardHeader
-					badge={t('@theorem.gate.approval.badge')}
-					title={t('@theorem.gate.approval.title')}
-					toolName={toolName}
-					tag={t(`@theorem.gate.tag.${gate.permission ?? gate.kind}`)}
-				/>
-				{gate.summary ? <Text>{gate.summary}</Text> : null}
+				<HStack justify="between" align="start" gap={3}>
+					<Text type="large" weight="semibold">
+						{approvalHeading(t, gate, toolName, agent)}
+					</Text>
+					{gate.access ? <ToolAccessTag access={gate.access} /> : null}
+				</HStack>
+				{gate.summary ? <Text color="secondary">{gate.summary}</Text> : null}
 				{args ? (
-					<Collapsible trigger={<Text size="sm">{t('@theorem.gate.approval.input')}</Text>}>
+					<Collapsible defaultIsOpen={false} trigger={<Text type="supporting">{t('@theorem.gate.approval.input')}</Text>}>
 						<CodeBlock code={args} language="json" size="sm" />
 					</Collapsible>
 				) : null}
-				{decided === null ? (
-					<HStack gap={2} justify="end">
-						<Button label={t('@theorem.gate.approval.deny')} variant="ghost" onClick={() => onDecision?.('deny')} />
-						<Button label={t('@theorem.gate.approval.approve')} variant="primary" onClick={() => onDecision?.('allow')} />
-					</HStack>
-				) : (
-					<Badge variant={decided === 'deny' ? 'error' : 'success'} label={decisionLabel(t, decided, gate)} />
-				)}
+				<HStack gap={2} justify="end">
+					<Button
+						label={t('@theorem.gate.approval.deny')}
+						variant="ghost"
+						isLoading={decided === 'deny'}
+						isDisabled={decided === 'allow'}
+						onClick={() => onDecision?.('deny')}
+					/>
+					<Button
+						label={t('@theorem.gate.approval.approve')}
+						variant="primary"
+						isLoading={decided === 'allow'}
+						isDisabled={decided === 'deny'}
+						onClick={() => onDecision?.('allow')}
+					/>
+				</HStack>
 			</VStack>
 		</Card>
 	);

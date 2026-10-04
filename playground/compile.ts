@@ -538,8 +538,9 @@ function toolLabels(
   const schemas = {
     activity: { input: common.inputSchema },
     activityPast: { input: common.inputSchema, output: common.outputSchema },
+    request: { input: common.inputSchema },
   };
-  for (const field of ['activity', 'activityPast'] as const) {
+  for (const field of ['activity', 'activityPast', 'request'] as const) {
     const label = tool[field]?.trim();
     if (!label) continue;
     if (label.length > MAX_ACTIVITY_LABEL_CHARS) {

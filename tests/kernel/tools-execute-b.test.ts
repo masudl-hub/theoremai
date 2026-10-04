@@ -320,7 +320,12 @@ Deno.test('a pre_tool abort or confirmation settles before the body, naming what
   check(
     bare(gated.settlement),
     {
-      gated: { kind: 'confirmation', tool: 'xb_pre_confirm', summary: 'Really?' },
+      gated: {
+        kind: 'confirmation',
+        tool: 'xb_pre_confirm',
+        summary: 'Really?',
+        access: 'read-only',
+      },
       callNotStarted: true,
     },
     'confirmation',
@@ -668,7 +673,12 @@ Deno.test('a tool that needs confirmation gates with the permission, without run
   check(
     bare(settlement),
     {
-      gated: { kind: 'permission', tool: 'xb_confirm_perm', permission: 'always_confirm' },
+      gated: {
+        kind: 'permission',
+        tool: 'xb_confirm_perm',
+        permission: 'always_confirm',
+        access: 'read-only',
+      },
       callNotStarted: true,
     },
     'settlement',
@@ -968,7 +978,12 @@ Deno.test('a remote body settles by its outcome: a result, a failure, an abort o
   check(
     bare(perm.settlement),
     {
-      gated: { kind: 'permission', tool: 'xb_http_perm', permission: 'always_confirm' },
+      gated: {
+        kind: 'permission',
+        tool: 'xb_http_perm',
+        permission: 'always_confirm',
+        access: 'read-only',
+      },
       callNotStarted: true,
     },
     'permission gate',
@@ -985,7 +1000,12 @@ Deno.test('a remote body settles by its outcome: a result, a failure, an abort o
   check(
     bare(confirm.settlement),
     {
-      gated: { kind: 'confirmation', tool: 'xb_http_confirm', summary: 'Sure?' },
+      gated: {
+        kind: 'confirmation',
+        tool: 'xb_http_confirm',
+        summary: 'Sure?',
+        access: 'read-only',
+      },
       callNotStarted: true,
     },
     'confirmation gate',

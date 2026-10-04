@@ -55,6 +55,7 @@
       "stryker.guardrails-targeted.config.json",
       "stryker.guardrails.config.json",
       "stryker.tools.config.json",
+      "stryker.*.json",
       "stryker.log",
       ".stryker-tmp/",
       ".stryker-cache/",

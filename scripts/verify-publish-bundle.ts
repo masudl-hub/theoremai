@@ -43,6 +43,8 @@ const ARTIFACT_FILES = [
   '.snyk',
 ] as const;
 
+const ARTIFACT_GLOBS = ['stryker.*.json'] as const;
+
 /** Repo-maintainer markdown that must stay out of JSR / npm publish. */
 const REPO_DOC_GLOBS = ['src/**/*.md'] as const;
 
@@ -81,6 +83,9 @@ function assertPublishExcludeCoversArtifacts(exclude: Set<string>): void {
   }
   for (const file of ARTIFACT_FILES) {
     if (!normalized.has(file)) missing.push(file);
+  }
+  for (const glob of ARTIFACT_GLOBS) {
+    if (!normalized.has(glob)) missing.push(glob);
   }
   for (const glob of REPO_DOC_GLOBS) {
     if (![...normalized].includes(glob)) missing.push(glob);

@@ -20,7 +20,7 @@ import {
   promoteLoadedTools,
   resolveTurnTools,
 } from '../../src/kernel/tools/resolve.ts';
-import { validateToolInputSchema } from '../../src/kernel/tools/schema.ts';
+import { validateToolSchema } from '../../src/kernel/tools/schema.ts';
 import type { ToolContext, ToolLoadContext } from '../../src/kernel/tools/types.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
@@ -1079,15 +1079,15 @@ Deno.test('invalid handler output and throws surface failure codes', async () =>
   assertEquals(failureOf(lastTool(threw, 'throwing_handler_probe'))?.code, 'handler_error');
 });
 
-Deno.test('validateToolInputSchema rejects Gemini-unsupported keys', () => {
+Deno.test('validateToolSchema checks structure and leaves provider keywords to the provider', () => {
+  validateToolSchema(
+    { type: 'object', properties: { n: { type: 'number' } }, additionalProperties: false },
+    'input',
+  );
   assertThrows(
-    () =>
-      validateToolInputSchema({
-        type: 'object',
-        properties: { n: { type: 'number' } },
-        additionalProperties: false,
-      }),
+    () => validateToolSchema({ type: 'object', properties: {}, required: ['toString'] }, 'input'),
     TheoremError,
+    "required key 'toString' missing from properties",
   );
 });
 

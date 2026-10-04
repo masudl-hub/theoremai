@@ -4,12 +4,7 @@ import type { Profile, ProfileId } from '../types.ts';
 import { activityLabelProblem } from './activity-label.ts';
 import { agentToolInput, agentToolOutput, normalizeAgent } from './agent.ts';
 import { createMcpSessionCache, type McpSessionCache } from './mcp-sessions.ts';
-import {
-  assertFixedEndpointOrigin,
-  jsonSchemaFromZod,
-  validateToolInputSchema,
-  validateToolOutputSchema,
-} from './schema.ts';
+import { assertFixedEndpointOrigin, jsonSchemaFromZod, validateToolSchema } from './schema.ts';
 import type {
   FunctionToolDef,
   HttpToolDef,
@@ -27,9 +22,9 @@ function schemasFromZod<TIn, TOut>(def: {
   labels?: ToolLabels;
 }) {
   const inputSchema = jsonSchemaFromZod(def.input, 'input');
-  validateToolInputSchema(inputSchema);
+  validateToolSchema(inputSchema, 'input');
   const outputSchema = jsonSchemaFromZod(def.output, 'output');
-  validateToolOutputSchema(outputSchema);
+  validateToolSchema(outputSchema, 'output');
   const labels = {
     activity: { input: inputSchema },
     activityPast: { input: inputSchema, output: outputSchema },
@@ -110,6 +105,7 @@ function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
   return normalizeFunction(def);
 }
 
+/** The tools a scope has registered: register, look up and list them, find a profile for agent tools, and reset. */
 interface ToolRegistry {
   /** Replaces a tool of the same name. */
   register<TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>): RegisteredTool<TIn, TOut>;

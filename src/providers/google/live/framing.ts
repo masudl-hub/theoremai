@@ -28,7 +28,6 @@ import { groundingFromLiveMetadata } from '../grounding.ts';
 import { assertGoogleThinkingLevel } from '../thinking.ts';
 import { GEMINI_LIVE_WS_URL } from '../urls.ts';
 import { byModality, modalityCounts } from '../usage.ts';
-import { toGeminiOpenApiSchema } from './openapi-schema.ts';
 
 export function buildGeminiLiveWebSocketUrl(apiKey: string): string {
   return `${GEMINI_LIVE_WS_URL}?key=${encodeURIComponent(apiKey)}`;
@@ -40,16 +39,13 @@ export function buildGeminiLiveWebSocketUrl(apiKey: string): string {
  */
 const LIVE_FUNCTION_BEHAVIOR = 'NON_BLOCKING';
 
+/** `parametersJsonSchema` takes the JSON Schema as it is; `parameters` takes only Google's OpenAPI subset. */
 export function wireFunctionDeclaration(decl: WireFunctionTool): Record<string, unknown> {
-  const parameters = toGeminiOpenApiSchema(decl.parameters);
   return {
     name: decl.name,
     description: decl.description,
     behavior: LIVE_FUNCTION_BEHAVIOR,
-    parameters:
-      parameters && typeof parameters === 'object'
-        ? (parameters as Record<string, unknown>)
-        : { type: 'OBJECT', properties: {} },
+    parametersJsonSchema: decl.parameters ?? { type: 'object', properties: {} },
   };
 }
 

@@ -162,10 +162,8 @@ async function evaluateEgressOutcome(args: {
   };
 }
 
-type ValidationOutcome =
-  | { action: 'pass' }
-  | { action: 'retry'; nextRequest: TurnRequest }
-  | { action: 'accept'; event: TurnEvent };
+/** Out of retries, the last attempt goes out as it is, the same way a pass does. */
+type ValidationOutcome = { action: 'pass' } | { action: 'retry'; nextRequest: TurnRequest };
 
 async function evaluateValidationOutcome(args: {
   validation: NonNullable<ProfileOutputsSpec['validation']>;
@@ -191,18 +189,15 @@ async function evaluateValidationOutcome(args: {
     validation.fields,
     request.input?.slots,
   );
-  if (failures.length === 0) {
+  if (failures.length === 0 || !canRetry) {
     return { action: 'pass' };
   }
-  const error = formatValidationFailures(failures);
-  if (canRetry) {
-    const nextRequest = buildRepairRequest(request, latestStructured, error);
-    return { action: 'retry', nextRequest };
-  }
-  return {
-    action: 'accept',
-    event: { type: 'structured', structured: latestStructured },
-  };
+  const nextRequest = buildRepairRequest(
+    request,
+    latestStructured,
+    formatValidationFailures(failures),
+  );
+  return { action: 'retry', nextRequest };
 }
 
 function* yieldBufferedAttemptEvents(
@@ -300,14 +295,14 @@ async function* handleEgressGate(
   return 'pass';
 }
 
-async function* handleValidationGate(
+async function handleValidationGate(
   validation: NonNullable<ProfileOutputsSpec['validation']>,
   flow: AttemptFlowState,
   state: StepExecutionState,
   profile: Profile,
   latestStructured: unknown,
   maxRetries: number,
-): AsyncGenerator<TurnEvent, 'continue' | 'terminal' | 'pass'> {
+): Promise<'continue' | 'pass'> {
   const canRetry = flow.currentAttempt < maxRetries;
   const outcome = await evaluateValidationOutcome({
     validation,
@@ -321,11 +316,6 @@ async function* handleValidationGate(
     updateFlowForRetry(flow, state, profile, outcome.nextRequest, 'validation');
     return 'continue';
   }
-  if (outcome.action === 'accept') {
-    state.allEmittedEvents.push(outcome.event);
-    yield outcome.event;
-    return 'terminal';
-  }
   return 'pass';
 }
 
@@ -336,12 +326,9 @@ type AttemptStepAction =
       status: 'success';
     };
 
-function gateStatusToAction(
-  status: 'continue' | 'terminal' | 'pass',
-  terminalStatus: 'terminal' | 'success' = 'terminal',
-): AttemptStepAction | null {
+function gateStatusToAction(status: 'continue' | 'terminal' | 'pass'): AttemptStepAction | null {
   if (status === 'terminal') {
-    return { status: terminalStatus };
+    return { status: 'terminal' };
   }
   if (status === 'continue') {
     return { status: 'continue' };
@@ -421,14 +408,14 @@ async function* executeSingleAttemptCycle(args: {
 
   if (egress?.enforce) {
     const status = yield* handleEgressGate(egress, flow, state, profile, maxRetries);
-    const action = gateStatusToAction(status, 'terminal');
+    const action = gateStatusToAction(status);
     if (action) {
       return action;
     }
   }
 
   if (validation) {
-    const status = yield* handleValidationGate(
+    const status = await handleValidationGate(
       validation,
       flow,
       state,
@@ -436,9 +423,8 @@ async function* executeSingleAttemptCycle(args: {
       latestStructured,
       maxRetries,
     );
-    const action = gateStatusToAction(status, 'success');
-    if (action) {
-      return action;
+    if (status === 'continue') {
+      return { status: 'continue' };
     }
   }
 
@@ -446,7 +432,8 @@ async function* executeSingleAttemptCycle(args: {
     // Progressive-yield already released text and media live under egress — unless it
     // withheld them mid-stream. A passing final verdict on the full text supersedes
     // that partial-window decision, so the buffer is released instead of dropped.
-    yield* yieldBufferedAttemptEvents(state.attemptEvents, !state.withheldVisible);
+    const heldVisible = state.withheldVisible || validation?.holdUntilValid === true;
+    yield* yieldBufferedAttemptEvents(state.attemptEvents, !heldVisible);
   }
 
   return { status: 'success' };

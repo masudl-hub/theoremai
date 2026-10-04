@@ -98,8 +98,8 @@ export interface InvokeToolResume {
    */
   cause?: ToolResumeCause;
   /**
-   * For `granted: false`: the refused gate was a sign-in, so the model reads the `sign_in.*`
-   * note for its cause, naming the tool's `auth.service`.
+   * The gate answered was a sign-in. Granted, the model reads `sign_in.done` before the call's
+   * result; refused, the `sign_in.*` note for its cause. Both name the tool's `auth.service`.
    */
   signIn?: boolean;
   /** The user edited the arguments before approving; `from` is the model's proposed input. */

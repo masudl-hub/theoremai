@@ -146,6 +146,7 @@ export function coerceToolResultParts(raw: unknown): InteractionPart[] | undefin
   return parts.length > 0 ? parts : undefined;
 }
 
+/** A tool's output without its `parts` key, which carries media the model receives separately; any other value is returned as it is. */
 export function leanToolResultData(output: unknown): unknown {
   if (!isRecord(output)) return output;
   const { parts: _parts, ...rest } = output;
@@ -195,6 +196,7 @@ async function* runHandler<TIn, TOut>(
   return output;
 }
 
+/** What the model is told of a function tool's output: a fixed finding for a hidden tool, a finding plus the output for an awaiting-user result, otherwise the tool's own summary or finding and its data. */
 export function projectForModel(
   tool: FunctionToolDef,
   output: unknown,
@@ -493,10 +495,27 @@ function resultGuard(
   const policy = resolveGuardrailPolicy(ctx.profile.guardrails);
   const callableTools = snapshot?.executable ?? [];
   const inputs = { provenance, policy, callableTools, lexicon: ctx.profile.lexicon, span };
+  const service = isGateResumeGranted(ctx.resume) ? signInService(tool, ctx.resume) : undefined;
+  if (!service) {
+    return {
+      result: (result) => guardResult(result, inputs),
+      failure: (failure) => guardFailure(failure, inputs),
+    };
+  }
+  const note = lexiconText('sign_in.done', { service }, ctx.profile.lexicon);
   return {
-    result: (result) => guardResult(result, inputs),
-    failure: (failure) => guardFailure(failure, inputs),
+    result: (result) => afterSignIn(note, guardResult(result, inputs)),
+    failure: (failure) => afterSignIn(note, guardFailure(failure, inputs)),
   };
+}
+
+/** A call the person signed in for tells the model so before what it read back. */
+function* afterSignIn(
+  note: string,
+  guarded: Generator<TurnEvent, ModelToolResult>,
+): Generator<TurnEvent, ModelToolResult> {
+  const result = yield* guarded;
+  return { ...result, modelText: `${note}\n\n${formatToolResult(result)}` };
 }
 
 async function* runFunctionPreBodyStages(args: {
@@ -904,8 +923,8 @@ function turnReadBack({ modelResult }: ToolExecuteSettlement): ToolCallEnd['resu
     : undefined;
 }
 
-/** The service a refused sign-in names, from the tool's own auth config. */
-function refusedSignInService(tool: RegisteredTool, resume: ToolContext['resume']) {
+/** The service a sign-in gate's answer names, from the tool's own auth config. */
+function signInService(tool: RegisteredTool, resume: ToolContext['resume']) {
   if (!resume?.signIn || tool.type === 'builtin' || tool.type === 'agent') return undefined;
   return tool.auth?.service;
 }
@@ -939,7 +958,7 @@ function refusalFailure(
   resume: ToolContext['resume'],
   lexicon: LexiconOverrides | undefined,
 ): ToolFailure {
-  const service = refusedSignInService(tool, resume);
+  const service = signInService(tool, resume);
   const cause = resume?.cause ?? 'declined';
   if (cause === 'declined') {
     return {
@@ -984,6 +1003,7 @@ function toolCallEnd(
   };
 }
 
+/** Runs one registered tool call as a stream of turn events and returns how it settled; when `openSpan` is given the call is recorded as a tool span that ends with the outcome. */
 export async function* executeRegisteredTool(
   args: RegisteredToolCall,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {

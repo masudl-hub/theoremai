@@ -41,13 +41,22 @@ Deno.test('jsonSchemaFromZod preserves tool parameter shape for Zod 4 schemas', 
   });
 });
 
-Deno.test('jsonSchemaFromZod strips Gemini-unsupported JSON Schema keys', () => {
-  const schema = z.object({ id: z.string() });
-  const wire = jsonSchemaFromZod(schema, 'input');
+Deno.test('jsonSchemaFromZod keeps JSON Schema no single provider subset allows', () => {
+  const node: z.ZodType<unknown> = z.lazy(() =>
+    z.object({ name: z.string(), children: z.array(node).optional() }),
+  );
+  const wire = jsonSchemaFromZod(
+    z.object({ kind: z.literal('a'), note: z.string().nullable(), tree: node.optional() }),
+    'input',
+  );
 
-  assertEquals(Object.hasOwn(wire, 'additionalProperties'), false);
   assertEquals(Object.hasOwn(wire, '$schema'), false);
-  assertEquals(wire.properties, { id: { type: 'string' } });
+  assertEquals(wire.properties, {
+    kind: { type: 'string', const: 'a' },
+    note: { type: ['string', 'null'] },
+    tree: { allOf: [{ $ref: '#/definitions/__schema0' }] },
+  });
+  assertEquals(Object.keys(wire.definitions as object), ['__schema0']);
 });
 
 Deno.test('jsonSchemaFromZod input mode keeps defaulted tool args out of required', () => {

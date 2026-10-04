@@ -447,6 +447,23 @@ Deno.test('egress counts are non-negative integers', () => {
   }
 });
 
+Deno.test('validation retries are a non-negative integer and its hold a boolean', () => {
+  const validation = (v: Loose) => textProfile({ outputs: { structured: 's', validation: v } });
+  for (const bad of [-1, 1.5, Number.NaN]) {
+    check(
+      said(validation({ maxRetries: bad })),
+      'Profile p: outputs.validation.maxRetries must be a non-negative integer',
+      `maxRetries ${bad}`,
+    );
+  }
+  check(
+    said(validation({ holdUntilValid: 'yes' })),
+    'Profile p: outputs.validation.holdUntilValid must be a boolean',
+    'holdUntilValid string',
+  );
+  check(said(validation({ maxRetries: 2, holdUntilValid: true })), 'defined', 'valid');
+});
+
 Deno.test('observability must resolve to a finite retention and a positive rotation size', () => {
   const at = 'Profile p: observability';
   check(

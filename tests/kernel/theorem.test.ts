@@ -839,6 +839,113 @@ Deno.test('runTurn streams thought and text live while validation buffers struct
   assertDoneThenPostTurn(events);
 });
 
+Deno.test('holdUntilValid keeps a rewritten attempt off the host, and out of retries sends the last as it is', async () => {
+  const holdProfile = (id: string, maxRetries: number) =>
+    registerProfile({
+      type: 'text',
+      id,
+      identity: { handle: id },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: { allow: [] },
+      inputs: { text: true },
+      outputs: {
+        structured: 'validTurn',
+        validation: {
+          fields: {
+            code: (code: unknown) =>
+              code === 'good' ? { isValid: true } : { isValid: false, error: 'code must be good' },
+          },
+          maxRetries,
+          holdUntilValid: true,
+        },
+      },
+      guardrails: { quota: { perDay: 10 } },
+    });
+  holdProfile('holdUntilValidRetry', 1);
+  holdProfile('holdUntilValidSpent', 0);
+
+  let callCount = 0;
+  async function* mockComplete(): AsyncGenerator<TurnEvent> {
+    await Promise.resolve();
+    callCount++;
+    const code = callCount === 1 ? 'bad' : 'good';
+    yield { type: 'thought', text: `try ${callCount}` };
+    yield { type: 'text', text: `{"code":"${code}"}` };
+    yield { type: 'structured', structured: { code } };
+  }
+
+  const retried = await Array.fromAsync(
+    runTurn({ profile: 'holdUntilValidRetry', input: { text: 'go' } }, { complete: mockComplete }),
+  );
+  assertEquals(callCount, 2);
+  assertEquals(replyText(retried), '{"code":"good"}');
+  assertEquals(
+    eventsOf(retried, 'thought')
+      .map((e) => e.text)
+      .join(''),
+    'try 1try 2',
+  );
+  assertEquals(
+    eventsOf(retried, 'structured').map((e) => e.structured),
+    [{ code: 'good' }],
+  );
+  const types = retried.map((e) => e.type);
+  assertEquals(types.lastIndexOf('thought') < types.indexOf('text'), true);
+  assertDoneThenPostTurn(retried);
+
+  callCount = 0;
+  const spent = await Array.fromAsync(
+    runTurn({ profile: 'holdUntilValidSpent', input: { text: 'go' } }, { complete: mockComplete }),
+  );
+  assertEquals(callCount, 1);
+  assertEquals(replyText(spent), '{"code":"bad"}');
+  assertEquals(
+    eventsOf(spent, 'structured').map((e) => e.structured),
+    [{ code: 'bad' }],
+  );
+  assertDoneThenPostTurn(spent);
+});
+
+Deno.test('without holdUntilValid, a failed attempt streams and out of retries the last goes out once', async () => {
+  registerProfile({
+    type: 'text',
+    id: 'streamThenRetry',
+    identity: { handle: 'streamThenRetry' },
+    ...geminiModels('gemini35FlashLite'),
+    maxSteps: 1,
+    tools: { allow: [] },
+    inputs: { text: true },
+    outputs: {
+      structured: 'validTurn',
+      validation: {
+        fields: { code: () => ({ isValid: false, error: 'never good' }) },
+        maxRetries: 1,
+      },
+    },
+    guardrails: { quota: { perDay: 10 } },
+  });
+
+  let callCount = 0;
+  async function* mockComplete(): AsyncGenerator<TurnEvent> {
+    await Promise.resolve();
+    callCount++;
+    yield { type: 'text', text: `attempt ${callCount}. ` };
+    yield { type: 'structured', structured: { code: `v${callCount}` } };
+  }
+
+  const events = await Array.fromAsync(
+    runTurn({ profile: 'streamThenRetry', input: { text: 'go' } }, { complete: mockComplete }),
+  );
+  assertEquals(callCount, 2);
+  assertEquals(replyText(events), 'attempt 1. attempt 2. ');
+  assertEquals(
+    eventsOf(events, 'structured').map((e) => e.structured),
+    [{ code: 'v2' }],
+  );
+  assertDoneThenPostTurn(events);
+});
+
 Deno.test('runTurn retries when required field is missing', async () => {
   registerProfile({
     type: 'text',

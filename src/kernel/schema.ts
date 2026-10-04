@@ -936,7 +936,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'outputs.validation.maxRetries': field(
     'number',
-    "How many times the model may rewrite a reply that fails your checks or the schema's required keys before it goes out as it is; text already streamed stays. The larger of this and egress.maxRetries applies to both.",
+    "How many times the model may rewrite a reply that fails your checks or the schema's required keys before it goes out as it is; text already streamed stays unless holdUntilValid is on. The larger of this and egress.maxRetries applies to both.",
+  ),
+  'outputs.validation.holdUntilValid': field(
+    'boolean',
+    'Whether the reply text and media wait until the structured reply passes your checks, so a rewritten attempt never reaches the host; thinking still streams. Once retries run out, the last attempt goes out as it is.',
   ),
   'outputs.streaming': field(
     'ProfileStreamingSpec',

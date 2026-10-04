@@ -676,7 +676,7 @@ Deno.test('extractLiveUsageTokens adds tool-use prompt tokens to input and keeps
   );
 });
 
-Deno.test('wireFunctionDeclaration uppercases JSON Schema types for Gemini Live', () => {
+Deno.test('wireFunctionDeclaration sends the JSON Schema as it is, as parametersJsonSchema', () => {
   const wired = wireFunctionDeclaration({
     type: 'function',
     name: 'think_deeply',
@@ -691,11 +691,11 @@ Deno.test('wireFunctionDeclaration uppercases JSON Schema types for Gemini Live'
     },
   });
   assertEquals(wired.name, 'think_deeply');
-  assertEquals(wired.parameters, {
-    type: 'OBJECT',
+  assertEquals(wired.parametersJsonSchema, {
+    type: 'object',
     properties: {
-      question: { type: 'STRING' },
-      mode: { type: 'STRING', nullable: true },
+      question: { type: 'string' },
+      mode: { type: ['string', 'null'] },
     },
     required: ['question'],
   });

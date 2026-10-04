@@ -27,18 +27,43 @@ export interface PlaygroundRuntime {
   remoteTools?: boolean;
 }
 
+/** Where a run's tools may reach, from what the playground runs it on. */
+type RuntimeNetwork = 'public' | 'asWritten' | 'none';
+
+/** The parts of a runtime that decide its network. */
+export type NetworkRuntime = Pick<PlaygroundRuntime, 'mode' | 'remoteTools'> & {
+  providers?: { local?: unknown };
+};
+
 /**
- * Drops the draft's network exemptions. They are for the host the profile is
- * exported to; the playground's own server reaches public hosts only.
+ * The playground's own server drops the draft's network exemptions, which are for the host the
+ * profile is exported to. A local model with remote tools off reaches no host.
  */
-function withoutNetworkExemptions<G extends { network?: unknown }>(guardrails: G): G {
-  return { ...guardrails, network: undefined };
+function runtimeNetwork(runtime: NetworkRuntime): RuntimeNetwork {
+  if (runtime.mode === 'demo') return 'public';
+  return (runtime.mode === 'local' || runtime.providers?.local) && !runtime.remoteTools
+    ? 'none'
+    : 'asWritten';
+}
+
+const NETWORK_NOTES: Record<RuntimeNetwork, string> = {
+  public: "The playground's server reaches public hosts only.",
+  asWritten: 'Runs from this browser keep these rules as written.',
+  none: 'Remote tools are off, so tools reach no host.',
+};
+
+/** What the playground does with the Network section on `runtime`. */
+function playgroundNetworkNote(runtime: NetworkRuntime): string {
+  return NETWORK_NOTES[runtimeNetwork(runtime)];
 }
 
 /**
  * Once a turn has read a remote tool's result, a destructive call is refused: fetched text can't
  * steer the agent into deleting or overwriting. A draft that asks for stricter keeps it.
  */
+const PLAYGROUND_TAINT_NOTE =
+  "Playground runs refuse a destructive call once a turn has read a remote tool's result; a stricter setting is kept.";
+
 function withRemoteReadGate<G extends { taint?: { afterRemoteRead?: TaintGate } }>(
   guardrails: G,
 ): G {
@@ -53,11 +78,14 @@ function runtimeGuardrails<G extends { network?: unknown }>(
   guardrails: G,
   runtime: PlaygroundRuntime,
 ): G {
-  return runtime.mode === 'demo'
-    ? withoutNetworkExemptions(guardrails)
-    : (runtime.mode === 'local' || runtime.providers?.local) && !runtime.remoteTools
-      ? { ...guardrails, network: { allowedSchemes: [] } }
-      : guardrails;
+  switch (runtimeNetwork(runtime)) {
+    case 'public':
+      return { ...guardrails, network: undefined };
+    case 'none':
+      return { ...guardrails, network: { allowedSchemes: [] } };
+    case 'asWritten':
+      return guardrails;
+  }
 }
 
 function runtimeProfileDefinition(
@@ -134,3 +162,5 @@ export function playgroundScope(
     profile: registerDraft(scope, profile, customTools, structured, runtime),
   };
 }
+
+export { PLAYGROUND_TAINT_NOTE, playgroundNetworkNote };

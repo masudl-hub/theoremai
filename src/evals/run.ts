@@ -1,16 +1,3 @@
-/**
- * `runSuite`: every case, `repeat` times, graded from the trace. Live mode
- * runs the profile now through `runTurn` with the host's provider and grades
- * what the memory sink caught; recorded mode grades records a host already
- * has. Both build the same trials, so the same graders give the same results.
- *
- * Every trial's results become a `theorem.eval.trial` span in the judged
- * trace; the run becomes one `theorem.eval.run` record. Both go to the sink
- * the host names, or nowhere.
- *
- * @module
- */
-
 import { errorKind, TheoremError } from '../guardrails/error.ts';
 import { getProfile, runTurn } from '../kernel/default-scope.ts';
 import type { RunDecisionOptions } from '../kernel/engine/decision.ts';
@@ -39,101 +26,65 @@ import type {
 } from './types.ts';
 import { type CaseVerdict, caseVerdict, type TrialOutcome, trialOutcome } from './verdict.ts';
 
-/** How the eval stamps a live turn so recorded mode can match its record to the case. */
 interface EvalStamp {
   suite: string;
   case: string;
   trial: number;
 }
 
-/** A turn's whole length, root span start to end, its loop (model calls and tool calls), and why it stopped. */
 interface TurnShape {
   durationMs: number;
   modelCalls: number;
   toolCalls: number;
-  /** `theorem.stop.kind` on the root; absent when the turn recorded none. */
   stop?: string;
 }
 
-/** One trial as the run reports it, before and after it is written. */
 interface TrialReport {
   case?: EvalCase;
   index: number;
   outcome: TrialOutcome;
   results: EvalResult[];
-  /** The judged trace, when the turn produced one. */
   traceId?: string;
   records: TraceRecord[];
-  /** How long the turn took and how many times it looped, when it produced a trace. */
   turn?: TurnShape;
-  /** The kind of the error that stopped the turn before it had a trace, if any. */
   error?: string;
-  /** The turn's cost from its root, when it recorded one. */
   costUsd?: number;
-  /** The judge calls' summed cost, when a model grader ran and any judge recorded one. */
   judgeCostUsd?: number;
-  /** The turn and judge calls whose cost is unknown: none reported, or only part (`theorem.usage.cost_partial`). */
   unpriced: number;
-  /** The turn and judge calls that reported a cost, whole or part; a reported zero counts. */
   priced: number;
-  /** Every judge call's records, one trace per judge call. */
   judgeRecords: TraceRecord[];
-  /** The written `theorem.eval.trial` record, when there was a trace to hold it. */
   trialRecord?: TraceRecord;
 }
 
 interface RunSuiteOptions {
-  /** Live mode: the host's provider for the profile under test. */
   provider?: ModelProvider;
-  /** The provider for text judge profiles; default the suite's `judgeProvider` export, else `provider`. */
   judgeProvider?: ModelProvider;
-  /** The key for decision judge profiles (Jev); default the suite's `judgeDecision` export. */
   judgeDecision?: Omit<RunDecisionOptions, 'sink'>;
-  /** Where a judge finds media the trace names only by hash; default the suite's `media` export. */
   media?: EvalMediaResolver;
-  /** Recorded mode: the records to grade; live mode when absent. */
   recorded?: TraceRecord[];
-  /** Where trial and run records go. Absent: they are returned only. */
   sink?: TraceSink;
-  /**
-   * Stop starting trials once the summed cost (agent and judge) crosses this;
-   * the run record says `stopped: budget`. Calls with no reported cost add
-   * nothing, so the run warns when any ran.
-   */
   maxCostUsd?: number;
-  /** `repeat` override from the command line. */
   repeat?: number;
-  /** Live mode: trials in flight at once (default 1). Order of start and report is the suite's either way. */
   concurrency?: number;
-  /** `vcs.ref.head.revision` on the run record. */
   revision?: string;
   clock?: TraceClock;
-  /** Called after each trial is graded, for progress output. */
   onTrial?: (report: TrialReport) => void;
   signal?: AbortSignal;
 }
 
-/** What a run produced. */
 interface SuiteRun {
   suite: string;
   mode: 'live' | 'recorded';
   repeat: number;
-  /** What a case's trials must do for it to pass. */
   passRule: EvalPassRule;
   verdicts: CaseVerdict[];
   trials: TrialReport[];
-  /** Recorded mode: trials whose records carried no matching case. */
   caseless: TrialReport[];
-  /** Some case was decided, every decided case passed, and nothing stopped the run. */
   passed: boolean;
   stopped?: 'budget';
-  /** The summed cost of agent turns and judge calls, over every one that recorded a cost. */
   costUsd: number;
-  /** Agent turns and judge calls whose cost went unreported, in whole or part, so `costUsd` leaves it out. */
   unpriced: number;
-  /** Agent turns and judge calls that reported a cost, so `costUsd` is theirs even when it is zero. */
   priced: number;
-  /** Plain-language warnings for the host to print. */
   warnings: string[];
   run: TraceRecord;
 }
@@ -154,12 +105,7 @@ function stampOf(record: TraceRecord | undefined): EvalStamp | undefined {
   return { suite, case: caseId, trial };
 }
 
-/**
- * Grade one trial with every grader that applies, all at once; a grader that
- * throws yields `grader_error`. Judge records reach `context.traced` in grader
- * order once every grader is done, so a run writes the same records in the
- * same order whichever judge answered first.
- */
+/** Judge records reach `context.traced` in grader order once every grader is done, so a run writes the same records in the same order whichever judge answered first. */
 async function gradeTrial(
   graders: EvalGrader[],
   trial: Trial,
@@ -195,7 +141,6 @@ async function gradeTrial(
   return graded.map(({ result, graderIdentity }) => ({ result, graderIdentity }));
 }
 
-/** Every applicable grader's result as the error that kept the turn from producing a trace. */
 function erroredResults(
   graders: EvalGrader[],
   evalCase: EvalCase | undefined,
@@ -209,13 +154,11 @@ function erroredResults(
   }));
 }
 
-/** What model graders judge with: the suite's judge, the host's provider and key, each judge's policy. */
 interface Judging {
   suiteJudge?: string;
   provider?: ModelProvider;
   decision?: Omit<RunDecisionOptions, 'sink'>;
   media?: EvalMediaResolver;
-  /** Each judge profile a grader runs, by id, with the observability policy its records are written under. */
   policies: Map<string, ResolvedObservabilityPolicy>;
 }
 
@@ -237,7 +180,6 @@ function recordRoot(record: TraceRecord): TraceSpan | undefined {
   );
 }
 
-/** A record's root cost, and whether it is whole: absent or partial, some calls went unpriced. */
 function recordCost(record: TraceRecord): { usd?: number; whole: boolean } {
   const attributes = recordRoot(record)?.attributes;
   const cost = attributes?.['theorem.usage.cost_usd'];
@@ -245,13 +187,11 @@ function recordCost(record: TraceRecord): { usd?: number; whole: boolean } {
   return { usd: cost, whole: attributes?.['theorem.usage.cost_partial'] !== true };
 }
 
-/** The profile a record ran on (`gen_ai.agent.name` on its root). */
 function recordAgent(record: TraceRecord): string | undefined {
   const agent = recordRoot(record)?.attributes['gen_ai.agent.name'];
   return typeof agent === 'string' ? agent : undefined;
 }
 
-/** Build, grade and write one trial from the records of one trace. */
 async function gradeRecords(
   grading: Grading,
   evalCase: EvalCase | undefined,
@@ -353,7 +293,6 @@ async function turnRequest(
   };
 }
 
-/** Run one turn live; its records are what the memory sink caught. */
 async function runLiveTrial(
   grading: Grading,
   provider: ModelProvider,
@@ -375,7 +314,6 @@ async function runLiveTrial(
     thrown = error;
   }
   if (records.length > 0) {
-    // The turn's own records go to the host's sink too: a label points at a transcript someone can read.
     if (grading.sink) {
       for (const record of records) {
         await writeTrace(grading.sink, Promise.resolve(record), grading.policy);
@@ -398,12 +336,6 @@ async function runLiveTrial(
   };
 }
 
-/**
- * What the suite's model graders judge with. Each grader names its judge
- * profile (its own, else the suite's); a text judge needs a provider (the
- * option, else the suite's `judgeProvider` export, else the agent's), a
- * decision judge a key (the option, else the suite's `judgeDecision` export).
- */
 function judgingOf(loaded: LoadedSuite, options: RunSuiteOptions): Judging {
   const { suite } = loaded;
   const provider = options.judgeProvider ?? loaded.judgeProvider ?? options.provider;
@@ -468,12 +400,10 @@ function checkSuite(loaded: LoadedSuite, options: RunSuiteOptions): string[] {
   return warnings;
 }
 
-/** A trial's whole cost: the agent's turn and its judge turns. */
 function reportCost(report: TrialReport): number {
   return (report.costUsd ?? 0) + (report.judgeCostUsd ?? 0);
 }
 
-/** What either mode produced, before verdicts. */
 interface Ran {
   byCase: Map<string, TrialReport[]>;
   caseless: TrialReport[];
@@ -481,7 +411,6 @@ interface Ran {
   costUsd: number;
   unpriced: number;
   priced: number;
-  /** Recorded mode: records that were not turns to grade (judge calls, eval run records). */
   skipped?: { judge: number; other: number };
 }
 
@@ -493,14 +422,12 @@ function summedCalls(reports: TrialReport[], key: 'unpriced' | 'priced'): number
   return reports.reduce((sum, report) => sum + report[key], 0);
 }
 
-/** Recorded mode: each trace's records become one trial, matched to a case by its eval stamp. */
 async function gradeRecorded(grading: Grading, records: TraceRecord[]): Promise<Ran> {
   const byCase = new Map<string, TrialReport[]>();
   const caseless: TrialReport[] = [];
   const cases = new Map(grading.suite.cases.map((evalCase) => [evalCase.id, evalCase]));
   const skipped = { judge: 0, other: 0 };
   for (const [, group] of groupByTrace(records)) {
-    // A directory of eval traces holds judge calls (under their trial) and run records beside the turns; only turns are trials.
     const traceRecords = group.filter((record) => !isJudgeStamp(record));
     skipped.judge += group.length - traceRecords.length;
     if (traceRecords.length === 0) continue;
@@ -531,11 +458,7 @@ async function gradeRecorded(grading: Grading, records: TraceRecord[]): Promise<
   };
 }
 
-/**
- * Live mode: every case, `repeat` times, started in suite order with up to
- * `concurrency` in flight, until the cost ceiling. The ceiling is checked
- * before each start, so a stop lets what is in flight finish and count.
- */
+/** The cost ceiling is checked before each start, so a stop lets what is in flight finish and count. */
 async function runLive(
   grading: Grading,
   provider: ModelProvider,
@@ -597,7 +520,6 @@ async function ranOf(grading: Grading, repeat: number, options: RunSuiteOptions)
   return runLive(grading, options.provider, repeat, options);
 }
 
-/** Run a loaded suite live or over records, write its trial and run records, and report every verdict. */
 async function runSuite(loaded: LoadedSuite, options: RunSuiteOptions = {}): Promise<SuiteRun> {
   const warnings = checkSuite(loaded, options);
   const { suite } = loaded;

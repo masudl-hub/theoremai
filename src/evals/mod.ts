@@ -1,13 +1,5 @@
 /**
- * Evals over traces. A host says, for any profile: here are the cases, here is
- * what "good" means, run it k times and tell me, from the trace alone, whether
- * it passed. Graders read the v3 `TraceRecord` and nothing else; results are
- * trace records too, written through the same `TraceSink`.
- *
- * Hosts own the cases, the judge (a text model, Jev, or both) and the pass
- * rule. THEOREM owns the runner, the code graders and the result record;
- * viewing, labelling and comparing runs belong to the trace tool the host
- * already uses.
+ * Evals over traces: graders read the v3 `TraceRecord` and nothing else; results are trace records too, written through the same `TraceSink`.
  *
  * @module
  */

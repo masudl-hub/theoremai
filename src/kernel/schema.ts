@@ -573,10 +573,13 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'number',
     'How much recent history compaction keeps: a number of exchanges (1 or more), a fraction of maxTokens (between 0 and 1), or 0 to compact it all.',
   ),
-  'models.*.compaction.profile': field(
-    'ProfileId',
-    'The profile that writes the summary; register it before this one. Leave it out and the agent summarises its own history, with its own instructions and model and no tools.',
-  ),
+  'models.*.compaction.profile': {
+    ...field(
+      'ProfileId',
+      'The profile that writes the summary; register it before this one. Leave it out and the agent summarises its own history, with its own instructions and model and no tools.',
+    ),
+    unset: 'The agent itself',
+  },
   'models.*.compaction.timing': field(
     unionType(COMPACTION_TIMINGS),
     'Whether the kernel compacts before the turn or tells the host to compact after it.',
@@ -1172,6 +1175,14 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   ),
   serverUrl: field('string', "The MCP server's URL."),
   mcpToolName: field('string', "The tool's name on the MCP server."),
+  profile: field(
+    'ProfileId',
+    'The agent an agent tool runs: a text, image or speech profile, registered before this tool. Nothing it can call may stop on a gate.',
+  ),
+  maxCallsPerTurn: {
+    ...field('number', 'How many times one turn of the calling agent may run this tool.'),
+    unset: 'As many as its steps allow',
+  },
   auth: {
     ...field('ToolAuthConfig', 'How the tool gets its credential.'),
     unset: 'No credential',

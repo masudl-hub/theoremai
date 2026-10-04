@@ -232,6 +232,19 @@ Deno.test("a host call's time is its tool's, less the tool's own checks and hook
   assertEquals(turn?.split, { model: 0, tools: 380, guardrails: 15, hooks: 5, other: 0 });
 });
 
+Deno.test("an agent tool's time holds its agent's model calls once, as the model's", () => {
+  const root = rootOf([
+    span('root', undefined, 0, 1000, { 'gen_ai.operation.name': 'invoke_agent' }),
+    span('c1', 'root', 0, 200, { 'gen_ai.operation.name': 'chat' }),
+    span('t1', 'c1', 200, 800, { 'gen_ai.operation.name': 'execute_tool' }),
+    span('a1', 't1', 250, 750, { 'gen_ai.operation.name': 'invoke_agent' }),
+    span('c2', 'a1', 300, 700, { 'gen_ai.operation.name': 'chat' }),
+    span('c3', 'root', 800, 1000, { 'gen_ai.operation.name': 'chat' }),
+  ]);
+  const [turn] = traceTurns([root]);
+  assertEquals(turn?.split, { model: 800, tools: 200, guardrails: 0, hooks: 0, other: 0 });
+});
+
 Deno.test("a host's trace reads as tool calls; a conversation's as turns", () => {
   const call = rootOf([span('c1', undefined, 0, 10, { 'gen_ai.operation.name': 'execute_tool' })]);
   const turn = rootOf([span('t1', undefined, 0, 10, { 'gen_ai.operation.name': 'invoke_agent' })]);

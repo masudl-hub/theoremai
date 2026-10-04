@@ -129,6 +129,8 @@ export interface ModelBindingDraft {
   compactKeep?: number | null;
   /** What counts toward the budget; `''` or absent is history. */
   compactMeter?: CompactionMeter | '';
+  /** The workspace agent that writes the summary, by key; `''` or absent: this agent. */
+  compactWith?: string;
 }
 
 /** Where compaction starts when a builder turns it on; every number stays theirs to change. */
@@ -347,7 +349,9 @@ export interface PlaygroundDraft {
   wording: WordingDraft;
 }
 
-export function draftKey(prefix: 'model' | 'tool' | 'question' | 'criterion' | 'reference'): string {
+export function draftKey(
+  prefix: 'agent' | 'model' | 'tool' | 'question' | 'criterion' | 'reference',
+): string {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
@@ -372,12 +376,14 @@ export function defaultModelBinding(partial?: Partial<ModelBindingDraft>): Model
   };
 }
 
+const STUB_TOOL_DESCRIPTION = 'Playground stub tool — returns a fixed result.';
+
 export function defaultToolSpec(partial?: Partial<ToolSpecDraft>): ToolSpecDraft {
   return {
     key: draftKey('tool'),
     toolName: 'my_tool',
     toolType: 'function',
-    description: 'Playground stub tool — returns a fixed result.',
+    description: STUB_TOOL_DESCRIPTION,
     category: 'playground',
     access: TOOL_ACCESS[0],
     permission: TOOL_PERMISSION[0],
@@ -387,6 +393,19 @@ export function defaultToolSpec(partial?: Partial<ToolSpecDraft>): ToolSpecDraft
     outputJson: DEFAULT_TOOL_OUTPUT_SCHEMA,
     ...partial,
   };
+}
+
+/**
+ * The change that points an agent tool at an agent. A description that is
+ * still the new tool's stub, or empty, comes to say what the tool now does.
+ */
+export function agentToolTarget(
+  tool: ToolSpecDraft,
+  agentKey: string,
+  agentId: string,
+): Partial<ToolSpecDraft> {
+  const isStub = !tool.description.trim() || tool.description === STUB_TOOL_DESCRIPTION;
+  return isStub && agentId ? { agentKey, description: `Asks ${agentId} and returns its answer.` } : { agentKey };
 }
 
 function urlCheckDraft(check: UrlCheck | undefined): UrlCheckDraft {
@@ -495,9 +514,8 @@ export function newDecisionQuestion(
   draft: PlaygroundDraft,
   type: DecisionQuestionType = 'choice',
 ): DecisionQuestionDraft {
-  const taken = new Set(draft.decision.questions.map((question) => question.id));
-  let id = 'question';
-  for (let n = 2; taken.has(id); n++) id = `question_${n}`;
+  const taken = draft.decision.questions.map((question) => question.id);
+  const id = freeName('question', taken, (n) => `question_${n}`);
   return { key: draftKey('question'), id, type, instructions: '', criteria: newCriteria(type) };
 }
 
@@ -687,18 +705,23 @@ export function removeModelBinding(draft: PlaygroundDraft, bindingKey: string): 
 export function newModelBinding(draft: PlaygroundDraft): ModelBindingDraft {
   const chosen = draft.identity.profileType;
   const type = chosen && chosen !== 'host' ? chosen : 'text';
-  const taken = new Set(draft.modelBindings.map((binding) => binding.modelId));
+  const taken = draft.modelBindings.map((binding) => binding.modelId);
   const seed = defaultBindingForProfileType(type);
-  let modelId = seed.modelId;
-  for (let n = 2; taken.has(modelId); n++) modelId = `${seed.modelId}${n}`;
+  const modelId = freeName(seed.modelId, taken, (n) => `${seed.modelId}${n}`);
   return defaultModelBinding({ ...seed, modelId });
 }
 
 export function newToolSpec(draft: PlaygroundDraft): ToolSpecDraft {
-  const taken = new Set(draft.toolSpecs.map((tool) => tool.toolName));
-  let toolName = 'my_tool';
-  for (let n = 2; taken.has(toolName); n++) toolName = `my_tool_${n}`;
-  return defaultToolSpec({ toolName });
+  const taken = draft.toolSpecs.map((tool) => tool.toolName);
+  return defaultToolSpec({ toolName: freeName('my_tool', taken, (n) => `my_tool_${n}`) });
+}
+
+/** `first` if nothing has taken it, else the first `nth(2)`, `nth(3)`, … that is free. */
+export function freeName(first: string, taken: Iterable<string>, nth: (n: number) => string): string {
+  const used = new Set(taken);
+  let name = first;
+  for (let n = 2; used.has(name); n++) name = nth(n);
+  return name;
 }
 
 /**

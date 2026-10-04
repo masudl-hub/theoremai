@@ -5,13 +5,15 @@ import {
   withPublicWording,
 } from '../../guardrails/error.ts';
 import { resolveTraceWriter } from '../../observability/policy.ts';
-import { writeSpans } from '../../observability/trace.ts';
+import { writeTrace } from '../../observability/trace.ts';
+import { buildRecord } from '../../observability/trace-record.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
 import {
   type SpanHandle,
   startTrace,
   type TraceAttributes,
 } from '../../observability/trace-span.ts';
+import { invokeAgentCaller } from '../engine/runner/mod.ts';
 import { startToolTrace, type ToolCallEnd, toolSpanName } from '../engine/tool-trace.ts';
 import { optional, traceLinks } from '../engine/turn-trace.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
@@ -81,6 +83,8 @@ async function* invokeTool(
       callId,
       call: { arguments: toolCallArguments(plainToolInput(request.input)) },
     }).end(end);
+  // Agent tool calls run nested turns in this record; their canaries are scrubbed from it.
+  const canaries: string[] = [];
   try {
     const lexicon = known?.lexicon;
     const traceparent = tree.root.traceparent();
@@ -91,6 +95,7 @@ async function* invokeTool(
       openSpan,
       failBeforeTool,
       traceparent,
+      canaries,
     )) {
       yield withPublicWording(event, lexicon);
     }
@@ -100,7 +105,16 @@ async function* invokeTool(
     );
     throw err;
   } finally {
-    await writeSpans(sink, tree.collect(), policy, request.metadata);
+    await writeTrace(
+      sink,
+      buildRecord({
+        spans: tree.collect(),
+        policy,
+        canaries,
+        ...(request.metadata ? { metadata: request.metadata } : {}),
+      }),
+      policy,
+    );
   }
 }
 
@@ -111,6 +125,7 @@ async function* invokeTraced(
   openSpan: (name: string, attributes: TraceAttributes) => SpanHandle,
   failBeforeTool: (end: ToolCallEnd) => void,
   traceparent: string,
+  canaries: string[],
 ): AsyncGenerator<TurnEvent> {
   const profile = registry.profiles.get(request.profile);
   const snapshot = request.snapshot
@@ -137,6 +152,7 @@ async function* invokeTraced(
     const handlers = request.onStage ? [request.onStage] : [];
     const settlement = yield* executeRegisteredTool({
       tools: registry.tools,
+      agents: invokeAgentCaller(registry, request, canaries),
       profile,
       name: request.name,
       input: request.input,

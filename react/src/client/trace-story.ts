@@ -431,10 +431,12 @@ function traceTimeSplit(root: TraceNode): TraceTimeSplit {
 		return total + (typeof value === 'number' ? value : 0);
 	}, 0);
 	const modelMs = union(model);
-	const toolsMs = union(tools);
+	const covered = union([...model, ...tools]);
+	// A tool that runs an agent holds that agent's model calls: their time is the model's, not the tool's too.
+	const toolsMs = covered - modelMs;
 	const toolGuard = Math.min(toolsMs, eventsMs(toolNodes, 'theorem.guardrail', 'duration_ms'));
 	const toolHooks = Math.min(toolsMs - toolGuard, eventsMs(toolNodes, 'theorem.stage', 'hook_ms'));
-	const between = Math.max(0, root.durationMs - union([...model, ...tools]));
+	const between = Math.max(0, root.durationMs - covered);
 	const turnGuard = Math.min(between, eventMs(root, 'theorem.guardrail', 'duration_ms'));
 	const turnHooks = Math.min(between - turnGuard, eventMs(root, 'theorem.stage', 'hook_ms'));
 	return {

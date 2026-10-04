@@ -90,6 +90,45 @@ function settled(panel: HTMLElement): Promise<unknown> {
 	return Promise.allSettled(panel.getAnimations().map((animation) => animation.finished));
 }
 
+/** The attribute Astryx's chat sets on its scroller while it follows new content to the bottom. */
+const FOLLOWING = 'data-astryx-chat-following';
+
+/** How far from its bottom a scroll up must land for Astryx's chat to stop following: past its 10px lock threshold. */
+const LET_GO = 11;
+
+/**
+ * Keeps a trigger the reader opened where it was while its panel grows. A
+ * chat that follows its bottom would spring past it, so the follow is let go
+ * first: a scroll up just past the chat's threshold reads as the reader's.
+ * The panel's growth then gives the room back, and the trigger ends where it
+ * was. A chat too short to scroll yet is held after each layout instead,
+ * after the follow's own frame, which also lets it go.
+ */
+function holdInPlace(trigger: Element, panel: HTMLElement, motion: Promise<unknown>): void {
+	const scroller = trigger.closest<HTMLElement>(`[${FOLLOWING}]`);
+	if (!scroller) return;
+	const top = trigger.getBoundingClientRect().top;
+	const room = () => scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+	scroller.scrollTop -= Math.max(0, LET_GO - room());
+	let done = false;
+	void motion.then(() => setTimeout(() => (done = true), 1000));
+	const held = new ResizeObserver(() => {
+		const drift = trigger.getBoundingClientRect().top - top;
+		if (drift && scroller.hasAttribute(FOLLOWING)) scroller.scrollTop += drift;
+	});
+	held.observe(panel);
+	const giveBack = () => {
+		const drift = trigger.getBoundingClientRect().top - top;
+		// Never back within the threshold, or the chat would follow again.
+		if (drift > 0 && !scroller.hasAttribute(FOLLOWING)) {
+			scroller.scrollTop += Math.max(0, Math.min(drift, room() - LET_GO));
+		}
+		if (done || (drift <= 0.5 && !scroller.hasAttribute(FOLLOWING))) held.disconnect();
+		else requestAnimationFrame(giveBack);
+	};
+	requestAnimationFrame(giveBack);
+}
+
 /**
  * Eases every disclosure under `ref` open and shut. `onOpened` runs once the
  * new panel is in the DOM, with a promise for its motion finishing.
@@ -157,7 +196,9 @@ export function useDisclosureMotion(
 			const panel = panelOf(trigger);
 			if (!panel) return;
 			if (!still.matches && !ownsMotion(panel)) ease(panel, 'open');
-			onOpened?.(trigger, panel, settled(panel));
+			const motion = settled(panel);
+			holdInPlace(trigger, panel, motion);
+			onOpened?.(trigger, panel, motion);
 		});
 		opened.observe(root, { subtree: true, attributeFilter: ['aria-expanded'] });
 

@@ -4,6 +4,7 @@
  */
 import {
   createKernelScope,
+  createProvider,
   defineProfile,
   type KernelScope,
   type Profile,
@@ -12,7 +13,7 @@ import {
 } from '../mod.ts';
 import type { ResolveHost } from '../src/guardrails/network.ts';
 import type { TaintGate } from '../src/guardrails/types.ts';
-import type { ModelProvider } from '../src/kernel/types.ts';
+import type { AgentCall, AgentCallHook, ModelProvider } from '../src/kernel/types.ts';
 import type { CreateProviderOptions } from '../src/providers/create-provider.ts';
 import { PLAYGROUND_KEY_SLOT_CAP, playgroundKeySlots } from './browser-connection.ts';
 import { modelBindingViolation } from './policy.ts';
@@ -25,6 +26,35 @@ export interface PlaygroundRuntime {
   provider?: (profile: Profile, model?: string) => ModelProvider;
   resolveHost?: ResolveHost;
   remoteTools?: boolean;
+  /** Before each agent tool call runs its agent: return `refuse` to stop it. */
+  onAgentCall?: (
+    call: AgentCall,
+  ) => { refuse: string } | void | Promise<{ refuse: string } | void>;
+}
+
+/** The provider a profile's turn runs on: the runtime's own, or one from its vault. */
+export function runtimeProvider(
+  runtime: PlaygroundRuntime,
+  profile: Profile,
+  model?: string,
+): ModelProvider {
+  return (
+    runtime.provider?.(profile, model) ??
+    createProvider(profile, runtime.providers ?? {}, model)
+  );
+}
+
+/**
+ * Each called agent runs on a provider of its own, so it reads its own key
+ * slots and may use another provider than its caller. The runtime may refuse
+ * the call first.
+ */
+export function agentCallHook(scope: KernelScope, runtime: PlaygroundRuntime): AgentCallHook {
+  return async (call) => {
+    const refused = await runtime.onAgentCall?.(call);
+    if (refused) return refused;
+    return { provider: runtimeProvider(runtime, scope.profiles.get(call.profile)) };
+  };
 }
 
 /** Where a run's tools may reach, from what the playground runs it on. */
@@ -145,18 +175,29 @@ function registerDraft(
   return defined;
 }
 
+/** An agent the run's agent names, registered before it: one its agent tools run, or its summariser. */
+export interface PlaygroundDependency {
+  profile: ProfileDefinition;
+  customTools: readonly ToolRegistration[];
+  structured?: StructuredRegistration;
+}
+
 /**
  * A new scope holding one request's draft, and the profile to run on it. Never cache or share it:
  * the scope also holds MCP sessions, and a shared one would hand a keyless server's session to
- * every visitor and keep it past the request.
+ * every visitor and keep it past the request. `dependencies` are registered first, in order.
  */
 export function playgroundScope(
   profile: ProfileDefinition,
   customTools: readonly ToolRegistration[],
   structured: StructuredRegistration | undefined,
   runtime: PlaygroundRuntime,
+  dependencies: readonly PlaygroundDependency[] = [],
 ): { scope: KernelScope; profile: Profile } {
   const scope = createKernelScope();
+  for (const dependency of dependencies) {
+    registerDraft(scope, dependency.profile, dependency.customTools, dependency.structured, runtime);
+  }
   return {
     scope,
     profile: registerDraft(scope, profile, customTools, structured, runtime),

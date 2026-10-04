@@ -7,8 +7,15 @@ export function modelBindingNodeId(key: string): string {
   return `modelBinding:${key}`;
 }
 
+const TOOL_SPEC_PREFIX = 'toolSpec:';
+
 export function toolSpecNodeId(key: string): string {
-  return `toolSpec:${key}`;
+  return `${TOOL_SPEC_PREFIX}${key}`;
+}
+
+/** The inverse of `toolSpecNodeId`; `undefined` for any other id. */
+export function toolSpecKeyOf(id: string): string | undefined {
+  return id.startsWith(TOOL_SPEC_PREFIX) ? id.slice(TOOL_SPEC_PREFIX.length) : undefined;
 }
 
 export type PlaygroundNodeRef =
@@ -38,8 +45,9 @@ export function playgroundNodeRef(
   if (facet === 'modelBinding' && key !== undefined) {
     return draft.modelBindings.some((binding) => binding.key === key) ? { facet, key } : undefined;
   }
-  if (facet === 'toolSpec' && key !== undefined) {
-    return draft.toolSpecs.some((tool) => tool.key === key) ? { facet, key } : undefined;
+  const tool = toolSpecKeyOf(id);
+  if (tool !== undefined) {
+    return draft.toolSpecs.some((spec) => spec.key === tool) ? { facet: 'toolSpec', key: tool } : undefined;
   }
   const facets = draftFacets(draft) as string[];
   if (key !== undefined || !facets.includes(id)) return undefined;
@@ -55,15 +63,18 @@ function branchNodes(draft: PlaygroundDraft, facet: ProfileGraphFacetId): Playgr
       children: [],
     }));
   }
-  if (facet === 'tools') {
-    return draft.toolSpecs.map((tool) => ({
-      id: toolSpecNodeId(tool.key),
-      ref: { facet: 'toolSpec', key: tool.key },
-      label: tool.toolName.trim() || facetLabel('toolSpec'),
-      children: [],
-    }));
-  }
+  if (facet === 'tools') return toolSpecNodes(draft.toolSpecs);
   return [];
+}
+
+/** One leaf per tool, as the Tools facet lists them. */
+export function toolSpecNodes(toolSpecs: PlaygroundDraft['toolSpecs']): PlaygroundTreeNode[] {
+  return toolSpecs.map((tool) => ({
+    id: toolSpecNodeId(tool.key),
+    ref: { facet: 'toolSpec', key: tool.key },
+    label: tool.toolName.trim() || facetLabel('toolSpec'),
+    children: [],
+  }));
 }
 
 /** The root is labelled with the profile id; its children are the compiled facets in `PROFILE_GRAPH` order. */

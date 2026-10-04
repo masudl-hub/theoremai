@@ -8,6 +8,7 @@ export {
   type PlaygroundTurnProfileDefinition,
 } from './compile.ts';
 export {
+  agentToolTarget,
   COMPACTION_DRAFT_DEFAULTS,
   createBlankDraft,
   type DecisionCriterionDraft,
@@ -119,8 +120,39 @@ export {
   playgroundNodeRef,
   playgroundTree,
   type PlaygroundTreeNode,
+  toolSpecKeyOf,
   toolSpecNodeId,
 } from './tree.ts';
+export {
+  compileWorkspace,
+  type CompiledWorkspace,
+  type WorkspaceCompileResult,
+  workspaceRunAgent,
+} from './compile-workspace.ts';
+export type { PlaygroundDependency } from './runtime-scope.ts';
+export {
+  addAgent,
+  type AgentDraft,
+  agentDraft,
+  agentNodeId,
+  type AgentToolsDraft,
+  createBlankWorkspace,
+  duplicateAgent,
+  libraryDraft,
+  PLAYGROUND_WORKSPACE_VERSION,
+  type PlaygroundWorkspace,
+  removeAgent,
+  removeLibraryTool,
+  scopedNodeId,
+  setToolAllowed,
+  withAgentDraft,
+  withLibraryDraft,
+  workspaceFromDraft,
+  type WorkspaceNodeRef,
+  workspaceNodeRef,
+  type WorkspaceTree,
+  workspaceTree,
+} from './workspace.ts';
 
 export {
   DEMO_ALLOWED_HOSTS,
@@ -139,6 +171,7 @@ export type { PlaygroundInputsSpec, PlaygroundToolSeed, PlaygroundToolSpecSeed }
 export type { PlaygroundLiveDraftMessage } from './live-connection.ts';
 export { playgroundLiveConnection } from './live-connection.ts';
 export type {
+  AgentToolRegistration,
   FunctionToolRegistration,
   HttpToolRegistration,
   McpToolRegistration,

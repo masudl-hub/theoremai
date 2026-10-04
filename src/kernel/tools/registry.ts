@@ -1,6 +1,8 @@
 import type { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
+import type { Profile, ProfileId } from '../types.ts';
 import { activityLabelProblem } from './activity-label.ts';
+import { agentToolInput, agentToolOutput, normalizeAgent } from './agent.ts';
 import { createMcpSessionCache, type McpSessionCache } from './mcp-sessions.ts';
 import {
   assertFixedEndpointOrigin,
@@ -89,9 +91,15 @@ function normalizeFunction<TIn = unknown, TOut = unknown>(
 
 function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
   def: ToolDefinitionInput<TIn, TOut>,
+  findProfile: (id: ProfileId) => Profile | undefined,
+  findTool: (name: string) => RegisteredTool | undefined,
 ): RegisteredTool<TIn, TOut> {
   if (def.type === 'builtin') {
     return def;
+  }
+  if (def.type === 'agent') {
+    const schemas = schemasFromZod({ ...def, input: agentToolInput, output: agentToolOutput });
+    return normalizeAgent(def, findProfile, findTool, schemas);
   }
   if (def.type === 'http') {
     return normalizeHttp(def);
@@ -111,19 +119,26 @@ interface ToolRegistry {
   require(name: string): RegisteredTool;
   has(name: string): boolean;
   list(): RegisteredTool[];
+  /** A profile in this scope, for the agent tools that run one. */
+  findProfile(id: ProfileId): Profile | undefined;
   /** Also forgets the MCP sessions. */
   reset(): void;
   /** Sessions for this scope's MCP servers that require one; never shared across scopes. */
   readonly mcpSessions: McpSessionCache;
 }
 
-/** Registration is not synchronized: register a scope's tools before its turns or invokes run. */
-function createToolRegistry(): ToolRegistry {
+/**
+ * Registration is not synchronized: register a scope's tools before its turns or invokes run.
+ * `findProfile` is the scope's profiles, which an agent tool names; without it none registers.
+ */
+function createToolRegistry(
+  findProfile: (id: ProfileId) => Profile | undefined = () => undefined,
+): ToolRegistry {
   const tools = new Map<string, RegisteredTool>();
   const mcpSessions = createMcpSessionCache();
   const get = (name: string) => tools.get(name);
   const register = <TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>) => {
-    const normalized = normalizeToolDefinition(def);
+    const normalized = normalizeToolDefinition(def, findProfile, get);
     tools.set(normalized.name, normalized as RegisteredTool);
     return normalized;
   };
@@ -140,6 +155,7 @@ function createToolRegistry(): ToolRegistry {
     },
     has: (name) => tools.has(name),
     list: () => [...tools.values()],
+    findProfile,
     reset: () => {
       tools.clear();
       mcpSessions.clear();

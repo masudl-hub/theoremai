@@ -970,6 +970,12 @@ function assertCompactionRetain(tag: string, spec: CompactionSpec): void {
 function assertCustomToolsOnly(tools: ToolRegistry, profile: Profile): void {
   for (const id of profileToolAllow(profile)) {
     const tool = tools.get(id);
+    if (tool?.type === 'agent' && profile.type === 'live') {
+      throw new TheoremError(
+        'config',
+        `Profile ${profile.id} lists agent tool '${id}' in tools.allow — a live session can't run an agent tool`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
     if (tool?.type === 'builtin') {
       throw new TheoremError(
         'config',

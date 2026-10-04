@@ -1,6 +1,7 @@
 import { type GivenUrlSets, givenUrlSets } from '../../../guardrails/egress-urls.ts';
 import type { GuardrailHit, TurnTaint } from '../../../guardrails/types.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
+import type { AgentCaller } from '../../tools/agent.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
 import type {
   InteractionPart,
@@ -27,6 +28,8 @@ interface TurnTraceState {
 interface StepExecutionState {
   /** The turn's scope's tools: calls and provider builtins are looked up here. */
   tools: ToolRegistry;
+  /** Runs the turn's agent tools; absent where none can run (a compactor's own turn). */
+  agents?: AgentCaller;
   trace: TurnTraceState;
   currentHistory: TurnHistoryMessage[];
   stepCount: number;
@@ -97,6 +100,7 @@ function openTurnState(args: {
   trace: TurnTraceState;
   mediaFamily: MediaTokenFamily | undefined;
   allEmittedEvents?: TurnEvent[];
+  agents?: AgentCaller;
 }): StepExecutionState {
   const { profile, generation } = args;
   const state: StepExecutionState = {
@@ -108,6 +112,7 @@ function openTurnState(args: {
     allEmittedEvents: args.allEmittedEvents ?? [],
     attemptEvents: [],
     givenUrls: givenUrlSets(),
+    ...(args.agents ? { agents: args.agents } : {}),
   };
   if (profile.type === 'text') {
     appendUserInput(state, generation.input);

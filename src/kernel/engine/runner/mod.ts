@@ -1,5 +1,4 @@
 import { canaryNote, userDataNote } from '../../../guardrails/canary.ts';
-import type { ErrorKind } from '../../../guardrails/error.ts';
 import {
   isAbortError,
   TheoremError,
@@ -26,13 +25,16 @@ import { requireModelBinding } from '../../registry/catalog.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { resolveTurnInRegistry } from '../../registry/resolve.ts';
 import { type BoundSystem, bindSystem } from '../../system-parts.ts';
+import type { AgentCaller } from '../../tools/agent.ts';
 import { cloneTurnToolSnapshot, expandT1Policy } from '../../tools/resolve.ts';
+import type { InvokeToolRequest } from '../../tools/types.ts';
 import { turnDoneOf } from '../../turn-events.ts';
 import type {
   CompactHistoryRequest,
   CompactionResult,
   CompactionSignal,
   CompactionSpec,
+  ModelBinding,
   ModelId,
   ModelProfile,
   ModelProvider,
@@ -66,8 +68,9 @@ import {
   OutputFold,
   turnSpanOptions,
 } from '../turn-trace.ts';
-import { sumEventTokens } from '../usage.ts';
+import { sumEventTokens, sumTurnTokens } from '../usage.ts';
 import { runAttemptsWithValidation } from './gates.ts';
+import { createAgentCaller, NESTED_THROWS, turnError } from './nested.ts';
 import { applyTurnStage } from './stages.ts';
 import { openTurnState, type StepExecutionState, type TurnTraceState } from './state.ts';
 import { shouldSkipStreamEvent } from './stream.ts';
@@ -110,22 +113,41 @@ function getCompactionSpec(profile: ModelProfile, modelId: string): CompactionSp
   return profile.models[modelId]?.compaction;
 }
 
-/** Errors only the host can fix: the compactor throws them rather than failing quietly every turn. */
 /** A turn's tools when it offers none: an agent summarising its own history. */
 function noTools(): TurnToolSnapshot {
   return { builtins: [], gated: [], visible: [], executable: [], wire: [] };
 }
 
-const COMPACTOR_THROWS: ReadonlySet<ErrorKind> = new Set(['config', 'request', 'auth', 'internal']);
-
-function turnError(events: readonly TurnEvent[]): TurnEventOf<'error'> | undefined {
-  return events.find((e): e is TurnEventOf<'error'> => e.type === 'error');
+/**
+ * Run `req` as a turn under `parent`: its spans join that record, it writes
+ * none of its own, and it shares the record's canaries. A compactor's turn and
+ * an agent tool's call both run here.
+ */
+function runNestedTurn(args: {
+  registry: KernelRegistry;
+  req: TurnRequest;
+  provider: ModelProvider;
+  parent: SpanHandle;
+  canaries: string[];
+  agentDepth: number;
+  compacting?: TraceCtx['compacting'];
+}): AsyncGenerator<TurnEvent> {
+  const ctx = newTraceCtx(
+    args.registry,
+    args.req,
+    args.parent.child(`invoke_agent ${args.req.profile}`, turnSpanOptions(args.req)),
+    args.canaries,
+  );
+  ctx.agentDepth = args.agentDepth;
+  if (args.compacting) ctx.compacting = args.compacting;
+  ctx.observability = resolveObservabilityPolicy(ctx.known?.observability);
+  return runTracedTurn(ctx, args.provider);
 }
 
 /**
  * Run the compaction profile as a turn under `span`: its spans join that
  * record and it writes none of its own. Anything short of a completed,
- * non-empty summary is a failure; the host's abort and `COMPACTOR_THROWS`
+ * non-empty summary is a failure; the host's abort and `NESTED_THROWS`
  * errors are thrown. With no `spec.profile` the owner compacts itself, on the
  * model it is compacting for and with no tools.
  */
@@ -152,24 +174,23 @@ async function runCompactor(args: {
     input: { text: lexiconText('compaction.request', {}, compactor.lexicon), history },
     signal: args.signal,
   };
-  const ctx = newTraceCtx(
-    args.registry,
-    req,
-    args.parent.child(`invoke_agent ${req.profile}`, turnSpanOptions(req)),
-    args.canaries,
-  );
-  ctx.compacting = self ? 'self' : 'other';
-  ctx.observability = resolveObservabilityPolicy(ctx.known?.observability);
-
   const events: TurnEvent[] = [];
   try {
-    for await (const event of runTracedTurn(ctx, args.provider)) {
+    for await (const event of runNestedTurn({
+      registry: args.registry,
+      req,
+      provider: args.provider,
+      parent: args.parent,
+      canaries: args.canaries,
+      agentDepth: 0,
+      compacting: self ? 'self' : 'other',
+    })) {
       events.push(event);
     }
   } catch (err) {
     throwIfAborted(args.signal);
     const error = err instanceof TheoremError ? err.kind : 'internal';
-    if (COMPACTOR_THROWS.has(error)) throw err;
+    if (NESTED_THROWS.has(error)) throw err;
     return { droppedMedia, failure: { error } };
   }
   throwIfAborted(args.signal);
@@ -178,7 +199,7 @@ async function runCompactor(args: {
   const usage = tokens ? { tokens } : {};
   const stop = findLast(events, (e): e is TurnEventOf<'done'> => e.type === 'done')?.stop.kind;
   const reported = turnError(events);
-  if (reported && COMPACTOR_THROWS.has(reported.errorKind)) {
+  if (reported && NESTED_THROWS.has(reported.errorKind)) {
     throw new TheoremError(
       reported.errorKind,
       `Compactor '${compactorId}' failed: ${reported.errorInternal ?? reported.error}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -345,6 +366,7 @@ async function* emitTurn(args: {
   provider: ModelProvider;
   trace: TurnTraceState;
   mediaFamily: MediaTokenFamily | undefined;
+  agents: AgentCaller | undefined;
   /** Filled when the turn opens, so `post_turn` (after compaction-after, or after an abort) reuses it. */
   outState: { state?: StepExecutionState };
 }): AsyncGenerator<TurnEvent> {
@@ -356,6 +378,7 @@ async function* emitTurn(args: {
     generation,
     trace: args.trace,
     mediaFamily: args.mediaFamily,
+    ...(args.agents ? { agents: args.agents } : {}),
   });
   args.outState.state = state;
 
@@ -393,7 +416,7 @@ async function* emitTurn(args: {
 
   yield* runAttemptsWithValidation(safe, profile, generation, system, provider, state);
 
-  const tokens = sumEventTokens(state.allEmittedEvents);
+  const tokens = sumTurnTokens(state.allEmittedEvents);
   const done = turnDoneOf(
     {
       stop: state.lastStop ?? { kind: 'completed' },
@@ -423,6 +446,7 @@ async function* streamTurnEvents(
     provider,
     trace: ctx.trace,
     mediaFamily: ctx.mediaFamily,
+    agents: ctx.agents,
     outState: ctx,
   })) {
     const attached = await maybeAttachAfter(event, ctx, gen, compactionSpec);
@@ -474,6 +498,8 @@ type TraceCtx = {
    * `self` when the agent summarises its own history, and then offers no tools.
    */
   compacting: false | 'self' | 'other';
+  /** How many agent tool calls deep this turn runs: 0 for the host's own turn. */
+  agentDepth: number;
   canary: string;
   /** Every canary bound in this record; a nested turn shares its parent's list. */
   canaries: string[];
@@ -483,6 +509,7 @@ type TraceCtx = {
   safe?: TurnRequest;
   observability?: ResolvedObservabilityPolicy;
   state?: StepExecutionState;
+  agents?: AgentCaller;
 };
 
 function newTraceCtx(
@@ -499,6 +526,7 @@ function newTraceCtx(
     delivered: new OutputFold(),
     root,
     compacting: false,
+    agentDepth: 0,
     canary: '',
     canaries,
   };
@@ -641,6 +669,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   const binding = profile.models[gen.model];
   ctx.mediaFamily = binding ? mediaTokenFamily(binding) : undefined;
   ctx.trace = { root: ctx.root, attempt: 0, calls: 0, binding };
+  if (!ctx.compacting) ctx.agents = agentCallerFor(ctx, provider, binding);
 
   throwIfAborted(ctx.safe.signal);
 
@@ -656,6 +685,42 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   ]);
 
   yield* streamTurnEvents(ctx, profile, gen, provider, compactionSpec);
+}
+
+/** The turn's agent tool calls: each runs nested under its tool's span, in this record. */
+function agentCallerFor(
+  ctx: TraceCtx,
+  provider: ModelProvider,
+  own: ModelBinding | undefined,
+): AgentCaller {
+  return createAgentCaller({
+    registry: ctx.registry,
+    req: ctx.safe ?? ctx.req,
+    provider,
+    own,
+    depth: ctx.agentDepth,
+    runNested: (nested) =>
+      runNestedTurn({ ...nested, registry: ctx.registry, canaries: ctx.canaries }),
+  });
+}
+
+/**
+ * A host's own call's agent tools: the host's provider, or the one `onAgentCall`
+ * returns, runs each. Its nested turns bind their canaries into `canaries`.
+ */
+function invokeAgentCaller(
+  registry: KernelRegistry,
+  request: InvokeToolRequest,
+  canaries: string[],
+): AgentCaller {
+  return createAgentCaller({
+    registry,
+    req: request,
+    provider: request.provider,
+    own: undefined,
+    depth: 0,
+    runNested: (nested) => runNestedTurn({ ...nested, registry, canaries }),
+  });
 }
 
 /**
@@ -811,4 +876,4 @@ async function compactHistoryInRegistry(
   }
 }
 
-export { compactHistoryInRegistry, runTurnInRegistry };
+export { compactHistoryInRegistry, invokeAgentCaller, runTurnInRegistry };

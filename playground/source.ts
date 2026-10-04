@@ -44,6 +44,8 @@ function literal(value: unknown, depth: number): string {
 
 function toolSource(tool: ToolRegistration): string {
   const { inputSchema, outputSchema, ...fields } = tool;
+  // The kernel fixes an agent tool's schemas.
+  if (fields.type === 'agent') return `registerTool(${literal(fields, 0)});\n`;
   const zod = {
     input: new Expr(zodExprFromJsonSchema(inputSchema, 1)),
     output: new Expr(zodExprFromJsonSchema(outputSchema, 1)),

@@ -224,6 +224,23 @@ export function promptReplyKey(prompt: TranscriptTurnGroup): string {
 }
 
 /**
+ * When the prompt at `index` was sent. Once its reply has stopped, its blocks
+ * date it (less any approval waits), so a restored chat keeps its times; until
+ * then, when this session first showed it.
+ */
+export function promptTime(
+	groups: readonly TranscriptTurnGroup[],
+	index: number,
+	timeOf: (key: string) => number,
+): number {
+	const reply = groups[index + 1];
+	if (reply?.kind === 'assistant' && reply.endedAt !== undefined && reply.workedMs !== undefined) {
+		return reply.endedAt - reply.workedMs;
+	}
+	return timeOf(groups[index]?.key ?? '');
+}
+
+/**
  * Key and timing for the assistant group at `index`. A stopped reply reads its
  * time from its blocks; a live one counts from its span in this session.
  */

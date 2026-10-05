@@ -5,6 +5,20 @@
  * @module
  */
 
+export type {
+  Boundary,
+  BoundaryMeta,
+  ToolBoundary,
+  ToolCrossing,
+  ToolKind,
+} from './boundaries.ts';
+export {
+  BOUNDARIES,
+  BOUNDARY_META,
+  TOOL_BOUNDARIES,
+  TOOL_KINDS,
+  toolBoundary,
+} from './boundaries.ts';
 export type { CanaryGateResult, CanaryStreamGate } from './canary.ts';
 export {
   bindCanary,
@@ -21,6 +35,23 @@ export {
 } from './canary.ts';
 export type { CanaryGateSession } from './canary-gate.ts';
 export { createCanaryGateSession, filterCanaryGatedEvents } from './canary-gate.ts';
+export type {
+  DetectAction,
+  DetectMeta,
+  Detector,
+  DetectorRule,
+  DetectSpec,
+  ResolvedDetect,
+} from './detectors.ts';
+export {
+  DETECT_ACTION_META,
+  DETECT_ACTIONS,
+  DETECT_DEFAULTS,
+  DETECTOR_META,
+  DETECTORS,
+  detectProblem,
+  resolveDetect,
+} from './detectors.ts';
 export type { EgressChecks, UrlCheck } from './egress.ts';
 export {
   collectEgressHits,

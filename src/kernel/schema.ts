@@ -5,8 +5,17 @@
  */
 
 /** lexicon-exempt-file: authoring field-meta / closed unions — not runtime user or model copy (P2) */
+import { BOUNDARIES, BOUNDARY_META, recordOf } from '../guardrails/boundaries.ts';
+import {
+  DETECT_ACTION_META,
+  DETECT_ACTIONS,
+  DETECT_DEFAULTS,
+  DETECTOR_META,
+  DETECTORS,
+} from '../guardrails/detectors.ts';
 import { LEXICON_NOTES, type LexiconKey } from '../guardrails/lexicon.ts';
 import { PROMPT_ECHO_WORDS } from '../guardrails/prompt-echo.ts';
+import { SENSITIVE_GROUPS } from '../guardrails/sensitive.ts';
 import { EGRESS_ON_BLOCK, type EgressOnBlock, TAINT_GATES } from '../guardrails/types.ts';
 import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
 import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
@@ -485,6 +494,49 @@ export function catalogPathFor(keys: readonly string[]): string {
     }
   }
   return resolved.join('.');
+}
+
+const DETECT_ACTION_DOCS = recordOf(DETECT_ACTIONS, (action) => DETECT_ACTION_META[action].doc);
+
+/** A switch per sensitive group under `parent`, each described by its detector. */
+function sensitiveFields(parent: string): Record<string, FieldMeta> {
+  return Object.fromEntries(
+    SENSITIVE_GROUPS.map((group) => [
+      `${parent}.${group}`,
+      field('boolean', DETECTOR_META[group].doc),
+    ]),
+  );
+}
+
+/** The `guardrails.detect` rows: one for the setting, one per detector, and one per detector and boundary. */
+function detectFields(): Record<string, FieldMeta> {
+  const action = (type: string, doc: string) =>
+    field(type, doc, DETECT_ACTIONS, DETECT_ACTION_DOCS);
+  const rows: [string, FieldMeta][] = [
+    [
+      'guardrails.detect',
+      action(
+        'DetectAction | { [detector]: DetectorRule }',
+        'What happens when a detector finds a match in text as it crosses a boundary. One action for everything, or a rule for each detector you name; the rest keep their defaults.',
+      ),
+    ],
+  ];
+  for (const detector of DETECTORS) {
+    const path = `guardrails.detect.${detector}`;
+    rows.push([
+      path,
+      action(
+        'DetectAction | { [boundary]: DetectAction }',
+        `${DETECTOR_META[detector].doc} One action at every boundary, or an action for each boundary you name.`,
+      ),
+    ]);
+    for (const boundary of BOUNDARIES) {
+      const unset = DETECT_ACTION_META[DETECT_DEFAULTS[detector][boundary]].label;
+      const meta = action('DetectAction', BOUNDARY_META[boundary].doc);
+      rows.push([`${path}.${boundary}`, { ...meta, unset }]);
+    }
+  }
+  return Object.fromEntries(rows);
 }
 
 function withScopeAndPresence(fields: Record<string, FieldMeta>): Record<string, FieldMeta> {
@@ -1010,6 +1062,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'boolean',
     `With the canary on, also stops a reply that repeats ${PROMPT_ECHO_WORDS} words in a row of the private system instruction, also when written backwards, in rot13 or in leetspeak. On by default; wrap the private lines as { private: text } so the plain ones may be quoted, or turn it off when the whole instruction may be.'`,
   ),
+  ...detectFields(),
   'guardrails.sanitizeInput': field(
     'boolean',
     "Replaces prompt-injection text in user input, slots, history, tool results and the turn's own system text before the model sees it.",
@@ -1018,13 +1071,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'boolean | SensitiveSwitches',
     "Replaces credentials and personal data in user input, slots, history, tool results and the turn's own system text before the model sees them. true (the default) covers every group, false none; an object turns groups off one by one.",
   ),
-  'guardrails.redactSensitive.ids': field('boolean', 'US SSN, ITIN and EIN numbers.'),
-  'guardrails.redactSensitive.financial': field('boolean', 'IBANs and card numbers.'),
-  'guardrails.redactSensitive.network': field('boolean', 'IPv4 and IPv6 addresses.'),
-  'guardrails.redactSensitive.credentials': field(
-    'boolean',
-    'API keys and tokens in the formats gitleaks knows (AWS, Google, OpenAI, Anthropic, GitHub, Slack and Stripe among them), key and password assignments, OpenRouter keys, bearer tokens and PEM private keys.',
-  ),
+  ...sensitiveFields('guardrails.redactSensitive'),
   'guardrails.egress': field(
     'ProfileEgressSpec',
     'Your check on the reply before the user sees it.',
@@ -1041,13 +1088,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'boolean | SensitiveSwitches',
     'Credentials and personal data in the reply, by group. Every group but network by default: an address in a reply is not a secret.',
   ),
-  'guardrails.egress.checks.sensitive.ids': field('boolean', 'US SSN, ITIN and EIN numbers.'),
-  'guardrails.egress.checks.sensitive.financial': field('boolean', 'IBANs and card numbers.'),
-  'guardrails.egress.checks.sensitive.network': field('boolean', 'IPv4 and IPv6 addresses.'),
-  'guardrails.egress.checks.sensitive.credentials': field(
-    'boolean',
-    'API keys and tokens in the formats gitleaks knows (AWS, Google, OpenAI, Anthropic, GitHub, Slack and Stripe among them), key and password assignments, OpenRouter keys, bearer tokens and PEM private keys.',
-  ),
+  ...sensitiveFields('guardrails.egress.checks.sensitive'),
   'guardrails.egress.checks.boundary': field(
     'boolean',
     "The markers the kernel puts around user data, and the words of the canary note (the profile's canary.bind_note, or the default), repeated in the reply.",

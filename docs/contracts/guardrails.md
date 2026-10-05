@@ -785,6 +785,82 @@ internal `GUARDRAIL_ACTIONS` behind `GuardrailAction`) live in
 `src/guardrails/event-schemas.ts` built from those vocabularies; `types.ts`
 re-exports their inferred types.
 
+## Detect
+
+`guardrails.detect` is one setting for what the kernel finds in text, where it
+looks, and what it does: a detector, a boundary, an action.
+
+| API | Role |
+| --- | --- |
+| `DETECTORS` | `ids`, `financial`, `network`, `credentials` (the `SENSITIVE_GROUPS`) and `injection`; `DETECTOR_META` labels each |
+| `BOUNDARIES` | Every place the kernel reads text as it crosses; `BOUNDARY_META` labels each |
+| `TOOL_BOUNDARIES` | The tool boundaries: `toolBoundary(crossing, kind)` for `tool_arguments`, `tool_output` and `tool_failure`, for each of `TOOL_KINDS` |
+| `DETECT_ACTIONS` | `ignore`, `flag`, `redact`, `block`; `DETECT_ACTION_META` labels each |
+| `DETECT_DEFAULTS` | The action of every detector at every boundary when the profile sets none |
+| `resolveDetect(spec, base?)` | `spec` with everything it leaves out taken from `base` |
+| `detectProblem(path, spec, boundaries?)` | What is wrong with a `detect` value, or `undefined` |
+
+| Boundary | Text |
+| --- | --- |
+| `user` | The message the person typed |
+| `attachment` | The text of a file the person attached |
+| `voice` | The transcript of what the person said |
+| `slots` | The values the host fills into the prompt |
+| `history` | Earlier messages the host replays |
+| `injected` | Messages a host stage adds during the turn |
+| `system` | Text the host adds to the system instruction for one turn |
+| `repair` | A stopped reply and the reason, handed back to the model |
+| `live_user` | Text the person sends in a Live session |
+| `tool_arguments_<kind>` | What the model sends to a tool of that type |
+| `tool_output_<kind>` | What a tool of that type returns |
+| `tool_failure_<kind>` | The error text of a tool of that type that failed |
+| `reply` | The text the model says to the person |
+| `reply_structured` | The structured output the model returns |
+| `live_reply` | What the model says in a Live session |
+| `thought` | The model's reasoning, where the host shows it |
+
+`<kind>` is a tool's `type`: `function`, `http`, `mcp` or `agent`. A provider
+builtin has no boundary: the provider runs it and the kernel never reads its
+text (see the known exception under [Invariant](#invariant)).
+
+An action means the same at every boundary:
+
+| Action | Effect |
+| --- | --- |
+| `ignore` | The text is not read |
+| `flag` | The match is reported in the trace; the text crosses unchanged |
+| `redact` | The match is replaced with a placeholder; the rest crosses |
+| `block` | The thing crossing does not cross |
+
+`DetectSpec` is one action for every detector at every boundary, or a
+`DetectorRule` per detector: one action everywhere, or an action for the
+boundaries it names. What a rule leaves out keeps its default.
+
+| Boundaries | Sensitive detectors | `injection` |
+| --- | --- | --- |
+| `user` … `live_user`, `tool_output_*`, `tool_failure_*` | `redact` | `redact` |
+| `tool_arguments_*` | `flag` | `ignore` |
+| `reply`, `reply_structured`, `live_reply`, `thought` | `ignore` | `ignore` |
+
+No default is `block`.
+
+`resolveGuardrailPolicy` returns the matrix as `ResolvedGuardrailPolicy.detect`
+(`ResolvedDetect`). The settings `detect` replaces resolve into the same matrix
+first, and `detect` is applied over them:
+
+| Setting | Resolves to |
+| --- | --- |
+| `sanitizeInput: false` | `injection` is `ignore` at every boundary |
+| `redactSensitive` with a group off | That detector is `ignore` at every boundary |
+| `egress.checks` reading a detector | That detector is `block` at `reply`, `reply_structured` and `live_reply` |
+
+`defineProfile` rejects a `detect` value that names an unknown detector,
+boundary or action. A `host` profile has the tool boundaries only, and a rule
+naming another is rejected; a `decision` profile takes no `detect`.
+
+The checks at each boundary still read the settings `detect` replaces. They
+move to the resolved matrix boundary by boundary.
+
 ## Sanitization
 
 Driven by profile `guardrails.sanitizeInput`, `guardrails.redactSensitive`, and
@@ -1337,6 +1413,7 @@ From `src/guardrails/mod.ts`:
 | Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicWording`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
 | Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `ResolvedEgressSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
+| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `ResolvedDetect`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary` |
 | Policy | `resolveGuardrailPolicy`, `detectionForTrust`, `DetectionOptions` |
 | Rule ids | `SANITIZE_RULES`, `EGRESS_RULES`, `DIRECTIVE_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
@@ -1387,6 +1464,14 @@ From `src/guardrails/testing.ts` (test / harness only):
         { "kind": "source", "path": "src/guardrails/policy.ts" },
         { "kind": "source", "path": "src/guardrails/types.ts" },
         { "kind": "contract_test", "path": "tests/guardrails/policy.test.ts" }
+      ]
+    },
+    "Detect": {
+      "supports": [
+        { "kind": "source", "path": "src/guardrails/detectors.ts" },
+        { "kind": "source", "path": "src/guardrails/boundaries.ts" },
+        { "kind": "source", "path": "src/guardrails/policy.ts" },
+        { "kind": "contract_test", "path": "tests/guardrails/detectors.test.ts" }
       ]
     },
     "Sanitization": {

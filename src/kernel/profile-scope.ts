@@ -233,6 +233,10 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     reason: 'the echo is of a system prompt, which speech, decision and host profiles lack',
     offValue: false,
   },
+  'guardrails.detect': {
+    profileTypes: turnGuardrailTypes('detect'),
+    reason: 'the decision path runs none of the turn guardrails',
+  },
   'guardrails.sanitizeInput': {
     profileTypes: turnGuardrailTypes('sanitizeInput'),
     reason: 'the decision path runs none of the turn guardrails',

@@ -1,4 +1,5 @@
 import { assertEquals, assertFalse, assertThrows } from '@std/assert';
+import { DETECT_DEFAULTS } from '../../src/guardrails/detectors.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { resolveSensitive } from '../../src/guardrails/sensitive.ts';
 import type { ProfileEgressSpec } from '../../src/guardrails/types.ts';
@@ -585,6 +586,7 @@ Deno.test('sanitizeUserDraft redacts injection spans when sanitizeInput is enabl
     {
       sanitizeInput: true,
       redactSensitive: resolveSensitive(false),
+      detect: DETECT_DEFAULTS,
       canary: false,
       hasEgress: false,
       egressChecks: null,
@@ -600,6 +602,7 @@ Deno.test('sanitizeUserDraft leaves draft unchanged when guardrails are off', ()
     {
       sanitizeInput: false,
       redactSensitive: resolveSensitive(false),
+      detect: DETECT_DEFAULTS,
       canary: false,
       hasEgress: false,
       egressChecks: null,

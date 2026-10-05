@@ -30,6 +30,7 @@ function guardrailsView(guardrails?: ProfileGuardrailsSpec): ProfileGuardrailsVi
   return {
     quota: policy.quota,
     canary: policy.canary,
+    detect: policy.detect,
     sanitizeInput: policy.sanitizeInput,
     redactSensitive: policy.redactSensitive,
     hasEgress: Boolean(policy.egress),

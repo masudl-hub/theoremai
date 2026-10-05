@@ -1,3 +1,13 @@
+import { BOUNDARIES, type Boundary, recordOf } from './boundaries.ts';
+import {
+  DETECT_DEFAULTS,
+  DETECTORS,
+  type DetectAction,
+  type Detector,
+  type ResolvedDetect,
+  resolveDetect,
+} from './detectors.ts';
+import { egressChecksOf, type ResolvedEgressChecks } from './egress.ts';
 import { egressPolicy } from './egress-policy.ts';
 import { resolveSensitive, type SensitiveGroups, type SensitiveSelection } from './sensitive.ts';
 import type {
@@ -32,14 +42,55 @@ function resolveEgress(spec: ProfileEgressSpec | undefined): ResolvedEgressSpec 
   return { ...rest, enforce: bundled };
 }
 
+const REPLY_BOUNDARIES: ReadonlySet<Boundary> = new Set([
+  'reply',
+  'reply_structured',
+  'live_reply',
+]);
+
+/** Whether the settings `detect` replaces have `detector` running, on text reaching the model and on the reply. */
+interface LegacySwitch {
+  inbound: boolean;
+  reply: boolean;
+}
+
+function legacyAction(boundary: Boundary, byDefault: DetectAction, on: LegacySwitch): DetectAction {
+  if (REPLY_BOUNDARIES.has(boundary)) return on.reply ? 'block' : byDefault;
+  return on.inbound ? byDefault : 'ignore';
+}
+
+/**
+ * The matrix the settings `detect` replaces amount to: `sanitizeInput` and
+ * `redactSensitive` switch a detector off where its default reads text, and the
+ * bundled reply checks block where they run.
+ */
+function legacyDetect(
+  spec: ProfileGuardrailsSpec | undefined,
+  checks: ResolvedEgressChecks | undefined,
+): ResolvedDetect {
+  const sensitive = resolveSensitive(spec?.redactSensitive);
+  const switchOf = (detector: Detector): LegacySwitch =>
+    detector === 'injection'
+      ? { inbound: spec?.sanitizeInput ?? true, reply: checks?.injection ?? false }
+      : { inbound: sensitive[detector], reply: checks?.sensitive[detector] ?? false };
+  return recordOf(DETECTORS, (detector) => {
+    const on = switchOf(detector);
+    return recordOf(BOUNDARIES, (boundary) =>
+      legacyAction(boundary, DETECT_DEFAULTS[detector][boundary], on),
+    );
+  });
+}
+
 /** Every ingress and egress path resolves through here so none can drift on what "unset" means. */
 function resolveGuardrailPolicy(spec: ProfileGuardrailsSpec | undefined): ResolvedGuardrailPolicy {
+  const egress = resolveEgress(spec?.egress);
   return {
+    detect: resolveDetect(spec?.detect, legacyDetect(spec, egressChecksOf(egress?.enforce))),
     sanitizeInput: spec?.sanitizeInput ?? true,
     redactSensitive: resolveSensitive(spec?.redactSensitive),
     canary: spec?.canary ?? true,
     promptEcho: spec?.promptEcho ?? true,
-    egress: resolveEgress(spec?.egress),
+    egress,
     network: spec?.network,
     quota: spec?.quota,
     taint: spec?.taint,

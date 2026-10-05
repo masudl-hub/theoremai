@@ -1,3 +1,5 @@
+import { TOOL_BOUNDARIES } from '../../guardrails/boundaries.ts';
+import { detectProblem } from '../../guardrails/detectors.ts';
 import { egressChecksProblem } from '../../guardrails/egress.ts';
 import { streamPlanOf } from '../../guardrails/egress-stream.ts';
 import { TheoremError } from '../../guardrails/error.ts';
@@ -604,6 +606,16 @@ function assertRedactSensitive(profileId: string, guardrails: unknown): void {
   }
 }
 
+/** A host profile runs no model turn, so the tool boundaries are the only ones it has. */
+function assertDetect(input: ProfileDefinition): void {
+  const spec = (input.guardrails as ProfileGuardrailsSpec | undefined)?.detect;
+  const problem =
+    input.type === 'host'
+      ? detectProblem('guardrails.detect', spec, TOOL_BOUNDARIES)
+      : detectProblem('guardrails.detect', spec);
+  if (problem !== undefined) throw new TheoremError('config', `Profile ${input.id}: ${problem}`);
+}
+
 function assertObservability(profileId: string, spec: ProfileObservabilitySpec | undefined): void {
   try {
     const policy = resolveObservabilityPolicy(spec);
@@ -663,6 +675,7 @@ function defineProfile(input: ProfileDefinition): Profile {
   if (input.lexicon) validateLexiconOverrides(input.lexicon, `Profile ${input.id}`);
   assertIdentitySystem(input);
   assertRedactSensitive(input.id, input.guardrails);
+  assertDetect(input);
   if (input.type === 'host') {
     return defineHostProfile(input);
   }

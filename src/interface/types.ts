@@ -40,7 +40,7 @@ export interface EgressChecksView {
 /** Guardrails visible to UI — egress enforcer functions are omitted. */
 export type ProfileGuardrailsView = Pick<
   ResolvedGuardrailPolicy,
-  'quota' | 'canary' | 'sanitizeInput' | 'redactSensitive'
+  'quota' | 'canary' | 'detect' | 'sanitizeInput' | 'redactSensitive'
 > & {
   hasEgress: boolean;
   /** `null` with no egress check, or a host `enforce` whose checks are its own. */

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { BOUNDARIES, recordOf } from '../guardrails/boundaries.ts';
+import { DETECT_ACTIONS, DETECTORS } from '../guardrails/detectors.ts';
 import { LEXICON_KEYS } from '../guardrails/lexicon.ts';
 import {
   CACHE_MODES,
@@ -69,6 +71,10 @@ const sensitiveGroups = z.object({
   credentials: z.boolean(),
 });
 
+const detect = z.object(
+  recordOf(DETECTORS, () => z.object(recordOf(BOUNDARIES, () => z.enum(DETECT_ACTIONS)))),
+);
+
 const urlCheck = z.union([
   z.literal(false),
   z.object({ hosts: z.array(z.string()), fromTools: z.boolean() }),
@@ -77,6 +83,7 @@ const urlCheck = z.union([
 const guardrails = z.object({
   quota: z.object({ perDay: z.number() }).optional(),
   canary: z.boolean(),
+  detect,
   sanitizeInput: z.boolean(),
   redactSensitive: sensitiveGroups,
   hasEgress: z.boolean(),

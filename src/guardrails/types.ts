@@ -1,6 +1,7 @@
 // invariant: Must not import from `src/kernel/`: the kernel type-imports `ProfileGuardrailsSpec`, and that edge
 // stays one-directional. Other modules under `src/guardrails/` may import kernel types.
 
+import type { DetectSpec, ResolvedDetect } from './detectors.ts';
 import type { EgressChecks } from './egress.ts';
 import type { GivenUrls } from './egress-urls.ts';
 import type { GuardrailEvent, GuardrailHit, Provenance } from './event-schemas.ts';
@@ -251,6 +252,12 @@ export interface ProfileGuardrailsSpec {
    * agent is meant to quote word for word.
    */
   promptEcho?: boolean;
+  /**
+   * What the kernel does when a detector finds a match, per boundary: one action
+   * for everything, or a rule for the detectors it names. Anything left out keeps
+   * its default (`DETECT_DEFAULTS`).
+   */
+  detect?: DetectSpec;
   sanitizeInput?: boolean;
   /**
    * Redact sensitive data from untrusted text before the model reads it:
@@ -286,6 +293,7 @@ export interface DecisionGuardrailsSpec extends Partial<ProfileGuardrailsSpec> {
 
 /** The guardrail field names a `host` profile may set. */
 export const HOST_GUARDRAIL_FIELDS = [
+  'detect',
   'sanitizeInput',
   'redactSensitive',
   'network',
@@ -299,6 +307,8 @@ export type HostGuardrailsSpec = Pick<
 
 /** A profile's guardrails after defaults are applied. */
 export interface ResolvedGuardrailPolicy {
+  /** Every detector's action at every boundary. */
+  detect: ResolvedDetect;
   sanitizeInput: boolean;
   redactSensitive: SensitiveGroups;
   canary: boolean;

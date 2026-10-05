@@ -12,6 +12,7 @@ import { Citation } from '@astryxdesign/core/Citation';
 import { ClickableCard } from '@astryxdesign/core/ClickableCard';
 import { Collapsible } from '@astryxdesign/core/Collapsible';
 import { HStack } from '@astryxdesign/core/HStack';
+import { useLocale } from '@astryxdesign/core/i18n';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { type LightboxMedia, useLightbox } from '@astryxdesign/core/Lightbox';
@@ -44,7 +45,7 @@ import {
 	workStatus,
 } from '../client/transcript-groups.ts';
 import { useDisclosureMotion } from './disclosure-motion.ts';
-import { type LabelText, workDuration, workStatusLabel } from './labels.ts';
+import { type LabelText, toolUsage, workDuration, workStatusLabel } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { ShapedData } from './ShapedData.tsx';
 import { transcriptBlockCopyText } from './transcript-copy-text.ts';
@@ -472,6 +473,17 @@ function toolDuration(t: LabelText, tool: ToolBlock['tool']): { duration?: strin
 	return { duration: workDuration(t, tool.endedAt - tool.startedAt) };
 }
 
+type SettledTool = Extract<NonNullable<ToolBlock['tool']['state']>, { phase: 'complete' | 'error' }>;
+
+/** What the agent an agent tool ran used, after the call's name. Only agent tools report it. */
+function ToolUsage({ tokens }: { tokens: NonNullable<SettledTool['tokens']> }) {
+	return toolUsage(useLabels(), useLocale(), tokens);
+}
+
+function toolUsageStats(state: SettledTool): { stats?: ReactNode } {
+	return state.tokens ? { stats: <ToolUsage tokens={state.tokens} /> } : {};
+}
+
 function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatToolCallItem {
 	const base = { key: id, name: toolCallLabel(tool) };
 	const { state } = tool;
@@ -482,6 +494,7 @@ function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatTo
 				...base,
 				status: 'error',
 				target: state.failure.message,
+				...toolUsageStats(state),
 				errorMessage: state.failure.message,
 				resultDetail: toolDetail(
 					t,
@@ -494,6 +507,7 @@ function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatTo
 				...base,
 				status: 'complete',
 				...toolDuration(t, tool),
+				...toolUsageStats(state),
 				resultDetail: toolDetail(
 					t,
 					tool,

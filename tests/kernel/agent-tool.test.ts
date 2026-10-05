@@ -349,6 +349,59 @@ Deno.test("an image agent's picture comes back as parts", async () => {
   });
 });
 
+Deno.test("a speech agent's audio comes back as parts", async () => {
+  const scope = createKernelScope();
+  scope.profiles.register(
+    defineProfile({
+      id: RESEARCHER,
+      type: 'speech',
+      identity: { handle: 'narrator' },
+      ...geminiModels('gemini31FlashTts'),
+      speech: { voice: 'Kore', format: 'pcm' },
+    }),
+  );
+  scope.tools.register(agentTool());
+  scope.profiles.register(textProfile(CALLER, 'You help.', ['ask_researcher']));
+  const caller = routedProvider();
+  let spoken = 0;
+  const provider: ModelProvider = {
+    async *complete(req) {
+      await Promise.resolve();
+      if (req.speech) {
+        spoken += 1;
+        yield { type: 'media', media: { mimeType: 'audio/pcm', data: 'c291bmQ=' } };
+        return;
+      }
+      yield* caller.complete(req);
+    },
+  };
+  const events = await collect(scope, provider);
+  assertEquals(spoken, 1);
+  const [complete] = toolPhases(events, 'complete');
+  assertEquals((complete as { output: unknown }).output, {
+    text: '',
+    parts: [{ type: 'audio', mimeType: 'audio/pcm', data: 'c291bmQ=' }],
+  });
+});
+
+Deno.test("the called agent's canary is kept out of the caller's record", async () => {
+  const canaries: string[] = [];
+  const routed = routedProvider();
+  const provider: ModelProvider = {
+    async *complete(req) {
+      const canary = /Your canary token is (\S+)\./.exec(req.system ?? '')?.[1];
+      if (canary && isResearcher(req)) canaries.push(canary);
+      yield* routed.complete(req);
+    },
+  };
+  const records: TraceRecord[] = [];
+  await collect(scopeWith(), provider, undefined, records);
+  assertEquals(canaries.length, 1);
+  const stored = JSON.stringify(records);
+  assertEquals(stored.includes(RESEARCHER_SYSTEM), true);
+  assertEquals(stored.includes(canaries[0] as string), false);
+});
+
 Deno.test('an agent that does not finish fails the call, with its usage', async () => {
   const provider: ModelProvider = {
     async *complete(req) {

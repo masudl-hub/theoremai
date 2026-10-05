@@ -4,6 +4,7 @@ import {
   assertLabelOverrides,
   THEOREM_UI_CATALOG,
   type TheoremLabels,
+  toolUsage,
 } from '../../react/src/ui/labels.ts';
 import { defaultLabels as t } from './default-labels.ts';
 
@@ -102,5 +103,15 @@ Deno.test("assertLabelOverrides leaves a host's own keys alone unless strict", (
       ),
     Error,
     'Theorem labels: en @theorem.chat.nope: no such label',
+  );
+});
+
+Deno.test("an agent tool's row words the called agent's tokens, then its cost", () => {
+  assertEquals(toolUsage(t, 'en', { total: 1 }), '1 token');
+  assertEquals(toolUsage(t, 'en', { total: 1450 }), '1,450 tokens');
+  assertEquals(toolUsage(t, 'en', { total: 45, cost: { usd: 0.00012 } }), '45 tokens · $0.00012');
+  assertEquals(
+    toolUsage(t, 'en', { total: 45, cost: { usd: 0.02, partial: true } }),
+    '45 tokens · At least $0.02',
   );
 });

@@ -787,7 +787,7 @@ looks, and what it does: a detector, a boundary, an action.
 
 | API | Role |
 | --- | --- |
-| `DETECTORS` | `ids`, `financial`, `network`, `credentials` (the `SENSITIVE_GROUPS`) and `injection`; `DETECTOR_META` labels each |
+| `DETECTORS` | `ids`, `financial`, `network`, `credentials` (the `SENSITIVE_GROUPS`) and `injection`; `DETECTOR_META` is each one's `DetectorDeclaration`: label, what it finds, its group (`DETECTOR_GROUPS`) and its default action at each boundary it applies at (`DETECTOR_BOUNDARIES`) |
 | `BOUNDARIES` | Every place the kernel reads text as it crosses; `BOUNDARY_META` labels each |
 | `TOOL_BOUNDARIES` | The tool boundaries: `toolBoundary(crossing, kind)` for `tool_arguments`, `tool_output` and `tool_failure`, for each of `TOOL_KINDS` |
 | `DETECT_ACTIONS` | `ignore`, `flag`, `redact`, `block`; `DETECT_ACTION_META` labels each |
@@ -1457,7 +1457,7 @@ From `src/guardrails/mod.ts`:
 | Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicWording`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
 | Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `ResolvedEgressSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
-| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `ResolvedDetect`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `detectAt`, `Detection`, `DetectOutcome` |
+| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `detectAt`, `Detection`, `DetectOutcome` |
 | Policy | `resolveGuardrailPolicy` |
 | Rule ids | `DETECT_RULES`, `EGRESS_RULES`, `DIRECTIVE_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `InspectedToolArguments`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |

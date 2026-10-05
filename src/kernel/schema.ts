@@ -5,11 +5,12 @@
  */
 
 /** lexicon-exempt-file: authoring field-meta / closed unions — not runtime user or model copy (P2) */
-import { BOUNDARIES, BOUNDARY_META, recordOf } from '../guardrails/boundaries.ts';
+import { BOUNDARY_META, recordOf } from '../guardrails/boundaries.ts';
 import {
   DETECT_ACTION_META,
   DETECT_ACTIONS,
   DETECT_DEFAULTS,
+  DETECTOR_BOUNDARIES,
   DETECTOR_META,
   DETECTORS,
 } from '../guardrails/detectors.ts';
@@ -530,7 +531,7 @@ function detectFields(): Record<string, FieldMeta> {
       `${path}.at`,
       field('{ [boundary]: DetectAction }', 'An action per boundary, over action or the default.'),
     ]);
-    for (const boundary of BOUNDARIES) {
+    for (const boundary of DETECTOR_BOUNDARIES[detector]) {
       const unset = DETECT_ACTION_META[DETECT_DEFAULTS[detector][boundary]].label;
       const meta = action('DetectAction', BOUNDARY_META[boundary].doc);
       rows.push([`${path}.at.${boundary}`, { ...meta, unset }]);

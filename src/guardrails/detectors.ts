@@ -48,26 +48,86 @@ type DetectSpec = DetectAction | Partial<Record<Detector, DetectorRule>>;
 /** Every detector's action at every boundary, defaults applied. */
 type ResolvedDetect = Readonly<Record<Detector, Readonly<Record<Boundary, DetectAction>>>>;
 
-/** How a detector or an action is named and described to a builder. */
+/** How a detector, a group or an action is named and described to a builder. */
 interface DetectMeta {
   label: string;
   doc: string;
 }
 
-/** The label of every detector, and what it finds. */
-const DETECTOR_META: Readonly<Record<Detector, DetectMeta>> = {
-  ids: { label: 'IDs', doc: 'US SSN, ITIN and EIN numbers.' },
-  financial: { label: 'Financial', doc: 'IBANs and card numbers.' },
-  network: { label: 'Network', doc: 'IPv4 and IPv6 addresses.' },
+/** The groups an editor lists detectors under, in order. */
+const DETECTOR_GROUPS = ['data', 'attacks'] as const;
+/** One of {@linkcode DETECTOR_GROUPS}. */
+type DetectorGroup = (typeof DETECTOR_GROUPS)[number];
+
+/** The label of every group, and what its detectors find. */
+const DETECTOR_GROUP_META: Readonly<Record<DetectorGroup, DetectMeta>> = {
+  data: { label: 'Data', doc: 'Sensitive data, whoever wrote it.' },
+  attacks: { label: 'Attacks', doc: 'Text written to steer the model.' },
+};
+
+type BoundaryActions = Readonly<Partial<Record<Boundary, DetectAction>>>;
+
+/**
+ * Everything that describes a detector: what it finds, its group, and its default action at each
+ * boundary it applies at. The default is also the recommended action. A boundary left out is one
+ * the detector does not apply at.
+ */
+interface DetectorDeclaration extends DetectMeta {
+  group: DetectorGroup;
+  defaults: Readonly<Partial<Record<Boundary, DetectAction>>>;
+}
+
+const TOOL_ARGUMENT_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_arguments', kind));
+
+/** Text on its way to the model is redacted, a tool call takes `toTool`, and what the model writes is not read. */
+function everywhere(toTool: DetectAction): BoundaryActions {
+  return {
+    ...recordOf(INBOUND_BOUNDARIES, () => 'redact' as const),
+    ...recordOf(TOOL_BOUNDARIES, () => 'redact' as const),
+    ...recordOf(TOOL_ARGUMENT_BOUNDARIES, () => toTool),
+    ...recordOf(OUTBOUND_BOUNDARIES, () => 'ignore' as const),
+  };
+}
+
+/** Every detector's declaration. The editor, validation and the catalog are built from it. */
+const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
+  ids: {
+    label: 'IDs',
+    doc: 'US SSN, ITIN and EIN numbers.',
+    group: 'data',
+    defaults: everywhere('flag'),
+  },
+  financial: {
+    label: 'Financial',
+    doc: 'IBANs and card numbers.',
+    group: 'data',
+    defaults: everywhere('flag'),
+  },
+  network: {
+    label: 'Network',
+    doc: 'IPv4 and IPv6 addresses.',
+    group: 'data',
+    defaults: everywhere('flag'),
+  },
   credentials: {
     label: 'Credentials',
     doc: 'API keys and tokens in the formats gitleaks knows (AWS, Google, OpenAI, Anthropic, GitHub, Slack and Stripe among them), key and password assignments, OpenRouter keys, bearer tokens and PEM private keys.',
+    group: 'data',
+    defaults: everywhere('flag'),
   },
   injection: {
     label: 'Injection',
     doc: 'Prompt-injection phrasing, as written or disguised.',
+    group: 'attacks',
+    defaults: everywhere('ignore'),
   },
 };
+
+/** The boundaries each detector applies at, in the kernel's order. */
+const DETECTOR_BOUNDARIES: Readonly<Record<Detector, readonly Boundary[]>> = recordOf(
+  DETECTORS,
+  (detector) => BOUNDARIES.filter((boundary) => boundary in DETECTOR_META[detector].defaults),
+);
 
 /** The label of every action, and what it does. */
 const DETECT_ACTION_META: Readonly<Record<DetectAction, DetectMeta>> = {
@@ -86,43 +146,38 @@ const DETECT_ACTION_META: Readonly<Record<DetectAction, DetectMeta>> = {
   },
 };
 
-const TOOL_ARGUMENT_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_arguments', kind));
-
-/** The default action at each boundary: text on its way to the model is redacted, a tool call is reported, and what the model writes is not read. */
-function defaultsFor(toTool: DetectAction): Readonly<Record<Boundary, DetectAction>> {
-  return {
-    ...recordOf(INBOUND_BOUNDARIES, () => 'redact' as const),
-    ...recordOf(TOOL_BOUNDARIES, () => 'redact' as const),
-    ...recordOf(TOOL_ARGUMENT_BOUNDARIES, () => toTool),
-    ...recordOf(OUTBOUND_BOUNDARIES, () => 'ignore' as const),
-  };
+/** `action` wherever `detector` applies. Anywhere else it is `ignore`: the detector is not run there. */
+function wherever(detector: Detector, action: DetectAction): Record<Boundary, DetectAction> {
+  const applies = DETECTOR_META[detector].defaults;
+  return recordOf(BOUNDARIES, (boundary) => (boundary in applies ? action : 'ignore'));
 }
 
-/** What a profile that sets no `guardrails.detect` gets. No default is `block`. */
-const DETECT_DEFAULTS: ResolvedDetect = {
-  ...recordOf(SENSITIVE_GROUPS, () => defaultsFor('flag')),
-  injection: defaultsFor('ignore'),
-};
+/** What a profile that sets no `guardrails.detect` gets. */
+const DETECT_DEFAULTS: ResolvedDetect = recordOf(DETECTORS, (detector) => ({
+  ...wherever(detector, 'ignore'),
+  ...DETECTOR_META[detector].defaults,
+}));
 
 function isAction(value: unknown): value is DetectAction {
   return (DETECT_ACTIONS as readonly unknown[]).includes(value);
 }
 
 function resolveRule(
+  detector: Detector,
   rule: DetectorRule | undefined,
-  base: Readonly<Record<Boundary, DetectAction>>,
 ): Readonly<Record<Boundary, DetectAction>> {
+  const base = DETECT_DEFAULTS[detector];
   if (rule === undefined) return base;
-  if (isAction(rule)) return recordOf(BOUNDARIES, () => rule);
+  if (isAction(rule)) return wherever(detector, rule);
   const { action, at } = rule;
-  return { ...(action === undefined ? base : recordOf(BOUNDARIES, () => action)), ...at };
+  return { ...(action === undefined ? base : wherever(detector, action)), ...at };
 }
 
 /** `spec` with everything it leaves out at its default. */
 function resolveDetect(spec?: DetectSpec): ResolvedDetect {
   if (spec === undefined) return DETECT_DEFAULTS;
-  if (isAction(spec)) return recordOf(DETECTORS, () => recordOf(BOUNDARIES, () => spec));
-  return recordOf(DETECTORS, (detector) => resolveRule(spec[detector], DETECT_DEFAULTS[detector]));
+  if (isAction(spec)) return recordOf(DETECTORS, (detector) => wherever(detector, spec));
+  return recordOf(DETECTORS, (detector) => resolveRule(detector, spec[detector]));
 }
 
 const ACTION_LIST = DETECT_ACTIONS.join(', ');
@@ -131,13 +186,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function atProblem(path: string, at: unknown, boundaries: readonly Boundary[]): string | undefined {
+function atProblem(
+  path: string,
+  at: unknown,
+  detector: Detector,
+  boundaries: readonly Boundary[],
+): string | undefined {
   if (at === undefined) return undefined;
   if (!isRecord(at)) return `${path} must be an object of boundaries`;
   const known = new Set<string>(boundaries);
+  const applies = DETECTOR_BOUNDARIES[detector];
   for (const [boundary, action] of Object.entries(at)) {
     if (!known.has(boundary)) {
       return `${path}.${boundary} is not a boundary this profile has (${boundaries.join(', ')})`;
+    }
+    if (!(applies as readonly string[]).includes(boundary)) {
+      return `${path}.${boundary} is not a boundary ${detector} applies at (${applies.join(', ')})`;
     }
     if (!isAction(action)) return `${path}.${boundary} must be one of ${ACTION_LIST}`;
   }
@@ -149,6 +213,7 @@ const CONFIG_KEYS: readonly string[] = ['action', 'at'] satisfies (keyof Detecto
 function ruleProblem(
   path: string,
   rule: unknown,
+  detector: Detector,
   boundaries: readonly Boundary[],
 ): string | undefined {
   if (isAction(rule)) return undefined;
@@ -160,7 +225,11 @@ function ruleProblem(
   if (rule.action !== undefined && !isAction(rule.action)) {
     return `${path}.action must be one of ${ACTION_LIST}`;
   }
-  return atProblem(`${path}.at`, rule.at, boundaries);
+  return atProblem(`${path}.at`, rule.at, detector, boundaries);
+}
+
+function isDetector(value: string): value is Detector {
+  return (DETECTORS as readonly string[]).includes(value);
 }
 
 /**
@@ -175,12 +244,11 @@ function detectProblem(
 ): string | undefined {
   if (spec === undefined || isAction(spec)) return undefined;
   if (!isRecord(spec)) return `${path} must be one of ${ACTION_LIST}, or an object of detectors`;
-  const known = new Set<string>(DETECTORS);
   for (const [detector, rule] of Object.entries(spec)) {
-    if (!known.has(detector)) {
+    if (!isDetector(detector)) {
       return `${path}.${detector} is not a detector (${DETECTORS.join(', ')})`;
     }
-    const problem = ruleProblem(`${path}.${detector}`, rule, boundaries);
+    const problem = ruleProblem(`${path}.${detector}`, rule, detector, boundaries);
     if (problem !== undefined) return problem;
   }
   return undefined;
@@ -191,6 +259,8 @@ export type {
   DetectMeta,
   Detector,
   DetectorConfig,
+  DetectorDeclaration,
+  DetectorGroup,
   DetectorRule,
   DetectSpec,
   ResolvedDetect,
@@ -199,6 +269,9 @@ export {
   DETECT_ACTION_META,
   DETECT_ACTIONS,
   DETECT_DEFAULTS,
+  DETECTOR_BOUNDARIES,
+  DETECTOR_GROUP_META,
+  DETECTOR_GROUPS,
   DETECTOR_META,
   DETECTORS,
   detectProblem,

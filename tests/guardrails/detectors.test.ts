@@ -9,6 +9,9 @@ import {
   DETECT_ACTION_META,
   DETECT_ACTIONS,
   DETECT_DEFAULTS,
+  DETECTOR_BOUNDARIES,
+  DETECTOR_GROUP_META,
+  DETECTOR_GROUPS,
   DETECTOR_META,
   DETECTORS,
   type DetectAction,
@@ -70,6 +73,25 @@ Deno.test('every detector, action and boundary has a label and a description', (
     ok(meta.label.length > 0);
     ok(meta.doc.length > 0);
   }
+});
+
+Deno.test('every detector is in a group, and its defaults name the boundaries it applies at', () => {
+  for (const detector of DETECTORS) {
+    const { group, defaults } = DETECTOR_META[detector];
+    ok(DETECTOR_GROUP_META[group].label.length > 0);
+    ok(DETECTOR_BOUNDARIES[detector].length > 0);
+    assertEquals(
+      DETECTOR_BOUNDARIES[detector],
+      BOUNDARIES.filter((boundary) => boundary in defaults),
+    );
+    for (const boundary of BOUNDARIES) {
+      assertEquals(DETECT_DEFAULTS[detector][boundary], defaults[boundary] ?? 'ignore');
+    }
+  }
+  assertEquals(
+    DETECTOR_GROUPS.flatMap((group) => DETECTORS.filter((d) => DETECTOR_META[d].group === group)),
+    [...DETECTORS],
+  );
 });
 
 Deno.test('no default is block, and nothing the model writes is read by default', () => {

@@ -516,12 +516,15 @@ function detectFields(): Record<string, FieldMeta> {
       path,
       action(
         'DetectAction | DetectorConfig',
-        `${DETECTOR_META[detector].doc} Set one action for all boundaries, or one per boundary.`,
+        `${DETECTOR_META[detector].doc} Set one action, or action and at.`,
       ),
     ]);
     rows.push([
       `${path}.action`,
-      action('DetectAction', 'The action at every boundary. Unset: each keeps its default.'),
+      action(
+        'DetectAction',
+        `${DETECTOR_META[detector].doc} The action at every boundary. Unset: each keeps its default.`,
+      ),
     ]);
     rows.push([
       `${path}.at`,

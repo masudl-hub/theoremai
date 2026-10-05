@@ -95,7 +95,7 @@ export type SidePanelProps = {
 };
 
 /** Page corners like the host's raised panels, no border or shadow; the card fill, so surface-filled cards read on it. */
-export const RAISED = { background: 'var(--color-background-card)', borderRadius: 'var(--radius-page)' };
+export const RAISED = { background: 'var(--color-background-card)', borderRadius: 'var(--radius-page)', overflow: 'hidden' };
 
 /**
  * A Layout `end` panel as Astryx's IDE template builds one (a reversed

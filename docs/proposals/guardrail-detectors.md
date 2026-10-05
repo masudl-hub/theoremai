@@ -281,8 +281,9 @@ function detectAt(text: string, boundary: Boundary, detect: ResolvedDetect): {
 
 ## 7. Migration
 
-This is a breaking change to the profile schema. A profile that still sets a
-removed field fails registration with a message that names the replacement.
+This is a breaking change to the profile schema, made outright. The old fields
+are deleted, with no alias, no translation into `detect`, and no code that
+recognises them. The table is how to rewrite a profile by hand.
 
 | Was | Becomes |
 |---|---|
@@ -298,8 +299,8 @@ Known consequences:
 - Stored playground drafts are discarded once, by the existing "draft shape
   grew" check. `tests/playground-store.test.ts` uses `egressChecks` as its
   example key and needs another.
-- Trace rule ids change. Stored traces keep their old ids; the trace catalog
-  keeps labels for the old ids so old traces still read.
+- Trace rule ids change. The trace catalog labels the new ids only; a stored
+  trace with an old id shows the bare id.
 - The frontend's `probe_misses` rows hold old field names. They are history and
   are left as they are.
 
@@ -464,17 +465,19 @@ docs lint), and carries its own contract-doc edits.
 
 1. Vocabularies and resolution, wired in: `detectors.ts`, `boundaries.ts`,
    `resolveGuardrailPolicy` returns the matrix, validation, catalog rows,
-   scope, interface view. The old fields still work and are translated into the
-   matrix here, so behaviour is unchanged and nothing new is unused.
-2. `detectAt` at every boundary that carries text to the model or to a tool. `detect-single-engine`
-   rule added.
+   scope, interface view. (Done.)
+2. `detectAt` at every boundary that carries text to the model or to a tool,
+   reading the matrix. `detect-single-engine` rule added.
 3. The reply and thought boundaries: both scanners on the registry; `flag` and
    `redact` in the stream gate.
-4. Old fields removed, with the registration error. `no-removed-guardrail-fields`
-   rule added. Trace catalog, CLI, exports, scripts.
-5. Playground package: draft, compile, probe, battery.
-6. Frontend: editor, tester, `th30.ts`, tests, docs articles.
-7. Cassettes checked, full kernel and frontend gates including fallow, browser
+4. The old fields deleted outright, in one change across the three places that
+   name them, so nothing is red in between and nothing translates:
+   - kernel: the fields, their types and validators, the step 1 resolution of
+     old fields into the matrix, the old rule ids, trace catalog, CLI, exports,
+     scripts; `no-removed-guardrail-fields` rule added;
+   - playground package: draft, compile, probe, battery;
+   - frontend: editor, tester, `th30.ts`, tests, docs articles.
+5. Cassettes checked, full kernel and frontend gates including fallow, browser
    check of the editor.
 
 ## 13. Decided
@@ -495,6 +498,10 @@ docs lint), and carries its own contract-doc edits.
    every boundary (`ids: 'block'`) is fine there; naming a boundary it does not
    have is a registration error. Decision profiles still refuse `detect`.
 8. **One rule id per detector,** with the boundary on the event.
+9. **No shims.** The finished work has nothing that translates, aliases or
+   recognises a removed field or rule id. Until step 4 the old fields are the
+   only way the playground sets these, so they resolve into the matrix; step 4
+   deletes them and that resolution together.
 
 ## Not in this work
 

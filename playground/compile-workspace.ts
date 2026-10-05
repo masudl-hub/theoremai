@@ -133,18 +133,10 @@ function registrationOrder(
   return { ordered, looped: workspace.agents.filter((agent) => !done.has(agent.key)) };
 }
 
-/** Every issue across the workspace is reported, each once. */
-export function compileWorkspace(
-  workspace: PlaygroundWorkspace,
-  mode: PlaygroundConnectionMode = 'demo',
-): WorkspaceCompileResult {
-  const issues = new Map<string, PlaygroundIssue>();
-  const report = (issue: PlaygroundIssue) => {
-    issues.set(JSON.stringify([issue.nodeId, issue.field, issue.index, issue.message]), issue);
-  };
-  const byKey = new Map(workspace.agents.map((agent) => [agent.key, agent]));
-  const agentIdOf: AgentIdOf = (key) => byKey.get(key)?.identity.agentId.trim();
+type Report = (issue: PlaygroundIssue) => void;
 
+/** An id two agents share, or a tool name two tools share, is an issue on each after the first. */
+function reportDuplicates(workspace: PlaygroundWorkspace, report: Report): void {
   const ids = new Set<string>();
   for (const agent of workspace.agents) {
     const id = agent.identity.agentId.trim();
@@ -169,38 +161,32 @@ export function compileWorkspace(
     }
     names.add(name);
   }
+}
 
-  const refs = references(workspace);
-  for (const ref of refs) {
-    const target = byKey.get(ref.to);
-    const type = target?.identity.profileType;
-    if (!target || !type) continue;
-    const id = target.identity.agentId.trim();
-    if (ref.field === 'agentKey' && !CALLABLE_TYPES.has(type)) {
-      report({
-        nodeId: ref.nodeId,
-        message: `'${id}' is a ${type} agent. An agent tool runs a text, image or speech agent.`,
-        field: ref.field,
-      });
-    }
-    if (ref.field === 'compactWith' && type !== 'text') {
-      report({
-        nodeId: ref.nodeId,
-        message: `'${id}' is a ${type} agent. Only a text agent summarises.`,
-        field: ref.field,
-      });
-    }
+/** Why the agent a reference names can't do its job; undefined when it can, or isn't set up. */
+function wrongTypeMessage(ref: Reference, target: AgentDraft | undefined): string | undefined {
+  const type = target?.identity.profileType;
+  if (!target || !type) return undefined;
+  const id = target.identity.agentId.trim();
+  if (ref.field === 'agentKey' && !CALLABLE_TYPES.has(type)) {
+    return `'${id}' is a ${type} agent. An agent tool runs a text, image or speech agent.`;
   }
-  const named = namedBy(workspace, refs);
-  const { ordered, looped } = registrationOrder(workspace, named);
-  // Each reference that closes a circle is an issue on the field that holds it.
-  for (const ref of refs) {
-    const path = chain(named, ref.to, ref.from.key);
-    if (path) report({ nodeId: ref.nodeId, field: ref.field, message: circleMessage(ref, path, agentIdOf) });
+  if (ref.field === 'compactWith' && type !== 'text') {
+    return `'${id}' is a ${type} agent. Only a text agent summarises.`;
   }
+  return undefined;
+}
 
+/** Each agent's own compile, in registration order; an agent's issues land under its node. */
+function compileAgents(
+  workspace: PlaygroundWorkspace,
+  agents: readonly AgentDraft[],
+  mode: PlaygroundConnectionMode,
+  agentIdOf: AgentIdOf,
+  report: Report,
+): { key: string; agent: CompiledPlayground }[] {
   const compiled: { key: string; agent: CompiledPlayground }[] = [];
-  for (const agent of [...ordered, ...looped]) {
+  for (const agent of agents) {
     const draft = agentDraft(workspace, agent.key);
     const result = draft && compilePlayground(draft, mode, agentIdOf);
     if (!result) continue;
@@ -213,9 +199,16 @@ export function compileWorkspace(
       report({ ...issue, nodeId: scopedNodeId(agent.key, issue.nodeId) });
     }
   }
-  if (issues.size) return { ok: false, issues: [...issues.values()] };
+  return compiled;
+}
 
-  // The kernel's own rules across agents, such as an agent tool's agent that can stop on a gate.
+/**
+ * The kernel's own rules across agents, such as an agent tool's agent that can stop on a gate:
+ * the first agent a scope refuses, as an issue on that agent.
+ */
+function kernelIssue(
+  compiled: readonly { key: string; agent: CompiledPlayground }[],
+): PlaygroundIssue | undefined {
   const scope = createKernelScope();
   for (const { key, agent } of compiled) {
     try {
@@ -223,9 +216,42 @@ export function compileWorkspace(
       scope.profiles.register(defineProfile(agent.profile));
     } catch (err) {
       if (!(err instanceof TheoremError)) throw err;
-      return { ok: false, issues: [{ nodeId: agentNodeId(key), message: err.message }] };
+      return { nodeId: agentNodeId(key), message: err.message };
     }
   }
+  return undefined;
+}
+
+/** Every issue across the workspace is reported, each once. */
+export function compileWorkspace(
+  workspace: PlaygroundWorkspace,
+  mode: PlaygroundConnectionMode = 'demo',
+): WorkspaceCompileResult {
+  const issues = new Map<string, PlaygroundIssue>();
+  const report: Report = (issue) => {
+    issues.set(JSON.stringify([issue.nodeId, issue.field, issue.index, issue.message]), issue);
+  };
+  const byKey = new Map(workspace.agents.map((agent) => [agent.key, agent]));
+  const agentIdOf: AgentIdOf = (key) => byKey.get(key)?.identity.agentId.trim();
+
+  reportDuplicates(workspace, report);
+  const refs = references(workspace);
+  for (const ref of refs) {
+    const message = wrongTypeMessage(ref, byKey.get(ref.to));
+    if (message) report({ nodeId: ref.nodeId, message, field: ref.field });
+  }
+  const named = namedBy(workspace, refs);
+  const { ordered, looped } = registrationOrder(workspace, named);
+  // Each reference that closes a circle is an issue on the field that holds it.
+  for (const ref of refs) {
+    const path = chain(named, ref.to, ref.from.key);
+    if (path) report({ nodeId: ref.nodeId, field: ref.field, message: circleMessage(ref, path, agentIdOf) });
+  }
+
+  const compiled = compileAgents(workspace, [...ordered, ...looped], mode, agentIdOf, report);
+  if (issues.size) return { ok: false, issues: [...issues.values()] };
+  const refused = kernelIssue(compiled);
+  if (refused) return { ok: false, issues: [refused] };
   return { ok: true, agents: compiled.map(({ agent }) => agent) };
 }
 

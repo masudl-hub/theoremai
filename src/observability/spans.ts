@@ -67,4 +67,4 @@ function spansFromPatterns(text: string, patterns: RegExp[], kind: RedactKind): 
 }
 
 export type { RedactKind, RedactSpan };
-export { applySpans, blobAt, OMIT_INJECTION, OMIT_SENSITIVE, spansFromPatterns };
+export { applySpans, blobAt, mergeSpans, OMIT_INJECTION, OMIT_SENSITIVE, spansFromPatterns };

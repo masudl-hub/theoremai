@@ -22,7 +22,7 @@ import {
   INJECTION_BLOBS,
   tryLeet,
   tryRot13,
-  typoNormalize,
+  typoFolded,
 } from '../../src/guardrails/injection.ts';
 import { normalizeCodePoint, normalizeForDetection } from '../../src/guardrails/normalize.ts';
 import { cardHit, SENSITIVE_PATTERNS } from '../../src/guardrails/sensitive.ts';
@@ -173,12 +173,14 @@ function referenceMatchStart(
   const normalized = normalizedView(text);
   const fromNormalized = (i: number) => normalized.at[i] as number;
   const url = urlView(text);
+  const typo = typoFolded(text);
+  const typoNormalized = typoFolded(normalized.view);
   return Math.min(
     plain,
     earliest(text, same, REVERSED),
-    earliest(typoNormalize(text), same, INJECTION),
+    earliest(typo.text, typo.at, INJECTION),
     earliest(normalized.view, fromNormalized, INJECTION),
-    earliest(typoNormalize(normalized.view), fromNormalized, INJECTION),
+    earliest(typoNormalized.text, (i) => fromNormalized(typoNormalized.at(i)), INJECTION),
     earliest(tryRot13(text), same, INJECTION),
     earliest(tryLeet(text) ?? text, same, INJECTION),
     earliest(url.view, (i) => url.at[i] as number, INJECTION),

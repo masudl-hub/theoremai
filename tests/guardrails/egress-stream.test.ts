@@ -135,8 +135,16 @@ const NOISE = [
 ];
 const LEET: Record<string, string> = { a: '4', e: '3', i: '1', o: '0', s: '5', t: '7' };
 
+/** One letter dropped, doubled or changed. */
+function misspell(piece: string, rnd: (n: number) => number): string {
+  const at = rnd(piece.length);
+  const letter = piece[at] as string;
+  const put = [``, `${letter}${letter}`, 'x'][rnd(3)] as string;
+  return piece.slice(0, at) + put + piece.slice(at + 1);
+}
+
 function tweak(piece: string, rnd: (n: number) => number): string {
-  switch (rnd(9)) {
+  switch (rnd(10)) {
     case 0:
       return [...piece].reverse().join('');
     case 1:
@@ -157,6 +165,8 @@ function tweak(piece: string, rnd: (n: number) => number): string {
       return piece.replace(/[a-z]/g, (c) =>
         rnd(3) ? c : String.fromCodePoint(c.charCodeAt(0) + 0xfee0),
       );
+    case 7:
+      return misspell(piece, rnd);
     default:
       return piece;
   }

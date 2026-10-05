@@ -76,7 +76,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact detect.injection+detect.injection+detect.injection"
+   "input redact detect.injection"
   ],
   "error": null,
   "shown": "I notice you've shared some content between tags, but it appears to be marked as \"[omitted - injection]\". This suggests there may have been an attempt to include content that was filtered out.\n\nCould you please clarify what you'd like help with? I'm here to assist you with questions, explanations, or discussions on a wide range of topics.",

@@ -1,4 +1,4 @@
-import { blobAt, type RedactSpan, spansFromPatterns } from '../observability/spans.ts';
+import { blobAt, mergeSpans, type RedactSpan, spansFromPatterns } from '../observability/spans.ts';
 import { REVERSED_INJECTION_PATTERNS } from './egress-automata.ts';
 import {
   BASE64_BLOB,
@@ -31,7 +31,63 @@ const TYPO_TARGETS = [
   'developer',
   'disable',
   'measures',
+  'output',
 ];
+
+/** The shortest target a one-edit misspelling is read as: a shorter word has too many real neighbours. */
+const EDIT_TARGET_MIN = 6;
+
+/**
+ * Real words one edit from a target (`forgot`, `safely`, `filter`): the dictionary's, and the
+ * inflections it leaves out. They are words, not misspellings.
+ */
+const REAL_WORDS: ReadonlySet<string> = new Set([
+  'instruction',
+  'filter',
+  'guideline',
+  'restriction',
+  'measure',
+  'ignote',
+  'bypast',
+  'overrode',
+  'overrife',
+  'overripe',
+  'overrise',
+  'overrude',
+  'overside',
+  'overtide',
+  'overwide',
+  'redeal',
+  'reheal',
+  'repeal',
+  'reseal',
+  'reveil',
+  'revel',
+  'delate',
+  'deplete',
+  'safely',
+  'fitters',
+  'precious',
+  'premious',
+  'prepious',
+  'forge',
+  'forged',
+  'forger',
+  'forges',
+  'forgot',
+  'forlet',
+  'forpet',
+  'forset',
+  'gorget',
+  'developed',
+  'measured',
+  'measurer',
+  'outcut',
+  'outhut',
+  'outjut',
+]);
+
+const TYPO_TARGET_SET: ReadonlySet<string> = new Set(TYPO_TARGETS);
 
 /** Pipe evasion only when the first token is a known injection lead-in. */
 const PIPE_HEAD_VERBS =
@@ -78,15 +134,126 @@ function isTypoglycemia(word: string, target: string): boolean {
   return sortedLetters(lower.slice(1, -1)) === sortedLetters(target.slice(1, -1));
 }
 
-function typoNormalize(text: string): string {
-  return text.replace(WORD, (word) => {
-    for (const target of TYPO_TARGETS) {
-      if (isTypoglycemia(word, target)) {
-        return target;
-      }
-    }
-    return word;
+/** Whether one insertion, deletion, substitution or swap of two neighbours turns `word` into `target`. */
+function isOneEdit(word: string, target: string): boolean {
+  const wordEnd = word.length - 1;
+  const targetEnd = target.length - 1;
+  if (word[0] !== target[0] && word[wordEnd] !== target[targetEnd]) {
+    return false;
+  }
+  const short = Math.min(word.length, target.length);
+  let head = 0;
+  while (head < short && word[head] === target[head]) {
+    head += 1;
+  }
+  let tail = 0;
+  while (tail < short - head && word[wordEnd - tail] === target[targetEnd - tail]) {
+    tail += 1;
+  }
+  if (word.length !== target.length) {
+    return head + tail === short;
+  }
+  const differing = short - head - tail;
+  return (
+    differing === 1 ||
+    (differing === 2 && word[head] === target[head + 1] && word[head + 1] === target[head])
+  );
+}
+
+/**
+ * Whether `word` is `target` misspelt by one edit. A real word is not: one of
+ * {@linkcode REAL_WORDS}, or the target with a letter added at its end
+ * (`ignored`, `systems`).
+ */
+function isMisspelling(word: string, target: string): boolean {
+  return isOneEdit(word, target) && !REAL_WORDS.has(word) && word.slice(0, -1) !== target;
+}
+
+/** For a word length, the targets a scramble of that length can be, and the targets a one-edit misspelling of it can be. */
+const TARGETS_BY_LENGTH = new Map<number, { same: string[]; near: string[] }>();
+for (
+  let length = 4;
+  length <= Math.max(...TYPO_TARGETS.map((target) => target.length)) + 1;
+  length += 1
+) {
+  TARGETS_BY_LENGTH.set(length, {
+    same: TYPO_TARGETS.filter((target) => target.length === length),
+    near: TYPO_TARGETS.filter(
+      (target) => target.length >= EDIT_TARGET_MIN && Math.abs(target.length - length) <= 1,
+    ),
   });
+}
+
+/** The target `word` is read as, or `undefined`: a scramble of one first, then a one-edit misspelling. */
+function targetOf(word: string): string | undefined {
+  const targets = TARGETS_BY_LENGTH.get(word.length);
+  if (targets === undefined) {
+    return undefined;
+  }
+  const lower = word.toLowerCase();
+  if (TYPO_TARGET_SET.has(lower)) {
+    return undefined;
+  }
+  return (
+    targets.same.find((target) => isTypoglycemia(lower, target)) ??
+    targets.near.find((target) => isMisspelling(lower, target))
+  );
+}
+
+/** A word `typoNormalize` rewrites: where it is in the text, and the target it becomes. */
+interface Fold {
+  start: number;
+  end: number;
+  to: string;
+}
+
+function typoFolds(text: string): Fold[] {
+  const folds: Fold[] = [];
+  for (const match of text.matchAll(WORD)) {
+    const to = targetOf(match[0]);
+    if (to !== undefined) {
+      folds.push({ start: match.index, end: match.index + match[0].length, to });
+    }
+  }
+  return folds;
+}
+
+function applyFolds(text: string, folds: readonly Fold[]): string {
+  let out = '';
+  let at = 0;
+  for (const fold of folds) {
+    out += text.slice(at, fold.start) + fold.to;
+    at = fold.end;
+  }
+  return out + text.slice(at);
+}
+
+function typoNormalize(text: string): string {
+  return applyFolds(text, typoFolds(text));
+}
+
+/**
+ * `typoNormalize(text)`, and for an index in it the index of `text` it stands
+ * for. A corrected word may be a letter longer or shorter than the word as
+ * written, so an index past the written word stands for its last letter.
+ */
+function typoFolded(text: string): { text: string; at: (index: number) => number } {
+  const folds = typoFolds(text);
+  const at = (index: number): number => {
+    let shift = 0;
+    for (const fold of folds) {
+      const start = fold.start + shift;
+      if (index < start) {
+        break;
+      }
+      if (index < start + fold.to.length) {
+        return fold.start + Math.min(index - start, fold.end - fold.start - 1);
+      }
+      shift += fold.to.length - (fold.end - fold.start);
+    }
+    return index - shift;
+  };
+  return { text: applyFolds(text, folds), at };
 }
 
 function isMostlyPrintable(value: string): boolean {
@@ -249,14 +416,18 @@ function decodedTextSpans(text: string): RedactSpan[] {
     : [];
 }
 
-/** The spans of injection in the text: direct matches, matches after typo normalization, the whole text when only a Unicode-normalized form matches, and encoded blobs and decoded text. */
+/** The spans of injection in the text, each stretch once: direct matches, matches after typo normalization, the whole text when only a Unicode-normalized form matches, and encoded blobs and decoded text. */
 function injectionSpans(text: string): RedactSpan[] {
   const direct = injectionSpansOn(text);
 
-  const shadow = typoNormalize(text);
+  const folded = typoFolded(text);
   let typo: RedactSpan[] = [];
-  if (shadow !== text) {
-    typo = injectionSpansOn(shadow);
+  if (folded.text !== text) {
+    typo = injectionSpansOn(folded.text).map((span) => ({
+      ...span,
+      start: folded.at(span.start),
+      end: folded.at(span.end - 1) + 1,
+    }));
   }
 
   const normalized = normalizeForDetection(text);
@@ -271,7 +442,13 @@ function injectionSpans(text: string): RedactSpan[] {
     }
   }
 
-  return [...direct, ...typo, ...unicodeHits, ...blobSpans(text), ...decodedTextSpans(text)];
+  return mergeSpans([
+    ...direct,
+    ...typo,
+    ...unicodeHits,
+    ...blobSpans(text),
+    ...decodedTextSpans(text),
+  ]);
 }
 
 export {
@@ -282,5 +459,6 @@ export {
   TYPO_TARGETS,
   tryLeet,
   tryRot13,
+  typoFolded,
   typoNormalize,
 };

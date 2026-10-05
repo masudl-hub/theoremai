@@ -252,31 +252,34 @@ function unitView(source: View, rewrite: (text: string) => string): View {
 
 const WORD_UNIT = /\w/;
 const MAX_TARGET = Math.max(...TYPO_TARGETS.map((target) => target.length));
-const TARGET_FIRSTS = new Set(TYPO_TARGETS.map((target) => target[0]));
 
-/** Whether a word still being written could yet fold to a typo target. */
+/** Whether a word still being written could yet fold to a typo target: a misspelling may be a letter longer. */
 function mayFold(run: string): boolean {
-  return (
-    run.length <= MAX_TARGET &&
-    /^[A-Za-z]*$/.test(run) &&
-    (run.length === 0 || TARGET_FIRSTS.has(run[0]?.toLowerCase()))
-  );
+  return run.length <= MAX_TARGET + 1 && /^[A-Za-z]*$/.test(run);
 }
 
 /**
- * `typoNormalize` of the source. It rewrites whole words (`\w` runs) of the
- * same length, so a word settles when a non-word character ends it, or as soon
- * as it can no longer fold to a target (then the rest of it passes as is).
+ * `typoNormalize` of the source. It rewrites whole words (`\w` runs), so a
+ * word settles when a non-word character ends it, or as soon as it can no
+ * longer fold to a target (then the rest of it passes as is). A corrected word
+ * may be a letter longer or shorter than the word as written, so each
+ * character keeps the source index it stands for.
  */
 function typoView(source: View): View {
   let read = 0;
   /** The word being read, while it may still fold. */
   let word: string | undefined;
   let inWord = false;
+  /** Per settled character, the source index it stands for. */
+  const from: number[] = [];
+  const put = (piece: string, start: number, length: number) => {
+    grow(view, piece);
+    for (let i = 0; i < piece.length; i++) from.push(start + Math.min(i, length - 1));
+  };
   const view: View = {
     text: '',
     fresh: '',
-    rawAt: (j) => source.rawAt(Math.min(j, view.text.length)),
+    rawAt: (j) => source.rawAt(j < from.length ? (from[j] as number) : read - (word?.length ?? 0)),
     update() {
       view.fresh = '';
       for (const end = source.text.length; read < end; read++) {
@@ -285,14 +288,14 @@ function typoView(source: View): View {
         if (wordUnit && !inWord) word = '';
         inWord = wordUnit;
         if (!wordUnit) {
-          if (word !== undefined) grow(view, typoNormalize(word));
+          if (word !== undefined) put(typoNormalize(word), read - word.length, word.length);
           word = undefined;
-          grow(view, unit);
-        } else if (word === undefined) grow(view, unit);
+          put(unit, read, 1);
+        } else if (word === undefined) put(unit, read, 1);
         else word += unit;
       }
       if (word !== undefined && !mayFold(word)) {
-        grow(view, word);
+        put(word, read - word.length, word.length);
         word = undefined;
       }
     },

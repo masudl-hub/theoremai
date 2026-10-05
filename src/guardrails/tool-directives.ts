@@ -1,3 +1,5 @@
+import { typoNormalize } from './injection.ts';
+import { overrideFrame } from './injection-patterns.ts';
 import { normalizeForDetection } from './normalize.ts';
 import { DIRECTIVE_RULES } from './rules.ts';
 import type { AdvisoryLevel, GuardrailHit } from './types.ts';
@@ -36,6 +38,13 @@ const AUTHORITY: RegExp[] = [
   /\bon\s+behalf\s+of\s+the\s+(?:user|operator|admin)\b/gi,
   /\bthis\s+(?:is|was)\s+(?:pre-?)?(?:approved|authorised|authorized)\b/gi,
 ];
+
+/**
+ * An order to set instructions aside. Data has no reason to address the
+ * agent's instructions, so here the order counts when negated and with more
+ * words between its verb and its object than `injection-patterns.ts` allows.
+ */
+const OVERRIDE = [new RegExp(overrideFrame(5), 'gi')];
 
 function matches(patterns: RegExp[], text: string): boolean {
   return patterns.some((pattern) => {
@@ -78,13 +87,19 @@ function mentionsTool(text: string, tool: string): boolean {
  * without the turn's registry.
  */
 function directiveHits(text: string, callableTools: readonly string[] = []): GuardrailHit[] {
-  if (!text || !EXFIL_TARGET.test(text)) {
-    // why: No destination, no exfiltration. Action-shaped attacks that carry no target
-    // are left to the taint gate, which does not depend on reading the content.
+  if (!text) {
     return [];
   }
   const normalized = normalizeForDetection(text);
   const hits: GuardrailHit[] = [];
+  if (matches(OVERRIDE, typoNormalize(normalized))) {
+    hits.push({ rule: DIRECTIVE_RULES.override, severity: 'high' });
+  }
+  if (!EXFIL_TARGET.test(text)) {
+    // why: No destination, no exfiltration. Action-shaped attacks that carry no target
+    // are left to the taint gate, which does not depend on reading the content.
+    return hits;
+  }
 
   // why: One hit per named tool — several names is a stronger signal than one.
   for (const _tool of callableTools.filter((tool) => mentionsTool(normalized, tool))) {
@@ -104,16 +119,16 @@ function looksDirective(hits: GuardrailHit[]): boolean {
   return hits.length > 0;
 }
 
-/**
- * Naming a tool the model can call is the sharpest signal available, so it alone
- * reaches `high`; so does agreement between two different signal kinds.
- */
 function advisoryLevel(hits: GuardrailHit[]): AdvisoryLevel {
   if (hits.length === 0) {
     return 'none';
   }
   const kinds = new Set(hits.map((hit) => hit.rule));
-  if (kinds.has(DIRECTIVE_RULES.toolName) || kinds.size > 1) {
+  if (
+    kinds.has(DIRECTIVE_RULES.toolName) ||
+    kinds.has(DIRECTIVE_RULES.override) ||
+    kinds.size > 1
+  ) {
     return 'high';
   }
   return 'elevated';

@@ -82,7 +82,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact detect.injection+detect.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I'm here and ready to help. What's on your mind today?",

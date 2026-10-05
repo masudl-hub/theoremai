@@ -67,6 +67,41 @@ const UNRESTRICTED_MODE = /\bunrestricted\s+(ai|mode|model)\b/gi;
 const IGNORE_MULTILANG =
   /\b(?:ignorieren|ignorez|ignora|ignorer|oubliez|vergessen|olvida|desestima|missachten)\b[\s\S]{0,50}\b(?:anweisungen|instructions?|instrucciones|directives?|r[eè]gles|reglas)\b/gi;
 
+/** The verbs that tell a reader to set a thing aside, as written to give an order. */
+const OVERRIDE_VERB = 'ignore|disregard|forget|override|bypass';
+/** What an agent is told to set aside. */
+const OVERRIDE_OBJECT = 'instructions?|rules|guidelines?|constraints?|directives?|prompts?';
+const FRAME_WORD = String.raw`[\w'’-]{1,40}`;
+/**
+ * An order to set instructions aside, with up to `gap` words between the verb
+ * and its object. `word` is what a word in the gap may be.
+ */
+function overrideFrame(gap: number, word: string = FRAME_WORD): string {
+  return String.raw`\b(?:${OVERRIDE_VERB})\s+(?:${word}\s+){0,${gap}}(?:${OVERRIDE_OBJECT})\b`;
+}
+/** The verb is negated: "never ignore the rules". */
+const NEGATED = String.raw`(?<!(?:\b(?:not|never|cannot|without)|n['’]t)\s+(?:${FRAME_WORD}\s+)?)`;
+/** The verb is a noun: "his disregard for the rules". */
+const NOUN_USE = String.raw`(?<!\b(?:the|a|an|his|her|its|their|your|my|our)\s+)`;
+/**
+ * The verb reports or describes, and "you" is not its subject: "an attempt to
+ * bypass the rules", "I must ignore the instructions", "they override
+ * constraints". "you must ignore the rules" and "I want you to ignore the
+ * rules" stay orders.
+ */
+const DESCRIBED = String.raw`(?:(?<=\byou\s+(?:${FRAME_WORD}\s+){0,2})|(?<!\b(?:to|must|should|would|will|can|could|may|might|shall|I|we|they|he|she|it|who|that|which)\s+(?:\w+ly\s+)?))`;
+/** A word in the gap that is not the writer's own: "ignore my rules" speaks of the writer's rules. */
+const NOT_OWN = String.raw`(?!(?:my|our)\b)${FRAME_WORD}`;
+/**
+ * {@linkcode overrideFrame} where the verb gives the reader an order about
+ * the reader's instructions. The patterns above still match their own wording
+ * in every guarded case.
+ */
+const OVERRIDE_FRAME = new RegExp(
+  `${NEGATED}${NOUN_USE}${DESCRIBED}${overrideFrame(3, NOT_OWN)}`,
+  'gi',
+);
+
 const INJECTION_PATTERNS = [
   IGNORE_PREVIOUS,
   DISREGARD_INSTRUCTIONS,
@@ -106,6 +141,7 @@ const INJECTION_PATTERNS = [
   IGNORE_YOUR_INSTRUCTIONS,
   UNRESTRICTED_MODE,
   IGNORE_MULTILANG,
+  OVERRIDE_FRAME,
 ];
 
 /** Runs that might encode an injection; each is decoded and checked in `injection.ts`. */
@@ -115,4 +151,4 @@ const SPACED_LETTERS = /\b(?:[A-Za-z] ){3,}[A-Za-z]\b/g;
 /** Three+ alphabetic tokens joined by `|` (no shell spaces around pipes). */
 const PIPE_SEPARATED = /\b(?:[A-Za-z]+\|){2,}[A-Za-z]+\b/g;
 
-export { BASE64_BLOB, HEX_BLOB, INJECTION_PATTERNS, PIPE_SEPARATED, SPACED_LETTERS };
+export { BASE64_BLOB, HEX_BLOB, INJECTION_PATTERNS, overrideFrame, PIPE_SEPARATED, SPACED_LETTERS };

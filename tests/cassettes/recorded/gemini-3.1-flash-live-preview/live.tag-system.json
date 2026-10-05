@@ -157,7 +157,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact detect.injection+detect.injection+detect.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I understand you're asking me to do something, but unfortunately, that particular request isn't something I can help with. Is there anything else I can assist you with today?",

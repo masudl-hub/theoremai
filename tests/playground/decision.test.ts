@@ -1,10 +1,13 @@
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
 import {
   compilePlayground,
+  createDecisionExampleDraft,
   createExampleDraft,
   createSpanExampleDraft,
   decisionStateViolation,
   draftFacets,
+  exampleDecisionDraft,
+  JEV_PLAYGROUND_API_ID,
   newCriteria,
   newDecisionQuestion,
   PLAYGROUND_DECISION_MAX_CRITERIA,
@@ -35,6 +38,18 @@ function issues(draft: PlaygroundDraft): PlaygroundIssue[] {
   if (result.ok) throw new Error('expected issues');
   return result.issues;
 }
+
+Deno.test('the decision example is a new decision agent on Jev, and compiles', () => {
+  const draft = createDecisionExampleDraft();
+  const result = compilePlayground(draft);
+  if (!result.ok) throw new Error(JSON.stringify(result.issues));
+  assert(result.profile.type === 'decision');
+  assertEquals(result.profile.models.decision.apiId, JEV_PLAYGROUND_API_ID);
+  assertEquals(
+    draft.decision.questions.map((question) => question.id),
+    exampleDecisionDraft().questions.map((question) => question.id),
+  );
+});
 
 Deno.test('the Span example compiles to the free model with Number questions', () => {
   const result = compilePlayground(createSpanExampleDraft());

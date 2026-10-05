@@ -9,10 +9,29 @@ import {
   defaultModelBinding,
   defaultToolSpec,
   draftKey,
+  includableFacets,
+  includeFacet,
   type PlaygroundDraft,
   setProfileType,
 } from './draft.ts';
 import { GEMINI_PLAYGROUND_DEFAULT_API_ID, OPENROUTER_DECISION_MODELS, OPENROUTER_PLAYGROUND_API_ID } from './policy.ts';
+
+/**
+ * A tool-call safety decision on TypeSafe's Jev: the draft a blank agent becomes when its type is
+ * set to decision, with every section that type brings, named so it runs as it opens.
+ */
+export function createDecisionExampleDraft(): PlaygroundDraft {
+  const blank = createBlankDraft();
+  const had = new Set(includableFacets(blank));
+  const decision = setProfileType(blank, 'decision');
+  const draft = includableFacets(decision)
+    .filter((facet) => !had.has(facet))
+    .reduce(includeFacet, decision);
+  return {
+    ...draft,
+    identity: { ...draft.identity, agentId: 'guardrails.tool_call.jev', handle: 'jev' },
+  };
+}
 
 /** A tool-call safety decision using the free Span model and its Number question shape. */
 export function createSpanExampleDraft(): PlaygroundDraft {

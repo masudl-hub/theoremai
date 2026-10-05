@@ -37,7 +37,7 @@ import {
   setProfileType,
   updateModelBinding,
 } from './draft.ts';
-import { createExampleDraft, createSpanExampleDraft } from './example.ts';
+import { createDecisionExampleDraft, createExampleDraft } from './example.ts';
 import { type PlaygroundConnectionMode, modelBindingViolation } from './policy.ts';
 import { playgroundNodeRef, playgroundTree, type PlaygroundTreeNode } from './tree.ts';
 
@@ -316,15 +316,15 @@ export function playgroundSurface(host: PlaygroundSurfaceHost): Surface {
       intent: true,
       input: z.object({
         type: typeInput.describe('The agent type'),
-        example: z.enum(['travel', 'span']).optional().describe('Start from a worked example'),
+        example: z.enum(['travel', 'decision']).optional().describe('Start from a worked example'),
       }),
       run: ({ type, example }) => {
         const blank = createBlankDraft();
         const next =
           example === 'travel'
             ? createExampleDraft()
-            : example === 'span'
-              ? createSpanExampleDraft()
+            : example === 'decision'
+              ? createDecisionExampleDraft()
               : withNewSections(blank, setProfileType(blank, type));
         host.replaceDraft(next, 'th30 started a new agent.');
         return { node: 'identity' };

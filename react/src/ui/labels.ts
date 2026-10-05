@@ -11,7 +11,7 @@
 import { IntlMessageFormat } from 'intl-messageformat';
 import type { ComposerDrawerSummary } from '../client/composer-drawer.ts';
 import type { LiveState } from '../client/live/live-state.ts';
-import type { WorkStatus } from '../client/transcript-groups.ts';
+import type { TurnUsage, WorkStatus } from '../client/transcript-groups.ts';
 
 type LabelEntry = { defaultMessage: string; description: string; params?: readonly string[] };
 
@@ -108,9 +108,9 @@ export const THEOREM_UI_CATALOG = {
 	},
 	'@theorem.transcript.tool_output': { defaultMessage: 'Output', description: "A tool call's result, in its detail." },
 	'@theorem.transcript.tool_error': { defaultMessage: 'Error', description: "A failed tool call's failure, in its detail." },
-	'@theorem.transcript.tool_tokens': {
+	'@theorem.transcript.tokens': {
 		defaultMessage: '{count, plural, one {# token} other {# tokens}}',
-		description: 'Tokens the agent an agent tool ran used, on its call row.',
+		description: "Tokens a reply used, under it, or an agent tool's called agent used, on its call row.",
 		params: ['count'],
 	},
 	'@theorem.data.view': { defaultMessage: 'View as', description: 'Switch between tool data drawn by its shape and its JSON.' },
@@ -537,13 +537,9 @@ export function composerDrawerLabel(t: LabelText, summary: ComposerDrawerSummary
 		.join(t('@theorem.composer.drawer.separator'));
 }
 
-/** What the agent an agent tool ran used: its tokens, then its cost when the provider gave one. */
-export function toolUsage(
-	t: LabelText,
-	locale: string,
-	tokens: { total: number; cost?: { usd: number; partial?: true } },
-): string {
-	const count = t('@theorem.transcript.tool_tokens', { count: tokens.total });
+/** What a reply or a called agent used: its tokens, then its cost when the provider gave one. */
+export function usageLine(t: LabelText, locale: string, tokens: TurnUsage): string {
+	const count = t('@theorem.transcript.tokens', { count: tokens.total });
 	if (!tokens.cost) return count;
 	const usd = new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD', maximumSignificantDigits: 2 });
 	const cost = usd.format(tokens.cost.usd);

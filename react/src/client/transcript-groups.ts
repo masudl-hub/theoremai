@@ -7,6 +7,19 @@
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
 import { humanize } from './shaped-data.ts';
 
+/** What a reply or a called agent used: its tokens, and its cost when the provider gave one. */
+export type TurnUsage = { total: number; cost?: { usd: number; partial?: true } };
+
+/** `used` with `more` added. A cost only one side reported is partial. */
+export function addUsage(used: TurnUsage | undefined, more: TurnUsage): TurnUsage {
+	if (!used) return more;
+	const total = used.total + more.total;
+	if (!used.cost && !more.cost) return { total };
+	const usd = (used.cost?.usd ?? 0) + (more.cost?.usd ?? 0);
+	const partial = !used.cost || !more.cost || used.cost.partial || more.cost.partial;
+	return { total, cost: { usd, ...(partial ? { partial: true } : {}) } };
+}
+
 export type TranscriptTurnGroup =
 	| { kind: 'user'; key: string; blocks: TranscriptBlock[] }
 	| {
@@ -16,6 +29,8 @@ export type TranscriptTurnGroup =
 			/** The reply's work and when it stopped, from its latest stamped `turn-done`. */
 			workedMs?: number;
 			endedAt?: number;
+			/** What the reply used, summed over its runs: a reply resumed at a gate has several. */
+			usage?: TurnUsage;
 	  };
 
 export type TraceItem =
@@ -54,6 +69,9 @@ export function groupTranscriptBlocks(blocks: readonly TranscriptBlock[]): Trans
 			if (last?.kind === 'assistant' && block.workedMs !== undefined) {
 				last.workedMs = block.workedMs;
 				last.endedAt = block.endedAt;
+			}
+			if (last?.kind === 'assistant' && block.tokens) {
+				last.usage = addUsage(last.usage, block.tokens);
 			}
 		}
 		if (isHiddenTranscriptBlock(block)) continue;

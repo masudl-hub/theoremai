@@ -25,7 +25,16 @@ import { Timestamp } from '@astryxdesign/core/Timestamp';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
-import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import {
+	type CSSProperties,
+	createContext,
+	type ReactNode,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from 'react';
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
 import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations.ts';
 import type { AnsweringGate } from '../client/tool-resume.ts';
@@ -42,10 +51,11 @@ import {
 	type TraceItem,
 	type TranscriptTurnGroup,
 	type TurnSpan,
+	type TurnUsage,
 	workStatus,
 } from '../client/transcript-groups.ts';
 import { useDisclosureMotion } from './disclosure-motion.ts';
-import { type LabelText, toolUsage, workDuration, workStatusLabel } from './labels.ts';
+import { type LabelText, usageLine, workDuration, workStatusLabel } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { ShapedData } from './ShapedData.tsx';
 import { transcriptBlockCopyText } from './transcript-copy-text.ts';
@@ -72,7 +82,15 @@ export type ChatTranscriptProps = {
 	 * aspect ratio, with a matching skeleton while one generates.
 	 */
 	imageOutput?: ImageOutput;
+	/**
+	 * Show what was used, as tokens and cost: each reply's total under it, and
+	 * on an agent tool's call row what the agent it ran used. Off by default.
+	 */
+	usage?: boolean;
 };
+
+/** Whether the transcript shows usage (`ChatTranscriptProps.usage`). */
+const ShowUsage = createContext(false);
 
 /** Image-profile display: `ratio` is the profile's pinned aspect ratio, if any. */
 export type ImageOutput = { ratio?: number };
@@ -178,13 +196,35 @@ function MessageTime({ at }: { at: number }) {
 	return <Timestamp value={at} format="relative_short" isLive />;
 }
 
+/** What a reply or a called agent used, in the viewer's locale. */
+function Usage({ tokens }: { tokens: TurnUsage }) {
+	return usageLine(useLabels(), useLocale(), tokens);
+}
+
 /** A message's time, copy button and status; a failure says why on the line beneath. */
-function MessageChrome(props: { at: number; copyText: string; status?: ChatMessageStatus; error?: string }) {
+function MessageChrome(props: {
+	at: number;
+	copyText: string;
+	status?: ChatMessageStatus;
+	error?: string;
+	/** What the reply used, when the transcript shows usage. */
+	usage?: TurnUsage;
+}) {
 	const failed = props.error !== undefined;
+	const copy = <CopyButton text={props.copyText} />;
 	const metadata = (
 		<ChatMessageMetadata
 			timestamp={<MessageTime at={props.at} />}
-			footer={<CopyButton text={props.copyText} />}
+			footer={
+				props.usage ? (
+					<HStack gap={1} vAlign="center">
+						{copy}
+						<Usage tokens={props.usage} />
+					</HStack>
+				) : (
+					copy
+				)
+			}
 			status={failed ? 'error' : props.status}
 		/>
 	);
@@ -476,15 +516,16 @@ function toolDuration(t: LabelText, tool: ToolBlock['tool']): { duration?: strin
 type SettledTool = Extract<NonNullable<ToolBlock['tool']['state']>, { phase: 'complete' | 'error' }>;
 
 /** What the agent an agent tool ran used, after the call's name. Only agent tools report it. */
-function ToolUsage({ tokens }: { tokens: NonNullable<SettledTool['tokens']> }) {
-	return toolUsage(useLabels(), useLocale(), tokens);
+function toolUsageStats(state: SettledTool, showUsage: boolean): { stats?: ReactNode } {
+	return showUsage && state.tokens ? { stats: <Usage tokens={state.tokens} /> } : {};
 }
 
-function toolUsageStats(state: SettledTool): { stats?: ReactNode } {
-	return state.tokens ? { stats: <ToolUsage tokens={state.tokens} /> } : {};
-}
-
-function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatToolCallItem {
+function toolCallItem(
+	t: LabelText,
+	id: string,
+	tool: ToolBlock['tool'],
+	showUsage: boolean,
+): ChatToolCallItem {
 	const base = { key: id, name: toolCallLabel(tool) };
 	const { state } = tool;
 	switch (state?.phase) {
@@ -494,7 +535,7 @@ function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatTo
 				...base,
 				status: 'error',
 				target: state.failure.message,
-				...toolUsageStats(state),
+				...toolUsageStats(state, showUsage),
 				errorMessage: state.failure.message,
 				resultDetail: toolDetail(
 					t,
@@ -507,7 +548,7 @@ function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatTo
 				...base,
 				status: 'complete',
 				...toolDuration(t, tool),
-				...toolUsageStats(state),
+				...toolUsageStats(state, showUsage),
 				resultDetail: toolDetail(
 					t,
 					tool,
@@ -525,7 +566,8 @@ function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatTo
 
 function ToolCall({ tool }: { tool: ToolBlock['tool'] }) {
 	const t = useLabels();
-	return <ToolCalls calls={[toolCallItem(t, tool.name, tool)]} />;
+	const showUsage = useContext(ShowUsage);
+	return <ToolCalls calls={[toolCallItem(t, tool.name, tool, showUsage)]} />;
 }
 
 /**
@@ -548,6 +590,7 @@ const THOUGHT_MARKDOWN: Partial<MarkdownComponents> = {
 
 function TraceList({ items, streaming }: { items: readonly TraceItem[]; streaming: boolean }) {
 	const t = useLabels();
+	const showUsage = useContext(ShowUsage);
 	const rows: ReactNode[] = [];
 	let tools: ChatToolCallItem[] = [];
 	const flush = () => {
@@ -557,7 +600,7 @@ function TraceList({ items, streaming }: { items: readonly TraceItem[]; streamin
 	};
 	for (const [i, item] of items.entries()) {
 		if (item.kind === 'tool') {
-			tools.push(toolCallItem(t, item.id, item.block.tool));
+			tools.push(toolCallItem(t, item.id, item.block.tool, showUsage));
 			continue;
 		}
 		flush();
@@ -663,8 +706,11 @@ function AssistantTurn(props: {
 	imageOutput?: ImageOutput;
 	/** Why the turn failed, if it did. */
 	error?: string;
+	/** What the reply used; shown when the transcript shows usage. */
+	usage?: TurnUsage;
 }) {
 	const t = useLabels();
+	const showUsage = useContext(ShowUsage);
 	const elapsedMs = useTurnElapsed(props.streaming, props.startedAt, props.workedMs);
 	const { trace, gatedTools, body, hasTrace } = composeAssistantTurn(props.blocks);
 	const rows = bodyRows(t, body);
@@ -675,7 +721,16 @@ function AssistantTurn(props: {
 		<ChatMessage
 			sender="assistant"
 			name={props.handle}
-			metadata={props.streaming ? undefined : <MessageChrome at={props.at} copyText={copyText} error={props.error} />}
+			metadata={
+				props.streaming ? undefined : (
+					<MessageChrome
+						at={props.at}
+						copyText={copyText}
+						error={props.error}
+						usage={showUsage ? props.usage : undefined}
+					/>
+				)
+			}
 		>
 			<VStack gap={3} width="100%">
 				<TurnStatus status={status} trace={trace} hasTrace={hasTrace} streaming={props.streaming} />
@@ -738,7 +793,9 @@ function isBareFailure(group: TranscriptTurnGroup | undefined): boolean {
 export function ChatTranscript(props: ChatTranscriptProps) {
 	return (
 		<TheoremLabelsProvider>
-			<ChatTranscriptBody {...props} />
+			<ShowUsage.Provider value={props.usage === true}>
+				<ChatTranscriptBody {...props} />
+			</ShowUsage.Provider>
 		</TheoremLabelsProvider>
 	);
 }
@@ -796,6 +853,7 @@ function ChatTranscriptBody({
 				streaming={live}
 				at={at}
 				error={failureOf(group)}
+				usage={group.usage}
 			/>
 		);
 	});

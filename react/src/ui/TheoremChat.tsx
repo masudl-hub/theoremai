@@ -65,6 +65,11 @@ export type TheoremChatProps = {
 	 * that records traces.
 	 */
 	trace?: boolean;
+	/**
+	 * Show what was used, as tokens and cost: each reply's total under it, and
+	 * on an agent tool's call row what the agent it ran used. Off by default.
+	 */
+	usage?: boolean;
 	className?: string;
 	style?: React.CSSProperties;
 	/** A conversation to resume, as `onChatChange` reported it. Read once, when the chat mounts. */
@@ -218,6 +223,7 @@ function ChatBody({
 	maxWidth = DEFAULT_CHAT_MAX_WIDTH,
 	scrollRef,
 	trace,
+	usage,
 	className,
 	style,
 	initialChat,
@@ -309,6 +315,7 @@ function ChatBody({
 										streaming={chat.streaming}
 										delivery={chat.delivery}
 										answering={chat.answering}
+										usage={usage}
 										imageOutput={
 											iface.type === 'image' ? { ratio: parseAspectRatio(iface.image.aspectRatio) } : undefined
 										}

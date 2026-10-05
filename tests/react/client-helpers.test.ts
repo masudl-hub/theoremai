@@ -552,6 +552,27 @@ Deno.test('groupTranscriptBlocks keeps tools and text in one assistant turn', ()
   assertEquals(groups[1]?.blocks.length, 2);
 });
 
+Deno.test("a reply's usage is the sum of its runs, with a part-reported cost marked partial", () => {
+  const blocks = [
+    { id: 'u-1', kind: 'user-text', text: 'hi' },
+    { id: 'a-1', kind: 'text', text: 'one' },
+    { id: 'd-1', kind: 'turn-done', tokens: { input: 90, output: 10, total: 100 } },
+    { id: 'a-2', kind: 'text', text: 'two' },
+    {
+      id: 'd-2',
+      kind: 'turn-done',
+      tokens: { input: 40, output: 5, total: 45, cost: { usd: 0.002 } },
+    },
+    { id: 'u-2', kind: 'user-text', text: 'again' },
+    { id: 'a-3', kind: 'text', text: 'three' },
+    { id: 'd-3', kind: 'turn-done' },
+  ] as TranscriptBlock[];
+  const replies = groupTranscriptBlocks(blocks).flatMap((group) =>
+    group.kind === 'assistant' ? [group.usage] : [],
+  );
+  assertEquals(replies, [{ total: 145, cost: { usd: 0.002, partial: true } }, undefined]);
+});
+
 Deno.test('composeAssistantTurn keeps a plain reply in the body', () => {
   const turn = composeAssistantTurn([{ id: 't-1', kind: 'text', text: 'hello **world**' }]);
   assertEquals(turn.hasTrace, false);

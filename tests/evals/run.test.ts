@@ -269,9 +269,10 @@ Deno.test('concurrency runs trials side by side yet reports them in suite order'
   assertEquals(peak, 3);
   assertEquals(run.passed, true);
   assertEquals(finished.length, 8);
-  // Starts follow the suite: es, es, fr, fr, de, ...
-  assertEquals(started[0]?.includes('Spanish'), true);
-  assertEquals(started[2]?.includes('French'), true);
+  // The three workers take the suite's first three trials (es, es, fr), in whichever order they reach the model.
+  const firstThree = started.slice(0, 3);
+  assertEquals(firstThree.filter((text) => text.includes('Spanish')).length, 2);
+  assertEquals(firstThree.filter((text) => text.includes('French')).length, 1);
   assertEquals(
     run.trials.map((report) => `${report.case?.id}:${report.index}`),
     ['es-01:0', 'es-01:1', 'fr-01:0', 'fr-01:1', 'de-01:0', 'de-01:1', 'ja-01:0', 'ja-01:1'],

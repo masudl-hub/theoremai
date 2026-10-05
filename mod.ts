@@ -411,10 +411,10 @@ export {
   prepareTurnToolSnapshot,
   registerHarnessTools,
   resolveToolAuth,
-} from './src/kernel/tools/mod.ts';
-export {
   UncheckedOutput,
   uncheckedOutput,
+} from './src/kernel/tools/mod.ts';
+export {
   awaitingUserInputSchema,
   TURN_EVENT_SCHEMAS,
   toolGateSchema,

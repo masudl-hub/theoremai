@@ -45,7 +45,7 @@ Edit the profile, and both sides change. You do not write the UI code again.
 The package has three parts:
 
 - A ready-made chat, voice call, host console and decision form. They are built on [Astryx](https://www.npmjs.com/package/@astryxdesign/core).
-- Hooks and a transport, for a UI that you build yourself.
+- Hooks and a transport, for your own UI.
 - A server handler. It takes a Web `Request` and returns a `Response`.
 
 ## Install
@@ -70,7 +70,7 @@ Requirements:
 - A bundler that handles CSS imports. Vite does. `/ui` and `/live` import their own stylesheets.
 - For voice, a bundler that resolves `new URL('./worklets/mic-capture.js', import.meta.url)`. Vite does.
 
-The package does not include the Figtree font. The theme uses Figtree, with a system-font fallback. Load the font yourself if you want it.
+The package does not include the Figtree font. The theme uses Figtree, and falls back to the system font if Figtree is not loaded. To use Figtree, load the font in your app.
 
 ## Quick start
 
@@ -271,7 +271,7 @@ import { LiveRunner } from '@theoremjs/react/live';
 <LiveRunner iface={iface} connection={() => ({ profile: 'support.voice' })} />
 ```
 
-This code opens `wss://<your host>/api/live/relay?profile=<id>`. To send your own open message to the relay, return `{ openMessage }` instead of `{ profile }`. To supply the socket yourself, add `createSocket`.
+This code opens `wss://<your host>/api/live/relay?profile=<id>`. To send your own open message to the relay, return `{ openMessage }` instead of `{ profile }`. To use your own socket, add `createSocket`.
 
 `LiveRunner` also accepts `theme`, `mode`, `labels` and `trace`. Tool gates in a call appear in a dialog over the call.
 

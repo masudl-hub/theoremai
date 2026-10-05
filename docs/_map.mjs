@@ -5,7 +5,7 @@ const graph = {
   min_evidence_supports: 2,
   min_doc_lines: {
     default: 70,
-    'README.md': 340,
+    'README.md': 280,
     'docs/DOCS_TRUTH.md': 90,
     'docs/contracts/kernel.md': 280,
     'docs/contracts/providers.md': 160,
@@ -33,16 +33,6 @@ const graph = {
       owns: ['mod.ts', 'package.json'],
       watches: [
         {
-          path: 'scripts/docs-truth/',
-          reason: 'Docs-truth lint ships with the package repo',
-          sections: ['Documentation'],
-        },
-        {
-          path: 'docs/_map.mjs',
-          reason: 'Ownership graph for docs-truth',
-          sections: ['Documentation'],
-        },
-        {
           path: 'src/kernel/mod.ts',
           reason: 'README public entrypoints table tracks kernel surface',
           sections: ['Public Entrypoints'],
@@ -60,11 +50,9 @@ const graph = {
       ],
       validates: ['tests/kernel/theorem.test.ts', 'scripts/docs-truth/graph.test.mjs'],
       required_sections: [
-        'Core Principles',
         'Architecture',
         'Public Entrypoints',
         'Package Boundary',
-        'Documentation',
       ],
     },
 

@@ -67,6 +67,7 @@ promise to remove a sentence.
 | `marker_leak` | the kernel's fence markers | reply, structured reply, Live reply | no |
 | `ungiven_images` | an image URL the model was not given, on a host not allowed | reply | no; takes `allow` |
 | `ungiven_links` | a link the model was not given, on a host not allowed | reply | no; takes `allow` |
+| `tool_leak` | the profile's own tool and parameter names, and tool-call JSON | reply, structured reply, Live reply, thought | yes; takes `allow` |
 
 A detector is not offered at a boundary it does not apply at. Naming one there
 is a registration error. An action a detector does not support is a
@@ -93,6 +94,7 @@ Principle (decided): what is **ours** blocks when it leaves. What is the
 | `marker_leak` | | | | block | |
 | `ungiven_images` | | | | block | |
 | `ungiven_links` | | | | ignore | |
+| `tool_leak` | | | | flag | flag |
 
 An empty cell is a boundary the detector does not apply at.
 
@@ -203,19 +205,57 @@ detect: {
 Changes to the shape already built (breaking, made outright):
 
 - The per-boundary map moves under `at`. A bare `{ reply: 'block' }` is gone.
-- `detect: 'block'` for every detector at once is gone. With detectors that
-  support different actions at different boundaries it has no single meaning.
+
+`detect: 'ignore'` for every detector at once stays: that action wherever each
+detector applies.
 
 `theorem` and `patterns` are refused on a detector that does not take patterns.
 
 ### Host detectors
 
 A key with a dot (`bonsai.record`) is the host's own detector. Theorem's names
-never contain one, so the two cannot collide. It needs a `label`, at least one
-pattern and an `action` or `at`. It applies at every boundary and reports as `detect.bonsai.record`. It appears in the same grid in
-the editor and the trace.
+never contain one, so the two cannot collide. It needs a `label`, an `action`
+or `at`, and one of:
+
+- `patterns`: data, as above. Many patterns under one detector share its name
+  in the trace, so a detector is the host's category.
+- `find`: a function, for what patterns cannot say (parse the text as JSON,
+  require two things at once, count matches against a threshold).
+
+```ts
+find?: (text: string, at: { boundary: Boundary }) => readonly { start: number; end: number }[];
+```
+
+Either kind applies at every boundary, takes all four actions, reports as
+`detect.bonsai.record`, and appears in the same grid in the editor and the
+trace. What a function costs, stated plainly:
+
+- It is code, so a saved profile and the playground cannot hold it. The
+  playground shows the row and its actions, not the function.
+- The kernel cannot bound its time. It must be synchronous.
+- A throw counts as a match with the action `block`.
+- At the reply the kernel cannot know what a function might still match, so
+  the stream holds a fixed tail back for it (256 characters, 96 on Live:
+  today's `holdback` defaults).
 
 Patterns live in the profile. A host with many profiles shares one constant.
+
+### The hint a retry carries
+
+Every detector has a `hint`: one line telling the model what to leave out.
+Theorem's are in the lexicon; a host detector sets its own, and may set one on
+a Theorem detector it adds patterns to. When a blocked reply is retried, the
+kernel sends the hints of the detectors that fired and the text each matched.
+No host code builds the message. The retry is itself read at the `repair`
+boundary, so a matched secret is redacted there by default.
+
+### `tool_leak`: the profile's own tools
+
+A Theorem detector (decided), so no host derives it: the names of the
+profile's tools and their parameters, and tool-call JSON, in what the model
+says. Applies at reply, structured reply, Live reply and thought. Default
+`flag`: an agent often names a tool honestly. It takes `allow` (names that are
+innocent) and host patterns.
 
 ### Safety of host patterns
 
@@ -236,8 +276,9 @@ build time, or compiles at registration. `agents egress-compile` becomes
 ### What this removes
 
 `egress.enforce` (a host function) and `egressPolicy({ rules })` (host reply
-rules). Host reply rules become host patterns, which now also work at every
-other boundary. The function has no replacement (decided).
+rules). Both become host detectors, which now also work at every other
+boundary. `egress.enforce`'s own verdict (allow, flag, redact, block) goes: a
+function says what it found, and the profile's action says what happens.
 
 ## 6. What a stored trace keeps
 
@@ -343,7 +384,8 @@ Each step ends green on every gate and carries its contract-doc edits.
    `guardrails.egress.checks`, `onBlock`, `maxRetries` deleted.
 4. Host patterns and host detectors: compile, safety check, `detect-compile`.
    `egress.enforce`, `holdback` and `egressPolicy` deleted.
-5. `tool_instructions`, agreed with the session that owns the tool-result scanner.
+5. `tool_instructions`, agreed with the session that owns the tool-result
+   scanner. `tool_leak`. Hints on every detector, carried by a retry.
 6. Trace scrub on the registry. Docs chapters. Cassettes.
 
 ## 12. Decided
@@ -356,9 +398,15 @@ Each step ends green on every gate and carries its contract-doc edits.
 4. **What a blocked reply does is set once per profile.**
 5. **Whose patterns is chosen per detector:** both, Theorem's, the host's, none.
 6. **A host can add patterns to a Theorem detector and add its own detector.**
-7. **Host patterns are data,** checked for safety. Not a function.
+7. **Host patterns are data,** checked for safety. A host detector may
+   instead be a function that returns what it found.
 8. **`tool_instructions` is a detector,** default as today.
-10. **No host function.** `egress.enforce` is removed with no replacement.
+10. **`egress.enforce` is removed.** A host function is a host detector's
+    `find`, in the grid.
+15. **Every detector has a hint.** A retry carries the hints of the detectors
+    that fired and what each matched.
+16. **`tool_leak` is a Theorem detector,** default `flag`.
+17. **`detect: <action>` for all detectors stays.**
 11. **Every action is valid wherever a detector applies.** No per-detector
     exceptions in the kernel. Each cell has a recommended action, which is
     its default.

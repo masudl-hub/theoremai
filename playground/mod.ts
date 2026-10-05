@@ -172,6 +172,20 @@ export {
   demoInputsSpec,
   demoToolSpecs,
 } from './concierge-demo.ts';
+export type {
+  GuardrailProbe,
+  GuardrailProbeDraft,
+  GuardrailProbeResult,
+  ProbeBoundary,
+} from './guardrail-probe.ts';
+export {
+  PROBE_BOUNDARIES,
+  PROBE_BOUNDARY_NOTES,
+  PROBE_TEXT_LIMIT,
+  probeDraft,
+  probeRefusal,
+  runGuardrailProbe,
+} from './guardrail-probe.ts';
 export type { PlaygroundDemoHandler } from './demo-handlers.ts';
 export { playgroundDemoHandler } from './demo-handlers.ts';
 export { PLAYGROUND_TAINT_NOTE, playgroundNetworkNote } from './runtime-scope.ts';

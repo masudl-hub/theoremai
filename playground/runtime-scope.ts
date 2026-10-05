@@ -143,7 +143,7 @@ function runtimeProfileDefinition(
   };
 }
 
-/** Registers the draft's tools, schema, and profile into `scope`. */
+/** Registers the draft's tools, schema, and profile into `scope`, as the runtime runs it. */
 function registerDraft(
   scope: KernelScope,
   profile: ProfileDefinition,
@@ -153,10 +153,6 @@ function registerDraft(
 ): Profile {
   if (playgroundKeySlots(profile).length > PLAYGROUND_KEY_SLOT_CAP) {
     throw new TheoremError('config', 'The playground supports up to 32 key slots.'); // lexicon-exempt: builder diagnostic
-  }
-  registerPlaygroundTools(scope.tools, customTools);
-  if (structured && profile.type !== 'live') {
-    scope.schemas.register(structured.id, structured.spec);
   }
   const defined = defineProfile(runtimeProfileDefinition(profile, runtime));
   if (defined.type !== 'host') {
@@ -171,8 +167,22 @@ function registerDraft(
       if (violation) throw new TheoremError('config', violation.message); // lexicon-exempt: builder connection diagnostic
     }
   }
-  scope.profiles.register(defined);
-  return defined;
+  return registerDefined(scope, defined, customTools, structured);
+}
+
+/** Registers a draft's tools and schema, then its profile, into `scope`. */
+function registerDefined(
+  scope: KernelScope,
+  profile: Profile,
+  customTools: readonly ToolRegistration[],
+  structured: StructuredRegistration | undefined,
+): Profile {
+  registerPlaygroundTools(scope.tools, customTools);
+  if (structured && profile.type !== 'live') {
+    scope.schemas.register(structured.id, structured.spec);
+  }
+  scope.profiles.register(profile);
+  return profile;
 }
 
 /** An agent the run's agent names, registered before it: one its agent tools run, or its summariser. */
@@ -202,6 +212,28 @@ export function playgroundScope(
     scope,
     profile: registerDraft(scope, profile, customTools, structured, runtime),
   };
+}
+
+/**
+ * A new scope holding drafts as written, the last one returned: no runtime
+ * rewrites their guardrails or checks their model bindings. For a run that
+ * calls no model and reaches no host. Never cache or share it.
+ */
+export function writtenScope(drafts: readonly PlaygroundDependency[]): {
+  scope: KernelScope;
+  profile: Profile | undefined;
+} {
+  const scope = createKernelScope();
+  let profile: Profile | undefined;
+  for (const draft of drafts) {
+    profile = registerDefined(
+      scope,
+      defineProfile(draft.profile),
+      draft.customTools,
+      draft.structured,
+    );
+  }
+  return { scope, profile };
 }
 
 export { PLAYGROUND_TAINT_NOTE, playgroundNetworkNote };

@@ -65,7 +65,9 @@ Owns every module under `src/guardrails/`.
 | `sanitize.ts` | Turn + text sanitization |
 | `injection-patterns.ts` | Prompt-injection regexes (a leaf the generator reads) |
 | `injection.ts` | Prompt-injection spans: the patterns on each view (raw, reversed, typo, normalized, ROT13, leet, URL runs) |
-| `sensitive.ts` | Credential / PII span patterns |
+| `sensitive.ts` | Sensitive spans by group: the PII patterns, Theorem's own credential rules, and the gitleaks rules |
+| `credential-rules.ts` | Generated (`scripts/gen-credential-rules.ts`): the gitleaks credential rules as JavaScript regexes |
+| `credential-scan.ts` | Reads a credential rule as gitleaks reads it: secret group, keywords, entropy, allowlists |
 | `canary.ts` | Canary mint (Live) and profile canary (turns), bind, stream gate, leak scan |
 | `prompt-echo.ts` | System-prompt echo scan: 12 consecutive prompt words in a reply are a leak, also backwards, in rot13 or in leetspeak |
 | `canary-gate.ts` | Canary-only batch helper (`createCanaryGateSession`) |
@@ -330,8 +332,10 @@ guardrails: { egress: { enforce: egressPolicy({ rules, compiled: compiledEgressR
 - `bundled` (default `true`) also runs `standardEgressEnforce`'s checks. With
   `bundled: false` only the canary and prompt echo run beside the host rules.
 - The compiler turns each regex into an automaton the way the bundled patterns
-  are (lookbehinds and anchors dropped, lookaheads optional, repeats over 256
-  unbounded, an inline modifier's flags set on the whole pattern). `regexpp`
+  are (lookbehinds and anchors dropped, lookaheads skipped or read, repeats
+  over 256 unbounded, an opening repeat of one character class kept out, an
+  inline modifier's flags set on the whole pattern; see
+  [Egress](#egress)). `regexpp`
   reads the pattern, so current syntax (inline modifiers, repeated group names)
   compiles; `refa` builds the automaton. That takes time a cold start cannot
   spare, so it is a build step: `@theoremjs/agents/guardrails/compile` is the
@@ -416,8 +420,16 @@ Under the bundled `standardEgressEnforce` the gate holds exactly what could
 still become a match (`egress-stream.ts`). Each detector regex is compiled
 ahead of time (`scripts/gen-egress-automata.ts`, checked in as
 `egress-automata.ts`) into an automaton that accepts every match of it and
-more: lookbehinds, `\b`, `^` and `$` are dropped, a lookahead may be read or
-skipped, and a bounded repeat over 256 is unbounded. The stream runs each
+more: lookbehinds, `\b`, `^` and `$` are dropped, and a bounded repeat over
+256 is unbounded. A lookahead is skipped when the text that must follow it is
+at least as long as the lookahead: the match has read that text. Otherwise the
+automaton also accepts the text before the lookahead followed by the
+lookahead's text. It then stays live until the text that settles the lookahead
+arrives.
+An optional repeat of one character class that opens a pattern (the
+`[\w.-]{0,50}?` that opens many gitleaks rules) is kept out of the automaton.
+The table names the class in `leads`, and the stream reads such a match as
+starting where the current run of that class started. The stream runs each
 automaton over each view the policy reads (the reply as written, reversed
 patterns on it, typo-folded, normalized, typo-folded normalized, ROT13, leet,
 and each `%`-escape run decoded on its own), one character at a time, and holds
@@ -558,7 +570,7 @@ prints `n of total` so a rate is never quoted as if it covered the corpus. A sou
 that cannot be reached — the gated one without a token — is listed under
 **Not loaded** and narrows the report rather than breaking it.
 
-`REVIEWED_SOURCES` in `eval/corpus.ts` records corpora that were evaluated and
+`REVIEWED_SOURCES` in `src/guardrails/eval/corpus.ts` records corpora that were evaluated and
 deliberately left out, with the objection: non-commercial licences, undeclared
 licences, and `Lakera/mosscap_prompt_injection`, whose 223k entries are attacks only
 in context and would understate a detector as unfairly as a soft benign set
@@ -635,7 +647,7 @@ kernel, offline.
   not kept.
 
 Fuzz runners register minimal stub profiles via `registerProfile` (for example
-`corpus/fuzz-inbound.ts` uses flat `models: Record<ModelId, ModelBinding>` with
+`src/guardrails/corpus/fuzz-inbound.ts` uses flat `models: Record<ModelId, ModelBinding>` with
 `defaultModel`).
 
 ## Public errors
@@ -835,7 +847,60 @@ False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 | `ids` | SSNs (bare and in context), ITINs, EINs |
 | `financial` | IBANs, and card numbers passing the Luhn check |
 | `network` | IPv4 and IPv6 addresses |
-| `credentials` | AWS / Google / OpenAI / Anthropic / OpenRouter keys, GitHub and Slack tokens, `Bearer` tokens, PEM private keys |
+| `credentials` | Every credential the gitleaks rules find (vendor API keys and tokens, key and password assignments, JWTs, private keys), plus Theorem's own rules: short or spaced `sk-` keys, OpenRouter keys, short GitHub and Slack tokens, `Bearer` tokens, short PEM private keys |
+
+### Credential rules
+
+The `credentials` group reads two rule lists (`CREDENTIALS` in `sensitive.ts`):
+
+- **The gitleaks rules.** `scripts/gitleaks/gitleaks.toml` is the default
+  configuration of [gitleaks](https://github.com/gitleaks/gitleaks) (MIT; the
+  licence is beside it). `scripts/gen-credential-rules.ts` writes
+  `credential-rules.ts` from it. A rule that reads a file path is left out,
+  because a chat has no files.
+- **Theorem's own rules** (`OWN_CREDENTIAL_RULES`), for forms gitleaks does not
+  cover.
+
+To take a new gitleaks release, replace the two files in `scripts/gitleaks/`,
+then run:
+
+```bash
+deno run --allow-read --allow-write --allow-run scripts/gen-credential-rules.ts
+deno run --allow-read --allow-write --allow-run scripts/gen-egress-automata.ts
+```
+
+`tests/scripts/gen-credential-rules.test.ts` fails when `credential-rules.ts`
+is not what the generator writes.
+
+`credential-scan.ts` reads each rule as gitleaks does:
+
+| Step | Behaviour |
+| --- | --- |
+| Keywords | The rule runs only when the text holds one of its keywords, in any case |
+| Secret | The rule's `secretGroup`, else its first non-empty group, else the whole match. Only the secret is redacted |
+| Entropy | The match is dropped when the secret's Shannon entropy is at or under the rule's floor |
+| Allowlists | The match is dropped when a global or rule allowlist matches the secret, the match or its lines, or when the secret holds a stopword |
+
+Three differences from gitleaks are deliberate:
+
+- A keyword must be in the text by the end of the match. gitleaks accepts a
+  keyword anywhere in a file. A stream reads the reply before it is complete,
+  so this rule makes the stream and the complete reply agree.
+- The `gitleaks:allow` comment is not honoured. In a chat, the model or a web
+  page writes that comment, not the owner of the secret.
+- gitleaks also decodes base64 and hex text and scans the result. Theorem does
+  not.
+
+gitleaks' `generic-api-key` rule reads a key, token or password that is given
+a random-looking value, for example `"password": "aBcD1234EfGh"`. A tool that
+returns a new password or key for the user to read, such as a password
+generator, has that value redacted before the model sees it. On a profile with
+such a tool, set `guardrails.redactSensitive.credentials` to `false`.
+
+The generator converts each Go regex to a JavaScript regex that matches the
+same text (`goRegex`): Go's `.` and `\s` are narrower than JavaScript's, and an
+inline `(?i)` applies to the end of its group. The generator refuses a pattern
+that it cannot convert exactly.
 
 `sensitiveSpans` finds, and never itself replaces. A selection is `true` (every
 group), `false` (none), or an object switching the groups it names, the rest at
@@ -1271,7 +1336,7 @@ From `src/guardrails/mod.ts`:
 | --- | --- |
 | Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicWording`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
-| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `ResolvedEgressSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
+| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `ResolvedEgressSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
 | Policy | `resolveGuardrailPolicy`, `detectionForTrust`, `DetectionOptions` |
 | Rule ids | `SANITIZE_RULES`, `EGRESS_RULES`, `DIRECTIVE_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
@@ -1281,7 +1346,7 @@ From `src/guardrails/mod.ts`:
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
 | Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `egressPolicy`, `EgressPolicyOptions`, `EgressChecks`, `UrlCheck`, `GivenUrls`, `EgressRule`, `CompiledEgressRules`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `LIVE_DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions`, `NetworkGuardrailSpec` |
-| Quota | `QuotaSlotStatus`, `QuotaExhausted`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
+| Quota | `QuotaSlotStatus`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 | Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |
 
 From `src/guardrails/compile-egress.ts` (build time only):
@@ -1341,7 +1406,11 @@ From `src/guardrails/testing.ts` (test / harness only):
     "Sensitive data": {
       "supports": [
         { "kind": "source", "path": "src/guardrails/sensitive.ts" },
-        { "kind": "contract_test", "path": "tests/guardrails/sanitize.test.ts" }
+        { "kind": "source", "path": "src/guardrails/credential-scan.ts" },
+        { "kind": "source", "path": "src/guardrails/credential-rules.ts" },
+        { "kind": "contract_test", "path": "tests/guardrails/sanitize.test.ts" },
+        { "kind": "contract_test", "path": "tests/guardrails/credential-scan.test.ts" },
+        { "kind": "contract_test", "path": "tests/scripts/gen-credential-rules.test.ts" }
       ]
     },
     "Tool boundary": {

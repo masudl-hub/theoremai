@@ -1022,7 +1022,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'guardrails.redactSensitive.network': field('boolean', 'IPv4 and IPv6 addresses.'),
   'guardrails.redactSensitive.credentials': field(
     'boolean',
-    'Known API key and token formats (AWS, Google, OpenAI, Anthropic, OpenRouter, GitHub, Slack), bearer tokens and PEM private keys.',
+    'API keys and tokens in the formats gitleaks knows (AWS, Google, OpenAI, Anthropic, GitHub, Slack and Stripe among them), key and password assignments, OpenRouter keys, bearer tokens and PEM private keys.',
   ),
   'guardrails.egress': field(
     'ProfileEgressSpec',
@@ -1045,7 +1045,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'guardrails.egress.checks.sensitive.network': field('boolean', 'IPv4 and IPv6 addresses.'),
   'guardrails.egress.checks.sensitive.credentials': field(
     'boolean',
-    'Known API key and token formats (AWS, Google, OpenAI, Anthropic, OpenRouter, GitHub, Slack), bearer tokens and PEM private keys.',
+    'API keys and tokens in the formats gitleaks knows (AWS, Google, OpenAI, Anthropic, GitHub, Slack and Stripe among them), key and password assignments, OpenRouter keys, bearer tokens and PEM private keys.',
   ),
   'guardrails.egress.checks.boundary': field(
     'boolean',

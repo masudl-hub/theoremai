@@ -249,7 +249,7 @@ Deno.test('the sensitive check runs the groups a host picks; network is opt-in',
     ids: '123-45-6789',
     financial: '4111 1111 1111 1111',
     network: '10.2.3.4',
-    credentials: 'AKIAIOSFODNN7EXAMPLE',
+    credentials: 'AKIAT4GZ2WQX6KJ3NB7V',
   };
   const none = { ids: false, financial: false, network: false, credentials: false };
   assertEquals(policyVerdict(true, samples.network), 'allow');

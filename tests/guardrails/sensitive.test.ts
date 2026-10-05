@@ -1,5 +1,6 @@
 import {
   TEST_AWS_KEY,
+  TEST_GOOGLE_KEY,
   TEST_OPENAI_KEY,
   TEST_SSN,
   TEST_VISA,
@@ -10,7 +11,7 @@ import { assertEquals } from '../../src/kernel/engine/assert.ts';
 Deno.test('sensitiveSpans detects SSN and API keys from corpus secrets', () => {
   assertEquals(sensitiveSpans(`SSN: ${TEST_SSN}`).length > 0, true);
   assertEquals(sensitiveSpans(`key ${TEST_OPENAI_KEY}`).length > 0, true);
-  assertEquals(sensitiveSpans(`AWS ${TEST_AWS_KEY}1`).length > 0, true);
+  assertEquals(sensitiveSpans(`AWS ${TEST_AWS_KEY}`).length > 0, true);
 });
 
 Deno.test('sensitiveSpans skips network addresses when network is off', () => {
@@ -40,15 +41,15 @@ Deno.test('sensitiveSpans detects all credential pattern types', () => {
     ['iban', 'DE89370400440532013000'],
     ['ipv6', '2001:0db8:85a3:0000:0000:8a2e:0370:7334'],
     ['github-pat', 'github_pat_11AAAAAAA_1234567890123456789012345'],
-    ['github-token', `ghp_${'A'.repeat(36)}`],
+    ['github-token', 'ghp_q7RkT2mZx9LpW4vYc1NbH8sDf3GjK6aEu0Xo'],
     ['slack', 'xoxb-123456789012-1234567890123-abcde'],
     ['bearer', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'],
     ['pem', '-----BEGIN RSA PRIVATE KEY-----\nMIIEo\n-----END RSA PRIVATE KEY-----'],
     ['anthropic', `sk-ant-api03-${'x'.repeat(24)}`],
     ['openrouter', `sk-or-${'x'.repeat(25)}`],
     ['openai', `sk-${'x'.repeat(24)}`],
-    ['google', `AIza${'x'.repeat(35)}`],
-    ['aws', 'AKIAIOSFODNN7EXAMPLE123'],
+    ['google', TEST_GOOGLE_KEY],
+    ['aws', TEST_AWS_KEY],
     ['ipv4', '10.0.0.1'],
     ['ssn', '078-05-1120'],
     ['ssn-contextual', 'SSN: 123456789'],
@@ -57,6 +58,35 @@ Deno.test('sensitiveSpans detects all credential pattern types', () => {
     const spans = sensitiveSpans(value);
     assertEquals(spans.length > 0, true);
   }
+});
+
+Deno.test("sensitiveSpans finds the vendor keys and the key assignments gitleaks' rules find", () => {
+  const body = 'q7RkT2mZx9LpW4vYc1NbH8sDf3GjK6aEu0Xo';
+  for (const value of [
+    'token=abc123def456ghi',
+    `Token: ${btoa('user:password')}`,
+    ['sk', 'live', body.slice(0, 24)].join('_'),
+    ['glpat', body.slice(0, 20)].join('-'),
+    ['npm', body].join('_'),
+  ]) {
+    assertEquals([value, sensitiveSpans(`see ${value} `).length > 0], [value, true]);
+  }
+  for (const value of [
+    'the api key: is something you get from the dashboard',
+    'token = getTokenFromRequest',
+    'public_key = q7RkT2mZx9LpW4vYc1NbH8sDf3GjK6aE',
+    `Payload: ${btoa('user:password')}`,
+  ]) {
+    assertEquals([value, sensitiveSpans(value)], [value, []]);
+  }
+});
+
+Deno.test('a key assignment is redacted at its value, the name left to read', () => {
+  const value = 'q7RkT2mZx9LpW4vYc1NbH8sDf3GjK6aE';
+  const text = `api_key = "${value}"`;
+  assertEquals(sensitiveSpans(text), [
+    { start: text.indexOf(value), end: text.indexOf(value) + value.length, kind: 'sensitive' },
+  ]);
 });
 
 Deno.test('sensitiveSpans rejects Luhn-invalid card numbers', () => {

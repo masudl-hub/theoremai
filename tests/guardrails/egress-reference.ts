@@ -24,7 +24,7 @@ import {
   typoNormalize,
 } from '../../src/guardrails/injection.ts';
 import { normalizeCodePoint, normalizeForDetection } from '../../src/guardrails/normalize.ts';
-import { cardHit } from '../../src/guardrails/sensitive.ts';
+import { cardHit, SENSITIVE_PATTERNS } from '../../src/guardrails/sensitive.ts';
 
 interface MappedView {
   view: string;
@@ -34,7 +34,7 @@ interface MappedView {
 
 interface Detector {
   re: RegExp;
-  hit?: (match: string) => boolean;
+  hit?: (match: string, view: string, at: number) => boolean;
 }
 
 const EMOJI_BETWEEN =
@@ -98,10 +98,12 @@ function plainRuns({ kind, group }: EgressPattern, checks: ResolvedEgressChecks)
   return checks.injection;
 }
 
+const sensitiveHits = new Map(SENSITIVE_PATTERNS.map(({ pattern, hit }) => [pattern, hit]));
+
 function plainDetectors(checks: ResolvedEgressChecks): Detector[] {
   return EGRESS_PATTERNS.filter((entry) => plainRuns(entry, checks)).map(({ kind, pattern }) => ({
     re: pattern,
-    hit: kind === 'card' ? cardHit : blobHits.get(pattern),
+    hit: kind === 'card' ? cardHit : (blobHits.get(pattern) ?? sensitiveHits.get(pattern)),
   }));
 }
 const INJECTION: Detector[] = EGRESS_PATTERNS.filter(({ kind }) => kind === 'injection').map(
@@ -113,7 +115,7 @@ function earliest(view: string, at: (i: number) => number, detectors: Detector[]
   let best = Number.POSITIVE_INFINITY;
   for (const { re, hit } of detectors) {
     for (const m of view.matchAll(re)) {
-      if (m[0] && (!hit || hit(m[0]))) {
+      if (m[0] && (!hit || hit(m[0], view, m.index))) {
         best = Math.min(best, at(m.index));
         break;
       }

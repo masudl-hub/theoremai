@@ -23,7 +23,7 @@ const OUT = new URL('../src/guardrails/egress-automata.ts', import.meta.url);
 function moduleText(): string {
   const data = bundledEgressAutomata();
   const table = (value: EgressAutomatonData): string =>
-    `{\n  classStarts: ${JSON.stringify(value.classStarts)},\n  charsets: ${JSON.stringify(value.charsets)},\n  initials: ${JSON.stringify(value.initials)},\n  nodes: ${JSON.stringify(value.nodes)},\n}`;
+    `{\n  classStarts: ${JSON.stringify(value.classStarts)},\n  charsets: ${JSON.stringify(value.charsets)},\n  initials: ${JSON.stringify(value.initials)},\n  leads: ${JSON.stringify(value.leads)},\n  nodes: ${JSON.stringify(value.nodes)},\n}`;
   return `// deno-lint-ignore-file no-control-regex -- the reversed patterns spell out the classes they read, control characters included
 // biome-ignore-all lint/suspicious/noControlCharactersInRegex: the reversed patterns spell out the classes they read, control characters included
 // biome-ignore-all lint/correctness/noEmptyCharacterClassInRegex: \`[^]\` is any character, as the generator writes it

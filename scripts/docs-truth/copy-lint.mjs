@@ -50,6 +50,26 @@ function fileIsExempt(src) {
   return EXEMPT_FILE_RE.test(head);
 }
 
+/** Whether the `/` at `at` opens a regex literal: nothing before it that a division could follow. */
+function opensRegex(src, at) {
+  let i = at - 1;
+  while (i >= 0 && /\s/.test(src[i])) i -= 1;
+  return i < 0 || '(,=:[!&|?{;'.includes(src[i]);
+}
+
+/** The index just past the regex literal opening at `at`: a quote inside it opens no string. */
+function regexEnd(src, at) {
+  let inClass = false;
+  for (let i = at + 1; i < src.length; i += 1) {
+    if (src[i] === '\\') i += 1;
+    else if (src[i] === '\n') return i;
+    else if (src[i] === '[') inClass = true;
+    else if (src[i] === ']') inClass = false;
+    else if (src[i] === '/' && !inClass) return i + 1;
+  }
+  return src.length;
+}
+
 function proseHits(src) {
   const lines = src.split('\n');
   const hits = [];
@@ -66,6 +86,11 @@ function proseHits(src) {
       i += 2;
       while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i += 1;
       i += 2;
+      continue;
+    }
+
+    if (ch === '/' && opensRegex(src, i)) {
+      i = regexEnd(src, i);
       continue;
     }
 

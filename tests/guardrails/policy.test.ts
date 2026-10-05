@@ -171,7 +171,7 @@ Deno.test('Verdict is exhaustively handled', () => {
 });
 
 Deno.test('redactSensitive redacts the groups a profile picks, and only those', () => {
-  const text = 'SSN 123-45-6789 at 10.2.3.4, key AKIAIOSFODNN7EXAMPLE';
+  const text = 'SSN 123-45-6789 at 10.2.3.4, key AKIAT4GZ2WQX6KJ3NB7V';
   const policy = resolveGuardrailPolicy({
     redactSensitive: { network: false, credentials: false },
   });
@@ -183,7 +183,7 @@ Deno.test('redactSensitive redacts the groups a profile picks, and only those', 
   });
   const redacted = sanitizeText(text, detectionForTrust(policy, 'untrusted'));
   assertEquals(
-    ['123-45-6789', '10.2.3.4', 'AKIAIOSFODNN7EXAMPLE'].map((part) => redacted.includes(part)),
+    ['123-45-6789', '10.2.3.4', 'AKIAT4GZ2WQX6KJ3NB7V'].map((part) => redacted.includes(part)),
     [false, true, true],
   );
 });

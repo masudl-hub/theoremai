@@ -73,7 +73,7 @@ Deno.test('benign number sequences are not misidentified as SSN', () => {
 
 Deno.test('benign base64 that is not injection passes through', () => {
   assertClean('b64-hello', `Hash: ${btoa('hello world')}`);
-  assertClean('b64-creds', `Token: ${btoa('user:password')}`);
+  assertClean('b64-creds', `Payload: ${btoa('user:password')}`);
 });
 
 Deno.test('benign text with digits is not mistaken for leet speak', () => {

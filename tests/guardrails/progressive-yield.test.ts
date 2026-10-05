@@ -71,7 +71,7 @@ Deno.test('createProgressiveYieldGate blocks sensitive spans via the bundled pol
   const gate = createProgressiveYieldGate({ context: ctx(), enforce: standardEgressEnforce });
   // The key could still run on, so it is held, not yet a match.
   const held = await gate.process(`key=${TEST_OPENAI_KEY}`);
-  assertEquals(held, { blocked: false, emit: 'key=' });
+  assertEquals(held, { blocked: false, emit: '' });
   const result = await gate.process(' and more');
   assertEquals(result.blocked, true);
   if (result.blocked) {

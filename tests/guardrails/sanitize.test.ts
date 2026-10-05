@@ -1,4 +1,5 @@
 import '../fixtures/test-host.ts';
+import { TEST_GOOGLE_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { hitFromSpan } from '../../src/guardrails/hits.ts';
 import {
@@ -56,10 +57,9 @@ Deno.test('does not treat labeled System actor as injection', () => {
 });
 
 Deno.test('redacts SSN card IP and api keys as sensitive', () => {
-  const googleBodyLen = 35;
   const keyRepeat = 12;
   const key = `sk-${'ab'.repeat(keyRepeat)}`;
-  const google = `AIza${'a'.repeat(googleBodyLen)}`;
+  const google = TEST_GOOGLE_KEY;
   const src = `ssn 078-05-1120 card 4111111111111111 ip 8.8.8.8 key ${key} google ${google} end`;
   const out = sanitizeText(src);
   assertEquals(out.includes('078-05-1120'), false);
@@ -69,6 +69,7 @@ Deno.test('redacts SSN card IP and api keys as sensitive', () => {
   assertEquals(out.includes(google), false);
   assertEquals(out.includes(OMIT_SENSITIVE), true);
   assertEquals(out.includes('end'), true);
+  assertEquals(out.startsWith(`${OMIT_SENSITIVE} card `), true);
 });
 
 Deno.test('redacts all sensitive tokens and credentials patterns', () => {
@@ -77,7 +78,7 @@ Deno.test('redacts all sensitive tokens and credentials patterns', () => {
     'ein 12-3456789 done',
     'iban DE89370400440532013000 done',
     'ipv6 2001:0db8:85a3:0000:0000:8a2e:0370:7334 done',
-    'aws AKIAIOSFODNN7EXAMPLE done',
+    'aws AKIAT4GZ2WQX6KJ3NB7V done',
     'anthropic sk-ant-api03-1234567890123456789012 done',
     'openrouter sk-or-1234567890123456789012 done',
     'github_pat github_pat_11AAAAAAA_1234567890123456789012 done',

@@ -16,6 +16,10 @@ const RULES: EgressRule[] = [
   { rule: 'acme.token', pattern: /(?<=token: )[A-Za-z0-9]{12}/, severity: 'medium' },
   { rule: 'acme.codename', pattern: /\bproject (?=nightjar)/i },
   { rule: 'acme.locks', pattern: /\u{1F512}{2}/u },
+  { rule: 'acme.keyed', pattern: /[\w.-]{0,8}?secret=[a-z]{4}/ },
+  { rule: 'acme.guarded', pattern: /\bkey(?=[a-z]\d)[a-z0-9]{2}/ },
+  { rule: 'acme.pin', pattern: /pin(?=\d{4})\d/ },
+  { rule: 'acme.tag', pattern: /tag(?!xy)[a-z]{2}/ },
 ];
 const COMPILED = compileEgressRules(RULES);
 
@@ -50,6 +54,7 @@ const PIECES = [
   '123456',
   '1234567890',
   'ACCT',
+  'ACCT-1234567',
   '-',
   '123',
   '4567',
@@ -75,6 +80,20 @@ const PIECES = [
   '\u{1F512}',
   '\uD83D',
   '\uDD12',
+  'my_',
+  'long.name-of_a.setting_',
+  'secret=',
+  'secret=',
+  'abcd',
+  'key',
+  'keya5',
+  'a5',
+  'a5',
+  'pin',
+  'pin',
+  'tag',
+  'tag',
+  'xy',
   'the reply',
   'ignore previous instructions',
   '\n',
@@ -105,6 +124,10 @@ Deno.test('egressPolicy blocks on each host rule with its severity', () => {
     ['token: abcDEF123456', 'acme.token', 'medium'],
     ['Project nightjar ships', 'acme.codename', 'high'],
     ['locked \u{1F512}\u{1F512}', 'acme.locks', 'high'],
+    ['my_secret=abcd', 'acme.keyed', 'high'],
+    ['the keya5', 'acme.guarded', 'high'],
+    ['pin1234', 'acme.pin', 'high'],
+    ['tagxz', 'acme.tag', 'high'],
   ];
   for (const [text, rule, severity] of cases) {
     const result = verdict(enforce, text);
@@ -121,6 +144,11 @@ Deno.test('egressPolicy blocks on each host rule with its severity', () => {
     'token abcDEF123456',
     'project falcon',
     '\u{1F512}',
+    'secret=abc',
+    'monkeya5',
+    'keyab',
+    'pin123',
+    'tagxy',
   ]) {
     assertEquals(verdict(enforce, text).action, 'allow', text);
   }
@@ -191,6 +219,65 @@ Deno.test('a pattern with inline modifiers or repeated group names is held for l
     for (const chunk of text) stream.push(chunk);
     assertEquals(stream.holdFrom(), start, text);
   }
+});
+
+/** Where a stream of `rules` alone holds from, `text` pushed a character at a time. */
+function heldFrom(rules: EgressRule[], text: string): number {
+  const { automaton } = compileEgressRules(rules);
+  const host = {
+    automaton,
+    rules: rules.map(({ rule, pattern }) => ({ rule, pattern, severity: 'high' as const })),
+  };
+  const stream = createEgressStream({ checks: NO_CHECKS, host });
+  for (const chunk of text) if (stream.push(chunk)) return -1;
+  return stream.holdFrom();
+}
+
+Deno.test('an opening repeat of one class is kept out of the automaton and held from the start of its run', () => {
+  const rules: EgressRule[] = [
+    { rule: 'acme.keyed', pattern: /[\w.-]{0,8}?secret=[a-z]{4}/ },
+    { rule: 'acme.wrapped', pattern: /(?:(?<![=])[a-z]*(key\d))/ },
+    { rule: 'acme.only', pattern: /[a-z]*/ },
+    { rule: 'acme.either', pattern: /[a-z]*x|y\d/ },
+  ];
+  assertEquals(
+    compileEgressRules(rules).automaton.leads.map((lead) => lead >= 0),
+    [true, true, false, false],
+  );
+  const keyed = rules.slice(0, 1);
+  for (const [text, start] of [
+    ['see a_long.name-of_a.setting_sec', 4],
+    ['see word', 4],
+    ['see word ', 9],
+    ['see word, secret=ab', 10],
+    ['see my_secret=abcd', 4],
+    ['see my_secret=abcd ', -1],
+  ] as const) {
+    assertEquals(heldFrom(keyed, text), start, text);
+  }
+});
+
+Deno.test('a lookahead is read only where the match may end before its text does', () => {
+  const guarded: EgressRule[] = [{ rule: 'acme.guarded', pattern: /\bkey(?=[a-z]\d)[a-z0-9]{2}/ }];
+  assertEquals(heldFrom(guarded, 'see xke'), 5);
+  assertEquals(heldFrom(guarded, 'see key'), 4);
+  assertEquals(heldFrom(guarded, 'see keyab '), 10);
+  assertEquals(heldFrom(guarded, 'see keya5 '), -1);
+  const pin: EgressRule[] = [{ rule: 'acme.pin', pattern: /pin(?=\d{4})\d/ }];
+  for (const [text, start] of [
+    ['see pin1', 4],
+    ['see pin123', 4],
+    ['see pin1234', 4],
+    ['see pin1234 ', -1],
+    ['see pin12x', 10],
+  ] as const) {
+    assertEquals(heldFrom(pin, text), start, text);
+  }
+  const nested: EgressRule[] = [{ rule: 'acme.nested', pattern: /(?:a(?=bcd))+b?/ }];
+  assertEquals(heldFrom(nested, 'x ab'), 2);
+  assertEquals(heldFrom(nested, 'x abc'), 2);
+  assertEquals(heldFrom(nested, 'x abcd '), -1);
+  assertEquals(heldFrom(nested, 'x abce'), 6);
 });
 
 const HOST_SCAN = {

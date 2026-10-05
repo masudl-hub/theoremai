@@ -5,12 +5,15 @@
     "jsr:@deno/dnt@0.43.2": "0.43.2",
     "jsr:@std/assert@*": "1.0.19",
     "jsr:@std/assert@1": "1.0.19",
+    "jsr:@std/collections@^1.1.3": "1.4.0",
     "jsr:@std/fmt@1": "1.0.10",
     "jsr:@std/fs@1": "1.0.24",
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/path@1": "1.1.6",
     "jsr:@std/path@^1.1.5": "1.1.6",
+    "jsr:@std/toml@*": "1.0.11",
+    "jsr:@std/toml@^1.0.11": "1.0.11",
     "jsr:@ts-morph/bootstrap@0.29": "0.29.0",
     "jsr:@ts-morph/common@0.29": "0.29.0",
     "npm:@ast-grep/cli@0.41": "0.41.1",
@@ -47,6 +50,9 @@
         "jsr:@std/internal@^1.0.12"
       ]
     },
+    "@std/collections@1.4.0": {
+      "integrity": "bd7f74966e11de11b1f0420b7e8cb7bb381d8af7872b738443b92050db28c9c0"
+    },
     "@std/fmt@1.0.10": {
       "integrity": "90dfba288802ac6de82fb31d0917eb9e4450b9925b954d5e51fc29ac07419db5"
     },
@@ -64,6 +70,12 @@
       "integrity": "c68485c2a4dfbb5ae3cc74fae4e8c4e5d874cf8a8ed12927917235c758b46cbe",
       "dependencies": [
         "jsr:@std/internal@^1.0.14"
+      ]
+    },
+    "@std/toml@1.0.11": {
+      "integrity": "e084988b872ca4bad6aedfb7350f6eeed0e8ba88e9ee5e1590621c5b5bb8f715",
+      "dependencies": [
+        "jsr:@std/collections"
       ]
     },
     "@ts-morph/bootstrap@0.29.0": {
@@ -1515,6 +1527,7 @@
     "dependencies": [
       "jsr:@deno/dnt@0.43.2",
       "jsr:@std/assert@1",
+      "jsr:@std/toml@^1.0.11",
       "npm:@eslint-community/regexpp@4.12.2",
       "npm:@openrouter/ai-sdk-provider@3",
       "npm:ai@7",

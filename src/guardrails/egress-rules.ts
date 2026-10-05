@@ -26,12 +26,15 @@ interface EgressRule {
  *   `[classStarts[k], classStarts[k+1])`.
  * - `charsets`: each charset as the sorted class ids it contains.
  * - `initials`: the initial node of each pattern.
+ * - `leads`: per pattern, the charset an optional repeat opening it reads, or
+ *   -1. The pattern's nodes are of what follows the repeat.
  * - `nodes`: each node as `[pattern, final (0/1), target, charset, target, charset, ...]`.
  */
 interface EgressAutomatonData {
   classStarts: readonly number[];
   charsets: readonly (readonly number[])[];
   initials: readonly number[];
+  leads: readonly number[];
   nodes: readonly (readonly number[])[];
 }
 
@@ -45,7 +48,7 @@ interface CompiledEgressRules {
 }
 
 /** Bumped whenever the compiled table's layout or meaning changes. */
-const EGRESS_COMPILER_VERSION = 1;
+const EGRESS_COMPILER_VERSION = 2;
 
 const RESERVED_PREFIX = 'egress.';
 

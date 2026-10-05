@@ -1,3 +1,4 @@
+import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import '../fixtures/test-host.ts';
 import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
 import type { Verdict } from '../../src/guardrails/types.ts';
@@ -103,7 +104,7 @@ Deno.test('runTurn emits egress guardrail events on block', async () => {
 
   async function* leaky(): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
-    yield { type: 'text', text: 'Here is a key sk-abcdefghijklmnopqrstuvwxyz0123456789' };
+    yield { type: 'text', text: `Here is a key ${TEST_OPENAI_KEY}` };
   }
 
   const events = await Array.fromAsync(
@@ -261,7 +262,7 @@ Deno.test('a stream check that acts carries its time so far, and records no sepa
   );
   async function* leaky(): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
-    yield { type: 'text', text: 'Here is a key sk-abcdefghijklmnopqrstuvwxyz0123456789' };
+    yield { type: 'text', text: `Here is a key ${TEST_OPENAI_KEY}` };
   }
   await Array.fromAsync(
     runTurn(

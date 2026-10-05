@@ -312,7 +312,14 @@ const graph = {
         },
         { paths: ['src/guardrails/sanitize.ts', 'src/guardrails/injection.ts'], sections: ['Sanitization'] },
         { paths: ['src/guardrails/injection.ts'], sections: ['Injection categories (non-exhaustive)'] },
-        { paths: ['src/guardrails/sensitive.ts'], sections: ['Sensitive data'] },
+        {
+          paths: [
+            'src/guardrails/sensitive.ts',
+            'src/guardrails/credential-scan.ts',
+            'src/guardrails/credential-rules.ts',
+          ],
+          sections: ['Sensitive data'],
+        },
         { paths: ['src/guardrails/quota.ts'], sections: ['Quota'] },
         {
           paths: [

@@ -54,7 +54,7 @@ import {
 } from './injection.ts';
 import { isEmoji, normalizeCodePoint } from './normalize.ts';
 import { EGRESS_RULES } from './rules.ts';
-import { cardHit } from './sensitive.ts';
+import { cardHit, SENSITIVE_PATTERNS } from './sensitive.ts';
 import type { EgressEnforcer, GuardrailContext, Severity } from './types.ts';
 
 /** A settled match the policy blocks on. */
@@ -83,6 +83,8 @@ interface Automaton {
   /** Per node: target, charset, target, charset, ... */
   edges: Int32Array[];
   initials: readonly number[];
+  /** Per pattern: the charset an optional repeat opening it reads, or -1. */
+  leads: readonly number[];
   size: number;
 }
 
@@ -108,7 +110,7 @@ function compile(data: EgressAutomatonData): Automaton {
     final[id] = node[1] as number;
     edges.push(Int32Array.from(node.slice(2)));
   });
-  return { classOf, has, pattern, final, edges, initials: data.initials, size };
+  return { classOf, has, pattern, final, edges, initials: data.initials, leads: data.leads, size };
 }
 
 let forward: Automaton | undefined;
@@ -154,7 +156,7 @@ function literalAutomaton(text: string): Automaton {
   const classOfUnit = (unit: number) => classStarts.indexOf(unit);
   const charsets = positions.map((like) => like.map(classOfUnit));
   const nodes = [...positions.map((_, i) => [0, 0, i + 1, i]), [0, 1]];
-  const automaton = compile({ classStarts, charsets, initials: [0], nodes });
+  const automaton = compile({ classStarts, charsets, initials: [0], leads: [-1], nodes });
   literalAutomata.set(text, automaton);
   return automaton;
 }
@@ -470,6 +472,9 @@ interface ScanPattern {
 }
 
 const BLOB_HITS = new Map(INJECTION_BLOBS.map(({ pattern, hit }) => [pattern, hit]));
+const SENSITIVE_HITS = new Map(
+  SENSITIVE_PATTERNS.flatMap(({ pattern, hit }) => (hit ? [[pattern, hit] as const] : [])),
+);
 
 /** The bundled rule a pattern kind trips, with `collectEgressHits`' severity. */
 const KIND_RULES: Record<EgressPatternKind, { rule: string; severity: Severity }> = {
@@ -502,7 +507,7 @@ function patternReading(
     const reading = urls[kind][index] as UrlPatternReading;
     return 'find' in reading ? { find: reading.find } : { hit: reading.test };
   }
-  const hit = BLOB_HITS.get(pattern);
+  const hit = BLOB_HITS.get(pattern) ?? SENSITIVE_HITS.get(pattern);
   return hit ? { hit } : {};
 }
 
@@ -578,7 +583,10 @@ function reversedPatterns(): ScanPattern[] {
  * One view scanned for some patterns: the automata, run one character at a
  * time, give where each pattern could still be matching; the pattern's own
  * regex, run only where the automaton reached a match, finds the match and
- * whether it has settled. A pattern whose matches nest (tags inside tags) is
+ * whether it has settled. A pattern opened by an optional repeat of one class
+ * has no thread for the repeat: a thread of it starts where the run of that
+ * class it is in started, and the run the text ends in is still under way.
+ * A pattern whose matches nest (tags inside tags) is
  * read instead by its finder, once over each stretch that settles.
  */
 function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
@@ -614,6 +622,11 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
    */
   const openedFrom = new Int32Array(patterns.length).fill(-1);
   const lastOpened = new Int32Array(patterns.length).fill(-1);
+  const leadOf = Int32Array.from(patterns, (p) => automaton.leads[p.id] ?? -1);
+  const leads = [...new Set(leadOf)].filter((lead) => lead >= 0);
+  const led = patterns.flatMap((_, p) => ((leadOf[p] as number) < 0 ? [] : [p]));
+  /** Per lead charset: where the run of it the text ends in started, or -1. */
+  const runFrom = new Int32Array(automaton.has.length).fill(-1);
 
   function feed(): void {
     const { text, fresh } = view;
@@ -647,12 +660,19 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
       const first = starts[cls] as Int32Array;
       for (let k = 0; k < first.length; k++) {
         const target = first[k] as number;
-        add(target, fed);
         const p = local[pattern[target] as number] as number;
+        const lead = leadOf[p] as number;
+        const run = lead < 0 ? -1 : (runFrom[lead] as number);
+        const start = run < 0 ? fed : run;
+        add(target, start);
         if (finds[p]) {
           lastOpened[p] = fed;
-          if ((openedFrom[p] as number) < 0) openedFrom[p] = fed;
+          if ((openedFrom[p] as number) < 0) openedFrom[p] = start;
         }
+      }
+      for (const lead of leads) {
+        if (!(has[lead] as Uint8Array)[cls]) runFrom[lead] = -1;
+        else if ((runFrom[lead] as number) < 0) runFrom[lead] = fed;
       }
       [nodes, next] = [next, nodes];
       [from, nextFrom] = [nextFrom, from];
@@ -673,6 +693,12 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
       if (start < (liveFrom[p] as number)) liveFrom[p] = start;
       if (automaton.final[node]) atFinal[p] = 1;
       if (start < earliest) earliest = start;
+    }
+    for (const p of led) {
+      const run = runFrom[leadOf[p] as number] as number;
+      if (run < 0) continue;
+      if (run < (liveFrom[p] as number)) liveFrom[p] = run;
+      if (run < earliest) earliest = run;
     }
     return earliest;
   }

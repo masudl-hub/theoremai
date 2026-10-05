@@ -8,17 +8,21 @@
  * `agents egress-compile` writes the table, and `egressPolicy` loads it.
  *
  * An automaton drops its pattern's assertions: a lookbehind, `\b`, `^` and `$`
- * match nothing, and a lookahead may be read or skipped. A bounded repeat over
- * `COUNT_LIMIT` is unbounded. An inline modifier's flags are set on the whole
- * pattern. Each change only widens what it accepts, so the hold can only hold
- * more than it must. A backreference to text that varies has no automaton;
+ * match nothing, and a lookahead is skipped, with its text read after what
+ * precedes it wherever the match may end before that text does. A bounded
+ * repeat over `COUNT_LIMIT` is unbounded. An optional repeat of one character
+ * class that opens the pattern is left out and its class named in `leads`:
+ * the stream reads a match as starting where the run of that class it is in
+ * started. An inline modifier's flags are set on the whole pattern. Each
+ * change only widens what it accepts, so the hold can only hold more than it
+ * must. A backreference to text that varies has no automaton;
  * compiling it fails.
  *
  * @module
  */
 
 import { type AST, RegExpParser, visitRegExpAST } from '@eslint-community/regexpp';
-import { type Concatenation, type Element, JS, NFA, type NoParent } from 'refa';
+import { type CharSet, type Concatenation, type Element, JS, NFA, type NoParent } from 'refa';
 import { EGRESS_PATTERNS } from './egress-patterns.ts';
 import {
   assertEgressRules,
@@ -66,41 +70,109 @@ function reversedElement(element: NoParent<Element>): NoParent<Element> {
   }
 }
 
-/**
- * The pattern with its assertions loosened: a lookbehind (and `\b`, `^`, `$`,
- * which parse to lookarounds) matches the empty string, a lookahead is either
- * skipped or read as part of the match, and a long bounded repeat is unbounded.
- */
-function loosened(alternatives: Alternatives): Alternatives {
-  return alternatives.map((concat) => ({
-    type: 'Concatenation',
-    elements: concat.elements.flatMap(loosenedElement),
-  }));
+/** How many characters follow an element in a match, at least and at most. */
+interface Length {
+  min: number;
+  max: number;
 }
 
-function loosenedElement(element: NoParent<Element>): NoParent<Element>[] {
+/** Where lookaheads that end their own alternative are written: `out`, each after what precedes it, `before`. */
+interface Ends {
+  before: NoParent<Element>[];
+  out: Alternatives;
+}
+
+/**
+ * The pattern with its assertions loosened and a long bounded repeat
+ * unbounded. A lookbehind (and `\b`, `^`, `$`, which parse to lookarounds)
+ * matches the empty string. A lookahead:
+ *
+ * - no longer than what must follow it is skipped: the match has read its text;
+ * - with nothing after it is read or skipped;
+ * - otherwise is skipped, and what precedes it followed by its text is an
+ *   alternative of the pattern (in `ends`), so the automaton is still under
+ *   way, and then at a match, while the text that settles it arrives.
+ */
+function loosened(alternatives: Alternatives, after: Length, ends?: Ends): Alternatives {
+  return alternatives.map((concat) => {
+    const elements: NoParent<Element>[] = [];
+    concat.elements.forEach((element, i) => {
+      const rest = lengthOf(concat.elements.slice(i + 1));
+      elements.push(
+        ...loosenedElement(
+          element,
+          { min: after.min + rest.min, max: after.max + rest.max },
+          ends && { before: [...ends.before, ...elements], out: ends.out },
+        ),
+      );
+    });
+    return { type: 'Concatenation', elements };
+  });
+}
+
+/** The fewest and the most characters a match of the elements, one after another, reads. */
+function lengthOf(elements: readonly NoParent<Element>[]): Length {
+  let min = 0;
+  let max = 0;
+  for (const element of elements) {
+    if (element.type === 'Assertion') continue;
+    if (element.type === 'CharacterClass') {
+      min++;
+      max++;
+      continue;
+    }
+    if (element.type === 'Unknown') {
+      max = Number.POSITIVE_INFINITY;
+      continue;
+    }
+    const each = element.alternatives.map((concat) => lengthOf(concat.elements));
+    const times = element.type === 'Quantifier' ? element : { min: 1, max: 1 };
+    const most = Math.max(...each.map((length) => length.max));
+    min += times.min * Math.min(...each.map((length) => length.min));
+    max += most === 0 ? 0 : times.max * most;
+  }
+  return { min, max };
+}
+
+/** `element` loosened, where `after` characters follow it in a match. */
+function loosenedElement(
+  element: NoParent<Element>,
+  after: Length,
+  ends?: Ends,
+): NoParent<Element>[] {
   switch (element.type) {
     case 'Alternation':
-      return [{ ...element, alternatives: loosened(element.alternatives) }];
-    case 'Quantifier':
-      return [
-        {
-          ...element,
-          max: element.max > COUNT_LIMIT ? Number.POSITIVE_INFINITY : element.max,
-          alternatives: loosened(element.alternatives),
-        },
-      ];
-    case 'Assertion':
+      return [{ ...element, alternatives: loosened(element.alternatives, after, ends) }];
+    case 'Quantifier': {
+      const max = element.max > COUNT_LIMIT ? Number.POSITIVE_INFINITY : element.max;
+      const inside = max > 1 ? { min: after.min, max: Number.POSITIVE_INFINITY } : after;
+      const repeat = { ...element, max, alternatives: loosened(element.alternatives, inside) };
+      if (ends) {
+        const earlier = { ...repeat, min: 0, max: Number.POSITIVE_INFINITY };
+        loosened(element.alternatives, inside, {
+          before: max > 1 ? [...ends.before, earlier] : ends.before,
+          out: ends.out,
+        });
+      }
+      return [repeat];
+    }
+    case 'Assertion': {
       if (element.kind === 'behind') return [];
+      const text = loosened(element.alternatives, { min: 0, max: 0 }, ends);
+      const { max } = lengthOf([{ type: 'Alternation', alternatives: text }]);
+      if (max <= after.min) return [];
+      const read: NoParent<Element> = { type: 'Alternation', alternatives: text };
+      if (after.max > 0) {
+        ends?.out.push({ type: 'Concatenation', elements: [...ends.before, read] });
+        return [];
+      }
       return [
         {
           type: 'Alternation',
-          alternatives: [
-            { type: 'Concatenation', elements: [] },
-            ...loosened(element.alternatives),
-          ],
+          alternatives: [{ type: 'Concatenation', elements: [] }, ...text],
         },
       ];
+    }
     case 'CharacterClass':
       return [element];
     default:
@@ -151,12 +223,48 @@ interface PatternNfa {
   initial: NFA.ReadonlyNode;
   nodes: NFA.ReadonlyNode[];
   finals: ReadonlySet<NFA.ReadonlyNode>;
+  /** The class an optional repeat opening the pattern reads; the automaton is of what follows it. */
+  lead?: CharSet;
+}
+
+/**
+ * The pattern split at an optional repeat of one character class that opens
+ * it: the class, and the rest. Counted in the automaton, the repeat would keep
+ * a state per repeat alive at every character of a run of the class.
+ */
+function led(alternatives: Alternatives): { lead?: CharSet; rest: Alternatives } {
+  const [concat] = alternatives;
+  if (alternatives.length !== 1 || !concat) return { rest: alternatives };
+  const [first, ...after] = concat.elements;
+  if (first?.type === 'Alternation' && first.alternatives.length === 1) {
+    const [inner] = first.alternatives;
+    return led([{ type: 'Concatenation', elements: [...(inner?.elements ?? []), ...after] }]);
+  }
+  if (first?.type !== 'Quantifier' || first.min !== 0 || first.max < 2) {
+    return { rest: alternatives };
+  }
+  const [repeated] = first.alternatives;
+  const [only] = repeated?.elements ?? [];
+  if (first.alternatives.length !== 1 || repeated?.elements.length !== 1) {
+    return { rest: alternatives };
+  }
+  return only?.type === 'CharacterClass'
+    ? { lead: only.characters, rest: [{ type: 'Concatenation', elements: after }] }
+    : { rest: alternatives };
 }
 
 function nfaOf(alternatives: Alternatives): PatternNfa {
-  const nfa = NFA.fromRegex(loosened(alternatives), { maxCharacter: MAX_CHAR });
-  nfa.removeUnreachable();
-  return { initial: nfa.initial, nodes: [...nfa.nodes()], finals: nfa.finals };
+  const ends: Alternatives = [];
+  const whole = [...loosened(alternatives, { min: 0, max: 0 }, { before: [], out: ends }), ...ends];
+  const { lead, rest } = led(whole);
+  const build = (from: Alternatives) => {
+    const nfa = NFA.fromRegex(from, { maxCharacter: MAX_CHAR });
+    nfa.removeUnreachable();
+    return { initial: nfa.initial, nodes: [...nfa.nodes()], finals: nfa.finals };
+  };
+  const nfa = build(rest);
+  if (!lead) return nfa;
+  return nfa.finals.has(nfa.initial) ? build(whole) : { ...nfa, lead };
 }
 
 /** The union of the patterns' automata as tables, nodes tagged with their pattern. */
@@ -164,12 +272,11 @@ function automatonData(patterns: Alternatives[]): EgressAutomatonData {
   const nfas = patterns.map(nfaOf);
   const bounds = new Set<number>([0]);
   for (const nfa of nfas) {
-    for (const node of nfa.nodes) {
-      for (const set of node.out.values()) {
-        for (const range of set.ranges) {
-          bounds.add(range.min);
-          if (range.max < MAX_CHAR) bounds.add(range.max + 1);
-        }
+    const sets = nfa.nodes.flatMap((node) => [...node.out.values()]);
+    for (const set of nfa.lead ? [...sets, nfa.lead] : sets) {
+      for (const range of set.ranges) {
+        bounds.add(range.min);
+        if (range.max < MAX_CHAR) bounds.add(range.max + 1);
       }
     }
   }
@@ -215,7 +322,8 @@ function automatonData(patterns: Alternatives[]): EgressAutomatonData {
       nodes.push(row);
     }
   });
-  return { classStarts, charsets, initials, nodes };
+  const leads = nfas.map(({ lead }) => (lead ? charsetId(lead.ranges) : -1));
+  return { classStarts, charsets, initials, leads, nodes };
 }
 
 /** The table `egressPolicy` needs to hold exactly for `rules`. */

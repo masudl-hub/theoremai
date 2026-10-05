@@ -86,18 +86,3 @@ Deno.test('defineProfile rejects each scoped field on a type outside its scope',
     }
   }
 });
-
-Deno.test("a scope's off value passes on types outside it", () => {
-  const canary = PROFILE_FIELD_SCOPE['guardrails.canary'];
-  assertEquals(canary.offValue, false);
-  assertThrows(
-    () =>
-      defineProfile({
-        id: 'scope_probe',
-        type: 'host',
-        guardrails: { canary: false },
-      } as never),
-    TheoremError,
-    "type 'host' must set tools",
-  );
-});

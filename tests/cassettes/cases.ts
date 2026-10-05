@@ -75,8 +75,6 @@ const STOPS_REPLY = {
 
 const GUARDED = {
   quota: { perDay: 100_000 },
-  canary: true,
-  promptEcho: true,
   detect: {
     ids: STOPS_REPLY,
     financial: STOPS_REPLY,

@@ -15,7 +15,6 @@ import {
   DETECTORS,
 } from '../guardrails/detectors.ts';
 import { LEXICON_NOTES, type LexiconKey } from '../guardrails/lexicon.ts';
-import { PROMPT_ECHO_WORDS } from '../guardrails/prompt-echo.ts';
 import { EGRESS_ON_BLOCK, type EgressOnBlock, TAINT_GATES } from '../guardrails/types.ts';
 import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
 import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
@@ -1054,14 +1053,6 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'guardrails.quota.perDay': field(
     'number',
     'Turns each client IP may run on this profile per UTC day, one at a time; counts live in the process, and a loopback caller is not counted.',
-  ),
-  'guardrails.canary': field(
-    'boolean',
-    'Plants a secret token in the system instruction. Stops a reply that repeats it. Cuts it from a thought. Allows a token the input, history or a tool result supplied this turn.',
-  ),
-  'guardrails.promptEcho': field(
-    'boolean',
-    `With the canary on, also stops a reply that repeats ${PROMPT_ECHO_WORDS} words in a row of the private system instruction, also when written backwards, in rot13 or in leetspeak. On by default; wrap the private lines as { private: text } so the plain ones may be quoted, or turn it off when the whole instruction may be.'`,
   ),
   ...detectFields(),
   'guardrails.egress': field(

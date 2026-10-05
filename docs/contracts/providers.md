@@ -337,8 +337,8 @@ When `profile.type === 'speech'` and protocol/provider is
 Speech turns carry no system prompt. The input text is the transcript: Gemini
 TTS rejects developer instructions ("Developer instruction is not enabled") and
 `/audio/speech` has no field for one. So `defineProfile` rejects
-`identity.system` / `identity.systemByRole` and any canary on a speech profile
-(registration stores `guardrails.canary: false`), and `resolveTurn` rejects a
+`identity.system` / `identity.systemByRole` on a speech profile, no canary is
+planted for one, and `resolveTurn` rejects a
 host `TurnRequest.system` on a speech turn.
 
 Speech-role turns (`req.speech`) must receive real audio media from the model.

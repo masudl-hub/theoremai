@@ -258,7 +258,7 @@ Live sessions emit the same stage names around utterance cycles and
    history it leaves (see [Compaction](#compaction)). The history meter counts media by the turn model's family
    (`mediaTokenFamily` of the resolved binding); media it cannot count is
    reported as `unknownMedia`.
-4. **Canary bind** — when `guardrails.canary` is enabled, the turn's canary is the
+4. **Canary bind** — while the `canary_leak` detector is above `ignore` somewhere, the turn's canary is the
    profile's (`profileCanary`: a hash of the profile id and the resolved system
    prompt, the same on every turn that sends that prompt, so a provider's prompt
    cache holds), and its note goes at the end of the system text.
@@ -945,7 +945,7 @@ registerProfile(defineProfile({
   tools: { allow: [] },
   inputs: { text: true },
   outputs: { structured: "my.summary.schema" },
-  guardrails: { canary: false, detect: 'ignore' },
+  guardrails: { detect: 'ignore' },
 }));
 ```
 
@@ -1076,7 +1076,7 @@ re-exports the type and owns only the resume policy below.
 | `length` | Output / budget cut off |
 | `tool` | The model called tools and the turn hands them to the host; `done.tools` is the turn's tool snapshot |
 | `gate` | A `pre_tool` gate (confirm / permission / auth) stopped a call before it ran; `done.tools` is the snapshot. Host resumes via `invokeTool` (live: `executeTool` with a `decision`) |
-| `filtered` | Output blocked: the provider's content filter, or a Theorem guardrail (`native: 'canary'` for a canary leak, `'egress'` for an egress block, withheld or replaced by policy copy) |
+| `filtered` | Output blocked: the provider's content filter, or a Theorem guardrail (`native: 'egress'` for a reply a detector or the egress policy stopped, withheld or replaced by policy copy; `'canary'`, `'prompt_echo'` or `'provider_tool_leak'` for a leak in an event that is not reply text) |
 | `provider_error` | Upstream failure: a finish reason that says so, or any `error` the provider sent during the call (it outranks the call's own `done`) |
 | `cancelled` | User / host abort |
 | `stream_incomplete` | Stream ended without terminal reason |

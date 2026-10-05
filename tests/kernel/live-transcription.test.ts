@@ -16,7 +16,9 @@ function resolvedLive(id: string, live: ProfileLiveSpec, canary?: boolean) {
     ...liveBase,
     id,
     live,
-    ...(canary === undefined ? {} : { guardrails: { canary } }),
+    ...(canary === false
+      ? { guardrails: { detect: { canary_leak: 'ignore', prompt_leak: 'ignore' } } as const }
+      : {}),
   });
   return resolveTurn({ profile: id, input: { text: '' } }).generation.live;
 }

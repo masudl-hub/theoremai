@@ -54,7 +54,6 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: null },
-    guardrails: { canary: true },
     observability: { writeTo: false, sampleRate: 0.5 },
   });
 
@@ -71,7 +70,6 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
   assertEquals(profile.tools.allow, []);
   assertEquals(profile.inputs.text, true);
   assertEquals(profile.outputs?.structured, null);
-  assertEquals(profile.guardrails?.canary, true);
   assertEquals(profile.observability?.writeTo, false);
   assertEquals(profile.observability?.sampleRate, 0.5);
 });
@@ -595,7 +593,6 @@ Deno.test('host profile rejects guardrails that only a model turn can run', () =
   const base = { type: 'host' as const, id: 'host_guardrails_bad', tools: { allow: [] } };
   const cases: Array<[string, Record<string, unknown>]> = [
     ['quota', { quota: { perDay: 10 } }],
-    ['canary', { canary: true }],
     ['egress', { egress: { enforce: () => ({ blocked: false }) } }],
     ['taint', { taint: { afterRemoteRead: 'write' } }],
   ];

@@ -1,7 +1,16 @@
 const OMIT_INJECTION = '[omitted - injection]';
 const OMIT_SENSITIVE = '[omitted -sensitive]';
+const OMIT_CANARY = '[omitted - canary]';
+const OMIT_PROMPT = '[omitted - instructions]';
 
-type RedactKind = 'injection' | 'sensitive';
+type RedactKind = 'injection' | 'sensitive' | 'canary' | 'prompt';
+
+const OMIT: Readonly<Record<RedactKind, string>> = {
+  injection: OMIT_INJECTION,
+  sensitive: OMIT_SENSITIVE,
+  canary: OMIT_CANARY,
+  prompt: OMIT_PROMPT,
+};
 
 interface RedactSpan {
   start: number;
@@ -10,10 +19,7 @@ interface RedactSpan {
 }
 
 function tokenFor(kind: RedactKind): string {
-  if (kind === 'injection') {
-    return OMIT_INJECTION;
-  }
-  return OMIT_SENSITIVE;
+  return OMIT[kind];
 }
 
 function blobAt(match: RegExpMatchArray): { blob: string; index: number } | undefined {
@@ -67,4 +73,12 @@ function spansFromPatterns(text: string, patterns: RegExp[], kind: RedactKind): 
 }
 
 export type { RedactKind, RedactSpan };
-export { applySpans, blobAt, mergeSpans, OMIT_INJECTION, OMIT_SENSITIVE, spansFromPatterns };
+export {
+  applySpans,
+  blobAt,
+  mergeSpans,
+  OMIT_CANARY,
+  OMIT_INJECTION,
+  OMIT_SENSITIVE,
+  spansFromPatterns,
+};

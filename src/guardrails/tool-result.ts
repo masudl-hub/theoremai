@@ -1,6 +1,6 @@
 import { mapStrings } from '../kernel/engine/tree.ts';
 import type { ToolBoundary } from './boundaries.ts';
-import { type Detection, detectAt, detectEvent } from './detect-at.ts';
+import { type Detection, type DetectScope, detectAt, detectEvent } from './detect-at.ts';
 import type { ResolvedDetect } from './detectors.ts';
 import { type LexiconOverrides, lexiconText } from './lexicon.ts';
 import { TOOL_RULES } from './rules.ts';
@@ -215,24 +215,26 @@ export interface InspectedToolArguments {
  * exfiltration: a credential lifted from context and posted outward as a
  * parameter. The whole call is read as it will be sent; `redact` then replaces
  * the match inside each string it sits in, so the tool is called with the
- * placeholder.
+ * placeholder. `scope` is what the detectors of what is the profile's own
+ * read of the turn: the canary, and its system instruction.
  */
 function inspectToolArguments(
   args: unknown,
   provenance: Provenance,
   policy: ResolvedGuardrailPolicy,
   boundary: ToolBoundary | undefined,
+  scope: DetectScope = {},
 ): InspectedToolArguments {
   const rendered = textForScan(args);
   if (!boundary || rendered.unscannable) {
     return { args };
   }
-  const detected = detectAt(rendered.text, boundary, policy.detect);
+  const detected = detectAt(rendered.text, boundary, policy.detect, scope);
   const event = detectEvent(boundary, detected, provenance);
   if (detected.action === 'block') return { ...(event ? { event } : {}) };
   const safe =
     detected.action === 'redact'
-      ? mapStrings(args, (text) => detectAt(text, boundary, policy.detect).text ?? text)
+      ? mapStrings(args, (text) => detectAt(text, boundary, policy.detect, scope).text ?? text)
       : args;
   return { args: safe, ...(event ? { event } : {}) };
 }

@@ -7,7 +7,7 @@ import type { EgressRule } from '../../src/guardrails/egress-rules.ts';
 import { createEgressStream } from '../../src/guardrails/egress-stream.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { createProgressiveYieldGate } from '../../src/guardrails/progressive-yield.ts';
-import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
+import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import type { GuardrailContext, Verdict } from '../../src/guardrails/types.ts';
 import { referenceMatchStart } from './egress-reference.ts';
 
@@ -163,7 +163,9 @@ Deno.test('egressPolicy runs the bundled policy too unless told not to', () => {
   assertEquals(verdict(hostOnly, echo).action, 'allow');
   const canary = 'CANARY-7f3a';
   const leak = hostOnly({ text: `the key is ${canary}` }, { ...context, canary }) as Verdict;
-  assertEquals(leak.action === 'block' && leak.hits.map((hit) => hit.rule), [EGRESS_RULES.canary]);
+  assertEquals(leak.action === 'block' && leak.hits.map((hit) => hit.rule), [
+    DETECT_RULES.canary_leak,
+  ]);
 });
 
 Deno.test('egressPolicy refuses a table compiled from other rules or by another compiler', () => {

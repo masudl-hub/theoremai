@@ -20,7 +20,7 @@ const PLACEHOLDER = readAt(KEY, 'reply', { credentials: 'redact' }).text ?? '';
 /** A turn of a profile with `detect`, answered by `reply`: its events. */
 async function turn(
   id: string,
-  detect: DetectSpec,
+  detect: Exclude<DetectSpec, string>,
   reply: TurnEvent[],
   extras: { structured?: boolean; refuse?: boolean } = {},
 ): Promise<TurnEvent[]> {
@@ -36,8 +36,7 @@ async function turn(
       outputs: extras.structured ? { structured: 'detectReply' } : {},
       guardrails: {
         quota: { perDay: 50 },
-        canary: false,
-        detect,
+        detect: { ...detect, canary_leak: 'ignore', prompt_leak: 'ignore' },
         ...(extras.refuse ? { egress: { checks: {}, onBlock: 'refuse_to_user' } } : {}),
       },
     }),

@@ -376,6 +376,7 @@ async function* handleModelCalls(
   generation: ResolvedGeneration,
   profile: Profile,
   state: StepExecutionState,
+  system: BoundSystem,
   { onStage, signal, credentials, resolveHost }: Partial<TurnRequest> = {},
 ): AsyncGenerator<TurnEvent, boolean> {
   const chainOn = chainedInteractionId(generation, state);
@@ -431,6 +432,11 @@ async function* handleModelCalls(
         },
         snapshot: generation.tools,
         stages,
+        scope: {
+          canary: generation.canary,
+          canaryGiven: state.canaryGiven,
+          privateSystem: system.private,
+        },
         openSpan: toolSpanOpener(state),
       }),
       state,
@@ -488,6 +494,7 @@ async function* executeAttempt(args: {
       generation,
       profile,
       state,
+      system,
       args.safe,
     );
     if (!executed) {

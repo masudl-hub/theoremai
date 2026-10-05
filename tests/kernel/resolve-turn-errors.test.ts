@@ -222,7 +222,7 @@ Deno.test('a live profile streams over the live transport, takes its own spec, a
 
 Deno.test('a guarded text profile carries no live spec, and a resumption handle comes from the request first', () => {
   clearProfiles();
-  define('guarded', { guardrails: { canary: true } });
+  define('guarded', {});
   const generation = resolveTurn(turn('guarded')).generation;
   check(generation.live, undefined, 'no live spec on a text profile');
   check(generation.speech, undefined, 'no speech spec');

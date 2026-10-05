@@ -202,7 +202,7 @@ function compactionProfile(
 }
 
 function registerAllProfiles(): void {
-  simpleProfile(PLAIN_ID, { canary: true });
+  simpleProfile(PLAIN_ID, {});
 
   simpleProfile(EXHAUST_0_ID, {
     egress: { onBlock: 'reject_to_agent', maxRetries: 0, enforce: alwaysBlock },
@@ -229,7 +229,6 @@ function registerAllProfiles(): void {
   simpleProfile(
     REPAIR_1_ID,
     {
-      canary: true,
       egress: {
         onBlock: 'reject_to_agent',
         maxRetries: 1,

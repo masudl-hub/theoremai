@@ -293,7 +293,7 @@ async function applyOutbound(
     const finalized = await finalizeLiveOutboundTurn(gate);
     if (finalized.action === 'withhold') {
       onWithhold();
-      return [...out, toErrorEvent(finalized.error)];
+      return [...out, ...(finalized.events ?? []), toErrorEvent(finalized.error)];
     }
     if (finalized.action === 'emit') {
       out.push(...finalized.events);
@@ -767,6 +767,7 @@ function buildLiveSession(args: {
         host,
         signal,
       },
+      scope: gate.context,
       openSpan: record.open,
       readBack: liveReadBack,
     });

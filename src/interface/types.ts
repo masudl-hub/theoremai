@@ -35,7 +35,7 @@ export interface EgressChecksView {
 }
 
 /** Guardrails visible to UI — egress enforcer functions are omitted. */
-export type ProfileGuardrailsView = Pick<ResolvedGuardrailPolicy, 'quota' | 'canary' | 'detect'> & {
+export type ProfileGuardrailsView = Pick<ResolvedGuardrailPolicy, 'quota' | 'detect'> & {
   hasEgress: boolean;
   /** `null` with no egress check, or a host `enforce` whose checks are its own. */
   egressChecks: EgressChecksView | null;

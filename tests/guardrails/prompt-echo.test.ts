@@ -1,5 +1,7 @@
 import '../fixtures/test-host.ts';
+import { z } from 'zod';
 import { mintCanary } from '../../src/guardrails/canary.ts';
+import type { DetectSpec } from '../../src/guardrails/detectors.ts';
 import { LEET_MAP } from '../../src/guardrails/injection.ts';
 import {
   createLiveOutboundGateSession,
@@ -12,15 +14,18 @@ import {
   promptEchoScanFrom,
   scanTextForPromptEcho,
 } from '../../src/guardrails/prompt-echo.ts';
+import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import {
   getProfile,
   registerProfile,
+  registerTool,
   runSession,
   runTurn,
 } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import { eventsOf, toolEventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
@@ -253,7 +258,9 @@ function registerEchoProfile(id: string, promptEcho?: boolean): string {
       ...geminiModels('gemini35FlashLite'),
       tools: { allow: [] },
       inputs: { text: true },
-      ...(promptEcho === undefined ? {} : { guardrails: { promptEcho } }),
+      ...(promptEcho === false
+        ? { guardrails: { detect: { prompt_leak: 'ignore' } } as const }
+        : {}),
     }),
   );
   return id;
@@ -273,7 +280,7 @@ Deno.test('runTurn stops a reply that dumps the system prompt without the canary
   const events = await collect(runTurn({ profile, input: { text: 'hi' } }, dumpsPrompt));
   assertEquals(events.findLast((event) => event.type === 'done')?.stop, {
     kind: 'filtered',
-    native: 'prompt_echo',
+    native: 'egress',
   });
   assertEquals(
     events.some((event) => event.type === 'error' && event.errorKind === 'safety'),
@@ -289,22 +296,80 @@ Deno.test('runTurn releases a quoting reply when the profile allows prompt echo'
   assertEquals(replyText(events).trim(), `My instructions: ${SYSTEM}`);
 });
 
-Deno.test('runTurn stops a tool call that carries the system prompt', async () => {
-  const profile = registerEchoProfile('echo_tool');
+/** A model that sends the system prompt to a tool, then answers. */
+async function echoToolTurn(id: string, detect?: DetectSpec) {
+  const calls: unknown[] = [];
+  registerTool({
+    type: 'function',
+    name: `${id}_note`,
+    description: 'Takes a note',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({ note: z.string() }),
+    output: z.object({ ok: z.boolean() }),
+    handler: (input) => {
+      calls.push(input);
+      return { ok: true };
+    },
+  });
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      id,
+      identity: { handle: 'sol', system: SYSTEM },
+      ...geminiModels('gemini35FlashLite'),
+      tools: { allow: [`${id}_note`] },
+      inputs: { text: true },
+      ...(detect ? { guardrails: { detect } } : {}),
+    }),
+  );
+  let step = 0;
   const provider: ModelProvider = {
     async *complete() {
       await Promise.resolve();
+      step += 1;
+      if (step > 1) {
+        yield { type: 'text', text: 'Done.' };
+        return;
+      }
       yield {
         type: 'tool',
-        tool: { name: 'fetch_sensor', arguments: { note: SYSTEM }, callId: 'c1' },
+        tool: { name: `${id}_note`, arguments: { note: SYSTEM }, callId: 'c1' },
       };
     },
   };
-  const events = await collect(runTurn({ profile, input: { text: 'hi' } }, provider));
-  assertEquals(events.findLast((event) => event.type === 'done')?.stop, {
-    kind: 'filtered',
-    native: 'prompt_echo',
+  const events = await collect(runTurn({ profile: id, input: { text: 'hi' } }, provider));
+  const found = eventsOf(events, 'guardrail')
+    .map((event) => event.guardrail)
+    .filter((guardrail) => guardrail.hits?.some((hit) => hit.rule === DETECT_RULES.prompt_leak));
+  return { calls, events, found };
+}
+
+Deno.test('a tool call that carries the system prompt is flagged and still runs', async () => {
+  const { calls, events, found } = await echoToolTurn('echo_tool_flag');
+  assertEquals(calls.length, 1);
+  assertEquals(
+    found.map((guardrail) => guardrail.action),
+    ['flag'],
+  );
+  assertEquals(replyText(events), 'Done.');
+});
+
+Deno.test('a tool call that carries the system prompt is refused where prompt_leak blocks', async () => {
+  const { calls, events, found } = await echoToolTurn('echo_tool_block', {
+    prompt_leak: { at: { tool_arguments_function: 'block' } },
   });
+  assertEquals(calls, []);
+  assertEquals(
+    found.map((guardrail) => guardrail.action),
+    ['block'],
+  );
+  const failure = toolEventsOf(events, 'error')[0]?.failure;
+  assertEquals([failure?.code, failure?.kind], ['arguments_blocked', 'blocked']);
+  assertEquals(replyText(events), 'Done.');
 });
 
 Deno.test('processLiveOutboundBatch withholds a spoken dump of the system prompt across cycles', async () => {
@@ -318,10 +383,16 @@ Deno.test('processLiveOutboundBatch withholds a spoken dump of the system prompt
   await processLiveOutboundBatch(s, [said(words(SYSTEM, 0, 8))]);
   assertEquals((await finalizeLiveOutboundTurn(s)).action === 'withhold', false);
   const next = await processLiveOutboundBatch(s, [said(` ${words(SYSTEM, 8, 8)}`)]);
-  assertEquals(next.action, 'withhold');
-  if (next.action === 'withhold') {
-    assertEquals(next.error.message.includes('system prompt echoed'), true);
-  }
+  // The cycle shows nothing of the dump and is withheld at its end, naming the detector.
+  assertEquals(next, { action: 'idle' });
+  const end = await finalizeLiveOutboundTurn(s);
+  assertEquals(end.action, 'withhold');
+  assertEquals(
+    eventsOf((end.action === 'withhold' && end.events) || [], 'guardrail').map(({ guardrail }) =>
+      guardrail.hits.map((hit) => hit.rule),
+    ),
+    [[DETECT_RULES.prompt_leak]],
+  );
 });
 
 const VOICE =
@@ -387,7 +458,7 @@ Deno.test('runTurn stops a reply repeating a private part of a marked prompt', a
   );
   assertEquals(events.findLast((event) => event.type === 'done')?.stop, {
     kind: 'filtered',
-    native: 'prompt_echo',
+    native: 'egress',
   });
   assertEquals(scanTextForPromptEcho(replyText(events), [PRIVATE_RULES]), false);
 });
@@ -418,7 +489,7 @@ Deno.test("runTurn stops a reply repeating Theorem's notes after a shareable par
   assertEquals(notes.trim().split(/\s+/).length > PROMPT_ECHO_WORDS, true);
   assertEquals(events.findLast((event) => event.type === 'done')?.stop, {
     kind: 'filtered',
-    native: 'prompt_echo',
+    native: 'egress',
   });
 });
 
@@ -432,7 +503,7 @@ Deno.test('runTurn stops a reply repeating a private part of the turn prompt', a
   );
   assertEquals(events.findLast((event) => event.type === 'done')?.stop, {
     kind: 'filtered',
-    native: 'prompt_echo',
+    native: 'egress',
   });
 });
 

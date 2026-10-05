@@ -171,7 +171,7 @@ Deno.test('structured output that cannot be read does not cross a boundary a det
   assertEquals(readReply(payload, reading, AT_END).blocked, [
     { rule: EGRESS_RULES.unscannable, severity: 'high' },
   ]);
-  assertEquals(readReply(payload, resolveDetect(), AT_END).blocked, undefined);
+  assertEquals(readReply(payload, resolveDetect('ignore'), AT_END).blocked, undefined);
 });
 
 Deno.test('a flag is reported at the end only when the stream withheld the reply', () => {
@@ -230,7 +230,7 @@ Deno.test('a detector at thought flags, replaces or ends what is shown of the th
   }
 });
 
-function liveProfile(id: string, detect: DetectSpec) {
+function liveProfile(id: string, detect: Exclude<DetectSpec, string>) {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -239,14 +239,17 @@ function liveProfile(id: string, detect: DetectSpec) {
       id,
       ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
-      guardrails: { quota: { perDay: 100 }, canary: false, detect },
+      guardrails: {
+        quota: { perDay: 100 },
+        detect: { ...detect, canary_leak: 'ignore', prompt_leak: 'ignore' },
+      },
     }),
   );
   return getProfile(id);
 }
 
 /** A Live cycle that says `TEXT`: what the host got, and how the cycle ended. */
-async function spoken(id: string, detect: DetectSpec) {
+async function spoken(id: string, detect: Exclude<DetectSpec, string>) {
   const session = createLiveOutboundGateSession(liveProfile(id, detect));
   const results: LiveOutboundBatchResult[] = [];
   for (const piece of pieces(TEXT, 16)) {

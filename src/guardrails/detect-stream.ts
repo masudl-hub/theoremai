@@ -9,7 +9,7 @@
  */
 
 import type { Boundary } from './boundaries.ts';
-import { detectorsAt, detectRelease, type Release } from './detect-at.ts';
+import { detectorsAt, detectRelease, isScoped, type Release } from './detect-at.ts';
 import type { Detector, ResolvedDetect } from './detectors.ts';
 import { NO_CHECKS } from './egress.ts';
 import { createEgressStream } from './egress-stream.ts';
@@ -27,9 +27,13 @@ interface DetectStream {
   take(from: number, to: number, ended?: boolean): Release;
 }
 
-/** A reader for text streaming across `boundary`, or `undefined` when no detector reads it. */
+/**
+ * A reader for text streaming across `boundary`, or `undefined` when no detector it streams reads
+ * it. The detectors of what is the profile's own (`isScoped`) are not among them: the gate at the
+ * boundary reads those as the text grows.
+ */
 function createDetectStream(boundary: Boundary, detect: ResolvedDetect): DetectStream | undefined {
-  const detectors = detectorsAt(boundary, detect);
+  const detectors = detectorsAt(boundary, detect).filter((detector) => !isScoped(detector));
   if (detectors.length === 0) return undefined;
   const stream = createEgressStream({ checks: NO_CHECKS, detect: detectors });
   let window = '';

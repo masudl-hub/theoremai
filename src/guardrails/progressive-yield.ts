@@ -5,12 +5,13 @@ import {
   promptLeakCarry,
   RELEASED_LOOKBACK,
 } from './canary.ts';
-import { type Detection, detectReads } from './detect-at.ts';
+import { type Detection, type DetectScope, detectReads } from './detect-at.ts';
 import { createDetectStream } from './detect-stream.ts';
-import type { ResolvedDetect } from './detectors.ts';
-import { CANARY_HIT, promptEchoHits, runEnforcer } from './egress.ts';
+import type { DetectAction, ResolvedDetect } from './detectors.ts';
+import { promptEchoHits, runEnforcer } from './egress.ts';
 import { type EgressStream, type EgressStreamHit, streamPlanOf } from './egress-stream.ts';
 import { TheoremError } from './error.ts';
+import { CANARY_HIT } from './hits.ts';
 import { promptEchoHoldFrom, promptEchoScanFrom } from './prompt-echo.ts';
 import { EGRESS_RULES } from './rules.ts';
 import type {
@@ -154,7 +155,20 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
   const reads = options.detect;
   const detecting = reads ? createDetectStream(reads.boundary, reads.matrix) : undefined;
   const baseHoldback = resolveHoldback(options, stream !== undefined);
-  const carry = context.canary ? (options.carry ?? '') : '';
+  /** What a match of one of ours does at this gate's boundary. A gate given no matrix stops on it. */
+  const ours = (detector: 'canary_leak' | 'prompt_leak'): DetectAction =>
+    reads ? reads.matrix[detector][reads.boundary] : 'block';
+  const canaryAction = ours('canary_leak');
+  const promptAction = ours('prompt_leak');
+  /** The canary a reply must not repeat: none when it was given (`canaryGiven`), or not read here. */
+  const token = context.canaryGiven || canaryAction === 'ignore' ? undefined : context.canary;
+  /** The private system instruction a reply must not repeat: none when not read here. */
+  const privateSystem = promptAction === 'ignore' ? undefined : context.privateSystem;
+  const guarded = token !== undefined || privateSystem !== undefined;
+  const carry = guarded ? (options.carry ?? '') : '';
+  /** The leaks set to `flag` found since the last release, and the rules already reported. */
+  let noted: GuardrailHit[] = [];
+  const reported = new Set<string>();
   let accumulated = '';
   let emitted = 0;
   /** The window from `emitted` on. Each piece of the reply is kept apart, so no step rereads the whole. */
@@ -174,31 +188,36 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
   let opening = carry;
   let openingBase = 0;
   let openingFrom = 0;
-  /** The canary a reply must not repeat: none when it was given (`canaryGiven`). */
-  const token = context.canaryGiven ? undefined : context.canary;
   /** Reads the carry, then the window as it grows. */
   const scanner = token ? createCanaryScanner(token) : undefined;
   scanner?.push(carry);
 
   /**
-   * The system-prompt leak hits (canary, prompt echo) in the carry and this
-   * window. The canary scan reads each character once (`createCanaryScanner`)
-   * and the echo check rereads only its own short lookback
-   * (`promptEchoScanFrom`), so a long reply costs time in proportion to its
-   * length, not its square.
+   * The leaks of what is ours (canary, prompt echo) in the carry and this
+   * window that stop the reply. One set to `flag` is noted for the next
+   * release instead, once. The canary scan reads each character once
+   * (`createCanaryScanner`) and the echo check rereads only its own short
+   * lookback (`promptEchoScanFrom`), so a long reply costs time in proportion
+   * to its length, not its square.
    */
-  function canaryWindowHits(fresh: string): GuardrailHit[] {
-    const scanned = echoed.length;
-    echoed += fresh;
-    const from = promptEchoScanFrom(echoed, scanned);
-    echoed = echoed.slice(from);
-    echoedFrom += from;
-    return [
-      ...(scanner?.push(fresh) ? [CANARY_HIT] : []),
-      ...(context.privateSystem
-        ? promptEchoHits(echoed, context.privateSystem, context.canary)
-        : []),
-    ];
+  function leakStops(fresh: string): GuardrailHit[] {
+    const found: [DetectAction, GuardrailHit][] = [];
+    if (scanner?.push(fresh)) found.push([canaryAction, CANARY_HIT]);
+    if (privateSystem) {
+      const scanned = echoed.length;
+      echoed += fresh;
+      const from = promptEchoScanFrom(echoed, scanned);
+      echoed = echoed.slice(from);
+      echoedFrom += from;
+      const [hit] = promptEchoHits(echoed, privateSystem, context.canary);
+      if (hit) found.push([promptAction, hit]);
+    }
+    for (const [action, hit] of found) {
+      if (action !== 'flag' || reported.has(hit.rule)) continue;
+      reported.add(hit.rule);
+      noted.push(hit);
+    }
+    return found.filter(([action]) => action !== 'flag').map(([, hit]) => hit);
   }
 
   /**
@@ -227,26 +246,41 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     return null;
   }
 
-  async function scan(window: string, fragment?: string): Promise<GuardrailHit[] | null> {
-    // invariant: The system-prompt leak checks always run, under a host policy too: it adds
+  /** What stops the reply at this step: a leak of ours, read at the gate's boundary, or the host policy's hits. */
+  async function scan(
+    window: string,
+    fragment?: string,
+  ): Promise<Pick<ProgressiveYieldBlocked, 'hits' | 'boundary'> | null> {
+    // invariant: The detectors of what is ours run under a host policy too: it adds
     // checks, it never replaces these (the guardrail invariant).
-    const leaks = context.canary ? canaryWindowHits(fragment ?? '') : [];
+    const leaks = guarded ? leakStops(fragment ?? '') : [];
     if (fragment) detecting?.push(fragment);
     if (leaks.length > 0) {
-      return leaks;
+      return { hits: leaks, ...(reads ? { boundary: reads.boundary } : {}) };
     }
-    return await policyHits(window, fragment);
+    const hits = await policyHits(window, fragment);
+    return hits ? { hits } : null;
   }
 
-  /** Where the leak checks hold from: a canary opening, or words a prompt echo could grow from. */
+  /**
+   * Where the leak checks hold from: a canary opening, or words a prompt echo
+   * could grow from. A leak set to `flag` holds nothing: it is shown.
+   */
   function leakHoldFrom(): number {
-    if (!context.canary) {
-      return accumulated.length;
-    }
-    const echo = context.privateSystem
-      ? echoHoldFrom(context.privateSystem, context.canary)
-      : held.length;
-    return emitted + Math.min(token ? canaryFrom(token) : held.length, echo);
+    const canary = token && canaryAction !== 'flag' ? canaryFrom(token) : held.length;
+    const echo =
+      privateSystem && promptAction !== 'flag'
+        ? echoHoldFrom(privateSystem, context.canary)
+        : held.length;
+    return emitted + Math.min(canary, echo);
+  }
+
+  /** `result` with the leaks noted since the last release reported in it. */
+  function withNoted(result: ProgressiveYieldOk): ProgressiveYieldOk {
+    if (noted.length === 0) return result;
+    const hits = [...noted, ...(result.found?.hits ?? [])];
+    noted = [];
+    return { ...result, found: { action: result.found?.action ?? 'flag', hits } };
   }
 
   /** `canaryHoldFrom` on the held text, read from where an opening could start. */
@@ -290,9 +324,9 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
   }
 
   async function release(fragment?: string): Promise<ProgressiveYieldResult> {
-    const hits = await scan(accumulated, fragment);
-    if (hits) {
-      return { blocked: true, hits };
+    const stop = await scan(accumulated, fragment);
+    if (stop) {
+      return { blocked: true, ...stop };
     }
     const ended = fragment === undefined;
     const end = ended
@@ -300,18 +334,18 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
       : Math.min(leakHoldFrom(), policyHoldFrom(), detecting?.holdFrom() ?? accumulated.length);
     const length = Math.max(0, end - emitted);
     if (!(reads && detecting)) {
-      return { blocked: false, emit: take(length) };
+      return withNoted({ blocked: false, emit: take(length) });
     }
     const read = detecting.take(emitted, emitted + length, ended);
     if (read.action === 'block' || (read.action === 'redact' && !reads.rewrite)) {
       return { blocked: true, hits: read.hits, boundary: reads.boundary };
     }
     take(read.taken);
-    return {
+    return withNoted({
       blocked: false,
       emit: read.text ?? '',
       ...(read.action === 'allow' ? {} : { found: { action: read.action, hits: read.hits } }),
-    };
+    });
   }
 
   /** Release the first `length` characters held, as written. */
@@ -319,7 +353,7 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     const emit = held.slice(0, length);
     held = held.slice(length);
     emitted += emit.length;
-    if (context.canary) released = (released + emit).slice(-RELEASED_LOOKBACK);
+    if (guarded) released = (released + emit).slice(-RELEASED_LOOKBACK);
     return emit;
   }
 
@@ -330,7 +364,7 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
       }
       accumulated += fragment;
       held += fragment;
-      if (context.canary) opening += fragment;
+      if (guarded) opening += fragment;
       return await release(fragment);
     },
     async flush() {
@@ -339,26 +373,27 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     accumulated: () => accumulated,
     unreleased: () => held,
     drainUnreleased: () => take(held.length),
-    carryOut: () =>
-      context.canary
-        ? promptLeakCarry(carry + accumulated, context.canary, context.privateSystem)
-        : '',
+    carryOut: () => (guarded ? promptLeakCarry(carry + accumulated, token, privateSystem) : ''),
   };
 }
 
 /**
  * Whether a reply read at `boundaries` gets a verdict once it has ended: a
  * host policy runs, or a detector reads one of them. A gate that stops such a
- * reply withholds it for that verdict; any other stop ends the turn there.
+ * reply withholds it for that verdict.
  */
-function replyIsJudged(policy: ResolvedGuardrailPolicy, boundaries: readonly Boundary[]): boolean {
-  return policy.egress?.enforce !== undefined || detectReads(boundaries, policy.detect);
+function replyIsJudged(
+  policy: ResolvedGuardrailPolicy,
+  boundaries: readonly Boundary[],
+  scope?: DetectScope,
+): boolean {
+  return policy.egress?.enforce !== undefined || detectReads(boundaries, policy.detect, scope);
 }
 
 /**
- * Shared constructor for runTurn + Live: gate when the canary, `egress.enforce`
- * or a detector at `boundary` is active. `context.canary` is set only when the
- * profile enabled canary minting.
+ * Shared constructor for runTurn + Live: a gate when `egress.enforce` runs or a
+ * detector reads `boundary`. `context.canary` is set only while `canary_leak`
+ * is above `ignore` somewhere, and `context.privateSystem` while `prompt_leak` is.
  */
 function createOutboundProgressiveGate(
   policy: ResolvedGuardrailPolicy,
@@ -367,7 +402,7 @@ function createOutboundProgressiveGate(
   carry?: string,
 ): ProgressiveYieldGate | null {
   const egress = policy.egress;
-  if (!replyIsJudged(policy, [boundary]) && !context.canary) {
+  if (!replyIsJudged(policy, [boundary], context)) {
     return null;
   }
   return createProgressiveYieldGate({

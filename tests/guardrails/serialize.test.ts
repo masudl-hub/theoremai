@@ -1,7 +1,7 @@
 import '../fixtures/test-host.ts';
 import { eventHasCanary, mintCanary } from '../../src/guardrails/canary.ts';
 import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
-import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
+import { DETECT_RULES, EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import { CIRCULAR, scanTextOf, textForScan } from '../../src/guardrails/serialize.ts';
 import type { GuardrailContext } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -72,7 +72,7 @@ Deno.test('egress still finds a leak inside a circular payload', () => {
   assertEquals(verdict.action, 'block');
   if (verdict.action !== 'block') return;
   assertEquals(
-    verdict.hits.some((h) => h.rule === EGRESS_RULES.canary),
+    verdict.hits.some((h) => h.rule === DETECT_RULES.canary_leak),
     true,
   );
 });

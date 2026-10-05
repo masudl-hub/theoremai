@@ -9,7 +9,13 @@
 
 import { mapStrings } from '../kernel/engine/tree.ts';
 import type { Boundary } from './boundaries.ts';
-import { type Detection, detectAt, detectEvent, detectReads } from './detect-at.ts';
+import {
+  type Detection,
+  type DetectScope,
+  detectAt,
+  detectEvent,
+  detectReads,
+} from './detect-at.ts';
 import type { ResolvedDetect } from './detectors.ts';
 import type { GuardrailEvent, GuardrailHit } from './event-schemas.ts';
 import { EGRESS_RULES } from './rules.ts';
@@ -34,7 +40,11 @@ interface ReplyRead {
 type Found = Pick<Detection, 'action' | 'hits'>;
 
 /** The structured output with each match in a string replaced, or what stops it crossing. */
-function readStructured(structured: unknown, detect: ResolvedDetect): Found & { value?: unknown } {
+function readStructured(
+  structured: unknown,
+  detect: ResolvedDetect,
+  scope: DetectScope,
+): Found & { value?: unknown } {
   if (!detectReads(['reply_structured'], detect)) {
     return { action: 'allow', hits: [], value: structured };
   }
@@ -43,15 +53,15 @@ function readStructured(structured: unknown, detect: ResolvedDetect): Found & { 
     // why: Cannot inspect it, so cannot vouch for it. Fail closed.
     return { action: 'block', hits: [{ rule: EGRESS_RULES.unscannable, severity: 'high' }] };
   }
-  const found = detectAt(scan.text, 'reply_structured', detect);
+  const found = detectAt(scan.text, 'reply_structured', detect, scope);
   if (found.action !== 'redact') {
     return { action: found.action, hits: found.hits, value: structured };
   }
   const value = mapStrings(
     structured,
-    (leaf) => detectAt(leaf, 'reply_structured', detect).text ?? '',
+    (leaf) => detectAt(leaf, 'reply_structured', detect, scope).text ?? '',
   );
-  const left = detectAt(textForScan(value).text, 'reply_structured', detect).action;
+  const left = detectAt(textForScan(value).text, 'reply_structured', detect, scope).action;
   // why: A match in a key, or one that runs across values, has no string to replace: it does not cross.
   if (left === 'redact' || left === 'block') return { action: 'block', hits: found.hits };
   return { action: 'redact', hits: found.hits, value };
@@ -60,16 +70,23 @@ function readStructured(structured: unknown, detect: ResolvedDetect): Found & { 
 /**
  * Reads a reply's text at `boundary`, and its structured output at
  * `reply_structured`. A flag in text the stream released was reported then, so
- * it is reported here only when the stream `withheld` the reply.
+ * it is reported here only when the stream `withheld` the reply. `scope` is
+ * what the detectors of what is the profile's own read of the turn.
  */
 function readReply(
   written: OutboundPayload,
   detect: ResolvedDetect,
-  { boundary, withheld }: { boundary: 'reply' | 'live_reply'; withheld: boolean },
+  {
+    boundary,
+    withheld,
+    scope = {},
+  }: { boundary: 'reply' | 'live_reply'; withheld: boolean; scope?: DetectScope },
 ): ReplyRead {
-  const text = detectAt(written.text, boundary, detect);
+  const text = detectAt(written.text, boundary, detect, scope);
   const structured =
-    written.structured === undefined ? undefined : readStructured(written.structured, detect);
+    written.structured === undefined
+      ? undefined
+      : readStructured(written.structured, detect, scope);
   const events = [
     text.action === 'flag' && !withheld ? undefined : detectEvent(boundary, text),
     structured ? detectEvent('reply_structured', structured) : undefined,

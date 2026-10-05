@@ -981,19 +981,6 @@ Deno.test('a field the type may carry only as its off value names that value', (
     'structured off value',
   );
   check(
-    said({
-      id: 's',
-      type: 'speech',
-      identity: { handle: 's' },
-      models: { m: { ...BINDING } },
-      key: 'main',
-      speech: { voice: 'Kore', format: 'pcm' },
-      guardrails: { canary: true },
-    }).includes('must not set guardrails.canary (other than false) — '),
-    true,
-    'canary off value',
-  );
-  check(
     said(
       textProfile({
         type: 'live',

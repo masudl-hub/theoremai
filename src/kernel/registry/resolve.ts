@@ -1,4 +1,5 @@
 import { mintCanary } from '../../guardrails/canary.ts';
+import { detects } from '../../guardrails/detectors.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { replyIsJudged } from '../../guardrails/progressive-yield.ts';
@@ -220,19 +221,28 @@ function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
 }
 
 /**
- * A guarded Live profile (canary, `egress.enforce`, or a detector reading
- * `live_reply`) always transcribes its own speech: the outbound gate can only
- * check audio through its transcript.
+ * A guarded Live profile (`egress.enforce`, or a detector reading `live_reply`)
+ * always transcribes its own speech: the outbound gate can only check audio
+ * through its transcript.
  */
 function resolveLiveSpec(
   live: ProfileLiveSpec | undefined,
   guardrails: ModelProfile['guardrails'],
 ): ProfileLiveSpec | undefined {
-  const policy = resolveGuardrailPolicy(guardrails);
-  if (!policy.canary && !replyIsJudged(policy, ['live_reply'])) {
+  if (!replyIsJudged(resolveGuardrailPolicy(guardrails), ['live_reply'])) {
     return live;
   }
   return { ...live, transcription: { ...live?.transcription, output: true } };
+}
+
+/**
+ * A canary for the turn while `canary_leak` reads somewhere, else none. Speech
+ * has no system prompt to plant one in: Gemini TTS rejects developer
+ * instructions and OpenAI-compatible `/audio/speech` has no field for one.
+ */
+function plantedCanary(profile: ModelProfile): string {
+  const { detect } = resolveGuardrailPolicy(profile.guardrails);
+  return profile.type !== 'speech' && detects(detect, 'canary_leak') ? mintCanary() : '';
 }
 
 function resolveTurnInRegistry(
@@ -289,7 +299,7 @@ function resolveTurnInRegistry(
       live: profile.type === 'live' ? resolveLiveSpec(profile.live, profile.guardrails) : undefined,
       input: resolveInputParts(profile, safe),
       ...keys,
-      canary: resolveGuardrailPolicy(profile.guardrails).canary ? mintCanary() : '',
+      canary: plantedCanary(profile),
       sessionResumptionHandle: safe.sessionResumptionHandle ?? input.sessionResumptionHandle,
       resolvedSystem: resolveTurnSystemPrompt(profile, safe),
       host: safe.host,

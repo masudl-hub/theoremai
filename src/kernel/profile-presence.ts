@@ -79,7 +79,6 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'turnBehaviour.resumption.maxContinues': { unset: 'No cap' },
   'turnBehaviour.allowSteering': { unset: 'On' },
   'guardrails.quota': { unset: 'No limit' },
-  'guardrails.canary': { unset: 'On' },
   'guardrails.detect': { unset: 'Redacts what goes to the model' },
   'guardrails.egress': { unset: 'No check' },
   'guardrails.egress.enforce': { required: 'when checks is not set' },

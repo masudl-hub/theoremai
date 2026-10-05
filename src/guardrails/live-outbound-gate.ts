@@ -1,10 +1,10 @@
 import type { TurnEventOf } from '../kernel/turn-events.ts';
 import type { Profile, TurnEvent } from '../kernel/types.ts';
 import { isStreamedCanaryEvent, type StreamedReplyEvent } from './canary.ts';
-import { detectEvent } from './detect-at.ts';
+import { detectEvent, scopeOf } from './detect-at.ts';
 import { readReply } from './detect-reply.ts';
 import {
-  eventPromptLeakHits,
+  eventLeak,
   isPromptLeakHit,
   promptLeakReason,
   runEnforcer,
@@ -21,7 +21,6 @@ import {
   LIVE_DEFAULT_HOLDBACK,
   type ProgressiveYieldGate,
   type ProgressiveYieldResult,
-  replyIsJudged,
 } from './progressive-yield.ts';
 import { type ThoughtGuard, type ThoughtRelease, thoughtGuardFor } from './thought-guard.ts';
 import type { GuardrailContext, GuardrailHit, ResolvedGuardrailPolicy, Verdict } from './types.ts';
@@ -81,7 +80,7 @@ function liveHoldback(policy: ResolvedGuardrailPolicy): ResolvedGuardrailPolicy 
   return { ...policy, egress: { ...policy.egress, holdback: LIVE_DEFAULT_HOLDBACK } };
 }
 
-/** A canary is attached only when the profile policy enables it and the caller supplied a token. */
+/** The canary and the system instruction are read for only while their detectors read somewhere (`scopeOf`). */
 function createLiveOutboundGateSession(
   profile: Profile,
   canary?: string,
@@ -89,14 +88,11 @@ function createLiveOutboundGateSession(
   givenUrls?: GivenUrls,
 ): LiveOutboundGateSession {
   const policy = liveHoldback(resolveGuardrailPolicy(profile.guardrails));
-  const useCanary = policy.canary && Boolean(canary);
   const context: GuardrailContext = {
     stage: 'live_outbound',
     trust: 'untrusted',
     profileId: profile.id,
-    ...(useCanary ? { canary } : {}),
-    // why: The system prompt is guarded against echo alongside the canary that binds it.
-    ...(useCanary && policy.promptEcho && privateSystem?.length ? { privateSystem } : {}),
+    ...scopeOf(policy.detect, { canary, privateSystem }),
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(givenUrls ? { givenUrls } : {}),
   };
@@ -124,11 +120,6 @@ function resetCycle(session: LiveOutboundGateSession): void {
   session.releasedTo = 0;
   session.withholdVisible = false;
   session.promptLeaks = undefined;
-}
-
-/** Whether the cycle's reply gets a verdict once it ends: a host policy runs, or a detector reads it. */
-function cycleIsJudged(session: LiveOutboundGateSession): boolean {
-  return replyIsJudged(session.policy, ['live_reply']);
 }
 
 function withholdResult(
@@ -185,23 +176,19 @@ function releaseHeld(
 
 /**
  * Apply a progressive scan result. Clean: release what the gate cleared.
- * Blocked: a cycle nothing judges later withholds the session; any other
- * withholds the rest of the cycle for its verdict. `undefined` means keep going.
+ * Blocked: the rest of the cycle is withheld for its verdict.
  */
 function applyScan(
   session: LiveOutboundGateSession,
   gate: ProgressiveYieldGate,
   result: ProgressiveYieldResult,
   into: TurnEvent[],
-): LiveOutboundBatchResult | undefined {
+): void {
   if (!result.blocked) {
     const found = result.found && detectEvent('live_reply', result.found);
     if (found) into.push(guardrailTurnEvent(found));
     releaseHeld(session, gate, clearedTo(gate), into);
-    return undefined;
-  }
-  if (!cycleIsJudged(session)) {
-    return withholdResult(promptLeakReason(result.hits), result.hits, into);
+    return;
   }
   const leaks = result.hits.filter(isPromptLeakHit);
   if (leaks.length > 0) {
@@ -215,7 +202,6 @@ function applyScan(
   if (guardrail) {
     into.push(guardrail);
   }
-  return undefined;
 }
 
 /** Scan and release everything held (a non-reply event, or the end of the cycle). */
@@ -223,11 +209,11 @@ async function flushHeld(
   session: LiveOutboundGateSession,
   gate: ProgressiveYieldGate,
   into: TurnEvent[],
-): Promise<LiveOutboundBatchResult | undefined> {
+): Promise<void> {
   if (session.withholdVisible || session.held.length === 0) {
-    return undefined;
+    return;
   }
-  return applyScan(session, gate, await gate.flush(), into);
+  applyScan(session, gate, await gate.flush(), into);
 }
 
 /** Media waits behind the reply before it, so speech is heard only after its transcript clears the scan. */
@@ -257,20 +243,17 @@ async function holdStreamChunk(
   gate: ProgressiveYieldGate,
   event: StreamedReplyEvent,
   into: TurnEvent[],
-): Promise<LiveOutboundBatchResult | undefined> {
+): Promise<void> {
   const text = event.text ?? '';
   if (!text) {
-    return undefined;
+    return;
   }
   const start = gate.accumulated().length;
   coverMedia(session, start + text.length);
   session.held.push({ event, start, end: start + text.length });
   const result = await gate.process(text);
-  if (session.withholdVisible) {
-    // why: Keep feeding the window so finalize judges the whole cycle.
-    return undefined;
-  }
-  return applyScan(session, gate, result, into);
+  // why: A withheld cycle keeps feeding the window so finalize judges the whole of it.
+  if (!session.withholdVisible) applyScan(session, gate, result, into);
 }
 
 /** Passes one provider message's events through the outbound gate: reply text and audio are held until the egress checks clear them, a prompt leak or egress hit withholds, and thoughts go through the thought guard. */
@@ -289,10 +272,7 @@ async function processLiveOutboundBatch(
   for (const event of events) {
     if (isStreamedCanaryEvent(event)) {
       transcribed ||= Boolean(event.text);
-      const stopped = await holdStreamChunk(session, gate, event, toEmit);
-      if (stopped) {
-        return stopped;
-      }
+      await holdStreamChunk(session, gate, event, toEmit);
       continue;
     }
 
@@ -303,17 +283,22 @@ async function processLiveOutboundBatch(
       continue;
     }
 
-    const stopped = await flushHeld(session, gate, toEmit);
-    if (stopped) {
-      return stopped;
-    }
+    await flushHeld(session, gate, toEmit);
     if (isGenerationComplete(event)) {
       releaseSpoken(session, gate, toEmit);
     }
 
-    const leaks = session.context.canary ? eventPromptLeakHits(event, session.context) : [];
-    if (leaks.length > 0) {
-      return withholdResult(promptLeakReason(leaks), leaks, toEmit);
+    // why: The model's tool call is read at its `tool_arguments` boundary.
+    const leak =
+      event.type === 'tool'
+        ? undefined
+        : eventLeak(event, session.context, session.policy.detect, 'live_reply');
+    if (leak?.stop) {
+      return withholdResult(promptLeakReason(leak.hits), leak.hits, toEmit);
+    }
+    if (leak) {
+      const flagged = detectEvent('live_reply', { action: 'flag', hits: leak.hits });
+      if (flagged) toEmit.push(guardrailTurnEvent(flagged));
     }
 
     if (event.type === 'thought' && session.thoughts) {
@@ -380,9 +365,13 @@ async function finalEgressVerdict(
   const read = readReply({ text: gate.accumulated() }, detect, {
     boundary: 'live_reply',
     withheld: session.withholdVisible,
+    scope: session.context,
   });
-  // invariant: The host policy adds checks; it never releases a system-prompt leak or a detector's block.
-  const stopped = session.promptLeaks ?? read.blocked;
+  // why: A leak the gate stopped on that this reading does not find is out of step with it: the gate's finding stands.
+  const reread = new Set(read.events.flatMap((event) => event.hits.map((hit) => hit.rule)));
+  const unread = (session.promptLeaks ?? []).filter((hit) => !reread.has(hit.rule));
+  // invariant: The host policy adds checks; it never releases a detector's block.
+  const stopped = read.blocked ?? (unread.length > 0 ? unread : undefined);
   const verdict: Verdict = stopped
     ? { action: 'block', hits: stopped, rejection: WITHHELD_REASON.egress }
     : egress
@@ -393,9 +382,7 @@ async function finalEgressVerdict(
     stopped && stopped === read.blocked
       ? undefined
       : guardrailFromVerdict('live_outbound', 'untrusted', verdict);
-  // why: A cycle that leaked the system prompt is reported as that alone: the canary reads as a credential.
-  const detected = session.promptLeaks ? [] : read.events.map(guardrailTurnEvent);
-  const events = [...prior, ...detected, ...(judged ? [judged] : [])];
+  const events = [...prior, ...read.events.map(guardrailTurnEvent), ...(judged ? [judged] : [])];
 
   if (verdict.action === 'redact') {
     return { action: 'emit', events: [...events, { type: 'text', text: verdict.text }] };
@@ -436,18 +423,11 @@ async function finalizeCycle(
   gate: ProgressiveYieldGate,
 ): Promise<LiveOutboundBatchResult> {
   const events: TurnEvent[] = [];
-  const stopped = await flushHeld(session, gate, events);
-  if (stopped) {
-    return stopped;
-  }
+  await flushHeld(session, gate, events);
   if (!gate.accumulated()) {
     return emitOrIdle(dropUntranscribed(session, events));
   }
-  if (cycleIsJudged(session)) {
-    return await finalEgressVerdict(session, gate, events);
-  }
-  releaseHeld(session, gate, gate.accumulated().length, events, true);
-  return emitOrIdle(events);
+  return await finalEgressVerdict(session, gate, events);
 }
 
 /** Call once after the provider has finished the cycle; it also starts the next one. */

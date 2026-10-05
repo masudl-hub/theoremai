@@ -15,8 +15,11 @@ import {
 } from './boundaries.ts';
 import { SENSITIVE_GROUPS } from './sensitive.ts';
 
-/** What the kernel finds in text: the four families of sensitive data, and prompt-injection phrasing. */
-const DETECTORS = [...SENSITIVE_GROUPS, 'injection'] as const;
+/**
+ * What the kernel finds in text: the four families of sensitive data, prompt-injection phrasing,
+ * and what is the profile's own on its way out (the canary token, the system instruction).
+ */
+const DETECTORS = [...SENSITIVE_GROUPS, 'injection', 'canary_leak', 'prompt_leak'] as const;
 /** One of {@linkcode DETECTORS}. */
 type Detector = (typeof DETECTORS)[number];
 
@@ -55,7 +58,7 @@ interface DetectMeta {
 }
 
 /** The groups an editor lists detectors under, in order. */
-const DETECTOR_GROUPS = ['data', 'attacks'] as const;
+const DETECTOR_GROUPS = ['data', 'attacks', 'ours'] as const;
 /** One of {@linkcode DETECTOR_GROUPS}. */
 type DetectorGroup = (typeof DETECTOR_GROUPS)[number];
 
@@ -63,6 +66,7 @@ type DetectorGroup = (typeof DETECTOR_GROUPS)[number];
 const DETECTOR_GROUP_META: Readonly<Record<DetectorGroup, DetectMeta>> = {
   data: { label: 'Data', doc: 'Sensitive data, whoever wrote it.' },
   attacks: { label: 'Attacks', doc: 'Text written to steer the model.' },
+  ours: { label: 'Ours', doc: 'The canary and the system instruction, in what the model writes.' },
 };
 
 type BoundaryActions = Readonly<Partial<Record<Boundary, DetectAction>>>;
@@ -86,6 +90,17 @@ function everywhere(toTool: DetectAction): BoundaryActions {
     ...recordOf(TOOL_BOUNDARIES, () => 'redact' as const),
     ...recordOf(TOOL_ARGUMENT_BOUNDARIES, () => toTool),
     ...recordOf(OUTBOUND_BOUNDARIES, () => 'ignore' as const),
+  };
+}
+
+/** What the model writes: a tool call takes `toTool`, what it says takes `said`, a thought `thought`. */
+function leaving(toTool: DetectAction, said: DetectAction, thought: DetectAction): BoundaryActions {
+  return {
+    ...recordOf(TOOL_ARGUMENT_BOUNDARIES, () => toTool),
+    reply: said,
+    reply_structured: said,
+    live_reply: said,
+    thought,
   };
 }
 
@@ -120,6 +135,18 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
     doc: 'Prompt-injection phrasing, as written or disguised.',
     group: 'attacks',
     defaults: everywhere('ignore'),
+  },
+  canary_leak: {
+    label: 'Canary leak',
+    doc: 'The token the kernel plants in the system instruction, as written or encoded. The token is planted only while this is above Ignore somewhere.',
+    group: 'ours',
+    defaults: leaving('block', 'block', 'redact'),
+  },
+  prompt_leak: {
+    label: 'Prompt leak',
+    doc: 'A run of words from the private system instruction, also reversed, in rot13 or in leetspeak.',
+    group: 'ours',
+    defaults: leaving('flag', 'block', 'redact'),
   },
 };
 
@@ -157,6 +184,15 @@ const DETECT_DEFAULTS: ResolvedDetect = recordOf(DETECTORS, (detector) => ({
   ...wherever(detector, 'ignore'),
   ...DETECTOR_META[detector].defaults,
 }));
+
+/** Whether `detector` is above `ignore` at any of `boundaries`. */
+function detects(
+  detect: ResolvedDetect,
+  detector: Detector,
+  boundaries: readonly Boundary[] = BOUNDARIES,
+): boolean {
+  return boundaries.some((boundary) => detect[detector][boundary] !== 'ignore');
+}
 
 function isAction(value: unknown): value is DetectAction {
   return (DETECT_ACTIONS as readonly unknown[]).includes(value);
@@ -275,5 +311,6 @@ export {
   DETECTOR_META,
   DETECTORS,
   detectProblem,
+  detects,
   resolveDetect,
 };

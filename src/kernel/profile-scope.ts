@@ -32,10 +32,10 @@ export interface ProfileFieldScope {
   /** Why other types can't take it — shown in `defineProfile` errors and authoring UIs. */
   reason: string;
   /**
-   * The one value other types may still carry: the field's "off" value (speech stores
-   * `guardrails.canary: false`; `outputs.structured: null` asks for no schema).
+   * The one value other types may still carry: the field's "off" value
+   * (`outputs.structured: null` asks for no schema).
    */
-  offValue?: false | null;
+  offValue?: null;
 }
 
 /** Guardrails a host profile may set keep `host`; the rest guard a model turn. */
@@ -221,17 +221,6 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   'guardrails.quota': {
     profileTypes: turnGuardrailTypes('quota'),
     reason: 'quota counts model turns',
-  },
-  'guardrails.canary': {
-    profileTypes: ['text', 'image', 'live'],
-    reason:
-      'the canary is minted into a system prompt, which speech, decision and host profiles lack',
-    offValue: false,
-  },
-  'guardrails.promptEcho': {
-    profileTypes: ['text', 'image', 'live'],
-    reason: 'the echo is of a system prompt, which speech, decision and host profiles lack',
-    offValue: false,
   },
   'guardrails.detect': {
     profileTypes: turnGuardrailTypes('detect'),

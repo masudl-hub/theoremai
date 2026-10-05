@@ -4,7 +4,7 @@
  * system prompt and the user-data markers leak through a thought, and a URL
  * the model was not given carries data out. Nothing in a thought stops a turn
  * (`isGuardedOutput`); each leak is omitted and the rest of the thought
- * released.
+ * released, or under `block` omitted with the rest of the thought.
  *
  * @module
  */
@@ -19,20 +19,14 @@ import {
   RELEASED_LOOKBACK,
   wordStartAcross,
 } from './canary.ts';
-import { type Detection, detectReads } from './detect-at.ts';
+import { type Detection, type DetectOutcome, type DetectScope, stronger } from './detect-at.ts';
 import { createDetectStream } from './detect-stream.ts';
-import type { ResolvedDetect } from './detectors.ts';
-import {
-  boundaryNote,
-  CANARY_HIT,
-  egressChecksOf,
-  NO_CHECKS,
-  PROMPT_ECHO_HIT,
-  type ResolvedEgressChecks,
-} from './egress.ts';
+import type { DetectAction, ResolvedDetect } from './detectors.ts';
+import { boundaryNote, egressChecksOf, NO_CHECKS, type ResolvedEgressChecks } from './egress.ts';
 import { notePattern, SYSTEM_BOUNDARY } from './egress-patterns.ts';
 import { createEgressStream, type EgressStream } from './egress-stream.ts';
 import { type GivenUrls, imageLeakSpans, linkLeakSpans } from './egress-urls.ts';
+import { CANARY_HIT, PROMPT_ECHO_HIT } from './hits.ts';
 import { type LexiconOverrides, lexiconText } from './lexicon.ts';
 import { promptEchoHoldFrom, promptEchoRanges, promptEchoScanFrom } from './prompt-echo.ts';
 import { EGRESS_RULES } from './rules.ts';
@@ -107,9 +101,14 @@ interface ThoughtGuard {
 interface ThoughtGuardOptions {
   /** The URL and boundary checks thoughts run; the rest of a policy is for replies. */
   checks?: ResolvedEgressChecks;
+  /** The canary to omit from a thought. */
   canary?: string;
-  /** Guarded against echo alongside the canary. */
+  /** The private stretches of the system instruction, whose words are omitted from a thought. */
   privateSystem?: readonly string[];
+  /** The canary the turn planted, when a thought is not read for it: the echo and the note still know its place. */
+  planted?: string;
+  /** Rules whose leak ends what is shown of the thought, where the others are omitted alone. */
+  ends?: ReadonlySet<string>;
   given?: GivenUrls;
   lexicon?: LexiconOverrides;
   /** Shown text an earlier thought ended on (`carryOut`), read in front and never shown again. */
@@ -152,9 +151,10 @@ const MAX_LEAKS = 16;
  * text, is omitted too.
  */
 function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
-  const { checks, canary, given, lexicon } = options;
-  const privateSystem = canary ? options.privateSystem : undefined;
-  const note = boundaryNote({ canary, lexicon });
+  const { checks, canary, privateSystem, ends, given, lexicon } = options;
+  /** The canary as the echo and the note read it: planted, whether or not a thought is read for it. */
+  const slot = canary ?? options.planted;
+  const note = boundaryNote({ canary: slot, lexicon });
   const scope = (check: object) => ({ ...check, ...(given ? { given } : {}) });
   /** The placeholder for `kind` after `before`, without a second space. */
   function placeholder(kind: OmissionKind, before: string): string {
@@ -162,7 +162,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     return /\s$/.test(before) ? text.trimStart() : text;
   }
 
-  let out = canary ? (options.carry ?? '') : '';
+  let out = canary || privateSystem ? (options.carry ?? '') : '';
   let held = '';
   let stream: EgressStream | undefined;
   let scanner: ReturnType<typeof createCanaryScanner> | undefined;
@@ -206,7 +206,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     if (privateSystem) {
       const whole = (out + held).slice(0, readTo);
       const from = promptEchoScanFrom(whole, echoed);
-      echoHit = promptEchoRanges(whole.slice(from), privateSystem, canary).length > 0;
+      echoHit = promptEchoRanges(whole.slice(from), privateSystem, slot).length > 0;
       echoed = whole.length;
     }
     return urlHit || canaryHit || echoHit;
@@ -245,7 +245,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
       }
     }
     if (privateSystem) {
-      for (const [start, end] of promptEchoRanges(text, privateSystem, canary)) {
+      for (const [start, end] of promptEchoRanges(text, privateSystem, slot)) {
         spans.push({ start, end, kind: 'instructions', hit: PROMPT_ECHO_HIT });
       }
     }
@@ -324,7 +324,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
       }
     }
     if (privateSystem) {
-      for (const [start, end] of promptEchoRanges(view.text, privateSystem, canary)) {
+      for (const [start, end] of promptEchoRanges(view.text, privateSystem, slot)) {
         ranges.push([start, end, PROMPT_ECHO_HIT]);
       }
     }
@@ -385,16 +385,19 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     };
     for (const { start, end, kind, hit } of closed) {
       copy(offMark(start));
-      const to = Math.max(at, offMark(end, true));
+      // why: A leak set to `block` takes the rest of the thought with it.
+      cut = ends?.has(hit.rule) ?? false;
+      const to = cut ? whole.length : Math.max(at, offMark(end, true));
       const text = placeholder(kind, out + next);
       const begin = out.length + next.length;
       kept.push({ start: begin, end: begin + text.length, raw: rawOf(at, to) });
       next += text;
       hits.set(hit.rule, hit);
       at = to;
+      if (cut) break;
     }
     open = undefined;
-    if (growing) {
+    if (growing && !cut) {
       copy(offMark(growing.start));
       open = out.length + next.length;
     }
@@ -438,6 +441,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
         if (open === undefined) break;
         return;
       }
+      if (cut) return;
       // why: A leak running on past its placeholder only grows it.
       if (marks.some((mark) => !before.has(mark.start))) leaks++;
       if (!restart(readable())) return;
@@ -450,7 +454,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     const end = out.length + held.length;
     const url = stream ? stream.holdFrom() : end;
     const leak = canary ? canaryFrom(canary) : end;
-    const echo = privateSystem ? out.length + promptEchoHoldFrom(held, privateSystem, canary) : end;
+    const echo = privateSystem ? out.length + promptEchoHoldFrom(held, privateSystem, slot) : end;
     const from = Math.min(url, leak, echo, rawHoldFrom() ?? end, open ?? end);
     return offMark(
       from < out.length ? from : out.length + wordStartAcross(held, from - out.length),
@@ -481,7 +485,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     if (!view) return undefined;
     const rest = view.text.slice(view.held);
     const leak = canary ? canaryHoldFrom(rest, canary, view.text.slice(0, view.held)) : rest.length;
-    const echo = privateSystem ? promptEchoHoldFrom(rest, privateSystem, canary) : rest.length;
+    const echo = privateSystem ? promptEchoHoldFrom(rest, privateSystem, slot) : rest.length;
     return shownAt(view, view.held + Math.min(leak, echo));
   }
 
@@ -507,13 +511,13 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     },
     flush() {
       if (!cut) {
-        for (let round = 0; round < MAX_ROUNDS && omitHeld(true); round++);
+        for (let round = 0; round < MAX_ROUNDS && !cut && omitHeld(true); round++);
         // why: A leak left is one the text shown already takes part in, such as a definition an image opener held here could use.
-        if (held && (leakSpans(out + held).length > 0 || rawLeaks().length > 0)) cutRest();
+        if (!cut && held && (leakSpans(out + held).length > 0 || rawLeaks().length > 0)) cutRest();
       }
       const shown = held;
       const whole = out + held;
-      out = canary ? promptLeakCarry(whole, canary, privateSystem) : '';
+      out = canary || privateSystem ? promptLeakCarry(whole, canary, privateSystem) : '';
       const shift = out.length - whole.length;
       marks = marks
         .filter((mark) => mark.start + shift >= 0)
@@ -540,8 +544,8 @@ function detectingThoughts(
   guard: ThoughtGuard | undefined,
   detect: ResolvedDetect,
 ): ThoughtGuard | undefined {
-  if (!detectReads(['thought'], detect)) return guard;
   let reader = createDetectStream('thought', detect);
+  if (!reader) return guard;
   /** How much of the thought has been written, and how much of that released. */
   let written = 0;
   let read = 0;
@@ -585,10 +589,87 @@ function detectingThoughts(
   };
 }
 
+const LEAK_DETECTORS = { canary_leak: CANARY_HIT, prompt_leak: PROMPT_ECHO_HIT } as const;
+
 /**
- * A guard for a turn's thoughts: the canary and prompt echo whenever the turn
- * binds a canary, the URL and boundary checks `egress.enforce` runs, and the
- * detectors `guardrails.detect` sets at `thought`.
+ * Reads a thought for the leaks set to `flag`: each is reported once a thought
+ * and the thought shown as written, so nothing is held for it.
+ */
+function flaggedLeaks(
+  scope: DetectScope,
+  planted: string | undefined,
+): { read(text: string): GuardrailHit[]; reset(): void } {
+  const { canary, privateSystem } = scope;
+  let scanner = canary ? createCanaryScanner(canary) : undefined;
+  let seen = '';
+  let reported = new Set<string>();
+  return {
+    read(text) {
+      const from = promptEchoScanFrom(seen + text, seen.length);
+      seen += text;
+      const hits: GuardrailHit[] = [];
+      if (scanner?.push(text)) hits.push(CANARY_HIT);
+      if (privateSystem && promptEchoRanges(seen.slice(from), privateSystem, planted).length > 0) {
+        hits.push(PROMPT_ECHO_HIT);
+      }
+      const fresh = hits.filter((hit) => !reported.has(hit.rule));
+      for (const hit of fresh) reported.add(hit.rule);
+      return fresh;
+    },
+    reset() {
+      scanner = canary ? createCanaryScanner(canary) : undefined;
+      seen = '';
+      reported = new Set();
+    },
+  };
+}
+
+/**
+ * `guard` with what it omitted as a leak of what is the profile's own reported
+ * as its detector's finding at `thought`, beside the leaks `flagged` reads for.
+ */
+function reportingLeaks(
+  guard: ThoughtGuard,
+  detect: ResolvedDetect,
+  flagged: DetectScope,
+  planted: string | undefined,
+): ThoughtGuard {
+  const flags = flaggedLeaks(flagged, planted);
+  const actions = new Map<string, DetectAction>(
+    Object.entries(LEAK_DETECTORS).map(([detector, hit]) => [
+      hit.rule,
+      detect[detector as keyof typeof LEAK_DETECTORS].thought,
+    ]),
+  );
+  function report(release: ThoughtRelease, noted: GuardrailHit[]): ThoughtRelease {
+    const ours = [...noted, ...release.hits.filter((hit) => actions.has(hit.rule))];
+    if (ours.length === 0) return release;
+    const action = ours.reduce<DetectOutcome>(
+      (found, hit) => stronger(found, actions.get(hit.rule) ?? 'ignore'),
+      release.found?.action ?? 'allow',
+    );
+    return {
+      text: release.text,
+      hits: release.hits.filter((hit) => !actions.has(hit.rule)),
+      found: { action, hits: [...(release.found?.hits ?? []), ...ours] },
+    };
+  }
+  return {
+    push: (text) => report(guard.push(text), flags.read(text)),
+    flush() {
+      flags.reset();
+      return report(guard.flush(), []);
+    },
+    carryOut: () => guard.carryOut(),
+  };
+}
+
+/**
+ * A guard for a turn's thoughts: the URL and boundary checks `egress.enforce`
+ * runs, and the detectors `guardrails.detect` sets at `thought`. `context`
+ * carries the canary and the system instruction only while their detectors
+ * read somewhere (`scopeOf`); at `thought`, `redact` omits a leak, `block` ends
+ * what is shown of the thought there, and `flag` reports it and shows it.
  */
 function thoughtGuardFor(
   policy: Pick<ResolvedGuardrailPolicy, 'egress' | 'detect'>,
@@ -597,19 +678,43 @@ function thoughtGuardFor(
 ): ThoughtGuard | undefined {
   const known = egressChecksOf(policy.egress?.enforce);
   const checks = known ? thoughtChecks(known) : undefined;
-  const { canary, privateSystem, givenUrls, lexicon } = context;
+  const { givenUrls, lexicon } = context;
+  const { detect } = policy;
+  const omits = (detector: keyof typeof LEAK_DETECTORS) =>
+    detect[detector].thought === 'redact' || detect[detector].thought === 'block';
+  const canary = omits('canary_leak') && !context.canaryGiven ? context.canary : undefined;
+  const privateSystem = omits('prompt_leak') ? context.privateSystem : undefined;
+  const flagged: DetectScope = {
+    ...(detect.canary_leak.thought === 'flag' && context.canary && !context.canaryGiven
+      ? { canary: context.canary }
+      : {}),
+    ...(detect.prompt_leak.thought === 'flag' && context.privateSystem
+      ? { privateSystem: context.privateSystem }
+      : {}),
+  };
+  const ends = new Set(
+    Object.entries(LEAK_DETECTORS)
+      .filter(([detector]) => detect[detector as keyof typeof LEAK_DETECTORS].thought === 'block')
+      .map(([, hit]) => hit.rule),
+  );
+  const reads = canary !== undefined || privateSystem !== undefined;
+  const flags = flagged.canary !== undefined || flagged.privateSystem !== undefined;
   const guard =
-    checks || canary
+    checks || reads || flags
       ? createThoughtGuard({
           ...(checks ? { checks } : {}),
           ...(canary ? { canary } : {}),
           ...(privateSystem ? { privateSystem } : {}),
+          ...(context.canary ? { planted: context.canary } : {}),
+          ...(ends.size > 0 ? { ends } : {}),
           ...(givenUrls ? { given: givenUrls } : {}),
           ...(lexicon ? { lexicon } : {}),
           ...(carry ? { carry } : {}),
         })
       : undefined;
-  return detectingThoughts(guard, policy.detect);
+  const leaks =
+    guard && (reads || flags) ? reportingLeaks(guard, detect, flagged, context.canary) : guard;
+  return detectingThoughts(leaks, detect);
 }
 
 export type { ThoughtGuard, ThoughtGuardOptions, ThoughtRelease };

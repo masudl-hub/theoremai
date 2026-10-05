@@ -349,21 +349,19 @@ function speechDefinition(overrides: Record<string, unknown>): ProfileDefinition
   } as ProfileDefinition;
 }
 
-Deno.test('speech profiles store canary off and resolve no system prompt or canary', () => {
+Deno.test('speech profiles store no guardrails and resolve no system prompt or canary', () => {
   const profile = defineProfile(speechDefinition({}));
-  assertEquals(profile.type === 'speech' && profile.guardrails, { canary: false });
+  assertEquals(profile.type === 'speech' && profile.guardrails, undefined);
   registerProfile(profile);
   const { generation } = resolveTurn({ profile: 'speech_contract', input: { text: 'hi' } });
   assertEquals(generation.canary, '');
   assertEquals(generation.resolvedSystem, []);
 });
 
-Deno.test('speech profiles reject a system prompt and a canary', () => {
+Deno.test('speech profiles reject a system prompt', () => {
   for (const overrides of [
     { identity: { handle: 'speech_contract', system: 'Speak warmly.' } },
     { identity: { handle: 'speech_contract', systemByRole: { a: 'Speak warmly.' } } },
-    { guardrails: { canary: true } },
-    { guardrails: { canary: { bindNote: 'token {canary}' } } },
   ]) {
     assertThrows(() => defineProfile(speechDefinition(overrides)), TheoremError);
   }

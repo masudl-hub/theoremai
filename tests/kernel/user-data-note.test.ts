@@ -38,7 +38,7 @@ Deno.test('the note is bound when the canary is off and there is no system promp
       tools: { allow: [] },
       inputs: { text: true },
       identity: { handle: 'bare' },
-      guardrails: { canary: false },
+      guardrails: { detect: { canary_leak: 'ignore', prompt_leak: 'ignore' } },
     }),
   );
   assertEquals(await systemFor('user_data_note_bare'), NOTE);
@@ -57,7 +57,7 @@ Deno.test('an empty user_data.note override leaves the note out', async () => {
       tools: { allow: [] },
       inputs: { text: true },
       identity: { handle: 'off', system: 'sys' },
-      guardrails: { canary: false },
+      guardrails: { detect: { canary_leak: 'ignore', prompt_leak: 'ignore' } },
       lexicon: { 'user_data.note': '' },
     }),
   );

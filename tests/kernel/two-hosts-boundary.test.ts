@@ -55,7 +55,10 @@ Deno.test('two hosts: contradictory overrides never leak across turns', async ()
     identity: { handle: 'a', system: 'SYSTEM_A' },
     tools: { allow: [] },
     inputs: { text: true },
-    guardrails: { quota: { perDay: 3 }, canary: false },
+    guardrails: {
+      quota: { perDay: 3 },
+      detect: { canary_leak: 'ignore', prompt_leak: 'ignore' },
+    },
     lexicon: {
       'continue.instruction': HOST_A_CONTINUE,
       'error.internal': HOST_A_PUBLIC,
@@ -69,7 +72,10 @@ Deno.test('two hosts: contradictory overrides never leak across turns', async ()
     identity: { handle: 'b', system: 'SYSTEM_B' },
     tools: { allow: [] },
     inputs: { text: true },
-    guardrails: { quota: { perDay: 7 }, canary: false },
+    guardrails: {
+      quota: { perDay: 7 },
+      detect: { canary_leak: 'ignore', prompt_leak: 'ignore' },
+    },
     lexicon: {
       'continue.instruction': HOST_B_CONTINUE,
       'error.internal': HOST_B_PUBLIC,

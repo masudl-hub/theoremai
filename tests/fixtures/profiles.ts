@@ -16,7 +16,6 @@ export function stubProfile(opts: {
     efforts: { normal: 'minimal' },
   };
   const guardrails = {
-    canary: true,
     quota: { perDay: 1 },
   } as const;
   const modelFields = { models: { stub: binding }, defaultModel: 'stub' };
@@ -28,7 +27,7 @@ export function stubProfile(opts: {
       identity: { handle: id },
       ...modelFields,
       speech: { voice: 'Kore', format: 'pcm' },
-      guardrails: { ...guardrails, canary: false },
+      guardrails,
     };
   }
   if (role === 'image') {

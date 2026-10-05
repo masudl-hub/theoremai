@@ -707,18 +707,12 @@ export interface ImageProfile extends ProfileCommon {
 }
 
 /**
- * Speech guardrails: no canary. A speech turn has no system channel to bind a
- * token into (Gemini TTS rejects developer instructions) and yields audio, not
- * text a canary scan could read.
+ * Unary TTS — text-in locked by type; no tools / inputs block. The input text is the transcript;
+ * there is no system prompt, so no canary is planted and nothing of the profile's own can leak.
  */
-export type SpeechGuardrailsSpec = Omit<ProfileGuardrailsSpec, 'canary'> & { canary?: false };
-
-/** Unary TTS — text-in locked by type; no tools / inputs block. The input text is the transcript; there is no system prompt. */
-export interface SpeechProfile extends Omit<ProfileCommon, 'identity' | 'guardrails'> {
+export interface SpeechProfile extends Omit<ProfileCommon, 'identity'> {
   type: 'speech';
   identity: Pick<ProfileIdentity, 'handle'>;
-  /** Registration always stores `canary: false`. */
-  guardrails: SpeechGuardrailsSpec & { canary: false };
   speech: ProfileSpeechSpec;
   turnBehaviour?: MediaTurnBehaviourSpec;
 }

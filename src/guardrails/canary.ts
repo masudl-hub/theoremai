@@ -7,6 +7,7 @@ import {
   turnEventSchema,
 } from '../kernel/turn-events.ts';
 import type { ProviderCompleteRequest, SystemPiece } from '../kernel/types.ts';
+import { OMIT_CANARY } from '../observability/spans.ts';
 import { type LexiconOverrides, lexiconText } from './lexicon.ts';
 import { promptEchoScanFrom, scanTextForPromptEcho } from './prompt-echo.ts';
 import { scanTextOf, textForScan } from './serialize.ts';
@@ -19,7 +20,6 @@ const CANARY_BYTES = 16;
 const HEX_RADIX = 16;
 const HEX_PAD = 2;
 /** What replaces canary text a reply or event would have carried. */
-const OMIT_CANARY = '[omitted - canary]';
 /** A fence tag as a model could read one: spacing, case and closing `>` aside. */
 const FENCE = /<\s*(?:\/\s*)?user[\s_-]*data\b(?:\s*(?:\/\s*)?>)?/gi;
 
@@ -753,7 +753,11 @@ function widen(text: string, [start, end]: [number, number], edge?: RegExp): [nu
   return [from, to];
 }
 
-/** Offsets `[start, end)` of `text` covering each leak, ordered by start. */
+/**
+ * Offsets `[start, end)` of `text` covering each leak, ordered by start. One
+ * stretch read as a leak under several forms is one leak: ranges that overlap
+ * are joined.
+ */
 function canaryLeakRanges(text: string, canary: string): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
   for (const form of canaryLeakForms(canary)) {
@@ -762,7 +766,13 @@ function canaryLeakRanges(text: string, canary: string): Array<[number, number]>
       ranges.push(widen(text, [at[start] ?? 0, to[end - 1] ?? 0], form.edge));
     }
   }
-  return ranges.sort((a, b) => a[0] - b[0]);
+  const joined: Array<[number, number]> = [];
+  for (const [start, end] of ranges.sort((a, b) => a[0] - b[0])) {
+    const last = joined.at(-1);
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+    else joined.push([start, end]);
+  }
+  return joined;
 }
 
 /** Leak detection over `canaryLeakForms` only, not general-purpose encoded-data detection. */
@@ -960,8 +970,12 @@ function canaryCarry(text: string, canary: string): string {
  * What the next window of the same turn or session scans in front of its own:
  * a possible canary opening, and the words a prompt echo could continue from.
  */
-function promptLeakCarry(text: string, canary: string, privateSystem?: readonly string[]): string {
-  const canaryTail = text.length - canaryCarry(text, canary).length;
+function promptLeakCarry(
+  text: string,
+  canary: string | undefined,
+  privateSystem?: readonly string[],
+): string {
+  const canaryTail = canary ? text.length - canaryCarry(text, canary).length : text.length;
   const from = privateSystem
     ? Math.min(canaryTail, promptEchoScanFrom(text, text.length))
     : canaryTail;

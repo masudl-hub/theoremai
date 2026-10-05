@@ -12,7 +12,12 @@ import {
 } from '../mod.ts';
 import { NO_CHECKS, type ResolvedEgressChecks, type UrlCheck } from '../src/guardrails/egress.ts';
 import { type Boundary, recordOf } from '../src/guardrails/boundaries.ts';
-import { type DetectAction, DETECTORS, type Detector } from '../src/guardrails/detectors.ts';
+import {
+  type DetectAction,
+  DETECTORS,
+  type Detector,
+  detects,
+} from '../src/guardrails/detectors.ts';
 import type { TaintGate } from '../src/guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
@@ -200,7 +205,7 @@ export interface EgressChecksDraft {
 }
 
 export interface GuardrailsDraft {
-  canary: boolean;
+  /** The note that binds the canary, while `canary_leak` reads somewhere. */
   canaryBindNote: string;
   /** What each detector does with a match, at every boundary. */
   detect: Record<Detector, Record<Boundary, DetectAction>>;
@@ -212,8 +217,6 @@ export interface GuardrailsDraft {
   egressOnBlock: EgressOnBlock | '';
   egressMaxRetries: number | null;
   egressRepairGuidance: string;
-  /** With the canary on, also stops a reply that repeats the system instruction. */
-  promptEcho: boolean;
   allowPrivateNetworks: boolean;
   allowedHosts: string[];
   /** Empty omits it: https, plus http with private networks. */
@@ -420,7 +423,6 @@ export function egressChecksDraft(checks: ResolvedEgressChecks): EgressChecksDra
 function defaultGuardrails(): GuardrailsDraft {
   const resolved = resolveGuardrailPolicy(undefined);
   return {
-    canary: resolved.canary,
     canaryBindNote: '',
     detect: recordOf(DETECTORS, (detector) => ({ ...resolved.detect[detector] })),
     quotaEnabled: false,
@@ -430,7 +432,6 @@ function defaultGuardrails(): GuardrailsDraft {
     egressOnBlock: '',
     egressMaxRetries: null,
     egressRepairGuidance: '',
-    promptEcho: resolved.promptEcho,
     allowPrivateNetworks: false,
     allowedHosts: [],
     allowedSchemes: [],
@@ -627,6 +628,11 @@ export function draftFacets(draft: PlaygroundDraft): ProfileGraphFacetId[] {
 export function draftAllows(draft: PlaygroundDraft, path: string): boolean {
   const type = draft.identity.profileType;
   return type !== '' && profileTypesForField(path).includes(type);
+}
+
+/** A canary is bound into a system prompt while `canary_leak` reads somewhere. */
+export function plantsCanary(draft: PlaygroundDraft): boolean {
+  return draftAllows(draft, 'identity.system') && detects(draft.guardrails.detect, 'canary_leak');
 }
 
 export function takesContinueInstruction(draft: PlaygroundDraft): boolean {

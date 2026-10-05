@@ -65,7 +65,6 @@ function registerFuzzCanaryProfile(): void {
     defaultModel: 'fuzz-model',
     tools: { allow: [] },
     inputs: { text: true },
-    guardrails: { canary: true },
   });
 }
 

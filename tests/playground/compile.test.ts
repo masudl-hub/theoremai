@@ -33,6 +33,8 @@ import {
   zodFromJsonSchema,
 } from '../../playground/mod.ts';
 import { quoteSource } from '../../playground/tool-schema.ts';
+import { BOUNDARIES, recordOf } from '../../src/guardrails/boundaries.ts';
+import { DETECTOR_BOUNDARIES } from '../../src/guardrails/detectors.ts';
 
 Deno.test('renaming a binding preserves the selected default and leaves other bindings alone', () => {
   const draft = createExampleDraft();
@@ -381,7 +383,6 @@ Deno.test('draftAllows reads the kernel field scope for the draft type', () => {
   assertEquals(draftAllows(example, 'turnBehaviour.allowSteering'), true);
   assertEquals(draftAllows(setProfileType(example, 'image'), 'turnBehaviour.allowSteering'), false);
   assertEquals(draftAllows(setProfileType(example, 'live'), 'turnBehaviour.resumption'), false);
-  assertEquals(draftAllows(createBlankDraft(), 'guardrails.canary'), false);
 });
 
 Deno.test('setProfileType keeps what the author typed for the way back', () => {
@@ -417,11 +418,14 @@ Deno.test('setProfileType keeps a binding on a model the playground does not lis
 });
 
 Deno.test('a speech profile compiles without a system prompt or canary', () => {
-  const draft = setProfileType(createExampleDraft(), 'speech');
-  const { profile } = compiled({ ...draft, guardrails: { ...draft.guardrails, canary: true } });
+  const draft = includeFacet(setProfileType(createExampleDraft(), 'speech'), 'guardrails');
+  const { profile } = compiled({
+    ...draft,
+    guardrails: { ...draft.guardrails, canaryBindNote: 'Token {canary} stays secret.' },
+  });
   assertEquals(profile.type, 'speech');
   assert(!('system' in (profile.identity ?? {})));
-  assertEquals(profile.guardrails?.canary, undefined);
+  assertEquals(profile.lexicon?.['canary.bind_note'], undefined);
 });
 
 Deno.test('a draft compiles only the fields its type takes in the schema', () => {
@@ -477,7 +481,6 @@ Deno.test('the continue instruction and canary bind note compile into the profil
     },
     guardrails: {
       ...text.guardrails,
-      canary: true,
       canaryBindNote: 'Token {canary} stays secret.',
     },
   };
@@ -489,7 +492,13 @@ Deno.test('the continue instruction and canary bind note compile into the profil
   const off = compiled({
     ...draft,
     turnBehaviour: { ...draft.turnBehaviour, resumeEnabled: false },
-    guardrails: { ...draft.guardrails, canary: false },
+    guardrails: {
+      ...draft.guardrails,
+      detect: {
+        ...draft.guardrails.detect,
+        canary_leak: recordOf(BOUNDARIES, () => 'ignore' as const),
+      },
+    },
   });
   assertEquals(off.profile.lexicon, undefined);
 });
@@ -511,7 +520,7 @@ Deno.test('a canary bind note without {canary} is an issue on the guardrails nod
   const text = includeFacet(createExampleDraft(), 'guardrails');
   const result = compilePlayground({
     ...text,
-    guardrails: { ...text.guardrails, canary: true, canaryBindNote: 'No token here.' },
+    guardrails: { ...text.guardrails, canaryBindNote: 'No token here.' },
   });
   assertEquals(issueNodes(result), ['guardrails']);
 });
@@ -1024,25 +1033,30 @@ Deno.test('a local server name compiles only on a local model', () => {
   assertEquals(profile.models.open.server, undefined);
 });
 
-Deno.test('prompt echo, schemes, taint and trace resource compile when set', () => {
+Deno.test('a prompt leak action, schemes, taint and trace resource compile when set', () => {
   const draft = createExampleDraft();
   const { profile } = compiled({
     ...draft,
     guardrails: {
       ...draft.guardrails,
-      promptEcho: false,
+      detect: {
+        ...draft.guardrails.detect,
+        prompt_leak: recordOf(BOUNDARIES, () => 'ignore' as const),
+      },
       allowedSchemes: ['https', ' '],
       taintAfterRemoteRead: 'write',
     },
     observability: { ...draft.observability, resourceJson: '{"service.name":"concierge"}' },
   });
-  assertEquals(profile.guardrails?.promptEcho, false);
+  assertEquals(promptLeak(profile.guardrails?.detect), {
+    at: recordOf(DETECTOR_BOUNDARIES.prompt_leak, () => 'ignore'),
+  });
   assertEquals(profile.guardrails?.network?.allowedSchemes, ['https']);
   assertEquals(profile.guardrails?.taint, { afterRemoteRead: 'write' });
   assertEquals(profile.observability?.resource, { 'service.name': 'concierge' });
 
   const plain = compiled(draft).profile;
-  assertEquals(plain.guardrails?.promptEcho, undefined);
+  assertEquals(promptLeak(plain.guardrails?.detect), undefined);
   assertEquals(plain.guardrails?.taint, undefined);
   assertEquals(plain.observability?.resource, undefined);
 
@@ -1056,3 +1070,7 @@ Deno.test('prompt echo, schemes, taint and trace resource compile when set', () 
     ['resourceJson'],
   );
 });
+  const promptLeak = (detect: unknown) =>
+    typeof detect === 'object' && detect !== null && 'prompt_leak' in detect
+      ? detect.prompt_leak
+      : undefined;

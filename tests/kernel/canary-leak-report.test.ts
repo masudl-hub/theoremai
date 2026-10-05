@@ -1,6 +1,6 @@
 import '../fixtures/test-host.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
-import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
+import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import { runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
@@ -40,7 +40,10 @@ Deno.test('a canary split across text fragments reaches the host in no part', as
     { type: 'text', text: `the note says ${c.slice(0, -4)}` },
     { type: 'text', text: c.slice(-4) },
   ]);
-  assertEquals(firstOf(events, 'error')?.errorInternal, 'canary leaked');
+  assertEquals(
+    firstOf(events, 'error')?.errorInternal,
+    'Turn withheld: egress disclosure violation',
+  );
   const seen = visibleText(events);
   assertEquals(seen.includes(canary.slice(-4)), false);
   assertEquals(seen.includes(canary.slice(0, 8)), false);
@@ -60,7 +63,7 @@ Deno.test('a thought restating the canary loses it, says so, and the reply still
   assertEquals([guardrail?.stage, guardrail?.action], ['thought', 'redact']);
   assertEquals(
     guardrail?.hits?.map((hit) => hit.rule),
-    [EGRESS_RULES.canary],
+    [DETECT_RULES.canary_leak],
   );
   const omitted = lexiconDefault('thought.omitted_instructions');
   assertEquals(visibleText(events), `The note says${omitted}; keep it private.Hello.`);
@@ -71,7 +74,10 @@ Deno.test('a base64-encoded canary is blocked and never shown to the host', asyn
   const { events, canary } = await hostEvents((c) => [
     { type: 'text', text: `encoded ${btoa(c)}` },
   ]);
-  assertEquals(firstOf(events, 'error')?.errorInternal, 'canary leaked');
+  assertEquals(
+    firstOf(events, 'error')?.errorInternal,
+    'Turn withheld: egress disclosure violation',
+  );
   assertEquals(visibleText(events).includes(btoa(canary)), false);
 });
 

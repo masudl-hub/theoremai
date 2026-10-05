@@ -94,12 +94,27 @@ Deno.test('every detector is in a group, and its defaults name the boundaries it
   );
 });
 
-Deno.test('no default is block, and nothing the model writes is read by default', () => {
-  for (const detector of DETECTORS) {
+/** The detectors of what the profile itself must not give away: they read only what the model writes. */
+const LEAKS: readonly Detector[] = ['canary_leak', 'prompt_leak'];
+
+Deno.test('what comes in is redacted by default, and nothing the model writes is read for it', () => {
+  for (const detector of DETECTORS.filter((d) => !LEAKS.includes(d))) {
     assertEquals(where(undefined, detector, 'block'), []);
     assertEquals(where(undefined, detector, 'ignore').includes('reply'), true);
     assertEquals(where(undefined, detector, 'ignore').includes('thought'), true);
     for (const boundary of INBOUND) assertEquals(DETECT_DEFAULTS[detector][boundary], 'redact');
+  }
+});
+
+Deno.test('a leak stops the reply by default and is taken out of a thought', () => {
+  const calls = TOOL_BOUNDARIES.filter((boundary) => boundary.startsWith('tool_arguments_'));
+  const replies: Boundary[] = ['reply', 'reply_structured', 'live_reply'];
+  assertEquals(where(undefined, 'canary_leak', 'block'), [...calls, ...replies]);
+  assertEquals(where(undefined, 'prompt_leak', 'block'), replies);
+  assertEquals(where(undefined, 'prompt_leak', 'flag'), calls);
+  for (const detector of LEAKS) {
+    assertEquals(where(undefined, detector, 'redact'), ['thought']);
+    for (const boundary of INBOUND) assertEquals(DETECT_DEFAULTS[detector][boundary], 'ignore');
   }
 });
 
@@ -110,11 +125,14 @@ Deno.test('a tool call is flagged for data by default and not read for injection
   for (const boundary of calls) assertEquals(DETECT_DEFAULTS.injection[boundary], 'ignore');
 });
 
-Deno.test('one action sets every detector at every boundary', () => {
-  for (const action of DETECT_ACTIONS) {
+Deno.test('one action sets every detector at every boundary it applies at', () => {
+  for (const action of DETECT_ACTIONS.filter((each) => each !== 'ignore')) {
     for (const detector of DETECTORS) {
-      assertEquals(where({ detect: action }, detector, action), [...BOUNDARIES]);
+      assertEquals(where({ detect: action }, detector, action), [...DETECTOR_BOUNDARIES[detector]]);
     }
+  }
+  for (const detector of DETECTORS) {
+    assertEquals(where({ detect: 'ignore' }, detector, 'ignore'), [...BOUNDARIES]);
   }
 });
 
@@ -181,12 +199,16 @@ Deno.test('defineProfile rejects a bad detect rule, and a boundary a host profil
   );
 });
 
-Deno.test('the catalog has a row for the setting, each detector and each boundary under it', () => {
+Deno.test('the catalog has a row for the setting, each detector and each boundary it applies at', () => {
   ok('guardrails.detect' in PROFILE_FIELDS);
   for (const detector of DETECTORS) {
     ok(PROFILE_FIELDS[`guardrails.detect.${detector}`]?.doc.includes(DETECTOR_META[detector].doc));
     for (const boundary of BOUNDARIES) {
       const row = PROFILE_FIELDS[`guardrails.detect.${detector}.at.${boundary}`];
+      if (!DETECTOR_BOUNDARIES[detector].includes(boundary)) {
+        assertEquals(row, undefined);
+        continue;
+      }
       assertEquals(row?.doc, BOUNDARY_META[boundary].doc);
       assertEquals(row?.options, DETECT_ACTIONS);
       assertEquals(row?.unset, DETECT_ACTION_META[DETECT_DEFAULTS[detector][boundary]].label);

@@ -82,7 +82,6 @@ function registerLiveProfile(
   effort: ThinkingLevel | 'default',
 ): void {
   const guardrails = {
-    canary: true,
     egress: {
       onBlock: 'refuse_to_user' as const,
       maxRetries: 0,

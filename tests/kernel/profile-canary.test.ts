@@ -1,5 +1,6 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
+import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { createKernelScope, type KernelScope } from '../../src/kernel/scope.ts';
@@ -10,7 +11,7 @@ import type {
   TurnEvent,
   TurnHistoryMessage,
 } from '../../src/kernel/types.ts';
-import { firstOf } from '../fixtures/events.ts';
+import { eventsOf, firstOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const PROFILE = 'profile_canary';
@@ -103,8 +104,13 @@ function shown(events: TurnEvent[]): string {
   return events.map((event) => (event.type === 'text' ? (event.text ?? '') : '')).join('');
 }
 
+/** The rules that stopped the turn, when anything did. */
 function stoppedFor(events: TurnEvent[]): string | undefined {
-  return firstOf(events, 'error')?.errorInternal;
+  if (!firstOf(events, 'error')) return undefined;
+  const rules = eventsOf(events, 'guardrail').flatMap(({ guardrail }) =>
+    guardrail.action === 'block' ? (guardrail.hits ?? []).map((hit) => hit.rule) : [],
+  );
+  return [...new Set(rules)].join(' ');
 }
 
 Deno.test('a profile binds the same canary on every turn that sends the same system prompt', async () => {
@@ -173,7 +179,7 @@ Deno.test('a reply repeating the canary no tool result gave the model is stopped
     scopeWith(() => 'Nothing on this page.', seen),
     pageReader(seen, (canary) => `The code is ${canary}.`),
   );
-  assertEquals(stoppedFor(events), 'canary leaked');
+  assertEquals(stoppedFor(events), DETECT_RULES.canary_leak);
   assertEquals(shown(events).includes(seen.canary.slice(0, 8)), false);
 });
 
@@ -211,7 +217,7 @@ Deno.test('a canary only the model wrote earlier in the history gives it nothing
     replier(seen, (c) => `Again: ${c}.`),
     { history },
   );
-  assertEquals(stoppedFor(events), 'canary leaked');
+  assertEquals(stoppedFor(events), DETECT_RULES.canary_leak);
 });
 
 Deno.test('a given canary still leaves the system prompt guarded against echo', async () => {
@@ -220,7 +226,7 @@ Deno.test('a given canary still leaves the system prompt guarded against echo', 
     scopeWith((canary) => `The code on this page is ${canary}.`, seen),
     pageReader(seen, (canary) => `My instructions: ${SYSTEM} And ${canary}.`),
   );
-  assertEquals(stoppedFor(events), 'system prompt echoed');
+  assertEquals(stoppedFor(events), DETECT_RULES.prompt_leak);
 });
 
 Deno.test('under the bundled egress checks, a given canary passes in a tool call and the reply', async () => {
@@ -249,5 +255,5 @@ Deno.test('under the bundled egress checks, a given canary passes in a tool call
 
   step = 0;
   const unplanted = scopeWith(() => 'Nothing on this page.', seen, guarded);
-  assertEquals(stoppedFor(await run(unplanted, provider)), 'canary leaked');
+  assertEquals(stoppedFor(await run(unplanted, provider)), DETECT_RULES.canary_leak);
 });

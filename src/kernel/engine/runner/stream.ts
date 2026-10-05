@@ -1,10 +1,8 @@
 import type { Boundary } from '../../../guardrails/boundaries.ts';
 import { isStreamedCanaryEvent, type StreamedReplyEvent } from '../../../guardrails/canary.ts';
-import { type Detection, detectEvent } from '../../../guardrails/detect-at.ts';
-import { TURN_REPLY } from '../../../guardrails/detect-reply.ts';
+import { type Detection, detectEvent, scopeOf } from '../../../guardrails/detect-at.ts';
 import {
-  CANARY_HIT,
-  eventPromptLeakHits,
+  eventLeak,
   isPromptLeakHit,
   promptLeakReason,
   WITHHELD_REASON,
@@ -17,8 +15,8 @@ import {
   createOutboundProgressiveGate,
   type ProgressiveYieldGate,
   type ProgressiveYieldResult,
-  replyIsJudged,
 } from '../../../guardrails/progressive-yield.ts';
+import { EGRESS_RULES } from '../../../guardrails/rules.ts';
 import {
   type ThoughtGuard,
   type ThoughtRelease,
@@ -62,9 +60,16 @@ function shouldSkipStreamEvent(event: ProviderEvent, profile: Profile): boolean 
   );
 }
 
-/** The offending text never reaches the host: redaction cannot cover a partial or encoded token. */
-function* yieldCanaryLeak(hits: GuardrailHit[] = [CANARY_HIT]): Generator<StreamEvent> {
-  yield* yieldDeltaBlock(hits);
+/**
+ * A leak in an event that is not the reply's text ends the turn there: the
+ * event never reaches the host, and it has no text to replace.
+ */
+function* yieldLeakStop(hits: GuardrailHit[]): Generator<StreamEvent> {
+  if (hits.some((hit) => hit.rule === EGRESS_RULES.providerToolLeak)) {
+    yield* yieldDeltaBlock(hits);
+  } else {
+    yield* yieldDetected('reply', { action: 'block', hits });
+  }
   const reason = promptLeakReason(hits);
   yield toErrorEvent(new TheoremError('safety', reason));
   // why: The turn ends because our guardrail blocked the output, not because the model finished.
@@ -122,8 +127,13 @@ function isWithheldOnBlock(event: ProviderEvent): boolean {
   return event.type === 'text' || event.type === 'media';
 }
 
-function canaryOnlyImmediateStop(policy: ResolvedGuardrailPolicy): boolean {
-  return !replyIsJudged(policy, TURN_REPLY);
+/**
+ * Events read at a boundary of their own, not with the reply's text: the
+ * model's tool call at its `tool_arguments` boundary, and the structured
+ * output at `reply_structured`.
+ */
+function isReadElsewhere(event: StreamEvent): boolean {
+  return event.type === 'structured' || event.type === 'tool';
 }
 
 interface StreamArgs {
@@ -148,23 +158,20 @@ function streamContext(
   args: Pick<StreamArgs, 'profile' | 'generation' | 'privateSystem' | 'givenUrls' | 'canaryGiven'>,
   policy: ResolvedGuardrailPolicy,
 ): GuardrailContext {
-  const { profile, privateSystem } = args;
+  const { profile, privateSystem, canaryGiven } = args;
   const { canary } = args.generation;
   return {
     stage: 'output_final',
     trust: 'untrusted',
     profileId: profile.id,
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
-    ...(canary ? { canary } : {}),
-    ...(canary && args.canaryGiven ? { canaryGiven: true } : {}),
-    // why: The system prompt is guarded against echo alongside the canary that binds it.
-    ...(canary && policy.promptEcho && privateSystem.length > 0 ? { privateSystem } : {}),
+    ...scopeOf(policy.detect, { canary, canaryGiven, privateSystem }),
     givenUrls: args.givenUrls,
   };
 }
 
 async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEvent> {
-  const { profile, generation, request, provider, call, signal, control } = args;
+  const { profile, request, provider, call, signal, control } = args;
   /** Runs one stream check and adds the run to the call's record of that check. */
   async function timed<T>(check: StreamCheck, run: () => T | Promise<T>): Promise<T> {
     const start = performance.now();
@@ -174,7 +181,6 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
       call.guardTime?.(check, performance.now() - start);
     }
   }
-  const { canary } = generation;
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const context = streamContext(args, policy);
   const { canaryCarry, thoughtCarry } = control ?? {};
@@ -190,8 +196,8 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
   let withholdVisible = false;
 
   /**
-   * Under a host policy a withheld system-prompt leak goes to the
-   * end-of-attempt verdict, which it pins to block: no verdict may release it.
+   * A leak the gate stopped on goes to the end-of-attempt verdict, which reads
+   * the whole reply for it: one that reading misses still blocks.
    */
   function recordPromptLeak(hits: GuardrailHit[]): void {
     const leaks = hits.filter(isPromptLeakHit);
@@ -230,18 +236,14 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
   }
 
   /**
-   * Act on one gate step: release what it cleared, or block — stopping the turn
-   * when nothing judges the reply later, otherwise withholding for that verdict.
+   * Act on one gate step: release what it cleared, or withhold the rest of the
+   * reply for the verdict on the whole of it.
    */
   async function* releaseOrBlock(
     result: ProgressiveYieldResult,
     template: StreamedReplyEvent,
   ): AsyncGenerator<StreamEvent, 'stop' | 'go'> {
     if (result.blocked) {
-      if (canary && canaryOnlyImmediateStop(policy)) {
-        yield* yieldCanaryLeak(result.hits);
-        return 'stop';
-      }
       recordPromptLeak(result.hits);
       // why: A detector's stop is reported once, by the verdict on the whole reply.
       yield* drainBlockedDelta(result.boundary ? [] : result.hits, template);
@@ -316,13 +318,14 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
       return;
     }
 
-    const leaks = canary
-      ? await timed('stream_canary', () => eventPromptLeakHits(event, context))
-      : [];
-    if (leaks.length > 0) {
-      yield* yieldCanaryLeak(leaks);
+    const leak = isReadElsewhere(event)
+      ? undefined
+      : await timed('stream_canary', () => eventLeak(event, context, policy.detect, 'reply'));
+    if (leak?.stop) {
+      yield* yieldLeakStop(leak.hits);
       return;
     }
+    if (leak) yield* yieldDetected('reply', { action: 'flag', hits: leak.hits });
 
     if (withholding() && isWithheldOnBlock(event)) {
       // why: Record for attempt egress / repair; step runner withholds from host.

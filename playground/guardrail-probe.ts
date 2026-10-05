@@ -94,14 +94,14 @@ export const PROBE_BOUNDARY_NOTES: Record<ProbeBoundary, ProbeBoundaryNote> = {
     note: 'What the model says to the user, streamed.',
     when: 'As it streams: text is held only while it could still be the start of a match.',
     checks:
-      'Sensitive data and injection phrasing get the action detect sets for a reply. The egress checks block the user-data fence, an image to a URL the model was not given, and a link to one where links is on. The canary and a system prompt echo end the turn.',
+      'Sensitive data, injection phrasing, the canary and a private prompt echo get the action detect sets for a reply. The egress checks block the user-data fence, an image to a URL the model was not given, and a link to one where links is on.',
   },
   thought: {
     label: 'Model thought',
     note: 'The model’s reasoning, where the host shows it.',
     when: 'As it streams, where the profile streams thoughts.',
     checks:
-      'Never stops the turn. An image, a link (where links is on), the canary, a system prompt echo and the user-data fence are left out of what the host shows. Sensitive data and injection phrasing are not read.',
+      'Never stops the turn. The canary and a private prompt echo get the action detect sets for a thought. An image, a link (where links is on) and the user-data fence are left out of what the host shows. Sensitive data and injection phrasing are not read.',
   },
 };
 
@@ -189,7 +189,7 @@ function remoteAgent(profile: TextProfile): PlaygroundDependency {
       id: REMOTE_AGENT,
       identity: { handle: 'probe', system: '' },
       tools: { allow: [LOCAL_TOOL] },
-      guardrails: { canary: false, detect: 'ignore' },
+      guardrails: { detect: 'ignore' },
     },
     customTools: [probeTool(LOCAL_TOOL, 'read-only')],
   };

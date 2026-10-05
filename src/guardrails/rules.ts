@@ -16,13 +16,12 @@ export const DETECT_RULES = {
   network: 'detect.network',
   credentials: 'detect.credentials',
   injection: 'detect.injection',
+  canary_leak: 'detect.canary_leak',
+  prompt_leak: 'detect.prompt_leak',
 } as const satisfies Record<Detector, string>;
 
 /** What the bundled egress policy finds in the model's outbound text. */
 export const EGRESS_RULES = {
-  canary: 'egress.canary-leak',
-  /** The reply repeats the system prompt (`guardrails.promptEcho`). */
-  promptEcho: 'egress.prompt-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /**
    * A provider-side built-in tool carried the canary or the system prompt. It
    * ran before Theorem saw it: the data already left, so this is an incident.

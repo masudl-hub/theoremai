@@ -41,7 +41,10 @@ Deno.test('a call cut by a canary leak still records which model served it', asy
     },
   };
   const { events, id, model } = await traced(provider);
-  assertEquals(firstOf(events, 'error')?.errorInternal, 'canary leaked');
+  assertEquals(
+    firstOf(events, 'error')?.errorInternal,
+    'Turn withheld: egress disclosure violation',
+  );
   assertEquals(turnEventSchema.array().safeParse(events).success, true);
   assertEquals([id, model], [IDENTITY.id, IDENTITY.model]);
 });

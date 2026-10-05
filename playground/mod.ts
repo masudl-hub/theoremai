@@ -46,6 +46,7 @@ export {
   type PlaygroundDraft,
   type PlaygroundProfileType,
   type PlaygroundTurnProfileType,
+  plantsCanary,
   removeModelBinding,
   setProfileType,
   type SpeechDraft,

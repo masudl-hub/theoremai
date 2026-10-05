@@ -91,7 +91,6 @@ const chat: ProfileDefinition = {
   },
   outputs: { structured: 'chatTurn' },
   guardrails: {
-    canary: true,
     quota: { perDay: CHAT_QUOTA },
   },
 };
@@ -113,7 +112,6 @@ const pinned: ProfileDefinition = {
   inputs: { text: true },
   outputs: { structured: 'chatTurn' },
   guardrails: {
-    canary: true,
     quota: { perDay: PIN_QUOTA },
   },
 };
@@ -151,7 +149,6 @@ const selector: ProfileDefinition = {
   },
   outputs: { structured: null },
   guardrails: {
-    canary: true,
     quota: { perDay: CHAT_QUOTA },
   },
 };
@@ -179,7 +176,6 @@ const formatter: ProfileDefinition = {
     structured: { by: 'language', map: { html: 'htmlTurn', tsx: 'tsxTurn' }, fallback: 'htmlTurn' },
   },
   guardrails: {
-    canary: true,
     quota: { perDay: FORMATTER_QUOTA },
   },
 };
@@ -203,7 +199,6 @@ const image: ProfileDefinition = {
   },
   outputs: { structured: null },
   guardrails: {
-    canary: true,
     quota: { perDay: PIN_QUOTA },
   },
 };

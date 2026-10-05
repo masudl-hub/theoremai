@@ -496,7 +496,8 @@ Deno.test('runTurn oneshot yields text structured done', async () => {
   assertEquals(types.includes('stage'), true);
   assertEquals(
     eventTypesByReply(events).filter((t) => t !== 'stage'),
-    ['text', 'structured', 'tokens', 'done'],
+    // The structured output waits for the reply's verdict: `reply_structured` is read for leaks.
+    ['text', 'tokens', 'structured', 'done'],
   );
   assertEquals(
     eventsOf(events, 'stage').map((e) => e.stage),
@@ -1524,7 +1525,7 @@ Deno.test('calls from different model responses carry different step ids', async
   assertEquals(first?.stepId === second?.stepId, false);
 });
 
-Deno.test('guardrails.canary=false omits canary generation and system binding', async () => {
+Deno.test('a profile that reads for no canary leak plants no canary and binds none', async () => {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -1533,7 +1534,10 @@ Deno.test('guardrails.canary=false omits canary generation and system binding', 
       id: 'internal_eval_bot',
       ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
-      guardrails: { quota: { perDay: 100 }, canary: false },
+      guardrails: {
+        quota: { perDay: 100 },
+        detect: { canary_leak: 'ignore', prompt_leak: 'ignore' },
+      },
     }),
   );
 

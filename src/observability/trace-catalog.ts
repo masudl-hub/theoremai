@@ -394,13 +394,13 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
     label: 'Injection',
     doc: 'Text that tries to override the agent\'s instructions, such as "ignore previous instructions". The decision names the boundary it was crossing and what was done with it.',
   },
-  'egress.canary-leak': {
-    label: 'Instructions leaked',
-    doc: "The reply contained the turn's canary, a secret marker planted in the instructions, so the model was repeating them.",
+  'detect.canary_leak': {
+    label: 'Canary leak',
+    doc: "The turn's canary, a secret marker planted in the instructions, so the model was repeating them. The decision names the boundary it was crossing and what was done with it.",
   },
-  'egress.prompt-echo': {
-    label: 'Instructions repeated',
-    doc: 'The reply repeated 12 or more words in a row of the instructions.',
+  'detect.prompt_leak': {
+    label: 'Prompt leak',
+    doc: '12 or more words in a row of the private instructions. The decision names the boundary it was crossing and what was done with it.',
   },
   'egress.provider-tool-leak': {
     label: 'Instructions sent to a provider tool',

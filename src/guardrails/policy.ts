@@ -28,8 +28,6 @@ function resolveGuardrailPolicy(spec: ProfileGuardrailsSpec | undefined): Resolv
   const egress = resolveEgress(spec?.egress);
   return {
     detect: resolveDetect(spec?.detect),
-    canary: spec?.canary ?? true,
-    promptEcho: spec?.promptEcho ?? true,
     egress,
     network: spec?.network,
     quota: spec?.quota,

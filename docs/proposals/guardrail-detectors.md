@@ -100,10 +100,12 @@ An empty cell is a boundary the detector does not apply at.
 
 What changes for a profile that sets nothing:
 
-- **Canary in tool arguments is checked.** Today it is not (verified 5 Oct
-  2026: nothing under `src/kernel/tools/` reads the canary). A model can send
-  the token to an HTTP tool. Default `block`: the token has no honest use in a
-  tool call.
+- **Canary in tool arguments refuses the call, not the turn.** Before, the
+  stream ended the whole turn when a model tool call carried the token
+  (nothing under `src/kernel/tools/` read it). Now the tool-arguments
+  boundary reads it: default `block` refuses that call and the turn goes on,
+  as any other blocked argument does. The token has no honest use in a tool
+  call.
 - **The system prompt in tool arguments is flagged.** Not blocked: an agent
   tool may be handed instructions on purpose.
 - **Fence markers and ungiven images block in the reply.** Today they run only
@@ -379,7 +381,9 @@ Each step ends green on every gate and carries its contract-doc edits.
 1. Detector declarations (applies at, defaults, takes patterns). The
    `action` / `at` shape. Validation, catalog, interface view, editor.
 2. `canary_leak` and `prompt_leak` as detectors, including tool arguments.
-   `guardrails.canary` and `guardrails.promptEcho` deleted.
+   `guardrails.canary` and `guardrails.promptEcho` deleted. Until step 3 a
+   blocked leak in the reply ends the turn through the attempt gate
+   (`stop.native: 'egress'`), with no retry of its own.
 3. `marker_leak`, `ungiven_images`, `ungiven_links` as detectors. `blockedReply`.
    `guardrails.egress.checks`, `onBlock`, `maxRetries` deleted.
 4. Host patterns and host detectors: compile, safety check, `detect-compile`.

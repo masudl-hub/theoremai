@@ -1,3 +1,4 @@
+import { scopeOf } from '../../../guardrails/detect-at.ts';
 import { readReply, TURN_REPLY } from '../../../guardrails/detect-reply.ts';
 import { hitRules, runEnforcer, WITHHELD_REASON } from '../../../guardrails/egress.ts';
 import type { GivenUrls } from '../../../guardrails/egress-urls.ts';
@@ -120,12 +121,14 @@ async function evaluateEgressOutcome(args: {
   request: TurnRequest;
   profile: Profile;
   canRetry: boolean;
-  /** System-prompt leaks the stream withheld: they pin the verdict to block. */
+  /** The leaks of what is the profile's own the stream stopped on: the reading of the whole reply must find them too. */
   promptLeaks?: GuardrailHit[];
   /** Every URL the model has been given this turn. */
   givenUrls: GivenUrls;
   /** Whether the model has been given the canary this turn. */
   canaryGiven: boolean;
+  /** The private stretches of the system instruction (`BoundSystem.private`). */
+  privateSystem: readonly string[];
 }): Promise<{
   outcome: EgressOutcome;
   guardrails: TurnEventOf<'guardrail'>[];
@@ -135,13 +138,21 @@ async function evaluateEgressOutcome(args: {
   const { attemptEvents, request, profile, canRetry, promptLeaks } = args;
   const { egress, detect } = args.policy;
   const written = projectOutbound(attemptEvents);
-  const read = readReply(written, detect, { boundary: 'reply', withheld: args.withheld });
+  const scope = scopeOf(detect, {
+    canary: args.generation.canary,
+    canaryGiven: args.canaryGiven,
+    privateSystem: args.privateSystem,
+  });
+  const read = readReply(written, detect, { boundary: 'reply', withheld: args.withheld, scope });
   const { payload } = read;
   const rejection = (hits: GuardrailHit[]) =>
     lexiconText('egress.rejection', { rules: hitRules(hits).join(', ') }, profile.lexicon);
   const context = replyContext(args);
-  // why: The host policy adds checks; it never releases a system-prompt leak or a detector's block.
-  const stopped = promptLeaks?.length ? promptLeaks : read.blocked;
+  // why: A leak the stream stopped on that this reading does not find is out of step with it: the stream's finding stands.
+  const reread = new Set(read.events.flatMap((event) => event.hits.map((hit) => hit.rule)));
+  const unread = (promptLeaks ?? []).filter((hit) => !reread.has(hit.rule));
+  // why: The host policy adds checks; it never releases a detector's block.
+  const stopped = read.blocked ?? (unread.length > 0 ? unread : undefined);
   const verdict: Verdict = stopped
     ? { action: 'block', hits: stopped, rejection: rejection(stopped) }
     : egress
@@ -152,9 +163,7 @@ async function evaluateEgressOutcome(args: {
     stopped && stopped === read.blocked
       ? undefined
       : guardrailFromVerdict('output_final', 'untrusted', verdict);
-  // why: A reply that leaked the system prompt is reported as that alone: the canary reads as a credential.
-  const detected = promptLeaks?.length ? [] : read.events.map(guardrailTurnEvent);
-  const guardrails = [...detected, ...(judged ? [judged] : [])];
+  const guardrails = [...read.events.map(guardrailTurnEvent), ...(judged ? [judged] : [])];
 
   if (verdict.action === 'allow' || verdict.action === 'flag') {
     if (read.rewritten) {
@@ -293,6 +302,7 @@ async function* handleEgressGate(
   state: StepExecutionState,
   profile: Profile,
   maxRetries: number,
+  privateSystem: readonly string[],
 ): AsyncGenerator<TurnEvent, 'continue' | 'terminal' | 'pass'> {
   const canRetry = flow.currentAttempt < maxRetries;
   const checkStart = performance.now();
@@ -307,6 +317,7 @@ async function* handleEgressGate(
     ...(state.promptLeaks ? { promptLeaks: state.promptLeaks } : {}),
     givenUrls: state.givenUrls,
     canaryGiven: state.canaryGiven,
+    privateSystem,
   });
 
   state.trace.root.event(
@@ -460,7 +471,14 @@ async function* executeSingleAttemptCycle(args: {
   }
 
   if (judged) {
-    const status = yield* handleEgressGate(policy, flow, state, profile, maxRetries);
+    const status = yield* handleEgressGate(
+      policy,
+      flow,
+      state,
+      profile,
+      maxRetries,
+      system.private,
+    );
     const action = gateStatusToAction(status);
     if (action) {
       return action;

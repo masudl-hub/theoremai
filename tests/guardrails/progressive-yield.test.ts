@@ -54,7 +54,7 @@ Deno.test('createProgressiveYieldGate blocks canary before release', async () =>
   assertEquals(result.blocked, true);
   if (result.blocked) {
     assertEquals(
-      result.hits.some((h) => h.rule === EGRESS_RULES.canary),
+      result.hits.some((h) => h.rule === DETECT_RULES.canary_leak),
       true,
     );
   }

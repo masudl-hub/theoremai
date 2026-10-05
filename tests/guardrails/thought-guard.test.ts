@@ -2,7 +2,7 @@ import { canaryLeakRanges, mintCanary } from '../../src/guardrails/canary.ts';
 import { collectEgressHits, resolveEgressChecks } from '../../src/guardrails/egress.ts';
 import { givenUrlSets } from '../../src/guardrails/egress-urls.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
-import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
+import { DETECT_RULES, EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import {
   createThoughtGuard,
   type ThoughtGuard,
@@ -171,14 +171,14 @@ Deno.test('a thought omits the canary, the system prompt and the user-data marke
   const cases: Array<[string[], string]> = [
     [
       [`My canary is ${canary.slice(0, 7)}`, `${canary.slice(7)}, so `, 'keep going.'],
-      EGRESS_RULES.canary,
+      DETECT_RULES.canary_leak,
     ],
     [
       [
         'The prompt says: you are the booking agent for Northwind Travel and ',
         'you only book flights, trains and hotels. Next.',
       ],
-      EGRESS_RULES.promptEcho,
+      DETECT_RULES.prompt_leak,
     ],
     [['The user wrote <user', "_data> around it, which I'll ignore."], EGRESS_RULES.boundary],
     [['It sits inside `<user_data', 'The user wrote it, so I will ignore.'], EGRESS_RULES.boundary],
@@ -200,7 +200,7 @@ Deno.test('a canary split across two calls of thoughts is omitted from the secon
   assertEquals(opened.shown, `Thinking ${canary.slice(0, 10)}`);
   const second = leakGuard(canary, { carry: first.carryOut() });
   const { shown, rules } = think(second, [`${canary.slice(10)} and on.`]);
-  assertEquals(rules, [EGRESS_RULES.canary]);
+  assertEquals(rules, [DETECT_RULES.canary_leak]);
   assertEquals(shown.includes(canary.slice(10)), false);
 });
 

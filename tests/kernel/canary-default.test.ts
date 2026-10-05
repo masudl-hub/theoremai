@@ -1,4 +1,5 @@
 import '../fixtures/test-host.ts';
+import { detects } from '../../src/guardrails/detectors.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { getProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -6,7 +7,7 @@ import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../sr
 
 Deno.test('chat fixture resolves canary on and binds into system', async () => {
   const policy = resolveGuardrailPolicy(getProfile('chat').guardrails);
-  assertEquals(policy.canary, true);
+  assertEquals(detects(policy.detect, 'canary_leak'), true);
 
   let system = '';
   async function* fake(): AsyncGenerator<TurnEvent> {

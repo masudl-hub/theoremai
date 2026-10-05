@@ -60,9 +60,6 @@ function registerBenchProfile(): void {
     defaultModel: 'bench-model',
     tools: { allow: [] },
     inputs: { text: true },
-    guardrails: {
-      canary: true,
-    },
   });
 }
 

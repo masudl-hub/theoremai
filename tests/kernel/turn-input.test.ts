@@ -1,7 +1,7 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
-import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
+import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import type { GuardrailContext, OutboundPayload, Verdict } from '../../src/guardrails/types.ts';
 import { registerProfile, registerTool, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
@@ -82,7 +82,7 @@ registerProfile(
     maxSteps: 2,
     tools: { allow: [] },
     inputs: { text: true, attachments: { accept: ['image/png'] }, ...CHAT_MEDIA_LIMITS },
-    guardrails: { ...blockFirstReply, canary: true },
+    guardrails: { ...blockFirstReply },
   }),
 );
 
@@ -170,7 +170,7 @@ Deno.test('turn input: a retry keeps the canary-bound system prompt and the tool
       maxSteps: 2,
       tools: { allow: ['turn_input_t1_tool'], t1Policy: () => ['turn_input_t1_tool'] },
       inputs: { text: true },
-      guardrails: { ...blockFirstReply, canary: true },
+      guardrails: { ...blockFirstReply },
     }),
   );
   // The retry leaks the canary bound into the system prompt; it must still be caught.
@@ -191,7 +191,7 @@ Deno.test('turn input: a retry keeps the canary-bound system prompt and the tool
   assertEquals(seen[1]?.wireTools, seen[0]?.wireTools);
   assertEquals(
     eventsOf(events, 'guardrail').some((e) =>
-      e.guardrail.hits?.some((hit) => hit.rule === EGRESS_RULES.canary),
+      e.guardrail.hits?.some((hit) => hit.rule === DETECT_RULES.canary_leak),
     ),
     true,
   );

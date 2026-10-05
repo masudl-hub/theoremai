@@ -60,7 +60,6 @@ import type {
   ProfileToolsSpec,
   ProfileTurnBehaviourSpec,
   ProfileValidationSpec,
-  SpeechGuardrailsSpec,
   SpeechProfile,
   TextProfile,
 } from '../types.ts';
@@ -103,10 +102,9 @@ export type ImageProfileDefinition = ProfileDefinitionBase & {
 };
 
 /** What a host writes to define a speech profile. */
-export type SpeechProfileDefinition = Omit<ProfileDefinitionBase, 'identity' | 'guardrails'> & {
+export type SpeechProfileDefinition = Omit<ProfileDefinitionBase, 'identity'> & {
   type: 'speech';
   identity: SpeechProfile['identity'];
-  guardrails?: SpeechGuardrailsSpec;
   speech: NonNullable<SpeechProfile['speech']>;
   turnBehaviour?: MediaTurnBehaviourSpec;
 };
@@ -536,14 +534,6 @@ function assertTurnBehaviour(
   assertResumption(profileId, tb?.resumption);
 }
 
-/**
- * The canary lives in the system prompt, and speech has none: Gemini TTS rejects developer
- * instructions and OpenAI-compatible `/audio/speech` has no field for one.
- */
-function speechGuardrails(input: SpeechProfileDefinition): SpeechProfile['guardrails'] {
-  return { ...input.guardrails, canary: false };
-}
-
 function assertValidation(profileId: string, validation: ProfileValidationSpec | undefined): void {
   const fail = (message: string) => new TheoremError('config', `Profile ${profileId}: ${message}`);
   const retries = validation?.maxRetries;
@@ -733,7 +723,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         speech: input.speech,
         outputs: input.outputs,
         turnBehaviour: input.turnBehaviour,
-        guardrails: speechGuardrails(input),
+        guardrails,
         observability,
         lexicon,
       } satisfies SpeechProfile;

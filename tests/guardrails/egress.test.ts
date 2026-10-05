@@ -8,7 +8,7 @@ import {
   standardEgressEnforce,
 } from '../../src/guardrails/egress.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
-import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
+import { DETECT_RULES, EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type {
   EgressEnforcer,
   GuardrailContext,
@@ -47,7 +47,7 @@ Deno.test('standardEgressEnforce blocks literal canary leak', () => {
   const canary = mintCanary();
   const verdict = enforce(`The token is ${canary}`, canary);
   assertEquals(verdict.action, 'block');
-  assertEquals(rules(verdict).includes(EGRESS_RULES.canary), true);
+  assertEquals(rules(verdict).includes(DETECT_RULES.canary_leak), true);
 });
 
 Deno.test('standardEgressEnforce leaves sensitive data and injection text to guardrails.detect', () => {
@@ -90,7 +90,7 @@ Deno.test('standardEgressEnforce rejection names all blocked categories', () => 
   const verdict = enforce(`${canary} ${USER_OPEN}`, canary);
   assertEquals(verdict.action, 'block');
   if (verdict.action !== 'block') return;
-  assertEquals(verdict.rejection.includes(EGRESS_RULES.canary), true);
+  assertEquals(verdict.rejection.includes(DETECT_RULES.canary_leak), true);
   assertEquals(verdict.rejection.includes(EGRESS_RULES.boundary), true);
 });
 
@@ -108,7 +108,7 @@ Deno.test('standardEgressEnforce blocks the default canary note words in text', 
 
 Deno.test('standardEgressEnforce without canary: no canary hit on a hex token', () => {
   assertEquals(
-    rules(enforce('deadbeeffeedfacecafebabecafebabe')).includes(EGRESS_RULES.canary),
+    rules(enforce('deadbeeffeedfacecafebabecafebabe')).includes(DETECT_RULES.canary_leak),
     false,
   );
 });
@@ -141,7 +141,7 @@ Deno.test('standardEgressEnforce inspects structured output for canary leaks', (
   const canary = mintCanary();
   const verdict = enforce('All done.', canary, { answer: `the token is ${canary}` });
   assertEquals(verdict.action, 'block');
-  assertEquals(rules(verdict).includes(EGRESS_RULES.canary), true);
+  assertEquals(rules(verdict).includes(DETECT_RULES.canary_leak), true);
 });
 
 Deno.test('standardEgressEnforce allows clean structured output', () => {

@@ -75,7 +75,6 @@ const urlCheck = z.union([
 
 const guardrails = z.object({
   quota: z.object({ perDay: z.number() }).optional(),
-  canary: z.boolean(),
   detect,
   hasEgress: z.boolean(),
   egressChecks: z

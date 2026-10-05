@@ -12,7 +12,6 @@ import {
   type ProfileGuardrailsSpec,
   type ProfileObservabilitySpec,
   type ProfileTurnBehaviourSpec,
-  resolveGuardrailPolicy,
   type SpeechProfileDefinition,
   type TextProfileDefinition,
   TheoremError,
@@ -86,6 +85,7 @@ import {
   draftAllows,
   draftFacets,
   INLINE_WORDING,
+  plantsCanary,
   takesContinueInstruction,
 } from './draft.ts';
 import {
@@ -879,12 +879,6 @@ function compileTurnBehaviour(
   return Object.keys(spec).length ? spec : undefined;
 }
 
-function compileCanary(guardrails: GuardrailsDraft): ProfileGuardrailsSpec['canary'] {
-  return guardrails.canary !== resolveGuardrailPolicy(undefined).canary
-    ? guardrails.canary
-    : undefined;
-}
-
 /** Each line is checked by the kernel's lexicon rules and reported on the node that owns it. */
 function compileLexicon(
   draft: PlaygroundDraft,
@@ -903,7 +897,7 @@ function compileLexicon(
     ]);
   }
   const { guardrails } = draft;
-  if (facets.has('guardrails') && allows('guardrails.canary') && guardrails.canary) {
+  if (facets.has('guardrails') && plantsCanary(draft)) {
     entries.push([
       'guardrails',
       'canaryBindNote',
@@ -1063,12 +1057,9 @@ function compileGuardrails(
   report: Report,
   boundaries: readonly Boundary[] = BOUNDARIES,
 ): ProfileGuardrailsSpec | undefined {
-  const defaults = resolveGuardrailPolicy(undefined);
   const parts: ProfileGuardrailsSpec = {
-    canary: compileCanary(guardrails),
     detect: compileDetect(guardrails.detect, boundaries),
     quota: compileQuota(guardrails, report),
-    promptEcho: guardrails.promptEcho !== defaults.promptEcho ? guardrails.promptEcho : undefined,
     egress: compileEgress(guardrails, report),
     network: compileNetwork(guardrails, report),
     taint: guardrails.taintAfterRemoteRead

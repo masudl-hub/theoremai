@@ -29,7 +29,6 @@ function guardrailsView(guardrails?: ProfileGuardrailsSpec): ProfileGuardrailsVi
   const policy = resolveGuardrailPolicy(guardrails);
   return {
     quota: policy.quota,
-    canary: policy.canary,
     detect: policy.detect,
     hasEgress: Boolean(policy.egress),
     egressChecks: egressChecksView(egressChecksOf(policy.egress?.enforce)),

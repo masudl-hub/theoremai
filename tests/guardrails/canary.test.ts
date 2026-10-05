@@ -18,10 +18,13 @@ import {
 import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
 import { givenUrlSets } from '../../src/guardrails/egress-urls.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
-import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
+import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import { registerProfile, resolveTurn, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { yieldProviderEvents } from '../../src/kernel/engine/runner/stream.ts';
+import {
+  type OutboundStreamControl,
+  yieldProviderEvents,
+} from '../../src/kernel/engine/runner/stream.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import {
   providerBuiltins,
@@ -143,7 +146,7 @@ Deno.test('runTurn errors when the model echoes the canary', async () => {
   assertEquals(CANARY_RE.test(wire), false);
   assertEquals(lastOf(events, 'done')?.stop, {
     kind: 'filtered',
-    native: 'canary',
+    native: 'egress',
   });
 });
 
@@ -172,7 +175,7 @@ Deno.test('redactCanary replaces the token in text events', () => {
   assertEquals(event, { type: 'text', text: `leak ${OMIT_CANARY}` });
 });
 
-Deno.test('canary stream gate detects token split across chunks', async () => {
+Deno.test('canary stream gate withholds a token split across chunks and what follows it', async () => {
   const { profile, generation } = resolveTurn({
     profile: 'chat',
     input: { text: 'hi' },
@@ -189,6 +192,7 @@ Deno.test('canary stream gate detects token split across chunks', async () => {
     yield { type: 'text', text: ' suffix' };
   }
 
+  const control: OutboundStreamControl = { withholdVisible: false };
   const events = await Array.fromAsync(
     yieldProviderEvents({
       profile,
@@ -200,23 +204,20 @@ Deno.test('canary stream gate detects token split across chunks', async () => {
       ),
       privateSystem: [bindCanary('sys', canary)],
       provider: { complete: splitLeak },
+      control,
       call: { tap: () => {}, observe: () => {} },
       givenUrls: givenUrlSets(),
     }),
   );
 
+  // The stream stops showing the reply from the leak on: the step runner drops what follows,
+  // and the attempt gate reads the whole reply and ends the turn.
+  assertEquals(control.withholdVisible, true);
   assertEquals(
-    events.some((event) => event.type === 'error' && event.errorKind === 'safety'),
-    true,
+    control.promptLeaks?.map((hit) => hit.rule),
+    [DETECT_RULES.canary_leak],
   );
-  assertEquals(
-    events.some((event) => event.type === 'text' && event.text.includes(canary)),
-    false,
-  );
-  const leakedSuffix = events.find(
-    (event) => event.type === 'text' && event.text?.includes('suffix'),
-  );
-  assertEquals(leakedSuffix, undefined);
+  assertEquals(events[0], { type: 'text', text: 'prefix ' });
 });
 
 Deno.test('canary stream gate omits the canary from a thought and reports it', async () => {
@@ -253,9 +254,10 @@ Deno.test('canary stream gate omits the canary from a thought and reports it', a
       type: 'guardrail',
       guardrail: {
         stage: 'thought',
+        boundary: 'thought',
         trust: 'untrusted',
         action: 'redact',
-        hits: [{ rule: EGRESS_RULES.canary, severity: 'high', match: '[canary]' }],
+        hits: [{ rule: DETECT_RULES.canary_leak, severity: 'high', match: '[canary]' }],
       },
     },
     { type: 'thought', text: lexiconDefault('thought.omitted_instructions').trimStart() },
@@ -842,7 +844,7 @@ Deno.test('runTurn catches a canary split across a tool step', async () => {
   );
   assertEquals(events.findLast((event) => event.type === 'done')?.stop, {
     kind: 'filtered',
-    native: 'canary',
+    native: 'egress',
   });
 });
 

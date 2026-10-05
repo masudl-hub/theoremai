@@ -160,8 +160,8 @@ export interface GuardrailContext {
   canaryGiven?: boolean;
   /**
    * The private stretches of the system prompt as sent (`BoundSystem.private`),
-   * when the profile guards it against echo (`guardrails.promptEcho`): a reply
-   * repeating one is a leak.
+   * while the `prompt_leak` detector reads somewhere: text repeating one is a
+   * leak.
    */
   privateSystem?: readonly string[];
   role?: string;
@@ -239,22 +239,11 @@ export interface ProfileGuardrailsSpec {
   /** Omitted means quota enforcement is not configured. */
   quota?: QuotaGuardrailSpec;
   /**
-   * Bind a canary into the system prompt. Default true. The note
-   * that binds it is the lexicon's `canary.bind_note` (the profile's `lexicon`
-   * may replace it).
-   */
-  canary?: boolean;
-  /**
-   * With the canary on, also treat a reply that repeats `PROMPT_ECHO_WORDS`
-   * (12) consecutive words of the system prompt as a leak: the dump the token
-   * alone cannot see. Default true; set false when the prompt holds text the
-   * agent is meant to quote word for word.
-   */
-  promptEcho?: boolean;
-  /**
    * What the kernel does when a detector finds a match, per boundary: one action
    * for everything, or a rule for the detectors it names. Anything left out keeps
-   * its default (`DETECT_DEFAULTS`).
+   * its default (`DETECT_DEFAULTS`). A canary is bound into the system prompt
+   * while `canary_leak` is above `ignore` somewhere; the note that binds it is
+   * the lexicon's `canary.bind_note` (the profile's `lexicon` may replace it).
    */
   detect?: DetectSpec;
   egress?: ProfileEgressSpec;
@@ -299,8 +288,6 @@ export type HostGuardrailsSpec = Pick<
 export interface ResolvedGuardrailPolicy {
   /** Every detector's action at every boundary. */
   detect: ResolvedDetect;
-  canary: boolean;
-  promptEcho: boolean;
   /** `checks` resolved to the bundled policy's `enforce`. */
   egress?: ResolvedEgressSpec;
   network?: NetworkGuardrailSpec;

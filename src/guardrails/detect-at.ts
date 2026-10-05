@@ -3,13 +3,21 @@
 
 import { applySpans, type RedactSpan } from '../observability/spans.ts';
 import { type Boundary, recordOf, TOOL_BOUNDARIES } from './boundaries.ts';
-import { DETECTORS, type DetectAction, type Detector, type ResolvedDetect } from './detectors.ts';
+import { canaryLeakRanges } from './canary.ts';
+import {
+  DETECTORS,
+  type DetectAction,
+  type Detector,
+  detects,
+  type ResolvedDetect,
+} from './detectors.ts';
 import type { GuardrailEvent, GuardrailHit } from './event-schemas.ts';
-import { hitFromSpan } from './hits.ts';
+import { CANARY_HIT, hitFromSpan, PROMPT_ECHO_HIT } from './hits.ts';
 import { injectionSpans } from './injection.ts';
+import { promptEchoRanges } from './prompt-echo.ts';
 import { DETECT_RULES } from './rules.ts';
 import { SENSITIVE_GROUPS, type SensitiveGroups, sensitiveSpans } from './sensitive.ts';
-import type { GuardrailStage, Provenance, TrustLevel } from './types.ts';
+import type { GuardrailContext, GuardrailStage, Provenance, TrustLevel } from './types.ts';
 
 /** What happened to text at a boundary: nothing matched, or the strongest action among the matches. */
 type DetectOutcome = 'allow' | Exclude<DetectAction, 'ignore'>;
@@ -36,21 +44,77 @@ const ONLY: Readonly<Record<keyof SensitiveGroups, SensitiveGroups>> = recordOf(
   (group) => recordOf(SENSITIVE_GROUPS, (other) => other === group),
 );
 
-function spansOf(detector: Detector, text: string): RedactSpan[] {
-  return detector === 'injection' ? injectionSpans(text) : sensitiveSpans(text, ONLY[detector]);
+/**
+ * What of the turn the detectors of what is the profile's own read: the canary it planted, whether
+ * the model was given it besides, and the private stretches of its system instruction. A detector
+ * whose part is absent finds nothing.
+ */
+type DetectScope = Pick<GuardrailContext, 'canary' | 'canaryGiven' | 'privateSystem'>;
+
+const NO_SCOPE: DetectScope = {};
+
+/**
+ * The {@linkcode DetectScope} of a turn under `detect`: each part only while its detector is above
+ * `ignore` somewhere, so a profile that reads for neither binds nothing to read for.
+ */
+function scopeOf(detect: ResolvedDetect, turn: DetectScope): DetectScope {
+  const canary = detects(detect, 'canary_leak') ? turn.canary : undefined;
+  const guarded = detects(detect, 'prompt_leak') && turn.privateSystem?.length;
+  return {
+    ...(canary ? { canary } : {}),
+    ...(canary && turn.canaryGiven ? { canaryGiven: true } : {}),
+    ...(guarded ? { privateSystem: turn.privateSystem } : {}),
+  };
+}
+
+/** The detectors that read a {@linkcode DetectScope}. A stream gate reads them itself, as the text grows. */
+const SCOPED = ['canary_leak', 'prompt_leak'] as const satisfies readonly Detector[];
+
+function isScoped(detector: Detector): detector is (typeof SCOPED)[number] {
+  return (SCOPED as readonly Detector[]).includes(detector);
+}
+
+function ranged(ranges: readonly [number, number][], kind: RedactSpan['kind']): RedactSpan[] {
+  return ranges.map(([start, end]) => ({ start, end, kind }));
+}
+
+function spansOf(detector: Detector, text: string, scope: DetectScope): RedactSpan[] {
+  if (detector === 'injection') return injectionSpans(text);
+  if (detector === 'canary_leak') {
+    const { canary, canaryGiven } = scope;
+    return canary && !canaryGiven ? ranged(canaryLeakRanges(text, canary), 'canary') : [];
+  }
+  if (detector === 'prompt_leak') {
+    const { privateSystem, canary } = scope;
+    return privateSystem ? ranged(promptEchoRanges(text, privateSystem, canary), 'prompt') : [];
+  }
+  return sensitiveSpans(text, ONLY[detector]);
+}
+
+/** The hit for a match of `detector`. One of ours never carries what it matched. */
+function hitOf(detector: Detector, text: string, span: RedactSpan): GuardrailHit {
+  const { start, end } = span;
+  if (detector === 'canary_leak') return { ...CANARY_HIT, span: { start, end } };
+  if (detector === 'prompt_leak') return { ...PROMPT_ECHO_HIT, span: { start, end } };
+  return hitFromSpan(text, span, DETECT_RULES[detector], 'high');
 }
 
 /** Reads `text` as it crosses `boundary` under the profile's resolved matrix. */
-function detectAt(text: string, boundary: Boundary, detect: ResolvedDetect): Detection {
+function detectAt(
+  text: string,
+  boundary: Boundary,
+  detect: ResolvedDetect,
+  scope: DetectScope = NO_SCOPE,
+): Detection {
   const hits: GuardrailHit[] = [];
   const redact: RedactSpan[] = [];
   let action: DetectOutcome = 'allow';
   for (const detector of DETECTORS) {
     const chosen = detect[detector][boundary];
     if (chosen === 'ignore') continue;
-    const spans = spansOf(detector, text);
+    const spans = spansOf(detector, text, scope);
     if (spans.length === 0) continue;
-    for (const span of spans) hits.push(hitFromSpan(text, span, DETECT_RULES[detector], 'high'));
+    for (const span of spans) hits.push(hitOf(detector, text, span));
     if (chosen === 'redact') redact.push(...spans);
     action = stronger(action, chosen);
   }
@@ -63,9 +127,25 @@ function detectorsAt(boundary: Boundary, detect: ResolvedDetect): Detector[] {
   return DETECTORS.filter((detector) => detect[detector][boundary] !== 'ignore');
 }
 
-/** Whether any detector reads one of `boundaries`. */
-function detectReads(boundaries: readonly Boundary[], detect: ResolvedDetect): boolean {
-  return boundaries.some((boundary) => detectorsAt(boundary, detect).length > 0);
+/** Whether `scope` holds the part `detector` reads for. One that reads no scope always has its part. */
+function hasPart(detector: Detector, scope: DetectScope): boolean {
+  if (detector === 'canary_leak') return Boolean(scope.canary);
+  if (detector === 'prompt_leak') return Boolean(scope.privateSystem?.length);
+  return true;
+}
+
+/**
+ * Whether any detector reads one of `boundaries`. Given the turn's `scope`, a
+ * detector whose part is absent does not count: it has nothing to find.
+ */
+function detectReads(
+  boundaries: readonly Boundary[],
+  detect: ResolvedDetect,
+  scope?: DetectScope,
+): boolean {
+  return boundaries.some((boundary) =>
+    detectorsAt(boundary, detect).some((detector) => !scope || hasPart(detector, scope)),
+  );
 }
 
 /** A stretch of streamed text released at a boundary, and how much of the stretch it covers. */
@@ -94,7 +174,7 @@ function detectRelease(
   detect: ResolvedDetect,
 ): Release {
   const found = detectorsAt(boundary, detect).flatMap((detector) =>
-    spansOf(detector, window)
+    spansOf(detector, window, NO_SCOPE)
       .filter((span) => span.end > from && span.start < to)
       .map((span) => ({ span, detector, chosen: detect[detector][boundary] })),
   );
@@ -134,7 +214,7 @@ function detectRelease(
 function redactDetectors(text: string, detectors: readonly Detector[]): string {
   return applySpans(
     text,
-    detectors.flatMap((detector) => spansOf(detector, text)),
+    detectors.flatMap((detector) => spansOf(detector, text, NO_SCOPE)),
   );
 }
 
@@ -211,7 +291,7 @@ function detectEvent(
   };
 }
 
-export type { BoundaryReader, Detection, DetectOutcome, Release, Stretch };
+export type { BoundaryReader, Detection, DetectOutcome, DetectScope, Release, Stretch };
 export {
   boundaryReader,
   detectAt,
@@ -219,5 +299,8 @@ export {
   detectorsAt,
   detectReads,
   detectRelease,
+  isScoped,
   redactDetectors,
+  scopeOf,
+  stronger,
 };

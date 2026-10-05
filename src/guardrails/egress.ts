@@ -1,13 +1,14 @@
 import type { ProviderEvent, ProviderEvidence } from '../kernel/types.ts';
 import { isRecord } from '../kernel/util/record.ts';
 import { canaryNoteMarker, guardedEventTexts, scanTextForCanaryLeak } from './canary.ts';
+import type { DetectAction, ResolvedDetect } from './detectors.ts';
 import { notePattern, SYSTEM_BOUNDARY } from './egress-patterns.ts';
 import { type GivenUrls, imageLeakSpans, linkLeakSpans, type UrlScope } from './egress-urls.ts';
 import { describeError } from './error.ts';
-import { hitFromSpan } from './hits.ts';
+import { CANARY_HIT, hitFromSpan, PROMPT_ECHO_HIT } from './hits.ts';
 import { lexiconText } from './lexicon.ts';
 import { scanTextForPromptEcho } from './prompt-echo.ts';
-import { EGRESS_RULES } from './rules.ts';
+import { DETECT_RULES, EGRESS_RULES } from './rules.ts';
 import { textForScan } from './serialize.ts';
 import type {
   EgressEnforcer,
@@ -36,10 +37,6 @@ const WITHHELD_REASON = {
   egress: 'Turn withheld: egress disclosure violation', // lexicon-exempt: internal diagnostic — the user reads error.safety
 } as const;
 
-/** Never carries the live token, only a placeholder. */
-const CANARY_HIT: GuardrailHit = { rule: EGRESS_RULES.canary, severity: 'high', match: '[canary]' };
-
-const PROMPT_ECHO_HIT: GuardrailHit = { rule: EGRESS_RULES.promptEcho, severity: 'high' };
 function canaryHits(text: string, canary?: string): GuardrailHit[] {
   return canary && scanTextForCanaryLeak(text, canary) ? [CANARY_HIT] : [];
 }
@@ -55,7 +52,6 @@ function promptEchoHits(
     : [];
 }
 
-/** What the system-prompt leak checks read. */
 /** What a prompt-leak check reads of the turn. */
 type LeakScope = Pick<GuardrailContext, 'canary' | 'canaryGiven' | 'privateSystem'>;
 
@@ -105,9 +101,53 @@ function eventPromptLeakHits(event: ProviderEvent, scope: LeakScope): GuardrailH
   return [...new Map(hits.map((hit) => [hit.rule, hit])).values()];
 }
 
+/** A leak of ours in an event that is not the reply's text: its hits, and whether it stops the turn. */
+interface EventLeak {
+  stop: boolean;
+  hits: GuardrailHit[];
+}
+
+/**
+ * What the detectors of what is ours find in an event's host content
+ * (`guardedEventTexts`) under their actions at `boundary`, as the event goes
+ * to the host with the reply. `flag` reports it; `redact` and `block` stop the
+ * turn, as an event has no text to replace. The report of a provider-side tool
+ * is read whatever the actions are and always stops: the call already ran.
+ */
+function eventLeak(
+  event: ProviderEvent,
+  scope: LeakScope,
+  detect: ResolvedDetect,
+  boundary: 'reply' | 'live_reply',
+): EventLeak | undefined {
+  if (isProviderToolReport(event)) {
+    const hits = eventPromptLeakHits(event, scope);
+    return hits.length > 0 ? { stop: true, hits } : undefined;
+  }
+  const texts = guardedEventTexts(event);
+  const found: [DetectAction, GuardrailHit][] = [];
+  const canary = scope.canaryGiven ? undefined : scope.canary;
+  const canaryAction = detect.canary_leak[boundary];
+  if (canaryAction !== 'ignore' && texts.some((text) => canaryHits(text, canary).length > 0)) {
+    found.push([canaryAction, CANARY_HIT]);
+  }
+  const promptAction = detect.prompt_leak[boundary];
+  if (
+    promptAction !== 'ignore' &&
+    texts.some((text) => promptEchoHits(text, scope.privateSystem, scope.canary).length > 0)
+  ) {
+    found.push([promptAction, PROMPT_ECHO_HIT]);
+  }
+  if (found.length === 0) return undefined;
+  return {
+    stop: found.some(([action]) => action !== 'flag'),
+    hits: found.map(([, hit]) => hit),
+  };
+}
+
 const PROMPT_LEAK_RULES = new Set<string>([
-  EGRESS_RULES.canary,
-  EGRESS_RULES.promptEcho,
+  DETECT_RULES.canary_leak,
+  DETECT_RULES.prompt_leak,
   EGRESS_RULES.providerToolLeak,
 ]);
 
@@ -121,7 +161,7 @@ function promptLeakReason(hits: GuardrailHit[]): string {
   if (hits.some((hit) => hit.rule === EGRESS_RULES.providerToolLeak)) {
     return WITHHELD_REASON.providerToolLeak;
   }
-  return hits.some((hit) => hit.rule === EGRESS_RULES.canary)
+  return hits.some((hit) => hit.rule === DETECT_RULES.canary_leak)
     ? WITHHELD_REASON.canary
     : WITHHELD_REASON.promptEcho;
 }
@@ -141,8 +181,8 @@ interface UrlCheck {
 
 /**
  * Which bundled egress checks run; a check left out keeps its default. The
- * system-prompt leak checks are not among them: `guardrails.canary` and
- * `guardrails.promptEcho` switch those, and they run under any policy.
+ * system-prompt leak checks are not among them: they are the detectors
+ * `canary_leak` and `prompt_leak`, and they run under any policy.
  */
 interface EgressChecks {
   /** The fence the kernel puts around user data, and the canary's note. Default on. */
@@ -486,21 +526,20 @@ async function runEnforcer(
   }
 }
 
-export type { EgressChecks, EgressScope, LeakScope, ResolvedEgressChecks, UrlCheck };
+export type { EgressChecks, EgressScope, EventLeak, LeakScope, ResolvedEgressChecks, UrlCheck };
 export {
   boundaryNote,
-  CANARY_HIT,
   collectEgressHits,
   DEFAULT_CHECKS,
   egressChecksOf,
   egressChecksProblem,
   egressScope,
+  eventLeak,
   eventPromptLeakHits,
   hitRules,
   hitsEnforcer,
   isPromptLeakHit,
   NO_CHECKS,
-  PROMPT_ECHO_HIT,
   promptEchoHits,
   promptLeakReason,
   registerEgressChecks,

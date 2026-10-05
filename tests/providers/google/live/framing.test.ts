@@ -131,6 +131,36 @@ Deno.test('buildGeminiLiveSetupMessage omits VAD and compression when profile om
   assertEquals(setupMsg.setup.contextWindowCompression, undefined);
 });
 
+Deno.test('buildGeminiLiveSetupMessage sends summaries as includeThoughts, and no thinkingConfig when both are unset', () => {
+  const thinkingConfig = (overrides: Partial<ProviderCompleteRequest>) => {
+    const req: ProviderCompleteRequest = {
+      model: 'gemini-3.1-flash-live-preview',
+      apiId: 'gemini-3.1-flash-live-preview',
+      temperature: 0.7,
+      maxOutputTokens: 2048,
+      system: 'You are a helpful live assistant.',
+      builtins: [],
+      thinking: undefined,
+      input: [],
+      structured: null,
+      image: null,
+      ...overrides,
+    };
+    const { setup } = buildGeminiLiveSetupMessage(req) as {
+      setup: { generationConfig: Record<string, unknown> };
+    };
+    return setup.generationConfig.thinkingConfig;
+  };
+
+  assertEquals(thinkingConfig({}), undefined);
+  assertEquals(thinkingConfig({ thinking: 'low' }), { thinkingLevel: 'low' });
+  assertEquals(thinkingConfig({ summaries: 'auto' }), { includeThoughts: true });
+  assertEquals(thinkingConfig({ thinking: 'high', summaries: 'none' }), {
+    thinkingLevel: 'high',
+    includeThoughts: false,
+  });
+});
+
 Deno.test('buildGeminiLiveSetupMessage leaves an empty sliding window to Gemini defaults', () => {
   const req: ProviderCompleteRequest = {
     model: 'gemini-3.1-flash-live-preview',

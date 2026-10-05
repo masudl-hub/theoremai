@@ -315,3 +315,99 @@ Deno.test('a buffered local turn asks for one JSON reply and emits what a stream
   });
   assertEquals(firstOf(events, 'done')?.stop?.native, 'tool_calls');
 });
+
+Deno.test('a local turn sends the thinking level as reasoning_effort, and none when unset', async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const provider = createLocalProvider({
+    baseUrl: 'http://local.test',
+    fetch: (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return Promise.resolve(sseResponse(['data: [DONE]\n\n']));
+    },
+  });
+  await Array.fromAsync(provider.complete(baseReq({ thinking: 'high' })));
+  await Array.fromAsync(provider.complete(baseReq({ thinking: undefined })));
+  assertEquals(bodies[0]?.reasoning_effort, 'high');
+  assertEquals('reasoning_effort' in (bodies[1] ?? {}), false);
+});
+
+Deno.test('a local stream emits thinking text as thoughts, from either field name', async () => {
+  const provider = createLocalProvider({
+    baseUrl: 'http://local.test',
+    fetch: () =>
+      Promise.resolve(
+        sseResponse([
+          'data: {"choices":[{"delta":{"reasoning_content":"weigh "}}]}\n\n',
+          'data: {"choices":[{"delta":{"reasoning":"it up","content":""}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"42"},"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ),
+  });
+  const events = await Array.fromAsync(provider.complete(baseReq()));
+  assertEquals(
+    events.filter((e) => e.type === 'thought' || e.type === 'text'),
+    [
+      { type: 'thought', text: 'weigh ' },
+      { type: 'thought', text: 'it up' },
+      { type: 'text', text: '42' },
+    ],
+  );
+});
+
+Deno.test('a buffered local turn emits its thinking text before the reply', async () => {
+  const provider = createLocalProvider({
+    baseUrl: 'http://local.test',
+    fetch: () =>
+      Promise.resolve(
+        Response.json({
+          choices: [
+            { finish_reason: 'stop', message: { reasoning: 'weigh it up', content: '42' } },
+          ],
+        }),
+      ),
+  });
+  const events = await Array.fromAsync(provider.complete(baseReq({ stream: false })));
+  assertEquals(
+    events.filter((e) => e.type === 'thought' || e.type === 'text'),
+    [
+      { type: 'thought', text: 'weigh it up' },
+      { type: 'text', text: '42' },
+    ],
+  );
+});
+
+Deno.test('summaries off drops local thinking text, streamed or buffered', async () => {
+  const streamed = createLocalProvider({
+    baseUrl: 'http://local.test',
+    fetch: () =>
+      Promise.resolve(
+        sseResponse([
+          'data: {"choices":[{"delta":{"reasoning_content":"weigh it up"}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"42"},"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ),
+  });
+  const buffered = createLocalProvider({
+    baseUrl: 'http://local.test',
+    fetch: () =>
+      Promise.resolve(
+        Response.json({
+          choices: [
+            { finish_reason: 'stop', message: { reasoning: 'weigh it up', content: '42' } },
+          ],
+        }),
+      ),
+  });
+  for (const events of [
+    await Array.fromAsync(streamed.complete(baseReq({ summaries: 'none' }))),
+    await Array.fromAsync(buffered.complete(baseReq({ summaries: 'none', stream: false }))),
+  ]) {
+    assertEquals(eventsOf(events, 'thought'), []);
+    assertEquals(
+      eventsOf(events, 'text').map((e) => e.text),
+      ['42'],
+    );
+  }
+});

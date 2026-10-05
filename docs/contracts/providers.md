@@ -235,6 +235,7 @@ accepted and spoken). Unanswered by then, the model reads `sign_in.expired`.
 | Transport | `openGoogleLiveSession` — WebSocket; optional `openWebSocket` for Cloudflare fetch-upgrade |
 | Handshake | `BidiGenerateContentSetup` via `buildGeminiLiveSetupMessage` |
 | Turn boundary | Gemini `serverContent.interactionStatus: IDLE` when the server sends it, else `turnComplete` → outbound gate finalize + cycle `done` (`stop.kind: 'completed'` when no folded done) + `before_end` / `post_turn`; **session stays open**. `interactionStatus: IN_PROGRESS` keeps the cycle open across `turnComplete` — background reasoning / async tool calls may still emit audio or tool calls |
+| Thinking | `thinkingConfig.thinkingLevel` carries `thinking` and `thinkingConfig.includeThoughts` carries `summaries` (`auto` → `true`, `none` → `false`); each is left out when unset. Every Live model takes `includeThoughts`, and none sent a `thought` part with it on (probe 04/10/2026: gemini-3.1-flash-live-preview, gemini-3.8-live, gemini-3.8-live-extended-thinking, on the v1beta and v1alpha endpoints). |
 | Generation boundary | Gemini `generationComplete` → `done` (`stop.kind: 'generation_complete'`) without tearing down the session |
 | Tools | Builtins are their own setup tools from `wire.live` (`{ googleSearch: {} }`, `googleMaps`, `urlContext`, `codeExecution`); a builtin with no `wire.live` throws. Which a model takes is the API's answer (probe 23/09/2026: search on every Live model; gemini-3.8-live and -extended-thinking close with 1007 on the other three; gemini-2.5-flash-native-audio takes `urlContext`; gemini-3.1-flash-live accepts all four but used only search). `googleMapsLocation` is not sent on Live. Every function declaration is wired `behavior: NON_BLOCKING`: the host runs calls through `executeTool` while the model keeps speaking. `executeTool` by `callId` runs every call (stages + gate answers + upstream); a call the provider already failed is answered by the session; cancellations → `tool.phase: 'cancel'` with the call's name. Every id in profile `tools.allow` + `builtInTools` is wired in `BidiGenerateContentSetup` regardless of `loadTier` (declarations cannot change mid-session) — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
 | Ingress | `live.ingress` gates `sendAudio` / `sendVideo` / `sendText` / `sendContext`. `sendContext` sends the text as `clientContent` with `turnComplete: false` (probe 01/10/2026, gemini-3.8-live, 3 of 3 runs): the model reads it as background and speaks no reply, where `sendText` (`realtimeInput.text`) is the caller speaking and always draws one. It opens no turn and records no user text; inbound guardrails run as for `sendText`. `sendAudio` / `sendVideo` take the host's `mimeType` and send it as given (probe 23/09/2026: `audio/pcm` with no rate is accepted everywhere; gemini-2.5-flash-native-audio rejects `audio/l16`). Defaults: audio **on**, camera (video channel) **on**, text **off** unless `live.ingress.text: true`. At least one channel must stay enabled. |
@@ -290,6 +291,12 @@ local: {
   `turnStopFromOpenAiFinishReason`.
 - Supports multimodal user content when the server accepts OpenAI-style parts;
   media reference parts (`uri`) are rejected with `TheoremError`.
+- Sends `thinking` as `reasoning_effort` and leaves it out when unset. Ollama
+  takes every thinking level and answers HTTP 400 for a model that does not
+  think (probe 04/10/2026, Ollama 0.34.0); the turn ends with that error.
+- Thinking text becomes `thought` events. It is read from `reasoning_content`
+  (llama.cpp, vLLM, LM Studio) or `reasoning` (Ollama), on a stream delta or a
+  buffered message. `summaries: 'none'` drops it.
 - Requests `stream_options.include_usage`; the final `usage` row goes through
   `openAiUsageTokens`. A server that sends none is estimated by the runner.
 

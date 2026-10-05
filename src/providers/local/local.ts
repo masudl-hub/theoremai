@@ -24,6 +24,9 @@ import type { LocalTransport } from '../types.ts';
 interface OpenAiDelta {
   role?: string;
   content?: string | null;
+  /** Thinking text: `reasoning_content` on llama.cpp, vLLM and LM Studio, `reasoning` on Ollama. */
+  reasoning_content?: string | null;
+  reasoning?: string | null;
   tool_calls?: Array<{
     index: number;
     id?: string;
@@ -62,6 +65,7 @@ function buildBody(req: ProviderCompleteRequest): Record<string, unknown> {
     max_tokens: req.maxOutputTokens,
   };
   if (body.stream) body.stream_options = { include_usage: true };
+  if (req.thinking) body.reasoning_effort = req.thinking;
   const tools = wireTools(req.wireTools);
   if (tools) body.tools = tools;
   return body;
@@ -110,27 +114,38 @@ async function* streamComplete(
     return;
   }
   if (req.stream === false) {
-    yield* bufferedOpenAiBody(await res.json(), req.tapUpstream);
+    yield* bufferedOpenAiBody(await res.json(), req);
     return;
   }
   if (!res.body) {
     yield toErrorEvent(new TheoremError('bad_response', 'empty response body'));
     return;
   }
-  yield* streamOpenAiBody(res.body, req.tapUpstream);
+  yield* streamOpenAiBody(res.body, req);
+}
+
+/** The thinking text of one delta or message; none when the profile turned summaries off. */
+function* thoughtEvents(
+  delta: OpenAiDelta | undefined,
+  req: ProviderCompleteRequest,
+): Generator<ProviderEvent> {
+  if (req.summaries === 'none') return;
+  const text = delta?.reasoning_content || delta?.reasoning;
+  if (text) yield { type: 'thought', text };
 }
 
 function* bufferedOpenAiBody(
   raw: Record<string, unknown>,
-  tap: ProviderCompleteRequest['tapUpstream'],
+  req: ProviderCompleteRequest,
 ): Generator<ProviderEvent> {
-  tap?.(raw);
+  req.tapUpstream?.(raw);
   const identity = foldResponse(undefined, openAiResponse(raw));
   if (identity.event) yield identity.event;
   const tokens = openAiUsageTokens(raw.usage);
   if (tokens) yield { type: 'tokens', tokens };
   const choice = Array.isArray(raw.choices) ? asRecord(raw.choices[0]) : undefined;
   const message = asRecord(choice?.message) as OpenAiDelta | undefined;
+  yield* thoughtEvents(message, req);
   if (message?.content) yield { type: 'text', text: message.content };
   for (const [index, call] of (message?.tool_calls ?? []).entries()) {
     yield* toolCallEvents(
@@ -147,13 +162,13 @@ function* bufferedOpenAiBody(
 
 async function* streamOpenAiBody(
   body: ReadableStream<Uint8Array>,
-  tap: ProviderCompleteRequest['tapUpstream'],
+  req: ProviderCompleteRequest,
 ): AsyncGenerator<ProviderEvent> {
   const pending = new Map<number, PendingToolCall>();
   let finishReason: string | null | undefined;
   let response: TurnResponse | undefined;
   for await (const raw of parseSseStream(body)) {
-    tap?.(raw);
+    req.tapUpstream?.(raw);
     const identity = foldResponse(response, openAiResponse(raw));
     response = identity.known;
     if (identity.event) yield identity.event;
@@ -161,6 +176,7 @@ async function* streamOpenAiBody(
     if (tokens) yield { type: 'tokens', tokens };
     const choice = firstOpenAiChoice(raw);
     if (!choice) continue;
+    yield* thoughtEvents(choice.delta, req);
     yield* eventsFromChoiceDelta(choice.delta, pending);
     if (choice.finish_reason != null) {
       finishReason = choice.finish_reason;

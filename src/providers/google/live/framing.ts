@@ -82,10 +82,12 @@ function buildLiveGenerationConfig(req: ProviderCompleteRequest): Record<string,
     };
   }
   assertGoogleThinkingLevel(req.thinking);
-  if (req.thinking) {
-    generationConfig.thinkingConfig = {
-      thinkingLevel: req.thinking,
-    };
+  const thinkingConfig = {
+    ...(req.thinking ? { thinkingLevel: req.thinking } : {}),
+    ...(req.summaries ? { includeThoughts: req.summaries === 'auto' } : {}),
+  };
+  if (Object.keys(thinkingConfig).length > 0) {
+    generationConfig.thinkingConfig = thinkingConfig;
   }
   return generationConfig;
 }

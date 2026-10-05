@@ -591,7 +591,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.efforts': field(
     'Record<string, ThinkingLevel>',
-    'Named thinking levels for this model, which a turn can pick between when allowEffortSelect is on; local models, speech and OpenRouter image without includeText ignore them.',
+    'Named thinking levels for this model, which a turn can pick between when allowEffortSelect is on; a local server gets the level as reasoning_effort and refuses one its model does not take; speech and OpenRouter image without includeText ignore them.',
   ),
   'models.*.efforts.*': field(
     unionType(THINKING_LEVELS),
@@ -614,7 +614,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.summaries': field(
     'boolean',
-    'Asks Gemini Interactions for summaries of its thinking; on OpenRouter, off only hides thoughts, and other providers ignore it.',
+    'Asks Gemini for summaries of its thinking, though Live models have sent none so far; on OpenRouter and local models, off only hides thoughts, and other providers ignore it.',
   ),
   'models.*.maxOutputTokens': field(
     'number',

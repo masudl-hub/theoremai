@@ -86,7 +86,7 @@ can never `set` a secret: it `point`s the person at it and they enter it.
 | --- | --- |
 | `createSurfaceRuntime(options?)` | `{ mount, declare, isSurfaceTool, answer, settled, stateLine }`; options `now`, `open`, `mountWaitMs`, `onNote`, `ledger` |
 | `surfaceTools(options?)` | The `look` and `act` function tool definitions, answered by the client |
-| `clientAnsweredHandler(name)` | Returns `ctx.host.clientOutput`; fails on `host.clientTimedOut` or no output |
+| `clientAnsweredHandler(name)` | Returns `ctx.host.clientOutput` as `uncheckedOutput`; fails on `host.clientTimedOut` or no output |
 | `SURFACE_PROMPT` | How an agent uses `look` and `act` |
 | `SURFACE_TOOL_NAMES` | `['look', 'act']` |
 | `defineAction(action)` | Types an action's input, for `SurfaceNode.actions` |

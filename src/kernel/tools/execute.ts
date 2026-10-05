@@ -96,6 +96,8 @@ export {
   permissionGranted,
 } from './permission.ts';
 
+import { UncheckedOutput } from './unchecked-output.ts';
+
 function originOfTool(tool: RegisteredTool, tools: ToolRegistry): ToolOrigin {
   if (tool.type === 'agent') return agentToolOrigin(tools.findProfile(tool.profile));
   if (tool.type === 'http') return 'http';
@@ -178,7 +180,7 @@ async function* runHandler<TIn, TOut>(
   input: TIn,
   ctx: ToolContext,
   base: ToolCallBase,
-): AsyncGenerator<TurnEvent, TOut | undefined> {
+): AsyncGenerator<TurnEvent, unknown> {
   if (isStreamHandler(handler)) {
     let output: TOut | undefined;
     const gen = (
@@ -194,11 +196,8 @@ async function* runHandler<TIn, TOut>(
     }
     return output;
   }
-  const output = await (handler as (input: TIn, ctx: ToolContext) => TOut | Promise<TOut>)(
-    input,
-    ctx,
-  );
-  return output;
+  const output = await handler(input, ctx);
+  return output instanceof UncheckedOutput ? output.value : output;
 }
 
 /** What the model is told of a function tool's output: a fixed finding for a hidden tool, a finding plus the output for an awaiting-user result, otherwise the tool's own summary or finding and its data. */

@@ -128,7 +128,7 @@ settled by the same message: `executeToolOnRelay({ callId, output })` sends the
 browser's `output`, and the relay passes it to `session.executeTool` as
 `host: { clientOutput: output }`. The tool's handler is
 `browserToolHandler(name)` (`@theoremjs/playground/browser`): it returns
-`host.clientOutput`, so the tool's `output` schema checks what the browser sent
+`uncheckedOutput(host.clientOutput)`, so the tool's `output` schema checks what the browser sent
 and a mismatch reaches the model as an ordinary tool failure. With no
 `clientOutput` the call fails to the model, naming the tool.
 

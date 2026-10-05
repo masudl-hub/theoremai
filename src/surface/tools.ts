@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ToolContext, ToolDefinitionInput } from '../kernel/tools/types.ts';
+import { type UncheckedOutput, uncheckedOutput } from '../kernel/tools/unchecked-output.ts';
 
 /**
  * The handler for a function tool the client answers: it returns what the client sent back for
@@ -7,10 +8,12 @@ import type { ToolContext, ToolDefinitionInput } from '../kernel/tools/types.ts'
  * fails to the model, naming the tool; so does a call the bridge settled because the client never
  * answered (`host.clientTimedOut`).
  */
-export function clientAnsweredHandler(name: string): (input: unknown, ctx: ToolContext) => unknown {
+export function clientAnsweredHandler(
+  name: string,
+): (input: unknown, ctx: ToolContext) => UncheckedOutput {
   return (_input, ctx) => {
     const host = ctx.host as { clientOutput?: unknown; clientTimedOut?: boolean } | undefined;
-    if (host && 'clientOutput' in host) return host.clientOutput;
+    if (host && 'clientOutput' in host) return uncheckedOutput(host.clientOutput);
     if (host?.clientTimedOut) {
       throw new Error("The page didn't answer. Look before trying again.");
     }

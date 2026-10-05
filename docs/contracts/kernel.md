@@ -429,7 +429,7 @@ flush. Pass a trace sink (`memorySink`, `jsonlSink`) as the third argument to
 `tool_call_id`, and opaque `metadata` across turns.
 
 `content` and `parts` are sent together, never one instead of the other:
-`historyMessageParts` (`kernel/interaction-parts.ts`) puts `content` first as a
+`historyMessageParts` (`src/kernel/interaction-parts.ts`) puts `content` first as a
 text part, then `parts`. Every adapter (Interactions, Live, OpenAI-compat, AI
 SDK) builds history content from it, so a host that stores a text projection
 alongside media does not lose either one.
@@ -458,10 +458,10 @@ turn start, T1 via `tools.t1Policy`, T2 via `tools.t2Loader`). On `live` every
 allowed tool (and every model builtin) is wired at session setup regardless of
 `loadTier`; on `host` every allowed tool is executable with no tiers and no path
 gating. Each of these facts has one owner, and every kernel, CLI, and interface
-reader goes through it: `profileToolAllow` (`tools/resolve.ts`) returns a
+reader goes through it: `profileToolAllow` (`src/kernel/tools/resolve.ts`) returns a
 profile's allow list, empty for `speech` and `decision`; `profileToolsSpec`
 returns the tiered spec (`t1Policy`, `t2Loader`) for `text` and `image` only;
-`profileInputs` (`registry/catalog.ts`) returns turn inputs for `text` and
+`profileInputs` (`src/kernel/registry/catalog.ts`) returns turn inputs for `text` and
 `image` only. So projection, resolution, execute eligibility, T2 promotion, and
 T1/T2 loading see no tools on `speech` and `decision`, and `invokeTool` rejects
 `decision` explicitly.
@@ -570,7 +570,7 @@ only its own calls.
 ### Host context slot
 
 Application context reaches tool hooks through one opaque slot. The kernel never
-reads, logs, traces, or serializes it — it is not on `TurnEvent`, `ToolPause`,
+reads, logs, traces, or serializes it — it is not on `TurnEvent`,
 pause `input`, `TraceRecord`, or `ProviderCompleteRequest`.
 
 | Field | Reaches |
@@ -664,6 +664,9 @@ unset or a placeholder has no value.
 Builtins (`type: 'builtin'`) are provider-native — kernel pins capabilities in
 `generation.builtins` but does not execute handlers.
 Function tools (`type: 'function'`) run host TypeScript handlers.
+A handler returns the type of the tool's `output` schema; any other return type fails to compile.
+A handler that cannot type its result returns `uncheckedOutput(value)`.
+The kernel checks every result against `output`, and a mismatch fails the call as `invalid_output`.
 Declarative HTTP tools (`type: 'http'`) call REST APIs directly with templated URLs, query parameters, headers, and body mapping.
 Remote MCP tools (`type: 'mcp'`) call external Model Context Protocol servers over Streamable HTTP.
 The preferred revision is `2026-07-28`; the kernel negotiates downward through
@@ -1064,7 +1067,7 @@ Pass `TurnRequest.sessionId` for OpenRouter sticky `session_id` routing.
 
 `TurnStopKind` values are the `TURN_STOP_KINDS` array in `src/kernel/schema.ts`.
 Providers map native finish reasons into `TurnStop` on terminal `done` events.
-Its shape is `turnStopSchema` in `src/kernel/turn-events.ts`; `src/kernel/stop.ts`
+Its shape is `turnStop` in `src/kernel/turn-events.ts`; `src/kernel/stop.ts`
 re-exports the type and owns only the resume policy below.
 
 | `kind` | Meaning |

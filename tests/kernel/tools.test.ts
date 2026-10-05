@@ -22,6 +22,7 @@ import {
 } from '../../src/kernel/tools/resolve.ts';
 import { validateToolSchema } from '../../src/kernel/tools/schema.ts';
 import type { ToolContext, ToolLoadContext } from '../../src/kernel/tools/types.ts';
+import { uncheckedOutput } from '../../src/kernel/tools/unchecked-output.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import {
@@ -1437,7 +1438,7 @@ function registerPostToolProbe(name: string, output: unknown) {
     permission: 'auto',
     input: z.object({}),
     output: z.object({ finding: z.string(), secret: z.string().optional() }),
-    handler: () => output,
+    handler: () => uncheckedOutput(output),
   });
 }
 

@@ -20,3 +20,4 @@ export {
 } from './remote.ts';
 export { cloneTurnToolSnapshot, prepareTurnToolSnapshot } from './resolve.ts';
 export type * from './types.ts';
+export { UncheckedOutput, uncheckedOutput } from './unchecked-output.ts';

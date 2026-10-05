@@ -413,6 +413,8 @@ export {
   resolveToolAuth,
 } from './src/kernel/tools/mod.ts';
 export {
+  UncheckedOutput,
+  uncheckedOutput,
   awaitingUserInputSchema,
   TURN_EVENT_SCHEMAS,
   toolGateSchema,

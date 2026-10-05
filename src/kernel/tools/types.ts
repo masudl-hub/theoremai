@@ -36,6 +36,7 @@ import type {
   TurnRequest,
   TurnTraceLink,
 } from '../types.ts';
+import type { UncheckedOutput } from './unchecked-output.ts';
 
 export type {
   AuthUnauthenticatedPolicy,
@@ -142,7 +143,10 @@ export type ToolStreamEvent<TOut = unknown> =
   | { kind: 'warning'; warning: ToolWarning }
   | { kind: 'complete'; output: TOut };
 
-export type SyncToolHandler<TIn, TOut> = (input: TIn, ctx: ToolContext) => TOut | Promise<TOut>;
+export type SyncToolHandler<TIn, TOut> = (
+  input: TIn,
+  ctx: ToolContext,
+) => TOut | UncheckedOutput | Promise<TOut | UncheckedOutput>;
 export type StreamToolHandler<TIn, TOut> = (
   input: TIn,
   ctx: ToolContext,
@@ -180,7 +184,8 @@ export interface FunctionToolDef<TIn = unknown, TOut = unknown>
   type: 'function';
   input: z.ZodType<TIn>;
   output: z.ZodType<TOut>;
-  handler: ToolHandler<TIn, TOut>;
+  /** Returns `output`'s type, or `uncheckedOutput(value)` for a value it cannot type. */
+  handler: ToolHandler<TIn, NoInfer<TOut>>;
   /**
    * The service the handler acts on for the person. The kernel resolves the slot
    * before the handler runs (gating, refreshing, or telling the model as the policy

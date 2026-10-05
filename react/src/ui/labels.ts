@@ -491,7 +491,6 @@ export const THEOREM_UI_CATALOG = {
 	'@theorem.live.flip_camera': { defaultMessage: 'Flip camera', description: 'Switches front and back camera.' },
 	'@theorem.live.end_call': { defaultMessage: 'End call', description: 'Hangs up.' },
 	'@theorem.live.controls': { defaultMessage: 'Call controls', description: 'The control toolbar (screen readers).' },
-	'@theorem.live.new_session': { defaultMessage: 'New session', description: 'Captions divider between calls.' },
 	'@theorem.live.camera_preview': { defaultMessage: 'Camera preview', description: 'Self-view (screen readers).' },
 	'@theorem.live.state.calling_tool': { defaultMessage: 'calling {tool}', description: 'Call status: a tool runs.', params: ['tool'] },
 	'@theorem.live.state.connecting': { defaultMessage: 'connecting', description: 'Call status.' },
@@ -555,7 +554,7 @@ export function toolUsage(
 /** Wall-clock duration, matching Seance's builder-trace formatter: "<0.1ms", "0.4ms", "850ms", "3.2s", "12s", "1m 5s". */
 export function workDuration(t: LabelText, durationMs: number): string {
 	const ms = Math.max(0, durationMs);
-	// A guardrail check can take a fraction of a millisecond; one decimal keeps it from reading as nothing.
+	// why: A guardrail check can take a fraction of a millisecond; one decimal keeps it from reading as nothing.
 	if (ms > 0 && ms < 0.05) return t('@theorem.duration.belowTenth');
 	if (ms < 10) return t('@theorem.duration.milliseconds', { ms: Math.round(ms * 10) / 10 });
 	if (ms < 1_000) return t('@theorem.duration.milliseconds', { ms: Math.round(ms) });

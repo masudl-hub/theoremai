@@ -19,7 +19,8 @@ import {
   clearLiveCaptionInterim,
   emptyLiveCaptionState,
   latestLiveCaptionTurnId,
-  liveCaptionLines,
+  liveCaptionBlocks,
+  liveCaptionStreaming,
 } from '../../react/src/client/live/live-captions.ts';
 import {
   applyLiveToolTurnEvent,
@@ -213,6 +214,9 @@ Deno.test('applyLiveThought keeps a thought on its own line, before the speech t
   state = applyLiveTranscript(state, 'You have', false, false);
   state = applyLiveTranscript(state, 'two meetings.', false, false);
 
+  // The thought guard releases a held blank tail when the turn ends, after the speech.
+  assertEquals(applyLiveThought(state, '\n\n'), state);
+
   assertEquals(
     state.turns.map((turn) => [turn.role, turn.text]),
     [
@@ -223,22 +227,27 @@ Deno.test('applyLiveThought keeps a thought on its own line, before the speech t
   );
 });
 
-Deno.test('liveCaptionLines puts a thought in the same message as the speech after it', () => {
-  const lines = liveCaptionLines([
-    { id: 'a', role: 'user', text: 'Hi' },
-    { id: 'b', role: 'thought', text: '**Greeting**' },
-    { id: 'c', role: 'agent', text: 'Hello.' },
-    { id: 'd', role: 'user', text: 'And?' },
-    { id: 'e', role: 'agent', text: 'Nothing else.' },
-    { id: 'f', role: 'thought', text: '**Waiting**' },
+Deno.test('liveCaptionBlocks turns captions into the transcript blocks the chat draws', () => {
+  const past = [[{ id: 'a', role: 'user' as const, text: 'Earlier' }]];
+  const captions = {
+    turns: [
+      { id: 'a', role: 'user' as const, text: 'Hi' },
+      { id: 'b', role: 'thought' as const, text: '**Greeting**' },
+      { id: 'c', role: 'agent' as const, text: 'Hello.' },
+    ],
+    interimUser: 'And',
+    interimAgent: '',
+  };
+  assertEquals(liveCaptionBlocks(past, captions), [
+    { id: '0:a', kind: 'user-text', text: 'Earlier' },
+    { id: 'a', kind: 'user-text', text: 'Hi' },
+    { id: 'b', kind: 'thought', text: '**Greeting**' },
+    { id: 'c', kind: 'text', text: 'Hello.' },
+    { id: 'interim-user', kind: 'user-text', text: 'And' },
   ]);
-  assertEquals(lines, [
-    { id: 'a', role: 'user', text: 'Hi' },
-    { id: 'b', role: 'agent', thought: '**Greeting**', text: 'Hello.' },
-    { id: 'd', role: 'user', text: 'And?' },
-    { id: 'e', role: 'agent', text: 'Nothing else.' },
-    { id: 'f', role: 'agent', thought: '**Waiting**' },
-  ]);
+  assertEquals(liveCaptionStreaming(captions), false);
+  assertEquals(liveCaptionStreaming({ ...captions, interimAgent: 'So' }), true);
+  assertEquals(liveCaptionStreaming({ ...captions, turns: captions.turns.slice(0, 2) }), true);
 });
 
 Deno.test('inkWaveDriver and computeInkBarTargets calculate animations', () => {

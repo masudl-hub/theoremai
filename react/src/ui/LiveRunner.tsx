@@ -6,10 +6,6 @@ import {
 	ChatComposer,
 	ChatComposerInput,
 	ChatLayout,
-	ChatMessage,
-	ChatMessageBubble,
-	ChatMessageList,
-	ChatSystemMessage,
 	ChatSendButton,
 } from '@astryxdesign/core/Chat';
 import { Dialog } from '@astryxdesign/core/Dialog';
@@ -18,7 +14,6 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Layout, LayoutContent } from '@astryxdesign/core/Layout';
-import { Markdown } from '@astryxdesign/core/Markdown';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
@@ -36,9 +31,9 @@ import {
 	IconVideo,
 	IconVideoOff,
 } from '@tabler/icons-react';
-import { type ReactNode, useEffect, useLayoutEffect, useRef } from 'react';
+import { Fragment, type ReactNode, useEffect, useLayoutEffect, useRef } from 'react';
 import type { LiveProfileInterface } from '@theoremjs/agents/interface';
-import { type LiveCaptionState, type LiveCaptionTurn, liveCaptionLines } from '../client/live/live-captions.ts';
+import { liveCaptionBlocks, liveCaptionStreaming } from '../client/live/live-captions.ts';
 import type { LiveConnection } from '../client/live-client.ts';
 import type { LiveToolGatePrompt } from '../client/live/live-tool.ts';
 import type { LiveFacingMode } from '../client/live/live-video.ts';
@@ -46,7 +41,7 @@ import type { ToolGateResolution } from '../client/tool-resume.ts';
 import { InkWaveform } from '../components/InkWaveform.tsx';
 import { useLiveRunnerModel } from '../components/live/use-live-runner-model.ts';
 import { NO_FOCUS_RING } from './ChatComposerBar.tsx';
-import { THOUGHT_MARKDOWN } from './ChatTranscript.tsx';
+import { ChatTranscript } from './ChatTranscript.tsx';
 import { liveStateLabel, type TheoremLabels } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { SidePanel, SidePanelHeader, SidePanelToggle, useSidePanel } from './SidePanel.tsx';
@@ -142,12 +137,7 @@ function LiveRunnerBody({ iface, connection, trace }: Pick<LiveRunnerProps, 'ifa
 				<Layout
 					ref={layoutRef}
 					height="fill"
-					header={
-						<SidePanelHeader>
-							{captionsToggle}
-							{inspector.toggle}
-						</SidePanelHeader>
-					}
+					header={<SidePanelHeader>{inspector.toggle}</SidePanelHeader>}
 					content={
 						<LayoutContent padding={0}>
 							<Layout
@@ -160,7 +150,7 @@ function LiveRunnerBody({ iface, connection, trace }: Pick<LiveRunnerProps, 'ifa
 								content={
 									<LayoutContent padding={0}>
 										<VStack height="100%" paddingInline={3} paddingBlockEnd={3}>
-											<LiveStage model={model} />
+											<LiveStage model={model} captionsToggle={captionsToggle} />
 										</VStack>
 									</LayoutContent>
 								}
@@ -222,7 +212,7 @@ function LiveLanding({ model }: { model: LiveModel }) {
  * The agent tag and state over the resting waveform, then the call controls,
  * all in one column the waveform's width.
  */
-function LiveStage({ model }: { model: LiveModel }) {
+function LiveStage({ model, captionsToggle }: { model: LiveModel; captionsToggle: ReactNode }) {
 	const t = useLabels();
 	const ref = useEnterMotion<HTMLElement>();
 	return (
@@ -258,7 +248,7 @@ function LiveStage({ model }: { model: LiveModel }) {
 						</VStack>
 					</VStack>
 				</StackItem>
-				<LiveControls model={model} />
+				<LiveControls model={model} captionsToggle={captionsToggle} />
 			</VStack>
 		</VStack>
 	);
@@ -287,10 +277,10 @@ function useEnterMotion<T extends HTMLElement>() {
 }
 
 /**
- * Mic, camera, text and call controls, centred under the stage. Icons show
+ * Mic, camera, captions and call controls, centred under the stage. Icons show
  * what a click does, as End call does: a slash means "turn this off".
  */
-function LiveControls({ model }: { model: LiveModel }) {
+function LiveControls({ model, captionsToggle }: { model: LiveModel; captionsToggle: ReactNode }) {
 	const t = useLabels();
 	const inactive = !model.sessionActive;
 	const controls: ReactNode[] = [];
@@ -343,6 +333,7 @@ function LiveControls({ model }: { model: LiveModel }) {
 		}
 	}
 	controls.push(
+		<Fragment key="captions">{captionsToggle}</Fragment>,
 		model.canRestart ? (
 			<IconButton
 				key="call"
@@ -381,12 +372,11 @@ function LiveControls({ model }: { model: LiveModel }) {
 }
 
 /**
- * Captions as a chat column: committed turns, then the interim lines still
- * being heard, and the text composer in its dock when the profile takes text.
+ * Captions drawn by the chat's own transcript, with the text composer in its
+ * dock when the profile takes text.
  */
 function LiveCaptions({ model }: { model: LiveModel }) {
 	const t = useLabels();
-	const { interimAgent } = model.captions;
 	const agentName = t('@theorem.agent.handle', { handle: model.handle });
 	const composer = model.textAvailable ? (
 		<ChatComposer
@@ -401,15 +391,7 @@ function LiveCaptions({ model }: { model: LiveModel }) {
 		/>
 	) : null;
 
-	const messages = [
-		...model.pastCalls.flatMap((turns, call) => [
-			...captionTurnMessages(turns, `${String(call)}:`, agentName),
-			<ChatSystemMessage key={`session-${String(call + 1)}`} variant="divider">
-				{t('@theorem.live.new_session')}
-			</ChatSystemMessage>,
-		]),
-		...captionMessages(model.captions, agentName),
-	];
+	const blocks = liveCaptionBlocks(model.pastCalls, model.captions);
 
 	// The empty state goes in ChatLayout's slot, which centres it; the list's
 	// own slot sits under its bottom-align spacer. ChatLayout flexes to fill the
@@ -430,40 +412,12 @@ function LiveCaptions({ model }: { model: LiveModel }) {
 					/>
 				}
 			>
-				{messages.length > 0 ? (
-					<ChatMessageList isStreaming={interimAgent !== ''}>{messages}</ChatMessageList>
+				{blocks.length > 0 ? (
+					<ChatTranscript blocks={blocks} handle={agentName} streaming={liveCaptionStreaming(model.captions)} />
 				) : null}
 			</ChatLayout>
 		</VStack>
 	);
-}
-
-/** The current call's committed turns, then the lines still being heard. */
-function captionMessages({ turns, interimUser, interimAgent }: LiveCaptionState, agentName: string): ReactNode[] {
-	const lines = [...turns];
-	if (interimUser) lines.push({ id: 'interim-user', role: 'user', text: interimUser });
-	if (interimAgent) lines.push({ id: 'interim-agent', role: 'agent', text: interimAgent });
-	return captionTurnMessages(lines, '', agentName);
-}
-
-function captionTurnMessages(turns: readonly LiveCaptionTurn[], keyPrefix: string, agentName: string): ReactNode[] {
-	return liveCaptionLines(turns).map((line) => {
-		const key = `${keyPrefix}${line.id}`;
-		return line.role === 'user' ? (
-			<ChatMessage key={key} sender="user">
-				<ChatMessageBubble>{line.text}</ChatMessageBubble>
-			</ChatMessage>
-		) : (
-			<ChatMessage key={key} sender="assistant" name={agentName}>
-				{line.thought === undefined ? null : (
-					<Markdown density="compact" components={THOUGHT_MARKDOWN}>
-						{line.thought}
-					</Markdown>
-				)}
-				{line.text === undefined ? null : <Text>{line.text}</Text>}
-			</ChatMessage>
-		);
-	});
 }
 
 /**

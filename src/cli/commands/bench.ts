@@ -62,8 +62,6 @@ function registerBenchProfile(): void {
     inputs: { text: true },
     guardrails: {
       canary: true,
-      sanitizeInput: true,
-      redactSensitive: true,
     },
   });
 }

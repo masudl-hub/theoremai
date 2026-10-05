@@ -25,7 +25,13 @@ import {
   resolveEgressChecks,
   type UrlCheck,
 } from '../src/guardrails/egress.ts';
-import { SENSITIVE_GROUPS, type SensitiveGroups } from '../src/guardrails/sensitive.ts';
+import { BOUNDARIES, type Boundary, TOOL_BOUNDARIES } from '../src/guardrails/boundaries.ts';
+import {
+  DETECT_DEFAULTS,
+  DETECTORS,
+  type DetectAction,
+  type DetectSpec,
+} from '../src/guardrails/detectors.ts';
 import type { DecisionProfileDefinition, HostProfileDefinition } from '../src/kernel/mod.ts';
 import { outOfScopeFields } from '../src/kernel/profile-scope.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
@@ -1018,11 +1024,8 @@ function compileUrlCheck(
 /** The checks that differ from the bundled defaults: `true` when none does, `false` when all are off. */
 function compileEgressChecks(draft: EgressChecksDraft, report: Report): boolean | EgressChecks {
   const defaults: ResolvedEgressChecks = resolveEgressChecks();
-  const sensitive = compileRedactSensitive(draft.sensitive, defaults.sensitive);
   const checks: EgressChecks = {
-    ...(sensitive === undefined ? {} : { sensitive }),
     ...(draft.boundary === defaults.boundary ? {} : { boundary: draft.boundary }),
-    ...(draft.injection === defaults.injection ? {} : { injection: draft.injection }),
   };
   const images = compileUrlCheck('images', draft.images, defaults.images, report);
   const links = compileUrlCheck('links', draft.links, defaults.links, report);
@@ -1030,34 +1033,38 @@ function compileEgressChecks(draft: EgressChecksDraft, report: Report): boolean 
   if (links !== undefined) checks.links = links;
   const problem = egressChecksProblem('Egress checks', checks);
   if (problem !== undefined) report('guardrails', problem, 'egressChecks');
-  const allOff =
-    sensitive === false && !draft.boundary && !draft.injection && !draft.images.on && !draft.links.on;
-  if (allOff) return false;
+  if (!draft.boundary && !draft.images.on && !draft.links.on) return false;
   return Object.keys(checks).length ? checks : true;
 }
 
-/** The groups that differ from the defaults; `false` when every group is off. */
-function compileRedactSensitive(
-  groups: SensitiveGroups,
-  defaults: SensitiveGroups,
-): ProfileGuardrailsSpec['redactSensitive'] {
-  if (SENSITIVE_GROUPS.every((group) => !groups[group])) return false;
-  const changed = SENSITIVE_GROUPS.filter((group) => groups[group] !== defaults[group]);
-  return changed.length === 0
-    ? undefined
-    : Object.fromEntries(changed.map((group) => [group, groups[group]]));
+/** The actions that differ from the defaults, at the boundaries the profile has. */
+function compileDetect(
+  detect: GuardrailsDraft['detect'],
+  boundaries: readonly Boundary[],
+): DetectSpec | undefined {
+  const spec: Partial<Record<string, Partial<Record<Boundary, DetectAction>>>> = {};
+  for (const detector of DETECTORS) {
+    const changed = boundaries.filter(
+      (boundary) => detect[detector][boundary] !== DETECT_DEFAULTS[detector][boundary],
+    );
+    if (changed.length) {
+      spec[detector] = Object.fromEntries(
+        changed.map((boundary) => [boundary, detect[detector][boundary]]),
+      );
+    }
+  }
+  return Object.keys(spec).length ? spec : undefined;
 }
 
 function compileGuardrails(
   guardrails: GuardrailsDraft,
   report: Report,
+  boundaries: readonly Boundary[] = BOUNDARIES,
 ): ProfileGuardrailsSpec | undefined {
   const defaults = resolveGuardrailPolicy(undefined);
   const parts: ProfileGuardrailsSpec = {
     canary: compileCanary(guardrails),
-    sanitizeInput:
-      guardrails.sanitizeInput !== defaults.sanitizeInput ? guardrails.sanitizeInput : undefined,
-    redactSensitive: compileRedactSensitive(guardrails.redactSensitive, defaults.redactSensitive),
+    detect: compileDetect(guardrails.detect, boundaries),
     quota: compileQuota(guardrails, report),
     promptEcho: guardrails.promptEcho !== defaults.promptEcho ? guardrails.promptEcho : undefined,
     egress: compileEgress(guardrails, report),
@@ -1559,7 +1566,7 @@ function compileHost(
     report('tools', 'Add at least one tool: a host runs only its tools.');
   }
   const guardrails = facets.has('guardrails')
-    ? compileGuardrails(draft.guardrails, report)
+    ? compileGuardrails(draft.guardrails, report, TOOL_BOUNDARIES)
     : undefined;
   const profile = omitOutOfScope({
     type: 'host',

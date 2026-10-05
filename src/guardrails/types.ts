@@ -6,7 +6,6 @@ import type { EgressChecks } from './egress.ts';
 import type { GivenUrls } from './egress-urls.ts';
 import type { GuardrailEvent, GuardrailHit, Provenance } from './event-schemas.ts';
 import type { LexiconOverrides } from './lexicon.ts';
-import type { SensitiveGroups, SensitiveSelection } from './sensitive.ts';
 
 export type { GuardrailEvent, GuardrailHit, Provenance };
 
@@ -258,13 +257,6 @@ export interface ProfileGuardrailsSpec {
    * its default (`DETECT_DEFAULTS`).
    */
   detect?: DetectSpec;
-  sanitizeInput?: boolean;
-  /**
-   * Redact sensitive data from untrusted text before the model reads it:
-   * `true` (the default) every group, `false` none, an object the groups it
-   * switches, the rest on (`ids`, `financial`, `network`, `credentials`).
-   */
-  redactSensitive?: SensitiveSelection;
   egress?: ProfileEgressSpec;
   network?: NetworkGuardrailSpec;
   taint?: TaintGuardrailSpec;
@@ -294,8 +286,6 @@ export interface DecisionGuardrailsSpec extends Partial<ProfileGuardrailsSpec> {
 /** The guardrail field names a `host` profile may set. */
 export const HOST_GUARDRAIL_FIELDS = [
   'detect',
-  'sanitizeInput',
-  'redactSensitive',
   'network',
 ] as const satisfies readonly (keyof ProfileGuardrailsSpec)[];
 
@@ -309,8 +299,6 @@ export type HostGuardrailsSpec = Pick<
 export interface ResolvedGuardrailPolicy {
   /** Every detector's action at every boundary. */
   detect: ResolvedDetect;
-  sanitizeInput: boolean;
-  redactSensitive: SensitiveGroups;
   canary: boolean;
   promptEcho: boolean;
   /** `checks` resolved to the bundled policy's `enforce`. */

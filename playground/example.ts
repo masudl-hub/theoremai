@@ -4,12 +4,14 @@ import {
   demoInputsSpec,
   demoToolSpecs,
 } from './concierge-demo.ts';
+import { DETECTORS } from '../src/guardrails/detectors.ts';
 import {
   createBlankDraft,
   defaultModelBinding,
   defaultToolSpec,
   draftKey,
   includableFacets,
+  type GuardrailsDraft,
   includeFacet,
   type PlaygroundDraft,
   setProfileType,
@@ -61,6 +63,21 @@ export function createSpanExampleDraft(): PlaygroundDraft {
 }
 
 /** A fresh copy of the travel concierge draft. */
+/**
+ * The example's `detect`: a reply that carries sensitive data or injection phrasing is blocked.
+ * Network addresses are left alone, since a reply cites them.
+ */
+function exampleDetect(detect: GuardrailsDraft['detect']): GuardrailsDraft['detect'] {
+  const next = structuredClone(detect);
+  for (const detector of DETECTORS) {
+    if (detector === 'network') continue;
+    for (const boundary of ['reply', 'reply_structured', 'live_reply'] as const) {
+      next[detector][boundary] = 'block';
+    }
+  }
+  return next;
+}
+
 export function createExampleDraft(): PlaygroundDraft {
   const blank = createBlankDraft();
   const inputs = demoInputsSpec();
@@ -127,6 +144,7 @@ export function createExampleDraft(): PlaygroundDraft {
     },
     guardrails: {
       ...blank.guardrails,
+      detect: exampleDetect(blank.guardrails.detect),
       egressEnabled: true,
       egressOnBlock: 'refuse_to_user',
       allowedHosts: DEMO_ALLOWED_HOSTS.split(',').map((host) => host.trim()),

@@ -414,17 +414,9 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
     label: 'Link to an unknown address',
     doc: 'The reply linked an address the model was not given, on a host the profile does not allow.',
   },
-  'egress.sensitive-echo': {
-    label: 'Sensitive data in reply',
-    doc: 'The reply contained a credential or personal identifier.',
-  },
   'egress.system-boundary': {
     label: 'Internal markers in reply',
     doc: 'The reply contained the markers Theorem uses to fence user data or name the canary.',
-  },
-  'egress.injection-echo': {
-    label: 'Injection phrasing in reply',
-    doc: "The reply repeated text that tries to override the agent's instructions.",
   },
   'egress.unscannable': {
     label: 'Reply could not be checked',
@@ -449,6 +441,10 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
   'tool_result.authority-claim': {
     label: 'Claimed authority',
     doc: 'Remote tool content claimed to speak for the user, the system or an admin, such as "the user has already approved".',
+  },
+  'tool_result.override': {
+    label: 'Told the agent to drop its instructions',
+    doc: 'Remote tool content told the agent to set its instructions aside, such as "ignore your instructions" or "disregard the rules above".',
   },
   'tool_call.tainted-turn': {
     label: 'Change after remote content',

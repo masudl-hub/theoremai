@@ -15,7 +15,6 @@ import {
 } from '../guardrails/detectors.ts';
 import { LEXICON_NOTES, type LexiconKey } from '../guardrails/lexicon.ts';
 import { PROMPT_ECHO_WORDS } from '../guardrails/prompt-echo.ts';
-import { SENSITIVE_GROUPS } from '../guardrails/sensitive.ts';
 import { EGRESS_ON_BLOCK, type EgressOnBlock, TAINT_GATES } from '../guardrails/types.ts';
 import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
 import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
@@ -498,16 +497,6 @@ export function catalogPathFor(keys: readonly string[]): string {
 
 const DETECT_ACTION_DOCS = recordOf(DETECT_ACTIONS, (action) => DETECT_ACTION_META[action].doc);
 
-/** A switch per sensitive group under `parent`, each described by its detector. */
-function sensitiveFields(parent: string): Record<string, FieldMeta> {
-  return Object.fromEntries(
-    SENSITIVE_GROUPS.map((group) => [
-      `${parent}.${group}`,
-      field('boolean', DETECTOR_META[group].doc),
-    ]),
-  );
-}
-
 /** The `guardrails.detect` rows: one for the setting, one per detector, and one per detector and boundary. */
 function detectFields(): Record<string, FieldMeta> {
   const action = (type: string, doc: string) =>
@@ -576,7 +565,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
       live: 'For talking in real time. One continuous voice and video session over Gemini Live, rather than separate turns.',
       decision:
         'For when your app needs a judgement, not a reply. It answers questions about a JSON state, each with a choice, a score or a number.',
-      host: 'A governed passthrough to your tool registry, with no model. It calls MCP, HTTP and in-app function tools under the same permissions and traces as any agent, guarded by sanitizeInput, redactSensitive and network.',
+      host: 'A governed passthrough to your tool registry, with no model. It calls MCP, HTTP and in-app function tools under the same permissions and traces as any agent, guarded by detect and network.',
     },
   ),
   identity: field(
@@ -973,7 +962,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'live.transcription.input': field('boolean', "Whether the user's speech is transcribed."),
   'live.transcription.output': field(
     'boolean',
-    "Whether the model's speech is transcribed; always on while the canary or egress.enforce is, since they read the transcript.",
+    "Whether the model's speech is transcribed; always on while the canary, egress.enforce or a detector at live_reply is, since they read the transcript.",
   ),
   'outputs.validation': field(
     'ProfileValidationSpec',
@@ -1063,15 +1052,6 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     `With the canary on, also stops a reply that repeats ${PROMPT_ECHO_WORDS} words in a row of the private system instruction, also when written backwards, in rot13 or in leetspeak. On by default; wrap the private lines as { private: text } so the plain ones may be quoted, or turn it off when the whole instruction may be.'`,
   ),
   ...detectFields(),
-  'guardrails.sanitizeInput': field(
-    'boolean',
-    "Replaces prompt-injection text in user input, slots, history, tool results and the turn's own system text before the model sees it.",
-  ),
-  'guardrails.redactSensitive': field(
-    'boolean | SensitiveSwitches',
-    "Replaces credentials and personal data in user input, slots, history, tool results and the turn's own system text before the model sees them. true (the default) covers every group, false none; an object turns groups off one by one.",
-  ),
-  ...sensitiveFields('guardrails.redactSensitive'),
   'guardrails.egress': field(
     'ProfileEgressSpec',
     'Your check on the reply before the user sees it.',
@@ -1084,18 +1064,9 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'boolean | EgressChecks',
     'The bundled checks on the reply, blocking on what they find. true runs each at its default, false none but the system-prompt leak checks, and an object switches the ones it names. Set exactly one of this and enforce.',
   ),
-  'guardrails.egress.checks.sensitive': field(
-    'boolean | SensitiveSwitches',
-    'Credentials and personal data in the reply, by group. Every group but network by default: an address in a reply is not a secret.',
-  ),
-  ...sensitiveFields('guardrails.egress.checks.sensitive'),
   'guardrails.egress.checks.boundary': field(
     'boolean',
     "The markers the kernel puts around user data, and the words of the canary note (the profile's canary.bind_note, or the default), repeated in the reply.",
-  ),
-  'guardrails.egress.checks.injection': field(
-    'boolean',
-    'Prompt-injection phrasing in the reply, as written or disguised.',
   ),
   'guardrails.egress.checks.images': field(
     'boolean | UrlCheck',

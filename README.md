@@ -243,7 +243,7 @@ Theorem scans each piece of text according to where it came from.
 | `assembled` | `TurnRequest.system`, built by your code per turn | Full scan |
 | `untrusted` | User text, history, slots, attachments, steering, stage injections | Full injection and sensitive-data scan |
 
-- **Coming in.** `sanitizeInput` neutralizes prompt-injection patterns. `redactSensitive` masks secrets and personal data before the model sees them.
+- **Coming in.** `detect` replaces prompt-injection phrasing, secrets and personal data with a placeholder before the model sees them.
 - **Going out.** A **canary** is a secret token that Theorem hides in the system prompt. If the token appears in a reply, the prompt leaked, and Theorem stops the reply. `promptEcho` also stops a reply that repeats 12 words of the prompt. `egress` checks every outbound payload and can send the model back to repair its answer.
 - **Tool results.** Remote content is data. Theorem fences it, scans it, and refuses destructive calls after a remote read when `taint.afterRemoteRead` is set.
 - **Network.** HTTP and MCP targets must pass `network.allowedHosts`. Theorem refuses private and metadata addresses by default.

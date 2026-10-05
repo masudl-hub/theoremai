@@ -210,7 +210,7 @@ Deno.test('a system role picks its own prompt, falls back to the profile prompt,
 
 Deno.test("the profile prompt is the host's own text, so the profile guardrails do not redact it", () => {
   const probe = `mail ops@example.com, key ${TEST_OPENAI_KEY}`;
-  const guardrails = { sanitizeInput: true, redactSensitive: true };
+  const guardrails = {};
   const policy = resolveGuardrailPolicy(guardrails as never);
   check(
     detectAt(probe, 'user', policy.detect).text !== probe,

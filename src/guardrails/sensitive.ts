@@ -140,11 +140,6 @@ function resolveSensitive(
   return { ...defaults, ...selection };
 }
 
-/** Whether any group runs. */
-function anySensitive(groups: SensitiveGroups): boolean {
-  return SENSITIVE_GROUPS.some((group) => groups[group]);
-}
-
 const LUHN_DOUBLE = 2;
 const LUHN_NINE = 9;
 const LUHN_TEN = 10;
@@ -210,12 +205,4 @@ export type {
   SensitiveSelection,
   SensitiveSwitches,
 };
-export {
-  anySensitive,
-  CARD_CANDIDATE,
-  cardHit,
-  resolveSensitive,
-  SENSITIVE_GROUPS,
-  SENSITIVE_PATTERNS,
-  sensitiveSpans,
-};
+export { CARD_CANDIDATE, cardHit, SENSITIVE_GROUPS, SENSITIVE_PATTERNS, sensitiveSpans };

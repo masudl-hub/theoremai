@@ -213,7 +213,7 @@ Deno.test('runSession sendText frames sanitized realtime input when text ingress
     },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow: [] },
-    guardrails: { sanitizeInput: true, redactSensitive: true },
+    guardrails: {},
   });
   registerProfile(profile);
 
@@ -256,7 +256,7 @@ Deno.test('runSession sendContext frames silent clientContent, guarded, without 
     models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'main' } },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow: [] },
-    guardrails: { sanitizeInput: true, redactSensitive: true },
+    guardrails: {},
   });
   registerProfile(profile);
 

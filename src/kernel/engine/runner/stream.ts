@@ -1,4 +1,7 @@
+import type { Boundary } from '../../../guardrails/boundaries.ts';
 import { isStreamedCanaryEvent, type StreamedReplyEvent } from '../../../guardrails/canary.ts';
+import { type Detection, detectEvent } from '../../../guardrails/detect-at.ts';
+import { TURN_REPLY } from '../../../guardrails/detect-reply.ts';
 import {
   CANARY_HIT,
   eventPromptLeakHits,
@@ -8,12 +11,13 @@ import {
 } from '../../../guardrails/egress.ts';
 import type { GivenUrls } from '../../../guardrails/egress-urls.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
-import { guardrailFromHits } from '../../../guardrails/events.ts';
+import { guardrailFromHits, guardrailTurnEvent } from '../../../guardrails/events.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import {
   createOutboundProgressiveGate,
   type ProgressiveYieldGate,
   type ProgressiveYieldResult,
+  replyIsJudged,
 } from '../../../guardrails/progressive-yield.ts';
 import {
   type ThoughtGuard,
@@ -80,11 +84,24 @@ function* yieldDeltaBlock(hits: GuardrailHit[]): Generator<StreamEvent> {
   }
 }
 
-/** What the guard released, after the event saying what it omitted from it. */
+/** What `guardrails.detect` found at `boundary` in text released as it streamed. */
+function* yieldDetected(
+  boundary: Boundary,
+  found: Pick<Detection, 'action' | 'hits'> | undefined,
+): Generator<StreamEvent> {
+  const event = found && detectEvent(boundary, found, undefined, STREAMED_STAGE[boundary]);
+  if (event) yield guardrailTurnEvent(event);
+}
+
+/** The stage a boundary reports under while its text streams, where that is not its own. */
+const STREAMED_STAGE: Partial<Record<Boundary, 'output_delta'>> = { reply: 'output_delta' };
+
+/** What the guard released, after the events saying what was found in it and omitted from it. */
 function* yieldThought(
-  { text, hits }: ThoughtRelease,
+  { text, hits, found }: ThoughtRelease,
   event: StreamEvent & { type: 'thought' },
 ): Generator<StreamEvent> {
+  yield* yieldDetected('thought', found);
   const guardrail = guardrailFromHits('thought', 'untrusted', hits, 'redact');
   if (guardrail) yield guardrail;
   if (text) yield { ...event, text };
@@ -106,7 +123,7 @@ function isWithheldOnBlock(event: ProviderEvent): boolean {
 }
 
 function canaryOnlyImmediateStop(policy: ResolvedGuardrailPolicy): boolean {
-  return !policy.egress?.enforce;
+  return !replyIsJudged(policy, TURN_REPLY);
 }
 
 interface StreamArgs {
@@ -164,9 +181,10 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
   const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(
     policy,
     context,
+    'reply',
     canaryCarry,
   );
-  const thoughts = thoughtGuardFor(policy.egress?.enforce, context, thoughtCarry);
+  const thoughts = thoughtGuardFor(policy, context, thoughtCarry);
   /** The streamed event whose reply sits in the gate's lookback; released tails keep its shape. */
   let pendingStream: StreamedReplyEvent | null = null;
   let withholdVisible = false;
@@ -213,7 +231,7 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
 
   /**
    * Act on one gate step: release what it cleared, or block — stopping the turn
-   * when no host policy decides later, otherwise withholding for its verdict.
+   * when nothing judges the reply later, otherwise withholding for that verdict.
    */
   async function* releaseOrBlock(
     result: ProgressiveYieldResult,
@@ -225,9 +243,11 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
         return 'stop';
       }
       recordPromptLeak(result.hits);
-      yield* drainBlockedDelta(result.hits, template);
+      // why: A detector's stop is reported once, by the verdict on the whole reply.
+      yield* drainBlockedDelta(result.boundary ? [] : result.hits, template);
       return 'go';
     }
+    yield* yieldDetected('reply', result.found);
     if (result.emit) {
       yield { ...template, text: result.emit };
     }

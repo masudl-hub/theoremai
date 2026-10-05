@@ -71,7 +71,7 @@ A `Profile` binds:
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
 | `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`) on `text` / `image` / `speech`; `allowSteering` on **text and live** (inject gate via `profileAllowsInject`; see [`stages.md`](stages.md)). Live must omit `turnBehaviour.resumption` (use `live.sessionResumption`) |
-| `guardrails` | Quota, canary, prompt echo, sanitize, redact, egress, network, taint — on `host` narrowed to `HostGuardrailsSpec` (`sanitizeInput`, `redactSensitive`, `network`); on `decision`, only pre-dispatch `disclosure` is active. A guarded `live` profile (canary or `egress.enforce`) always requests its output transcript: `resolveTurn` sets `live.transcription.output` |
+| `guardrails` | Quota, canary, prompt echo, detect, egress, network, taint — on `host` narrowed to `HostGuardrailsSpec` (`detect`, `network`); on `decision`, only pre-dispatch `disclosure` is active. A guarded `live` profile (canary or `egress.enforce`) always requests its output transcript: `resolveTurn` sets `live.transcription.output` |
 | `observability` | Trace destination, scrub, include, sampling (`writeTo`, `sampleRate`, …) |
 
 Closed unions (`protocol`, `provider`, `thinking`, stop kinds, turn stages,
@@ -749,7 +749,7 @@ unchanged.
 
 `guardrails` on a host profile is `HostGuardrailsSpec` — a `Pick` of the one
 guardrail vocabulary, not a second hierarchy. It carries only the switches that
-fire on the `invokeTool` path: `sanitizeInput` and `redactSensitive` (the
+fire on the `invokeTool` path: `detect` (the
 detectors run over model-supplied arguments, tool result text, and tool failure
 text), `network` (SSRF clearance for declarative HTTP and MCP targets), and
 `taint` (the confused-deputy gate, plus its advisory guidance on fenced remote
@@ -762,7 +762,7 @@ host profile never enters.
 | Block | On host? | Notes |
 | --- | --- | --- |
 | `tools` | yes | `{ allow: ToolId[] }` — registered custom tools (`function`, `http`, `mcp`; `HostProfileToolsSpec`); builtins are rejected |
-| `guardrails` | optional | `HostGuardrailsSpec` only — `sanitizeInput`, `redactSensitive`, `network` |
+| `guardrails` | optional | `HostGuardrailsSpec` only — `detect`, `network` |
 | `observability` | optional | Same shape as every other profile |
 | `models` / `identity` / `inputs` / `outputs` / `turnBehaviour` / `key` / `maxSteps` | **no** | `registerProfile` rejects them when supplied |
 
@@ -847,7 +847,7 @@ Profile `guardrails`:
 | --- | --- |
 | `quota` | Host HTTP helper only (`@theoremjs/agents/guardrails`); not enforced inside `runTurn` |
 | `canary` | Canary token at the end of the system prompt, the same for the same prompt; egress checks leakage unless the model was given it this turn |
-| `sanitizeInput` / `redactSensitive` | Pre-provider text/blob scrub |
+| `detect` | What each detector does with a match at each boundary: `ignore`, `flag`, `redact` or `block` |
 | `egress` | Exactly one of `checks` (the bundled checks: `true`, `false` or `EgressChecks`) or a host `enforce` hook; `onBlock`: `reject_to_agent` or `refuse_to_user`; `maxRetries`; `holdback` (host enforce only: mid-stream lookback, default 256; 96 on Live; the bundled policy holds exactly and rejects it); repair guidance is the lexicon's `egress.default_repair_guidance` |
 
 ## Compaction
@@ -942,7 +942,7 @@ registerProfile(defineProfile({
   tools: { allow: [] },
   inputs: { text: true },
   outputs: { structured: "my.summary.schema" },
-  guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
+  guardrails: { canary: false, detect: 'ignore' },
 }));
 ```
 

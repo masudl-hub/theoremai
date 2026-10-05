@@ -126,7 +126,7 @@ function remoteAgent(profile: TextProfile): PlaygroundDependency {
       id: REMOTE_AGENT,
       identity: { handle: 'probe', system: '' },
       tools: { allow: [LOCAL_TOOL] },
-      guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
+      guardrails: { canary: false, detect: 'ignore' },
     },
     customTools: [probeTool(LOCAL_TOOL, 'read-only')],
   };

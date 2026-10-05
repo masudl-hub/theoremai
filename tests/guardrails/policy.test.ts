@@ -7,7 +7,6 @@ import {
   standardEgressEnforce,
 } from '../../src/guardrails/egress.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
-import { resolveSensitive } from '../../src/guardrails/sensitive.ts';
 import type { Verdict } from '../../src/guardrails/types.ts';
 import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -17,38 +16,11 @@ import type { ModelProvider } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const OMITTED_INJECTION = '[omitted - injection]';
-const ALL = resolveSensitive(true);
-const NONE = resolveSensitive(false);
 
-Deno.test('resolveGuardrailPolicy: sanitize, redact, and canary default on', () => {
-  const policy = resolveGuardrailPolicy(undefined);
-  assertEquals(policy.sanitizeInput, true);
-  assertEquals(policy.redactSensitive, ALL);
-  assertEquals(policy.canary, true);
-});
-
-Deno.test('resolveGuardrailPolicy: explicit false is preserved', () => {
-  const policy = resolveGuardrailPolicy({
-    sanitizeInput: false,
-    redactSensitive: false,
-    canary: false,
-  });
-  assertEquals(policy.sanitizeInput, false);
-  assertEquals(policy.redactSensitive, NONE);
-  assertEquals(policy.canary, false);
-});
-
-/**
- * Regression: Live ingress resolved `guardrails?.sanitizeInput === true` while the
- * turn path resolved `?? true`, so a profile that omitted the switch was sanitized
- * on one path and not the other. Both now route through `resolveGuardrailPolicy`.
- *
- * The `chat` fixture declares `guardrails` but omits `sanitizeInput`, which is
- * exactly the case that diverged.
- */
-Deno.test('Live ingress and the turn path agree when a switch is omitted', () => {
+/** The `chat` fixture declares `guardrails` and leaves `detect` out. */
+Deno.test('Live ingress and the turn path agree when detect is left out', () => {
   const profile = getProfile('chat');
-  assertEquals(profile.guardrails?.sanitizeInput, undefined);
+  assertEquals(profile.guardrails?.detect, undefined);
 
   const live = prepareLiveInboundText(profile, INJ_IGNORE);
   const turn = detectAt(INJ_IGNORE, 'user', resolveGuardrailPolicy(profile.guardrails).detect);
@@ -88,7 +60,7 @@ Deno.test('identity.system reaches the provider verbatim; req.system does not', 
       tools: { allow: [] },
       inputs: { text: true },
       outputs: {},
-      guardrails: { quota: { perDay: 50 }, sanitizeInput: true },
+      guardrails: { quota: { perDay: 50 } },
     }),
   );
 
@@ -132,24 +104,6 @@ Deno.test('Verdict is exhaustively handled', () => {
   assertEquals(describeVerdict({ action: 'block', hits, rejection: 'nope' }), 'block:nope');
 });
 
-Deno.test('redactSensitive redacts the groups a profile picks, and only those', () => {
-  const text = 'SSN 123-45-6789 at 10.2.3.4, key AKIAT4GZ2WQX6KJ3NB7V';
-  const policy = resolveGuardrailPolicy({
-    redactSensitive: { network: false, credentials: false },
-  });
-  assertEquals(policy.redactSensitive, {
-    ids: true,
-    financial: true,
-    network: false,
-    credentials: false,
-  });
-  const redacted = detectAt(text, 'user', policy.detect).text ?? '';
-  assertEquals(
-    ['123-45-6789', '10.2.3.4', 'AKIAT4GZ2WQX6KJ3NB7V'].map((part) => redacted.includes(part)),
-    [false, true, true],
-  );
-});
-
 Deno.test('egress checks resolve to the bundled policy they select, once per spec', () => {
   const egress = { checks: { links: true }, onBlock: 'refuse_to_user' as const };
   const resolved = resolveGuardrailPolicy({ egress }).egress;
@@ -158,7 +112,7 @@ Deno.test('egress checks resolve to the bundled policy they select, once per spe
   assertEquals(egressChecksOf(resolved?.enforce), resolveEgressChecks({ links: true }));
   assertEquals(resolveGuardrailPolicy({ egress }).egress?.enforce, resolved?.enforce);
   const off = resolveGuardrailPolicy({ egress: { checks: false } }).egress?.enforce;
-  assertEquals(egressChecksOf(off)?.injection, false);
+  assertEquals(egressChecksOf(off)?.boundary, false);
   const host = () => ({ action: 'allow' as const });
   assertEquals(resolveGuardrailPolicy({ egress: { enforce: host } }).egress?.enforce, host);
   assertEquals(egressChecksOf(host), undefined);

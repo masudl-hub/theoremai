@@ -6,9 +6,8 @@ import {
   credentialSpans,
   shannonEntropy,
 } from '../../src/guardrails/credential-scan.ts';
-import { resolveEgressChecks } from '../../src/guardrails/egress.ts';
-import { createEgressStream } from '../../src/guardrails/egress-stream.ts';
 import { sensitiveSpans } from '../../src/guardrails/sensitive.ts';
+import { replyStream } from '../fixtures/detect.ts';
 
 const NONE: CredentialAllowlist = { target: 'secret', regexes: [], stopwords: [] };
 
@@ -22,10 +21,10 @@ function found(text: string, credential: CredentialRule, global = NONE): string[
   );
 }
 
-/** Whether the bundled egress stream stops `text`, fed a character at a time. */
+/** Whether the stream scanner settles a `credentials` match in `text`, fed a character at a time. */
 function streamBlocks(text: string): boolean {
-  const stream = createEgressStream({ checks: resolveEgressChecks({}) });
-  return [...text].some((char) => stream.push(char) !== undefined);
+  const stream = replyStream({}, ['credentials']);
+  return [...text].some((char) => stream.push(char).length > 0);
 }
 
 const AWS_KEY = ['AKIA', 'T4GZ2WQX6KJ3NB7V'].join('');

@@ -1,6 +1,7 @@
 import { mintCanary } from '../../guardrails/canary.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
+import { replyIsJudged } from '../../guardrails/progressive-yield.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
 import { profileTurnResumption } from '../stop.ts';
 import { projectTools } from '../tools/project.ts';
@@ -219,15 +220,16 @@ function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
 }
 
 /**
- * A guarded Live profile (canary or `egress.enforce`) always transcribes its
- * own speech: the outbound gate can only check audio through its transcript.
+ * A guarded Live profile (canary, `egress.enforce`, or a detector reading
+ * `live_reply`) always transcribes its own speech: the outbound gate can only
+ * check audio through its transcript.
  */
 function resolveLiveSpec(
   live: ProfileLiveSpec | undefined,
   guardrails: ModelProfile['guardrails'],
 ): ProfileLiveSpec | undefined {
   const policy = resolveGuardrailPolicy(guardrails);
-  if (!policy.canary && !policy.egress?.enforce) {
+  if (!policy.canary && !replyIsJudged(policy, ['live_reply'])) {
     return live;
   }
   return { ...live, transcription: { ...live?.transcription, output: true } };

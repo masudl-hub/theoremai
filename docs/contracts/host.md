@@ -7,7 +7,7 @@ structured-output preview without reimplementing it per route.
 Host-driven tool execution (MCP servers, web UIs, schedulers) does not live
 here: register a `type: 'host'` profile (`HostProfileDefinition` — `tools.allow`
 ceiling, optional `observability`, optional `guardrails` narrowed to
-`HostGuardrailsSpec` — `sanitizeInput`, `redactSensitive`, `network`;
+`HostGuardrailsSpec` — `detect`, `network`;
 quota / canary / egress / taint are refused because they guard a model turn — no models)
 and call
 `invokeTool({ profile, name, input, host })` from `@theoremjs/agents/kernel`. The `host`

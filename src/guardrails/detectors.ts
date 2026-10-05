@@ -106,14 +106,11 @@ function resolveRule(
   return { ...base, ...rule };
 }
 
-/** `spec` with everything it leaves out taken from `base`. */
-function resolveDetect(
-  spec: DetectSpec | undefined,
-  base: ResolvedDetect = DETECT_DEFAULTS,
-): ResolvedDetect {
-  if (spec === undefined) return base;
+/** `spec` with everything it leaves out at its default. */
+function resolveDetect(spec?: DetectSpec): ResolvedDetect {
+  if (spec === undefined) return DETECT_DEFAULTS;
   if (isAction(spec)) return recordOf(DETECTORS, () => recordOf(BOUNDARIES, () => spec));
-  return recordOf(DETECTORS, (detector) => resolveRule(spec[detector], base[detector]));
+  return recordOf(DETECTORS, (detector) => resolveRule(spec[detector], DETECT_DEFAULTS[detector]));
 }
 
 const ACTION_LIST = DETECT_ACTIONS.join(', ');

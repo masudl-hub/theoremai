@@ -52,7 +52,7 @@ export interface ProfileObservabilitySpec {
   /** Stamped on every record as `TraceRecord.resource`, e.g. `{ 'service.name': 'harbor' }`. */
   resource?: TraceAttributes;
 
-  /** Defaults stay on even when `guardrails.redactSensitive` is false. */
+  /** Defaults stay on even when `guardrails.detect` is `ignore`. */
   scrub?: TraceScrubSpec;
 
   /**

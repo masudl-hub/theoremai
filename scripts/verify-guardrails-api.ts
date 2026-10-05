@@ -83,8 +83,6 @@ function registerLiveProfile(
 ): void {
   const guardrails = {
     canary: true,
-    sanitizeInput: true,
-    redactSensitive: true,
     egress: {
       onBlock: 'refuse_to_user' as const,
       maxRetries: 0,

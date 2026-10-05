@@ -64,13 +64,6 @@ const outputs = z.object({
     .optional(),
 });
 
-const sensitiveGroups = z.object({
-  ids: z.boolean(),
-  financial: z.boolean(),
-  network: z.boolean(),
-  credentials: z.boolean(),
-});
-
 const detect = z.object(
   recordOf(DETECTORS, () => z.object(recordOf(BOUNDARIES, () => z.enum(DETECT_ACTIONS)))),
 );
@@ -84,14 +77,10 @@ const guardrails = z.object({
   quota: z.object({ perDay: z.number() }).optional(),
   canary: z.boolean(),
   detect,
-  sanitizeInput: z.boolean(),
-  redactSensitive: sensitiveGroups,
   hasEgress: z.boolean(),
   egressChecks: z
     .object({
-      sensitive: sensitiveGroups,
       boundary: z.boolean(),
-      injection: z.boolean(),
       images: urlCheck,
       links: urlCheck,
     })

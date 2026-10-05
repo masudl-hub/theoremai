@@ -28,9 +28,7 @@ export const EGRESS_RULES = {
    * ran before Theorem saw it: the data already left, so this is an incident.
    */
   providerToolLeak: 'egress.provider-tool-leak', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  sensitive: 'egress.sensitive-echo',
   boundary: 'egress.system-boundary',
-  injection: 'egress.injection-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /** An image loads a URL the model was not given, from a host not allowed. */
   image: 'egress.image-exfil', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /** A link goes to a URL the model was not given, on a host not allowed. */
@@ -47,6 +45,7 @@ export const DIRECTIVE_RULES = {
   toolName: 'tool_result.names-callable-tool',
   imperative: 'tool_result.imperative',
   authority: 'tool_result.authority-claim',
+  override: 'tool_result.override',
 } as const;
 
 /** A tool call refused for what the turn read before it. */

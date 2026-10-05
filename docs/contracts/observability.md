@@ -98,8 +98,8 @@ Sampling reads the low 32 bits of the root span's trace id (OpenTelemetry
 tool records, an `invokeTool` record and a host cutout that share one trace are
 therefore kept or dropped whole, in any process.
 
-`scrub` defaults stay on even when turn-path `guardrails.redactSensitive` is
-false: a host-confidential store must not accidentally inherit a debug-off
+`scrub` defaults stay on even when turn-path `guardrails.detect` is
+`ignore`: a host-confidential store must not accidentally inherit a debug-off
 switch.
 
 ### Resolution order

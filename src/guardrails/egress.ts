@@ -5,18 +5,9 @@ import { notePattern, SYSTEM_BOUNDARY } from './egress-patterns.ts';
 import { type GivenUrls, imageLeakSpans, linkLeakSpans, type UrlScope } from './egress-urls.ts';
 import { describeError } from './error.ts';
 import { hitFromSpan } from './hits.ts';
-import { injectionSpans } from './injection.ts';
 import { lexiconText } from './lexicon.ts';
 import { scanTextForPromptEcho } from './prompt-echo.ts';
 import { EGRESS_RULES } from './rules.ts';
-import {
-  anySensitive,
-  resolveSensitive,
-  SENSITIVE_GROUPS,
-  type SensitiveGroups,
-  type SensitiveSelection,
-  sensitiveSpans,
-} from './sensitive.ts';
 import { textForScan } from './serialize.ts';
 import type {
   EgressEnforcer,
@@ -154,16 +145,8 @@ interface UrlCheck {
  * `guardrails.promptEcho` switch those, and they run under any policy.
  */
 interface EgressChecks {
-  /**
-   * Sensitive data in the reply, by group. Default every group but `network`:
-   * an address in a reply is not a secret, and replies explaining networks
-   * cite them.
-   */
-  sensitive?: SensitiveSelection;
   /** The fence the kernel puts around user data, and the canary's note. Default on. */
   boundary?: boolean;
-  /** Injection phrasing in the reply, as written or disguised. Default on. */
-  injection?: boolean;
   /** Images that load a URL the model was not given. Default on. */
   images?: boolean | UrlCheck;
   /**
@@ -176,19 +159,10 @@ interface EgressChecks {
 
 /** `EgressChecks` with defaults applied; a URL check is undefined when off. */
 interface ResolvedEgressChecks {
-  sensitive: SensitiveGroups;
   boundary: boolean;
-  injection: boolean;
   images?: UrlCheck;
   links?: UrlCheck;
 }
-
-const EGRESS_SENSITIVE_DEFAULT: SensitiveGroups = {
-  ids: true,
-  financial: true,
-  network: false,
-  credentials: true,
-};
 
 function resolveUrlCheck(check: boolean | UrlCheck | undefined, byDefault: boolean) {
   if (check === undefined) return byDefault ? {} : undefined;
@@ -205,9 +179,7 @@ function resolveEgressChecks(checks: EgressChecks = {}): ResolvedEgressChecks {
       ? { ...resolved, hosts: [...new Set([...(resolved.hosts ?? []), ...images.hosts])] }
       : resolved;
   return {
-    sensitive: resolveSensitive(checks.sensitive, EGRESS_SENSITIVE_DEFAULT),
     boundary: checks.boundary ?? true,
-    injection: checks.injection ?? true,
     ...(images ? { images } : {}),
     ...(links ? { links } : {}),
   };
@@ -215,9 +187,7 @@ function resolveEgressChecks(checks: EgressChecks = {}): ResolvedEgressChecks {
 
 /** Every check off: the system-prompt leak checks alone. */
 const NO_CHECKS: ResolvedEgressChecks = resolveEgressChecks({
-  sensitive: false,
   boundary: false,
-  injection: false,
   images: false,
 });
 
@@ -245,17 +215,6 @@ function collectEgressHits(
   checks: ResolvedEgressChecks = DEFAULT_CHECKS,
 ): GuardrailHit[] {
   const hits = promptLeakHits(text, scope);
-  if (anySensitive(checks.sensitive)) {
-    // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    hits.push(
-      ...hitsFromSpans(
-        text,
-        sensitiveSpans(text, checks.sensitive),
-        EGRESS_RULES.sensitive,
-        'high',
-      ),
-    );
-  }
   if (checks.boundary) {
     for (const pattern of [SYSTEM_BOUNDARY, ...(scope.note ? [notePattern(scope.note)] : [])]) {
       const boundary = pattern.exec(text);
@@ -270,9 +229,6 @@ function collectEgressHits(
         );
       }
     }
-  }
-  if (checks.injection) {
-    hits.push(...hitsFromSpans(text, injectionSpans(text), EGRESS_RULES.injection, 'medium')); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (checks.images) {
     const spans = imageLeakSpans(text, urlScope(checks.images, scope.given));
@@ -461,9 +417,8 @@ function egressChecksOf(enforce: EgressEnforcer | undefined): ResolvedEgressChec
   return enforce && KNOWN_CHECKS.get(enforce);
 }
 
-const CHECK_NAMES = new Set(['sensitive', 'boundary', 'injection', 'images', 'links']);
+const CHECK_NAMES = new Set(['boundary', 'images', 'links']);
 const URL_CHECK_NAMES = new Set(['hosts', 'fromTools']);
-const GROUP_NAMES = new Set<string>(SENSITIVE_GROUPS);
 
 /** A hostname is all a URL check's host is: a scheme, port or path would never match one. */
 function urlCheckProblem(path: string, check: unknown): string | undefined {
@@ -489,7 +444,7 @@ function urlCheckProblem(path: string, check: unknown): string | undefined {
       `${path}.hosts lists ${JSON.stringify(bad)}, which is not a hostname`;
 }
 
-/** A misspelt check or group would leave the check it meant at its default, silently. */
+/** A misspelt check would leave the check it meant at its default, silently. */
 function egressChecksProblem(path: string, checks: unknown): string | undefined {
   if (typeof checks === 'boolean') return undefined;
   if (typeof checks !== 'object' || checks === null)
@@ -498,28 +453,10 @@ function egressChecksProblem(path: string, checks: unknown): string | undefined 
   const unknown = Object.keys(checks).find((key) => !CHECK_NAMES.has(key));
   // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   if (unknown !== undefined) return `${path} has no check ${JSON.stringify(unknown)}`;
-  const { sensitive, boundary, injection, images, links } = checks as EgressChecks;
-  for (const [name, value] of [
-    ['boundary', boundary],
-    ['injection', injection],
-  ] as const) {
-    if (value !== undefined && typeof value !== 'boolean')
-      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      return `${path}.${name} must be a boolean`;
-  }
-  if (sensitive !== undefined && typeof sensitive !== 'boolean') {
-    if (typeof sensitive !== 'object' || sensitive === null) {
-      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      return `${path}.sensitive must be a boolean or an object`;
-    }
-    const unknownGroup = Object.keys(sensitive).find((group) => !GROUP_NAMES.has(group));
-    if (unknownGroup !== undefined) {
-      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      return `${path}.sensitive has no group ${JSON.stringify(unknownGroup)} (${SENSITIVE_GROUPS.join(', ')})`;
-    }
-    const bad = Object.entries(sensitive).find(([, on]) => typeof on !== 'boolean');
+  const { boundary, images, links } = checks as EgressChecks;
+  if (boundary !== undefined && typeof boundary !== 'boolean') {
     // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    if (bad !== undefined) return `${path}.sensitive.${bad[0]} must be a boolean`;
+    return `${path}.boundary must be a boolean`;
   }
   // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   return urlCheckProblem(`${path}.images`, images) ?? urlCheckProblem(`${path}.links`, links);

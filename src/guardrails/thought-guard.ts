@@ -19,6 +19,9 @@ import {
   RELEASED_LOOKBACK,
   wordStartAcross,
 } from './canary.ts';
+import { type Detection, detectReads } from './detect-at.ts';
+import { createDetectStream } from './detect-stream.ts';
+import type { ResolvedDetect } from './detectors.ts';
 import {
   boundaryNote,
   CANARY_HIT,
@@ -33,7 +36,7 @@ import { type GivenUrls, imageLeakSpans, linkLeakSpans } from './egress-urls.ts'
 import { type LexiconOverrides, lexiconText } from './lexicon.ts';
 import { promptEchoHoldFrom, promptEchoRanges, promptEchoScanFrom } from './prompt-echo.ts';
 import { EGRESS_RULES } from './rules.ts';
-import type { EgressEnforcer, GuardrailContext, GuardrailHit } from './types.ts';
+import type { GuardrailContext, GuardrailHit, ResolvedGuardrailPolicy } from './types.ts';
 
 type OmissionKind = 'image' | 'link' | 'instructions';
 
@@ -87,6 +90,8 @@ interface ThoughtRelease {
   text: string;
   /** One hit per rule that omitted something; empty when nothing was. */
   hits: GuardrailHit[];
+  /** What `guardrails.detect` found in the thought as it was read at `thought`. */
+  found?: Pick<Detection, 'action' | 'hits'>;
 }
 
 /** One provider call's (or Live cycle's) thought text, released as it clears. */
@@ -195,7 +200,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
   /** Read `text`, what follows the read part of `out + held`; true when a leak has settled. */
   function read(text: string): boolean {
     readTo += text.length;
-    const urlHit = stream?.push(text) !== undefined;
+    const urlHit = (stream?.push(text).length ?? 0) > 0;
     const canaryHit = scanner?.push(text) ?? false;
     let echoHit = false;
     if (privateSystem) {
@@ -526,26 +531,85 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
 }
 
 /**
+ * `guard` with `guardrails.detect` read at `thought` in front of it: the guard
+ * reads the thought as the detectors let it through. A match set to `block`
+ * ends what is shown of the thought there. `guard` unchanged when no detector
+ * reads a thought.
+ */
+function detectingThoughts(
+  guard: ThoughtGuard | undefined,
+  detect: ResolvedDetect,
+): ThoughtGuard | undefined {
+  if (!detectReads(['thought'], detect)) return guard;
+  let reader = createDetectStream('thought', detect);
+  /** How much of the thought has been written, and how much of that released. */
+  let written = 0;
+  let read = 0;
+  let stopped = false;
+
+  /** The text now through the detectors, and what they found in it. */
+  function through(ended: boolean): Pick<ThoughtRelease, 'text' | 'found'> {
+    if (stopped || !reader) return { text: '' };
+    const to = ended ? written : Math.max(read, reader.holdFrom());
+    const { action, text = '', hits, taken } = reader.take(read, to, ended);
+    stopped = action === 'block';
+    read += taken;
+    return { text, ...(action === 'allow' ? {} : { found: { action, hits } }) };
+  }
+
+  return {
+    push(text) {
+      written += text.length;
+      reader?.push(text);
+      const { text: clear, found } = through(false);
+      const shown = guard ? guard.push(clear) : { text: clear, hits: [] };
+      return { ...shown, ...(found ? { found } : {}) };
+    },
+    flush() {
+      const { text: clear, found } = through(true);
+      const last = guard?.push(clear);
+      const rest = guard ? guard.flush() : { text: clear, hits: [] };
+      reader = createDetectStream('thought', detect);
+      written = 0;
+      read = 0;
+      stopped = false;
+      return {
+        text: (last?.text ?? '') + rest.text,
+        hits: [
+          ...new Map([...(last?.hits ?? []), ...rest.hits].map((hit) => [hit.rule, hit])).values(),
+        ],
+        ...(found ? { found } : {}),
+      };
+    },
+    carryOut: () => guard?.carryOut() ?? '',
+  };
+}
+
+/**
  * A guard for a turn's thoughts: the canary and prompt echo whenever the turn
- * binds a canary, and the URL and boundary checks `enforce` runs.
+ * binds a canary, the URL and boundary checks `egress.enforce` runs, and the
+ * detectors `guardrails.detect` sets at `thought`.
  */
 function thoughtGuardFor(
-  enforce: EgressEnforcer | undefined,
+  policy: Pick<ResolvedGuardrailPolicy, 'egress' | 'detect'>,
   context: GuardrailContext,
   carry?: string,
 ): ThoughtGuard | undefined {
-  const known = egressChecksOf(enforce);
+  const known = egressChecksOf(policy.egress?.enforce);
   const checks = known ? thoughtChecks(known) : undefined;
   const { canary, privateSystem, givenUrls, lexicon } = context;
-  if (!(checks || canary)) return undefined;
-  return createThoughtGuard({
-    ...(checks ? { checks } : {}),
-    ...(canary ? { canary } : {}),
-    ...(privateSystem ? { privateSystem } : {}),
-    ...(givenUrls ? { given: givenUrls } : {}),
-    ...(lexicon ? { lexicon } : {}),
-    ...(carry ? { carry } : {}),
-  });
+  const guard =
+    checks || canary
+      ? createThoughtGuard({
+          ...(checks ? { checks } : {}),
+          ...(canary ? { canary } : {}),
+          ...(privateSystem ? { privateSystem } : {}),
+          ...(givenUrls ? { given: givenUrls } : {}),
+          ...(lexicon ? { lexicon } : {}),
+          ...(carry ? { carry } : {}),
+        })
+      : undefined;
+  return detectingThoughts(guard, policy.detect);
 }
 
 export type { ThoughtGuard, ThoughtGuardOptions, ThoughtRelease };

@@ -1,7 +1,9 @@
 import { requestGivesCanary } from '../../../guardrails/canary.ts';
+import { TURN_REPLY } from '../../../guardrails/detect-reply.ts';
 import { addRequestUrls } from '../../../guardrails/egress-urls.ts';
 import { isAbortError, throwIfAborted } from '../../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
+import { replyIsJudged } from '../../../guardrails/progressive-yield.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
 import type { TraceAttributes } from '../../../observability/trace-span.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
@@ -459,9 +461,9 @@ async function* executeAttempt(args: {
   // both hold non-visible events (structured) until the attempt gate, so a policy
   // sees the structured payload before any of it reaches the host.
   const validation = profileTurnOutputs(profile)?.validation;
-  const holdLate = Boolean(
-    validation || resolveGuardrailPolicy(profile.guardrails).egress?.enforce,
-  );
+  const holdLate =
+    validation !== undefined ||
+    replyIsJudged(resolveGuardrailPolicy(profile.guardrails), TURN_REPLY);
   // why: Buffered delivery holds each attempt's text and media until it passes; streamed delivery shows them live.
   const holdVisible = validation !== undefined && generation.stream === false;
 

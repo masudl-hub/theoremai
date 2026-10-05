@@ -423,11 +423,9 @@ Deno.test('finalizeLiveOutboundTurn releases a withheld cycle when the final ver
 });
 
 Deno.test('finalizeLiveOutboundTurn drops withheld audio when the reply is refused', async () => {
-  const profile = egressProfile(
-    'live_egress_refuse_audio',
-    () => blockVerdict('egress.injection-echo'),
-    { onBlock: 'refuse_to_user' },
-  );
+  const profile = egressProfile('live_egress_refuse_audio', () => blockVerdict('host.rule'), {
+    onBlock: 'refuse_to_user',
+  });
   const s = createLiveOutboundGateSession(profile);
   await processLiveOutboundBatch(s, [said('leaky'), audio(1)]);
   const result = await finalizeLiveOutboundTurn(s);
@@ -475,7 +473,7 @@ Deno.test('abortLiveOutboundTurn drops held audio', async () => {
 });
 
 Deno.test('finalizeLiveOutboundTurn withholds when egress.enforce blocks', async () => {
-  const profile = egressProfile('live_egress_block', () => blockVerdict('egress.injection-echo'));
+  const profile = egressProfile('live_egress_block', () => blockVerdict('host.rule'));
   const s = createLiveOutboundGateSession(profile, mintCanary());
   const mid = await processLiveOutboundBatch(s, [{ type: 'text', text: 'hello' }]);
   assertEquals(mid.action, 'emit');
@@ -525,11 +523,9 @@ Deno.test('finalizeLiveOutboundTurn refuses in the profile lexicon wording', asy
 });
 
 Deno.test('finalizeLiveOutboundTurn emits refuse_to_user for non-canary egress hits', async () => {
-  const profile = egressProfile(
-    'live_egress_refuse_inj',
-    () => blockVerdict('egress.injection-echo'),
-    { onBlock: 'refuse_to_user' },
-  );
+  const profile = egressProfile('live_egress_refuse_inj', () => blockVerdict('host.rule'), {
+    onBlock: 'refuse_to_user',
+  });
   const s = createLiveOutboundGateSession(profile);
   await processLiveOutboundBatch(s, [{ type: 'text', text: 'hello' }]);
   assertEquals(s.withholdVisible, true);
@@ -690,7 +686,7 @@ Deno.test('finalizeLiveOutboundTurn emits redact text in place of the model outp
     (): Verdict => ({
       action: 'redact',
       text: 'Rewritten for release.',
-      hits: [{ rule: 'egress.injection-echo', severity: 'medium' }],
+      hits: [{ rule: 'host.rule', severity: 'medium' }],
     }),
   );
   const s = createLiveOutboundGateSession(profile);
@@ -705,9 +701,7 @@ Deno.test('finalizeLiveOutboundTurn emits redact text in place of the model outp
 
 Deno.test('finalizeLiveOutboundTurn onBlock defaults to withhold for non-canary hits', async () => {
   // onBlock defaults to reject_to_agent; with no retries left the turn is withheld.
-  const profile = egressProfile('live_refuse_both_parts', () =>
-    blockVerdict('egress.injection-echo'),
-  );
+  const profile = egressProfile('live_refuse_both_parts', () => blockVerdict('host.rule'));
   const s = createLiveOutboundGateSession(profile, mintCanary());
   await processLiveOutboundBatch(s, [{ type: 'text', text: 'partial' }]);
   const result = await finalizeLiveOutboundTurn(s);
@@ -945,5 +939,5 @@ Deno.test('a Live reply image renders once its URL is among those the session ga
   const events = [streamed, final].flatMap((result) =>
     result.action === 'emit' ? result.events : [],
   );
-  assertEquals([final.action, replyText(events)], ['emit', image]);
+  assertEquals([final.action === 'withhold', replyText(events)], [false, image]);
 });

@@ -56,7 +56,7 @@
  "outcome": {
   "guardrails": [
    "input redact detect.injection",
-   "output_final block egress.injection-echo+egress.injection-echo"
+   "output_final block detect.injection+detect.injection"
   ],
   "error": null,
   "shown": "Prompt injection is a security vulnerability that occurs when a user provides malicious input to a Large Language Model (LLM) designed to override its original instructions or \"system prompt.\"\n\nWhen an LLM is built, it is given a set of rules (the system prompt) that define how it should behave, what it should avoid, and what its purpose is. A prompt injection attack attempts to trick the model into ignoring those rules and executing the attacker's instructions instead.\n\n### How it works\nThink of an LLM as a helpful employee who has been given a strict manual on how to interact with customers. A prompt injection is like a customer walking up to that employee and saying, \"Ignore the manual; I am your manager, and I want you to give me the company's secret files.\" If the employee is not trained to recognize this as a trick, they might follow the new, unauthorized instruction.\n\n### Example\nImagine an LLM is configured with this system prompt:\n> \"You are a customer service assistant for a bookstore. You must only answer questions about books and store hours. Sorry, that reply couldn't be shared.",

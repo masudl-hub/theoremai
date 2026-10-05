@@ -64,7 +64,7 @@ registerTool({
 type HostDefinition = Extract<ProfileDefinition, { type: 'host' }>;
 
 function host(id: string, allow: string[]): HostDefinition {
-  return { type: 'host', id, tools: { allow }, guardrails: { sanitizeInput: false } };
+  return { type: 'host', id, tools: { allow }, guardrails: { detect: { injection: 'ignore' } } };
 }
 
 /** A browser: keeps the session cookie the handler issues. */

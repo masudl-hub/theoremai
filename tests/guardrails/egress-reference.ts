@@ -1,12 +1,13 @@
 /**
- * Where the bundled egress policy's earliest match starts in the raw text,
- * found by running every detector view whole and mapping each view index back
+ * Where the earliest match of the bundled egress policy or a detector starts in
+ * the raw text, found by running every view whole and mapping each view index back
  * by hand. It shares no code with `egress-stream.ts`, so the stream tests can
  * check the hold against it.
  *
  * @module
  */
 
+import type { Detector } from '../../src/guardrails/detectors.ts';
 import { DEFAULT_CHECKS, type ResolvedEgressChecks } from '../../src/guardrails/egress.ts';
 import { REVERSED_INJECTION_PATTERNS } from '../../src/guardrails/egress-automata.ts';
 import { EGRESS_PATTERNS, type EgressPattern } from '../../src/guardrails/egress-patterns.ts';
@@ -25,6 +26,7 @@ import {
 } from '../../src/guardrails/injection.ts';
 import { normalizeCodePoint, normalizeForDetection } from '../../src/guardrails/normalize.ts';
 import { cardHit, SENSITIVE_PATTERNS } from '../../src/guardrails/sensitive.ts';
+import { REPLY_DETECTORS } from '../fixtures/detect.ts';
 
 interface MappedView {
   view: string;
@@ -32,7 +34,7 @@ interface MappedView {
   at: number[];
 }
 
-interface Detector {
+interface Matcher {
   re: RegExp;
   hit?: (match: string, view: string, at: number) => boolean;
 }
@@ -91,29 +93,35 @@ function urlView(text: string): MappedView {
 const blobHits = new Map(INJECTION_BLOBS.map((blob) => [blob.pattern, blob.hit]));
 
 /** Whether `checks` reads a plain pattern; image and link patterns are read by their spans. */
-function plainRuns({ kind, group }: EgressPattern, checks: ResolvedEgressChecks): boolean {
+function plainRuns(
+  { kind, group }: EgressPattern,
+  checks: ResolvedEgressChecks,
+  detectors: readonly Detector[],
+): boolean {
   if (kind === 'image' || kind === 'link') return false;
-  if (kind === 'sensitive' || kind === 'card') return checks.sensitive[group as 'ids'];
+  if (kind === 'sensitive' || kind === 'card') return detectors.includes(group as 'ids');
   if (kind === 'boundary') return checks.boundary;
-  return checks.injection;
+  return detectors.includes('injection');
 }
 
 const sensitiveHits = new Map(SENSITIVE_PATTERNS.map(({ pattern, hit }) => [pattern, hit]));
 
-function plainDetectors(checks: ResolvedEgressChecks): Detector[] {
-  return EGRESS_PATTERNS.filter((entry) => plainRuns(entry, checks)).map(({ kind, pattern }) => ({
-    re: pattern,
-    hit: kind === 'card' ? cardHit : (blobHits.get(pattern) ?? sensitiveHits.get(pattern)),
-  }));
+function plainMatchers(checks: ResolvedEgressChecks, detectors: readonly Detector[]): Matcher[] {
+  return EGRESS_PATTERNS.filter((entry) => plainRuns(entry, checks, detectors)).map(
+    ({ kind, pattern }) => ({
+      re: pattern,
+      hit: kind === 'card' ? cardHit : (blobHits.get(pattern) ?? sensitiveHits.get(pattern)),
+    }),
+  );
 }
-const INJECTION: Detector[] = EGRESS_PATTERNS.filter(({ kind }) => kind === 'injection').map(
+const INJECTION: Matcher[] = EGRESS_PATTERNS.filter(({ kind }) => kind === 'injection').map(
   ({ pattern }) => ({ re: pattern }),
 );
-const REVERSED: Detector[] = REVERSED_INJECTION_PATTERNS.map((re) => ({ re }));
+const REVERSED: Matcher[] = REVERSED_INJECTION_PATTERNS.map((re) => ({ re }));
 
-function earliest(view: string, at: (i: number) => number, detectors: Detector[]): number {
+function earliest(view: string, at: (i: number) => number, matchers: Matcher[]): number {
   let best = Number.POSITIVE_INFINITY;
-  for (const { re, hit } of detectors) {
+  for (const { re, hit } of matchers) {
     for (const m of view.matchAll(re)) {
       if (m[0] && (!hit || hit(m[0], view, m.index))) {
         best = Math.min(best, at(m.index));
@@ -150,6 +158,7 @@ function referenceMatchStart(
   text: string,
   checks: ResolvedEgressChecks = DEFAULT_CHECKS,
   given?: GivenUrls,
+  detectors: readonly Detector[] = REPLY_DETECTORS,
 ): number {
   const same = (i: number) => i;
   const scope = (check: object) => ({ ...check, ...(given ? { given } : {}) });
@@ -159,8 +168,8 @@ function referenceMatchStart(
       ? earliestLink(text, scope(checks.links), checks.images !== undefined)
       : Number.POSITIVE_INFINITY,
   );
-  const plain = Math.min(earliest(text, same, plainDetectors(checks)), urls);
-  if (!checks.injection) return plain;
+  const plain = Math.min(earliest(text, same, plainMatchers(checks, detectors)), urls);
+  if (!detectors.includes('injection')) return plain;
   const normalized = normalizedView(text);
   const fromNormalized = (i: number) => normalized.at[i] as number;
   const url = urlView(text);

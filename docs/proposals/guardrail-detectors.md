@@ -440,7 +440,6 @@ quietly come apart later:
 |---|---|
 | `no-kernel-import-in-guardrail-types` (extended) | `detectors.ts` or `boundaries.ts` importing from `src/kernel/` |
 | `detect-single-engine` | a call to `sensitiveSpans`, `injectionSpans` or `applySpans` outside `detectors.ts` and `observability/spans.ts`. Eleven files call them today. |
-| `no-removed-guardrail-fields` | the identifiers `sanitizeInput` or `redactSensitive` anywhere in `src/`, `playground/` or `react/src/`, except the one registration error that names them |
 | `no-detect-rule-id-literal` | a `'detect.…'` rule id written as a string outside `detectors.ts` |
 
 ### Docs gates
@@ -471,12 +470,14 @@ docs lint), and carries its own contract-doc edits.
    `sanitize.*`, `tool_result.redacted`, `tool_failure.redacted` and
    `tool_call.sensitive-argument` rule ids went with it.)
 3. The reply and thought boundaries: both scanners on the registry; `flag` and
-   `redact` in the stream gate.
-4. The old fields deleted outright, in one change across the three places that
+   `redact` in the stream gate. (Done. The bundled policy no longer reads
+   sensitive data or injection text, and `egress.sensitive-echo` and
+   `egress.injection-echo` went with that.)
+4. (Done, with step 3.) The old fields deleted outright, in one change across the three places that
    name them, so nothing is red in between and nothing translates:
    - kernel: the fields, their types and validators, the step 1 resolution of
      old fields into the matrix, the old rule ids, trace catalog, CLI, exports,
-     scripts; `no-removed-guardrail-fields` rule added;
+     scripts;
    - playground package: draft, compile, probe, battery;
    - frontend: editor, tester, `th30.ts`, tests, docs articles.
 5. Cassettes checked, full kernel and frontend gates including fallow, browser
@@ -501,9 +502,8 @@ docs lint), and carries its own contract-doc edits.
    have is a registration error. Decision profiles still refuse `detect`.
 8. **One rule id per detector,** with the boundary on the event.
 9. **No shims.** The finished work has nothing that translates, aliases or
-   recognises a removed field or rule id. Until step 4 the old fields are the
-   only way the playground sets these, so they resolve into the matrix; step 4
-   deletes them and that resolution together.
+   recognises a removed field or rule id, and no lint rule names one: the
+   types reject them.
 
 ## Not in this work
 

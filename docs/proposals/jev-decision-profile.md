@@ -56,7 +56,7 @@ trace, state, and frontend systems are actively changing:
   the agents headless projection remains separate);
 - registered decision-contract storage and richer contract versioning.
 
-`sanitizeInput` and `redactSensitive` are therefore not accepted as active
+`guardrails.detect` is therefore not accepted as active
 decision behavior in this slice. Hosts must prepare and approve decision state
 before calling `runDecision`; `disclosure.enforce` is the supported V1 boundary.
 
@@ -245,8 +245,6 @@ type DecisionDisclosureEnforcer = (
 
 interface DecisionGuardrailsSpec {
   quota?: QuotaGuardrailSpec;
-  sanitizeInput?: boolean;
-  redactSensitive?: boolean;
   disclosure?: { enforce: DecisionDisclosureEnforcer };
 }
 ```

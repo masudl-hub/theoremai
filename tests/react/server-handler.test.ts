@@ -37,7 +37,7 @@ function profile(id: string, allow: string[] = []): ProfileDefinition {
     },
     tools: { allow },
     inputs: { text: true },
-    guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
+    guardrails: { canary: false, detect: 'ignore' },
   };
 }
 

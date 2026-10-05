@@ -327,7 +327,7 @@ Deno.test('speech profiles use top-level speech pins', () => {
     identity: { handle: 'speech_output_test' },
     ...geminiModels('gemini31FlashTts'),
     speech: { voice: 'Kore', format: 'pcm' },
-    guardrails: { sanitizeInput: false, redactSensitive: false },
+    guardrails: { detect: 'ignore' },
   });
   assertEquals(
     resolveTurn({ profile: 'speech_output_test', input: { text: 'hi' } }).generation.speech,

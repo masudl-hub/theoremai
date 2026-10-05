@@ -1,6 +1,6 @@
 import '../fixtures/test-host.ts';
 import { mintCanary, USER_CLOSE, USER_OPEN } from '../../src/guardrails/canary.ts';
-import { TEST_OPENAI_KEY, TEST_SSN } from '../../src/guardrails/corpus/secrets.ts';
+import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import {
   eventPromptLeakHits,
@@ -50,10 +50,10 @@ Deno.test('standardEgressEnforce blocks literal canary leak', () => {
   assertEquals(rules(verdict).includes(EGRESS_RULES.canary), true);
 });
 
-Deno.test('standardEgressEnforce blocks sensitive echo', () => {
-  const verdict = enforce(`Your key is ${TEST_OPENAI_KEY}`, mintCanary());
-  assertEquals(verdict.action, 'block');
-  assertEquals(rules(verdict).includes(EGRESS_RULES.sensitive), true);
+Deno.test('standardEgressEnforce leaves sensitive data and injection text to guardrails.detect', () => {
+  assertEquals(enforce(`Your key is ${TEST_OPENAI_KEY}`, mintCanary()).action, 'allow');
+  assertEquals(enforce(INJ_IGNORE, mintCanary()).action, 'allow');
+  assertEquals(enforce('All done.', mintCanary(), { key: TEST_OPENAI_KEY }).action, 'allow');
 });
 
 Deno.test('standardEgressEnforce releases IP addresses: they are not secrets', () => {
@@ -68,12 +68,6 @@ Deno.test('standardEgressEnforce blocks system boundary markers', () => {
   assertEquals(rules(verdict).includes(EGRESS_RULES.boundary), true);
 });
 
-Deno.test('standardEgressEnforce blocks injection echo in assistant text', () => {
-  const verdict = enforce(INJ_IGNORE, mintCanary());
-  assertEquals(verdict.action, 'block');
-  assertEquals(rules(verdict).includes(EGRESS_RULES.injection), true);
-});
-
 Deno.test('standardEgressEnforce blocks user_data fence markers', () => {
   const verdict = enforce(`leaked ${USER_OPEN}`, mintCanary());
   assertEquals(verdict.action, 'block');
@@ -82,7 +76,7 @@ Deno.test('standardEgressEnforce blocks user_data fence markers', () => {
 
 Deno.test('standardEgressEnforce reports multiple hit kinds', () => {
   const canary = mintCanary();
-  const verdict = enforce(`${INJ_IGNORE} ${TEST_SSN} ${canary}`, canary);
+  const verdict = enforce(`${USER_OPEN} ${canary}`, canary);
   assertEquals(verdict.action, 'block');
   assertEquals(new Set(rules(verdict)).size >= 2, true);
 });
@@ -93,11 +87,11 @@ Deno.test('standardEgressEnforce passes empty text without blocking', () => {
 
 Deno.test('standardEgressEnforce rejection names all blocked categories', () => {
   const canary = mintCanary();
-  const verdict = enforce(`${canary} ${INJ_IGNORE}`, canary);
+  const verdict = enforce(`${canary} ${USER_OPEN}`, canary);
   assertEquals(verdict.action, 'block');
   if (verdict.action !== 'block') return;
   assertEquals(verdict.rejection.includes(EGRESS_RULES.canary), true);
-  assertEquals(verdict.rejection.includes(EGRESS_RULES.injection), true);
+  assertEquals(verdict.rejection.includes(EGRESS_RULES.boundary), true);
 });
 
 Deno.test('standardEgressEnforce blocks "This turn\\u2019s canary is" boundary marker in text', () => {
@@ -132,13 +126,13 @@ Deno.test('standardEgressEnforce blocks a fence tag without its closing bracket'
   }
 });
 
-Deno.test('standardEgressEnforce carries span offsets on sensitive hits', () => {
-  const text = `Your ssn is ${TEST_SSN}`;
+Deno.test('standardEgressEnforce carries span offsets on its hits', () => {
+  const text = `leaked ${USER_OPEN}`;
   const verdict = enforce(text, mintCanary());
   assertEquals(verdict.action, 'block');
   if (verdict.action !== 'block') return;
-  const hit = verdict.hits.find((h) => h.rule === EGRESS_RULES.sensitive);
-  assertEquals(hit?.severity, 'high');
+  const hit = verdict.hits.find((h) => h.rule === EGRESS_RULES.boundary);
+  assertEquals(hit?.severity, 'medium');
   assertEquals(typeof hit?.span?.start, 'number');
   assertEquals((hit?.span?.end ?? 0) > (hit?.span?.start ?? 0), true);
 });
@@ -148,12 +142,6 @@ Deno.test('standardEgressEnforce inspects structured output for canary leaks', (
   const verdict = enforce('All done.', canary, { answer: `the token is ${canary}` });
   assertEquals(verdict.action, 'block');
   assertEquals(rules(verdict).includes(EGRESS_RULES.canary), true);
-});
-
-Deno.test('standardEgressEnforce inspects structured output for sensitive echo', () => {
-  const verdict = enforce('All done.', mintCanary(), { key: TEST_OPENAI_KEY });
-  assertEquals(verdict.action, 'block');
-  assertEquals(rules(verdict).includes(EGRESS_RULES.sensitive), true);
 });
 
 Deno.test('standardEgressEnforce allows clean structured output', () => {

@@ -179,13 +179,14 @@ interface GuardrailHit {
 }
 ```
 
-`standardEgressEnforce` blocks canary leaks, sensitive echoes (credentials,
-cards, SSNs — not IP addresses), system-boundary markers (the canary note's own words, as the profile's `canary.bind_note` words it, or a
-`user_data` fence tag, closed or not), injection-pattern
-echoes, and reply images that could carry data off the device (see
+`standardEgressEnforce` blocks canary leaks, system-boundary markers (the canary note's own words, as the profile's `canary.bind_note` words it, or a
+`user_data` fence tag, closed or not), and reply images that could carry data off the device (see
 [Reply images and links](#reply-images-and-links)); `EGRESS_RULES` names the
 rule ids it emits. `egressPolicy({ bundled })` picks which of these checks run
-(see [Bundled checks](#bundled-checks)). **`payload.structured` is inspected alongside `payload.text`**, so a profile
+(see [Bundled checks](#bundled-checks)). Sensitive data and injection phrasing in a reply are not
+its to read: `guardrails.detect` reads them at `reply`, `reply_structured`,
+`live_reply` and `thought` (see [Detect](#detect)), before the policy
+runs. **`payload.structured` is inspected alongside `payload.text`**, so a profile
 with `outputs.structured` is covered by its own egress policy — structured events
 are held until the gate runs rather than streaming ahead of it.
 
@@ -195,12 +196,6 @@ is still inspected rather than aborting the turn. A payload that still cannot be
 rendered — a throwing `toJSON`, say — yields an `egress.unscannable` hit and the
 policy **fails closed**, because output that could not be inspected cannot be
 vouched for.
-
-Detection is the same for structured output as for prose, so the false-positive
-profile carries over: a structured field holding an IP address or a Luhn-valid
-16-digit id is a `sensitive` hit, exactly as it would be in text. That is the
-bundled policy's stance, not a property of the transport — a host that ships
-structured operational data should supply its own `enforce`.
 
 ### Bundled checks
 
@@ -217,9 +212,7 @@ rules. `interfaceFromProfile` reports the checks a profile runs as
 
 | Check | Default | Blocks |
 | --- | --- | --- |
-| `sensitive` | every group but `network` | Sensitive data by group (see [Sensitive data](#sensitive-data)): `true`, `false`, or `{ ids?, financial?, network?, credentials? }` |
 | `boundary` | on | The fence the kernel puts around user data, and the canary note's own words, as the profile's `canary.bind_note` words it |
-| `injection` | on | Injection phrasing, as written or disguised |
 | `images` | on | `egress.image-exfil`: an image that loads a URL the model was not given |
 | `links` | off | `egress.link-exfil`: a link to a URL the model was not given |
 
@@ -465,8 +458,8 @@ own rules, and a leak follows its flow (`onBlock` refusal, repair, or
 withhold) — but the final verdict is pinned to block: no host verdict, not even
 `allow`, releases a system-prompt leak. Whole events (tool calls, structured
 payloads) carrying one end the turn at once under any policy, so a leaking tool
-call never runs. The bundled rules (`collectEgressHits`: canary, sensitive echo,
-system boundary, injection echo, reply images) run only through `egress.checks` or an
+call never runs. The bundled rules (`collectEgressHits`: canary, system
+boundary, reply images and links) run only through `egress.checks` or an
 `egress.enforce` built from them, where the end-of-attempt verdict can release, repair,
 or refuse.
 `outputs.streaming.mode: 'sse'` and egress can both stay on.
@@ -799,7 +792,7 @@ looks, and what it does: a detector, a boundary, an action.
 | `TOOL_BOUNDARIES` | The tool boundaries: `toolBoundary(crossing, kind)` for `tool_arguments`, `tool_output` and `tool_failure`, for each of `TOOL_KINDS` |
 | `DETECT_ACTIONS` | `ignore`, `flag`, `redact`, `block`; `DETECT_ACTION_META` labels each |
 | `DETECT_DEFAULTS` | The action of every detector at every boundary when the profile sets none |
-| `resolveDetect(spec, base?)` | `spec` with everything it leaves out taken from `base` |
+| `resolveDetect(spec?)` | `spec` with everything it leaves out taken from `DETECT_DEFAULTS` |
 | `detectProblem(path, spec, boundaries?)` | What is wrong with a `detect` value, or `undefined` |
 | `detectAt(text, boundary, detect)` | Reads `text` as it crosses `boundary`: a `Detection` of the action taken (`DetectOutcome`: `allow` or the strongest action among the matches), the text to let through (absent on `block`) and the hits |
 
@@ -848,14 +841,7 @@ boundaries it names. What a rule leaves out keeps its default.
 No default is `block`.
 
 `resolveGuardrailPolicy` returns the matrix as `ResolvedGuardrailPolicy.detect`
-(`ResolvedDetect`). The settings `detect` replaces resolve into the same matrix
-first, and `detect` is applied over them:
-
-| Setting | Resolves to |
-| --- | --- |
-| `sanitizeInput: false` | `injection` is `ignore` at every boundary |
-| `redactSensitive` with a group off | That detector is `ignore` at every boundary |
-| `egress.checks` reading a detector | That detector is `block` at `reply`, `reply_structured` and `live_reply` |
+(`ResolvedDetect`). `guardrails.detect` is the only setting that fills it.
 
 `defineProfile` rejects a `detect` value that names an unknown detector,
 boundary or action. A `host` profile has the tool boundaries only, and a rule
@@ -877,8 +863,29 @@ detectors match one text, the strongest action is the one taken: `block`, then
 | `tool_output_<kind>` | The model does not read the output; the call settles as failed (`output_blocked`, lexicon `detect.output_blocked`) |
 | `tool_failure_<kind>` | The model reads lexicon `detect.output_blocked` in place of the tool's message |
 
-The `reply`, `reply_structured`, `live_reply` and `thought` boundaries still run
-the bundled reply checks (see [Egress](#egress)); they move to `detectAt` next.
+| `reply` | The reply stops before the match. It then goes the way `egress.onBlock` sets: the model is asked again, the person reads the refusal, or the turn ends withheld |
+| `reply_structured` | The structured output is not sent on; the reply goes the same way |
+| `live_reply` | The cycle is withheld from the match on |
+| `thought` | The rest of the thought is not shown; the turn goes on |
+
+A reply is read as it streams, by the same scanner that holds text back for the
+egress policy, so no character of a match is shown before its action is taken:
+
+- `flag` and `redact` are reported as the text is released (`stage:
+  'output_delta'`), and `redact` puts the placeholder into the stream.
+- `block` reports once, when the attempt ends (`stage: 'output_final'`).
+- When the attempt ends the reply is read whole (`readReply`), before
+  `egress.enforce`. A match the stream could not place, such as one that only
+  shows once the whole reply is decoded, is replaced then, and the person gets
+  the reply again with it replaced. The host policy judges the reply as the
+  detectors left it.
+- In structured output each string value has its matches replaced. A match
+  with no string to replace (a key, or one that runs across values) stops the
+  output, as does output that cannot be read (`egress.unscannable`).
+- A Live reply is spoken as it is written, so `redact` at `live_reply` stops
+  the audio as `block` does, and the text is released with the placeholder. A
+  detector at `live_reply` turns output transcription on, as the canary does.
+- A reply that leaked the system prompt is reported as that alone.
 
 Text with no profile in hand — a host replaying a transcript through
 `formatToolResult`, a trace being written — has every match of the detectors
@@ -886,11 +893,10 @@ in question replaced, whatever any profile sets.
 
 ## Sanitization
 
-Driven by profile `guardrails.sanitizeInput`, `guardrails.redactSensitive`, and
-`guardrails.canary`, all defaulting on. `redactSensitive` also takes
-`{ ids?, financial?, network?, credentials? }`, switching the groups it names
-and leaving the rest on (see [Sensitive data](#sensitive-data)); `sanitizeInput`
-is one switch over every injection category (`canary: false` opts out; with the
+Driven by profile `guardrails.detect` (see [Detect](#detect)) and
+`guardrails.canary`, which defaults on. Each sensitive group is a detector of
+its own (see [Sensitive data](#sensitive-data)); `injection` is one detector
+over every injection category (`canary: false` opts out; with the
 canary on, `guardrails.promptEcho` also defaults on). Speech
 profiles are the exception for the canary: they have no system prompt to bind a
 token into, so registration stores `canary: false` and rejects any other value. Every path
@@ -926,6 +932,21 @@ as written), typo-folded, normalized (compatibility folding, lookalike letters,
 emoji and backslashes between letters dropped), ROT13, leet, and URL escapes,
 each run of `%XX` escapes decoded on its own so a stray `%` elsewhere in the
 text ("50% off") does not stop the rest decoding.
+
+Typo folding reads a misspelt word as the word a pattern expects. It applies
+to the words in `TYPO_TARGETS` (`injection.ts`) only. A word folds to a target
+in two cases:
+
+- **Scramble.** The word has the target's first letter, last letter and
+  length, and the same middle letters in another order (`ignroe`).
+- **One edit.** The target has 6 letters or more, and one added, dropped or
+  changed letter, or one swap of two neighbours, turns the word into it
+  (`ignre`, `instrucions`, `bypas`).
+
+A real word does not fold: a word in `REAL_WORDS`, or the target with one
+letter added at its end (`ignored`, `systems`). Folding alone is not a hit.
+The folded text must still match a pattern, and the redacted span covers the
+words as the sender wrote them.
 
 False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 `tests/guardrails/injection.test.ts`.
@@ -990,7 +1011,8 @@ gitleaks' `generic-api-key` rule reads a key, token or password that is given
 a random-looking value, for example `"password": "aBcD1234EfGh"`. A tool that
 returns a new password or key for the user to read, such as a password
 generator, has that value redacted before the model sees it. On a profile with
-such a tool, set `guardrails.redactSensitive.credentials` to `false`.
+such a tool, set `guardrails.detect.credentials` to `flag` or `ignore` at that
+tool's `tool_output_*` boundary.
 
 The generator converts each Go regex to a JavaScript regex that matches the
 same text (`goRegex`): Go's `.` and `\s` are narrower than JavaScript's, and an
@@ -999,10 +1021,10 @@ that it cannot convert exactly.
 
 `sensitiveSpans` finds, and never itself replaces. A selection is `true` (every
 group), `false` (none), or an object switching the groups it names, the rest at
-their default. Inbound, `guardrails.redactSensitive` (default every group)
-redacts them from untrusted and assembled text; trusted text is left verbatim
+their default. Inbound, `guardrails.detect` (default `redact` for every group)
+replaces them in untrusted and assembled text; trusted text is left verbatim
 (see [Trust levels](#trust-levels)). IPv4 and IPv6 addresses count inbound,
-where they are the user's personal data; egress leaves `network` off by default,
+where they are the user's personal data; no group reads the reply by default,
 because an address in a reply is not a secret (see [Egress](#egress)). A
 card-number candidate counts only when it is 13–19 digits passing the Luhn check
 (`cardHit`), in batch and in the egress stream alike. The trace writer runs the sensitive
@@ -1225,7 +1247,7 @@ Emission sites of host events (non-`allow` only):
 | Stage | Path |
 | --- | --- |
 | `input` / `history` / `system` | `sanitizeTurnRequestWithEvents` at turn start |
-| `tool_call` / tool result | `executeRegisteredTool` (args — for the `redactSensitive` groups the profile runs —, taint, result) and `src/guardrails/tool-result.ts` event shaping |
+| `tool_call` / tool result | `executeRegisteredTool` (args, read by the detectors the profile runs there; taint; result) and `src/guardrails/tool-result.ts` event shaping |
 | `output_delta` | Progressive-yield / canary mid-stream |
 | `thought` | The thought guard (`thought-guard.ts`), in `runTurn` and Live |
 | `output_final` | End-of-attempt egress in `gates.ts` |
@@ -1272,7 +1294,7 @@ explain them, and without those they show as the raw id.
 | Group | Rules |
 | --- | --- |
 | `DETECT_RULES` | `detect.ids`, `detect.financial`, `detect.network`, `detect.credentials`, `detect.injection` |
-| `EGRESS_RULES` | `egress.canary-leak`, `egress.sensitive-echo`, `egress.system-boundary`, `egress.injection-echo`, `egress.unscannable`, `egress.enforcer-error`, `egress.blocked` (the progressive gate stopped on a verdict that named no rule) |
+| `EGRESS_RULES` | `egress.canary-leak`, `egress.system-boundary`, `egress.unscannable`, `egress.enforcer-error`, `egress.blocked` (the progressive gate stopped on a verdict that named no rule) |
 | `DIRECTIVE_RULES` | `tool_result.names-callable-tool`, `tool_result.imperative`, `tool_result.authority-claim` |
 | `TOOL_RULES` | `tool_call.tainted-turn`, `tool_call.steered-turn` |
 | `NETWORK_RULES` | `network.blocked` |

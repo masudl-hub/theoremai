@@ -371,7 +371,7 @@ function registerCompactionPair(
       ...geminiModels('gemini35FlashLite'),
       maxSteps: 1,
       inputs: { text: true },
-      guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
+      guardrails: { canary: false, detect: 'ignore' },
       ...compactor,
     } as Parameters<typeof defineProfile>[0]),
   );
@@ -391,7 +391,7 @@ function registerCompactionPair(
       models: { [modelKey]: binding },
       key: 'main',
       inputs: { text: true },
-      guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
+      guardrails: { canary: false, detect: 'ignore' },
     }),
   );
   return speakerId;
@@ -952,7 +952,7 @@ Deno.test('orchid after: fallback prompt tokens from a long system prompt do not
       ...geminiModels('gemini35FlashLite'),
       maxSteps: 1,
       inputs: { text: true },
-      guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
+      guardrails: { canary: false, detect: 'ignore' },
     }),
   );
   registerProfile(
@@ -969,7 +969,7 @@ Deno.test('orchid after: fallback prompt tokens from a long system prompt do not
       },
       key: 'main',
       inputs: { text: true },
-      guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
+      guardrails: { canary: false, detect: 'ignore' },
     }),
   );
 
@@ -1076,7 +1076,7 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
       ...geminiModels('gemini35FlashLite'),
       maxSteps: 1,
       inputs: { text: true },
-      guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
+      guardrails: { canary: false, detect: 'ignore' },
     }),
   );
   registerProfile(
@@ -1100,7 +1100,7 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
       maxSteps: 1,
       key: 'main',
       inputs: { text: true },
-      guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
+      guardrails: { canary: false, detect: 'ignore' },
     }),
   );
   registerProfile(
@@ -1123,7 +1123,7 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
       },
       key: 'main',
       inputs: { text: true },
-      guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
+      guardrails: { canary: false, detect: 'ignore' },
     }),
   );
 
@@ -1952,7 +1952,7 @@ Deno.test('a profile with no compaction profile compacts itself, on its own mode
       allowModelSelect: true,
       key: 'main',
       inputs: { text: true },
-      guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
+      guardrails: { canary: false, detect: 'ignore' },
     }),
   );
 

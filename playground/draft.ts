@@ -11,7 +11,8 @@ import {
   resolveGuardrailPolicy,
 } from '../mod.ts';
 import { type ResolvedEgressChecks, resolveEgressChecks, type UrlCheck } from '../src/guardrails/egress.ts';
-import type { SensitiveGroups } from '../src/guardrails/sensitive.ts';
+import { type Boundary, recordOf } from '../src/guardrails/boundaries.ts';
+import { type DetectAction, DETECTORS, type Detector } from '../src/guardrails/detectors.ts';
 import type { TaintGate } from '../src/guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
@@ -193,9 +194,7 @@ export interface UrlCheckDraft {
 
 /** The bundled egress checks, one switch each. */
 export interface EgressChecksDraft {
-  sensitive: SensitiveGroups;
   boundary: boolean;
-  injection: boolean;
   images: UrlCheckDraft;
   links: UrlCheckDraft;
 }
@@ -203,9 +202,8 @@ export interface EgressChecksDraft {
 export interface GuardrailsDraft {
   canary: boolean;
   canaryBindNote: string;
-  sanitizeInput: boolean;
-  /** One switch per sensitive-data group. */
-  redactSensitive: SensitiveGroups;
+  /** What each detector does with a match, at every boundary. */
+  detect: Record<Detector, Record<Boundary, DetectAction>>;
   quotaEnabled: boolean;
   quotaPerDay: number | null;
   quotaMessage: string;
@@ -414,9 +412,7 @@ function urlCheckDraft(check: UrlCheck | undefined): UrlCheckDraft {
 
 function egressChecksDraft(checks: ResolvedEgressChecks): EgressChecksDraft {
   return {
-    sensitive: { ...checks.sensitive },
     boundary: checks.boundary,
-    injection: checks.injection,
     images: urlCheckDraft(checks.images),
     links: urlCheckDraft(checks.links),
   };
@@ -427,8 +423,7 @@ function defaultGuardrails(): GuardrailsDraft {
   return {
     canary: resolved.canary,
     canaryBindNote: '',
-    sanitizeInput: resolved.sanitizeInput,
-    redactSensitive: resolved.redactSensitive,
+    detect: recordOf(DETECTORS, (detector) => ({ ...resolved.detect[detector] })),
     quotaEnabled: false,
     quotaPerDay: null,
     quotaMessage: '',

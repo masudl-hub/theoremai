@@ -14,7 +14,6 @@ import {
   type DetectAction,
   type Detector,
   detectProblem,
-  resolveDetect,
 } from '../../src/guardrails/detectors.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import type { ProfileGuardrailsSpec } from '../../src/guardrails/types.ts';
@@ -39,7 +38,6 @@ const INBOUND: readonly Boundary[] = [
   'repair',
   'live_user',
 ];
-const REPLY: readonly Boundary[] = ['reply', 'reply_structured', 'live_reply'];
 
 /** Every boundary where `detector` resolves to `action`. */
 function where(
@@ -106,50 +104,6 @@ Deno.test('a detector takes one action everywhere or an action per boundary', ()
   assertEquals(where(spec, 'ids', 'block'), ['tool_arguments_mcp', 'reply']);
   assertEquals(resolveGuardrailPolicy(spec).detect.ids.user, 'redact');
   assertEquals(resolveGuardrailPolicy(spec).detect.network, DETECT_DEFAULTS.network);
-});
-
-Deno.test('resolveDetect leaves what a rule does not name at its base', () => {
-  const base = resolveDetect('flag');
-  const resolved = resolveDetect({ network: { thought: 'ignore' } }, base);
-  assertEquals(resolved.network.thought, 'ignore');
-  assertEquals(resolved.network.user, 'flag');
-  assertEquals(resolved.ids, base.ids);
-});
-
-Deno.test('the settings detect replaces resolve to the same matrix', () => {
-  assertEquals(where({ sanitizeInput: false }, 'injection', 'redact'), []);
-  assertEquals(where({ sanitizeInput: false }, 'ids', 'redact').includes('user'), true);
-  assertEquals(where({ redactSensitive: { network: false } }, 'network', 'redact'), []);
-  assertEquals(where({ redactSensitive: { network: false } }, 'network', 'flag'), []);
-  assertEquals(where({ redactSensitive: false }, 'credentials', 'ignore'), [...BOUNDARIES]);
-});
-
-Deno.test('the bundled reply checks resolve to block at the reply', () => {
-  const checked: ProfileGuardrailsSpec = { egress: { checks: true } };
-  for (const detector of ['ids', 'financial', 'credentials', 'injection'] as const) {
-    assertEquals(where(checked, detector, 'block'), [...REPLY]);
-  }
-  assertEquals(where(checked, 'network', 'block'), []);
-  const narrowed: ProfileGuardrailsSpec = {
-    egress: { checks: { sensitive: { network: true }, injection: false } },
-  };
-  assertEquals(where(narrowed, 'network', 'block'), [...REPLY]);
-  assertEquals(where(narrowed, 'injection', 'block'), []);
-  const hosted: ProfileGuardrailsSpec = { egress: { enforce: () => ({ action: 'allow' }) } };
-  assertEquals(where(hosted, 'credentials', 'block'), []);
-});
-
-Deno.test('detect wins over the settings it replaces', () => {
-  const spec: ProfileGuardrailsSpec = {
-    redactSensitive: false,
-    egress: { checks: true },
-    detect: { credentials: { user: 'block', reply: 'flag' } },
-  };
-  const resolved = resolveGuardrailPolicy(spec).detect.credentials;
-  assertEquals(resolved.user, 'block');
-  assertEquals(resolved.reply, 'flag');
-  assertEquals(resolved.history, 'ignore');
-  assertEquals(resolved.reply_structured, 'block');
 });
 
 Deno.test('detectProblem names a misspelt detector, boundary or action', () => {

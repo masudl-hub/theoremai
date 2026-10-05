@@ -25,7 +25,8 @@ interface Detection {
 
 const STRENGTH: readonly DetectOutcome[] = ['allow', 'flag', 'redact', 'block'];
 
-function stronger(left: DetectOutcome, right: DetectOutcome): DetectOutcome {
+function stronger(left: DetectOutcome, right: DetectOutcome | 'ignore'): DetectOutcome {
+  if (right === 'ignore') return left;
   return STRENGTH.indexOf(right) > STRENGTH.indexOf(left) ? right : left;
 }
 
@@ -55,6 +56,78 @@ function detectAt(text: string, boundary: Boundary, detect: ResolvedDetect): Det
   }
   if (action === 'block') return { action, hits };
   return { action, text: applySpans(text, redact), hits };
+}
+
+/** The detectors that read `boundary`: every one not set to `ignore`. */
+function detectorsAt(boundary: Boundary, detect: ResolvedDetect): Detector[] {
+  return DETECTORS.filter((detector) => detect[detector][boundary] !== 'ignore');
+}
+
+/** Whether any detector reads one of `boundaries`. */
+function detectReads(boundaries: readonly Boundary[], detect: ResolvedDetect): boolean {
+  return boundaries.some((boundary) => detectorsAt(boundary, detect).length > 0);
+}
+
+/** A stretch of streamed text released at a boundary, and how much of the stretch it covers. */
+interface Release extends Detection {
+  taken: number;
+}
+
+/** A stretch of a streamed text, and the detectors the stream settled a match of inside it. */
+interface Stretch {
+  from: number;
+  to: number;
+  settled: readonly Detector[];
+}
+
+/**
+ * Reads the stretch `[from, to)` of `window`, a text released as it streams. A match is reported
+ * with the stretch it starts in. One being replaced is released whole: `to` is pulled back to its
+ * start when the stretch would cut it, and `taken` is how far the release got. A detector set to
+ * `block` that the stream settled a match of blocks even when this reading finds none: the two
+ * are then out of step, and the stream's finding stands.
+ */
+function detectRelease(
+  window: string,
+  { from, to, settled }: Stretch,
+  boundary: Boundary,
+  detect: ResolvedDetect,
+): Release {
+  const found = detectorsAt(boundary, detect).flatMap((detector) =>
+    spansOf(detector, window)
+      .filter((span) => span.end > from && span.start < to)
+      .map((span) => ({ span, detector, chosen: detect[detector][boundary] })),
+  );
+  const hitOf = ({ span, detector }: (typeof found)[number]): GuardrailHit =>
+    hitFromSpan(window, span, DETECT_RULES[detector], 'high');
+  const blocking = found.filter(({ chosen }) => chosen === 'block');
+  if (blocking.length > 0) return { action: 'block', hits: blocking.map(hitOf), taken: 0 };
+  const unread = settled.filter((detector) => detect[detector][boundary] === 'block');
+  if (unread.length > 0) {
+    const hits = unread.map(
+      (detector): GuardrailHit => ({ rule: DETECT_RULES[detector], severity: 'high' }),
+    );
+    return { action: 'block', hits, taken: 0 };
+  }
+  const replaced = found.filter(({ chosen }) => chosen === 'redact');
+  let end = to;
+  for (;;) {
+    const cut = replaced.find(({ span }) => span.start < end && span.end > end);
+    if (!cut) break;
+    end = Math.max(from, cut.span.start);
+  }
+  const inside = found.filter(({ span, chosen }) =>
+    chosen === 'redact' ? span.end <= end : span.start >= from && span.start < end,
+  );
+  const spans = inside
+    .filter(({ chosen }) => chosen === 'redact')
+    .map(({ span }) => ({ ...span, start: Math.max(0, span.start - from), end: span.end - from }));
+  return {
+    action: inside.reduce<DetectOutcome>((action, { chosen }) => stronger(action, chosen), 'allow'),
+    text: applySpans(window.slice(from, end), spans),
+    hits: inside.map(hitOf),
+    taken: end - from,
+  };
 }
 
 /** `text` with every match of `detectors` replaced by its placeholder, whatever a profile sets. */
@@ -117,15 +190,19 @@ function trustAt(boundary: Boundary): TrustLevel {
   return boundary === 'system' ? 'assembled' : 'untrusted';
 }
 
-/** The guardrail event for what was found at a boundary, or `undefined` when nothing matched. */
+/**
+ * The guardrail event for what was found at a boundary, or `undefined` when nothing matched.
+ * `stage` is the boundary's own unless the text was read as it streamed.
+ */
 function detectEvent(
   boundary: Boundary,
   found: Pick<Detection, 'action' | 'hits'>,
   provenance?: Provenance,
+  stage: GuardrailStage = BOUNDARY_STAGE[boundary],
 ): GuardrailEvent | undefined {
   if (found.action === 'allow') return undefined;
   return {
-    stage: BOUNDARY_STAGE[boundary],
+    stage,
     boundary,
     trust: trustAt(boundary),
     action: found.action,
@@ -134,5 +211,13 @@ function detectEvent(
   };
 }
 
-export type { BoundaryReader, Detection, DetectOutcome };
-export { boundaryReader, detectAt, detectEvent, redactDetectors };
+export type { BoundaryReader, Detection, DetectOutcome, Release, Stretch };
+export {
+  boundaryReader,
+  detectAt,
+  detectEvent,
+  detectorsAt,
+  detectReads,
+  detectRelease,
+  redactDetectors,
+};

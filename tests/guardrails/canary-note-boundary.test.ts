@@ -39,7 +39,7 @@ function streamed(enforce: EgressEnforcer, text: string, ctx: GuardrailContext) 
   if (!stream) throw new Error('no stream plan');
   let heldBeforeBlock = text.length;
   for (const char of text) {
-    if (stream.push(char)) return { blocked: true, heldFrom: heldBeforeBlock };
+    if (stream.push(char).length > 0) return { blocked: true, heldFrom: heldBeforeBlock };
     heldBeforeBlock = stream.holdFrom();
   }
   return { blocked: false, heldFrom: heldBeforeBlock };
@@ -83,7 +83,7 @@ Deno.test("the streamed note matches exactly what the note's pattern matches, ca
   for (const variant of variants) {
     const stream = createEgressStream({ checks: resolveEgressChecks({}), note });
     const text = `x ${variant} y`;
-    const blocked = [...text].some((char) => stream.push(char) !== undefined);
+    const blocked = [...text].some((char) => stream.push(char).length > 0);
     assertEquals(blocked, notePattern(note).test(text), variant);
   }
 });
@@ -93,8 +93,6 @@ Deno.test('a thought repeating a reworded canary note is omitted', () => {
     checks: resolveEgressChecks({
       images: false,
       links: false,
-      sensitive: false,
-      injection: false,
     }),
     canary: mintCanary(),
     lexicon: NOTE,

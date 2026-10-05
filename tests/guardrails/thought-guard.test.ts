@@ -94,9 +94,7 @@ for (const [name, selection] of [
     const checks = resolveEgressChecks(selection);
     const urlOnly = resolveEgressChecks({
       ...selection,
-      sensitive: false,
       boundary: false,
-      injection: false,
     });
     const rnd = seeded(name.length);
     const problems: string[] = [];
@@ -155,8 +153,8 @@ Deno.test('a thought writing leak after leak loses the rest, in time in proporti
 const SYSTEM =
   'You are the booking agent for Northwind Travel and you only book flights, trains and hotels for signed in customers.';
 
-/** The checks a turn's thoughts run (`thoughtGuardFor`): no sensitive or injection check. */
-const THOUGHT_CHECKS = resolveEgressChecks({ sensitive: false, injection: false });
+/** The checks a turn's thoughts run (`thoughtGuardFor`). */
+const THOUGHT_CHECKS = resolveEgressChecks({});
 
 function leakGuard(canary: string, extra: Partial<ThoughtGuardOptions> = {}): ThoughtGuard {
   return createThoughtGuard({

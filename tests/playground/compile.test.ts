@@ -101,14 +101,12 @@ Deno.test('egress checks compile to what differs from the bundled defaults', () 
   assertEquals(checks({}), true);
   assertEquals(
     checks({
-      sensitive: { ...egressChecks.sensitive, network: true },
-      injection: false,
+      boundary: false,
       images: { on: true, hosts: [' cdn.acme.io '], fromTools: true },
       links: { on: true, hosts: [], fromTools: false },
     }),
     {
-      sensitive: { network: true },
-      injection: false,
+      boundary: false,
       images: { hosts: ['cdn.acme.io'] },
       links: { fromTools: false },
     },
@@ -117,9 +115,7 @@ Deno.test('egress checks compile to what differs from the bundled defaults', () 
   assertEquals(checks({ images: { ...egressChecks.images, on: false } }), { images: false });
   assertEquals(
     checks({
-      sensitive: { ids: false, financial: false, network: false, credentials: false },
       boundary: false,
-      injection: false,
       images: { ...egressChecks.images, on: false },
     }),
     false,
@@ -650,15 +646,23 @@ Deno.test('quoteSource writes a string that evaluates back to itself, script-saf
   assertEquals(/[<>\u2028\u2029]/.test(quoted), false);
 });
 
-Deno.test('redactSensitive compiles to the groups the draft changes, false when none are on', () => {
+Deno.test('detect compiles to the actions the draft changes, at the boundaries the profile has', () => {
   const draft = includeFacet(createExampleDraft(), 'guardrails');
-  const groups = { ids: true, financial: true, network: true, credentials: true };
-  const redact = (redactSensitive: typeof groups) =>
-    compiled({ ...draft, guardrails: { ...draft.guardrails, redactSensitive } }).profile.guardrails
-      ?.redactSensitive;
-  assertEquals(redact(groups), undefined);
-  assertEquals(redact({ ...groups, network: false }), { network: false });
-  assertEquals(redact({ ids: false, financial: false, network: false, credentials: false }), false);
+  const detect = structuredClone(createBlankDraft().guardrails.detect);
+  const spec = (changed: typeof detect) =>
+    compiled({ ...draft, guardrails: { ...draft.guardrails, detect: changed } }).profile.guardrails
+      ?.detect;
+  assertEquals(spec(detect), undefined);
+  detect.credentials.reply = 'block';
+  detect.injection.tool_output_http = 'flag';
+  assertEquals(spec(detect), {
+    credentials: { reply: 'block' },
+    injection: { tool_output_http: 'flag' },
+  });
+  const host = includeFacet(setProfileType(createExampleDraft(), 'host'), 'guardrails');
+  const hosted = compilePlayground({ ...host, guardrails: { ...host.guardrails, detect } });
+  assert(hosted.ok);
+  assertEquals(hosted.profile.guardrails?.detect, { injection: { tool_output_http: 'flag' } });
 });
 
 Deno.test('a host draft compiles to its tools, with no model or identity', () => {

@@ -49,7 +49,7 @@ function define(id: string, over: Loose = {}): void {
       ...LIMITS,
     },
     // the profile's own guardrails would redact the probes below
-    guardrails: { sanitizeInput: false, redactSensitive: false },
+    guardrails: { detect: 'ignore' },
     ...over,
   } as never);
 }

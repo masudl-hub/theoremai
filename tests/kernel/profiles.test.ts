@@ -54,7 +54,7 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: null },
-    guardrails: { canary: true, sanitizeInput: true },
+    guardrails: { canary: true },
     observability: { writeTo: false, sampleRate: 0.5 },
   });
 
@@ -188,7 +188,7 @@ Deno.test('defineProfile takes enforce or checks for egress, one of the two, and
     'applies only to a host egress.enforce',
   );
   profile({ checks: false })();
-  profile({ checks: { sensitive: { network: true }, links: { hosts: ['docs.acme.io'] } } })();
+  profile({ checks: { boundary: false, links: { hosts: ['docs.acme.io'] } } })();
 });
 
 Deno.test('defineProfile rejects a non-integer or negative egress count', () => {
@@ -546,14 +546,14 @@ Deno.test("registerProfile accepts a 'host' profile with only tools, guardrails,
     type: 'host',
     id: 'host_ceiling',
     tools: { allow: ['host_probe'] },
-    guardrails: { sanitizeInput: true },
+    guardrails: { detect: { injection: 'flag' } },
     observability: { writeTo: false },
   });
   const profile = getProfile('host_ceiling');
   assertEquals(profile.type, 'host');
   if (profile.type !== 'host') throw new Error('Expected host profile');
   assertEquals(profile.tools.allow, ['host_probe']);
-  assertEquals(profile.guardrails?.sanitizeInput, true);
+  assertEquals(profile.guardrails?.detect, { injection: 'flag' });
   assertEquals(profile.observability?.writeTo, false);
   assertEquals('models' in profile, false);
   assertEquals('identity' in profile, false);
@@ -581,39 +581,14 @@ Deno.test('host profile accepts only the guardrails that fire on the invokeTool 
     id: 'host_guardrails_live',
     tools: { allow: [] },
     guardrails: {
-      sanitizeInput: false,
-      redactSensitive: true,
+      detect: { injection: 'ignore' },
       network: { allowPrivateNetworks: true, allowedHosts: ['example.test'] },
     },
   });
   const profile = getProfile('host_guardrails_live');
   if (profile.type !== 'host') throw new Error('Expected host profile');
-  assertEquals(profile.guardrails?.sanitizeInput, false);
-  assertEquals(profile.guardrails?.redactSensitive, true);
+  assertEquals(profile.guardrails?.detect, { injection: 'ignore' });
   assertEquals(profile.guardrails?.network?.allowedHosts, ['example.test']);
-});
-
-Deno.test('redactSensitive takes a boolean per group, and only the groups there are', () => {
-  registerProfile({
-    type: 'host',
-    id: 'host_redact_groups',
-    tools: { allow: [] },
-    guardrails: { redactSensitive: { network: false } },
-  });
-  assertEquals(getProfile('host_redact_groups').guardrails?.redactSensitive, { network: false });
-  for (const redactSensitive of [{ keys: false }, { ids: 'yes' }]) {
-    assertThrows(
-      () =>
-        registerProfile({
-          type: 'host',
-          id: 'host_redact_bad',
-          tools: { allow: [] },
-          guardrails: { redactSensitive },
-        } as Parameters<typeof registerProfile>[0]),
-      TheoremError,
-      'guardrails.redactSensitive.',
-    );
-  }
 });
 
 Deno.test('host profile rejects guardrails that only a model turn can run', () => {

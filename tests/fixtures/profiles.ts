@@ -17,8 +17,6 @@ export function stubProfile(opts: {
   };
   const guardrails = {
     canary: true,
-    sanitizeInput: true,
-    redactSensitive: true,
     quota: { perDay: 1 },
   } as const;
   const modelFields = { models: { stub: binding }, defaultModel: 'stub' };

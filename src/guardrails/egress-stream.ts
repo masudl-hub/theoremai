@@ -1,7 +1,7 @@
 /**
- * The bundled egress policy, run on a reply as it streams.
+ * The bundled egress policy and the detectors, run on a reply as it streams.
  *
- * The bundled checks match their patterns on the reply as written and, for
+ * Each matches its patterns on the reply as written and, for
  * injection phrasing, on
  * rewrites of it (typo-folded, Unicode-folded, rot13, leet, URL-decoded, read
  * backwards). The stream keeps each rewrite growing with the reply and, for
@@ -11,13 +11,15 @@
  * later starts at or after that place, so none of it has been released.
  *
  * A match whose outcome no later text can change is settled; a settled match
- * of the pattern itself (not the automaton) is a hit, and the reply is
- * blocked there. Each character is read a bounded number of times, so a long
- * reply costs time in proportion to its length.
+ * of the pattern itself (not the automaton) is a hit. A hit of the policy
+ * blocks the reply there; a detector's does what `guardrails.detect` sets
+ * (`detect-stream.ts`). Each character is read a bounded number of times, so a
+ * long reply costs time in proportion to its length.
  *
  * @module
  */
 
+import type { Detector } from './detectors.ts';
 import {
   DEFAULT_CHECKS,
   egressScope,
@@ -53,21 +55,26 @@ import {
   typoNormalize,
 } from './injection.ts';
 import { isEmoji, normalizeCodePoint } from './normalize.ts';
-import { EGRESS_RULES } from './rules.ts';
+import { DETECT_RULES, EGRESS_RULES } from './rules.ts';
 import { cardHit, SENSITIVE_PATTERNS } from './sensitive.ts';
 import type { EgressEnforcer, GuardrailContext, Severity } from './types.ts';
 
-/** A settled match the policy blocks on. */
+/** A settled match. */
 interface EgressStreamHit {
   rule: string;
   severity: Severity;
   /** Where in the reply the match starts (the start of its rewrite's source). */
   start: number;
+  /** The detector whose match it is; unset for a match of the policy, which blocks. */
+  detector?: Detector;
 }
 
 interface EgressStream {
-  /** Read the next piece of the reply; a hit when a match has settled. */
-  push: (chunk: string) => EgressStreamHit | undefined;
+  /**
+   * Read the next piece of the reply; the matches that settled, none when the reply is clear so
+   * far. A match of the policy is the last one read: it blocks.
+   */
+  push: (chunk: string) => EgressStreamHit[];
   /** The earliest index of the reply a match could still start at. */
   holdFrom: () => number;
 }
@@ -456,6 +463,7 @@ function urlView(reply: Grown): MappedView {
 interface ScanPattern {
   rule: string;
   severity: Severity;
+  detector?: Detector;
   /** The automaton's id for the pattern. */
   id: number;
   regex: RegExp;
@@ -465,24 +473,44 @@ interface ScanPattern {
   find?: (reply: string, from: number, to: number) => number | undefined;
 }
 
+const INJECTION_KINDS: ReadonlySet<EgressPatternKind> = new Set([
+  'injection',
+  'base64',
+  'hex',
+  'spaced',
+  'pipe',
+]);
+
 const BLOB_HITS = new Map(INJECTION_BLOBS.map(({ pattern, hit }) => [pattern, hit]));
 const SENSITIVE_HITS = new Map(
   SENSITIVE_PATTERNS.flatMap(({ pattern, hit }) => (hit ? [[pattern, hit] as const] : [])),
 );
 
-/** The bundled rule a pattern kind trips, with `collectEgressHits`' severity. */
-const KIND_RULES: Record<EgressPatternKind, { rule: string; severity: Severity }> = {
-  injection: { rule: EGRESS_RULES.injection, severity: 'medium' },
-  base64: { rule: EGRESS_RULES.injection, severity: 'medium' },
-  hex: { rule: EGRESS_RULES.injection, severity: 'medium' },
-  spaced: { rule: EGRESS_RULES.injection, severity: 'medium' },
-  pipe: { rule: EGRESS_RULES.injection, severity: 'medium' },
-  sensitive: { rule: EGRESS_RULES.sensitive, severity: 'high' },
-  card: { rule: EGRESS_RULES.sensitive, severity: 'high' },
-  boundary: { rule: EGRESS_RULES.boundary, severity: 'medium' },
-  image: { rule: EGRESS_RULES.image, severity: 'high' },
-  link: { rule: EGRESS_RULES.link, severity: 'high' },
-};
+type PatternRule = Pick<ScanPattern, 'rule' | 'severity' | 'detector'>;
+
+/** What a match of `detector` reports, with `detectAt`'s severity. */
+function detectorRule(detector: Detector): PatternRule {
+  return { rule: DETECT_RULES[detector], severity: 'high', detector };
+}
+
+const INJECTION_RULE = detectorRule('injection');
+const BOUNDARY_RULE: PatternRule = { rule: EGRESS_RULES.boundary, severity: 'medium' };
+
+/** What a pattern's match reports: its detector's rule, or the bundled check's with `collectEgressHits`' severity. */
+function patternRule({ kind, group }: EgressPattern): PatternRule | undefined {
+  if (INJECTION_KINDS.has(kind)) return INJECTION_RULE;
+  switch (kind) {
+    case 'sensitive':
+    case 'card':
+      return group === undefined ? undefined : detectorRule(group);
+    case 'boundary':
+      return BOUNDARY_RULE;
+    case 'image':
+      return { rule: EGRESS_RULES.image, severity: 'high' };
+    default:
+      return { rule: EGRESS_RULES.link, severity: 'high' };
+  }
+}
 
 interface UrlReadings {
   image: UrlPatternReading[];
@@ -505,32 +533,24 @@ function patternReading(
   return hit ? { hit } : {};
 }
 
-const INJECTION_KINDS: ReadonlySet<EgressPatternKind> = new Set([
-  'injection',
-  'base64',
-  'hex',
-  'spaced',
-  'pipe',
-]);
-
-/** Whether `checks` runs the check a pattern belongs to. */
-function runs({ kind, group }: EgressPattern, checks: ResolvedEgressChecks): boolean {
-  if (INJECTION_KINDS.has(kind)) return checks.injection;
-  switch (kind) {
-    case 'sensitive':
-    case 'card':
-      return group !== undefined && checks.sensitive[group];
-    case 'boundary':
-      return checks.boundary;
-    case 'image':
-      return checks.images !== undefined;
-    default:
-      return checks.links !== undefined;
-  }
+/** Whether the stream reads a pattern: its detector is one of `detectors`, or `checks` runs its check. */
+function runs(
+  { kind }: EgressPattern,
+  rule: PatternRule,
+  checks: ResolvedEgressChecks,
+  detectors: readonly Detector[],
+): boolean {
+  if (rule.detector) return detectors.includes(rule.detector);
+  if (kind === 'boundary') return checks.boundary;
+  return kind === 'image' ? checks.images !== undefined : checks.links !== undefined;
 }
 
-/** The patterns `checks` runs on the reply as written. */
-function forwardPatterns(checks: ResolvedEgressChecks, given?: GivenUrls): ScanPattern[] {
+/** The patterns read on the reply as written: `detectors`' and those of the checks `checks` runs. */
+function forwardPatterns(
+  checks: ResolvedEgressChecks,
+  detectors: readonly Detector[],
+  given?: GivenUrls,
+): ScanPattern[] {
   const scope = (check: object | undefined) => ({ ...check, ...(given ? { given } : {}) });
   const urls: UrlReadings = {
     image: imageReadings(scope(checks.images)),
@@ -538,9 +558,10 @@ function forwardPatterns(checks: ResolvedEgressChecks, given?: GivenUrls): ScanP
   };
   const out: ScanPattern[] = [];
   EGRESS_PATTERNS.forEach((entry, id) => {
-    if (!runs(entry, checks)) return;
+    const rule = patternRule(entry);
+    if (!(rule && runs(entry, rule, checks, detectors))) return;
     out.push({
-      ...KIND_RULES[entry.kind],
+      ...rule,
       id,
       regex: new RegExp(entry.pattern.source, entry.pattern.flags),
       ...patternReading(entry.kind, entry.pattern, urls),
@@ -556,7 +577,7 @@ function injectionPatterns(): ScanPattern[] {
     if (kind !== 'injection') return;
     const hit = BLOB_HITS.get(pattern);
     out.push({
-      ...KIND_RULES.injection,
+      ...INJECTION_RULE,
       id,
       regex: new RegExp(pattern.source, pattern.flags),
       ...(hit ? { hit } : {}),
@@ -567,7 +588,7 @@ function injectionPatterns(): ScanPattern[] {
 
 function reversedPatterns(): ScanPattern[] {
   return REVERSED_INJECTION_PATTERNS.map((pattern, id) => ({
-    ...KIND_RULES.injection,
+    ...INJECTION_RULE,
     id,
     regex: new RegExp(pattern.source, pattern.flags),
   }));
@@ -717,7 +738,7 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
     }
     reached[p] = 0;
     const text = view.text;
-    const { regex, hit, rule, severity } = patterns[p] as ScanPattern;
+    const { regex, hit, rule, severity, detector } = patterns[p] as ScanPattern;
     regex.lastIndex = resume[p] as number;
     for (;;) {
       const match = regex.exec(text);
@@ -728,7 +749,15 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
       }
       const [blob] = match;
       if (blob && (!hit || hit(blob, text, match.index))) {
-        return { rule, severity, start: view.rawAt(match.index) };
+        // why: The scan reads on from the end of the match, so the next call finds the one after it.
+        resume[p] = regex.lastIndex;
+        recheck[p] = 1;
+        return {
+          rule,
+          severity,
+          start: view.rawAt(match.index),
+          ...(detector ? { detector } : {}),
+        };
       }
       if (!blob) regex.lastIndex++;
       resume[p] = regex.lastIndex;
@@ -746,11 +775,16 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
   }
 
   return {
-    /** Read what the view settled; a hit, or the reply index to hold from. */
-    run(): EgressStreamHit | number {
+    /** Read what the view settled into `hits`; the reply index to hold from. */
+    run(hits: EgressStreamHit[]): number {
       feed();
       const earliest = live();
-      return detect() ?? view.rawAt(earliest);
+      for (let hit = detect(); hit; hit = detect()) {
+        hits.push(hit);
+        // why: A match of the policy blocks, so nothing after it is read.
+        if (!hit.detector) break;
+      }
+      return view.rawAt(earliest);
     },
   };
 }
@@ -758,6 +792,8 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
 interface EgressStreamOptions {
   /** The bundled checks to run. Default each at its default (`EgressChecks`). */
   checks?: ResolvedEgressChecks;
+  /** The detectors whose matches the stream settles. Default none. */
+  detect?: readonly Detector[];
   /** Host rules, read on the reply as written, with their compiled automaton. */
   host?: {
     automaton: EgressAutomatonData;
@@ -781,7 +817,7 @@ function hostPatterns({ rules }: NonNullable<EgressStreamOptions['host']>): Scan
   }));
 }
 
-/** Scans the bundled egress policy's patterns, and any host rules, as a reply streams. */
+/** Scans the bundled egress policy's patterns, the detectors' and any host rules, as a reply streams. */
 function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
   const reply: Grown = { text: '', fresh: '' };
   const raw = rawView(reply);
@@ -792,12 +828,13 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
   };
   const scans: ReturnType<typeof createScan>[] = [];
   const checks = options.checks ?? DEFAULT_CHECKS;
-  const forwardScan = forwardPatterns(checks, options.given);
+  const detectors = options.detect ?? [];
+  const forwardScan = forwardPatterns(checks, detectors, options.given);
   if (forwardScan.length > 0) {
     forward ??= compile(FORWARD_AUTOMATON);
     scans.push(scan(raw, forward, forwardScan));
   }
-  if (checks.injection) {
+  if (detectors.includes('injection')) {
     forward ??= compile(FORWARD_AUTOMATON);
     backward ??= compile(REVERSED_AUTOMATON);
     const normalized = normalizedView(reply);
@@ -817,9 +854,8 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
     );
   }
   if (checks.boundary && options.note) {
-    const { rule, severity } = KIND_RULES.boundary;
     const regex = notePattern(options.note);
-    scans.push(scan(raw, literalAutomaton(options.note), [{ rule, severity, id: 0, regex }]));
+    scans.push(scan(raw, literalAutomaton(options.note), [{ ...BOUNDARY_RULE, id: 0, regex }]));
   }
   if (options.host) {
     let automaton = hostAutomata.get(options.host.automaton);
@@ -835,14 +871,14 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
       reply.text += chunk;
       reply.fresh = chunk;
       for (const view of views) view.update();
+      const hits: EgressStreamHit[] = [];
       let from = reply.text.length;
       for (const s of scans) {
-        const result = s.run();
-        if (typeof result !== 'number') return result;
-        from = Math.min(from, result);
+        from = Math.min(from, s.run(hits));
+        if (hits.some(({ detector }) => !detector)) return hits;
       }
       hold = from;
-      return undefined;
+      return hits;
     },
     holdFrom: () => hold,
   };

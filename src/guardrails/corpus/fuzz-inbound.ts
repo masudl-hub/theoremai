@@ -34,8 +34,6 @@ function registerFuzzProfile(): void {
     inputs: { text: true },
     guardrails: {
       canary: true,
-      sanitizeInput: true,
-      redactSensitive: true,
     },
   });
 }

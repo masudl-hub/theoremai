@@ -17,8 +17,6 @@ ignores:
   # The corpus and eval measure the scanners themselves.
   - 'src/guardrails/corpus/**/*.ts'
   - 'src/guardrails/eval/**/*.ts'
-  # The reply checks move to detectAt with the reply and thought boundaries.
-  - 'src/guardrails/egress.ts'
 rule:
   any:
     - pattern: sensitiveSpans($$$ARGS)

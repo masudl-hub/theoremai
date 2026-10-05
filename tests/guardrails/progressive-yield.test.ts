@@ -2,17 +2,17 @@ import '../fixtures/test-host.ts';
 import { mintCanary } from '../../src/guardrails/canary.ts';
 import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
-import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import {
   createOutboundProgressiveGate,
   createProgressiveYieldGate,
   DEFAULT_HOLDBACK,
 } from '../../src/guardrails/progressive-yield.ts';
-import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
+import { DETECT_RULES, EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type { EgressEnforcer, GuardrailContext } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { CANARY_OPENING } from '../fixtures/canary.ts';
+import { replyGate } from '../fixtures/detect.ts';
 
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
@@ -67,18 +67,16 @@ Deno.test('createProgressiveYieldGate scans only the canary without a host polic
   assertEquals(result.blocked, false);
 });
 
-Deno.test('createProgressiveYieldGate blocks sensitive spans via the bundled policy', async () => {
-  const gate = createProgressiveYieldGate({ context: ctx(), enforce: standardEgressEnforce });
+Deno.test('createProgressiveYieldGate holds a key a detector blocks until it settles, then stops', async () => {
+  const gate = replyGate(ctx());
   // The key could still run on, so it is held, not yet a match.
   const held = await gate.process(`key=${TEST_OPENAI_KEY}`);
   assertEquals(held, { blocked: false, emit: '' });
   const result = await gate.process(' and more');
   assertEquals(result.blocked, true);
   if (result.blocked) {
-    assertEquals(
-      result.hits.some((h) => h.rule === EGRESS_RULES.sensitive),
-      true,
-    );
+    assertEquals(result.boundary, 'reply');
+    assertEquals([...new Set(result.hits.map((hit) => hit.rule))], [DETECT_RULES.credentials]);
   }
 });
 
@@ -194,14 +192,14 @@ Deno.test('createProgressiveYieldGate holdback 0 still holds a tail that could s
 
 Deno.test('createOutboundProgressiveGate threads egress.holdback', async () => {
   const policy = resolveGuardrailPolicy({ egress: { enforce: allowAll, holdback: 12 } });
-  const gate = createOutboundProgressiveGate(policy, ctx());
+  const gate = createOutboundProgressiveGate(policy, ctx(), 'reply');
   await gate?.process('t'.repeat(100));
   assertEquals(gate?.unreleased().length, 12);
 });
 
 Deno.test('createOutboundProgressiveGate defaults egress to DEFAULT_HOLDBACK', async () => {
   const policy = resolveGuardrailPolicy({ egress: { enforce: allowAll } });
-  const gate = createOutboundProgressiveGate(policy, ctx(mintCanary()));
+  const gate = createOutboundProgressiveGate(policy, ctx(mintCanary()), 'reply');
   await gate?.process('s'.repeat(DEFAULT_HOLDBACK * 2));
   assertEquals(gate?.unreleased().length, DEFAULT_HOLDBACK);
 });

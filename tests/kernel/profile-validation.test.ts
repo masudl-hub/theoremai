@@ -1006,24 +1006,6 @@ Deno.test('a field the type may carry only as its off value names that value', (
   );
 });
 
-Deno.test('redactSensitive is a boolean or a map of known groups to booleans', () => {
-  const bad = (selection: unknown) =>
-    said(textProfile({ guardrails: { redactSensitive: selection } }));
-  check(bad(true), 'defined', 'true');
-  check(bad(false), 'defined', 'false');
-  check(bad({ ids: true }), 'defined', 'a group');
-  check(
-    bad({ nope: true }),
-    'Profile p: guardrails.redactSensitive.nope is not a group (ids, financial, network, credentials) set to a boolean',
-    'unknown group',
-  );
-  check(
-    bad({ ids: 'yes' }),
-    'Profile p: guardrails.redactSensitive.ids is not a group (ids, financial, network, credentials) set to a boolean',
-    'non-boolean value',
-  );
-});
-
 Deno.test('a registry refuses an unknown id, and finds, lists and clears what it holds', () => {
   const registry = createProfileRegistry(createToolRegistry(), createSchemaRegistry());
   let message = 'returned';

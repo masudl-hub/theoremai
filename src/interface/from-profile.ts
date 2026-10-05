@@ -31,8 +31,6 @@ function guardrailsView(guardrails?: ProfileGuardrailsSpec): ProfileGuardrailsVi
     quota: policy.quota,
     canary: policy.canary,
     detect: policy.detect,
-    sanitizeInput: policy.sanitizeInput,
-    redactSensitive: policy.redactSensitive,
     hasEgress: Boolean(policy.egress),
     egressChecks: egressChecksView(egressChecksOf(policy.egress?.enforce)),
   };
@@ -45,9 +43,7 @@ function urlCheckView(check: UrlCheck | undefined): UrlCheckView {
 function egressChecksView(checks: ResolvedEgressChecks | undefined): EgressChecksView | null {
   if (!checks) return null;
   return {
-    sensitive: { ...checks.sensitive },
     boundary: checks.boundary,
-    injection: checks.injection,
     images: urlCheckView(checks.images),
     links: urlCheckView(checks.links),
   };

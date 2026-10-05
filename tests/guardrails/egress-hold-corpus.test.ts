@@ -2,12 +2,11 @@ import '../fixtures/test-host.ts';
 import { inboundFuzzPayloads } from '../../src/guardrails/corpus/inbound-payloads.ts';
 import * as secrets from '../../src/guardrails/corpus/secrets.ts';
 import * as strings from '../../src/guardrails/corpus/strings.ts';
-import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
 import { injectionSpans } from '../../src/guardrails/injection.ts';
-import { createProgressiveYieldGate } from '../../src/guardrails/progressive-yield.ts';
 import { sensitiveSpans } from '../../src/guardrails/sensitive.ts';
 import type { GuardrailContext } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import { replyGate } from '../fixtures/detect.ts';
 import { referenceMatchStart } from './egress-reference.ts';
 
 const CONTEXT: GuardrailContext = { stage: 'live_outbound', trust: 'untrusted', profileId: 'live' };
@@ -18,7 +17,7 @@ const CHUNKS = [1, 7, 24];
 /** Whitespace past any fixed hold, which the exact hold does not count. */
 const PAD = ' '.repeat(400);
 
-/** Every corpus string the bundled egress policy blocks, spoken inside a sentence. */
+/** Every corpus string a detector matches, spoken inside a sentence. */
 function egressCorpus(): Array<{ name: string; text: string; start: number }> {
   const named = [
     ...Object.entries(secrets),
@@ -32,7 +31,7 @@ function egressCorpus(): Array<{ name: string; text: string; start: number }> {
         sensitiveSpans(text, { network: false }).length + injectionSpans(text).length > 0;
       const start = referenceMatchStart(text);
       if (blocked !== start < Number.POSITIVE_INFINITY) {
-        throw new Error(`${name}: the reference and the batch policy disagree`);
+        throw new Error(`${name}: the reference and the detectors disagree`);
       }
       return blocked ? [{ name: padded ? `${name} (padded)` : name, text, start }] : [];
     });
@@ -41,7 +40,7 @@ function egressCorpus(): Array<{ name: string; text: string; start: number }> {
 
 /** How much from `start` on reached the host before the gate blocked, or `-1` if it never did. */
 async function exposed(text: string, start: number, chunk: number): Promise<number> {
-  const gate = createProgressiveYieldGate({ context: CONTEXT, enforce: standardEgressEnforce });
+  const gate = replyGate(CONTEXT);
   let released = 0;
   for (let at = 0; at < text.length; at += chunk) {
     const result = await gate.process(text.slice(at, at + chunk));
@@ -51,7 +50,7 @@ async function exposed(text: string, start: number, chunk: number): Promise<numb
   return (await gate.flush()).blocked ? Math.max(0, released - start) : -1;
 }
 
-Deno.test('the bundled policy hold shows the host no character of any egress corpus match', async () => {
+Deno.test('a detector set to block at reply shows the host no character of any corpus match', async () => {
   const corpus = egressCorpus();
   assertEquals(corpus.length > 100, true);
   const leaks: string[] = [];

@@ -151,7 +151,7 @@ Deno.test('runTurn releases a thought that quotes the bind note without the toke
   // Without egress.enforce the stream gate blocks on the canary alone.
   async function* quoteNote(): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
-    yield { type: 'thought', text: "This turn's canary is mentioned in reasoning." };
+    yield { type: 'thought', text: 'Your canary token is mentioned in reasoning.' };
     yield { type: 'text', text: 'after note' };
   }
   const provider: ModelProvider = { complete: quoteNote };
@@ -343,7 +343,7 @@ Deno.test('bindCanary returns just the canary note when system is empty', () => 
   const canary = mintCanary();
   const result = bindCanary('', canary);
   assertEquals(result.includes(canary), true);
-  assertEquals(result.startsWith("This turn's canary is"), true);
+  assertEquals(result.startsWith('Your canary token is'), true);
   assertEquals(result.includes('\n\n'), false);
 });
 

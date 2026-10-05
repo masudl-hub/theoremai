@@ -681,7 +681,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.cache': field(
     'CacheSpec',
-    'Prompt caching on OpenRouter text profiles: reuses the start of a prompt it has already seen. With the canary on, the system instruction changes every turn, so a cache is reused only within a turn.',
+    'Prompt caching on OpenRouter text profiles: reuses the start of a prompt it has already seen. The canary is the same on every turn that sends the same system instruction, so a cached instruction is reused across turns and users.',
   ),
   'models.*.cache.mode': field(
     unionType(CACHE_MODES),
@@ -1003,7 +1003,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.canary': field(
     'boolean',
-    'Plants a secret token in the system instruction and stops the reply if the model repeats it; a thought that repeats it has it cut out instead.',
+    'Plants a secret token at the end of the system instruction, the same on every turn that sends that instruction, and stops a reply that repeats it, unless the model was given it this turn in the input, history or a tool result; a thought that repeats it has it cut out instead.',
   ),
   'guardrails.promptEcho': field(
     'boolean',

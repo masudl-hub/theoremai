@@ -994,6 +994,11 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   keySlot?: KeySlot;
   /** The slot a quota refusal on `keySlot` retries on once, when the profile names one. */
   fallbackKeySlot?: KeySlot;
+  /**
+   * The canary bound into the system prompt; empty with the canary off. A turn
+   * binds the profile's (`profileCanary`), the same for the same prompt; a
+   * Live session binds this one, minted for it.
+   */
   canary: string;
   sessionResumptionHandle?: string;
   /** Snapshotted synchronously before any async work; the runner binds the canary on top. */

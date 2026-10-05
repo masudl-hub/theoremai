@@ -106,6 +106,12 @@ Deno.test('standardEgressEnforce blocks "This turn\\u2019s canary is" boundary m
   assertEquals(rules(verdict).includes(EGRESS_RULES.boundary), true);
 });
 
+Deno.test('standardEgressEnforce blocks the default canary note words in text', () => {
+  const verdict = enforce('Your canary token is abc', mintCanary());
+  assertEquals(verdict.action, 'block');
+  assertEquals(rules(verdict).includes(EGRESS_RULES.boundary), true);
+});
+
 Deno.test('standardEgressEnforce without canary: no canary hit on a hex token', () => {
   assertEquals(
     rules(enforce('deadbeeffeedfacecafebabecafebabe')).includes(EGRESS_RULES.canary),
@@ -373,7 +379,7 @@ Deno.test('eventPromptLeakHits names a leak in any provider-run step by its evid
   ];
   for (const event of ran) {
     assertEquals(
-      eventPromptLeakHits(event, canary).map((hit) => hit.rule),
+      eventPromptLeakHits(event, { canary }).map((hit) => hit.rule),
       [EGRESS_RULES.providerToolLeak],
     );
   }
@@ -382,7 +388,9 @@ Deno.test('eventPromptLeakHits names a leak in any provider-run step by its evid
     evidence: { provider: 'google', kind: 'output_transcription', raw: { text: canary } },
   };
   assertEquals(
-    eventPromptLeakHits(spoken, canary).some((hit) => hit.rule === EGRESS_RULES.providerToolLeak),
+    eventPromptLeakHits(spoken, { canary }).some(
+      (hit) => hit.rule === EGRESS_RULES.providerToolLeak,
+    ),
     false,
   );
 });

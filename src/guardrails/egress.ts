@@ -64,13 +64,17 @@ function promptEchoHits(
     : [];
 }
 
-/** The system-prompt leak hits: the canary, and the prompt's own words when guarded. */
-function promptLeakHits(
-  text: string,
-  canary?: string,
-  privateSystem?: readonly string[],
-): GuardrailHit[] {
-  return [...canaryHits(text, canary), ...promptEchoHits(text, privateSystem, canary)];
+/** What the system-prompt leak checks read. */
+/** What a prompt-leak check reads of the turn. */
+type LeakScope = Pick<GuardrailContext, 'canary' | 'canaryGiven' | 'privateSystem'>;
+
+/** The system-prompt leak hits: the canary unless it was given, and the prompt's own words when guarded. */
+function promptLeakHits(text: string, scope: LeakScope): GuardrailHit[] {
+  const { canary, canaryGiven, privateSystem } = scope;
+  return [
+    ...canaryHits(text, canaryGiven ? undefined : canary),
+    ...promptEchoHits(text, privateSystem, canary),
+  ];
 }
 
 const PROVIDER_TOOL_LEAK_HIT: GuardrailHit = {
@@ -102,14 +106,8 @@ function isProviderToolReport(event: ProviderEvent): boolean {
  * (`guardedEventTexts`). In the report of a provider-side tool they are one
  * `egress.provider-tool-leak`: the call already ran.
  */
-function eventPromptLeakHits(
-  event: ProviderEvent,
-  canary?: string,
-  privateSystem?: readonly string[],
-): GuardrailHit[] {
-  const hits = guardedEventTexts(event).flatMap((text) =>
-    promptLeakHits(text, canary, privateSystem),
-  );
+function eventPromptLeakHits(event: ProviderEvent, scope: LeakScope): GuardrailHit[] {
+  const hits = guardedEventTexts(event).flatMap((text) => promptLeakHits(text, scope));
   if (hits.length > 0 && isProviderToolReport(event)) {
     return [PROVIDER_TOOL_LEAK_HIT];
   }
@@ -228,6 +226,7 @@ const DEFAULT_CHECKS: ResolvedEgressChecks = resolveEgressChecks();
 /** What the bundled policy reads besides the reply. */
 interface EgressScope {
   canary?: string;
+  canaryGiven?: boolean;
   privateSystem?: readonly string[];
   /** The URLs the model was given this turn. */
   given?: GivenUrls;
@@ -245,7 +244,7 @@ function collectEgressHits(
   scope: EgressScope = {},
   checks: ResolvedEgressChecks = DEFAULT_CHECKS,
 ): GuardrailHit[] {
-  const hits = promptLeakHits(text, scope.canary, scope.privateSystem);
+  const hits = promptLeakHits(text, scope);
   if (anySensitive(checks.sensitive)) {
     // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     hits.push(
@@ -424,6 +423,7 @@ function egressScope(context: GuardrailContext): EgressScope {
   const note = boundaryNote(context);
   return {
     ...(context.canary ? { canary: context.canary } : {}),
+    ...(context.canaryGiven ? { canaryGiven: true } : {}),
     ...(context.privateSystem ? { privateSystem: context.privateSystem } : {}),
     ...(context.givenUrls ? { given: context.givenUrls } : {}),
     ...(note ? { note } : {}),
@@ -549,7 +549,7 @@ async function runEnforcer(
   }
 }
 
-export type { EgressChecks, EgressScope, ResolvedEgressChecks, UrlCheck };
+export type { EgressChecks, EgressScope, LeakScope, ResolvedEgressChecks, UrlCheck };
 export {
   boundaryNote,
   CANARY_HIT,

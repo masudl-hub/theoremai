@@ -1098,7 +1098,7 @@ Deno.test('runTurn passes host dynamic system prompt combined with canary', asyn
 
   assertEquals(receivedSystem.includes('## HOST DYNAMIC CONTEXT'), true);
   assertEquals(receivedSystem.includes('User has 4 records in Workspace.'), true);
-  assertEquals(receivedSystem.includes("This turn's canary is"), true);
+  assertEquals(receivedSystem.includes('Your canary token is'), true);
 });
 
 Deno.test('runTurn executes autonomous multi-step tool loop when maxSteps > 1', async () => {
@@ -1555,7 +1555,7 @@ Deno.test('guardrails.canary=false omits canary generation and system binding', 
   await Array.fromAsync(
     runTurn({ profile: 'internal_eval_bot', input: { text: 'hello' } }, mockProvider),
   );
-  assertEquals(capturedSystem.includes("This turn's canary is"), false);
+  assertEquals(capturedSystem.includes('Your canary token is'), false);
 });
 
 Deno.test('inputs.text=false rejects text turns with TheoremError', () => {

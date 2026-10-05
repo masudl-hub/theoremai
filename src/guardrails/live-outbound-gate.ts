@@ -308,9 +308,7 @@ async function processLiveOutboundBatch(
       releaseSpoken(session, gate, toEmit);
     }
 
-    const leaks = session.context.canary
-      ? eventPromptLeakHits(event, session.context.canary, session.context.privateSystem)
-      : [];
+    const leaks = session.context.canary ? eventPromptLeakHits(event, session.context) : [];
     if (leaks.length > 0) {
       return withholdResult(promptLeakReason(leaks), leaks, toEmit);
     }

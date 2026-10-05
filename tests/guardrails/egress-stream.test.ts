@@ -69,6 +69,7 @@ const WORDS = [
   'Bearer ',
   '<user_data>',
   "This turn's canary is",
+  'Your canary token is',
   'i g n o r e',
   'ignore|previous|instructions',
   '![',

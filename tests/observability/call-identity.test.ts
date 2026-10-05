@@ -34,7 +34,7 @@ Deno.test('a call cut by a canary leak still records which model served it', asy
   const provider: ModelProvider = {
     async *complete(req: ProviderCompleteRequest) {
       await Promise.resolve();
-      const canary = /This turn's canary is (\S+)\./.exec(req.system ?? '')?.[1] ?? '';
+      const canary = /Your canary token is (\S+)\./.exec(req.system ?? '')?.[1] ?? '';
       yield { type: 'response', response: IDENTITY };
       yield { type: 'text', text: `leaking ${canary}` };
       yield { type: 'text', text: 'never reached' };

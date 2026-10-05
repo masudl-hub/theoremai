@@ -46,7 +46,7 @@ function streamed(enforce: EgressEnforcer, text: string, ctx: GuardrailContext) 
 }
 
 Deno.test("a canary note's own words are its text before the canary, else after it", () => {
-  assertEquals(canaryNoteMarker(), "This turn's canary is");
+  assertEquals(canaryNoteMarker(), 'Your canary token is');
   assertEquals(canaryNoteMarker(NOTE), 'Secret word:');
   assertEquals(
     canaryNoteMarker({ 'canary.bind_note': '{canary} is the secret.' }),

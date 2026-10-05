@@ -59,7 +59,7 @@ or UI copy. Keys, credentials, trace storage, and policy all come from the host.
 ### Guardrails on every turn
 
 - 🛡️ **Input sanitization by trust level** — system prompts you wrote go through untouched; host-assembled prompts, user text, history, attachments, and tool results are scanned for injection and sensitive data.
-- 🐤 **Canary tokens** — each turn binds a fresh token into the system prompt. A leak is caught as written, reversed, in ROT13, spelled out, as character codes or in base64, in any case, through lookalike characters and separators, even when the stream splits it across chunks, tool steps, or Live cycles.
+- 🐤 **Canary tokens** — each turn binds a token into the end of the system prompt, the same for the same prompt, so prompt caching keeps working. A leak is caught as written, reversed, in ROT13, spelled out, as character codes or in base64, in any case, through lookalike characters and separators, even when the stream splits it across chunks, tool steps, or Live cycles.
 - 🚪 **Egress checks with repair** — your policy sees every reply (text and structured) before release. It can allow, flag, redact, or block, and a block can send the model back to try again.
 - 🧪 **Tested against attacks** — adversarial corpora, fuzzing, and mutation testing cover the guardrail code, and the corpora ship for hosts to test their own profiles.
 
@@ -861,7 +861,7 @@ flowchart LR
   RETRY --> MODEL
 ```
 
-- **Canary** — each turn mints a fresh random 32-hex token and binds it into the system prompt. If it shows up in the output — as written, reversed, in ROT13, spelled out, as character codes or base64-encoded, in any case, through lookalike characters, with words or symbols between its characters, or just 16 characters of it — the system prompt has leaked. The prompt itself is guarded too: a reply that repeats 12 consecutive words of it, token or not, is stopped at its twelfth word (`guardrails.promptEcho`, on with the canary; set it `false` if your prompt holds text the agent should quote verbatim). A leaking token is held back, and the client gets a generic public error, never the leaked fragment.
+- **Canary** — each turn binds a 32-hex token into the end of the system prompt: a hash of the profile and its system prompt, so it is the same on every turn and for every user that prompt is sent to, and a cached prompt stays cached. A Live session mints a random one for the session. If it shows up in the output — as written, reversed, in ROT13, spelled out, as character codes or base64-encoded, in any case, through lookalike characters, with words or symbols between its characters, or just 16 characters of it — the system prompt has leaked. The prompt itself is guarded too: a reply that repeats 12 consecutive words of it, token or not, is stopped at its twelfth word (`guardrails.promptEcho`, on with the canary; set it `false` if your prompt holds text the agent should quote verbatim). A leaking token is held back, and the client gets a generic public error, never the leaked fragment. A reply may repeat the token when the model was given it that turn — in the user's input, the history, or a tool result — since repeating what it was given proves no leak.
 - **Egress** — your `EgressEnforcer` sees every outbound payload (streamed text, structured JSON, live transcripts) with its stage and canary, and returns one of four verdicts:
 
 | Verdict | Effect |

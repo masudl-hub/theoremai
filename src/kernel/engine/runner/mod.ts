@@ -1,4 +1,4 @@
-import { canaryNote, userDataNote } from '../../../guardrails/canary.ts';
+import { canaryNote, profileCanary, userDataNote } from '../../../guardrails/canary.ts';
 import {
   isAbortError,
   TheoremError,
@@ -663,6 +663,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   await expandT1Policy(ctx.registry.tools, gen.tools, profile, ctx.safe);
   if (ctx.compacting === 'self') gen.tools = noTools();
   gen.builtins = gen.tools.builtins;
+  if (gen.canary) gen.canary = await profileCanary(profile.id, gen.resolvedSystem);
   ctx.generation = gen;
   ctx.canary = gen.canary;
   ctx.canaries.push(gen.canary);

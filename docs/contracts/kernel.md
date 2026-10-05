@@ -250,7 +250,7 @@ Live sessions emit the same stage names around utterance cycles and
 1. **Resolve** — `resolveTurn` picks model, wire `apiId`, `transport`
    (`'interactions'` for Google Interactions, `'openAiCompat'` for OpenRouter/local),
    thinking, tools, structured schema, streaming mode (`outputs.streaming.mode`
-   → SSE vs buffered), canary token.
+   → SSE vs buffered), canary token (minted; the runner replaces it at step 4).
 2. **Sanitize** — `sanitizeTurnRequest` strips injection/sensitive spans per
    profile guardrails (unless disabled).
 3. **Compaction (before)** — when `timing: 'before'` and threshold fires, kernel
@@ -258,8 +258,10 @@ Live sessions emit the same stage names around utterance cycles and
    history it leaves (see [Compaction](#compaction)). The history meter counts media by the turn model's family
    (`mediaTokenFamily` of the resolved binding); media it cannot count is
    reported as `unknownMedia`.
-4. **Canary bind** — `bindCanary` embeds the per-turn canary in system text when
-   `guardrails.canary` is enabled.
+4. **Canary bind** — when `guardrails.canary` is enabled, the turn's canary is the
+   profile's (`profileCanary`: a hash of the profile id and the resolved system
+   prompt, the same on every turn that sends that prompt, so a provider's prompt
+   cache holds), and its note goes at the end of the system text.
 5. **`pre_turn`** — stage emit + optional `onStage` (may inject). On a text
    turn the opening input is already the last message of turn history.
 6. **Provider stream** — `provider.complete` yields partial events; runner may
@@ -844,7 +846,7 @@ Profile `guardrails`:
 | Flag | Effect |
 | --- | --- |
 | `quota` | Host HTTP helper only (`@theoremjs/agents/guardrails`); not enforced inside `runTurn` |
-| `canary` | Per-turn canary token; egress checks leakage |
+| `canary` | Canary token at the end of the system prompt, the same for the same prompt; egress checks leakage unless the model was given it this turn |
 | `sanitizeInput` / `redactSensitive` | Pre-provider text/blob scrub |
 | `egress` | Exactly one of `checks` (the bundled checks: `true`, `false` or `EgressChecks`) or a host `enforce` hook; `onBlock`: `reject_to_agent` or `refuse_to_user`; `maxRetries`; `holdback` (host enforce only: mid-stream lookback, default 256; 96 on Live; the bundled policy holds exactly and rejects it); repair guidance is the lexicon's `egress.default_repair_guidance` |
 

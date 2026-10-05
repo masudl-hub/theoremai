@@ -22,5 +22,5 @@ Deno.test('chat fixture resolves canary on and binds into system', async () => {
   for await (const _ of runTurn({ profile: 'chat', input: { text: 'hi' } }, wrap)) {
     // drain
   }
-  assertEquals(system.includes("This turn's canary is"), true);
+  assertEquals(system.includes('Your canary token is'), true);
 });

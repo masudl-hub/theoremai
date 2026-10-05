@@ -94,6 +94,8 @@ async function evaluateEgressOutcome(args: {
   promptLeaks?: GuardrailHit[];
   /** Every URL the model has been given this turn. */
   givenUrls: GivenUrls;
+  /** Whether the model has been given the canary this turn. */
+  canaryGiven: boolean;
 }): Promise<{ outcome: EgressOutcome; guardrail?: TurnEventOf<'guardrail'> }> {
   const { egress, attemptEvents, generation, request, profile, canRetry, promptLeaks, givenUrls } =
     args;
@@ -104,6 +106,7 @@ async function evaluateEgressOutcome(args: {
     profileId: profile.id,
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(generation.canary ? { canary: generation.canary } : {}),
+    ...(generation.canary && args.canaryGiven ? { canaryGiven: true } : {}),
     ...(request.input?.slots ? { slots: request.input.slots } : {}),
     ...(request.input?.role ? { role: request.input.role } : {}),
     givenUrls,
@@ -263,6 +266,7 @@ async function* handleEgressGate(
     canRetry,
     ...(state.promptLeaks ? { promptLeaks: state.promptLeaks } : {}),
     givenUrls: state.givenUrls,
+    canaryGiven: state.canaryGiven,
   });
 
   state.trace.root.event(

@@ -153,6 +153,12 @@ export interface GuardrailContext {
   profileId: string;
   canary?: string;
   /**
+   * The canary was in what the model was given besides the system prompt (its
+   * input, the user's and tools' history): a reply repeating it is not a
+   * leak. It still binds prompt echo.
+   */
+  canaryGiven?: boolean;
+  /**
    * The private stretches of the system prompt as sent (`BoundSystem.private`),
    * when the profile guards it against echo (`guardrails.promptEcho`): a reply
    * repeating one is a leak.
@@ -233,7 +239,7 @@ export interface ProfileGuardrailsSpec {
   /** Omitted means quota enforcement is not configured. */
   quota?: QuotaGuardrailSpec;
   /**
-   * Mint a per-turn canary into the system prompt. Default true. The note
+   * Bind a canary into the system prompt. Default true. The note
    * that binds it is the lexicon's `canary.bind_note` (the profile's `lexicon`
    * may replace it).
    */

@@ -109,7 +109,7 @@ function canaryOnlyImmediateStop(policy: ResolvedGuardrailPolicy): boolean {
   return !policy.egress?.enforce;
 }
 
-async function* yieldProviderEvents(args: {
+interface StreamArgs {
   profile: Profile;
   generation: ResolvedGeneration;
   request: ProviderCompleteRequest;
@@ -122,18 +122,32 @@ async function* yieldProviderEvents(args: {
   control?: OutboundStreamControl;
   /** Every URL the model has been given this turn. */
   givenUrls: GivenUrls;
-}): AsyncGenerator<StreamEvent> {
-  const {
-    profile,
-    generation,
-    request,
-    privateSystem,
-    provider,
-    call,
-    signal,
-    control,
-    givenUrls,
-  } = args;
+  /** Whether the model has been given the canary this turn. */
+  canaryGiven?: boolean;
+}
+
+/** What the stream's checks know of the turn. */
+function streamContext(
+  args: Pick<StreamArgs, 'profile' | 'generation' | 'privateSystem' | 'givenUrls' | 'canaryGiven'>,
+  policy: ResolvedGuardrailPolicy,
+): GuardrailContext {
+  const { profile, privateSystem } = args;
+  const { canary } = args.generation;
+  return {
+    stage: 'output_final',
+    trust: 'untrusted',
+    profileId: profile.id,
+    ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
+    ...(canary ? { canary } : {}),
+    ...(canary && args.canaryGiven ? { canaryGiven: true } : {}),
+    // The system prompt is guarded against echo alongside the canary that binds it.
+    ...(canary && policy.promptEcho && privateSystem.length > 0 ? { privateSystem } : {}),
+    givenUrls: args.givenUrls,
+  };
+}
+
+async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEvent> {
+  const { profile, generation, request, provider, call, signal, control } = args;
   /** Runs one stream check and adds the run to the call's record of that check. */
   async function timed<T>(check: StreamCheck, run: () => T | Promise<T>): Promise<T> {
     const start = performance.now();
@@ -145,16 +159,7 @@ async function* yieldProviderEvents(args: {
   }
   const { canary } = generation;
   const policy = resolveGuardrailPolicy(profile.guardrails);
-  const context: GuardrailContext = {
-    stage: 'output_final',
-    trust: 'untrusted',
-    profileId: profile.id,
-    ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
-    ...(canary ? { canary } : {}),
-    // The system prompt is guarded against echo alongside the canary that binds it.
-    ...(canary && policy.promptEcho && privateSystem.length > 0 ? { privateSystem } : {}),
-    givenUrls,
-  };
+  const context = streamContext(args, policy);
   const { canaryCarry, thoughtCarry } = control ?? {};
   const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(
     policy,
@@ -292,9 +297,7 @@ async function* yieldProviderEvents(args: {
     }
 
     const leaks = canary
-      ? await timed('stream_canary', () =>
-          eventPromptLeakHits(event, canary, context.privateSystem),
-        )
+      ? await timed('stream_canary', () => eventPromptLeakHits(event, context))
       : [];
     if (leaks.length > 0) {
       yield* yieldCanaryLeak(leaks);
@@ -329,5 +332,5 @@ async function* yieldProviderEvents(args: {
   }
 }
 
-export type { OutboundStreamControl };
+export type { OutboundStreamControl, StreamArgs };
 export { isWithheldOnBlock, shouldSkipStreamEvent, yieldProviderEvents };

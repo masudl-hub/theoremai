@@ -148,8 +148,10 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
   let opening = carry;
   let openingBase = 0;
   let openingFrom = 0;
+  /** The canary a reply must not repeat: none when it was given (`canaryGiven`). */
+  const token = context.canaryGiven ? undefined : context.canary;
   /** Reads the carry, then the window as it grows. */
-  const scanner = context.canary ? createCanaryScanner(context.canary) : undefined;
+  const scanner = token ? createCanaryScanner(token) : undefined;
   scanner?.push(carry);
 
   /**
@@ -217,7 +219,7 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     const echo = context.privateSystem
       ? echoHoldFrom(context.privateSystem, context.canary)
       : held.length;
-    return emitted + Math.min(canaryFrom(context.canary), echo);
+    return emitted + Math.min(token ? canaryFrom(token) : held.length, echo);
   }
 
   /** `canaryHoldFrom` on the held text, read from where an opening could start. */

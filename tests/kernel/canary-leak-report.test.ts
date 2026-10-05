@@ -7,7 +7,7 @@ import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../sr
 import { firstOf } from '../fixtures/events.ts';
 
 function canaryOf(req: ProviderCompleteRequest): string {
-  return /This turn's canary is (\S+)\./.exec(req.system ?? '')?.[1] ?? '';
+  return /Your canary token is (\S+)\./.exec(req.system ?? '')?.[1] ?? '';
 }
 
 async function hostEvents(

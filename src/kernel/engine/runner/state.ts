@@ -52,6 +52,10 @@ interface StepExecutionState {
   taint?: TurnTaint;
   /** Every URL the model has been given this turn (`GuardrailContext.givenUrls`). */
   givenUrls: GivenUrlSets;
+  /** Set once the model is given the canary this turn (`GuardrailContext.canaryGiven`). */
+  canaryGiven: boolean;
+  /** What the canary scan already read this turn (`requestGivesCanary`). */
+  canaryScanned: WeakSet<object>;
   /** Last provider stop from a discarded provider `done` event. */
   lastStop?: TurnStop;
   lastInteractionId?: string;
@@ -112,6 +116,8 @@ function openTurnState(args: {
     allEmittedEvents: args.allEmittedEvents ?? [],
     attemptEvents: [],
     givenUrls: givenUrlSets(),
+    canaryGiven: false,
+    canaryScanned: new WeakSet(),
     ...(args.agents ? { agents: args.agents } : {}),
   };
   if (profile.type === 'text') {

@@ -1,3 +1,4 @@
+import { requestGivesCanary } from '../../../guardrails/canary.ts';
 import { addRequestUrls } from '../../../guardrails/egress-urls.ts';
 import { isAbortError, throwIfAborted } from '../../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
@@ -93,6 +94,38 @@ function holdModelCall(calls: ModelCall[], tool: ToolCallEvent): boolean {
   return true;
 }
 
+/** The step's request, with what it gives the model noted on `state`, and its call's usage and trace. */
+function startProviderCall(
+  generation: ResolvedGeneration,
+  system: BoundSystem,
+  state: StepExecutionState,
+) {
+  const continuation = state.interactionsContinuation;
+  const usage = startCallUsage(
+    system.text,
+    continuation && state.lastCall
+      ? { previous: state.lastCall, continuation: continuation.messages }
+      : { history: state.currentHistory, input: generation.input },
+  );
+  state.lastCall = usage;
+  const genForStep = generationForProviderStep(generation, state);
+  const request = providerCompleteRequest(state.tools, genForStep, system.text);
+  addRequestUrls(state.givenUrls, request);
+  if (generation.canary && !state.canaryGiven) {
+    state.canaryGiven = requestGivesCanary(request, generation.canary, state.canaryScanned);
+  }
+  state.trace.calls += 1;
+  const call = startCallTrace((name, options) => state.trace.root.child(name, options), {
+    req: request,
+    usage,
+    binding: state.trace.binding,
+    transport: genForStep.transport,
+    step: state.stepCount,
+    attempt: state.trace.attempt,
+  });
+  return { usage, genForStep, request, call };
+}
+
 async function* executeAutonomousStep(
   args: {
     profile: Profile;
@@ -108,26 +141,7 @@ async function* executeAutonomousStep(
   },
 ): AsyncGenerator<TurnEvent, { calls: ModelCall[]; latestStructured?: unknown }> {
   const { generation, system, provider, signal } = args;
-  const continuation = state.interactionsContinuation;
-  const usage = startCallUsage(
-    system.text,
-    continuation && state.lastCall
-      ? { previous: state.lastCall, continuation: continuation.messages }
-      : { history: state.currentHistory, input: generation.input },
-  );
-  state.lastCall = usage;
-  const genForStep = generationForProviderStep(generation, state);
-  const request = providerCompleteRequest(state.tools, genForStep, system.text);
-  addRequestUrls(state.givenUrls, request);
-  state.trace.calls += 1;
-  const call = startCallTrace((name, options) => state.trace.root.child(name, options), {
-    req: request,
-    usage,
-    binding: state.trace.binding,
-    transport: genForStep.transport,
-    step: state.stepCount,
-    attempt: state.trace.attempt,
-  });
+  const { usage, genForStep, request, call } = startProviderCall(generation, system, state);
   const calls: ModelCall[] = [];
   let latestStructured: unknown;
   // The stop this call ended with after gates: a canary block or provider
@@ -150,6 +164,7 @@ async function* executeAutonomousStep(
       signal,
       control,
       givenUrls: state.givenUrls,
+      canaryGiven: state.canaryGiven,
     })) {
       captureInteractionId(event, state);
       if (observeCallEvent(usage, event)) {

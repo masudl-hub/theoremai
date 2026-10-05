@@ -66,7 +66,7 @@ Owns every module under `src/guardrails/`.
 | `injection-patterns.ts` | Prompt-injection regexes (a leaf the generator reads) |
 | `injection.ts` | Prompt-injection spans: the patterns on each view (raw, reversed, typo, normalized, ROT13, leet, URL runs) |
 | `sensitive.ts` | Credential / PII span patterns |
-| `canary.ts` | Per-turn canary mint/bind, stream gate, leak scan |
+| `canary.ts` | Canary mint (Live) and profile canary (turns), bind, stream gate, leak scan |
 | `prompt-echo.ts` | System-prompt echo scan: 12 consecutive prompt words in a reply are a leak |
 | `canary-gate.ts` | Canary-only batch helper (`createCanaryGateSession`) |
 | `live-outbound-gate.ts` | Live outbound progressive-yield (canary + egress hold; audio streams once its message's transcript clears) |
@@ -93,7 +93,7 @@ Owns every module under `src/guardrails/`.
 
 | API | Role |
 | --- | --- |
-| `mintCanary` | Generate per-turn 32-hex token (128 random bits, no prefix) |
+| `mintCanary` | Generate a random 32-hex token (128 bits, no prefix): a Live session's canary |
 | `bindCanary` | Append canary note to system prompt |
 | `wrapUserData` | Fence untrusted user text in `<user_data>`, first stripping any fence tag in it, however spaced, cased or nested |
 | `userDataNote` | The `user_data.note` lexicon line, which tells the model what the fence means; the runner appends it, private, to the system prompt of every text, image and live turn (speech has no system prompt). An empty override leaves it out. |
@@ -102,6 +102,21 @@ Owns every module under `src/guardrails/`.
 | `eventHasCanary` | Scan any `TurnEvent` wire shape |
 | `scanTextForPromptEcho` | Whether a reply repeats `PROMPT_ECHO_WORDS` (12) consecutive words of one private stretch of the system prompt — case-folded, markup and list numbering ignored, any one word or none in the canary's place; the leak the token alone cannot see (`guardrails.promptEcho`, on with the canary) |
 | `createCanaryGateSession` / `filterCanaryGatedEvents` | Canary batch helper; pass the private stretches of the system prompt as sent to catch prompt echo too, as `runTurn` and Live do (Live production uses `live-outbound-gate`) |
+
+A turn's canary is the profile's (`profileCanary`): a hash of the profile id
+and the resolved system prompt, bound at the end of the system prompt. It is
+the same on every turn and for every user that prompt is sent to, so a
+provider's prompt cache keeps the whole prompt, and it needs nothing from the
+host. A Live session mints its own (`mintCanary`).
+
+A reply repeating the canary is a leak only when the model was not given it
+that turn. Before each provider call the runner scans what the call gives the
+model besides the system prompt — the input, and the history and continuation
+messages the model did not write — with the reply's own detector
+(`requestGivesCanary`). Once it is found the turn sets
+`GuardrailContext.canaryGiven`: the canary stops nothing for the rest of the
+turn, while prompt echo, the boundary note, thought omission and trace
+scrubbing go on as before.
 
 ## Egress
 
@@ -120,7 +135,7 @@ returns a `Verdict`:
 ```ts
 type EgressEnforcer = (
   payload: OutboundPayload,      // { text, structured? }
-  context: GuardrailContext,     // { stage, trust, profileId, canary?, role?, slots?, givenUrls? }
+  context: GuardrailContext,     // { stage, trust, profileId, canary?, canaryGiven?, role?, slots?, givenUrls? }
 ) => Verdict | Promise<Verdict>;
 
 type Verdict =
@@ -601,10 +616,10 @@ kernel, offline.
   `fetch` and Live's `openWebSocket`. Request headers are not kept, and a
   `key` query parameter is dropped, so no key reaches a cassette. Live audio
   is kept as a stub; no guardrail reads it.
-- **The canary.** Every 16-byte random draw is recorded and drawn again on
-  replay, so the model's reply leaks the same canary in whatever encoding it
-  used. The canary is the draw the model was sent; trace ids are drawn alike
-  and are not.
+- **The canary.** A turn's canary is a hash of its profile and system
+  prompt, so replay binds the one the model was sent. Every 16-byte random
+  draw is recorded and drawn again on replay: a Live session's canary is the
+  draw it was sent; trace ids are drawn alike and are not.
 - **What fails.** A canary, sensitive or forbidden leak in what reached the
   host, an inbound secret or injection sent to the model, a tool guardrail
   that let the effect through, or an outcome (guardrail events, error kind,

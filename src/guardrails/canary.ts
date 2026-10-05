@@ -1,3 +1,4 @@
+import { sha256 } from '../kernel/engine/hash.ts';
 import { mapStrings } from '../kernel/engine/tree.ts';
 import {
   type ProviderEvent,
@@ -5,9 +6,10 @@ import {
   type TurnEventOf,
   turnEventSchema,
 } from '../kernel/turn-events.ts';
+import type { ProviderCompleteRequest, SystemPiece } from '../kernel/types.ts';
 import { type LexiconOverrides, lexiconText } from './lexicon.ts';
 import { promptEchoScanFrom, scanTextForPromptEcho } from './prompt-echo.ts';
-import { scanTextOf } from './serialize.ts';
+import { scanTextOf, textForScan } from './serialize.ts';
 
 /** The tag that opens the fence around user content. */
 const USER_OPEN = '<user_data>';
@@ -30,6 +32,34 @@ function mintCanary(): string {
     hex += byte.toString(HEX_RADIX).padStart(HEX_PAD, '0');
   }
   return hex;
+}
+
+/**
+ * A profile's canary for a system prompt: the same on every turn that sends
+ * that prompt, so the prompt a provider caches stays the same.
+ */
+async function profileCanary(profileId: string, system: readonly SystemPiece[]): Promise<string> {
+  const hash = await sha256(JSON.stringify(['theorem.canary', profileId, system]));
+  return hash.slice(0, CANARY_BYTES * HEX_PAD);
+}
+
+/**
+ * Whether a request gives the model `canary` outside its system prompt: in
+ * its input, or in a history or continuation message the model did not write.
+ * `scanned` skips what an earlier step of the turn already read.
+ */
+function requestGivesCanary(
+  request: Pick<ProviderCompleteRequest, 'input' | 'history' | 'continuation'>,
+  canary: string,
+  scanned: WeakSet<object>,
+): boolean {
+  const given = [request.input, ...(request.history ?? []), ...(request.continuation ?? [])];
+  for (const part of given) {
+    if (('role' in part && part.role === 'assistant') || scanned.has(part)) continue;
+    scanned.add(part);
+    if (scanTextForCanaryLeak(textForScan(part).text, canary)) return true;
+  }
+  return false;
 }
 
 function stripUserFences(text: string): string {
@@ -1141,10 +1171,12 @@ export {
   isStreamedCanaryEvent,
   mintCanary,
   OMIT_CANARY,
+  profileCanary,
   promptLeakCarry,
   RELEASED_LOOKBACK,
   redactCanary,
   redactCanaryText,
+  requestGivesCanary,
   scanTextForCanaryLeak,
   USER_CLOSE,
   USER_OPEN,

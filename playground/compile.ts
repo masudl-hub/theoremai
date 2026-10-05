@@ -923,7 +923,7 @@ function compileLexicon(
       outputs.repairGuidance.trim(),
     ]);
   }
-  if (facets.has('guardrails') && allows('guardrails.egress') && guardrails.egressEnabled) {
+  if (facets.has('guardrails') && allows('guardrails.egress')) {
     entries.push([
       'guardrails',
       'egressRepairGuidance',
@@ -965,7 +965,6 @@ function compileEgress(
   guardrails: GuardrailsDraft,
   report: Report,
 ): ProfileGuardrailsSpec['egress'] {
-  if (!guardrails.egressEnabled) return undefined;
   checkWhole(
     report,
     'guardrails',
@@ -974,11 +973,14 @@ function compileEgress(
     guardrails.egressMaxRetries,
     0,
   );
-  return {
-    checks: compileEgressChecks(guardrails.egressChecks, report),
+  const checks = compileEgressChecks(guardrails.egressChecks, report);
+  // What a stopped reply does, which also holds for a reply `detect` or the canary stops.
+  const onStop = {
     ...(guardrails.egressOnBlock ? { onBlock: guardrails.egressOnBlock } : {}),
     ...(guardrails.egressMaxRetries !== null ? { maxRetries: guardrails.egressMaxRetries } : {}),
   };
+  if (checks === false && !Object.keys(onStop).length) return undefined;
+  return { checks, ...onStop };
 }
 
 function compileNetwork(

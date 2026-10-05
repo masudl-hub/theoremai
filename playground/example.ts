@@ -5,8 +5,10 @@ import {
   demoToolSpecs,
 } from './concierge-demo.ts';
 import { DETECTORS } from '../src/guardrails/detectors.ts';
+import { resolveEgressChecks } from '../src/guardrails/egress.ts';
 import {
   createBlankDraft,
+  egressChecksDraft,
   defaultModelBinding,
   defaultToolSpec,
   draftKey,
@@ -145,7 +147,7 @@ export function createExampleDraft(): PlaygroundDraft {
     guardrails: {
       ...blank.guardrails,
       detect: exampleDetect(blank.guardrails.detect),
-      egressEnabled: true,
+      egressChecks: egressChecksDraft(resolveEgressChecks()),
       egressOnBlock: 'refuse_to_user',
       allowedHosts: DEMO_ALLOWED_HOSTS.split(',').map((host) => host.trim()),
     },

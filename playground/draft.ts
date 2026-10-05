@@ -10,7 +10,7 @@ import {
   profileAllowsInject,
   resolveGuardrailPolicy,
 } from '../mod.ts';
-import { type ResolvedEgressChecks, resolveEgressChecks, type UrlCheck } from '../src/guardrails/egress.ts';
+import { NO_CHECKS, type ResolvedEgressChecks, type UrlCheck } from '../src/guardrails/egress.ts';
 import { type Boundary, recordOf } from '../src/guardrails/boundaries.ts';
 import { type DetectAction, DETECTORS, type Detector } from '../src/guardrails/detectors.ts';
 import type { TaintGate } from '../src/guardrails/types.ts';
@@ -207,8 +207,7 @@ export interface GuardrailsDraft {
   quotaEnabled: boolean;
   quotaPerDay: number | null;
   quotaMessage: string;
-  /** Runs the bundled egress policy with `egressChecks`. */
-  egressEnabled: boolean;
+  /** The bundled reply checks that run. A blank draft runs none. */
   egressChecks: EgressChecksDraft;
   egressOnBlock: EgressOnBlock | '';
   egressMaxRetries: number | null;
@@ -410,7 +409,7 @@ function urlCheckDraft(check: UrlCheck | undefined): UrlCheckDraft {
   return { on: check !== undefined, hosts: [...(check?.hosts ?? [])], fromTools: check?.fromTools ?? true };
 }
 
-function egressChecksDraft(checks: ResolvedEgressChecks): EgressChecksDraft {
+export function egressChecksDraft(checks: ResolvedEgressChecks): EgressChecksDraft {
   return {
     boundary: checks.boundary,
     images: urlCheckDraft(checks.images),
@@ -427,8 +426,7 @@ function defaultGuardrails(): GuardrailsDraft {
     quotaEnabled: false,
     quotaPerDay: null,
     quotaMessage: '',
-    egressEnabled: false,
-    egressChecks: egressChecksDraft(resolveEgressChecks()),
+    egressChecks: egressChecksDraft(NO_CHECKS),
     egressOnBlock: '',
     egressMaxRetries: null,
     egressRepairGuidance: '',

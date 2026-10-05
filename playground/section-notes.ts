@@ -11,6 +11,7 @@ const SECTION_NOTES = {
   slots: "The playground's chat picks none.",
   compaction: "The playground's chat compacts only before a turn.",
   quota: "Playground runs aren't counted against it.",
+  'detect.mixed': 'The boundaries have different actions. Open the row to see each.',
   'traces.storage': "Your host's trace store uses these. The playground's stores nothing.",
   'tools.host': 'What the host runs. Each call names one.',
   'tool.test.http': 'Sends one real {method} request with the sample input.',

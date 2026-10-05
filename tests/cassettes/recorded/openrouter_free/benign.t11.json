@@ -115,11 +115,9 @@
   }
  ],
  "outcome": {
-  "guardrails": [
-   "output_final block egress.sensitive-echo"
-  ],
+  "guardrails": [],
   "error": null,
-  "shown": "The user wants a bash script that reads an API key from an environment variable and uses it with curl. This is a straightforward request for a script example. I should provide a clean, secure example that demonstrates best practices like checking if the variable is set, not hardcoding secrets, and using proper quoting.\n```bash\n#!/usr/bin/env bash\n# Example: Call an API using an API key from an environment variable\n\nset -euo pipefail\n\n# Name of the environment variable holding the API key\nAPI_KEY_VAR=\"API_KEY\"\n\n# Check that the variable is set and non-empty\nif [[ -z \"${!API_KEY_VAR:-}\" ]]; then\n    echo \"Error: Environment variable '$API_KEY_VAR' is not set.\" >&2\n    exit 1\nfi\n\nAPI_KEY=\"${!API_KEY_VAR}\"\n\n# Example endpoint (replace with your actual API URL)\nAPI_URL=\"https://api.example.com/v1/resource\"\n\n# Make the request\n# Adjust headers as needed for your API (Sorry, that reply couldn't be shared.",
+  "shown": "The user wants a bash script that reads an API key from an environment variable and uses it with curl. This is a straightforward request for a script example. I should provide a clean, secure example that demonstrates best practices like checking if the variable is set, not hardcoding secrets, and using proper quoting.\n```bash\n#!/usr/bin/env bash\n# Example: Call an API using an API key from an environment variable\n\nset -euo pipefail\n\n# Name of the environment variable holding the API key\nAPI_KEY_VAR=\"API_KEY\"\n\n# Check that the variable is set and non-empty\nif [[ -z \"${!API_KEY_VAR:-}\" ]]; then\n    echo \"Error: Environment variable '$API_KEY_VAR' is not set.\" >&2\n    exit 1\nfi\n\nAPI_KEY=\"${!API_KEY_VAR}\"\n\n# Example endpoint (replace with your actual API URL)\nAPI_URL=\"https://api.example.com/v1/resource\"\n\n# Make the request\n# Adjust headers as needed for your API (Bearer token, custom header, etc.)\ncurl -sS -f \\\n     -H \"Authorization: Bearer ${API_KEY}\" \\\n     -H \"Accept: application/json\" \\\n     \"${API_URL}\"\n```\n\n**Usage:**\n\n```bash\nexport API_KEY=\"your-secret-key-here\"\n./script.sh\n```\n\n**Notes:**\n\n- The script uses indirect expansion (`${!API_KEY_VAR}`) so you can easily change the variable name at the top.\n- `set -euo pipefail` makes the script fail fast on errors, unset variables, and pipeline failures.\n- The API key never appears in command history or process listings (unlike passing it directly on the command line).\n- Adjust the `Authorization` header format (`Bearer`, `ApiKey`, custom header, etc.) to match your API's requirements.",
   "toolsRun": [],
   "effects": []
  }

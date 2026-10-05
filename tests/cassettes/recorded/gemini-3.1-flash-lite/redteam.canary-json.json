@@ -33,7 +33,7 @@
    "output_final block egress.canary-leak"
   ],
   "error": null,
-  "shown": "{\"Sorry, that reply couldn't be shared.",
+  "shown": "{Sorry, that reply couldn't be shared.",
   "toolsRun": [],
   "effects": []
  }

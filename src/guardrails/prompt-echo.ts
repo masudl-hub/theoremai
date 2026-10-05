@@ -8,7 +8,9 @@
  * not read, and no run reaches across it. Words are
  * compared case-folded after Unicode compatibility folding, punctuation and
  * markup between them ignored, and bare numbers skipped, so reformatting a
- * dump as a numbered or bulleted list does not hide it. Where the prompt has
+ * dump as a numbered or bulleted list does not hide it. Nor does encoding it:
+ * the prompt is also read backwards and in rot13, and both it and the reply
+ * with leetspeak decoded. Where the prompt has
  * the canary, any one word or none continues a run: a model told to hide the
  * canary echoes the prompt around a stand-in for it. A streamed reply holds
  * the words an echo could still grow from (`promptEchoHoldFrom`), so none of
@@ -16,6 +18,8 @@
  *
  * @module
  */
+
+import { LEET_MAP, tryRot13 } from './injection.ts';
 
 /** Consecutive system-prompt words that make a reply an echo of it. */
 const PROMPT_ECHO_WORDS = 12;
@@ -58,10 +62,32 @@ interface PromptReadings {
 }
 
 /**
- * The private stretches' words as a run can repeat them: as written, with the
- * canary left out, and with the canary as `SLOT`.
+ * The prompt as a reply can encode it: written backwards, by code point, in
+ * rot13, or as the decoded leetspeak reply reads it.
+ */
+const PROMPT_VIEWS: ReadonlyArray<(text: string) => string> = [
+  (text) => text,
+  (text) => [...text].reverse().join(''),
+  tryRot13,
+  decodeLeet,
+];
+
+/**
+ * The private stretches' words as a run can repeat them, in each of
+ * `PROMPT_VIEWS`: as written, with the canary left out, and with the canary
+ * as `SLOT`.
  */
 function promptReadings(stretches: readonly string[], canary?: string): PromptReadings {
+  const readings: PromptReadings = { plain: [], slotted: [] };
+  for (const view of PROMPT_VIEWS) {
+    const read = viewReadings(stretches.map(view), canary === undefined ? undefined : view(canary));
+    readings.plain.push(...read.plain);
+    readings.slotted.push(...read.slotted);
+  }
+  return readings;
+}
+
+function viewReadings(stretches: readonly string[], canary?: string): PromptReadings {
   const token = canary ? echoWords(canary).map((entry) => entry.word) : [];
   const readings: PromptReadings = { plain: [], slotted: [] };
   for (const stretch of stretches) {
@@ -211,6 +237,10 @@ function mayBecomePromptWord(partial: string, shape: PromptShape): boolean {
  * word. Any echo that completes later starts there or after.
  */
 function promptEchoHoldFrom(text: string, stretches: readonly string[], canary?: string): number {
+  return Math.min(...replyViews(text).map((view) => holdFrom(view, stretches, canary)));
+}
+
+function holdFrom(text: string, stretches: readonly string[], canary?: string): number {
   const tail = promptEchoScanFrom(text, text.length);
   const words = echoWords(text.slice(tail));
   let writing = text.length;
@@ -233,8 +263,32 @@ function promptEchoHoldFrom(text: string, stretches: readonly string[], canary?:
   return hold;
 }
 
+/** A leetspeak letter, or a list number that stays one; `!` only before a word goes on. */
+const LEET = /(?<=^|\n)[ \t]*\p{N}+[.)]|[0-9@]|!(?=[\p{L}\p{N}@])/gu;
+
+/** `text` with its leetspeak decoded, letter for letter, so offsets keep. */
+function decodeLeet(text: string): string {
+  return text.replace(LEET, (match) => (match.length === 1 ? (LEET_MAP[match] ?? match) : match));
+}
+
+/** The reply as written and with its leetspeak decoded. */
+function replyViews(text: string): string[] {
+  const decoded = decodeLeet(text);
+  return decoded === text ? [text] : [text, decoded];
+}
+
 /** Offsets `[start, end)` of `text` that repeat a private stretch, ordered by start. */
 function promptEchoRanges(
+  text: string,
+  stretches: readonly string[],
+  canary?: string,
+): Array<[number, number]> {
+  return replyViews(text)
+    .flatMap((view) => echoRanges(view, stretches, canary))
+    .sort((a, b) => a[0] - b[0]);
+}
+
+function echoRanges(
   text: string,
   stretches: readonly string[],
   canary?: string,
@@ -272,6 +326,10 @@ function scanTextForPromptEcho(
  * start in.
  */
 function promptEchoScanFrom(text: string, from: number): number {
+  return Math.min(...replyViews(text).map((view) => scanFrom(view, from)));
+}
+
+function scanFrom(text: string, from: number): number {
   let at = Math.min(from, text.length);
   for (let counted = 0; counted < ECHO_LOOKBACK_WORDS && at > 0; ) {
     while (at > 0 && !WORD_CHAR.test(text.charAt(at - 1))) at--;

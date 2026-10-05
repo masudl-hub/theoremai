@@ -278,6 +278,7 @@ export {
   decodeUrlRuns,
   INJECTION_BLOBS,
   injectionSpans,
+  LEET_MAP,
   TYPO_TARGETS,
   tryLeet,
   tryRot13,

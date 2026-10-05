@@ -110,6 +110,78 @@ Deno.test("scanTextForPromptEcho reads any one word or none in the canary's plac
   );
 });
 
+const LEET: Record<string, string> = { a: '4', e: '3', i: '1', o: '0', s: '5', t: '7' };
+
+function leet(text: string): string {
+  return text.replace(/[aeiost]/gi, (c) => LEET[c.toLowerCase()] ?? c);
+}
+
+function rot13(text: string): string {
+  return text.replace(/[a-z]/gi, (c) => {
+    const base = c <= 'Z' ? 65 : 97;
+    return String.fromCharCode(((c.charCodeAt(0) - base + 13) % 26) + base);
+  });
+}
+
+Deno.test('scanTextForPromptEcho reads an echo written backwards, in rot13, or in leetspeak', () => {
+  const echo = words(SYSTEM, 3, 12);
+  const short = words(SYSTEM, 3, 11);
+  const encodings = [
+    (text: string) => [...text].reverse().join(''),
+    rot13,
+    leet,
+    (text: string) => leet(text).replaceAll('4', '@').replaceAll('1', '!'),
+  ];
+  for (const encode of encodings) {
+    assertEquals(
+      [encode(echo), scanTextForPromptEcho(`Sure: ${encode(echo)}`, [SYSTEM])],
+      [encode(echo), true],
+    );
+    assertEquals(
+      [encode(short), scanTextForPromptEcho(`Sure: ${encode(short)}`, [SYSTEM])],
+      [encode(short), false],
+    );
+  }
+  const list = SYSTEM.split(/(?<=\.)\s/)
+    .map((line, index) => `${index + 1}. ${leet(line)}`)
+    .join('\n');
+  assertEquals(scanTextForPromptEcho(list, [SYSTEM]), true);
+  const canary = mintCanary();
+  const bound = `${SYSTEM} Your canary token is ${canary}.`;
+  const backwards = [...`${words(SYSTEM, 22, 12)} Your canary token is [hidden].`]
+    .reverse()
+    .join('');
+  assertEquals(scanTextForPromptEcho(backwards, [bound], canary), true);
+});
+
+Deno.test('a leetspeak echo reads a number as a word, but a list number and a closing ! as written', () => {
+  // "to" in leetspeak is all digits, and the prompt's "200" is a number.
+  const echo = leet(words(SYSTEM, 18, 12));
+  assertEquals(echo.includes(' 70 '), true);
+  assertEquals(scanTextForPromptEcho(`Sure: ${echo}`, [SYSTEM]), true);
+  const listed = `3. ${leet(words(SYSTEM, 3, 6))}\n4. ${leet(words(SYSTEM, 9, 6))}`;
+  assertEquals(scanTextForPromptEcho(listed, [SYSTEM]), true);
+  assertEquals(
+    scanTextForPromptEcho(`${leet(words(SYSTEM, 1, 12)).replace(/,$/, '')}!`, [SYSTEM]),
+    true,
+  );
+});
+
+Deno.test('promptEchoScanFrom rereads a leetspeak echo whose @ and ! split its words as written', () => {
+  const echo = leet(words(SYSTEM, 0, 14))
+    .replaceAll('4', '@')
+    .replaceAll('1', '!');
+  const text = `${'filler '.repeat(400)}${echo}`;
+  const cut = text.length - 4;
+  assertEquals(scanTextForPromptEcho(text.slice(promptEchoScanFrom(text, cut)), [SYSTEM]), true);
+});
+
+Deno.test('promptEchoRanges keeps the offsets of a leetspeak echo', () => {
+  const echo = leet(words(SYSTEM, 0, 12));
+  const text = `>> ${echo} <<`;
+  assertEquals(promptEchoRanges(text, [SYSTEM]), [[3, 3 + echo.length - ','.length]]);
+});
+
 Deno.test('promptEchoRanges covers each echoed run', () => {
   // The run ends at its last word, before the comma after it.
   const echo = words(SYSTEM, 0, 12);

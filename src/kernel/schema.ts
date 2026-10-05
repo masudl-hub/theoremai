@@ -1007,7 +1007,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.promptEcho': field(
     'boolean',
-    'With the canary on, also stops a reply that repeats 12 words in a row of the private system instruction. On by default; wrap the private lines as { private: text } so the plain ones may be quoted, or turn it off when the whole instruction may be.',
+    'With the canary on, also stops a reply that repeats 12 words in a row of the private system instruction, also when written backwards, in rot13 or in leetspeak. On by default; wrap the private lines as { private: text } so the plain ones may be quoted, or turn it off when the whole instruction may be.',
   ),
   'guardrails.sanitizeInput': field(
     'boolean',

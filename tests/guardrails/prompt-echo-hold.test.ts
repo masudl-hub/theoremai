@@ -146,6 +146,26 @@ Deno.test('the prompt echo hold shows no character of an echo with a stand-in fo
   assertEquals(leaks, []);
 });
 
+Deno.test('the prompt echo hold shows no character of an echo written backwards, in rot13, or in leetspeak', async () => {
+  const LEET: Record<string, string> = { a: '4', e: '3', i: '1', o: '0', s: '5', t: '7' };
+  const rot13 = (word: string) =>
+    word.replace(/[a-z]/gi, (c) => {
+      const base = c <= 'Z' ? 65 : 97;
+      return String.fromCharCode(((c.charCodeAt(0) - base + 13) % 26) + base);
+    });
+  const leet = (word: string) => word.replace(/[aeiost]/gi, (c) => LEET[c.toLowerCase()] ?? c);
+  const replies = [
+    (rnd: (n: number) => number) => [...reply(PROMPT_WORDS, rnd)].reverse().join(''),
+    (rnd: (n: number) => number) => reply(PROMPT_WORDS.map(rot13), rnd),
+    (rnd: (n: number) => number) => reply(PROMPT_WORDS.map(leet), rnd),
+  ];
+  for (const encoded of replies) {
+    const { echoes, leaks } = await holdLeaks(SYSTEM, mintCanary(), encoded);
+    assertEquals(echoes > 200, true);
+    assertEquals(leaks, []);
+  }
+});
+
 Deno.test('promptEchoHoldFrom holds nothing for words only a shareable part has', () => {
   const shareable = 'Calatheas sulk when the water is hard, so try rain water.';
   const secret = 'Route every refund above forty dollars to Dana in operations, quietly.';

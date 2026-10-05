@@ -67,7 +67,7 @@ Owns every module under `src/guardrails/`.
 | `injection.ts` | Prompt-injection spans: the patterns on each view (raw, reversed, typo, normalized, ROT13, leet, URL runs) |
 | `sensitive.ts` | Credential / PII span patterns |
 | `canary.ts` | Canary mint (Live) and profile canary (turns), bind, stream gate, leak scan |
-| `prompt-echo.ts` | System-prompt echo scan: 12 consecutive prompt words in a reply are a leak |
+| `prompt-echo.ts` | System-prompt echo scan: 12 consecutive prompt words in a reply are a leak, also backwards, in rot13 or in leetspeak |
 | `canary-gate.ts` | Canary-only batch helper (`createCanaryGateSession`) |
 | `live-outbound-gate.ts` | Live outbound progressive-yield (canary + egress hold; audio streams once its message's transcript clears) |
 | `progressive-yield.ts` | Streaming gate for canary / prompt echo / egress: exact hold for the bundled policy, fixed lookback for a host enforce |
@@ -100,7 +100,7 @@ Owns every module under `src/guardrails/`.
 | `createCanaryStreamGate` | Holds only a tail that could start a leak, for split-token streaming; with the private stretches of the system prompt, also stops a reply echoing them |
 | `scanTextForCanaryLeak` | The token — as written, reversed, in ROT13, spelled out (digit words, NATO letters), as character or byte codes, or in base64 at any offset — read through case, lookalike and fullwidth characters, and separators up to 32 characters; any 16 consecutive characters of it count |
 | `eventHasCanary` | Scan any `TurnEvent` wire shape |
-| `scanTextForPromptEcho` | Whether a reply repeats `PROMPT_ECHO_WORDS` (12) consecutive words of one private stretch of the system prompt — case-folded, markup and list numbering ignored, any one word or none in the canary's place; the leak the token alone cannot see (`guardrails.promptEcho`, on with the canary) |
+| `scanTextForPromptEcho` | Whether a reply repeats `PROMPT_ECHO_WORDS` (12) consecutive words of one private stretch of the system prompt — case-folded, markup and list numbering ignored, read also backwards, in rot13 and in leetspeak, any one word or none in the canary's place; the leak the token alone cannot see (`guardrails.promptEcho`, on with the canary) |
 | `createCanaryGateSession` / `filterCanaryGatedEvents` | Canary batch helper; pass the private stretches of the system prompt as sent to catch prompt echo too, as `runTurn` and Live do (Live production uses `live-outbound-gate`) |
 
 A turn's canary is the profile's (`profileCanary`): a hash of the profile id
@@ -732,10 +732,11 @@ payload repeating `PROMPT_ECHO_WORDS` (12) consecutive words of it is a leak, st
 canary (`stop.native: 'prompt_echo'`, rule `egress.prompt-echo`). Any one word
 or none in the canary's place continues a run, since a model told to hide the
 canary echoes the prompt around a stand-in for it; the stand-in itself is not
-part of the echo. There is no
-hold: a dump is cut at its twelfth word, so at most eleven reach the host, and
-the carry between steps and cycles means spreading the dump over them does not
-restart the count.
+part of the echo. An echo written backwards (by code point), in rot13 or in
+leetspeak is an echo too: the prompt is also read in those forms, and the
+reply also with its leetspeak decoded (a list number such as `4.` and a `!`
+closing a word stay as written). The carry between steps and cycles means
+spreading the dump over them does not restart the count.
 
 A system prompt is a string or a list of parts (`SystemPrompt`), and the parts
 are sent concatenated as written. With no `{ private: text }` part the whole

@@ -1,12 +1,33 @@
 # @theoremjs/react
 
-React bindings for [Theorem](https://www.npmjs.com/package/@theoremjs/agents), the agent kernel with guardrails, tool gating and egress checks built into every turn.
+[![npm](https://img.shields.io/npm/v/@theoremjs/react?logo=npm&label=npm&color=cb3837)](https://www.npmjs.com/package/@theoremjs/react)
+[![CI](https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml/badge.svg)](https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/masudl-hub/theoremai/blob/main/LICENSE)
 
-- **A drop-in chat, voice call, host console and decision form**, built on [Astryx](https://www.npmjs.com/package/@astryxdesign/core) and themed for Theorem.
-- **Headless hooks and a typed transport**, if you would rather draw the UI yourself.
-- **A Web-standard server handler** (`Request` in, `Response` out) that serves a profile to the browser: streaming turns, tool gates, sign-in, steering and session state.
+Define an agent once. Get the server and the user interface from the same definition.
 
-You describe the agent once as a profile in `@theoremjs/agents`; this package shows it to a person and carries their side of the conversation.
+## The idea
+
+In Theorem, you write an agent as a **profile** (see [`@theoremjs/agents`](https://www.npmjs.com/package/@theoremjs/agents)). The profile states:
+
+- which models the agent can use
+- what the agent accepts: text, images, files or voice
+- which tools the agent can call
+- what the agent must return
+- how the kernel guards each input and output
+
+This package uses the same profile on both sides.
+
+- **Server.** `createTheoremHandler` runs the profile. It enforces the guardrails and the tool gates.
+- **Browser.** The UI asks the server to describe the profile. It then shows what the profile allows. It shows no attachment button if the profile does not accept files. It shows a model picker if the profile lets the user choose the model.
+
+Edit the profile, and both sides change. You do not write the UI code again.
+
+The package has three parts:
+
+- A ready-made chat, voice call, host console and decision form. They are built on [Astryx](https://www.npmjs.com/package/@astryxdesign/core).
+- Hooks and a transport, for a UI that you build yourself.
+- A server handler. It takes a Web `Request` and returns a `Response`.
 
 ## Install
 
@@ -14,21 +35,27 @@ You describe the agent once as a profile in `@theoremjs/agents`; this package sh
 npm install @theoremjs/react @theoremjs/agents zod react react-dom
 ```
 
-For the UI entry points (`/ui` and `/live`), add the Astryx packages and StyleX:
+For the ready-made UI (`/ui` and `/live`), also install Astryx and StyleX:
 
 ```bash
 npm install @astryxdesign/core @stylexjs/stylex
-# only to build your own theme from Theorem's (`/ui/theme`):
-npm install @astryxdesign/theme-neutral
 ```
 
-Use the versions this package lists under `peerDependencies`. The Astryx and StyleX peers are optional: the hooks, the client and the server handler run without them. `@theoremjs/agents` is a peer so the host and the UI share one kernel. The type declarations need TypeScript 5.7 or later.
+To build your own theme from the Theorem theme (`/ui/theme`), also install `@astryxdesign/theme-neutral`.
 
-`/ui` and `/live` import their own stylesheets, so a bundler that handles CSS imports (Vite does) needs no extra step. The theme is set in Figtree with a system-font fallback; the package does not ship the font, so load it yourself if you want it. The live UI loads its microphone worklet with `new URL('./worklets/mic-capture.js', import.meta.url)`, which Vite and any bundler that resolves that pattern ship without configuration.
+Use the versions that this package lists in `peerDependencies`. The Astryx and StyleX peers are optional. The hooks, the client and the server handler work without them.
+
+Requirements:
+
+- TypeScript 5.7 or later, for the type declarations.
+- A bundler that handles CSS imports. Vite does. `/ui` and `/live` import their own stylesheets.
+- For voice, a bundler that resolves `new URL('./worklets/mic-capture.js', import.meta.url)`. Vite does.
+
+The package does not include the Figtree font. The theme uses Figtree, with a system-font fallback. Load the font yourself if you want it.
 
 ## Quick start
 
-Serve a profile from your server:
+### 1. Define the profile and start the handler
 
 ```ts
 import { defineProfile } from '@theoremjs/agents';
@@ -58,7 +85,11 @@ export const theorem = createTheoremHandler({
 });
 ```
 
-`createTheoremHandler` returns `(request: Request) => Promise<Response>`, so it mounts in anything that speaks Web `Request` and `Response`: Workers, Deno, Bun, Hono, Next route handlers, or Node behind an adapter. Send every request under one path to it, `/api/theorem` by default:
+### 2. Mount the handler
+
+`createTheoremHandler` returns a function: `(request: Request) => Promise<Response>`. It works in Workers, Deno, Bun, Hono and Next route handlers. In Node, use an adapter.
+
+Send all requests under one path to the handler. The default path is `/api/theorem`.
 
 ```ts
 export default {
@@ -70,7 +101,7 @@ export default {
 };
 ```
 
-Then render the chat in your app:
+### 3. Show the chat
 
 ```tsx
 import { TheoremChat } from '@theoremjs/react/ui';
@@ -80,40 +111,48 @@ export function App() {
 }
 ```
 
-The browser asks the handler to describe the profile, and the chat draws what it accepts: the models and efforts it offers, attachments and voice notes, and its tool gates. The profile, its keys and its system prompt stay on the server; the handler strips the system prompt from what it describes.
+The profile, the keys and the system prompt stay on the server. The browser receives only the interface of the profile: the models, the inputs, the tool names and the wording. The handler removes the system prompt from this description.
 
 ## Entry points
 
-| Import | What it is |
+| Import | Content |
 | --- | --- |
-| `@theoremjs/react` | Headless hooks (`useTheoremChat`, `useTheoremInterface`, `useTheoremHost`, `useTheoremDecision`), the transports, and the client logic behind the UI |
-| `@theoremjs/react/ui` | `TheoremChat`, `TheoremHost`, `TheoremDecision`, and the parts they are made of |
+| `@theoremjs/react` | Hooks, transports and client logic |
+| `@theoremjs/react/ui` | `TheoremChat`, `TheoremHost`, `TheoremDecision` and their parts |
 | `@theoremjs/react/live` | `LiveRunner`, the voice and video call UI |
-| `@theoremjs/react/server` | `createTheoremHandler`, `createTheoremHostHandler`, `createTheoremDecisionHandler`, and the stores they use |
-| `@theoremjs/react/ui/theme` | `theoremTheme`, to extend into your own Astryx theme |
-| `@theoremjs/react/ui/icons` | The icon set the theme uses |
-| `@theoremjs/react/client` | The same client logic as the root entry, without the hooks |
+| `@theoremjs/react/server` | The handlers and the stores they use |
+| `@theoremjs/react/ui/theme` | `theoremTheme`, the base for your own Astryx theme |
+| `@theoremjs/react/ui/icons` | The icon set of the theme |
+| `@theoremjs/react/client` | The client logic, without the hooks |
 
-## The chat
+## Chat
 
-`<TheoremChat />` takes these props. All are optional.
+`<TheoremChat />` accepts these props. All props are optional.
 
-| Prop | What it does |
+| Prop | Use |
 | --- | --- |
-| `endpoint` | Where `createTheoremHandler` is mounted. Default `/api/theorem`. |
-| `http` | Fetch options for the default transport: auth headers, a custom `fetch`. |
-| `transport` | Your own transport, in place of `endpoint`: tests, non-HTTP hosts. |
-| `theme`, `mode` | An Astryx theme (omit to inherit yours, or use Theorem's) and `'system'`, `'light'` or `'dark'`. |
-| `labels` | Replacement wording by locale. See [Wording](#wording). |
-| `placeholder`, `emptyState` | The composer's placeholder, and what shows above it before the first message. |
-| `density`, `maxWidth`, `className`, `style` | Layout. `maxWidth` is a CSS length and defaults to half the chat, or full width on narrow screens. |
-| `trace` | Show the trace in place of the chat from your own control. Needs a profile that records traces. |
-| `initialChat`, `onChatChange` | Keep a conversation and resume it. See below. |
-| `chatRef` | Send a message as the composer would. See below. |
+| `endpoint` | The path where the handler is mounted. Default: `/api/theorem`. |
+| `http` | Fetch options for the default transport, such as auth headers or a custom `fetch`. |
+| `transport` | Your own transport, instead of `endpoint`. Use it for tests or for hosts that do not use HTTP. |
+| `theme`, `mode` | An Astryx theme, and `'system'`, `'light'` or `'dark'`. Without `theme`, the chat uses your theme or the Theorem theme. |
+| `labels` | Replacement text for each locale. See [Wording](#wording). |
+| `placeholder`, `emptyState` | The composer placeholder, and the content above the composer before the first message. |
+| `density`, `maxWidth`, `className`, `style` | Layout. `maxWidth` is a CSS length. Default: half of the chat width, or the full width on a narrow screen. |
+| `trace` | Shows the trace instead of the chat. Use it when your own control switches the view. The profile must record traces. |
+| `initialChat`, `onChatChange` | Save and restore a conversation. See below. |
+| `chatRef` | Sends a message from your code. See below. |
 
-### Keep and resume a chat
+### Save and restore a conversation
 
-`onChatChange` reports the `{ blocks, session }` each time the conversation comes to rest: a turn finished, or a message was added or removed. It is never called while a reply streams or waits on a gate. Pass what it last reported as `initialChat` to resume. The snapshot's `session` carries what the next turn is sent with.
+`onChatChange` gives you the conversation as `{ blocks, session }`. It runs when the conversation is at rest:
+
+- a turn ended
+- a message was added
+- a message was removed
+
+It does not run while a reply streams or waits for a gate.
+
+To restore the conversation, pass the saved value as `initialChat`. The component reads `initialChat` once, when it mounts.
 
 ```tsx
 <TheoremChat
@@ -123,56 +162,89 @@ The browser asks the handler to describe the profile, and the chat draws what it
 />
 ```
 
-### Send from your own code
+### Send a message from your code
 
-`chatRef` exposes `send(text)`, which sends a message as the composer would and resolves with the blocks the turn added once its reply is done. It resolves `null` while a reply is streaming or waiting on a gate.
+`chatRef` gives you `send(text)`. It sends the text as the user. When the reply is complete, it returns the blocks that the turn added. It returns `null` if the chat cannot accept a message now. This happens while a reply streams or waits for a gate.
 
 ```tsx
 const chat = useRef<TheoremChatHandle>(null);
-// ...
+
 const turn = await chat.current?.send('Summarize my open tickets');
+
 <TheoremChat chatRef={chat} />
 ```
 
-### Tool gates
+### Gates
 
-When a tool needs a decision, the chat shows it in the transcript: an approval card for a permission or confirmation, and a sign-in card for a tool that needs a credential. The user answers, the handler settles the call, and the turn continues. A typed key is saved on the server and never held in the browser. See [Tool credentials](https://github.com/masudl-hub/theoremai/blob/main/react/docs/credentials.md) for OAuth and typed keys, and [The wire](https://github.com/masudl-hub/theoremai/blob/main/react/docs/wire.md) for what each answer sends.
+A **gate** is a point where a tool call stops and waits for a person. There are two kinds:
 
-A message sent while a reply waits on a gate walks away from it: the host settles the waiting calls as cancelled, and the new message's reply follows in the same stream. See [Composer, queue and steer](https://github.com/masudl-hub/theoremai/blob/main/react/docs/composer.md).
+- An approval gate asks the person to allow the call.
+- A sign-in gate asks the person for a credential.
+
+The chat shows each gate as a card in the transcript. When the person answers, the server settles the call and the turn continues.
+
+The server saves a typed key. The browser does not keep it. For OAuth and typed keys, see [Tool credentials](https://github.com/masudl-hub/theoremai/blob/main/react/docs/credentials.md). For the data that each answer sends, see [The wire](https://github.com/masudl-hub/theoremai/blob/main/react/docs/wire.md).
+
+If the person sends a new message while a gate is open, the server cancels the open calls. The reply to the new message follows in the same stream. See [Composer, queue and steer](https://github.com/masudl-hub/theoremai/blob/main/react/docs/composer.md).
 
 ## Other profile types
 
-Each profile type has a handler and a component. They follow the same shape as the chat: mount the handler, point the component at it.
+Each profile type has a handler and a component. Mount the handler. Point the component at it.
 
-**Host.** A `host` profile runs no model: the page calls its tools directly, with every call going through the kernel's gates and guardrails.
+### Host
+
+A `host` profile does not run a model. The page calls the tools of the profile directly. Each call passes through the gates and the guardrails of the kernel.
 
 ```ts
 import { createTheoremHostHandler } from '@theoremjs/react/server';
+
 export const host = createTheoremHostHandler({ profile: opsConsole }); // mount at /api/host
 ```
 
 ```tsx
 import { TheoremHost } from '@theoremjs/react/ui';
+
 <TheoremHost endpoint="/api/host" />
 ```
 
-A `GET` describes each allowed tool with its input and output JSON Schema, never its endpoint or credentials. `POST /call` with `{ name, input }` streams the call's events, and `POST /invoke` answers a gate the call paused on. The console draws a form from the input schema and lays the result out from its value: figures, charts, tables, images, audio and Markdown, with the raw JSON beside them. `createHostTransport` and `useTheoremHost` are there for a UI of your own.
+The handler accepts these requests:
 
-**Decision.** A `decision` profile judges a piece of JSON state and answers questions you define about it, with no conversation.
+- `GET` describes each allowed tool with its input and output JSON Schema. It never shows the endpoint or the credentials of a tool.
+- `POST /call` with `{ name, input }` streams the events of the call.
+- `POST /invoke` answers a gate that paused a call.
+
+The console builds a form from the input schema. It shows the result as figures, charts, tables, images, audio or Markdown, with the raw JSON beside it. For your own UI, use `createHostTransport` and `useTheoremHost`.
+
+### Decision
+
+A `decision` profile has no conversation. You give it a JSON state and questions. It answers the questions about the state.
 
 ```ts
 import { createTheoremDecisionHandler } from '@theoremjs/react/server';
-export const decide = createTheoremDecisionHandler({ profile, questions, vault }); // /api/decision
+
+export const decide = createTheoremDecisionHandler({ profile, questions, vault }); // mount at /api/decision
 ```
 
 ```tsx
 import { TheoremDecision } from '@theoremjs/react/ui';
+
 <TheoremDecision endpoint="/api/decision" />
 ```
 
-`questions` maps each question id to its definition, `vault` carries the profile's keys by slot, and `metadata` can attach the signed-in user to each decision's trace record. `useTheoremDecision` is the headless hook.
+- `questions` maps each question id to its definition.
+- `vault` holds the keys of the profile, by slot.
+- `metadata` is optional. It adds data, such as the signed-in user, to the trace record of each decision.
 
-**Live.** A `live` profile runs a voice or video call over a WebSocket relay that you host with `runSession` from `@theoremjs/agents`. `LiveRunner` takes the profile's interface, which `interfaceFromProfile` (`@theoremjs/agents/interface`) builds from the profile, and a function that says what to connect to:
+For your own UI, use `useTheoremDecision`.
+
+### Live
+
+A `live` profile runs a voice or video call. The call goes through a WebSocket relay that you host with `runSession` from `@theoremjs/agents`.
+
+`LiveRunner` needs two props:
+
+- `iface`: the interface of the profile. `interfaceFromProfile` (from `@theoremjs/agents/interface`) builds it.
+- `connection`: a function that tells the runner what to connect to.
 
 ```tsx
 import { LiveRunner } from '@theoremjs/react/live';
@@ -180,30 +252,34 @@ import { LiveRunner } from '@theoremjs/react/live';
 <LiveRunner iface={iface} connection={() => ({ profile: 'support.voice' })} />
 ```
 
-It opens `wss://<your host>/api/live/relay?profile=<id>`. Pass `{ openMessage }` in place of `{ profile }` to send the relay an open message of your own, and `createSocket` to supply the socket yourself. `LiveRunner` takes `theme`, `mode`, `labels` and `trace` like the chat. Live tool gates show in a dialog over the call.
+This code opens `wss://<your host>/api/live/relay?profile=<id>`. To send your own open message to the relay, return `{ openMessage }` instead of `{ profile }`. To supply the socket yourself, add `createSocket`.
+
+`LiveRunner` also accepts `theme`, `mode`, `labels` and `trace`. Tool gates in a call appear in a dialog over the call.
 
 ## Server options
 
-`createTheoremHandler` takes a profile and a provider, and everything else is optional:
+`createTheoremHandler` requires `profile` and `provider`. All other options are optional.
 
-| Option | What it does |
+| Option | Use |
 | --- | --- |
-| `profile` | The profile to serve. Registered with the kernel when the handler is created. |
-| `provider` | Provider settings, with the key vault by slot, or a function that builds a provider per request for hosts that pick keys per tenant. |
-| `session` | Resolves the caller's session id, for example `${userId}:${conversationId}`. Return `undefined` to refuse with a 401. Default: an opaque id in an HttpOnly, SameSite=Lax cookie the handler issues on first contact. |
-| `host` | Opaque app context for tool handlers (`ctx.host`), such as the signed-in user. |
-| `sessionStore`, `steerInbox` | Where pending gates and queued steers live. Default: process memory, so pass a shared store when requests can reach different instances. |
-| `credentialStore` | Tool credentials by session. Default: process memory. |
-| `authorizationUrl` | The sign-in URL for an OAuth gate. Without it an OAuth gate carries no URL. |
-| `gateTtlMs` | How long a gate waits for its answer. Default 30 minutes; a later answer is refused with `session.gate_expired`. |
-| `clientEvents` | Forwarded to `forClient` when events are projected for the browser. |
-| `onError` | Called with every error the handler catches, for reporting. Users read the profile's wording for the error's kind, never the error. |
+| `profile` | The profile to serve. The kernel registers it when you create the handler. |
+| `provider` | The provider settings, with the key vault by slot. Or a function that builds a provider for each request. Use the function if each tenant has its own keys. |
+| `session` | Returns the session id of the caller, for example `${userId}:${conversationId}`. Return `undefined` to refuse the request with a 401. Default: a random id in an HttpOnly, SameSite=Lax cookie. |
+| `host` | App data for the tool handlers (`ctx.host`), such as the signed-in user. |
+| `sessionStore`, `steerInbox` | Where open gates and queued steers are kept. Default: process memory. |
+| `credentialStore` | Where tool credentials are kept, by session. Default: process memory. |
+| `authorizationUrl` | Returns the sign-in URL for an OAuth gate. Without it, an OAuth gate has no URL. |
+| `gateTtlMs` | How long a gate waits for an answer. Default: 30 minutes. A later answer fails with `session.gate_expired`. |
+| `clientEvents` | Options for `forClient`, which prepares each event for the browser. |
+| `onError` | Receives each error that the handler catches. The user sees the wording of the profile for that kind of error, never the error. |
 
-The default stores keep state in memory, so they suit development and a single process. Use a shared store in production.
+**Note:** Process memory is correct for development and for one process. In production, use a store that all instances share.
 
 ## Build your own UI
 
-The hooks do what the components do, without drawing anything. `useTheoremChat` holds the transcript, streaming, drafts, the pending queue and the tool gates:
+The hooks give you the same state and actions that the ready-made components use. They draw nothing.
+
+`useTheoremInterface` reads the interface of the profile from the server. `useTheoremChat` keeps the transcript, the streaming state, the drafts, the queue and the gates.
 
 ```tsx
 import { createHttpTransport, useTheoremChat, useTheoremInterface } from '@theoremjs/react';
@@ -216,22 +292,26 @@ function MyChat() {
     transport,
     iface: described.status === 'ready' && described.iface.type !== 'live' ? described.iface : null,
   });
-  // chat.blocks, chat.streamBlocks, chat.phase, chat.draftText, chat.handleSubmit, ...
+  // chat.blocks, chat.streamBlocks, chat.phase, chat.draftText, chat.handleSubmit
 }
 ```
 
-`phase` is `'idle'`, `'streaming'` or `'gated'`. `handleSubmit`, `handleStop`, `handleSendNow` and `handleToolDecision` are the actions the composer and the gate cards call. Render the transcript with `ChatTranscript` and `ChatComposerBar` from `/ui`, or draw your own from `blocks`.
+`chat.phase` is `'idle'`, `'streaming'` or `'gated'`. The actions are `handleSubmit`, `handleStop`, `handleSendNow` and `handleToolDecision`.
 
-The headless layer writes no English. It hands you kinds, codes and states:
+To show the transcript and the composer, use `ChatTranscript` and `ChatComposerBar` from `/ui`. You can also draw your own from `chat.blocks`.
 
-- A failure is a `ClientFailure`: `{ error, errorKind, errorInternal? }`. `error` is the profile's own wording (resolved on the host) and is the text to show the user. `errorKind` and `errorInternal` are for you.
-- An attachment problem is an `AttachmentValidationIssue`. Word it with `attachmentIssueText(issue, iface.lexicon)` from `@theoremjs/agents`.
-- A live call the provider ended after warning it would is not a failure. `LiveSessionClient`'s `onSessionEnded(session)` gives `session.message`, the profile's `live.session_ended` wording, and `session.ended`, with the close code and timing.
-- Chrome is semantic: `liveState`, work status, drawer parts and hint ids, for you to word.
+The hooks and the client write no English text. They return kinds, codes and states. You write the words.
+
+- A failure is a `ClientFailure`: `{ error, errorKind, errorInternal? }`. Show `error` to the user. It is the wording of the profile. `errorKind` and `errorInternal` are for your code.
+- An attachment problem is an `AttachmentValidationIssue`. Use `attachmentIssueText(issue, iface.lexicon)` from `@theoremjs/agents` to get its text.
+- A provider can end a live call after it gives a warning. This is not a failure. `LiveSessionClient` calls `onSessionEnded(session)`. `session.message` is the wording of the profile (`live.session_ended`). `session.ended` has the close code and the timing.
+- The state of the UI is given as values, such as `liveState`, the work status, the drawer parts and the hint ids. You choose the words for them.
 
 ## Wording
 
-Every line the default UI shows is an Astryx i18n message: Theorem's under `@theorem.*` keys (`THEOREM_UI_CATALOG` lists each one with a description and the values it takes), and Astryx's own under `@astryx.*`. `labels` replaces any of them, per locale:
+Each line of text in the ready-made UI is an Astryx i18n message. Theorem messages use `@theorem.*` keys. `THEOREM_UI_CATALOG` lists them, with a description and the values that each one takes. Astryx messages use `@astryx.*` keys.
+
+Use `labels` to replace any message, for each locale:
 
 ```tsx
 <TheoremChat
@@ -246,13 +326,22 @@ Every line the default UI shows is an Astryx i18n message: Theorem's under `@the
 />
 ```
 
-`LiveRunner`, `TheoremHost` and `TheoremDecision` take the same prop. The locale is your Astryx `InternationalizationProvider`'s locale, `en` without one, and your own Astryx `messages` and `overrides` apply too and win over the defaults. Labels are checked when the component mounts: an unknown `@theorem.*` key, a message that is not valid ICU, a value the line is not given, or a key outside `@theorem.*` and `@astryx.*` throws, naming the locale and key. Label values render as text, never HTML.
+`LiveRunner`, `TheoremHost` and `TheoremDecision` accept the same prop.
 
-## More
+- The locale is the locale of your Astryx `InternationalizationProvider`. Without a provider, it is `en`.
+- Your own Astryx `messages` and `overrides` also apply. They replace the defaults.
+- The component checks the labels when it mounts. It throws an error that names the locale and the key if:
+  - a `@theorem.*` key is unknown
+  - a message is not valid ICU
+  - a message does not use a value that its line is given
+  - a key is not in `@theorem.*` or `@astryx.*`
+- Labels are shown as text. They are never shown as HTML.
 
-- [The wire](https://github.com/masudl-hub/theoremai/blob/main/react/docs/wire.md): the request and event schemas between the browser and the host, and what each side checks.
-- [Tool credentials](https://github.com/masudl-hub/theoremai/blob/main/react/docs/credentials.md): typed keys, OAuth and refresh, with a complete callback route.
-- [Composer, queue and steer](https://github.com/masudl-hub/theoremai/blob/main/react/docs/composer.md): the action matrix for stash, queue, steer and send now.
+## More documentation
+
+- [The wire](https://github.com/masudl-hub/theoremai/blob/main/react/docs/wire.md): the requests and events between the browser and the server, and the checks on each side.
+- [Tool credentials](https://github.com/masudl-hub/theoremai/blob/main/react/docs/credentials.md): typed keys, OAuth and token refresh, with a full callback route.
+- [Composer, queue and steer](https://github.com/masudl-hub/theoremai/blob/main/react/docs/composer.md): the actions for stash, queue, steer and send now.
 - [`@theoremjs/agents`](https://www.npmjs.com/package/@theoremjs/agents): profiles, tools, guardrails and providers.
 
-MIT licensed.
+License: MIT.

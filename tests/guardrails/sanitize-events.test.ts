@@ -60,7 +60,7 @@ Deno.test('the strongest action among the matches is the one taken', () => {
   assertEquals(unique(blocked.hits.map((hit) => hit.rule)), ['detect.ids', 'detect.injection']);
 
   // A boundary set apart from the rest is the only one that changes.
-  const elsewhere = readAt(text, 'history', { ids: { user: 'block' } });
+  const elsewhere = readAt(text, 'history', { ids: { at: { user: 'block' } } });
   assertEquals(elsewhere.action, 'redact');
 });
 
@@ -185,7 +185,7 @@ Deno.test('a reader keeps what it found across everything it read', () => {
 Deno.test('a blocked request is refused, and the event says where', () => {
   const profile: Profile = {
     ...getProfile('chat'),
-    guardrails: { detect: { ids: { history: 'block' } } },
+    guardrails: { detect: { ids: { at: { history: 'block' } } } },
   } as Profile;
   const clean = sanitizeTurnRequestWithEvents(
     { profile: 'chat', input: { text: SENSITIVE } },

@@ -1363,7 +1363,9 @@ Deno.test('a failure message is redacted by default, and follows the profile whe
 
   const ignored = await run({
     scope: scopeOf(throwing(`lookup failed: ${INJ_IGNORE}`)),
-    profile: profileOf(['fails'], { detect: { injection: { tool_failure_function: 'ignore' } } }),
+    profile: profileOf(['fails'], {
+      detect: { injection: { at: { tool_failure_function: 'ignore' } } },
+    }),
     name: 'fails',
   });
   check(eventsOf(ignored.events, 'guardrail'), [], 'ignored raises nothing');

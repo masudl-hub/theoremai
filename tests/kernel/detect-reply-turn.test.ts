@@ -72,12 +72,16 @@ Deno.test('a reply is not read by default: the key reaches the user and nothing 
 });
 
 Deno.test('flag at reply: the reply reaches the user as written, with one report', async () => {
-  const events = await turn('detect_reply_flag', { credentials: { reply: 'flag' } }, said(TEXT));
+  const events = await turn(
+    'detect_reply_flag',
+    { credentials: { at: { reply: 'flag' } } },
+    said(TEXT),
+  );
   assertEquals([replyText(events), guardrails(events)], [TEXT, ['output_delta reply flag']]);
 });
 
 Deno.test('redact at reply: the user sees the placeholder, streamed in place of the key', async () => {
-  const detect: DetectSpec = { credentials: { reply: 'redact' } };
+  const detect: DetectSpec = { credentials: { at: { reply: 'redact' } } };
   const events = await turn('detect_reply_redact', detect, said(TEXT));
   assertEquals(
     [replyText(events), guardrails(events)],
@@ -86,7 +90,11 @@ Deno.test('redact at reply: the user sees the placeholder, streamed in place of 
 });
 
 Deno.test('block at reply: the reply stops before the key and the turn says it was withheld', async () => {
-  const events = await turn('detect_reply_block', { credentials: { reply: 'block' } }, said(TEXT));
+  const events = await turn(
+    'detect_reply_block',
+    { credentials: { at: { reply: 'block' } } },
+    said(TEXT),
+  );
   assertEquals(replyText(events).includes(KEY), false);
   assertEquals(guardrails(events), ['output_final reply block']);
   assertEquals(lastOf(events, 'error')?.errorKind, 'safety');
@@ -94,14 +102,14 @@ Deno.test('block at reply: the reply stops before the key and the turn says it w
 });
 
 Deno.test('block at reply with refuse_to_user: the user reads the refusal', async () => {
-  const detect: DetectSpec = { credentials: { reply: 'block' } };
+  const detect: DetectSpec = { credentials: { at: { reply: 'block' } } };
   const events = await turn('detect_reply_refuse', detect, said(TEXT), { refuse: true });
   assertEquals(replyText(events).endsWith(lexiconDefault('egress.refusal')), true);
   assertEquals(replyText(events).includes(KEY), false);
 });
 
 Deno.test('redact at reply_structured: the structured output crosses with the key replaced', async () => {
-  const detect: DetectSpec = { credentials: { reply_structured: 'redact' } };
+  const detect: DetectSpec = { credentials: { at: { reply_structured: 'redact' } } };
   const structured = { answer: `the key is ${KEY}`, count: 2 };
   const events = await turn(
     'detect_structured_redact',
@@ -119,7 +127,7 @@ Deno.test('redact at reply_structured: the structured output crosses with the ke
 });
 
 Deno.test('block at reply_structured: no structured output crosses', async () => {
-  const detect: DetectSpec = { credentials: { reply_structured: 'block' } };
+  const detect: DetectSpec = { credentials: { at: { reply_structured: 'block' } } };
   const structured = { answer: `the key is ${KEY}` };
   const events = await turn(
     'detect_structured_block',

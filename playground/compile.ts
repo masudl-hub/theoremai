@@ -1044,15 +1044,15 @@ function compileDetect(
   detect: GuardrailsDraft['detect'],
   boundaries: readonly Boundary[],
 ): DetectSpec | undefined {
-  const spec: Partial<Record<string, Partial<Record<Boundary, DetectAction>>>> = {};
+  const spec: Partial<Record<string, { at: Partial<Record<Boundary, DetectAction>> }>> = {};
   for (const detector of DETECTORS) {
     const changed = boundaries.filter(
       (boundary) => detect[detector][boundary] !== DETECT_DEFAULTS[detector][boundary],
     );
     if (changed.length) {
-      spec[detector] = Object.fromEntries(
-        changed.map((boundary) => [boundary, detect[detector][boundary]]),
-      );
+      spec[detector] = {
+        at: Object.fromEntries(changed.map((boundary) => [boundary, detect[detector][boundary]])),
+      };
     }
   }
   return Object.keys(spec).length ? spec : undefined;

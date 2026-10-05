@@ -261,7 +261,9 @@ Deno.test('a failure message is read at its own boundary, under the profile sett
 });
 
 Deno.test('a profile that ignores a detector at a failure boundary keeps the raw message', () => {
-  const policy = resolveGuardrailPolicy({ detect: { injection: { tool_failure_mcp: 'ignore' } } });
+  const policy = resolveGuardrailPolicy({
+    detect: { injection: { at: { tool_failure_mcp: 'ignore' } } },
+  });
   const guarded = guardToolFailureText(INJ_IGNORE, MCP, policy, 'tool_failure_mcp');
   assertEquals(guarded, { text: INJ_IGNORE });
   // The setting is per tool kind: an HTTP tool's failure is still read.
@@ -270,7 +272,7 @@ Deno.test('a profile that ignores a detector at a failure boundary keeps the raw
 });
 
 Deno.test('a blocked failure message is replaced by the lexicon words', async () => {
-  const profile = toolProfile({ injection: { tool_failure_http: 'block' } });
+  const profile = toolProfile({ injection: { at: { tool_failure_http: 'block' } } });
   resetTools();
   const restore = registerRemote({ error: INJ_IGNORE }, 500);
   try {
@@ -287,7 +289,7 @@ Deno.test('a blocked failure message is replaced by the lexicon words', async ()
 });
 
 Deno.test('blocked tool output settles as a failed call the model is told about', async () => {
-  const profile = toolProfile({ ids: { tool_output_function: 'block' } });
+  const profile = toolProfile({ ids: { at: { tool_output_function: 'block' } } });
   resetTools();
   registerLocal({ finding: 'ssn 000-11-2222' });
   const { events, result } = await run(profile, 'local_lookup', { q: 'x' });
@@ -312,7 +314,7 @@ Deno.test('blocked tool output settles as a failed call the model is told about'
 });
 
 Deno.test('flagged tool output crosses unchanged and is reported', async () => {
-  const profile = toolProfile({ ids: { tool_output_function: 'flag' } });
+  const profile = toolProfile({ ids: { at: { tool_output_function: 'flag' } } });
   resetTools();
   registerLocal({ finding: 'ssn 000-11-2222' });
   const { events, result } = await run(profile, 'local_lookup', { q: 'x' });
@@ -321,7 +323,7 @@ Deno.test('flagged tool output crosses unchanged and is reported', async () => {
 });
 
 Deno.test('blocked arguments: the tool is not called', async () => {
-  const profile = toolProfile({ credentials: { tool_arguments_function: 'block' } });
+  const profile = toolProfile({ credentials: { at: { tool_arguments_function: 'block' } } });
   resetTools();
   const calls: unknown[] = [];
   registerLocal({ finding: 'ok' }, (input) => calls.push(input));
@@ -338,7 +340,7 @@ Deno.test('blocked arguments: the tool is not called', async () => {
 });
 
 Deno.test('redacted arguments: the tool is called with the placeholder', async () => {
-  const profile = toolProfile({ credentials: { tool_arguments_function: 'redact' } });
+  const profile = toolProfile({ credentials: { at: { tool_arguments_function: 'redact' } } });
   resetTools();
   const calls: unknown[] = [];
   registerLocal({ finding: 'ok' }, (input) => calls.push(input));

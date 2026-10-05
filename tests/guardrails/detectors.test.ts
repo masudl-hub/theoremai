@@ -98,7 +98,7 @@ Deno.test('one action sets every detector at every boundary', () => {
 
 Deno.test('a detector takes one action everywhere or an action per boundary', () => {
   const spec: ProfileGuardrailsSpec = {
-    detect: { credentials: 'block', ids: { reply: 'block', tool_arguments_mcp: 'block' } },
+    detect: { credentials: 'block', ids: { at: { reply: 'block', tool_arguments_mcp: 'block' } } },
   };
   assertEquals(where(spec, 'credentials', 'block'), [...BOUNDARIES]);
   assertEquals(where(spec, 'ids', 'block'), ['tool_arguments_mcp', 'reply']);
@@ -106,16 +106,27 @@ Deno.test('a detector takes one action everywhere or an action per boundary', ()
   assertEquals(resolveGuardrailPolicy(spec).detect.network, DETECT_DEFAULTS.network);
 });
 
+Deno.test('at names the boundaries that differ from action', () => {
+  const spec: ProfileGuardrailsSpec = {
+    detect: { ids: { action: 'flag', at: { reply: 'block' } } },
+  };
+  assertEquals(where(spec, 'ids', 'block'), ['reply']);
+  assertEquals(where(spec, 'ids', 'flag').length, BOUNDARIES.length - 1);
+});
+
 Deno.test('detectProblem names a misspelt detector, boundary or action', () => {
   assertEquals(detectProblem('guardrails.detect', undefined), undefined);
   assertEquals(detectProblem('guardrails.detect', 'redact'), undefined);
-  assertEquals(detectProblem('guardrails.detect', { ids: { reply: 'block' } }), undefined);
+  assertEquals(detectProblem('guardrails.detect', { ids: { at: { reply: 'block' } } }), undefined);
   const problems: [unknown, string][] = [
     ['mask', 'guardrails.detect must be one of'],
     [{ id: 'block' }, 'guardrails.detect.id is not a detector'],
     [{ ids: 'mask' }, 'guardrails.detect.ids must be one of'],
-    [{ ids: { replies: 'block' } }, 'guardrails.detect.ids.replies is not a boundary'],
-    [{ ids: { reply: true } }, 'guardrails.detect.ids.reply must be one of'],
+    [{ ids: { at: { replies: 'block' } } }, 'guardrails.detect.ids.at.replies is not a boundary'],
+    [{ ids: { at: { reply: true } } }, 'guardrails.detect.ids.at.reply must be one of'],
+    [{ ids: { reply: 'block' } }, 'guardrails.detect.ids.reply is not a setting of a detector'],
+    [{ ids: { action: 'mask' } }, 'guardrails.detect.ids.action must be one of'],
+    [{ ids: { at: 'block' } }, 'guardrails.detect.ids.at must be an object of boundaries'],
   ];
   for (const [spec, expected] of problems) {
     ok(detectProblem('guardrails.detect', spec)?.startsWith(expected));
@@ -132,19 +143,19 @@ Deno.test('defineProfile rejects a bad detect rule, and a boundary a host profil
     inputs: { text: true },
     outputs: {},
   };
-  defineProfile({ ...text, guardrails: { detect: { ids: { reply: 'block' } } } });
+  defineProfile({ ...text, guardrails: { detect: { ids: { at: { reply: 'block' } } } } });
   assertThrows(
     () => defineProfile({ ...text, guardrails: { detect: { ids: 'mask' as 'block' } } }),
     Error,
     'guardrails.detect.ids must be one of',
   );
   const host = { id: 'detect-host', type: 'host' as const, tools: { allow: [] } };
-  defineProfile({ ...host, guardrails: { detect: { ids: { tool_output_mcp: 'block' } } } });
+  defineProfile({ ...host, guardrails: { detect: { ids: { at: { tool_output_mcp: 'block' } } } } });
   defineProfile({ ...host, guardrails: { detect: 'flag' } });
   assertThrows(
-    () => defineProfile({ ...host, guardrails: { detect: { ids: { reply: 'block' } } } }),
+    () => defineProfile({ ...host, guardrails: { detect: { ids: { at: { reply: 'block' } } } } }),
     Error,
-    'guardrails.detect.ids.reply is not a boundary this profile has',
+    'guardrails.detect.ids.at.reply is not a boundary this profile has',
   );
 });
 
@@ -153,7 +164,7 @@ Deno.test('the catalog has a row for the setting, each detector and each boundar
   for (const detector of DETECTORS) {
     ok(PROFILE_FIELDS[`guardrails.detect.${detector}`]?.doc.includes(DETECTOR_META[detector].doc));
     for (const boundary of BOUNDARIES) {
-      const row = PROFILE_FIELDS[`guardrails.detect.${detector}.${boundary}`];
+      const row = PROFILE_FIELDS[`guardrails.detect.${detector}.at.${boundary}`];
       assertEquals(row?.doc, BOUNDARY_META[boundary].doc);
       assertEquals(row?.options, DETECT_ACTIONS);
       assertEquals(row?.unset, DETECT_ACTION_META[DETECT_DEFAULTS[detector][boundary]].label);

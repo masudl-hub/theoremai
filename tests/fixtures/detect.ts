@@ -53,7 +53,7 @@ function blockingAtReply(detectors: readonly Detector[]): DetectSpec {
   return Object.fromEntries(
     DETECTORS.map((detector) => [
       detector,
-      { reply: detectors.includes(detector) ? 'block' : 'ignore' },
+      { at: { reply: detectors.includes(detector) ? 'block' : 'ignore' } },
     ]),
   );
 }

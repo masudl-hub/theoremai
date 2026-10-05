@@ -31,8 +31,16 @@ const DETECT_ACTIONS = ['ignore', 'flag', 'redact', 'block'] as const;
 /** One of {@linkcode DETECT_ACTIONS}. */
 type DetectAction = (typeof DETECT_ACTIONS)[number];
 
-/** One action at every boundary, or an action for the boundaries it names; the rest keep their default. */
-type DetectorRule = DetectAction | Partial<Record<Boundary, DetectAction>>;
+/** A detector's setting in full. */
+interface DetectorConfig {
+  /** The action at every boundary. Left out, each boundary keeps its default. */
+  action?: DetectAction;
+  /** An action for the boundaries it names, over `action` or the default. */
+  at?: Partial<Record<Boundary, DetectAction>>;
+}
+
+/** One action at every boundary, or the setting in full. */
+type DetectorRule = DetectAction | DetectorConfig;
 
 /** One action for every detector at every boundary, or a rule for the detectors it names. */
 type DetectSpec = DetectAction | Partial<Record<Detector, DetectorRule>>;
@@ -106,7 +114,8 @@ function resolveRule(
 ): Readonly<Record<Boundary, DetectAction>> {
   if (rule === undefined) return base;
   if (isAction(rule)) return recordOf(BOUNDARIES, () => rule);
-  return { ...base, ...rule };
+  const { action, at } = rule;
+  return { ...(action === undefined ? base : recordOf(BOUNDARIES, () => action)), ...at };
 }
 
 /** `spec` with everything it leaves out at its default. */
@@ -118,23 +127,40 @@ function resolveDetect(spec?: DetectSpec): ResolvedDetect {
 
 const ACTION_LIST = DETECT_ACTIONS.join(', ');
 
-function ruleProblem(
-  path: string,
-  rule: unknown,
-  boundaries: readonly Boundary[],
-): string | undefined {
-  if (isAction(rule)) return undefined;
-  if (typeof rule !== 'object' || rule === null) {
-    return `${path} must be one of ${ACTION_LIST}, or an object of boundaries`;
-  }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function atProblem(path: string, at: unknown, boundaries: readonly Boundary[]): string | undefined {
+  if (at === undefined) return undefined;
+  if (!isRecord(at)) return `${path} must be an object of boundaries`;
   const known = new Set<string>(boundaries);
-  for (const [boundary, action] of Object.entries(rule)) {
+  for (const [boundary, action] of Object.entries(at)) {
     if (!known.has(boundary)) {
       return `${path}.${boundary} is not a boundary this profile has (${boundaries.join(', ')})`;
     }
     if (!isAction(action)) return `${path}.${boundary} must be one of ${ACTION_LIST}`;
   }
   return undefined;
+}
+
+const CONFIG_KEYS: readonly string[] = ['action', 'at'] satisfies (keyof DetectorConfig)[];
+
+function ruleProblem(
+  path: string,
+  rule: unknown,
+  boundaries: readonly Boundary[],
+): string | undefined {
+  if (isAction(rule)) return undefined;
+  if (!isRecord(rule)) return `${path} must be one of ${ACTION_LIST}, or an object`;
+  const unknown = Object.keys(rule).find((key) => !CONFIG_KEYS.includes(key));
+  if (unknown !== undefined) {
+    return `${path}.${unknown} is not a setting of a detector (${CONFIG_KEYS.join(', ')})`;
+  }
+  if (rule.action !== undefined && !isAction(rule.action)) {
+    return `${path}.action must be one of ${ACTION_LIST}`;
+  }
+  return atProblem(`${path}.at`, rule.at, boundaries);
 }
 
 /**
@@ -148,9 +174,7 @@ function detectProblem(
   boundaries: readonly Boundary[] = BOUNDARIES,
 ): string | undefined {
   if (spec === undefined || isAction(spec)) return undefined;
-  if (typeof spec !== 'object' || spec === null) {
-    return `${path} must be one of ${ACTION_LIST}, or an object of detectors`;
-  }
+  if (!isRecord(spec)) return `${path} must be one of ${ACTION_LIST}, or an object of detectors`;
   const known = new Set<string>(DETECTORS);
   for (const [detector, rule] of Object.entries(spec)) {
     if (!known.has(detector)) {
@@ -162,7 +186,15 @@ function detectProblem(
   return undefined;
 }
 
-export type { DetectAction, DetectMeta, Detector, DetectorRule, DetectSpec, ResolvedDetect };
+export type {
+  DetectAction,
+  DetectMeta,
+  Detector,
+  DetectorConfig,
+  DetectorRule,
+  DetectSpec,
+  ResolvedDetect,
+};
 export {
   DETECT_ACTION_META,
   DETECT_ACTIONS,

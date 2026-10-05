@@ -62,13 +62,13 @@ Deno.test('a reply has no gate when no detector reads it and nothing else judges
 
 Deno.test('flag at reply shows the reply as written and reports the match once', async () => {
   for (const size of SIZES) {
-    const result = await streamed({ credentials: { reply: 'flag' } }, TEXT, size);
+    const result = await streamed({ credentials: { at: { reply: 'flag' } } }, TEXT, size);
     assertEquals(result, { shown: TEXT, found: [`flag ${DETECT_RULES.credentials}`] });
   }
 });
 
 Deno.test('redact at reply shows the placeholder in place of the match, however the reply is cut', async () => {
-  const detect: DetectSpec = { credentials: { reply: 'redact' } };
+  const detect: DetectSpec = { credentials: { at: { reply: 'redact' } } };
   const expected = readAt(TEXT, 'reply', detect).text;
   assertEquals(expected?.includes(KEY), false);
   for (const size of SIZES) {
@@ -79,7 +79,11 @@ Deno.test('redact at reply shows the placeholder in place of the match, however 
 
 Deno.test('block at reply stops the reply before the match and names the boundary', async () => {
   for (const size of SIZES) {
-    const { shown, blocked } = await streamed({ credentials: { reply: 'block' } }, TEXT, size);
+    const { shown, blocked } = await streamed(
+      { credentials: { at: { reply: 'block' } } },
+      TEXT,
+      size,
+    );
     assertEquals(TEXT.startsWith(shown) && shown.length <= TEXT.indexOf(KEY), true);
     assertEquals(blocked?.boundary, 'reply');
     assertEquals(
@@ -90,7 +94,7 @@ Deno.test('block at reply stops the reply before the match and names the boundar
 });
 
 Deno.test('a Live reply is spoken, so redact stops it as block does', async () => {
-  const detect: DetectSpec = { credentials: { live_reply: 'redact' } };
+  const detect: DetectSpec = { credentials: { at: { live_reply: 'redact' } } };
   const { shown, blocked } = await streamed(detect, TEXT, 7, 'live_reply');
   assertEquals(shown.includes(KEY), false);
   assertEquals(blocked?.boundary, 'live_reply');
@@ -100,7 +104,7 @@ Deno.test('the stream replaces exactly what reading the whole reply replaces', a
   const detect: DetectSpec = Object.fromEntries(
     ['ids', 'financial', 'credentials', 'injection'].map((detector) => [
       detector,
-      { reply: 'redact' },
+      { at: { reply: 'redact' } },
     ]),
   );
   const replies = [
@@ -124,7 +128,9 @@ Deno.test('the stream replaces exactly what reading the whole reply replaces', a
 const AT_END = { boundary: 'reply', withheld: false } as const;
 
 Deno.test('a reply read whole has its matches replaced, in text and in each structured string', () => {
-  const detect = resolveDetect({ credentials: { reply: 'redact', reply_structured: 'redact' } });
+  const detect = resolveDetect({
+    credentials: { at: { reply: 'redact', reply_structured: 'redact' } },
+  });
   const structured = { answer: `the key is ${KEY}`, steps: [`use ${KEY}`, 'done'], count: 2 };
   const read = readReply({ text: TEXT, structured }, detect, AT_END);
   const placeholder = readAt(KEY, 'reply', { credentials: 'redact' }).text;
@@ -146,7 +152,7 @@ Deno.test('a reply read whole has its matches replaced, in text and in each stru
 });
 
 Deno.test('a match with no string to replace stops the structured output', () => {
-  const detect = resolveDetect({ credentials: { reply_structured: 'redact' } });
+  const detect = resolveDetect({ credentials: { at: { reply_structured: 'redact' } } });
   const read = readReply({ text: 'ok', structured: { [KEY]: 1 } }, detect, AT_END);
   assertEquals(
     read.blocked?.map((hit) => hit.rule),
@@ -161,7 +167,7 @@ Deno.test('structured output that cannot be read does not cross a boundary a det
     },
   };
   const payload = { text: 'ok', structured: unreadable };
-  const reading = resolveDetect({ ids: { reply_structured: 'flag' } });
+  const reading = resolveDetect({ ids: { at: { reply_structured: 'flag' } } });
   assertEquals(readReply(payload, reading, AT_END).blocked, [
     { rule: EGRESS_RULES.unscannable, severity: 'high' },
   ]);
@@ -169,14 +175,17 @@ Deno.test('structured output that cannot be read does not cross a boundary a det
 });
 
 Deno.test('a flag is reported at the end only when the stream withheld the reply', () => {
-  const detect = resolveDetect({ credentials: { reply: 'flag' } });
+  const detect = resolveDetect({ credentials: { at: { reply: 'flag' } } });
   assertEquals(readReply({ text: TEXT }, detect, AT_END).events, []);
   const [event] = readReply({ text: TEXT }, detect, { boundary: 'reply', withheld: true }).events;
   assertEquals([event?.boundary, event?.action], ['reply', 'flag']);
 });
 
 Deno.test('block at the end names every match and lets nothing through', () => {
-  const detect = resolveDetect({ credentials: { reply: 'block' }, ids: { reply: 'redact' } });
+  const detect = resolveDetect({
+    credentials: { at: { reply: 'block' } },
+    ids: { at: { reply: 'redact' } },
+  });
   const read = readReply({ text: `${TEXT} ${TEST_SSN}` }, detect, AT_END);
   assertEquals(read.blocked?.map((hit) => hit.rule).sort(), [
     DETECT_RULES.credentials,
@@ -206,14 +215,14 @@ Deno.test('a thought has no guard when nothing reads it', () => {
 Deno.test('a detector at thought flags, replaces or ends what is shown of the thought', () => {
   const placeholder = readAt(KEY, 'thought', { credentials: 'redact' }).text ?? '';
   for (const size of SIZES) {
-    const flagged = thought({ credentials: { thought: 'flag' } }, TEXT, size);
+    const flagged = thought({ credentials: { at: { thought: 'flag' } } }, TEXT, size);
     assertEquals([flagged.shown, flagged.found], [TEXT, [`flag ${DETECT_RULES.credentials}`]]);
-    const replaced = thought({ credentials: { thought: 'redact' } }, TEXT, size);
+    const replaced = thought({ credentials: { at: { thought: 'redact' } } }, TEXT, size);
     assertEquals(
       [replaced.shown, replaced.found],
       [TEXT.replace(KEY, placeholder), [`redact ${DETECT_RULES.credentials}`]],
     );
-    const ended = thought({ credentials: { thought: 'block' } }, TEXT, size);
+    const ended = thought({ credentials: { at: { thought: 'block' } } }, TEXT, size);
     assertEquals(TEXT.startsWith(ended.shown) && ended.shown.length <= TEXT.indexOf(KEY), true);
     assertEquals(ended.found, [`block ${DETECT_RULES.credentials}`]);
     // The next thought starts clean.
@@ -261,19 +270,21 @@ Deno.test('a Live reply is not gated when no detector reads live_reply', () => {
 });
 
 Deno.test('flag at live_reply lets the reply through and reports it', async () => {
-  const result = await spoken('live_detect_flag', { credentials: { live_reply: 'flag' } });
+  const result = await spoken('live_detect_flag', { credentials: { at: { live_reply: 'flag' } } });
   assertEquals(result, { final: result.final, text: TEXT, guardrails: ['live_reply flag'] });
 });
 
 Deno.test('block at live_reply withholds the cycle from the match on and reports it once', async () => {
-  const result = await spoken('live_detect_block', { credentials: { live_reply: 'block' } });
+  const result = await spoken('live_detect_block', {
+    credentials: { at: { live_reply: 'block' } },
+  });
   assertEquals(result.final, 'withhold');
   assertEquals(result.text.includes(KEY), false);
   assertEquals(result.guardrails, ['live_reply block']);
 });
 
 Deno.test('redact at live_reply stops the spoken reply and releases the text with its placeholder', async () => {
-  const detect: DetectSpec = { credentials: { live_reply: 'redact' } };
+  const detect: DetectSpec = { credentials: { at: { live_reply: 'redact' } } };
   const result = await spoken('live_detect_redact', detect);
   assertEquals(result.text.includes(KEY), false);
   assertEquals(result.guardrails, ['live_reply redact']);

@@ -515,14 +515,22 @@ function detectFields(): Record<string, FieldMeta> {
     rows.push([
       path,
       action(
-        'DetectAction | { [boundary]: DetectAction }',
+        'DetectAction | DetectorConfig',
         `${DETECTOR_META[detector].doc} Set one action for all boundaries, or one per boundary.`,
       ),
+    ]);
+    rows.push([
+      `${path}.action`,
+      action('DetectAction', 'The action at every boundary. Unset: each keeps its default.'),
+    ]);
+    rows.push([
+      `${path}.at`,
+      field('{ [boundary]: DetectAction }', 'An action per boundary, over action or the default.'),
     ]);
     for (const boundary of BOUNDARIES) {
       const unset = DETECT_ACTION_META[DETECT_DEFAULTS[detector][boundary]].label;
       const meta = action('DetectAction', BOUNDARY_META[boundary].doc);
-      rows.push([`${path}.${boundary}`, { ...meta, unset }]);
+      rows.push([`${path}.at.${boundary}`, { ...meta, unset }]);
     }
   }
   return Object.fromEntries(rows);

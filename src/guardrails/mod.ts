@@ -41,6 +41,7 @@ export type {
   DetectAction,
   DetectMeta,
   Detector,
+  DetectorConfig,
   DetectorRule,
   DetectSpec,
   ResolvedDetect,

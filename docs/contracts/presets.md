@@ -15,8 +15,9 @@ kernel.
 
 | Path | Role |
 | --- | --- |
-| `src/presets/mod.ts` | Barrel re-exporting the Google pack, OpenRouter's image inputs and TypeSafe's price |
+| `src/presets/mod.ts` | Barrel re-exporting the Google pack, the local checks, OpenRouter's image inputs and TypeSafe's price |
 | `src/presets/google.ts` | Documented in [`presets-google.md`](./presets-google.md) |
+| `src/presets/local.ts` | What a local server would refuse on a binding |
 | `src/presets/openrouter.ts` | The attachment types an OpenRouter `/images` profile may accept |
 | `src/presets/typesafe.ts` | TypeSafe Jev's input price, which decision usage costs from |
 
@@ -40,10 +41,11 @@ own tools and vocabularies directly via `registerTools`.
 | --- | --- |
 | Google Gemini hosts wanting typed pins + search/maps/url/code-execution builtins | Custom tool catalog entirely host-owned |
 | Quick start matching Google Interactions and Live wire types | Non-Google providers only |
+| A local host that wants `efforts` on a model that does not think refused before the first call | A local server that reports nothing about its models |
 
 ## Exported API
 
-This barrel re-exports the Google pack, OpenRouter's image inputs and TypeSafe's price:
+This barrel re-exports the Google pack, the local checks, OpenRouter's image inputs and TypeSafe's price:
 
 | Export | Role |
 | --- | --- |
@@ -60,6 +62,8 @@ This barrel re-exports the Google pack, OpenRouter's image inputs and TypeSafe's
 | `GOOGLE_IMAGE_ASPECT_RATIOS`, `GOOGLE_IMAGE_INPUT_MIMES`, `GOOGLE_IMAGE_RESOLUTIONS`, `GOOGLE_IMAGE_OUTPUT_MIMES`, `GOOGLE_VOICE_INPUT_MIMES`, `GOOGLE_SPEECH_VOICES` | Profile authoring constants |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImagePins`, `GoogleImageResolution`, `GoogleImageOutputMime`, `GoogleVoiceInputMime`, `GoogleSpeechVoice` | Typed pins and vocabularies |
 | `googleEfforts`, `GoogleThinkingLevel` | A Gemini binding's `efforts`, typed to `GOOGLE_THINKING_LEVELS`; throws `config` on any other level when the binding is built |
+| `localBindingViolation`, `LocalBindingViolation` | The first setting a local server would refuse on a binding: `efforts` on a model that does not think. The host says whether the model thinks. Ollama answers HTTP 400 "does not support thinking" for such a call (04/10/2026) |
+| `ollamaModelThinks` | Whether an Ollama model thinks, read from the server's `/api/show` reply for it (`capabilities` lists `thinking`). The host fetches the reply; the preset makes no network call |
 | `OPENROUTER_IMAGES_IGNORED_INPUTS` | `system` and `history`: `/images` sends the model the prompt text and the references only, so a profile's system prompt (the canary and `user_data` notes with it) never reaches it; `image.includeText` moves the turn to the chat path, which sends both |
 | `OPENROUTER_IMAGES_INPUT_MIMES` | `/images` takes image references only (https URLs or bytes), so a profile on it accepts `image/*` and nothing wider; the send refuses video and PDF |
 | `JEV_USD_PER_MILLION_INPUT_TOKENS` | TypeSafe Jev's input price per million tokens; output tokens are free |

@@ -491,6 +491,7 @@ export const THEOREM_UI_CATALOG = {
 	'@theorem.live.flip_camera': { defaultMessage: 'Flip camera', description: 'Switches front and back camera.' },
 	'@theorem.live.end_call': { defaultMessage: 'End call', description: 'Hangs up.' },
 	'@theorem.live.controls': { defaultMessage: 'Call controls', description: 'The control toolbar (screen readers).' },
+	'@theorem.live.new_session': { defaultMessage: 'New session', description: 'Captions divider between calls.' },
 	'@theorem.live.camera_preview': { defaultMessage: 'Camera preview', description: 'Self-view (screen readers).' },
 	'@theorem.live.state.calling_tool': { defaultMessage: 'calling {tool}', description: 'Call status: a tool runs.', params: ['tool'] },
 	'@theorem.live.state.connecting': { defaultMessage: 'connecting', description: 'Call status.' },
@@ -535,6 +536,20 @@ export function composerDrawerLabel(t: LabelText, summary: ComposerDrawerSummary
 	return summary.parts
 		.map((part) => t(`@theorem.composer.drawer.${part.kind}.count`, { n: part.n }))
 		.join(t('@theorem.composer.drawer.separator'));
+}
+
+/** What the agent an agent tool ran used: its tokens, then its cost when the provider gave one. */
+export function toolUsage(
+	t: LabelText,
+	locale: string,
+	tokens: { total: number; cost?: { usd: number; partial?: true } },
+): string {
+	const count = t('@theorem.transcript.tool_tokens', { count: tokens.total });
+	if (!tokens.cost) return count;
+	const usd = new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD', maximumSignificantDigits: 2 });
+	const cost = usd.format(tokens.cost.usd);
+	// why: A partial cost covers only the calls that reported one.
+	return `${count} · ${tokens.cost.partial ? t('@theorem.panel.trace.at_least', { value: cost }) : cost}`;
 }
 
 /** Wall-clock duration, matching Seance's builder-trace formatter: "<0.1ms", "0.4ms", "850ms", "3.2s", "12s", "1m 5s". */

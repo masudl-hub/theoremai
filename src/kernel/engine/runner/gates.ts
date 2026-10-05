@@ -85,6 +85,28 @@ type EgressOutcome =
   | { action: 'retry'; nextRequest: TurnRequest }
   | { action: 'withhold'; event: TurnEvent };
 
+/** What a host policy is told about the reply it judges. */
+function replyContext(args: {
+  generation: ResolvedGeneration;
+  request: TurnRequest;
+  profile: Profile;
+  givenUrls: GivenUrls;
+  canaryGiven: boolean;
+}): GuardrailContext {
+  const { generation, request, profile, givenUrls } = args;
+  return {
+    stage: 'output_final',
+    trust: 'untrusted',
+    profileId: profile.id,
+    ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
+    ...(generation.canary ? { canary: generation.canary } : {}),
+    ...(generation.canary && args.canaryGiven ? { canaryGiven: true } : {}),
+    ...(request.input?.slots ? { slots: request.input.slots } : {}),
+    ...(request.input?.role ? { role: request.input.role } : {}),
+    givenUrls,
+  };
+}
+
 /**
  * The verdict on an attempt's reply: `guardrails.detect` reads it first, and a
  * host policy judges what the detectors let through.
@@ -110,24 +132,14 @@ async function evaluateEgressOutcome(args: {
   /** The structured output with its matches replaced, when a detector replaced any. */
   structured?: unknown;
 }> {
-  const { attemptEvents, generation, request, profile, canRetry, promptLeaks, givenUrls } = args;
+  const { attemptEvents, request, profile, canRetry, promptLeaks } = args;
   const { egress, detect } = args.policy;
   const written = projectOutbound(attemptEvents);
   const read = readReply(written, detect, { boundary: 'reply', withheld: args.withheld });
   const { payload } = read;
   const rejection = (hits: GuardrailHit[]) =>
     lexiconText('egress.rejection', { rules: hitRules(hits).join(', ') }, profile.lexicon);
-  const context: GuardrailContext = {
-    stage: 'output_final',
-    trust: 'untrusted',
-    profileId: profile.id,
-    ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
-    ...(generation.canary ? { canary: generation.canary } : {}),
-    ...(generation.canary && args.canaryGiven ? { canaryGiven: true } : {}),
-    ...(request.input?.slots ? { slots: request.input.slots } : {}),
-    ...(request.input?.role ? { role: request.input.role } : {}),
-    givenUrls,
-  };
+  const context = replyContext(args);
   // why: The host policy adds checks; it never releases a system-prompt leak or a detector's block.
   const stopped = promptLeaks?.length ? promptLeaks : read.blocked;
   const verdict: Verdict = stopped

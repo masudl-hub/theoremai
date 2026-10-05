@@ -262,6 +262,9 @@ function buildEstimator(encode: EncodeFn): TokenEstimator {
 // why: The ranks import lazily, so hosts that never estimate never pay for them.
 /** Loads the token estimator; the `o200k_base` ranks are imported on the first call. */
 export async function loadTokenEstimator(): Promise<TokenEstimator> {
-  encodePromise ??= import('gpt-tokenizer/encoding/o200k_base').then((m) => m.encode);
+  // why: A control token in text is counted as the text it is. The encoder's default throws on one.
+  encodePromise ??= import('gpt-tokenizer/encoding/o200k_base').then(
+    (m) => (value: string) => m.encode(value, { disallowedSpecial: new Set() }),
+  );
   return buildEstimator(await encodePromise);
 }

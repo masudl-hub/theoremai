@@ -237,11 +237,26 @@ function mayBecomePromptWord(partial: string, shape: PromptShape): boolean {
  * word. Any echo that completes later starts there or after.
  */
 function promptEchoHoldFrom(text: string, stretches: readonly string[], canary?: string): number {
-  return Math.min(...replyViews(text).map((view) => holdFrom(view, stretches, canary)));
+  for (let reach = TAIL_REACH; ; reach *= 2) {
+    const start = decodableFrom(text, text.length - reach);
+    const holds = replyViews(text.slice(start)).map((view) => holdFrom(view, stretches, canary));
+    if (start === 0 || holds.every(({ tail }) => tail > 0)) {
+      return start + Math.min(...holds.map(({ hold }) => hold));
+    }
+  }
 }
 
-function holdFrom(text: string, stretches: readonly string[], canary?: string): number {
+/** The hold in `text`, and where the words it was read from start: at 0, `text` may be too short a tail. */
+function holdFrom(
+  text: string,
+  stretches: readonly string[],
+  canary?: string,
+): { hold: number; tail: number } {
   const tail = promptEchoScanFrom(text, text.length);
+  return { hold: holdIn(text, tail, stretches, canary), tail };
+}
+
+function holdIn(text: string, tail: number, stretches: readonly string[], canary?: string): number {
   const words = echoWords(text.slice(tail));
   let writing = text.length;
   while (writing > 0 && WORD_CHAR.test(text.charAt(writing - 1))) writing--;
@@ -265,6 +280,22 @@ function holdFrom(text: string, stretches: readonly string[], canary?: string): 
 
 /** A leetspeak letter, or a list number that stays one; `!` only before a word goes on. */
 const LEET = /(?<=^|\n)[ \t]*\p{N}+[.)]|[0-9@]|!(?=[\p{L}\p{N}@])/gu;
+
+/** How far back a tail is first read from; a tail with too few words in it is doubled. */
+const TAIL_REACH = 512;
+const LIST_NUMBER_CHAR = /[ \t\p{N}]/u;
+const NUMBER_CHAR = /\p{N}/u;
+
+/**
+ * A start at or before `at` from which `text` decodes as it does whole: a
+ * list number is one from its line's start, so the start is no later than the
+ * character before the blanks and digits leading up to `at`.
+ */
+function decodableFrom(text: string, at: number): number {
+  let start = Math.max(0, at);
+  while (start > 0 && LIST_NUMBER_CHAR.test(text.charAt(start - 1))) start--;
+  return Math.max(0, start - 1);
+}
 
 /** `text` with its leetspeak decoded, letter for letter, so offsets keep. */
 function decodeLeet(text: string): string {
@@ -326,7 +357,16 @@ function scanTextForPromptEcho(
  * start in.
  */
 function promptEchoScanFrom(text: string, from: number): number {
-  return Math.min(...replyViews(text).map((view) => scanFrom(view, from)));
+  const end = Math.min(from, text.length);
+  for (let reach = TAIL_REACH; ; reach *= 2) {
+    const start = decodableFrom(text, end - reach);
+    // why: What follows `end` decides how the tail's last characters read: a `!` by the next one, digits by the list number they may be.
+    let stop = end;
+    while (stop < text.length && NUMBER_CHAR.test(text.charAt(stop))) stop++;
+    const tail = text.slice(start, stop + 1);
+    const at = Math.min(...replyViews(tail).map((view) => scanFrom(view, end - start)));
+    if (start === 0 || at > 0) return start + at;
+  }
 }
 
 function scanFrom(text: string, from: number): number {

@@ -1,5 +1,6 @@
 import '../fixtures/test-host.ts';
 import { mintCanary } from '../../src/guardrails/canary.ts';
+import { LEET_MAP } from '../../src/guardrails/injection.ts';
 import {
   createLiveOutboundGateSession,
   finalizeLiveOutboundTurn,
@@ -195,6 +196,46 @@ Deno.test('promptEchoScanFrom rereads the words an echo run could start in', () 
   const cut = text.length - 4;
   assertEquals(scanTextForPromptEcho(text.slice(promptEchoScanFrom(text, cut)), [SYSTEM]), true);
   assertEquals(promptEchoScanFrom('one two', 7), 0);
+});
+
+Deno.test('promptEchoScanFrom reads a long text from its tail as it reads it whole', () => {
+  /** The scan start with the whole text decoded, which the tail read must equal. */
+  const whole = (text: string, from: number): number => {
+    const decoded = text.replace(
+      /(?<=^|\n)[ \t]*\p{N}+[.)]|[0-9@]|!(?=[\p{L}\p{N}@])/gu,
+      (match) => (match.length === 1 ? (LEET_MAP[match] ?? match) : match),
+    );
+    return Math.min(
+      ...[text, decoded].map((view) => {
+        let at = Math.min(from, view.length);
+        for (let counted = 0; counted < PROMPT_ECHO_WORDS && at > 0; ) {
+          while (at > 0 && !/[\p{L}\p{N}]/u.test(view.charAt(at - 1))) at--;
+          const end = at;
+          while (at > 0 && /[\p{L}\p{N}]/u.test(view.charAt(at - 1))) at--;
+          if (end > at && !/^\p{N}+$/u.test(view.slice(at, end))) counted++;
+        }
+        return at;
+      }),
+    );
+  };
+  const pieces = [
+    ...['a', 'you ', '4nsw3r ', 'qu3st!ons ', '0rders ', '!', '@', '1', '23', '!!x', '٣', '-'],
+    ...['. ', ') ', '\n', ' ', '\t', '\n 12. ', '\n3) '],
+  ];
+  let seed = 11;
+  const rnd = (n: number): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % n;
+  };
+  const differing: unknown[] = [];
+  for (let k = 0; k < 3000; k++) {
+    let text = '';
+    for (let n = 1 + rnd(k % 3 === 0 ? 900 : 40); n > 0; n--) text += pieces[rnd(pieces.length)];
+    const from = rnd(text.length + 2);
+    const got = promptEchoScanFrom(text, from);
+    if (got !== whole(text, from)) differing.push([text, from, got]);
+  }
+  assertEquals(differing.slice(0, 3), []);
 });
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {

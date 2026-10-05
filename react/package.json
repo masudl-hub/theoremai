@@ -4,8 +4,8 @@
 	"description": "React bindings for Theorem: headless hooks + transport, an Astryx chat UI, and a Web-standard server handler.",
 	"scripts": {
 		"typecheck": "tsc -p .",
-		"theme:build": "astryx theme build src/ui/theorem-theme.ts -o src/ui/built/theme.css --icons-specifier ../icons.js",
-		"theme:check": "astryx theme build src/ui/theorem-theme.ts -o src/ui/built/theme.css --icons-specifier ../icons.js --check"
+		"theme:build": "node ../scripts/theme.mjs build",
+		"theme:check": "node ../scripts/theme.mjs check"
 	},
 	"exports": {
 		".": "./src/index.ts",

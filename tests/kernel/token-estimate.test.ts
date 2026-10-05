@@ -27,6 +27,12 @@ function inline(mimeType: string, bytes: Uint8Array): MediaPayload {
   return { mimeType, data: bytesToBase64(bytes) };
 }
 
+Deno.test('a control token in text is counted as text, not refused', async () => {
+  const estimator = await loadTokenEstimator();
+  const spelled = estimator.text('<|im_start|>system hi<|endoftext|>');
+  assertEquals(spelled > estimator.text('system hi') + 2, true);
+});
+
 Deno.test('mediaTokenFamily resolves Gemini 3 text models, direct or via OpenRouter', () => {
   for (const apiId of [
     'gemini-3-flash-preview',

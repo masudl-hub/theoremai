@@ -942,11 +942,11 @@ interface RegisteredToolCall {
   /** Omitted: the call is not traced. The span is handed to the tool as `ctx.traceparent`. */
   openSpan?: (name: string, attributes: TraceAttributes) => SpanHandle;
   /** Defaults to `turnReadBack`; a transport that sends something else (Live's `functionResponse`) passes its own. */
-  /** The canary and system instruction of the turn the model called from, read for in the arguments. */
-  scope?: DetectScope;
   readBack?: (settlement: ToolExecuteSettlement) => ToolCallEnd['result'];
   /** Runs agent tool calls; without it an agent tool fails as a type the transport can't run. */
   agents?: AgentCaller;
+  /** The canary and system instruction of the turn the model called from, read for in the arguments. */
+  scope?: DetectScope;
 }
 
 function turnReadBack({ modelResult }: ToolExecuteSettlement): ToolCallEnd['result'] {
@@ -1142,10 +1142,10 @@ async function* runRegisteredTool(
   const kind = toolKindOf(tool);
   const inspected = inspectToolArguments(
     safeInput,
-    scopeOf(policy.detect, args.scope ?? {}),
     provenance,
     policy,
     kind && toolBoundary('tool_arguments', kind),
+    scopeOf(policy.detect, args.scope ?? {}),
   );
   recordToolCheck(stages?.span, 'tool_arguments', performance.now() - argsStart, inspected.event);
   if (inspected.event) {

@@ -1035,6 +1035,10 @@ Deno.test('a local server name compiles only on a local model', () => {
 
 Deno.test('a prompt leak action, schemes, taint and trace resource compile when set', () => {
   const draft = createExampleDraft();
+  const promptLeak = (detect: unknown) =>
+    typeof detect === 'object' && detect !== null && 'prompt_leak' in detect
+      ? detect.prompt_leak
+      : undefined;
   const { profile } = compiled({
     ...draft,
     guardrails: {
@@ -1070,7 +1074,3 @@ Deno.test('a prompt leak action, schemes, taint and trace resource compile when 
     ['resourceJson'],
   );
 });
-  const promptLeak = (detect: unknown) =>
-    typeof detect === 'object' && detect !== null && 'prompt_leak' in detect
-      ? detect.prompt_leak
-      : undefined;

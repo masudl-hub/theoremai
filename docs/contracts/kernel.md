@@ -757,9 +757,8 @@ detectors run over model-supplied arguments, tool result text, and tool failure
 text), `network` (SSRF clearance for declarative HTTP and MCP targets), and
 `taint` (the confused-deputy gate, plus its advisory guidance on fenced remote
 results). `defineProfile` throws a `TheoremError` naming the field for
-`guardrails.quota`, `guardrails.canary`, and `guardrails.egress`: a host profile
-runs no model, so quota counts nothing, no system prompt exists for a canary to
-bind to, and egress gates user-visible model text in the turn runner, which a
+`guardrails.quota` and `guardrails.egress`: a host profile
+runs no model, so quota counts nothing, and egress gates user-visible model text in the turn runner, which a
 host profile never enters.
 
 | Block | On host? | Notes |

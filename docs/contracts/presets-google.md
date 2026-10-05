@@ -64,7 +64,8 @@ chains all passed). A streamed profile with tools that chains will hit it;
 
 | Rule | Field | Google's refusal (Live, 01/10/2026) |
 | --- | --- | --- |
-| A `GOOGLE_NO_THINKING_API_IDS` model pins `efforts` or sets `summaries` | `efforts` / `summaries` | `gemini-3.8-live` closes 1007 "Thinking level is not supported for this model" |
+| A `GOOGLE_NO_THINKING_API_IDS` model pins `efforts` or sets `summaries` | `efforts` / `summaries` | The model rejects any thinking setting (Interactions, 30/09/2026) |
+| A `GOOGLE_NO_EFFORT_API_IDS` model pins `efforts` | `efforts` | `gemini-3.8-live` closes 1007 "Thinking level is not supported for this model"; it takes `summaries` (04/10/2026) |
 | A `GOOGLE_THINKING_REQUIRED_API_IDS` model has no `efforts` | `efforts` | `gemini-3.8-live-extended-thinking` closes 1007 "Thinking level must be specified for this model" |
 | With `freeTier`, a model missing from `GOOGLE_FREE_TIER_GROUNDING` | `apiId` | The model has no free-tier quota |
 | With `freeTier`, `googleSearch` or `googleMaps` the model's free quota doesn't allow | `builtInTools` | Live closes 1011 "You exceeded your current quota" at setup, whatever the key's usage, so it reads as a quota failure |
@@ -85,6 +86,7 @@ Constants (and matching types) for host profile authoring:
 | `GOOGLE_SPEECH_FORMATS` | The audio format Gemini speech returns (`pcm`, wrapped as WAV); OpenRouter speech also takes `mp3`; the Google provider refuses any other |
 | `GOOGLE_THINKING_LEVELS` | The thinking levels Gemini takes (`minimal`, `low`, `medium`, `high`); OpenRouter models take every level; the Google providers refuse any other |
 | `GOOGLE_NO_THINKING_API_IDS` | Models that reject any thinking setting, `summaries: false` included; leave `efforts` and `summaries` unset |
+| `GOOGLE_NO_EFFORT_API_IDS` | Models that refuse a thinking level and take `summaries`; leave `efforts` unset |
 | `GOOGLE_THINKING_REQUIRED_API_IDS` | Models that refuse a session without a thinking level; pin `efforts` |
 | `GOOGLE_FREE_TIER_GROUNDING` / `GoogleFreeTierGrounding` | Free-tier models and the grounding each one's quota allows |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImageResolution`, `GoogleImageOutputMime`, `GoogleVoiceInputMime` | Typed vocabulary unions |
@@ -101,6 +103,7 @@ Kernel types stay stringly; these packs make Google hosts typed when they opt in
 | `GOOGLE_BUILTIN_TOOLS` | Static catalog entries |
 | `GOOGLE_SINGLE_TURN_API_IDS` | TTS models that can't take compaction |
 | `GOOGLE_NO_THINKING_API_IDS` | Models that take no `efforts` or `summaries` |
+| `GOOGLE_NO_EFFORT_API_IDS` | Models that take no `efforts` |
 | `GOOGLE_THINKING_REQUIRED_API_IDS` | Models that need `efforts` |
 | `GOOGLE_FREE_TIER_GROUNDING`, `GoogleFreeTierGrounding`, `googleFreeTierBuiltins` | Free-tier models and the grounding each allows |
 | `googleBindingViolation`, `GoogleBindingViolation` | The first setting Google would refuse on a binding |

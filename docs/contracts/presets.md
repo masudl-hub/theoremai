@@ -53,6 +53,7 @@ This barrel re-exports the Google pack, OpenRouter's image inputs and TypeSafe's
 | `GOOGLE_SPEECH_FORMATS` | The audio format Gemini speech returns (`pcm`, wrapped as WAV); OpenRouter speech also takes `mp3`; the Google provider refuses any other |
 | `GOOGLE_THINKING_LEVELS` | The thinking levels Gemini takes (`minimal`, `low`, `medium`, `high`); the Google providers refuse any other |
 | `GOOGLE_NO_THINKING_API_IDS` | Models that reject any thinking setting, `summaries: false` included |
+| `GOOGLE_NO_EFFORT_API_IDS` | Models that refuse a thinking level and take `summaries` |
 | `GOOGLE_THINKING_REQUIRED_API_IDS` | Models that refuse a session without a thinking level |
 | `GOOGLE_FREE_TIER_GROUNDING`, `GoogleFreeTierGrounding`, `googleFreeTierBuiltins` | Free-tier models and the grounding each one's quota allows |
 | `googleBindingViolation`, `GoogleBindingViolation` | The first setting Google would refuse on a binding, optionally held to the free tier |

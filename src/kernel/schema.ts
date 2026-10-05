@@ -614,7 +614,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.summaries': field(
     'boolean',
-    'Asks Gemini for summaries of its thinking, though Live models have sent none so far; on OpenRouter and local models, off only hides thoughts, and other providers ignore it.',
+    'Asks Gemini for summaries of its thinking, which not every Live model sends; on OpenRouter and local models, off only hides thoughts, and other providers ignore it.',
   ),
   'models.*.maxOutputTokens': field(
     'number',

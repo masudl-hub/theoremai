@@ -1,14 +1,26 @@
 import { assertEquals } from '@std/assert';
 import { googleBindingViolation, googleFreeTierBuiltins } from '../../src/presets/google.ts';
 
-// Refusals recorded from Live setup on 01/10/2026: 3.8 Live closes 1007 on a thinking level,
+// Refusals recorded from Live setup on 01/10/2026: 3.8 Live closes 1007 on a thinking level
+// (and takes includeThoughts, 04/10/2026),
 // Extended Thinking closes 1007 without one, and a free key closes 1011 on googleSearch.
 const live38 = { apiId: 'gemini-3.8-live', builtInTools: [] };
 
-Deno.test('google preset: 3.8 Live takes no thinking level', () => {
+Deno.test('google preset: 3.8 Live takes no thinking level, and takes summaries', () => {
   assertEquals(googleBindingViolation({ ...live38, efforts: { normal: 'low' } })?.field, 'efforts');
-  assertEquals(googleBindingViolation({ ...live38, summaries: false })?.field, 'summaries');
+  assertEquals(googleBindingViolation({ ...live38, summaries: false }), undefined);
+  assertEquals(googleBindingViolation({ ...live38, summaries: true }), undefined);
   assertEquals(googleBindingViolation(live38), undefined);
+});
+
+Deno.test('google preset: a model with no thinking setting refuses efforts and summaries', () => {
+  const binding = { apiId: 'gemini-2.5-flash-image', builtInTools: [] };
+  assertEquals(
+    googleBindingViolation({ ...binding, efforts: { normal: 'low' } })?.field,
+    'efforts',
+  );
+  assertEquals(googleBindingViolation({ ...binding, summaries: false })?.field, 'summaries');
+  assertEquals(googleBindingViolation(binding), undefined);
 });
 
 Deno.test('google preset: 3.8 Live Extended Thinking needs a thinking level', () => {

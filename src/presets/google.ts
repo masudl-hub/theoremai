@@ -51,9 +51,14 @@ const GOOGLE_NO_THINKING_API_IDS = [
   'antigravity-preview-05-2026',
   'antigravity-preview-09-2026',
   'antigravity-preview-latest',
-  // Live closes 1007 "Thinking level is not supported for this model" (live, 01/10/2026).
-  'gemini-3.8-live',
 ] as const;
+
+/**
+ * Models that refuse a thinking level and take `summaries`: leave `efforts` unset
+ * (live, 01/10/2026: Live closes 1007 "Thinking level is not supported for this model";
+ * 04/10/2026: setup takes `includeThoughts` either way).
+ */
+const GOOGLE_NO_EFFORT_API_IDS = ['gemini-3.8-live'] as const;
 
 /**
  * Models that refuse a session without a thinking level: pin `efforts`
@@ -126,20 +131,19 @@ function googleBindingViolation(
 ): GoogleBindingViolation | undefined {
   const apiId = binding.apiId.trim();
   const noThinking: readonly string[] = GOOGLE_NO_THINKING_API_IDS;
+  const noEffort: readonly string[] = GOOGLE_NO_EFFORT_API_IDS;
   const thinkingRequired: readonly string[] = GOOGLE_THINKING_REQUIRED_API_IDS;
-  if (noThinking.includes(apiId)) {
-    if (pinsEffort(binding)) {
-      return {
-        field: 'efforts',
-        message: `${apiId} takes no thinking level; leave efforts unset.`,
-      };
-    }
-    if (binding.summaries !== undefined) {
-      return {
-        field: 'summaries',
-        message: `${apiId} takes no thinking setting; leave summaries unset.`,
-      };
-    }
+  if ((noThinking.includes(apiId) || noEffort.includes(apiId)) && pinsEffort(binding)) {
+    return {
+      field: 'efforts',
+      message: `${apiId} takes no thinking level; leave efforts unset.`,
+    };
+  }
+  if (noThinking.includes(apiId) && binding.summaries !== undefined) {
+    return {
+      field: 'summaries',
+      message: `${apiId} takes no thinking setting; leave summaries unset.`,
+    };
   }
   if (thinkingRequired.includes(apiId) && !pinsEffort(binding)) {
     return { field: 'efforts', message: `${apiId} needs a thinking level; pin efforts.` };
@@ -279,6 +283,7 @@ export {
   GOOGLE_IMAGE_INPUT_MIMES,
   GOOGLE_IMAGE_OUTPUT_MIMES,
   GOOGLE_IMAGE_RESOLUTIONS,
+  GOOGLE_NO_EFFORT_API_IDS,
   GOOGLE_NO_THINKING_API_IDS,
   GOOGLE_SINGLE_TURN_API_IDS,
   GOOGLE_SPEECH_FORMATS,

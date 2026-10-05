@@ -63,7 +63,7 @@ import { composerDrawerLabel } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { VoiceNote } from './VoiceNote.tsx';
 
-export const NO_FOCUS_RING = { '--focus-outline-width': '0px' } as React.CSSProperties;
+const NO_FOCUS_RING = { '--focus-outline-width': '0px' } as React.CSSProperties;
 
 export type ChatComposerBarProps = {
   iface: ComposerProfileInterface;

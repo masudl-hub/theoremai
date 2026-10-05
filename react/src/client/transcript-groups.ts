@@ -11,7 +11,7 @@ import { humanize } from './shaped-data.ts';
 export type TurnUsage = { total: number; cost?: { usd: number; partial?: true } };
 
 /** `used` with `more` added. A cost only one side reported is partial. */
-export function addUsage(used: TurnUsage | undefined, more: TurnUsage): TurnUsage {
+function addUsage(used: TurnUsage | undefined, more: TurnUsage): TurnUsage {
   if (!used) return more;
   const total = used.total + more.total;
   if (!used.cost && !more.cost) return { total };

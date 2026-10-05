@@ -506,7 +506,7 @@ function detectFields(): Record<string, FieldMeta> {
       'guardrails.detect',
       action(
         'DetectAction | { [detector]: DetectorRule }',
-        'What happens when a detector finds a match in text as it crosses a boundary. One action for everything, or a rule for each detector you name; the rest keep their defaults.',
+        'The action on a detector match at a boundary. Set one for all, or one per detector. The rest keep their defaults.',
       ),
     ],
   ];
@@ -516,7 +516,7 @@ function detectFields(): Record<string, FieldMeta> {
       path,
       action(
         'DetectAction | { [boundary]: DetectAction }',
-        `${DETECTOR_META[detector].doc} One action at every boundary, or an action for each boundary you name.`,
+        `${DETECTOR_META[detector].doc} Set one action for all boundaries, or one per boundary.`,
       ),
     ]);
     for (const boundary of BOUNDARIES) {
@@ -629,11 +629,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'decision.contract': field(
     'string',
-    "Your name for this decision, recorded on its traces; it isn't sent to the model or checked against the questions.",
+    'Your name for this decision, on its traces. Not sent to the model. Not checked against the questions.',
   ),
   'models.*.efforts': field(
     'Record<string, ThinkingLevel>',
-    'Named thinking levels for this model, which a turn can pick between when allowEffortSelect is on; a local server gets the level as reasoning_effort and refuses one its model does not take; speech and OpenRouter image without includeText ignore them.',
+    'Named thinking levels. A turn picks one when allowEffortSelect is on. A local server refuses a level its model does not take. Speech, and OpenRouter image without includeText, ignore them.',
   ),
   'models.*.efforts.*': field(
     unionType(THINKING_LEVELS),
@@ -660,7 +660,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.maxOutputTokens': field(
     'number',
-    'The most tokens the model may write in one reply; OpenRouter speech, and OpenRouter image without includeText, never send it.',
+    'The token limit for one reply. OpenRouter speech, and OpenRouter image without includeText, never send it.',
   ),
   'models.*.temperature': field(
     'number',
@@ -680,7 +680,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.compaction': field(
     'CompactionSpec',
-    'Summarises older history once it grows past a threshold; a text agent can write its own summary, other types must name a compaction profile.',
+    'Summarises history past a threshold. A text agent can write the summary. Other types name a compaction profile.',
   ),
   'models.*.compaction.maxTokens': field('number', 'The token budget compactAt is a fraction of.'),
   'models.*.compaction.trigger': field(
@@ -723,7 +723,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.cache': field(
     'CacheSpec',
-    'Prompt caching on OpenRouter text profiles: reuses the start of a prompt it has already seen. The canary is the same on every turn that sends the same system instruction, so a cached instruction is reused across turns and users.',
+    'Prompt caching for OpenRouter text profiles. Reuses a prompt start it has seen. A cached system instruction, canary included, is shared across turns and users.',
   ),
   'models.*.cache.mode': field(
     unionType(CACHE_MODES),
@@ -749,7 +749,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.persistViaInteractionId': field(
     'boolean',
-    'Whether Google builds the context from its stored interaction (true) or every call sends the history the host passes plus the steps of this turn (false); Gemini Interactions only, and true needs storing on.',
+    'true: Google builds the context from its stored interaction. false: each call sends the history. Gemini Interactions only. true needs storing on.',
   ),
   'models.*.server': field(
     'string',
@@ -771,7 +771,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   tools: field(
     '{ allow: ToolId[]; t1Policy?; t2Loader? }',
-    'Which of your registered tools this profile may use, and how they load; built-in tools are turned on per model.',
+    'The registered tools this profile may use, and how they load. Built-in tools are set per model.',
   ),
   'tools.allow': field(
     'ToolId[]',
@@ -783,7 +783,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'tools.t2Loader': field(
     'ToolId',
-    'The function tool the model calls to load T2 tools; it must be in allow and return { loaded: ToolId[] }. One id it may not load fails the whole load; ids off the turn path are skipped.',
+    'The function tool that loads T2 tools. It must be in allow and return { loaded: ToolId[] }. One forbidden id fails the load. Ids off the turn path are skipped.',
   ),
   inputs: field(
     'ProfileInputsSpec | DecisionInputsSpec',
@@ -871,7 +871,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'image.references': field(
     'Array<TurnBlob | TurnMediaRef>',
-    'Reference images sent with every turn, ahead of the ones the user attaches; each is bytes (`data`) or a link (`uri`). OpenRouter `/images` takes only http(s) links, and with includeText no links at all.',
+    "Images sent with every turn, before the user's. Each is bytes (`data`) or a link (`uri`). OpenRouter `/images` takes http(s) links only, and none with includeText.",
   ),
   'image.includeText': field(
     'boolean',
@@ -1032,7 +1032,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'turnBehaviour.allowSteering': field(
     'boolean',
-    'Whether your onStage hook may add messages to a running turn; text profiles also offer the user a way to steer.',
+    'Lets your onStage hook add messages to a running turn. Text profiles also let the user steer.',
   ),
   guardrails: field('ProfileGuardrailsSpec', "Protections for this profile's turns."),
   'guardrails.quota': field(
@@ -1045,7 +1045,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.canary': field(
     'boolean',
-    'Plants a secret token at the end of the system instruction, the same on every turn that sends that instruction, and stops a reply that repeats it, unless the model was given it this turn in the input, history or a tool result; a thought that repeats it has it cut out instead.',
+    'Plants a secret token in the system instruction. Stops a reply that repeats it. Cuts it from a thought. Allows a token the input, history or a tool result supplied this turn.',
   ),
   'guardrails.promptEcho': field(
     'boolean',
@@ -1062,7 +1062,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.egress.checks': field(
     'boolean | EgressChecks',
-    'The bundled checks on the reply, blocking on what they find. true runs each at its default, false none but the system-prompt leak checks, and an object switches the ones it names. Set exactly one of this and enforce.',
+    'The bundled reply checks. A finding blocks the reply. true: each at its default. false: the system-prompt leak checks only. An object: the checks it names. Set this or enforce, not both.',
   ),
   'guardrails.egress.checks.boundary': field(
     'boolean',
@@ -1160,7 +1160,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'observability.writeTo': field(
     'false | string | TraceSink',
-    'Where traces are written: a destination id you registered, your own writer, or false for none; an unregistered id fails the turn before it starts, and a sink passed straight to runTurn replaces it.',
+    'Where traces go: a registered destination id, your own writer, or false. An unregistered id fails the turn at the start. A sink passed to runTurn replaces it.',
   ),
   'observability.sampleRate': field(
     'number',
@@ -1207,7 +1207,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'observability.scrub.canary': field('boolean', 'Removes the canary token from stored traces.'),
   'observability.retainForDays': field(
     'number',
-    'How many days each trace file is kept, by its UTC day, removed on the next write; 0 or less keeps them forever.',
+    'Days a trace file is kept, by its UTC day. The next write removes old files. 0 or less keeps all.',
   ),
   'observability.rotateAfterMiB': field(
     'number',
@@ -1284,7 +1284,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   mcpToolName: field('string', "The tool's name on the MCP server."),
   profile: field(
     'ProfileId',
-    'The agent an agent tool runs: a text, image or speech profile, registered before this tool. Nothing it can call may stop on a gate.',
+    'The profile this agent tool runs: text, image or speech. Register it first. Nothing it calls may stop on a gate.',
   ),
   maxCallsPerTurn: {
     ...field('number', 'How many times one turn of the calling agent may run this tool.'),
@@ -1356,7 +1356,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   'playground.stubOutput': {
     ...field(
       'Record<string, unknown>',
-      'The playground has no code to run, so a function tool returns this, unless the playground has a demo handler by that name.',
+      'What a function tool returns in the playground, unless a demo handler has its name.',
     ),
     unset: 'A stand-in built from the output schema',
   },
@@ -1409,12 +1409,12 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   category: field('string', 'A label for grouping tools; nothing reads it yet.'),
   labels: field(
     'ToolLabels',
-    'What the transcript says about a call. Each {path} is filled from the call; {results.0.name} steps into a list, and {path|text} shows the text when the value is missing, blank or not text or a number. Without a fallback, such a value drops the whole label.',
+    'Transcript text for a call. {path} reads a value from the call. {results.0.name} reads a list item. {path|text} shows the text when the value is unusable. With no fallback, the label is dropped.',
   ),
   'labels.activity': {
     ...field(
       'string',
-      "What the transcript says while a call runs, e.g. 'Saving {title} to your collection'. Each {path} is filled from the call's input.",
+      "Transcript text while a call runs, e.g. 'Saving {title} to your collection'. {path} reads the call's input.",
     ),
     unset: 'The tool name, in words',
   },

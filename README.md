@@ -280,7 +280,7 @@ Each model in `profile.models` names its own protocol and provider, so one profi
 
 ## Documentation
 
-Each topic has its own chapter in the Theorem docs: Getting started, Choosing a modality, Setting the identity, Binding models, Registering tools (with the tool pipeline and OAuth), Declaring inputs, Declaring outputs, Setting turn behaviour, Setting guardrails (with streaming and live audio), Recording traces, Describing statuses, Running a turn and Building the interface.
+Each topic has its own chapter in the [Theorem docs](https://theorem.masudlewis.com/docs): [Getting started](https://theorem.masudlewis.com/docs/start), [Choosing a modality](https://theorem.masudlewis.com/docs/modalities), [Setting the identity](https://theorem.masudlewis.com/docs/identity), [Binding models](https://theorem.masudlewis.com/docs/models), [Registering tools](https://theorem.masudlewis.com/docs/tools) (with the tool pipeline and OAuth), [Declaring inputs](https://theorem.masudlewis.com/docs/inputs), [Declaring outputs](https://theorem.masudlewis.com/docs/outputs), [Setting turn behaviour](https://theorem.masudlewis.com/docs/turn-behaviour), [Setting guardrails](https://theorem.masudlewis.com/docs/guardrails) (with streaming and live audio), [Recording traces](https://theorem.masudlewis.com/docs/traces), [Describing statuses](https://theorem.masudlewis.com/docs/statuses), [Running a turn](https://theorem.masudlewis.com/docs/runner) and [Building the interface](https://theorem.masudlewis.com/docs/interface).
 
 ---
 

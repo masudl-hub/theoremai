@@ -41,7 +41,7 @@ Deno.test('every source declares what it samples and what it is licensed under',
   const ids = SOURCES.map((source) => source.id);
   assertEquals(new Set(ids).size, ids.length);
   for (const source of SOURCES) {
-    assertEquals(source.licence.length > 0 && source.attribution.length > 0, true);
+    assertEquals(source.license.length > 0 && source.attribution.length > 0, true);
     assertEquals(source.sampleLimit > 0, true);
   }
   assertEquals(

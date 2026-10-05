@@ -24,7 +24,7 @@ deno install
 | `npm run build:npm` | Builds the npm package into `npm/`. Run `cd npm && npm pack` to see the tarball. |
 | `deno task verify:provider-smoke` | One real OpenRouter turn. It reads `OPENROUTER_API_KEY` from the shell, or from the file that `THEOREM_ENV_FILE` names. |
 
-Never suppress a check. `npm run lint:docs` fails on a `biome-ignore`, `fallow-ignore`, `deno-lint-ignore`, `eslint-disable` or `@ts-expect-error` comment. Fix the cause. Every comment in `src/` and `react/src/` opens with `why:`, `invariant:`, `probed <date>:` or `licence:`. The rules are in [`docs/writing/maintenance.md`](docs/writing/maintenance.md#comments-in-code).
+Never suppress a check. `npm run lint:docs` fails on a `biome-ignore`, `fallow-ignore`, `deno-lint-ignore`, `eslint-disable` or `@ts-expect-error` comment. Fix the cause. Every comment in `src/` and `react/src/` opens with `why:`, `invariant:`, `probed <date>:` or `license:`. The rules are in [`docs/writing/maintenance.md`](docs/writing/maintenance.md#comments-in-code).
 
 Biome is the only formatter. Run `npx biome check --write <file>`.
 

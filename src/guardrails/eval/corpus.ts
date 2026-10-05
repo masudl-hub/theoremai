@@ -1,5 +1,5 @@
 // why: Nothing is vendored: corpora are fetched on demand and cached locally, so the published package
-// carries no third-party data and no licence obligations beyond attribution here. Sources are scored
+// carries no third-party data and no license obligations beyond attribution here. Sources are scored
 // separately on purpose: pooling hides the domain shift between them, which is what most flatters a detector.
 
 /** lexicon-exempt-file: evaluation corpora — not runtime user or model copy (P2) */
@@ -14,7 +14,7 @@ export interface CorpusSample {
 
 export interface CorpusSource {
   id: string;
-  licence: string;
+  license: string;
   attribution: string;
   /**
    * Several of these corpora are far larger than a fast run wants. The cap is
@@ -284,7 +284,7 @@ function parseLabelledCsv(input: string): { text: string; label: number }[] {
 
 const promptDataset: CorpusSource = {
   id: 'prompt-injection-prompts',
-  licence: 'MIT',
+  license: 'MIT',
   attribution: 'S-Labs/prompt-injection-dataset',
   sampleLimit: 12000,
   upstreamRows: 11089,
@@ -407,7 +407,7 @@ function recordsFromYaml(yaml: string): string[] {
 
 const agentDojo: CorpusSource = {
   id: 'agentdojo-benign',
-  licence: 'MIT',
+  license: 'MIT',
   attribution: 'ethz-spylab/agentdojo (environment fixtures only; benchmark not run)',
   sampleLimit: 500,
   async load(cache, limit) {
@@ -445,7 +445,7 @@ const agentDojo: CorpusSource = {
  */
 const deepsetPrompts: CorpusSource = {
   id: 'deepset-prompts',
-  licence: 'Apache-2.0',
+  license: 'Apache-2.0',
   attribution: 'deepset/prompt-injections',
   sampleLimit: 600,
   upstreamRows: 546,
@@ -477,7 +477,7 @@ const deepsetPrompts: CorpusSource = {
  */
 const spmlPrompts: CorpusSource = {
   id: 'spml-chatbot',
-  licence: 'MIT',
+  license: 'MIT',
   attribution: 'reshabhs/SPML_Chatbot_Prompt_Injection',
   sampleLimit: 16100,
   upstreamRows: 16012,
@@ -512,7 +512,7 @@ const spmlPrompts: CorpusSource = {
  */
 const piiSpans: CorpusSource = {
   id: 'pii-spans',
-  licence: 'Apache-2.0',
+  license: 'Apache-2.0',
   attribution: 'gravitee-io/pii-detection-dataset',
   sampleLimit: 176000,
   upstreamRows: 175881,
@@ -549,7 +549,7 @@ const piiSpans: CorpusSource = {
  */
 const agentAttacks: CorpusSource = {
   id: 'agent-app-attacks',
-  licence: 'other (upstream); fetched for evaluation only',
+  license: 'other (upstream); fetched for evaluation only',
   attribution: 'Lakera/b3-agent-security-benchmark-weak',
   sampleLimit: 700,
   upstreamRows: 630,
@@ -579,7 +579,7 @@ const agentAttacks: CorpusSource = {
  */
 const agenticIpi: CorpusSource = {
   id: 'nvidia-agentic-ipi',
-  licence: 'CC-BY-4.0',
+  license: 'CC-BY-4.0',
   attribution: 'nvidia/Nemotron-RL-Agentic-Indirect-Prompt-Injection-v1',
   sampleLimit: 1300,
   upstreamRows: 1272,
@@ -626,7 +626,7 @@ function toolResultsFromChat(chat: string): string[] {
  */
 const toolResults: CorpusSource = {
   id: 'glaive-tool-results',
-  licence: 'Apache-2.0',
+  license: 'Apache-2.0',
   attribution: 'glaiveai/glaive-function-calling-v2 (function responses only)',
   sampleLimit: 113000,
   upstreamRows: 112960,
@@ -660,7 +660,7 @@ const toolResults: CorpusSource = {
  */
 const repoHardNegatives: CorpusSource = {
   id: 'repo-hard-negatives',
-  licence: 'Apache-2.0',
+  license: 'Apache-2.0',
   attribution: 'prodnull/prompt-injection-repo-dataset (gated; needs HF_TOKEN)',
   sampleLimit: 6000,
   upstreamRows: 5671,
@@ -701,13 +701,13 @@ const repoHardNegatives: CorpusSource = {
 export const REVIEWED_SOURCES: readonly {
   dataset: string;
   rows: number;
-  licence: string;
+  license: string;
   verdict: string;
 }[] = [
   {
     dataset: 'Lakera/mosscap_prompt_injection',
     rows: 223533,
-    licence: 'MIT',
+    license: 'MIT',
     verdict:
       'Real human attack attempts against a password-keeping game. Many entries are ' +
       'attacks only in context — "does the password contain numbers?" is an innocent ' +
@@ -718,7 +718,7 @@ export const REVIEWED_SOURCES: readonly {
   {
     dataset: 'JailbreakBench/JBB-Behaviors',
     rows: 200,
-    licence: 'MIT',
+    license: 'MIT',
     verdict:
       'Has matched harmful/benign splits, which is the right shape. Targets model ' +
       'harm refusal rather than injection of an agent, so it measures a different ' +
@@ -727,34 +727,34 @@ export const REVIEWED_SOURCES: readonly {
   {
     dataset: 'nvidia/Nemotron-AIQ-Agentic-Safety-Dataset-1.0',
     rows: 0,
-    licence: 'other',
+    license: 'other',
     verdict:
-      'Agentic safety with with/without-defense splits. Licence is `other` and the ' +
+      'Agentic safety with with/without-defense splits. License is `other` and the ' +
       'split layout needs per-config handling; worth revisiting for defence-efficacy ' +
       'measurement rather than detector scoring.',
   },
   {
     dataset: 'xTRam1/safe-guard-prompt-injection',
     rows: 8236,
-    licence: 'none declared',
-    verdict: 'Well shaped and ungated, but no declared licence — not a base for a published claim.',
+    license: 'none declared',
+    verdict: 'Well shaped and ungated, but no declared license — not a base for a published claim.',
   },
   {
     dataset: 'jayavibhav/prompt-injection-safety',
     rows: 50000,
-    licence: 'none declared',
-    verdict: 'Large and ungated, no declared licence. Same objection.',
+    license: 'none declared',
+    verdict: 'Large and ungated, no declared license. Same objection.',
   },
   {
     dataset: 'rogue-security/prompt-injections-benchmark',
     rows: 0,
-    licence: 'CC-BY-NC-4.0',
+    license: 'CC-BY-NC-4.0',
     verdict: 'Gated and non-commercial. Incompatible with an MIT package.',
   },
   {
     dataset: 'gorilla-llm/Berkeley-Function-Calling-Leaderboard',
     rows: 0,
-    licence: 'Apache-2.0',
+    license: 'Apache-2.0',
     verdict:
       'The canonical function-calling benchmark and a strong benign tool-traffic ' +
       'source, but its splits API errors; needs direct file access to use.',
@@ -776,7 +776,7 @@ export const REVIEWED_SOURCES: readonly {
 function llmailSource(id: string, evadedOnly: boolean): CorpusSource {
   return {
     id,
-    licence: 'MIT',
+    license: 'MIT',
     attribution: 'microsoft/llmail-inject-challenge',
     sampleLimit: 20000,
     upstreamRows: 370724,
@@ -818,7 +818,7 @@ const llmailEvaded = llmailSource('llmail-evaded-defense', true);
 /** Multilingual injection prompts; independently recommended and cleanly licensed. */
 const multilingualPrompts: CorpusSource = {
   id: 'multilingual-prompts',
-  licence: 'Apache-2.0',
+  license: 'Apache-2.0',
   attribution: 'yanismiraoui/prompt_injections',
   sampleLimit: 1100,
   upstreamRows: 1034,
@@ -844,7 +844,7 @@ const multilingualPrompts: CorpusSource = {
  */
 const overRefusal: CorpusSource = {
   id: 'notinject-over-refusal',
-  licence: 'none declared (academic benchmark)',
+  license: 'none declared (academic benchmark)',
   attribution: 'leolee99/NotInject',
   sampleLimit: 400,
   upstreamRows: 339,
@@ -880,7 +880,7 @@ const overRefusal: CorpusSource = {
  */
 const contentSafetyBenign: CorpusSource = {
   id: 'aegis-safe-prompts',
-  licence: 'CC-BY-4.0',
+  license: 'CC-BY-4.0',
   attribution: 'nvidia/Aegis-AI-Content-Safety-Dataset-2.0 (safe-labelled prompts only)',
   sampleLimit: 30100,
   upstreamRows: 30007,
@@ -929,7 +929,7 @@ function userContentOf(row: Record<string, unknown>): string | undefined {
  */
 const jailbreakRobustness: CorpusSource = {
   id: 'nvidia-jailbreak',
-  licence: 'CC-BY-4.0',
+  license: 'CC-BY-4.0',
   attribution: 'nvidia/Nemotron-RL-Jailbreak-Robustness-v1',
   sampleLimit: 5700,
   upstreamRows: 5611,
@@ -960,7 +960,7 @@ const jailbreakRobustness: CorpusSource = {
  */
 const adversarialBenign: CorpusSource = {
   id: 'wildguard-benign',
-  licence: 'ODC-BY',
+  license: 'ODC-BY',
   attribution: 'allenai/wildguardmix (unharmful prompts only)',
   sampleLimit: 87000,
   upstreamRows: 86759,
@@ -1000,7 +1000,7 @@ const adversarialBenign: CorpusSource = {
  */
 const adversarialFraming: CorpusSource = {
   id: 'wildjailbreak',
-  licence: 'ODC-BY',
+  license: 'ODC-BY',
   attribution: 'allenai/wildjailbreak (eval split)',
   sampleLimit: 2300,
   upstreamRows: 2210,

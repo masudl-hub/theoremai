@@ -138,13 +138,13 @@ Deno.test('a non-Error failure is reported as its text', async () => {
   }
 });
 
-Deno.test('formatReport lists corpora with their licences, flags sampling, and names what was skipped', () => {
+Deno.test('formatReport lists corpora with their licenses, flags sampling, and names what was skipped', () => {
   const text = formatReport({
     scores: [],
     sources: [
-      { id: 'big', licence: 'MIT', attribution: 'a/b', samples: 50, upstreamRows: 500 },
-      { id: 'whole', licence: 'Apache-2.0', attribution: 'c/d', samples: 20, upstreamRows: 20 },
-      { id: 'local', licence: 'MIT', attribution: 'e/f', samples: 7 },
+      { id: 'big', license: 'MIT', attribution: 'a/b', samples: 50, upstreamRows: 500 },
+      { id: 'whole', license: 'Apache-2.0', attribution: 'c/d', samples: 20, upstreamRows: 20 },
+      { id: 'local', license: 'MIT', attribution: 'e/f', samples: 7 },
     ],
     skipped: [{ id: 'gone', reason: 'upstream moved' }],
   });
@@ -168,7 +168,7 @@ Deno.test('formatReport lists corpora with their licences, flags sampling, and n
 Deno.test('formatReport omits the not-loaded section when everything loaded', () => {
   const text = formatReport({
     scores: [],
-    sources: [{ id: 's', licence: 'MIT', attribution: 'a/b', samples: 1 }],
+    sources: [{ id: 's', license: 'MIT', attribution: 'a/b', samples: 1 }],
     skipped: [],
   });
   assertEquals(text.includes('Not loaded'), false);

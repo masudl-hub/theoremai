@@ -31,7 +31,7 @@ A comment is documentation that no check reads, so it goes stale first. The code
 | `why:` | The reason for a choice, or the trap that a change would fall into. |
 | `invariant:` | A rule that the code around it relies on and nothing else checks. |
 | `probed 2026-09-23:` | A fact measured against an outside system on that date. |
-| `licence:` | A legal notice. |
+| `license:` | A legal notice. |
 
 ```ts
 // why: a long word kept now may be taken back out later, which leaves the

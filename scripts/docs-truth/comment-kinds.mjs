@@ -5,7 +5,7 @@
  *   why:        the reason for a choice, or the trap a change would fall into
  *   invariant:  a rule the surrounding code relies on and nothing else checks
  *   probed <YYYY-MM-DD>:  a fact measured against an outside system on that date
- *   licence:    a legal notice
+ *   license:    a legal notice
  *   lexicon-exempt: / lexicon-exempt-file:  escape hatches that `copy-lint.mjs` reads
  * JSDoc comments are not checked here: the kernel catalog and the entry docs own them.
  * A suppression comment (`biome-ignore`, `fallow-ignore`, `@ts-expect-error` …) fails everywhere,
@@ -96,7 +96,7 @@ function main() {
   );
   if (untagged.length + suppressions.length > 0) {
     console.error(
-      'Open each comment with why:, invariant:, probed <date>:, or licence:, or delete it. Never suppress a check: fix the cause.',
+      'Open each comment with why:, invariant:, probed <date>:, or license:, or delete it. Never suppress a check: fix the cause.',
     );
     process.exit(1);
   }

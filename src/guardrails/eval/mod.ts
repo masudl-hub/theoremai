@@ -65,7 +65,7 @@ export interface EvalReport {
   scores: DetectorScore[];
   sources: {
     id: string;
-    licence: string;
+    license: string;
     attribution: string;
     samples: number;
     /** Rows available upstream, so partial sampling is visible. */
@@ -110,7 +110,7 @@ async function loadEvalSource(
     samples,
     meta: {
       id: source.id,
-      licence: source.licence,
+      license: source.license,
       attribution: source.attribution,
       samples: samples.length,
       ...(source.upstreamRows !== undefined ? { upstreamRows: source.upstreamRows } : {}),
@@ -137,14 +137,14 @@ async function runGuardrailEval(options: EvalOptions = {}): Promise<EvalReport> 
   return { scores: scoreAll(DETECTORS, bySource), sources, skipped };
 }
 
-/** Includes the attribution the corpus licences require. */
+/** Includes the attribution the corpus licenses require. */
 function formatReport(report: EvalReport): string {
   const header = report.sources
     .map((s) => {
       // why: Say plainly when a figure rests on a slice of a much larger corpus.
       const of =
         s.upstreamRows !== undefined && s.samples < s.upstreamRows ? ` of ${s.upstreamRows}` : '';
-      return `  ${s.id.padEnd(24)} ${String(s.samples).padStart(6)}${of.padEnd(12)} samples  ${s.licence}  ${s.attribution}`;
+      return `  ${s.id.padEnd(24)} ${String(s.samples).padStart(6)}${of.padEnd(12)} samples  ${s.license}  ${s.attribution}`;
     })
     .join('\n');
   const skipped =

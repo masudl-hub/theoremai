@@ -22,33 +22,33 @@ Owns every module under `src/providers/`.
 | --- | --- |
 | `create-provider.ts` | Public factory; lazy-loads every adapter on first `complete` |
 | `types.ts` | Host option bags (`OpenAiGatewayConfig`, `LocalProviderConfig`) |
-| `openrouter/chat.ts` | OpenRouter chat adapter (internal; lazy-loaded) |
-| `openrouter/openai/compat.ts` | Shared OpenAI REST wire format (messages, tools, headers) |
-| `openrouter/openai/sdk-messages.ts` | THEOREM → AI SDK `ModelMessage[]` (OpenRouter chat) |
-| `openrouter/openai/usage.ts` | OpenAI-compatible `usage` → `TurnTokens` (`openAiUsageTokens`), shared by OpenRouter chat, OpenRouter images, and local |
-| `openrouter/speech.ts` | OpenAI `/audio/speech` transport (openrouter speech role) |
-| `openrouter/image.ts` | OpenAI `/images` transport; chat + server tool when `includeText` |
-| `openrouter/openai/image-payload.ts` | OpenAI-compat `/images` body builder |
-| `google/interactions/stream.ts` | Google Interactions streaming adapter |
-| `google/interactions/framing.ts` | Interactions payload / step wiring |
-| `google/interactions/steps.ts` | Interactions steps and deltas → `TurnEvent` (text, thoughts, media, code execution and builtin evidence, usage, terminal status) |
-| `google/interactions/mod.ts` | Interactions subpath barrel |
-| `google/live/stream.ts` | Google Live WebSocket streaming adapter |
-| `google/live/framing.ts` | Gemini Live WebSocket protocol framing |
-| `google/live/mod.ts` | Live subpath barrel |
-| `google/grounding.ts` | Google grounding → `grounding` events for Interactions and Live: one source shape, one dedupe |
-| `google/keys.ts` | Gemini fetch with backoff and the fallback retry |
-| `openrouter/transport.ts` | OpenRouter image and speech fetch: bearer key, backoff per key, then the fallback retry |
-| `shared/retry.ts` | Transient backoff for Google and OpenRouter image and speech (see Retries) |
-| `shared/vault.ts` | Reads a slot from the vault; bearer fetch with the fallback retry |
-| `google/urls.ts` | Interactions API endpoint constants |
-| `local/local.ts` | OpenAI-compat SSE for Ollama / llama.cpp / vLLM / LM Studio |
-| `local/mod.ts` | Subpath export for direct local adapter access |
-| `shared/sse.ts` | SSE line parser |
-| `shared/pcm.ts` | PCM → WAV for every transport that returns raw audio (Live, Interactions, OpenRouter speech). The format comes from the mime each transport states (`rate=`, `channels=`); a raw PCM mime without `rate=` passes through unwrapped. Samples are 16-bit little-endian on all three (measured 23/09/2026). Base64 via the one kernel codec, `src/kernel/util/base64.ts`; adapters do not define their own |
-| `shared/structured-output.ts` | `structuredEvent`: model text → a `structured` event, or a `bad_response` error event (OpenRouter, Interactions) |
-| `shared/tool-args.ts` | Shared tool-argument JSON parse: `parseToolArgumentsObject` (Result, for streamed calls) and `historyToolArguments` (throws `TheoremError`, for history rebuilt into a request). Never invents `{}` / `{ _raw }`; an empty or absent argument string is a no-argument call. `historyToolIdentity` keeps a history tool message's call id and name only where present — no adapter invents either (Interactions, Live, OpenAI-compat, AI SDK). |
-| `shared/upstream-tape.ts` / `shared/upstream-tap.ts` | Test / tap hooks (not public exports) |
+| `src/providers/openrouter/chat.ts` | OpenRouter chat adapter (internal; lazy-loaded) |
+| `src/providers/openrouter/openai/compat.ts` | Shared OpenAI REST wire format (messages, tools, headers) |
+| `src/providers/openrouter/openai/sdk-messages.ts` | THEOREM → AI SDK `ModelMessage[]` (OpenRouter chat) |
+| `src/providers/openrouter/openai/usage.ts` | OpenAI-compatible `usage` → `TurnTokens` (`openAiUsageTokens`), shared by OpenRouter chat, OpenRouter images, and local |
+| `src/providers/openrouter/speech.ts` | OpenAI `/audio/speech` transport (openrouter speech role) |
+| `src/providers/openrouter/image.ts` | OpenAI `/images` transport; chat + server tool when `includeText` |
+| `src/providers/openrouter/openai/image-payload.ts` | OpenAI-compat `/images` body builder |
+| `src/providers/google/interactions/stream.ts` | Google Interactions streaming adapter |
+| `src/providers/google/interactions/framing.ts` | Interactions payload / step wiring |
+| `src/providers/google/interactions/steps.ts` | Interactions steps and deltas → `TurnEvent` (text, thoughts, media, code execution and builtin evidence, usage, terminal status) |
+| `src/providers/google/interactions/mod.ts` | Interactions subpath barrel |
+| `src/providers/google/live/stream.ts` | Google Live WebSocket streaming adapter |
+| `src/providers/google/live/framing.ts` | Gemini Live WebSocket protocol framing |
+| `src/providers/google/live/mod.ts` | Live subpath barrel |
+| `src/providers/google/grounding.ts` | Google grounding → `grounding` events for Interactions and Live: one source shape, one dedupe |
+| `src/providers/google/keys.ts` | Gemini fetch with backoff and the fallback retry |
+| `src/providers/openrouter/transport.ts` | OpenRouter image and speech fetch: bearer key, backoff per key, then the fallback retry |
+| `src/providers/shared/retry.ts` | Transient backoff for Google and OpenRouter image and speech (see Retries) |
+| `src/providers/shared/vault.ts` | Reads a slot from the vault; bearer fetch with the fallback retry |
+| `src/providers/google/urls.ts` | Interactions API endpoint constants |
+| `src/providers/local/local.ts` | OpenAI-compat SSE for Ollama / llama.cpp / vLLM / LM Studio |
+| `src/providers/local/mod.ts` | Subpath export for direct local adapter access |
+| `src/providers/shared/sse.ts` | SSE line parser |
+| `src/providers/shared/pcm.ts` | PCM → WAV for every transport that returns raw audio (Live, Interactions, OpenRouter speech). The format comes from the mime each transport states (`rate=`, `channels=`); a raw PCM mime without `rate=` passes through unwrapped. Samples are 16-bit little-endian on all three (measured 23/09/2026). Base64 via the one kernel codec, `src/kernel/util/base64.ts`; adapters do not define their own |
+| `src/providers/shared/structured-output.ts` | `structuredEvent`: model text → a `structured` event, or a `bad_response` error event (OpenRouter, Interactions) |
+| `src/providers/shared/tool-args.ts` | Shared tool-argument JSON parse: `parseToolArgumentsObject` (Result, for streamed calls) and `historyToolArguments` (throws `TheoremError`, for history rebuilt into a request). Never invents `{}` / `{ _raw }`; an empty or absent argument string is a no-argument call. `historyToolIdentity` keeps a history tool message's call id and name only where present — no adapter invents either (Interactions, Live, OpenAI-compat, AI SDK). |
+| `src/providers/shared/upstream-tape.ts` / `src/providers/shared/upstream-tap.ts` | Test / tap hooks (not public exports) |
 | `probe.ts` | Env-gated `LOADED:<label>` writer used only by `createProvider`'s lazy loader (`THEOREM_IMPORT_PROBE=1`). Not a test backdoor; adapters must not import it. |
 
 ## Package boundary
@@ -100,7 +100,7 @@ Errors:
 - Every adapter names the kind where the failure happens and emits
   `toErrorEvent(err)` (`errorKind` + `errorInternal`, no user wording): a non-OK
   status through `kindOfHttpStatus`; a request that never reached the provider
-  is `network` (`networkError` / `networkFetch` in `shared/upstream-tap.ts`); an
+  is `network` (`networkError` / `networkFetch` in `src/providers/shared/upstream-tap.ts`); an
   unreadable payload is `bad_response`. OpenRouter reads the AI SDK error's
   `statusCode`; a mid-stream provider error without one is `unavailable`. Gemini
   Live closes map by close code (1006 → `network`, 1007 / 1008 →
@@ -195,7 +195,7 @@ Token usage in the kernel contract).
 | Code execution | Builtin `codeExecution` → `{ type: "code_execution" }`. `code_execution_call` (`arguments.code`, `arguments.language`, `id`) and `code_execution_result` (`result`, `is_error`, `call_id`) steps become one `evidence` each (`kind`, `code`, `result`, `isError`, `raw`). Search/maps/`url_context` steps are also `evidence`. Structured `responseFormat` is still attached when both are requested. |
 | Stream fold | One step, two deliveries (probed 23/09/2026). SSE rows are `step.start` / `step.delta` / `step.stop` per `index`, then `interaction.completed` (no `steps`). `function_call`, code execution and builtin steps merge their start and deltas and are emitted once, whole, at `step.stop` (`arguments_delta` strings concatenate); `thought` and `model_output` deltas emit as they arrive. A step still open when the stream ends is emitted as `evidence` with `partial: true` (`raw` holds what arrived); a partial `function_call` never becomes a tool call. A row that is not a JSON object is an `error`. Buffered bodies emit the same events from `steps[]`. `interaction.created` / `interaction.status_update` emit nothing. |
 | Thoughts | Stream: `thought_summary` deltas (`content.text`) → `thought`. Buffered: `thought.summary[]`. A thought's signature (a `thought_signature` delta when streamed, `thought.signature` when buffered) is held and set as `thoughtSignature` on the next `function_call`'s tool event; its parallel siblings share that thought and carry none (probe 25/09/2026). gemini-3.1-flash-lite streams no summary but buffers one; gemini-3.1-pro streams it (probe 23/09/2026). |
-| Audio | Stream deltas are `audio/l16` with `sample_rate` / `channels` fields, folded into the mime; buffered content states `audio/l16; rate=24000; channels=1`. Each delivery becomes WAV via `shared/pcm.ts` (one WAV per delta). |
+| Audio | Stream deltas are `audio/l16` with `sample_rate` / `channels` fields, folded into the mime; buffered content states `audio/l16; rate=24000; channels=1`. Each delivery becomes WAV via `src/providers/shared/pcm.ts` (one WAV per delta). |
 | Stream vs batch | Default SSE (`outputs.streaming.mode: 'sse'` or omitted). `'buffered'` POSTs JSON and yields the same `TurnEvent` types from `steps[]`. |
 | Thinking | `thinkingLevel` / `thinkingSummaries` are attached only when the resolved request sets `thinking` / `summaries` (omitted when unset). |
 | Grounding | Read only from the recorded wire shapes (probe 23/09/2026); Interactions sends no `grounding_metadata`. `google_search_result` / `google_maps_result` steps give `result[].search_suggestions` (chips HTML → `searchHtml`) and `result[].places[]` (`name`, `url`, `place_id`); `model_output` gives `annotations[]` (`url_citation`: `url`, `title`; `place_citation`: `url`, `name`, `place_id`). Streams read them from each `step.delta`; buffered bodies from `steps[]` (annotations under `content[]`), merged into one `grounding` event (search chips, `chunks[].maps` (`title` / `uri` / `placeId`) for maps sources, the raw step on `metadata`) and one `citation` event with the normalized `sources`, plus `evidence` with the raw tool payload so hosts can decide what to surface. Every place is a source, review places included; the host decides which to show. |
@@ -233,11 +233,11 @@ accepted and spoken). Unanswered by then, the model reads `sign_in.expired`.
 | --- | --- |
 | Door | `runSession` (shares resolve / tools / canary / system compose with `runTurn`) |
 | Transport | `openGoogleLiveSession` — WebSocket; optional `openWebSocket` for Cloudflare fetch-upgrade |
-| Handshake | `BidiGenerateContentSetup` via `buildGeminiLiveSetupMessage` |
+| Handshake | the BidiGenerateContentSetup message via `buildGeminiLiveSetupMessage` |
 | Turn boundary | Gemini `serverContent.interactionStatus: IDLE` when the server sends it, else `turnComplete` → outbound gate finalize + cycle `done` (`stop.kind: 'completed'` when no folded done) + `before_end` / `post_turn`; **session stays open**. `interactionStatus: IN_PROGRESS` keeps the cycle open across `turnComplete` — background reasoning / async tool calls may still emit audio or tool calls |
 | Thinking | `thinkingConfig.thinkingLevel` carries `thinking` and `thinkingConfig.includeThoughts` carries `summaries` (`auto` → `true`, `none` → `false`); each is left out when unset. Every Live model takes `includeThoughts`. With it on, gemini-3.1-flash-live-preview sent one `thought` part of markdown text before the audio in 3 of 4 turns at `high` and none at `minimal`; with it off or unset it sent none. gemini-3.8-live and gemini-3.8-live-extended-thinking sent none either way (probe 04/10/2026). A summary is never in the transcription. |
 | Generation boundary | Gemini `generationComplete` → `done` (`stop.kind: 'generation_complete'`) without tearing down the session |
-| Tools | Builtins are their own setup tools from `wire.live` (`{ googleSearch: {} }`, `googleMaps`, `urlContext`, `codeExecution`); a builtin with no `wire.live` throws. Which a model takes is the API's answer (probe 23/09/2026: search on every Live model; gemini-3.8-live and -extended-thinking close with 1007 on the other three; gemini-2.5-flash-native-audio takes `urlContext`; gemini-3.1-flash-live accepts all four but used only search). `googleMapsLocation` is not sent on Live. Every function declaration is wired `behavior: NON_BLOCKING`: the host runs calls through `executeTool` while the model keeps speaking. `executeTool` by `callId` runs every call (stages + gate answers + upstream); a call the provider already failed is answered by the session; cancellations → `tool.phase: 'cancel'` with the call's name. Every id in profile `tools.allow` + `builtInTools` is wired in `BidiGenerateContentSetup` regardless of `loadTier` (declarations cannot change mid-session) — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
+| Tools | Builtins are their own setup tools from `wire.live` (`{ googleSearch: {} }`, `googleMaps`, `urlContext`, `codeExecution`); a builtin with no `wire.live` throws. Which a model takes is the API's answer (probe 23/09/2026: search on every Live model; gemini-3.8-live and -extended-thinking close with 1007 on the other three; gemini-2.5-flash-native-audio takes `urlContext`; gemini-3.1-flash-live accepts all four but used only search). `googleMapsLocation` is not sent on Live. Every function declaration is wired `behavior: NON_BLOCKING`: the host runs calls through `executeTool` while the model keeps speaking. `executeTool` by `callId` runs every call (stages + gate answers + upstream); a call the provider already failed is answered by the session; cancellations → `tool.phase: 'cancel'` with the call's name. Every id in profile `tools.allow` + `builtInTools` is wired in the BidiGenerateContentSetup message regardless of `loadTier` (declarations cannot change mid-session) — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
 | Ingress | `live.ingress` gates `sendAudio` / `sendVideo` / `sendText` / `sendContext`. `sendContext` sends the text as `clientContent` with `turnComplete: false` (probe 01/10/2026, gemini-3.8-live, 3 of 3 runs): the model reads it as background and speaks no reply, where `sendText` (`realtimeInput.text`) is the caller speaking and always draws one. It opens no turn and records no user text; inbound guardrails run as for `sendText`. `sendAudio` / `sendVideo` take the host's `mimeType` and send it as given (probe 23/09/2026: `audio/pcm` with no rate is accepted everywhere; gemini-2.5-flash-native-audio rejects `audio/l16`). Defaults: audio **on**, camera (video channel) **on**, text **off** unless `live.ingress.text: true`. At least one channel must stay enabled. |
 | Transcription | Mid-turn `evidence` with `kind: 'input_transcription'` / `output_transcription` (optional `interim`); **not** held for egress — streams immediately |
 | Session control | `goAway` → `session.kind: 'closing_soon'` (`timeLeft` is a Duration string, e.g. `"50s"`; observed on gemini-3.1-flash-live-preview about 9 minutes in, twice, then close 1008 at the limit — probe 23/09/2026; on gemini-2.5-flash-native-audio-latest once at 541 s with `"50s"`, then no close: the idle session stayed open until the probe closed it at 1200 s — probe 24/09/2026. A warning is not a promise to close); a close after `goAway` → `ended` (see Errors); `waitingForInput` → `waiting_for_input`; `turnComplete` → `turn_complete`; `serverContent.interactionStatus` → `working` / `idle` |
@@ -250,7 +250,7 @@ accepted and spoken). Unanswered by then, the model reads `sign_in.expired`.
 
 | Gemini signal | TurnEvent |
 | --- | --- |
-| `modelTurn.parts[]` | `text` → `text`; `text` with `thought: true` → `thought`; `inlineData` → `media` (`audio/pcm;rate=24000` becomes WAV via `shared/pcm.ts`); `codeExecutionResult { outcome, output }` → `evidence` + `kind: 'code_execution_result'` (`result`, `isError` when `outcome` is not `OUTCOME_OK`, `raw`) — gemini-2.5-flash-native-audio reports each search / URL fetch this way. No `executableCode` part was seen on any Live model (probe 23/09/2026). |
+| `modelTurn.parts[]` | `text` → `text`; `text` with `thought: true` → `thought`; `inlineData` → `media` (`audio/pcm;rate=24000` becomes WAV via `src/providers/shared/pcm.ts`); `codeExecutionResult { outcome, output }` → `evidence` + `kind: 'code_execution_result'` (`result`, `isError` when `outcome` is not `OUTCOME_OK`, `raw`) — gemini-2.5-flash-native-audio reports each search / URL fetch this way. No `executableCode` part was seen on any Live model (probe 23/09/2026). |
 | `inputTranscription` | `evidence` + `kind: 'input_transcription'` |
 | `interimInputTranscription` | same + `evidence.interim: true` |
 | `outputTranscription` | `evidence` + `kind: 'output_transcription'` |
@@ -268,7 +268,7 @@ accepted and spoken). Unanswered by then, the model reads `sign_in.expired`.
 | `turnComplete` | `session` + `kind: 'turn_complete'`; stream phase `complete` only when no `IN_PROGRESS` status accompanies it |
 | `serverContent.interactionStatus` | `session` + `kind: 'working'` (`IN_PROGRESS`) or `'idle'` (`IDLE`); `IDLE` is the stream-phase boundary → `runSession` emits `done` + `completed` |
 
-Framing helpers remain in `google/live/framing.ts` for hosts that only need setup JSON.
+Framing helpers remain in `src/providers/google/live/framing.ts` for hosts that only need setup JSON.
 
 ## Local provider
 
@@ -304,15 +304,15 @@ local: {
 
 When `profile.type === 'image'` and protocol/provider is
 `openAi`/`openrouter`, `createProvider` returns `createImageProvider`
-(`openrouter/image.ts`). When protocol/provider is `geminiInteractions`/`google`,
+(`src/providers/openrouter/image.ts`). When protocol/provider is `geminiInteractions`/`google`,
 the same `createInteractionsProvider` handles image via polymorphic
 `responseFormat`.
 
 | Transport | Module | Path / mechanism | Notes |
 | --- | --- | --- | --- |
-| OpenAI | `openrouter/image.ts` | `POST /images` | Native image models; the model gets the prompt text and the reference images only, never the system prompt or history; reference images via `input_references`, bytes as data URLs and `http(s)` references passed through as URLs (other schemes are refused); OpenRouter documents `prompt` as required, so an image-only turn is refused. Every `data[]` entry with `b64_json` + `media_type` is one `media` (probe 23/09/2026). |
-| OpenAI | `openrouter/image.ts` | `POST /chat/completions` + server tool | When `image.includeText`. `message.content` (a string) is `text`; every `message.images[].image_url.url` data URL is one `media` (probe 23/09/2026). No image is an `error`. |
-| Interactions | `google/interactions/framing.ts` | `responseFormat` object or array | Image-only object; text + image array when `includeText`. No image is an `error`, as no audio is for speech. |
+| OpenAI | `src/providers/openrouter/image.ts` | `POST /images` | Native image models; the model gets the prompt text and the reference images only, never the system prompt or history; reference images via `input_references`, bytes as data URLs and `http(s)` references passed through as URLs (other schemes are refused); OpenRouter documents `prompt` as required, so an image-only turn is refused. Every `data[]` entry with `b64_json` + `media_type` is one `media` (probe 23/09/2026). |
+| OpenAI | `src/providers/openrouter/image.ts` | `POST /chat/completions` + server tool | When `image.includeText`. `message.content` (a string) is `text`; every `message.images[].image_url.url` data URL is one `media` (probe 23/09/2026). No image is an `error`. |
+| Interactions | `src/providers/google/interactions/framing.ts` | `responseFormat` object or array | Image-only object; text + image array when `includeText`. No image is an `error`, as no audio is for speech. |
 
 Image profile pins `quality`, `background`, `n`, `seed` and `outputCompression`: unset ones are omitted from the wire. OpenRouter `/images` sends all five. OpenRouter chat (`includeText`) sends `quality`, `background` and `output_compression`, and refuses `n` and `seed`, which its server tool does not document. Google sends `seed` as `generationConfig.seed` and refuses the other four. A pin a transport cannot send is `unsupported`, never dropped.
 
@@ -324,15 +324,15 @@ An image profile's `image.references` (bytes or `uri`, images only) go into ever
 
 When `profile.type === 'speech'` and protocol/provider is
 `openAi`/`openrouter`, `createProvider` returns `createSpeechProvider`
-(`openrouter/speech.ts` — OpenAI `/audio/speech`). When protocol/provider is
+(`src/providers/openrouter/speech.ts` — OpenAI `/audio/speech`). When protocol/provider is
 `geminiInteractions`/`google`, the same `createInteractionsProvider`
-(`google/interactions/mod.ts`) handles speech via `responseFormat: audio` +
+(`src/providers/google/interactions/mod.ts`) handles speech via `responseFormat: audio` +
 `speechConfig`.
 
 | Transport | Module | Path / mechanism | Notes |
 | --- | --- | --- | --- |
-| OpenAI | `openrouter/speech.ts` | `/audio/speech` | `speech.format` rides `response_format` when set; unset sends none, and the upstream picks. `mp3` allowed. The response carries no usage; the runner estimates the call. The response's `content-type` states the audio; raw PCM with a rate is wrapped as WAV. The endpoint answers whole or not at all, so a body with audio ends `done` with stop `completed`. |
-| Interactions | `google/interactions/mod.ts` | `responseFormat: { type: 'audio' }` | Real PCM → WAV only. Missing audio on a speech-role turn (text-only or empty) yields an `error` event — never invents PCM from text bytes. `mp3` is refused (`unsupported`) when the request is framed; Gemini speech takes only `GOOGLE_SPEECH_FORMATS`. |
+| OpenAI | `src/providers/openrouter/speech.ts` | `/audio/speech` | `speech.format` rides `response_format` when set; unset sends none, and the upstream picks. `mp3` allowed. The response carries no usage; the runner estimates the call. The response's `content-type` states the audio; raw PCM with a rate is wrapped as WAV. The endpoint answers whole or not at all, so a body with audio ends `done` with stop `completed`. |
+| Interactions | `src/providers/google/interactions/mod.ts` | `responseFormat: { type: 'audio' }` | Real PCM → WAV only. Missing audio on a speech-role turn (text-only or empty) yields an `error` event — never invents PCM from text bytes. `mp3` is refused (`unsupported`) when the request is framed; Gemini speech takes only `GOOGLE_SPEECH_FORMATS`. |
 
 Speech turns carry no system prompt. The input text is the transcript: Gemini
 TTS rejects developer instructions ("Developer instruction is not enabled") and

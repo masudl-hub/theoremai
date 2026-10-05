@@ -151,7 +151,7 @@ export function createProvider(
         `createProvider: type ${profile.type} requires openrouter provider for openAi protocol`,
       );
     }
-    // A profile can name `local`; only the host can say a local server is there to reach.
+    // why: A profile can name `local`; only the host can say a local server is there to reach.
     if (!options.local) {
       throw new TheoremError(
         'config',

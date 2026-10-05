@@ -1,4 +1,4 @@
-// A file attachment is read when its trial runs, not when the suite loads, so thousands of photos are never held at once.
+// why: A file attachment is read when its trial runs, not when the suite loads, so thousands of photos are never held at once.
 
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';

@@ -145,7 +145,7 @@ function guardToolResult(
   const options = detectionForTrust(policy, 'untrusted');
   const redacted = sanitizeText(composed, options);
   const changed = redacted !== composed;
-  // Directive detection runs on remote content only: a local tool's output is
+  // why: Directive detection runs on remote content only: a local tool's output is
   // bytes the host's own code produced.
   const remote = isRemoteOrigin(provenance.origin);
   const suspicious = remote ? directiveHits(composed, callableTools) : [];
@@ -165,7 +165,7 @@ function guardToolResult(
     event: {
       stage: 'tool_result',
       trust: 'untrusted',
-      // Redaction changed the text; directive signals only annotate it.
+      // why: Redaction changed the text; directive signals only annotate it.
       action: changed ? 'redact' : 'flag',
       hits,
       provenance,
@@ -305,7 +305,7 @@ function checkTaintGate(
       severity: 'high' as const,
     },
   ];
-  // Gated on origin alone. Whether the content looked directive changes the rule
+  // why: Gated on origin alone. Whether the content looked directive changes the rule
   // reported, never whether the call is refused.
   if (rank < GATE_RANK[policy.taint?.afterRemoteRead ?? 'off']) {
     return { action: 'flag', hits };

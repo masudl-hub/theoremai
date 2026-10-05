@@ -149,7 +149,7 @@ function buildRunRecord(input: RunRecordInput): Promise<TraceRecord> {
   for (const verdict of input.verdicts) {
     tree.root.event(VERDICT_EVENT, verdictAttributes(verdict));
   }
-  // A run that reached its end is OK whatever the verdicts say; one stopped early is not finished.
+  // why: A run that reached its end is OK whatever the verdicts say; one stopped early is not finished.
   tree.root.end(input.stopped ? { code: 'UNSET' } : { code: 'OK' });
   return buildRecord({ spans: tree.collect(), policy: input.policy });
 }

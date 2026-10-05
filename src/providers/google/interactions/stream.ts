@@ -31,7 +31,7 @@ import {
 
 const HTTP_OK = 200;
 
-/*
+/*probed 2026-09-23:
  * One step, two deliveries (probes 23/09/2026, gemini-3.8-flash and
  * gemini-3.1-pro-preview):
  *
@@ -150,7 +150,7 @@ function foldStepDelta(payload: Record<string, unknown>, fold: StreamFold): Prov
     return eventsFromDelta(delta);
   }
   if (delta.type === 'arguments_delta') {
-    // Replaces the `arguments: {}` placeholder from `step.start` with the streamed JSON string.
+    // why: Replaces the `arguments: {}` placeholder from `step.start` with the streamed JSON string.
     const sofar = typeof open.arguments === 'string' ? open.arguments : '';
     open.arguments = sofar + (typeof delta.arguments === 'string' ? delta.arguments : '');
     return [];
@@ -200,7 +200,7 @@ function delivered(events: ProviderEvent[], fold: StreamFold): ProviderEvent[] {
 
 function eventsFromStreamRow(payload: Record<string, unknown>, fold: StreamFold): ProviderEvent[] {
   if (payload.eventType === 'sse_unparsed') {
-    // Every observed Interactions row is a JSON object; anything else is a wire change.
+    // why: Every observed Interactions row is a JSON object; anything else is a wire change.
     return [
       toErrorEvent(
         new TheoremError('bad_response', 'Interactions stream row was not a JSON object'),
@@ -319,7 +319,6 @@ async function* parseInteractionsSse(
   const missing = missingMediaError(req, fold);
   if (missing) yield missing;
   if (!fold.sawDone) {
-    // The stream ended before the interaction reported a status: it did not complete.
     yield { type: 'done', stop: { kind: 'stream_incomplete' } };
   }
 }

@@ -303,7 +303,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
         view.text += mark.raw;
         at = mark.end;
       }
-      // An echo run is counted in words: read back until it fits, or the thought starts.
+      // why: An echo run is counted in words: read back until it fits, or the thought starts.
       if (!privateSystem || from === 0 || promptEchoScanFrom(view.text, view.held) > 0) return view;
     }
   }
@@ -429,11 +429,11 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
       if (leaks >= MAX_LEAKS) break;
       const before = new Set(marks.map((mark) => mark.start));
       if (!omitHeld(false)) {
-        // A leak the readers settled that no span covers is cut, not shown.
+        // why: A leak the readers settled that no span covers is cut, not shown.
         if (open === undefined) break;
         return;
       }
-      // A leak running on past its placeholder only grows it.
+      // why: A leak running on past its placeholder only grows it.
       if (marks.some((mark) => !before.has(mark.start))) leaks++;
       if (!restart(readable())) return;
     }
@@ -458,7 +458,6 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     const lead = Math.max(0, from - RELEASED_LOOKBACK);
     let at = lead + canaryOpeningFrom(textFrom(lead), canary);
     if (at < from && from > out.length) {
-      // An opening the bound rules out: read the held text whole.
       const whole = Math.max(0, out.length - RELEASED_LOOKBACK);
       at = whole + canaryOpeningFrom(textFrom(whole), canary);
     }
@@ -504,7 +503,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     flush() {
       if (!cut) {
         for (let round = 0; round < MAX_ROUNDS && omitHeld(true); round++);
-        // A leak left is one the text shown already takes part in, such as a definition an image opener held here could use.
+        // why: A leak left is one the text shown already takes part in, such as a definition an image opener held here could use.
         if (held && (leakSpans(out + held).length > 0 || rawLeaks().length > 0)) cutRest();
       }
       const shown = held;

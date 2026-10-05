@@ -35,13 +35,13 @@ const DETECTORS: readonly EvalDetector[] = [
   {
     id: 'sensitive.spans',
     action: 'redact',
-    // `pii-spans` is the one corpus that labels what this detector hunts.
+    // why: `pii-spans` is the one corpus that labels what this detector hunts.
     accountableFor: ['pii-spans'],
     fires: (text) => sensitiveSpans(text).length > 0,
   },
   {
     id: 'tool-directives',
-    // Indirect injection inside tool output. The prompt corpora are user-text
+    // why: Indirect injection inside tool output. The prompt corpora are user-text
     // shaped; the agent-app attacks are the closest available match.
     action: 'annotate',
     accountableFor: [
@@ -141,7 +141,7 @@ async function runGuardrailEval(options: EvalOptions = {}): Promise<EvalReport> 
 function formatReport(report: EvalReport): string {
   const header = report.sources
     .map((s) => {
-      // Say plainly when a figure rests on a slice of a much larger corpus.
+      // why: Say plainly when a figure rests on a slice of a much larger corpus.
       const of =
         s.upstreamRows !== undefined && s.samples < s.upstreamRows ? ` of ${s.upstreamRows}` : '';
       return `  ${s.id.padEnd(24)} ${String(s.samples).padStart(6)}${of.padEnd(12)} samples  ${s.licence}  ${s.attribution}`;

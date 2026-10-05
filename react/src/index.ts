@@ -10,11 +10,15 @@
 
 export * from './client/index.ts';
 export {
-	type ChatSnapshot,
-	type SentTurn,
-	type UseTheoremChatOptions,
-	useTheoremChat,
+  type ChatSnapshot,
+  type SentTurn,
+  type UseTheoremChatOptions,
+  useTheoremChat,
 } from './hooks/use-theorem-chat.ts';
 export { type TheoremDecisionState, useTheoremDecision } from './hooks/use-theorem-decision.ts';
-export { type TheoremHostCall, type TheoremHostState, useTheoremHost } from './hooks/use-theorem-host.ts';
+export {
+  type TheoremHostCall,
+  type TheoremHostState,
+  useTheoremHost,
+} from './hooks/use-theorem-host.ts';
 export { type TheoremInterfaceState, useTheoremInterface } from './hooks/use-theorem-interface.ts';

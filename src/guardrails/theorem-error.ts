@@ -1,4 +1,4 @@
-// Its own module so `lexicon.ts` can throw it without importing `error.ts`, which reads the lexicon.
+// invariant: Its own module so `lexicon.ts` can throw it without importing `error.ts`, which reads the lexicon.
 
 import type { ErrorCopies, ErrorCopy } from './event-schemas.ts';
 

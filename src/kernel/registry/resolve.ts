@@ -98,7 +98,7 @@ function resolveEffort(
     }
     return level;
   }
-  // Registration requires a default whenever more than one effort is declared.
+  // why: Registration requires a default whenever more than one effort is declared.
   return efforts[binding.defaultEffort ?? keys[0]];
 }
 

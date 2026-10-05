@@ -1,4 +1,4 @@
-// `steer` injects at `onStage` boundaries of the same run; `queue` sends after the run fully ends
+// invariant: `steer` injects at `onStage` boundaries of the same run; `queue` sends after the run fully ends
 // (not on tool pause); `stash` never auto-sends. `send_now` is an action, not a pending kind.
 
 import type { TurnEvent } from '../kernel/types.ts';

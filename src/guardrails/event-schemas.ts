@@ -1,4 +1,4 @@
-// Imports nothing from `src/kernel/` but the dependency-free `Equals`: `src/kernel/turn-events.ts` imports these.
+// invariant: Imports nothing from `src/kernel/` but the dependency-free `Equals`: `src/kernel/turn-events.ts` imports these.
 
 import { z } from 'zod';
 import type { Equals } from '../kernel/util/exact-type.ts';

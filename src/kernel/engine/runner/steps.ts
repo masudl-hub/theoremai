@@ -144,7 +144,7 @@ async function* executeAutonomousStep(
   const { usage, genForStep, request, call } = startProviderCall(generation, system, state);
   const calls: ModelCall[] = [];
   let latestStructured: unknown;
-  // The stop this call ended with after gates: a canary block or provider
+  // why: The stop this call ended with after gates: a canary block or provider
   // error outranks what the provider reported.
   let stop: TurnStop | undefined;
   const control: OutboundStreamControl = {
@@ -186,12 +186,12 @@ async function* executeAutonomousStep(
       }
       recordStepEvent(event, state);
       if (control.withholdVisible && isWithheldOnBlock(event)) {
-        // Progressive-yield blocked this attempt — keep events for egress/repair only.
+        // why: Progressive-yield blocked this attempt — keep events for egress/repair only.
         // Record the decision so the attempt gate knows nothing reached the host.
         state.withheldVisible = true;
         continue;
       }
-      // Text and media stream via progressive-yield under egress, thoughts
+      // why: Text and media stream via progressive-yield under egress, thoughts
       // stream unguarded; holdLate only buffers non-visible events (e.g.
       // structured) for validation.
       const isUserVisible =
@@ -380,7 +380,6 @@ async function* handleModelCalls(
   if (!chainOn && calls.length > 0) {
     state.currentHistory.push(stepCallsMessage(calls));
   }
-  // One id for every call this model response made.
   const stepId = crypto.randomUUID();
   const announce = (call: ModelCall): TurnEvent => {
     const request = toolCallRequestEvent(call, call.arguments, {
@@ -456,23 +455,23 @@ async function* executeAttempt(args: {
 }): AsyncGenerator<TurnEvent, { latestStructured?: unknown }> {
   const { profile, generation, system, provider, state } = args;
   let latestStructured: unknown;
-  // Text streams via progressive-yield under egress, thoughts unguarded; validation and egress
+  // why: Text streams via progressive-yield under egress, thoughts unguarded; validation and egress
   // both hold non-visible events (structured) until the attempt gate, so a policy
   // sees the structured payload before any of it reaches the host.
   const validation = profileTurnOutputs(profile)?.validation;
   const holdLate = Boolean(
     validation || resolveGuardrailPolicy(profile.guardrails).egress?.enforce,
   );
-  // Buffered delivery holds each attempt's text and media until it passes; streamed delivery shows them live.
+  // why: Buffered delivery holds each attempt's text and media until it passes; streamed delivery shows them live.
   const holdVisible = validation !== undefined && generation.stream === false;
 
-  // Ceiling is cumulative `state.stepCount` across before_end inject re-entries
+  // why: Ceiling is cumulative `state.stepCount` across before_end inject re-entries
   // within this attempt. Validation/egress repair resets stepCount at the start
   // of each attempt cycle.
   while (!isStepLimitReached(state.stepCount, generation.maxSteps ?? 0)) {
     throwIfAborted(args.safe.signal);
     state.stepCount++;
-    // Mid-loop inject lives on `post_tool` (after tools). Opening inject is `pre_turn`
+    // why: Mid-loop inject lives on `post_tool` (after tools). Opening inject is `pre_turn`
     // outside this loop.
     const stepResult = yield* executeAutonomousStep(
       { profile, generation, system, provider, signal: args.safe.signal },

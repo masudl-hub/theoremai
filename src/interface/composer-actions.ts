@@ -32,7 +32,7 @@ function resolveComposerPrimary(ctx: ComposerActionContext): ComposerPrimaryActi
     if (!ctx.hasPayload) return canStop ? 'stop' : 'none';
     return 'queue';
   }
-  // Gated is still the same run: queue only, no stream to stop.
+  // why: Gated is still the same run: queue only, no stream to stop.
   return ctx.hasPayload ? 'queue' : 'none';
 }
 
@@ -51,9 +51,9 @@ function resolveComposerMenuActions(ctx: ComposerActionContext): ComposerMenuAct
     return actions;
   }
 
-  // gated: no steer (not an inject stage); send_now = host ends wait + send
+  // why: gated: no steer (not an inject stage); send_now = host ends wait + send
   return ['queue', 'send_now', 'stash'];
 }
 
-// Emits semantic action keys only: English labels live in the rendering layer or the host UI.
+// invariant: Emits semantic action keys only: English labels live in the rendering layer or the host UI.
 export { resolveComposerMenuActions, resolveComposerPrimary };

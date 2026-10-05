@@ -1,4 +1,4 @@
-// THEOREM does not invent filesystem roots: hosts register a named destination once per process.
+// invariant: THEOREM does not invent filesystem roots: hosts register a named destination once per process.
 
 import { TheoremError } from '../guardrails/error.ts';
 import type { TraceSink } from './trace-sink.ts';
@@ -21,7 +21,7 @@ function registerTraceDestination(id: string, destination: TraceSink): void {
   if (!key) {
     throw new TheoremError('config', 'registerTraceDestination requires a non-empty id');
   }
-  // Hosts may call from plain JS: the registry holds only writers.
+  // why: Hosts may call from plain JS: the registry holds only writers.
   if (!isTraceSink(destination)) {
     throw new TheoremError('config', `Trace destination '${key}' must be a TraceSink`);
   }

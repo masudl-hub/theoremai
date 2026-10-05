@@ -153,7 +153,7 @@ export function matroska(bytes: Uint8Array): Matroska | undefined {
     }
     const incomplete = el.unknown || el.body + el.size > bytes.length;
     if (incomplete || !readLeaf(bytes, el, walk)) {
-      // Past here nothing can be walked; only a stated duration still holds.
+      // why: Past here nothing can be walked; only a stated duration still holds.
       return {
         tracks: walk.tracks,
         durationSeconds: seconds(walk.duration, walk.scale),

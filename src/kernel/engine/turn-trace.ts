@@ -70,7 +70,6 @@ function tracePart(part: InteractionPart): TracePart {
 function traceMessage(msg: TurnHistoryMessage): TraceMessage {
   const media = historyMessageParts(msg).map(tracePart);
   if (msg.role === 'tool') {
-    // The tool's text is its response; media it returned follows as parts.
     const response: TracePart = {
       type: 'tool_call_response',
       ...(msg.tool_call_id ? { id: msg.tool_call_id } : {}),
@@ -142,7 +141,7 @@ class OutputFold {
         return;
       case 'evidence': {
         const { evidence } = event;
-        // Live transcription: labelled, never taken for the model's own text.
+        // why: Live transcription: labelled, never taken for the model's own text.
         if (evidence.kind === 'input_transcription' || evidence.kind === 'output_transcription') {
           this.appendText('text', event.text ?? '', evidence.kind, evidence.interim);
           return;
@@ -468,7 +467,7 @@ function providerName(binding: ModelBinding | undefined): string | undefined {
 }
 
 function outputType(req: ProviderCompleteRequest, transport: ProviderTransport): string {
-  // Live answers in audio: its setup asks for `responseModalities: ['AUDIO']` (live/framing.ts).
+  // why: Live answers in audio: its setup asks for `responseModalities: ['AUDIO']` (live/framing.ts).
   if (transport === 'geminiLive') return 'speech';
   if (req.structured) return 'json';
   if (req.image) return 'image';
@@ -595,7 +594,7 @@ function headerAttributes(prefix: string, headers: unknown): TraceAttributes {
 function urlAttributes(url: unknown): TraceAttributes {
   if (typeof url !== 'string') return {};
   const parsed = URL.canParse(url) ? new URL(url) : undefined;
-  // The path only: a query can carry credentials.
+  // why: The path only: a query can carry credentials.
   return parsed ? { 'server.address': parsed.hostname, 'url.path': parsed.pathname } : {};
 }
 
@@ -640,7 +639,7 @@ class HttpTries {
       },
     });
     this.tries += 1;
-    // The body sent decides, not the profile: an adapter may stream or buffer regardless.
+    // why: The body sent decides, not the profile: an adapter may stream or buffer regardless.
     this.streamed = asRecord(row.body)?.stream === true;
     if (this.streamed) this.call.set({ 'gen_ai.request.stream': true });
     if ('body' in row) {
@@ -661,7 +660,7 @@ class HttpTries {
     if (status !== undefined && status >= HTTP_ERROR) {
       this.current?.set({ 'error.type': String(status) });
     } else {
-      // Streamed or buffered, the first data row is the reply's first chunk: a buffered body is its one chunk.
+      // why: Streamed or buffered, the first data row is the reply's first chunk: a buffered body is its one chunk.
       this.awaitingFirstChunk = true;
     }
   }
@@ -867,7 +866,6 @@ function startCallTrace(
     },
     observe: (event) => {
       if (event.type === 'evidence' && event.evidence.kind === 'input_transcription') {
-        // What the provider heard in the input: labelled, beside what the model read.
         heard.add(event, span.nowUnixNano());
         return;
       }
@@ -922,7 +920,7 @@ function startCallTrace(
         ...optional('finish_reason', outcome.finish),
       };
       const { input } = inputMessages(usage);
-      // A continuation replays what the model read, not the provider's transcript of it.
+      // why: A continuation replays what the model read, not the provider's transcript of it.
       callMessages.set(usage, { input, output: outputMessage });
       const transcript: TraceMessage[] =
         heard.parts.length > 0 ? [{ role: 'user', parts: heard.parts }] : [];
@@ -1017,9 +1015,8 @@ function endTurnSpan(root: SpanHandle, end: TurnEnd): void {
   const threw = end.thrown !== undefined;
   if (threw) recordException(root, end.thrown);
   const failed = threw || (stop !== undefined && FAILED_STOPS.has(stop));
-  // The builder's name for the failure: the thrown value's kind, else the error event's, else the stop.
   const failure = threw ? errorKind(end.thrown) : (errorEvent?.errorKind ?? stop);
-  // What the host received, beside each call's `output.messages` (what the model produced).
+  // why: What the host received, beside each call's `output.messages` (what the model produced).
   const delivered: TraceMessage = {
     role: 'assistant',
     parts: end.delivered.parts,

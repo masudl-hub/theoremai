@@ -64,7 +64,7 @@ function toolCallText(part: Record<string, unknown>): string {
     try {
       args = JSON.parse(args);
     } catch {
-      // Not JSON: the arguments stand as the model sent them.
+      // why: Not JSON: the arguments stand as the model sent them.
     }
   }
   return JSON.stringify({ name: part.name, arguments: args });
@@ -112,7 +112,7 @@ function availableTools(trial: Trial): string[] {
       const parsed: unknown = JSON.parse(text);
       if (Array.isArray(parsed)) return parsed.map((tool) => JSON.stringify(tool));
     } catch {
-      // Not JSON: the definitions stand as one entry, as sent.
+      // why: Not JSON: the definitions stand as one entry, as sent.
     }
     return [text];
   }
@@ -197,7 +197,7 @@ function trialVariables(trial: Trial): Record<(typeof TRIAL_VARIABLES)[number], 
   };
 }
 
-// A rubric that reads `user_message` gets `conversation` as what came before that message, as Phoenix's user-friction prompt asks.
+// why: A rubric that reads `user_message` gets `conversation` as what came before that message, as Phoenix's user-friction prompt asks.
 function rubricView(
   rubric: EvalRubric,
   trial: Trial,

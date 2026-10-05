@@ -92,7 +92,7 @@ function buildLiveGenerationConfig(req: ProviderCompleteRequest): Record<string,
   return generationConfig;
 }
 
-// Unset numbers are left to Gemini's defaults.
+// why: Unset numbers are left to Gemini's defaults.
 function buildContextWindowCompression(
   compression: LiveContextCompressionSpec,
 ): Record<string, unknown> {
@@ -163,7 +163,7 @@ export function buildGeminiLiveSetupMessage(req: ProviderCompleteRequest): Recor
   const tools = wireLiveTools(req);
   const sessionResumption = buildLiveSessionResumption(req);
 
-  // `initialHistoryInClientContent` makes Gemini wait for clientContent before
+  // why: `initialHistoryInClientContent` makes Gemini wait for clientContent before
   // realtime generation, so an empty session (e.g. Th30) would hang forever.
   const seedInitialHistory = Boolean(req.history && req.history.length > 0);
 
@@ -276,7 +276,7 @@ export function buildGeminiLiveRealtimeInput(input: InteractionPart): Record<str
   }
   const part = inlineMediaPart(input);
 
-  // The part's mime as given: the API reads the rate from it and rejects what it cannot take.
+  // why: The part's mime as given: the API reads the rate from it and rejects what it cannot take.
   const media = { mimeType: part.mimeType, data: part.data };
   return { realtimeInput: part.type === 'audio' ? { audio: media } : { video: media } };
 }
@@ -495,7 +495,7 @@ function foldToolCancellations(
   for (const id of ids) {
     const name = typeof id === 'string' ? fold.calls.get(id) : undefined;
     if (typeof id !== 'string' || !name) {
-      // Every observed cancel names a call this connection issued; anything else is a wire change.
+      // why: Every observed cancel names a call this connection issued; anything else is a wire change.
       events.push(
         toErrorEvent(
           new TheoremError(

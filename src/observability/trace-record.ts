@@ -1,4 +1,4 @@
-// Include flags drop whole attribute families or events here, in one place, so a missing field
+// why: Include flags drop whole attribute families or events here, in one place, so a missing field
 // reads as "not recorded" and the root says which policy applied (`theorem.record.include`).
 
 import { redactSensitiveOnly, sanitizeText } from '../guardrails/sanitize.ts';
@@ -84,7 +84,7 @@ async function resolveContent(
   if (isTraceBytes(value)) {
     const rest = markerRest(value, '$bytes');
     const digest = await sha256Base64(value.$bytes);
-    // Not base64: hash the text as given and say so, rather than lose the record.
+    // why: Not base64: hash the text as given and say so, rather than lose the record.
     return digest
       ? { ...rest, content_sha256: digest.hash, bytes: digest.bytes }
       : { ...rest, invalid_base64: true, text_sha256: await sha256(value.$bytes) };

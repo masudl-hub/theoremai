@@ -14,6 +14,6 @@ export function markModuleLoad(label: string): void {
       d.stdout.writeSync(new TextEncoder().encode(`LOADED:${label}\n`));
     }
   } catch {
-    // Non-Deno runtime or missing --allow-env.
+    // why: Non-Deno runtime or missing --allow-env.
   }
 }

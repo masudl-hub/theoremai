@@ -286,7 +286,7 @@ function trackSamples(
       ? undefined
       : fragmentSamples(bytes, movie.top, trackId, trexDuration(bytes, movie.moov, trackId));
   if (!table || !fragments) return fragments ?? table;
-  // Fragments follow the samples `moov` lists; the last sample is theirs.
+  // why: Fragments follow the samples `moov` lists; the last sample is theirs.
   return {
     ticks: table.ticks + fragments.ticks,
     last: fragments.last,

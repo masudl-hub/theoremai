@@ -75,7 +75,7 @@
     "lint:ast-grep": "ast-grep scan",
     "lint:fallow": "npm run coverage && fallow audit --base \"${FALLOW_AUDIT_BASE:-origin/main}\" --coverage coverage/coverage-final.json",
     "lint:fallow:deep": "fallow health && fallow dupes && fallow dead-code",
-    "lint:docs": "node ./scripts/docs-truth/cli.mjs lint && node ./scripts/docs-truth/export-drift.mjs && node ./scripts/docs-truth/copy-lint.mjs && node --test ./scripts/docs-truth/graph.test.mjs",
+    "lint:docs": "node ./scripts/docs-truth/cli.mjs lint && node ./scripts/docs-truth/export-drift.mjs && node ./scripts/docs-truth/copy-lint.mjs && node ./scripts/docs-truth/comment-kinds.mjs && node --test ./scripts/docs-truth/graph.test.mjs",
     "docs:inventory": "node ./scripts/docs-truth/cli.mjs inventory",
     "docs:freshness": "node ./scripts/docs-truth/cli.mjs freshness",
     "hooks:install": "node ./scripts/hooks/install.mjs",

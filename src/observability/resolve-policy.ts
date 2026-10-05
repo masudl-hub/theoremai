@@ -1,4 +1,4 @@
-// Pure, with no sinks or file system, so kernel type consumers never pull the JSONL sink into their
+// why: Pure, with no sinks or file system, so kernel type consumers never pull the JSONL sink into their
 // graph.
 
 import { TheoremError } from '../guardrails/error.ts';
@@ -15,7 +15,7 @@ const DEFAULT_RETAIN_DAYS = 14;
 const DEFAULT_ROTATE_MIB = 32;
 
 function resolveInclude(spec: ProfileObservabilitySpec | undefined): ResolvedTraceInclude {
-  // No authored block records only through an explicit capture sink (tests,
+  // why: No authored block records only through an explicit capture sink (tests,
   // `runTurn(..., sink)`), which keeps wire and raw evidence. Authored blocks
   // default those two off.
   const authored = spec !== undefined;

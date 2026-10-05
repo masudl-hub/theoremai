@@ -313,7 +313,7 @@ async function runLiveTrial(
       ...(signal ? { signal } : {}),
     };
     for await (const _event of runTurn(request, provider, memorySink(records))) {
-      // The trace is the record of the turn; events are not graded.
+      // why: The trace is the record of the turn; events are not graded.
     }
   } catch (error) {
     thrown = error;

@@ -163,7 +163,7 @@ function promptEchoLeaks(): CanaryEgressAttack[] {
 
 /** The token spread over one turn's provider calls (runTurn) or one session's cycles (Live). */
 function splitAcrossTurns(canary: string): CanaryEgressAttack {
-  // Thirds: each is shorter than a leak run, so only the carry sees the token.
+  // why: Thirds: each is shorter than a leak run, so only the carry sees the token.
   const third = Math.ceil(canary.length / 3);
   return {
     name: 'split-across-turns',
@@ -178,7 +178,7 @@ function splitAcrossTurns(canary: string): CanaryEgressAttack {
 export function buildCanaryEgressAttacks(canary: string): CanaryEgressAttack[] {
   const attacks: CanaryEgressAttack[] = [
     leakIn('literal-text', 'literal', canary, [`Here is the token: ${canary}`]),
-    // Thinking is unguarded (`isGuardedOutput`): a host that shows it accepts what it holds.
+    // why: Thinking is unguarded (`isGuardedOutput`): a host that shows it accepts what it holds.
     {
       name: 'literal-thought',
       category: 'unguarded',

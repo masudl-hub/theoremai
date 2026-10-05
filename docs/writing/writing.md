@@ -20,6 +20,7 @@ ASD-STE100 (Simplified Technical English) is a controlled language for maintenan
 | Concrete verbs | "returns", "rejects", "strips", "reads" | "handles", "manages", "leverages", "supports" with no object |
 | No hedges | State it, or prove it, or delete it | "usually", "typically", "should generally", "may in some cases" |
 | Lists for parallel items | Vertical list, same grammar in each item | A sentence with five commas |
+| Polite, never curt | See "Tone" below | "Load the font yourself." |
 | Warnings first | Put "Note:" or "Warning:" before the step it protects | After the step, when the damage is done |
 
 ## Where you may relax (the 20%)
@@ -52,6 +53,24 @@ ASD-STE100 (Simplified Technical English) is a controlled language for maintenan
 **Soft claim**
 - Before: "The kernel typically retries transient failures."
 - After: "The kernel retries a request that fails with a network error or a 5xx status. It makes up to N attempts." (Replace N with the value from the code. If you cannot find it, remove the sentence.)
+
+## Tone: polite and plain
+
+Theorem's own words to users are polite. Read `src/guardrails/lexicon.ts`: "Sorry, the model isn't available at the moment. Please try again shortly." Docs speak in the same voice. The reader is a capable colleague, not a person to command or correct.
+
+| Do | Do not |
+| --- | --- |
+| "To use Figtree, load the font in your app. Without it, the theme uses the system font." | "Load the font yourself if you want it." |
+| "You can skip this step if the profile has no tools." | "Just skip this if you have no tools." |
+| "The handler needs a session. If you do not pass one, it sets a cookie." | "You forgot to pass a session." |
+| "Please open an issue if the check fails on a valid doc." | "Open an issue." (as a dismissal) |
+| Describe what the code does. | "Obviously", "simply", "just", "easy", "of course", "yourself" |
+
+- Steps stay imperative: "Mount the handler." An imperative step is clear, not rude. Add "please" only where you ask the reader for something outside the task, such as a bug report.
+- Say what the reader gains or loses, not what they should have done. Offer a way forward after every limit: "The package does not include the font. To use it, ..."
+- Never blame the reader, the user or another team. Describe the state, then the fix.
+- No sarcasm, no jokes, no exclamation marks.
+- Quote user-facing wording from the lexicon. Do not rewrite it.
 
 ## Terms: keep a glossary as you write
 

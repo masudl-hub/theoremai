@@ -84,7 +84,7 @@ Deno.test('jsonl sink keeps writing to the newest file until it too is full', as
   }
   const start = Date.parse('2026-08-16T00:00:00.000Z');
   const names = (await Array.fromAsync(Deno.readDir(dir))).map((e) => e.name).sort();
-  assertEquals(names, ['turns-2026-08-16-' + (start + 1) + '.jsonl', 'turns-2026-08-16.jsonl']);
+  assertEquals(names, [`turns-2026-08-16-${start + 1}.jsonl`, 'turns-2026-08-16.jsonl']);
   const rotated = await Deno.readTextFile(`${dir}/turns-2026-08-16-${start + 1}.jsonl`);
   assertEquals(rotated.trimEnd().split('\n').length, 3);
   await Deno.writeTextFile(`${dir}/turns-2026-08-16-${start + 1}.jsonl`, 'x'.repeat(1024 * 1024));

@@ -21,7 +21,7 @@ function numberAttribute(span: TraceSpan, key: string): number | undefined {
   return typeof value === 'number' ? value : undefined;
 }
 
-// The successful (last) HTTP try's start plus its time to first chunk, or the call's own start when the call streamed over a socket (Live).
+// why: The successful (last) HTTP try's start plus its time to first chunk, or the call's own start when the call streamed over a socket (Live).
 function firstChunkAt(trial: Trial, call: TraceSpan): bigint | undefined {
   const seconds = numberAttribute(call, 'gen_ai.response.time_to_first_chunk');
   if (seconds === undefined) return undefined;
@@ -30,7 +30,7 @@ function firstChunkAt(trial: Trial, call: TraceSpan): bigint | undefined {
   return BigInt(from.startTimeUnixNano) + BigInt(Math.round(seconds * MS_PER_S)) * NANOS_PER_MS;
 }
 
-// Speech that prompted an earlier reply never anchors a later one.
+// invariant: Speech that prompted an earlier reply never anchors a later one.
 function speechEndedAt(
   root: TraceSpan,
   afterUnixNano: bigint | undefined,

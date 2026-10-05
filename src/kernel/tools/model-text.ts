@@ -27,7 +27,7 @@ export function formatToolFailureForModel(
     : sanitizeText(failure.message);
   return {
     finding: `Tool error (${failure.code}): ${safe}`,
-    // The finding already says the code and message; only details are new.
+    // why: The finding already says the code and message; only details are new.
     ...(failure.details !== undefined ? { data: { details: failure.details } } : {}),
   };
 }

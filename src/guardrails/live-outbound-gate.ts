@@ -102,7 +102,7 @@ function createLiveOutboundGateSession(
     trust: 'untrusted',
     profileId: profile.id,
     ...(useCanary ? { canary } : {}),
-    // The system prompt is guarded against echo alongside the canary that binds it.
+    // why: The system prompt is guarded against echo alongside the canary that binds it.
     ...(useCanary && policy.promptEcho && privateSystem?.length ? { privateSystem } : {}),
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(givenUrls ? { givenUrls } : {}),
@@ -264,7 +264,7 @@ async function holdStreamChunk(
   session.held.push({ event, start, end: start + text.length });
   const result = await gate.process(text);
   if (session.withholdVisible) {
-    // Keep feeding the window so finalize judges the whole cycle.
+    // why: Keep feeding the window so finalize judges the whole cycle.
     return undefined;
   }
   return applyScan(session, gate, result, into);
@@ -281,7 +281,7 @@ async function processLiveOutboundBatch(
     return emitOrIdle(events);
   }
 
-  // One batch is one provider message: its transcript is its audio's.
+  // why: One batch is one provider message: its transcript is its audio's.
   let transcribed = false;
   for (const event of events) {
     if (isStreamedCanaryEvent(event)) {
@@ -295,7 +295,7 @@ async function processLiveOutboundBatch(
 
     if (event.type === 'media') {
       holdMedia(session, gate, event, transcribed);
-      // Media not yet held until the next event can release it now.
+      // why: Media not yet held until the next event can release it now.
       if (!session.withholdVisible) releaseHeld(session, gate, clearedTo(gate), toEmit);
       continue;
     }
@@ -364,7 +364,7 @@ async function finalEgressVerdict(
   egress: ResolvedEgressSpec,
   prior: TurnEvent[],
 ): Promise<LiveOutboundBatchResult> {
-  // The host policy adds checks; it never releases a system-prompt leak.
+  // invariant: The host policy adds checks; it never releases a system-prompt leak.
   const leaks = session.promptLeaks;
   const verdict: Verdict = leaks
     ? { action: 'block', hits: leaks, rejection: WITHHELD_REASON.egress }

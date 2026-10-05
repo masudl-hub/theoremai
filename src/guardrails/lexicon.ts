@@ -1,4 +1,4 @@
-// "Host decides, Theorem runs": the kernel ships overridable defaults, never unreplaceable copy, so every
+// invariant: "Host decides, Theorem runs": the kernel ships overridable defaults, never unreplaceable copy, so every
 // emit-site takes its string from here and `scripts/docs-truth/copy-lint.mjs` fails the build on prose elsewhere.
 
 import { TheoremError } from './theorem-error.ts';
@@ -256,7 +256,7 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'egress.rejection': 'Egress blocked: {rules}',
   'egress.invalid_verdict': 'Egress policy returned an invalid verdict shape',
   'egress.policy_failed': 'Egress policy failed to reach a decision',
-  // A space ends a URL the text before runs up to; no brackets, which after a `!` or `]` would open an image or link.
+  // why: A space ends a URL the text before runs up to; no brackets, which after a `!` or `]` would open an image or link.
   'thought.omitted_image': ' (omitted - image)',
   'thought.omitted_link': ' (omitted - link)',
   'thought.omitted_instructions': ' (omitted - instructions)',

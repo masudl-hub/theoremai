@@ -4,9 +4,9 @@ import { sessionPermissionsAfterApproval } from '@theoremjs/agents/kernel';
 export type ToolDecisionAction = 'allow' | 'deny';
 
 export type ToolGateResolution =
-	| { action: ToolDecisionAction }
-	/** Signed in: `secret` is a key the user typed; after an OAuth callback there is none. */
-	| { action: 'auth'; secret?: string };
+  | { action: ToolDecisionAction }
+  /** Signed in: `secret` is a key the user typed; after an OAuth callback there is none. */
+  | { action: 'auth'; secret?: string };
 
 /** An answer on its way to the gate on `callId`; the gate shows it until the answer settles or fails. */
 export type AnsweringGate = { callId: string; action: ToolGateResolution['action'] };
@@ -17,24 +17,26 @@ export type AnsweringGate = { callId: string; action: ToolGateResolution['action
  * by the rule the host applies (`sessionPermissionsAfterApproval`).
  */
 export type GatedToolContinue =
-	| { decision: 'deny' }
-	| { decision: 'approve'; secret?: string; sessionPermissions: string[] };
+  | { decision: 'deny' }
+  | { decision: 'approve'; secret?: string; sessionPermissions: string[] };
 
 export function continueGatedToolInvocation(args: {
-	toolName: string;
-	gate: Pick<ToolGate, 'permission'>;
-	sessionPermissions: readonly string[];
-	resolution: ToolGateResolution;
+  toolName: string;
+  gate: Pick<ToolGate, 'permission'>;
+  sessionPermissions: readonly string[];
+  resolution: ToolGateResolution;
 }): GatedToolContinue {
-	if (args.resolution.action === 'deny') return { decision: 'deny' };
-	const { resolution } = args;
-	return {
-		decision: 'approve',
-		...(resolution.action === 'auth' && resolution.secret !== undefined ? { secret: resolution.secret } : {}),
-		sessionPermissions: sessionPermissionsAfterApproval(
-			args.sessionPermissions,
-			args.toolName,
-			args.gate.permission,
-		),
-	};
+  if (args.resolution.action === 'deny') return { decision: 'deny' };
+  const { resolution } = args;
+  return {
+    decision: 'approve',
+    ...(resolution.action === 'auth' && resolution.secret !== undefined
+      ? { secret: resolution.secret }
+      : {}),
+    sessionPermissions: sessionPermissionsAfterApproval(
+      args.sessionPermissions,
+      args.toolName,
+      args.gate.permission,
+    ),
+  };
 }

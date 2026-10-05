@@ -1,4 +1,4 @@
-// Each type is checked against its zod schema (`Equals`), so a field in one and not the other fails
+// invariant: Each type is checked against its zod schema (`Equals`), so a field in one and not the other fails
 // the build. A record crosses a wire, so a reader parses it with `traceRecordSchema` first.
 
 import { z } from 'zod';

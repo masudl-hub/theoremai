@@ -40,7 +40,7 @@ function passRuleName(rule: EvalPassRule): 'all' | 'any' | 'at_least' {
   return typeof rule === 'string' ? rule : 'at_least';
 }
 
-// An errored trial is one that could not be graded (a provider error, a judge that failed), so the rule reads it as a trial that never ran: a rate limit never counts against the agent.
+// why: An errored trial is one that could not be graded (a provider error, a judge that failed), so the rule reads it as a trial that never ran: a rate limit never counts against the agent.
 /** The verdict of a case from its trials' results. */
 function caseVerdict(
   evalCase: EvalCase,

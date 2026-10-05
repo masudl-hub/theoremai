@@ -41,7 +41,7 @@ function forClient(event: TurnEvent, options?: ClientTurnOptions): TurnEvent {
   if (!options?.includeEvidenceRaw) {
     out = stripEvidenceRaw(out);
   }
-  // Clients never receive matched substrings, even if the host opted into guardrailMatchPreview.
+  // invariant: Clients never receive matched substrings, even if the host opted into guardrailMatchPreview.
   out = projectGuardrailTurnEvent(out, false);
   return out;
 }

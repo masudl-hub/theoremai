@@ -1,4 +1,4 @@
-// A settled tool call replays its `readBack`, the text the model read, so provider continuation
+// invariant: A settled tool call replays its `readBack`, the text the model read, so provider continuation
 // matches `runTurn` / `invokeTool`.
 
 import { TheoremError } from '../guardrails/error.ts';
@@ -209,7 +209,6 @@ function foldAssistantEvents(
 ): TurnHistoryMessage[] {
   let next = history;
   let textBuf = '';
-  // The calls of the step being read, in the order the model made them.
   let step: { stepId: string | undefined; callIds: string[] } | undefined;
   const calls = new Map<string, ToolCall>();
 
@@ -249,7 +248,6 @@ function foldAssistantEvents(
     if (event.tool.phase !== undefined) {
       continue;
     }
-    // A call opens its step, or joins the one it was made with.
     if (!step || call.stepId === undefined || step.stepId !== call.stepId) {
       flushStep();
       flushText();
@@ -266,7 +264,6 @@ function foldAssistantEvents(
 /** Attachment and voice blocks are omitted: their preview `data` is UI-only. */
 function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHistoryMessage[] {
   let history: TurnHistoryMessage[] = [];
-  // Consecutive tool blocks from one model step replay together.
   let step: ToolCall[] = [];
   const flushStep = () => {
     history = appendToolStepToHistory(history, step);

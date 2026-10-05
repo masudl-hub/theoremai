@@ -9,7 +9,7 @@ import type {
 } from '../../types.ts';
 import { loadTokenEstimator, type MediaTokenFamily, type TokenCount } from '../token-estimate.ts';
 
-// A continuation's model also reads the stored interaction it extends, not only what was sent.
+// why: A continuation's model also reads the stored interaction it extends, not only what was sent.
 type CallConversation =
   | { history: TurnHistoryMessage[]; input: InteractionPart[] }
   | { previous: CallUsage; continuation: TurnHistoryMessage[] };
@@ -61,7 +61,7 @@ function observeCallEvent(usage: CallUsage, event: ProviderEvent): boolean {
       usage.failed = true;
       return false;
     case 'tool':
-      // The model wrote its call; a provider's phase event about it (a malformed call's failure) it did not.
+      // why: The model wrote its call; a provider's phase event about it (a malformed call's failure) it did not.
       if (event.tool.phase === undefined) usage.output.push({ type: 'tool', tool: event.tool });
       return false;
     case 'text':

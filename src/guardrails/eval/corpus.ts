@@ -1,4 +1,4 @@
-// Nothing is vendored: corpora are fetched on demand and cached locally, so the published package
+// why: Nothing is vendored: corpora are fetched on demand and cached locally, so the published package
 // carries no third-party data and no licence obligations beyond attribution here. Sources are scored
 // separately on purpose: pooling hides the domain shift between them, which is what most flatters a detector.
 
@@ -81,7 +81,7 @@ async function fetchPage(
       const parsed = JSON.parse(body) as { rows?: { row?: Record<string, unknown> }[] };
       return { rows: (parsed.rows ?? []).flatMap((e) => (e.row ? [e.row] : [])) };
     } catch {
-      // Seconds, not milliseconds: the upstream limiter needs tens of seconds to
+      // why: Seconds, not milliseconds: the upstream limiter needs tens of seconds to
       // clear, and a short backoff just burns the retries and returns nothing.
       await new Promise((resolve) => setTimeout(resolve, retryBaseMs * 2 ** attempt));
     }
@@ -133,7 +133,7 @@ async function fetchRows(
     let pastEnd = false;
     for (const page of pages) {
       if ('failed' in page) {
-        // Retries exhausted. Skip the page rather than pretending the split ended.
+        // why: Retries exhausted. Skip the page rather than pretending the split ended.
         continue;
       }
       if (page.rows.length === 0) {
@@ -142,7 +142,6 @@ async function fetchRows(
       }
       rows.push(...page.rows);
     }
-    // Only an empty page means the split is finished.
     if (pastEnd) {
       break;
     }
@@ -202,9 +201,9 @@ function createCorpusCache(dir: string): CorpusCache {
       try {
         return await Deno.readTextFile(path);
       } catch {
-        // Not cached yet.
+        // why: Not cached yet.
       }
-      // A gated dataset needs a token the runner may or may not have; the caller
+      // why: A gated dataset needs a token the runner may or may not have; the caller
       // decides whether a miss is fatal.
       const token = isHuggingFace(url) ? huggingFaceToken() : undefined;
       const response = await fetch(url, {
@@ -269,7 +268,7 @@ function parseLabelledCsv(input: string): { text: string; label: number }[] {
   const out: { text: string; label: number }[] = [];
   for (const parsed of rows.slice(1)) {
     const text = parsed[0];
-    // `Number('')` is 0, so a blank label would silently count as benign and
+    // why: `Number('')` is 0, so a blank label would silently count as benign and
     // inflate the denominator every false-positive rate is measured against.
     const rawLabel = parsed[1]?.trim();
     if (!text || !rawLabel) {
@@ -291,7 +290,7 @@ const promptDataset: CorpusSource = {
   upstreamRows: 11089,
   async load(cache, limit) {
     const raw = await cache.fetchText(PROMPT_DATASET_URL, 'prompt-dataset.csv');
-    // The CSV is one file, so the sample cap is applied after parsing: the report
+    // why: The CSV is one file, so the sample cap is applied after parsing: the report
     // must describe the rows actually scored, not the rows in the file.
     return parseLabelledCsv(raw)
       .slice(0, limit)
@@ -299,7 +298,7 @@ const promptDataset: CorpusSource = {
         text: row.text,
         attack: row.label === 1,
         source: 'prompt-injection-prompts',
-        // The dataset does not sub-label its benign half; treat it as one category
+        // why: The dataset does not sub-label its benign half; treat it as one category
         // rather than inventing a taxonomy it does not carry.
         category: row.label === 1 ? 'attack' : 'user-prompt',
       }));
@@ -385,7 +384,7 @@ function recordsFromYaml(yaml: string): string[] {
         listKey = '';
         continue;
       }
-      // A bare `key:` opens a list. Without tracking it, the items below attach to
+      // why: A bare `key:` opens a list. Without tracking it, the items below attach to
       // the previous field and overwrite it — which silently dropped sender
       // addresses from every email record.
       if (parsed?.kind === 'header') {
@@ -421,7 +420,7 @@ const agentDojo: CorpusSource = {
           fixture.path.replaceAll('/', '_'),
         );
       } catch {
-        // A suite that moved upstream should not fail the whole run.
+        // why: A suite that moved upstream should not fail the whole run.
         continue;
       }
       for (const text of recordsFromYaml(raw)) {
@@ -433,7 +432,6 @@ const agentDojo: CorpusSource = {
         });
       }
     }
-    // Fixtures are fetched whole; the sample cap decides how many are scored.
     return samples.slice(0, limit);
   },
 };
@@ -687,7 +685,7 @@ const repoHardNegatives: CorpusSource = {
           });
         }
       } catch {
-        // A malformed row is not worth failing the run over.
+        // why: A malformed row is not worth failing the run over.
       }
     }
     return out;
@@ -797,7 +795,7 @@ function llmailSource(id: string, evadedOnly: boolean): CorpusSource {
           const objectives = JSON.parse(String(row.objectives ?? '{}')) as Record<string, unknown>;
           undetected = objectives['defense.undetected'] === true;
         } catch {
-          // Unparsable objectives: treat as not-evaded rather than guessing.
+          // why: Unparsable objectives: treat as not-evaded rather than guessing.
         }
         if (evadedOnly && !undetected) {
           continue;

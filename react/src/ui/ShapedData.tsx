@@ -13,25 +13,26 @@ import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
 import { Component, type ReactNode, useMemo, useState } from 'react';
 import {
-	fieldLabel,
-	fieldReading,
-	isPlain,
-	isProse,
-	isRow,
-	json,
-	type ListRow,
-	MAX_ROWS,
-	type PlainReading,
-	plainReading,
-	type Row,
-	rowHeading,
-	type Shape,
-	shapeOf,
-	splitFields,
-	unpacked,
-	withUnit,
+  fieldLabel,
+  fieldReading,
+  isPlain,
+  isProse,
+  isRow,
+  json,
+  type ListRow,
+  MAX_ROWS,
+  type PlainReading,
+  plainReading,
+  type Row,
+  rowHeading,
+  type Shape,
+  shapeOf,
+  splitFields,
+  unpacked,
+  withUnit,
 } from '../client/shaped-data.ts';
 import { useLabels } from './labels-provider.tsx';
+import { keyedByContent } from './row-keys.ts';
 
 /**
  * Tool call data and structured replies drawn by their shape instead of as
@@ -57,322 +58,375 @@ import { useLabels } from './labels-provider.tsx';
 
 type Labels = ReturnType<typeof useLabels>;
 type Formats = {
-	integer: Intl.NumberFormat;
-	decimal: Intl.NumberFormat;
-	dateTime: Intl.DateTimeFormat;
-	date: Intl.DateTimeFormat;
+  integer: Intl.NumberFormat;
+  decimal: Intl.NumberFormat;
+  dateTime: Intl.DateTimeFormat;
+  date: Intl.DateTimeFormat;
 };
 
 /** Each way a plain value reads, drawn. */
-const READINGS: { [K in PlainReading['kind']]: (reading: Extract<PlainReading, { kind: K }>, formats: Formats, t: Labels) => ReactNode } = {
-	none: () => <Text color="secondary">—</Text>,
-	boolean: ({ value }, _, t) => t(value ? '@theorem.data.yes' : '@theorem.data.no'),
-	number: ({ value, unit }, formats) => withUnit((Number.isInteger(value) ? formats.integer : formats.decimal).format(value), unit),
-	link: ({ href }) => (
-		<Link href={href} target="_blank" rel="noreferrer">
-			{href}
-		</Link>
-	),
-	date: ({ date }, formats) => formats.date.format(date),
-	'date-time': ({ date }, formats) => formats.dateTime.format(date),
-	// Prose (an answer, a summary) is usually Markdown; headings start small, under the section's own.
-	text: ({ text }) =>
-		isProse(text) ? (
-			<Markdown density="compact" headingLevelStart={4}>
-				{text}
-			</Markdown>
-		) : (
-			<span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</span>
-		),
+const READINGS: {
+  [K in PlainReading['kind']]: (
+    reading: Extract<PlainReading, { kind: K }>,
+    formats: Formats,
+    t: Labels,
+  ) => ReactNode;
+} = {
+  none: () => <Text color="secondary">—</Text>,
+  boolean: ({ value }, _, t) => t(value ? '@theorem.data.yes' : '@theorem.data.no'),
+  number: ({ value, unit }, formats) =>
+    withUnit((Number.isInteger(value) ? formats.integer : formats.decimal).format(value), unit),
+  link: ({ href }) => (
+    <Link href={href} target="_blank" rel="noreferrer">
+      {href}
+    </Link>
+  ),
+  date: ({ date }, formats) => formats.date.format(date),
+  'date-time': ({ date }, formats) => formats.dateTime.format(date),
+  // why: Prose (an answer, a summary) is usually Markdown; headings start small, under the section's own.
+  text: ({ text }) =>
+    isProse(text) ? (
+      <Markdown density="compact" headingLevelStart={4}>
+        {text}
+      </Markdown>
+    ) : (
+      <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</span>
+    ),
 };
 
 function Plain({ value, unit }: { value: unknown; unit?: string }): ReactNode {
-	const t = useLabels();
-	const locale = useLocale();
-	const formats = useMemo(
-		() => ({
-			// No grouping: ids and years read as written. Six significant digits: a timing reads 1.40369.
-			integer: new Intl.NumberFormat(locale, { useGrouping: false }),
-			decimal: new Intl.NumberFormat(locale, { useGrouping: false, maximumSignificantDigits: 6 }),
-			dateTime: new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }),
-			// A bare date is a calendar day, parsed at UTC midnight: read it in UTC, or it slips a day west of Greenwich.
-			date: new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }),
-		}),
-		[locale],
-	);
-	const reading = plainReading(value, unit);
-	return (READINGS[reading.kind] as (reading: PlainReading, formats: Formats, t: Labels) => ReactNode)(reading, formats, t);
+  const t = useLabels();
+  const locale = useLocale();
+  const formats = useMemo(
+    () => ({
+      // why: No grouping: ids and years read as written. Six significant digits: a timing reads 1.40369.
+      integer: new Intl.NumberFormat(locale, { useGrouping: false }),
+      decimal: new Intl.NumberFormat(locale, { useGrouping: false, maximumSignificantDigits: 6 }),
+      dateTime: new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }),
+      // why: A bare date is a calendar day, parsed at UTC midnight: read it in UTC, or it slips a day west of Greenwich.
+      date: new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }),
+    }),
+    [locale],
+  );
+  const reading = plainReading(value, unit);
+  return (
+    READINGS[reading.kind] as (reading: PlainReading, formats: Formats, t: Labels) => ReactNode
+  )(reading, formats, t);
 }
 
 /** JSON past this many characters isn't laid out or highlighted in full: the page stays responsive however big the payload. */
 const LARGE_JSON_CHARS = 200_000;
 
 function Json({ text }: { text: string }) {
-	const code = text.length > LARGE_JSON_CHARS ? `${text.slice(0, LARGE_JSON_CHARS)}\n…` : text;
-	return <CodeBlock code={code} language="json" hasLanguageLabel={false} size="sm" width="100%" />;
+  const code = text.length > LARGE_JSON_CHARS ? `${text.slice(0, LARGE_JSON_CHARS)}\n…` : text;
+  return <CodeBlock code={code} language="json" hasLanguageLabel={false} size="sm" width="100%" />;
 }
 
 /** Past MAX_ROWS, a note that the rest are in the JSON view. */
 function More({ total }: { total: number }) {
-	const t = useLabels();
-	if (total <= MAX_ROWS) return null;
-	return (
-		<Text type="supporting" color="secondary">
-			{t('@theorem.data.more', { count: String(total - MAX_ROWS) })}
-		</Text>
-	);
+  const t = useLabels();
+  if (total <= MAX_ROWS) return null;
+  return (
+    <Text type="supporting" color="secondary">
+      {t('@theorem.data.more', { count: String(total - MAX_ROWS) })}
+    </Text>
+  );
 }
 
 type TableRow = { id: string; cells: Row };
 
-function DataTable({ columns, rows, units }: { columns: readonly string[]; rows: readonly Row[]; units?: Row }) {
-	const tableColumns: TableColumn<TableRow>[] = columns.map((key, index) => {
-		const { label, unit } = fieldLabel(key, units);
-		return {
-			key: `c${String(index)}`,
-			header: unit ? `${label} (${unit})` : label,
-			renderCell: (row) => <Plain value={row.cells[key]} />,
-		};
-	});
-	const data = rows.slice(0, MAX_ROWS).map((cells, index) => ({ id: String(index), cells }));
-	return (
-		<VStack gap={1}>
-			<Table data={data} columns={tableColumns} idKey="id" density="compact" textOverflow="truncate" />
-			<More total={rows.length} />
-		</VStack>
-	);
+function DataTable({
+  columns,
+  rows,
+  units,
+}: {
+  columns: readonly string[];
+  rows: readonly Row[];
+  units?: Row;
+}) {
+  const tableColumns: TableColumn<TableRow>[] = columns.map((key, index) => {
+    const { label, unit } = fieldLabel(key, units);
+    return {
+      key: `c${String(index)}`,
+      header: unit ? `${label} (${unit})` : label,
+      renderCell: (row) => <Plain value={row.cells[key]} />,
+    };
+  });
+  const data = rows.slice(0, MAX_ROWS).map((cells, index) => ({ id: String(index), cells }));
+  return (
+    <VStack gap={1}>
+      <Table
+        data={data}
+        columns={tableColumns}
+        idKey="id"
+        density="compact"
+        textOverflow="truncate"
+      />
+      <More total={rows.length} />
+    </VStack>
+  );
 }
 
 /** A list row's extra fields and tags, at its end. */
 function ListRowEnd({ row }: { row: ListRow }) {
-	if (row.tags.length + row.extras.length === 0) return undefined;
-	return (
-		<HStack gap={2} vAlign="center">
-			{row.extras.map(([key, value]) => {
-				const { label, unit } = fieldReading(key, value);
-				return (
-					<Text key={key} type="supporting" color="secondary">
-						{label} <Plain value={value} unit={unit} />
-					</Text>
-				);
-			})}
-			{row.tags.map((tag) => (
-				<Token key={tag} label={tag} size="sm" />
-			))}
-		</HStack>
-	);
+  if (row.tags.length + row.extras.length === 0) return undefined;
+  return (
+    <HStack gap={2} vAlign="center">
+      {row.extras.map(([key, value]) => {
+        const { label, unit } = fieldReading(key, value);
+        return (
+          <Text key={key} type="supporting" color="secondary">
+            {label} <Plain value={value} unit={unit} />
+          </Text>
+        );
+      })}
+      {row.tags.map((tag) => (
+        <Token key={tag} label={tag} size="sm" />
+      ))}
+    </HStack>
+  );
 }
 
 function DataList({ rows }: { rows: readonly ListRow[] }) {
-	return (
-		<VStack gap={1}>
-			<List hasDividers density="compact">
-				{rows.slice(0, MAX_ROWS).map((row, index) => (
-					<ListItem
-						// biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity of their own
-						key={index}
-						label={row.title}
-						description={row.description}
-						href={row.href}
-						target={row.href ? '_blank' : undefined}
-						rel={row.href ? 'noreferrer' : undefined}
-						endContent={<ListRowEnd row={row} />}
-					/>
-				))}
-			</List>
-			<More total={rows.length} />
-		</VStack>
-	);
+  return (
+    <VStack gap={1}>
+      <List hasDividers density="compact">
+        {keyedByContent(rows.slice(0, MAX_ROWS), (row) => row.title).map(({ item: row, key }) => (
+          <ListItem
+            key={key}
+            label={row.title}
+            description={row.description}
+            href={row.href}
+            target={row.href ? '_blank' : undefined}
+            rel={row.href ? 'noreferrer' : undefined}
+            endContent={<ListRowEnd row={row} />}
+          />
+        ))}
+      </List>
+      <More total={rows.length} />
+    </VStack>
+  );
 }
 
 function Rows({ items, depth }: { items: readonly unknown[]; depth: number }) {
-	const t = useLabels();
-	return (
-		<VStack gap={1}>
-			<CollapsibleGroup type="multiple" hasDividers density="compact">
-				{items.slice(0, MAX_ROWS).map((item, index) => {
-					const heading = rowHeading(item);
-					return (
-						<Collapsible
-							// biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity of their own
-							key={index}
-							value={String(index)}
-							trigger={
-								<HStack gap={2} vAlign="center" wrap="wrap">
-									<Text type="body">{heading.title ?? t('@theorem.data.item', { index: String(index + 1) })}</Text>
-									{heading.tags.map((tag) => (
-										<Token key={tag} label={tag} size="sm" />
-									))}
-								</HStack>
-							}
-						>
-							<Node value={heading.rest} depth={depth + 1} />
-						</Collapsible>
-					);
-				})}
-			</CollapsibleGroup>
-			<More total={items.length} />
-		</VStack>
-	);
+  const t = useLabels();
+  return (
+    <VStack gap={1}>
+      <CollapsibleGroup type="multiple" hasDividers density="compact">
+        {keyedByContent(items.slice(0, MAX_ROWS), (item) => JSON.stringify(item) ?? '').map(
+          ({ item, index, key }) => {
+            const heading = rowHeading(item);
+            return (
+              <Collapsible
+                key={key}
+                value={String(index)}
+                trigger={
+                  <HStack gap={2} vAlign="center" wrap="wrap">
+                    <Text type="body">
+                      {heading.title ?? t('@theorem.data.item', { index: String(index + 1) })}
+                    </Text>
+                    {heading.tags.map((tag) => (
+                      <Token key={tag} label={tag} size="sm" />
+                    ))}
+                  </HStack>
+                }
+              >
+                <Node value={heading.rest} depth={depth + 1} />
+              </Collapsible>
+            );
+          },
+        )}
+      </CollapsibleGroup>
+      <More total={items.length} />
+    </VStack>
+  );
 }
 
 function Fields({ row, depth, units }: { row: Row; depth: number; units?: Row }) {
-	const { plain, sections } = splitFields(row);
-	const fields = plain.length > 0 && (
-		<MetadataList label={{ position: 'start', width: '40%' }}>
-			{plain.map(([key, value]) => {
-				const { label, unit } = fieldReading(key, value, units);
-				return (
-					<MetadataListItem key={key} label={label}>
-						{Array.isArray(unpacked(value)) ? <Node value={value} depth={depth + 1} /> : <Plain value={value} unit={unit} />}
-					</MetadataListItem>
-				);
-			})}
-		</MetadataList>
-	);
-	return (
-		<VStack gap={2}>
-			{/* Beside a top-level section, plain fields are usually request echo (coordinates, timings): the section leads. */}
-			{depth > 0 && fields}
-			{sections.length > 0 && (
-				<CollapsibleGroup
-					type="multiple"
-					hasDividers
-					density="compact"
-					// The top level's first section starts open: it's usually the payload. The rest wait to be asked for.
-					defaultValue={depth === 0 ? sections.slice(0, 1).map((shown) => shown.key) : []}
-				>
-					{sections.map((shown) => (
-						<Collapsible key={shown.key} value={shown.key} trigger={<Text type="label">{shown.title}</Text>}>
-							{/* A section's content steps in so its depth reads. */}
-							<VStack paddingInlineStart={3}>
-								<Node value={shown.value} depth={depth + 1} units={shown.units} />
-							</VStack>
-						</Collapsible>
-					))}
-				</CollapsibleGroup>
-			)}
-			{depth === 0 && fields}
-		</VStack>
-	);
+  const { plain, sections } = splitFields(row);
+  const fields = plain.length > 0 && (
+    <MetadataList label={{ position: 'start', width: '40%' }}>
+      {plain.map(([key, value]) => {
+        const { label, unit } = fieldReading(key, value, units);
+        return (
+          <MetadataListItem key={key} label={label}>
+            {Array.isArray(unpacked(value)) ? (
+              <Node value={value} depth={depth + 1} />
+            ) : (
+              <Plain value={value} unit={unit} />
+            )}
+          </MetadataListItem>
+        );
+      })}
+    </MetadataList>
+  );
+  return (
+    <VStack gap={2}>
+      {/* why: Beside a top-level section, plain fields are usually request echo (coordinates, timings): the section leads. */}
+      {depth > 0 && fields}
+      {sections.length > 0 && (
+        <CollapsibleGroup
+          type="multiple"
+          hasDividers
+          density="compact"
+          // why: The top level's first section starts open: it's usually the payload. The rest wait to be asked for.
+          defaultValue={depth === 0 ? sections.slice(0, 1).map((shown) => shown.key) : []}
+        >
+          {sections.map((shown) => (
+            <Collapsible
+              key={shown.key}
+              value={shown.key}
+              trigger={<Text type="label">{shown.title}</Text>}
+            >
+              <VStack paddingInlineStart={3}>
+                <Node value={shown.value} depth={depth + 1} units={shown.units} />
+              </VStack>
+            </Collapsible>
+          ))}
+        </CollapsibleGroup>
+      )}
+      {depth === 0 && fields}
+    </VStack>
+  );
 }
 
 type NodeProps = { value: unknown; depth: number; units?: Row; t: Labels };
 
 /** Each shape a value takes, drawn. */
-const SHAPES: { [K in Shape['kind']]: (shape: Extract<Shape, { kind: K }>, props: NodeProps) => ReactNode } = {
-	json: (_, { value }) => <Json text={json(value)} />,
-	none: (_, { t }) => <Text color="secondary">{t('@theorem.data.none')}</Text>,
-	plain: (_, { value }) => (
-		<Text type="body">
-			<Plain value={value} />
-		</Text>
-	),
-	tokens: ({ items }) => (
-		<VStack gap={1}>
-			<HStack gap={1} wrap="wrap">
-				{items.slice(0, MAX_ROWS).map((item, index) => (
-					// biome-ignore lint/suspicious/noArrayIndexKey: plain values can repeat
-					<Token key={index} label={item === null ? '—' : String(item)} size="sm" />
-				))}
-			</HStack>
-			<More total={items.length} />
-		</VStack>
-	),
-	list: ({ rows }) => <DataList rows={rows} />,
-	table: ({ columns, rows }, { units }) => <DataTable columns={columns} rows={rows} units={units} />,
-	rows: ({ items }, { depth }) => <Rows items={items} depth={depth} />,
-	fields: ({ row }, { depth, units }) => <Fields row={row} depth={depth} units={units} />,
+const SHAPES: {
+  [K in Shape['kind']]: (shape: Extract<Shape, { kind: K }>, props: NodeProps) => ReactNode;
+} = {
+  json: (_, { value }) => <Json text={json(value)} />,
+  none: (_, { t }) => <Text color="secondary">{t('@theorem.data.none')}</Text>,
+  plain: (_, { value }) => (
+    <Text type="body">
+      <Plain value={value} />
+    </Text>
+  ),
+  tokens: ({ items }) => (
+    <VStack gap={1}>
+      <HStack gap={1} wrap="wrap">
+        {keyedByContent(items.slice(0, MAX_ROWS), (item) => String(item)).map(({ item, key }) => (
+          <Token key={key} label={item === null ? '—' : String(item)} size="sm" />
+        ))}
+      </HStack>
+      <More total={items.length} />
+    </VStack>
+  ),
+  list: ({ rows }) => <DataList rows={rows} />,
+  table: ({ columns, rows }, { units }) => (
+    <DataTable columns={columns} rows={rows} units={units} />
+  ),
+  rows: ({ items }, { depth }) => <Rows items={items} depth={depth} />,
+  fields: ({ row }, { depth, units }) => <Fields row={row} depth={depth} units={units} />,
 };
 
-function Node({ value: raw, depth, units }: { value: unknown; depth: number; units?: Row }): ReactNode {
-	const t = useLabels();
-	const value = unpacked(raw);
-	const shape = shapeOf(value, depth);
-	return (SHAPES[shape.kind] as (shape: Shape, props: NodeProps) => ReactNode)(shape, { value, depth, units, t });
+function Node({
+  value: raw,
+  depth,
+  units,
+}: {
+  value: unknown;
+  depth: number;
+  units?: Row;
+}): ReactNode {
+  const t = useLabels();
+  const value = unpacked(raw);
+  const shape = shapeOf(value, depth);
+  return (SHAPES[shape.kind] as (shape: Shape, props: NodeProps) => ReactNode)(shape, {
+    value,
+    depth,
+    units,
+    t,
+  });
 }
 
 /** A render the rules didn't foresee throws into the JSON, never into the transcript. */
-class ShapeBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
-	override state = { failed: false };
+class ShapeBoundary extends Component<
+  { fallback: ReactNode; children: ReactNode },
+  { failed: boolean }
+> {
+  override state = { failed: false };
 
-	static getDerivedStateFromError(): { failed: boolean } {
-		return { failed: true };
-	}
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
 
-	override render(): ReactNode {
-		return this.state.failed ? this.props.fallback : this.props.children;
-	}
+  override render(): ReactNode {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
 }
 
 export type ShapedDataProps = {
-	value: unknown;
-	title?: string;
-	/** Drawn above the data in its data view (a tool result's figures and charts); a render that throws falls back to the JSON with it. */
-	lead?: ReactNode;
-	/** Top-level fields the lead already shows: the data view leaves them out, the JSON keeps them. */
-	ledKeys?: readonly string[];
+  value: unknown;
+  title?: string;
+  /** Drawn above the data in its data view (a tool result's figures and charts); a render that throws falls back to the JSON with it. */
+  lead?: ReactNode;
+  /** Top-level fields the lead already shows: the data view leaves them out, the JSON keeps them. */
+  ledKeys?: readonly string[];
 };
 
 /** A tool call's input, output or failure, or a structured reply, with a switch to its JSON. */
 export function ShapedData({ value: raw, title, lead, ledKeys = [] }: ShapedDataProps) {
-	const t = useLabels();
-	const locale = useLocale();
-	const [view, setView] = useState<'data' | 'json'>('data');
-	const value = unpacked(raw);
-	// A plain value reads the same either way; only structure gets the switch.
-	const structured = !isPlain(value);
-	const text = useMemo(() => (structured ? json(value) : ''), [structured, value]);
-	// What the lead hasn't shown; nothing when it showed every field.
-	const rest = useMemo(() => {
-		if (!ledKeys.length || !isRow(value)) return value;
-		const left = Object.entries(value).filter(([key]) => !ledKeys.includes(key));
-		return left.length ? Object.fromEntries(left) : undefined;
-	}, [value, ledKeys]);
-	if (text.length > LARGE_JSON_CHARS) {
-		const size = new Intl.NumberFormat(locale, { style: 'unit', unit: 'kilobyte', maximumFractionDigits: 0 }).format(LARGE_JSON_CHARS / 1000);
-		return (
-			<VStack gap={2}>
-				<Text type="supporting" color="secondary">
-					{title}
-				</Text>
-				<Text type="supporting" color="secondary">
-					{t('@theorem.data.large', { size })}
-				</Text>
-				<Json text={text} />
-			</VStack>
-		);
-	}
-	return (
-		<VStack gap={2}>
-			<HStack gap={2} vAlign="center" hAlign="between">
-				<Text type="supporting" color="secondary">
-					{title}
-				</Text>
-				{structured && (
-					<SegmentedControl
-						label={t('@theorem.data.view')}
-						size="sm"
-						value={view}
-						onChange={(next) => {
-							setView(next === 'json' ? 'json' : 'data');
-						}}
-					>
-						<SegmentedControlItem value="data" label={t('@theorem.data.shaped')} />
-						<SegmentedControlItem value="json" label={t('@theorem.data.json')} />
-					</SegmentedControl>
-				)}
-			</HStack>
-			{view === 'json' && structured ? (
-				<Json text={text} />
-			) : (
-				<ShapeBoundary fallback={<Json text={text} />}>
-					<VStack gap={3}>
-						{lead}
-						{rest === undefined ? null : <Node value={rest} depth={0} />}
-					</VStack>
-				</ShapeBoundary>
-			)}
-		</VStack>
-	);
+  const t = useLabels();
+  const locale = useLocale();
+  const [view, setView] = useState<'data' | 'json'>('data');
+  const value = unpacked(raw);
+  const structured = !isPlain(value);
+  const text = useMemo(() => (structured ? json(value) : ''), [structured, value]);
+  const rest = useMemo(() => {
+    if (!ledKeys.length || !isRow(value)) return value;
+    const left = Object.entries(value).filter(([key]) => !ledKeys.includes(key));
+    return left.length ? Object.fromEntries(left) : undefined;
+  }, [value, ledKeys]);
+  if (text.length > LARGE_JSON_CHARS) {
+    const size = new Intl.NumberFormat(locale, {
+      style: 'unit',
+      unit: 'kilobyte',
+      maximumFractionDigits: 0,
+    }).format(LARGE_JSON_CHARS / 1000);
+    return (
+      <VStack gap={2}>
+        <Text type="supporting" color="secondary">
+          {title}
+        </Text>
+        <Text type="supporting" color="secondary">
+          {t('@theorem.data.large', { size })}
+        </Text>
+        <Json text={text} />
+      </VStack>
+    );
+  }
+  return (
+    <VStack gap={2}>
+      <HStack gap={2} vAlign="center" hAlign="between">
+        <Text type="supporting" color="secondary">
+          {title}
+        </Text>
+        {structured && (
+          <SegmentedControl
+            label={t('@theorem.data.view')}
+            size="sm"
+            value={view}
+            onChange={(next) => {
+              setView(next === 'json' ? 'json' : 'data');
+            }}
+          >
+            <SegmentedControlItem value="data" label={t('@theorem.data.shaped')} />
+            <SegmentedControlItem value="json" label={t('@theorem.data.json')} />
+          </SegmentedControl>
+        )}
+      </HStack>
+      {view === 'json' && structured ? (
+        <Json text={text} />
+      ) : (
+        <ShapeBoundary fallback={<Json text={text} />}>
+          <VStack gap={3}>
+            {lead}
+            {rest === undefined ? null : <Node value={rest} depth={0} />}
+          </VStack>
+        </ShapeBoundary>
+      )}
+    </VStack>
+  );
 }

@@ -63,7 +63,6 @@ function mediaLabeler(trial: Trial): (part: Record<string, unknown>) => string {
   return (part) => byKey.get(mediaKey(part) ?? '') ?? `[${String(part.type)}]`;
 }
 
-// A file's hash is the one its case pins.
 async function caseAttachments(trial: Trial): Promise<Map<string, EvalAttachment>> {
   const byHash = new Map<string, EvalAttachment>();
   const input = trial.case?.input;
@@ -79,7 +78,7 @@ async function caseAttachments(trial: Trial): Promise<Map<string, EvalAttachment
   return byHash;
 }
 
-// The host's bytes for a hash, only when they are the bytes the trace hashed.
+// why: The host's bytes for a hash, only when they are the bytes the trace hashed.
 async function fromHost(
   sha256: string,
   mimeType: string,

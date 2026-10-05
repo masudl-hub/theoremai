@@ -107,7 +107,7 @@ function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | 
   if (profileInputs(profile)?.text === false && text) {
     throw new TheoremError('request', `Profile ${profile.id} does not accept text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  // A repair is the kernel's, not the user's, so it applies even when the profile takes no user text.
+  // why: A repair is the kernel's, not the user's, so it applies even when the profile takes no user text.
   const promptText = repair
     ? synthesizeRepairPrompt({ profile, repair, history })
     : (continueText(profile, req) ?? text);

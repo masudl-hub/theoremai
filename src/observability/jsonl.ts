@@ -75,7 +75,7 @@ export function jsonlSink(dir: string, options: JsonlSinkOptions = {}): TraceSin
   return {
     write: async (record, context) => {
       const at = now();
-      // Records hold conversation content: readable by the host's user only.
+      // why: Records hold conversation content: readable by the host's user only.
       await mkdir(safeDir, { recursive: true, mode: OWNER_ONLY_DIR });
       await pruneTraces(safeDir, at, context.retainForDays);
       const path = await pickFile(safeDir, at, context.rotateAfterMiB * MIB);

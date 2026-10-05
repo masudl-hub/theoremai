@@ -95,7 +95,7 @@ function unauthenticatedResult(
   extras?: { issuer?: string; resource?: string },
 ): AuthResolveResult & { gate?: ToolGate } {
   if (policy === 'gate') {
-    // The caller emits the gate through emitGateSettlement, so `pre_tool` runs first.
+    // why: The caller emits the gate through emitGateSettlement, so `pre_tool` runs first.
     const gate = buildAuthGate(toolName, authConfig, message, extras);
     return { headers: {}, unauthenticated: true, gate };
   }
@@ -169,7 +169,7 @@ async function* resolveOAuth2Credential(
 ): AsyncGenerator<TurnEvent, AuthResolveResult> {
   const slot = authConfig.slot;
   const bound = { issuer: credential.issuer, resource: credential.resource };
-  // A token goes only to the resource it was issued for; one that names none
+  // invariant: A token goes only to the resource it was issued for; one that names none
   // has nowhere it may go, so the user signs in again.
   if (typeof credential.resource !== 'string' || credential.resource.length === 0) {
     const message = `OAuth credential for '${toolName}' (slot: '${slot}') does not name the resource it was issued for.`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -188,7 +188,7 @@ async function* resolveOAuth2Credential(
         await source.clientSecret?.(credential.clientId),
       );
     } catch (err) {
-      // The server's own words are untrusted text: they go to the host as
+      // invariant: The server's own words are untrusted text: they go to the host as
       // `errorInternal`, never to the model or the client.
       yield {
         ...toolEvent(base, {
@@ -200,7 +200,7 @@ async function* resolveOAuth2Credential(
       const message = `Failed to refresh OAuth token for '${toolName}' (slot: '${slot}').`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       return unauthenticatedResult(toolName, authConfig, message, policy, bound);
     }
-    // The host persists the refreshed credential before the call goes on; the
+    // why: The host persists the refreshed credential before the call goes on; the
     // event only names the slot, so no token rides the stream.
     await source.set(slot, active);
     yield toolEvent(base, {
@@ -362,7 +362,7 @@ export function parseToolOutput<T>(
         checked = retryChecked;
       }
     } catch {
-      // Not JSON: the schema's first result stands.
+      // why: Not JSON: the schema's first result stands.
     }
   }
   return checked;
@@ -849,7 +849,7 @@ export function parseMcpRpcResponse(text: string): McpRpcResponse {
     try {
       messages.push(JSON.parse(payload) as McpRpcResponse);
     } catch {
-      // Pings and other non-JSON payloads.
+      // why: Pings and other non-JSON payloads.
     }
   }
 
@@ -882,7 +882,7 @@ function unsupportedProtocolFromHttpBody(text: string): McpRpcResponse['error'] 
       return rpcResponse.error;
     }
   } catch {
-    // A non-JSON error page falls through to the raw-text check.
+    // why: A non-JSON error page falls through to the raw-text check.
   }
   // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   if (text.toLowerCase().includes('unsupported protocol version')) {
@@ -925,7 +925,7 @@ async function fetchMcpProtocolAttempt(
     params: {
       name: mcpToolName,
       arguments: input,
-      // Stateless servers read the client's capabilities from each call, not from an initialize.
+      // why: Stateless servers read the client's capabilities from each call, not from an initialize.
       _meta: {
         'io.modelcontextprotocol/protocolVersion': protocolVersion,
         'io.modelcontextprotocol/clientCapabilities': {},
@@ -1164,7 +1164,7 @@ async function negotiateInSession(
     }
     if (outcome.kind === 'rpc') return { rpc: outcome.response };
     if (outcome.kind === 'failure') {
-      // A server can echo the session ID in its error; it goes no further than the server.
+      // why: A server can echo the session ID in its error; it goes no further than the server.
       const failure = {
         ...outcome.failure,
         message: outcome.failure.message.replaceAll(session.id, '[session]'),

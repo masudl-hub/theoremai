@@ -4,7 +4,7 @@
  * @module
  */
 
-// Astryx's documented order: reset → components → theme.
+// why: Astryx's documented order: reset → components → theme.
 import '@astryxdesign/core/reset.css';
 import '@astryxdesign/core/astryx.css';
 import './ui/built/theme.css';

@@ -1,4 +1,4 @@
-// Each type is paired with a zod schema checked against it (`Equals`), so a field in one and
+// invariant: Each type is paired with a zod schema checked against it (`Equals`), so a field in one and
 // not the other fails the build. Schemas are plain `z.object`, never `.strict()`: an unlisted
 // field is dropped. An unmapped provider step is `evidence` of kind `provider_step`.
 

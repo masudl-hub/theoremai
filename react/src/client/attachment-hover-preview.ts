@@ -7,49 +7,49 @@ const ATTACH_PREVIEW_VIEWPORT_PAD_PX = 8;
 const ATTACH_PREVIEW_ABOVE_THRESHOLD_PX = 190;
 
 export type AttachPreviewStyle = {
-	left: number;
-	top?: number;
-	bottom?: number;
+  left: number;
+  top?: number;
+  bottom?: number;
 };
 
 export function formatAttachmentSize(bytes?: number): string {
-	if (!bytes || bytes <= 0) return '';
-	if (bytes < 1024) return `${String(bytes)} B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (!bytes || bytes <= 0) return '';
+  if (bytes < 1024) return `${String(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function clampAttachPreviewLeft(anchorLeft: number, viewportWidth: number): number {
-	const maxLeft = Math.max(
-		ATTACH_PREVIEW_VIEWPORT_PAD_PX,
-		viewportWidth - ATTACH_PREVIEW_WIDTH_PX - ATTACH_PREVIEW_VIEWPORT_PAD_PX,
-	);
-	return Math.min(Math.max(ATTACH_PREVIEW_VIEWPORT_PAD_PX, anchorLeft), maxLeft);
+  const maxLeft = Math.max(
+    ATTACH_PREVIEW_VIEWPORT_PAD_PX,
+    viewportWidth - ATTACH_PREVIEW_WIDTH_PX - ATTACH_PREVIEW_VIEWPORT_PAD_PX,
+  );
+  return Math.min(Math.max(ATTACH_PREVIEW_VIEWPORT_PAD_PX, anchorLeft), maxLeft);
 }
 
 export function resolveAttachPreviewStyle(
-	anchor: Pick<DOMRect, 'left' | 'top' | 'bottom'>,
-	viewport: { width: number; height: number } = {
-		width: (globalThis as { innerWidth?: number }).innerWidth ?? 0,
-		height: (globalThis as { innerHeight?: number }).innerHeight ?? 0,
-	},
+  anchor: Pick<DOMRect, 'left' | 'top' | 'bottom'>,
+  viewport: { width: number; height: number } = {
+    width: (globalThis as { innerWidth?: number }).innerWidth ?? 0,
+    height: (globalThis as { innerHeight?: number }).innerHeight ?? 0,
+  },
 ): AttachPreviewStyle {
-	const left = clampAttachPreviewLeft(anchor.left, viewport.width);
-	const hasRoomAbove = anchor.top > ATTACH_PREVIEW_ABOVE_THRESHOLD_PX;
-	if (hasRoomAbove) {
-		return {
-			left,
-			bottom: Math.max(
-				ATTACH_PREVIEW_VIEWPORT_PAD_PX,
-				viewport.height - anchor.top + ATTACH_PREVIEW_OFFSET_PX,
-			),
-		};
-	}
-	return {
-		left,
-		top: Math.min(
-			viewport.height - ATTACH_PREVIEW_VIEWPORT_PAD_PX,
-			anchor.bottom + ATTACH_PREVIEW_OFFSET_PX,
-		),
-	};
+  const left = clampAttachPreviewLeft(anchor.left, viewport.width);
+  const hasRoomAbove = anchor.top > ATTACH_PREVIEW_ABOVE_THRESHOLD_PX;
+  if (hasRoomAbove) {
+    return {
+      left,
+      bottom: Math.max(
+        ATTACH_PREVIEW_VIEWPORT_PAD_PX,
+        viewport.height - anchor.top + ATTACH_PREVIEW_OFFSET_PX,
+      ),
+    };
+  }
+  return {
+    left,
+    top: Math.min(
+      viewport.height - ATTACH_PREVIEW_VIEWPORT_PAD_PX,
+      anchor.bottom + ATTACH_PREVIEW_OFFSET_PX,
+    ),
+  };
 }

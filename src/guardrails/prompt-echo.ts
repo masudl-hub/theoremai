@@ -113,7 +113,7 @@ function viewReadings(stretches: readonly string[], canary?: string): PromptRead
 
 /** A run with a slot, keyed by where the slot is and the words around it. */
 function slotKey(run: readonly string[], slot: number): string {
-  // Bare numbers are never words here, so the slot's index leads unambiguously.
+  // why: Bare numbers are never words here, so the slot's index leads unambiguously.
   return [slot, ...run.filter((_, k) => k !== slot)].join(' ');
 }
 
@@ -303,7 +303,7 @@ function echoRanges(
     const run = words.slice(from, from + PROMPT_ECHO_WORDS).map((entry) => entry.word);
     const slot = matchRun(grams, run);
     if (slot === undefined) continue;
-    // A stand-in for the canary at either end is the model's, not the prompt's.
+    // why: A stand-in for the canary at either end is the model's, not the prompt's.
     const first = slot === 0 ? from + 1 : from;
     const last = slot === PROMPT_ECHO_WORDS - 1 ? from + slot - 1 : from + PROMPT_ECHO_WORDS - 1;
     ranges.push([words[first]?.at ?? 0, words[last]?.to ?? 0]);

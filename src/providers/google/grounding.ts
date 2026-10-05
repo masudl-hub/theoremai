@@ -1,7 +1,7 @@
 import { asRecord, nonEmptyString } from '../../kernel/engine/record.ts';
 import type { GroundingEvent, ProviderEvent, Source } from '../../kernel/types.ts';
 
-/*
+/* probed 2026-09-23:
  * Grounding reads only the shapes recorded from the wire (probes 23/09/2026):
  *
  * - Interactions (`google_search`, `google_maps`): `google_search_result` /

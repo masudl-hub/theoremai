@@ -5,7 +5,7 @@
 
 const MAX_SESSIONS = 256;
 const IDLE_MS = 30 * 60 * 1000;
-// The spec allows visible ASCII only; the cap keeps a server from bloating every later request.
+// why: The spec allows visible ASCII only; the cap keeps a server from bloating every later request.
 const SESSION_ID = /^[\x21-\x7E]{1,256}$/;
 
 export type McpSession = { id: string; protocolVersion: string };
@@ -28,7 +28,7 @@ export function createMcpSessionCache(now: () => number = Date.now): McpSessionC
       if (!entry) return undefined;
       sessions.delete(key);
       if (now() - entry.usedAt > IDLE_MS) return undefined;
-      // Re-inserting keeps the map in least-recently-used order for eviction.
+      // why: Re-inserting keeps the map in least-recently-used order for eviction.
       sessions.set(key, { ...entry, usedAt: now() });
       return { id: entry.id, protocolVersion: entry.protocolVersion };
     },

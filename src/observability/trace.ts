@@ -1,4 +1,4 @@
-// Tracing is host-injected: THEOREM reads no environment variables and owns no database sink.
+// invariant: Tracing is host-injected: THEOREM reads no environment variables and owns no database sink.
 
 import { buildRecord, type TraceRecord } from './trace-record.ts';
 import type { TraceSink } from './trace-sink.ts';
@@ -20,7 +20,7 @@ async function writeTrace(
     try {
       sink.onError?.(err);
     } catch {
-      // Host onError must not fail the turn.
+      // why: Host onError must not fail the turn.
     }
   }
 }

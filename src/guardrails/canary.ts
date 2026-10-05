@@ -63,7 +63,7 @@ function requestGivesCanary(
 }
 
 function stripUserFences(text: string): string {
-  // Until none is left: removing one can join the text around it into another.
+  // why: Until none is left: removing one can join the text around it into another.
   let stripped = text;
   for (let last = ''; stripped !== last; ) {
     last = stripped;
@@ -563,7 +563,7 @@ function wordReader(alphabet: Set<string>): CanaryReader {
   }
 
   function settle(): void {
-    // A long word's characters are already kept, or already taken back out.
+    // why: A long word's characters are already kept, or already taken back out.
     if (!long) readWord(projection, word, alphabet, false);
     word = [];
     long = undefined;
@@ -581,7 +581,7 @@ function wordReader(alphabet: Set<string>): CanaryReader {
       if (word.length === 0 || long) {
         return '';
       }
-      // Only `kept` is read back: the gap check needs just the last offset.
+      // why: Only `kept` is read back: the gap check needs just the last offset.
       const view = { kept: projection.kept, at: [], to: projection.to.slice(-1) };
       readWord(view, word, alphabet, true);
       return view.kept.slice(projection.kept.length);
@@ -606,7 +606,7 @@ function wordReader(alphabet: Set<string>): CanaryReader {
       return least;
     },
     trim(length) {
-      // A long word still kept may yet be taken back out, leaving what came
+      // why: A long word still kept may yet be taken back out, leaving what came
       // before it to continue a run: keep `length` characters in front of it.
       // Once its text spans more than `LEAK_GAP`, nothing before it can join a
       // run after it, so that can go too. Its text, not what it folds to: a
@@ -632,7 +632,7 @@ function wordReader(alphabet: Set<string>): CanaryReader {
 const readBase64: CanaryReading = {
   key: 'base64',
   foldCase: false,
-  // URL-safe base64 reads as standard; padding is not part of the token.
+  // why: URL-safe base64 reads as standard; padding is not part of the token.
   open: () =>
     settledReader((char) => {
       const standard = char === '-' ? '+' : char === '_' ? '/' : char;
@@ -687,7 +687,7 @@ function canaryLeakForms(canary: string): CanaryLeakForm[] {
   const literal = canary.toLowerCase();
   const forms: CanaryLeakForm[] = [];
   const seen = new Set<string>();
-  // A token that reads the same reversed, or has no letters to rotate, is already covered.
+  // why: A token that reads the same reversed, or has no letters to rotate, is already covered.
   for (const value of [literal, [...literal].reverse().join(''), rot13(literal)]) {
     if (seen.has(value)) continue;
     seen.add(value);
@@ -696,8 +696,6 @@ function canaryLeakForms(canary: string): CanaryLeakForm[] {
     forms.push({ value, min, reading: byCharacter(alphabet) });
     forms.push({ value, min, reading: byWord(alphabet) });
   }
-  // The token's characters as numbers: hex (xxd, %-encoding) and decimal (char codes,
-  // `&#…;`); a hex token also as the bytes it spells, in decimal.
   const codes = [...canary].map((char) => char.charCodeAt(0));
   const decoded = decodedHexBytes(literal);
   for (const value of [
@@ -726,7 +724,7 @@ function canaryLeakForms(canary: string): CanaryLeakForm[] {
       }
     }
   } catch {
-    /* a host canary outside Latin-1 has no base64 form */
+    /* why: a host canary outside Latin-1 has no base64 form */
   }
   formsCache = { canary, forms };
   return forms;
@@ -848,10 +846,10 @@ function leakOpeningFrom(text: string, canary: string, minimum: OpeningMin): num
     const shortest = minimum(form);
     const openings = [openingFrom(kept, at, form, shortest)];
     if (unfinished) {
-      // An opening before the last word stays held until that word ends, whatever it reads as now.
+      // why: An opening before the last word stays held until that word ends, whatever it reads as now.
       const settled = kept.slice(0, unfinished.settled);
       openings.push(openingFrom(settled, at, form, shortest));
-      // The last word may still grow into a spelled character that makes one long enough.
+      // why: The last word may still grow into a spelled character that makes one long enough.
       const grown = [...at.slice(0, unfinished.settled), unfinished.at];
       for (const char of unfinished.spells) {
         openings.push(openingFrom(settled + char, grown, form, shortest));
@@ -912,7 +910,7 @@ function createCanaryScanner(canary: string): CanaryScanner {
 
   function check(reading: StreamReading): boolean {
     const { reader } = reading;
-    // Runs ending before `checked` were read clean; a broken word may have moved it back.
+    // why: Runs ending before `checked` were read clean; a broken word may have moved it back.
     const checked = Math.min(reading.checked, reader.shrunkTo());
     const kept = reader.projection.kept + reader.openKept();
     const found = reading.forms.some(
@@ -1151,7 +1149,7 @@ function isStreamedCanaryEvent(event: ProviderEvent): event is StreamedReplyEven
 
 /** The event with the canary replaced by `OMIT_CANARY` in every string it holds. */
 function redactCanary(event: TurnEvent, canary: string): TurnEvent {
-  // Replacing strings keeps the event's shape; the parse re-types it.
+  // why: Replacing strings keeps the event's shape; the parse re-types it.
   return turnEventSchema.parse(mapStrings(event, (text) => redactCanaryText(text, canary)));
 }
 

@@ -280,7 +280,7 @@ export async function createOAuthPkceFlow(options: CreatePkceFlowOptions): Promi
   const authUrl = httpsUrl(endpoints.authorizationEndpoint, 'authorization_endpoint');
   const tokenEndpoint = httpsUrl(endpoints.tokenEndpoint, 'token_endpoint').href;
   const { issuer } = endpoints;
-  // RFC 8707 audience: always the resource the flow is for; discovery required its metadata to match.
+  // why: RFC 8707 audience: always the resource the flow is for; discovery required its metadata to match.
   httpsUrl(options.resourceServerUrl, 'resource');
   const resource = options.resourceServerUrl;
   assertClientId(options.clientId);

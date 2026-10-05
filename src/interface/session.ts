@@ -146,7 +146,7 @@ function applyTurnEventsToSession(
     if ((event.type === 'tokens' || event.type === 'done') && event.interactionId) {
       previousInteractionId = event.interactionId;
     }
-    // A call's own input size, not the turn's sum (`done.tokens`).
+    // why: A call's own input size, not the turn's sum (`done.tokens`).
     if (event.type === 'tokens' && event.tokens.input) {
       inputTokens = event.tokens.input;
     }

@@ -79,14 +79,14 @@ function mentionsTool(text: string, tool: string): boolean {
  */
 function directiveHits(text: string, callableTools: readonly string[] = []): GuardrailHit[] {
   if (!text || !EXFIL_TARGET.test(text)) {
-    // No destination, no exfiltration. Action-shaped attacks that carry no target
+    // why: No destination, no exfiltration. Action-shaped attacks that carry no target
     // are left to the taint gate, which does not depend on reading the content.
     return [];
   }
   const normalized = normalizeForDetection(text);
   const hits: GuardrailHit[] = [];
 
-  // One hit per named tool — several names is a stronger signal than one.
+  // why: One hit per named tool — several names is a stronger signal than one.
   for (const _tool of callableTools.filter((tool) => mentionsTool(normalized, tool))) {
     hits.push({ rule: DIRECTIVE_RULES.toolName, severity: 'high' });
   }

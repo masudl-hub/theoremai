@@ -61,6 +61,7 @@ Read [`writing.md`](writing.md). The short version:
 - Steps are imperative and numbered: "Mount the handler."
 - No idioms, no figures of speech, no phrasal verbs where a plain verb exists ("start", not "spin up").
 - Say what a thing does, not what it "helps with" or "enables".
+- Be polite and plain, in the voice of `src/guardrails/lexicon.ts`. Never curt, never blaming. See the tone section in `writing.md`.
 - Gloss jargon on first use in one clause. The reader is smart and may not be an ML specialist.
 
 ### 5. Add a diagram when it is faster than the words

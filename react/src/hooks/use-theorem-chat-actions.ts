@@ -1,439 +1,446 @@
-import { useCallback, type MutableRefObject } from 'react';
 import { TheoremError } from '@theoremjs/agents';
 import type {
-	AttachmentValidationIssue,
-	ComposerMenuAction,
-	ComposerPendingMessage,
-	ComposerProfileInterface,
-	ComposerRunPhase,
-	InterfaceTurnSession,
-	TranscriptBlock,
-	UserTurnDraft,
+  AttachmentValidationIssue,
+  ComposerMenuAction,
+  ComposerPendingMessage,
+  ComposerProfileInterface,
+  ComposerRunPhase,
+  InterfaceTurnSession,
+  TranscriptBlock,
+  UserTurnDraft,
 } from '@theoremjs/agents/interface';
 import {
-	convertSteersToFrontQueued,
-	createComposerPendingMessage,
-	orderComposerPendingMessages,
-	removeComposerPendingMessage,
-	userDraftHasPayload,
-	userDraftToSteerInject,
+  convertSteersToFrontQueued,
+  createComposerPendingMessage,
+  orderComposerPendingMessages,
+  removeComposerPendingMessage,
+  userDraftHasPayload,
+  userDraftToSteerInject,
 } from '@theoremjs/agents/interface';
-import {
-	composerFieldsFromDraft,
-	encodeComposerDraft,
-	resumeInterfaceTool,
-	streamInterfaceDraftTurn,
-	streamInterfaceTurn,
-	type AnsweringGate,
-	type StreamView,
-	type ToolDecisionAction,
-	type ToolGateResolution,
-} from '../client/index.ts';
+import { type MutableRefObject, useCallback } from 'react';
 import { type ClientFailure, clientFailure, type TurnFailure } from '../client/failure.ts';
+import {
+  type AnsweringGate,
+  composerFieldsFromDraft,
+  encodeComposerDraft,
+  resumeInterfaceTool,
+  type StreamView,
+  streamInterfaceDraftTurn,
+  streamInterfaceTurn,
+  type ToolDecisionAction,
+  type ToolGateResolution,
+} from '../client/index.ts';
 import type { TheoremTransport } from '../client/transport.ts';
 import type { MessageDelivery } from './use-theorem-chat-state.ts';
 
 function composerFieldsPayload(
-	text: string,
-	pendingFiles: readonly File[],
-	pendingVoice: readonly File[],
+  text: string,
+  pendingFiles: readonly File[],
+  pendingVoice: readonly File[],
 ) {
-	const meta = (files: readonly File[]) =>
-		files.map((f) => ({
-			name: f.name,
-			mimeType: f.type || 'application/octet-stream',
-			sizeBytes: f.size,
-		}));
-	return {
-		...(text.trim() ? { text } : {}),
-		...(pendingFiles.length ? { attachments: meta(pendingFiles) } : {}),
-		...(pendingVoice.length ? { voice: meta(pendingVoice) } : {}),
-	};
+  const meta = (files: readonly File[]) =>
+    files.map((f) => ({
+      name: f.name,
+      mimeType: f.type || 'application/octet-stream',
+      sizeBytes: f.size,
+    }));
+  return {
+    ...(text.trim() ? { text } : {}),
+    ...(pendingFiles.length ? { attachments: meta(pendingFiles) } : {}),
+    ...(pendingVoice.length ? { voice: meta(pendingVoice) } : {}),
+  };
 }
 
 function newTurnId(): string {
-	return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-		? crypto.randomUUID()
-		: `turn-${Date.now()}`;
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `turn-${Date.now()}`;
 }
 
 export type RunTurnStream = (
-	run: (
-		view: StreamView,
-		/** The work so far of the reply the session waits on (none when it waits on nothing). */
-		paused: { workedMs: number },
-	) => Promise<
-		| {
-				ok: true;
-				session: InterfaceTurnSession;
-				userBlocks?: TranscriptBlock[];
-				assistantBlocks: TranscriptBlock[];
-		  }
-		| TurnFailure
-	>,
-	options?: {
-		userBlocksAlreadyApplied?: boolean;
-		/** The run's message walks away from the gates the reply waits on, ending that reply. */
-		walksAway?: boolean;
-	},
+  run: (
+    view: StreamView,
+    /** The work so far of the reply the session waits on (none when it waits on nothing). */
+    paused: { workedMs: number },
+  ) => Promise<
+    | {
+        ok: true;
+        session: InterfaceTurnSession;
+        userBlocks?: TranscriptBlock[];
+        assistantBlocks: TranscriptBlock[];
+      }
+    | TurnFailure
+  >,
+  options?: {
+    userBlocksAlreadyApplied?: boolean;
+    /** The run's message walks away from the gates the reply waits on, ending that reply. */
+    walksAway?: boolean;
+  },
 ) => Promise<void>;
 
 function beginAbortableTurn(args: {
-	iface: ComposerProfileInterface | null;
-	abortRef: MutableRefObject<AbortController | null>;
-	turnIdRef: MutableRefObject<string | null>;
+  iface: ComposerProfileInterface | null;
+  abortRef: MutableRefObject<AbortController | null>;
+  turnIdRef: MutableRefObject<string | null>;
 }): {
-	composer: ComposerProfileInterface;
-	turnId: string;
-	signal: AbortSignal;
+  composer: ComposerProfileInterface;
+  turnId: string;
+  signal: AbortSignal;
 } | null {
-	if (!args.iface) return null;
-	const controller = new AbortController();
-	args.abortRef.current = controller;
-	const turnId = newTurnId();
-	args.turnIdRef.current = turnId;
-	return {
-		composer: args.iface,
-		turnId,
-		signal: controller.signal,
-	};
+  if (!args.iface) return null;
+  const controller = new AbortController();
+  args.abortRef.current = controller;
+  const turnId = newTurnId();
+  args.turnIdRef.current = turnId;
+  return {
+    composer: args.iface,
+    turnId,
+    signal: controller.signal,
+  };
 }
 
 export type TheoremChatActionArgs = {
-	iface: ComposerProfileInterface | null;
-	transport: TheoremTransport;
-	phase: ComposerRunPhase;
-	gated: boolean;
-	draftText: string;
-	pendingFiles: File[];
-	pendingVoice: File[];
-	clearComposer: () => void;
-	runTurnStream: RunTurnStream;
-	sessionRef: MutableRefObject<InterfaceTurnSession>;
-	blocksRef: MutableRefObject<TranscriptBlock[]>;
-	abortRef: MutableRefObject<AbortController | null>;
-	turnIdRef: MutableRefObject<string | null>;
-	busyRef: MutableRefObject<boolean>;
-	runPromiseRef: MutableRefObject<Promise<void> | null>;
-	allowQueueDrainRef: MutableRefObject<boolean>;
-	setBlocks: (value: TranscriptBlock[] | ((prev: TranscriptBlock[]) => TranscriptBlock[])) => void;
-	setStreamBlocks: (value: TranscriptBlock[]) => void;
-	setSession: (value: InterfaceTurnSession) => void;
-	setChatStarted: (value: boolean) => void;
-	setStreaming: (value: boolean) => void;
-	setPendingMessages: (
-		value:
-			| ComposerPendingMessage[]
-			| ((prev: ComposerPendingMessage[]) => ComposerPendingMessage[]),
-	) => void;
-	setDraftText: (value: string) => void;
-	setPendingFiles: (value: File[]) => void;
-	setPendingVoice: (value: File[]) => void;
-	setIssues: (value: AttachmentValidationIssue[]) => void;
-	setFailure: (value: ClientFailure | null) => void;
-	setAnswering: (value: AnsweringGate | null) => void;
-	setDelivery: (value: { status: MessageDelivery } | null) => void;
-	pendingRef: MutableRefObject<ComposerPendingMessage[]>;
+  iface: ComposerProfileInterface | null;
+  transport: TheoremTransport;
+  phase: ComposerRunPhase;
+  gated: boolean;
+  draftText: string;
+  pendingFiles: File[];
+  pendingVoice: File[];
+  clearComposer: () => void;
+  runTurnStream: RunTurnStream;
+  sessionRef: MutableRefObject<InterfaceTurnSession>;
+  blocksRef: MutableRefObject<TranscriptBlock[]>;
+  abortRef: MutableRefObject<AbortController | null>;
+  turnIdRef: MutableRefObject<string | null>;
+  busyRef: MutableRefObject<boolean>;
+  runPromiseRef: MutableRefObject<Promise<void> | null>;
+  allowQueueDrainRef: MutableRefObject<boolean>;
+  setBlocks: (value: TranscriptBlock[] | ((prev: TranscriptBlock[]) => TranscriptBlock[])) => void;
+  setStreamBlocks: (value: TranscriptBlock[]) => void;
+  setSession: (value: InterfaceTurnSession) => void;
+  setChatStarted: (value: boolean) => void;
+  setStreaming: (value: boolean) => void;
+  setPendingMessages: (
+    value:
+      | ComposerPendingMessage[]
+      | ((prev: ComposerPendingMessage[]) => ComposerPendingMessage[]),
+  ) => void;
+  setDraftText: (value: string) => void;
+  setPendingFiles: (value: File[]) => void;
+  setPendingVoice: (value: File[]) => void;
+  setIssues: (value: AttachmentValidationIssue[]) => void;
+  setFailure: (value: ClientFailure | null) => void;
+  setAnswering: (value: AnsweringGate | null) => void;
+  setDelivery: (value: { status: MessageDelivery } | null) => void;
+  pendingRef: MutableRefObject<ComposerPendingMessage[]>;
 };
 
 /** Starts a turn from the composer's fields, or from an encoded draft (queued or send-now). */
 function useTurnStarters(args: TheoremChatActionArgs) {
-	const startTurnFromFields = useCallback(
-		async (fields: { text: string; files: File[]; voice: File[] }) => {
-			const started = beginAbortableTurn(args);
-			if (!started) return;
+  const startTurnFromFields = useCallback(
+    async (fields: { text: string; files: File[]; voice: File[] }) => {
+      const started = beginAbortableTurn(args);
+      if (!started) return;
 
-			await args.runTurnStream(
-				(view) =>
-					streamInterfaceTurn({
-						iface: started.composer,
-						transport: args.transport,
-						session: args.sessionRef.current,
-						text: fields.text,
-						pendingFiles: fields.files,
-						pendingVoice: fields.voice,
-						signal: started.signal,
-						turnId: started.turnId,
-						view,
-						onUserBlocks: (userBlocks) => {
-							args.setBlocks((prev) => [...prev, ...userBlocks]);
-							args.setDelivery({ status: 'sending' });
-							args.setChatStarted(true);
-							args.setStreaming(true);
-							args.clearComposer();
-						},
-					}),
-				{ userBlocksAlreadyApplied: true },
-			);
-		},
-		[args],
-	);
+      await args.runTurnStream(
+        (view) =>
+          streamInterfaceTurn({
+            iface: started.composer,
+            transport: args.transport,
+            session: args.sessionRef.current,
+            text: fields.text,
+            pendingFiles: fields.files,
+            pendingVoice: fields.voice,
+            signal: started.signal,
+            turnId: started.turnId,
+            view,
+            onUserBlocks: (userBlocks) => {
+              args.setBlocks((prev) => [...prev, ...userBlocks]);
+              args.setDelivery({ status: 'sending' });
+              args.setChatStarted(true);
+              args.setStreaming(true);
+              args.clearComposer();
+            },
+          }),
+        { userBlocksAlreadyApplied: true },
+      );
+    },
+    [args],
+  );
 
-	const startTurnFromDraft = useCallback(
-		async (
-			draft: ComposerPendingMessage['draft'],
-			options: {
-				/** Send while the reply waits on gates: the message walks away from them. */
-				walkAway?: boolean;
-				/** Once the message posts: it leaves wherever it was waiting to be sent. */
-				onPosted?: () => void;
-			} = {},
-		) => {
-			const started = beginAbortableTurn(args);
-			if (!started) return;
+  const startTurnFromDraft = useCallback(
+    async (
+      draft: ComposerPendingMessage['draft'],
+      options: {
+        /** Send while the reply waits on gates: the message walks away from them. */
+        walkAway?: boolean;
+        /** Once the message posts: it leaves wherever it was waiting to be sent. */
+        onPosted?: () => void;
+      } = {},
+    ) => {
+      const started = beginAbortableTurn(args);
+      if (!started) return;
 
-			await args.runTurnStream(
-				(view, paused) =>
-					streamInterfaceDraftTurn({
-						iface: started.composer,
-						transport: args.transport,
-						session: args.sessionRef.current,
-						draft,
-						signal: started.signal,
-						turnId: started.turnId,
-						view,
-						...(options.walkAway ? { walkAway: paused } : {}),
-						onUserBlocks: (posted) => {
-							args.setBlocks((prev) => [...prev, ...posted]);
-							// A walked-away reply's blocks were streaming; they are posted now.
-							args.setStreamBlocks([]);
-							args.setDelivery({ status: 'sending' });
-							args.setChatStarted(true);
-							args.setStreaming(true);
-							options.onPosted?.();
-						},
-					}),
-				{ userBlocksAlreadyApplied: true, walksAway: options.walkAway === true },
-			);
-		},
-		[args],
-	);
+      await args.runTurnStream(
+        (view, paused) =>
+          streamInterfaceDraftTurn({
+            iface: started.composer,
+            transport: args.transport,
+            session: args.sessionRef.current,
+            draft,
+            signal: started.signal,
+            turnId: started.turnId,
+            view,
+            ...(options.walkAway ? { walkAway: paused } : {}),
+            onUserBlocks: (posted) => {
+              args.setBlocks((prev) => [...prev, ...posted]);
+              args.setStreamBlocks([]);
+              args.setDelivery({ status: 'sending' });
+              args.setChatStarted(true);
+              args.setStreaming(true);
+              options.onPosted?.();
+            },
+          }),
+        { userBlocksAlreadyApplied: true, walksAway: options.walkAway === true },
+      );
+    },
+    [args],
+  );
 
-	return { startTurnFromFields, startTurnFromDraft };
+  return { startTurnFromFields, startTurnFromDraft };
 }
 
 /** A steer with no running turn: the user reads `session.turn_ended`; queued steers move to the front. */
 function steerAfterTurnEnded(args: TheoremChatActionArgs, messageId: string): void {
-	args.setFailure(
-		clientFailure(
-			// lexicon-exempt: internal diagnostic; the user reads session.turn_ended
-			new TheoremError('request', 'steer: no active turn', { copy: { key: 'session.turn_ended' } }),
-			args.iface?.lexicon,
-		),
-	);
-	args.setPendingMessages((prev) =>
-		orderComposerPendingMessages(convertSteersToFrontQueued(removeComposerPendingMessage(prev, messageId))),
-	);
+  args.setFailure(
+    clientFailure(
+      // lexicon-exempt: internal diagnostic; the user reads session.turn_ended
+      new TheoremError('request', 'steer: no active turn', { copy: { key: 'session.turn_ended' } }),
+      args.iface?.lexicon,
+    ),
+  );
+  args.setPendingMessages((prev) =>
+    orderComposerPendingMessages(
+      convertSteersToFrontQueued(removeComposerPendingMessage(prev, messageId)),
+    ),
+  );
 }
 
 /** Queue / steer / stash the composer draft, and restore a pending message into the composer. */
 function usePendingActions(args: TheoremChatActionArgs) {
-	const enqueuePending = useCallback(
-		async (kind: 'queue' | 'steer' | 'stash') => {
-			if (
-				!userDraftHasPayload(
-					composerFieldsPayload(args.draftText, args.pendingFiles, args.pendingVoice),
-				)
-			) {
-				return;
-			}
-			args.setIssues([]);
-			try {
-				const draft = await encodeComposerDraft({
-					text: args.draftText,
-					pendingFiles: args.pendingFiles,
-					pendingVoice: args.pendingVoice,
-				});
-				const message = createComposerPendingMessage({ kind, draft });
-				args.setPendingMessages((prev) => orderComposerPendingMessages([...prev, message]));
-				args.clearComposer();
+  const enqueuePending = useCallback(
+    async (kind: 'queue' | 'steer' | 'stash') => {
+      if (
+        !userDraftHasPayload(
+          composerFieldsPayload(args.draftText, args.pendingFiles, args.pendingVoice),
+        )
+      ) {
+        return;
+      }
+      args.setIssues([]);
+      try {
+        const draft = await encodeComposerDraft({
+          text: args.draftText,
+          pendingFiles: args.pendingFiles,
+          pendingVoice: args.pendingVoice,
+        });
+        const message = createComposerPendingMessage({ kind, draft });
+        args.setPendingMessages((prev) => orderComposerPendingMessages([...prev, message]));
+        args.clearComposer();
 
-				if (kind !== 'steer') return;
-				const turnId = args.turnIdRef.current;
-				if (!turnId) {
-					steerAfterTurnEnded(args, message.id);
-					return;
-				}
-				const inject = userDraftToSteerInject(draft);
-				if (inject.length === 0) return;
-				await args.transport.steer({ turnId, id: message.id, inject });
-			} catch (err) {
-				args.setFailure(clientFailure(err, args.iface?.lexicon));
-			}
-		},
-		[args],
-	);
+        if (kind !== 'steer') return;
+        const turnId = args.turnIdRef.current;
+        if (!turnId) {
+          steerAfterTurnEnded(args, message.id);
+          return;
+        }
+        const inject = userDraftToSteerInject(draft);
+        if (inject.length === 0) return;
+        await args.transport.steer({ turnId, id: message.id, inject });
+      } catch (err) {
+        args.setFailure(clientFailure(err, args.iface?.lexicon));
+      }
+    },
+    [args],
+  );
 
-	const handlePendingRestore = useCallback(
-		async (id: string) => {
-			const message = args.pendingRef.current.find((m) => m.id === id);
-			if (!message) return;
-			const currentDraft = composerFieldsPayload(
-				args.draftText,
-				args.pendingFiles,
-				args.pendingVoice,
-			);
-			try {
-				let nextPending = removeComposerPendingMessage(args.pendingRef.current, id);
-				if (userDraftHasPayload(currentDraft)) {
-					const stashDraft = await encodeComposerDraft({
-						text: args.draftText,
-						pendingFiles: args.pendingFiles,
-						pendingVoice: args.pendingVoice,
-					});
-					const stash = createComposerPendingMessage({ kind: 'stash', draft: stashDraft });
-					nextPending = orderComposerPendingMessages([...nextPending, stash]);
-				}
-				const restored = composerFieldsFromDraft(message.draft);
-				args.setPendingMessages(nextPending);
-				args.setDraftText(restored.text);
-				args.setPendingFiles(restored.files);
-				args.setPendingVoice(restored.voice);
-				args.setIssues([]);
-			} catch (err) {
-				args.setFailure(clientFailure(err, args.iface?.lexicon));
-			}
-		},
-		[args],
-	);
+  const handlePendingRestore = useCallback(
+    async (id: string) => {
+      const message = args.pendingRef.current.find((m) => m.id === id);
+      if (!message) return;
+      const currentDraft = composerFieldsPayload(
+        args.draftText,
+        args.pendingFiles,
+        args.pendingVoice,
+      );
+      try {
+        let nextPending = removeComposerPendingMessage(args.pendingRef.current, id);
+        if (userDraftHasPayload(currentDraft)) {
+          const stashDraft = await encodeComposerDraft({
+            text: args.draftText,
+            pendingFiles: args.pendingFiles,
+            pendingVoice: args.pendingVoice,
+          });
+          const stash = createComposerPendingMessage({ kind: 'stash', draft: stashDraft });
+          nextPending = orderComposerPendingMessages([...nextPending, stash]);
+        }
+        const restored = composerFieldsFromDraft(message.draft);
+        args.setPendingMessages(nextPending);
+        args.setDraftText(restored.text);
+        args.setPendingFiles(restored.files);
+        args.setPendingVoice(restored.voice);
+        args.setIssues([]);
+      } catch (err) {
+        args.setFailure(clientFailure(err, args.iface?.lexicon));
+      }
+    },
+    [args],
+  );
 
-	return { enqueuePending, handlePendingRestore };
+  return { enqueuePending, handlePendingRestore };
 }
 
 /** Answer the gate the session waits on: a decision, or a sign-in. */
 function useGateActions(args: TheoremChatActionArgs) {
-	const resumeGatedTool = useCallback(
-		async (resolution: ToolGateResolution) => {
-			const composer = args.iface;
-			if (!composer) return;
-			// Set once the run starts (not while another runs), and cleared once it has ended.
-			let started = false;
-			try {
-				await args.runTurnStream((view) => {
-					started = true;
-					const session = args.sessionRef.current;
-					if (session.gatedTool) args.setAnswering({ callId: session.gatedTool.callId, action: resolution.action });
-					return resumeInterfaceTool({ iface: composer, transport: args.transport, session, resolution, view });
-				});
-			} finally {
-				if (started) args.setAnswering(null);
-			}
-		},
-		[args],
-	);
+  const resumeGatedTool = useCallback(
+    async (resolution: ToolGateResolution) => {
+      const composer = args.iface;
+      if (!composer) return;
+      // why: Set once the run starts (not while another runs), and cleared once it has ended.
+      let started = false;
+      try {
+        await args.runTurnStream((view) => {
+          started = true;
+          const session = args.sessionRef.current;
+          if (session.gatedTool)
+            args.setAnswering({ callId: session.gatedTool.callId, action: resolution.action });
+          return resumeInterfaceTool({
+            iface: composer,
+            transport: args.transport,
+            session,
+            resolution,
+            view,
+          });
+        });
+      } finally {
+        if (started) args.setAnswering(null);
+      }
+    },
+    [args],
+  );
 
-	const handleToolDecision = useCallback(
-		async (_index: number, action: ToolDecisionAction) => {
-			await resumeGatedTool({ action });
-		},
-		[resumeGatedTool],
-	);
+  const handleToolDecision = useCallback(
+    async (_index: number, action: ToolDecisionAction) => {
+      await resumeGatedTool({ action });
+    },
+    [resumeGatedTool],
+  );
 
-	const handleAuthenticated = useCallback(
-		async (_index: number, secret?: string) => {
-			await resumeGatedTool({ action: 'auth', ...(secret === undefined ? {} : { secret }) });
-		},
-		[resumeGatedTool],
-	);
+  const handleAuthenticated = useCallback(
+    async (_index: number, secret?: string) => {
+      await resumeGatedTool({ action: 'auth', ...(secret === undefined ? {} : { secret }) });
+    },
+    [resumeGatedTool],
+  );
 
-	return { handleToolDecision, handleAuthenticated };
+  return { handleToolDecision, handleAuthenticated };
 }
 
 export function useTheoremChatActions(args: TheoremChatActionArgs) {
-	const { startTurnFromFields, startTurnFromDraft } = useTurnStarters(args);
-	const { enqueuePending, handlePendingRestore } = usePendingActions(args);
-	const { handleToolDecision, handleAuthenticated } = useGateActions(args);
+  const { startTurnFromFields, startTurnFromDraft } = useTurnStarters(args);
+  const { enqueuePending, handlePendingRestore } = usePendingActions(args);
+  const { handleToolDecision, handleAuthenticated } = useGateActions(args);
 
-	const handleStop = useCallback(() => {
-		args.abortRef.current?.abort();
-	}, [args]);
+  const handleStop = useCallback(() => {
+    args.abortRef.current?.abort();
+  }, [args]);
 
-	const handleSubmit = useCallback(async () => {
-		if (args.phase === 'streaming' || args.phase === 'gated') {
-			await enqueuePending('queue');
-			return;
-		}
-		if (args.gated) return;
-		args.setIssues([]);
-		await startTurnFromFields({
-			text: args.draftText,
-			files: [...args.pendingFiles],
-			voice: [...args.pendingVoice],
-		});
-	}, [args, enqueuePending, startTurnFromFields]);
+  const handleSubmit = useCallback(async () => {
+    if (args.phase === 'streaming' || args.phase === 'gated') {
+      await enqueuePending('queue');
+      return;
+    }
+    if (args.gated) return;
+    args.setIssues([]);
+    await startTurnFromFields({
+      text: args.draftText,
+      files: [...args.pendingFiles],
+      voice: [...args.pendingVoice],
+    });
+  }, [args, enqueuePending, startTurnFromFields]);
 
-	/** The queued message's draft, or the composer's when it holds something to send. */
-	const draftToSend = useCallback(
-		async (draftSource?: ComposerPendingMessage): Promise<UserTurnDraft | undefined> => {
-			if (draftSource) return draftSource.draft;
-			const draft = await encodeComposerDraft({
-				text: args.draftText,
-				pendingFiles: args.pendingFiles,
-				pendingVoice: args.pendingVoice,
-			});
-			return userDraftHasPayload(draft) ? draft : undefined;
-		},
-		[args],
-	);
+  /** The queued message's draft, or the composer's when it holds something to send. */
+  const draftToSend = useCallback(
+    async (draftSource?: ComposerPendingMessage): Promise<UserTurnDraft | undefined> => {
+      if (draftSource) return draftSource.draft;
+      const draft = await encodeComposerDraft({
+        text: args.draftText,
+        pendingFiles: args.pendingFiles,
+        pendingVoice: args.pendingVoice,
+      });
+      return userDraftHasPayload(draft) ? draft : undefined;
+    },
+    [args],
+  );
 
-	/** The sent message leaves the queue, or the composer it came from. */
-	const releaseDraft = useCallback(
-		(draftSource?: ComposerPendingMessage) => {
-			if (!draftSource) {
-				args.clearComposer();
-				return;
-			}
-			const pendingId = draftSource.id;
-			args.setPendingMessages((prev) => removeComposerPendingMessage(prev, pendingId));
-		},
-		[args],
-	);
+  /** The sent message leaves the queue, or the composer it came from. */
+  const releaseDraft = useCallback(
+    (draftSource?: ComposerPendingMessage) => {
+      if (!draftSource) {
+        args.clearComposer();
+        return;
+      }
+      const pendingId = draftSource.id;
+      args.setPendingMessages((prev) => removeComposerPendingMessage(prev, pendingId));
+    },
+    [args],
+  );
 
-	const handleSendNow = useCallback(
-		async (draftSource?: ComposerPendingMessage) => {
-			if (!args.iface) return;
+  const handleSendNow = useCallback(
+    async (draftSource?: ComposerPendingMessage) => {
+      if (!args.iface) return;
 
-			const draft = await draftToSend(draftSource);
-			if (!draft) return;
+      const draft = await draftToSend(draftSource);
+      if (!draft) return;
 
-			if (args.busyRef.current) {
-				args.abortRef.current?.abort();
-				await args.runPromiseRef.current;
-			}
+      if (args.busyRef.current) {
+        args.abortRef.current?.abort();
+        await args.runPromiseRef.current;
+      }
 
-			args.setPendingMessages((prev) => convertSteersToFrontQueued(prev));
-			args.allowQueueDrainRef.current = false;
-			// Sent while the reply waits on gates, the message walks away from them in its own request.
-			await startTurnFromDraft(draft, {
-				walkAway: args.sessionRef.current.gatedTool !== null,
-				// The message leaves the composer (or the queue) once it posts.
-				onPosted: () => releaseDraft(draftSource),
-			});
-		},
-		[args, draftToSend, releaseDraft, startTurnFromDraft],
-	);
+      args.setPendingMessages((prev) => convertSteersToFrontQueued(prev));
+      args.allowQueueDrainRef.current = false;
+      // why: Sent while the reply waits on gates, the message walks away from them in its own request.
+      await startTurnFromDraft(draft, {
+        walkAway: args.sessionRef.current.gatedTool !== null,
+        onPosted: () => releaseDraft(draftSource),
+      });
+    },
+    [args, draftToSend, releaseDraft, startTurnFromDraft],
+  );
 
-	const handleMenuAction = useCallback(
-		(action: ComposerMenuAction) => {
-			if (action === 'queue' || action === 'steer' || action === 'stash') {
-				void enqueuePending(action);
-				return;
-			}
-			if (action === 'send_now') void handleSendNow();
-		},
-		[enqueuePending, handleSendNow],
-	);
+  const handleMenuAction = useCallback(
+    (action: ComposerMenuAction) => {
+      if (action === 'queue' || action === 'steer' || action === 'stash') {
+        void enqueuePending(action);
+        return;
+      }
+      if (action === 'send_now') void handleSendNow();
+    },
+    [enqueuePending, handleSendNow],
+  );
 
-	return {
-		startTurnFromFields,
-		startTurnFromDraft,
-		handleStop,
-		handleSubmit,
-		handleSendNow,
-		handleMenuAction,
-		handleToolDecision,
-		handleAuthenticated,
-		handlePendingRestore,
-		enqueuePending,
-	};
+  return {
+    startTurnFromFields,
+    startTurnFromDraft,
+    handleStop,
+    handleSubmit,
+    handleSendNow,
+    handleMenuAction,
+    handleToolDecision,
+    handleAuthenticated,
+    handlePendingRestore,
+    enqueuePending,
+  };
 }

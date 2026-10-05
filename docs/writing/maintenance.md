@@ -22,6 +22,26 @@ The repo already has layers 1 and 2 for contracts and the root README.
 
 When you add a doc, add its entry to `docs/_map.mjs` in the same change. When you move code between owners, move the ownership. Never silence the lint with a comment edit. A comment-only edit counts as a change, so the lint cannot tell you did not revise the text. Revise the text.
 
+## Comments in code
+
+A comment is documentation that no check reads, so it goes stale first. The code says what it does. A comment may say only what the code cannot, and it opens with a tag:
+
+| Tag | Use it for |
+| --- | --- |
+| `why:` | The reason for a choice, or the trap that a change would fall into. |
+| `invariant:` | A rule that the code around it relies on and nothing else checks. |
+| `probed 2026-09-23:` | A fact measured against an outside system on that date. |
+| `licence:` | A legal notice. |
+
+```ts
+// why: a long word kept now may be taken back out later, which leaves the
+// text before it free to continue a run.
+```
+
+`npm run lint:docs` runs `scripts/docs-truth/comment-kinds.mjs`. It fails on a `//` or block comment in `src/`, `react/src/` or `mod.ts` that has no tag. Delete a comment that restates the next line, narrates a step or marks a section. A comment that is stale is deleted, not reworded.
+
+The same check fails on any suppression comment (`biome-ignore`, `fallow-ignore`, `deno-lint-ignore`, `eslint-disable`, `@ts-expect-error`) in any scanned folder, tests and scripts included. Fix the cause. JSDoc is not checked here: it states what an export is for, and the kernel catalog owns the text of profile fields.
+
 ## Layer 3: find affected docs yourself
 
 Before you commit code:

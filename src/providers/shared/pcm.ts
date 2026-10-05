@@ -1,4 +1,4 @@
-/*
+/*probed 2026-09-23:
  * Each transport states the PCM format on the wire (probes 23/09/2026):
  * - Gemini Live: `audio/pcm;rate=24000`
  * - Interactions: `audio/l16; rate=24000; channels=1` (buffered), or
@@ -64,7 +64,7 @@ export function wrapPcmAsWav(pcm: Uint8Array, format: PcmFormat): Uint8Array {
   writeAscii(view, 8, 'WAVE');
   writeAscii(view, 12, 'fmt ');
   view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM
+  view.setUint16(20, 1, true);
   view.setUint16(22, channels, true);
   view.setUint32(24, sampleRate, true);
   view.setUint32(28, byteRate, true);

@@ -400,11 +400,10 @@ Deno.test('pressure-test: turnBehaviour.resumption rejects non-ContinueStopKind'
         inputs: { text: true },
         turnBehaviour: {
           resumption: {
-            // @ts-expect-error intentional illegal kind
             allowContinue: ['cancelled'],
           },
         },
-      });
+      } as never);
     },
     TheoremError,
     'may only include ContinueStopKind',

@@ -19,8 +19,8 @@ import {
   clearLiveCaptionInterim,
   emptyLiveCaptionState,
   latestLiveCaptionTurnId,
-  liveCaptionBlocks,
   liveCaptionStreaming,
+  liveCaptionTranscript,
 } from '../../react/src/client/live/live-captions.ts';
 import {
   applyLiveToolTurnEvent,
@@ -227,8 +227,8 @@ Deno.test('applyLiveThought keeps a thought on its own line, before the speech t
   );
 });
 
-Deno.test('liveCaptionBlocks turns captions into the transcript blocks the chat draws', () => {
-  const past = [[{ id: 'a', role: 'user' as const, text: 'Earlier' }]];
+Deno.test('liveCaptionTranscript turns captions into the transcript blocks the chat draws', () => {
+  const past = [[{ id: 'a', role: 'user' as const, text: 'Earlier' }], []];
   const captions = {
     turns: [
       { id: 'a', role: 'user' as const, text: 'Hi' },
@@ -238,16 +238,98 @@ Deno.test('liveCaptionBlocks turns captions into the transcript blocks the chat 
     interimUser: 'And',
     interimAgent: '',
   };
-  assertEquals(liveCaptionBlocks(past, captions), [
-    { id: '0:a', kind: 'user-text', text: 'Earlier' },
-    { id: 'a', kind: 'user-text', text: 'Hi' },
-    { id: 'b', kind: 'thought', text: '**Greeting**' },
-    { id: 'c', kind: 'text', text: 'Hello.' },
-    { id: 'interim-user', kind: 'user-text', text: 'And' },
-  ]);
+  assertEquals(liveCaptionTranscript(past, captions), {
+    blocks: [
+      { id: '0:a', kind: 'user-text', text: 'Earlier' },
+      { id: 'a', kind: 'user-text', text: 'Hi' },
+      { id: 'b', kind: 'thought', text: '**Greeting**' },
+      { id: 'c', kind: 'text', text: 'Hello.' },
+      { id: 'interim-user', kind: 'user-text', text: 'And' },
+    ],
+    callStarts: ['a'],
+  });
+  assertEquals(liveCaptionTranscript([], emptyLiveCaptionState()), { blocks: [], callStarts: [] });
   assertEquals(liveCaptionStreaming(captions), false);
   assertEquals(liveCaptionStreaming({ ...captions, interimAgent: 'So' }), true);
   assertEquals(liveCaptionStreaming({ ...captions, turns: captions.turns.slice(0, 2) }), true);
+});
+
+Deno.test('liveCaptionTranscript drops speech the agent broke off and began again', () => {
+  const cutOff = 'Lisbon in November is a fantastic choice for a tight budget. Outside of the';
+  const again =
+    'Lisbon in November is a fantastic choice for a tight budget. You get lower prices.';
+  const ids = (
+    turns: { id: string; role: 'user' | 'agent' | 'thought'; text: string }[],
+    interimAgent = '',
+  ) =>
+    liveCaptionTranscript([], { turns, interimUser: '', interimAgent }).blocks.map(
+      (block) => block.id,
+    );
+  const start = [
+    { id: 'q', role: 'user' as const, text: 'Plan a trip' },
+    { id: 't1', role: 'thought' as const, text: 'Plan' },
+    { id: 'a1', role: 'agent' as const, text: cutOff },
+    { id: 't2', role: 'thought' as const, text: 'Searched' },
+  ];
+  assertEquals(ids([...start, { id: 'a2', role: 'agent', text: again }]), ['q', 't1', 't2', 'a2']);
+  // The first line stays until the second has repeated enough of it, heard or still arriving.
+  assertEquals(ids([...start, { id: 'a2', role: 'agent', text: 'Lisbon in' }]), [
+    'q',
+    't1',
+    'a1',
+    't2',
+    'a2',
+  ]);
+  assertEquals(ids(start, again), ['q', 't1', 't2', 'interim-agent']);
+  // Different words after a thought are a second line, and a later reply never replaces an earlier one.
+  assertEquals(ids([...start, { id: 'a2', role: 'agent', text: 'Here is the plan.' }]), [
+    'q',
+    't1',
+    'a1',
+    't2',
+    'a2',
+  ]);
+  assertEquals(
+    ids([
+      ...start,
+      { id: 'q2', role: 'user', text: 'Again?' },
+      { id: 'a2', role: 'agent', text: again },
+    ]),
+    ['q', 't1', 'a1', 't2', 'q2', 'a2'],
+  );
+  // A short line is restarted only by one that opens with all of it.
+  const short = [
+    { id: 'a1', role: 'agent' as const, text: 'Okay.' },
+    { id: 't', role: 'thought' as const, text: 'x' },
+  ];
+  assertEquals(ids([...short, { id: 'a2', role: 'agent', text: 'Okay. Here it is.' }]), [
+    't',
+    'a2',
+  ]);
+  assertEquals(ids([...short, { id: 'a2', role: 'agent', text: 'Okra is cheap.' }]), [
+    'a1',
+    't',
+    'a2',
+  ]);
+});
+
+Deno.test('groupTranscriptBlocks starts a new turn at a break', () => {
+  const blocks = [
+    { id: 'a', kind: 'text' as const, text: 'Bye.' },
+    { id: 'b', kind: 'text' as const, text: 'Hello again.' },
+    { id: 'c', kind: 'text' as const, text: 'How can I help?' },
+  ];
+  assertEquals(
+    groupTranscriptBlocks(blocks).map((group) => group.key),
+    ['a'],
+  );
+  assertEquals(
+    groupTranscriptBlocks(blocks, new Set(['b'])).map((group) => [group.key, group.blocks.length]),
+    [
+      ['a', 1],
+      ['b', 2],
+    ],
+  );
 });
 
 Deno.test('inkWaveDriver and computeInkBarTargets calculate animations', () => {

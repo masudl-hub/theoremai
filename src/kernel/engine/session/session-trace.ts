@@ -99,7 +99,7 @@ function audioRunParts(run: AudioRun): InteractionPart[] {
     }
     return [{ type: 'audio', mimeType: run.mimeType, data: bytesToBase64(merged) }];
   } catch {
-    // Not base64: keep each chunk as sent, so the record labels what it holds.
+    // why: Not base64: keep each chunk as sent, so the record labels what it holds.
     return run.chunks.map((data) => ({ type: 'audio', mimeType: run.mimeType, data }));
   }
 }
@@ -203,7 +203,7 @@ interface LiveTraceEnd {
   thrown?: unknown;
 }
 
-// Each record is written as soon as it is complete, so a long session never holds its whole trace.
+// why: Each record is written as soon as it is complete, so a long session never holds its whole trace.
 class LiveTrace {
   readonly root: SpanHandle;
   private bound?: LiveTraceBinding;
@@ -293,7 +293,7 @@ class LiveTrace {
         return;
       case 'closed':
         this.socketClosed(item.code, item.reason, 'provider', item);
-        // A close the provider warned of ends the session; it is not the session's failure.
+        // why: A close the provider warned of ends the session; it is not the session's failure.
         if (item.goAway) this.endedByGoAway = true;
         else this.failure ??= item.error;
         return;
@@ -416,7 +416,7 @@ class LiveTrace {
     if (this.response) {
       await this.endResponse(thrown === undefined ? { cancelled: true } : { thrown });
     }
-    // Sent after the last response: no response read it.
+    // why: Sent after the last response: no response read it.
     for (const frame of this.pendingFrames) {
       this.root.event('theorem.wire.request', { body: traceJson(frame.body) }, frame.timeUnixNano);
     }
@@ -431,7 +431,7 @@ class LiveTrace {
     if (thrown !== undefined) {
       endThrownSpan(this.root, thrown);
     } else {
-      // A warned close is no verdict: neither failed nor known to be fine.
+      // why: A warned close is no verdict: neither failed nor known to be fine.
       this.root.end(aborted || this.endedByGoAway ? { code: 'UNSET' } : { code: 'OK' });
     }
     this.write(this.tree.collect());
@@ -453,7 +453,7 @@ class LiveTrace {
     }
     const kind = event.type === 'evidence' ? event.evidence.kind : undefined;
     if (kind === 'input_transcription' && !(this.response && !this.response.answering)) {
-      // Heard after the model began answering: input for the next response.
+      // why: Heard after the model began answering: input for the next response.
       this.pendingHeard.push(event);
       return;
     }
@@ -465,7 +465,7 @@ class LiveTrace {
     observeCallEvent(response.usage, event);
     response.call.observe(event);
     if (!response.answering && (OUTPUT_EVENTS.has(event.type) || kind === 'output_transcription')) {
-      // The reply's first chunk, from the response's first input frame: what a person waited.
+      // why: The reply's first chunk, from the response's first input frame: what a person waited.
       response.call.span.set({
         'gen_ai.response.time_to_first_chunk': response.call.span.msSinceStart() / MS_PER_S,
       });
@@ -492,14 +492,14 @@ class LiveTrace {
       throw new TheoremError('internal', 'Live trace received a response before it was bound');
     }
     const usage = startCallUsage(bound.system, { history: [], input: [] }, this.held);
-    // A response starts at its first input frame, so its duration includes the model's listening time.
+    // why: A response starts at its first input frame, so its duration includes the model's listening time.
     const startTimeUnixNano = this.pendingFrames[0]?.timeUnixNano;
     let tree: TraceTree | undefined;
     const call = startCallTrace(
       (name, options) => {
         tree = startTrace(name, {
           ...options,
-          // Each record stands alone (the session record may never be written): it names its agent.
+          // why: Each record stands alone (the session record may never be written): it names its agent.
           attributes: { ...this.identity, ...options.attributes },
           traceparent: this.root.traceparent(),
           clock: this.tree.clock,
@@ -519,7 +519,7 @@ class LiveTrace {
       // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       throw new TheoremError('internal', 'Live response span was not opened');
     }
-    // A Live response streams over the session socket; no HTTP try says so.
+    // why: A Live response streams over the session socket; no HTTP try says so.
     call.span.set({ 'gen_ai.request.stream': true });
     for (const frame of this.pendingFrames) {
       call.span.event('theorem.wire.request', { body: traceJson(frame.body) }, frame.timeUnixNano);
@@ -560,7 +560,7 @@ class LiveTrace {
       ? await callTokensEvent(response.usage, bound.generation, bound.family)
       : undefined;
     if (answered) this.held = await heldAfter(response.usage, bound.family);
-    // Beside `output.messages` (what the model produced): what the host received of it.
+    // why: Beside `output.messages` (what the model produced): what the host received of it.
     response.call.span.set({
       'theorem.output.delivered': [{ role: 'assistant', parts: response.delivered.parts }],
     });

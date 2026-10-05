@@ -35,7 +35,7 @@ function attachAbort(ws: WebSocket, liveQueue: LiveQueue, signal?: AbortSignal):
       try {
         ws.close(1000, 'aborted');
       } catch {
-        // Ignore
+        // why: closing a socket that already closed throws; the session is over either way.
       }
       liveQueue.push({
         type: 'error',
@@ -85,7 +85,7 @@ async function openOnKey(
     try {
       ws.close();
     } catch {
-      // Ignore
+      // why: closing a socket that already closed throws; the abort is what the caller sees.
     }
     throw new DOMException('The operation was aborted.', 'AbortError');
   }
@@ -97,7 +97,7 @@ async function openOnKey(
     try {
       ws.close();
     } catch {
-      // Ignore
+      // why: closing a socket that already closed throws; the original error is what the caller sees.
     }
     throw err;
   }
@@ -181,7 +181,7 @@ export async function openGoogleLiveSession(
             ws.close(1000, 'session-closed');
           }
         } catch {
-          // Ignore
+          // why: closing a socket that already closed throws; the session is over either way.
         }
       }
     },
@@ -193,7 +193,7 @@ export async function openGoogleLiveSession(
           ws.close(code, reason);
         }
       } catch {
-        // Ignore
+        // why: closing a socket that already closed throws; the session is over either way.
       }
     },
   };

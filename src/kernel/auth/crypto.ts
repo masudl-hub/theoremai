@@ -28,7 +28,7 @@ export function generateCodeVerifier(length = 64): string {
     );
   }
   const validChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-  const maxValid = 256 - (256 % validChars.length); // 198 (66 * 3): rejecting above it removes modulo bias
+  const maxValid = 256 - (256 % validChars.length); // why: 198 (66 * 3): rejecting above it removes modulo bias
   let verifier = '';
   const buffer = new Uint8Array(length * 2);
   while (verifier.length < length) {
@@ -62,7 +62,7 @@ export interface SealedStatePayload {
   resource: string;
   redirectUri: string;
   /** Epoch milliseconds. */
-  expiresAt: number; // epoch ms
+  expiresAt: number;
   clientId: string;
   /** SHA-256 of the host's session binding. */
   sessionBinding: string;

@@ -687,7 +687,7 @@ export async function* executeFunction(
     checks.record();
   } catch (err) {
     if (agent) {
-      // Anything but a settled failure is the host's to fix, as a compactor's is.
+      // why: Anything but a settled failure is the host's to fix, as a compactor's is.
       if (err instanceof AgentCallFailed) return yield* fail(err.failure);
       throw err;
     }
@@ -731,7 +731,7 @@ export async function* executeFunction(
     return yield* fail(promoted.failure);
   }
 
-  // The T2 loader's output drives the snapshot, so the host may not mutate it.
+  // why: The T2 loader's output drives the snapshot, so the host may not mutate it.
   const ownsOutput = loadsT2(tool, ctx);
   return yield* settleToolCall({
     base,
@@ -893,7 +893,7 @@ async function* settleBodyOutcome(args: {
     labels: tool.labels,
     reproject: makeReproject(
       (v) => parseToolOutput(tool.output, v),
-      // A hook's edit replaces the value; the media the tool returned stays.
+      // why: A hook's edit replaces the value; the media the tool returned stays.
       (data) => withMedia(modelResultFromOutput(data), outcome.modelResult.parts),
       lexicon,
     ),
@@ -1042,7 +1042,7 @@ export async function* executeRegisteredTool(
     trace.end(isAbortError(err) ? { outcome: 'cancelled' } : { outcome: 'error', thrown: err });
     throw err;
   } finally {
-    // The host stopped reading mid-call.
+    // why: The host stopped reading mid-call.
     if (!trace.span.ended) {
       trace.end({ outcome: 'cancelled' });
       await exec.return({});
@@ -1177,7 +1177,7 @@ async function* executeAgentTool(args: {
     const run = agents.run({
       tool,
       callId: handlerCtx.callId,
-      // Checked against the tool's input schema before the handler runs.
+      // why: Checked against the tool's input schema before the handler runs.
       input: input as AgentToolInput,
       caller: handlerCtx.profile,
       ...(span ? { span } : {}),
@@ -1194,7 +1194,7 @@ async function* executeAgentTool(args: {
       yield { kind: 'progress', data: { agent: tool.profile, event: next.value } };
     }
   };
-  // Its hooks take `AgentToolInput`, which the input schema has already checked.
+  // why: Its hooks take `AgentToolInput`, which the input schema has already checked.
   const asFunction = { ...tool, type: 'function', handler } as FunctionToolDef;
   const exec = executeFunction(
     args.tools,

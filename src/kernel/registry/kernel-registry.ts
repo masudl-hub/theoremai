@@ -11,7 +11,7 @@ interface KernelRegistry {
 
 /** Creates an empty registry of tools, profiles and schemas, wired so a tool that names a profile can find it. */
 function createKernelRegistry(): KernelRegistry {
-  // An agent tool names a profile, and a profile allows tools: each registry reads
+  // why: An agent tool names a profile, and a profile allows tools: each registry reads
   // the other. Tools look profiles up only when one registers, after both exist.
   const tools = createToolRegistry((id) => profiles.find(id));
   const schemas = createSchemaRegistry();

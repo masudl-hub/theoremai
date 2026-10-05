@@ -98,7 +98,7 @@ export function* yieldSpeechSuccess(
       };
 
   yield { type: 'media', media };
-  // The endpoint answers whole or not at all: a body with audio completed.
+  // why: The endpoint answers whole or not at all: a body with audio completed.
   yield { type: 'done', stop: { kind: 'completed' } };
 }
 
@@ -129,7 +129,7 @@ export async function* streamSpeech(
   const arrayBuffer = await res.arrayBuffer();
   const rawBytes = new Uint8Array(arrayBuffer);
   const contentType = res.headers.get('content-type');
-  // The audio body as a tape row; the tape keeps its hash, not its bytes.
+  // why: The audio body as a tape row; the tape keeps its hash, not its bytes.
   req.tapUpstream?.({
     eventType: 'http_body',
     mime_type: contentType ?? '',

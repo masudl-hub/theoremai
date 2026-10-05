@@ -63,7 +63,7 @@ function* yieldCanaryLeak(hits: GuardrailHit[] = [CANARY_HIT]): Generator<Stream
   yield* yieldDeltaBlock(hits);
   const reason = promptLeakReason(hits);
   yield toErrorEvent(new TheoremError('safety', reason));
-  // The turn ends because our guardrail blocked the output, not because the model finished.
+  // why: The turn ends because our guardrail blocked the output, not because the model finished.
   const native =
     reason === WITHHELD_REASON.canary
       ? 'canary'
@@ -140,7 +140,7 @@ function streamContext(
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(canary ? { canary } : {}),
     ...(canary && args.canaryGiven ? { canaryGiven: true } : {}),
-    // The system prompt is guarded against echo alongside the canary that binds it.
+    // why: The system prompt is guarded against echo alongside the canary that binds it.
     ...(canary && policy.promptEcho && privateSystem.length > 0 ? { privateSystem } : {}),
     givenUrls: args.givenUrls,
   };
@@ -194,7 +194,7 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
     template: StreamedReplyEvent,
   ): AsyncGenerator<StreamEvent, void> {
     yield* yieldDeltaBlock(hits);
-    // Arm withhold before recording the unreleased tail so the step runner
+    // why: Arm withhold before recording the unreleased tail so the step runner
     // does not forward that text to the host.
     armWithhold();
     const tail = gate?.drainUnreleased();
@@ -242,7 +242,7 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
       return 'continue';
     }
     if (withholding()) {
-      // Keep recording ungated fragments for egress context; host will not see them.
+      // why: Keep recording ungated fragments for egress context; host will not see them.
       yield { ...event, text: event.text ?? '' };
       return 'continue';
     }
@@ -275,7 +275,7 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
     call.observe(event);
     throwIfAborted(signal);
     if (event.type === 'response') {
-      // Identity is the trace's alone; the call span already recorded it.
+      // why: Identity is the trace's alone; the call span already recorded it.
       continue;
     }
 
@@ -290,7 +290,7 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
       continue;
     }
 
-    // Release held reply text first so the host sees events in order.
+    // why: Release held reply text first so the host sees events in order.
     const flushed = yield* flushGate();
     if (flushed === 'stop') {
       return;
@@ -305,7 +305,7 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
     }
 
     if (withholding() && isWithheldOnBlock(event)) {
-      // Record for attempt egress / repair; step runner withholds from host.
+      // why: Record for attempt egress / repair; step runner withholds from host.
       yield event;
       continue;
     }
@@ -327,7 +327,7 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
     control.canaryCarry = gate.carryOut();
   }
   if (providerFailed) {
-    // An error from the provider outranks any `done` it sent: the call's output is not whole.
+    // why: An error from the provider outranks any `done` it sent: the call's output is not whole.
     yield { type: 'done', stop: { kind: 'provider_error' } };
   }
 }

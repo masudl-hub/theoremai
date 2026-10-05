@@ -10,7 +10,7 @@ import type {
 import { groundingFromSteps } from '../grounding.ts';
 import { byModality, groundingCounts, modalityCounts } from '../usage.ts';
 
-/*
+/* probed 2026-09-23:
  * Interactions steps and deltas read only the shapes recorded from the wire
  * (probes 23/09/2026, gemini-3.8-flash, gemini-3.1-pro-preview, image and TTS
  * models, streamed and buffered):
@@ -195,7 +195,7 @@ function eventsFromInteractionEnd(interaction: Record<string, unknown>): Provide
   const events: ProviderEvent[] = [];
   const tokenEvent = extractTokenEvent(interaction);
   if (tokenEvent) events.push(tokenEvent);
-  // Only a buffered body carries `steps[]`; streamed grounding arrives on deltas.
+  // why: Only a buffered body carries `steps[]`; streamed grounding arrives on deltas.
   const { steps } = interaction;
   if (Array.isArray(steps)) events.push(...groundingFromSteps(steps));
   const done = doneFromInteractionStatus(interaction);

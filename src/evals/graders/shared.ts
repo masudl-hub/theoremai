@@ -37,7 +37,7 @@ function deliveredParts(trial: Trial): Record<string, TraceAttributeValue>[] {
   });
 }
 
-// Interim transcripts are skipped; the final one holds the whole.
+// why: Interim transcripts are skipped; the final one holds the whole.
 function deliveredText(trial: Trial, source: string | undefined): string {
   return deliveredParts(trial)
     .filter(

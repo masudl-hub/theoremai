@@ -177,7 +177,7 @@ export function performLiveSetup(
 
     ws.addEventListener('message', initialMessageHandler);
 
-    // A fetch-upgraded socket (Cloudflare `resp.webSocket.accept()`) is already
+    // why: A fetch-upgraded socket (Cloudflare `resp.webSocket.accept()`) is already
     // open and never fires `open`.
     if (ws.readyState === WebSocket.OPEN) {
       sendSetup();

@@ -34,7 +34,7 @@ async function egressCompileCommand({
   if (!Array.isArray(rules)) {
     throw new Error(`${module} has no array export named ${exportName}`);
   }
-  // Loaded here so no other command loads the regex engine.
+  // why: Loaded here so no other command loads the regex engine.
   const { compiledEgressModule, compileEgressRules } = await import(
     '../../guardrails/egress-compiler.ts'
   );

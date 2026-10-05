@@ -1,4 +1,4 @@
-// Leaf module: `schema.ts` reads it at load time. `defineProfile` enforces the requirements;
+// why: Leaf module: `schema.ts` reads it at load time. `defineProfile` enforces the requirements;
 // this records them for display.
 
 /** lexicon-exempt-file: authoring field-meta presence notes — not runtime user or model copy (P2) */

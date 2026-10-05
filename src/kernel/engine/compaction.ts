@@ -37,7 +37,7 @@ export function compactionMeter(spec: CompactionSpec): CompactionMeter {
   return spec.meter ?? 'history';
 }
 
-// An exchange starts at each `user` message; system messages before the first one belong to none.
+// why: An exchange starts at each `user` message; system messages before the first one belong to none.
 function findExchangeBoundaries(history: TurnHistoryMessage[]): number[] {
   const boundaries: number[] = [];
   for (let i = 0; i < history.length; i++) {

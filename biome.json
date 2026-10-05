@@ -7,6 +7,8 @@
       "scripts/**/*.ts",
       "scripts/**/*.mjs",
       "mod.ts",
+      "react/src/**/*.ts",
+      "react/src/**/*.tsx",
       "biome.json",
       "package.json",
       ".fallowrc.jsonc",

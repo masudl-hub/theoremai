@@ -21,10 +21,12 @@ export type TheoremCredentials = Record<string, ToolCredential>;
  * credentials outlive the process.
  */
 export interface TheoremCredentialStore {
-	load(sessionId: string): TheoremCredentials | undefined | Promise<TheoremCredentials | undefined>;
-	save(sessionId: string, credentials: TheoremCredentials): void | Promise<void>;
+  load(sessionId: string): TheoremCredentials | undefined | Promise<TheoremCredentials | undefined>;
+  save(sessionId: string, credentials: TheoremCredentials): void | Promise<void>;
 }
 
-export function createMemoryCredentialStore(options: MemorySessionStoreOptions = {}): TheoremCredentialStore {
-	return createMemorySessionMap<TheoremCredentials>(options);
+export function createMemoryCredentialStore(
+  options: MemorySessionStoreOptions = {},
+): TheoremCredentialStore {
+  return createMemorySessionMap<TheoremCredentials>(options);
 }

@@ -25,7 +25,7 @@ async function httpErrorEvent(res: Response, label: string): Promise<ProducedErr
     const message = asRecord(asRecord(JSON.parse(text))?.error)?.message;
     if (typeof message === 'string' && message) detail = message;
   } catch {
-    // Not JSON: the raw body is the detail.
+    // why: Not JSON: the raw body is the detail.
   }
   const head = `${label} HTTP ${String(res.status)}`;
   return toErrorEvent(
@@ -88,7 +88,6 @@ export function wireMessageContent(parts: InteractionPart[]): unknown {
     if (part.type === 'audio') {
       return wireAudioPart(part);
     }
-    // video and document ride as a `file` part.
     return {
       type: 'file',
       file: {

@@ -67,7 +67,7 @@ async function flushMintTrace(args: {
   });
   await writeTrace(sink, Promise.resolve(record), policy);
   const { cutout } = args;
-  // One instant: the cutout was reported done now and ran for `ms` before it.
+  // why: One instant: the cutout was reported done now and ran for `ms` before it.
   const now = BigInt(Date.now()) * BigInt(NANOS_PER_MS);
   const tree = startTrace('cutout', {
     clock: { nowUnixNano: () => now },
@@ -79,7 +79,7 @@ async function flushMintTrace(args: {
   if (cutout.http !== undefined) {
     tree.root.event('theorem.upstream.row', { row: traceJson(cutout.http) });
   }
-  // The host's error text is free text: stored by hash under the scrub, like any exception.
+  // why: The host's error text is free text: stored by hash under the scrub, like any exception.
   if (cutout.error) {
     tree.root.event('exception', { 'exception.message': traceContent(cutout.error) });
   }

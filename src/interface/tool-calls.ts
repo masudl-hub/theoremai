@@ -1,4 +1,4 @@
-// The model's raw call is the one owner of a call's arguments. The transcript, the interface
+// invariant: The model's raw call is the one owner of a call's arguments. The transcript, the interface
 // session and history read calls through this fold only.
 
 import { TheoremError } from '../guardrails/error.ts';
@@ -28,7 +28,7 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
   }
   switch (tool.phase) {
     case 'running': {
-      // A resumed call runs again: it is open until its next settle.
+      // why: A resumed call runs again: it is open until its next settle.
       const { endedAt: _settled, ...open } = call;
       return {
         ...open,

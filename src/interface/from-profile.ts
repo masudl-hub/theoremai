@@ -1,4 +1,4 @@
-// `profileInterfaceSchema` keeps only the JSON it names, so host functions never reach the view.
+// why: `profileInterfaceSchema` keeps only the JSON it names, so host functions never reach the view.
 
 import { egressChecksOf, type ResolvedEgressChecks, type UrlCheck } from '../guardrails/egress.ts';
 import { clientLexicon } from '../guardrails/lexicon.ts';
@@ -174,7 +174,7 @@ function interfaceFromProfile(
 function interfaceFromProfile(input: Profile, tools: ToolRegistry): ProfileInterface;
 /** The interface for any profile. */
 function interfaceFromProfile(input: Profile, tools: ToolRegistry): ProfileInterface {
-  // Host profiles never run a model and have no composer surface.
+  // why: Host profiles never run a model and have no composer surface.
   const profile = requireModelProfile(input, 'interfaceFromProfile');
   return enrich(projectProfileObject(tools, profile), profile);
 }

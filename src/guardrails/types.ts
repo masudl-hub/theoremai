@@ -1,4 +1,4 @@
-// Must not import from `src/kernel/`: the kernel type-imports `ProfileGuardrailsSpec`, and that edge
+// invariant: Must not import from `src/kernel/`: the kernel type-imports `ProfileGuardrailsSpec`, and that edge
 // stays one-directional. Other modules under `src/guardrails/` may import kernel types.
 
 import type { EgressChecks } from './egress.ts';
@@ -10,8 +10,8 @@ import type { SensitiveGroups, SensitiveSelection } from './sensitive.ts';
 export type { GuardrailEvent, GuardrailHit, Provenance };
 
 /**
- * - `trusted` — author-time profile text (`identity.system`). Sensitive redaction
- *   only; injection redaction would mangle the host's own instructions.
+ * - `trusted` — author-time profile text (`identity.system`). Left verbatim: no
+ *   injection or sensitive redaction, which would mangle the host's own instructions.
  * - `assembled` — host-built per turn (`req.system`). Interpolates retrieval and
  *   user data, so it is permeable and takes full detection.
  * - `untrusted` — user input, tool results, attachments, delegated agents.

@@ -39,6 +39,8 @@
     "npm/**",
     "react/npm/**"
   ],
+  // Follows calls made through refs and returned clients, which the syntactic pass cannot.
+  "typeAware": { "enabled": true },
   "health": {
     // Kernel turn/sanitize paths are intentionally branchy; keep these just
     // above current hotspots so health still fails on real complexity spikes.

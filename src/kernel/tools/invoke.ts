@@ -83,7 +83,7 @@ async function* invokeTool(
       callId,
       call: { arguments: toolCallArguments(plainToolInput(request.input)) },
     }).end(end);
-  // Agent tool calls run nested turns in this record; their canaries are scrubbed from it.
+  // why: Agent tool calls run nested turns in this record; their canaries are scrubbed from it.
   const canaries: string[] = [];
   try {
     const lexicon = known?.lexicon;
@@ -132,7 +132,7 @@ async function* invokeTraced(
     ? cloneTurnToolSnapshot(request.snapshot)
     : await prepareInvokeSnapshot(registry, request, profile);
 
-  // A model's call was already announced by its turn.
+  // why: A model's call was already announced by its turn.
   if (request.callId === undefined) {
     yield toolCallRequestEvent({ name: request.name, callId }, toolCallArguments(request.input));
   }

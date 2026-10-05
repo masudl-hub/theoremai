@@ -1,4 +1,4 @@
-// TTFE: time to first event (profile resolve + provider setup). TTFT: time to first text delta.
+// why: TTFE: time to first event (profile resolve + provider setup). TTFT: time to first text delta.
 // Overhead: total wall-clock delta vs. raw provider consumption.
 
 import { canaryNote, eventHasCanary, mintCanary } from '../../guardrails/canary.ts';
@@ -219,7 +219,7 @@ function aggregate(results: TimingResult[]): AggregatedMetrics {
     },
     tokensPerSec: {
       median: percentile(tps, 50),
-      p95: percentile(tps, 5), // lower is worse for throughput
+      p95: percentile(tps, 5), // why: lower is worse for throughput
       mean: mean(tps),
     },
     totalMs: {
@@ -414,7 +414,7 @@ async function microAsyncGenOverhead(
   const start = performance.now();
   for (let i = 0; i < iterations; i++) {
     for await (const _e of layer4(chunks)) {
-      // consume
+      // why: only the time to read the stream matters, so each event is dropped.
     }
   }
   const elapsed = performance.now() - start;

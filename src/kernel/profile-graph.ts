@@ -172,9 +172,9 @@ export interface ProfileGraphFacet {
 
 /** The facets whose types differ from their `profilePath`'s scope. */
 const FACET_PROFILE_TYPES: Partial<Record<ProfileGraphFacetId, readonly ProfileType[]>> = {
-  // The root holds `id` and `type`, which every profile has.
+  // why: The root holds `id` and `type`, which every profile has.
   identity: ALL_PROFILE_TYPES,
-  // A decision's inputs belong to its Decision facet.
+  // why: A decision's inputs belong to its Decision facet.
   inputs: profileTypesForField('inputs').filter((type) => type !== 'decision'),
 };
 

@@ -1,4 +1,4 @@
-// Leaf module: `schema.ts` and `profile-graph.ts` read it at load time.
+// invariant: Leaf module: `schema.ts` and `profile-graph.ts` read it at load time.
 
 /** lexicon-exempt-file: authoring field-meta scope reasons — not runtime user or model copy (P2) */
 

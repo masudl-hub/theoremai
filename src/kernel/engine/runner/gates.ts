@@ -48,7 +48,7 @@ function collectAttemptText(events: TurnEvent[]): string {
   return parts.join('');
 }
 
-// Structured output travels with the text so `outputs.structured` meets egress rather than passing unexamined.
+// why: Structured output travels with the text so `outputs.structured` meets egress rather than passing unexamined.
 function projectOutbound(events: TurnEvent[]): OutboundPayload {
   const structured = findLast(events, (e) => e.type === 'structured')?.structured;
   return {
@@ -111,7 +111,7 @@ async function evaluateEgressOutcome(args: {
     ...(request.input?.role ? { role: request.input.role } : {}),
     givenUrls,
   };
-  // The host policy adds checks; it never releases a system-prompt leak.
+  // why: The host policy adds checks; it never releases a system-prompt leak.
   const verdict: Verdict = promptLeaks?.length
     ? {
         action: 'block',
@@ -125,12 +125,10 @@ async function evaluateEgressOutcome(args: {
     : await runEnforcer(egress.enforce, payload, context);
   const guardrail = guardrailFromVerdict('output_final', 'untrusted', verdict);
 
-  // `flag` is advisory: the hit is recorded, the turn still releases.
   if (verdict.action === 'allow' || verdict.action === 'flag') {
     return { outcome: { action: 'pass' }, guardrail };
   }
 
-  // The policy supplied safe replacement prose — release that instead.
   if (verdict.action === 'redact') {
     return {
       outcome: {
@@ -211,7 +209,7 @@ function* yieldBufferedAttemptEvents(
     if (ev.type === 'tokens') {
       continue;
     }
-    // Thoughts always streamed live; text and media did unless the attempt withheld them.
+    // why: Thoughts always streamed live; text and media did unless the attempt withheld them.
     if (ev.type === 'thought' || (alreadyStreamedUserVisible && isWithheldOnBlock(ev))) {
       continue;
     }
@@ -237,14 +235,14 @@ function updateFlowForRetry(
   flow.currentReq = nextReq;
   const safe = sanitizeTurnRequest(nextReq, profile);
   if (profile.type === 'text') {
-    // The conversation is already in turn history: the repair is its next user message.
+    // why: The conversation is already in turn history: the repair is its next user message.
     appendUserInput(
       state,
       resolveInputParts(profile, { ...safe, input: { repair: safe.input?.repair } }),
     );
     return;
   }
-  // An image or speech call reads only its input: the repair replaces the prompt.
+  // why: An image or speech call reads only its input: the repair replaces the prompt.
   flow.currentGen = { ...flow.currentGen, input: resolveInputParts(profile, safe) };
 }
 
@@ -352,12 +350,11 @@ async function* executeSingleAttemptCycle(args: {
   const validation = profileTurnOutputs(profile)?.validation;
   const egress = resolveGuardrailPolicy(profile.guardrails).egress;
 
-  // Fresh maxSteps budget per validation/egress attempt. before_end inject
+  // invariant: Fresh maxSteps budget per validation/egress attempt. before_end inject
   // re-entry inside this cycle still accumulates stepCount (do not reset there).
   state.stepCount = 0;
 
   let latestStructured: unknown;
-  // before_end may inject and re-enter the step loop under maxSteps.
   for (;;) {
     state.attemptEvents = [];
     state.withheldVisible = false;
@@ -372,7 +369,7 @@ async function* executeSingleAttemptCycle(args: {
     });
     latestStructured = attempt.latestStructured;
 
-    // Tool / gate suspension — do not before_end; finalize with that stop.
+    // why: Tool / gate suspension — do not before_end; finalize with that stop.
     if (state.lastStop?.kind === 'tool' || state.lastStop?.kind === 'gate') {
       break;
     }
@@ -404,7 +401,6 @@ async function* executeSingleAttemptCycle(args: {
       return { status: 'terminal' };
     }
     if (beforeEnd.injectCount > 0) {
-      // Host extended the turn — another provider step under maxSteps.
       continue;
     }
     break;
@@ -433,7 +429,7 @@ async function* executeSingleAttemptCycle(args: {
   }
 
   if (validation || egress?.enforce) {
-    // Progressive-yield already released text and media live under egress — unless it
+    // why: Progressive-yield already released text and media live under egress — unless it
     // withheld them mid-stream. A passing final verdict on the full text supersedes
     // that partial-window decision, so the buffer is released instead of dropped.
     const heldVisible =

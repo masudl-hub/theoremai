@@ -81,7 +81,7 @@ export async function* runPreToolPipeline(args: {
 }): AsyncGenerator<TurnEvent, PreBodyOutcome> {
   const { tool, ctx, base, stages } = args;
   let toolPreTool: StageResult | undefined;
-  // An approval skips the tool's own check it already passed — unless the user edited the arguments.
+  // why: An approval skips the tool's own check it already passed — unless the user edited the arguments.
   const approvedAsIs = isGateResumeGranted(ctx.resume) && ctx.resume?.edited === undefined;
   if (tool.preTool && !approvedAsIs) {
     toolPreTool = (await tool.preTool(args.input as never, ctx)) ?? undefined;

@@ -4,7 +4,7 @@
  * outside the lexicon fail. `react/src/ui`, the default UI, owns its own wording and is not scanned.
  *
  * Escape hatches, each stating a reason:
- *   - `// lexicon-exempt: <reason>` on the same or previous line
+ *   - `// lexicon-exempt: <reason>` on the string's line, or above it in the same statement
  *   - `lexicon-exempt-file: <reason>` in a comment in the first 40 lines, for fixture modules
  *     that never emit to users or models at runtime
  *
@@ -28,6 +28,16 @@ const SCAN_ROOTS = [
 const AUTO_SKIP = new Set(['src/guardrails/lexicon.ts']);
 
 const EXEMPT_LINE_RE = /lexicon-exempt\s*:/;
+/** Whether a `lexicon-exempt:` comment sits on the string's line or above it in the same statement. */
+function exempted(lines, line) {
+  for (let at = line - 1; at >= 0 && at >= line - 5; at -= 1) {
+    const text = lines[at] ?? '';
+    if (EXEMPT_LINE_RE.test(text)) return true;
+    if (at < line - 1 && /[;{}]\s*$/.test(text)) return false;
+  }
+  return false;
+}
+
 const EXEMPT_FILE_RE = /lexicon-exempt-file\s*:/;
 const WORD_RE = /^[A-Za-z][A-Za-z'’.,:;!?()-]*$/;
 
@@ -131,9 +141,7 @@ function proseHits(src) {
       if (words.length < 3) continue;
 
       const line = src.slice(0, start).split('\n').length;
-      const original = lines[line - 1] ?? '';
-      const prev = lines[line - 2] ?? '';
-      if (EXEMPT_LINE_RE.test(original) || EXEMPT_LINE_RE.test(prev)) continue;
+      if (exempted(lines, line)) continue;
       hits.push({ line, text: decoded.replace(/\s+/g, ' ').trim().slice(0, 100) });
       continue;
     }
@@ -162,7 +170,7 @@ if (violations.length) {
   console.error(
     `copy-lint: ${violations.length} prose-like string(s) outside the lexicon.\n` +
       'Move user/model-visible copy into src/guardrails/lexicon.ts, or annotate with\n' +
-      '`// lexicon-exempt: <reason>` (same/previous line) or `lexicon-exempt-file: <reason>`\n' +
+      '`// lexicon-exempt: <reason>` (on the string line, or above it in the same statement) or `lexicon-exempt-file: <reason>`\n' +
       '(first 40 lines, for non-runtime fixture modules only).\n',
   );
   for (const v of violations.slice(0, 120)) console.error(`  ${v}`);

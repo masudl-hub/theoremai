@@ -61,7 +61,7 @@ const MEDIAWIKI_THUMB = /^(.*)\/thumb(\/.+\/([^/]+))\/(\d+)px-\3(?:\.[a-z0-9]+)?
 function mediaAsset(url: string): { key: string; width: number } {
   const parsed = new URL(url);
   const site = parsed.hostname.split('.').slice(-2).join('.');
-  // Tracking parameters never change the file; other query parameters may.
+  // why: Tracking parameters never change the file; other query parameters may.
   for (const name of [...parsed.searchParams.keys()]) {
     if (name.startsWith('utm_')) parsed.searchParams.delete(name);
   }

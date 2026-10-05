@@ -271,7 +271,6 @@ async function applyOutbound(
 ): Promise<TurnEvent[]> {
   if (turnPhase === 'abort') {
     abortLiveOutboundTurn(gate);
-    // Keep tool calls + interrupted marker; drop buffered speech via abortLiveOutboundTurn.
     return events.filter(
       (ev) =>
         ev.type === 'tool' ||
@@ -299,7 +298,6 @@ async function applyOutbound(
     if (finalized.action === 'emit') {
       out.push(...finalized.events);
     }
-    // Conversational turn boundary — session stays open.
     out.push({ type: 'done', stop: { kind: 'completed' } });
   }
 
@@ -668,7 +666,7 @@ function buildLiveSession(args: {
   /** A stage's `abort` ends the open cycle: a cancelled `done`, then `post_turn`. */
   const cancelCycle = async (abort: true | { reason?: string }) => {
     const stop = stageAbortStop(abort);
-    // Idle first, so a boundary Gemini sends meanwhile does not end the cycle again.
+    // why: Idle first, so a boundary Gemini sends meanwhile does not end the cycle again.
     cycle = 'idle';
     enqueuePending({ type: 'done', stop, interrupted: true });
     await runCycleStage('post_turn', { stop });
@@ -777,7 +775,7 @@ function buildLiveSession(args: {
         enqueuePending(next.value);
       }
     } catch (err) {
-      // It did not settle: it waits as it did, to be run again.
+      // why: It did not settle: it waits as it did, to be run again.
       held.state = waiting;
       throw err;
     } finally {
@@ -792,7 +790,7 @@ function buildLiveSession(args: {
     }
 
     if (s.aborted) {
-      // A stage stopped the call. The model still reads an answer, or it
+      // why: A stage stopped the call. The model still reads an answer, or it
       // waits for one; then the open cycle ends cancelled, as a turn does.
       const failure: ToolFailure | undefined = s.callNotStarted
         ? {
@@ -879,7 +877,7 @@ function buildLiveSession(args: {
     item: Extract<SessionQueueItem, { type: 'batch' }>,
   ): AsyncGenerator<TurnEvent> {
     holdCalls(item.events);
-    // Usage is held per response and emitted once, reported or estimated, by `settle`.
+    // why: Usage is held per response and emitted once, reported or estimated, by `settle`.
     const hostEvents = hostEventsOf(
       item.events.filter((ev) => ev.type !== 'tokens'),
       snapshot,
@@ -888,7 +886,7 @@ function buildLiveSession(args: {
     const gated = await applyOutbound(gate, hostEvents, item.turnPhase, () => {
       withholdClose = true;
     });
-    // An abort only drops what the gate held; there is no check to time.
+    // why: An abort only drops what the gate held; there is no check to time.
     if (item.turnPhase !== 'abort') trace.outboundTime(performance.now() - gateStart);
     for (const ev of gated) {
       if (ev.type === 'guardrail') trace.outbound(ev);
@@ -902,7 +900,7 @@ function buildLiveSession(args: {
     const completeBoundary =
       item.turnPhase === 'complete' || item.turnPhase === 'abort' || doneBatch.length > 0;
 
-    // Boundary batches (`interactionStatus: IDLE`, or bare `turnComplete` when the
+    // why: Boundary batches (`interactionStatus: IDLE`, or bare `turnComplete` when the
     // provider sends no status) often have no folded `done` — still end the cycle.
     if (completeBoundary && cycle === 'open') {
       const boundaryDone = boundaryDoneEvents(doneBatch, item.turnPhase, interrupted);
@@ -918,16 +916,16 @@ function buildLiveSession(args: {
   };
 
   const streamToHost = async function* (): AsyncGenerator<TurnEvent> {
-    // Who closes the socket when the loop ends: the host, unless THEOREM stops it.
+    // why: Who closes the socket when the loop ends: the host, unless THEOREM stops it.
     let closer: LiveCloser = 'host';
     let thrown: unknown;
     const provider = connection.batches();
-    // The batch being awaited; it stays pending across wakes, so no frame is read twice.
+    // why: The batch being awaited; it stays pending across wakes, so no frame is read twice.
     let nextBatch: Promise<IteratorResult<SessionQueueItem>> | undefined;
     try {
       while (true) {
         nextBatch ??= provider.next();
-        // A tool the host ran, or a stage the session fired, reaches the host
+        // why: A tool the host ran, or a stage the session fired, reaches the host
         // now: a model waiting on a call's result sends nothing meanwhile.
         const woke = await Promise.race([nextBatch, hostEventQueued()]);
         throwIfAborted(signal);
@@ -969,7 +967,7 @@ function buildLiveSession(args: {
       stopLapses();
       if (withholdClose) closeSocket(1011, 'guardrail withheld', closer);
       else closeSocket(1000, 'session-closed', closer);
-      // The socket is closed, so a batch still awaited resolves and the provider can finish.
+      // why: The socket is closed, so a batch still awaited resolves and the provider can finish.
       await provider.return(undefined);
       await trace.close({ thrown });
     }
@@ -1131,7 +1129,7 @@ function buildLiveSession(args: {
         stopLapses();
         closeSocket(1000, reason, 'host');
       }
-      // The session record is sealed here; frames the host reads after closing are not in it.
+      // why: The session record is sealed here; frames the host reads after closing are not in it.
       return trace.close({});
     },
   };

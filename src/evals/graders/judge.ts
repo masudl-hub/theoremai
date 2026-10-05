@@ -74,7 +74,7 @@ const JUDGMENT_SCHEMA: StructuredSpec = {
   },
 };
 
-// Importing this module registers the schema, so a host's judge profile can name it at registration.
+// why: Importing this module registers the schema, so a host's judge profile can name it at registration.
 registerStructured(EVAL_JUDGMENT, JUDGMENT_SCHEMA);
 
 /** Options for `judge`: the rubric and, optionally, a name, the labels that pass, a judge profile, the rubric's variables, the cost of a wrong pass and an escalation profile. */
@@ -189,7 +189,7 @@ async function askText(args: {
   };
   try {
     for await (const _event of runTurn(request, context.judgeProvider, memorySink(records))) {
-      // The judge's trace is its record; its events are not read.
+      // why: The judge's trace is its record; its events are not read.
     }
   } catch (thrown) {
     error = errorKind(thrown);
@@ -310,7 +310,7 @@ function stateOf(
   return state;
 }
 
-// Models echo the prompt's headings (`CORRECT -`), so a text judge's label is read case-insensitively.
+// why: Models echo the prompt's headings (`CORRECT -`), so a text judge's label is read case-insensitively.
 function declaredLabel(label: string, allowed: ReadonlySet<string>): string | undefined {
   const wanted = label.trim().toLowerCase();
   return [...allowed].find((declared) => declared.toLowerCase() === wanted);

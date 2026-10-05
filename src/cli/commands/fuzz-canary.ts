@@ -1,4 +1,4 @@
-// A bypass is judged from the attack's own encoded canary, not from the detector under test.
+// why: A bypass is judged from the attack's own encoded canary, not from the detector under test.
 
 import {
   bindCanary,
@@ -142,7 +142,7 @@ async function runStreamChannel(
   canary: string,
 ): Promise<ChannelResult> {
   const events: TurnEvent[] = [];
-  // Every provider call of one turn shares its canary: each attack turn is a step.
+  // why: Every provider call of one turn shares its canary: each attack turn is a step.
   const control: OutboundStreamControl = { withholdVisible: false };
   for (const turn of attack.turns) {
     const streamed = await collectEvents(
@@ -156,13 +156,13 @@ async function runStreamChannel(
         ),
         privateSystem: [bindCanary(FUZZ_SYSTEM, canary)],
         provider: { complete: () => replay(turn) },
-        // The fuzz reads what reaches the client, not the trace.
+        // why: The fuzz reads what reaches the client, not the trace.
         call: { tap: () => {}, observe: () => {} },
         control,
         givenUrls: givenUrlSets(),
       }),
     );
-    // The runner reads the call's `done`; the client never receives it.
+    // why: The runner reads the call's `done`; the client never receives it.
     const turnEvents = streamed.flatMap((event) => (event.type === 'done' ? [] : [event]));
     events.push(...turnEvents);
     if (turnEvents.some((event) => event.type === 'error')) {

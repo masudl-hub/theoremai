@@ -199,7 +199,7 @@ function resolveUrlCheck(check: boolean | UrlCheck | undefined, byDefault: boole
 function resolveEgressChecks(checks: EgressChecks = {}): ResolvedEgressChecks {
   const images = resolveUrlCheck(checks.images, true);
   const resolved = resolveUrlCheck(checks.links, false);
-  // A host images load from already takes data with no click, so a link there opens nothing new.
+  // why: A host images load from already takes data with no click, so a link there opens nothing new.
   const links =
     resolved && images?.hosts
       ? { ...resolved, hosts: [...new Set([...(resolved.hosts ?? []), ...images.hosts])] }
@@ -397,7 +397,7 @@ function hitsEnforcer(
     if (payload.structured !== undefined) {
       const structured = textForScan(payload.structured);
       if (structured.unscannable) {
-        // Cannot inspect it, so cannot vouch for it. Fail closed.
+        // why: Cannot inspect it, so cannot vouch for it. Fail closed.
         hits.push({ rule: EGRESS_RULES.unscannable, severity: 'high' }); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       } else {
         hits.push(...collect(structured.text, context));

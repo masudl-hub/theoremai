@@ -57,13 +57,13 @@ export function toolResultMessage(msg: TurnHistoryMessage): ModelMessage {
           }),
         };
 
-  // AI SDK ToolModelMessage is a branded union; structural tool-result is correct at runtime.
+  // why: AI SDK ToolModelMessage is a branded union; structural tool-result is correct at runtime.
   return {
     role: 'tool',
     content: [
       {
         type: 'tool-result',
-        // The AI SDK rejects a missing id or name (`AI_InvalidPromptError`).
+        // why: The AI SDK rejects a missing id or name (`AI_InvalidPromptError`).
         ...historyToolIdentity({ toolCallId: msg.tool_call_id, toolName: msg.name }),
         output,
       },

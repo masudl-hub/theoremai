@@ -2,7 +2,7 @@ import { redactCanaryText } from '../../guardrails/canary.ts';
 import { sha256, sha256Base64 } from '../../kernel/engine/hash.ts';
 import { mapStrings } from '../../kernel/engine/tree.ts';
 
-/*
+/*invariant:
  * Inline bytes on a taped row are stored as their sha256, never as bytes.
  * The shapes are the ones every taped transport sends (probes 23/09/2026):
  *

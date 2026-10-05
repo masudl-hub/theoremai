@@ -260,8 +260,6 @@ function bareUrlLeaks(found: string, scope: UrlScope): boolean {
   return !(hosts.size === 1 && readings.some((url) => isGiven(url, scope)));
 }
 
-// ── Budget ───────────────────────────────────────────────────────────
-
 /**
  * Constructs overlap: a destination can hold further links, a tag further
  * tags, a `<style>` block further blocks, and each is decoded on its own. One
@@ -301,8 +299,6 @@ function indicesIn(from: number, to: number, at: (i: number) => boolean): number
   for (let i = from; i < to; i++) if (at(i)) out.push(i);
   return out;
 }
-
-// ── Markdown ─────────────────────────────────────────────────────────
 
 /** A newline opening a blank line, or trailing space to the end: no bracket or code span reaches past one. */
 const PARAGRAPH_BREAK = /\n[ \t]*(?=\n|$)/g;
@@ -594,8 +590,6 @@ function bareLinkLeaks(text: string, scope: UrlScope, meter: Meter): Span[] {
     .map((match) => ({ start: match.index, end: match.index + match[0].length }));
 }
 
-// ── HTML ─────────────────────────────────────────────────────────────
-
 const LT = 0x3c;
 const GT = 0x3e;
 const SLASH = 0x2f;
@@ -834,8 +828,6 @@ function tagLeaks(
   return spans;
 }
 
-// ── CSS ──────────────────────────────────────────────────────────────
-
 const CSS_NAME =
   /(?:[A-Za-z0-9_\-\u0080-￿]|\\(?:[0-9a-fA-F]{1,6}(?:\r\n|[ \t\n\r\f])?|[^\n\r\f0-9a-fA-F]))+/y;
 const CSS_STRING = {
@@ -919,8 +911,6 @@ function styleLeaks(
   return spans;
 }
 
-// ── Checks ───────────────────────────────────────────────────────────
-
 /** `read`'s spans, sorted; all of `text` when reading it would decode past its cap. */
 function readFailingClosed(text: string, read: (meter: Meter) => Span[]): Span[] {
   try {
@@ -950,8 +940,6 @@ function linkLeakSpans(text: string, scope: UrlScope, skipImages: boolean): Span
     ...tagLeaks(text, FOLLOWED, scope, meter),
   ]);
 }
-
-// ── Streaming ────────────────────────────────────────────────────────
 
 /**
  * A start tag as the tokenizer reads it, up to the `>` that ends it. Each

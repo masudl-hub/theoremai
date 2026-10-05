@@ -18,7 +18,7 @@ function promotedToolIdsFromEvents(events: readonly TurnEvent[]): ToolId[] {
 
 /** The tool snapshot on the last `done` event that carries one, which only a turn stopped on a tool or gate does. */
 function toolSnapshotFromEvents(events: readonly TurnEvent[]): TurnToolSnapshot | undefined {
-  // Only a `done` that stopped on `tool` or `gate` carries one (`DoneEvent`).
+  // why: Only a `done` that stopped on `tool` or `gate` carries one (`DoneEvent`).
   const done = findLast(events, (event) => event.type === 'done' && event.tools !== undefined);
   return done?.type === 'done' ? done.tools : undefined;
 }

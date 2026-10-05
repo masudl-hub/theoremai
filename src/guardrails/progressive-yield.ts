@@ -95,7 +95,7 @@ function resolveHoldback(options: ProgressiveYieldGateOptions, exact: boolean): 
 }
 
 function holdbackForWindow(window: string, base: number): number {
-  // Incomplete PEM bodies can be large; do not release past BEGIN until END/flush.
+  // why: Incomplete PEM bodies can be large; do not release past BEGIN until END/flush.
   const begin = window.lastIndexOf(PEM_BEGIN);
   if (begin < 0) return base;
   const fromBegin = window.slice(begin);
@@ -189,7 +189,7 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
       const hit = stream.push(fragment);
       return hit ? await streamHitVerdict(options.enforce, hit, window, context) : null;
     }
-    // Mid-stream the gate can only release or stop: emitted prefixes cannot be
+    // why: Mid-stream the gate can only release or stop: emitted prefixes cannot be
     // rewritten, so `redact` stops here and end-of-attempt egress applies the
     // full verdict. `flag` is advisory and keeps the stream flowing.
     const verdict = await runEnforcer(options.enforce, { text: window }, context);
@@ -202,7 +202,7 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
   }
 
   async function scan(window: string, fragment?: string): Promise<GuardrailHit[] | null> {
-    // The system-prompt leak checks always run, under a host policy too: it adds
+    // invariant: The system-prompt leak checks always run, under a host policy too: it adds
     // checks, it never replaces these (the guardrail invariant).
     const leaks = context.canary ? canaryWindowHits(fragment ?? '') : [];
     if (leaks.length > 0) {
@@ -229,7 +229,7 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     const lead = Math.max(openingBase, from - RELEASED_LOOKBACK);
     let at = lead + canaryOpeningFrom(opening.slice(lead - openingBase), canary);
     if (at < from && from > shownTo) {
-      // An opening the bound rules out: read the held text whole, and from there on.
+      // why: An opening the bound rules out: read the held text whole, and from there on.
       opening = released + held;
       openingBase = shownTo - released.length;
       at = openingBase + canaryOpeningFrom(opening, canary);
@@ -243,7 +243,7 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
 
   /** `promptEchoHoldFrom` on the held text, read from its last few words. */
   function echoHoldFrom(privateSystem: readonly string[], canary?: string): number {
-    // Until this window releases anything, its opening may continue the carry.
+    // why: Until this window releases anything, its opening may continue the carry.
     const lead = emitted === 0 ? carry : '';
     const leadFrom = carry.length + emitted - lead.length;
     const [text, from] = echoedFrom >= leadFrom ? [echoed, echoedFrom] : [lead + held, leadFrom];

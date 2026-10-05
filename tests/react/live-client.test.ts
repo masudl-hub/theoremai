@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError, type ToolGate, type TurnEvent } from '../../mod.ts';
 import {
@@ -9,6 +10,7 @@ import {
 import { clientFailure } from '../../react/src/client/failure.ts';
 import { applyLiveTurnToolEvent } from '../../react/src/client/live/apply-live-turn-tool-event.ts';
 import { runLiveToolCall } from '../../react/src/client/live/run-live-tool-call.ts';
+import { LiveSessionClient, type LiveSocket } from '../../react/src/client/live-client.ts';
 import { isPermissionDeniedError } from '../../react/src/client/live-errors.ts';
 import {
   type ExecuteToolOnRelay,
@@ -327,5 +329,58 @@ Deno.test('a relay reads each live message by its schema; a malformed one is a r
   ] as const) {
     const err = assertThrows(() => parseLiveClientMessage(text), TheoremError);
     assertEquals([err.kind, err.message], ['request', message]);
+  }
+});
+
+Deno.test('a live client sends text and context to the socket as typed messages, and nothing before it is open', async () => {
+  const sent: string[] = [];
+  let readyState: LiveSocket['readyState'] = WebSocket.CONNECTING;
+  const socket: LiveSocket = {
+    get readyState() {
+      return readyState;
+    },
+    binaryType: 'blob',
+    send: (data: string) => void sent.push(data),
+    close: () => {},
+    onopen: null,
+    onmessage: null,
+    onclose: null,
+    onerror: null,
+  };
+  const realAudioContext = Reflect.get(globalThis, 'AudioContext');
+  const realLocation = Reflect.get(globalThis, 'location');
+  Reflect.set(
+    globalThis,
+    'AudioContext',
+    class {
+      state = 'running';
+      close() {}
+    },
+  );
+  Reflect.set(globalThis, 'location', { protocol: 'https:', host: 'example.test' });
+  const client = new LiveSessionClient({
+    createSocket: () => socket,
+    onToolCall: async () => {},
+  });
+  try {
+    await client.connect();
+    client.sendText('hello');
+    client.sendContext('the visitor is on /docs');
+    assertEquals(sent, []);
+
+    readyState = WebSocket.OPEN;
+    client.sendText('hello');
+    client.sendContext('the visitor is on /docs');
+    assertEquals(
+      sent.map((message) => JSON.parse(message)),
+      [
+        { type: 'text', text: 'hello' },
+        { type: 'context', text: 'the visitor is on /docs' },
+      ],
+    );
+  } finally {
+    client.disconnect();
+    Reflect.set(globalThis, 'AudioContext', realAudioContext);
+    Reflect.set(globalThis, 'location', realLocation);
   }
 });

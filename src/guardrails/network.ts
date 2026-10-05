@@ -18,18 +18,18 @@ const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
 type IPv4OctetMatch = (b0: number, b1: number, b2: number) => boolean;
 
 const PRIVATE_OR_LOCAL_IPV4_MATCHES: readonly IPv4OctetMatch[] = [
-  (b0) => b0 === 0, // 0.0.0.0/8
-  (b0) => b0 === 127, // 127.0.0.0/8 (loopback)
-  (b0) => b0 === 10, // 10.0.0.0/8
-  (b0, b1) => b0 === 100 && b1 >= 64 && b1 <= 127, // 100.64.0.0/10 (CGNAT)
-  (b0, b1) => b0 === 172 && b1 >= 16 && b1 <= 31, // 172.16.0.0/12
-  (b0, b1) => b0 === 192 && b1 === 168, // 192.168.0.0/16
-  (b0, b1) => b0 === 169 && b1 === 254, // 169.254.0.0/16 (link-local)
-  (b0, b1, b2) => b0 === 192 && b1 === 0 && (b2 === 0 || b2 === 2), // 192.0.0.0/24, 192.0.2.0/24
-  (b0, b1) => b0 === 198 && (b1 === 18 || b1 === 19), // 198.18.0.0/15
-  (b0, b1, b2) => b0 === 198 && b1 === 51 && b2 === 100, // 198.51.100.0/24
-  (b0, b1, b2) => b0 === 203 && b1 === 0 && b2 === 113, // 203.0.113.0/24
-  (b0) => b0 >= 224, // Multicast & Reserved (224.0.0.0/4, 240.0.0.0/4)
+  (b0) => b0 === 0,
+  (b0) => b0 === 127,
+  (b0) => b0 === 10,
+  (b0, b1) => b0 === 100 && b1 >= 64 && b1 <= 127,
+  (b0, b1) => b0 === 172 && b1 >= 16 && b1 <= 31,
+  (b0, b1) => b0 === 192 && b1 === 168,
+  (b0, b1) => b0 === 169 && b1 === 254,
+  (b0, b1, b2) => b0 === 192 && b1 === 0 && (b2 === 0 || b2 === 2),
+  (b0, b1) => b0 === 198 && (b1 === 18 || b1 === 19),
+  (b0, b1, b2) => b0 === 198 && b1 === 51 && b2 === 100,
+  (b0, b1, b2) => b0 === 203 && b1 === 0 && b2 === 113,
+  (b0) => b0 >= 224,
 ];
 
 function isPrivateOrLocalIPv4Parts(b0: number, b1: number, b2: number, _b3: number): boolean {
@@ -203,7 +203,7 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
   const allowedHosts = policy?.allowedHosts?.map((h) => h.toLowerCase()) ?? [];
   const hostname = parsed.hostname.toLowerCase();
 
-  // An allowed host is exempt from the address checks, never from the scheme.
+  // invariant: An allowed host is exempt from the address checks, never from the scheme.
   const defaultSchemes = allowPrivate ? ['http:', 'https:'] : ['https:'];
   const allowedSchemes = policy?.allowedSchemes
     ? policy.allowedSchemes.map((s) => (s.endsWith(':') ? s.toLowerCase() : `${s.toLowerCase()}:`))

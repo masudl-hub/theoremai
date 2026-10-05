@@ -9,9 +9,9 @@
 
 import { TheoremError, type TurnEvent, type TurnInput } from '@theoremjs/agents';
 import {
-	answerOpenToolCalls,
-	assertOpenToolCalls,
-	settlesToolCall,
+  answerOpenToolCalls,
+  assertOpenToolCalls,
+  settlesToolCall,
 } from '@theoremjs/agents/interface';
 
 /** Refuses a walk-away its history does not match, before any gate is answered. */

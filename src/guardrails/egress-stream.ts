@@ -72,8 +72,6 @@ interface EgressStream {
   holdFrom: () => number;
 }
 
-// ── Automata ─────────────────────────────────────────────────────────
-
 interface Automaton {
   classOf: Uint16Array;
   /** Per charset, per class: 1 when the class is in the set. */
@@ -174,8 +172,6 @@ function startEdges(automaton: Automaton, patterns: readonly number[]): Int32Arr
   }
   return byClass.map((targets) => Int32Array.from(targets));
 }
-
-// ── Rewrites ─────────────────────────────────────────────────────────
 
 /**
  * Text grown at its end, with what its latest update added. Reading a grown
@@ -435,7 +431,7 @@ function urlView(reply: Grown): MappedView {
         }
         continue;
       }
-      // Inside a run: complete escapes end at runStart + 3k.
+      // why: Inside a run: complete escapes end at runStart + 3k.
       const offset = (read - runStart) % 3;
       const fits = offset === 0 ? unit === '%' : URL_HEX.test(unit);
       if (fits) {
@@ -443,7 +439,7 @@ function urlView(reply: Grown): MappedView {
         continue;
       }
       endRun(read - offset);
-      // The broken escape's text is literal; `read` rereads from its end.
+      // why: The broken escape's text is literal; `read` rereads from its end.
       for (let i = read - offset; i < read; i++)
         append(view, String.fromCharCode(unitAt(reply, i)), i);
     }
@@ -456,8 +452,6 @@ function urlView(reply: Grown): MappedView {
 
   return view;
 }
-
-// ── Scans ────────────────────────────────────────────────────────────
 
 interface ScanPattern {
   rule: string;
@@ -760,8 +754,6 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
     },
   };
 }
-
-// ── Stream ───────────────────────────────────────────────────────────
 
 interface EgressStreamOptions {
   /** The bundled checks to run. Default each at its default (`EgressChecks`). */

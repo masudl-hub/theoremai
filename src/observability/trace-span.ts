@@ -1,4 +1,4 @@
-// Content is held in memory as markers the record builder resolves: `$content` is scrubbed, hashed
+// invariant: Content is held in memory as markers the record builder resolves: `$content` is scrubbed, hashed
 // and moved into `TraceRecord.content`; `$bytes` is hashed and never stored; `$json` has media
 // hashed and strings equal to recorded content replaced by their hash.
 

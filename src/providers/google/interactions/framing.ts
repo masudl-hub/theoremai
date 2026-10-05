@@ -22,7 +22,7 @@ export function toGoogleValue(value: unknown): unknown {
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, nested] of Object.entries(value)) {
-      // Schema property names stay as authored; snake-casing them breaks Gemini validation.
+      // why: Schema property names stay as authored; snake-casing them breaks Gemini validation.
       if (key === 'schema' || key === 'parameters') {
         out[camelToSnake(key)] = nested;
         continue;
@@ -85,7 +85,7 @@ function textOrPartsStep(
   role: 'assistant' | 'user',
   msg: TurnHistoryMessage,
 ): Record<string, unknown> {
-  // Assistant history is `model_output`, not `model_turn`.
+  // why: Assistant history is `model_output`, not `model_turn`.
   const type = role === 'assistant' ? 'model_output' : 'user_input';
   return { type, content: historyContent(msg) };
 }
@@ -169,7 +169,6 @@ export function attachResponseFormat(
         );
       }
     }
-    // An object asks for image only; an array for text + image.
     camel.responseFormat = req.image.includeText ? [{ type: 'text' }, imageEntry] : imageEntry;
     return;
   }
@@ -283,7 +282,7 @@ export function baseInteractionsBody(req: ProviderCompleteRequest): Record<strin
     maxOutputTokens: req.maxOutputTokens,
   };
   if (req.speech) {
-    // TTS models reject chat thinking knobs; voice lives under speech_config.
+    // why: TTS models reject chat thinking knobs; voice lives under speech_config.
     attachSpeechConfig(req, generationConfig);
   } else {
     assertGoogleThinkingLevel(req.thinking);

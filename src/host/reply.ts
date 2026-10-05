@@ -25,7 +25,7 @@ const STATUS_BY_KIND: Readonly<Record<ErrorKind, number>> = {
   blocked: 403,
   declined: 409,
   failed: 502,
-  // Client closed request (nginx convention): the caller went away.
+  // why: Client closed request (nginx convention): the caller went away.
   cancelled: 499,
   internal: 500,
 };

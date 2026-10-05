@@ -1,4 +1,4 @@
-// A key with no entry is still a real attribute: viewers show it under its raw name.
+// invariant: A key with no entry is still a real attribute: viewers show it under its raw name.
 
 import type { GuardrailRule } from '../guardrails/rules.ts';
 import type { ErrorKind } from '../guardrails/theorem-error.ts';

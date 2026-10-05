@@ -1,5 +1,5 @@
-/*
- * Google usage lists, in the spellings the wire sends (probed 23/09/2026):
+/* probed 2026-09-23:
+ * Google usage lists, in the spellings the wire sends:
  *
  * - Interactions: `input_tokens_by_modality` / `output_tokens_by_modality`,
  *   `[{ modality: 'text', tokens }]`; `grounding_tool_count`,

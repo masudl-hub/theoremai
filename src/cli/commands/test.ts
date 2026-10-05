@@ -132,7 +132,7 @@ function resolveTargetProfiles(
   all: boolean | undefined,
 ): ModelProfile[] | null {
   if (all) {
-    // Host and decision profiles run no model turn, so they have no turn matrix.
+    // why: Host and decision profiles run no model turn, so they have no turn matrix.
     return listProfiles().filter(isModelProfile);
   }
   if (profileId) {

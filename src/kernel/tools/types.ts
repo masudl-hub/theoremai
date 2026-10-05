@@ -195,9 +195,9 @@ export interface ToolAuthConfig {
   type: ToolAuthType;
   /** The service the person signs in to, as they know it (e.g. "GitHub"); never blank. */
   service: string;
-  headerName?: string; // defaults to 'Authorization'
-  headerPrefix?: string; // defaults to 'Bearer '
-  onUnauthenticated?: AuthUnauthenticatedPolicy; // defaults to 'gate'
+  headerName?: string;
+  headerPrefix?: string;
+  onUnauthenticated?: AuthUnauthenticatedPolicy;
   /** Named on the auth gate for the host's OAuth flow. */
   preResolved?: Partial<OAuthEndpoints & { resource: string }>;
   scopes?: string[];
@@ -212,7 +212,7 @@ export interface HttpToolDef<TIn = unknown, TOut = unknown>
   type: 'http';
   input: z.ZodType<TIn>;
   output: z.ZodType<TOut>;
-  endpoint: string; // URL template, e.g. "https://api.example.com/items/{id}"
+  endpoint: string;
   method: HttpMethod;
   headers?: Record<string, string>;
   auth?: ToolAuthConfig;

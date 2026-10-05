@@ -219,7 +219,7 @@ export async function* yieldImagesEndpoint(
     yield { type: 'media', media };
   }
   yield* yieldUsage(body.usage);
-  // The endpoint answers whole or not at all: a body with images completed.
+  // why: The endpoint answers whole or not at all: a body with images completed.
   yield { type: 'done', stop: { kind: 'completed' } };
 }
 

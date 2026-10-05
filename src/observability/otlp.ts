@@ -1,4 +1,4 @@
-// OTLP has no record-level slot for `TraceRecord.metadata` (the resource is the service's
+// why: OTLP has no record-level slot for `TraceRecord.metadata` (the resource is the service's
 // identity), so each key lands on the record's top spans as `theorem.metadata.<key>`.
 
 import { inlineContent, type TraceRecord } from './trace-record.ts';
@@ -60,7 +60,7 @@ function anyValue(value: unknown): OtlpAnyValue | undefined {
     return { boolValue: value };
   }
   if (typeof value === 'number') {
-    // int64 is a decimal string in OTLP/JSON.
+    // why: int64 is a decimal string in OTLP/JSON.
     return Number.isInteger(value) ? { intValue: String(value) } : { doubleValue: value };
   }
   if (Array.isArray(value)) {
@@ -69,7 +69,7 @@ function anyValue(value: unknown): OtlpAnyValue | undefined {
   if (value && typeof value === 'object') {
     return { kvlistValue: { values: keyValues(value) } };
   }
-  // null / undefined: OTLP has no empty value, so the key is left out.
+  // why: null / undefined: OTLP has no empty value, so the key is left out.
   return undefined;
 }
 

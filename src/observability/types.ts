@@ -1,4 +1,4 @@
-// Must not import from src/kernel/: the kernel type-imports ProfileObservabilitySpec, and that
+// invariant: Must not import from src/kernel/: the kernel type-imports ProfileObservabilitySpec, and that
 // edge stays one-directional.
 
 import type { TraceSink } from './trace-sink.ts';

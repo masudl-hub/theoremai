@@ -407,7 +407,7 @@ function applyMutateField(
   }
   const subject = mutateSubject(stage);
   if (!subject) {
-    // Matrix allows mutate but no subject is mapped: a kernel drift, surfaced not swallowed.
+    // why: Matrix allows mutate but no subject is mapped: a kernel drift, surfaced not swallowed.
     warn(
       out.warnings,
       'mutate_invalid',
@@ -465,7 +465,6 @@ export function applyStageResult(input: StageApplyInput): StageApplyOutput {
   applyConfirmField(result, stage, out);
   applyMutateField(result, input, out);
 
-  // confirm + deny together: deny wins
   if (out.deny && out.confirm) {
     warn(warnings, 'confirm_invalid', 'confirm', 'confirm ignored because deny is set'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     delete out.confirm;
@@ -622,7 +621,7 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
   } = args;
   throwIfAborted(signal);
 
-  // Stream stage events stay lean (no outputRaw/failure). Hosts read those on
+  // why: Stream stage events stay lean (no outputRaw/failure). Hosts read those on
   // StageContext via onStage; tool failures also ride tool events.
   yield stageEventFields(stage, {
     callId: bag.callId,

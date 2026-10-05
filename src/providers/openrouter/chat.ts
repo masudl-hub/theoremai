@@ -426,7 +426,7 @@ function createStreamContext(
     apiKey,
     baseURL: config.baseUrl,
     headers: openAiGatewayHeaders(config),
-    // The AI SDK retries internally; tapping its fetch tapes every try.
+    // why: The AI SDK retries internally; tapping its fetch tapes every try.
     fetch: bearerFetch(req, config.fetch ?? fetch, config.vault, apiKey),
     compatibility: 'strict',
   });
@@ -609,7 +609,7 @@ export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOption
     | undefined;
   if (responseFormat) {
     openrouter.response_format = responseFormat;
-    // Route only to endpoints that honour the schema; one that ignores it answers in prose.
+    // why: Route only to endpoints that honour the schema; one that ignores it answers in prose.
     openrouter.provider = { require_parameters: true };
   }
   if (req.cache?.mode === 'automatic') {

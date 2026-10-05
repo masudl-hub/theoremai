@@ -169,7 +169,7 @@ async function runCompactor(args: {
   if (history.length === 0) return { droppedMedia, failure: { unreadable: true } };
   const req: TurnRequest = {
     profile: compactorId,
-    // The turn already passed model selection; its default needs no naming.
+    // why: The turn already passed model selection; its default needs no naming.
     ...(self && args.model !== compactor.defaultModel ? { model: args.model } : {}),
     input: { text: lexiconText('compaction.request', {}, compactor.lexicon), history },
     signal: args.signal,
@@ -454,7 +454,7 @@ async function* streamTurnEvents(
     if (!shouldSkipStreamEvent(out, profile)) yield deliver(ctx, out);
 
     if (out.type === 'done' && ctx.state) {
-      // Skip duplicate post_turn when pre_turn abort already emitted it inside emitTurn.
+      // why: Skip duplicate post_turn when pre_turn abort already emitted it inside emitTurn.
       const alreadyPost = ctx.state.allEmittedEvents.some(
         (e) => e.type === 'stage' && e.stage === 'post_turn',
       );
@@ -607,7 +607,7 @@ async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnE
   const gen = ctx.generation;
   if (!(profile && gen && ctx.safe && ctx.trace)) return;
 
-  // The turn's own state when it got that far, so post_turn sees the history the model saw.
+  // why: The turn's own state when it got that far, so post_turn sees the history the model saw.
   const state =
     ctx.state ??
     openTurnState({
@@ -641,7 +641,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   const checkMs = performance.now() - checkStart;
   ctx.safe = sanitized.request;
   const hits = sanitized.events.filter((event) => event.type === 'guardrail');
-  // The check's time rides on its last decision, or on a pass when it found nothing.
+  // why: The check's time rides on its last decision, or on a pass when it found nothing.
   if (hits.length === 0) {
     ctx.root.event(
       'theorem.guardrail',

@@ -45,7 +45,7 @@ export interface OAuth2Credential {
   accessToken: string;
   refreshToken?: string;
   /** Epoch milliseconds. */
-  expiresAt?: number; // epoch ms
+  expiresAt?: number;
   tokenEndpoint: string;
   clientId: string;
   scope?: string;

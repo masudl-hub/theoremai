@@ -2,13 +2,13 @@ import { isRecord } from '../util/record.ts';
 
 const MAX_VALUE_CHARS = 40;
 const PLACEHOLDER = /\{\{?([^{}]*)\}\}?/g;
-// Control and bidi-override characters would let a tool's output restyle or reorder the label.
+// why: Control and bidi-override characters would let a tool's output restyle or reorder the label.
 const UNPRINTABLE = /[\p{Cc}\p{Cf}]/gu;
 const INDEX = /^-?\d+$/;
 const ISO_DATE =
   /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
 const NUMBER = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
-// Dates show the wall-clock time as the tool wrote it, not converted to the server's zone.
+// why: Dates show the wall-clock time as the tool wrote it, not converted to the server's zone.
 const DAY = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' });
 const DAY_TIME = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
@@ -136,7 +136,7 @@ function leavesAt(node: unknown, path: string): string[] {
   return group ? placeholdersAt(node, path) : [path];
 }
 
-// A schema that doesn't say what's there ($ref, no properties, no items) is taken on trust.
+// why: A schema that doesn't say what's there ($ref, no properties, no items) is taken on trust.
 function schemaPathHolds(node: unknown, keys: readonly string[], walked: string): Holds {
   if (!isRecord(node) || '$ref' in node) return { holds: 'value' };
   const branches = schemaBranches(node);

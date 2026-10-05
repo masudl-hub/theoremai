@@ -152,7 +152,7 @@ function pcmSeconds(mimeType: string, bytes: Uint8Array): number | undefined {
   } else {
     rate = mimeParam(mimeType, 'rate');
     channels = mimeParam(mimeType, 'channels');
-    // Mono L16 is converted before it is counted.
+    // why: Mono L16 is converted before it is counted.
     if (channels === 1) return undefined;
   }
   if (!rate || !channels) return undefined;
@@ -189,7 +189,7 @@ function utf8(bytes: Uint8Array): string | undefined {
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
-    // Not UTF-8: what Gemini reads from it is unknown.
+    // why: Not UTF-8: what Gemini reads from it is unknown.
     return undefined;
   }
 }
@@ -259,7 +259,7 @@ function buildEstimator(encode: EncodeFn): TokenEstimator {
   return { text, media, parts, messages };
 }
 
-// The ranks import lazily, so hosts that never estimate never pay for them.
+// why: The ranks import lazily, so hosts that never estimate never pay for them.
 /** Loads the token estimator; the `o200k_base` ranks are imported on the first call. */
 export async function loadTokenEstimator(): Promise<TokenEstimator> {
   encodePromise ??= import('gpt-tokenizer/encoding/o200k_base').then((m) => m.encode);

@@ -6,8 +6,8 @@
  * Core: @astryxdesign/core@0.6.5
  */
 
+import type { IconRegistry } from '@astryxdesign/core/Icon';
 /// <reference path="./theorem.variants.d.ts" />
 import type { DefinedTheme } from '@astryxdesign/core/theme';
-import type { IconRegistry } from '@astryxdesign/core/Icon';
 export declare const tablerIcons: IconRegistry;
 export declare const theoremTheme: DefinedTheme;

@@ -30,7 +30,7 @@ function openInferenceUsage(attributes: TraceAttributes): TraceAttributes {
     ...(typeof reasoning === 'number'
       ? { 'llm.token_count.completion_details.reasoning': reasoning }
       : {}),
-    // A partial cost would read as the call's total; it keeps only its theorem.* name.
+    // why: A partial cost would read as the call's total; it keeps only its theorem.* name.
     ...(typeof cost === 'number' && attributes['theorem.usage.cost_partial'] !== true
       ? { 'llm.cost.total': cost }
       : {}),

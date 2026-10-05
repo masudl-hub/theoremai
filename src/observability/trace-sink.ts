@@ -1,4 +1,4 @@
-// Type-only so programs that never write files (browser bundles, Workers) never pull the JSONL
+// why: Type-only so programs that never write files (browser bundles, Workers) never pull the JSONL
 // file sink into their module graph.
 
 import type { TraceRecord } from './trace-record.ts';

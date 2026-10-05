@@ -211,12 +211,42 @@ function parsed(pattern: RegExp): Alternatives {
   return JS.Parser.fromLiteral(units).parse({ assertions: 'parse' }).expression.alternatives;
 }
 
+/**
+ * The pattern's source spelled so no lint rule has anything to say about it: `[\s\S]` for any
+ * character (not `[^]`) and `\v` for the vertical tab (not `\x0b`). Each pair matches the same text.
+ */
+function plainSource(source: string): string {
+  let out = '';
+  let inClass = false;
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i] as string;
+    if (char === '\\') {
+      const next = source.slice(i, i + 4);
+      if (next === '\\x0b') {
+        out += '\\v';
+        i += 3;
+      } else {
+        out += source.slice(i, i + 2);
+        i++;
+      }
+    } else if (!inClass && source.startsWith('[^]', i)) {
+      out += '[\\s\\S]';
+      i += 2;
+    } else {
+      if (char === '[') inClass = true;
+      else if (char === ']') inClass = false;
+      out += char;
+    }
+  }
+  return out;
+}
+
 /** A regex literal for the reversed pattern, with the original's flags. */
 function reversedLiteral(pattern: RegExp): RegExp {
   const literal = JS.toLiteral(reversed(parsed(pattern)), {
     flags: { global: true, unicode: false, sticky: false },
   });
-  return new RegExp(literal.source, literal.flags);
+  return new RegExp(plainSource(literal.source), literal.flags);
 }
 
 interface PatternNfa {

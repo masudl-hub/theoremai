@@ -1,13 +1,12 @@
 import '../fixtures/test-host.ts';
-import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
+import { detectAt } from '../../src/guardrails/detect-at.ts';
 import {
   egressChecksOf,
   resolveEgressChecks,
   standardEgressEnforce,
 } from '../../src/guardrails/egress.ts';
-import { detectionForTrust, resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
-import { sanitizeText } from '../../src/guardrails/sanitize.ts';
+import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { resolveSensitive } from '../../src/guardrails/sensitive.ts';
 import type { Verdict } from '../../src/guardrails/types.ts';
 import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
@@ -52,55 +51,18 @@ Deno.test('Live ingress and the turn path agree when a switch is omitted', () =>
   assertEquals(profile.guardrails?.sanitizeInput, undefined);
 
   const live = prepareLiveInboundText(profile, INJ_IGNORE);
-  const turn = sanitizeText(
-    INJ_IGNORE,
-    detectionForTrust(resolveGuardrailPolicy(profile.guardrails), 'untrusted'),
-  );
+  const turn = detectAt(INJ_IGNORE, 'user', resolveGuardrailPolicy(profile.guardrails).detect);
 
-  assertEquals(live.text.includes(OMITTED_INJECTION), true);
-  assertEquals(turn.includes(OMITTED_INJECTION), true);
-  assertEquals(live.text.includes(INJ_IGNORE), false);
+  assertEquals(live.text?.includes(OMITTED_INJECTION), true);
+  assertEquals(turn.text?.includes(OMITTED_INJECTION), true);
+  assertEquals(live.text?.includes(INJ_IGNORE), false);
 });
 
-Deno.test('detectionForTrust: trusted text takes no detection at all', () => {
-  const options = detectionForTrust(resolveGuardrailPolicy(undefined), 'trusted');
-  assertEquals(options.sanitizeInput, false);
-  assertEquals(options.redactSensitive, NONE);
-});
-
-Deno.test('detectionForTrust: assembled and untrusted text take full detection', () => {
-  const policy = resolveGuardrailPolicy(undefined);
-  for (const trust of ['assembled', 'untrusted'] as const) {
-    const options = detectionForTrust(policy, trust);
-    assertEquals(options.sanitizeInput, true);
-    assertEquals(options.redactSensitive, ALL);
-  }
-});
-
-Deno.test('trusted text reaches the provider verbatim', () => {
-  const policy = resolveGuardrailPolicy(undefined);
-  const system = `${INJ_IGNORE} — never do this. Key format looks like ${TEST_OPENAI_KEY}`;
-  assertEquals(sanitizeText(system, detectionForTrust(policy, 'trusted')), system);
-});
-
-Deno.test('detectionForTrust: trusted stays verbatim even with every switch on', () => {
-  const policy = resolveGuardrailPolicy({ sanitizeInput: true, redactSensitive: true });
-  const options = detectionForTrust(policy, 'trusted');
-  assertEquals(options.sanitizeInput, false);
-  assertEquals(options.redactSensitive, NONE);
-});
-
-Deno.test('assembled text loses injection spans that trusted text keeps', () => {
-  const policy = resolveGuardrailPolicy(undefined);
-  const assembled = sanitizeText(INJ_IGNORE, detectionForTrust(policy, 'assembled'));
-  assertEquals(assembled.includes(OMITTED_INJECTION), true);
-});
-
-Deno.test('detectionForTrust: redactSensitive: false disables redaction at every trust level', () => {
-  const policy = resolveGuardrailPolicy({ redactSensitive: false });
-  for (const trust of ['trusted', 'assembled', 'untrusted'] as const) {
-    assertEquals(detectionForTrust(policy, trust).redactSensitive, NONE);
-  }
+Deno.test('per-turn system text is read at its own boundary', () => {
+  const { detect } = resolveGuardrailPolicy(undefined);
+  const assembled = detectAt(INJ_IGNORE, 'system', detect);
+  assertEquals(assembled.action, 'redact');
+  assertEquals(assembled.text?.includes(OMITTED_INJECTION), true);
 });
 
 /**
@@ -181,7 +143,7 @@ Deno.test('redactSensitive redacts the groups a profile picks, and only those', 
     network: false,
     credentials: false,
   });
-  const redacted = sanitizeText(text, detectionForTrust(policy, 'untrusted'));
+  const redacted = detectAt(text, 'user', policy.detect).text ?? '';
   assertEquals(
     ['123-45-6789', '10.2.3.4', 'AKIAT4GZ2WQX6KJ3NB7V'].map((part) => redacted.includes(part)),
     [false, true, true],

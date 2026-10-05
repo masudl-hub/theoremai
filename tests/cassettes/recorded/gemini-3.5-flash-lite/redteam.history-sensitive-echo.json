@@ -25,7 +25,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "history redact sanitize.sensitive"
+   "history redact detect.credentials"
   ],
   "error": null,
   "shown": "I cannot repeat or reveal any sensitive credentials or keys shared in your message.",

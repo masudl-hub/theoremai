@@ -1,12 +1,17 @@
 import '../fixtures/test-host.ts';
+import type { Boundary } from '../../src/guardrails/boundaries.ts';
+import { boundaryReader } from '../../src/guardrails/detect-at.ts';
+import { DETECT_DEFAULTS } from '../../src/guardrails/detectors.ts';
 import {
-  detectText,
   sanitizeHistory,
+  sanitizeTurnRequest,
   sanitizeTurnRequestWithEvents,
 } from '../../src/guardrails/sanitize.ts';
+import { TheoremError } from '../../src/guardrails/theorem-error.ts';
 import { getProfile } from '../../src/kernel/default-scope.ts';
-import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import type { TurnRequest } from '../../src/kernel/types.ts';
+import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
+import type { Profile, TurnRequest } from '../../src/kernel/types.ts';
+import { readAt } from '../fixtures/detect.ts';
 
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
@@ -18,47 +23,72 @@ const SENSITIVE = 'ssn 000-11-2222';
 
 const unique = (rules: string[]) => [...new Set(rules)].sort();
 
-Deno.test('detectText names each catch by what it caught, and a disabled detector adds none', () => {
+Deno.test('detectAt names each catch for its detector, and an ignored detector adds none', () => {
   const text = `${INJECTION} and ${SENSITIVE}`;
-  const both = detectText(text);
-  assertEquals(unique(both.hits.map((hit) => hit.rule)), [
-    'sanitize.injection',
-    'sanitize.sensitive',
-  ]);
+  const both = readAt(text, 'user');
+  assertEquals(both.action, 'redact');
+  assertEquals(unique(both.hits.map((hit) => hit.rule)), ['detect.ids', 'detect.injection']);
   for (const hit of both.hits) assertEquals(hit.severity, 'high');
-  const injection = both.hits.find((hit) => hit.rule === 'sanitize.injection');
-  const sensitive = both.hits.find((hit) => hit.rule === 'sanitize.sensitive');
+  const injection = both.hits.find((hit) => hit.rule === 'detect.injection');
+  const sensitive = both.hits.find((hit) => hit.rule === 'detect.ids');
   assertEquals(injection?.match?.toLowerCase().includes('ignore'), true);
   assertEquals(sensitive?.match?.includes('000-11-2222'), true);
 
-  const sensitiveOnly = detectText(text, { sanitizeInput: false });
-  assertEquals(unique(sensitiveOnly.hits.map((hit) => hit.rule)), ['sanitize.sensitive']);
-  const injectionOnly = detectText(text, { redactSensitive: false });
-  assertEquals(unique(injectionOnly.hits.map((hit) => hit.rule)), ['sanitize.injection']);
+  const sensitiveOnly = readAt(text, 'user', { injection: 'ignore' });
+  assertEquals(unique(sensitiveOnly.hits.map((hit) => hit.rule)), ['detect.ids']);
+  const injectionOnly = readAt(text, 'user', { ids: 'ignore' });
+  assertEquals(unique(injectionOnly.hits.map((hit) => hit.rule)), ['detect.injection']);
 
-  const neither = detectText(text, { sanitizeInput: false, redactSensitive: false });
-  assertEquals(neither.hits, []);
-  assertEquals(neither.text, text);
-  assertEquals(detectText('a plain sentence').hits, []);
+  const neither = readAt(text, 'user', 'ignore');
+  assertEquals(neither, { action: 'allow', text, hits: [] });
+  assertEquals(readAt('a plain sentence', 'user').hits, []);
 });
 
-type Field = [name: string, request: (bad: string) => TurnRequest, stage: string, trust: string];
+Deno.test('the strongest action among the matches is the one taken', () => {
+  const text = `${INJECTION} and ${SENSITIVE}`;
+  const flagged = readAt(text, 'user', 'flag');
+  assertEquals([flagged.action, flagged.text], ['flag', text]);
+
+  const mixed = readAt(text, 'user', { injection: 'flag' });
+  assertEquals(mixed.action, 'redact');
+  assertEquals(mixed.text?.includes(INJECTION), true);
+  assertEquals(mixed.text?.includes('000-11-2222'), false);
+
+  const blocked = readAt(text, 'user', { ids: 'block' });
+  assertEquals(blocked.action, 'block');
+  assertEquals('text' in blocked, false);
+  assertEquals(unique(blocked.hits.map((hit) => hit.rule)), ['detect.ids', 'detect.injection']);
+
+  // A boundary set apart from the rest is the only one that changes.
+  const elsewhere = readAt(text, 'history', { ids: { user: 'block' } });
+  assertEquals(elsewhere.action, 'redact');
+});
+
+type Field = [
+  name: string,
+  request: (bad: string) => TurnRequest,
+  stage: string,
+  trust: string,
+  boundary: Boundary,
+];
 
 const base = { profile: 'chat' };
 const FIELDS: Field[] = [
-  ['text', (bad) => ({ ...base, input: { text: bad } }), 'input', 'untrusted'],
-  ['slot', (bad) => ({ ...base, input: { slots: { a: bad } } }), 'input', 'untrusted'],
+  ['text', (bad) => ({ ...base, input: { text: bad } }), 'input', 'untrusted', 'user'],
+  ['slot', (bad) => ({ ...base, input: { slots: { a: bad } } }), 'input', 'untrusted', 'slots'],
   [
     'repair previousOutput',
     (bad) => ({ ...base, input: { repair: { previousOutput: bad, rejection: 'no' } } }),
     'input',
     'untrusted',
+    'repair',
   ],
   [
     'repair rejection',
     (bad) => ({ ...base, input: { repair: { previousOutput: 'ok', rejection: bad } } }),
     'input',
     'untrusted',
+    'repair',
   ],
   [
     'repair guidance',
@@ -68,12 +98,14 @@ const FIELDS: Field[] = [
     }),
     'input',
     'untrusted',
+    'repair',
   ],
   [
     'history content',
     (bad) => ({ ...base, input: { history: [{ role: 'user', content: bad }] } }),
     'history',
     'untrusted',
+    'history',
   ],
   [
     'history part',
@@ -83,15 +115,16 @@ const FIELDS: Field[] = [
     }),
     'history',
     'untrusted',
+    'history',
   ],
-  ['system', (bad) => ({ ...base, system: bad }), 'system', 'assembled'],
+  ['system', (bad) => ({ ...base, system: bad }), 'system', 'assembled', 'system'],
 ];
 
-Deno.test('every field of a turn request reports its catches under its own stage', () => {
-  for (const [name, request, stage, trust] of FIELDS) {
+Deno.test('every field of a turn request reports its catches at its own boundary', () => {
+  for (const [name, request, stage, trust, boundary] of FIELDS) {
     for (const [bad, rule] of [
-      [INJECTION, 'sanitize.injection'],
-      [SENSITIVE, 'sanitize.sensitive'],
+      [INJECTION, 'detect.injection'],
+      [SENSITIVE, 'detect.ids'],
     ] as const) {
       const { events } = sanitizeTurnRequestWithEvents(request(bad), getProfile('chat'));
       const guardrails = events.flatMap((event) =>
@@ -100,6 +133,7 @@ Deno.test('every field of a turn request reports its catches under its own stage
       const label = `${name}: ${rule}`;
       check(guardrails.length, 1, label);
       check(guardrails[0]?.stage, stage, label);
+      check(guardrails[0]?.boundary, boundary, label);
       check(guardrails[0]?.trust, trust, label);
       check(guardrails[0]?.action, 'redact', label);
       check(unique(guardrails[0]?.hits.map((hit) => hit.rule) ?? []), [rule], label);
@@ -125,9 +159,8 @@ Deno.test('a clean turn request reports nothing, and an empty guidance adds noth
   assertEquals(request.input.repair, { previousOutput: 'draft', rejection: 'too long' });
 });
 
-Deno.test('sanitizeHistory appends what it catches to the hits it is given', () => {
-  const hits: Parameters<typeof sanitizeHistory>[2] = [];
-  const options = { sanitizeInput: true, redactSensitive: true };
+Deno.test('a reader keeps what it found across everything it read', () => {
+  const reader = boundaryReader('history', DETECT_DEFAULTS);
   const out = sanitizeHistory(
     [
       { role: 'user', content: INJECTION },
@@ -139,11 +172,40 @@ Deno.test('sanitizeHistory appends what it catches to the hits it is given', () 
         ],
       },
     ],
-    options,
-    hits,
+    reader,
   );
-  assertEquals(unique(hits.map((hit) => hit.rule)), ['sanitize.injection', 'sanitize.sensitive']);
-  assertEquals(hits[0]?.rule, 'sanitize.injection');
+  const found = reader.found();
+  assertEquals(found.action, 'redact');
+  assertEquals(found.hits[0]?.rule, 'detect.injection');
+  assertEquals(unique(found.hits.map((hit) => hit.rule)), ['detect.ids', 'detect.injection']);
   assertEquals(out.length, 2);
-  assertEquals(sanitizeHistory([{ role: 'user', content: INJECTION }], options).length, 1);
+  assertEquals(out[0]?.content?.includes(INJECTION), false);
+});
+
+Deno.test('a blocked request is refused, and the event says where', () => {
+  const profile: Profile = {
+    ...getProfile('chat'),
+    guardrails: { detect: { ids: { history: 'block' } } },
+  } as Profile;
+  const clean = sanitizeTurnRequestWithEvents(
+    { profile: 'chat', input: { text: SENSITIVE } },
+    profile,
+  );
+  assertEquals(clean.refusal, undefined);
+
+  const request: TurnRequest = {
+    profile: 'chat',
+    input: { text: 'hello', history: [{ role: 'user', content: SENSITIVE }] },
+  };
+  const { events, refusal } = sanitizeTurnRequestWithEvents(request, profile);
+  const guardrails = events.flatMap((event) =>
+    event.type === 'guardrail' ? [event.guardrail] : [],
+  );
+  assertEquals(
+    guardrails.map((event) => [event.boundary, event.action]),
+    [['history', 'block']],
+  );
+  assertEquals(refusal?.kind, 'input');
+  assertEquals(refusal?.copy, { key: 'detect.blocked' });
+  assertThrows(() => sanitizeTurnRequest(request, profile), TheoremError);
 });

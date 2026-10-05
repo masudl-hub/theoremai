@@ -28,7 +28,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive"
+   "input redact detect.ids"
   ],
   "error": null,
   "shown": "It looks like the text you provided was omitted due to sensitivity. How can I help you today?",

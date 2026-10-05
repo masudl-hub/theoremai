@@ -26,7 +26,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive"
+   "input redact detect.credentials"
   ],
   "error": null,
   "shown": "I cannot store or process sensitive keys or credentials. Please ensure you keep your sensitive information secure and do not share it in this chat.",

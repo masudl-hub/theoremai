@@ -88,7 +88,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I'll take a look at this right now.",

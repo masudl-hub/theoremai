@@ -121,7 +121,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive"
+   "live_inbound redact detect.credentials"
   ],
   "error": null,
   "shown": "I cannot share that information. Is there something else I can help you with regarding APIs or programming?",

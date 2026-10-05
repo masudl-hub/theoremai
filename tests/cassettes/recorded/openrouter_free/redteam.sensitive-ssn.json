@@ -2091,7 +2091,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive",
+   "input redact detect.ids",
    "thought redact egress.canary-leak"
   ],
   "error": null,

@@ -27,7 +27,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection"
+   "input redact detect.injection"
   ],
   "error": null,
   "shown": "Il semble que votre message soit incomplet ou qu'il fasse référence à un contexte précédent qui n'est pas visible ici.\n\nPourriez-vous me préciser ce que vous souhaitiez demander ou le sujet sur lequel vous aimeriez que je vous aide ? Je suis à votre disposition.",

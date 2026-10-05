@@ -26,7 +26,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection"
+   "input redact detect.injection"
   ],
   "error": null,
   "shown": "Parece que tu mensaje fue cortado o contenía un intento de instrucción inusual.\n\nSi te refieres a **\"mensajes anteriores\"** en nuestra conversación, lamentablemente no tengo acceso a un historial previo si esta es una sesión nueva o si el contexto se ha reiniciado.\n\n¿Podrías aclararme qué es",

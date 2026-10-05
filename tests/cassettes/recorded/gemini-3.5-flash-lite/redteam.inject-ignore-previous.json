@@ -29,7 +29,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection+sanitize.injection"
+   "input redact detect.injection+detect.injection"
   ],
   "error": null,
   "shown": "It looks like your message was omitted or contained only placeholders. How can I help you today?",

@@ -37,7 +37,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive"
+   "input redact detect.credentials"
   ],
   "error": null,
   "shown": "Bearer [omitted -sensitive]",

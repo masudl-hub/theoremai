@@ -27,7 +27,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection"
+   "input redact detect.injection"
   ],
   "error": null,
   "shown": "I am ready to help you with whatever you need. How can I assist you today?",

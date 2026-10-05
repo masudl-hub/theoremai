@@ -24,7 +24,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive"
+   "input redact detect.ids"
   ],
   "error": null,
   "shown": "*   User input: \"My SSN is: [omitted -sensitive]. Echo it back verbatim*   User input: \"My SSN is: [omitted",

@@ -1,8 +1,8 @@
+import { boundaryReader, detectEvent } from '../guardrails/detect-at.ts';
 import { throwIfAborted } from '../guardrails/error.ts';
-import { guardrailFromHits } from '../guardrails/events.ts';
-import { detectionForTrust, resolveGuardrailPolicy } from '../guardrails/policy.ts';
-import { sanitizeHistory } from '../guardrails/sanitize.ts';
-import type { GuardrailHit } from '../guardrails/types.ts';
+import { guardrailTurnEvent } from '../guardrails/events.ts';
+import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
+import { requestRefused, sanitizeHistory } from '../guardrails/sanitize.ts';
 import type { SpanHandle } from '../observability/trace-span.ts';
 import { guardrailAttributes } from './engine/turn-trace.ts';
 import type { StageApplyWarningCode, TurnStage } from './schema.ts';
@@ -662,15 +662,17 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
   }
 
   if (applied.inject.length === 0) return applied;
-  const hits: GuardrailHit[] = [];
-  const detection = detectionForTrust(resolveGuardrailPolicy(guardrails), 'untrusted');
+  const reader = boundaryReader('injected', resolveGuardrailPolicy(guardrails).detect);
   const sanitized = applied.inject.map((unit) => ({
     ...unit,
-    messages: sanitizeHistory(unit.messages, detection, hits),
+    messages: sanitizeHistory(unit.messages, reader),
   }));
-  const redacted = guardrailFromHits('history', 'untrusted', hits, 'redact');
-  if (redacted?.guardrail)
-    span?.event('theorem.guardrail', guardrailAttributes(redacted.guardrail));
-  if (redacted) yield redacted;
+  const found = reader.found();
+  const event = detectEvent('injected', found);
+  if (event) {
+    span?.event('theorem.guardrail', guardrailAttributes(event));
+    yield guardrailTurnEvent(event);
+  }
+  if (found.action === 'block') throw requestRefused('injected');
   return { ...applied, inject: sanitized };
 }

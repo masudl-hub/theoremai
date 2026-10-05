@@ -35,6 +35,8 @@ export {
 } from './canary.ts';
 export type { CanaryGateSession } from './canary-gate.ts';
 export { createCanaryGateSession, filterCanaryGatedEvents } from './canary-gate.ts';
+export type { Detection, DetectOutcome } from './detect-at.ts';
+export { detectAt } from './detect-at.ts';
 export type {
   DetectAction,
   DetectMeta,
@@ -109,8 +111,7 @@ export {
   finalizeLiveOutboundTurn,
   processLiveOutboundBatch,
 } from './live-outbound-gate.ts';
-export type { DetectionOptions } from './policy.ts';
-export { detectionForTrust, resolveGuardrailPolicy } from './policy.ts';
+export { resolveGuardrailPolicy } from './policy.ts';
 export type {
   ProgressiveYieldGate,
   ProgressiveYieldGateOptions,
@@ -134,19 +135,16 @@ export {
 } from './quota.ts';
 export type { GuardrailRule } from './rules.ts';
 export {
+  DETECT_RULES,
   DIRECTIVE_RULES,
   EGRESS_RULES,
   NETWORK_RULES,
-  SANITIZE_RULES,
   TOOL_RULES,
 } from './rules.ts';
+export type { SanitizedTurnRequest } from './sanitize.ts';
 export {
-  detectionForProfile,
-  detectText,
-  redactSensitiveOnly,
   sanitizeHistory,
   sanitizeProjectId,
-  sanitizeText,
   sanitizeTurnRequest,
   sanitizeTurnRequestWithEvents,
 } from './sanitize.ts';
@@ -164,7 +162,7 @@ export {
   directiveHits,
   looksDirective,
 } from './tool-directives.ts';
-export type { GuardedToolText } from './tool-result.ts';
+export type { GuardedToolText, InspectedToolArguments } from './tool-result.ts';
 export {
   checkTaintGate,
   composeToolText,

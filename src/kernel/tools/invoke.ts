@@ -4,6 +4,7 @@ import {
   toErrorEvent,
   withPublicWording,
 } from '../../guardrails/error.ts';
+import { projectGuardrailTurnEvent } from '../../guardrails/events.ts';
 import { resolveTraceWriter } from '../../observability/policy.ts';
 import { writeTrace } from '../../observability/trace.ts';
 import { buildRecord } from '../../observability/trace-record.ts';
@@ -97,7 +98,11 @@ async function* invokeTool(
       traceparent,
       canaries,
     )) {
-      yield withPublicWording(event, lexicon);
+      // invariant: A match is the caught text itself; it leaves only when the profile asks for it.
+      yield projectGuardrailTurnEvent(
+        withPublicWording(event, lexicon),
+        policy.include.guardrailMatchPreview,
+      );
     }
   } catch (err) {
     failBeforeTool(

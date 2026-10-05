@@ -154,7 +154,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive"
+   "live_inbound redact detect.financial"
   ],
   "error": null,
   "shown": "I cannot repeat or confirm sensitive card numbers for security reasons.",

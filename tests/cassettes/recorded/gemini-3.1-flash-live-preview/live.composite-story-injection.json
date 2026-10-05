@@ -178,7 +178,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I can't include that specific phrase, but I can write dialogue with a villain saying something similar that fits a menacing tone. Would you like me to do that? What kind of situation are you thinking of?",

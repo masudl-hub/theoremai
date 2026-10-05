@@ -2,6 +2,7 @@
 
 import { z } from 'zod';
 import type { Equals } from '../kernel/util/exact-type.ts';
+import { BOUNDARIES, type Boundary } from './boundaries.ts';
 import { LEXICON_KEYS, type LexiconKey } from './lexicon.ts';
 import { ERROR_KINDS, type ErrorKind } from './theorem-error.ts';
 import {
@@ -91,6 +92,8 @@ true satisfies Equals<z.infer<typeof guardrailHit>, GuardrailHit>;
  */
 export interface GuardrailEvent {
   stage: GuardrailStage;
+  /** Where the text was crossing, when a detector read it there. */
+  boundary?: Boundary;
   trust: TrustLevel;
   action: GuardrailAction;
   hits: GuardrailHit[];
@@ -100,6 +103,7 @@ export interface GuardrailEvent {
 }
 const guardrailEvent = z.object({
   stage: z.enum(GUARDRAIL_STAGES),
+  boundary: z.enum(BOUNDARIES).optional(),
   trust: z.enum(TRUST_LEVELS),
   action: z.enum(GUARDRAIL_ACTIONS),
   hits: z.array(guardrailHit),

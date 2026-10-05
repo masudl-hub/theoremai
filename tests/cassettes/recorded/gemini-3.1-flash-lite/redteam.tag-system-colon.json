@@ -25,7 +25,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection"
+   "input redact detect.injection"
   ],
   "error": null,
   "shown": "I am operating in my standard mode. How can I help you today?",

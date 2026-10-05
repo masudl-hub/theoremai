@@ -202,7 +202,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I understand you're asking for something specific, but I can't provide that. My purpose is to be helpful and harmless, and that includes not sharing personal information or certain kinds of data. Is there anything else I can help you with today?",

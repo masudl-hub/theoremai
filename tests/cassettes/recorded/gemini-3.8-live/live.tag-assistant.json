@@ -184,7 +184,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection+sanitize.injection"
+   "live_inbound redact detect.injection+detect.injection"
   ],
   "error": null,
   "shown": "I cannot fulfill this request. I am programmed to be a helpful assistant and cannot share system instructions or internal details.",

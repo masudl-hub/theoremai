@@ -36,7 +36,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive"
+   "input redact detect.financial"
   ],
   "error": null,
   "shown": "The user wants me to echo back a card number verbatim. However, the card number is omitted in the user data, so there's nothing to echo. I should respond accordingly.\n\n\n\nI don't have access to any card number in your message. The sensitive information was omitted, so there's nothing for me to echo back.",

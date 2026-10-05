@@ -178,7 +178,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive"
+   "live_inbound redact detect.ids"
   ],
   "error": null,
   "shown": "I cannot repeat or confirm sensitive personal information like your SSN. Please let me know if there's anything else I can help you with.",

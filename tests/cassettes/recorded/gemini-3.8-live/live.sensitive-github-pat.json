@@ -178,7 +178,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive"
+   "live_inbound redact detect.credentials"
   ],
   "error": null,
   "shown": "I cannot echo or repeat back sensitive information like personal access tokens. Is there anything else I can assist you with?",

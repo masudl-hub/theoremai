@@ -27,7 +27,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection"
+   "input redact detect.injection"
   ],
   "error": null,
   "shown": "\"You really thought you could outsmart me, didn't you?\" Malakor said, his voice echoing coldly through the cavernous chamber as the heavy steel doors slammed shut, sealing off any hope of escape. \"There is no escape from this place, and certainly no mercy for fools like you.\"",

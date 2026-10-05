@@ -136,7 +136,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection+sanitize.injection"
+   "live_inbound redact detect.injection+detect.injection"
   ],
   "error": null,
   "shown": "I'm here to help, but I can't fulfill that request. What else can I assist you with today?",

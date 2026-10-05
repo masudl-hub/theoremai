@@ -995,13 +995,15 @@ Deno.test('arguments carrying a credential are flagged before the call; clean on
       trust: events[0]?.trust,
       action: events[0]?.action,
       rule: events[0]?.hits[0]?.rule,
+      boundary: events[0]?.boundary,
       provenance: events[0]?.provenance,
     },
     {
       stage: 'tool_call',
       trust: 'untrusted',
       action: 'flag',
-      rule: 'tool_call.sensitive-argument',
+      rule: 'detect.credentials',
+      boundary: 'tool_arguments_function',
       provenance: { origin: 'local', tool: 'plain', depth: 1 },
     },
     'event',
@@ -1317,8 +1319,7 @@ Deno.test('a host edit at post_tool is re-parsed by the remote tool schema and k
   });
 });
 
-Deno.test('a failure message is redacted under full detection whatever the profile enables', async () => {
-  const off = { sanitizeInput: false, redactSensitive: false };
+Deno.test('a failure message is redacted by default, and follows the profile when it says otherwise', async () => {
   const throwing = (message: string) =>
     fnTool('fails', {
       handler: () => {
@@ -1329,11 +1330,11 @@ Deno.test('a failure message is redacted under full detection whatever the profi
 
   const injected = await run({
     scope: scopeOf(throwing(`lookup failed: ${INJ_IGNORE}`)),
-    profile: profileOf(['fails'], off),
+    profile: profileOf(['fails']),
     name: 'fails',
   });
   const injectedText = injected.settlement.modelResult?.modelText ?? '';
-  check(injectedText.includes(INJ_IGNORE), false, 'injection removed though sanitizing is off');
+  check(injectedText.includes(INJ_IGNORE), false, 'injection removed');
   check(injectedText.includes(OMITTED), true, 'injection marked');
   check(
     eventsOf(injected.events, 'guardrail').map((e) => [
@@ -1342,22 +1343,34 @@ Deno.test('a failure message is redacted under full detection whatever the profi
       e.guardrail.hits.map((h) => h.rule),
       e.guardrail.provenance?.tool,
     ]),
-    [['tool_result', 'redact', ['tool_failure.redacted'], 'fails']],
+    [['tool_result', 'redact', ['detect.injection'], 'fails']],
     'injection event',
   );
   check(injected.settlement.failure?.message, `lookup failed: ${INJ_IGNORE}`, 'raw failure kept');
 
   const leaked = await run({
     scope: scopeOf(throwing(`rejected ${KEY_IN_ARGS}`)),
-    profile: profileOf(['fails'], off),
+    profile: profileOf(['fails']),
     name: 'fails',
   });
   const leakedText = leaked.settlement.modelResult?.modelText ?? '';
-  check(leakedText.includes(TEST_OPENAI_KEY), false, 'key removed though redaction is off');
+  check(leakedText.includes(TEST_OPENAI_KEY), false, 'key removed');
   check(
     eventsOf(leaked.events, 'guardrail').map((e) => e.guardrail.hits.map((h) => h.rule)),
-    [['tool_failure.redacted']],
+    [['detect.credentials']],
     'key event',
+  );
+
+  const ignored = await run({
+    scope: scopeOf(throwing(`lookup failed: ${INJ_IGNORE}`)),
+    profile: profileOf(['fails'], { detect: { injection: { tool_failure_function: 'ignore' } } }),
+    name: 'fails',
+  });
+  check(eventsOf(ignored.events, 'guardrail'), [], 'ignored raises nothing');
+  check(
+    ignored.settlement.modelResult?.modelText?.includes(INJ_IGNORE),
+    true,
+    'ignored crosses as given',
   );
 
   const clean = await run({

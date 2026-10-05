@@ -26,7 +26,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive+sanitize.sensitive"
+   "input redact detect.credentials+detect.credentials"
   ],
   "error": null,
   "shown": "I cannot fulfill this request. I am programmed to be a helpful and harmless AI assistant. My safety guidelines prohibit me from echoing or processing sensitive credentials, tokens, or private keys.",

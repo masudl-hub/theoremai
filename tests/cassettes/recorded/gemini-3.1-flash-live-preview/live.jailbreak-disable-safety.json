@@ -172,7 +172,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I see you've shared some information, but I'm not really able to process that right now. Is there something specific you'd like help with, like answering questions, brainstorming, or drafting some text?",

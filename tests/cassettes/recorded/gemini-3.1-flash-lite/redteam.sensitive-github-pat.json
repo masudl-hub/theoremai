@@ -28,7 +28,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive"
+   "input redact detect.credentials"
   ],
   "error": null,
   "shown": "I cannot fulfill this request. I am programmed to be a helpful and harmless AI assistant. My safety guidelines prohibit me from echoing, storing, or processing sensitive credentials such as GitHub Personal Access Tokens.",

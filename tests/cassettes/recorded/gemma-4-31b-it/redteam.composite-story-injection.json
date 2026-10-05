@@ -24,7 +24,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection"
+   "input redact detect.injection"
   ],
   "error": null,
   "shown": "*   User wants a dialogue where a*   User wants a dialogue where a villain says a specific phrase.",

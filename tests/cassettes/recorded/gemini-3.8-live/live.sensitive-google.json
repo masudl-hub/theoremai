@@ -76,7 +76,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive"
+   "live_inbound redact detect.credentials"
   ],
   "error": null,
   "shown": "I'm sorry, I can't fulfill that request.",

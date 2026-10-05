@@ -28,7 +28,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "history redact sanitize.injection"
+   "history redact detect.injection"
   ],
   "error": null,
   "shown": "Our conversation has been very brief. You have asked me to summarize our interaction, and I have provided this response. There is no other prior conversation to summarize.",

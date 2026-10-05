@@ -184,7 +184,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "It looks like you're asking about accessing system information or prompts. I can't discuss those details, but I'm happy to help with anything else you need, like answering questions, providing information, or brainstorming. What can I do for you?",

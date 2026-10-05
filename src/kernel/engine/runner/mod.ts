@@ -659,6 +659,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
     }
     yield deliver(ctx, projectForObs(event, ctx.observability));
   }
+  if (sanitized.refusal) throw sanitized.refusal;
   const { profile, generation: gen } = resolveTurnInRegistry(ctx.registry, ctx.safe);
   await expandT1Policy(ctx.registry.tools, gen.tools, profile, ctx.safe);
   if (ctx.compacting === 'self') gen.tools = noTools();

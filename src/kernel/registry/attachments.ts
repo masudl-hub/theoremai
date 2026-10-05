@@ -1,13 +1,11 @@
+import type { BoundaryReader } from '../../guardrails/detect-at.ts';
 import { type ErrorCopy, TheoremError } from '../../guardrails/error.ts';
-import { injectionSpans } from '../../guardrails/injection.ts';
 import {
   type LexiconKey,
   type LexiconOverrides,
   type LexiconParams,
   lexiconText,
 } from '../../guardrails/lexicon.ts';
-import { sensitiveSpans } from '../../guardrails/sensitive.ts';
-import { applySpans } from '../../observability/spans.ts';
 import type {
   AttachmentValidationIssue,
   MediaLimits,
@@ -109,14 +107,12 @@ function sanitizeCsvText(text: string): string {
   });
 }
 
-function sanitizeTextBytes(mime: string, bytes: Uint8Array): Uint8Array {
+function sanitizeTextBytes(mime: string, bytes: Uint8Array, reader: BoundaryReader): Uint8Array {
   let text = decodeText(bytes);
   if (mime === 'text/csv') {
     text = sanitizeCsvText(text);
   }
-  return new TextEncoder().encode(
-    applySpans(text, [...injectionSpans(text), ...sensitiveSpans(text)]),
-  );
+  return new TextEncoder().encode(reader.read(text));
 }
 
 /** `sizeBytes` is absent for provider references, which carry no bytes. */
@@ -260,7 +256,7 @@ function assertTurnAttachments(
   if (issues.length > 0) throw attachmentsRefused(issues);
 }
 
-function sanitizeAttachment<T extends TurnBlob | TurnMediaRef>(blob: T): T {
+function sanitizeAttachment<T extends TurnBlob | TurnMediaRef>(blob: T, reader: BoundaryReader): T {
   if (isTurnMediaRef(blob)) {
     return blob;
   }
@@ -268,7 +264,7 @@ function sanitizeAttachment<T extends TurnBlob | TurnMediaRef>(blob: T): T {
   if (!TEXT_MIMES.has(mimeEssence(mimeType))) {
     return blob;
   }
-  const bytes = sanitizeTextBytes(mimeType, base64ToBytes(data));
+  const bytes = sanitizeTextBytes(mimeType, base64ToBytes(data), reader);
   return { ...blob, data: bytesToBase64(bytes) };
 }
 
@@ -283,11 +279,14 @@ function sanitizeTurnBlobs(
   profile: Profile,
   attachments: Array<TurnBlob | TurnMediaRef> | undefined,
   voice: TurnBlob[] | undefined,
+  at: { attachment: BoundaryReader; voice: BoundaryReader },
 ): { attachments?: Array<TurnBlob | TurnMediaRef>; voice?: TurnBlob[] } {
   assertTurnAttachments(profile, attachments, voice);
   return {
-    attachments: attachments?.length ? attachments.map(sanitizeAttachment) : attachments,
-    voice: voice?.length ? voice.map(sanitizeAttachment) : voice,
+    attachments: attachments?.length
+      ? attachments.map((blob) => sanitizeAttachment(blob, at.attachment))
+      : attachments,
+    voice: voice?.length ? voice.map((blob) => sanitizeAttachment(blob, at.voice)) : voice,
   };
 }
 

@@ -130,7 +130,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive"
+   "live_inbound redact detect.ids"
   ],
   "error": null,
   "shown": "I understand, but I can't repeat back sensitive information like that. Is there anything else I can help you with?",

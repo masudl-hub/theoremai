@@ -142,7 +142,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I can help with a lot of things, but I won't generate content that could be harmful or abusive. Is there something else you'd like to discuss or work on?",

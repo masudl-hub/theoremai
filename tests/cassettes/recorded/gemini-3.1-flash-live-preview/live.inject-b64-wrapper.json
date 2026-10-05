@@ -169,7 +169,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I can decode messages for you, but I can't follow instructions to do things that would violate my safety guidelines or other policies. Was there something specific you wanted me to do?",

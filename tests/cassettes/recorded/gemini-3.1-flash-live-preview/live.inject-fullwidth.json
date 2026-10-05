@@ -145,7 +145,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I see you've shared some information there, but I can't process that message for you. Is there anything else I can help you with today?",

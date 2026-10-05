@@ -27,7 +27,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive"
+   "input redact detect.financial"
   ],
   "error": null,
   "shown": "I cannot echo back the omitted sensitive card number, as I do not have access to it.",

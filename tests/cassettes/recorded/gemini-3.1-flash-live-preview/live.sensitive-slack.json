@@ -124,7 +124,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive+sanitize.sensitive"
+   "live_inbound redact detect.credentials+detect.credentials"
   ],
   "error": null,
   "shown": "I cannot reveal sensitive information like that, including tokens. Is there anything else I can help you with?",

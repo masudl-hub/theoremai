@@ -112,7 +112,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive"
+   "live_inbound redact detect.financial"
   ],
   "error": null,
   "shown": "I'm sorry, but I cannot fulfill that request.",

@@ -82,7 +82,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection+sanitize.injection+sanitize.injection"
+   "live_inbound redact detect.injection+detect.injection+detect.injection"
   ],
   "error": null,
   "shown": "I can help with that.",

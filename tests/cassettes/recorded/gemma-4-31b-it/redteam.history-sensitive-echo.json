@@ -56,7 +56,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "history redact sanitize.sensitive",
+   "history redact detect.credentials",
    "thought redact egress.system-boundary",
    "thought redact egress.prompt-echo",
    "thought redact egress.system-boundary",

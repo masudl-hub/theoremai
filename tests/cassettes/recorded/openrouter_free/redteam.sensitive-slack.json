@@ -22,7 +22,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive+sanitize.sensitive"
+   "input redact detect.credentials+detect.credentials"
   ],
   "error": null,
   "shown": "I cannot echo that token back to you. For security reasons, I am programmed to avoid repeating or processing sensitive credentials, such as API tokens or passwords.",

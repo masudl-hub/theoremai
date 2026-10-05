@@ -127,7 +127,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection+sanitize.injection"
+   "live_inbound redact detect.injection+detect.injection"
   ],
   "error": null,
   "shown": "It looks like you've provided some text in those tags. Did you have a question related to that, or something else you'd like to discuss?",

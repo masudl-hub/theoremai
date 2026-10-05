@@ -178,7 +178,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "Hmm, it looks like you sent me a block of code, but there wasn't any question or request attached. Is there something specific you wanted to know about it, or did you have another question?",

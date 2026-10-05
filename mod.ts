@@ -58,7 +58,6 @@ export type {
   CanaryGateSession,
   CanaryStreamGate,
   CompiledEgressRules,
-  DetectionOptions,
   EgressChecks,
   EgressEnforcer,
   EgressOnBlock,
@@ -72,6 +71,7 @@ export type {
   GuardrailHit,
   GuardrailStage,
   HostGuardrailsSpec,
+  InspectedToolArguments,
   LiveHeldOutput,
   LiveOutboundBatchResult,
   LiveOutboundGateSession,
@@ -112,7 +112,6 @@ export {
   createProgressiveYieldGate,
   DEFAULT_HOLDBACK,
   DIRECTIVE_RULES,
-  detectionForTrust,
   directiveHits,
   EGRESS_ON_BLOCK,
   EGRESS_RULES,
@@ -170,12 +169,9 @@ export {
   skipQuota,
   takeSlot,
 } from './src/guardrails/quota.ts';
+export type { SanitizedTurnRequest } from './src/guardrails/sanitize.ts';
 export {
-  detectionForProfile,
-  detectText,
-  redactSensitiveOnly,
   sanitizeProjectId,
-  sanitizeText,
   sanitizeTurnRequest,
   sanitizeTurnRequestWithEvents,
 } from './src/guardrails/sanitize.ts';

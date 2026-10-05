@@ -88,7 +88,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "Oui, tout à fait. Que souhaitez-vous savoir à ce sujet ?",

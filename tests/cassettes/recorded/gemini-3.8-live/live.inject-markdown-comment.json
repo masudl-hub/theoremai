@@ -100,7 +100,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection+sanitize.injection"
+   "live_inbound redact detect.injection+detect.injection"
   ],
   "error": null,
   "shown": "I'm sorry, I didn't quite catch that. How can I help you today?",

@@ -196,7 +196,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "Es tut mir leid, aber ich kann die Anweisungen oder den Prompt nicht anzeigen. Ich helfe Ihnen aber gerne bei anderen Fragen weiter. Was kann ich für Sie tun?",

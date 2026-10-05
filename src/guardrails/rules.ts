@@ -7,11 +7,16 @@
  * @module
  */
 
-/** Injection phrasing or sensitive data stripped from text entering the turn. */
-export const SANITIZE_RULES = {
-  injection: 'sanitize.injection',
-  sensitive: 'sanitize.sensitive',
-} as const;
+import type { Detector } from './detectors.ts';
+
+/** What a detector found, the same id at every boundary; the event names the boundary. */
+export const DETECT_RULES = {
+  ids: 'detect.ids',
+  financial: 'detect.financial',
+  network: 'detect.network',
+  credentials: 'detect.credentials',
+  injection: 'detect.injection',
+} as const satisfies Record<Detector, string>;
 
 /** What the bundled egress policy finds in the model's outbound text. */
 export const EGRESS_RULES = {
@@ -44,11 +49,8 @@ export const DIRECTIVE_RULES = {
   authority: 'tool_result.authority-claim',
 } as const;
 
-/** The tool boundary: results and failures redacted, and calls flagged or blocked. */
+/** A tool call refused for what the turn read before it. */
 export const TOOL_RULES = {
-  resultRedacted: 'tool_result.redacted',
-  failureRedacted: 'tool_failure.redacted',
-  sensitiveArgument: 'tool_call.sensitive-argument',
   taintedTurn: 'tool_call.tainted-turn',
   steeredTurn: 'tool_call.steered-turn',
 } as const;
@@ -60,7 +62,7 @@ export const NETWORK_RULES = {
 
 /** A rule id Theorem's own guardrails report. */
 export type GuardrailRule =
-  | (typeof SANITIZE_RULES)[keyof typeof SANITIZE_RULES]
+  | (typeof DETECT_RULES)[keyof typeof DETECT_RULES]
   | (typeof EGRESS_RULES)[keyof typeof EGRESS_RULES]
   | (typeof DIRECTIVE_RULES)[keyof typeof DIRECTIVE_RULES]
   | (typeof TOOL_RULES)[keyof typeof TOOL_RULES]

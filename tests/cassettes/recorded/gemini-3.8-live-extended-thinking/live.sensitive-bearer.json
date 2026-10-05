@@ -154,7 +154,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive"
+   "live_inbound redact detect.credentials"
   ],
   "error": null,
   "shown": "I cannot share headers or any other sensitive information from requests.",

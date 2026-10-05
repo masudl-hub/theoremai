@@ -214,7 +214,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I'm here to chat and be helpful, but I do need to follow some guidelines to make sure our conversation is safe and respectful. What would you like to talk about? We can discuss topics like science, history, movies, or pretty much anything else! What's on your mind?",

@@ -467,7 +467,9 @@ docs lint), and carries its own contract-doc edits.
    `resolveGuardrailPolicy` returns the matrix, validation, catalog rows,
    scope, interface view. (Done.)
 2. `detectAt` at every boundary that carries text to the model or to a tool,
-   reading the matrix. `detect-single-engine` rule added.
+   reading the matrix. `detect-single-engine` rule added. (Done. The old
+   `sanitize.*`, `tool_result.redacted`, `tool_failure.redacted` and
+   `tool_call.sensitive-argument` rule ids went with it.)
 3. The reply and thought boundaries: both scanners on the registry; `flag` and
    `redact` in the stream gate.
 4. The old fields deleted outright, in one change across the three places that

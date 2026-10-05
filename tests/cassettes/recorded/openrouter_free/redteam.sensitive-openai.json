@@ -349,7 +349,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive+sanitize.sensitive",
+   "input redact detect.credentials+detect.credentials",
    "output_final block egress.canary-leak"
   ],
   "error": null,

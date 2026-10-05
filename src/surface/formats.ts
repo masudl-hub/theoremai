@@ -1,5 +1,5 @@
-import { sensitiveSpans } from '../guardrails/sensitive.ts';
-import { applySpans } from '../observability/spans.ts';
+import { redactDetectors } from '../guardrails/detect-at.ts';
+import { SENSITIVE_GROUPS } from '../guardrails/sensitive.ts';
 
 const MASK = '••••';
 
@@ -126,7 +126,7 @@ export function scrubText(text: string, known: readonly [string, string][]): str
   for (const [name, value] of known) {
     if (value.length >= SCRUB_MIN) out = out.replaceAll(value, `[secret ${name}]`);
   }
-  return applySpans(out, sensitiveSpans(out));
+  return redactDetectors(out, SENSITIVE_GROUPS);
 }
 
 /** Known secret values worth scrubbing: trimmed, long enough, longest first. */

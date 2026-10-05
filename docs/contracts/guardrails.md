@@ -60,7 +60,8 @@ Owns every module under `src/guardrails/`.
 | Module | Role |
 | --- | --- |
 | `types.ts` | Guardrail vocabulary — trust levels, stages, `Verdict`, profile policy shape |
-| `policy.ts` | `resolveGuardrailPolicy` / `detectionForTrust` — the one place defaults are applied |
+| `policy.ts` | `resolveGuardrailPolicy` — the one place defaults are applied |
+| `detect-at.ts` | `detectAt` — the one place a match becomes an action |
 | `error.ts` | Error kinds, `TheoremError`, user wording (`publicError`, `withPublicWording`), abort helpers |
 | `sanitize.ts` | Turn + text sanitization |
 | `injection-patterns.ts` | Prompt-injection regexes (a leaf the generator reads) |
@@ -544,7 +545,7 @@ never published). Nothing third-party is vendored. The harness itself
 (`src/guardrails/eval/`, `scripts/guardrails-eval.ts`) is repo-only: it is excluded
 from the published package and is not part of `@theoremjs/agents/guardrails/testing`.
 
-| Source | Licence | Role |
+| Source | License | Role |
 | --- | --- | --- |
 | `S-Labs/prompt-injection-dataset` | MIT | ~11k labelled prompts; benign half is security-adjacent |
 | `deepset/prompt-injections` | Apache-2.0 | Independent, partly non-English |
@@ -571,8 +572,8 @@ that cannot be reached — the gated one without a token — is listed under
 **Not loaded** and narrows the report rather than breaking it.
 
 `REVIEWED_SOURCES` in `src/guardrails/eval/corpus.ts` records corpora that were evaluated and
-deliberately left out, with the objection: non-commercial licences, undeclared
-licences, and `Lakera/mosscap_prompt_injection`, whose 223k entries are attacks only
+deliberately left out, with the objection: non-commercial licenses, undeclared
+licenses, and `Lakera/mosscap_prompt_injection`, whose 223k entries are attacks only
 in context and would understate a detector as unfairly as a soft benign set
 overstates one.
 
@@ -724,18 +725,19 @@ rethrows the abort (or timeout) reason when a turn should stop early;
 ## Trust levels
 
 Text is guarded by where it came from, not by which call site happens to reach it.
-`TrustLevel` has three values and `detectionForTrust` narrows a resolved policy to
-each:
+`TrustLevel` has three values. Trusted text is never read by a detector;
+assembled and untrusted text are read at the boundary they cross (see
+[Detect](#detect)):
 
 Decision state is not assigned a text trust level in this release: it is bounded
 JSON rather than a turn payload. Its separate `DecisionDisclosureEnforcer` is an
 explicit allow-or-block host boundary, documented in [Decision disclosure](#decision-disclosure).
 
-| Trust | Origin | Injection redaction | Sensitive redaction |
-| --- | --- | --- | --- |
-| `trusted` | `identity.system` — author-time profile copy | Never | Never |
-| `assembled` | `req.system` — host-built per turn | Per profile | Per profile |
-| `untrusted` | User text, slots, history, attachments, tool results | Per profile | Per profile |
+| Trust | Origin | Read at |
+| --- | --- | --- |
+| `trusted` | `identity.system` — author-time profile copy | Never |
+| `assembled` | `req.system` — host-built per turn | `system` |
+| `untrusted` | User text, slots, history, attachments, tool results | The boundary it crosses |
 
 Trusted on the way in is not public on the way out. With the canary on, the
 private text of the system prompt as sent is also guarded against echo
@@ -799,6 +801,7 @@ looks, and what it does: a detector, a boundary, an action.
 | `DETECT_DEFAULTS` | The action of every detector at every boundary when the profile sets none |
 | `resolveDetect(spec, base?)` | `spec` with everything it leaves out taken from `base` |
 | `detectProblem(path, spec, boundaries?)` | What is wrong with a `detect` value, or `undefined` |
+| `detectAt(text, boundary, detect)` | Reads `text` as it crosses `boundary`: a `Detection` of the action taken (`DetectOutcome`: `allow` or the strongest action among the matches), the text to let through (absent on `block`) and the hits |
 
 | Boundary | Text |
 | --- | --- |
@@ -858,8 +861,28 @@ first, and `detect` is applied over them:
 boundary or action. A `host` profile has the tool boundaries only, and a rule
 naming another is rejected; a `decision` profile takes no `detect`.
 
-The checks at each boundary still read the settings `detect` replaces. They
-move to the resolved matrix boundary by boundary.
+Every boundary that carries text to the model or to a tool reads the matrix
+through `detectAt`, and nothing else decides what a match does. When several
+detectors match one text, the strongest action is the one taken: `block`, then
+`redact`, then `flag`. Each match is reported under `detect.<detector>`
+(`DETECT_RULES`), the same id at every boundary; the `GuardrailEvent` names the
+`boundary`.
+
+| Boundary | What `block` does |
+| --- | --- |
+| `user`, `attachment`, `voice`, `slots`, `history`, `system`, `repair` | The turn is refused before the model is called: an `input` error worded by lexicon `detect.blocked` |
+| `injected` | The same, at the stage that added the message |
+| `live_user` | The message is not sent into the session |
+| `tool_arguments_<kind>` | The tool is not called; the model is told so (`arguments_blocked`, lexicon `detect.call_blocked`) |
+| `tool_output_<kind>` | The model does not read the output; the call settles as failed (`output_blocked`, lexicon `detect.output_blocked`) |
+| `tool_failure_<kind>` | The model reads lexicon `detect.output_blocked` in place of the tool's message |
+
+The `reply`, `reply_structured`, `live_reply` and `thought` boundaries still run
+the bundled reply checks (see [Egress](#egress)); they move to `detectAt` next.
+
+Text with no profile in hand — a host replaying a transcript through
+`formatToolResult`, a trace being written — has every match of the detectors
+in question replaced, whatever any profile sets.
 
 ## Sanitization
 
@@ -877,12 +900,9 @@ switch cannot mean different things on different paths.
 
 | API | Role |
 | --- | --- |
-| `sanitizeText` | Strip injection + sensitive spans from one string |
-| `sanitizeTurnRequest(req, profile)` | Full turn: text, slots, tool arguments, blobs, under `profile`'s guardrails |
-| `sanitizeTurnRequestWithEvents(req, profile)` | Same + `{ type: 'guardrail' }` events for redacted stages |
-| `detectText` | Detect + redact one string; returns `{ text, hits }` |
+| `sanitizeTurnRequest(req, profile)` | Full turn: text, slots, repair, history, system and blobs, each read at its boundary under `profile`'s guardrails; throws when a match blocks |
+| `sanitizeTurnRequestWithEvents(req, profile)` | A `SanitizedTurnRequest`: the request, one `{ type: 'guardrail' }` event for each boundary where something matched, and the `refusal` to end the turn on when a match blocks |
 | `sanitizeProjectId` | Trim a project id; drop it unless it is only letters, digits, `.`, `_`, `-` |
-| `detectionForProfile(profile, trust)` | Resolved detection switches for one profile at one trust level; the caller passes the profile, so none is looked up |
 | `sanitizeHistory` | Sanitize historical turn exchanges |
 
 `injectionSpans` and `sensitiveSpans` return `RedactSpan[]`; `applySpans`
@@ -916,7 +936,6 @@ False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 | --- | --- |
 | `sensitiveSpans(text, selection?)` | Credential / PII span detection for the groups `selection` runs (default every group) |
 | `SENSITIVE_GROUPS` | The groups, each switched on its own |
-| `redactSensitiveOnly` | Redact sensitive spans only, without injection patterns |
 
 | Group | Matches |
 | --- | --- |
@@ -931,7 +950,7 @@ The `credentials` group reads two rule lists (`CREDENTIALS` in `sensitive.ts`):
 
 - **The gitleaks rules.** `scripts/gitleaks/gitleaks.toml` is the default
   configuration of [gitleaks](https://github.com/gitleaks/gitleaks) (MIT; the
-  licence is beside it). `scripts/gen-credential-rules.ts` writes
+  license is beside it). `scripts/gen-credential-rules.ts` writes
   `credential-rules.ts` from it. A rule that reads a file path is left out,
   because a chat has no files.
 - **Theorem's own rules** (`OWN_CREDENTIAL_RULES`), for forms gitleaks does not
@@ -986,9 +1005,9 @@ redacts them from untrusted and assembled text; trusted text is left verbatim
 where they are the user's personal data; egress leaves `network` off by default,
 because an address in a reply is not a secret (see [Egress](#egress)). A
 card-number candidate counts only when it is 13–19 digits passing the Luhn check
-(`cardHit`), in batch and in the egress stream alike. The trace writer uses
-`redactSensitiveOnly` when its scrub keeps sensitive redaction but drops
-injection redaction.
+(`cardHit`), in batch and in the egress stream alike. The trace writer runs the sensitive
+detectors alone when its scrub keeps sensitive redaction but drops injection
+redaction.
 
 ## Tool boundary
 
@@ -1033,31 +1052,32 @@ carries it as `result`, never the tool's raw output.
 both reach the model; hiding an injection payload one level down in the JSON does
 not evade it. Failure messages are guarded too — an unguarded remote error string
 is the cleanest injection path across this boundary, because the kernel frames it
-for the model as a system report. The kernel redacts every failure message under
-full detection, whatever the profile's `sanitizeInput` / `redactSensitive`, then
-frames it as `Tool error (code): …` and passes it through the result guard, so a
-remote failure is fenced like a remote result. A redaction there is reported
-like any other: a `tool_result`-stage `redact` event with `tool_failure.redacted`,
-timed on the tool's span as the `tool_failure` check. Rebuilding a failure the
-model already read (history, a live replay) redacts again without reporting it
-twice.
+for the model as a system report. The kernel reads a failure message at
+`tool_failure_<kind>`, under the profile's settings like any other boundary,
+then frames it as `Tool error (code): …` and passes it through the result
+guard, so a remote failure is fenced like a remote result. The frame is the
+kernel's own text and is not read again. What the boundary did is reported like
+any other: a `tool_result`-stage event naming the boundary, timed on the tool's
+span as the `tool_failure` check. Rebuilding a failure the model already read
+(history, a live replay) has no profile in hand, so every detector's matches
+are replaced, without reporting it twice.
 
-**Arguments.** `inspectToolArguments` reports rather than rewrites. Arguments are
-model-authored, so the risk is exfiltration — a credential lifted from context and
-posted outward as a parameter — and silently altering an argument would make the
-call succeed against something the model never asked for. With `redactSensitive`
-on, it scans the arguments for credential-shaped values (not injection) and
-returns a `flag` verdict, surfaced as an event; the call proceeds. With
-`redactSensitive` off, or arguments that cannot be serialized, it reports
-nothing.
+**Arguments.** Arguments are model-authored, so the risk is exfiltration — a
+credential lifted from context and posted outward as a parameter.
+`inspectToolArguments` reads the whole call at `tool_arguments_<kind>` and
+returns `InspectedToolArguments`. By default it reports rather than rewrites
+(`flag` for the sensitive detectors, `ignore` for `injection`): silently
+altering an argument would make the call succeed against something the model
+never asked for. A profile that sets `redact` has the tool called with the
+placeholder in each string that held a match; one that sets `block` has the
+tool not called. Arguments that cannot be serialized, and a provider builtin's,
+are not read.
 
 The tool boundary's rules (all ids: [Rule ids](#rule-ids)):
 
 | Rule | Stage | Meaning |
 | --- | --- | --- |
-| `tool_result.redacted` | `tool_result` | Detection changed the result text |
-| `tool_failure.redacted` | `tool_result` | `guardToolFailureText` changed a failure message (not emitted by the kernel) |
-| `tool_call.sensitive-argument` | `tool_call` | Credential-shaped value in tool arguments |
+| `detect.<detector>` | `tool_call`, `tool_result` | That detector matched arguments, output or a failure message; the event's `boundary` says which |
 | `tool_call.tainted-turn` | `tool_call` | State-changing call on a turn that has read remote content |
 | `tool_call.steered-turn` | `tool_call` | Same, where that content carried a directive and a destination |
 | `tool_result.names-callable-tool` | `tool_result` | Content named a tool the model can call |
@@ -1241,7 +1261,7 @@ follow `guardrailMatchPreview`. Helpers: `guardrailFromVerdict`,
 ### Rule ids
 
 Every rule id Theorem's own guardrails report lives in
-`src/guardrails/rules.ts`, grouped as `SANITIZE_RULES`, `EGRESS_RULES`,
+`src/guardrails/rules.ts`, grouped as `DETECT_RULES`, `EGRESS_RULES`,
 `DIRECTIVE_RULES`, `TOOL_RULES` and `NETWORK_RULES`; `GuardrailRule` is their
 union. The trace catalog gives each one a label and a sentence on why it
 matters (`theorem.guardrail` → `hits` → `rule`), keyed by `GuardrailRule`, so a
@@ -1251,10 +1271,10 @@ explain them, and without those they show as the raw id.
 
 | Group | Rules |
 | --- | --- |
-| `SANITIZE_RULES` | `sanitize.injection`, `sanitize.sensitive` |
+| `DETECT_RULES` | `detect.ids`, `detect.financial`, `detect.network`, `detect.credentials`, `detect.injection` |
 | `EGRESS_RULES` | `egress.canary-leak`, `egress.sensitive-echo`, `egress.system-boundary`, `egress.injection-echo`, `egress.unscannable`, `egress.enforcer-error`, `egress.blocked` (the progressive gate stopped on a verdict that named no rule) |
 | `DIRECTIVE_RULES` | `tool_result.names-callable-tool`, `tool_result.imperative`, `tool_result.authority-claim` |
-| `TOOL_RULES` | `tool_result.redacted`, `tool_failure.redacted`, `tool_call.sensitive-argument`, `tool_call.tainted-turn`, `tool_call.steered-turn` |
+| `TOOL_RULES` | `tool_call.tainted-turn`, `tool_call.steered-turn` |
 | `NETWORK_RULES` | `network.blocked` |
 
 ## Network
@@ -1413,12 +1433,12 @@ From `src/guardrails/mod.ts`:
 | Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicWording`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
 | Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `ResolvedEgressSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
-| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `ResolvedDetect`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary` |
-| Policy | `resolveGuardrailPolicy`, `detectionForTrust`, `DetectionOptions` |
-| Rule ids | `SANITIZE_RULES`, `EGRESS_RULES`, `DIRECTIVE_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
-| Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
+| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `ResolvedDetect`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `detectAt`, `Detection`, `DetectOutcome` |
+| Policy | `resolveGuardrailPolicy` |
+| Rule ids | `DETECT_RULES`, `EGRESS_RULES`, `DIRECTIVE_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
+| Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `InspectedToolArguments`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
 | Serialization | `textForScan`, `scanTextOf`, `ScanText` |
-| Sanitize | `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeHistory`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `redactSensitiveOnly`, `detectionForProfile` |
+| Sanitize | `sanitizeProjectId`, `sanitizeHistory`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `SanitizedTurnRequest` |
 | Events | `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
 | Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `egressPolicy`, `EgressPolicyOptions`, `EgressChecks`, `UrlCheck`, `GivenUrls`, `EgressRule`, `CompiledEgressRules`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `LIVE_DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |

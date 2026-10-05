@@ -1,28 +1,31 @@
 import { wrapUserData } from '../../guardrails/canary.ts';
-import { guardrailFromHits, projectGuardrailTurnEvent } from '../../guardrails/events.ts';
-import { detectionForTrust, resolveGuardrailPolicy } from '../../guardrails/policy.ts';
-import { detectText } from '../../guardrails/sanitize.ts';
+import { detectAt, detectEvent } from '../../guardrails/detect-at.ts';
+import { guardrailTurnEvent, projectGuardrailTurnEvent } from '../../guardrails/events.ts';
+import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import type { TurnEventOf } from '../turn-events.ts';
 import type { Profile } from '../types.ts';
 
 export interface LiveInboundPrepareResult {
-  text: string;
-  /** Present when inbound sanitize redacted spans. */
+  /** The message to send, wrapped as user data. Absent when a match blocks: it does not reach the model. */
+  text?: string;
+  /** Present when a detector matched. */
   guardrail?: TurnEventOf<'guardrail'>;
 }
 
 // why: Resolves through the shared policy so Live ingress and the turn engine cannot drift on what an unset switch means.
-/** Prepares text a live session receives from the user: detects and redacts it as untrusted under the profile's guardrails, wraps the result as user data, and returns the guardrail event when something was found. */
+/** Reads text a live session receives from the user at the `live_user` boundary, wraps what crosses as user data, and returns the guardrail event when something matched. */
 function prepareLiveInboundText(profile: Profile, text: string): LiveInboundPrepareResult {
-  const policy = resolveGuardrailPolicy(profile.guardrails);
-  const detected = detectText(text, detectionForTrust(policy, 'untrusted'));
-  const raw = guardrailFromHits('live_inbound', 'untrusted', detected.hits, 'redact');
+  const { detect } = resolveGuardrailPolicy(profile.guardrails);
+  const detected = detectAt(text, 'live_user', detect);
+  const event = detectEvent('live_user', detected);
   const includeMatch = resolveObservabilityPolicy(profile.observability).include
     .guardrailMatchPreview;
-  const guardrail = raw ? projectGuardrailTurnEvent(raw, includeMatch) : undefined;
+  const guardrail = event
+    ? projectGuardrailTurnEvent(guardrailTurnEvent(event), includeMatch)
+    : undefined;
   return {
-    text: wrapUserData(detected.text),
+    ...(detected.text === undefined ? {} : { text: wrapUserData(detected.text) }),
     ...(guardrail ? { guardrail } : {}),
   };
 }

@@ -29,7 +29,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive"
+   "input redact detect.network"
   ],
   "error": null,
   "shown": "An IPv4 address range (CIDR block) ending in `/16` covers a block of 65,536 total addresses (from `.0.0` to `.255.255`). \n\nBecause the specific network prefix was omitted from your query, I cannot provide the exact starting and ending addresses. If you provide the prefix (e.g., `192.168.0.0/16`), I can calculate the exact range for you.",

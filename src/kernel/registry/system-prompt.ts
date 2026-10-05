@@ -1,12 +1,10 @@
-import { detectionForTrust, resolveGuardrailPolicy } from '../../guardrails/policy.ts';
-import { sanitizeText } from '../../guardrails/sanitize.ts';
 import { joinSystemPieces, mapSystemPrompt, systemPieces } from '../system-parts.ts';
 import type { ModelProfile, SystemPiece, TurnRequest } from '../types.ts';
 import { pickSystemRole } from './system-role.ts';
 
 /**
- * Routed through the policy at `trust: 'trusted'` so the exemption is declared where it applies,
- * not implied by skipping the sanitizer. `req.system` is `assembled` per turn and not exempt.
+ * `identity.system` is trusted author-time copy and crosses no boundary: no detector reads it.
+ * `req.system` is `assembled` per turn and is read at the `system` boundary.
  */
 function systemFromProfile(profile: ModelProfile, role: string): SystemPiece[] {
   if (profile.type === 'speech') {
@@ -17,11 +15,8 @@ function systemFromProfile(profile: ModelProfile, role: string): SystemPiece[] {
   if (!prompt) {
     return [];
   }
-  const detection = detectionForTrust(resolveGuardrailPolicy(profile.guardrails), 'trusted');
   return systemPieces(
-    mapSystemPrompt(prompt, `Profile ${profile.id} identity.system`, (text) =>
-      sanitizeText(text, detection),
-    ),
+    mapSystemPrompt(prompt, `Profile ${profile.id} identity.system`, (text) => text),
   );
 }
 

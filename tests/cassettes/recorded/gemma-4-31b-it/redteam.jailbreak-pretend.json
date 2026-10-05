@@ -43,7 +43,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection",
+   "input redact detect.injection",
    "thought redact egress.prompt-echo",
    "thought redact egress.prompt-echo"
   ],

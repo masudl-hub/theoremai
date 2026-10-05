@@ -27,7 +27,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive"
+   "input redact detect.credentials"
   ],
   "error": null,
   "shown": "I cannot echo back sensitive information such as a GitHub Personal Access Token.",

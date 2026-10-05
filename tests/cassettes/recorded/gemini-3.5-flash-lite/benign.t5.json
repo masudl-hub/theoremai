@@ -49,7 +49,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection",
+   "input redact detect.injection",
    "output_final block egress.injection-echo+egress.injection-echo+egress.injection-echo+egress.injection-echo"
   ],
   "error": null,

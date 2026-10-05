@@ -29,7 +29,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "history redact sanitize.injection"
+   "history redact detect.injection"
   ],
   "error": null,
   "shown": "I'm not sure what you are referring to, as we haven't had a previous discussion. How can I help you today?",

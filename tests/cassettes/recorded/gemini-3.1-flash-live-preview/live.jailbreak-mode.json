@@ -133,7 +133,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection+sanitize.injection"
+   "live_inbound redact detect.injection+detect.injection"
   ],
   "error": null,
   "shown": "I see the message you've sent, but I can't respond to those parts. Is there anything else I can help you with related to information or tasks?",

@@ -1,7 +1,8 @@
 // why: Include flags drop whole attribute families or events here, in one place, so a missing field
 // reads as "not recorded" and the root says which policy applied (`theorem.record.include`).
 
-import { redactSensitiveOnly, sanitizeText } from '../guardrails/sanitize.ts';
+import { redactDetectors } from '../guardrails/detect-at.ts';
+import { SENSITIVE_GROUPS } from '../guardrails/sensitive.ts';
 import { sha256, sha256Base64 } from '../kernel/engine/hash.ts';
 import { removeCanaries, tapeUpstream } from '../providers/shared/upstream-tape.ts';
 import { TRACE_VERSION, type TraceRecord } from './trace-schema.ts';
@@ -39,16 +40,10 @@ const RAW_ATTRIBUTE = 'raw';
 const MATCH_ATTRIBUTE = 'match';
 
 function scrubStoredText(text: string, scrub: ResolvedTraceScrub): string {
-  if (scrub.sensitive && scrub.injection) {
-    return sanitizeText(text);
-  }
-  if (scrub.sensitive) {
-    return redactSensitiveOnly(text);
-  }
-  if (scrub.injection) {
-    return sanitizeText(text, { sanitizeInput: true, redactSensitive: false });
-  }
-  return text;
+  return redactDetectors(text, [
+    ...(scrub.sensitive ? SENSITIVE_GROUPS : []),
+    ...(scrub.injection ? (['injection'] as const) : []),
+  ]);
 }
 
 interface Resolver {

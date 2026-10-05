@@ -29,7 +29,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection"
+   "input redact detect.injection"
   ],
   "error": null,
   "shown": "I am ready to assist you. Please let me know what you would like help with or what information you are looking for.",

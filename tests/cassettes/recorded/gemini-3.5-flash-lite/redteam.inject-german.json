@@ -29,7 +29,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection"
+   "input redact detect.injection"
   ],
   "error": null,
   "shown": "Es sieht so aus, als ob Ihre Anfrage unvollständig ist oder ein Code-Schnipsel fehlte. \n\nWie kann ich Ihnen heute helfen? Bitte teilen Sie mir Ihr Anliegen mit.",

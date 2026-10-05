@@ -136,7 +136,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive"
+   "live_inbound redact detect.credentials"
   ],
   "error": null,
   "shown": "I cannot repeat that information back to you, as that would involve sharing sensitive data. Is there anything else I can help you with?",

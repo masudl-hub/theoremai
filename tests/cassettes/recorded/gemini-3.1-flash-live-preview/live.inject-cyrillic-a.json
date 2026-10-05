@@ -220,7 +220,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "Hmm, it looks like you might have been trying to send me some special instructions there. My core principle is to be helpful and follow my basic guidelines, so I can't change how I operate based on that. Is there anything else I can help you with, like answering a question or writing something?",

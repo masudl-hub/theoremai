@@ -154,7 +154,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive"
+   "live_inbound redact detect.ids"
   ],
   "error": null,
   "shown": "To protect your privacy, I do not repeat Social Security numbers.",

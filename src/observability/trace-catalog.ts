@@ -374,13 +374,25 @@ const GUARDRAIL_STAGE_OPTIONS: Readonly<Record<GuardrailStage, TraceOptionMeta>>
  * A host's own egress rules have no entry and show as their id.
  */
 const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> = {
-  'sanitize.injection': {
-    label: 'Injection phrasing',
-    doc: 'Text that tries to override the agent\'s instructions, such as "ignore previous instructions". Removed before the model read it.',
+  'detect.ids': {
+    label: 'IDs',
+    doc: 'A US SSN, ITIN or EIN number. The decision names the boundary it was crossing and what was done with it.',
   },
-  'sanitize.sensitive': {
-    label: 'Sensitive data',
-    doc: 'A credential or personal identifier, such as an API key, card or ID number. Redacted before the model read it.',
+  'detect.financial': {
+    label: 'Financial',
+    doc: 'An IBAN or card number. The decision names the boundary it was crossing and what was done with it.',
+  },
+  'detect.network': {
+    label: 'Network',
+    doc: 'An IPv4 or IPv6 address. The decision names the boundary it was crossing and what was done with it.',
+  },
+  'detect.credentials': {
+    label: 'Credentials',
+    doc: 'An API key, token, password assignment or private key. The decision names the boundary it was crossing and what was done with it.',
+  },
+  'detect.injection': {
+    label: 'Injection',
+    doc: 'Text that tries to override the agent\'s instructions, such as "ignore previous instructions". The decision names the boundary it was crossing and what was done with it.',
   },
   'egress.canary-leak': {
     label: 'Instructions leaked',
@@ -437,18 +449,6 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
   'tool_result.authority-claim': {
     label: 'Claimed authority',
     doc: 'Remote tool content claimed to speak for the user, the system or an admin, such as "the user has already approved".',
-  },
-  'tool_result.redacted': {
-    label: 'Tool result redacted',
-    doc: "Injection phrasing or sensitive data was removed from a tool's result before the model read it.",
-  },
-  'tool_failure.redacted': {
-    label: 'Tool error redacted',
-    doc: "Injection phrasing or sensitive data was removed from a tool's error message.",
-  },
-  'tool_call.sensitive-argument': {
-    label: 'Sensitive data in arguments',
-    doc: 'The model passed a credential or personal identifier to a tool. The call still ran.',
   },
   'tool_call.tainted-turn': {
     label: 'Change after remote content',

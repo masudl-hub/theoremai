@@ -160,7 +160,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive"
+   "live_inbound redact detect.credentials"
   ],
   "error": null,
   "shown": "I cannot echo back or reveal sensitive information like API keys. Is there anything else I can help you with?",

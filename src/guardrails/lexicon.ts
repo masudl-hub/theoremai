@@ -53,6 +53,9 @@ export const LEXICON_KEYS = [
   'compaction.request',
   'compaction.tool_call',
   'compaction.tool_result',
+  'detect.blocked',
+  'detect.call_blocked',
+  'detect.output_blocked',
   'egress.default_repair_guidance',
   'egress.refusal',
   'egress.rejection',
@@ -121,6 +124,7 @@ export const CLIENT_LEXICON_KEYS = [
   'attachments.not_accepted',
   'attachments.mime_not_allowed',
   'attachments.limits_unconfigured',
+  'detect.blocked',
   'error.config',
   'error.request',
   'error.input',
@@ -252,6 +256,11 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'compaction.tool_result': '{tool} returned: {result}',
   'egress.default_repair_guidance':
     'Rewrite the message as corrected user-visible prose only. Keep the same helpful substance; scrub all internal tool names, leak phrases, and disclosure markers.',
+  'detect.blocked': "Sorry, that message couldn't be sent.",
+  'detect.call_blocked':
+    'This call was not made: its arguments held content this agent may not send to a tool.',
+  'detect.output_blocked':
+    "The tool's output was withheld: it held content this agent may not read.",
   'egress.refusal': "Sorry, that reply couldn't be shared.",
   'egress.rejection': 'Egress blocked: {rules}',
   'egress.invalid_verdict': 'Egress policy returned an invalid verdict shape',
@@ -401,6 +410,12 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
     'How a tool call reads to the compactor. Takes {tool} and {arguments}, the call as JSON.',
   'compaction.tool_result':
     'How a tool result reads to the compactor. Takes {tool} and {result}, the output as sent to the model.',
+  'detect.blocked':
+    'Shown to the user when a detector set to block matched something in what they sent, so the turn was refused.',
+  'detect.call_blocked':
+    'Told to the model in place of a tool call a detector set to block stopped at its arguments.',
+  'detect.output_blocked':
+    "Told to the model in place of a tool's output or error text that a detector set to block matched.",
   'egress.default_repair_guidance':
     'Sent to the model when the egress check blocks a reply and the model is asked to rewrite it.',
   'egress.refusal':

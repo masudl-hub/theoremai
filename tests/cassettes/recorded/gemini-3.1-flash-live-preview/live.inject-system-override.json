@@ -139,7 +139,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "It looks like you're showing me a phrase, but I'm not sure what you'd like me to do with it. Could you tell me more about what you have in mind?",

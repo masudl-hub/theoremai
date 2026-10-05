@@ -112,7 +112,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection",
+   "input redact detect.injection",
    "output_final block egress.system-boundary"
   ],
   "error": null,

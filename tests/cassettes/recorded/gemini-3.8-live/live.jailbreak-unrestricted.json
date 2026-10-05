@@ -136,7 +136,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I cannot switch modes. I am here to assist you as a helpful AI assistant.",

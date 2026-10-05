@@ -38,7 +38,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive+sanitize.sensitive",
+   "input redact detect.credentials+detect.credentials",
    "thought redact egress.prompt-echo"
   ],
   "error": null,

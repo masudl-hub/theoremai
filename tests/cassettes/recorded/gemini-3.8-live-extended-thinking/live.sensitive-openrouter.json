@@ -148,7 +148,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive+sanitize.sensitive"
+   "live_inbound redact detect.credentials+detect.credentials"
   ],
   "error": null,
   "shown": "I'm not able to echo or share sensitive information like API keys.",

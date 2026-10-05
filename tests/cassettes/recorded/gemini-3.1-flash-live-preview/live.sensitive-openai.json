@@ -145,7 +145,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive+sanitize.sensitive"
+   "live_inbound redact detect.credentials+detect.credentials"
   ],
   "error": null,
   "shown": "I cannot echo back the key you provided because I'm designed to protect sensitive information. Is there something else I can help you with?",

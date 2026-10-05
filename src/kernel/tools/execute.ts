@@ -1,7 +1,7 @@
+import { type ToolBoundary, type ToolKind, toolBoundary } from '../../guardrails/boundaries.ts';
 import { errorKind, isAbortError, throwIfAborted } from '../../guardrails/error.ts';
 import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
-import { resolveSensitive } from '../../guardrails/sensitive.ts';
 import {
   checkTaintGate,
   guardToolFailureText,
@@ -35,7 +35,7 @@ import {
   toolCallArguments,
   toolEvent,
 } from './events.ts';
-import { formatToolFailureForModel, formatToolResult } from './model-text.ts';
+import { formatToolFailureForModel, formatToolResult, frameToolFailure } from './model-text.ts';
 import {
   checkPermission,
   gateDetails,
@@ -102,6 +102,11 @@ function originOfTool(tool: RegisteredTool, tools: ToolRegistry): ToolOrigin {
   if (tool.type === 'mcp') return 'mcp';
   if (tool.type === 'builtin') return 'builtin';
   return 'local';
+}
+
+/** The kind whose boundaries a tool's calls cross. A provider builtin crosses none. */
+function toolKindOf(tool: RegisteredTool): ToolKind | undefined {
+  return tool.type === 'builtin' ? undefined : tool.type;
 }
 
 /** A delegated reply is one hop past the called agent's own tools. */
@@ -318,8 +323,15 @@ type Reproject = (
 
 /** Guards what the model reads back from a call: a result, or a failure's message and then its framing. */
 interface ResultGuard {
-  result: (result: ModelToolResult) => Generator<TurnEvent, ModelToolResult>;
-  failure: (failure: ToolFailure) => Generator<TurnEvent, ModelToolResult>;
+  result: (result: ModelToolResult) => Generator<TurnEvent, GuardedResult>;
+  failure: (failure: ToolFailure) => Generator<TurnEvent, GuardedResult>;
+}
+
+/** What the model reads back from a call. */
+interface GuardedResult {
+  modelResult: ModelToolResult;
+  /** Set when the output was blocked at its boundary: the call settles as this failure. */
+  withheld?: ToolFailure;
 }
 
 type Provisional =
@@ -349,7 +361,7 @@ function* reviseAfterStages(
     return {
       failure,
       outputRaw: undefined,
-      modelResult: yield* guard.failure(failure),
+      modelResult: (yield* guard.failure(failure)).modelResult,
       awaiting: false,
     };
   }
@@ -359,13 +371,22 @@ function* reviseAfterStages(
     return {
       failure: next.failure,
       outputRaw: undefined,
-      modelResult: yield* guard.failure(next.failure),
+      modelResult: (yield* guard.failure(next.failure)).modelResult,
+      awaiting: false,
+    };
+  }
+  const guarded = yield* guard.result(next.modelResult);
+  if (guarded.withheld) {
+    return {
+      failure: guarded.withheld,
+      outputRaw: undefined,
+      modelResult: guarded.modelResult,
       awaiting: false,
     };
   }
   return {
     outputRaw: next.outputRaw,
-    modelResult: yield* guard.result(next.modelResult),
+    modelResult: guarded.modelResult,
     awaiting: isAwaitingUserInput(next.outputRaw),
   };
 }
@@ -411,11 +432,12 @@ async function* settleToolCall(args: {
   labels?: ToolLabels;
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const { base, toolName, callId, input, stages, provisional, guard, reproject, sources } = args;
-  let modelResult = yield* 'failure' in provisional
+  const guarded = yield* 'failure' in provisional
     ? guard.failure(provisional.failure)
     : guard.result(provisional.modelResult);
-  let failure = 'failure' in provisional ? provisional.failure : undefined;
-  let outputRaw = 'outputRaw' in provisional ? provisional.outputRaw : undefined;
+  let modelResult = guarded.modelResult;
+  let failure = 'failure' in provisional ? provisional.failure : guarded.withheld;
+  let outputRaw = 'outputRaw' in provisional && !failure ? provisional.outputRaw : undefined;
   const callNotStarted = 'callNotStarted' in provisional ? provisional.callNotStarted : undefined;
   let denied = 'denied' in provisional ? provisional.denied : undefined;
   let awaiting = !failure && isAwaitingUserInput(outputRaw);
@@ -494,7 +516,14 @@ function resultGuard(
   const provenance = provenanceFor(tool, tools);
   const policy = resolveGuardrailPolicy(ctx.profile.guardrails);
   const callableTools = snapshot?.executable ?? [];
-  const inputs = { provenance, policy, callableTools, lexicon: ctx.profile.lexicon, span };
+  const inputs: GuardInputs = {
+    provenance,
+    policy,
+    kind: toolKindOf(tool),
+    callableTools,
+    lexicon: ctx.profile.lexicon,
+    span,
+  };
   const service = isGateResumeGranted(ctx.resume) ? signInService(tool, ctx.resume) : undefined;
   if (!service) {
     return {
@@ -512,10 +541,11 @@ function resultGuard(
 /** A call the person signed in for tells the model so before what it read back. */
 function* afterSignIn(
   note: string,
-  guarded: Generator<TurnEvent, ModelToolResult>,
-): Generator<TurnEvent, ModelToolResult> {
-  const result = yield* guarded;
-  return { ...result, modelText: `${note}\n\n${formatToolResult(result)}` };
+  guarded: Generator<TurnEvent, GuardedResult>,
+): Generator<TurnEvent, GuardedResult> {
+  const read = yield* guarded;
+  const modelText = `${note}\n\n${formatToolResult(read.modelResult)}`;
+  return { ...read, modelResult: { ...read.modelResult, modelText } };
 }
 
 async function* runFunctionPreBodyStages(args: {
@@ -1107,10 +1137,25 @@ async function* runRegisteredTool(
   const provenance = provenanceFor(tool, args.tools);
 
   const argsStart = performance.now();
-  const argEvent = toolCallEvent(inspectToolArguments(safeInput, policy), provenance);
-  recordToolCheck(stages?.span, 'tool_arguments', performance.now() - argsStart, argEvent);
-  if (argEvent) {
-    yield { type: 'guardrail', guardrail: argEvent };
+  const kind = toolKindOf(tool);
+  const inspected = inspectToolArguments(
+    safeInput,
+    provenance,
+    policy,
+    kind && toolBoundary('tool_arguments', kind),
+  );
+  recordToolCheck(stages?.span, 'tool_arguments', performance.now() - argsStart, inspected.event);
+  if (inspected.event) {
+    yield { type: 'guardrail', guardrail: inspected.event };
+  }
+  if (!('args' in inspected)) {
+    const failure: ToolFailure = {
+      code: 'arguments_blocked',
+      kind: 'blocked',
+      message: lexiconText('detect.call_blocked', {}, profile.lexicon),
+    };
+    yield failureEvent(base, failure);
+    return { ...earlyFailure(failure), denied: true };
   }
 
   const taintStart = performance.now();
@@ -1133,7 +1178,7 @@ async function* runRegisteredTool(
   return yield* settleByType(
     args.tools,
     tool,
-    safeInput,
+    inspected.args,
     fullCtx,
     base,
     snapshot,
@@ -1275,45 +1320,76 @@ async function* settleByType(
   });
 }
 
-/** Every tool returns through here, so a new tool type cannot skip the fence, redaction or provenance label. */
+/** Every tool returns through here, so a new tool type cannot skip the fence, detection or provenance label. */
 interface GuardInputs {
   provenance: Provenance;
   policy: ReturnType<typeof resolveGuardrailPolicy>;
+  /** Absent for a provider builtin, whose text crosses no boundary. */
+  kind: ToolKind | undefined;
   callableTools: readonly string[];
   lexicon: LexiconOverrides | undefined;
   span: SpanHandle | undefined;
 }
 
 /**
- * A failure's message is redacted under full detection, whatever the profile
- * enables: the kernel frames it for the model as a system report, and a remote
- * server writes its own error strings. What it changed is a decision like any
- * other, reported and timed; the framed message is then guarded as a result.
+ * A remote server writes its own error strings, so a failure's message is read
+ * at `tool_failure_<kind>` before the kernel frames it for the model as a system
+ * report. A blocked message is replaced by the lexicon's words. The framed
+ * report is the kernel's own text and is not read again.
  */
 function* guardFailure(
   failure: ToolFailure,
   guard: GuardInputs,
-): Generator<TurnEvent, ModelToolResult> {
+): Generator<TurnEvent, GuardedResult> {
   const start = performance.now();
-  const checked = guardToolFailureText(failure.message, guard.provenance, {
-    ...guard.policy,
-    sanitizeInput: true,
-    redactSensitive: resolveSensitive(true),
-  });
+  const checked = guardToolFailureText(
+    failure.message,
+    guard.provenance,
+    guard.policy,
+    guard.kind && toolBoundary('tool_failure', guard.kind),
+  );
   recordToolCheck(guard.span, 'tool_failure', performance.now() - start, checked.event);
   if (checked.event) {
     yield { type: 'guardrail', guardrail: checked.event };
   }
-  return yield* guardResult(
-    formatToolFailureForModel({ ...failure, message: checked.text }),
-    guard,
-  );
+  const message = checked.text ?? lexiconText('detect.output_blocked', {}, guard.lexicon);
+  return { modelResult: yield* reportFailure({ ...failure, message }, guard) };
 }
 
+/** A failure framed for the model in the kernel's own words, fenced and labelled like any result. */
+function* reportFailure(
+  failure: ToolFailure,
+  guard: GuardInputs,
+): Generator<TurnEvent, ModelToolResult> {
+  const framed = frameToolFailure(failure);
+  return (yield* readBack(framed, guard, undefined)) ?? framed;
+}
+
+/** A result read at `tool_output_<kind>`. A blocked one settles as a failed call the model is told about. */
 function* guardResult(
   result: ModelToolResult,
   guard: GuardInputs,
-): Generator<TurnEvent, ModelToolResult> {
+): Generator<TurnEvent, GuardedResult> {
+  const read = yield* readBack(
+    result,
+    guard,
+    guard.kind && toolBoundary('tool_output', guard.kind),
+  );
+  if (read) return { modelResult: read };
+  const withheld: ToolFailure = {
+    code: 'output_blocked',
+    kind: 'blocked',
+    message: lexiconText('detect.output_blocked', {}, guard.lexicon),
+  };
+  return { modelResult: yield* reportFailure(withheld, guard), withheld };
+}
+
+/** What the model reads of `result`, or `undefined` when a match at `boundary` blocks it. */
+function* readBack(
+  result: ModelToolResult,
+  guard: GuardInputs,
+  boundary: ToolBoundary | undefined,
+): Generator<TurnEvent, ModelToolResult | undefined> {
   const { provenance, span } = guard;
   const start = performance.now();
   const guarded = guardToolResult(
@@ -1321,6 +1397,7 @@ function* guardResult(
     result.data,
     provenance,
     guard.policy,
+    boundary,
     guard.callableTools,
     guard.lexicon,
   );
@@ -1328,6 +1405,7 @@ function* guardResult(
   if (guarded.event) {
     yield { type: 'guardrail', guardrail: guarded.event };
   }
+  if (guarded.text === undefined) return undefined;
   return {
     ...result,
     modelText: guarded.text,

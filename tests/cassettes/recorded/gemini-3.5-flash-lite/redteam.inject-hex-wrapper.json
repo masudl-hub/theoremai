@@ -29,7 +29,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection+sanitize.sensitive"
+   "input redact detect.financial+detect.injection"
   ],
   "error": null,
   "shown": "It looks like your message included an omitted hex payload or injection attempt. How can I help you today with a standard coding, writing, or analysis task?",

@@ -30,7 +30,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "history redact sanitize.injection"
+   "history redact detect.injection"
   ],
   "error": null,
   "shown": "It looks like we haven't discussed anything yet! This is our first interaction in this conversation. What would you like to talk about or decide on?",

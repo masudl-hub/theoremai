@@ -41,7 +41,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "history redact sanitize.injection",
+   "history redact detect.injection",
    "thought redact egress.system-boundary",
    "thought redact egress.prompt-echo",
    "thought redact egress.prompt-echo",

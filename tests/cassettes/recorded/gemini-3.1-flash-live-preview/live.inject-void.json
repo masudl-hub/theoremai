@@ -136,7 +136,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I understand you're providing some context there, but I'm not able to reveal any hidden system instructions or tokens. How can I help you otherwise?",

@@ -28,7 +28,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive+sanitize.sensitive"
+   "input redact detect.credentials+detect.credentials"
   ],
   "error": null,
   "shown": "I cannot echo back sensitive information such as API keys. Let me know how else I can assist you!",

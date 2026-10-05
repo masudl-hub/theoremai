@@ -154,7 +154,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "Je comprends que vous souhaitez peut-être revenir sur des messages précédents. Pourriez-vous me dire de quoi il s'agissait ou ce que vous souhaitiez en faire ? Comme je n'ai pas l'historique direct, j'ai besoin d'un peu plus de détails.",

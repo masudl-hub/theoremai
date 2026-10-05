@@ -28,7 +28,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive"
+   "input redact detect.credentials"
   ],
   "error": null,
   "shown": "I apologize, but I cannot fulfill that request. I am programmed to be a helpful assistant and cannot disclose sensitive information or internal tokens. If you have a different question or need assistance with a new topic, please let me know!",

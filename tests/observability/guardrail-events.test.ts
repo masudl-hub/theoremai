@@ -46,7 +46,7 @@ Deno.test('runTurn emits sanitize guardrail events and persists them in the trac
 
   assertEquals(into.length, 1);
   const [hit] = inputGuardrailHits(into[0]);
-  assertEquals(hit?.rule, 'sanitize.injection');
+  assertEquals(hit?.rule, 'detect.injection');
   // Match preview is opt-in — default stream + JSONL strip it.
   assertEquals(guardrail?.hits[0]?.match, undefined);
   assertEquals(Object.hasOwn(hit ?? {}, 'match'), false);

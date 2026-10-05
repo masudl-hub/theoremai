@@ -618,13 +618,20 @@ function buildLiveSession(args: {
     };
   };
 
-  const ingestPreparedLiveText = (text: string) => {
+  /** The text to send, or `undefined` when a match blocks it: the message does not reach the model. */
+  const readLiveText = (text: string): string | undefined => {
     const start = performance.now();
     const prepared = prepareLiveInboundText(profile, text);
     trace.inboundCheck(performance.now() - start, prepared.guardrail);
     if (prepared.guardrail) enqueuePending(prepared.guardrail);
-    recordUserText(prepared.text);
-    sendJson(buildGeminiLiveRealtimeInput({ type: 'text', text: prepared.text }));
+    return prepared.text;
+  };
+
+  const ingestPreparedLiveText = (text: string) => {
+    const safe = readLiveText(text);
+    if (safe === undefined) return;
+    recordUserText(safe);
+    sendJson(buildGeminiLiveRealtimeInput({ type: 'text', text: safe }));
   };
 
   /**
@@ -1023,11 +1030,8 @@ function buildLiveSession(args: {
     sendContext(text: string): Promise<void> {
       return withIngress(() => {
         assertLiveIngress(profile, 'text');
-        const start = performance.now();
-        const prepared = prepareLiveInboundText(profile, text);
-        trace.inboundCheck(performance.now() - start, prepared.guardrail);
-        if (prepared.guardrail) enqueuePending(prepared.guardrail);
-        sendJson(buildGeminiLiveContext(prepared.text));
+        const safe = readLiveText(text);
+        if (safe !== undefined) sendJson(buildGeminiLiveContext(safe));
         return Promise.resolve();
       });
     },

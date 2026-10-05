@@ -1,8 +1,10 @@
 /** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 import { clearProfiles, getProfile, registerProfile } from '../../kernel/default-scope.ts';
 import type { TurnRequest } from '../../kernel/types.ts';
+import { detectAt } from '../detect-at.ts';
+import { DETECT_DEFAULTS } from '../detectors.ts';
 import { injectionSpans } from '../injection.ts';
-import { sanitizeText, sanitizeTurnRequest } from '../sanitize.ts';
+import { sanitizeTurnRequest } from '../sanitize.ts';
 import { sensitiveSpans } from '../sensitive.ts';
 import { inboundFuzzPayloads } from './inbound-payloads.ts';
 import type { InboundFuzzPayload, InboundFuzzResult } from './types.ts';
@@ -38,13 +40,13 @@ function registerFuzzProfile(): void {
   });
 }
 
-function testSanitizeText(payloads: InboundFuzzPayload[]): InboundFuzzResult[] {
+function testDetectAt(payloads: InboundFuzzPayload[]): InboundFuzzResult[] {
   const results: InboundFuzzResult[] = [];
   for (const p of payloads) {
-    const output = sanitizeText(p.text);
+    const output = detectAt(p.text, 'user', DETECT_DEFAULTS).text ?? '';
     results.push({
       payload: p,
-      channel: 'sanitizeText',
+      channel: 'detectAt',
       survived: output === p.text,
       input: p.text,
       output,
@@ -206,10 +208,7 @@ export function runInboundGuardrailFuzz(options?: { quiet?: boolean }): boolean 
     console.log(`Running ${payloads.length} payloads × 5 channels...`);
   }
 
-  const results: InboundFuzzResult[] = [
-    ...testSanitizeText(payloads),
-    ...testTurnRequest(payloads),
-  ];
+  const results: InboundFuzzResult[] = [...testDetectAt(payloads), ...testTurnRequest(payloads)];
 
   const failures = options?.quiet
     ? results.filter((r) => r.payload.expectCaught && r.survived)

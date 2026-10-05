@@ -32,7 +32,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive"
+   "input redact detect.network"
   ],
   "error": null,
   "shown": "An IPv4 address range with a /16 prefix mask covers **65,536** addresses.\n\nIf the range is represented as **X.Y.0.0/16**, it covers all addresses from **X.Y.0.0** to **X.Y.255.255**.\n\nIn this configuration, the first two octets (X and Y) are fixed, while the last two octets can range from 0 to 255.",

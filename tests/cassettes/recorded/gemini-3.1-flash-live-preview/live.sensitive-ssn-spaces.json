@@ -160,7 +160,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive"
+   "live_inbound redact detect.ids"
   ],
   "error": null,
   "shown": "I'm sorry, but I can't view the content of the message you provided. Is there something specific you'd like me to do with it, or maybe a different message you'd like me to read?",

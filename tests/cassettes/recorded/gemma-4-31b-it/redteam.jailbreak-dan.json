@@ -37,7 +37,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection+sanitize.injection",
+   "input redact detect.injection+detect.injection",
    "thought redact egress.canary-leak"
   ],
   "error": null,

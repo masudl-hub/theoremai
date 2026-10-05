@@ -28,7 +28,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection+sanitize.injection+sanitize.injection"
+   "input redact detect.injection+detect.injection+detect.injection"
   ],
   "error": null,
   "shown": "I am here to help! Please let me know what you would like assistance with, and I will do my best to provide you with the information or support you need.",

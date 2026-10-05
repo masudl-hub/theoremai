@@ -205,7 +205,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "Es tut mir leid, aber ich kann keine Informationen über meine Programmierung oder spezielle Anweisungen, die ich erhalten habe, weitergeben. Ich bin hier, um dir mit Informationen und Aufgaben zu helfen! Gibt es etwas, wobei ich dich unterstützen kann?",

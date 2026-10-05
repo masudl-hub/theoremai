@@ -28,7 +28,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive"
+   "input redact detect.credentials"
   ],
   "error": null,
   "shown": "I cannot echo back authorization tokens or sensitive data, even if requested. Let me know how else I can help you!",

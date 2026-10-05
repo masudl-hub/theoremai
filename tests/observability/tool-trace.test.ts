@@ -323,10 +323,10 @@ Deno.test('a failure message that tries to steer the agent is redacted, reported
   assertEquals(typeof failure?.attributes.duration_ms, 'number');
   assertEquals(
     ((failure?.attributes.hits ?? []) as TraceAttributes[])[0]?.rule,
-    'tool_failure.redacted',
+    'detect.injection',
   );
   const heard = events.find(
-    (e) => e.type === 'guardrail' && e.guardrail.hits[0]?.rule === 'tool_failure.redacted',
+    (e) => e.type === 'guardrail' && e.guardrail.hits[0]?.rule === 'detect.injection',
   );
   assertEquals(heard !== undefined, true);
 });
@@ -528,6 +528,18 @@ Deno.test('tool media is hashed in the raw output and the result parts', async (
   assertEquals(part?.content_sha256, hash);
   assertEquals(JSON.stringify(record).includes(IMAGE_BASE64), false);
   assertEquals(seenTraceparents, [formatTraceparent(span.traceId, span.spanId)]);
+});
+
+Deno.test('a host invoke streams what was caught without the caught text', async () => {
+  const events = await Array.fromAsync(
+    invokeTool({ profile: PROFILE, name: 'tool_trace_injects', input: {} }),
+  );
+  const hits = events.flatMap((e) => (e.type === 'guardrail' ? e.guardrail.hits : []));
+  assertEquals(hits.length > 0, true);
+  assertEquals(
+    hits.every((hit) => hit.rule === 'detect.injection' && !Object.hasOwn(hit, 'match')),
+    true,
+  );
 });
 
 Deno.test('a host invoke writes its own record, rooted under the host span', async () => {

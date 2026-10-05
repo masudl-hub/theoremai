@@ -10,9 +10,9 @@ import {
   requireMediaLimits,
   resolveMediaLimits,
   sanitizeCsvText,
-  sanitizeTurnBlobs,
 } from '../../src/kernel/registry/attachments.ts';
 import type { MediaLimits, Profile, TurnBlob } from '../../src/kernel/types.ts';
+import { sanitizeBlobs } from '../fixtures/detect.ts';
 
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
@@ -393,7 +393,7 @@ Deno.test('text attachments are decoded, scrubbed of injections and secrets, and
   const decode = (data: string) =>
     new TextDecoder().decode(Uint8Array.from(atob(data), (c) => c.charCodeAt(0)));
   const run = (attachments: unknown[] | undefined, voice?: unknown[]) =>
-    sanitizeTurnBlobs(
+    sanitizeBlobs(
       profile({
         inputs: { ...(profile() as { inputs: object }).inputs, maxBytes: 1000, maxTurnBytes: 2000 },
       }),
@@ -459,8 +459,7 @@ Deno.test('every text type is scrubbed, UTF-8 is read as UTF-8, and a padded siz
   const wide = withCap(100);
   const tight = withCap(11);
   const run = (mimeType: string, data: string) => {
-    const [blob] =
-      sanitizeTurnBlobs(wide, [{ mimeType, data }] as never, undefined).attachments ?? [];
+    const [blob] = sanitizeBlobs(wide, [{ mimeType, data }] as never, undefined).attachments ?? [];
     return (blob as TurnBlob).data;
   };
   for (const mimeType of ['text/csv', 'text/plain', 'text/markdown']) {
@@ -550,7 +549,7 @@ Deno.test('a turn with no blobs needs no limits, a refusal carries its copy, an 
   const bytes = btoa(String.fromCharCode(0xff, 0xfe, 0x3d, 0x31));
   const png = { mimeType: 'image/png', data: bytes };
   check(
-    sanitizeTurnBlobs(profile(), [png] as never, undefined).attachments?.[0],
+    sanitizeBlobs(profile(), [png] as never, undefined).attachments?.[0],
     png,
     'image bytes are not decoded as text',
   );

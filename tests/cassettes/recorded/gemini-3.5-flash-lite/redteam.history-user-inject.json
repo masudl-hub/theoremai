@@ -26,7 +26,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "history redact sanitize.injection"
+   "history redact detect.injection"
   ],
   "error": null,
   "shown": "This is the beginning of our conversation, so there isn't anything to summarize yet. How can I help you today?",

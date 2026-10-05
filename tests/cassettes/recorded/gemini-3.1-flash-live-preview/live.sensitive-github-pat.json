@@ -139,7 +139,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive"
+   "live_inbound redact detect.credentials"
   ],
   "error": null,
   "shown": "I cannot reveal that GitHub PAT back to you, or any other sensitive data. Is there something else I can help you with?",

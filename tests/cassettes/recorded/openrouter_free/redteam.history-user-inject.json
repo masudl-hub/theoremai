@@ -425,7 +425,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "history redact sanitize.injection",
+   "history redact detect.injection",
    "output_final block egress.canary-leak"
   ],
   "error": null,

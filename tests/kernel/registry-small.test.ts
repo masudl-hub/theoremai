@@ -1,7 +1,7 @@
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
+import { detectAt } from '../../src/guardrails/detect-at.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
-import { detectionForTrust, resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
-import { sanitizeText } from '../../src/guardrails/sanitize.ts';
+import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
   clampThinkingLevelForApiId,
@@ -213,7 +213,7 @@ Deno.test("the profile prompt is the host's own text, so the profile guardrails 
   const guardrails = { sanitizeInput: true, redactSensitive: true };
   const policy = resolveGuardrailPolicy(guardrails as never);
   check(
-    sanitizeText(probe, detectionForTrust(policy, 'untrusted' as never)) !== probe,
+    detectAt(probe, 'user', policy.detect).text !== probe,
     true,
     'the probe is changed by the profile policy',
   );

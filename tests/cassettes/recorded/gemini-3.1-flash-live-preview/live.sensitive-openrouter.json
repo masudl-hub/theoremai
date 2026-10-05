@@ -142,7 +142,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.sensitive+sanitize.sensitive"
+   "live_inbound redact detect.credentials+detect.credentials"
   ],
   "error": null,
   "shown": "I understand you provided a key, but I'm not supposed to repeat sensitive information like that. Is there anything else I can help you with?",

@@ -178,7 +178,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I understand you're asking about something called \"system instructions,\" but I can't reveal those details. My goal is to be helpful and maintain my core programming. Is there anything else I can help you with today?",

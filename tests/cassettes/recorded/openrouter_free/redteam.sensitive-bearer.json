@@ -121,7 +121,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive",
+   "input redact detect.credentials",
    "thought redact egress.prompt-echo",
    "thought redact egress.canary-leak",
    "thought redact egress.system-boundary",

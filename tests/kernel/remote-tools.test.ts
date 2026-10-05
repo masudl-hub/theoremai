@@ -997,7 +997,8 @@ Deno.test('Declarative HTTP Tool post_tool mutate re-validates and replaces what
     const completes = toolEventsOf(events, 'complete');
     assertEquals(completes.length, 1);
     assertEquals(completes[0]?.output, { name: 'Alice' });
-    assertEquals(JSON.stringify(events).includes('123-45-6789'), false);
+    // The executor's events keep the match for the trace; a client never gets it.
+    assertEquals(JSON.stringify(forClientEvents(events)).includes('123-45-6789'), false);
   } finally {
     globalThis.fetch = originalFetch;
   }

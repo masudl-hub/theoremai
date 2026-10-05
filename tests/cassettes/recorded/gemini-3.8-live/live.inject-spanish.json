@@ -112,7 +112,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "¿A qué te refieres con \"anteriores\"? ¿Podrías darme más detalles?",

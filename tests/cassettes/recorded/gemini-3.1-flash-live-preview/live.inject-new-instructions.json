@@ -175,7 +175,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I strive to be helpful and informative, but I do operate within guidelines that prioritize safety and responsible responses. Is there something specific you'd like to discuss or get information on?",

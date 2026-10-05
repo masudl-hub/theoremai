@@ -232,7 +232,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact sanitize.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "The shadows lengthened across the stone floor as the villain smiled, whispering, \"You really thought you could stop the inevitable, didn't you? But the end was written long before you even arrived.\"",

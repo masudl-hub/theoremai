@@ -120,7 +120,7 @@ Deno.test('forClient strips GuardrailHit.match even when present', () => {
       action: 'redact',
       hits: [
         {
-          rule: 'sanitize.injection',
+          rule: 'detect.injection',
           severity: 'high',
           span: { start: 0, end: 10 },
           match: 'ignore all',
@@ -129,6 +129,6 @@ Deno.test('forClient strips GuardrailHit.match even when present', () => {
     },
   };
   const hit = firstOf([forClient(event)], 'guardrail')?.guardrail.hits[0];
-  assertEquals(hit?.rule, 'sanitize.injection');
+  assertEquals(hit?.rule, 'detect.injection');
   assertEquals(Object.hasOwn(hit ?? {}, 'match'), false);
 });

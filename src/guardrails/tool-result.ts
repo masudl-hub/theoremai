@@ -1,8 +1,9 @@
+import { mapStrings } from '../kernel/engine/tree.ts';
+import type { ToolBoundary } from './boundaries.ts';
+import { type Detection, detectAt, detectEvent } from './detect-at.ts';
+import type { ResolvedDetect } from './detectors.ts';
 import { type LexiconOverrides, lexiconText } from './lexicon.ts';
-import { detectionForTrust } from './policy.ts';
 import { TOOL_RULES } from './rules.ts';
-import { sanitizeText } from './sanitize.ts';
-import { anySensitive } from './sensitive.ts';
 import { textForScan } from './serialize.ts';
 import { advisoryLevel, directiveHits } from './tool-directives.ts';
 import type {
@@ -102,7 +103,8 @@ function advisoryNotice(advisory: AdvisoryLevel, lexicon: LexiconOverrides | und
 
 /** A tool result after the guard: the text the model sees, any event and the suspicious hits. */
 export interface GuardedToolText {
-  text: string;
+  /** Absent when a match blocks: the model does not read the text. */
+  text?: string;
   /** Emitted when the guard did anything worth recording. */
   event?: GuardrailEvent;
   /**
@@ -128,49 +130,58 @@ function composeToolText(finding: string, data: unknown): string {
   return `${finding}\n${rendered.text}`;
 }
 
+const NOTHING_FOUND: Detection = { action: 'allow', hits: [] };
+
+/** `text` read at `boundary`, or passed as it is when the text crosses none. */
+function readAt(text: string, boundary: ToolBoundary | undefined, detect: ResolvedDetect) {
+  return boundary ? detectAt(text, boundary, detect) : { ...NOTHING_FOUND, text };
+}
+
 /**
  * Local host tools are still detected — a host tool reading a database returns
  * data the host did not write — but only remote origins are fenced, because
  * fencing a local tool's output would change prompts hosts have already tuned.
+ * `boundary` is absent for text that crosses none: a provider builtin's, or a
+ * failure already read at its own boundary.
  */
 function guardToolResult(
   finding: string,
   data: unknown,
   provenance: Provenance,
   policy: ResolvedGuardrailPolicy,
+  boundary: ToolBoundary | undefined,
   callableTools: readonly string[] = [],
   lexicon?: LexiconOverrides,
 ): GuardedToolText {
   const composed = composeToolText(finding, data);
-  const options = detectionForTrust(policy, 'untrusted');
-  const redacted = sanitizeText(composed, options);
-  const changed = redacted !== composed;
+  const detected = readAt(composed, boundary, policy.detect);
   // why: Directive detection runs on remote content only: a local tool's output is
   // bytes the host's own code produced.
   const remote = isRemoteOrigin(provenance.origin);
   const suspicious = remote ? directiveHits(composed, callableTools) : [];
-  const advisory = advisoryLevel(suspicious);
-  const fenced = remote ? wrapToolData(redacted, provenance, advisory, lexicon) : redacted;
-
-  const hits: GuardrailHit[] = [
-    ...(changed ? [{ rule: TOOL_RULES.resultRedacted, severity: 'medium' as const }] : []),
-    ...suspicious,
-  ];
-  if (hits.length === 0) {
-    return { text: fenced };
-  }
-  return {
-    text: fenced,
+  const hits: GuardrailHit[] = [...detected.hits, ...suspicious];
+  // why: A detector's action stands; directive signals alone only annotate the text.
+  const action = detected.action === 'allow' && suspicious.length > 0 ? 'flag' : detected.action;
+  const event: GuardrailEvent | undefined =
+    action === 'allow'
+      ? undefined
+      : {
+          stage: 'tool_result',
+          ...(boundary ? { boundary } : {}),
+          trust: 'untrusted',
+          action,
+          hits,
+          provenance,
+        };
+  const found = {
     ...(suspicious.length > 0 ? { suspicious } : {}),
-    event: {
-      stage: 'tool_result',
-      trust: 'untrusted',
-      // why: Redaction changed the text; directive signals only annotate it.
-      action: changed ? 'redact' : 'flag',
-      hits,
-      provenance,
-    },
+    ...(event ? { event } : {}),
   };
+  if (detected.text === undefined) return found;
+  const fenced = remote
+    ? wrapToolData(detected.text, provenance, advisoryLevel(suspicious), lexicon)
+    : detected.text;
+  return { text: fenced, ...found };
 }
 
 /**
@@ -182,47 +193,48 @@ function guardToolFailureText(
   message: string,
   provenance: Provenance,
   policy: ResolvedGuardrailPolicy,
+  boundary: ToolBoundary | undefined,
 ): GuardedToolText {
-  const options = detectionForTrust(policy, 'untrusted');
-  const redacted = sanitizeText(stripToolFences(message), options);
-  if (redacted === message) {
-    return { text: redacted };
-  }
+  const detected = readAt(stripToolFences(message), boundary, policy.detect);
+  const event = boundary ? detectEvent(boundary, detected, provenance) : undefined;
   return {
-    text: redacted,
-    event: {
-      stage: 'tool_result',
-      trust: 'untrusted',
-      action: 'redact',
-      hits: [{ rule: TOOL_RULES.failureRedacted, severity: 'medium' }],
-      provenance,
-    },
+    ...(detected.text === undefined ? {} : { text: detected.text }),
+    ...(event ? { event } : {}),
   };
+}
+
+/** A tool call's arguments after they were read at their boundary. */
+export interface InspectedToolArguments {
+  /** The arguments to call the tool with. Absent when a match blocks: the tool is not called. */
+  args?: unknown;
+  event?: GuardrailEvent;
 }
 
 /**
  * Arguments are model-authored, so the risk is not instruction smuggling but
  * exfiltration: a credential lifted from context and posted outward as a
- * parameter. Detection reports rather than rewrites — silently altering a tool
- * argument would make the call succeed against something the model did not ask
- * for.
+ * parameter. The whole call is read as it will be sent; `redact` then replaces
+ * the match inside each string it sits in, so the tool is called with the
+ * placeholder.
  */
-function inspectToolArguments(args: unknown, policy: ResolvedGuardrailPolicy): Verdict {
-  if (!anySensitive(policy.redactSensitive)) {
-    return { action: 'allow' };
-  }
+function inspectToolArguments(
+  args: unknown,
+  provenance: Provenance,
+  policy: ResolvedGuardrailPolicy,
+  boundary: ToolBoundary | undefined,
+): InspectedToolArguments {
   const rendered = textForScan(args);
-  if (rendered.unscannable) {
-    return { action: 'allow' };
+  if (!boundary || rendered.unscannable) {
+    return { args };
   }
-  const options = { sanitizeInput: false, redactSensitive: policy.redactSensitive };
-  if (sanitizeText(rendered.text, options) === rendered.text) {
-    return { action: 'allow' };
-  }
-  return {
-    action: 'flag',
-    hits: [{ rule: TOOL_RULES.sensitiveArgument, severity: 'high' }],
-  };
+  const detected = detectAt(rendered.text, boundary, policy.detect);
+  const event = detectEvent(boundary, detected, provenance);
+  if (detected.action === 'block') return { ...(event ? { event } : {}) };
+  const safe =
+    detected.action === 'redact'
+      ? mapStrings(args, (text) => detectAt(text, boundary, policy.detect).text ?? text)
+      : args;
+  return { args: safe, ...(event ? { event } : {}) };
 }
 
 /** The guardrail event for a tool call verdict, or `undefined` when it was allowed. */

@@ -57,7 +57,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive",
+   "input redact detect.network",
    "thought redact egress.system-boundary"
   ],
   "error": null,

@@ -29,7 +29,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.sensitive"
+   "input redact detect.credentials"
   ],
   "error": null,
   "shown": "I have noted that you provided a sensitive key, but for security reasons, I do not store sensitive information, passwords, or API keys. It is best to keep such keys secure in your own password manager or environment variables. Let me know how else I can help you today!",

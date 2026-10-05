@@ -1,9 +1,9 @@
 import '../fixtures/test-host.ts';
-import { sanitizeText } from '../../src/guardrails/sanitize.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import { redactAll } from '../fixtures/detect.ts';
 
 function assertClean(_label: string, text: string): void {
-  const out = sanitizeText(text);
+  const out = redactAll(text);
   assertEquals(out, text);
 }
 

@@ -40,7 +40,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact sanitize.injection+sanitize.sensitive",
+   "input redact detect.financial+detect.injection",
    "thought redact egress.system-boundary",
    "thought redact egress.prompt-echo"
   ],

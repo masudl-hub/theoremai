@@ -142,7 +142,9 @@ function affected(base) {
     if (!existsSync(join(root, d))) continue;
     const text = readFileSync(join(root, d), 'utf8');
     const found = [
-      ...[...symbols].filter((s) => new RegExp(`\\b${s.replace(/\$/g, '\\$')}\\b`).test(text)),
+      ...[...symbols].filter((s) =>
+        new RegExp(`\\b${s.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')}\\b`).test(text),
+      ),
       ...[...files].filter((f) => text.includes(f)),
     ].sort();
     if (found.length) hits.push([d, found]);

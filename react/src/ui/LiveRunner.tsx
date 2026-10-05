@@ -38,7 +38,7 @@ import {
 } from '@tabler/icons-react';
 import { type ReactNode, useEffect, useLayoutEffect, useRef } from 'react';
 import type { LiveProfileInterface } from '@theoremjs/agents/interface';
-import type { LiveCaptionState, LiveCaptionTurn } from '../client/live/live-captions.ts';
+import { type LiveCaptionState, type LiveCaptionTurn, liveCaptionLines } from '../client/live/live-captions.ts';
 import type { LiveConnection } from '../client/live-client.ts';
 import type { LiveToolGatePrompt } from '../client/live/live-tool.ts';
 import type { LiveFacingMode } from '../client/live/live-video.ts';
@@ -446,35 +446,24 @@ function captionMessages({ turns, interimUser, interimAgent }: LiveCaptionState,
 	return captionTurnMessages(lines, '', agentName);
 }
 
-/** One message per line, except that a thought and the speech after it share the agent's message. */
 function captionTurnMessages(turns: readonly LiveCaptionTurn[], keyPrefix: string, agentName: string): ReactNode[] {
-	const messages: ReactNode[] = [];
-	for (let i = 0; i < turns.length; i++) {
-		const turn = turns[i];
-		const key = `${keyPrefix}${turn.id}`;
-		if (turn.role === 'user') {
-			messages.push(
-				<ChatMessage key={key} sender="user">
-					<ChatMessageBubble>{turn.text}</ChatMessageBubble>
-				</ChatMessage>,
-			);
-			continue;
-		}
-		const spoken = turn.role === 'thought' ? turns[i + 1] : turn;
-		const speech = spoken?.role === 'agent' ? spoken.text : null;
-		if (turn.role === 'thought' && speech !== null) i++;
-		messages.push(
+	return liveCaptionLines(turns).map((line) => {
+		const key = `${keyPrefix}${line.id}`;
+		return line.role === 'user' ? (
+			<ChatMessage key={key} sender="user">
+				<ChatMessageBubble>{line.text}</ChatMessageBubble>
+			</ChatMessage>
+		) : (
 			<ChatMessage key={key} sender="assistant" name={agentName}>
-				{turn.role === 'thought' ? (
+				{line.thought === undefined ? null : (
 					<Markdown density="compact" components={THOUGHT_MARKDOWN}>
-						{turn.text}
+						{line.thought}
 					</Markdown>
-				) : null}
-				{speech === null ? null : <Text>{speech}</Text>}
-			</ChatMessage>,
+				)}
+				{line.text === undefined ? null : <Text>{line.text}</Text>}
+			</ChatMessage>
 		);
-	}
-	return messages;
+	});
 }
 
 /**

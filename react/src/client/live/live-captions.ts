@@ -99,6 +99,30 @@ export function applyLiveThought(state: LiveCaptionState, text: string): LiveCap
 	return { ...state, turns };
 }
 
+/** One caption message: what the user said, or the agent's thought and the speech after it. */
+export type LiveCaptionLine =
+	| { id: string; role: 'user'; text: string }
+	| { id: string; role: 'agent'; thought?: string; text?: string };
+
+function captionLine({ id, role, text }: LiveCaptionTurn): LiveCaptionLine {
+	if (role === 'user') return { id, role, text };
+	return role === 'thought' ? { id, role: 'agent', thought: text } : { id, role, text };
+}
+
+/** Group caption turns into messages: a thought and the speech that follows it share one. */
+export function liveCaptionLines(turns: readonly LiveCaptionTurn[]): LiveCaptionLine[] {
+	const lines: LiveCaptionLine[] = [];
+	for (const turn of turns) {
+		const last = lines.at(-1);
+		if (turn.role === 'agent' && last?.role === 'agent' && last.text === undefined) {
+			lines[lines.length - 1] = { ...last, text: turn.text };
+		} else {
+			lines.push(captionLine(turn));
+		}
+	}
+	return lines;
+}
+
 /** Clear streaming partials when a live turn completes or is interrupted. */
 export function clearLiveCaptionInterim(state: LiveCaptionState): LiveCaptionState {
 	if (!state.interimUser && !state.interimAgent) return state;

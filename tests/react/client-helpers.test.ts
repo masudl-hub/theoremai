@@ -19,6 +19,7 @@ import {
   clearLiveCaptionInterim,
   emptyLiveCaptionState,
   latestLiveCaptionTurnId,
+  liveCaptionLines,
 } from '../../react/src/client/live/live-captions.ts';
 import {
   applyLiveToolTurnEvent,
@@ -220,6 +221,24 @@ Deno.test('applyLiveThought keeps a thought on its own line, before the speech t
       ['agent', 'You have two meetings.'],
     ],
   );
+});
+
+Deno.test('liveCaptionLines puts a thought in the same message as the speech after it', () => {
+  const lines = liveCaptionLines([
+    { id: 'a', role: 'user', text: 'Hi' },
+    { id: 'b', role: 'thought', text: '**Greeting**' },
+    { id: 'c', role: 'agent', text: 'Hello.' },
+    { id: 'd', role: 'user', text: 'And?' },
+    { id: 'e', role: 'agent', text: 'Nothing else.' },
+    { id: 'f', role: 'thought', text: '**Waiting**' },
+  ]);
+  assertEquals(lines, [
+    { id: 'a', role: 'user', text: 'Hi' },
+    { id: 'b', role: 'agent', thought: '**Greeting**', text: 'Hello.' },
+    { id: 'd', role: 'user', text: 'And?' },
+    { id: 'e', role: 'agent', text: 'Nothing else.' },
+    { id: 'f', role: 'agent', thought: '**Waiting**' },
+  ]);
 });
 
 Deno.test('inkWaveDriver and computeInkBarTargets calculate animations', () => {

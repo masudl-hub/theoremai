@@ -785,6 +785,16 @@ export const THEOREM_UI_CATALOG = {
     description: 'A guardrail check: the tool the checked text came from.',
     params: ['tool'],
   },
+  '@theorem.panel.trace.guardrails.tainted': {
+    defaultMessage: 'Tainted',
+    description:
+      'A guardrail check: a tool that writes or deletes was called after the turn read remote content.',
+  },
+  '@theorem.panel.trace.guardrails.steered': {
+    defaultMessage: 'Steered',
+    description:
+      'A guardrail check: a tool that writes or deletes was called after the turn read remote content that looked like instructions.',
+  },
   '@theorem.panel.trace.guardrails.detail': {
     defaultMessage:
       '{checks, plural, one {# check} other {# checks}} · {flagged, plural, =0 {all passed} other {# acted}}',

@@ -257,6 +257,17 @@ function GuardrailsStat({
   );
 }
 
+/** A turn's guardrail figures alone, as {@link TurnStats} lays them out. */
+export function GuardrailStats({ latency }: { latency: TraceLatency }) {
+  const format = useTraceFormat();
+  if (!latency.guardrails) return null;
+  return (
+    <Grid columns={{ minWidth: 120, repeat: 'fit' }} gap={2}>
+      <GuardrailsStat latency={latency} format={format} />
+    </Grid>
+  );
+}
+
 /**
  * Duration, first text, cost, tokens, steps and guardrails of the open turn;
  * a total the trace did not record is left out.

@@ -1,10 +1,17 @@
-import { Badge } from '@astryxdesign/core/Badge';
 import { Icon } from '@astryxdesign/core/Icon';
 import { Item } from '@astryxdesign/core/Item';
 import { Text } from '@astryxdesign/core/Text';
+import { Token } from '@astryxdesign/core/Token';
 import { Tooltip as HoverTip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconShield } from '@tabler/icons-react';
+import {
+  IconBiohazard,
+  IconEyeOff,
+  IconHandStop,
+  IconInfoCircle,
+  IconShield,
+} from '@tabler/icons-react';
+import { TOOL_RULES } from '@theoremjs/agents/guardrails';
 import type { TraceGuardrailCheck, TraceGuardrailHit } from '../client/trace-story.ts';
 import type { TraceNode } from '../client/trace-view.ts';
 import { useTraceFormat } from './TraceValues.tsx';
@@ -65,6 +72,37 @@ function CheckWhy({ check, format }: { check: TraceGuardrailCheck; format: Forma
   );
 }
 
+/** What a check did, as a token. A report of a call made after a remote read says so in place of "flagged". */
+function ActionToken({ check, format }: { check: TraceGuardrailCheck; format: Format }) {
+  if (check.action === 'block') {
+    return (
+      <Token label={check.actionLabel} color="red" icon={<Icon icon={IconHandStop} size="sm" />} />
+    );
+  }
+  if (check.action === 'redact') {
+    return (
+      <Token label={check.actionLabel} color="orange" icon={<Icon icon={IconEyeOff} size="sm" />} />
+    );
+  }
+  const rules = new Set(check.hits.map((hit) => hit.rule));
+  if (rules.has(TOOL_RULES.steeredTurn) || rules.has(TOOL_RULES.taintedTurn)) {
+    return (
+      <Token
+        label={format.t(
+          rules.has(TOOL_RULES.steeredTurn)
+            ? '@theorem.panel.trace.guardrails.steered'
+            : '@theorem.panel.trace.guardrails.tainted',
+        )}
+        color="yellow"
+        icon={<Icon icon={IconBiohazard} size="sm" />}
+      />
+    );
+  }
+  return (
+    <Token label={check.actionLabel} color="blue" icon={<Icon icon={IconInfoCircle} size="sm" />} />
+  );
+}
+
 function ActedCheck({
   check,
   format,
@@ -72,17 +110,14 @@ function ActedCheck({
 }: {
   check: TraceGuardrailCheck;
   format: Format;
-  onSelect: (node: TraceNode) => void;
+  onSelect?: ((node: TraceNode) => void) | undefined;
 }) {
   return (
     <Item
       startContent={<Icon icon={IconShield} size="sm" color="secondary" />}
       label={
         <HoverTip content={check.actionDoc ?? check.actionLabel}>
-          <Badge
-            variant={check.action === 'block' ? 'error' : 'warning'}
-            label={check.actionLabel}
-          />
+          <ActionToken check={check} format={format} />
         </HoverTip>
       }
       description={<CheckWhy check={check} format={format} />}
@@ -93,7 +128,7 @@ function ActedCheck({
       }
       align="start"
       density="compact"
-      onClick={() => onSelect(check.node)}
+      {...(onSelect ? { onClick: () => onSelect(check.node) } : {})}
     />
   );
 }
@@ -125,7 +160,8 @@ export function TraceGuardrails({
   onSelect,
 }: {
   checks: readonly TraceGuardrailCheck[];
-  onSelect: (node: TraceNode) => void;
+  /** Opens a check's step; without it a check is not a button. */
+  onSelect?: (node: TraceNode) => void;
 }) {
   const format = useTraceFormat();
   const acted = checks.filter((check) => check.action !== 'allow');

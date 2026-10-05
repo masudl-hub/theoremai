@@ -44,6 +44,7 @@ export {
   type TheoremLabelsProviderProps,
   useLabels,
 } from './labels-provider.tsx';
+export { InPlace, PaneLayout, PanePanel, Prose, RaisedPane } from './SidePanel.tsx';
 export {
   DEFAULT_CHAT_MAX_WIDTH,
   TheoremChat,
@@ -60,4 +61,5 @@ export {
   type ToolDecision,
 } from './ToolGateCard.tsx';
 export { ToolResult } from './ToolResult.tsx';
+export { TraceGuardrailsView } from './TraceInspectorPanel.tsx';
 export { TheoremThemeProvider, type TheoremThemeProviderProps } from './theme.tsx';

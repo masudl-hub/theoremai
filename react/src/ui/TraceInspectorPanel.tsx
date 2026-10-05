@@ -1,15 +1,16 @@
-import { Card } from '@astryxdesign/core/Card';
 import { Icon } from '@astryxdesign/core/Icon';
-import { Layout, LayoutContent } from '@astryxdesign/core/Layout';
-import { VStack } from '@astryxdesign/core/VStack';
 import { IconTimeline } from '@tabler/icons-react';
+import type { TraceRecord } from '@theoremjs/agents';
 import type { ProfileObservabilityView } from '@theoremjs/agents/interface';
-import { lazy, type ReactNode, Suspense, useCallback, useId, useState } from 'react';
+import { lazy, type ReactNode, Suspense, useId, useState } from 'react';
 import type { TraceFeed } from '../client/trace-feed.ts';
-import { useLabels } from './labels-provider.tsx';
-import { isSidePanelWide, RAISED, SidePanelHeader, SidePanelToggle } from './SidePanel.tsx';
+import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
+import { InPlace, RaisedPane, SidePanelHeader, SidePanelToggle } from './SidePanel.tsx';
 
 // why: The inspector and its charts are fetched when the trace first opens, not with the chat.
+const TraceGuardrailsBody = lazy(() =>
+  import('./TraceInspector.tsx').then((module) => ({ default: module.TraceGuardrailsBody })),
+);
 const TraceFeedBody = lazy(() =>
   import('./TraceInspector.tsx').then((module) => ({ default: module.TraceFeedBody })),
 );
@@ -21,18 +22,6 @@ export type TraceInspector = {
   view: ReactNode;
 };
 
-/** The element's width, kept current. */
-function useWidth() {
-  const [width, setWidth] = useState(0);
-  const ref = useCallback((node: HTMLDivElement | null) => {
-    if (!node) return;
-    const observer = new ResizeObserver(([entry]) => setWidth(entry?.contentRect.width ?? 0));
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-  return { ref, width };
-}
-
 function TraceView({
   id,
   header,
@@ -42,25 +31,14 @@ function TraceView({
   header: ReactNode;
   traces: TraceFeed | undefined;
 }) {
-  const { ref, width } = useWidth();
   return (
-    <Layout
-      height="fill"
-      header={header}
-      content={
-        <LayoutContent padding={0} isScrollable={false}>
-          <VStack height="100%" paddingInline={3}>
-            <Card variant="transparent" height="100%" padding={0} style={RAISED}>
-              <div id={id} ref={ref} style={{ height: '100%' }}>
-                <Suspense fallback={null}>
-                  <TraceFeedBody traces={traces} isWide={isSidePanelWide(width)} />
-                </Suspense>
-              </div>
-            </Card>
-          </VStack>
-        </LayoutContent>
-      }
-    />
+    <RaisedPane id={id} header={header}>
+      {(isWide) => (
+        <Suspense fallback={null}>
+          <TraceFeedBody traces={traces} isWide={isWide} />
+        </Suspense>
+      )}
+    </RaisedPane>
   );
 }
 
@@ -109,7 +87,7 @@ export function useTraceInspector(
   };
 }
 
-/** The surface, or the trace in its place; the surface stays mounted underneath, so nothing it holds is lost. */
+/** The surface, or the trace in its place. */
 export function WithTrace({
   inspector,
   children,
@@ -117,10 +95,26 @@ export function WithTrace({
   inspector: TraceInspector;
   children: ReactNode;
 }) {
+  return <InPlace view={inspector.view}>{children}</InPlace>;
+}
+
+/**
+ * What `records` say of guardrails, for a host that holds a trace of its own
+ * (the playground's guardrail test): the checks' time and count, then each
+ * check, laid out as the trace lays them out. `head` leads it.
+ */
+export function TraceGuardrailsView({
+  records,
+  head,
+}: {
+  records: readonly TraceRecord[];
+  head?: ReactNode;
+}) {
   return (
-    <>
-      {inspector.view}
-      <div style={{ display: inspector.view ? 'none' : 'contents' }}>{children}</div>
-    </>
+    <TheoremLabelsProvider>
+      <Suspense fallback={null}>
+        <TraceGuardrailsBody records={records} head={head} />
+      </Suspense>
+    </TheoremLabelsProvider>
   );
 }

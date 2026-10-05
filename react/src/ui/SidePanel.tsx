@@ -1,13 +1,17 @@
 import { Card } from '@astryxdesign/core/Card';
 import { HStack } from '@astryxdesign/core/HStack';
 import { IconButton } from '@astryxdesign/core/IconButton';
-import { LayoutHeader, LayoutPanel } from '@astryxdesign/core/Layout';
+import { Layout, LayoutContent, LayoutHeader, LayoutPanel } from '@astryxdesign/core/Layout';
 import {
   type ResizableRegion,
   ResizeHandle,
   type UseResizableSingleConfig,
   useResizable,
 } from '@astryxdesign/core/Resizable';
+import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
+import { StackItem } from '@astryxdesign/core/Stack';
+import { Text } from '@astryxdesign/core/Text';
+import { Tooltip as HoverTip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { type ReactNode, type RefObject, useCallback, useId, useState } from 'react';
 
@@ -23,7 +27,7 @@ const SIDE_PANEL_SIZING = {
 } as const satisfies UseResizableSingleConfig;
 
 /** Whether a side panel is wide enough for two readable columns: twice its minimum. */
-export function isSidePanelWide(size: number): boolean {
+function isSidePanelWide(size: number): boolean {
   return size >= SIDE_PANEL_SIZING.minSize * 2;
 }
 
@@ -146,6 +150,141 @@ export function SidePanel({
           </Card>
         </VStack>
       </LayoutPanel>
+    </>
+  );
+}
+
+/** The element's width, kept current. */
+function useWidth() {
+  const [width, setWidth] = useState(0);
+  const ref = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    const observer = new ResizeObserver(([entry]) => setWidth(entry?.contentRect.width ?? 0));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  return { ref, width };
+}
+
+/**
+ * A raised pane that fills its place, inset from the sides. Its content is
+ * told whether the pane is wide enough for two readable columns.
+ */
+export function RaisedPane({
+  id,
+  header,
+  children,
+}: {
+  id?: string;
+  header?: ReactNode;
+  children: (isWide: boolean) => ReactNode;
+}) {
+  const { ref, width } = useWidth();
+  return (
+    <Layout
+      height="fill"
+      header={header}
+      content={
+        <LayoutContent padding={0} isScrollable={false}>
+          <VStack height="100%" paddingInline={3}>
+            <Card variant="transparent" height="100%" padding={0} style={RAISED}>
+              <div id={id} ref={ref} style={{ height: '100%' }}>
+                {children(isSidePanelWide(width))}
+              </div>
+            </Card>
+          </VStack>
+        </LayoutContent>
+      }
+    />
+  );
+}
+
+/** A raised pane's content. Narrow, the detail takes the overview's place; wide, it sits beside it. */
+export function PaneLayout({
+  isWide,
+  label,
+  detailLabel,
+  lead,
+  overview,
+  detail,
+}: {
+  isWide: boolean;
+  label: string;
+  detailLabel: string;
+  /** Rendered once, ahead of the content. */
+  lead?: ReactNode;
+  overview: ReactNode;
+  detail: ReactNode;
+}) {
+  if (!isWide) {
+    return (
+      <ScrollableArea label={label} height="100%">
+        {lead}
+        {detail ?? overview}
+      </ScrollableArea>
+    );
+  }
+  return (
+    <HStack height="100%" gap={0}>
+      <StackItem size="fill">
+        <ScrollableArea label={label} height="100%">
+          {lead}
+          {overview}
+        </ScrollableArea>
+      </StackItem>
+      {detail ? (
+        <div
+          style={{
+            width: '48%',
+            flexShrink: 0,
+            height: '100%',
+            borderInlineStart: '1px solid var(--color-border)',
+          }}
+        >
+          <ScrollableArea label={detailLabel} height="100%">
+            {detail}
+          </ScrollableArea>
+        </div>
+      ) : null}
+    </HStack>
+  );
+}
+
+/** One titled block of a pane's detail; `doc` says what the title means, on hover. */
+export function PanePanel({
+  title,
+  doc,
+  children,
+}: {
+  title: string;
+  doc?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Card padding={3} variant="muted" style={{ background: 'var(--color-background-surface)' }}>
+      <VStack gap={2}>
+        <HoverTip content={doc ?? title}>
+          <Text type="supporting" color="secondary">
+            {title}
+          </Text>
+        </HoverTip>
+        {children}
+      </VStack>
+    </Card>
+  );
+}
+
+/** Text as it was written: its line breaks kept, long words wrapped. */
+export function Prose({ text }: { text: string }) {
+  return <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</span>;
+}
+
+/** The surface, or the view in its place; the surface stays mounted underneath, so nothing it holds is lost. */
+export function InPlace({ view, children }: { view: ReactNode; children: ReactNode }) {
+  return (
+    <>
+      {view}
+      <div style={{ display: view ? 'none' : 'contents' }}>{children}</div>
     </>
   );
 }

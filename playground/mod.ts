@@ -174,18 +174,24 @@ export {
 } from './concierge-demo.ts';
 export type {
   GuardrailProbe,
+  GuardrailProbeAnswer,
   GuardrailProbeDraft,
   GuardrailProbeResult,
   ProbeBoundary,
+  ProbeBoundaryNote,
+  ProbeStatus,
 } from './guardrail-probe.ts';
 export {
   PROBE_BOUNDARIES,
   PROBE_BOUNDARY_NOTES,
+  PROBE_STATUSES,
   PROBE_TEXT_LIMIT,
   probeDraft,
   probeRefusal,
   runGuardrailProbe,
+  runGuardrailProbes,
 } from './guardrail-probe.ts';
+export { PROBE_BATTERY, type ProbeBatteryCase } from './probe-battery.ts';
 export type { PlaygroundDemoHandler } from './demo-handlers.ts';
 export { playgroundDemoHandler } from './demo-handlers.ts';
 export { PLAYGROUND_TAINT_NOTE, playgroundNetworkNote } from './runtime-scope.ts';

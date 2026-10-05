@@ -10,8 +10,6 @@ import {
   type PowerSearchField,
   type PowerSearchFilter,
 } from '@astryxdesign/core/PowerSearch';
-import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
-import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconTimeline } from '@tabler/icons-react';
@@ -41,9 +39,10 @@ import {
 } from '../client/trace-view.ts';
 import { useTraceRecords } from '../hooks/use-trace-records.ts';
 import type { LabelText } from './labels.ts';
+import { PaneLayout } from './SidePanel.tsx';
 import { ConversationCharts, TraceCharts } from './TraceCharts.tsx';
 import { TraceGuardrails } from './TraceGuardrails.tsx';
-import { TurnPicker, TurnStats } from './TraceOverview.tsx';
+import { GuardrailStats, TurnPicker, TurnStats } from './TraceOverview.tsx';
 import { TraceSpanDetail } from './TraceSpanDetail.tsx';
 import { ActorMark, TraceStory } from './TraceStory.tsx';
 import { useTraceFormat } from './TraceValues.tsx';
@@ -327,53 +326,6 @@ function EmptyTrace() {
   );
 }
 
-/** Narrow, the open span takes the overview's place; wide, it sits beside it. */
-function TraceLayout({
-  isWide,
-  overview,
-  detail,
-  detailLabel,
-}: {
-  isWide: boolean;
-  overview: ReactNode;
-  detail: ReactNode;
-  detailLabel: string;
-}) {
-  const { t } = useTraceFormat();
-  if (!isWide) {
-    return (
-      <ScrollableArea label={t('@theorem.panel.trace.name')} height="100%">
-        <TracePatterns />
-        {detail ?? overview}
-      </ScrollableArea>
-    );
-  }
-  return (
-    <HStack height="100%" gap={0}>
-      <StackItem size="fill">
-        <ScrollableArea label={t('@theorem.panel.trace.name')} height="100%">
-          <TracePatterns />
-          {overview}
-        </ScrollableArea>
-      </StackItem>
-      {detail ? (
-        <div
-          style={{
-            width: '48%',
-            flexShrink: 0,
-            height: '100%',
-            borderInlineStart: '1px solid var(--color-border)',
-          }}
-        >
-          <ScrollableArea label={detailLabel} height="100%">
-            {detail}
-          </ScrollableArea>
-        </div>
-      ) : null}
-    </HStack>
-  );
-}
-
 /** The open span of the open turn; opening another turn closes it. */
 function useOpenSpan(turns: readonly TraceTurn[]) {
   const { index, pick } = useOpenTurn(turns.length);
@@ -461,14 +413,18 @@ function TraceInspectorBody({
 }) {
   const tree = useMemo(() => traceTree(records), [records]);
   const turns = useMemo(() => traceTurns(tree), [tree]);
+  const { t } = useTraceFormat();
   const { index, root, open, select, close, pick } = useOpenSpan(turns);
   if (turns.length === 0) return <EmptyTrace />;
   const overview = (
     <Overview turns={turns} index={index} pick={pick} selectedId={open?.id} select={select} />
   );
   return (
-    <TraceLayout
+    <PaneLayout
       isWide={isWide}
+      label={t('@theorem.panel.trace.name')}
+      detailLabel={open?.meta.label ?? ''}
+      lead={<TracePatterns />}
       overview={overview}
       detail={
         open && (
@@ -481,7 +437,6 @@ function TraceInspectorBody({
           />
         )
       }
-      detailLabel={open?.meta.label ?? ''}
     />
   );
 }
@@ -495,4 +450,34 @@ export function TraceFeedBody({
   isWide: boolean;
 }) {
   return <TraceInspectorBody records={useTraceRecords(traces)} isWide={isWide} />;
+}
+
+/**
+ * Only what the records say of guardrails: how long the checks took, how many
+ * ran and acted, then each check. `head` leads it.
+ */
+export function TraceGuardrailsBody({
+  records,
+  head,
+}: {
+  records: readonly TraceRecord[];
+  head?: ReactNode;
+}) {
+  const { t } = useTraceFormat();
+  const roots = useMemo(() => traceTurns(traceTree(records)).map((turn) => turn.node), [records]);
+  const checks = useMemo(() => roots.flatMap(traceGuardrails), [roots]);
+  return (
+    <VStack gap={5} padding={4}>
+      {head}
+      {roots.map((root) => (
+        <GuardrailStats key={root.id} latency={traceLatency(root)} />
+      ))}
+      {checks.length > 0 ? (
+        <VStack gap={2}>
+          <SectionTitle title={t('@theorem.panel.trace.guardrails')} />
+          <TraceGuardrails checks={checks} />
+        </VStack>
+      ) : null}
+    </VStack>
+  );
 }

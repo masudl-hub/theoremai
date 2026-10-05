@@ -28,6 +28,7 @@ import { messageText, storedValue, traceActor, traceOutcome } from '../client/tr
 import { nanosToMs, type TraceNode } from '../client/trace-view.ts';
 import { keyedByContent } from './row-keys.ts';
 import { ShapedData } from './ShapedData.tsx';
+import { PanePanel, Prose } from './SidePanel.tsx';
 import { ActorMark } from './TraceStory.tsx';
 import {
   attributeSections,
@@ -194,25 +195,6 @@ function SpanHeader({
   );
 }
 
-function Panel({ title, doc, children }: { title: string; doc?: string; children: ReactNode }) {
-  return (
-    <Card padding={3} variant="muted" style={{ background: 'var(--color-background-surface)' }}>
-      <VStack gap={2}>
-        <HoverTip content={doc ?? title}>
-          <Text type="supporting" color="secondary">
-            {title}
-          </Text>
-        </HoverTip>
-        {children}
-      </VStack>
-    </Card>
-  );
-}
-
-function Prose({ text }: { text: string }) {
-  return <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</span>;
-}
-
 type Message = { role?: unknown; parts?: unknown };
 type Part = {
   type?: unknown;
@@ -290,9 +272,9 @@ function label(key: string): { title: string; doc?: string } {
 function DataPanel({ attribute, value }: { attribute: string; value: unknown }) {
   if (value === undefined) return null;
   return (
-    <Panel {...label(attribute)}>
+    <PanePanel {...label(attribute)}>
       <ShapedData value={value} />
-    </Panel>
+    </PanePanel>
   );
 }
 
@@ -300,9 +282,9 @@ function DataPanel({ attribute, value }: { attribute: string; value: unknown }) 
 function ProsePanel({ attribute, text }: { attribute: string; text: unknown }) {
   if (typeof text !== 'string' || !text) return null;
   return (
-    <Panel {...label(attribute)}>
+    <PanePanel {...label(attribute)}>
       <Prose text={text} />
-    </Panel>
+    </PanePanel>
   );
 }
 
@@ -327,9 +309,9 @@ function CallIO({ node }: { node: TraceNode }) {
   return (
     <>
       {output.length > 0 ? (
-        <Panel {...label('gen_ai.output.messages')}>
+        <PanePanel {...label('gen_ai.output.messages')}>
           <MessageList messages={output} />
-        </Panel>
+        </PanePanel>
       ) : null}
       {input.length > 0 ? (
         <Collapsible
@@ -457,16 +439,19 @@ export function TraceSpanDetail({
       <SpanHeader node={node} turnStartMs={turnStartMs} onBack={onBack} isClose={isClose} />
       <SpanIO node={node} />
       {usage ? (
-        <Panel title={TRACE_ATTRIBUTE_GROUPS.usage.label} doc={TRACE_ATTRIBUTE_GROUPS.usage.doc}>
+        <PanePanel
+          title={TRACE_ATTRIBUTE_GROUPS.usage.label}
+          doc={TRACE_ATTRIBUTE_GROUPS.usage.doc}
+        >
           <TraceAttributeList
             record={record}
             attributes={usage.attributes}
             metaOf={traceAttributeMeta}
           />
-        </Panel>
+        </PanePanel>
       ) : null}
       {node.children.length > 0 ? (
-        <Panel title={TRACE_FIELDS.children.label} doc={TRACE_FIELDS.children.doc}>
+        <PanePanel title={TRACE_FIELDS.children.label} doc={TRACE_FIELDS.children.doc}>
           <VStack gap={0}>
             {node.children.map((child) => (
               <Item
@@ -484,7 +469,7 @@ export function TraceSpanDetail({
               />
             ))}
           </VStack>
-        </Panel>
+        </PanePanel>
       ) : null}
       <Collapsible
         defaultIsOpen={false}

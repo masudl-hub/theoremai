@@ -6,7 +6,14 @@
  *
  * @module
  */
-import type { ModelProvider, Profile, ProfileDefinition, TurnEvent, TurnInput } from '../mod.ts';
+import type {
+  ModelProvider,
+  Profile,
+  ProfileDefinition,
+  TraceRecord,
+  TurnEvent,
+  TurnInput,
+} from '../mod.ts';
 import { TheoremError } from '../mod.ts';
 import type { GuardrailEvent } from '../src/guardrails/event-schemas.ts';
 import { TOOL_RULES } from '../src/guardrails/rules.ts';
@@ -30,28 +37,72 @@ export const PROBE_BOUNDARIES = [
 /** One of {@linkcode PROBE_BOUNDARIES}. */
 export type ProbeBoundary = (typeof PROBE_BOUNDARIES)[number];
 
-/** Each boundary as the tester names it, and what crosses it. */
-export const PROBE_BOUNDARY_NOTES: Record<ProbeBoundary, { label: string; note: string }> = {
-  user: { label: 'User message', note: 'What a person types into the chat.' },
+/** A boundary as the tester tells it. */
+export interface ProbeBoundaryNote {
+  label: string;
+  /** What crosses the boundary. */
+  note: string;
+  /** When in a turn the kernel reads it. */
+  when: string;
+  /** What the kernel does with what it finds there. */
+  checks: string;
+}
+
+/** Each boundary: its name, what crosses it, when the kernel reads it and what it does there. */
+export const PROBE_BOUNDARY_NOTES: Record<ProbeBoundary, ProbeBoundaryNote> = {
+  user: {
+    label: 'User message',
+    note: 'What a person types into the chat.',
+    when: 'Before the first model call of the turn.',
+    checks:
+      'Injection phrasing and sensitive data are replaced with a placeholder (detect). The model reads the rest, fenced as user data.',
+  },
   history: {
     label: 'Earlier message',
     note: 'A user message the host replays from an earlier turn.',
+    when: 'Before the first model call, on every turn that replays it.',
+    checks: 'Read as a new user message is: injection phrasing and sensitive data are replaced.',
   },
   system: {
     label: 'Host system text',
-    note: 'Text the host adds to the system prompt for one turn.',
+    note: 'Text the host adds to the system prompt for one turn, such as retrieved documents.',
+    when: 'Before the first model call of the turn.',
+    checks:
+      'Read as assembled, not trusted: injection phrasing and sensitive data are replaced. The profile’s own system prompt is trusted and not read.',
   },
   tool_result_local: {
     label: 'Local tool result',
-    note: "What one of the host's own functions returns.",
+    note: 'What one of the host’s own functions returns.',
+    when: 'When the tool returns, before the model reads the result.',
+    checks: 'Injection phrasing and sensitive data are replaced in the result the model reads.',
   },
   tool_result_remote: {
     label: 'Remote tool result',
-    note: "What a tool returns from outside the host. It runs here as another agent's reply, which is read as a web or MCP result is. The model then makes a destructive call.",
+    note: 'What a tool returns from outside the host: a web page, an MCP server, another agent. It runs here as another agent’s reply, and the model then makes a destructive call.',
+    when: 'When the tool returns, and again at each call the model makes after it.',
+    checks:
+      'Replaced as a local result is, fenced as tool data, and read for directives (a claim of authority, an order, a callable tool’s name), which are reported and never removed. Every later call is reported, and refused where taint.afterRemoteRead says.',
   },
-  tool_arguments: { label: 'Tool arguments', note: 'What the model sends to a tool.' },
-  reply: { label: 'Model reply', note: 'What the model says to the user, streamed.' },
-  thought: { label: 'Model thought', note: "The model's reasoning, where the host shows it." },
+  tool_arguments: {
+    label: 'Tool arguments',
+    note: 'What the model sends to a tool.',
+    when: 'After the model asks for the call, before the tool runs.',
+    checks: 'A credential in the arguments is reported. The call still runs.',
+  },
+  reply: {
+    label: 'Model reply',
+    note: 'What the model says to the user, streamed.',
+    when: 'As it streams: text is held only while it could still be the start of a match.',
+    checks:
+      'Sensitive data and injection phrasing get the action detect sets for a reply. The egress checks block the user-data fence, an image to a URL the model was not given, and a link to one where links is on. The canary and a system prompt echo end the turn.',
+  },
+  thought: {
+    label: 'Model thought',
+    note: 'The model’s reasoning, where the host shows it.',
+    when: 'As it streams, where the profile streams thoughts.',
+    checks:
+      'Never stops the turn. An image, a link (where links is on), the canary, a system prompt echo and the user-data fence are left out of what the host shows. Sensitive data and injection phrasing are not read.',
+  },
 };
 
 /** The longest text a probe carries. */
@@ -62,13 +113,18 @@ export interface GuardrailProbe {
   text: string;
 }
 
+/**
+ * What the guardrails did with a probed text, mildest first. `flagged` is a
+ * report that changed nothing; a call made after a remote read is reported
+ * whatever was read, so that report is `taint` and no status.
+ */
+export const PROBE_STATUSES = ['passed', 'flagged', 'redacted', 'blocked'] as const;
+/** One of {@linkcode PROBE_STATUSES}. */
+export type ProbeStatus = (typeof PROBE_STATUSES)[number];
+
 export interface GuardrailProbeResult {
-  /**
-   * Whether a guardrail acted on the text: a hit, or a refused turn. A call
-   * made after a remote read is reported whatever was read
-   * (`tool_call.tainted-turn`), so that rule alone is no hit.
-   */
-  hit: boolean;
+  /** The strongest thing a guardrail did with the text. */
+  status: ProbeStatus;
   /** Every guardrail decision of the turn, in order. */
   guardrails: GuardrailEvent[];
   /**
@@ -77,8 +133,15 @@ export interface GuardrailProbeResult {
    * when nothing went on.
    */
   passed?: string;
+  /**
+   * Set when a call was made after a remote read: `steered` when what was read
+   * also looked like instructions to the agent, else `tainted`.
+   */
+  taint?: 'tainted' | 'steered';
   /** The turn's failure, when it ended in one. */
   refused?: { kind: ErrorKind; message?: string };
+  /** The turn's trace records, as the kernel wrote them. */
+  traces: TraceRecord[];
 }
 
 const LOCAL_TOOL = 'guardrail_probe_read';
@@ -134,7 +197,7 @@ function remoteAgent(profile: TextProfile): PlaygroundDependency {
 
 type TextProfile = Extract<ProfileDefinition, { type: 'text' }>;
 
-/** A probe writes no trace: its scope has none of the draft's destinations. */
+/** A probe's trace goes to its result alone: its scope has none of the draft's destinations. */
 function unobserved(profile: TextProfile): TextProfile {
   const { observability: _observability, ...rest } = profile;
   return rest;
@@ -324,6 +387,21 @@ export function probeRefusal(profile: ProfileDefinition): string | undefined {
   return profile.type === 'text' ? undefined : 'Guardrail tests run on text agents.';
 }
 
+function probeStatus(guardrails: readonly GuardrailEvent[], refused: boolean): ProbeStatus {
+  const did = (action: GuardrailEvent['action']) =>
+    guardrails.some((event) => event.action === action);
+  if (refused || did('block')) return 'blocked';
+  if (did('redact')) return 'redacted';
+  const reported = guardrails.some(
+    (event) =>
+      event.action === 'flag' &&
+      event.hits.some(
+        (hit) => hit.rule !== TOOL_RULES.taintedTurn && hit.rule !== TOOL_RULES.steeredTurn,
+      ),
+  );
+  return reported ? 'flagged' : 'passed';
+}
+
 /** Runs `probe` on the draft and reports what its guardrails did. */
 export async function runGuardrailProbe(args: {
   profile: ProfileDefinition;
@@ -354,6 +432,7 @@ export async function runGuardrailProbe(args: {
   const provider = (asked: Profile): ModelProvider => (asked.id === REMOTE_AGENT ? remote : model);
 
   const events: TurnEvent[] = [];
+  const traces: TraceRecord[] = [];
   let refused: GuardrailProbeResult['refused'];
   try {
     for await (const event of scope.runTurn(
@@ -365,6 +444,12 @@ export async function runGuardrailProbe(args: {
         onAgentCall: agentCallHook(scope, { mode: 'byok', provider }),
       },
       model,
+      {
+        write: (record) => {
+          traces.push(record);
+          return Promise.resolve();
+        },
+      },
     )) {
       events.push(event);
     }
@@ -384,12 +469,34 @@ export async function runGuardrailProbe(args: {
     event.type === 'guardrail' ? [event.guardrail] : [],
   );
   const text = passed(probe.boundary, events, seen);
+  const rules = new Set(guardrails.flatMap((event) => event.hits.map((hit) => hit.rule)));
+  const taint = rules.has(TOOL_RULES.steeredTurn)
+    ? 'steered'
+    : rules.has(TOOL_RULES.taintedTurn) && 'tainted';
   return {
-    hit:
-      refused !== undefined ||
-      guardrails.some((event) => event.hits.some((hit) => hit.rule !== TOOL_RULES.taintedTurn)),
+    status: probeStatus(guardrails, refused !== undefined),
     guardrails,
     ...(text === undefined ? {} : { passed: text }),
+    ...(taint ? { taint } : {}),
     ...(refused ? { refused } : {}),
+    traces,
   };
+}
+
+/** What one boundary's guardrails did with a text sent across every boundary. */
+export interface GuardrailProbeAnswer extends GuardrailProbeResult {
+  boundary: ProbeBoundary;
+}
+
+/** Runs `text` across every boundary of the draft, each in its own turn, in the order of {@linkcode PROBE_BOUNDARIES}. */
+export function runGuardrailProbes(
+  args: Omit<Parameters<typeof runGuardrailProbe>[0], 'probe'> & { text: string },
+): Promise<GuardrailProbeAnswer[]> {
+  const { text, ...draft } = args;
+  return Promise.all(
+    PROBE_BOUNDARIES.map(async (boundary) => ({
+      boundary,
+      ...(await runGuardrailProbe({ ...draft, probe: { boundary, text } })),
+    })),
+  );
 }

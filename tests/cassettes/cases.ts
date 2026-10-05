@@ -27,7 +27,6 @@ export interface CassetteModel {
 export const CASSETTE_MODELS: CassetteModel[] = [
   { apiId: 'gemini-3.1-flash-lite', protocol: 'geminiInteractions' },
   { apiId: 'gemini-3.5-flash-lite', protocol: 'geminiInteractions' },
-  { apiId: 'gemini-3.5-flash', protocol: 'geminiInteractions' },
   { apiId: 'gemma-4-26b-a4b-it', protocol: 'geminiInteractions' },
   { apiId: 'gemma-4-31b-it', protocol: 'geminiInteractions' },
   { apiId: 'openrouter/free', protocol: 'openAi' },

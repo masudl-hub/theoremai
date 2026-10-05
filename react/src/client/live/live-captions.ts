@@ -1,6 +1,6 @@
 export type LiveCaptionTurn = {
 	id: string;
-	role: 'user' | 'agent';
+	role: 'user' | 'agent' | 'thought';
 	text: string;
 };
 
@@ -84,6 +84,19 @@ export function applyLiveTranscript(
 		interimUser: isUser ? '' : state.interimUser,
 		interimAgent: isUser ? state.interimAgent : '',
 	};
+}
+
+/** Fold a thought into the captions: it extends an open thought line, else starts one. */
+export function applyLiveThought(state: LiveCaptionState, text: string): LiveCaptionState {
+	if (!text) return state;
+	const turns = [...state.turns];
+	const last = turns.at(-1);
+	if (last?.role === 'thought') {
+		turns[turns.length - 1] = { ...last, text: `${last.text}${text}` };
+	} else {
+		turns.push({ id: nextTurnId(state), role: 'thought', text });
+	}
+	return { ...state, turns };
 }
 
 /** Clear streaming partials when a live turn completes or is interrupted. */

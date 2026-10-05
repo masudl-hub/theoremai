@@ -519,7 +519,7 @@ function ToolCall({ tool }: { tool: ToolBlock['tool'] }) {
  * component, and Markdown draws its own Text, so restyle through its
  * documented `components` seam.
  */
-const THOUGHT_MARKDOWN: Partial<MarkdownComponents> = {
+export const THOUGHT_MARKDOWN: Partial<MarkdownComponents> = {
 	paragraph: ({ children }) => (
 		<Text size="sm" color="secondary" display="block" as="p">
 			{children}

@@ -3,6 +3,7 @@ import { type LexiconOverrides, type SessionEventOf, TheoremError } from '@theor
 import { type ClientFailure, clientFailure } from '../../client/failure.ts';
 import { applyLiveTurnToolEvent } from '../../client/live/apply-live-turn-tool-event.ts';
 import {
+	applyLiveThought,
 	clearLiveCaptionInterim,
 	emptyLiveCaptionState,
 	type LiveCaptionState,
@@ -148,6 +149,10 @@ export function useLiveRunnerGate(args: {
 
 	const handleLiveTurnEvent = useCallback(
 		(event: Parameters<typeof applyLiveTurnToolEvent>[0]) => {
+			if (event.type === 'thought') {
+				args.setCaptions((prev) => applyLiveThought(prev, event.text));
+				return;
+			}
 			applyLiveTurnToolEvent(event, {
 				gateCallId: gatePromptRef.current?.callId,
 				withdrawGate: () => {

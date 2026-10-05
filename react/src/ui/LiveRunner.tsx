@@ -18,6 +18,7 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Layout, LayoutContent } from '@astryxdesign/core/Layout';
+import { Markdown } from '@astryxdesign/core/Markdown';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
@@ -37,7 +38,7 @@ import {
 } from '@tabler/icons-react';
 import { type ReactNode, useEffect, useLayoutEffect, useRef } from 'react';
 import type { LiveProfileInterface } from '@theoremjs/agents/interface';
-import type { LiveCaptionState } from '../client/live/live-captions.ts';
+import type { LiveCaptionState, LiveCaptionTurn } from '../client/live/live-captions.ts';
 import type { LiveConnection } from '../client/live-client.ts';
 import type { LiveToolGatePrompt } from '../client/live/live-tool.ts';
 import type { LiveFacingMode } from '../client/live/live-video.ts';
@@ -45,6 +46,7 @@ import type { ToolGateResolution } from '../client/tool-resume.ts';
 import { InkWaveform } from '../components/InkWaveform.tsx';
 import { useLiveRunnerModel } from '../components/live/use-live-runner-model.ts';
 import { NO_FOCUS_RING } from './ChatComposerBar.tsx';
+import { THOUGHT_MARKDOWN } from './ChatTranscript.tsx';
 import { liveStateLabel, type TheoremLabels } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { SidePanel, SidePanelHeader, SidePanelToggle, useSidePanel } from './SidePanel.tsx';
@@ -401,7 +403,7 @@ function LiveCaptions({ model }: { model: LiveModel }) {
 
 	const messages = [
 		...model.pastCalls.flatMap((turns, call) => [
-			...turns.map((turn) => captionMessage(`${String(call)}:${turn.id}`, turn.role, turn.text, agentName)),
+			...captionTurnMessages(turns, `${String(call)}:`, agentName),
 			<ChatSystemMessage key={`session-${String(call + 1)}`} variant="divider">
 				{t('@theorem.live.new_session')}
 			</ChatSystemMessage>,
@@ -438,22 +440,41 @@ function LiveCaptions({ model }: { model: LiveModel }) {
 
 /** The current call's committed turns, then the lines still being heard. */
 function captionMessages({ turns, interimUser, interimAgent }: LiveCaptionState, agentName: string): ReactNode[] {
-	const messages = turns.map((turn) => captionMessage(turn.id, turn.role, turn.text, agentName));
-	if (interimUser) messages.push(captionMessage('interim-user', 'user', interimUser, agentName));
-	if (interimAgent) messages.push(captionMessage('interim-agent', 'agent', interimAgent, agentName));
-	return messages;
+	const lines = [...turns];
+	if (interimUser) lines.push({ id: 'interim-user', role: 'user', text: interimUser });
+	if (interimAgent) lines.push({ id: 'interim-agent', role: 'agent', text: interimAgent });
+	return captionTurnMessages(lines, '', agentName);
 }
 
-function captionMessage(key: string, role: 'user' | 'agent', text: string, agentName: string): ReactNode {
-	return role === 'user' ? (
-		<ChatMessage key={key} sender="user">
-			<ChatMessageBubble>{text}</ChatMessageBubble>
-		</ChatMessage>
-	) : (
-		<ChatMessage key={key} sender="assistant" name={agentName}>
-			<Text>{text}</Text>
-		</ChatMessage>
-	);
+/** One message per line, except that a thought and the speech after it share the agent's message. */
+function captionTurnMessages(turns: readonly LiveCaptionTurn[], keyPrefix: string, agentName: string): ReactNode[] {
+	const messages: ReactNode[] = [];
+	for (let i = 0; i < turns.length; i++) {
+		const turn = turns[i];
+		const key = `${keyPrefix}${turn.id}`;
+		if (turn.role === 'user') {
+			messages.push(
+				<ChatMessage key={key} sender="user">
+					<ChatMessageBubble>{turn.text}</ChatMessageBubble>
+				</ChatMessage>,
+			);
+			continue;
+		}
+		const spoken = turn.role === 'thought' ? turns[i + 1] : turn;
+		const speech = spoken?.role === 'agent' ? spoken.text : null;
+		if (turn.role === 'thought' && speech !== null) i++;
+		messages.push(
+			<ChatMessage key={key} sender="assistant" name={agentName}>
+				{turn.role === 'thought' ? (
+					<Markdown density="compact" components={THOUGHT_MARKDOWN}>
+						{turn.text}
+					</Markdown>
+				) : null}
+				{speech === null ? null : <Text>{speech}</Text>}
+			</ChatMessage>,
+		);
+	}
+	return messages;
 }
 
 /**

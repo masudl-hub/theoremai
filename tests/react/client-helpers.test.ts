@@ -14,6 +14,7 @@ import {
   stepInkBarHeights,
 } from '../../react/src/client/ink-waveform.ts';
 import {
+  applyLiveThought,
   applyLiveTranscript,
   clearLiveCaptionInterim,
   emptyLiveCaptionState,
@@ -200,6 +201,25 @@ Deno.test('applyLiveTranscript merges interim and final text correctly', () => {
   assertEquals(state.interimUser, '');
   assertEquals(state.interimAgent, '');
   assertEquals(typeof latestLiveCaptionTurnId(state), 'string');
+});
+
+Deno.test('applyLiveThought keeps a thought on its own line, before the speech that follows', () => {
+  let state = applyLiveTranscript(emptyLiveCaptionState(), 'What is on today?', true, false);
+  assertEquals(applyLiveThought(state, ''), state);
+
+  state = applyLiveThought(state, '**Checking the calendar**\n\n');
+  state = applyLiveThought(state, 'The user wants today.');
+  state = applyLiveTranscript(state, 'You have', false, false);
+  state = applyLiveTranscript(state, 'two meetings.', false, false);
+
+  assertEquals(
+    state.turns.map((turn) => [turn.role, turn.text]),
+    [
+      ['user', 'What is on today?'],
+      ['thought', '**Checking the calendar**\n\nThe user wants today.'],
+      ['agent', 'You have two meetings.'],
+    ],
+  );
 });
 
 Deno.test('inkWaveDriver and computeInkBarTargets calculate animations', () => {

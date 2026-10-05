@@ -29,8 +29,8 @@ jobs:
             --config p/secrets \
             --metrics=off \
             --error \
-            --exclude tests --exclude npm --exclude playground --exclude react --exclude tmp \
-            src mod.ts scripts
+            --exclude tests --exclude npm --exclude playground --exclude tmp \
+            src react/src mod.ts scripts
 
   snyk:
     runs-on: ubuntu-latest

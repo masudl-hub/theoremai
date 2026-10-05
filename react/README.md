@@ -21,6 +21,25 @@ This package uses the same profile on both sides.
 - **Server.** `createTheoremHandler` runs the profile. It enforces the guardrails and the tool gates.
 - **Browser.** The UI asks the server to describe the profile. It then shows what the profile allows. It shows no attachment button if the profile does not accept files. It shows a model picker if the profile lets the user choose the model.
 
+```text
+                  ┌─────────────────────────────┐
+                  │        agent profile        │
+                  │   models · inputs · tools   │
+                  │     output · guardrails     │
+                  └──────────────┬──────────────┘
+                                 │
+                ┌────────────────┴────────────────┐
+                ▼                                 ▼
+┌───────────────────────────────┐ ┌───────────────────────────────┐
+│ SERVER                        │ │ BROWSER                       │
+│ createTheoremHandler          │ │ <TheoremChat />               │
+│                               │ │ useTheoremInterface()         │
+│ runs the profile              │ │ shows only what the           │
+│ enforces guardrails and gates │ │ profile allows                │
+└───────────────┬───────────────┘ └───────────────┬───────────────┘
+                └─ HTTP: describe · turn · steer ─┘
+```
+
 Edit the profile, and both sides change. You do not write the UI code again.
 
 The package has three parts:

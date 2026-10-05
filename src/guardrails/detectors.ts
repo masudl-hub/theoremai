@@ -22,10 +22,10 @@ type Detector = (typeof DETECTORS)[number];
 
 /**
  * What the kernel does with a match, the same at every boundary:
- * - `ignore` — the text is not read.
- * - `flag` — the match is reported in the trace; the text crosses unchanged.
- * - `redact` — the match is replaced with a placeholder; the rest crosses.
- * - `block` — the thing crossing does not cross.
+ * - `ignore` — the text is not checked.
+ * - `flag` — the match is recorded in the trace; nothing changes.
+ * - `redact` — the match is replaced with a placeholder; the rest is kept.
+ * - `block` — the whole message, reply or tool call is stopped.
  */
 const DETECT_ACTIONS = ['ignore', 'flag', 'redact', 'block'] as const;
 /** One of {@linkcode DETECT_ACTIONS}. */
@@ -63,16 +63,19 @@ const DETECTOR_META: Readonly<Record<Detector, DetectMeta>> = {
 
 /** The label of every action, and what it does. */
 const DETECT_ACTION_META: Readonly<Record<DetectAction, DetectMeta>> = {
-  ignore: { label: 'Ignore', doc: 'The text is not read.' },
+  ignore: { label: 'Ignore', doc: 'Does not check the text.' },
   flag: {
     label: 'Flag',
-    doc: 'The match is reported in the trace. The text crosses unchanged.',
+    doc: 'Records the match in the trace. Changes nothing.',
   },
   redact: {
     label: 'Redact',
-    doc: 'The match is replaced with a placeholder. The rest crosses.',
+    doc: 'Replaces the match with a placeholder. Keeps the rest.',
   },
-  block: { label: 'Block', doc: 'The thing crossing does not cross.' },
+  block: {
+    label: 'Block',
+    doc: 'Stops the whole message, reply or tool call. None of it gets through.',
+  },
 };
 
 const TOOL_ARGUMENT_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_arguments', kind));

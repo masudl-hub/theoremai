@@ -143,8 +143,6 @@ function resolveSensitive(
 const LUHN_DOUBLE = 2;
 const LUHN_NINE = 9;
 const LUHN_TEN = 10;
-const CARD_MIN_DIGITS = 13;
-const CARD_MAX_DIGITS = 19;
 
 function luhnOk(digits: string): boolean {
   let sum = 0;
@@ -167,18 +165,114 @@ function luhnOk(digits: string): boolean {
   return sum % LUHN_TEN === 0;
 }
 
-/** A card-number candidate that is a card: 13–19 digits passing the Luhn check. */
-function cardHit(blob: string): boolean {
+/** The numbers a card network issues: the leading digits, each a low–high range, and the lengths. */
+interface CardNetwork {
+  leading: readonly (readonly [low: string, high: string])[];
+  lengths: readonly number[];
+}
+
+const LENGTHS_16_TO_19 = [16, 17, 18, 19];
+
+/** Visa, Mastercard, American Express, Diners Club, Discover, JCB, UnionPay, Maestro, Mir and RuPay, in that order. */
+const CARD_NETWORKS: readonly CardNetwork[] = [
+  { leading: [['4', '4']], lengths: [13, 16, 19] },
+  {
+    leading: [
+      ['51', '55'],
+      ['2221', '2720'],
+    ],
+    lengths: [16],
+  },
+  {
+    leading: [
+      ['34', '34'],
+      ['37', '37'],
+    ],
+    lengths: [15],
+  },
+  {
+    leading: [
+      ['300', '305'],
+      ['3095', '3095'],
+      ['36', '36'],
+      ['38', '39'],
+    ],
+    lengths: [14, 15, ...LENGTHS_16_TO_19],
+  },
+  {
+    leading: [
+      ['6011', '6011'],
+      ['644', '649'],
+      ['65', '65'],
+    ],
+    lengths: LENGTHS_16_TO_19,
+  },
+  { leading: [['3528', '3589']], lengths: LENGTHS_16_TO_19 },
+  { leading: [['62', '62']], lengths: LENGTHS_16_TO_19 },
+  {
+    leading: [
+      ['5018', '5018'],
+      ['5020', '5020'],
+      ['5038', '5038'],
+      ['5893', '5893'],
+      ['6304', '6304'],
+      ['6759', '6759'],
+      ['6761', '6763'],
+    ],
+    lengths: [13, 14, 15, ...LENGTHS_16_TO_19],
+  },
+  { leading: [['2200', '2204']], lengths: LENGTHS_16_TO_19 },
+  {
+    leading: [
+      ['60', '60'],
+      ['81', '82'],
+      ['508', '508'],
+      ['353', '353'],
+      ['356', '356'],
+    ],
+    lengths: [16],
+  },
+];
+
+/** Whether some card network issues numbers that start and run as long as `digits`. */
+function isIssued(digits: string): boolean {
+  return CARD_NETWORKS.some(
+    (network) =>
+      network.lengths.includes(digits.length) &&
+      network.leading.some(([low, high]) => {
+        const start = digits.slice(0, low.length);
+        return start >= low && start <= high;
+      }),
+  );
+}
+
+const URL_SCHEME = /https?:\/\//i;
+const URL_LOOKBACK = 2048;
+
+/** Whether `at` of `text` is inside a web address: the unbroken run of characters before it holds `http://` or `https://`. */
+function isInUrl(text: string, at: number): boolean {
+  const floor = Math.max(0, at - URL_LOOKBACK);
+  let from = at;
+  while (from > floor && !/\s/.test(text[from - 1] ?? ' ')) from -= 1;
+  return URL_SCHEME.test(text.slice(from, at));
+}
+
+/**
+ * A card-number candidate at `at` of `text` that is a card: digits a card
+ * network issues, passing the Luhn check, outside a web address. A run of
+ * digits in an address is the address's own identifier: one random 19-digit
+ * identifier in a hundred passes the first two tests.
+ */
+function cardHit(blob: string, text: string, at: number): boolean {
   const digits = blob.replaceAll(/[^\d]/g, '');
-  const inRange = digits.length >= CARD_MIN_DIGITS && digits.length <= CARD_MAX_DIGITS;
-  return inRange && luhnOk(digits);
+  return isIssued(digits) && luhnOk(digits) && !isInUrl(text, at);
 }
 
 function cardSpans(text: string): RedactSpan[] {
   const spans: RedactSpan[] = [];
   for (const match of text.matchAll(CARD_CANDIDATE)) {
     const found = blobAt(match);
-    if (found && cardHit(found.blob)) {
+    if (found && cardHit(found.blob, text, found.index)) {
       spans.push({ start: found.index, end: found.index + found.blob.length, kind: 'sensitive' });
     }
   }

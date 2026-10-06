@@ -1070,7 +1070,7 @@ False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 | Group | Matches |
 | --- | --- |
 | `ids` | SSNs (bare and in context), ITINs, EINs |
-| `financial` | IBANs, and card numbers passing the Luhn check |
+| `financial` | IBANs, and card numbers a card network issues that pass the Luhn check |
 | `network` | IPv4 and IPv6 addresses |
 | `credentials` | Every credential the gitleaks rules find (vendor API keys and tokens, key and password assignments, JWTs, private keys), plus Theorem's own rules: short or spaced `sk-` keys, OpenRouter keys, short GitHub and Slack tokens, `Bearer` tokens, short PEM private keys |
 
@@ -1135,8 +1135,10 @@ replaces them in untrusted and assembled text; trusted text is left verbatim
 (see [Trust levels](#trust-levels)). IPv4 and IPv6 addresses count inbound,
 where they are the user's personal data; no group reads the reply by default,
 because an address in a reply is not a secret (see [Egress](#egress)). A
-card-number candidate counts only when it is 13–19 digits passing the Luhn check
-(`cardHit`), in batch and in the egress stream alike. The trace writer runs the sensitive
+card-number candidate counts only when a card network issues numbers that start
+and run as long as it does, it passes the Luhn check, and it is not inside a
+web address (`cardHit`), in batch and in the egress stream alike. Digits in an
+address are the address's identifier: a Google Maps link's `cid=` is left whole. The trace writer runs the sensitive
 detectors alone when its scrub keeps sensitive redaction but drops injection
 redaction.
 

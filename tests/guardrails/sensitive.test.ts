@@ -226,9 +226,30 @@ Deno.test('sensitiveSpans does not detect IPV6 address with only two colon group
   assertEquals(sensitiveSpans('x: 2001:0db8 end').length === 0, true);
 });
 
-Deno.test('sensitiveSpans detects 13-digit Luhn-valid card at CARD_MIN_DIGITS boundary', () => {
-  // All-zero 13-digit sequence is Luhn-valid (sum=0)
-  assertEquals(sensitiveSpans('0000000000000').length > 0, true);
+Deno.test('sensitiveSpans detects a 13-digit card, the shortest a network issues', () => {
+  assertEquals(sensitiveSpans('4222222222222').length > 0, true);
+});
+
+Deno.test('sensitiveSpans leaves a Luhn-valid number no card network issues', () => {
+  assertEquals(sensitiveSpans('0000000000000').length, 0);
+  assertEquals(sensitiveSpans('1234567890123452').length, 0);
+  // Mastercard issues 16 digits only.
+  assertEquals(sensitiveSpans('55000055555555554').length, 0);
+});
+
+Deno.test('sensitiveSpans leaves the digits of a web address: a Maps place id is not a card', () => {
+  const placeId = '4111111111111111102';
+  assertEquals(sensitiveSpans(placeId).length > 0, true);
+  assertEquals(sensitiveSpans(`https://maps.google.com/?cid=${placeId}`).length, 0);
+  assertEquals(
+    sensitiveSpans(`See https://www.google.com/maps/place/x/data=!3m1!1s0x0:${placeId}.`).length,
+    0,
+  );
+});
+
+Deno.test('sensitiveSpans still finds a card written after a web address', () => {
+  assertEquals(sensitiveSpans('Paid at https://shop.example/pay with 4111111111111111').length, 1);
+  assertEquals(sensitiveSpans('https://shop.example/pay\n4111 1111 1111 1111').length, 1);
 });
 
 Deno.test('cardSpans span kind is sensitive not empty string', () => {

@@ -832,10 +832,8 @@ function tagLeaks(
 
 const CSS_NAME =
   /(?:[A-Za-z0-9_\-\u0080-￿]|\\(?:[0-9a-fA-F]{1,6}(?:\r\n|[ \t\n\r\f])?|[^\n\r\f0-9a-fA-F]))+/y;
-const CSS_STRING = {
-  '"': /(?:[^\x22\\\n\r\f]|\\(?:\r\n|[\s\S]))*/y,
-  "'": /(?:[^\x27\\\n\r\f]|\\(?:\r\n|[\s\S]))*/y,
-};
+const CSS_DOUBLE_QUOTED = /(?:[^\x22\\\n\r\f]|\\(?:\r\n|[\s\S]))*/y;
+const CSS_SINGLE_QUOTED = /(?:[^\x27\\\n\r\f]|\\(?:\r\n|[\s\S]))*/y;
 const CSS_URL_BODY = /(?:[^)\\]|\\[\s\S])*/y;
 
 /**
@@ -853,7 +851,7 @@ function cssUrls(css: string): string[] {
       const close = css.indexOf('*/', i + 2);
       i = close < 0 ? css.length : close + 2;
     } else if (char === '"' || char === "'") {
-      const string = CSS_STRING[char];
+      const string = char === '"' ? CSS_DOUBLE_QUOTED : CSS_SINGLE_QUOTED;
       string.lastIndex = i + 1;
       urls.push(unescapeCss((string.exec(css) as RegExpExecArray)[0]));
       i = string.lastIndex + 1;
@@ -988,7 +986,7 @@ type UrlMatchTest = (match: string, reply: string, at: number) => boolean;
 type UrlPatternReading = { find: UrlFinder } | { test: UrlMatchTest };
 
 type StretchRead = (reply: string, from: number, to: number, meter: Meter) => Span[];
-type MatchRead = { match: (match: string, reply: string, at: number, meter: Meter) => boolean };
+type MatchRead = { leaks: (match: string, reply: string, at: number, meter: Meter) => boolean };
 
 /**
  * One reply's readings, charging one meter whose cap grows with the reply.
@@ -1015,7 +1013,7 @@ function metered(reads: readonly (StretchRead | MatchRead)[]): UrlPatternReading
       test(match, reply, at) {
         meter.cap = capFor(reply.length);
         try {
-          return read.match(match, reply, at, meter);
+          return read.leaks(match, reply, at, meter);
         } catch (error) {
           if (error instanceof Overspent) return true;
           throw error;
@@ -1042,13 +1040,13 @@ function imageReadings(scope: UrlScope): UrlPatternReading[] {
   return metered([
     (reply, from, to, meter) => inlineLeaks(reply, imageOpeners(reply, from, to), scope, meter),
     {
-      match(match, reply, _at, meter) {
+      leaks(match, reply, _at, meter) {
         const leaks = definitionLeaks(match, scope, meter).length > 0;
         leakingDefinition ||= leaks;
         return leaks && openerIn(reply);
       },
     },
-    { match: () => leakingDefinition },
+    { leaks: () => leakingDefinition },
     (reply, from, to, meter) => tagLeaks(reply, LOADED, scope, meter, from, to),
     (reply, from, to, meter) => styleLeaks(reply, scope, meter, from, to),
   ]);
@@ -1058,9 +1056,9 @@ function linkReadings(scope: UrlScope, skipImages: boolean): UrlPatternReading[]
   return metered([
     (reply, from, to, meter) =>
       inlineLeaks(reply, linkOpeners(reply, from, to, skipImages), scope, meter),
-    { match: (match, _reply, _at, meter) => definitionLeaks(match, scope, meter).length > 0 },
-    { match: (match, _reply, _at, meter) => autolinkLeaks(match, scope, meter).length > 0 },
-    { match: (match, _reply, _at, meter) => bareLinkLeaks(match, scope, meter).length > 0 },
+    { leaks: (match, _reply, _at, meter) => definitionLeaks(match, scope, meter).length > 0 },
+    { leaks: (match, _reply, _at, meter) => autolinkLeaks(match, scope, meter).length > 0 },
+    { leaks: (match, _reply, _at, meter) => bareLinkLeaks(match, scope, meter).length > 0 },
     (reply, from, to, meter) => tagLeaks(reply, FOLLOWED, scope, meter, from, to),
   ]);
 }

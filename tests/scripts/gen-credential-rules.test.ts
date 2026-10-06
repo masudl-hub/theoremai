@@ -108,3 +108,10 @@ Deno.test('a pattern JavaScript would read another way is refused', () => {
   assertThrows(() => goRegex('(?m)^a'));
   assertThrows(() => goRegex('[\\S]'));
 });
+
+Deno.test('a range a class already holds is written once', () => {
+  assertEquals(goRegex('[A-Za-za-zA-Z0-9_\\-=]').source, '[A-Za-z0-9_\\-=]');
+  assertEquals(goRegex('[/|#|?|:]').source, '[/|#?:]');
+  assertEquals(goRegex('(?i:[a-fA-F]x)').source, '(?:[a-fA-F][xX])');
+  assertEquals(goRegex('[^a-zm]').source, '[^a-z]');
+});

@@ -10,6 +10,7 @@
  *   throughout takes the `i` flag.
  * - Go's `.` is any character but `\n`, and `\s` is `[\t\n\f\r ]`.
  * - `\z` is the end of the text, `(?P<name>` a named group, `[:alnum:]` letters and digits.
+ * - A range a class already holds is written once.
  *
  * A rule or allowlist that only applies to a file path cannot apply to a chat
  * and is left out.
@@ -180,10 +181,18 @@ function classRange([min, max]: [number, number]): string {
   return min === max ? escapeChar(min, true) : `${escapeChar(min, true)}-${escapeChar(max, true)}`;
 }
 
-function classRanges(min: number, max: number, ignoreCase: boolean): string {
-  return (ignoreCase ? foldedRanges(min, max) : [[min, max] as [number, number]])
-    .map(classRange)
-    .join('');
+/** The ranges `held` lacks, which then holds them. */
+function classRanges(
+  min: number,
+  max: number,
+  ignoreCase: boolean,
+  held: Array<[number, number]>,
+): string {
+  const ranges = (ignoreCase ? foldedRanges(min, max) : [[min, max] as [number, number]]).filter(
+    ([lo, hi]) => !held.some(([from, to]) => from <= lo && hi <= to),
+  );
+  held.push(...ranges);
+  return ranges.map(classRange).join('');
 }
 
 /** The code of a character both Go and JavaScript read from `raw`. */
@@ -199,12 +208,16 @@ function plainEdges(body: string): string {
   return body.replace(/^\\-/, '-').replace(/(?<!\\)((?:\\\\)*)\\-$/, '$1-');
 }
 
-function classElement(element: AST.CharacterClassElement, ignoreCase: boolean): string {
+function classElement(
+  element: AST.CharacterClassElement,
+  ignoreCase: boolean,
+  held: Array<[number, number]>,
+): string {
   switch (element.type) {
     case 'Character':
-      return classRanges(charCode(element), charCode(element), ignoreCase);
+      return classRanges(charCode(element), charCode(element), ignoreCase, held);
     case 'CharacterClassRange':
-      return classRanges(charCode(element.min), charCode(element.max), ignoreCase);
+      return classRanges(charCode(element.min), charCode(element.max), ignoreCase, held);
     case 'CharacterSet':
       if (element.kind === 'space' && !element.negate) return GO_SPACE;
       if (element.kind === 'digit' || element.kind === 'word') return element.raw;
@@ -234,7 +247,8 @@ function printElement(element: AST.Element, scope: Scope): string {
         (part) => part.type === 'CharacterSet' && part.kind === 'space',
       );
       if (!element.negate && spaces.length === 2) return '[\\s\\S]';
-      const parts = element.elements.map((part) => classElement(part, scope.ignoreCase));
+      const held: Array<[number, number]> = [];
+      const parts = element.elements.map((part) => classElement(part, scope.ignoreCase, held));
       return `[${element.negate ? '^' : ''}${plainEdges(parts.join(''))}]`;
     }
     case 'CharacterSet':

@@ -104,8 +104,11 @@ function credentialSecret(
   match: string,
   at: number,
 ): { start: number; end: number } | undefined {
-  const lead = match.length - match.replace(/^\n+/, '').length;
-  const trimmed = match.slice(lead).replace(/\n+$/, '');
+  let lead = 0;
+  while (match[lead] === '\n') lead++;
+  let tail = match.length;
+  while (tail > lead && match[tail - 1] === '\n') tail--;
+  const trimmed = match.slice(lead, tail);
   const start = at + lead;
   let secret = { start, end: start + trimmed.length };
   const groups = finder(rule.pattern).exec(trimmed);

@@ -175,7 +175,7 @@ const CREDENTIAL_RULES: readonly CredentialRule[] = [
   {
     id: 'atlassian-api-token',
     pattern:
-      /(?:[\w.-]{0,50}?(?:(?:ATLASSIAN|[Aa]tlassian)|(?:CONFLUENCE|[Cc]onfluence)|(?:JIRA|[Jj]ira))(?:[ \t\w.-]{0,20})[\t\n\f\r '"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[`'"\t\n\f\r =]{0,5}([a-zA-Z0-9]{20}[a-fA-F0-9]{4})(?:[`'"\t\n\f\r ;]|\\[nNrR]|$))|(?:\b([Aa][Tt][Aa][Tt][Tt]3[A-Za-za-zA-Z0-9_\-=]{186})(?:[`'"\t\n\f\r ;]|\\[nNrR]|$))/,
+      /(?:[\w.-]{0,50}?(?:(?:ATLASSIAN|[Aa]tlassian)|(?:CONFLUENCE|[Cc]onfluence)|(?:JIRA|[Jj]ira))(?:[ \t\w.-]{0,20})[\t\n\f\r '"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[`'"\t\n\f\r =]{0,5}([a-zA-Z0-9]{20}[a-fA-F0-9]{4})(?:[`'"\t\n\f\r ;]|\\[nNrR]|$))|(?:\b([Aa][Tt][Aa][Tt][Tt]3[A-Za-z0-9_\-=]{186})(?:[`'"\t\n\f\r ;]|\\[nNrR]|$))/,
     entropy: 3.5,
     keywords: ['atlassian', 'confluence', 'jira', 'atatt3'],
     allowlists: [],
@@ -2873,7 +2873,7 @@ const CREDENTIAL_RULES: readonly CredentialRule[] = [
   {
     id: 'sidekiq-sensitive-url',
     pattern:
-      /\bhttps?:\/\/([a-f0-9]{8}:[a-f0-9]{8})@(?:gems[^\n]contribsys[^\n]com|enterprise[^\n]contribsys[^\n]com)(?:[/|#|?|:]|$)/i,
+      /\bhttps?:\/\/([a-f0-9]{8}:[a-f0-9]{8})@(?:gems[^\n]contribsys[^\n]com|enterprise[^\n]contribsys[^\n]com)(?:[/|#?:]|$)/i,
     keywords: ['gems.contribsys.com', 'enterprise.contribsys.com'],
     allowlists: [],
   },

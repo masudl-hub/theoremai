@@ -142,7 +142,8 @@ function zodExprFromProp(prop: JsonSchema, depth: number): string {
 
 /** `depth` is the indent level the expression starts at. */
 export function zodExprFromJsonSchema(schema: JsonSchema, depth = 0): string {
-  if (schema.type === 'array') return zodExprFromProp(schema, depth);
+  // A tool can answer with a bare list, text or number, not only a record.
+  if (schema.type !== undefined && schema.type !== 'object') return zodExprFromProp(schema, depth);
   const { props, required } = schemaFields(schema);
   const entries = Object.entries(props);
   if (!entries.length) return 'z.looseObject({})';

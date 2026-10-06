@@ -607,6 +607,55 @@ Deno.test('playgroundSource writes structured output and function stubs', () => 
   assertStringIncludes(source, 'handler: () => Promise.resolve(');
 });
 
+Deno.test('playgroundSource starts every tool at the left margin', () => {
+  const draft = setProfileType(createBlankDraft(), 'text');
+  const toolSpecs = ['first', 'second', 'third'].map((toolName) => ({
+    ...newToolSpec(draft),
+    toolName,
+  }));
+  const source = playgroundSource(
+    compiled({
+      ...draft,
+      identity: { ...draft.identity, agentId: 'demo.tools', handle: 'demo' },
+      toolSpecs,
+    }),
+  );
+  assertEquals(source.match(/^registerTool\(/gm)?.length, 3);
+  assert(!/^ +registerTool\(/m.test(source));
+});
+
+Deno.test('playgroundSource writes a text of several lines one line to a line', () => {
+  const draft = setProfileType(createBlankDraft(), 'text');
+  const source = playgroundSource(
+    compiled({
+      ...draft,
+      identity: {
+        ...draft.identity,
+        agentId: 'demo.lines',
+        handle: 'demo',
+        system: "You are the desk.\nDon't guess.",
+      },
+    }),
+  );
+  assertStringIncludes(
+    source,
+    "system: [\n      'You are the desk.',\n      'Don\\'t guess.',\n    ].join('\\n'),",
+  );
+  assert(!source.includes('desk.\\n'));
+});
+
+Deno.test('playgroundSource writes a tool that answers with bare text as z.string()', () => {
+  const draft = setProfileType(createBlankDraft(), 'text');
+  const source = playgroundSource(
+    compiled({
+      ...draft,
+      identity: { ...draft.identity, agentId: 'demo.text', handle: 'demo' },
+      toolSpecs: [{ ...newToolSpec(draft), outputJson: '{ "type": "string" }' }],
+    }),
+  );
+  assertStringIncludes(source, 'output: z.string(),');
+});
+
 Deno.test('a new text profile starts on the playground Gemini model', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
   assertEquals(draft.modelBindings[0].apiId, GEMINI_PLAYGROUND_DEFAULT_API_ID);

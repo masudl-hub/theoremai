@@ -19,9 +19,14 @@ const INLINE_ARRAY_WIDTH = 60;
 
 function literal(value: unknown, depth: number): string {
   if (value instanceof Expr) return value.code;
-  if (typeof value === 'string') return quoteSource(value);
   const pad = '  '.repeat(depth + 1);
   const close = '  '.repeat(depth);
+  if (typeof value === 'string') {
+    if (!value.includes('\n')) return quoteSource(value);
+    // One line of the text on each line of the source.
+    const lines = value.split('\n').map((line) => `${pad}${quoteSource(line)},`);
+    return `[\n${lines.join('\n')}\n${close}].join('\\n')`;
+  }
   if (Array.isArray(value)) {
     if (!value.length) return '[]';
     const items = value.map((item) => literal(item, depth + 1));
@@ -79,7 +84,7 @@ export function playgroundSource(compiled: CompiledPlayground): string {
           .map((name) => `  ${name},`).join('\n')
       }\n} from '@theoremjs/agents';\n`,
     ].join('\n'),
-    ...customTools.map(toolSource),
+    ...customTools.map((tool) => toolSource(tool)),
     ...(structured
       ? [`registerStructured(${quoteSource(structured.id)}, ${literal(structured.spec, 0)});\n`]
       : []),

@@ -171,7 +171,7 @@ function registerDraft(
 }
 
 /** Registers a draft's tools and schema, then its profile, into `scope`. */
-function registerDefined(
+export function registerDefined(
   scope: KernelScope,
   profile: Profile,
   customTools: readonly ToolRegistration[],

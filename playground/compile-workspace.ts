@@ -12,8 +12,7 @@ import {
   type PlaygroundIssue,
 } from './compile.ts';
 import type { PlaygroundConnectionMode } from './policy.ts';
-import type { PlaygroundDependency } from './runtime-scope.ts';
-import { registerPlaygroundTools } from './tools.ts';
+import { type PlaygroundDependency, registerDefined } from './runtime-scope.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 import {
   type AgentDraft,
@@ -212,8 +211,7 @@ function kernelIssue(
   const scope = createKernelScope();
   for (const { key, agent } of compiled) {
     try {
-      registerPlaygroundTools(scope.tools, agent.customTools);
-      scope.profiles.register(defineProfile(agent.profile));
+      registerDefined(scope, defineProfile(agent.profile), agent.customTools, agent.structured);
     } catch (err) {
       if (!(err instanceof TheoremError)) throw err;
       return { nodeId: agentNodeId(key), message: err.message };

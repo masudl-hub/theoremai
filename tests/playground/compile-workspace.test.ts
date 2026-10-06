@@ -9,6 +9,7 @@ import {
   createExampleDraft,
   createSpanExampleDraft,
   defaultToolSpec,
+  includeFacet,
   modelBindingNodeId,
   type PlaygroundDraft,
   type PlaygroundIssue,
@@ -222,6 +223,24 @@ Deno.test("the kernel's rule shows on the calling agent: the agent it runs can't
   assertEquals(issues.length, 1, JSON.stringify(issues));
   assertEquals(must(issues[0]).nodeId, agentNodeId(must(workspace.agents[0]).key));
   assert(must(issues[0]).message.includes("its tool 'confirm_me' can stop on a gate"));
+});
+
+Deno.test('an agent whose reply follows a schema compiles, with the schema beside it', () => {
+  const helper = includeFacet(helperDraft(), 'outputs');
+  const result = compileWorkspace(
+    workspaceFromDraft({
+      ...helper,
+      outputs: {
+        ...helper.outputs,
+        mode: 'structured',
+        schemaId: 'helper.reply',
+        schemaJson:
+          '{"type":"object","properties":{"reply":{"type":"string"}},"required":["reply"]}',
+      },
+    }),
+  );
+  assert(result.ok, result.ok ? '' : must(result.issues[0]).message);
+  assertEquals(must(result.agents[0]).structured?.id, 'helper.reply');
 });
 
 Deno.test('a single draft names no other agent', () => {

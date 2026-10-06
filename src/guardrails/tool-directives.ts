@@ -95,13 +95,11 @@ function matches(patterns: RegExp[], text: string): boolean {
 /** Whether some match of `patterns` in `text` names a destination before its clause ends. */
 function directsOut(patterns: RegExp[], text: string): boolean {
   return patterns.some((pattern) =>
-    text
-      .matchAll(pattern)
-      .some((match) =>
-        EXFIL_TARGET.test(
-          text.slice(match.index, reachFrom(text, match.index + match[0].length, endsClause)),
-        ),
+    [...text.matchAll(pattern)].some((match) =>
+      EXFIL_TARGET.test(
+        text.slice(match.index, reachFrom(text, match.index + match[0].length, endsClause)),
       ),
+    ),
   );
 }
 
@@ -125,11 +123,11 @@ function directsToTool(text: string, tool: string): boolean {
     const end = at + needle.length;
     if (isToolNameBoundary(haystack[at - 1]) && isToolNameBoundary(haystack[end])) {
       const from = sentenceStart(text, at);
-      const targets = text
-        .slice(from, reachFrom(text, end, endsSentence))
-        .matchAll(EXFIL_TARGETS)
-        .map((match) => ({ start: from + match.index, end: from + match.index + match[0].length }))
-        .toArray();
+      const sentence = text.slice(from, reachFrom(text, end, endsSentence));
+      const targets = [...sentence.matchAll(EXFIL_TARGETS)].map((match) => ({
+        start: from + match.index,
+        end: from + match.index + match[0].length,
+      }));
       const isInTarget = targets.some((target) => target.start <= at && end <= target.end);
       if (targets.length > 0 && !isInTarget) {
         return true;

@@ -256,3 +256,32 @@ Deno.test('under the default detectors, a given canary passes in a tool call and
   const unplanted = scopeWith(() => 'Nothing on this page.', seen);
   assertEquals(stoppedFor(await run(unplanted, provider)), DETECT_RULES.canary_leak);
 });
+
+Deno.test('a canary in a tool call reaches neither the tool nor the host', async () => {
+  const seen = { canary: '' };
+  let read = false;
+  const scope = scopeWith(() => {
+    read = true;
+    return 'ok';
+  }, seen);
+  const provider: ModelProvider = {
+    async *complete(req) {
+      await Promise.resolve();
+      seen.canary = canaryOf(req);
+      if (req.history?.some((message) => message.role === 'tool')) {
+        yield { type: 'text', text: 'done' };
+        return;
+      }
+      yield {
+        type: 'tool',
+        tool: { name: 'read_page', arguments: { q: seen.canary }, callId: 'c1' },
+      };
+    },
+  };
+  const events = await run(scope, provider);
+  assertEquals(seen.canary.length > 0, true);
+  assertEquals(read, false);
+  assertEquals(JSON.stringify(events).includes(seen.canary), false);
+  const [call] = eventsOf(events, 'tool');
+  assertEquals(call && 'arguments' in call.tool ? call.tool.arguments : undefined, {});
+});

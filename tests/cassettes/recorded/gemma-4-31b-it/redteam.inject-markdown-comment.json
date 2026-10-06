@@ -36,8 +36,8 @@
  "outcome": {
   "guardrails": [
    "input redact detect.injection",
-   "thought redact egress.system-boundary",
-   "thought redact egress.system-boundary"
+   "thought redact detect.marker_leak",
+   "thought redact detect.marker_leak"
   ],
   "error": null,
   "shown": "The user has provided a message enclosed in ` (omitted - instructions)` tags.\nThe content of the message is `[The user has provided a message enclosed in ` (omitted - instructions)` tags",

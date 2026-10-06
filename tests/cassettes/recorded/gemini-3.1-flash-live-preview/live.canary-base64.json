@@ -172,7 +172,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_outbound block egress.canary-leak"
+   "live_outbound block detect.canary_leak"
   ],
   "error": "safety",
   "shown": "",

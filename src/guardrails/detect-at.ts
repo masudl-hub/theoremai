@@ -110,8 +110,15 @@ function isScoped(detector: Detector): detector is (typeof SCOPED)[number] {
   return (SCOPED as readonly Detector[]).includes(detector);
 }
 
+/** One span for each run of overlapping `ranges`: a passage matched window by window is one match. */
 function ranged(ranges: readonly [number, number][], kind: RedactSpan['kind']): RedactSpan[] {
-  return ranges.map(([start, end]) => ({ start, end, kind }));
+  const runs: [number, number][] = [];
+  for (const [start, end] of [...ranges].sort((a, b) => a[0] - b[0])) {
+    const last = runs.at(-1);
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+    else runs.push([start, end]);
+  }
+  return runs.map(([start, end]) => ({ start, end, kind }));
 }
 
 /** What `detector` lets through in a turn of `scope`. */

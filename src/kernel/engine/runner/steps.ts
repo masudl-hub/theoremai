@@ -13,7 +13,11 @@ import { profileAllowsInject, stageAbortStop } from '../../stop.ts';
 import type { BoundSystem } from '../../system-parts.ts';
 import { failureEvent, type ToolCallBase, toolCallRequestEvent } from '../../tools/events.ts';
 import type { ToolExecuteSettlement } from '../../tools/execute.ts';
-import { executeRegisteredTool, type ToolStageSupport } from '../../tools/execute.ts';
+import {
+  executeRegisteredTool,
+  shownToolArguments,
+  type ToolStageSupport,
+} from '../../tools/execute.ts';
 import { formatToolFailureForModel, formatToolResult } from '../../tools/model-text.ts';
 import type { ModelToolResult, ToolCallEvent, ToolFailure } from '../../tools/types.ts';
 import type {
@@ -385,8 +389,23 @@ async function* handleModelCalls(
     state.currentHistory.push(stepCallsMessage(calls));
   }
   const stepId = crypto.randomUUID();
+  const leakScope = {
+    canary: generation.canary,
+    canaryGiven: state.canaryGiven,
+    privateSystem: system.private,
+  };
   const announce = (call: ModelCall): TurnEvent => {
-    const request = toolCallRequestEvent(call, call.arguments, {
+    // why: The host is shown the call as its tool gets it; a failed call never reaches a tool.
+    const shown = call.failure
+      ? call.arguments
+      : shownToolArguments({
+          tools: state.tools,
+          profile,
+          name: call.name,
+          input: call.arguments,
+          scope: leakScope,
+        });
+    const request = toolCallRequestEvent(call, shown, {
       thoughtSignature: call.thoughtSignature,
       stepId,
     });
@@ -433,11 +452,7 @@ async function* handleModelCalls(
         },
         snapshot: generation.tools,
         stages,
-        scope: {
-          canary: generation.canary,
-          canaryGiven: state.canaryGiven,
-          privateSystem: system.private,
-        },
+        scope: leakScope,
         openSpan: toolSpanOpener(state),
       }),
       state,

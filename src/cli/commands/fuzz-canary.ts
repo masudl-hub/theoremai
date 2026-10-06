@@ -12,12 +12,15 @@ import {
   FIXED_CANARY,
   FUZZ_SYSTEM,
 } from '../../guardrails/corpus/canary-egress-attacks.ts';
+import { scopeOf } from '../../guardrails/detect-at.ts';
+import { readReply } from '../../guardrails/detect-reply.ts';
 import { givenUrlSets } from '../../guardrails/egress-urls.ts';
 import {
   createLiveOutboundGateSession,
   finalizeLiveOutboundTurn,
   processLiveOutboundBatch,
 } from '../../guardrails/live-outbound-gate.ts';
+import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { scanTextOf } from '../../guardrails/serialize.ts';
 import {
   clearProfiles,
@@ -26,11 +29,13 @@ import {
   resolveTurn,
 } from '../../kernel/default-scope.ts';
 import {
+  isWithheldOnBlock,
   type OutboundStreamControl,
   yieldProviderEvents,
 } from '../../kernel/engine/runner/stream.ts';
 import { providerCompleteRequest } from '../../kernel/registry/provider-request.ts';
 import { defaultKernelScope } from '../../kernel/scope.ts';
+import { shownToolArguments } from '../../kernel/tools/execute.ts';
 import type { ProviderEvent, ResolvedGeneration, TurnEvent } from '../../kernel/types.ts';
 
 const FUZZ_PROFILE_ID = '__fuzz_canary__';
@@ -76,10 +81,45 @@ function resolveFuzzGeneration(canary: string): ResolvedGeneration {
   return { ...generation, canary };
 }
 
-async function collectEvents<E>(gen: AsyncIterable<E>): Promise<E[]> {
+/** The model's tool call as a host is shown it: its arguments as the tool gets them. */
+function callShown<E extends ProviderEvent>(event: E, canary: string): E {
+  if (event.type !== 'tool' || event.tool.phase !== undefined) return event;
+  const shown = shownToolArguments({
+    tools: defaultKernelScope.tools,
+    profile: getProfile(FUZZ_PROFILE_ID),
+    name: event.tool.name,
+    input: event.tool.arguments,
+    scope: { canary, privateSystem: [bindCanary(FUZZ_SYSTEM, canary)] },
+  });
+  return { ...event, tool: { ...event.tool, arguments: shown } };
+}
+
+/** The structured output as the read of the whole reply leaves it; none when that read stops it. */
+function structuredShown<E extends ProviderEvent>(event: E, canary: string): E[] {
+  if (event.type !== 'structured') return [event];
+  const policy = resolveGuardrailPolicy(getProfile(FUZZ_PROFILE_ID).guardrails);
+  const read = readReply({ text: '', structured: event.structured }, policy.detect, {
+    boundary: 'reply',
+    scope: scopeOf(policy, { canary, privateSystem: [bindCanary(FUZZ_SYSTEM, canary)] }),
+  });
+  return read.blocked ? [] : [{ ...event, structured: read.payload.structured }];
+}
+
+/**
+ * A call's events as the step runner passes them on. Once the stream's gate
+ * withholds the reply, its text and media are kept for the verdict on the
+ * whole reply and never reach the client. A tool call and a structured output
+ * are read at their own boundaries.
+ */
+async function reachingClient<E extends ProviderEvent>(
+  control: OutboundStreamControl,
+  canary: string,
+  gen: AsyncIterable<E>,
+): Promise<E[]> {
   const out: E[] = [];
   for await (const event of gen) {
-    out.push(event);
+    if (control.withholdVisible && isWithheldOnBlock(event)) continue;
+    out.push(...structuredShown(callShown(event, canary), canary));
   }
   return out;
 }
@@ -144,7 +184,9 @@ async function runStreamChannel(
   // why: Every provider call of one turn shares its canary: each attack turn is a step.
   const control: OutboundStreamControl = { withholdVisible: false };
   for (const turn of attack.turns) {
-    const streamed = await collectEvents(
+    const streamed = await reachingClient(
+      control,
+      canary,
       yieldProviderEvents({
         profile: getProfile(FUZZ_PROFILE_ID),
         generation,
@@ -164,7 +206,7 @@ async function runStreamChannel(
     // why: The runner reads the call's `done`; the client never receives it.
     const turnEvents = streamed.flatMap((event) => (event.type === 'done' ? [] : [event]));
     events.push(...turnEvents);
-    if (turnEvents.some((event) => event.type === 'error')) {
+    if (control.withholdVisible || turnEvents.some((event) => event.type === 'error')) {
       return channelResult(attack, 'runTurn.stream', true, events);
     }
   }
@@ -182,7 +224,10 @@ async function runLiveBatchChannel(
   const events: TurnEvent[] = [];
   for (const turn of attack.turns) {
     for (const result of [
-      await processLiveOutboundBatch(session, turn),
+      await processLiveOutboundBatch(
+        session,
+        turn.map((event) => callShown(event, canary)),
+      ),
       await finalizeLiveOutboundTurn(session),
     ]) {
       if (result.action === 'withhold') {

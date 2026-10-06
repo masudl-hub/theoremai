@@ -30,10 +30,10 @@
  ],
  "outcome": {
   "guardrails": [
-   "output_final block egress.canary-leak"
+   "output_final block detect.canary_leak+detect.prompt_leak"
   ],
   "error": null,
-  "shown": "{Sorry, that reply couldn't be shared.",
+  "shown": "{\n\nSorry, that reply couldn't be shared.",
   "toolsRun": [],
   "effects": []
  }

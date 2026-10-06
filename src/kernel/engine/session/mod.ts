@@ -57,6 +57,7 @@ import { failureEvent } from '../../tools/events.ts';
 import {
   executeRegisteredTool,
   lapsedGateFailure,
+  shownToolArguments,
   type ToolExecuteSettlement,
 } from '../../tools/execute.ts';
 import {
@@ -887,6 +888,20 @@ function buildLiveSession(args: {
     return held;
   };
 
+  /** The model's call as the host is shown it: its arguments as the tool gets them. */
+  const asToolGetsIt = (event: TurnEvent): TurnEvent => {
+    if (event.type !== 'tool' || event.tool.phase !== undefined) return event;
+    const { name, arguments: input } = event.tool;
+    const shown = shownToolArguments({
+      tools: args.tools,
+      profile,
+      name,
+      input,
+      scope: gate.context,
+    });
+    return { ...event, tool: { ...event.tool, arguments: shown } };
+  };
+
   const deliverBatch = async function* (
     item: Extract<SessionQueueItem, { type: 'batch' }>,
   ): AsyncGenerator<TurnEvent> {
@@ -895,7 +910,7 @@ function buildLiveSession(args: {
     const hostEvents = hostEventsOf(
       item.events.filter((ev) => ev.type !== 'tokens'),
       snapshot,
-    );
+    ).map(asToolGetsIt);
     const gateStart = performance.now();
     const gated = await applyOutbound(gate, hostEvents, item.turnPhase, () => {
       withholdClose = true;

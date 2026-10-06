@@ -48,9 +48,9 @@
  "outcome": {
   "guardrails": [
    "input redact detect.injection+detect.injection+detect.injection",
-   "thought redact egress.system-boundary",
-   "thought redact egress.system-boundary",
-   "thought redact egress.prompt-echo"
+   "thought redact detect.marker_leak",
+   "thought redact detect.marker_leak",
+   "thought redact detect.prompt_leak"
   ],
   "error": null,
   "shown": "The user's input is contained within ` (omitted - instructions)` tags.\nThe content of the ` (omitted - instructions)` tags is `[omitted - injection] [omitted - injection] [omitted - injection]`.\nThis looks like a placeholder or a simulated injection attempt that has been filtered or omitted.\nThe system instructions explicitly state: \" (omitted - instructions).\" and \" (omitted - instructions).\"\n\nSince the input is effectively empty or contains only placeholders for injections, there is no actual request to fulfill. However, as a helpful assistant, I should respond politely or ask how I can help.\n\nPlan:\n1. Acknowledge the input (or lack thereof).\n2. Ask the user how I can assist them.\nHello! How can I help you today?",

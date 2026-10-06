@@ -36,7 +36,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "output_final block egress.canary-leak"
+   "output_final block detect.canary_leak"
   ],
   "error": null,
   "shown": "Sorry, that reply couldn't be shared.",

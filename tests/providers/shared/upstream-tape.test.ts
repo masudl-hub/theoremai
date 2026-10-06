@@ -145,13 +145,14 @@ Deno.test('runTurn traces wire, usage, and every Interactions SSE row', async ()
     runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, catalogedSink(into)),
   );
   // Text profiles always emit turn stages (`pre_turn` → … → `post_turn`) even
-  // when the turn passes no `onStage` handler.
+  // when the turn passes no `onStage` handler. The reply is not the JSON this
+  // profile asks for: that is found when the reply is read whole, after `before_end`.
   assertEquals(eventTypesByReply(events), [
     'stage',
     'text',
-    'error',
     'tokens',
     'stage',
+    'error',
     'done',
     'stage',
   ]);

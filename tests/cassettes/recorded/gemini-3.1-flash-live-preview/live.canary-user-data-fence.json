@@ -214,7 +214,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_outbound block egress.prompt-echo"
+   "live_outbound block detect.prompt_leak+detect.prompt_leak+detect.marker_leak"
   ],
   "error": "safety",
   "shown": "\"You are",

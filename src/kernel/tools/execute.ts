@@ -1033,6 +1033,30 @@ function toolCallEnd(
 }
 
 /** Runs one registered tool call as a stream of turn events and returns how it settled; when `openSpan` is given the call is recorded as a tool span that ends with the outcome. */
+/**
+ * A call's arguments as its tool gets them, which is what the call's first
+ * event shows the host: a detector's placeholder where it redacts, and none
+ * when the call is stopped. A call no tool takes is read as a function tool's.
+ */
+export function shownToolArguments(
+  call: Pick<RegisteredToolCall, 'tools' | 'profile' | 'name' | 'input' | 'scope'>,
+): Record<string, unknown> {
+  const tool = call.tools.get(call.name);
+  const kind = tool ? toolKindOf(tool) : 'function';
+  const policy = resolveGuardrailPolicy(call.profile.guardrails);
+  const inspected = inspectToolArguments(
+    plainToolInput(call.input),
+    tool ? provenanceFor(tool, call.tools) : { origin: 'local', tool: call.name, depth: 1 },
+    policy,
+    kind && toolBoundary('tool_arguments', kind),
+    scopeOf(policy, call.scope ?? {}),
+  );
+  const { args } = inspected;
+  return args !== null && typeof args === 'object' && !Array.isArray(args)
+    ? (args as Record<string, unknown>)
+    : {};
+}
+
 export async function* executeRegisteredTool(
   args: RegisteredToolCall,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {

@@ -211,7 +211,7 @@ Deno.test('the same turn is reported but allowed when the profile does not gate'
 
 const steered: TurnTaint = {
   sources: [remote],
-  suspicious: [{ rule: 'tool_result.imperative', severity: 'medium' }],
+  suspicious: [{ rule: 'detect.tool_instructions', severity: 'medium' }],
 };
 
 /**
@@ -251,7 +251,7 @@ Deno.test('an ordinary tainted turn reports the plain rule', () => {
 });
 
 Deno.test('recordTaint keeps directive hits from the content that carried them', () => {
-  const hits = [{ rule: 'tool_result.imperative', severity: 'medium' as const }];
+  const hits = [{ rule: 'detect.tool_instructions', severity: 'medium' as const }];
   const after = recordTaint(undefined, remote, hits);
   assertEquals(after.suspicious.length, 1);
   // A local result contributes nothing, even if hits were somehow supplied.

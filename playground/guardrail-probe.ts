@@ -81,7 +81,7 @@ export const PROBE_BOUNDARY_NOTES: Record<ProbeBoundary, ProbeBoundaryNote> = {
     note: 'What a tool returns from outside the host: a web page, an MCP server, another agent. It runs here as another agent’s reply, and the model then makes a destructive call.',
     when: 'When the tool returns, and again at each call the model makes after it.',
     checks:
-      'Replaced as a local result is, fenced as tool data, and read for directives (a claim of authority, an order, a callable tool’s name), which are reported and never removed. Every later call is reported, and refused where taint.afterRemoteRead says.',
+      'Replaced as a local result is, fenced as tool data, and read for instructions to the agent (a claim of authority, an order, a callable tool’s name), which tool_instructions reports by default. Every later call is reported, and refused where taint.afterRemoteRead says.',
   },
   tool_arguments: {
     label: 'Tool arguments',

@@ -1,8 +1,7 @@
-import { typoNormalize } from './injection.ts';
+import { typoFolded } from './injection.ts';
 import { overrideFrame } from './injection-patterns.ts';
 import { normalizeForDetection } from './normalize.ts';
-import { DIRECTIVE_RULES } from './rules.ts';
-import type { AdvisoryLevel, GuardrailHit } from './types.ts';
+import type { AdvisoryLevel } from './types.ts';
 
 /**
  * Imperatives aimed at an agent rather than a reader.
@@ -85,20 +84,34 @@ const AUTHORITY: RegExp[] = [
  */
 const OVERRIDE = [new RegExp(overrideFrame(5), 'gi')];
 
-function matches(patterns: RegExp[], text: string): boolean {
-  return patterns.some((pattern) => {
-    pattern.lastIndex = 0;
-    return pattern.test(text);
-  });
+/** A stretch of a text, from its first index to the one after its last. */
+type Range = [start: number, end: number];
+
+/** Every destination in `text` between `from` and `to`. */
+function targetsIn(text: string, from: number, to: number): Range[] {
+  return [...text.slice(from, to).matchAll(EXFIL_TARGETS)].map((match) => [
+    from + match.index,
+    from + match.index + match[0].length,
+  ]);
 }
 
-/** Whether some match of `patterns` in `text` names a destination before its clause ends. */
-function directsOut(patterns: RegExp[], text: string): boolean {
-  return patterns.some((pattern) =>
-    [...text.matchAll(pattern)].some((match) =>
-      EXFIL_TARGET.test(
-        text.slice(match.index, reachFrom(text, match.index + match[0].length, endsClause)),
-      ),
+/** Each match of `patterns` in `text` that names a destination before its clause ends, and the destinations it names. */
+function directsOut(patterns: RegExp[], text: string): Range[] {
+  return patterns.flatMap((pattern) =>
+    [...text.matchAll(pattern)].flatMap((match): Range[] => {
+      const end = match.index + match[0].length;
+      const targets = targetsIn(text, match.index, reachFrom(text, end, endsClause));
+      return targets.length > 0 ? [[match.index, end], ...targets] : [];
+    }),
+  );
+}
+
+/** Each order in `text` to set instructions aside, read with its misspellings put right. */
+function overrides(text: string): Range[] {
+  const folded = typoFolded(text);
+  return OVERRIDE.flatMap((pattern) =>
+    [...folded.text.matchAll(pattern)].map(
+      (match): Range => [folded.at(match.index), folded.at(match.index + match[0].length - 1) + 1],
     ),
   );
 }
@@ -108,92 +121,108 @@ function isToolNameBoundary(ch: string | undefined): boolean {
 }
 
 /**
- * Whether `text` names `tool`, at word boundaries, in a sentence with a
- * destination. A name inside a destination (`https://shop.example/search`) is
- * part of the address. Registry input is not compiled as a pattern.
+ * Where `text` names `tool`, at word boundaries, in a sentence with a
+ * destination: the name, and the destinations of its sentence. A name inside a
+ * destination (`https://shop.example/search`) is part of the address. Registry
+ * input is not compiled as a pattern.
  */
-function directsToTool(text: string, tool: string): boolean {
+function directsToTool(text: string, tool: string): Range[] {
   if (tool.length < 3) {
-    return false;
+    return [];
   }
   const haystack = text.toLowerCase();
   const needle = tool.toLowerCase();
+  const found: Range[] = [];
   let at = haystack.indexOf(needle);
   while (at >= 0) {
     const end = at + needle.length;
     if (isToolNameBoundary(haystack[at - 1]) && isToolNameBoundary(haystack[end])) {
-      const from = sentenceStart(text, at);
-      const sentence = text.slice(from, reachFrom(text, end, endsSentence));
-      const targets = [...sentence.matchAll(EXFIL_TARGETS)].map((match) => ({
-        start: from + match.index,
-        end: from + match.index + match[0].length,
-      }));
-      const isInTarget = targets.some((target) => target.start <= at && end <= target.end);
+      const targets = targetsIn(text, sentenceStart(text, at), reachFrom(text, end, endsSentence));
+      const isInTarget = targets.some(([start, stop]) => start <= at && end <= stop);
       if (targets.length > 0 && !isInTarget) {
-        return true;
+        found.push([at, end], ...targets);
       }
     }
     at = haystack.indexOf(needle, end);
   }
-  return false;
+  return found;
+}
+
+/**
+ * What of a tool's text reads as an instruction to the agent: an order to set its instructions
+ * aside, the name of a tool it can call, an order, or a claim of authority. The last three count
+ * only beside a destination.
+ */
+const DIRECTIVE_SIGNALS = ['override', 'tool_name', 'order', 'authority'] as const;
+/** One of {@linkcode DIRECTIVE_SIGNALS}. */
+type DirectiveSignal = (typeof DIRECTIVE_SIGNALS)[number];
+
+/** A stretch of a tool's text that instructs the agent, and what about it does. */
+interface Directive {
+  signal: DirectiveSignal;
+  start: number;
+  end: number;
+}
+
+/** One directive for each run of overlapping `ranges`. */
+function directivesOf(signal: DirectiveSignal, ranges: readonly Range[]): Directive[] {
+  const runs: Range[] = [];
+  for (const [start, end] of [...ranges].sort((a, b) => a[0] - b[0])) {
+    const last = runs.at(-1);
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+    else runs.push([start, end]);
+  }
+  return runs.map(([start, end]) => ({ signal, start, end }));
 }
 
 /**
  * Real indirect injection rarely names what it attacks, so this looks for content that behaves
- * like an instruction. Hits raise the turn's taint rather than rewriting the text: a page
- * documenting an email API legitimately says "call send_email", and being wrong should cost a
- * refused write, not silently damaged input.
+ * like an instruction: each order, claim of authority, tool name and destination, where it sits
+ * in `text`. A page documenting an email API legitimately says "call send_email", so the
+ * detector that reads with this (`tool_instructions`) starts at `flag`.
  *
  * `callableTools` is the set the model can invoke this turn. A result naming one is the
  * highest-precision signal: ordinary data has no reason to, and no generic filter can check it
  * without the turn's registry.
+ *
+ * The text is read normalized. Where that changes it, an index of what was read is not one of
+ * `text`, and each signal found is the whole text once.
  */
-function directiveHits(text: string, callableTools: readonly string[] = []): GuardrailHit[] {
+function directives(text: string, callableTools: readonly string[] = []): Directive[] {
   if (!text) {
     return [];
   }
   const normalized = normalizeForDetection(text);
-  const hits: GuardrailHit[] = [];
-  if (matches(OVERRIDE, typoNormalize(normalized))) {
-    hits.push({ rule: DIRECTIVE_RULES.override, severity: 'high' });
+  const found = directivesOf('override', overrides(normalized));
+  // why: No destination, no exfiltration. Action-shaped attacks that carry no target
+  // are left to the taint gate, which does not depend on reading the content.
+  if (EXFIL_TARGET.test(normalized)) {
+    found.push(
+      ...directivesOf(
+        'tool_name',
+        callableTools.flatMap((tool) => directsToTool(normalized, tool)),
+      ),
+      ...directivesOf('order', directsOut(IMPERATIVES, normalized)),
+      ...directivesOf('authority', directsOut(AUTHORITY, normalized)),
+    );
   }
-  if (!EXFIL_TARGET.test(normalized)) {
-    // why: No destination, no exfiltration. Action-shaped attacks that carry no target
-    // are left to the taint gate, which does not depend on reading the content.
-    return hits;
-  }
-
-  // why: One hit per named tool — several names is a stronger signal than one.
-  for (const _tool of callableTools.filter((tool) => directsToTool(normalized, tool))) {
-    hits.push({ rule: DIRECTIVE_RULES.toolName, severity: 'high' });
-  }
-  if (directsOut(IMPERATIVES, normalized)) {
-    hits.push({ rule: DIRECTIVE_RULES.imperative, severity: 'medium' });
-  }
-  if (directsOut(AUTHORITY, normalized)) {
-    hits.push({ rule: DIRECTIVE_RULES.authority, severity: 'medium' });
-  }
-  return hits;
+  if (normalized === text) return found;
+  return DIRECTIVE_SIGNALS.filter((signal) => found.some((one) => one.signal === signal)).map(
+    (signal) => ({ signal, start: 0, end: text.length }),
+  );
 }
 
-/** True when there is at least one directive hit. */
-function looksDirective(hits: GuardrailHit[]): boolean {
-  return hits.length > 0;
-}
-
-function advisoryLevel(hits: GuardrailHit[]): AdvisoryLevel {
-  if (hits.length === 0) {
+/**
+ * How strongly a tool's text reads as instructions, by the `signals` found in it: `high` for an
+ * order to drop instructions, a callable tool's name, or two signals together.
+ */
+function advisoryLevel(signals: readonly (string | undefined)[]): AdvisoryLevel {
+  if (signals.length === 0) {
     return 'none';
   }
-  const kinds = new Set(hits.map((hit) => hit.rule));
-  if (
-    kinds.has(DIRECTIVE_RULES.toolName) ||
-    kinds.has(DIRECTIVE_RULES.override) ||
-    kinds.size > 1
-  ) {
-    return 'high';
-  }
-  return 'elevated';
+  const kinds = new Set(signals);
+  return kinds.has('tool_name') || kinds.has('override') || kinds.size > 1 ? 'high' : 'elevated';
 }
 
-export { advisoryLevel, directiveHits, looksDirective };
+export type { Directive, DirectiveSignal };
+export { advisoryLevel, DIRECTIVE_SIGNALS, directives };

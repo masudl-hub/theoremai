@@ -111,8 +111,19 @@ Deno.test('a marker or an ungiven image stops the reply by default, and a link i
   }
 });
 
+Deno.test('tool_instructions reads what a tool returns: flagged from a remote tool, not read from a function', () => {
+  const returned = TOOL_BOUNDARIES.filter((boundary) => !boundary.startsWith('tool_arguments_'));
+  assertEquals(DETECTOR_BOUNDARIES.tool_instructions, returned);
+  assertEquals(
+    where(undefined, 'tool_instructions', 'flag'),
+    returned.filter((boundary) => !boundary.endsWith('_function')),
+  );
+  assertEquals(where(undefined, 'tool_instructions', 'redact'), []);
+});
+
 Deno.test('what comes in is redacted by default, and nothing the model writes is read for it', () => {
-  for (const detector of DETECTORS.filter((d) => !LEAKS.includes(d) && !SHOWN.includes(d))) {
+  const others = [...LEAKS, ...SHOWN, 'tool_instructions'];
+  for (const detector of DETECTORS.filter((d) => !others.includes(d))) {
     assertEquals(where(undefined, detector, 'block'), []);
     assertEquals(where(undefined, detector, 'ignore').includes('reply'), true);
     assertEquals(where(undefined, detector, 'ignore').includes('thought'), true);

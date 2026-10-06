@@ -77,6 +77,8 @@ export interface GuardrailHit {
   doc?: string;
   /** The name of the host's pattern that matched; unset for a match of Theorem's own patterns. */
   pattern?: string;
+  /** What about the match made it one, for `tool_instructions`: `override`, `tool_name`, `order` or `authority`. */
+  signal?: string;
 }
 const guardrailHit = z.object({
   rule: z.string(),
@@ -86,6 +88,7 @@ const guardrailHit = z.object({
   label: z.string().optional(),
   doc: z.string().optional(),
   pattern: z.string().optional(),
+  signal: z.string().optional(),
 });
 true satisfies Equals<z.infer<typeof guardrailHit>, GuardrailHit>;
 

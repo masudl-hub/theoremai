@@ -394,6 +394,10 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
     label: 'Injection',
     doc: 'Text that tries to override the agent\'s instructions, such as "ignore previous instructions". The decision names the boundary it was crossing and what was done with it.',
   },
+  'detect.tool_instructions': {
+    label: 'Tool instructions',
+    doc: 'A tool\'s text instructed the agent: it told it to set its instructions aside, such as "ignore your instructions", or beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system or an admin. Each match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
+  },
   'detect.canary_leak': {
     label: 'Canary leak',
     doc: "The turn's canary, a secret marker planted in the instructions, so the model was repeating them. The decision names the boundary it was crossing and what was done with it.",
@@ -425,22 +429,6 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
   'egress.unscannable': {
     label: 'Reply could not be checked',
     doc: 'Structured output could not be turned into text to check, so it was treated as unsafe.',
-  },
-  'tool_result.names-callable-tool': {
-    label: 'Named a callable tool',
-    doc: 'Remote tool content named a tool the model can call, a common way to steer its next step.',
-  },
-  'tool_result.imperative': {
-    label: 'Gave the agent an order',
-    doc: 'Remote tool content addressed the agent with an instruction, such as "you must now…" or "next steps:".',
-  },
-  'tool_result.authority-claim': {
-    label: 'Claimed authority',
-    doc: 'Remote tool content claimed to speak for the user, the system or an admin, such as "the user has already approved".',
-  },
-  'tool_result.override': {
-    label: 'Told the agent to drop its instructions',
-    doc: 'Remote tool content told the agent to set its instructions aside, such as "ignore your instructions" or "disregard the rules above".',
   },
   'tool_call.tainted-turn': {
     label: 'Change after remote content',

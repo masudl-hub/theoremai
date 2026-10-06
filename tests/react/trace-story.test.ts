@@ -321,7 +321,7 @@ Deno.test('traceGuardrails lists every check in order, with the rules that fired
               duration_ms: 0.4,
               hits: [
                 {
-                  rule: 'tool_result.imperative',
+                  rule: 'detect.tool_instructions',
                   severity: 'high',
                   match: 'ignore previous',
                 },
@@ -344,10 +344,10 @@ Deno.test('traceGuardrails lists every check in order, with the rules that fired
   );
   assertEquals(hit?.hits, [
     {
-      rule: 'tool_result.imperative',
-      ruleLabel: 'Gave the agent an order',
+      rule: 'detect.tool_instructions',
+      ruleLabel: 'Tool instructions',
       ruleDoc:
-        'Remote tool content addressed the agent with an instruction, such as "you must now…" or "next steps:".',
+        'A tool\'s text instructed the agent: it told it to set its instructions aside, such as "ignore your instructions", or beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system or an admin. Each match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
       severity: 'high',
       severityLabel: 'High',
       match: 'ignore previous',

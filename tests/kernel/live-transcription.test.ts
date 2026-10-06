@@ -18,6 +18,7 @@ function resolvedLive(id: string, live: ProfileLiveSpec, guarded?: boolean) {
     prompt_leak: 'ignore',
     marker_leak: 'ignore',
     ungiven_images: 'ignore',
+    tool_leak: 'ignore',
   } as const;
   registerProfile({
     ...liveBase,

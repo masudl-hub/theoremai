@@ -414,6 +414,10 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
     label: 'Ungiven links',
     doc: 'A link to an address the model was not given, on a host the profile does not allow. The decision names the boundary it was crossing and what was done with it.',
   },
+  'detect.tool_leak': {
+    label: 'Tool leak',
+    doc: "The name of one of the profile's own tools, or of a tool's parameter written as a quoted key. The decision names the boundary it was crossing and what was done with it.",
+  },
   'egress.provider-tool-leak': {
     label: 'Instructions sent to a provider tool',
     doc: "A provider's built-in tool, such as search, was sent the canary or the instructions. It ran before Theorem saw it, so the data had already left.",

@@ -50,6 +50,7 @@ import {
 import { isEmoji, normalizeCodePoint } from './normalize.ts';
 import { detectRule } from './rules.ts';
 import { cardHit, SENSITIVE_PATTERNS } from './sensitive.ts';
+import { namePatterns, type OwnTools } from './tool-leak.ts';
 import type { Severity } from './types.ts';
 
 /** A settled match. */
@@ -156,6 +157,38 @@ function literalAutomaton(text: string): Automaton {
   const nodes = [...positions.map((_, i) => [0, 0, i + 1, i]), [0, 1]];
   const automaton = compile({ classStarts, charsets, initials: [0], leads: [-1], nodes });
   literalAutomata.set(text, automaton);
+  return automaton;
+}
+
+/**
+ * An automaton for each of `texts` as written, case and all: pattern `i` is `texts[i]`. Kept
+ * per list, so a profile's is built once. Each unit has a charset of its own: charset `k` is the
+ * class of `units[k]`.
+ */
+function literalsAutomaton(texts: readonly string[]): Automaton {
+  const key = JSON.stringify(texts);
+  const cached = literalAutomata.get(key);
+  if (cached) return cached;
+  const units = [...new Set(texts.flatMap((text) => Array.from(text, (c) => c.charCodeAt(0))))];
+  units.sort((a, b) => a - b);
+  const classStarts = [0];
+  for (const unit of units) {
+    if (classStarts.at(-1) !== unit) classStarts.push(unit);
+    if (unit + 1 < UNITS) classStarts.push(unit + 1);
+  }
+  const charsets = units.map((unit) => [classStarts.indexOf(unit)]);
+  const nodes: number[][] = [];
+  const initials = texts.map((text, id) => {
+    const first = nodes.length;
+    for (let i = 0; i < text.length; i++) {
+      nodes.push([id, 0, nodes.length + 1, units.indexOf(text.charCodeAt(i))]);
+    }
+    nodes.push([id, 1]);
+    return first;
+  });
+  const leads = texts.map(() => -1);
+  const automaton = compile({ classStarts, charsets, initials, leads, nodes });
+  literalAutomata.set(key, automaton);
   return automaton;
 }
 
@@ -491,6 +524,7 @@ function detectorRule(detector: string): PatternRule {
 
 const INJECTION_RULE = detectorRule('injection');
 const MARKER_RULE = detectorRule('marker_leak');
+const TOOL_RULE = detectorRule('tool_leak');
 
 /** What a pattern's match reports: its detector's rule. */
 function patternRule({ kind, group }: EgressPattern): PatternRule | undefined {
@@ -797,6 +831,8 @@ interface EgressStreamOptions {
   given?: GivenUrls;
   /** The words of the profile's own canary note, for `marker_leak` (`boundaryNote`). */
   note?: string;
+  /** The names of the profile's tools and of their parameters, for `tool_leak`. */
+  tools?: OwnTools;
 }
 
 /** Compiled host automata, kept per table so each is built once. */
@@ -849,6 +885,13 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
   if (detectors.includes('marker_leak') && options.note) {
     const regex = notePattern(options.note);
     scans.push(scan(raw, literalAutomaton(options.note), [{ ...MARKER_RULE, id: 0, regex }]));
+  }
+  if (detectors.includes('tool_leak') && options.tools) {
+    const names = namePatterns(options.tools);
+    const patterns = names.map(({ regex }, id) => ({ ...TOOL_RULE, id, regex }));
+    if (names.length > 0) {
+      scans.push(scan(raw, literalsAutomaton(names.map(({ literal }) => literal)), patterns));
+    }
   }
   for (const { detector, compiled, matchers } of options.own ?? []) {
     const patterns = matchers.map(({ regex }, id) => ({

@@ -14,6 +14,7 @@ import { lexiconText } from '../../../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { replyIsJudged } from '../../../guardrails/progressive-yield.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
+import type { OwnTools } from '../../../guardrails/tool-leak.ts';
 import type {
   GuardrailHit,
   OutboundPayload,
@@ -115,6 +116,8 @@ function evaluateEgressOutcome(args: {
   canaryGiven: boolean;
   /** The private stretches of the system instruction (`BoundSystem.private`). */
   privateSystem: readonly string[];
+  /** The names of the profile's tools and of their parameters. */
+  ownTools?: OwnTools;
 }): {
   outcome: EgressOutcome;
   guardrails: TurnEventOf<'guardrail'>[];
@@ -129,6 +132,7 @@ function evaluateEgressOutcome(args: {
     canaryGiven: args.canaryGiven,
     privateSystem: args.privateSystem,
     givenUrls: args.givenUrls,
+    ...(args.ownTools ? { ownTools: args.ownTools } : {}),
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
   });
   const read = readReply(written, detect, {
@@ -312,6 +316,7 @@ async function* handleEgressGate(
     givenUrls: state.givenUrls,
     canaryGiven: state.canaryGiven,
     privateSystem,
+    ...(state.ownTools ? { ownTools: state.ownTools } : {}),
   });
 
   state.trace.root.event(

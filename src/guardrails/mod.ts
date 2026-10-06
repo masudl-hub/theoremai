@@ -54,6 +54,7 @@ export type {
   HostDetectorId,
   HostFind,
   HostSpan,
+  NameAllow,
   ResolvedAllow,
   ResolvedDetect,
   UrlAllow,

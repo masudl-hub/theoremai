@@ -21,6 +21,7 @@ export const DETECT_RULES = {
   marker_leak: 'detect.marker_leak',
   ungiven_images: 'detect.ungiven_images',
   ungiven_links: 'detect.ungiven_links',
+  tool_leak: 'detect.tool_leak',
 } as const satisfies Record<Detector, string>;
 
 /** The rule a match of `key` reports: a detector of Theorem's, or the id of one of the host's own (`detect.acme.record`). */

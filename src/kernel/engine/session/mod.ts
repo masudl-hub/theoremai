@@ -67,6 +67,7 @@ import {
   resumeForAnswer,
 } from '../../tools/gate-answer.ts';
 import { formatToolFailureForModel, formatToolResult } from '../../tools/model-text.ts';
+import { ownToolsOf } from '../../tools/project.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
 import { cloneTurnToolSnapshot } from '../../tools/resolve.ts';
 import type {
@@ -1242,6 +1243,7 @@ async function openTracedSession(
     generation.canary || undefined,
     system.private,
     givenUrls,
+    ownToolsOf(registry.tools, profile),
   );
   const connection = await openGoogleLiveSession(
     completeReq,

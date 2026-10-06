@@ -66,6 +66,7 @@ export const LEXICON_KEYS = [
   'detect.hint.marker_leak',
   'detect.hint.ungiven_images',
   'detect.hint.ungiven_links',
+  'detect.hint.tool_leak',
   'detect.hint.own',
   'egress.default_repair_guidance',
   'egress.refusal',
@@ -278,6 +279,8 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
     'Leave out the markers that fence user data, and the note about the canary.',
   'detect.hint.ungiven_images': 'Leave out images whose address you were not given.',
   'detect.hint.ungiven_links': 'Leave out links to addresses you were not given.',
+  'detect.hint.tool_leak':
+    'Leave out the names of your tools and of their parameters. Say what you did in plain words.',
   'detect.hint.own': 'Leave out what is listed here as {label}.',
   'detect.blocked': "Sorry, that message couldn't be sent.",
   'detect.call_blocked':
@@ -463,6 +466,8 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
     'What the model is told to leave out when `ungiven_images` blocks a reply that is then retried.',
   'detect.hint.ungiven_links':
     'What the model is told to leave out when `ungiven_links` blocks a reply that is then retried.',
+  'detect.hint.tool_leak':
+    'What the model is told to leave out when `tool_leak` blocks a reply that is then retried.',
   'detect.hint.own':
     'What the model is told to leave out when a detector of your own that sets no hint blocks a reply. Takes {label}, the label of the detector.',
   'egress.refusal':

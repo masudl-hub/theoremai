@@ -554,6 +554,20 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
   };
 }
 
+/** What several readers of one stretch of a thought found: every hit, once a rule, at the strongest action. */
+function foundBy(
+  ...founds: (ThoughtRelease['found'] | undefined)[]
+): Pick<ThoughtRelease, 'found'> {
+  const all = founds.filter((found) => found !== undefined);
+  if (all.length === 0) return {};
+  return {
+    found: {
+      action: all.reduce<DetectOutcome>((action, found) => stronger(action, found.action), 'allow'),
+      hits: [...new Map(all.flatMap(({ hits }) => hits).map((hit) => [hit.rule, hit])).values()],
+    },
+  };
+}
+
 /**
  * `guard` with `guardrails.detect` read at `thought` in front of it: the guard
  * reads the thought as the detectors let it through. A match set to `block`
@@ -590,7 +604,7 @@ function detectingThoughts(
       reader?.push(text);
       const { text: clear, found } = through(false);
       const shown = guard ? guard.push(clear) : { text: clear, hits: [] };
-      return { ...shown, ...(found ? { found } : {}) };
+      return { text: shown.text, hits: shown.hits, ...foundBy(found, shown.found) };
     },
     flush() {
       const { text: clear, found } = through(true);
@@ -605,7 +619,7 @@ function detectingThoughts(
         hits: [
           ...new Map([...(last?.hits ?? []), ...rest.hits].map((hit) => [hit.rule, hit])).values(),
         ],
-        ...(found ? { found } : {}),
+        ...foundBy(found, last?.found, rest.found),
       };
     },
     carryOut: () => guard?.carryOut() ?? '',

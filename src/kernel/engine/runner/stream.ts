@@ -22,6 +22,7 @@ import {
   type ThoughtRelease,
   thoughtGuardFor,
 } from '../../../guardrails/thought-guard.ts';
+import type { OwnTools } from '../../../guardrails/tool-leak.ts';
 import type {
   GuardrailContext,
   GuardrailHit,
@@ -151,11 +152,16 @@ interface StreamArgs {
   givenUrls: GivenUrls;
   /** Whether the model has been given the canary this turn. */
   canaryGiven?: boolean;
+  /** The names of the profile's tools and of their parameters. */
+  ownTools?: OwnTools;
 }
 
 /** What the stream's checks know of the turn. */
 function streamContext(
-  args: Pick<StreamArgs, 'profile' | 'generation' | 'privateSystem' | 'givenUrls' | 'canaryGiven'>,
+  args: Pick<
+    StreamArgs,
+    'profile' | 'generation' | 'privateSystem' | 'givenUrls' | 'canaryGiven' | 'ownTools'
+  >,
   policy: ResolvedGuardrailPolicy,
 ): GuardrailContext {
   const { profile, privateSystem, canaryGiven } = args;
@@ -167,6 +173,7 @@ function streamContext(
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...leakScopeOf(policy.detect, { canary, canaryGiven, privateSystem }),
     givenUrls: args.givenUrls,
+    ...(args.ownTools ? { ownTools: args.ownTools } : {}),
   };
 }
 

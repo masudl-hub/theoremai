@@ -5,6 +5,7 @@ import type { DetectSpec, ResolvedAllow, ResolvedDetect } from './detectors.ts';
 import type { GivenUrls } from './egress-urls.ts';
 import type { GuardrailEvent, GuardrailHit, Provenance } from './event-schemas.ts';
 import type { LexiconOverrides } from './lexicon.ts';
+import type { OwnTools } from './tool-leak.ts';
 
 export type { GuardrailEvent, GuardrailHit, Provenance };
 
@@ -191,6 +192,8 @@ export interface GuardrailContext {
    * server. The kernel adds to them as the model is given more. Unset: none.
    */
   givenUrls?: GivenUrls;
+  /** The names of the profile's tools and of their parameters, for `tool_leak`. Unset: none. */
+  ownTools?: OwnTools;
   /** The profile's lexicon, so a rejection reads in the host's wording. */
   lexicon?: LexiconOverrides;
 }

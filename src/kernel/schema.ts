@@ -502,8 +502,23 @@ export function catalogPathFor(keys: readonly string[]): string {
 
 const DETECT_ACTION_DOCS = recordOf(DETECT_ACTIONS, (action) => DETECT_ACTION_META[action].doc);
 
-/** The `allow` rows of a detector that reads URLs. */
+/** The `allow` rows of a detector: the URLs it lets through, or for `tool_leak` the names. */
 function allowFields(path: string, detector: Detector): [string, FieldMeta][] {
+  if (DETECTOR_META[detector].allow === 'names') {
+    return [
+      [`${path}.allow`, field('NameAllow', 'The names that are innocent in a reply.')],
+      [
+        `${path}.allow.names`,
+        {
+          ...field(
+            'string[]',
+            'Names of tools or parameters that are not read for, such as a tool called search.',
+          ),
+          unset: 'None',
+        },
+      ],
+    ];
+  }
   const hosts =
     detector === 'ungiven_links'
       ? 'Hostnames whose links pass whatever their URL; the hosts ungiven_images allows pass too.'
@@ -655,10 +670,10 @@ function patternFields(path: string): [string, FieldMeta][] {
 
 /** The settings a detector's full form takes, as a sentence lists them. */
 function settingsOf(detector: Detector): string {
-  if (DETECTOR_META[detector].allow) return 'action, at and allow';
-  return DETECTOR_META[detector].patterns
-    ? 'action, at, theorem, patterns and hint'
-    : 'action and at';
+  const { allow, patterns } = DETECTOR_META[detector];
+  if (allow && patterns) return 'action, at, allow, theorem, patterns and hint';
+  if (allow) return 'action, at and allow';
+  return patterns ? 'action, at, theorem, patterns and hint' : 'action and at';
 }
 
 /** The `guardrails.detect` rows: one for the setting, one per detector, and one per detector and boundary. */

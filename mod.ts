@@ -71,6 +71,7 @@ export type {
   LiveHeldOutput,
   LiveOutboundBatchResult,
   LiveOutboundGateSession,
+  NameAllow,
   NetworkGuardrailSpec,
   OutboundPayload,
   ProfileGuardrailsSpec,

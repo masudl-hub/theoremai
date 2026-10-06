@@ -57,26 +57,32 @@ const ids = (source: Guardrails['sources'][string]) => (guardrails: Guardrails) 
 
 Deno.test("a detector reads with Theorem's patterns, the builder's, both or neither", () => {
   const mine = [{ name: 'order', pattern: 'ORD-\\d{6}', flags: 'i' }];
-  assertEquals(detectOf(ids({ theorem: true, patterns: [] })), undefined);
-  assertEquals(detectOf(ids({ theorem: true, patterns: [ORDER] })), { ids: { patterns: mine } });
-  assertEquals(detectOf(ids({ theorem: false, patterns: [ORDER] })), {
+  assertEquals(detectOf(ids({ theorem: true, hint: '', patterns: [] })), undefined);
+  assertEquals(detectOf(ids({ theorem: true, hint: '', patterns: [ORDER] })), {
+    ids: { patterns: mine },
+  });
+  assertEquals(detectOf(ids({ theorem: false, hint: '', patterns: [ORDER] })), {
     ids: { theorem: false, patterns: mine },
   });
-  assertEquals(detectOf(ids({ theorem: false, patterns: [] })), { ids: { theorem: false } });
+  assertEquals(detectOf(ids({ theorem: false, hint: '', patterns: [] })), {
+    ids: { theorem: false },
+  });
 });
 
 Deno.test('words compile trimmed, without flags', () => {
-  assertEquals(detectOf(ids({ theorem: true, patterns: [CODENAMES] })), {
+  assertEquals(detectOf(ids({ theorem: true, hint: '', patterns: [CODENAMES] })), {
     ids: { patterns: [{ name: 'codename', words: ['Bluebird', 'night heron'] }] },
   });
 });
 
 Deno.test('a pattern that cannot run is reported on its list', () => {
-  const [issue] = issuesOf(ids({ theorem: true, patterns: [{ ...ORDER, pattern: '(' }] }));
+  const [issue] = issuesOf(
+    ids({ theorem: true, hint: '', patterns: [{ ...ORDER, pattern: '(' }] }),
+  );
   assertEquals(issue.field, 'sources.ids.patterns');
   assert(issue.message.includes('does not compile'), issue.message);
 
-  const [twice] = issuesOf(ids({ theorem: true, patterns: [ORDER, ORDER] }));
+  const [twice] = issuesOf(ids({ theorem: true, hint: '', patterns: [ORDER, ORDER] }));
   assert(twice.message.includes('listed twice'), twice.message);
 });
 
@@ -111,12 +117,40 @@ Deno.test("a builder's own detector compiles with its label, boundaries and patt
   assertEquals(unnamed.field, 'own.0.patterns');
 });
 
+Deno.test('a hint goes beside the patterns it speaks for', () => {
+  const mine = [{ name: 'order', pattern: 'ORD-\\d{6}', flags: 'i' }];
+  const hint = 'Leave out order numbers.';
+  assertEquals(detectOf(ids({ theorem: true, hint: ` ${hint} `, patterns: [ORDER] })), {
+    ids: { patterns: mine, hint },
+  });
+  assertEquals(detectOf(ids({ theorem: true, hint, patterns: [] })), undefined);
+  const [long] = issuesOf(ids({ theorem: true, hint: 'x'.repeat(301), patterns: [ORDER] }));
+  assertEquals(long.field, 'sources.ids.hint');
+
+  const own = { ...newOwnDetector(), key: 'acme.codenames', label: 'Codenames', hint };
+  own.patterns = [CODENAMES];
+  own.at.reply = 'block';
+  const detect = detectOf(() => ({ own: [own] }));
+  assertEquals((detect?.['acme.codenames'] as { hint?: string } | undefined)?.hint, hint);
+});
+
+Deno.test('tool_leak lets the names a builder lists through', () => {
+  assertEquals(
+    detectOf(() => ({ innocentNames: [' search ', 'city'] })),
+    {
+      tool_leak: { allow: { names: ['search', 'city'] } },
+    },
+  );
+  const [blank] = issuesOf(() => ({ innocentNames: ['search', ' '] }));
+  assertEquals({ field: blank.field, index: blank.index }, { field: 'innocentNames', index: 1 });
+});
+
 Deno.test('exported code compiles the patterns as the host starts', () => {
-  const plain = compiled(ids({ theorem: false, patterns: [] }));
+  const plain = compiled(ids({ theorem: false, hint: '', patterns: [] }));
   assert(plain.ok);
   assert(!playgroundSource(plain).includes('compileDetect'));
 
-  const result = compiled(ids({ theorem: true, patterns: [ORDER] }));
+  const result = compiled(ids({ theorem: true, hint: '', patterns: [ORDER] }));
   assert(result.ok);
   const source = playgroundSource(result);
   assertStringIncludes(
@@ -128,7 +162,7 @@ Deno.test('exported code compiles the patterns as the host starts', () => {
 });
 
 Deno.test('a run compiles the patterns where it runs, and refuses one that could hang', async () => {
-  const result = compiled(ids({ theorem: false, patterns: [ORDER] }));
+  const result = compiled(ids({ theorem: false, hint: '', patterns: [ORDER] }));
   assert(result.ok, JSON.stringify(!result.ok && result.issues));
   const { profile } = await playgroundScope(result.profile, result.customTools, result.structured, {
     mode: 'demo',
@@ -142,7 +176,7 @@ Deno.test('a run compiles the patterns where it runs, and refuses one that could
   ]);
 
   const slow = compiled(
-    ids({ theorem: true, patterns: [{ ...ORDER, name: 'slow', pattern: '(a+)+b' }] }),
+    ids({ theorem: true, hint: '', patterns: [{ ...ORDER, name: 'slow', pattern: '(a+)+b' }] }),
   );
   assert(slow.ok, JSON.stringify(!slow.ok && slow.issues));
   await assertRejects(

@@ -757,7 +757,7 @@ looks, and what it does: a detector, a boundary, an action.
 
 | API | Role |
 | --- | --- |
-| `DETECTORS` | `ids`, `financial`, `network`, `credentials` (the `SENSITIVE_GROUPS`), `injection`, and what is the profile's own on its way out: `canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`, `ungiven_links`; `DETECTOR_META` is each one's `DetectorDeclaration`: label, what it finds, its group (`DETECTOR_GROUPS`) and its default action at each boundary it applies at (`DETECTOR_BOUNDARIES`) |
+| `DETECTORS` | `ids`, `financial`, `network`, `credentials` (the `SENSITIVE_GROUPS`), `injection`, and what is the profile's own on its way out: `canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`, `ungiven_links`, `tool_leak`; `DETECTOR_META` is each one's `DetectorDeclaration`: label, what it finds, its group (`DETECTOR_GROUPS`) and its default action at each boundary it applies at (`DETECTOR_BOUNDARIES`) |
 | `BOUNDARIES` | Every place the kernel reads text as it crosses; `BOUNDARY_META` labels each |
 | `TOOL_BOUNDARIES` | The tool boundaries: `toolBoundary(crossing, kind)` for `tool_arguments`, `tool_output` and `tool_failure`, for each of `TOOL_KINDS` |
 | `DETECT_ACTIONS` | `ignore`, `flag`, `redact`, `block`; `DETECT_ACTION_META` labels each |
@@ -803,10 +803,24 @@ An action means the same at every boundary:
 Its `action` is the action at every boundary, and its `at` names the
 boundaries that differ: `{ action: 'redact', at: { reply: 'block' } }`. What a
 rule leaves out keeps its default. `ungiven_images` and `ungiven_links` also
-take `allow` (see [Markers, images and links](#markers-images-and-links)).
+take `allow` (see [Markers, images and links](#markers-images-and-links)), and
+`tool_leak` takes `allow.names` (see [Tool names](#tool-names)).
 
 Every action is valid wherever a detector applies. A detector applies at the
 boundaries it has a default for; a rule naming another boundary is rejected.
+
+### Tool names
+
+`tool_leak` reads what the model writes for the names of the profile's own
+tools (`tools.allow` and each model's `builtInTools`) and of their parameters.
+A tool's name is found as a word of its own, in its own case, so a longer
+name that starts with it is not a match. A parameter's name is found only in double quotes, as
+tool-call JSON writes its keys (`"city"`, or `\"city\"` inside a string),
+since a parameter is often a plain word. A match is replaced by
+`[omitted - tool]`. An agent often names a tool honestly, so the default is
+`flag`. `allow.names` lists the names that are innocent, such as a tool called
+`search`. It takes the host's `patterns` beside its own reading, as the
+sensitive detectors do. A profile with no tools has nothing to find.
 
 ### Whose patterns
 
@@ -939,11 +953,11 @@ profile lists them. `interfaceFromProfile` reports them as `guardrails.host`:
 | `tool_arguments_*` | `flag` | `ignore` |
 | `reply`, `reply_structured`, `live_reply`, `thought` | `ignore` | `ignore` |
 
-| Boundaries | `canary_leak` | `prompt_leak` | `marker_leak` | `ungiven_images` | `ungiven_links` |
-| --- | --- | --- | --- | --- | --- |
-| `tool_arguments_*` | `block` | `flag` | — | — | — |
-| `reply`, `reply_structured`, `live_reply` | `block` | `block` | `block` | `block` | `ignore` |
-| `thought` | `redact` | `redact` | `redact` | `redact` | `ignore` |
+| Boundaries | `canary_leak` | `prompt_leak` | `marker_leak` | `ungiven_images` | `ungiven_links` | `tool_leak` |
+| --- | --- | --- | --- | --- | --- | --- |
+| `tool_arguments_*` | `block` | `flag` | — | — | — | — |
+| `reply`, `reply_structured`, `live_reply` | `block` | `block` | `block` | `block` | `ignore` | `flag` |
+| `thought` | `redact` | `redact` | `redact` | `redact` | `ignore` | `flag` |
 
 A dash is a boundary the detector does not apply at. The default is also the
 recommended action.
@@ -1433,7 +1447,7 @@ reports `detect.<key>` (`detectRule`), and its hit carries the detector's
 
 | Group | Rules |
 | --- | --- |
-| `DETECT_RULES` | `detect.ids`, `detect.financial`, `detect.network`, `detect.credentials`, `detect.injection`, `detect.canary_leak`, `detect.prompt_leak`, `detect.marker_leak`, `detect.ungiven_images`, `detect.ungiven_links` |
+| `DETECT_RULES` | `detect.ids`, `detect.financial`, `detect.network`, `detect.credentials`, `detect.injection`, `detect.canary_leak`, `detect.prompt_leak`, `detect.marker_leak`, `detect.ungiven_images`, `detect.ungiven_links`, `detect.tool_leak` |
 | `EGRESS_RULES` | `egress.provider-tool-leak`, `egress.unscannable` |
 | `DIRECTIVE_RULES` | `tool_result.names-callable-tool`, `tool_result.imperative`, `tool_result.authority-claim`, `tool_result.override` |
 | `TOOL_RULES` | `tool_call.tainted-turn`, `tool_call.steered-turn` |
@@ -1603,7 +1617,7 @@ From `src/guardrails/mod.ts`:
 | Sanitize | `sanitizeProjectId`, `sanitizeHistory`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `SanitizedTurnRequest` |
 | Events | `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
-| Egress / Live | `hitRules`, `EGRESS_RULES`, `BlockedReplySpec`, `BlockedReplyOnBlock`, `BLOCKED_REPLY_ON_BLOCK`, `ResolvedBlockedReply`, `UrlAllow`, `UrlDetector`, `ResolvedAllow`, `GivenUrls`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
+| Egress / Live | `hitRules`, `EGRESS_RULES`, `BlockedReplySpec`, `BlockedReplyOnBlock`, `BLOCKED_REPLY_ON_BLOCK`, `ResolvedBlockedReply`, `UrlAllow`, `NameAllow`, `UrlDetector`, `ResolvedAllow`, `GivenUrls`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions`, `NetworkGuardrailSpec` |
 | Quota | `QuotaSlotStatus`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 | Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |

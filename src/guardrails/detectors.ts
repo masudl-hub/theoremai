@@ -26,7 +26,8 @@ import { SENSITIVE_GROUPS } from './sensitive.ts';
 /**
  * What the kernel finds in text: the four families of sensitive data, prompt-injection phrasing,
  * and what is the profile's own on its way out (the canary token, the system instruction, the
- * kernel's markers, and an image or link to an address the model was not given).
+ * kernel's markers, an image or link to an address the model was not given, and the names of its
+ * tools).
  */
 const DETECTORS = [
   ...SENSITIVE_GROUPS,
@@ -36,6 +37,7 @@ const DETECTORS = [
   'marker_leak',
   'ungiven_images',
   'ungiven_links',
+  'tool_leak',
 ] as const;
 /** One of {@linkcode DETECTORS}. */
 type Detector = (typeof DETECTORS)[number];
@@ -63,6 +65,12 @@ interface UrlAllow {
   fromTools?: boolean;
 }
 
+/** The names `tool_leak` lets through. */
+interface NameAllow {
+  /** Names of tools or parameters that are innocent in a reply, such as a tool called `search`. */
+  names?: readonly string[];
+}
+
 /** A detector's setting in full. */
 interface DetectorConfig {
   /** The action at every boundary. Left out, each boundary keeps its default. */
@@ -85,8 +93,11 @@ interface DetectorConfig {
    * lexicon's hint describes Theorem's patterns, not the host's.
    */
   hint?: string;
-  /** `ungiven_images` and `ungiven_links` only: the addresses let through besides the given ones. */
-  allow?: UrlAllow;
+  /**
+   * What the detector lets through: for `ungiven_images` and `ungiven_links` the addresses besides
+   * the given ones, for `tool_leak` the names that are innocent. Any other detector refuses it.
+   */
+  allow?: UrlAllow | NameAllow;
 }
 
 /** One action at every boundary, or the setting in full. */
@@ -185,6 +196,8 @@ type ResolvedDetect = DetectMatrix & {
   readonly sources?: DetectSources;
   /** The hint of each of Theorem's detectors the profile set one on. */
   readonly hints?: Readonly<Partial<Record<Detector, string>>>;
+  /** The names `tool_leak` lets through. */
+  readonly innocent?: readonly string[];
   /** The host's own detectors, in the order the profile lists them. */
   readonly host?: readonly HostDetector[];
 };
@@ -206,7 +219,7 @@ const DETECTOR_GROUP_META: Readonly<Record<DetectorGroup, DetectMeta>> = {
   attacks: { label: 'Attacks', doc: 'Text written to steer the model.' },
   ours: {
     label: 'Ours',
-    doc: "What the model writes that is the profile's own, or that would send data out: the canary, the system instruction, the kernel's markers, and images and links to addresses the model was not given.",
+    doc: "What the model writes that is the profile's own, or that would send data out: the canary, the system instruction, the kernel's markers, images and links to addresses the model was not given, and the names of the profile's tools.",
   },
 };
 
@@ -220,8 +233,8 @@ type BoundaryActions = Readonly<Partial<Record<Boundary, DetectAction>>>;
 interface DetectorDeclaration extends DetectMeta {
   group: DetectorGroup;
   defaults: Readonly<Partial<Record<Boundary, DetectAction>>>;
-  /** Whether its setting takes `allow`. */
-  allow?: true;
+  /** What its setting's `allow` lists, when it takes one: addresses, or names. */
+  allow?: 'urls' | 'names';
   /** Whether it reads with patterns, so its setting takes `theorem` and `patterns`. */
   patterns?: true;
 }
@@ -314,14 +327,22 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
     doc: 'An image whose address the model was not given, on a host not allowed. Showing it loads the address, which can carry data out with no click.',
     group: 'ours',
     defaults: shown('block', 'redact'),
-    allow: true,
+    allow: 'urls',
   },
   ungiven_links: {
     label: 'Ungiven links',
     doc: 'A link to an address the model was not given, on a host not allowed. It loads on a click, or where the host unfurls links into previews; replies cite pages from what the model knows, so it starts at Ignore.',
     group: 'ours',
     defaults: shown('ignore', 'ignore'),
-    allow: true,
+    allow: 'urls',
+  },
+  tool_leak: {
+    label: 'Tool leak',
+    doc: "The names of the profile's own tools, each as a word of its own, and the names of their parameters in double quotes, as tool-call JSON writes them. An agent often names a tool honestly, so it starts at Flag.",
+    group: 'ours',
+    defaults: shown('flag', 'flag'),
+    allow: 'names',
+    patterns: true,
   },
 };
 
@@ -416,6 +437,8 @@ function resolveDetect(spec?: DetectSpec): ResolvedDetect {
     if (source) sources[detector] = source;
     if (rule !== undefined && !isAction(rule) && rule.hint) hints[detector] = rule.hint;
   }
+  const leak = spec.tool_leak;
+  const innocent = isAction(leak) ? undefined : (leak?.allow as NameAllow | undefined)?.names;
   const host = Object.entries(spec).flatMap(([id, rule]) =>
     isHostId(id) ? [hostDetector(id, rule as HostDetectorConfig)] : [],
   );
@@ -423,6 +446,7 @@ function resolveDetect(spec?: DetectSpec): ResolvedDetect {
     ...matrix,
     ...(Object.keys(sources).length > 0 ? { sources } : {}),
     ...(Object.keys(hints).length > 0 ? { hints } : {}),
+    ...(innocent?.length ? { innocent } : {}),
     ...(host.length > 0 ? { host } : {}),
   };
 }
@@ -459,7 +483,7 @@ type ResolvedAllow = Readonly<Record<UrlDetector, UrlAllow>>;
 const NO_ALLOW: ResolvedAllow = { ungiven_images: {}, ungiven_links: {} };
 
 function allowOf(rule: DetectorRule | undefined): UrlAllow {
-  return (isAction(rule) ? undefined : rule?.allow) ?? {};
+  return (isAction(rule) ? undefined : (rule?.allow as UrlAllow | undefined)) ?? {};
 }
 
 /** The `allow` of each detector that takes one. */
@@ -521,13 +545,28 @@ const SOURCE_KEYS: readonly string[] = [
 ] satisfies (keyof DetectorConfig)[];
 const ALLOW_KEYS: readonly string[] = ['hosts', 'fromTools'] satisfies (keyof UrlAllow)[];
 
+/** The `allow` of `tool_leak`: names, each a string. */
+function namesProblem(path: string, allow: Record<string, unknown>): string | undefined {
+  const unknown = Object.keys(allow).find((key) => key !== 'names');
+  if (unknown !== undefined) return `${path}.${unknown} is not a setting of allow (names)`;
+  const { names } = allow;
+  if (names === undefined) return undefined;
+  if (!Array.isArray(names)) return `${path}.names must be a list`;
+  const bad = names.find((name) => typeof name !== 'string' || !name.trim());
+  return bad === undefined
+    ? undefined
+    : `${path}.names lists ${JSON.stringify(bad)}, which is not a name`;
+}
+
 /** A hostname is all an allowed host is: a scheme, port or path would never match one. */
 function allowProblem(path: string, allow: unknown, detector: Detector): string | undefined {
   if (allow === undefined) return undefined;
-  if (!DETECTOR_META[detector].allow) {
-    return `${path} is a setting of ungiven_images and ungiven_links only`;
+  const lists = DETECTOR_META[detector].allow;
+  if (!lists) {
+    return `${path} is a setting of ungiven_images, ungiven_links and tool_leak only`;
   }
   if (!isRecord(allow)) return `${path} must be an object`;
+  if (lists === 'names') return namesProblem(path, allow);
   const unknown = Object.keys(allow).find((key) => !ALLOW_KEYS.includes(key));
   if (unknown !== undefined) {
     return `${path}.${unknown} is not a setting of allow (${ALLOW_KEYS.join(', ')})`;
@@ -691,6 +730,7 @@ export type {
   HostDetectorId,
   HostFind,
   HostSpan,
+  NameAllow,
   ResolvedAllow,
   ResolvedDetect,
   UrlAllow,
@@ -710,6 +750,7 @@ export {
   detects,
   HOST_FIND_HOLD,
   HOST_FIND_HOLD_LIVE,
+  hintProblem,
   isDetector,
   NO_ALLOW,
   PATTERN_DETECTORS,

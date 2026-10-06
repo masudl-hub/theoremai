@@ -194,7 +194,6 @@ const BATTERY_GAPS: ReadonlySet<string> = new Set([
   'thought.key',
   'tool_arguments.base64_key',
   'tool_result_remote.action_only',
-  'tool_result_remote.benign_support',
   'tool_result_remote.comment',
   'user.benign_quote',
   'user.german',

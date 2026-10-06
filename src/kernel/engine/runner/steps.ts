@@ -171,6 +171,7 @@ async function* executeAutonomousStep(
       control,
       givenUrls: state.givenUrls,
       canaryGiven: state.canaryGiven,
+      ...(state.ownTools ? { ownTools: state.ownTools } : {}),
     })) {
       captureInteractionId(event, state);
       if (observeCallEvent(usage, event)) {

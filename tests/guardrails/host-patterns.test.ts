@@ -73,11 +73,11 @@ Deno.test('detectProblem refuses a pattern setting a detector cannot take, and a
   check({ ids: { theorem: false } }, undefined);
   check(
     { canary_leak: { theorem: false } },
-    'guardrails.detect.canary_leak.theorem is a setting of the detectors that read with patterns only (ids, financial, network, credentials, injection)',
+    'guardrails.detect.canary_leak.theorem is a setting of the detectors that read with patterns only (ids, financial, network, credentials, injection, tool_leak)',
   );
   check(
     { prompt_leak: { patterns: RECORDS } },
-    'guardrails.detect.prompt_leak.patterns is a setting of the detectors that read with patterns only (ids, financial, network, credentials, injection)',
+    'guardrails.detect.prompt_leak.patterns is a setting of the detectors that read with patterns only (ids, financial, network, credentials, injection, tool_leak)',
   );
   check({ ids: { theorem: 'no' } }, 'guardrails.detect.ids.theorem must be a boolean');
   check(

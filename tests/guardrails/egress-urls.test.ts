@@ -238,7 +238,7 @@ Deno.test('allow takes hostnames and its own settings, and detect only the detec
   refuses({ marker_leak: 'yes' }, 'guardrails.detect.marker_leak must be one of');
   refuses(
     { marker_leak: { allow: { hosts: ['cdn.acme.io'] } } },
-    'is a setting of ungiven_images and ungiven_links only',
+    'is a setting of ungiven_images, ungiven_links and tool_leak only',
   );
   assertEquals(problem({ ungiven_links: { action: 'block', allow: { hosts: ['a.io'] } } }), '');
 });

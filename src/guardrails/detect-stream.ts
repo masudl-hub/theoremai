@@ -74,6 +74,7 @@ function createDetectStream(
     ...(scope.allow ? { allow: scope.allow } : {}),
     ...(scope.givenUrls ? { given: scope.givenUrls } : {}),
     ...(scope.note ? { note: scope.note } : {}),
+    ...(scope.ownTools ? { tools: scope.ownTools } : {}),
   });
   // why: A `find` says nothing of where a match could still start, so a fixed tail stays held and
   // every release is read: a match no longer than the tail is caught whole.

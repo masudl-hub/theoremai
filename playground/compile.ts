@@ -28,6 +28,8 @@ import {
   type DetectSpec,
   detectProblem,
   type HostDetectorConfig,
+  hintProblem,
+  type NameAllow,
   type UrlAllow,
   type UrlDetector,
 } from '../src/guardrails/detectors.ts';
@@ -1039,8 +1041,9 @@ function compileSource(
   detector: Detector,
   source: PatternSourceDraft | undefined,
   report: Report,
-): Pick<DetectorConfig, 'theorem' | 'patterns'> {
+): Pick<DetectorConfig, 'theorem' | 'patterns' | 'hint'> {
   if (!source || !DETECTOR_META[detector].patterns) return {};
+  const hint = compileHint(source.hint, `Detect.${detector}`, `sources.${detector}.hint`, report);
   const patterns = compilePatterns(
     source.patterns,
     `Detect.${detector}`,
@@ -1050,7 +1053,23 @@ function compileSource(
   return {
     ...(source.theorem ? {} : { theorem: false }),
     ...(patterns.length ? { patterns } : {}),
+    // A hint speaks for the builder's patterns, so it goes only beside some.
+    ...(patterns.length && hint ? { hint } : {}),
   };
+}
+
+/** A hint as the kernel takes it, or `undefined` when the builder wrote none. */
+function compileHint(
+  draft: string,
+  path: string,
+  field: string,
+  report: Report,
+): string | undefined {
+  const hint = draft.trim();
+  if (!hint) return undefined;
+  const problem = hintProblem(`${path}.hint`, hint);
+  if (problem !== undefined) report('guardrails', problem, field);
+  return hint;
 }
 
 /** The builder's own detectors, each read at the boundaries of the profile it sets above `ignore`. */
@@ -1067,12 +1086,14 @@ function compileOwnDetectors(
       continue;
     }
     const read = boundaries.filter((boundary) => detector.at[boundary] !== 'ignore');
+    const hint = compileHint(detector.hint, `Detect.${key}`, `own.${index}.hint`, report);
     spec[key] = {
       label: detector.label.trim(),
       ...(read.length
         ? { at: Object.fromEntries(read.map((boundary) => [boundary, detector.at[boundary]])) }
         : {}),
       patterns: compilePatterns(detector.patterns, `Detect.${key}`, `own.${index}.patterns`, report),
+      ...(hint ? { hint } : {}),
     };
   }
   return spec;
@@ -1092,7 +1113,10 @@ function withoutPatterns(detect: DetectSpec | undefined): DetectSpec | undefined
       ([key, rule]) => {
         if (typeof rule === 'string' || rule.patterns === undefined) return [key, rule];
         const { patterns: _patterns, ...rest } = rule;
-        return [key, key.includes('.') ? { ...rest, find: PATTERNS_PENDING } : rest];
+        if (key.includes('.')) return [key, { ...rest, find: PATTERNS_PENDING }];
+        // A hint goes with the patterns left out, and `compileHint` has checked it.
+        const { hint: _hint, ...settings } = rest;
+        return [key, settings];
       },
     ),
   ) as DetectSpec;
@@ -1114,7 +1138,7 @@ export function uncompiled(profile: PlaygroundProfileDefinition): PlaygroundProf
  * builder's own detectors.
  */
 function compileDetect(
-  guardrails: Pick<GuardrailsDraft, 'detect' | 'allow' | 'sources' | 'own'>,
+  guardrails: Pick<GuardrailsDraft, 'detect' | 'allow' | 'innocentNames' | 'sources' | 'own'>,
   boundaries: readonly Boundary[],
   report: Report,
 ): DetectSpec | undefined {
@@ -1125,10 +1149,7 @@ function compileDetect(
       (boundary) => detect[detector][boundary] !== DETECT_DEFAULTS[detector][boundary],
     );
     const reads = boundaries.some((boundary) => detect[detector][boundary] !== 'ignore');
-    const allow =
-      isUrlDetector(detector) && reads
-        ? compileUrlAllow(detector, guardrails.allow[detector], report)
-        : undefined;
+    const allow = reads ? compileAllow(detector, guardrails, report) : undefined;
     const source = compileSource(detector, guardrails.sources[detector], report);
     if (!changed.length && !allow && !Object.keys(source).length) continue;
     spec[detector] = {
@@ -1149,8 +1170,23 @@ function compileDetect(
   return Object.keys(spec).length ? (spec as DetectSpec) : undefined;
 }
 
+/** What `detector` lets through: addresses, names, or for most detectors nothing. */
+function compileAllow(
+  detector: Detector,
+  guardrails: Pick<GuardrailsDraft, 'allow' | 'innocentNames'>,
+  report: Report,
+): UrlAllow | NameAllow | undefined {
+  if (isUrlDetector(detector)) return compileUrlAllow(detector, guardrails.allow[detector], report);
+  if (DETECTOR_META[detector].allow !== 'names') return undefined;
+  const names = guardrails.innocentNames.map((name) => name.trim());
+  const blank = names.indexOf('');
+  if (blank !== -1) report('guardrails', 'Allowed names cannot be blank.', 'innocentNames', blank);
+  const named = names.filter(Boolean);
+  return named.length ? { names: named } : undefined;
+}
+
 function isUrlDetector(detector: Detector): detector is UrlDetector {
-  return DETECTOR_META[detector].allow === true;
+  return DETECTOR_META[detector].allow === 'urls';
 }
 
 function compileGuardrails(

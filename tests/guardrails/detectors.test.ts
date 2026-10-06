@@ -97,7 +97,7 @@ Deno.test('every detector is in a group, and its defaults name the boundaries it
 /** The detectors of what the profile itself must not give away: they read only what the model writes. */
 const LEAKS: readonly Detector[] = ['canary_leak', 'prompt_leak'];
 /** The detectors of what carries data out of a reply: they read only what the model says or thinks. */
-const SHOWN: readonly Detector[] = ['marker_leak', 'ungiven_images', 'ungiven_links'];
+const SHOWN: readonly Detector[] = ['marker_leak', 'ungiven_images', 'ungiven_links', 'tool_leak'];
 
 Deno.test('a marker or an ungiven image stops the reply by default, and a link is not read', () => {
   const replies: Boundary[] = ['reply', 'reply_structured', 'live_reply'];

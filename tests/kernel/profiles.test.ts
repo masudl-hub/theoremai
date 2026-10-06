@@ -162,7 +162,7 @@ Deno.test('defineProfile refuses a guardrails key it does not know, and checks a
   assertThrows(
     profile({ detect: { marker_leak: { allow: { hosts: [] } } } }),
     TheoremError,
-    'is a setting of ungiven_images and ungiven_links only',
+    'is a setting of ungiven_images, ungiven_links and tool_leak only',
   );
   assertThrows(
     profile({ blockedReply: { retries: 2 } }),

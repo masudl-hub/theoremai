@@ -212,6 +212,8 @@ export interface PatternDraft {
 export interface PatternSourceDraft {
   theorem: boolean;
   patterns: PatternDraft[];
+  /** What a retry tells the model about a match of the builder's patterns. `''` keeps the lexicon's. */
+  hint: string;
 }
 
 /** A detector of the builder's own, read with its patterns. */
@@ -222,6 +224,8 @@ export interface OwnDetectorDraft {
   /** What it does with a match, at every boundary. */
   at: Record<Boundary, DetectAction>;
   patterns: PatternDraft[];
+  /** What a retry tells the model about a match. `''` keeps the lexicon's. */
+  hint: string;
 }
 
 export interface GuardrailsDraft {
@@ -238,6 +242,8 @@ export interface GuardrailsDraft {
   quotaMessage: string;
   /** What `ungiven_images` and `ungiven_links` let through. */
   allow: Record<UrlDetector, UrlAllowDraft>;
+  /** The names of tools and parameters `tool_leak` lets through. */
+  innocentNames: string[];
   /** `''` omits it (kernel default: retry). */
   blockedReplyOnBlock: BlockedReplyOnBlock | '';
   /** `null` omits it (kernel default: 1). */
@@ -446,6 +452,7 @@ export function newOwnDetector(): OwnDetectorDraft {
     label: '',
     at: recordOf(BOUNDARIES, () => 'ignore' as const),
     patterns: [newPattern()],
+    hint: '',
   };
 }
 
@@ -455,7 +462,7 @@ function defaultGuardrails(): GuardrailsDraft {
     canaryBindNote: '',
     detect: recordOf(DETECTORS, (detector) => ({ ...resolved.detect[detector] })),
     sources: Object.fromEntries(
-      PATTERN_DETECTORS.map((detector) => [detector, { theorem: true, patterns: [] }]),
+      PATTERN_DETECTORS.map((detector) => [detector, { theorem: true, patterns: [], hint: '' }]),
     ),
     own: [],
     quotaEnabled: false,
@@ -465,6 +472,7 @@ function defaultGuardrails(): GuardrailsDraft {
       ungiven_images: { hosts: [], fromTools: true },
       ungiven_links: { hosts: [], fromTools: true },
     },
+    innocentNames: [],
     blockedReplyOnBlock: '',
     blockedReplyMaxRetries: null,
     egressRepairGuidance: '',

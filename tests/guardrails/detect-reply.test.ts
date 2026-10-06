@@ -289,6 +289,7 @@ Deno.test('a Live reply is not gated when no detector reads live_reply', () => {
   const unread = liveProfile('live_detect_none', {
     marker_leak: 'ignore',
     ungiven_images: 'ignore',
+    tool_leak: 'ignore',
   });
   assertEquals(createLiveOutboundGateSession(unread).gate, null);
   // The detectors a profile does not set stay on: they read live_reply by default.

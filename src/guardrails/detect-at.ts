@@ -27,6 +27,7 @@ import { injectionSpans } from './injection.ts';
 import { promptEchoRanges } from './prompt-echo.ts';
 import { DETECT_RULES, detectRule } from './rules.ts';
 import { SENSITIVE_GROUPS, type SensitiveGroups, sensitiveSpans } from './sensitive.ts';
+import { ownToolsWithout, toolLeakSpans } from './tool-leak.ts';
 import type {
   GuardrailContext,
   GuardrailStage,
@@ -63,10 +64,11 @@ const ONLY: Readonly<Record<keyof SensitiveGroups, SensitiveGroups>> = recordOf(
 /**
  * What of the turn the detectors of what is the profile's own read: the canary it planted, whether
  * the model was given it besides, the private stretches of its system instruction, and the URLs
- * the model was given. A detector whose part is absent reads without it: `canary_leak` and
- * `prompt_leak` find nothing, and to `ungiven_images` and `ungiven_links` no URL was given.
+ * the model was given, and the names of its tools. A detector whose part is absent reads without
+ * it: `canary_leak`, `prompt_leak` and `tool_leak` find nothing, and to `ungiven_images` and
+ * `ungiven_links` no URL was given.
  */
-interface DetectScope extends LeakScope, Pick<GuardrailContext, 'givenUrls'> {
+interface DetectScope extends LeakScope, Pick<GuardrailContext, 'givenUrls' | 'ownTools'> {
   /** The words of the profile's own canary note, when its lexicon rewords it (`boundaryNote`). */
   note?: string;
   /** What `ungiven_images` and `ungiven_links` let through besides the given URLs. */
@@ -92,7 +94,7 @@ function leakScopeOf(detect: ResolvedDetect, turn: LeakScope): LeakScope {
 /** The {@linkcode DetectScope} of a turn under `policy`: each part only while a detector reads it. */
 function scopeOf(
   policy: Pick<ResolvedGuardrailPolicy, 'detect' | 'allow'>,
-  turn: LeakScope & Pick<GuardrailContext, 'givenUrls' | 'lexicon'>,
+  turn: LeakScope & Pick<GuardrailContext, 'givenUrls' | 'lexicon' | 'ownTools'>,
 ): DetectScope {
   const { detect } = policy;
   const leaks = leakScopeOf(detect, turn);
@@ -100,11 +102,15 @@ function scopeOf(
   const note = detects(detect, 'marker_leak')
     ? boundaryNote({ canary: leaks.canary, lexicon: turn.lexicon })
     : undefined;
+  const tools = detects(detect, 'tool_leak')
+    ? ownToolsWithout(turn.ownTools, detect.innocent)
+    : undefined;
   return {
     ...leaks,
     ...(urls && turn.givenUrls ? { givenUrls: turn.givenUrls } : {}),
     ...(urls ? { allow: policy.allow } : {}),
     ...(note ? { note } : {}),
+    ...(tools ? { ownTools: tools } : {}),
   };
 }
 
@@ -144,6 +150,12 @@ function hostSpans(
   );
 }
 
+/** The placeholder a host's pattern leaves for a detector, where it is not the sensitive one. */
+const HOST_KIND: Readonly<Partial<Record<Detector, RedactSpan['kind']>>> = {
+  injection: 'injection',
+  tool_leak: 'tool',
+};
+
 /**
  * What `detector` finds in `text`: with Theorem's patterns, the host's, both or neither, as its
  * `source` says. Left out, Theorem's only. A host's pattern is read on the text as written.
@@ -156,11 +168,7 @@ function spansOf(
   skipImages = false,
 ): RedactSpan[] {
   if (!source) return theoremSpans(detector, text, scope, skipImages);
-  const own = hostSpans(
-    text,
-    source.matchers,
-    detector === 'injection' ? 'injection' : 'sensitive',
-  );
+  const own = hostSpans(text, source.matchers, HOST_KIND[detector] ?? 'sensitive');
   return source.theorem ? [...theoremSpans(detector, text, scope, skipImages), ...own] : own;
 }
 
@@ -192,6 +200,7 @@ function theoremSpans(
     const { privateSystem, canary } = scope;
     return privateSystem ? ranged(promptEchoRanges(text, privateSystem, canary), 'prompt') : [];
   }
+  if (detector === 'tool_leak') return toolLeakSpans(text, scope.ownTools);
   return sensitiveSpans(text, ONLY[detector]);
 }
 
@@ -351,6 +360,7 @@ function detectorsAt(boundary: Boundary, detect: ResolvedDetect): Detector[] {
 function hasPart(detector: Detector, scope: DetectScope): boolean {
   if (detector === 'canary_leak') return Boolean(scope.canary);
   if (detector === 'prompt_leak') return Boolean(scope.privateSystem?.length);
+  if (detector === 'tool_leak') return Boolean(scope.ownTools?.names.length);
   return true;
 }
 

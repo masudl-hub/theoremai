@@ -15,6 +15,7 @@ import {
   type ProgressiveYieldResult,
 } from './progressive-yield.ts';
 import { type ThoughtGuard, type ThoughtRelease, thoughtGuardFor } from './thought-guard.ts';
+import type { OwnTools } from './tool-leak.ts';
 import type { GuardrailContext, GuardrailHit, ResolvedGuardrailPolicy } from './types.ts';
 
 /**
@@ -59,6 +60,7 @@ function createLiveOutboundGateSession(
   canary?: string,
   privateSystem?: readonly string[],
   givenUrls?: GivenUrls,
+  ownTools?: OwnTools,
 ): LiveOutboundGateSession {
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const context: GuardrailContext = {
@@ -68,6 +70,7 @@ function createLiveOutboundGateSession(
     ...leakScopeOf(policy.detect, { canary, privateSystem }),
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(givenUrls ? { givenUrls } : {}),
+    ...(ownTools ? { ownTools } : {}),
   };
   const thoughts = thoughtGuardFor(policy, context);
   return {

@@ -1,7 +1,9 @@
 import { type GivenUrlSets, givenUrlSets } from '../../../guardrails/egress-urls.ts';
+import type { OwnTools } from '../../../guardrails/tool-leak.ts';
 import type { GuardrailHit, TurnTaint } from '../../../guardrails/types.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
+import { ownToolsOf } from '../../tools/project.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
 import type {
   InteractionPart,
@@ -54,6 +56,8 @@ interface StepExecutionState {
   taint?: TurnTaint;
   /** Every URL the model has been given this turn (`GuardrailContext.givenUrls`). */
   givenUrls: GivenUrlSets;
+  /** The names of the profile's tools and of their parameters (`GuardrailContext.ownTools`). */
+  ownTools?: OwnTools;
   /** Set once the model is given the canary this turn (`GuardrailContext.canaryGiven`). */
   canaryGiven: boolean;
   /** What the canary scan already read this turn (`requestGivesCanary`). */
@@ -109,6 +113,7 @@ function openTurnState(args: {
   agents?: AgentCaller;
 }): StepExecutionState {
   const { profile, generation } = args;
+  const ownTools = ownToolsOf(args.tools, profile);
   const state: StepExecutionState = {
     tools: args.tools,
     trace: args.trace,
@@ -121,6 +126,7 @@ function openTurnState(args: {
     givenUrls: givenUrlSets(),
     canaryGiven: false,
     canaryScanned: new WeakSet(),
+    ...(ownTools ? { ownTools } : {}),
     ...(args.agents ? { agents: args.agents } : {}),
   };
   if (profile.type === 'text') {

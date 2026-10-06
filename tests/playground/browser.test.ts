@@ -196,7 +196,7 @@ Deno.test('local browser runs block HTTP tools unless explicitly enabled', async
         category: 'read',
         access: 'read-only' as const,
         permission: 'auto' as const,
-        loadTier: 'T1' as const,
+        loadTier: 'T2' as const,
         paths: ['remote'],
         endpoint: 'https://example.com',
         method: 'GET' as const,

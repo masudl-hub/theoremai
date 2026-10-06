@@ -792,9 +792,6 @@ export function notLoadedMessage(
   tool: { name: string; loadTier?: string },
   lexicon?: LexiconOverrides,
 ): string {
-  if (tool.loadTier === 'T1') {
-    return lexiconText('tool.not_wired_t1', { tool: tool.name }, lexicon);
-  }
   if (tool.loadTier === 'T2') {
     return lexiconText('tool.not_loaded_t2', { tool: tool.name }, lexicon);
   }

@@ -396,7 +396,6 @@ Deno.test('runSession setup declarations equal the full allow list regardless of
   resetTools();
   for (const [name, loadTier] of [
     ['session_t0', 'T0'],
-    ['session_t1', 'T1'],
     ['session_t2', 'T2'],
   ] as const) {
     registerTool({
@@ -424,7 +423,7 @@ Deno.test('runSession setup declarations equal the full allow list regardless of
       },
     },
     live: { voice: 'Aoede' },
-    tools: { allow: ['session_t0', 'session_t1', 'session_t2'] },
+    tools: { allow: ['session_t0', 'session_t2'] },
   });
   registerProfile(profile);
 
@@ -449,7 +448,7 @@ Deno.test('runSession setup declarations equal the full allow list regardless of
   const declared = (parsed.setup?.tools ?? []).flatMap((t) =>
     (t.functionDeclarations ?? []).map((d) => d.name),
   );
-  assertEquals(declared, ['session_t0', 'session_t1', 'session_t2']);
+  assertEquals(declared, ['session_t0', 'session_t2']);
 
   liveMock.close();
   await session.close();
@@ -458,7 +457,6 @@ Deno.test('runSession setup declarations equal the full allow list regardless of
 function registerTieredSessionTools(): void {
   for (const [name, loadTier] of [
     ['snap_t0', 'T0'],
-    ['snap_t1', 'T1'],
     ['snap_t2', 'T2'],
   ] as const) {
     registerTool({
@@ -520,7 +518,7 @@ Deno.test('runSession declares a host-supplied snapshot when the registry is not
   clearProfiles();
   resetTools();
   registerTieredSessionTools();
-  const allow = ['snap_t0', 'snap_t1', 'snap_t2'];
+  const allow = ['snap_t0', 'snap_t2'];
   const profile = defineSnapshotLiveProfile('session_snapshot_remote', allow);
   registerProfile(profile);
 
@@ -545,7 +543,7 @@ Deno.test('runSession declares a host-supplied snapshot when the registry is not
   });
   assertEquals(declaredToolNames(mock), allow);
   const setupFrame = mock.sent.find((frame) => frame.includes('"setup"')) ?? '';
-  assertEquals(setupFrame.includes('"T1 tool"'), true);
+  assertEquals(setupFrame.includes('"T2 tool"'), true);
 
   mock.close();
   await session.close();
@@ -568,11 +566,7 @@ Deno.test('runSession refuses a snapshot that declares tools outside tools.allow
   clearProfiles();
   resetTools();
   registerTieredSessionTools();
-  const wide = defineSnapshotLiveProfile('session_snapshot_wide', [
-    'snap_t0',
-    'snap_t1',
-    'snap_t2',
-  ]);
+  const wide = defineSnapshotLiveProfile('session_snapshot_wide', ['snap_t0', 'snap_t2']);
   registerProfile(wide);
   const snapshot = await prepareTurnToolSnapshot(
     defaultKernelScope.tools,
@@ -587,7 +581,7 @@ Deno.test('runSession refuses a snapshot that declares tools outside tools.allow
   await assertRejects(
     () => openWithMock({ profile: narrow.id, path: 'live-call', snapshot }),
     TheoremError,
-    'outside tools.allow: snap_t1, snap_t2',
+    'outside tools.allow: snap_t2',
   );
 });
 

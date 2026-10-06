@@ -43,7 +43,7 @@ function as<T>(value: unknown): T {
   return value as T;
 }
 
-type ToolLoadTier = 'T0' | 'T1' | 'T2';
+type ToolLoadTier = 'T0' | 'T2';
 
 const inputSchema = z.object({ q: z.string() });
 
@@ -83,20 +83,20 @@ function registryWith(): ToolRegistry {
     });
   fn('f0', 'T0');
   fn('f0b', 'T0');
-  fn('f1', 'T1');
+  fn('f1', 'T2');
   fn('f2', 'T2');
   fn('f2b', 'T2');
   fn('fweb', 'T0', ['web']);
   fn('fweb2', 'T2', ['web']);
   builtin('b0', 'T0');
-  builtin('b1', 'T1');
-  builtin('b1b', 'T1');
+  builtin('b1', 'T2');
+  builtin('b1b', 'T2');
   builtin('b2', 'T2');
   builtin('bweb', 'T0', undefined, ['web']);
-  builtin('ca', 'T1', ['cb']);
-  builtin('cb', 'T1');
-  builtin('cc', 'T1', ['cd']);
-  builtin('cd', 'T1', ['cc']);
+  builtin('ca', 'T2', ['cb']);
+  builtin('cb', 'T2');
+  builtin('cc', 'T2', ['cd']);
+  builtin('cd', 'T2', ['cc']);
   return tools;
 }
 
@@ -350,7 +350,7 @@ Deno.test('initialBuiltins keeps builtins that are T0, or any tier for live, min
     ['cb', 'b0'],
     'live exclusions',
   );
-  check(initialBuiltins(tools, as<Profile>({ type: 'text' }), ['ca', 'cb']), [], 'T1 not initial');
+  check(initialBuiltins(tools, as<Profile>({ type: 'text' }), ['ca', 'cb']), [], 'T2 not initial');
 });
 
 Deno.test('resolveTurnTools gates custom then model builtins and derives builtins, visible, executable and wire', () => {
@@ -533,7 +533,7 @@ Deno.test('expandT1Policy wraps a failing or malformed policy as a config error 
   }
 });
 
-Deno.test('expandT1Policy promotes only gated, registered T1 selections and recomputes executable', async () => {
+Deno.test('expandT1Policy promotes only gated, registered T2 selections and recomputes executable', async () => {
   const state = snapshot({
     builtins: ['b0'],
     gated: ['f0', 'f1', 'f2', 'b0', 'b1', 'b2', 'ca', 'cb', 'ghost'],
@@ -562,12 +562,12 @@ Deno.test('expandT1Policy promotes only gated, registered T1 selections and reco
     },
   });
   await expandT1Policy(tools, state, profile, req());
-  check(state.visible, ['f0', 'b0', 'f1'], 'visible');
-  check(state.builtins, ['b0', 'b1', 'cb'], 'builtins');
-  check(state.executable, ['f0', 'f1'], 'executable');
+  check(state.visible, ['f0', 'b0', 'f2', 'f1'], 'visible');
+  check(state.builtins, ['b0', 'b2', 'b1', 'cb'], 'builtins');
+  check(state.executable, ['f0', 'f2', 'f1'], 'executable');
   check(
     state.wire.map((w) => w.name),
-    ['f1'],
+    ['f2', 'f1'],
     'wire',
   );
 });
@@ -677,9 +677,9 @@ Deno.test('promoteLoadedTools promotes gated, path-matching T2 tools in order, a
 });
 
 Deno.test('promoteLoadedTools is all-or-nothing: a later invalid id discards earlier promotions', () => {
-  const profile = textProfile(['f2', 'f1']);
-  const state = snapshot({ gated: ['f2', 'f1'], executable: ['keep'] });
-  const result = promoteLoadedTools(tools, state, ['f2', 'f1'], profile);
+  const profile = textProfile(['f2', 'f0']);
+  const state = snapshot({ gated: ['f2', 'f0'], executable: ['keep'] });
+  const result = promoteLoadedTools(tools, state, ['f2', 'f0'], profile);
   check(
     result,
     {
@@ -688,16 +688,16 @@ Deno.test('promoteLoadedTools is all-or-nothing: a later invalid id discards ear
         code: 'invalid_output',
         kind: 'bad_response',
         message:
-          "tools.t2Loader attempted to promote tool 'f1' with loadTier 'T1' — only T2 tools may be promoted",
+          "tools.t2Loader attempted to promote tool 'f0' with loadTier 'T0' — only T2 tools may be promoted",
       },
     },
     'result',
   );
-  check(state, snapshot({ gated: ['f2', 'f1'], executable: ['keep'] }), 'state untouched');
+  check(state, snapshot({ gated: ['f2', 'f0'], executable: ['keep'] }), 'state untouched');
 });
 
 Deno.test('promotionTarget names why a loaded id may not be promoted, and accepts an allowed T2 custom tool', () => {
-  const profile = textProfile(['f2', 'f1', 'b2', 'ghost']);
+  const profile = textProfile(['f2', 'f0', 'b2', 'ghost']);
   const failure = (message: string) => ({ code: 'invalid_output', kind: 'bad_response', message });
   check(
     refusal(tools, 'f2b', profile),
@@ -720,11 +720,11 @@ Deno.test('promotionTarget names why a loaded id may not be promoted, and accept
     'builtin even at T2',
   );
   check(
-    refusal(tools, 'f1', profile),
+    refusal(tools, 'f0', profile),
     failure(
-      "tools.t2Loader attempted to promote tool 'f1' with loadTier 'T1' — only T2 tools may be promoted",
+      "tools.t2Loader attempted to promote tool 'f0' with loadTier 'T0' — only T2 tools may be promoted",
     ),
-    'T1',
+    'T0',
   );
   check(refusal(tools, 'f2', profile), undefined, 'T2 allowed');
 });

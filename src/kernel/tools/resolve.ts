@@ -242,7 +242,7 @@ export async function expandT1Policy(
       continue;
     }
     const tool = tools.get(id);
-    if (tool?.loadTier !== 'T1') {
+    if (tool?.loadTier !== 'T2') {
       continue;
     }
     if (tool.type === 'builtin') {

@@ -192,10 +192,6 @@ Deno.test('tools mutation helpers validate loaded ids and sanitize nested input'
     lexiconText('tool.not_visible', { tool: 'probe' }),
   );
   assertEquals(
-    notLoadedMessage(asValue<FunctionToolDef>({ name: 'one', loadTier: 'T1' })),
-    lexiconText('tool.not_wired_t1', { tool: 'one' }),
-  );
-  assertEquals(
     notLoadedMessage(asValue<FunctionToolDef>({ name: 'two', loadTier: 'T2' })),
     lexiconText('tool.not_loaded_t2', { tool: 'two' }),
   );
@@ -424,7 +420,7 @@ Deno.test('tools mutation coverage exercises resolver duplicate and conflict tra
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     wire: {},
     conflictsWith: ['conflict_two'],
@@ -436,7 +432,7 @@ Deno.test('tools mutation coverage exercises resolver duplicate and conflict tra
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     wire: {},
     conflictsWith: ['conflict_one'],
@@ -487,9 +483,9 @@ Deno.test('tools mutation coverage exercises policy and function execution trans
     }),
     asValue<TurnRequest>({ path: 'web', input: { text: 'x' } }),
   );
-  // record_lookup is T2: only tools.t2Loader loads it.
-  assertEquals(state.visible, []);
-  assertEquals(state.executable, []);
+  // record_lookup is T2: the policy loads it at turn start.
+  assertEquals(state.visible, ['record_lookup']);
+  assertEquals(state.executable, ['record_lookup']);
   await expandT1Policy(
     defaultKernelScope.tools,
     state,

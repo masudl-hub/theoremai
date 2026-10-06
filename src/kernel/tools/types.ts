@@ -353,7 +353,7 @@ export interface ToolLoadContext {
   host?: unknown;
 }
 
-/** Picks which eligible T1 tools to wire at turn start. */
+/** Picks which allowed T2 tools to load at turn start. */
 export type ToolPolicy = (ctx: ToolLoadContext) => ToolId[] | Promise<ToolId[]>;
 
 /** A request to run a held tool call outside a turn. */
@@ -401,7 +401,7 @@ export interface InvokeToolRequest {
 export interface ProfileToolsSpec {
   /** Custom tools only; builtins live on `models.*.builtInTools`. */
   allow: ToolId[];
-  /** Returns only ids already allowed with `loadTier: 'T1'`. Not supported on `type: 'live'`. */
+  /** Returns ids already allowed with `loadTier: 'T2'` to load at turn start. Not supported on `type: 'live'`. */
   t1Policy?: ToolPolicy;
   /** Must be in `allow`; completing with `{ loaded: string[] }` promotes those T2 ids. Not on `type: 'live'`. */
   t2Loader?: ToolId;

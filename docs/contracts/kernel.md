@@ -454,7 +454,8 @@ Tools, profiles, and structured schemas live in a kernel scope (see
 [Kernel scope](#kernel-scope)). A host with one tenant registers at startup into the
 default scope via `registerTool` (Google builtins via `registerGooglePreset`). Profiles declare **custom** tools on `tools.allow` and **provider builtins** on
 `models.*.builtInTools`. On `text` / `image` turns visibility is `loadTier` (T0 at
-turn start, T1 via `tools.t1Policy`, T2 via `tools.t2Loader`). On `live` every
+turn start; T2 on demand, picked at turn start by `tools.t1Policy` or loaded
+mid-turn by `tools.t2Loader`). On `live` every
 allowed tool (and every model builtin) is wired at session setup regardless of
 `loadTier`; on `host` every allowed tool is executable with no tiers and no path
 gating. Each of these facts has one owner, and every kernel, CLI, and interface
@@ -463,7 +464,7 @@ profile's allow list, empty for `speech` and `decision`; `profileToolsSpec`
 returns the tiered spec (`t1Policy`, `t2Loader`) for `text` and `image` only;
 `profileInputs` (`src/kernel/registry/catalog.ts`) returns turn inputs for `text` and
 `image` only. So projection, resolution, execute eligibility, T2 promotion, and
-T1/T2 loading see no tools on `speech` and `decision`, and `invokeTool` rejects
+T2 loading see no tools on `speech` and `decision`, and `invokeTool` rejects
 `decision` explicitly.
 
 A builtin names itself per transport in `wire` (`interactions`, `live`,
@@ -612,7 +613,7 @@ registerTool({
   handler: async (input) => ({ finding: `Order ${input.orderId} is in transit.` }),
 });
 
-// Profile — custom allow + optional T1 policy + optional T2 loader
+// Profile — custom allow + optional turn-start policy + optional mid-turn loader, both over T2 tools
 tools: {
   allow: ['lookup_order', 'load_tools', 'deferred_order_tool'],
   t1Policy: (ctx) => (ctx.input?.text?.includes('order') ? ['deferred_order_tool'] : []),

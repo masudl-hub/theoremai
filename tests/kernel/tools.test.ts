@@ -581,7 +581,7 @@ Deno.test('loader promote rejects non-T2 tool ids', () => {
   assertEquals(result.promoted, []);
 });
 
-Deno.test('profile.tools.t1Policy wires T1 function tools via prepareTurnToolSnapshot', async () => {
+Deno.test('profile.tools.t1Policy wires T2 function tools via prepareTurnToolSnapshot', async () => {
   const ContextualInput = z.object({ q: z.string() });
   registerTool({
     type: 'function',
@@ -590,7 +590,7 @@ Deno.test('profile.tools.t1Policy wires T1 function tools via prepareTurnToolSna
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     input: ContextualInput,
     output: z.object({ finding: z.string() }),
@@ -625,15 +625,15 @@ Deno.test('profile.tools.t1Policy wires T1 function tools via prepareTurnToolSna
   assertEquals(snapshot.visible, ['contextual_lookup']);
 });
 
-Deno.test('T1 not_loaded message cites t1Policy', async () => {
+Deno.test('a T2 tool nothing loaded says to run the loader', async () => {
   registerTool({
     type: 'function',
-    name: 't1_not_loaded_probe',
-    description: 'T1 visibility probe',
+    name: 't2_not_loaded_probe',
+    description: 'T2 visibility probe',
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     input: z.object({}),
     output: z.object({ finding: z.string() }),
@@ -643,24 +643,24 @@ Deno.test('T1 not_loaded message cites t1Policy', async () => {
     defineProfile({
       type: 'text',
       identity: { handle: 'test', system: 'test' },
-      id: 't1_not_loaded_bot',
+      id: 't2_not_loaded_bot',
       ...geminiModels('gemini35FlashLite'),
       maxSteps: 1,
-      tools: { allow: ['t1_not_loaded_probe'] },
+      tools: { allow: ['t2_not_loaded_probe'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
     }),
   );
   const events = await invokeRegisteredTool({
-    profile: 't1_not_loaded_bot',
-    name: 't1_not_loaded_probe',
+    profile: 't2_not_loaded_bot',
+    name: 't2_not_loaded_probe',
     input: {},
   });
-  const toolEv = lastTool(events, 't1_not_loaded_probe');
+  const toolEv = lastTool(events, 't2_not_loaded_probe');
   assertEquals(toolEv?.phase, 'error');
   assertEquals(failureOf(toolEv)?.code, 'not_loaded');
   assertEquals(failureOf(toolEv)?.kind, 'request');
-  assertEquals(failureOf(toolEv)?.message?.includes('t1Policy'), true);
+  assertEquals(failureOf(toolEv)?.message?.includes('t2Loader'), true);
 });
 
 Deno.test('invokeTool resume cannot bypass T2 not_loaded without promoted', async () => {
@@ -711,15 +711,15 @@ Deno.test('invokeTool resume runs T2 when promoted ids are supplied', async () =
   assertEquals(lastTool(events, 'record_lookup')?.phase, 'complete');
 });
 
-Deno.test('invokeTool wires T1 tools when profile.tools.t1Policy is set', async () => {
+Deno.test('invokeTool wires T2 tools when profile.tools.t1Policy is set', async () => {
   registerTool({
     type: 'function',
     name: 'invoke_t1_probe',
-    description: 'T1 invoke probe',
+    description: 'T2 invoke probe',
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     input: z.object({ q: z.string() }),
     output: z.object({ finding: z.string() }),
@@ -829,7 +829,7 @@ Deno.test('path omitted excludes tools without wildcard paths', () => {
   assertEquals(generation.tools.gated.includes('stub_tool'), true);
 });
 
-Deno.test('T1 builtins stay off wire until profile.tools.t1Policy selects them', async () => {
+Deno.test('T2 builtins stay off wire until profile.tools.t1Policy selects them', async () => {
   registerTool({
     type: 'builtin',
     name: 'deferred_builtin_probe',
@@ -837,7 +837,7 @@ Deno.test('T1 builtins stay off wire until profile.tools.t1Policy selects them',
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     wire: { interactions: 'deferred_probe' },
   });
@@ -873,15 +873,15 @@ Deno.test('T1 builtins stay off wire until profile.tools.t1Policy selects them',
   assertEquals(snapshot.builtins, ['deferred_builtin_probe']);
 });
 
-Deno.test('runTurn expands profile.tools.t1Policy before provider sees T1 tools', async () => {
+Deno.test('runTurn expands profile.tools.t1Policy before provider sees the T2 tools it picked', async () => {
   registerTool({
     type: 'function',
     name: 'runturn_t1_probe',
-    description: 'T1 runTurn probe',
+    description: 'T2 runTurn probe',
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     input: z.object({}),
     output: z.object({ finding: z.string() }),
@@ -1092,7 +1092,7 @@ Deno.test('validateToolSchema checks structure and leaves provider keywords to t
   );
 });
 
-/** Register a T1 probe that records the `host` it observes at every hook. */
+/** Register a T2 probe that records the `host` it observes at every hook. */
 function registerHostProbe(name: string, seen: Array<{ hook: string; host: unknown }>): void {
   registerTool({
     type: 'function',
@@ -1101,7 +1101,7 @@ function registerHostProbe(name: string, seen: Array<{ hook: string; host: unkno
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     input: z.object({ q: z.string().optional() }),
     output: z.object({ finding: z.string() }),

@@ -85,11 +85,11 @@ function registerPressureProfiles(): void {
   registerTool({
     type: 'function',
     name: 'pressure_t1_tool',
-    description: 'T1 tool selected only via t1Policy',
+    description: 'T2 tool the t1Policy selects',
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     input: z.object({ q: z.string() }),
     output: z.object({ finding: z.string() }),
@@ -478,7 +478,7 @@ function buildInvokeCases(): Case[] {
   );
 
   add(
-    'invoke/T1 via t1Policy profile',
+    'invoke/T2 via t1Policy profile',
     {
       profile: T1_PROFILE,
       name: 'pressure_t1_tool',
@@ -486,7 +486,7 @@ function buildInvokeCases(): Case[] {
     },
     (r) => {
       if (lastTool(r.events, 'pressure_t1_tool')?.phase !== 'complete')
-        return 'T1 tool should complete';
+        return 'the policy-selected tool should complete';
     },
   );
 
@@ -698,12 +698,12 @@ function buildStubRunCases(): Case[] {
       },
     },
     {
-      name: 'stub-run/T1 policy visible + callable',
+      name: 'stub-run/policy-selected T2 visible + callable',
       lane: 'stub',
       run: () => stub('pressure_t1_tool', { q: 'stub' }),
       check: (r) => {
         if (lastTool(r.events, 'pressure_t1_tool')?.phase !== 'complete') {
-          return 'T1 tool should complete under t1Policy';
+          return 'the policy-selected tool should complete under t1Policy';
         }
       },
     },

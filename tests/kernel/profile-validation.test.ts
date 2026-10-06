@@ -628,7 +628,7 @@ Deno.test('registration checks a profile against the tools and the profiles alre
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     wire: { live: 'web', geminiInteractions: 'web' },
   };
@@ -639,7 +639,7 @@ Deno.test('registration checks a profile against the tools and the profiles alre
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     input: z.object({}),
     output: z.object({}),

@@ -151,11 +151,11 @@ Deno.test('turn input: a retry keeps the canary-bound system prompt and the tool
   registerTool({
     type: 'function',
     name: 'turn_input_t1_tool',
-    description: 'T1 tool the policy selects',
+    description: 'T2 tool the policy selects',
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     input: z.object({}),
     output: z.object({ finding: z.string() }),

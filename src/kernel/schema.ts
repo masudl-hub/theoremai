@@ -257,7 +257,7 @@ export type StageApplyWarningCode = (typeof STAGE_APPLY_WARNING_CODES)[number];
 /** The `status` of a tool output that asks the user a question. */
 export const AWAITING_USER_INPUT_STATUS = 'awaiting_user_input' as const;
 /** Enforced by the kernel at resolve time. */
-export const TOOL_LOAD_TIERS = ['T0', 'T1', 'T2'] as const;
+export const TOOL_LOAD_TIERS = ['T0', 'T2'] as const;
 /** One of {@linkcode TOOL_LOAD_TIERS}. */
 export type ToolLoadTier = (typeof TOOL_LOAD_TIERS)[number];
 
@@ -790,7 +790,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'tools.t1Policy': field(
     '(ctx) => ToolId[] | Promise<ToolId[]>',
-    'Your function that picks, at the start of each turn, which T1 tools to load; it loads no other tier.',
+    'Your function that picks, at the start of each turn, which T2 tools to load up front; the rest wait for tools.t2Loader.',
   ),
   'tools.t2Loader': field(
     'ToolId',
@@ -1395,8 +1395,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     TOOL_LOAD_TIERS,
     {
       T0: 'At the start of every turn.',
-      T1: 'When tools.t1Policy picks it at the start of a turn.',
-      T2: 'When the tools.t2Loader tool loads it mid-turn (custom tools only).',
+      T2: 'On demand: when tools.t1Policy picks it at the start of a turn, or when the tools.t2Loader tool loads it mid-turn (custom tools only).',
     },
   ),
   permission: field(

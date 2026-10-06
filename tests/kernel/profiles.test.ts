@@ -417,15 +417,15 @@ Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles'
   );
 });
 
-Deno.test("registerProfile accepts T1/T2 tools on type 'live' and wires all of them", () => {
+Deno.test("registerProfile accepts T2 tools on type 'live' and wires all of them", () => {
   registerTool({
     type: 'function',
     name: 'live_t1_probe',
-    description: 'T1 tool wired at live setup',
+    description: 'T2 tool wired at live setup',
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     input: z.object({}),
     output: z.object({ finding: z.string() }),
@@ -491,11 +491,11 @@ Deno.test('live snapshot turns on every gated builtin regardless of loadTier', (
   registerTool({
     type: 'builtin',
     name: 'live_builtin_t1',
-    description: 'T1 builtin',
+    description: 'T2 builtin',
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     wire: { live: 'live_builtin_t1' },
   });

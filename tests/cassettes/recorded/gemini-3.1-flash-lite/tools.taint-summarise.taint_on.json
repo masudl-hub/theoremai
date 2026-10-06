@@ -44,7 +44,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "tool_result flag tool_result.names-callable-tool+tool_result.imperative"
+   "tool_result flag detect.tool_instructions+detect.tool_instructions"
   ],
   "error": null,
   "shown": "The Acme status page reports that all systems are currently operational.",

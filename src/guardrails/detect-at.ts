@@ -8,6 +8,7 @@ import {
   DETECTORS,
   type DetectAction,
   type Detector,
+  type DetectorSource,
   detects,
   type ResolvedAllow,
   type ResolvedDetect,
@@ -18,6 +19,7 @@ import { notePattern, SYSTEM_BOUNDARY } from './egress-patterns.ts';
 import { imageLeakSpans, linkLeakSpans, type UrlScope } from './egress-urls.ts';
 import type { GuardrailEvent, GuardrailHit } from './event-schemas.ts';
 import { CANARY_HIT, hitFromSpan, PROMPT_ECHO_HIT } from './hits.ts';
+import type { HostMatcher } from './host-patterns.ts';
 import { injectionSpans } from './injection.ts';
 import { promptEchoRanges } from './prompt-echo.ts';
 import { DETECT_RULES } from './rules.ts';
@@ -128,8 +130,39 @@ function urlScope(detector: UrlDetector, scope: DetectScope): UrlScope {
 
 const MARKERS = new RegExp(SYSTEM_BOUNDARY.source, 'gi');
 
-/** With `skipImages`, `ungiven_links` leaves an image's own markup to `ungiven_images`. */
+/** Every match of the host's `matchers` in `text`, each named for its pattern. */
+function hostSpans(
+  text: string,
+  matchers: readonly HostMatcher[],
+  kind: RedactSpan['kind'],
+): RedactSpan[] {
+  return matchers.flatMap(({ name, regex }) =>
+    spansFromPatterns(text, [regex], kind).map((span) => ({ ...span, name })),
+  );
+}
+
+/**
+ * What `detector` finds in `text`: with Theorem's patterns, the host's, both or neither, as its
+ * `source` says. Left out, Theorem's only. A host's pattern is read on the text as written.
+ */
 function spansOf(
+  detector: Detector,
+  text: string,
+  scope: DetectScope,
+  source?: DetectorSource,
+  skipImages = false,
+): RedactSpan[] {
+  if (!source) return theoremSpans(detector, text, scope, skipImages);
+  const own = hostSpans(
+    text,
+    source.matchers,
+    detector === 'injection' ? 'injection' : 'sensitive',
+  );
+  return source.theorem ? [...theoremSpans(detector, text, scope, skipImages), ...own] : own;
+}
+
+/** With `skipImages`, `ungiven_links` leaves an image's own markup to `ungiven_images`. */
+function theoremSpans(
   detector: Detector,
   text: string,
   scope: DetectScope,
@@ -185,7 +218,13 @@ function detectAt(
   for (const detector of DETECTORS) {
     const chosen = detect[detector][boundary];
     if (chosen === 'ignore') continue;
-    const spans = spansOf(detector, text, scope, leavesImages(detector, boundary, detect));
+    const spans = spansOf(
+      detector,
+      text,
+      scope,
+      detect.sources?.[detector],
+      leavesImages(detector, boundary, detect),
+    );
     if (spans.length === 0) continue;
     for (const span of spans) hits.push(hitOf(detector, text, span));
     if (chosen === 'redact') redact.push(...spans);
@@ -214,7 +253,7 @@ function leftAfterRedact(
     const chosen = detect[detector][boundary];
     if (chosen !== 'redact' && chosen !== 'block') return false;
     const skip = leavesImages(detector, boundary, detect);
-    return spansOf(detector, replaced, scope, skip).length > 0;
+    return spansOf(detector, replaced, scope, detect.sources?.[detector], skip).length > 0;
   });
 }
 
@@ -277,7 +316,13 @@ function detectRelease(
   { detectors, scope }: StreamRead,
 ): Release {
   const found = detectors.flatMap((detector) =>
-    spansOf(detector, window, scope, leavesImages(detector, boundary, detect))
+    spansOf(
+      detector,
+      window,
+      scope,
+      detect.sources?.[detector],
+      leavesImages(detector, boundary, detect),
+    )
       .filter((span) => span.end > from && span.start < to)
       .map((span) => ({ span, detector, chosen: detect[detector][boundary] })),
   );

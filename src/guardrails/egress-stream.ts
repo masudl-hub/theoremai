@@ -40,6 +40,7 @@ import {
   linkReadings,
   type UrlPatternReading,
 } from './egress-urls.ts';
+import type { CompiledPatterns, HostMatcher } from './host-patterns.ts';
 import {
   decodeUrlRuns,
   INJECTION_BLOBS,
@@ -799,6 +800,12 @@ interface EgressStreamOptions {
     automaton: EgressAutomatonData;
     rules: readonly { rule: string; severity: Severity; pattern: RegExp }[];
   };
+  /** The host's own patterns of a detector, read on the text as written, with their compiled table. */
+  own?: readonly {
+    detector: Detector;
+    compiled: CompiledPatterns;
+    matchers: readonly HostMatcher[];
+  }[];
   /** The URLs the model was given, for `ungiven_images` and `ungiven_links`. */
   given?: GivenUrls;
   /** The words of the profile's own canary note, for `marker_leak` (`boundaryNote`). */
@@ -807,6 +814,15 @@ interface EgressStreamOptions {
 
 /** Compiled host automata, kept per table so each is built once. */
 const hostAutomata = new WeakMap<EgressAutomatonData, Automaton>();
+
+function hostAutomaton(data: EgressAutomatonData): Automaton {
+  let automaton = hostAutomata.get(data);
+  if (!automaton) {
+    automaton = compile(data);
+    hostAutomata.set(data, automaton);
+  }
+  return automaton;
+}
 
 function hostPatterns({ rules }: NonNullable<EgressStreamOptions['host']>): ScanPattern[] {
   return rules.map(({ rule, severity, pattern }, id) => ({
@@ -856,13 +872,16 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
     const regex = notePattern(options.note);
     scans.push(scan(raw, literalAutomaton(options.note), [{ ...MARKER_RULE, id: 0, regex }]));
   }
+  for (const { detector, compiled, matchers } of options.own ?? []) {
+    const patterns = matchers.map(({ regex }, id) => ({
+      ...detectorRule(detector),
+      id,
+      regex: new RegExp(regex.source, regex.flags),
+    }));
+    scans.push(scan(raw, hostAutomaton(compiled.automaton), patterns));
+  }
   if (options.host) {
-    let automaton = hostAutomata.get(options.host.automaton);
-    if (!automaton) {
-      automaton = compile(options.host.automaton);
-      hostAutomata.set(options.host.automaton, automaton);
-    }
-    scans.push(scan(raw, automaton, hostPatterns(options.host)));
+    scans.push(scan(raw, hostAutomaton(options.host.automaton), hostPatterns(options.host)));
   }
   let hold = 0;
   return {

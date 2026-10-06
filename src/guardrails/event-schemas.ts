@@ -75,6 +75,8 @@ export interface GuardrailHit {
   label?: string;
   /** Why a match matters, in a sentence, for a host's own rule. */
   doc?: string;
+  /** The name of the host's pattern that matched; unset for a match of Theorem's own patterns. */
+  pattern?: string;
 }
 const guardrailHit = z.object({
   rule: z.string(),
@@ -83,6 +85,7 @@ const guardrailHit = z.object({
   match: z.string().optional(),
   label: z.string().optional(),
   doc: z.string().optional(),
+  pattern: z.string().optional(),
 });
 true satisfies Equals<z.infer<typeof guardrailHit>, GuardrailHit>;
 

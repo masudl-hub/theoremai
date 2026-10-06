@@ -20,6 +20,8 @@ interface RedactSpan {
   start: number;
   end: number;
   kind: RedactKind;
+  /** The name of the host's pattern that matched; unset for a match of Theorem's own. */
+  name?: string;
 }
 
 function tokenFor(kind: RedactKind): string {

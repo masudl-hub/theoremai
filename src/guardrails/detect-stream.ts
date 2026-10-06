@@ -48,8 +48,16 @@ function createDetectStream(
     (detector) => !(isScoped(detector) || leave.includes(detector)),
   );
   if (detectors.length === 0) return undefined;
+  const sources = detect.sources ?? {};
+  // why: A host's patterns with no table have no automaton to hold by, so nothing is released
+  // until the text ends and is read whole. Registration refuses such a profile.
+  const unheld = detectors.some((d) => sources[d]?.matchers.length && !sources[d]?.compiled);
   const stream = createEgressStream({
-    detect: detectors,
+    detect: detectors.filter((detector) => sources[detector]?.theorem !== false),
+    own: detectors.flatMap((detector) => {
+      const { compiled, matchers = [] } = sources[detector] ?? {};
+      return compiled ? [{ detector, compiled, matchers }] : [];
+    }),
     skipImages: detect.ungiven_images[boundary] !== 'ignore',
     ...(scope.allow ? { allow: scope.allow } : {}),
     ...(scope.givenUrls ? { given: scope.givenUrls } : {}),
@@ -65,7 +73,7 @@ function createDetectStream(
         if (detector) settled.push({ start, detector });
       }
     },
-    holdFrom: () => stream.holdFrom(),
+    holdFrom: () => (unheld ? 0 : stream.holdFrom()),
     take(from, to, ended = false) {
       const reached = settled.filter(({ start }) => start < to);
       // why: A text that ends mid-match never settles it, so the end is read whole.

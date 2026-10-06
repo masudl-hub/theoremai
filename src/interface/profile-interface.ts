@@ -74,6 +74,12 @@ const urlAllow = z.object({ hosts: z.array(z.string()), fromTools: z.boolean() }
 const guardrails = z.object({
   quota: z.object({ perDay: z.number() }).optional(),
   detect,
+  patterns: z
+    .partialRecord(
+      z.enum(DETECTORS),
+      z.object({ theorem: z.boolean(), names: z.array(z.string()) }),
+    )
+    .optional(),
   allow: z.object({ ungiven_images: urlAllow, ungiven_links: urlAllow }),
   blockedReply: z.object({ onBlock: z.enum(BLOCKED_REPLY_ON_BLOCK), maxRetries: z.number() }),
   hasEgress: z.boolean(),

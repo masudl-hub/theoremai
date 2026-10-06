@@ -1,5 +1,6 @@
 import { assertEquals, assertFalse, assertThrows } from '@std/assert';
 import { DETECT_DEFAULTS, resolveDetect } from '../../src/guardrails/detectors.ts';
+import { compileDetect } from '../../src/guardrails/egress-compiler.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import type { ProfileGuardrailsSpec } from '../../src/guardrails/types.ts';
 import {
@@ -604,6 +605,21 @@ Deno.test('sanitizeUserDraft redacts injection spans under the default detect', 
     },
   );
   assertEquals(draft.text?.includes('[omitted - injection]'), true);
+});
+
+Deno.test('the interface names a detector’s host patterns, and the draft is read without Theorem’s where they are off', () => {
+  const records = [{ name: 'record-number', pattern: 'MRN-\\d{8}' }];
+  const profile = defineProfile({
+    ...ATTACHMENT_PROFILE,
+    id: 'interface.text.host_patterns',
+    guardrails: { detect: compileDetect({ ids: { theorem: false, patterns: records } }) },
+  });
+  const { guardrails } = composerIface(profile);
+  assertEquals(guardrails?.patterns, { ids: { theorem: false, names: ['record-number'] } });
+  assertEquals(guardrails && 'sources' in guardrails.detect, false);
+  const raw = 'My SSN is 123-45-6789.';
+  assertEquals(sanitizeUserDraft({ text: raw }, guardrails).text, raw);
+  assertEquals(sanitizeUserDraft({ text: raw }).text === raw, false);
 });
 
 Deno.test('sanitizeUserDraft leaves draft unchanged when guardrails are off', () => {

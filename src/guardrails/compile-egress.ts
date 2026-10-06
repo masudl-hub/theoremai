@@ -1,11 +1,19 @@
 /**
- * Build-time compiler for host egress rules (`@theoremjs/agents/guardrails/compile`).
+ * Compiler for a host's own patterns (`@theoremjs/agents/guardrails/compile`).
  *
- * `compileEgressRules` turns the rules into the table `egressPolicy` loads;
- * `agents egress-compile` runs it on a module and writes the table as a module.
- * It imports `refa`, so it belongs in a build step, not a Worker.
+ * `compileDetect` gives every detector's `patterns` the table the stream holds by, for a
+ * host that compiles as it starts; `agents detect-compile` writes the tables as a module at
+ * build time. `compileEgressRules` does the same for `egressPolicy`'s rules.
+ * It imports `refa`, so it belongs in a build step or a server's startup, not a Worker.
  *
  * @module
  */
 
-export { compiledEgressModule, compileEgressRules } from './egress-compiler.ts';
+export {
+  compileDetect,
+  compileDetectTables,
+  compiledDetectModule,
+  compiledEgressModule,
+  compileEgressRules,
+  compilePatterns,
+} from './egress-compiler.ts';

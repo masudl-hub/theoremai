@@ -26,9 +26,20 @@ import type {
 /** Resolved, not raw: a host sees what the kernel will enforce, not defaults of its own. */
 function guardrailsView(guardrails?: ProfileGuardrailsSpec): ProfileGuardrailsView {
   const policy = resolveGuardrailPolicy(guardrails);
+  const { sources, ...detect } = policy.detect;
   return {
     quota: policy.quota,
-    detect: policy.detect,
+    detect,
+    ...(sources
+      ? {
+          patterns: Object.fromEntries(
+            Object.entries(sources).map(([detector, { theorem, matchers }]) => [
+              detector,
+              { theorem, names: matchers.map(({ name }) => name) },
+            ]),
+          ),
+        }
+      : {}),
     allow: {
       ungiven_images: urlAllowView(policy.allow.ungiven_images),
       ungiven_links: urlAllowView(policy.allow.ungiven_links),

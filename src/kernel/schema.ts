@@ -527,6 +527,45 @@ function allowFields(path: string, detector: Detector): [string, FieldMeta][] {
   ];
 }
 
+/** The rows of a detector that reads with patterns: whose it reads with. */
+function patternFields(path: string): [string, FieldMeta][] {
+  return [
+    [
+      `${path}.theorem`,
+      {
+        ...field(
+          'boolean',
+          'Whether Theorem’s own patterns run. Off with no patterns of your own turns the detector off.',
+        ),
+        unset: 'On',
+      },
+    ],
+    [
+      `${path}.patterns`,
+      {
+        ...field(
+          'HostPattern[]',
+          'Your own patterns, each a name and a regular expression or a list of words. A match takes this detector’s action.',
+        ),
+        unset: 'None',
+      },
+    ],
+    [
+      `${path}.compiled`,
+      field(
+        'CompiledPatterns',
+        'The table your patterns compile to, from compileDetect or `agents detect-compile`. Needed whenever patterns is set.',
+      ),
+    ],
+  ];
+}
+
+/** The settings a detector's full form takes, as a sentence lists them. */
+function settingsOf(detector: Detector): string {
+  if (DETECTOR_META[detector].allow) return 'action, at and allow';
+  return DETECTOR_META[detector].patterns ? 'action, at, theorem and patterns' : 'action and at';
+}
+
 /** The `guardrails.detect` rows: one for the setting, one per detector, and one per detector and boundary. */
 function detectFields(): Record<string, FieldMeta> {
   const action = (type: string, doc: string) =>
@@ -546,10 +585,11 @@ function detectFields(): Record<string, FieldMeta> {
       path,
       action(
         'DetectAction | DetectorConfig',
-        `${DETECTOR_META[detector].doc} Set one action, or ${DETECTOR_META[detector].allow ? 'action, at and allow' : 'action and at'}.`,
+        `${DETECTOR_META[detector].doc} Set one action, or ${settingsOf(detector)}.`,
       ),
     ]);
     if (DETECTOR_META[detector].allow) rows.push(...allowFields(path, detector));
+    if (DETECTOR_META[detector].patterns) rows.push(...patternFields(path));
     rows.push([
       `${path}.action`,
       action(

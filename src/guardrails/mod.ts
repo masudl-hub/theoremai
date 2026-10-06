@@ -39,12 +39,15 @@ export type { Detection, DetectOutcome } from './detect-at.ts';
 export { detectAt } from './detect-at.ts';
 export type {
   DetectAction,
+  DetectMatrix,
   DetectMeta,
   Detector,
   DetectorConfig,
   DetectorDeclaration,
   DetectorGroup,
   DetectorRule,
+  DetectorSource,
+  DetectSources,
   DetectSpec,
   ResolvedAllow,
   ResolvedDetect,
@@ -61,6 +64,7 @@ export {
   DETECTOR_META,
   DETECTORS,
   detectProblem,
+  PATTERN_DETECTORS,
   resolveDetect,
 } from './detectors.ts';
 export { hitRules, runEnforcer } from './egress.ts';
@@ -93,6 +97,8 @@ export {
   hitFromSpan,
   projectGuardrailEvent,
 } from './hits.ts';
+export type { CompiledPatterns, HostPattern } from './host-patterns.ts';
+export { MAX_PATTERN_LENGTH, MAX_PATTERNS } from './host-patterns.ts';
 export { injectionSpans } from './injection.ts';
 export type { ClientLexiconKey, LexiconKey, LexiconOverrides, LexiconParams } from './lexicon.ts';
 export {

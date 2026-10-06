@@ -14,7 +14,7 @@ const PROMPT_ECHO_HIT: GuardrailHit = { rule: DETECT_RULES.prompt_leak, severity
 /** A guardrail hit for a span of the text, with the matched text sliced from it. */
 function hitFromSpan(
   text: string,
-  span: { start: number; end: number },
+  span: { start: number; end: number; name?: string },
   rule: string,
   severity: Severity,
 ): GuardrailHit {
@@ -23,6 +23,7 @@ function hitFromSpan(
     severity,
     span: { start: span.start, end: span.end },
     match: text.slice(span.start, span.end),
+    ...(span.name === undefined ? {} : { pattern: span.name }),
   };
 }
 

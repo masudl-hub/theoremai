@@ -7,6 +7,7 @@
  */
 
 import { TheoremError } from './error.ts';
+import type { AutomatonData } from './host-patterns.ts';
 import type { Severity } from './types.ts';
 
 /** One host egress rule: a reply matching `pattern` is blocked under `rule`. */
@@ -19,24 +20,7 @@ interface EgressRule {
   severity?: Severity;
 }
 
-/**
- * An automaton over UTF-16 code units, as tables.
- *
- * - `classStarts`: first code unit of each character class; class k covers
- *   `[classStarts[k], classStarts[k+1])`.
- * - `charsets`: each charset as the sorted class ids it contains.
- * - `initials`: the initial node of each pattern.
- * - `leads`: per pattern, the charset an optional repeat opening it reads, or
- *   -1. The pattern's nodes are of what follows the repeat.
- * - `nodes`: each node as `[pattern, final (0/1), target, charset, target, charset, ...]`.
- */
-interface EgressAutomatonData {
-  classStarts: readonly number[];
-  charsets: readonly (readonly number[])[];
-  initials: readonly number[];
-  leads: readonly number[];
-  nodes: readonly (readonly number[])[];
-}
+type EgressAutomatonData = AutomatonData;
 
 /** What `compileEgressRules` writes: the rules it read, and their automaton. */
 interface CompiledEgressRules {

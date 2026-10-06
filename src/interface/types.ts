@@ -1,4 +1,4 @@
-import type { UrlDetector } from '../guardrails/detectors.ts';
+import type { DetectMatrix, Detector, UrlDetector } from '../guardrails/detectors.ts';
 import type { LexiconOverrides } from '../guardrails/lexicon.ts';
 import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
 import type {
@@ -31,11 +31,20 @@ export interface UrlAllowView {
   fromTools: boolean;
 }
 
+/** Whose patterns one detector reads with: the host's are named, never shown. */
+export interface DetectorPatternsView {
+  /** Whether Theorem's own patterns run. */
+  theorem: boolean;
+  /** The names of the host's patterns. */
+  names: string[];
+}
+
 /** Guardrails visible to UI — egress enforcer functions are omitted. */
-export type ProfileGuardrailsView = Pick<
-  ResolvedGuardrailPolicy,
-  'quota' | 'detect' | 'blockedReply'
-> & {
+export type ProfileGuardrailsView = Pick<ResolvedGuardrailPolicy, 'quota' | 'blockedReply'> & {
+  /** Every detector's action at every boundary. */
+  detect: DetectMatrix;
+  /** Whose patterns a detector reads with, for each one the profile changed it for. */
+  patterns?: Partial<Record<Detector, DetectorPatternsView>>;
   /** What `ungiven_images` and `ungiven_links` let through. */
   allow: Record<UrlDetector, UrlAllowView>;
   /** Whether the host's own `egress.enforce` judges the reply. */

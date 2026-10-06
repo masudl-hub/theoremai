@@ -85,8 +85,9 @@ Owns every module under `src/guardrails/`.
 | `egress-stream.ts` | The detectors and host rules read incrementally: where a match could still start, and its settled hits |
 | `egress-rules.ts` | Host egress rule shape, the compiled table's shape, rule checks |
 | `egress-policy.ts` | `egressPolicy` — host rules, held exactly |
-| `compile-egress.ts` | `@theoremjs/agents/guardrails/compile` entry: `compileEgressRules`, `compiledEgressModule` |
-| `egress-compiler.ts` | Build-time compiler from regexes to hold automata (`agents egress-compile`, `scripts/gen-egress-automata.ts`) |
+| `host-patterns.ts` | A host's own patterns: `HostPattern`, its checks, the matchers it runs as and the shape of its compiled table |
+| `compile-egress.ts` | `@theoremjs/agents/guardrails/compile` entry: `compileDetect`, `compilePatterns`, `compileDetectTables`, `compiledDetectModule`, `compileEgressRules`, `compiledEgressModule` |
+| `egress-compiler.ts` | Compiler from regexes to hold automata (`compileDetect`, `agents detect-compile`, `agents egress-compile`, `scripts/gen-egress-automata.ts`) |
 | `corpus/` | Adversarial bank (live attacks, inbound fuzz, canary egress catalog) |
 | `testing.ts` | Test-only re-exports (`@theoremjs/agents/guardrails/testing`) |
 | `normalize.ts` | Detection normalization |
@@ -211,6 +212,7 @@ interface GuardrailHit {
   severity: 'info' | 'low' | 'medium' | 'high';
   span?: { start: number; end: number };     // offsets into the inspected text
   match?: string;                            // exact text; stripped unless guardrailMatchPreview
+  pattern?: string;                          // the host pattern that matched, by name
 }
 ```
 
@@ -878,6 +880,65 @@ take `allow` (see [Markers, images and links](#markers-images-and-links)).
 Every action is valid wherever a detector applies. A detector applies at the
 boundaries it has a default for; a rule naming another boundary is rejected.
 
+### Whose patterns
+
+`ids`, `financial`, `network`, `credentials` and `injection` read with
+patterns, and a host chooses whose:
+
+| `theorem` | `patterns` | The detector reads with |
+| --- | --- | --- |
+| unset or `true` | set | Theorem's patterns and the host's |
+| unset or `true` | unset | Theorem's only (the default) |
+| `false` | set | The host's only |
+| `false` | unset | Nothing: the detector is `ignore` at every boundary, whatever `action` and `at` say |
+
+```ts
+import { compileDetect } from '@theoremjs/agents/guardrails/compile';
+
+detect: compileDetect({
+  ids: {
+    action: 'redact',
+    at: { reply: 'block' },
+    patterns: [
+      { name: 'record-number', pattern: 'MRN-\\d{8}' },
+      { name: 'codenames', words: ['Project Falcon', 'osprey'] },
+    ],
+  },
+  injection: { theorem: false, patterns: [{ name: 'override', pattern: 'ignore all rules' }] },
+})
+```
+
+- A `HostPattern` is a `name` and either a `pattern` (regular expression
+  source, with `flags` from `i`, `m`, `s` and `u`) or `words`. Words match
+  whole, without regard to case, with any whitespace between the words of one.
+  Every match is found; a sticky (`y`) pattern is refused.
+- A host pattern's match takes its detector's action at the boundary, like
+  any other match. It is reported under the same `detect.<detector>` rule, and
+  its `GuardrailHit` carries the pattern's `name` as `pattern`.
+- A host pattern reads the text as written. Theorem's patterns also read the
+  encoded and disguised forms of it; a host's do not.
+- A reply streams up to a host pattern's match and no further, as it does for
+  Theorem's. The stream holds by a table compiled from the patterns, so
+  `patterns` needs `compiled` beside it (`CompiledPatterns`):
+  - `compileDetect(detect)` returns the setting with every table filled in,
+    for a host that compiles as it starts;
+  - `agents detect-compile <module> --out <path>` writes the tables as a module
+    exporting `compiledDetect`, by detector, for a host that cannot load the
+    compiler where it runs (it imports `refa`). `compileDetectTables` and
+    `compiledDetectModule` are the two steps it takes.
+- `defineProfile` rejects: `theorem` or `patterns` on another detector; a
+  pattern that does not compile, matches the empty text, repeats a name, is
+  longer than `MAX_PATTERN_LENGTH` (1024) or is one of more than
+  `MAX_PATTERNS` (64); `patterns` with no `compiled`, or with one compiled from
+  other patterns or by another compiler version. `compilePatterns` also
+  refuses a pattern with no automaton to hold by: a backreference to text
+  that varies.
+
+`ResolvedDetect.sources` holds, for each detector the profile changed it for,
+whether Theorem's patterns run and the host's patterns ready to run.
+`interfaceFromProfile` reports the same as `guardrails.patterns`: per detector,
+`theorem` and the `names` of the host's patterns, never their text.
+
 | Boundaries | Sensitive detectors | `injection` |
 | --- | --- | --- |
 | `user` … `live_user`, `tool_output_*`, `tool_failure_*` | `redact` | `redact` |
@@ -1529,7 +1590,7 @@ From `src/guardrails/mod.ts`:
 | Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicWording`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
 | Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `ResolvedEgressSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
-| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `detectAt`, `Detection`, `DetectOutcome` |
+| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `MAX_PATTERNS`, `MAX_PATTERN_LENGTH`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `detectAt`, `Detection`, `DetectOutcome` |
 | Policy | `resolveGuardrailPolicy` |
 | Rule ids | `DETECT_RULES`, `EGRESS_RULES`, `DIRECTIVE_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `InspectedToolArguments`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
@@ -1546,6 +1607,7 @@ From `src/guardrails/compile-egress.ts` (build time only):
 
 | Group | Symbols |
 | --- | --- |
+| Host patterns | `compileDetect`, `compilePatterns`, `compileDetectTables`, `compiledDetectModule` |
 | Host rules | `compileEgressRules`, `compiledEgressModule` |
 
 From `src/guardrails/testing.ts` (test / harness only):
@@ -1587,7 +1649,9 @@ From `src/guardrails/testing.ts` (test / harness only):
         { "kind": "source", "path": "src/guardrails/detectors.ts" },
         { "kind": "source", "path": "src/guardrails/boundaries.ts" },
         { "kind": "source", "path": "src/guardrails/policy.ts" },
-        { "kind": "contract_test", "path": "tests/guardrails/detectors.test.ts" }
+        { "kind": "source", "path": "src/guardrails/host-patterns.ts" },
+        { "kind": "contract_test", "path": "tests/guardrails/detectors.test.ts" },
+        { "kind": "contract_test", "path": "tests/guardrails/host-patterns.test.ts" }
       ]
     },
     "Sanitization": {

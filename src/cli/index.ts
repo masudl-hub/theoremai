@@ -8,6 +8,7 @@
 
 import { argv, exit } from 'node:process';
 import { benchCommand } from './commands/bench.ts';
+import { detectCompileCommand } from './commands/detect-compile.ts';
 import { egressCompileCommand } from './commands/egress-compile.ts';
 import { evalCommand } from './commands/eval.ts';
 import { fuzzCanaryCommand } from './commands/fuzz-canary.ts';
@@ -28,6 +29,10 @@ COMMANDS:
     --chunks <n>       Text chunks per mock turn (default: 200)
     --iterations <n>   Measurement iterations (default: 50)
     --warmup <n>       Warmup iterations (default: 5)
+
+  detect-compile <module>  Compile the patterns in a module's detect setting
+    --export <name>    The export holding the setting (default: detect)
+    --out <path>       Where to write the compiled module
 
   egress-compile <module>  Compile a module's egress rules for egressPolicy
     --export <name>    The export holding the rules (default: rules)
@@ -232,6 +237,27 @@ function handleProfile(flags: ParsedFlags): void {
   showProfileCommand(id);
 }
 
+async function handleDetectCompile(flags: ParsedFlags): Promise<void> {
+  const module = flags._[1];
+  if (!module || typeof flags.out !== 'string') {
+    console.error('Error: usage `agents detect-compile <module> --out <path> [--export <name>]`');
+    exit(1);
+  }
+  try {
+    const detectors = await detectCompileCommand({
+      module,
+      exportName: typeof flags.export === 'string' ? flags.export : undefined,
+      out: flags.out,
+    });
+    console.log(
+      `Compiled the patterns of ${detectors.join(', ') || 'no detector'} to ${flags.out}`,
+    );
+  } catch (err) {
+    console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    exit(1);
+  }
+}
+
 async function handleEgressCompile(flags: ParsedFlags): Promise<void> {
   const module = flags._[1];
   if (!module || typeof flags.out !== 'string') {
@@ -266,6 +292,8 @@ export async function main(cliArgs: string[] = argv.slice(2)): Promise<void> {
     if (!ok) {
       exit(1);
     }
+  } else if (command === 'detect-compile') {
+    await handleDetectCompile(flags);
   } else if (command === 'egress-compile') {
     await handleEgressCompile(flags);
   } else if (command === 'bench') {

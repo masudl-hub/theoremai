@@ -1,5 +1,6 @@
-// invariant: Imports the boundary vocabulary and the sensitive groups only: nothing from
-// `src/guardrails/types.ts` or `src/kernel/`, so `types.ts` can read these types without a cycle.
+// invariant: Imports the boundary vocabulary, the sensitive groups and the host's patterns only:
+// nothing from `src/guardrails/types.ts` or `src/kernel/`, so `types.ts` can read these types
+// without a cycle.
 
 /** lexicon-exempt-file: authoring labels, descriptions and profile-registration diagnostics for detectors — not runtime user or model copy (P2) */
 
@@ -13,6 +14,13 @@ import {
   TOOL_KINDS,
   toolBoundary,
 } from './boundaries.ts';
+import {
+  type CompiledPatterns,
+  type HostMatcher,
+  type HostPattern,
+  matchersOf,
+  patternsProblem,
+} from './host-patterns.ts';
 import { SENSITIVE_GROUPS } from './sensitive.ts';
 
 /**
@@ -61,6 +69,16 @@ interface DetectorConfig {
   action?: DetectAction;
   /** An action for the boundaries it names, over `action` or the default. */
   at?: Partial<Record<Boundary, DetectAction>>;
+  /**
+   * Whether Theorem's own patterns run. Default true. With `patterns` it gives the four choices:
+   * both, only Theorem's, only the host's (`false` with patterns), or none (`false` without).
+   * A detector that takes no patterns refuses it.
+   */
+  theorem?: boolean;
+  /** The host's own patterns, read on the text as written. A detector that takes no patterns refuses them. */
+  patterns?: readonly HostPattern[];
+  /** The table compiled for `patterns` (`compilePatterns`, `agents detect-compile`). Patterns need it. */
+  compiled?: CompiledPatterns;
   /** `ungiven_images` and `ungiven_links` only: the addresses let through besides the given ones. */
   allow?: UrlAllow;
 }
@@ -71,8 +89,27 @@ type DetectorRule = DetectAction | DetectorConfig;
 /** One action for every detector at every boundary, or a rule for the detectors it names. */
 type DetectSpec = DetectAction | Partial<Record<Detector, DetectorRule>>;
 
-/** Every detector's action at every boundary, defaults applied. */
-type ResolvedDetect = Readonly<Record<Detector, Readonly<Record<Boundary, DetectAction>>>>;
+/** Whose patterns a detector reads with: Theorem's, the host's, both or neither. */
+interface DetectorSource {
+  /** Whether Theorem's own patterns run. */
+  theorem: boolean;
+  /** The host's patterns, ready to run. */
+  matchers: readonly HostMatcher[];
+  /** The table compiled for the host's patterns; absent when it has none. */
+  compiled?: CompiledPatterns;
+}
+
+/** The source of each detector a profile changed it for. One left out reads with Theorem's patterns only. */
+type DetectSources = Readonly<Partial<Record<Detector, DetectorSource>>>;
+
+/** Every detector's action at every boundary. */
+type DetectMatrix = Readonly<Record<Detector, Readonly<Record<Boundary, DetectAction>>>>;
+
+/**
+ * Every detector's action at every boundary, defaults applied, and whose patterns each reads
+ * with. A detector left with no patterns at all is `ignore` everywhere: it has nothing to find.
+ */
+type ResolvedDetect = DetectMatrix & { readonly sources?: DetectSources };
 
 /** How a detector, a group or an action is named and described to a builder. */
 interface DetectMeta {
@@ -107,6 +144,8 @@ interface DetectorDeclaration extends DetectMeta {
   defaults: Readonly<Partial<Record<Boundary, DetectAction>>>;
   /** Whether its setting takes `allow`. */
   allow?: true;
+  /** Whether it reads with patterns, so its setting takes `theorem` and `patterns`. */
+  patterns?: true;
 }
 
 const TOOL_ARGUMENT_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_arguments', kind));
@@ -144,30 +183,35 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
     doc: 'US SSN, ITIN and EIN numbers.',
     group: 'data',
     defaults: everywhere('flag'),
+    patterns: true,
   },
   financial: {
     label: 'Financial',
     doc: 'IBANs and card numbers.',
     group: 'data',
     defaults: everywhere('flag'),
+    patterns: true,
   },
   network: {
     label: 'Network',
     doc: 'IPv4 and IPv6 addresses.',
     group: 'data',
     defaults: everywhere('flag'),
+    patterns: true,
   },
   credentials: {
     label: 'Credentials',
     doc: 'API keys and tokens in the formats gitleaks knows (AWS, Google, OpenAI, Anthropic, GitHub, Slack and Stripe among them), key and password assignments, OpenRouter keys, bearer tokens and PEM private keys.',
     group: 'data',
     defaults: everywhere('flag'),
+    patterns: true,
   },
   injection: {
     label: 'Injection',
     doc: 'Prompt-injection phrasing, as written or disguised.',
     group: 'attacks',
     defaults: everywhere('ignore'),
+    patterns: true,
   },
   canary_leak: {
     label: 'Canary leak',
@@ -202,6 +246,11 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
     allow: true,
   },
 };
+
+/** The detectors that read with patterns: their setting takes `theorem` and `patterns`. */
+const PATTERN_DETECTORS: readonly Detector[] = DETECTORS.filter(
+  (detector) => DETECTOR_META[detector].patterns,
+);
 
 /** The boundaries each detector applies at, in the kernel's order. */
 const DETECTOR_BOUNDARIES: Readonly<Record<Detector, readonly Boundary[]>> = recordOf(
@@ -258,15 +307,35 @@ function resolveRule(
   const base = DETECT_DEFAULTS[detector];
   if (rule === undefined) return base;
   if (isAction(rule)) return wherever(detector, rule);
-  const { action, at } = rule;
+  // why: With neither Theorem's patterns nor the host's, the detector has nothing to find.
+  const { action, at, theorem = true, patterns = [] } = rule;
+  if (!theorem && patterns.length === 0) return wherever(detector, 'ignore');
   return { ...(action === undefined ? base : wherever(detector, action)), ...at };
+}
+
+/** Whose patterns `rule` reads with, when it says: `undefined` is Theorem's only. */
+function sourceOf(rule: DetectorRule | undefined): DetectorSource | undefined {
+  if (rule === undefined || isAction(rule)) return undefined;
+  const { theorem = true, patterns = [], compiled } = rule;
+  if (theorem && patterns.length === 0) return undefined;
+  return {
+    theorem,
+    matchers: matchersOf(patterns),
+    ...(compiled && patterns.length > 0 ? { compiled } : {}),
+  };
 }
 
 /** `spec` with everything it leaves out at its default. */
 function resolveDetect(spec?: DetectSpec): ResolvedDetect {
   if (spec === undefined) return DETECT_DEFAULTS;
   if (isAction(spec)) return recordOf(DETECTORS, (detector) => wherever(detector, spec));
-  return recordOf(DETECTORS, (detector) => resolveRule(detector, spec[detector]));
+  const matrix = recordOf(DETECTORS, (detector) => resolveRule(detector, spec[detector]));
+  const sources: Partial<Record<Detector, DetectorSource>> = {};
+  for (const detector of PATTERN_DETECTORS) {
+    const source = sourceOf(spec[detector]);
+    if (source) sources[detector] = source;
+  }
+  return Object.keys(sources).length > 0 ? { ...matrix, sources } : matrix;
 }
 
 /** The detectors whose setting takes `allow`. */
@@ -322,7 +391,19 @@ function atProblem(
   return undefined;
 }
 
-const CONFIG_KEYS: readonly string[] = ['action', 'at', 'allow'] satisfies (keyof DetectorConfig)[];
+const CONFIG_KEYS: readonly string[] = [
+  'action',
+  'at',
+  'theorem',
+  'patterns',
+  'compiled',
+  'allow',
+] satisfies (keyof DetectorConfig)[];
+const SOURCE_KEYS: readonly string[] = [
+  'theorem',
+  'patterns',
+  'compiled',
+] satisfies (keyof DetectorConfig)[];
 const ALLOW_KEYS: readonly string[] = ['hosts', 'fromTools'] satisfies (keyof UrlAllow)[];
 
 /** A hostname is all an allowed host is: a scheme, port or path would never match one. */
@@ -367,8 +448,27 @@ function ruleProblem(
   }
   return (
     atProblem(`${path}.at`, rule.at, detector, boundaries) ??
+    sourceProblem(path, rule, detector) ??
     allowProblem(`${path}.allow`, rule.allow, detector)
   );
+}
+
+/** `theorem`, `patterns` and `compiled`: settings of a detector that reads with patterns. */
+function sourceProblem(
+  path: string,
+  rule: Record<string, unknown>,
+  detector: Detector,
+): string | undefined {
+  if (!DETECTOR_META[detector].patterns) {
+    const set = SOURCE_KEYS.find((key) => rule[key] !== undefined);
+    return set === undefined
+      ? undefined
+      : `${path}.${set} is a setting of the detectors that read with patterns only (${PATTERN_DETECTORS.join(', ')})`;
+  }
+  if (rule.theorem !== undefined && typeof rule.theorem !== 'boolean') {
+    return `${path}.theorem must be a boolean`;
+  }
+  return patternsProblem(path, rule.patterns, rule.compiled);
 }
 
 function isDetector(value: string): value is Detector {
@@ -399,12 +499,15 @@ function detectProblem(
 
 export type {
   DetectAction,
+  DetectMatrix,
   DetectMeta,
   Detector,
   DetectorConfig,
   DetectorDeclaration,
   DetectorGroup,
   DetectorRule,
+  DetectorSource,
+  DetectSources,
   DetectSpec,
   ResolvedAllow,
   ResolvedDetect,
@@ -423,6 +526,7 @@ export {
   detectProblem,
   detects,
   NO_ALLOW,
+  PATTERN_DETECTORS,
   resolveAllow,
   resolveDetect,
 };

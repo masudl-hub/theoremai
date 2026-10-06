@@ -211,17 +211,21 @@ interface DetectMeta {
 }
 
 /** The groups an editor lists detectors under, in order. */
-const DETECTOR_GROUPS = ['data', 'attacks', 'ours'] as const;
+const DETECTOR_GROUPS = ['data', 'manipulation', 'setup', 'addresses'] as const;
 /** One of {@linkcode DETECTOR_GROUPS}. */
 type DetectorGroup = (typeof DETECTOR_GROUPS)[number];
 
 /** The label of every group, and what its detectors find. */
 const DETECTOR_GROUP_META: Readonly<Record<DetectorGroup, DetectMeta>> = {
-  data: { label: 'Data', doc: 'Sensitive data, whoever wrote it.' },
-  attacks: { label: 'Attacks', doc: 'Text written to steer the model.' },
-  ours: {
-    label: 'Ours',
-    doc: "What the model writes that is the profile's own, or that would send data out: the canary, the system instruction, the kernel's markers, images and links to addresses the model was not given, and the names of the profile's tools.",
+  data: { label: 'Sensitive data', doc: 'Personal and secret data, whoever wrote it.' },
+  manipulation: { label: 'Manipulation', doc: 'Text written to steer the agent.' },
+  setup: {
+    label: 'Agent setup',
+    doc: "The profile's own text in what the model writes: the canary, the system instruction, the kernel's markers and the names of its tools.",
+  },
+  addresses: {
+    label: 'Unknown addresses',
+    doc: 'Images and links to addresses the model was not given. Loading one can carry data out.',
   },
 };
 
@@ -315,53 +319,53 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
   injection: {
     label: 'Injection',
     doc: 'Prompt-injection phrasing, as written or disguised.',
-    group: 'attacks',
+    group: 'manipulation',
     defaults: everywhere('ignore'),
     patterns: true,
   },
   tool_instructions: {
     label: 'Tool instructions',
     doc: "A tool's output or error text that instructs the agent: it tells it to drop its instructions, or beside an address to send to it names a tool the agent can call, gives an order or claims authority. A page of documentation can read this way, so it starts at Flag. A match raises the turn's taint at any action above Ignore.",
-    group: 'attacks',
+    group: 'manipulation',
     defaults: returned('flag', 'ignore'),
     patterns: true,
   },
   canary_leak: {
     label: 'Canary leak',
     doc: 'The token the kernel plants in the system instruction, as written or encoded. The token is planted only while this is above Ignore somewhere.',
-    group: 'ours',
+    group: 'setup',
     defaults: leaving('block', 'block', 'redact'),
   },
   prompt_leak: {
     label: 'Prompt leak',
     doc: 'A run of words from the private system instruction, also reversed, in rot13 or in leetspeak.',
-    group: 'ours',
+    group: 'setup',
     defaults: leaving('flag', 'block', 'redact'),
   },
   marker_leak: {
     label: 'Marker leak',
     doc: 'The markers the kernel fences user data with, and the words of the note that binds the canary.',
-    group: 'ours',
+    group: 'setup',
     defaults: shown('block', 'redact'),
   },
   ungiven_images: {
     label: 'Ungiven images',
     doc: 'An image whose address the model was not given, on a host not allowed. Showing it loads the address, which can carry data out with no click.',
-    group: 'ours',
+    group: 'addresses',
     defaults: shown('block', 'redact'),
     allow: 'urls',
   },
   ungiven_links: {
     label: 'Ungiven links',
     doc: 'A link to an address the model was not given, on a host not allowed. It loads on a click, or where the host unfurls links into previews; replies cite pages from what the model knows, so it starts at Ignore.',
-    group: 'ours',
+    group: 'addresses',
     defaults: shown('ignore', 'ignore'),
     allow: 'urls',
   },
   tool_leak: {
     label: 'Tool leak',
     doc: "The names of the profile's own tools, each as a word of its own, and the names of their parameters in double quotes, as tool-call JSON writes them. An agent often names a tool honestly, so it starts at Flag.",
-    group: 'ours',
+    group: 'setup',
     defaults: shown('flag', 'flag'),
     allow: 'names',
     patterns: true,

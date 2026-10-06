@@ -442,7 +442,7 @@ export function agentToolTarget(
 
 /** A pattern to fill in. */
 export function newPattern(): PatternDraft {
-  return { name: '', kind: 'pattern', pattern: '', flags: '', words: [] };
+  return { name: '', kind: 'words', pattern: '', flags: '', words: [] };
 }
 
 /** A detector of the builder's own to fill in: it reads nowhere until a boundary is set. */

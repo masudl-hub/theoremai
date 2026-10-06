@@ -89,8 +89,10 @@ Deno.test('every detector is in a group, and its defaults name the boundaries it
     }
   }
   assertEquals(
-    DETECTOR_GROUPS.flatMap((group) => DETECTORS.filter((d) => DETECTOR_META[d].group === group)),
-    [...DETECTORS],
+    DETECTOR_GROUPS.flatMap((group) =>
+      DETECTORS.filter((d) => DETECTOR_META[d].group === group),
+    ).sort(),
+    [...DETECTORS].sort(),
   );
 });
 

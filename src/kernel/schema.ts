@@ -559,7 +559,7 @@ function patternRows(path: string): [string, FieldMeta][] {
       {
         ...field(
           'string',
-          'Any of i, m, s and u. Every match is found, so g is implied; y is refused.',
+          'Regular-expression flags, each a letter: i ignores case, m matches ^ and $ at each line, s lets . match a line break, u reads Unicode. Not g or y: every match is always found.',
         ),
         unset: 'None',
       },

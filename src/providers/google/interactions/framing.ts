@@ -22,8 +22,8 @@ export function toGoogleValue(value: unknown): unknown {
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, nested] of Object.entries(value)) {
-      // why: Schema property names stay as authored; snake-casing them breaks Gemini validation.
-      if (key === 'schema' || key === 'parameters') {
+      // why: A schema's property names and a call's argument names are the builder's own; snake-casing them breaks Gemini validation and shows the model a call it did not make.
+      if (key === 'schema' || key === 'parameters' || key === 'arguments') {
         out[camelToSnake(key)] = nested;
         continue;
       }

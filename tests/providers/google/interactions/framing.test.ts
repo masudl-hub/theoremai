@@ -84,6 +84,29 @@ Deno.test('toGoogleValue preserves authored property names inside a schema key',
   });
 });
 
+Deno.test('toInteractionsBody replays a tool call with the argument names the model sent', () => {
+  const body = toInteractionsBody(
+    baseReq({
+      history: [
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [
+            {
+              id: 'c1',
+              type: 'function',
+              function: { name: 'holdStatus', arguments: '{"shipmentId":"H-1042"}' },
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  const steps = body.input as Record<string, unknown>[];
+  const call = steps.find((step) => step.type === 'function_call');
+  assertEquals(call?.arguments, { shipmentId: 'H-1042' });
+});
+
 Deno.test('toGoogleValue snake_cases the schema key itself but not its contents', () => {
   const result = toGoogleValue({
     responseSchema: { schema: { camelInside: true } },

@@ -78,6 +78,8 @@ export type TheoremChatProps = {
   style?: React.CSSProperties;
   /** A conversation to resume, as `onChatChange` reported it. Read once, when the chat mounts. */
   initialChat?: ChatSnapshot;
+  /** The text the composer starts with, for the user to send or change. Read once, when the chat mounts. */
+  initialText?: string;
   /**
    * Called with the conversation each time it comes to rest: a turn finished, or a message was
    * added or removed; never while a reply streams. Keep it to resume the chat later.
@@ -242,11 +244,18 @@ function ChatBody({
   className,
   style,
   initialChat,
+  initialText,
   onChatChange,
   chatRef,
 }: ChatBodyProps) {
   const t = useLabels();
-  const chat = useTheoremChat({ transport, iface, initial: initialChat, onChange: onChatChange });
+  const chat = useTheoremChat({
+    transport,
+    iface,
+    initial: initialChat,
+    initialText,
+    onChange: onChatChange,
+  });
   const sendText = chat.sendText;
   useImperativeHandle(chatRef, () => ({ send: sendText }), [sendText]);
   const blocks = useMemo(

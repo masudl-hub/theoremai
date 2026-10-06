@@ -33,6 +33,8 @@ export type UseTheoremChatOptions = {
   iface: ComposerProfileInterface | null;
   /** A conversation to resume: its transcript, and the session the next turn continues from. */
   initial?: ChatSnapshot;
+  /** The text the composer starts with. Read once, when the chat mounts. */
+  initialText?: string;
   /**
    * The conversation each time it comes to rest: a turn finished, or a message was added or
    * removed. Never while a reply streams or waits on a gate.
@@ -318,8 +320,14 @@ function useTappedTransport(transport: TheoremTransport, state: ChatState): Theo
  * queue / steer / stash, tool gates. Render it with `@theoremjs/react/ui` or
  * your own components.
  */
-export function useTheoremChat({ transport, iface, initial, onChange }: UseTheoremChatOptions) {
-  const state = useTheoremChatState(initial);
+export function useTheoremChat({
+  transport,
+  iface,
+  initial,
+  initialText,
+  onChange,
+}: UseTheoremChatOptions) {
+  const state = useTheoremChatState(initial, initialText);
   useDefaultGeneration(iface, state.session, state.setSession);
 
   const gated = state.session.gatedTool !== null;

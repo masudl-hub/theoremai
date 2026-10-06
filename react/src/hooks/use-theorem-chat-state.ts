@@ -55,10 +55,10 @@ function useStreamFrames(setStreamBlocks: (blocks: TranscriptBlock[]) => void) {
 }
 
 /** Composer / transcript / session state behind {@link useTheoremChat}. */
-export function useTheoremChatState(initial?: ChatSnapshot) {
+export function useTheoremChatState(initial?: ChatSnapshot, initialText = '') {
   const [blocks, setBlocksState] = useState<TranscriptBlock[]>(initial?.blocks ?? []);
   const [streamBlocks, setStreamBlocks] = useState<TranscriptBlock[]>([]);
-  const [draftText, setDraftText] = useState('');
+  const [draftText, setDraftText] = useState(initialText);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [pendingVoice, setPendingVoice] = useState<File[]>([]);
   const [pendingMessages, setPendingMessages] = useState<ComposerPendingMessage[]>([]);

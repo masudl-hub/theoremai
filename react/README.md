@@ -159,6 +159,7 @@ The profile, the keys and the system prompt stay on the server. The browser rece
 | `density`, `maxWidth`, `className`, `style` | Layout. `maxWidth` is a CSS length. Default: half of the chat width, or the full width on a narrow screen. |
 | `trace` | Shows the trace instead of the chat. Use it when your own control switches the view. The profile must record traces. |
 | `initialChat`, `onChatChange` | Save and restore a conversation. See below. |
+| `initialText` | The text that the composer starts with. The user can send it or change it. The component reads it once, when it mounts. |
 | `chatRef` | Sends a message from your code. See below. |
 
 ### Save and restore a conversation

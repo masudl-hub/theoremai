@@ -129,7 +129,10 @@ Deno.test('a find that throws or leaves the text stops the text, whatever its ac
     const detect = resolved({ 'acme.broken': { label: 'Broken', find, action: 'flag' } });
     const read = detectAt('Some text.', 'user', detect);
     assertEquals([name, read.action, read.text], [name, 'block', undefined]);
-    assertEquals(read.hits, [{ rule: 'detect.acme.broken', severity: 'high', label: 'Broken' }]);
+    const signal = name === 'throws' ? 'find_threw' : 'find_result';
+    assertEquals(read.hits, [
+      { rule: 'detect.acme.broken', severity: 'high', label: 'Broken', signal },
+    ]);
   }
 });
 

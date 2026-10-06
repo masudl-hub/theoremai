@@ -236,16 +236,22 @@ interface Reader {
   /** What a host called its own detector: its hits carry it, since no catalog names their rule. */
   label?: string;
   chosen: Exclude<DetectAction, 'ignore'>;
-  /** Its matches in `text`. `undefined` when a host's `find` failed: the text does not cross. */
-  spans(text: string): RedactSpan[] | undefined;
+  /** Its matches in `text`, or how a host's `find` failed: the text does not cross. */
+  spans(text: string): RedactSpan[] | FindFailure;
   hit(text: string, span: RedactSpan): GuardrailHit;
 }
 
-/** What a host's `find` matched in `text`, or `undefined` when it threw or left the text. */
-function foundBy(find: HostFind, text: string, boundary?: Boundary): RedactSpan[] | undefined {
+/**
+ * How a host's `find` failed, as its hit's `signal`: it threw (`find_threw`), or what it
+ * returned is not a list of stretches inside the text (`find_result`).
+ */
+type FindFailure = 'find_threw' | 'find_result';
+
+/** What a host's `find` matched in `text`, or how it failed. */
+function foundBy(find: HostFind, text: string, boundary?: Boundary): RedactSpan[] | FindFailure {
   try {
     const spans = find(text, boundary ? { boundary } : {});
-    if (!Array.isArray(spans)) return undefined;
+    if (!Array.isArray(spans)) return 'find_result';
     const inside = spans.every(
       ({ start, end }) =>
         Number.isInteger(start) &&
@@ -254,10 +260,10 @@ function foundBy(find: HostFind, text: string, boundary?: Boundary): RedactSpan[
         start < end &&
         end <= text.length,
     );
-    return inside ? spans.map(({ start, end }) => ({ start, end, kind: 'host' })) : undefined;
+    return inside ? spans.map(({ start, end }) => ({ start, end, kind: 'host' })) : 'find_result';
   } catch {
     // why: A reading that failed found nothing it can vouch for, so the text does not cross.
-    return undefined;
+    return 'find_threw';
   }
 }
 
@@ -272,7 +278,7 @@ function hostReader(host: HostDetector, boundary: Boundary, chosen: Reader['chos
       const matched = hostSpans(text, host.matchers, 'host');
       if (!host.find) return matched;
       const found = foundBy(host.find, text, boundary);
-      return found && [...matched, ...found];
+      return typeof found === 'string' ? found : [...matched, ...found];
     },
     hit: (text, span) => ({ ...hitFromSpan(text, span, rule, 'high'), label: host.label }),
   };
@@ -309,9 +315,17 @@ function readersAt(
   return keys ? readers.filter(({ key }) => keys.includes(key)) : readers;
 }
 
-/** The hit of a host's `find` that failed: it names the detector and no match. */
-function failedHit({ rule, label }: Pick<Reader, 'rule' | 'label'>): GuardrailHit {
-  return { rule, severity: 'high', ...(label === undefined ? {} : { label }) };
+/** The hit of a host's `find` that failed: it names the detector, how it failed and no match. */
+function failedHit(
+  { rule, label }: Pick<Reader, 'rule' | 'label'>,
+  signal?: FindFailure,
+): GuardrailHit {
+  return {
+    rule,
+    severity: 'high',
+    ...(label === undefined ? {} : { label }),
+    ...(signal === undefined ? {} : { signal }),
+  };
 }
 
 /** Reads `text` as it crosses `boundary` under the profile's resolved matrix. */
@@ -326,8 +340,8 @@ function detectAt(
   let action: DetectOutcome = 'allow';
   for (const reader of readersAt(boundary, detect, scope)) {
     const spans = reader.spans(text);
-    if (!spans) {
-      hits.push(failedHit(reader));
+    if (typeof spans === 'string') {
+      hits.push(failedHit(reader, spans));
       action = 'block';
       continue;
     }
@@ -423,15 +437,15 @@ function detectRelease(
   detect: ResolvedDetect,
   { detectors, scope }: StreamRead,
 ): Release {
-  const failed: Reader[] = [];
+  const failed: GuardrailHit[] = [];
   const found = readersAt(boundary, detect, scope, detectors).flatMap((reader) => {
     const spans = reader.spans(window);
-    if (!spans) failed.push(reader);
-    return (spans ?? [])
+    if (typeof spans === 'string') failed.push(failedHit(reader, spans));
+    return (typeof spans === 'string' ? [] : spans)
       .filter((span) => span.end > from && span.start < to)
       .map((span) => ({ span, rule: reader.rule, label: reader.label, chosen: reader.chosen }));
   });
-  if (failed.length > 0) return { action: 'block', hits: failed.map(failedHit), taken: 0 };
+  if (failed.length > 0) return { action: 'block', hits: failed, taken: 0 };
   const hitOf = ({ span, rule, label }: (typeof found)[number]): GuardrailHit => ({
     ...hitFromSpan(window, span, rule, 'high'),
     ...(label === undefined ? {} : { label }),
@@ -510,7 +524,9 @@ function storedHostSpans(text: string, detect?: ResolvedDetect): RedactSpan[] {
     const matched = hostSpans(text, host.matchers, 'host');
     if (!host.find || !text) return matched;
     const found = foundBy(host.find, text);
-    return found ? [...matched, ...found] : [{ start: 0, end: text.length, kind: 'host' }];
+    return typeof found === 'string'
+      ? [{ start: 0, end: text.length, kind: 'host' }]
+      : [...matched, ...found];
   });
 }
 

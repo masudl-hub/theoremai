@@ -929,8 +929,9 @@ detect: compileDetect({
 - `find` runs in the turn, on every text crossing a boundary the detector
   reads, and returns at once: it is not awaited. One that throws, or returns
   a stretch outside the text, an empty one or anything but a list, stops the
-  text as `block` does whatever the action set; the hit names the detector and
-  no match.
+  text as `block` does whatever the action set; the hit names the detector, no
+  match, and how it failed as its `signal`: `find_threw`, or `find_result`
+  for what it returned.
 - A reply streams up to a pattern's match, as above. `find` cannot say where a
   match might still start, so with one the last `HOST_FIND_HOLD` (256)
   characters of a reply stay held, `HOST_FIND_HOLD_LIVE` (96) in a Live reply,

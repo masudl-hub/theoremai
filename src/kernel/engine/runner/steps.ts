@@ -39,10 +39,7 @@ import { isWithheldOnBlock, type OutboundStreamControl, yieldProviderEvents } fr
 import { callTokensEvent, observeCallEvent, startCallUsage } from './usage.ts';
 
 function isStepLimitReached(step: number, maxSteps: number): boolean {
-  if (maxSteps === undefined || maxSteps <= 0) {
-    return false;
-  }
-  return step >= maxSteps;
+  return maxSteps > 0 && step >= maxSteps;
 }
 
 function generationForProviderStep(

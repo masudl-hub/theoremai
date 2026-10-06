@@ -365,7 +365,7 @@ function outcomeOf(events: readonly TurnEvent[], effects: string[] = []): CaseOu
   const guardrails = events.flatMap((e) =>
     e.type === 'guardrail'
       ? [
-          `${e.guardrail.stage} ${e.guardrail.action} ${e.guardrail.hits.map((h) => h.rule).join('+')}`,
+          `${e.guardrail.stage} ${e.guardrail.action} ${e.guardrail.hits.map((h) => (h.signal ? `${h.rule}:${h.signal}` : h.rule)).join('+')}`,
         ]
       : [],
   );

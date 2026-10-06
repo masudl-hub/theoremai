@@ -347,7 +347,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "tool_result flag detect.tool_instructions+detect.tool_instructions",
+   "tool_result flag detect.tool_instructions:tool_name+detect.tool_instructions:order",
    "tool_call block tool_call.steered-turn",
    "thought flag detect.tool_leak",
    "thought flag detect.tool_leak",

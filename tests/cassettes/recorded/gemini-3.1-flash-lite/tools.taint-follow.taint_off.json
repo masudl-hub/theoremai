@@ -67,7 +67,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "tool_result flag detect.tool_instructions+detect.tool_instructions",
+   "tool_result flag detect.tool_instructions:tool_name+detect.tool_instructions:order",
    "tool_call flag tool_call.steered-turn"
   ],
   "error": null,

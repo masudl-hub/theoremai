@@ -1341,14 +1341,17 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     "What is removed from stored traces, separately from the turn's guardrails.",
   ),
   'observability.scrub.sensitive': field(
-    'boolean',
-    'Removes credentials and personal data from stored traces.',
+    'ScrubSwitch',
+    "Removes what the data detectors (IDs, Financial, Network, Credentials) and your own detectors find from stored traces. On, it cleans with the patterns each reads the turn with; { theorem, host } picks Theorem's patterns, yours or both for the trace alone.",
   ),
   'observability.scrub.injection': field(
-    'boolean',
-    'Removes prompt-injection text, found by the built-in pattern detector, from stored traces.',
+    'ScrubSwitch',
+    "Removes what Injection and Tool instructions find from stored traces. On, it cleans with the patterns each reads the turn with; { theorem, host } picks Theorem's patterns, yours or both for the trace alone.",
   ),
-  'observability.scrub.canary': field('boolean', 'Removes the canary token from stored traces.'),
+  'observability.scrub.canary': field(
+    'ScrubSwitch',
+    "Removes the canary token from stored traces. The canary is Theorem's, so { theorem: false } keeps it.",
+  ),
   'observability.retainForDays': field(
     'number',
     'Days a trace file is kept, by its UTC day. The next write removes old files. 0 or less keeps all.',

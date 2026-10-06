@@ -5,8 +5,10 @@ import { TheoremError } from '../guardrails/error.ts';
 import type {
   ProfileObservabilitySpec,
   ResolvedObservabilityPolicy,
+  ResolvedScrubSwitch,
   ResolvedTraceInclude,
   ResolvedTraceScrub,
+  ScrubSwitch,
 } from './types.ts';
 
 /** Default record retention in days; `<= 0` keeps records forever. */
@@ -29,11 +31,17 @@ function resolveInclude(spec: ProfileObservabilitySpec | undefined): ResolvedTra
   };
 }
 
+function resolveSwitch(spec: ScrubSwitch | undefined): ResolvedScrubSwitch {
+  if (spec === undefined || typeof spec === 'boolean') return spec ?? true;
+  const sides = { theorem: spec.theorem ?? true, host: spec.host ?? true };
+  return (sides.theorem || sides.host) && sides;
+}
+
 function resolveScrub(spec: ProfileObservabilitySpec | undefined): ResolvedTraceScrub {
   return {
-    sensitive: spec?.scrub?.sensitive ?? true,
-    injection: spec?.scrub?.injection ?? true,
-    canary: spec?.scrub?.canary ?? true,
+    sensitive: resolveSwitch(spec?.scrub?.sensitive),
+    injection: resolveSwitch(spec?.scrub?.injection),
+    canary: resolveSwitch(spec?.scrub?.canary),
   };
 }
 

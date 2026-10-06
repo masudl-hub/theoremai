@@ -1,6 +1,7 @@
 // invariant: Must not import from src/kernel/: the kernel type-imports ProfileObservabilitySpec, and that
 // edge stays one-directional.
 
+import type { ResolvedDetect } from '../guardrails/detectors.ts';
 import type { TraceSink } from './trace-sink.ts';
 import type { TraceAttributes } from './trace-span.ts';
 
@@ -23,14 +24,25 @@ export interface TraceIncludeSpec {
   guardrailMatchPreview?: boolean;
 }
 
-/** Scrubbing of stored records, independent of turn-path `profile.guardrails`. Defaults are on. */
+/**
+ * Whether a stored trace is cleaned, and whose patterns clean it. `true` cleans with what each
+ * detector reads the turn with; `false` with nothing. The object names the sides, whatever the
+ * turn reads with: Theorem's patterns, the host's (`guardrails.detect` patterns and detectors),
+ * each on when left out.
+ */
+export type ScrubSwitch = boolean | { theorem?: boolean; host?: boolean };
+
+/**
+ * Scrubbing of stored records. It reads the detectors `guardrails.detect` declares and ignores
+ * their actions: a detector set to `ignore` in the turn still cleans the trace. Defaults are on.
+ */
 export interface TraceScrubSpec {
-  /** Strip credentials / PII spans in stored text. Default: true. */
-  sensitive?: boolean;
-  /** Strip injection spans in the stored request copy. Default: true. */
-  injection?: boolean;
-  /** Never persist the canary token. Default: true. */
-  canary?: boolean;
+  /** The data detectors (`ids`, `financial`, `network`, `credentials`) and the host's own. Default: true. */
+  sensitive?: ScrubSwitch;
+  /** `injection` and `tool_instructions`. Default: true. */
+  injection?: ScrubSwitch;
+  /** Never persist the canary token. It is Theorem's alone, so the host side adds nothing. Default: true. */
+  canary?: ScrubSwitch;
 }
 
 /** Omit the whole block for no tracing. */
@@ -82,11 +94,14 @@ export interface ResolvedTraceInclude {
   guardrailMatchPreview: boolean;
 }
 
+/** A `ScrubSwitch` with its sides filled in; one with both sides off is `false`. */
+export type ResolvedScrubSwitch = boolean | { theorem: boolean; host: boolean };
+
 /** What is scrubbed from the text a trace stores: sensitive values, injection and the canary. */
 export interface ResolvedTraceScrub {
-  sensitive: boolean;
-  injection: boolean;
-  canary: boolean;
+  sensitive: ResolvedScrubSwitch;
+  injection: ResolvedScrubSwitch;
+  canary: ResolvedScrubSwitch;
 }
 
 /** A profile's observability settings after defaults: whether and where to record, the sample rate, what to include and scrub, and retention and rotation. */
@@ -97,6 +112,8 @@ export interface ResolvedObservabilityPolicy {
   sampleRate: number;
   include: ResolvedTraceInclude;
   scrub: ResolvedTraceScrub;
+  /** The profile's detectors, whose patterns clean the record. Absent, Theorem's patterns alone. */
+  detect?: ResolvedDetect;
   resource: TraceAttributes;
   retainForDays: number;
   rotateAfterMiB: number;

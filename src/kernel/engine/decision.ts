@@ -506,6 +506,7 @@ export async function runDecisionInRegistry(
   const { sink, policy } = resolveTraceWriter({
     override: options.sink,
     observability: profile.observability,
+    guardrails: profile.guardrails,
   });
   try {
     const result = await decide(profile, model, request, options);

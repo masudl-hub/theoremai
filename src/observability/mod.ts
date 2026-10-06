@@ -72,8 +72,10 @@ export {
 export type {
   ProfileObservabilitySpec,
   ResolvedObservabilityPolicy,
+  ResolvedScrubSwitch,
   ResolvedTraceInclude,
   ResolvedTraceScrub,
+  ScrubSwitch,
   TraceIncludeSpec,
   TraceScrubSpec,
 } from './types.ts';

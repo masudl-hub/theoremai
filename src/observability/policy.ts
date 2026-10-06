@@ -1,3 +1,5 @@
+import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
+import type { ProfileGuardrailsSpec } from '../guardrails/types.ts';
 import { requireTraceDestination } from './destinations.ts';
 import { resolveObservabilityPolicy } from './resolve-policy.ts';
 import { noopSink } from './trace.ts';
@@ -65,8 +67,13 @@ function sinkFromWriteTo(
 function resolveTraceWriter(args: {
   override?: TraceSink;
   observability?: ProfileObservabilitySpec;
+  /** The profile's guardrails: the patterns a host gave its detectors clean the record too. */
+  guardrails?: ProfileGuardrailsSpec;
 }): { sink: TraceSink; policy: ResolvedObservabilityPolicy } {
-  const policy = resolveObservabilityPolicy(args.observability);
+  const policy: ResolvedObservabilityPolicy = {
+    ...resolveObservabilityPolicy(args.observability),
+    detect: resolveGuardrailPolicy(args.guardrails).detect,
+  };
   if (args.override) {
     return {
       policy,

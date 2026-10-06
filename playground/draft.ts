@@ -489,7 +489,11 @@ function defaultObservability(): ObservabilityDraft {
     writeTo: PLAYGROUND_TRACE_DESTINATION,
     sampleRate: resolved.sampleRate,
     include: { ...resolved.include },
-    scrub: { ...resolved.scrub },
+    scrub: {
+      sensitive: Boolean(resolved.scrub.sensitive),
+      injection: Boolean(resolved.scrub.injection),
+      canary: Boolean(resolved.scrub.canary),
+    },
     retainForDays: null,
     rotateAfterMiB: null,
     resourceJson: '',

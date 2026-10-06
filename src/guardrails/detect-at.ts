@@ -242,9 +242,9 @@ interface Reader {
 }
 
 /** What a host's `find` matched in `text`, or `undefined` when it threw or left the text. */
-function foundBy(find: HostFind, text: string, boundary: Boundary): RedactSpan[] | undefined {
+function foundBy(find: HostFind, text: string, boundary?: Boundary): RedactSpan[] | undefined {
   try {
-    const spans = find(text, { boundary });
+    const spans = find(text, boundary ? { boundary } : {});
     if (!Array.isArray(spans)) return undefined;
     const inside = spans.every(
       ({ start, end }) =>
@@ -481,6 +481,39 @@ function redactDetectors(text: string, detectors: readonly Detector[]): string {
   );
 }
 
+/** Whose patterns clean a stored trace: what the turn reads with (`true`), or the sides named. */
+type StoredSides = true | { theorem: boolean; host: boolean };
+
+/**
+ * What `detectors` find in a text a trace stores, whatever action a profile sets. `detect` is
+ * the profile's, for the patterns a host added to each.
+ */
+function storedSpans(
+  text: string,
+  detectors: readonly Detector[],
+  sides: StoredSides,
+  detect?: ResolvedDetect,
+): RedactSpan[] {
+  return detectors.flatMap((detector) => {
+    const turn = detect?.sources?.[detector];
+    const source =
+      sides === true
+        ? turn
+        : { theorem: sides.theorem, matchers: sides.host ? (turn?.matchers ?? []) : [] };
+    return spansOf(detector, text, NO_SCOPE, source);
+  });
+}
+
+/** What a host's own detectors find in a text a trace stores. A `find` that fails covers it all. */
+function storedHostSpans(text: string, detect?: ResolvedDetect): RedactSpan[] {
+  return (detect?.host ?? []).flatMap((host) => {
+    const matched = hostSpans(text, host.matchers, 'host');
+    if (!host.find || !text) return matched;
+    const found = foundBy(host.find, text);
+    return found ? [...matched, ...found] : [{ start: 0, end: text.length, kind: 'host' }];
+  });
+}
+
 /** Reads several texts crossing one boundary and keeps what was found across them. */
 interface BoundaryReader {
   /** The text to let through, or `''` once a match blocks: the caller reads `found().action`. */
@@ -554,7 +587,16 @@ function detectEvent(
   };
 }
 
-export type { BoundaryReader, Detection, DetectOutcome, DetectScope, Release, StreamRead, Stretch };
+export type {
+  BoundaryReader,
+  Detection,
+  DetectOutcome,
+  DetectScope,
+  Release,
+  StoredSides,
+  StreamRead,
+  Stretch,
+};
 export {
   boundaryReader,
   detectAt,
@@ -567,5 +609,7 @@ export {
   leakScopeOf,
   redactDetectors,
   scopeOf,
+  storedHostSpans,
+  storedSpans,
   stronger,
 };

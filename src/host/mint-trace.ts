@@ -64,6 +64,7 @@ async function flushMintTrace(args: {
   const { sink, policy } = resolveTraceWriter({
     override: args.sink,
     observability: args.profile.observability,
+    guardrails: args.profile.guardrails,
   });
   await writeTrace(sink, Promise.resolve(record), policy);
   const { cutout } = args;

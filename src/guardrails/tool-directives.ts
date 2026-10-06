@@ -28,8 +28,47 @@ const IMPERATIVES: RegExp[] = [
  * articles say "to remove a user", status reports say "the user has approved".
  * Measured on a benign sample, directive signals alone produced false positives
  * on most of it. Pairing a signal with a destination removed all of them.
+ *
+ * The pairing is close. A web page always carries an address somewhere, and a
+ * shop's page says "Remove This Item" and "if you need to exchange it, send us
+ * an email at …": of 20 real search results, a destination anywhere in the
+ * result flagged 3. An order or a claim counts when the destination is in what
+ * it orders, up to the next comma; a tool's name when one is in its sentence.
  */
 const EXFIL_TARGET = /\b[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,4}\b|\bhttps?:\/\/\S{4,120}/i;
+const EXFIL_TARGETS = new RegExp(EXFIL_TARGET.source, 'gi');
+
+/** How far from a signal its sentence is read, where the text has no sentence ends. */
+const SENTENCE_REACH = 240;
+
+/** Whether a sentence of `text` ends at `at`: a line break, or `.`, `!` or `?` before a space. */
+function endsSentence(text: string, at: number): boolean {
+  const ch = text[at];
+  if (ch === '\n') return true;
+  return (ch === '.' || ch === '!' || ch === '?') && /\s/.test(text[at + 1] ?? ' ');
+}
+
+/** Whether a clause of `text` ends at `at`: where a sentence does, or at `,` or `;` before a space. */
+function endsClause(text: string, at: number): boolean {
+  const ch = text[at];
+  return endsSentence(text, at) || ((ch === ',' || ch === ';') && /\s/.test(text[at + 1] ?? ' '));
+}
+
+/** Where the stretch of `text` from `end` stops: at the first place `ends` holds, at most `SENTENCE_REACH` on. */
+function reachFrom(text: string, end: number, ends: (text: string, at: number) => boolean): number {
+  let to = end;
+  const ceiling = Math.min(text.length, end + SENTENCE_REACH);
+  while (to < ceiling && !ends(text, to)) to += 1;
+  return to;
+}
+
+/** Where the sentence of `text` holding `start` begins, at most `SENTENCE_REACH` back. */
+function sentenceStart(text: string, start: number): number {
+  let from = start;
+  const floor = Math.max(0, start - SENTENCE_REACH);
+  while (from > floor && !endsSentence(text, from - 1)) from -= 1;
+  return from;
+}
 
 /** Claims of permission or provenance the content cannot actually hold. */
 const AUTHORITY: RegExp[] = [
@@ -53,12 +92,29 @@ function matches(patterns: RegExp[], text: string): boolean {
   });
 }
 
+/** Whether some match of `patterns` in `text` names a destination before its clause ends. */
+function directsOut(patterns: RegExp[], text: string): boolean {
+  return patterns.some((pattern) =>
+    text
+      .matchAll(pattern)
+      .some((match) =>
+        EXFIL_TARGET.test(
+          text.slice(match.index, reachFrom(text, match.index + match[0].length, endsClause)),
+        ),
+      ),
+  );
+}
+
 function isToolNameBoundary(ch: string | undefined): boolean {
   return ch === undefined || !/[a-z0-9_-]/i.test(ch);
 }
 
-/** Word-boundary match for a tool name without compiling registry input as a pattern. */
-function mentionsTool(text: string, tool: string): boolean {
+/**
+ * Whether `text` names `tool`, at word boundaries, in a sentence with a
+ * destination. A name inside a destination (`https://shop.example/search`) is
+ * part of the address. Registry input is not compiled as a pattern.
+ */
+function directsToTool(text: string, tool: string): boolean {
   if (tool.length < 3) {
     return false;
   }
@@ -66,12 +122,20 @@ function mentionsTool(text: string, tool: string): boolean {
   const needle = tool.toLowerCase();
   let at = haystack.indexOf(needle);
   while (at >= 0) {
-    const before = haystack[at - 1];
-    const after = haystack[at + needle.length];
-    if (isToolNameBoundary(before) && isToolNameBoundary(after)) {
-      return true;
+    const end = at + needle.length;
+    if (isToolNameBoundary(haystack[at - 1]) && isToolNameBoundary(haystack[end])) {
+      const from = sentenceStart(text, at);
+      const targets = text
+        .slice(from, reachFrom(text, end, endsSentence))
+        .matchAll(EXFIL_TARGETS)
+        .map((match) => ({ start: from + match.index, end: from + match.index + match[0].length }))
+        .toArray();
+      const isInTarget = targets.some((target) => target.start <= at && end <= target.end);
+      if (targets.length > 0 && !isInTarget) {
+        return true;
+      }
     }
-    at = haystack.indexOf(needle, at + needle.length);
+    at = haystack.indexOf(needle, end);
   }
   return false;
 }
@@ -95,20 +159,20 @@ function directiveHits(text: string, callableTools: readonly string[] = []): Gua
   if (matches(OVERRIDE, typoNormalize(normalized))) {
     hits.push({ rule: DIRECTIVE_RULES.override, severity: 'high' });
   }
-  if (!EXFIL_TARGET.test(text)) {
+  if (!EXFIL_TARGET.test(normalized)) {
     // why: No destination, no exfiltration. Action-shaped attacks that carry no target
     // are left to the taint gate, which does not depend on reading the content.
     return hits;
   }
 
   // why: One hit per named tool — several names is a stronger signal than one.
-  for (const _tool of callableTools.filter((tool) => mentionsTool(normalized, tool))) {
+  for (const _tool of callableTools.filter((tool) => directsToTool(normalized, tool))) {
     hits.push({ rule: DIRECTIVE_RULES.toolName, severity: 'high' });
   }
-  if (matches(IMPERATIVES, normalized)) {
+  if (directsOut(IMPERATIVES, normalized)) {
     hits.push({ rule: DIRECTIVE_RULES.imperative, severity: 'medium' });
   }
-  if (matches(AUTHORITY, normalized)) {
+  if (directsOut(AUTHORITY, normalized)) {
     hits.push({ rule: DIRECTIVE_RULES.authority, severity: 'medium' });
   }
   return hits;

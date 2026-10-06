@@ -1254,6 +1254,15 @@ a user", and status reports say "the user has approved". Requiring a destination
 removed every false positive, because exfiltration needs somewhere to send things
 and process prose does not.
 
+**The destination has to be close.** A web page always carries an address
+somewhere, so a destination anywhere in the result proves nothing: of 20 real
+search results, 3 shop pages were flagged for lines like "Remove This Item" and
+"if you need to exchange it, send us an email at …". An imperative or an
+authority claim counts when the destination comes before its clause ends, at
+the next comma, semicolon, sentence end or line break, at most 240 characters
+on. A tool's name counts when a destination is in its sentence, and never when
+the name is part of the address (`https://shop.example/search`).
+
 **The override signal needs no destination.** Data has no reason to tell its
 reader to drop its instructions. `tool_result.override` is `overrideFrame(5)`
 (`injection-patterns.ts`) read on the typo-folded text: the user-boundary frame
@@ -1299,7 +1308,8 @@ be. An action-shaped attack has to reach a tool to accomplish anything, which th
 gate handles structurally without reading the content at all.
 
 The corpus lives in `src/guardrails/corpus/tool-ingress.ts` — attacks,
-destination-free action attacks, and instruction-shaped benign output.
+destination-free action attacks, and instruction-shaped benign output, pages as
+a web search returns them among it.
 `tests/guardrails/tool-directives.test.ts` asserts every attack is flagged, no
 benign output is flagged, and no destination-free attack is flagged. It is a
 smoke-sized sample, not a benchmark.

@@ -1455,6 +1455,7 @@ export function fieldMeta(path: string): FieldMeta | undefined {
   return { ...wildcard, doc: LEXICON_NOTES[key as LexiconKey] };
 }
 
+export { API_EXPORTS, type ApiExportMeta, REQUEST_FIELDS } from './api-catalog.ts';
 export type {
   ProfileGraphEditor,
   ProfileGraphFacet,

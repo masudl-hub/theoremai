@@ -113,6 +113,7 @@ export type {
   ToolType,
 } from './schema.ts';
 export {
+  API_EXPORTS,
   ATTACHMENT_ACCEPT_MIMES,
   AUTH_UNAUTHENTICATED_POLICIES,
   AWAITING_USER_INPUT_KINDS,
@@ -150,6 +151,7 @@ export {
   protocolsFor,
   protocolsForProfileType,
   providersFor,
+  REQUEST_FIELDS,
   SPEECH_AUDIO_FORMATS,
   STREAM_MODES,
   SUMMARY_MODES,

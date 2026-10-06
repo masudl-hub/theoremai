@@ -1,6 +1,7 @@
 import { assertEquals } from '@std/assert';
 import type { Protocol, Provider } from '../../src/kernel/schema.ts';
 import {
+  API_EXPORTS,
   ATTACHMENT_ACCEPT_MIMES,
   catalogPathFor,
   coerceProtocol,
@@ -211,5 +212,15 @@ Deno.test('every option description names one of its field options', () => {
     for (const key of Object.keys(meta.optionDescriptions ?? {})) {
       assertEquals(meta.options?.includes(key), true, `${path}: '${key}' is not an option`);
     }
+  }
+});
+
+Deno.test('API_EXPORTS names only exports of the package, each of the kind it says', async () => {
+  const exported: Record<string, unknown> = await import('../../mod.ts');
+  for (const [name, meta] of Object.entries(API_EXPORTS)) {
+    const value = exported[name];
+    assertEquals(typeof value, 'function', `${name} is not exported`);
+    const isClass = /^class\b/.test(Function.prototype.toString.call(value));
+    assertEquals(isClass ? 'class' : 'function', meta.kind, `${name} is a ${meta.kind}`);
   }
 });

@@ -9,9 +9,9 @@ import {
 } from './detect-at.ts';
 import type { ResolvedDetect } from './detectors.ts';
 import { type LexiconOverrides, lexiconText } from './lexicon.ts';
-import { EGRESS_RULES, TOOL_RULES } from './rules.ts';
+import { DETECT_RULES, EGRESS_RULES, TOOL_RULES } from './rules.ts';
 import { textForScan } from './serialize.ts';
-import { advisoryLevel, directiveHits } from './tool-directives.ts';
+import { advisoryLevel } from './tool-directives.ts';
 import type {
   AdvisoryLevel,
   GuardrailEvent,
@@ -114,9 +114,9 @@ export interface GuardedToolText {
   /** Emitted when the guard did anything worth recording. */
   event?: GuardrailEvent;
   /**
-   * Reported, never redacted: legitimate tool output is frequently
-   * instruction-shaped, so rewriting on this signal would corrupt real data.
-   * These raise the turn's taint instead.
+   * What `tool_instructions` found. Legitimate tool output is frequently
+   * instruction-shaped, so the detector starts at `flag`; whatever its action,
+   * these raise the turn's taint.
    */
   suspicious?: GuardrailHit[];
 }
@@ -139,8 +139,13 @@ function composeToolText(finding: string, data: unknown): string {
 const NOTHING_FOUND: Detection = { action: 'allow', hits: [] };
 
 /** `text` read at `boundary`, or passed as it is when the text crosses none. */
-function readAt(text: string, boundary: ToolBoundary | undefined, detect: ResolvedDetect) {
-  return boundary ? detectAt(text, boundary, detect) : { ...NOTHING_FOUND, text };
+function readAt(
+  text: string,
+  boundary: ToolBoundary | undefined,
+  detect: ResolvedDetect,
+  scope?: DetectScope,
+) {
+  return boundary ? detectAt(text, boundary, detect, scope) : { ...NOTHING_FOUND, text };
 }
 
 /**
@@ -160,23 +165,18 @@ function guardToolResult(
   lexicon?: LexiconOverrides,
 ): GuardedToolText {
   const composed = composeToolText(finding, data);
-  const detected = readAt(composed, boundary, policy.detect);
-  // why: Directive detection runs on remote content only: a local tool's output is
-  // bytes the host's own code produced.
+  const detected = readAt(composed, boundary, policy.detect, { callable: callableTools });
+  const suspicious = detected.hits.filter(({ rule }) => rule === DETECT_RULES.tool_instructions);
   const remote = isRemoteOrigin(provenance.origin);
-  const suspicious = remote ? directiveHits(composed, callableTools) : [];
-  const hits: GuardrailHit[] = [...detected.hits, ...suspicious];
-  // why: A detector's action stands; directive signals alone only annotate the text.
-  const action = detected.action === 'allow' && suspicious.length > 0 ? 'flag' : detected.action;
   const event: GuardrailEvent | undefined =
-    action === 'allow'
+    detected.action === 'allow'
       ? undefined
       : {
           stage: 'tool_result',
           ...(boundary ? { boundary } : {}),
           trust: 'untrusted',
-          action,
-          hits,
+          action: detected.action,
+          hits: detected.hits,
           provenance,
         };
   const found = {
@@ -185,7 +185,12 @@ function guardToolResult(
   };
   if (detected.text === undefined) return found;
   const fenced = remote
-    ? wrapToolData(detected.text, provenance, advisoryLevel(suspicious), lexicon)
+    ? wrapToolData(
+        detected.text,
+        provenance,
+        advisoryLevel(suspicious.map(({ signal }) => signal)),
+        lexicon,
+      )
     : detected.text;
   return { text: fenced, ...found };
 }

@@ -4,7 +4,7 @@ import {
   demoInputsSpec,
   demoToolSpecs,
 } from './concierge-demo.ts';
-import { DETECTORS } from '../src/guardrails/detectors.ts';
+import { DETECTOR_BOUNDARIES, DETECTORS } from '../src/guardrails/detectors.ts';
 import {
   createBlankDraft,
   defaultModelBinding,
@@ -72,7 +72,7 @@ function exampleDetect(detect: GuardrailsDraft['detect']): GuardrailsDraft['dete
   for (const detector of DETECTORS) {
     if (detector === 'network') continue;
     for (const boundary of ['reply', 'reply_structured', 'live_reply'] as const) {
-      next[detector][boundary] = 'block';
+      if (DETECTOR_BOUNDARIES[detector].includes(boundary)) next[detector][boundary] = 'block';
     }
   }
   return next;

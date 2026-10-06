@@ -145,7 +145,6 @@ export {
 export type { GuardrailRule } from './rules.ts';
 export {
   DETECT_RULES,
-  DIRECTIVE_RULES,
   detectRule,
   EGRESS_RULES,
   NETWORK_RULES,
@@ -167,11 +166,8 @@ export type {
 export { SENSITIVE_GROUPS, sensitiveSpans } from './sensitive.ts';
 export type { ScanText } from './serialize.ts';
 export { scanTextOf, textForScan } from './serialize.ts';
-export {
-  advisoryLevel,
-  directiveHits,
-  looksDirective,
-} from './tool-directives.ts';
+export type { Directive, DirectiveSignal } from './tool-directives.ts';
+export { advisoryLevel, DIRECTIVE_SIGNALS, directives } from './tool-directives.ts';
 export type { GuardedToolText, InspectedToolArguments } from './tool-result.ts';
 export {
   checkTaintGate,

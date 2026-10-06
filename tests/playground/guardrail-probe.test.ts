@@ -77,8 +77,9 @@ Deno.test('a local tool result is redacted; a remote one is fenced and read for 
 
   const remote = await probe('tool_result_remote', STEER);
   assertEquals(rules(remote), [
-    'tool_result/tool_result.names-callable-tool',
-    'tool_result/tool_result.imperative',
+    'tool_result/detect.tool_instructions',
+    'tool_result/detect.tool_instructions',
+    'tool_result/detect.tool_instructions',
     'tool_call/tool_call.steered-turn',
   ]);
   assertEquals(remote.taint, 'steered');
@@ -95,7 +96,7 @@ Deno.test('a remote result that tells the agent to drop its instructions steers 
   );
   assertEquals(rules(remote), [
     'tool_result/detect.injection',
-    'tool_result/tool_result.override',
+    'tool_result/detect.tool_instructions',
     'tool_call/tool_call.steered-turn',
   ]);
   assertEquals(remote.taint, 'steered');

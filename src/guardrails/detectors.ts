@@ -25,13 +25,14 @@ import { SENSITIVE_GROUPS } from './sensitive.ts';
 
 /**
  * What the kernel finds in text: the four families of sensitive data, prompt-injection phrasing,
- * and what is the profile's own on its way out (the canary token, the system instruction, the
+ * a tool's text that instructs the agent, and what is the profile's own on its way out (the canary token, the system instruction, the
  * kernel's markers, an image or link to an address the model was not given, and the names of its
  * tools).
  */
 const DETECTORS = [
   ...SENSITIVE_GROUPS,
   'injection',
+  'tool_instructions',
   'canary_leak',
   'prompt_leak',
   'marker_leak',
@@ -262,6 +263,19 @@ function leaving(toTool: DetectAction, said: DetectAction, thought: DetectAction
   };
 }
 
+/** What a tool returns, its output and its error text: `remote` from a tool the host did not write, `local` from a function. */
+function returned(remote: DetectAction, local: DetectAction): BoundaryActions {
+  const crossings = ['tool_output', 'tool_failure'] as const;
+  return Object.fromEntries(
+    crossings.flatMap((crossing) =>
+      TOOL_KINDS.map((kind) => [
+        toolBoundary(crossing, kind),
+        kind === 'function' ? local : remote,
+      ]),
+    ),
+  );
+}
+
 /** What the model says or thinks: a reply of any kind takes `said`, a thought `thought`. */
 function shown(said: DetectAction, thought: DetectAction): BoundaryActions {
   return { reply: said, reply_structured: said, live_reply: said, thought };
@@ -302,6 +316,13 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
     doc: 'Prompt-injection phrasing, as written or disguised.',
     group: 'attacks',
     defaults: everywhere('ignore'),
+    patterns: true,
+  },
+  tool_instructions: {
+    label: 'Tool instructions',
+    doc: "A tool's output or error text that instructs the agent: it tells it to drop its instructions, or beside an address to send to it names a tool the agent can call, gives an order or claims authority. A page of documentation can read this way, so it starts at Flag. A match raises the turn's taint at any action above Ignore.",
+    group: 'attacks',
+    defaults: returned('flag', 'ignore'),
     patterns: true,
   },
   canary_leak: {

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { lexiconText } from '../../src/guardrails/lexicon.ts';
-import { DIRECTIVE_RULES } from '../../src/guardrails/rules.ts';
+import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import { TheoremError } from '../../src/guardrails/theorem-error.ts';
 import {
   memoryCredentialSource,
@@ -349,8 +349,11 @@ Deno.test('a result naming a tool the model can call is flagged, and only that t
     () => drain('xb_guard_http', { snapshot }),
   );
   check(
-    flagged.settlement.modelResult?.suspicious,
-    [{ rule: DIRECTIVE_RULES.toolName, severity: 'high' }],
+    flagged.settlement.modelResult?.suspicious?.map(({ rule, signal }) => [rule, signal]),
+    [
+      [DETECT_RULES.tool_instructions, 'tool_name'],
+      [DETECT_RULES.tool_instructions, 'tool_name'],
+    ],
     'callable tool named',
   );
 

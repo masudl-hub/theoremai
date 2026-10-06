@@ -16,6 +16,7 @@ export const DETECT_RULES = {
   network: 'detect.network',
   credentials: 'detect.credentials',
   injection: 'detect.injection',
+  tool_instructions: 'detect.tool_instructions',
   canary_leak: 'detect.canary_leak',
   prompt_leak: 'detect.prompt_leak',
   marker_leak: 'detect.marker_leak',
@@ -40,14 +41,6 @@ export const EGRESS_RULES = {
   unscannable: 'egress.unscannable', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 } as const;
 
-/** Remote tool content behaving like an instruction to the agent. */
-export const DIRECTIVE_RULES = {
-  toolName: 'tool_result.names-callable-tool',
-  imperative: 'tool_result.imperative',
-  authority: 'tool_result.authority-claim',
-  override: 'tool_result.override',
-} as const;
-
 /** A tool call refused for what the turn read before it. */
 export const TOOL_RULES = {
   taintedTurn: 'tool_call.tainted-turn',
@@ -63,6 +56,5 @@ export const NETWORK_RULES = {
 export type GuardrailRule =
   | (typeof DETECT_RULES)[keyof typeof DETECT_RULES]
   | (typeof EGRESS_RULES)[keyof typeof EGRESS_RULES]
-  | (typeof DIRECTIVE_RULES)[keyof typeof DIRECTIVE_RULES]
   | (typeof TOOL_RULES)[keyof typeof TOOL_RULES]
   | (typeof NETWORK_RULES)[keyof typeof NETWORK_RULES];

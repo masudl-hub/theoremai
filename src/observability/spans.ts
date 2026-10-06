@@ -5,6 +5,7 @@ const OMIT_PROMPT = '[omitted - instructions]';
 const OMIT_IMAGE = '[omitted - image]';
 const OMIT_LINK = '[omitted - link]';
 const OMIT_TOOL = '[omitted - tool]';
+const OMIT_DIRECTIVE = '[omitted - directive]';
 
 /** A match of a detector of the host's own: it says nothing of what was there. */
 const OMIT_HOST = '[omitted]';
@@ -17,6 +18,7 @@ type RedactKind =
   | 'image'
   | 'link'
   | 'tool'
+  | 'directive'
   | 'host';
 
 const OMIT: Readonly<Record<RedactKind, string>> = {
@@ -27,6 +29,7 @@ const OMIT: Readonly<Record<RedactKind, string>> = {
   image: OMIT_IMAGE,
   link: OMIT_LINK,
   tool: OMIT_TOOL,
+  directive: OMIT_DIRECTIVE,
   host: OMIT_HOST,
 };
 
@@ -36,6 +39,8 @@ interface RedactSpan {
   kind: RedactKind;
   /** The name of the host's pattern that matched; unset for a match of Theorem's own. */
   name?: string;
+  /** What about the match makes it one, for a detector that finds more than one thing. */
+  signal?: string;
 }
 
 function tokenFor(kind: RedactKind): string {

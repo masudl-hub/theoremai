@@ -1,7 +1,7 @@
 /** lexicon-exempt-file: evaluation runner — not runtime user or model copy (P2) */
 import { injectionSpans } from '../injection.ts';
 import { sensitiveSpans } from '../sensitive.ts';
-import { directiveHits } from '../tool-directives.ts';
+import { directives } from '../tool-directives.ts';
 import { type CorpusSample, createCorpusCache, SOURCES } from './corpus.ts';
 import { type DetectorScore, type EvalDetector, formatScores, scoreAll } from './score.ts';
 
@@ -50,7 +50,7 @@ const DETECTORS: readonly EvalDetector[] = [
       'llmail-adaptive',
       'llmail-evaded-defense',
     ],
-    fires: (text) => directiveHits(text, EVAL_TOOLS).length > 0,
+    fires: (text) => directives(text, EVAL_TOOLS).length > 0,
   },
 ];
 

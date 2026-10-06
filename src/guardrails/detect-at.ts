@@ -27,6 +27,7 @@ import { injectionSpans } from './injection.ts';
 import { promptEchoRanges } from './prompt-echo.ts';
 import { DETECT_RULES, detectRule } from './rules.ts';
 import { SENSITIVE_GROUPS, type SensitiveGroups, sensitiveSpans } from './sensitive.ts';
+import { directives } from './tool-directives.ts';
 import { ownToolsWithout, toolLeakSpans } from './tool-leak.ts';
 import type {
   GuardrailContext,
@@ -73,6 +74,8 @@ interface DetectScope extends LeakScope, Pick<GuardrailContext, 'givenUrls' | 'o
   note?: string;
   /** What `ungiven_images` and `ungiven_links` let through besides the given URLs. */
   allow?: ResolvedAllow;
+  /** The tools the model can call this turn, for `tool_instructions`: a tool's text naming one is a match. */
+  callable?: readonly string[];
 }
 
 const NO_SCOPE: DetectScope = {};
@@ -153,6 +156,7 @@ function hostSpans(
 /** The placeholder a host's pattern leaves for a detector, where it is not the sensitive one. */
 const HOST_KIND: Readonly<Partial<Record<Detector, RedactSpan['kind']>>> = {
   injection: 'injection',
+  tool_instructions: 'directive',
   tool_leak: 'tool',
 };
 
@@ -201,6 +205,9 @@ function theoremSpans(
     return privateSystem ? ranged(promptEchoRanges(text, privateSystem, canary), 'prompt') : [];
   }
   if (detector === 'tool_leak') return toolLeakSpans(text, scope.ownTools);
+  if (detector === 'tool_instructions') {
+    return directives(text, scope.callable).map((found) => ({ ...found, kind: 'directive' }));
+  }
   return sensitiveSpans(text, ONLY[detector]);
 }
 
@@ -209,6 +216,10 @@ function hitOf(detector: Detector, text: string, span: RedactSpan): GuardrailHit
   const { start, end } = span;
   if (detector === 'canary_leak') return { ...CANARY_HIT, span: { start, end } };
   if (detector === 'prompt_leak') return { ...PROMPT_ECHO_HIT, span: { start, end } };
+  if (detector === 'tool_instructions' && span.signal) {
+    const severity = span.signal === 'order' || span.signal === 'authority' ? 'medium' : 'high';
+    return { ...hitFromSpan(text, span, DETECT_RULES[detector], severity), signal: span.signal };
+  }
   return hitFromSpan(text, span, DETECT_RULES[detector], 'high');
 }
 

@@ -269,7 +269,10 @@ Deno.test('a failure message is read at its own boundary, under the profile sett
 
 Deno.test('a profile that ignores a detector at a failure boundary keeps the raw message', () => {
   const policy = resolveGuardrailPolicy({
-    detect: { injection: { at: { tool_failure_mcp: 'ignore' } } },
+    detect: {
+      injection: { at: { tool_failure_mcp: 'ignore' } },
+      tool_instructions: { at: { tool_failure_mcp: 'ignore' } },
+    },
   });
   const guarded = guardToolFailureText(INJ_IGNORE, MCP, policy, 'tool_failure_mcp');
   assertEquals(guarded, { text: INJ_IGNORE });
@@ -426,7 +429,10 @@ Deno.test('a remote result that only tells the agent to drop its instructions is
     'tool_output_http',
     [],
   );
-  assertEquals(guarded.suspicious, [{ rule: 'tool_result.override', severity: 'high' }]);
+  assertEquals(
+    guarded.suspicious?.map(({ rule, signal, severity }) => [rule, signal, severity]),
+    [['detect.tool_instructions', 'override', 'high']],
+  );
   assertEquals(guarded.text?.includes('advisory="high"'), true);
 });
 

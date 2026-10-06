@@ -11,10 +11,7 @@ import {
   type TraceTree,
   traceJson,
 } from '../../../observability/trace-span.ts';
-import type {
-  ProfileObservabilitySpec,
-  ResolvedObservabilityPolicy,
-} from '../../../observability/types.ts';
+import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
 import { liveFrameInput } from '../../../providers/google/live/framing.ts';
 import { LIVE_FALLBACK_ROW } from '../../../providers/google/live/session.ts';
 import type { SessionQueueItem } from '../../../providers/google/live/stream.ts';
@@ -22,6 +19,7 @@ import type { ProviderEvent, TurnEventOf } from '../../turn-events.ts';
 import type {
   InteractionPart,
   ModelBinding,
+  Profile,
   ProviderCompleteRequest,
   ResolvedGeneration,
   SessionRequest,
@@ -589,14 +587,18 @@ class LiveTrace {
 
 /**
  * Open a session's trace: its `invoke_agent` span under the host's `traceparent`,
- * written under `observability`, the session's profile's block.
+ * written under the session's profile's `observability` and cleaned with its detectors.
  */
 function startLiveTrace(
   req: SessionRequest,
-  observability: ProfileObservabilitySpec | undefined,
+  profile: Pick<Profile, 'observability' | 'guardrails'> | undefined,
   sinkOverride?: TraceSink,
 ): LiveTrace {
-  const { sink, policy } = resolveTraceWriter({ override: sinkOverride, observability });
+  const { sink, policy } = resolveTraceWriter({
+    override: sinkOverride,
+    observability: profile?.observability,
+    guardrails: profile?.guardrails,
+  });
   const identity: TraceAttributes = {
     'gen_ai.agent.name': req.profile,
     ...optional('gen_ai.conversation.id', req.conversationId),

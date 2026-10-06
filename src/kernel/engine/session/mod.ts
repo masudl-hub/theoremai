@@ -1180,11 +1180,7 @@ export async function runSessionInRegistry(
   options: RunSessionOptions,
   sinkOverride?: TraceSink,
 ): Promise<LiveSession> {
-  const trace = startLiveTrace(
-    req,
-    registry.profiles.find(req.profile)?.observability,
-    sinkOverride,
-  );
+  const trace = startLiveTrace(req, registry.profiles.find(req.profile), sinkOverride);
   try {
     return await openTracedSession(registry, req, options, trace);
   } catch (err) {

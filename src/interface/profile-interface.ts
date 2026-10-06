@@ -93,6 +93,8 @@ const guardrails = z.object({
   blockedReply: z.object({ onBlock: z.enum(BLOCKED_REPLY_ON_BLOCK), maxRetries: z.number() }),
 });
 
+const scrubSwitch = z.union([z.boolean(), z.object({ theorem: z.boolean(), host: z.boolean() })]);
+
 const observability = z.object({
   record: z.boolean(),
   writeTo: z.union([z.literal(false), z.string()]).optional(),
@@ -105,7 +107,7 @@ const observability = z.object({
     guardrailDecisions: z.boolean(),
     guardrailMatchPreview: z.boolean(),
   }),
-  scrub: z.object({ sensitive: z.boolean(), injection: z.boolean(), canary: z.boolean() }),
+  scrub: z.object({ sensitive: scrubSwitch, injection: scrubSwitch, canary: scrubSwitch }),
   resource: traceAttributesSchema,
   retainForDays: z.number(),
   rotateAfterMiB: z.number(),

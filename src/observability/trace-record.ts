@@ -1,10 +1,12 @@
 // why: Include flags drop whole attribute families or events here, in one place, so a missing field
 // reads as "not recorded" and the root says which policy applied (`theorem.record.include`).
 
-import { redactDetectors } from '../guardrails/detect-at.ts';
+import { type StoredSides, storedHostSpans, storedSpans } from '../guardrails/detect-at.ts';
+import type { Detector, ResolvedDetect } from '../guardrails/detectors.ts';
 import { SENSITIVE_GROUPS } from '../guardrails/sensitive.ts';
 import { sha256, sha256Base64 } from '../kernel/engine/hash.ts';
 import { removeCanaries, tapeUpstream } from '../providers/shared/upstream-tape.ts';
+import { applySpans } from './spans.ts';
 import { TRACE_VERSION, type TraceRecord } from './trace-schema.ts';
 import {
   isTraceBytes,
@@ -17,6 +19,7 @@ import {
 } from './trace-span.ts';
 import type {
   ResolvedObservabilityPolicy,
+  ResolvedScrubSwitch,
   ResolvedTraceInclude,
   ResolvedTraceScrub,
 } from './types.ts';
@@ -39,15 +42,27 @@ const RAW_ATTRIBUTE = 'raw';
 /** Guardrail hits keep the matched text only under `guardrailMatchPreview`. */
 const MATCH_ATTRIBUTE = 'match';
 
-function scrubStoredText(text: string, scrub: ResolvedTraceScrub): string {
-  return redactDetectors(text, [
-    ...(scrub.sensitive ? SENSITIVE_GROUPS : []),
-    ...(scrub.injection ? (['injection'] as const) : []),
+/** The detectors `scrub.injection` cleans a record with. */
+const INSTRUCTION_DETECTORS: readonly Detector[] = ['injection', 'tool_instructions'];
+
+/** Whether a switch cleans with one side's patterns, when it names its sides. */
+function sideOn(on: ResolvedScrubSwitch, side: keyof Exclude<StoredSides, true>): boolean {
+  return on === true || (on !== false && on[side]);
+}
+
+function scrubStoredText(text: string, { scrub, detect }: Resolver): string {
+  const { sensitive, injection } = scrub;
+  return applySpans(text, [
+    ...(sensitive ? storedSpans(text, SENSITIVE_GROUPS, sensitive, detect) : []),
+    ...(sideOn(sensitive, 'host') ? storedHostSpans(text, detect) : []),
+    ...(injection ? storedSpans(text, INSTRUCTION_DETECTORS, injection, detect) : []),
   ]);
 }
 
 interface Resolver {
   scrub: ResolvedTraceScrub;
+  /** The profile's detectors, for the patterns a host gave them. */
+  detect: ResolvedDetect | undefined;
   /** Canaries to remove; empty when `scrub.canary` is off. */
   canaries: readonly string[];
   content: Record<string, string>;
@@ -73,7 +88,7 @@ async function resolveContent(
   resolver: Resolver,
 ): Promise<TraceAttributeValue> {
   if (isTraceContent(value)) {
-    const text = removeCanaries(scrubStoredText(value.$content, resolver.scrub), resolver.canaries);
+    const text = removeCanaries(scrubStoredText(value.$content, resolver), resolver.canaries);
     return { ...markerRest(value, '$content'), [TEXT_REF]: await storeText(text, resolver) };
   }
   if (isTraceBytes(value)) {
@@ -108,7 +123,7 @@ function mapStrings(value: unknown, rewrite: (text: string) => unknown): unknown
 /** Scrub a row's strings, then reference any string pass 1 already stored. */
 function internRow(row: unknown, resolver: Resolver): unknown {
   return mapStrings(row, (text) => {
-    const scrubbed = scrubStoredText(text, resolver.scrub);
+    const scrubbed = scrubStoredText(text, resolver);
     const hash = resolver.known.get(scrubbed);
     return hash ? { [TEXT_REF]: hash } : scrubbed;
   });
@@ -232,7 +247,8 @@ async function buildRecord(args: {
   const { policy } = args;
   const resolver: Resolver = {
     scrub: policy.scrub,
-    canaries: policy.scrub.canary ? (args.canaries ?? []) : [],
+    detect: policy.detect,
+    canaries: sideOn(policy.scrub.canary, 'theorem') ? (args.canaries ?? []) : [],
     content: {},
     known: new Map(),
   };

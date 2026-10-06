@@ -918,7 +918,7 @@ detect: compileDetect({
 | `action` | The action at every boundary `at` does not name |
 | `at` | The action at one boundary |
 | `patterns`, `compiled` | As under [Whose patterns](#whose-patterns) |
-| `find` | A function of the host's (`HostFind`): the text and its `boundary` in, the stretches it matched out (`HostSpan`, `[start, end)` in UTF-16 units) |
+| `find` | A function of the host's (`HostFind`): the text and its `boundary` in, the stretches it matched out (`HostSpan`, `[start, end)` in UTF-16 units). It also reads the text a trace stores, with no `boundary` (`observability.scrub.sensitive`) |
 
 - The key is `namespace.name`, in lower case, digits and `_`. The namespace is
   the host's, so a detector Theorem adds later never takes its key.

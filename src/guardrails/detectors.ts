@@ -116,9 +116,10 @@ interface HostSpan {
 /**
  * A host's own reading of a text, for what patterns cannot say. It runs on every text crossing a
  * boundary the detector reads, so it returns at once and does not wait on anything. If it throws,
- * or returns a span outside the text, the text does not cross.
+ * or returns a span outside the text, the text does not cross. It also reads the text a trace
+ * stores, where there is no `boundary`; a text it fails on there is stored as a placeholder.
  */
-type HostFind = (text: string, context: { boundary: Boundary }) => readonly HostSpan[];
+type HostFind = (text: string, context: { boundary?: Boundary }) => readonly HostSpan[];
 
 /**
  * A detector of the host's own, under a key with a dot. It reads with `patterns`, `find` or both,

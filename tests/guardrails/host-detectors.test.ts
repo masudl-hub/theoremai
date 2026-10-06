@@ -99,7 +99,7 @@ Deno.test('a host detector reads with find, alone or beside its patterns', () =>
 });
 
 Deno.test('find is told the boundary it reads', () => {
-  const seen: string[] = [];
+  const seen: (string | undefined)[] = [];
   const detect = resolved({
     'acme.seen': {
       label: 'Seen',

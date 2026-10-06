@@ -34,6 +34,12 @@ Deno.test('resolveObservabilityPolicy defaults scrub/include and record=false wh
   assertEquals(policy.scrub.sensitive, true);
   assertEquals(policy.scrub.injection, true);
   assertEquals(policy.scrub.canary, true);
+  assertEquals(
+    resolveObservabilityPolicy({
+      scrub: { sensitive: { theorem: false }, injection: { theorem: false, host: false } },
+    }).scrub,
+    { sensitive: { theorem: false, host: true }, injection: false, canary: true },
+  );
   assertEquals(policy.retainForDays, 14);
   assertEquals(policy.rotateAfterMiB, 32);
 });

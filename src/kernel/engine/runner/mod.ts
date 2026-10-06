@@ -577,6 +577,7 @@ async function* runTurnInRegistry(
   const { sink, policy } = resolveTraceWriter({
     override: sinkOverride,
     observability: ctx.known?.observability,
+    guardrails: ctx.known?.guardrails,
   });
   ctx.observability = policy;
   try {
@@ -836,6 +837,7 @@ async function compactHistoryInRegistry(
   const { sink, policy } = resolveTraceWriter({
     override: sinkOverride,
     observability: profile.observability,
+    guardrails: profile.guardrails,
   });
   const canaries: string[] = [];
   try {

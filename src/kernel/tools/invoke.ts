@@ -64,6 +64,7 @@ async function* invokeTool(
   const { sink, policy } = resolveTraceWriter({
     override: sinkOverride,
     observability: known?.observability,
+    guardrails: known?.guardrails,
   });
   const callId = request.callId ?? newCallId(request.name);
   const tree = startTrace(toolSpanName(request.name), {

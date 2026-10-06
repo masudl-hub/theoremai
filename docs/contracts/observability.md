@@ -73,7 +73,7 @@ defineProfile({
 | `sampleRate` | Fraction of traces to record (0–1). Default 1. Decided by trace id, so every record of one trace is kept or dropped together. Ignored when a writer receives an explicit sink |
 | `resource` | Process attributes stamped on every record (`TraceRecord.resource`). Default `{}` |
 | `include.*` | Which attribute and event families land in a record (table below) |
-| `scrub.*` | Scrubbing of **stored** text — independent of `profile.guardrails` |
+| `scrub.*` | Scrubbing of **stored** text, with the detectors `guardrails.detect` declares and whatever action they take ([Scrub](#scrub)) |
 | `retainForDays` | Days to keep each record. Handed to every destination with the record (`TraceWriteContext`), including an explicit sink. `<= 0` keeps records forever. Default 14 |
 | `rotateAfterMiB` | File size before a file-based destination starts a new file. Handed to every destination with the record (`TraceWriteContext`). Default 32 |
 | `onWriteError` | Host hook on build/write failure (never fails the turn) |
@@ -98,9 +98,37 @@ Sampling reads the low 32 bits of the root span's trace id (OpenTelemetry
 tool records, an `invokeTool` record and a host cutout that share one trace are
 therefore kept or dropped whole, in any process.
 
-`scrub` defaults stay on even when turn-path `guardrails.detect` is
-`ignore`: a host-confidential store must not accidentally inherit a debug-off
-switch.
+### Scrub
+
+`scrub` cleans stored text with the same detectors the turn reads with
+(`guardrails.detect`): a match is replaced by the placeholder `redact` leaves.
+It ignores their actions, so a detector set to `ignore` in the turn still
+cleans the trace: a host-confidential store must not accidentally inherit a
+debug-off switch.
+
+| Switch | Cleans with |
+| --- | --- |
+| `sensitive` | `ids`, `financial`, `network`, `credentials` and every detector of the host's own |
+| `injection` | `injection` and `tool_instructions` |
+| `canary` | The canaries bound in the record |
+
+Each switch is a `ScrubSwitch` and says whose patterns clean the trace, apart
+from the turn. The patterns are written once, on the detector.
+
+| Value | The stored trace is cleaned with |
+| --- | --- |
+| `true` (default) | What each detector reads the turn with: Theorem's patterns, the host's or both |
+| `{ theorem: false }` | The host's patterns and detectors only |
+| `{ host: false }` | Theorem's patterns only |
+| `{ theorem: true, host: true }` | Both, whatever the turn reads with |
+| `false` | Nothing |
+
+A side left out of the object is on. The canary is Theorem's alone, so
+`canary: { theorem: false }` keeps it. A host detector's `find` reads stored
+text too, with no `boundary`; a text it throws on is stored as `[omitted]`.
+`buildRecord` reads the host's patterns from `policy.detect`, which
+`resolveTraceWriter` fills from the profile; without it Theorem's patterns
+clean the record alone.
 
 ### Resolution order
 
@@ -195,8 +223,8 @@ carry text inline: `buildRecord` resolves every content marker once, under
 | `$json` (upstream rows, wire bodies) | Media hashed, canaries removed, text scrubbed, every string equal to a recorded text replaced by `{ content_sha256 }`; the result stored in `content`, referenced as `{ json_sha256 }` |
 
 - Credential headers are recorded as `[redacted]`; every other header is kept.
-- With `scrub.canary`, every canary bound in the record (the turn's and any
-  nested turn's) is removed from stored text.
+- With `scrub.canary` on for Theorem's side, every canary bound in the record
+  (the turn's and any nested turn's) is removed from stored text.
 - A hash identifies the text *after* scrub, so original bytes are unrecoverable
   when scrub is on.
 - The root records the policy it was written under:
@@ -432,8 +460,8 @@ from that table, not from a span's `llm.cost.total`.
 | `TraceSpan`, `TraceSpanEvent`, `TraceSpanKind`, `TraceSpanLink`, `TraceSpanStatus` | type |
 | `TraceAttributes`, `TraceAttributeValue`, `TraceContent`, `TraceBytes`, `TraceJson` | type |
 | `TraceTree`, `SpanHandle`, `SpanOptions`, `SpanLinkInput`, `TraceClock` | type |
-| `ProfileObservabilitySpec`, `TraceIncludeSpec`, `TraceScrubSpec` | type |
-| `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub` | type |
+| `ProfileObservabilitySpec`, `TraceIncludeSpec`, `TraceScrubSpec`, `ScrubSwitch` | type |
+| `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub`, `ResolvedScrubSwitch` | type |
 | `memorySink`, `noopSink` | function |
 | `jsonlSink` (from `@theoremjs/agents/observability/jsonl`) | function |
 | `JsonlSinkOptions` (from `@theoremjs/agents/observability/jsonl`) | type |

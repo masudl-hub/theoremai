@@ -112,7 +112,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact detect.financial+detect.injection"
+   "live_inbound redact detect.injection"
   ],
   "error": null,
   "shown": "I can't process that kind of input. Is there anything else I can help you with?",

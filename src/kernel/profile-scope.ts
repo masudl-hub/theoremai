@@ -230,10 +230,6 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     profileTypes: ['text', 'image', 'live'],
     reason: 'only a reply can be blocked, and speech, decision and host profiles write none',
   },
-  'guardrails.egress': {
-    profileTypes: ['text', 'image', 'live'],
-    reason: 'egress reads the reply text, which speech, decision and host profiles never write',
-  },
   'guardrails.network': {
     profileTypes: ['text', 'image', 'live', 'host'],
     reason: 'speech and decision profiles call no tools',

@@ -5,7 +5,7 @@
  */
 
 /** lexicon-exempt-file: authoring field-meta / closed unions — not runtime user or model copy (P2) */
-import { BOUNDARY_META, recordOf } from '../guardrails/boundaries.ts';
+import { BOUNDARIES, BOUNDARY_META, recordOf } from '../guardrails/boundaries.ts';
 import {
   DETECT_ACTION_META,
   DETECT_ACTIONS,
@@ -527,6 +527,84 @@ function allowFields(path: string, detector: Detector): [string, FieldMeta][] {
   ];
 }
 
+const COMPILED_DOC =
+  'The table your patterns compile to, from compileDetect or `agents detect-compile`. Needed whenever patterns is set.';
+
+/** The rows of one pattern in a detector's `patterns`. */
+function patternRows(path: string): [string, FieldMeta][] {
+  const each = `${path}.patterns.*`;
+  return [
+    [`${each}.name`, field('string', 'What a match is called in the trace.')],
+    [
+      `${each}.pattern`,
+      field('string', 'The source of a regular expression. A pattern takes this or words.'),
+    ],
+    [
+      `${each}.flags`,
+      {
+        ...field(
+          'string',
+          'Any of i, m, s and u. Every match is found, so g is implied; y is refused.',
+        ),
+        unset: 'None',
+      },
+    ],
+    [
+      `${each}.words`,
+      field(
+        'string[]',
+        'Words to match whole, whatever their case. A space in one matches any run of whitespace.',
+      ),
+    ],
+  ];
+}
+
+/** The rows of a detector of the host's own, under a key with a dot. */
+function hostDetectorFields(path: string): [string, FieldMeta][] {
+  const action = (doc: string) => field('DetectAction', doc, DETECT_ACTIONS, DETECT_ACTION_DOCS);
+  return [
+    [
+      path,
+      field(
+        'HostDetectorConfig',
+        'A detector of your own, under a key with a dot such as acme.codenames. It reads with patterns, find or both, and has no default: it reads the boundaries action and at put above Ignore.',
+      ),
+    ],
+    [`${path}.label`, field('string', 'What an editor and the trace call it.')],
+    [
+      `${path}.action`,
+      {
+        ...action('The action at every boundary.'),
+        unset: 'Only the boundaries at names are read',
+      },
+    ],
+    [`${path}.at`, field('{ [boundary]: DetectAction }', 'An action per boundary, over action.')],
+    ...BOUNDARIES.map((boundary): [string, FieldMeta] => [
+      `${path}.at.${boundary}`,
+      { ...action(BOUNDARY_META[boundary].doc), unset: DETECT_ACTION_META.ignore.label },
+    ]),
+    [
+      `${path}.patterns`,
+      {
+        ...field(
+          'HostPattern[]',
+          'Its patterns, each a name and a regular expression or a list of words, read on the text as written.',
+        ),
+        unset: 'None',
+      },
+    ],
+    ...patternRows(path),
+    [`${path}.compiled`, field('CompiledPatterns', COMPILED_DOC)],
+    [
+      `${path}.find`,
+      field(
+        'HostFind',
+        'Its own reading, for what patterns cannot say: a function that returns where the matches start and end. It runs on every text crossing a boundary the detector reads, so it returns at once.',
+      ),
+    ],
+  ];
+}
+
 /** The rows of a detector that reads with patterns: whose it reads with. */
 function patternFields(path: string): [string, FieldMeta][] {
   return [
@@ -550,13 +628,8 @@ function patternFields(path: string): [string, FieldMeta][] {
         unset: 'None',
       },
     ],
-    [
-      `${path}.compiled`,
-      field(
-        'CompiledPatterns',
-        'The table your patterns compile to, from compileDetect or `agents detect-compile`. Needed whenever patterns is set.',
-      ),
-    ],
+    ...patternRows(path),
+    [`${path}.compiled`, field('CompiledPatterns', COMPILED_DOC)],
   ];
 }
 
@@ -607,6 +680,7 @@ function detectFields(): Record<string, FieldMeta> {
       rows.push([`${path}.at.${boundary}`, { ...meta, unset }]);
     }
   }
+  rows.push(...hostDetectorFields('guardrails.detect.*'));
   return Object.fromEntries(rows);
 }
 

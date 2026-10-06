@@ -232,6 +232,7 @@ export {
   createPlaygroundHostTransport,
   createPlaygroundTransport,
   playgroundInterface,
+  playgroundRunDefines,
 } from './transport.ts';
 
 export { playgroundDecisionRequestSchema } from './decision-request.ts';

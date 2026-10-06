@@ -41,7 +41,7 @@ import type { Equals } from '../src/kernel/util/exact-type.ts';
 import type { PlaygroundTraceLine } from './traces.ts';
 
 /** The agents the payload's agent names come first, so its agent tools find them. */
-export function playgroundInterface(payload: PlaygroundRunPayload): ProfileInterface {
+function definePlaygroundRun(payload: PlaygroundRunPayload) {
   const profiles = new Map<string, Profile>();
   const tools = createToolRegistry((id) => profiles.get(id));
   for (const dependency of payload.dependencies ?? []) {
@@ -50,7 +50,23 @@ export function playgroundInterface(payload: PlaygroundRunPayload): ProfileInter
     profiles.set(profile.id, profile);
   }
   registerPlaygroundTools(tools, payload.customTools);
-  return interfaceFromProfile(defineProfile(payload.profile), tools);
+  return { profile: defineProfile(payload.profile), tools };
+}
+
+export function playgroundInterface(payload: PlaygroundRunPayload): ProfileInterface {
+  const { profile, tools } = definePlaygroundRun(payload);
+  return interfaceFromProfile(profile, tools);
+}
+
+/** False for a run kept by a package whose settings this one no longer takes. */
+export function playgroundRunDefines(payload: PlaygroundRunPayload): boolean {
+  try {
+    definePlaygroundRun(payload);
+    return true;
+  } catch (err) {
+    if (err instanceof TheoremError) return false;
+    throw err;
+  }
 }
 
 /** The server picks the id, so a steer reaches only a run this browser started. */

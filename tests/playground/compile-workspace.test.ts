@@ -77,7 +77,7 @@ Deno.test('an agent is registered after the agent its tool runs, whatever the tr
   assertEquals(tool.inputSchema.required, ['text']);
 });
 
-Deno.test('a run carries the agents its agent needs, and registers them first', () => {
+Deno.test('a run carries the agents its agent needs, and registers them first', async () => {
   const result = compileWorkspace(conciergeCallingHelper());
   assert(result.ok);
   const concierge = must(workspaceRunAgent(result, 'travel.concierge'));
@@ -87,7 +87,7 @@ Deno.test('a run carries the agents its agent needs, and registers them first', 
   );
   assertEquals(must(workspaceRunAgent(result, 'travel.helper')).dependencies, []);
   assertEquals(workspaceRunAgent(result, 'missing'), undefined);
-  const { scope, profile } = playgroundScope(
+  const { scope, profile } = await playgroundScope(
     concierge.profile,
     concierge.customTools,
     concierge.structured,

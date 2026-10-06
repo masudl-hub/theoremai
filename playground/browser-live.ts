@@ -56,7 +56,7 @@ class BrowserLiveSocket implements LiveSocket {
     this.emit('onopen', new Event('open'));
     const traces = playgroundTraces.route((record) => this.receive({ type: 'trace', record }));
     try {
-      const { scope, profile } = playgroundScope(
+      const { scope, profile } = await playgroundScope(
         payload.profile,
         payload.customTools,
         payload.structured,

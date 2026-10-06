@@ -11,6 +11,7 @@ import {
   type ProfileDefinition,
   TheoremError,
 } from '../mod.ts';
+import { listsPatterns } from '../src/guardrails/host-patterns.ts';
 import type { ResolveHost } from '../src/guardrails/network.ts';
 import type { TaintGate } from '../src/guardrails/types.ts';
 import type { AgentCall, AgentCallHook, ModelProvider } from '../src/kernel/types.ts';
@@ -143,18 +144,34 @@ function runtimeProfileDefinition(
   };
 }
 
+/**
+ * `def` with the table compiled for each detector's patterns, here where the draft runs: a table
+ * a browser sent is never trusted, since compiling is what refuses a pattern that could hang on
+ * hostile text. The compiler loads only for a draft that has patterns.
+ */
+async function withCompiledPatterns<D extends ProfileDefinition>(def: D): Promise<D> {
+  const { guardrails } = def;
+  if (!guardrails || !('detect' in guardrails)) return def;
+  const { detect } = guardrails;
+  if (typeof detect !== 'object' || !listsPatterns(detect)) return def;
+  const { compileDetect } = await import('../src/guardrails/compile-egress.ts');
+  return { ...def, guardrails: { ...guardrails, detect: compileDetect(detect) } };
+}
+
 /** Registers the draft's tools, schema, and profile into `scope`, as the runtime runs it. */
-function registerDraft(
+async function registerDraft(
   scope: KernelScope,
   profile: ProfileDefinition,
   customTools: readonly ToolRegistration[],
   structured: StructuredRegistration | undefined,
   runtime: PlaygroundRuntime,
-): Profile {
+): Promise<Profile> {
   if (playgroundKeySlots(profile).length > PLAYGROUND_KEY_SLOT_CAP) {
     throw new TheoremError('config', 'The playground supports up to 32 key slots.'); // lexicon-exempt: builder diagnostic
   }
-  const defined = defineProfile(runtimeProfileDefinition(profile, runtime));
+  const defined = defineProfile(
+    runtimeProfileDefinition(await withCompiledPatterns(profile), runtime),
+  );
   if (defined.type !== 'host') {
     for (const binding of Object.values(defined.models)) {
       const violation = modelBindingViolation(
@@ -197,20 +214,26 @@ export interface PlaygroundDependency {
  * the scope also holds MCP sessions, and a shared one would hand a keyless server's session to
  * every visitor and keep it past the request. `dependencies` are registered first, in order.
  */
-export function playgroundScope(
+export async function playgroundScope(
   profile: ProfileDefinition,
   customTools: readonly ToolRegistration[],
   structured: StructuredRegistration | undefined,
   runtime: PlaygroundRuntime,
   dependencies: readonly PlaygroundDependency[] = [],
-): { scope: KernelScope; profile: Profile } {
+): Promise<{ scope: KernelScope; profile: Profile }> {
   const scope = createKernelScope();
   for (const dependency of dependencies) {
-    registerDraft(scope, dependency.profile, dependency.customTools, dependency.structured, runtime);
+    await registerDraft(
+      scope,
+      dependency.profile,
+      dependency.customTools,
+      dependency.structured,
+      runtime,
+    );
   }
   return {
     scope,
-    profile: registerDraft(scope, profile, customTools, structured, runtime),
+    profile: await registerDraft(scope, profile, customTools, structured, runtime),
   };
 }
 
@@ -219,16 +242,16 @@ export function playgroundScope(
  * rewrites their guardrails or checks their model bindings. For a run that
  * calls no model and reaches no host. Never cache or share it.
  */
-export function writtenScope(drafts: readonly PlaygroundDependency[]): {
+export async function writtenScope(drafts: readonly PlaygroundDependency[]): Promise<{
   scope: KernelScope;
   profile: Profile | undefined;
-} {
+}> {
   const scope = createKernelScope();
   let profile: Profile | undefined;
   for (const draft of drafts) {
     profile = registerDefined(
       scope,
-      defineProfile(draft.profile),
+      defineProfile(await withCompiledPatterns(draft.profile)),
       draft.customTools,
       draft.structured,
     );

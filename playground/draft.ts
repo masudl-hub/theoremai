@@ -10,12 +10,13 @@ import {
   profileAllowsInject,
   resolveGuardrailPolicy,
 } from '../mod.ts';
-import { type Boundary, recordOf } from '../src/guardrails/boundaries.ts';
+import { BOUNDARIES, type Boundary, recordOf } from '../src/guardrails/boundaries.ts';
 import {
   type DetectAction,
   DETECTORS,
   type Detector,
   detects,
+  PATTERN_DETECTORS,
   type UrlDetector,
 } from '../src/guardrails/detectors.ts';
 import type { BlockedReplyOnBlock, TaintGate } from '../src/guardrails/types.ts';
@@ -195,11 +196,43 @@ export interface UrlAllowDraft {
   fromTools: boolean;
 }
 
+/** One pattern of the builder's own: a regular expression, or words matched whole. */
+export interface PatternDraft {
+  name: string;
+  kind: 'pattern' | 'words';
+  /** The regular expression's source, while `kind` is `pattern`. */
+  pattern: string;
+  /** Its flags, from `i`, `m`, `s` and `u`. */
+  flags: string;
+  /** The words, while `kind` is `words`. */
+  words: string[];
+}
+
+/** Whose patterns a detector reads with: Theorem's, the builder's, both or neither. */
+export interface PatternSourceDraft {
+  theorem: boolean;
+  patterns: PatternDraft[];
+}
+
+/** A detector of the builder's own, read with its patterns. */
+export interface OwnDetectorDraft {
+  /** `namespace.name`. */
+  key: string;
+  label: string;
+  /** What it does with a match, at every boundary. */
+  at: Record<Boundary, DetectAction>;
+  patterns: PatternDraft[];
+}
+
 export interface GuardrailsDraft {
   /** The note that binds the canary, while `canary_leak` reads somewhere. */
   canaryBindNote: string;
   /** What each detector does with a match, at every boundary. */
   detect: Record<Detector, Record<Boundary, DetectAction>>;
+  /** Whose patterns each detector that reads with patterns uses, by detector. */
+  sources: Record<string, PatternSourceDraft>;
+  /** Detectors of the builder's own. */
+  own: OwnDetectorDraft[];
   quotaEnabled: boolean;
   quotaPerDay: number | null;
   quotaMessage: string;
@@ -401,11 +434,30 @@ export function agentToolTarget(
   return isStub && agentId ? { agentKey, description: `Asks ${agentId} and returns its answer.` } : { agentKey };
 }
 
+/** A pattern to fill in. */
+export function newPattern(): PatternDraft {
+  return { name: '', kind: 'pattern', pattern: '', flags: '', words: [] };
+}
+
+/** A detector of the builder's own to fill in: it reads nowhere until a boundary is set. */
+export function newOwnDetector(): OwnDetectorDraft {
+  return {
+    key: '',
+    label: '',
+    at: recordOf(BOUNDARIES, () => 'ignore' as const),
+    patterns: [newPattern()],
+  };
+}
+
 function defaultGuardrails(): GuardrailsDraft {
   const resolved = resolveGuardrailPolicy(undefined);
   return {
     canaryBindNote: '',
     detect: recordOf(DETECTORS, (detector) => ({ ...resolved.detect[detector] })),
+    sources: Object.fromEntries(
+      PATTERN_DETECTORS.map((detector) => [detector, { theorem: true, patterns: [] }]),
+    ),
+    own: [],
     quotaEnabled: false,
     quotaPerDay: null,
     quotaMessage: '',

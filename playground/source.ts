@@ -3,6 +3,7 @@
  * `zodFromJsonSchema` would build.
  */
 
+import { listsPatterns } from '../src/guardrails/host-patterns.ts';
 import type { CompiledPlayground } from './compile.ts';
 import type { CompiledWorkspace } from './compile-workspace.ts';
 import type { ToolRegistration } from './registrations.ts';
@@ -48,6 +49,24 @@ function literal(value: unknown, depth: number): string {
   throw new Error(`Playground source cannot write a ${typeof value} value.`);
 }
 
+const COMPILE_IMPORT = `import { compileDetect } from '@theoremjs/agents/guardrails/compile';`;
+
+/**
+ * The profile's `defineProfile` call. A detector's own patterns need their compiled table, so
+ * `detect` is wrapped in `compileDetect`, which compiles them as the host starts; `compiles`
+ * says the module needs its import.
+ */
+function profileSource(profile: CompiledPlayground['profile']): { code: string; compiles: boolean } {
+  const { guardrails } = profile;
+  const detect = guardrails && 'detect' in guardrails ? guardrails.detect : undefined;
+  if (typeof detect !== 'object' || !listsPatterns(detect)) {
+    return { code: `defineProfile(${literal(profile, 0)})`, compiles: false };
+  }
+  const compiled = new Expr(`compileDetect(${literal(detect, 2)})`);
+  const written = { ...profile, guardrails: { ...guardrails, detect: compiled } };
+  return { code: `defineProfile(${literal(written, 0)})`, compiles: true };
+}
+
 /** A tool's registration, as a call; `indent` places it in a function body. */
 function toolSource(tool: ToolRegistration, indent = 0): string {
   const call = (fields: Record<string, unknown>) => {
@@ -76,9 +95,11 @@ export function playgroundSource(compiled: CompiledPlayground): string {
     ...(structured ? ['registerStructured'] : []),
     ...(customTools.length ? ['registerTool'] : []),
   ];
+  const defined = profileSource(profile);
   const blocks = [
     [
       ...(customTools.length ? [`import { z } from 'zod';`] : []),
+      ...(defined.compiles ? [COMPILE_IMPORT] : []),
       `import {\n${
         [...(compiled.questions ? ['type DecisionQuestion'] : []), ...imports]
           .map((name) => `  ${name},`).join('\n')
@@ -88,7 +109,7 @@ export function playgroundSource(compiled: CompiledPlayground): string {
     ...(structured
       ? [`registerStructured(${quoteSource(structured.id)}, ${literal(structured.spec, 0)});\n`]
       : []),
-    `const profile = defineProfile(${literal(profile, 0)});\n\nregisterProfile(profile);\n`,
+    `const profile = ${defined.code};\n\nregisterProfile(profile);\n`,
     ...(compiled.questions
       ? [
         `/** What every decision asks about the state, by id. */\nconst questions = ${
@@ -133,8 +154,11 @@ function agentIdentifier(agentId: string, taken: Set<string>): string {
 function agentModule(compiled: CompiledPlayground): string {
   const { profile, structured, questions } = compiled;
   const imports = [...(questions ? ['type DecisionQuestion'] : []), 'defineProfile'];
+  const defined = profileSource(profile);
   const blocks = [
-    `import { ${imports.join(', ')} } from '@theoremjs/agents';\n`,
+    `import { ${imports.join(', ')} } from '@theoremjs/agents';\n${
+      defined.compiles ? `${COMPILE_IMPORT}\n` : ''
+    }`,
     ...(structured
       ? [
         `/** The reply's shape: \`theorem.ts\` registers it before the profile. */\nexport const structured = ${
@@ -142,7 +166,7 @@ function agentModule(compiled: CompiledPlayground): string {
         };\n`,
       ]
       : []),
-    `export const profile = defineProfile(${literal(profile, 0)});\n`,
+    `export const profile = ${defined.code};\n`,
     ...(questions
       ? [
         `/** What every decision asks about the state, by id. */\nexport const questions = ${

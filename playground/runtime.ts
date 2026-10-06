@@ -82,7 +82,7 @@ export async function* streamPlaygroundTurn(args: {
   /** The paused calls the message walks away from, each as the browser replays it. */
   abandon?: { callId: string; replay: TheoremReplay }[];
 }): AsyncGenerator<TurnEvent | PlaygroundTraceLine | PlaygroundSteerLine> {
-  const { scope, profile } = playgroundScope(
+  const { scope, profile } = await playgroundScope(
     args.profile,
     args.customTools,
     args.structured,
@@ -162,7 +162,7 @@ function heldGate(tool: RegisteredTool): Pick<HeldGatedCall, 'permission' | 'aut
   };
 }
 
-type PlaygroundScope = ReturnType<typeof playgroundScope>['scope'];
+type PlaygroundScope = Awaited<ReturnType<typeof playgroundScope>>['scope'];
 
 /**
  * The user's answer to a paused call. The playground keeps no session, so the
@@ -225,7 +225,7 @@ export async function* streamPlaygroundInvoke(args: {
   runtime: PlaygroundRuntime;
   dependencies?: PlaygroundDependency[];
 }): AsyncGenerator<TurnEvent | PlaygroundTraceLine> {
-  const { scope, profile } = playgroundScope(
+  const { scope, profile } = await playgroundScope(
     args.profile,
     args.customTools,
     args.structured,
@@ -257,7 +257,7 @@ export async function* streamPlaygroundCall(args: {
   runtime: PlaygroundRuntime;
   dependencies?: PlaygroundDependency[];
 }): AsyncGenerator<TurnEvent | PlaygroundTraceLine> {
-  const { scope, profile } = playgroundScope(
+  const { scope, profile } = await playgroundScope(
     args.profile,
     args.customTools,
     undefined,
@@ -291,7 +291,7 @@ export async function runPlaygroundDecision(
   options: RunDecisionOptions,
   signal?: AbortSignal,
 ) {
-  const { scope, profile } = playgroundScope(payload.profile, [], undefined, {
+  const { scope, profile } = await playgroundScope(payload.profile, [], undefined, {
     mode: 'byok',
   });
   const traces: TraceRecord[] = [];

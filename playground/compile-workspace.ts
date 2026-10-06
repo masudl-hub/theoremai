@@ -10,6 +10,7 @@ import {
   type CompiledPlayground,
   compilePlayground,
   type PlaygroundIssue,
+  uncompiled,
 } from './compile.ts';
 import type { PlaygroundConnectionMode } from './policy.ts';
 import { type PlaygroundDependency, registerDefined } from './runtime-scope.ts';
@@ -211,7 +212,12 @@ function kernelIssue(
   const scope = createKernelScope();
   for (const { key, agent } of compiled) {
     try {
-      registerDefined(scope, defineProfile(agent.profile), agent.customTools, agent.structured);
+      registerDefined(
+        scope,
+        defineProfile(uncompiled(agent.profile)),
+        agent.customTools,
+        agent.structured,
+      );
     } catch (err) {
       if (!(err instanceof TheoremError)) throw err;
       return { nodeId: agentNodeId(key), message: err.message };

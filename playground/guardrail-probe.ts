@@ -419,7 +419,7 @@ export async function runGuardrailProbe(args: {
   if (probe.text.length > PROBE_TEXT_LIMIT) {
     throw new TheoremError('request', `A probe is at most ${PROBE_TEXT_LIMIT} characters.`); // lexicon-exempt: builder diagnostic
   }
-  const { scope, profile } = writtenScope([
+  const { scope, profile } = await writtenScope([
     ...(args.dependencies ?? []),
     remoteAgent(args.profile),
     probedDraft(args.profile, args.customTools, args.structured, probe.text),

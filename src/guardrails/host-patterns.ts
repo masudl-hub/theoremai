@@ -193,6 +193,22 @@ function patternsProblem(path: string, patterns: unknown, compiled: unknown): st
   if (patterns === undefined) {
     return compiled === undefined ? undefined : `${path}.compiled is set without patterns`;
   }
+  const problem = patternListProblem(path, patterns);
+  if (problem !== undefined) return problem;
+  if ((patterns as HostPattern[]).length === 0) {
+    return compiled === undefined ? undefined : `${path}.compiled is set without patterns`;
+  }
+  if (compiled === undefined) {
+    return `${path}.patterns need their compiled table: set ${path}.compiled from \`agents detect-compile\`, or wrap the detect setting in compileDetect from @theoremjs/agents/guardrails/compile`;
+  }
+  return compiledProblem(`${path}.compiled`, compiled, patternSources(patterns as HostPattern[]));
+}
+
+/**
+ * What is wrong with a list of patterns before it is compiled, or `undefined`: an editor checks
+ * with it as the patterns are written.
+ */
+function patternListProblem(path: string, patterns: unknown): string | undefined {
   if (!Array.isArray(patterns)) return `${path}.patterns must be a list`;
   if (patterns.length > MAX_PATTERNS) {
     return `${path}.patterns lists ${patterns.length} patterns; the most is ${MAX_PATTERNS}`;
@@ -206,13 +222,15 @@ function patternsProblem(path: string, patterns: unknown, compiled: unknown): st
     if (names.has(name)) return `${at}.name ${JSON.stringify(name)} is listed twice`;
     names.add(name);
   }
-  if (patterns.length === 0) {
-    return compiled === undefined ? undefined : `${path}.compiled is set without patterns`;
-  }
-  if (compiled === undefined) {
-    return `${path}.patterns need their compiled table: set ${path}.compiled from \`agents detect-compile\`, or wrap the detect setting in compileDetect from @theoremjs/agents/guardrails/compile`;
-  }
-  return compiledProblem(`${path}.compiled`, compiled, patternSources(patterns as HostPattern[]));
+  return undefined;
+}
+
+/** Whether any detector of `detect` lists patterns of the host's own, which need compiling. */
+function listsPatterns(detect: unknown): boolean {
+  if (!isRecord(detect)) return false;
+  return Object.values(detect).some(
+    (rule) => isRecord(rule) && Array.isArray(rule.patterns) && rule.patterns.length > 0,
+  );
 }
 
 /** The matchers of each list of patterns, built once: a profile's patterns are resolved every turn. */
@@ -233,10 +251,12 @@ function matchersOf(patterns: readonly HostPattern[]): readonly HostMatcher[] {
 
 export type { AutomatonData, CompiledPatterns, HostMatcher, HostPattern, PatternSource };
 export {
+  listsPatterns,
   MAX_PATTERN_LENGTH,
   MAX_PATTERNS,
   matchersOf,
   PATTERN_COMPILER_VERSION,
+  patternListProblem,
   patternProblem,
   patternSources,
   patternsProblem,

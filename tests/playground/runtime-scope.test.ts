@@ -14,12 +14,12 @@ function afterRemoteRead(guardrails: object | undefined): unknown {
     : undefined;
 }
 
-function runOn(runtime: PlaygroundRuntime) {
+async function runOn(runtime: PlaygroundRuntime) {
   const draft = createExampleDraft();
   draft.guardrails.allowPrivateNetworks = true;
   const compiled = compilePlayground(draft);
   assert(compiled.ok, JSON.stringify(!compiled.ok && compiled.issues));
-  const { profile } = playgroundScope(
+  const { profile } = await playgroundScope(
     compiled.profile,
     compiled.customTools,
     compiled.structured,
@@ -28,36 +28,41 @@ function runOn(runtime: PlaygroundRuntime) {
   return { guardrails: profile.guardrails, note: playgroundNetworkNote(runtime) };
 }
 
-Deno.test("the Network note says what the playground's runtime does with the rules", () => {
-  const demo = runOn({ mode: 'demo' });
+Deno.test("the Network note says what the playground's runtime does with the rules", async () => {
+  const demo = await runOn({ mode: 'demo' });
   assertEquals(demo.guardrails?.network, undefined);
   assertEquals(demo.note, "The playground's server reaches public hosts only.");
 
-  const browser = runOn({ mode: 'byok' });
+  const browser = await runOn({ mode: 'byok' });
   assertEquals(browser.guardrails?.network?.allowPrivateNetworks, true);
   assertEquals(browser.note, 'Runs from this browser keep these rules as written.');
 
   const local = { baseUrl: 'http://127.0.0.1:11434' };
-  const offline = runOn({ mode: 'byok', providers: { local }, remoteTools: false });
+  const offline = await runOn({ mode: 'byok', providers: { local }, remoteTools: false });
   assertEquals(offline.guardrails?.network, { allowedSchemes: [] });
   assertEquals(offline.note, 'Remote tools are off, so tools reach no host.');
 
-  const online = runOn({ mode: 'byok', providers: { local }, remoteTools: true });
+  const online = await runOn({ mode: 'byok', providers: { local }, remoteTools: true });
   assertEquals(online.guardrails?.network?.allowPrivateNetworks, true);
   assertEquals(online.note, browser.note);
 });
 
-Deno.test('the Taint note says playground runs refuse destructive calls after a remote read', () => {
-  assertEquals(afterRemoteRead(runOn({ mode: 'demo' }).guardrails), 'destructive');
+Deno.test('the Taint note says playground runs refuse destructive calls after a remote read', async () => {
+  assertEquals(afterRemoteRead((await runOn({ mode: 'demo' })).guardrails), 'destructive');
   assert(PLAYGROUND_TAINT_NOTE.includes('refuse a destructive call'));
 
   const draft = createExampleDraft();
   draft.guardrails.taintAfterRemoteRead = 'write';
   const compiled = compilePlayground(draft);
   assert(compiled.ok);
-  const { profile } = playgroundScope(compiled.profile, compiled.customTools, compiled.structured, {
-    mode: 'demo',
-  });
+  const { profile } = await playgroundScope(
+    compiled.profile,
+    compiled.customTools,
+    compiled.structured,
+    {
+      mode: 'demo',
+    },
+  );
   assertEquals(afterRemoteRead(profile.guardrails), 'write');
   assert(PLAYGROUND_TAINT_NOTE.includes('a stricter setting is kept'));
 });

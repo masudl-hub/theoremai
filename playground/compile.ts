@@ -24,11 +24,14 @@ import {
   DETECTORS,
   type Detector,
   type DetectorConfig,
+  type DetectorRule,
   type DetectSpec,
   detectProblem,
+  type HostDetectorConfig,
   type UrlAllow,
   type UrlDetector,
 } from '../src/guardrails/detectors.ts';
+import { type HostPattern, patternListProblem } from '../src/guardrails/host-patterns.ts';
 import type { DecisionProfileDefinition, HostProfileDefinition } from '../src/kernel/mod.ts';
 import { outOfScopeFields } from '../src/kernel/profile-scope.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
@@ -69,6 +72,9 @@ import type {
   ModelBindingDraft,
   ObservabilityDraft,
   OutputsDraft,
+  OwnDetectorDraft,
+  PatternDraft,
+  PatternSourceDraft,
   PlaygroundDraft,
   PlaygroundProfileType,
   PlaygroundTurnProfileType,
@@ -1010,17 +1016,110 @@ function compileUrlAllow(
   return Object.keys(spec).length ? spec : undefined;
 }
 
+/** The builder's patterns as the kernel takes them; what is wrong with one is reported at `field`. */
+function compilePatterns(
+  drafts: readonly PatternDraft[],
+  path: string,
+  field: string,
+  report: Report,
+): HostPattern[] {
+  const patterns = drafts.map((draft): HostPattern => {
+    const name = draft.name.trim();
+    if (draft.kind === 'words') return { name, words: cleanList(draft.words) };
+    const flags = draft.flags.trim();
+    return { name, pattern: draft.pattern, ...(flags ? { flags } : {}) };
+  });
+  const problem = patternListProblem(path, patterns);
+  if (problem !== undefined) report('guardrails', problem, field);
+  return patterns;
+}
+
+/** Whose patterns `detector` reads with, where that differs from Theorem's alone. */
+function compileSource(
+  detector: Detector,
+  source: PatternSourceDraft | undefined,
+  report: Report,
+): Pick<DetectorConfig, 'theorem' | 'patterns'> {
+  if (!source || !DETECTOR_META[detector].patterns) return {};
+  const patterns = compilePatterns(
+    source.patterns,
+    `Detect.${detector}`,
+    `sources.${detector}.patterns`,
+    report,
+  );
+  return {
+    ...(source.theorem ? {} : { theorem: false }),
+    ...(patterns.length ? { patterns } : {}),
+  };
+}
+
+/** The builder's own detectors, each read at the boundaries of the profile it sets above `ignore`. */
+function compileOwnDetectors(
+  own: readonly OwnDetectorDraft[],
+  boundaries: readonly Boundary[],
+  report: Report,
+): Record<string, HostDetectorConfig> {
+  const spec: Record<string, HostDetectorConfig> = {};
+  for (const [index, detector] of own.entries()) {
+    const key = detector.key.trim();
+    if (Object.hasOwn(spec, key)) {
+      report('guardrails', `Detector ${key} is listed twice.`, 'own', index);
+      continue;
+    }
+    const read = boundaries.filter((boundary) => detector.at[boundary] !== 'ignore');
+    spec[key] = {
+      label: detector.label.trim(),
+      ...(read.length
+        ? { at: Object.fromEntries(read.map((boundary) => [boundary, detector.at[boundary]])) }
+        : {}),
+      patterns: compilePatterns(detector.patterns, `Detect.${key}`, `own.${index}.patterns`, report),
+    };
+  }
+  return spec;
+}
+
+/** A `find` that stands for patterns not yet compiled, while the rest of a detector is checked. */
+const PATTERNS_PENDING = () => [];
+
 /**
- * The actions that differ from the defaults, at the boundaries the profile has, and what each
- * URL detector that reads one of them lets through.
+ * `detect` as it can be checked before its patterns are compiled: the run's server compiles them
+ * as it registers the profile, so here each list is left out and checked on its own.
+ */
+function withoutPatterns(detect: DetectSpec | undefined): DetectSpec | undefined {
+  if (detect === undefined || typeof detect === 'string') return detect;
+  return Object.fromEntries(
+    Object.entries(detect as Record<string, DetectorRule | HostDetectorConfig>).map(
+      ([key, rule]) => {
+        if (typeof rule === 'string' || rule.patterns === undefined) return [key, rule];
+        const { patterns: _patterns, ...rest } = rule;
+        return [key, key.includes('.') ? { ...rest, find: PATTERNS_PENDING } : rest];
+      },
+    ),
+  ) as DetectSpec;
+}
+
+/** `profile` as it can be defined here, before the run's server compiles its patterns. */
+export function uncompiled(profile: PlaygroundProfileDefinition): PlaygroundProfileDefinition {
+  const { guardrails } = profile;
+  if (!guardrails || !('detect' in guardrails) || guardrails.detect === undefined) return profile;
+  return {
+    ...profile,
+    guardrails: { ...guardrails, detect: withoutPatterns(guardrails.detect) },
+  } as PlaygroundProfileDefinition;
+}
+
+/**
+ * The actions that differ from the defaults, at the boundaries the profile has; what each URL
+ * detector that reads one of them lets through; whose patterns each detector reads with; and the
+ * builder's own detectors.
  */
 function compileDetect(
-  guardrails: Pick<GuardrailsDraft, 'detect' | 'allow'>,
+  guardrails: Pick<GuardrailsDraft, 'detect' | 'allow' | 'sources' | 'own'>,
   boundaries: readonly Boundary[],
   report: Report,
 ): DetectSpec | undefined {
   const { detect } = guardrails;
-  const spec: Partial<Record<Detector, DetectorConfig>> = {};
+  const spec: Record<string, DetectorConfig | HostDetectorConfig> = {};
   for (const detector of DETECTORS) {
     const changed = boundaries.filter(
       (boundary) => detect[detector][boundary] !== DETECT_DEFAULTS[detector][boundary],
@@ -1030,7 +1129,8 @@ function compileDetect(
       isUrlDetector(detector) && reads
         ? compileUrlAllow(detector, guardrails.allow[detector], report)
         : undefined;
-    if (!changed.length && !allow) continue;
+    const source = compileSource(detector, guardrails.sources[detector], report);
+    if (!changed.length && !allow && !Object.keys(source).length) continue;
     spec[detector] = {
       ...(changed.length
         ? {
@@ -1039,12 +1139,14 @@ function compileDetect(
             ),
           }
         : {}),
+      ...source,
       ...(allow ? { allow } : {}),
     };
   }
-  const problem = detectProblem('Detect', spec, boundaries);
+  Object.assign(spec, compileOwnDetectors(guardrails.own, boundaries, report));
+  const problem = detectProblem('Detect', withoutPatterns(spec as DetectSpec), boundaries);
   if (problem !== undefined) report('guardrails', problem, 'detect');
-  return Object.keys(spec).length ? spec : undefined;
+  return Object.keys(spec).length ? (spec as DetectSpec) : undefined;
 }
 
 function isUrlDetector(detector: Detector): detector is UrlDetector {
@@ -1674,7 +1776,7 @@ export function compilePlayground(
   if (issues.length) return { ok: false, issues };
 
   try {
-    defineProfile(compiled.profile);
+    defineProfile(uncompiled(compiled.profile));
   } catch (err) {
     if (!(err instanceof TheoremError)) throw err;
     return {

@@ -5,6 +5,7 @@ import type { StructuredRegistration, ToolRegistration } from './registrations.t
 import {
 	clearPlaygroundRunPayloadRecord,
 	createPlaygroundRunId,
+	keptPlaygroundRunIds,
 	loadPlaygroundRunPayloadRecord,
 	PLAYGROUND_RUN_INDEX_KEY,
 	PLAYGROUND_RUN_PAYLOAD_CAP,
@@ -20,6 +21,7 @@ import {
 
 export {
 	createPlaygroundRunId,
+	keptPlaygroundRunIds,
 	PLAYGROUND_RUN_INDEX_KEY,
 	PLAYGROUND_RUN_PAYLOAD_CAP,
 	PLAYGROUND_RUN_PAYLOAD_KEY,

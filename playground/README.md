@@ -28,7 +28,7 @@ stays out of every npm/JSR artifact. Consumers link it directly, e.g.
 | `playgroundSource()` | Compiled draft as a TypeScript module (`registerTool`, `defineProfile`, `registerProfile`) |
 | `modelBindingViolation()`, `GEMINI_PLAYGROUND_MODELS`, … | Which models and built-in tools the public playground allows |
 | `zodFromJsonSchema()`, `parseJsonSchema()` | Authored JSON Schema → Zod for registration |
-| run-payload helpers, `playgroundRunDefines()` | Handoff of a compiled draft to the run tab, and whether a kept run still defines on this package |
+| run-payload helpers, `playgroundRunDefines()`, `clearStalePlaygroundRuns()` | Handoff of a compiled draft to the run tab, whether a kept run still defines on this package, and clearing the ones that do not |
 | `createPlaygroundTransport()`, `playgroundInterface()` | The run tab's transport for a compiled draft; its `traces` feed receives the records each run writes |
 | `runGuardrailProbes()`, `runGuardrailProbe()`, `probeDraft()`, `PROBE_BOUNDARIES`, `PROBE_BOUNDARY_NOTES`, `PROBE_STATUSES` | Test a draft's guardrails: send one text across every boundary, or across one, on a scripted model. Each boundary answers with a status (passed, flagged, redacted or blocked), whether its turn was tainted by a remote read, the guardrail events, what went on past the boundary, and the turn's trace records. No model or host is called. Each boundary's note says what crosses it, when the kernel reads it and what the kernel does there |
 | `PROBE_BATTERY` | Hard texts to probe with: disguised attacks and harmless texts that look like attacks, each with the boundary it crosses and whether a guardrail should act on it |

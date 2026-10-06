@@ -212,6 +212,7 @@ export type {
 export {
   clearPlaygroundRunPayload,
   createPlaygroundRunId,
+  keptPlaygroundRunIds,
   loadPlaygroundRunPayload,
   PLAYGROUND_RUN_INDEX_KEY,
   PLAYGROUND_RUN_PAYLOAD_CAP,
@@ -230,6 +231,7 @@ export type { PlaygroundSteerLine, PlaygroundTransportOptions } from './transpor
 export {
   createPlaygroundDecisionTransport,
   createPlaygroundHostTransport,
+  clearStalePlaygroundRuns,
   createPlaygroundTransport,
   playgroundInterface,
   playgroundRunDefines,

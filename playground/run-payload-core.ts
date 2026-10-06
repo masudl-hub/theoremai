@@ -129,6 +129,19 @@ export function loadPlaygroundRunPayloadRecord(
 	}
 }
 
+/** Every kept run's id, indexed or not. */
+export function keptPlaygroundRunIds(storeOverride?: Storage | null): string[] {
+	const store = resolveStore(storeOverride);
+	if (!store) return [];
+	const ids: string[] = [];
+	for (let i = 0; i < store.length; i++) {
+		const key = store.key(i);
+		if (key?.startsWith(PLAYGROUND_RUN_PAYLOAD_KEY_PREFIX) && key !== PLAYGROUND_RUN_INDEX_KEY)
+			ids.push(key.slice(PLAYGROUND_RUN_PAYLOAD_KEY_PREFIX.length));
+	}
+	return ids;
+}
+
 export function clearPlaygroundRunPayloadRecord(
 	runId: string,
 	storeOverride?: Storage | null,

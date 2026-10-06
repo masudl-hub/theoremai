@@ -35,7 +35,12 @@ import {
 } from '../react/src/client/transport.ts';
 import { interfaceFromProfile, type ProfileInterface } from '../src/interface/mod.ts';
 import { createToolRegistry } from '../src/kernel/tools/registry.ts';
-import type { PlaygroundRunPayload } from './run-payload.ts';
+import {
+  clearPlaygroundRunPayload,
+  keptPlaygroundRunIds,
+  loadPlaygroundRunPayload,
+  type PlaygroundRunPayload,
+} from './run-payload.ts';
 import { registerPlaygroundTools } from './tools.ts';
 import type { Equals } from '../src/kernel/util/exact-type.ts';
 import type { PlaygroundTraceLine } from './traces.ts';
@@ -63,9 +68,16 @@ export function playgroundRunDefines(payload: PlaygroundRunPayload): boolean {
   try {
     definePlaygroundRun(payload);
     return true;
-  } catch (err) {
-    if (err instanceof TheoremError) return false;
-    throw err;
+  } catch {
+    return false;
+  }
+}
+
+/** Clears every kept run this package no longer defines. */
+export function clearStalePlaygroundRuns(store?: Storage | null): void {
+  for (const id of keptPlaygroundRunIds(store)) {
+    const payload = loadPlaygroundRunPayload(id, store);
+    if (!payload || !playgroundRunDefines(payload)) clearPlaygroundRunPayload(id, store);
   }
 }
 

@@ -226,6 +226,10 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     profileTypes: turnGuardrailTypes('detect'),
     reason: 'the decision path runs none of the turn guardrails',
   },
+  'guardrails.blockedReply': {
+    profileTypes: ['text', 'image', 'live'],
+    reason: 'only a reply can be blocked, and speech, decision and host profiles write none',
+  },
   'guardrails.egress': {
     profileTypes: ['text', 'image', 'live'],
     reason: 'egress reads the reply text, which speech, decision and host profiles never write',

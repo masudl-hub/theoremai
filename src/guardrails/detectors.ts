@@ -17,9 +17,18 @@ import { SENSITIVE_GROUPS } from './sensitive.ts';
 
 /**
  * What the kernel finds in text: the four families of sensitive data, prompt-injection phrasing,
- * and what is the profile's own on its way out (the canary token, the system instruction).
+ * and what is the profile's own on its way out (the canary token, the system instruction, the
+ * kernel's markers, and an image or link to an address the model was not given).
  */
-const DETECTORS = [...SENSITIVE_GROUPS, 'injection', 'canary_leak', 'prompt_leak'] as const;
+const DETECTORS = [
+  ...SENSITIVE_GROUPS,
+  'injection',
+  'canary_leak',
+  'prompt_leak',
+  'marker_leak',
+  'ungiven_images',
+  'ungiven_links',
+] as const;
 /** One of {@linkcode DETECTORS}. */
 type Detector = (typeof DETECTORS)[number];
 
@@ -34,12 +43,26 @@ const DETECT_ACTIONS = ['ignore', 'flag', 'redact', 'block'] as const;
 /** One of {@linkcode DETECT_ACTIONS}. */
 type DetectAction = (typeof DETECT_ACTIONS)[number];
 
+/** The addresses `ungiven_images` or `ungiven_links` lets through beyond the ones the model was given. */
+interface UrlAllow {
+  /** Hostnames let through whatever their URL, such as the host's own CDN. */
+  hosts?: readonly string[];
+  /**
+   * Whether a URL a tool returned counts as given. Default true. A tool result can offer the
+   * model URLs to pick from, and the pick tells their server something; false closes that
+   * channel, and keeps only what the system prompt, the user and host history gave.
+   */
+  fromTools?: boolean;
+}
+
 /** A detector's setting in full. */
 interface DetectorConfig {
   /** The action at every boundary. Left out, each boundary keeps its default. */
   action?: DetectAction;
   /** An action for the boundaries it names, over `action` or the default. */
   at?: Partial<Record<Boundary, DetectAction>>;
+  /** `ungiven_images` and `ungiven_links` only: the addresses let through besides the given ones. */
+  allow?: UrlAllow;
 }
 
 /** One action at every boundary, or the setting in full. */
@@ -66,7 +89,10 @@ type DetectorGroup = (typeof DETECTOR_GROUPS)[number];
 const DETECTOR_GROUP_META: Readonly<Record<DetectorGroup, DetectMeta>> = {
   data: { label: 'Data', doc: 'Sensitive data, whoever wrote it.' },
   attacks: { label: 'Attacks', doc: 'Text written to steer the model.' },
-  ours: { label: 'Ours', doc: 'The canary and the system instruction, in what the model writes.' },
+  ours: {
+    label: 'Ours',
+    doc: "What the model writes that is the profile's own, or that would send data out: the canary, the system instruction, the kernel's markers, and images and links to addresses the model was not given.",
+  },
 };
 
 type BoundaryActions = Readonly<Partial<Record<Boundary, DetectAction>>>;
@@ -79,6 +105,8 @@ type BoundaryActions = Readonly<Partial<Record<Boundary, DetectAction>>>;
 interface DetectorDeclaration extends DetectMeta {
   group: DetectorGroup;
   defaults: Readonly<Partial<Record<Boundary, DetectAction>>>;
+  /** Whether its setting takes `allow`. */
+  allow?: true;
 }
 
 const TOOL_ARGUMENT_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_arguments', kind));
@@ -102,6 +130,11 @@ function leaving(toTool: DetectAction, said: DetectAction, thought: DetectAction
     live_reply: said,
     thought,
   };
+}
+
+/** What the model says or thinks: a reply of any kind takes `said`, a thought `thought`. */
+function shown(said: DetectAction, thought: DetectAction): BoundaryActions {
+  return { reply: said, reply_structured: said, live_reply: said, thought };
 }
 
 /** Every detector's declaration. The editor, validation and the catalog are built from it. */
@@ -147,6 +180,26 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
     doc: 'A run of words from the private system instruction, also reversed, in rot13 or in leetspeak.',
     group: 'ours',
     defaults: leaving('flag', 'block', 'redact'),
+  },
+  marker_leak: {
+    label: 'Marker leak',
+    doc: 'The markers the kernel fences user data with, and the words of the note that binds the canary.',
+    group: 'ours',
+    defaults: shown('block', 'redact'),
+  },
+  ungiven_images: {
+    label: 'Ungiven images',
+    doc: 'An image whose address the model was not given, on a host not allowed. Showing it loads the address, which can carry data out with no click.',
+    group: 'ours',
+    defaults: shown('block', 'redact'),
+    allow: true,
+  },
+  ungiven_links: {
+    label: 'Ungiven links',
+    doc: 'A link to an address the model was not given, on a host not allowed. It loads on a click, or where the host unfurls links into previews; replies cite pages from what the model knows, so it starts at Ignore.',
+    group: 'ours',
+    defaults: shown('ignore', 'ignore'),
+    allow: true,
   },
 };
 
@@ -216,6 +269,31 @@ function resolveDetect(spec?: DetectSpec): ResolvedDetect {
   return recordOf(DETECTORS, (detector) => resolveRule(detector, spec[detector]));
 }
 
+/** The detectors whose setting takes `allow`. */
+type UrlDetector = 'ungiven_images' | 'ungiven_links';
+
+/** What each of the {@linkcode UrlDetector}s lets through, as the profile set it. */
+type ResolvedAllow = Readonly<Record<UrlDetector, UrlAllow>>;
+
+const NO_ALLOW: ResolvedAllow = { ungiven_images: {}, ungiven_links: {} };
+
+function allowOf(rule: DetectorRule | undefined): UrlAllow {
+  return (isAction(rule) ? undefined : rule?.allow) ?? {};
+}
+
+/** The `allow` of each detector that takes one. */
+function resolveAllow(spec?: DetectSpec): ResolvedAllow {
+  if (spec === undefined || isAction(spec)) return NO_ALLOW;
+  const images = allowOf(spec.ungiven_images);
+  const links = allowOf(spec.ungiven_links);
+  // why: A host images load from already takes data with no click, so a link there opens nothing new.
+  const hosts = [...new Set([...(links.hosts ?? []), ...(images.hosts ?? [])])];
+  return {
+    ungiven_images: images,
+    ungiven_links: hosts.length > 0 ? { ...links, hosts } : links,
+  };
+}
+
 const ACTION_LIST = DETECT_ACTIONS.join(', ');
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -244,7 +322,33 @@ function atProblem(
   return undefined;
 }
 
-const CONFIG_KEYS: readonly string[] = ['action', 'at'] satisfies (keyof DetectorConfig)[];
+const CONFIG_KEYS: readonly string[] = ['action', 'at', 'allow'] satisfies (keyof DetectorConfig)[];
+const ALLOW_KEYS: readonly string[] = ['hosts', 'fromTools'] satisfies (keyof UrlAllow)[];
+
+/** A hostname is all an allowed host is: a scheme, port or path would never match one. */
+function allowProblem(path: string, allow: unknown, detector: Detector): string | undefined {
+  if (allow === undefined) return undefined;
+  if (!DETECTOR_META[detector].allow) {
+    return `${path} is a setting of ungiven_images and ungiven_links only`;
+  }
+  if (!isRecord(allow)) return `${path} must be an object`;
+  const unknown = Object.keys(allow).find((key) => !ALLOW_KEYS.includes(key));
+  if (unknown !== undefined) {
+    return `${path}.${unknown} is not a setting of allow (${ALLOW_KEYS.join(', ')})`;
+  }
+  const { hosts, fromTools } = allow;
+  if (fromTools !== undefined && typeof fromTools !== 'boolean') {
+    return `${path}.fromTools must be a boolean`;
+  }
+  if (hosts === undefined) return undefined;
+  if (!Array.isArray(hosts)) return `${path}.hosts must be a list`;
+  const bad = hosts.find(
+    (host) => typeof host !== 'string' || !/^[a-z0-9.-]+$/i.test(host) || host.startsWith('.'),
+  );
+  return bad === undefined
+    ? undefined
+    : `${path}.hosts lists ${JSON.stringify(bad)}, which is not a hostname`;
+}
 
 function ruleProblem(
   path: string,
@@ -261,7 +365,10 @@ function ruleProblem(
   if (rule.action !== undefined && !isAction(rule.action)) {
     return `${path}.action must be one of ${ACTION_LIST}`;
   }
-  return atProblem(`${path}.at`, rule.at, detector, boundaries);
+  return (
+    atProblem(`${path}.at`, rule.at, detector, boundaries) ??
+    allowProblem(`${path}.allow`, rule.allow, detector)
+  );
 }
 
 function isDetector(value: string): value is Detector {
@@ -299,7 +406,10 @@ export type {
   DetectorGroup,
   DetectorRule,
   DetectSpec,
+  ResolvedAllow,
   ResolvedDetect,
+  UrlAllow,
+  UrlDetector,
 };
 export {
   DETECT_ACTION_META,
@@ -312,5 +422,7 @@ export {
   DETECTORS,
   detectProblem,
   detects,
+  NO_ALLOW,
+  resolveAllow,
   resolveDetect,
 };

@@ -2,10 +2,9 @@ import type { ProviderEvent, ProviderEvidence } from '../kernel/types.ts';
 import { isRecord } from '../kernel/util/record.ts';
 import { canaryNoteMarker, guardedEventTexts, scanTextForCanaryLeak } from './canary.ts';
 import type { DetectAction, ResolvedDetect } from './detectors.ts';
-import { notePattern, SYSTEM_BOUNDARY } from './egress-patterns.ts';
-import { type GivenUrls, imageLeakSpans, linkLeakSpans, type UrlScope } from './egress-urls.ts';
+import { SYSTEM_BOUNDARY } from './egress-patterns.ts';
 import { describeError } from './error.ts';
-import { CANARY_HIT, hitFromSpan, PROMPT_ECHO_HIT } from './hits.ts';
+import { CANARY_HIT, PROMPT_ECHO_HIT } from './hits.ts';
 import { lexiconText } from './lexicon.ts';
 import { scanTextForPromptEcho } from './prompt-echo.ts';
 import { DETECT_RULES, EGRESS_RULES } from './rules.ts';
@@ -19,15 +18,6 @@ import type {
   Verdict,
 } from './types.ts';
 import { SEVERITIES } from './types.ts';
-
-function hitsFromSpans(
-  text: string,
-  spans: readonly { start: number; end: number }[],
-  rule: string,
-  severity: Severity,
-): GuardrailHit[] {
-  return spans.map((span) => hitFromSpan(text, span, rule, severity));
-}
 
 /** Why a reply was withheld, for the builder (`errorInternal`); the user reads `error.safety`. */
 const WITHHELD_REASON = {
@@ -166,121 +156,6 @@ function promptLeakReason(hits: GuardrailHit[]): string {
     : WITHHELD_REASON.promptEcho;
 }
 
-/** Where a URL check lets a URL through beyond the ones the model was given. */
-interface UrlCheck {
-  /** Hostnames the check lets through whatever their URL, such as the host's own CDN. */
-  hosts?: readonly string[];
-  /**
-   * Whether a URL a tool returned counts as given. Default true. A tool result
-   * can offer the model URLs to pick from, and the pick tells their server
-   * something; false closes that channel, and keeps only what the system
-   * prompt, the user and host history gave.
-   */
-  fromTools?: boolean;
-}
-
-/**
- * Which bundled egress checks run; a check left out keeps its default. The
- * system-prompt leak checks are not among them: they are the detectors
- * `canary_leak` and `prompt_leak`, and they run under any policy.
- */
-interface EgressChecks {
-  /** The fence the kernel puts around user data, and the canary's note. Default on. */
-  boundary?: boolean;
-  /** Images that load a URL the model was not given. Default on. */
-  images?: boolean | UrlCheck;
-  /**
-   * Links to a URL the model was not given. Default off: a link loads on a
-   * click, or where the host unfurls links into previews, and replies cite
-   * pages from what the model knows. A host that unfurls turns it on.
-   */
-  links?: boolean | UrlCheck;
-}
-
-/** `EgressChecks` with defaults applied; a URL check is undefined when off. */
-interface ResolvedEgressChecks {
-  boundary: boolean;
-  images?: UrlCheck;
-  links?: UrlCheck;
-}
-
-function resolveUrlCheck(check: boolean | UrlCheck | undefined, byDefault: boolean) {
-  if (check === undefined) return byDefault ? {} : undefined;
-  if (typeof check === 'boolean') return check ? {} : undefined;
-  return check;
-}
-
-function resolveEgressChecks(checks: EgressChecks = {}): ResolvedEgressChecks {
-  const images = resolveUrlCheck(checks.images, true);
-  const resolved = resolveUrlCheck(checks.links, false);
-  // why: A host images load from already takes data with no click, so a link there opens nothing new.
-  const links =
-    resolved && images?.hosts
-      ? { ...resolved, hosts: [...new Set([...(resolved.hosts ?? []), ...images.hosts])] }
-      : resolved;
-  return {
-    boundary: checks.boundary ?? true,
-    ...(images ? { images } : {}),
-    ...(links ? { links } : {}),
-  };
-}
-
-/** Every check off: the system-prompt leak checks alone. */
-const NO_CHECKS: ResolvedEgressChecks = resolveEgressChecks({
-  boundary: false,
-  images: false,
-});
-
-const DEFAULT_CHECKS: ResolvedEgressChecks = resolveEgressChecks();
-
-/** What the bundled policy reads besides the reply. */
-interface EgressScope {
-  canary?: string;
-  canaryGiven?: boolean;
-  privateSystem?: readonly string[];
-  /** The URLs the model was given this turn. */
-  given?: GivenUrls;
-  /** The words of the profile's own canary note (`boundaryNote`). */
-  note?: string;
-}
-
-function urlScope(check: UrlCheck, given: GivenUrls | undefined): UrlScope {
-  return { ...check, ...(given ? { given } : {}) };
-}
-
-/** The bundled policy's hits in `text`, from the checks `checks` runs. */
-function collectEgressHits(
-  text: string,
-  scope: EgressScope = {},
-  checks: ResolvedEgressChecks = DEFAULT_CHECKS,
-): GuardrailHit[] {
-  const hits = promptLeakHits(text, scope);
-  if (checks.boundary) {
-    for (const pattern of [SYSTEM_BOUNDARY, ...(scope.note ? [notePattern(scope.note)] : [])]) {
-      const boundary = pattern.exec(text);
-      if (boundary) {
-        hits.push(
-          hitFromSpan(
-            text,
-            { start: boundary.index, end: boundary.index + boundary[0].length },
-            EGRESS_RULES.boundary,
-            'medium',
-          ),
-        );
-      }
-    }
-  }
-  if (checks.images) {
-    const spans = imageLeakSpans(text, urlScope(checks.images, scope.given));
-    hits.push(...hitsFromSpans(text, spans, EGRESS_RULES.image, 'high'));
-  }
-  if (checks.links) {
-    const spans = linkLeakSpans(text, urlScope(checks.links, scope.given), Boolean(checks.images));
-    hits.push(...hitsFromSpans(text, spans, EGRESS_RULES.link, 'high'));
-  }
-  return hits;
-}
-
 /** The distinct rule names among the hits. */
 function hitRules(hits: GuardrailHit[]): string[] {
   return [...new Set(hits.map((hit) => hit.rule))];
@@ -414,18 +289,6 @@ function hitsEnforcer(
   };
 }
 
-/** What the bundled policy reads from a gate's context. */
-function egressScope(context: GuardrailContext): EgressScope {
-  const note = boundaryNote(context);
-  return {
-    ...(context.canary ? { canary: context.canary } : {}),
-    ...(context.canaryGiven ? { canaryGiven: true } : {}),
-    ...(context.privateSystem ? { privateSystem: context.privateSystem } : {}),
-    ...(context.givenUrls ? { given: context.givenUrls } : {}),
-    ...(note ? { note } : {}),
-  };
-}
-
 /**
  * The words of the canary note a turn binds, when the profile's lexicon
  * rewords it so that `SYSTEM_BOUNDARY` no longer reads them.
@@ -439,73 +302,10 @@ function boundaryNote({
   return marker && !SYSTEM_BOUNDARY.test(marker) ? marker : undefined;
 }
 
-/** Default egress enforce: every bundled check at its default (`EgressChecks`). */
-const standardEgressEnforce: (payload: OutboundPayload, context: GuardrailContext) => Verdict =
-  hitsEnforcer((text, context) => collectEgressHits(text, egressScope(context)));
-
-/** The bundled checks each enforce runs, for the enforces built from them. */
-const KNOWN_CHECKS = new WeakMap<EgressEnforcer, ResolvedEgressChecks>([
-  [standardEgressEnforce, DEFAULT_CHECKS],
-]);
-
-function registerEgressChecks(enforce: EgressEnforcer, checks: ResolvedEgressChecks): void {
-  KNOWN_CHECKS.set(enforce, checks);
-}
-
-/** The bundled checks `enforce` runs; undefined for a host enforce, whose checks are its own. */
-function egressChecksOf(enforce: EgressEnforcer | undefined): ResolvedEgressChecks | undefined {
-  return enforce && KNOWN_CHECKS.get(enforce);
-}
-
-const CHECK_NAMES = new Set(['boundary', 'images', 'links']);
-const URL_CHECK_NAMES = new Set(['hosts', 'fromTools']);
-
-/** A hostname is all a URL check's host is: a scheme, port or path would never match one. */
-function urlCheckProblem(path: string, check: unknown): string | undefined {
-  if (check === undefined || typeof check === 'boolean') return undefined;
-  // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  if (typeof check !== 'object' || check === null) return `${path} must be a boolean or an object`;
-  const unknown = Object.keys(check).find((key) => !URL_CHECK_NAMES.has(key));
-  // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  if (unknown !== undefined) return `${path} has no option ${JSON.stringify(unknown)}`;
-  const { hosts, fromTools } = check as UrlCheck;
-  if (fromTools !== undefined && typeof fromTools !== 'boolean') {
-    // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    return `${path}.fromTools must be a boolean`;
-  }
-  // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  if (hosts !== undefined && !Array.isArray(hosts)) return `${path}.hosts must be a list`;
-  const bad = (hosts ?? []).find(
-    (host) => typeof host !== 'string' || !/^[a-z0-9.-]+$/i.test(host) || host.startsWith('.'),
-  );
-  return bad === undefined
-    ? undefined
-    : // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      `${path}.hosts lists ${JSON.stringify(bad)}, which is not a hostname`;
-}
-
-/** A misspelt check would leave the check it meant at its default, silently. */
-function egressChecksProblem(path: string, checks: unknown): string | undefined {
-  if (typeof checks === 'boolean') return undefined;
-  if (typeof checks !== 'object' || checks === null)
-    // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    return `${path} must be a boolean or an object`;
-  const unknown = Object.keys(checks).find((key) => !CHECK_NAMES.has(key));
-  // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  if (unknown !== undefined) return `${path} has no check ${JSON.stringify(unknown)}`;
-  const { boundary, images, links } = checks as EgressChecks;
-  if (boundary !== undefined && typeof boundary !== 'boolean') {
-    // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    return `${path}.boundary must be a boolean`;
-  }
-  // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  return urlCheckProblem(`${path}.images`, images) ?? urlCheckProblem(`${path}.links`, links);
-}
-
 /**
  * A policy that throws has reached no decision, so it cannot vouch for the output:
  * the failure becomes a `block`, not a pass. The turn then follows the profile's
- * ordinary `onBlock` handling instead of surfacing a raw host stack trace. The
+ * ordinary `blockedReply` handling instead of surfacing a raw host stack trace. The
  * thrown message may carry host internals, so it goes to the builder only
  * (`errorInternal`); the model reads the lexicon's `egress.policy_failed`.
  */
@@ -526,25 +326,16 @@ async function runEnforcer(
   }
 }
 
-export type { EgressChecks, EgressScope, EventLeak, LeakScope, ResolvedEgressChecks, UrlCheck };
+export type { EventLeak, LeakScope };
 export {
   boundaryNote,
-  collectEgressHits,
-  DEFAULT_CHECKS,
-  egressChecksOf,
-  egressChecksProblem,
-  egressScope,
   eventLeak,
   eventPromptLeakHits,
   hitRules,
   hitsEnforcer,
   isPromptLeakHit,
-  NO_CHECKS,
   promptEchoHits,
   promptLeakReason,
-  registerEgressChecks,
-  resolveEgressChecks,
   runEnforcer,
-  standardEgressEnforce,
   WITHHELD_REASON,
 };

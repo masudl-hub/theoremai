@@ -143,8 +143,8 @@ One setting for the profile (decided), whichever detector stopped the reply:
 ```ts
 guardrails.blockedReply?: {
   /** 'retry': the model is asked to try again. 'refuse': the person reads the refusal. Default 'retry'. */
-  then?: 'retry' | 'refuse';
-  /** How many retries before the reply is withheld. */
+  onBlock?: 'retry' | 'refuse';
+  /** How many retries before the reply is withheld. Default 1. */
   maxRetries?: number;
 }
 ```

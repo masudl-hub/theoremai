@@ -11,14 +11,19 @@ const liveBase = {
   tools: { allow: [] as string[] },
 };
 
-function resolvedLive(id: string, live: ProfileLiveSpec, canary?: boolean) {
+/** `guarded` false sets every detector that reads `live_reply` by default to `ignore`. */
+function resolvedLive(id: string, live: ProfileLiveSpec, guarded?: boolean) {
+  const unread = {
+    canary_leak: 'ignore',
+    prompt_leak: 'ignore',
+    marker_leak: 'ignore',
+    ungiven_images: 'ignore',
+  } as const;
   registerProfile({
     ...liveBase,
     id,
     live,
-    ...(canary === false
-      ? { guardrails: { detect: { canary_leak: 'ignore', prompt_leak: 'ignore' } } as const }
-      : {}),
+    ...(guarded === false ? { guardrails: { detect: unread } } : {}),
   });
   return resolveTurn({ profile: id, input: { text: '' } }).generation.live;
 }

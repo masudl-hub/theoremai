@@ -105,5 +105,20 @@ function readReply(
   };
 }
 
+/**
+ * The hits a reply stays stopped on: this reading's block, or else a leak the
+ * stream `stopped` on that this reading does not find. The two are out of
+ * step then, and the stream's finding stands.
+ */
+function standingBlock(
+  read: ReplyRead,
+  stopped: readonly GuardrailHit[] = [],
+): GuardrailHit[] | undefined {
+  if (read.blocked) return read.blocked;
+  const reread = new Set(read.events.flatMap((event) => event.hits.map((hit) => hit.rule)));
+  const unread = stopped.filter((hit) => !reread.has(hit.rule));
+  return unread.length > 0 ? unread : undefined;
+}
+
 export type { ReplyRead };
-export { readReply, TURN_REPLY };
+export { readReply, standingBlock, TURN_REPLY };

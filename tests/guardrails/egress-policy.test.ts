@@ -1,7 +1,7 @@
 import { assertEquals, assertThrows } from '@std/assert';
 import { main } from '../../src/cli/index.ts';
 import { compileEgressRules } from '../../src/guardrails/compile-egress.ts';
-import { collectEgressHits, DEFAULT_CHECKS, NO_CHECKS } from '../../src/guardrails/egress.ts';
+import type { Detector } from '../../src/guardrails/detectors.ts';
 import { egressPolicy } from '../../src/guardrails/egress-policy.ts';
 import type { EgressRule } from '../../src/guardrails/egress-rules.ts';
 import { createEgressStream } from '../../src/guardrails/egress-stream.ts';
@@ -9,7 +9,11 @@ import { TheoremError } from '../../src/guardrails/error.ts';
 import { createProgressiveYieldGate } from '../../src/guardrails/progressive-yield.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import type { GuardrailContext, Verdict } from '../../src/guardrails/types.ts';
+import { replyHits } from '../fixtures/detect.ts';
 import { referenceMatchStart } from './egress-reference.ts';
+
+/** The detectors of a reply's text that block by default, read beside a host policy. */
+const DEFAULT_BLOCKING: readonly Detector[] = ['marker_leak', 'ungiven_images'];
 
 const RULES: EgressRule[] = [
   { rule: 'acme.account', pattern: /ACCT-\d{6,10}\b/ },
@@ -118,7 +122,7 @@ function fuzzChunks(text: string, rnd: (n: number) => number): string[] {
 }
 
 Deno.test('egressPolicy blocks on each host rule with its severity', () => {
-  const enforce = egressPolicy({ rules: RULES, compiled: COMPILED, bundled: false });
+  const enforce = egressPolicy({ rules: RULES, compiled: COMPILED });
   const cases: [string, string, string][] = [
     ['your account is ACCT-1234567.', 'acme.account', 'high'],
     ['token: abcDEF123456', 'acme.token', 'medium'],
@@ -154,18 +158,19 @@ Deno.test('egressPolicy blocks on each host rule with its severity', () => {
   }
 });
 
-Deno.test('egressPolicy runs the bundled policy too unless told not to', () => {
+Deno.test('egressPolicy reads its host rules only: the detectors read the markers and the canary beside it', () => {
+  const hostOnly = egressPolicy({ rules: RULES, compiled: COMPILED });
   const echo = 'Sure: <user_data>the note</user_data>';
-  assertEquals(collectEgressHits(echo).length > 0, true);
-  const withBundled = verdict(egressPolicy({ rules: RULES, compiled: COMPILED }), echo);
-  assertEquals(withBundled.action, 'block');
-  const hostOnly = egressPolicy({ rules: RULES, compiled: COMPILED, bundled: false });
   assertEquals(verdict(hostOnly, echo).action, 'allow');
+  assertEquals([...new Set(replyHits(echo).map((hit) => hit.rule))], [DETECT_RULES.marker_leak]);
   const canary = 'CANARY-7f3a';
-  const leak = hostOnly({ text: `the key is ${canary}` }, { ...context, canary }) as Verdict;
-  assertEquals(leak.action === 'block' && leak.hits.map((hit) => hit.rule), [
-    DETECT_RULES.canary_leak,
-  ]);
+  const text = `the key is ${canary}`;
+  const leak = hostOnly({ text }, { ...context, canary }) as Verdict;
+  assertEquals(leak.action, 'allow');
+  assertEquals(
+    replyHits(text, { canary }).map((hit) => hit.rule),
+    [DETECT_RULES.canary_leak],
+  );
 });
 
 Deno.test('egressPolicy refuses a table compiled from other rules or by another compiler', () => {
@@ -217,7 +222,7 @@ Deno.test('a pattern with inline modifiers or repeated group names is held for l
     ['see TK', 4],
     ['see a\n', 4],
   ] as const) {
-    const stream = createEgressStream({ checks: NO_CHECKS, host });
+    const stream = createEgressStream({ host });
     for (const chunk of text) stream.push(chunk);
     assertEquals(stream.holdFrom(), start, text);
   }
@@ -230,7 +235,7 @@ function heldFrom(rules: EgressRule[], text: string): number {
     automaton,
     rules: rules.map(({ rule, pattern }) => ({ rule, pattern, severity: 'high' as const })),
   };
-  const stream = createEgressStream({ checks: NO_CHECKS, host });
+  const stream = createEgressStream({ host });
   for (const chunk of text) if (stream.push(chunk).length > 0) return -1;
   return stream.holdFrom();
 }
@@ -291,23 +296,30 @@ const HOST_SCAN = {
   })),
 };
 
+/** The hits that stop `text`: the host policy's, and each match of `detectors` beside it. */
+function blockingHits(
+  enforce: ReturnType<typeof egressPolicy>,
+  detectors: readonly Detector[],
+  text: string,
+) {
+  const result = verdict(enforce, text);
+  return [...(result.action === 'block' ? result.hits : []), ...replyHits(text, {}, detectors)];
+}
+
 /** What went wrong streaming `text` in chunks, if anything: an early release or a block the policy does not make. */
 function streamProblem(
   enforce: ReturnType<typeof egressPolicy>,
-  bundled: boolean,
+  detectors: readonly Detector[],
   text: string,
   start: number,
   rnd: (n: number) => number,
 ): string | undefined {
-  const stream = createEgressStream({
-    checks: bundled ? DEFAULT_CHECKS : NO_CHECKS,
-    host: HOST_SCAN,
-  });
+  const stream = createEgressStream({ detect: detectors, host: HOST_SCAN });
   let read = '';
   for (const chunk of fuzzChunks(text, rnd)) {
     read += chunk;
     if (stream.push(chunk).length > 0) {
-      return verdict(enforce, read).action === 'block'
+      return blockingHits(enforce, detectors, read).length > 0
         ? undefined
         : `blocked what the policy passes: ${JSON.stringify(read)}`;
     }
@@ -321,22 +333,19 @@ function streamProblem(
 Deno.test('the host-rule stream holds every host match from its first character and blocks only what the policy blocks', () => {
   const problems: string[] = [];
   const byRule = new Map<string, number>();
-  for (const bundled of [false, true]) {
-    const enforce = egressPolicy({ rules: RULES, compiled: COMPILED, bundled });
-    const rnd = seeded(bundled ? 41 : 17);
+  const enforce = egressPolicy({ rules: RULES, compiled: COMPILED });
+  // The host rules alone, then with the detectors that block a reply by default in the same stream.
+  for (const detectors of [[], DEFAULT_BLOCKING]) {
+    const rnd = seeded(detectors.length > 0 ? 41 : 17);
     for (let k = 0; k < 3000; k++) {
       const text = fuzzText(rnd);
-      const hostStart = hostMatchStart(text);
-      const start = bundled
-        ? Math.min(hostStart, referenceMatchStart(text, DEFAULT_CHECKS, undefined, []))
-        : hostStart;
-      const result = verdict(enforce, text);
-      const hits = result.action === 'block' ? result.hits : [];
+      const start = Math.min(hostMatchStart(text), referenceMatchStart(text, detectors));
+      const hits = blockingHits(enforce, detectors, text);
       for (const hit of hits) byRule.set(hit.rule, (byRule.get(hit.rule) ?? 0) + 1);
       if (hits.length > 0 !== start < Number.POSITIVE_INFINITY) {
         problems.push(`reference disagrees with the policy: ${JSON.stringify(text)}`);
       }
-      const problem = streamProblem(enforce, bundled, text, start, rnd);
+      const problem = streamProblem(enforce, detectors, text, start, rnd);
       if (problem) problems.push(problem);
     }
   }
@@ -348,7 +357,7 @@ Deno.test('the host-rule stream holds every host match from its first character 
 });
 
 Deno.test('the gate releases a host-rule reply up to the match and no further', async () => {
-  const enforce = egressPolicy({ rules: RULES, compiled: COMPILED, bundled: false });
+  const enforce = egressPolicy({ rules: RULES, compiled: COMPILED });
   const gate = createProgressiveYieldGate({ context, enforce });
   let emitted = '';
   let blocked = false;

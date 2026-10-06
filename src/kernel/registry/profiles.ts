@@ -1,13 +1,14 @@
 import { TOOL_BOUNDARIES } from '../../guardrails/boundaries.ts';
 import { detectProblem } from '../../guardrails/detectors.ts';
-import { egressChecksProblem } from '../../guardrails/egress.ts';
 import { streamPlanOf } from '../../guardrails/egress-stream.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { type LexiconOverrides, validateLexiconOverrides } from '../../guardrails/lexicon.ts';
-import type {
-  DecisionGuardrailsSpec,
-  HostGuardrailsSpec,
-  ProfileGuardrailsSpec,
+import {
+  BLOCKED_REPLY_ON_BLOCK,
+  type BlockedReplySpec,
+  type DecisionGuardrailsSpec,
+  type HostGuardrailsSpec,
+  type ProfileGuardrailsSpec,
 } from '../../guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../../observability/types.ts';
@@ -545,37 +546,53 @@ function assertValidation(profileId: string, validation: ProfileValidationSpec |
 function assertEgress(profileId: string, guardrails: ProfileGuardrailsSpec | undefined): void {
   const egress = guardrails?.egress;
   const fail = (message: string) => new TheoremError('config', `Profile ${profileId}: ${message}`);
-  if (egress && (egress.enforce === undefined) === (egress.checks === undefined)) {
-    throw fail(
-      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      'guardrails.egress takes enforce (your own check) or checks (the bundled ones), one of the two',
-    );
-  }
-  if (egress?.enforce !== undefined && typeof egress.enforce !== 'function') {
-    throw fail('guardrails.egress.enforce must be a function'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  const problem =
-    egress?.checks === undefined
-      ? undefined
-      : egressChecksProblem('guardrails.egress.checks', egress.checks);
-  if (problem !== undefined) throw fail(problem);
-  for (const key of ['maxRetries', 'holdback'] as const) {
-    const value = egress?.[key];
-    if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
-      throw new TheoremError(
-        'config',
-        `Profile ${profileId}: guardrails.egress.${key} must be a non-negative integer`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  if (egress !== undefined) {
+    // why: A key this does not read would be a check the builder believes is on.
+    const unknown = Object.keys(egress).find((key) => !EGRESS_KEYS.includes(key));
+    if (unknown !== undefined) {
+      throw fail(`guardrails.egress.${unknown} is not a setting; it takes enforce and holdback`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    if (typeof egress.enforce !== 'function') {
+      throw fail('guardrails.egress.enforce must be a function'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    const { holdback } = egress;
+    if (holdback !== undefined && (!Number.isInteger(holdback) || holdback < 0)) {
+      throw fail('guardrails.egress.holdback must be a non-negative integer'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    if (holdback !== undefined && streamPlanOf(egress.enforce)) {
+      throw fail(
+        // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        'guardrails.egress.holdback applies only to your own enforce; an egressPolicy holds exactly what could still become a match',
       );
     }
   }
-  if (
-    egress?.holdback !== undefined &&
-    (egress.enforce === undefined || streamPlanOf(egress.enforce))
-  ) {
-    throw new TheoremError(
-      'config',
-      `Profile ${profileId}: guardrails.egress.holdback applies only to a host egress.enforce; the bundled policy holds exactly what could still become a match`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  assertBlockedReply(guardrails?.blockedReply, fail);
+}
+
+const EGRESS_KEYS: readonly string[] = ['enforce', 'holdback'];
+const BLOCKED_REPLY_KEYS: readonly string[] = ['onBlock', 'maxRetries'];
+
+function assertBlockedReply(
+  blockedReply: BlockedReplySpec | undefined,
+  fail: (message: string) => TheoremError,
+): void {
+  if (blockedReply === undefined) return;
+  const unknown = Object.keys(blockedReply).find((key) => !BLOCKED_REPLY_KEYS.includes(key));
+  if (unknown !== undefined) {
+    throw fail(
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `guardrails.blockedReply.${unknown} is not a setting; it takes onBlock and maxRetries`,
     );
+  }
+  const { onBlock, maxRetries } = blockedReply;
+  if (onBlock !== undefined && !BLOCKED_REPLY_ON_BLOCK.includes(onBlock)) {
+    throw fail(
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `guardrails.blockedReply.onBlock must be one of ${BLOCKED_REPLY_ON_BLOCK.join(', ')}`,
+    );
+  }
+  if (maxRetries !== undefined && (!Number.isInteger(maxRetries) || maxRetries < 0)) {
+    throw fail('guardrails.blockedReply.maxRetries must be a non-negative integer'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 

@@ -205,23 +205,23 @@ function registerAllProfiles(): void {
   simpleProfile(PLAIN_ID, {});
 
   simpleProfile(EXHAUST_0_ID, {
-    egress: { onBlock: 'reject_to_agent', maxRetries: 0, enforce: alwaysBlock },
+    blockedReply: { maxRetries: 0 },
+    egress: { enforce: alwaysBlock },
   });
   simpleProfile(EXHAUST_1_ID, {
-    egress: { onBlock: 'reject_to_agent', maxRetries: 1, enforce: alwaysBlock },
+    blockedReply: { maxRetries: 1 },
+    egress: { enforce: alwaysBlock },
   });
   simpleProfile(EXHAUST_2_ID, {
-    egress: { onBlock: 'reject_to_agent', maxRetries: 2, enforce: alwaysBlock },
+    blockedReply: { maxRetries: 2 },
+    egress: { enforce: alwaysBlock },
   });
 
   simpleProfile(
     REFUSE_USER_ID,
     {
-      egress: {
-        onBlock: 'refuse_to_user',
-        maxRetries: 2,
-        enforce: alwaysBlock,
-      },
+      blockedReply: { onBlock: 'refuse', maxRetries: 2 },
+      egress: { enforce: alwaysBlock },
     },
     { 'egress.refusal': REFUSE_USER_COPY },
   );
@@ -229,11 +229,8 @@ function registerAllProfiles(): void {
   simpleProfile(
     REPAIR_1_ID,
     {
-      egress: {
-        onBlock: 'reject_to_agent',
-        maxRetries: 1,
-        enforce: blockOnMarker,
-      },
+      blockedReply: { maxRetries: 1 },
+      egress: { enforce: blockOnMarker },
     },
     {
       'egress.default_repair_guidance':

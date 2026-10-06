@@ -57,7 +57,11 @@ async function streamed(detect: DetectSpec, text: string, size: number, boundary
 }
 
 Deno.test('a reply has no gate when no detector reads it and nothing else judges it', () => {
-  assertEquals(createOutboundProgressiveGate(resolveGuardrailPolicy({}), CONTEXT, 'reply'), null);
+  const unread = resolveGuardrailPolicy({ detect: 'ignore' });
+  assertEquals(createOutboundProgressiveGate(unread, CONTEXT, 'reply'), null);
+  // Left out, `detect` reads a reply: marker_leak and ungiven_images block there by default.
+  const unset = resolveGuardrailPolicy({});
+  assertEquals(createOutboundProgressiveGate(unset, CONTEXT, 'reply') !== null, true);
 });
 
 Deno.test('flag at reply shows the reply as written and reports the match once', async () => {
@@ -196,7 +200,7 @@ Deno.test('block at the end names every match and lets nothing through', () => {
 
 /** A thought streamed through the guard a profile with `detect` gets. */
 function thought(detect: DetectSpec, text: string, size: number) {
-  const guard = thoughtGuardFor({ detect: resolveDetect(detect) }, CONTEXT);
+  const guard = thoughtGuardFor(resolveGuardrailPolicy({ detect }), CONTEXT);
   if (!guard) throw new Error('no guard');
   const releases = [...pieces(text, size).map((piece) => guard.push(piece)), guard.flush()];
   return {
@@ -209,7 +213,9 @@ function thought(detect: DetectSpec, text: string, size: number) {
 }
 
 Deno.test('a thought has no guard when nothing reads it', () => {
-  assertEquals(thoughtGuardFor({ detect: resolveDetect() }, CONTEXT), undefined);
+  assertEquals(thoughtGuardFor(resolveGuardrailPolicy({ detect: 'ignore' }), CONTEXT), undefined);
+  // Left out, `detect` still reads a thought: marker_leak and ungiven_images redact there by default.
+  assertEquals(thoughtGuardFor(resolveGuardrailPolicy(undefined), CONTEXT) !== undefined, true);
 });
 
 Deno.test('a detector at thought flags, replaces or ends what is shown of the thought', () => {
@@ -269,7 +275,14 @@ async function spoken(id: string, detect: Exclude<DetectSpec, string>) {
 }
 
 Deno.test('a Live reply is not gated when no detector reads live_reply', () => {
-  assertEquals(createLiveOutboundGateSession(liveProfile('live_detect_none', {})).gate, null);
+  const unread = liveProfile('live_detect_none', {
+    marker_leak: 'ignore',
+    ungiven_images: 'ignore',
+  });
+  assertEquals(createLiveOutboundGateSession(unread).gate, null);
+  // The detectors a profile does not set stay on: they read live_reply by default.
+  const unset = liveProfile('live_detect_unset', {});
+  assertEquals(createLiveOutboundGateSession(unset).gate !== null, true);
 });
 
 Deno.test('flag at live_reply lets the reply through and reports it', async () => {

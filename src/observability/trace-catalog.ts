@@ -402,21 +402,21 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
     label: 'Prompt leak',
     doc: '12 or more words in a row of the private instructions. The decision names the boundary it was crossing and what was done with it.',
   },
+  'detect.marker_leak': {
+    label: 'Marker leak',
+    doc: 'The markers Theorem fences user data with, or the words of the canary note. The decision names the boundary it was crossing and what was done with it.',
+  },
+  'detect.ungiven_images': {
+    label: 'Ungiven images',
+    doc: 'An image whose address the model was not given, on a host the profile does not allow. Loading it could send data out. The decision names the boundary it was crossing and what was done with it.',
+  },
+  'detect.ungiven_links': {
+    label: 'Ungiven links',
+    doc: 'A link to an address the model was not given, on a host the profile does not allow. The decision names the boundary it was crossing and what was done with it.',
+  },
   'egress.provider-tool-leak': {
     label: 'Instructions sent to a provider tool',
     doc: "A provider's built-in tool, such as search, was sent the canary or the instructions. It ran before Theorem saw it, so the data had already left.",
-  },
-  'egress.image-exfil': {
-    label: 'Image from an unknown address',
-    doc: 'The reply showed an image from an address the model was not given, on a host the profile does not allow. Loading it could send data out.',
-  },
-  'egress.link-exfil': {
-    label: 'Link to an unknown address',
-    doc: 'The reply linked an address the model was not given, on a host the profile does not allow.',
-  },
-  'egress.system-boundary': {
-    label: 'Internal markers in reply',
-    doc: 'The reply contained the markers Theorem uses to fence user data or name the canary.',
   },
   'egress.unscannable': {
     label: 'Reply could not be checked',

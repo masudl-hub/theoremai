@@ -1,7 +1,7 @@
 // invariant: The one place a match becomes an action. Every boundary calls `detectAt`; nothing
 // else reads the matrix to decide what a match does.
 
-import { applySpans, type RedactSpan } from '../observability/spans.ts';
+import { applySpans, type RedactSpan, spansFromPatterns } from '../observability/spans.ts';
 import { type Boundary, recordOf, TOOL_BOUNDARIES } from './boundaries.ts';
 import { canaryLeakRanges } from './canary.ts';
 import {
@@ -9,15 +9,26 @@ import {
   type DetectAction,
   type Detector,
   detects,
+  type ResolvedAllow,
   type ResolvedDetect,
+  type UrlDetector,
 } from './detectors.ts';
+import { boundaryNote, type LeakScope } from './egress.ts';
+import { notePattern, SYSTEM_BOUNDARY } from './egress-patterns.ts';
+import { imageLeakSpans, linkLeakSpans, type UrlScope } from './egress-urls.ts';
 import type { GuardrailEvent, GuardrailHit } from './event-schemas.ts';
 import { CANARY_HIT, hitFromSpan, PROMPT_ECHO_HIT } from './hits.ts';
 import { injectionSpans } from './injection.ts';
 import { promptEchoRanges } from './prompt-echo.ts';
 import { DETECT_RULES } from './rules.ts';
 import { SENSITIVE_GROUPS, type SensitiveGroups, sensitiveSpans } from './sensitive.ts';
-import type { GuardrailContext, GuardrailStage, Provenance, TrustLevel } from './types.ts';
+import type {
+  GuardrailContext,
+  GuardrailStage,
+  Provenance,
+  ResolvedGuardrailPolicy,
+  TrustLevel,
+} from './types.ts';
 
 /** What happened to text at a boundary: nothing matched, or the strongest action among the matches. */
 type DetectOutcome = 'allow' | Exclude<DetectAction, 'ignore'>;
@@ -46,18 +57,24 @@ const ONLY: Readonly<Record<keyof SensitiveGroups, SensitiveGroups>> = recordOf(
 
 /**
  * What of the turn the detectors of what is the profile's own read: the canary it planted, whether
- * the model was given it besides, and the private stretches of its system instruction. A detector
- * whose part is absent finds nothing.
+ * the model was given it besides, the private stretches of its system instruction, and the URLs
+ * the model was given. A detector whose part is absent reads without it: `canary_leak` and
+ * `prompt_leak` find nothing, and to `ungiven_images` and `ungiven_links` no URL was given.
  */
-type DetectScope = Pick<GuardrailContext, 'canary' | 'canaryGiven' | 'privateSystem'>;
+interface DetectScope extends LeakScope, Pick<GuardrailContext, 'givenUrls'> {
+  /** The words of the profile's own canary note, when its lexicon rewords it (`boundaryNote`). */
+  note?: string;
+  /** What `ungiven_images` and `ungiven_links` let through besides the given URLs. */
+  allow?: ResolvedAllow;
+}
 
 const NO_SCOPE: DetectScope = {};
 
 /**
- * The {@linkcode DetectScope} of a turn under `detect`: each part only while its detector is above
+ * The {@linkcode LeakScope} of a turn under `detect`: each part only while its detector is above
  * `ignore` somewhere, so a profile that reads for neither binds nothing to read for.
  */
-function scopeOf(detect: ResolvedDetect, turn: DetectScope): DetectScope {
+function leakScopeOf(detect: ResolvedDetect, turn: LeakScope): LeakScope {
   const canary = detects(detect, 'canary_leak') ? turn.canary : undefined;
   const guarded = detects(detect, 'prompt_leak') && turn.privateSystem?.length;
   return {
@@ -67,7 +84,26 @@ function scopeOf(detect: ResolvedDetect, turn: DetectScope): DetectScope {
   };
 }
 
-/** The detectors that read a {@linkcode DetectScope}. A stream gate reads them itself, as the text grows. */
+/** The {@linkcode DetectScope} of a turn under `policy`: each part only while a detector reads it. */
+function scopeOf(
+  policy: Pick<ResolvedGuardrailPolicy, 'detect' | 'allow'>,
+  turn: LeakScope & Pick<GuardrailContext, 'givenUrls' | 'lexicon'>,
+): DetectScope {
+  const { detect } = policy;
+  const leaks = leakScopeOf(detect, turn);
+  const urls = detects(detect, 'ungiven_images') || detects(detect, 'ungiven_links');
+  const note = detects(detect, 'marker_leak')
+    ? boundaryNote({ canary: leaks.canary, lexicon: turn.lexicon })
+    : undefined;
+  return {
+    ...leaks,
+    ...(urls && turn.givenUrls ? { givenUrls: turn.givenUrls } : {}),
+    ...(urls ? { allow: policy.allow } : {}),
+    ...(note ? { note } : {}),
+  };
+}
+
+/** The detectors a stream gate reads itself, as the text grows. */
 const SCOPED = ['canary_leak', 'prompt_leak'] as const satisfies readonly Detector[];
 
 function isScoped(detector: Detector): detector is (typeof SCOPED)[number] {
@@ -78,8 +114,33 @@ function ranged(ranges: readonly [number, number][], kind: RedactSpan['kind']): 
   return ranges.map(([start, end]) => ({ start, end, kind }));
 }
 
-function spansOf(detector: Detector, text: string, scope: DetectScope): RedactSpan[] {
+/** What `detector` lets through in a turn of `scope`. */
+function urlScope(detector: UrlDetector, scope: DetectScope): UrlScope {
+  return { ...scope.allow?.[detector], ...(scope.givenUrls ? { given: scope.givenUrls } : {}) };
+}
+
+const MARKERS = new RegExp(SYSTEM_BOUNDARY.source, 'gi');
+
+/** With `skipImages`, `ungiven_links` leaves an image's own markup to `ungiven_images`. */
+function spansOf(
+  detector: Detector,
+  text: string,
+  scope: DetectScope,
+  skipImages = false,
+): RedactSpan[] {
   if (detector === 'injection') return injectionSpans(text);
+  if (detector === 'marker_leak') {
+    const patterns = [MARKERS, ...(scope.note ? [notePattern(scope.note)] : [])];
+    return spansFromPatterns(text, patterns, 'prompt');
+  }
+  if (detector === 'ungiven_images') {
+    const spans = imageLeakSpans(text, urlScope(detector, scope));
+    return spans.map((span) => ({ ...span, kind: 'image' }));
+  }
+  if (detector === 'ungiven_links') {
+    const spans = linkLeakSpans(text, urlScope(detector, scope), skipImages);
+    return spans.map((span) => ({ ...span, kind: 'link' }));
+  }
   if (detector === 'canary_leak') {
     const { canary, canaryGiven } = scope;
     return canary && !canaryGiven ? ranged(canaryLeakRanges(text, canary), 'canary') : [];
@@ -99,6 +160,11 @@ function hitOf(detector: Detector, text: string, span: RedactSpan): GuardrailHit
   return hitFromSpan(text, span, DETECT_RULES[detector], 'high');
 }
 
+/** Whether `detector` leaves an image to `ungiven_images`, read at `boundary` beside it. */
+function leavesImages(detector: Detector, boundary: Boundary, detect: ResolvedDetect): boolean {
+  return detector === 'ungiven_links' && detect.ungiven_images[boundary] !== 'ignore';
+}
+
 /** Reads `text` as it crosses `boundary` under the profile's resolved matrix. */
 function detectAt(
   text: string,
@@ -112,7 +178,7 @@ function detectAt(
   for (const detector of DETECTORS) {
     const chosen = detect[detector][boundary];
     if (chosen === 'ignore') continue;
-    const spans = spansOf(detector, text, scope);
+    const spans = spansOf(detector, text, scope, leavesImages(detector, boundary, detect));
     if (spans.length === 0) continue;
     for (const span of spans) hits.push(hitOf(detector, text, span));
     if (chosen === 'redact') redact.push(...spans);
@@ -160,6 +226,12 @@ interface Stretch {
   settled: readonly Detector[];
 }
 
+/** What a stream reads a released stretch for: its detectors, in a turn of `scope`. */
+interface StreamRead {
+  detectors: readonly Detector[];
+  scope: DetectScope;
+}
+
 /**
  * Reads the stretch `[from, to)` of `window`, a text released as it streams. A match is reported
  * with the stretch it starts in. One being replaced is released whole: `to` is pulled back to its
@@ -172,9 +244,10 @@ function detectRelease(
   { from, to, settled }: Stretch,
   boundary: Boundary,
   detect: ResolvedDetect,
+  { detectors, scope }: StreamRead,
 ): Release {
-  const found = detectorsAt(boundary, detect).flatMap((detector) =>
-    spansOf(detector, window, NO_SCOPE)
+  const found = detectors.flatMap((detector) =>
+    spansOf(detector, window, scope, leavesImages(detector, boundary, detect))
       .filter((span) => span.end > from && span.start < to)
       .map((span) => ({ span, detector, chosen: detect[detector][boundary] })),
   );
@@ -291,7 +364,7 @@ function detectEvent(
   };
 }
 
-export type { BoundaryReader, Detection, DetectOutcome, DetectScope, Release, Stretch };
+export type { BoundaryReader, Detection, DetectOutcome, DetectScope, Release, StreamRead, Stretch };
 export {
   boundaryReader,
   detectAt,
@@ -300,6 +373,7 @@ export {
   detectReads,
   detectRelease,
   isScoped,
+  leakScopeOf,
   redactDetectors,
   scopeOf,
   stronger,

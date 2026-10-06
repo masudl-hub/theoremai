@@ -1,6 +1,6 @@
 // why: `profileInterfaceSchema` keeps only the JSON it names, so host functions never reach the view.
 
-import { egressChecksOf, type ResolvedEgressChecks, type UrlCheck } from '../guardrails/egress.ts';
+import type { UrlAllow } from '../guardrails/detectors.ts';
 import { clientLexicon } from '../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import type { ProfileGuardrailsSpec } from '../guardrails/types.ts';
@@ -15,13 +15,12 @@ import { inputsFromSpec } from './inputs.ts';
 import { profileInterfaceSchema } from './profile-interface.ts';
 import type {
   ComposerProfileInterface,
-  EgressChecksView,
   LiveProfileInterface,
   ProfileGuardrailsView,
   ProfileInterface,
   ProfileObservabilityView,
   ProfileToolsView,
-  UrlCheckView,
+  UrlAllowView,
 } from './types.ts';
 
 /** Resolved, not raw: a host sees what the kernel will enforce, not defaults of its own. */
@@ -30,22 +29,17 @@ function guardrailsView(guardrails?: ProfileGuardrailsSpec): ProfileGuardrailsVi
   return {
     quota: policy.quota,
     detect: policy.detect,
+    allow: {
+      ungiven_images: urlAllowView(policy.allow.ungiven_images),
+      ungiven_links: urlAllowView(policy.allow.ungiven_links),
+    },
+    blockedReply: policy.blockedReply,
     hasEgress: Boolean(policy.egress),
-    egressChecks: egressChecksView(egressChecksOf(policy.egress?.enforce)),
   };
 }
 
-function urlCheckView(check: UrlCheck | undefined): UrlCheckView {
-  return check ? { hosts: [...(check.hosts ?? [])], fromTools: check.fromTools ?? true } : false;
-}
-
-function egressChecksView(checks: ResolvedEgressChecks | undefined): EgressChecksView | null {
-  if (!checks) return null;
-  return {
-    boundary: checks.boundary,
-    images: urlCheckView(checks.images),
-    links: urlCheckView(checks.links),
-  };
+function urlAllowView(allow: UrlAllow): UrlAllowView {
+  return { hosts: [...(allow.hosts ?? [])], fromTools: allow.fromTools ?? true };
 }
 
 function writeToView(

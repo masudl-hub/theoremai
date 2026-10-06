@@ -1,8 +1,7 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
-import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
-import type { GuardrailContext, OutboundPayload, Verdict } from '../../src/guardrails/types.ts';
+import type { OutboundPayload, Verdict } from '../../src/guardrails/types.ts';
 import { registerProfile, registerTool, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -44,20 +43,19 @@ const toolThenText = (call: number): TurnEvent[] =>
     ? [{ type: 'tool', tool: { name: 'stub_tool', arguments: { value: 1 }, callId: 'c1' } }]
     : [{ type: 'text', text: 'done' }];
 
-/** Blocks the first attempt's draft so the turn retries once; the standard checks still run. */
+/** Blocks the first attempt's draft so the turn retries once; the default detectors still run. */
 const blockFirstReply = {
   quota: { perDay: 50 },
+  blockedReply: { onBlock: 'retry' as const, maxRetries: 1 },
   egress: {
-    onBlock: 'reject_to_agent' as const,
-    maxRetries: 1,
-    enforce: (payload: OutboundPayload, context: GuardrailContext): Verdict =>
+    enforce: (payload: OutboundPayload): Verdict =>
       payload.text.includes('draft')
         ? {
             action: 'block',
             hits: [{ rule: 'draft', severity: 'high' }],
             rejection: 'Say it without the draft.',
           }
-        : standardEgressEnforce(payload, context),
+        : { action: 'allow' },
   },
 };
 

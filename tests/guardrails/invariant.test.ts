@@ -40,7 +40,7 @@ function canaryIn(system: string): string {
   return /[0-9a-f]{32}/.exec(system)?.[0] ?? '';
 }
 
-function register(id: string, onBlock?: 'refuse_to_user'): string {
+function register(id: string, onBlock?: 'refuse'): string {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -49,7 +49,10 @@ function register(id: string, onBlock?: 'refuse_to_user'): string {
       ...geminiModels('gemini35FlashLite'),
       tools: { allow: [] },
       inputs: { text: true },
-      guardrails: { egress: { enforce: allowAll, ...(onBlock ? { onBlock } : {}) } },
+      guardrails: {
+        egress: { enforce: allowAll },
+        ...(onBlock ? { blockedReply: { onBlock } } : {}),
+      },
     }),
   );
   return id;
@@ -79,7 +82,7 @@ Deno.test('runTurn never releases a canary a host policy allows', async () => {
 Deno.test('runTurn answers a pinned leak with the host policy refusal', async () => {
   const events = await collect(
     runTurn(
-      { profile: register('invariant_refuse', 'refuse_to_user'), input: { text: 'hi' } },
+      { profile: register('invariant_refuse', 'refuse'), input: { text: 'hi' } },
       leaksCanary,
     ),
   );

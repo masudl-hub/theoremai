@@ -1,5 +1,6 @@
 import '../fixtures/test-host.ts';
-import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { compileEgressRules } from '../../src/guardrails/compile-egress.ts';
+import { egressPolicy } from '../../src/guardrails/egress-policy.ts';
 import type { Verdict } from '../../src/guardrails/types.ts';
 import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -84,7 +85,7 @@ Deno.test('include.guardrailMatchPreview keeps matched substring on stream and t
 });
 
 Deno.test('runTurn emits egress guardrail events on block', async () => {
-  // `egress` is a model-turn guardrail, so the base must be narrowed past `host`.
+  // `blockedReply` is a model-turn guardrail, so the base must be narrowed past `host`.
   const base = requireModelProfile(getProfile('chat'), 'test');
   if (base.type !== 'text') throw new Error('expected text profile');
   registerProfile(
@@ -93,10 +94,7 @@ Deno.test('runTurn emits egress guardrail events on block', async () => {
       id: 'chat-egress-obs',
       guardrails: {
         ...base.guardrails,
-        egress: {
-          enforce: standardEgressEnforce,
-          onBlock: 'refuse_to_user',
-        },
+        blockedReply: { onBlock: 'refuse' },
       },
     }),
   );
@@ -161,12 +159,11 @@ Deno.test('a failed egress policy tells the builder why and the model only that 
       observability: { writeTo: catalogedSink(into) },
       guardrails: {
         ...base.guardrails,
+        blockedReply: { onBlock: 'retry', maxRetries: 1 },
         egress: {
           enforce: () => {
             throw new Error('classifier at 10.0.0.7 rejected token tk_synthetic_123');
           },
-          onBlock: 'reject_to_agent',
-          maxRetries: 1,
         },
       },
     }),
@@ -249,19 +246,22 @@ Deno.test('a stream check that acts carries its time so far, and records no sepa
   const into: TraceRecord[] = [];
   const base = requireModelProfile(getProfile('chat'), 'test');
   if (base.type !== 'text') throw new Error('expected text profile');
+  const rules = [{ rule: 'acme.account', pattern: /ACCT-\d{6}/ }];
   registerProfile(
     defineProfile({
       ...base,
       id: 'chat-egress-timed',
       guardrails: {
         ...base.guardrails,
-        egress: { enforce: standardEgressEnforce, onBlock: 'refuse_to_user' },
+        blockedReply: { onBlock: 'refuse' },
+        // A host rule's stop is reported from the stream; a detector's is reported once, on the whole reply.
+        egress: { enforce: egressPolicy({ rules, compiled: compileEgressRules(rules) }) },
       },
     }),
   );
   async function* leaky(): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
-    yield { type: 'text', text: 'Here is the note <user_data>x</user_data>' };
+    yield { type: 'text', text: 'Here is the note: account ACCT-123456 is yours.' };
   }
   await Array.fromAsync(
     runTurn(
@@ -288,8 +288,8 @@ Deno.test("a host rule's own name and reason reach the host and the trace", asyn
       id: 'chat-egress-host-rule',
       guardrails: {
         ...base.guardrails,
+        blockedReply: { onBlock: 'refuse' },
         egress: {
-          onBlock: 'refuse_to_user',
           enforce: ({ text }): Verdict =>
             text.includes('internal_tool_abc')
               ? {

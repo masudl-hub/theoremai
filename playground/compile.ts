@@ -17,19 +17,17 @@ import {
   TheoremError,
 } from '../mod.ts';
 import { validateLexiconOverrides } from '../src/guardrails/lexicon.ts';
-import {
-  type EgressChecks,
-  egressChecksProblem,
-  type ResolvedEgressChecks,
-  resolveEgressChecks,
-  type UrlCheck,
-} from '../src/guardrails/egress.ts';
 import { BOUNDARIES, type Boundary, TOOL_BOUNDARIES } from '../src/guardrails/boundaries.ts';
 import {
   DETECT_DEFAULTS,
+  DETECTOR_META,
   DETECTORS,
-  type DetectAction,
+  type Detector,
+  type DetectorConfig,
   type DetectSpec,
+  detectProblem,
+  type UrlAllow,
+  type UrlDetector,
 } from '../src/guardrails/detectors.ts';
 import type { DecisionProfileDefinition, HostProfileDefinition } from '../src/kernel/mod.ts';
 import { outOfScopeFields } from '../src/kernel/profile-scope.ts';
@@ -63,7 +61,6 @@ import {
 import { PLAYGROUND_KEY_SLOT_CAP } from './browser-connection.ts';
 import type {
   DecisionDraft,
-  EgressChecksDraft,
   GuardrailsDraft,
   ImageDraft,
   ImageReferenceDraft,
@@ -78,7 +75,7 @@ import type {
   SpeechDraft,
   ToolSpecDraft,
   TurnBehaviourDraft,
-  UrlCheckDraft,
+  UrlAllowDraft,
 } from './draft.ts';
 import {
   COMPACTION_DRAFT_DEFAULTS,
@@ -917,7 +914,7 @@ function compileLexicon(
       outputs.repairGuidance.trim(),
     ]);
   }
-  if (facets.has('guardrails') && allows('guardrails.egress')) {
+  if (facets.has('guardrails') && allows('guardrails.blockedReply')) {
     entries.push([
       'guardrails',
       'egressRepairGuidance',
@@ -955,26 +952,25 @@ function compileQuota(guardrails: GuardrailsDraft, report: Report): ProfileGuard
   return { perDay: guardrails.quotaPerDay };
 }
 
-function compileEgress(
+function compileBlockedReply(
   guardrails: GuardrailsDraft,
   report: Report,
-): ProfileGuardrailsSpec['egress'] {
+): ProfileGuardrailsSpec['blockedReply'] {
   checkWhole(
     report,
     'guardrails',
-    'egressMaxRetries',
-    'Egress max retries',
-    guardrails.egressMaxRetries,
+    'blockedReplyMaxRetries',
+    'Blocked reply max retries',
+    guardrails.blockedReplyMaxRetries,
     0,
   );
-  const checks = compileEgressChecks(guardrails.egressChecks, report);
-  // What a stopped reply does, which also holds for a reply `detect` or the canary stops.
-  const onStop = {
-    ...(guardrails.egressOnBlock ? { onBlock: guardrails.egressOnBlock } : {}),
-    ...(guardrails.egressMaxRetries !== null ? { maxRetries: guardrails.egressMaxRetries } : {}),
+  const spec = {
+    ...(guardrails.blockedReplyOnBlock ? { onBlock: guardrails.blockedReplyOnBlock } : {}),
+    ...(guardrails.blockedReplyMaxRetries !== null
+      ? { maxRetries: guardrails.blockedReplyMaxRetries }
+      : {}),
   };
-  if (checks === false && !Object.keys(onStop).length) return undefined;
-  return { checks, ...onStop };
+  return Object.keys(spec).length ? spec : undefined;
 }
 
 function compileNetwork(
@@ -995,61 +991,64 @@ function compileNetwork(
   };
 }
 
-/** The URL check as it differs from `fallback`: omitted when it does not, `false` when off. */
-function compileUrlCheck(
-  name: 'images' | 'links',
-  check: UrlCheckDraft,
-  fallback: UrlCheck | undefined,
+/** What the detector lets through, where it differs from the kernel's: omitted when it does not. */
+function compileUrlAllow(
+  detector: UrlDetector,
+  allow: UrlAllowDraft,
   report: Report,
-): boolean | UrlCheck | undefined {
-  const hosts = check.hosts.map((host) => host.trim());
+): UrlAllow | undefined {
+  const hosts = allow.hosts.map((host) => host.trim());
   const blank = hosts.indexOf('');
   if (blank !== -1) {
-    report('guardrails', 'Egress hosts cannot be blank.', `egressChecks.${name}.hosts`, blank);
+    report('guardrails', 'Allowed hosts cannot be blank.', `allow.${detector}.hosts`, blank);
   }
-  if (!check.on) return fallback ? false : undefined;
   const named = hosts.filter(Boolean);
-  const options: UrlCheck = {
+  const spec: UrlAllow = {
     ...(named.length ? { hosts: named } : {}),
-    ...(check.fromTools ? {} : { fromTools: false }),
+    ...(allow.fromTools ? {} : { fromTools: false }),
   };
-  if (Object.keys(options).length) return options;
-  return fallback ? undefined : true;
+  return Object.keys(spec).length ? spec : undefined;
 }
 
-/** The checks that differ from the bundled defaults: `true` when none does, `false` when all are off. */
-function compileEgressChecks(draft: EgressChecksDraft, report: Report): boolean | EgressChecks {
-  const defaults: ResolvedEgressChecks = resolveEgressChecks();
-  const checks: EgressChecks = {
-    ...(draft.boundary === defaults.boundary ? {} : { boundary: draft.boundary }),
-  };
-  const images = compileUrlCheck('images', draft.images, defaults.images, report);
-  const links = compileUrlCheck('links', draft.links, defaults.links, report);
-  if (images !== undefined) checks.images = images;
-  if (links !== undefined) checks.links = links;
-  const problem = egressChecksProblem('Egress checks', checks);
-  if (problem !== undefined) report('guardrails', problem, 'egressChecks');
-  if (!draft.boundary && !draft.images.on && !draft.links.on) return false;
-  return Object.keys(checks).length ? checks : true;
-}
-
-/** The actions that differ from the defaults, at the boundaries the profile has. */
+/**
+ * The actions that differ from the defaults, at the boundaries the profile has, and what each
+ * URL detector that reads one of them lets through.
+ */
 function compileDetect(
-  detect: GuardrailsDraft['detect'],
+  guardrails: Pick<GuardrailsDraft, 'detect' | 'allow'>,
   boundaries: readonly Boundary[],
+  report: Report,
 ): DetectSpec | undefined {
-  const spec: Partial<Record<string, { at: Partial<Record<Boundary, DetectAction>> }>> = {};
+  const { detect } = guardrails;
+  const spec: Partial<Record<Detector, DetectorConfig>> = {};
   for (const detector of DETECTORS) {
     const changed = boundaries.filter(
       (boundary) => detect[detector][boundary] !== DETECT_DEFAULTS[detector][boundary],
     );
-    if (changed.length) {
-      spec[detector] = {
-        at: Object.fromEntries(changed.map((boundary) => [boundary, detect[detector][boundary]])),
-      };
-    }
+    const reads = boundaries.some((boundary) => detect[detector][boundary] !== 'ignore');
+    const allow =
+      isUrlDetector(detector) && reads
+        ? compileUrlAllow(detector, guardrails.allow[detector], report)
+        : undefined;
+    if (!changed.length && !allow) continue;
+    spec[detector] = {
+      ...(changed.length
+        ? {
+            at: Object.fromEntries(
+              changed.map((boundary) => [boundary, detect[detector][boundary]]),
+            ),
+          }
+        : {}),
+      ...(allow ? { allow } : {}),
+    };
   }
+  const problem = detectProblem('Detect', spec, boundaries);
+  if (problem !== undefined) report('guardrails', problem, 'detect');
   return Object.keys(spec).length ? spec : undefined;
+}
+
+function isUrlDetector(detector: Detector): detector is UrlDetector {
+  return DETECTOR_META[detector].allow === true;
 }
 
 function compileGuardrails(
@@ -1058,9 +1057,9 @@ function compileGuardrails(
   boundaries: readonly Boundary[] = BOUNDARIES,
 ): ProfileGuardrailsSpec | undefined {
   const parts: ProfileGuardrailsSpec = {
-    detect: compileDetect(guardrails.detect, boundaries),
+    detect: compileDetect(guardrails, boundaries, report),
     quota: compileQuota(guardrails, report),
-    egress: compileEgress(guardrails, report),
+    blockedReply: compileBlockedReply(guardrails, report),
     network: compileNetwork(guardrails, report),
     taint: guardrails.taintAfterRemoteRead
       ? { afterRemoteRead: guardrails.taintAfterRemoteRead }

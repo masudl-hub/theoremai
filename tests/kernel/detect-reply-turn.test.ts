@@ -37,7 +37,7 @@ async function turn(
       guardrails: {
         quota: { perDay: 50 },
         detect: { ...detect, canary_leak: 'ignore', prompt_leak: 'ignore' },
-        ...(extras.refuse ? { egress: { checks: {}, onBlock: 'refuse_to_user' } } : {}),
+        blockedReply: extras.refuse ? { onBlock: 'refuse' } : { maxRetries: 0 },
       },
     }),
   );
@@ -100,7 +100,7 @@ Deno.test('block at reply: the reply stops before the key and the turn says it w
   assertEquals(finalStop(events)?.kind, 'filtered');
 });
 
-Deno.test('block at reply with refuse_to_user: the user reads the refusal', async () => {
+Deno.test('block at reply with blockedReply refuse: the user reads the refusal', async () => {
   const detect: DetectSpec = { credentials: { at: { reply: 'block' } } };
   const events = await turn('detect_reply_refuse', detect, said(TEXT), { refuse: true });
   assertEquals(replyText(events).endsWith(lexiconDefault('egress.refusal')), true);

@@ -1,6 +1,6 @@
 import type { Boundary } from '../../../guardrails/boundaries.ts';
 import { isStreamedCanaryEvent, type StreamedReplyEvent } from '../../../guardrails/canary.ts';
-import { type Detection, detectEvent, scopeOf } from '../../../guardrails/detect-at.ts';
+import { type Detection, detectEvent, leakScopeOf } from '../../../guardrails/detect-at.ts';
 import {
   eventLeak,
   isPromptLeakHit,
@@ -165,7 +165,7 @@ function streamContext(
     trust: 'untrusted',
     profileId: profile.id,
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
-    ...scopeOf(policy.detect, { canary, canaryGiven, privateSystem }),
+    ...leakScopeOf(policy.detect, { canary, canaryGiven, privateSystem }),
     givenUrls: args.givenUrls,
   };
 }

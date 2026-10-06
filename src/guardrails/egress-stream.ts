@@ -1,5 +1,5 @@
 /**
- * The bundled egress policy and the detectors, run on a reply as it streams.
+ * The detectors and a host's egress rules, run on a reply as it streams.
  *
  * Each matches its patterns on the reply as written and, for
  * injection phrasing, on
@@ -19,13 +19,7 @@
  * @module
  */
 
-import type { Detector } from './detectors.ts';
-import {
-  DEFAULT_CHECKS,
-  egressScope,
-  type ResolvedEgressChecks,
-  standardEgressEnforce,
-} from './egress.ts';
+import type { Detector, ResolvedAllow } from './detectors.ts';
 import {
   FORWARD_AUTOMATON,
   REVERSED_AUTOMATON,
@@ -55,7 +49,7 @@ import {
   typoNormalize,
 } from './injection.ts';
 import { isEmoji, normalizeCodePoint } from './normalize.ts';
-import { DETECT_RULES, EGRESS_RULES } from './rules.ts';
+import { DETECT_RULES } from './rules.ts';
 import { cardHit, SENSITIVE_PATTERNS } from './sensitive.ts';
 import type { EgressEnforcer, GuardrailContext, Severity } from './types.ts';
 
@@ -497,9 +491,9 @@ function detectorRule(detector: Detector): PatternRule {
 }
 
 const INJECTION_RULE = detectorRule('injection');
-const BOUNDARY_RULE: PatternRule = { rule: EGRESS_RULES.boundary, severity: 'medium' };
+const MARKER_RULE = detectorRule('marker_leak');
 
-/** What a pattern's match reports: its detector's rule, or the bundled check's with `collectEgressHits`' severity. */
+/** What a pattern's match reports: its detector's rule. */
 function patternRule({ kind, group }: EgressPattern): PatternRule | undefined {
   if (INJECTION_KINDS.has(kind)) return INJECTION_RULE;
   switch (kind) {
@@ -507,11 +501,11 @@ function patternRule({ kind, group }: EgressPattern): PatternRule | undefined {
     case 'card':
       return group === undefined ? undefined : detectorRule(group);
     case 'boundary':
-      return BOUNDARY_RULE;
+      return MARKER_RULE;
     case 'image':
-      return { rule: EGRESS_RULES.image, severity: 'high' };
+      return detectorRule('ungiven_images');
     default:
-      return { rule: EGRESS_RULES.link, severity: 'high' };
+      return detectorRule('ungiven_links');
   }
 }
 
@@ -536,33 +530,23 @@ function patternReading(
   return hit ? { hit } : {};
 }
 
-/** Whether the stream reads a pattern: its detector is one of `detectors`, or `checks` runs its check. */
-function runs(
-  { kind }: EgressPattern,
-  rule: PatternRule,
-  checks: ResolvedEgressChecks,
-  detectors: readonly Detector[],
-): boolean {
-  if (rule.detector) return detectors.includes(rule.detector);
-  if (kind === 'boundary') return checks.boundary;
-  return kind === 'image' ? checks.images !== undefined : checks.links !== undefined;
-}
-
-/** The patterns read on the reply as written: `detectors`' and those of the checks `checks` runs. */
+/** The patterns of `detectors`, read on the reply as written. */
 function forwardPatterns(
-  checks: ResolvedEgressChecks,
   detectors: readonly Detector[],
-  given?: GivenUrls,
+  { given, allow, skipImages }: Pick<EgressStreamOptions, 'given' | 'allow' | 'skipImages'>,
 ): ScanPattern[] {
   const scope = (check: object | undefined) => ({ ...check, ...(given ? { given } : {}) });
   const urls: UrlReadings = {
-    image: imageReadings(scope(checks.images)),
-    link: linkReadings(scope(checks.links), checks.images !== undefined),
+    image: imageReadings(scope(allow?.ungiven_images)),
+    link: linkReadings(
+      scope(allow?.ungiven_links),
+      skipImages ?? detectors.includes('ungiven_images'),
+    ),
   };
   const out: ScanPattern[] = [];
   EGRESS_PATTERNS.forEach((entry, id) => {
     const rule = patternRule(entry);
-    if (!(rule && runs(entry, rule, checks, detectors))) return;
+    if (!(rule?.detector && detectors.includes(rule.detector))) return;
     out.push({
       ...rule,
       id,
@@ -725,12 +709,20 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
   function found(p: number, settledTo: number): EgressStreamHit | undefined {
     const opened = openedFrom[p] as number;
     const from = resume[p] as number;
-    resume[p] = settledTo;
-    if (opened < 0 || opened >= settledTo) return undefined;
-    openedFrom[p] = (lastOpened[p] as number) >= settledTo ? settledTo : -1;
-    const { find, rule, severity } = patterns[p] as ScanPattern;
+    if (opened < 0 || opened >= settledTo) {
+      resume[p] = settledTo;
+      return undefined;
+    }
+    const { find, rule, severity, detector } = patterns[p] as ScanPattern;
     const at = find?.(view.text, from, settledTo);
-    return at === undefined ? undefined : { rule, severity, start: view.rawAt(at) };
+    if (at === undefined) {
+      resume[p] = settledTo;
+      openedFrom[p] = (lastOpened[p] as number) >= settledTo ? settledTo : -1;
+      return undefined;
+    }
+    // why: A detector's match need not end the reply, so the next call finds the one after it.
+    resume[p] = Math.max(from, at) + 1;
+    return { rule, severity, start: view.rawAt(at), ...(detector ? { detector } : {}) };
   }
 
   /** A regex pattern's hit up to `settledTo`. */
@@ -784,7 +776,7 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
       const earliest = live();
       for (let hit = detect(); hit; hit = detect()) {
         hits.push(hit);
-        // why: A match of the policy blocks, so nothing after it is read.
+        // why: A match of a host rule blocks, so nothing after it is read.
         if (!hit.detector) break;
       }
       return view.rawAt(earliest);
@@ -793,18 +785,23 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
 }
 
 interface EgressStreamOptions {
-  /** The bundled checks to run. Default each at its default (`EgressChecks`). */
-  checks?: ResolvedEgressChecks;
   /** The detectors whose matches the stream settles. Default none. */
   detect?: readonly Detector[];
+  /** What `ungiven_images` and `ungiven_links` let through besides the given URLs. */
+  allow?: ResolvedAllow;
+  /**
+   * Whether `ungiven_links` leaves an image's own markup alone. Default: `ungiven_images` is
+   * among `detect`. Set when another reader has the images.
+   */
+  skipImages?: boolean;
   /** Host rules, read on the reply as written, with their compiled automaton. */
   host?: {
     automaton: EgressAutomatonData;
     rules: readonly { rule: string; severity: Severity; pattern: RegExp }[];
   };
-  /** The URLs the model was given, for the image and link checks. */
+  /** The URLs the model was given, for `ungiven_images` and `ungiven_links`. */
   given?: GivenUrls;
-  /** The words of the profile's own canary note, for the boundary check (`boundaryNote`). */
+  /** The words of the profile's own canary note, for `marker_leak` (`boundaryNote`). */
   note?: string;
 }
 
@@ -820,7 +817,7 @@ function hostPatterns({ rules }: NonNullable<EgressStreamOptions['host']>): Scan
   }));
 }
 
-/** Scans the bundled egress policy's patterns, the detectors' and any host rules, as a reply streams. */
+/** Scans the detectors' patterns and any host rules, as a reply streams. */
 function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
   const reply: Grown = { text: '', fresh: '' };
   const raw = rawView(reply);
@@ -830,9 +827,8 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
     return createScan(view, automaton, patterns);
   };
   const scans: ReturnType<typeof createScan>[] = [];
-  const checks = options.checks ?? DEFAULT_CHECKS;
   const detectors = options.detect ?? [];
-  const forwardScan = forwardPatterns(checks, detectors, options.given);
+  const forwardScan = forwardPatterns(detectors, options);
   if (forwardScan.length > 0) {
     forward ??= compile(FORWARD_AUTOMATON);
     scans.push(scan(raw, forward, forwardScan));
@@ -856,9 +852,9 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
       scan(urlView(reply), forward, injection),
     );
   }
-  if (checks.boundary && options.note) {
+  if (detectors.includes('marker_leak') && options.note) {
     const regex = notePattern(options.note);
-    scans.push(scan(raw, literalAutomaton(options.note), [{ ...BOUNDARY_RULE, id: 0, regex }]));
+    scans.push(scan(raw, literalAutomaton(options.note), [{ ...MARKER_RULE, id: 0, regex }]));
   }
   if (options.host) {
     let automaton = hostAutomata.get(options.host.automaton);
@@ -891,15 +887,7 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
 type EgressStreamPlan = (context: GuardrailContext) => EgressStream;
 
 /** Streaming plans for the policies whose checks the stream runs itself. */
-const STREAM_PLANS = new WeakMap<EgressEnforcer, EgressStreamPlan>([
-  [
-    standardEgressEnforce,
-    (context) => {
-      const { given, note } = egressScope(context);
-      return createEgressStream({ ...(given ? { given } : {}), ...(note ? { note } : {}) });
-    },
-  ],
-]);
+const STREAM_PLANS = new WeakMap<EgressEnforcer, EgressStreamPlan>();
 
 /** The streaming plan for `enforce`, when the stream knows its checks. */
 function streamPlanOf(enforce: EgressEnforcer): EgressStreamPlan | undefined {

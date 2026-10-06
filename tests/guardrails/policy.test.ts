@@ -1,11 +1,7 @@
 import '../fixtures/test-host.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import { detectAt } from '../../src/guardrails/detect-at.ts';
-import {
-  egressChecksOf,
-  resolveEgressChecks,
-  standardEgressEnforce,
-} from '../../src/guardrails/egress.ts';
+import { DETECT_DEFAULTS, NO_ALLOW } from '../../src/guardrails/detectors.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import type { Verdict } from '../../src/guardrails/types.ts';
 import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
@@ -104,22 +100,36 @@ Deno.test('Verdict is exhaustively handled', () => {
   assertEquals(describeVerdict({ action: 'block', hits, rejection: 'nope' }), 'block:nope');
 });
 
-Deno.test('egress checks resolve to the bundled policy they select, once per spec', () => {
-  const egress = { checks: { links: true }, onBlock: 'refuse_to_user' as const };
-  const resolved = resolveGuardrailPolicy({ egress }).egress;
-  assertEquals(resolved?.onBlock, 'refuse_to_user');
-  assertEquals(Object.hasOwn(resolved ?? {}, 'checks'), false);
-  assertEquals(egressChecksOf(resolved?.enforce), resolveEgressChecks({ links: true }));
-  assertEquals(resolveGuardrailPolicy({ egress }).egress?.enforce, resolved?.enforce);
-  const off = resolveGuardrailPolicy({ egress: { checks: false } }).egress?.enforce;
-  assertEquals(egressChecksOf(off)?.boundary, false);
+Deno.test('a policy resolves its detectors, what they allow and what a blocked reply does', () => {
+  const unset = resolveGuardrailPolicy(undefined);
+  assertEquals(unset.detect, DETECT_DEFAULTS);
+  assertEquals(unset.allow, NO_ALLOW);
+  assertEquals(unset.blockedReply, { onBlock: 'retry', maxRetries: 1 });
+  assertEquals(unset.egress, undefined);
+  assertEquals(unset.detect.marker_leak.reply, 'block');
+  assertEquals(unset.detect.ungiven_images.reply, 'block');
+  assertEquals(unset.detect.ungiven_links.reply, 'ignore');
+
+  const set = resolveGuardrailPolicy({
+    detect: {
+      marker_leak: 'ignore',
+      ungiven_links: { action: 'block', allow: { hosts: ['docs.example.com'] } },
+    },
+    blockedReply: { onBlock: 'refuse' },
+  });
+  assertEquals(set.blockedReply, { onBlock: 'refuse', maxRetries: 1 });
+  assertEquals(set.detect.ungiven_links.reply, 'block');
+  assertEquals(set.detect.marker_leak.reply, 'ignore');
+  assertEquals(set.detect.ungiven_images.reply, 'block');
+  assertEquals(set.allow.ungiven_links.hosts, ['docs.example.com']);
+  assertEquals(resolveGuardrailPolicy({ blockedReply: { maxRetries: 0 } }).blockedReply, {
+    onBlock: 'retry',
+    maxRetries: 0,
+  });
+
+  // A host's own enforcer is carried as given: nothing wraps it and no detector rides in it.
   const host = () => ({ action: 'allow' as const });
-  assertEquals(resolveGuardrailPolicy({ egress: { enforce: host } }).egress?.enforce, host);
-  assertEquals(egressChecksOf(host), undefined);
-  assertEquals(
-    egressChecksOf(
-      resolveGuardrailPolicy({ egress: { enforce: standardEgressEnforce } }).egress?.enforce,
-    ),
-    resolveEgressChecks(),
-  );
+  const hosted = resolveGuardrailPolicy({ egress: { enforce: host } });
+  assertEquals(hosted.egress?.enforce, host);
+  assertEquals(hosted.detect, DETECT_DEFAULTS);
 });

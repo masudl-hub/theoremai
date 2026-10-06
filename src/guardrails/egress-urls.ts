@@ -30,10 +30,12 @@ interface GivenUrls {
 interface GivenUrlSets extends GivenUrls {
   request: Set<string>;
   tools: Set<string>;
+  /** A request's input, or a message, that quotes the model's own words: a URL in it was not given. */
+  own: WeakSet<object>;
 }
 
 function givenUrlSets(): GivenUrlSets {
-  return { request: new Set(), tools: new Set() };
+  return { request: new Set(), tools: new Set(), own: new WeakSet() };
 }
 
 interface UrlScope {
@@ -197,7 +199,7 @@ function addSeenUrls(seen: Set<string>, text: string): void {
 
 function addHistoryUrls(given: GivenUrlSets, messages: readonly TurnHistoryMessage[]): void {
   for (const message of messages) {
-    if (message.role === 'assistant') continue;
+    if (message.role === 'assistant' || given.own.has(message)) continue;
     addSeenUrls(message.role === 'tool' ? given.tools : given.request, textForScan(message).text);
   }
 }
@@ -207,7 +209,7 @@ function addRequestUrls(
   request: Pick<ProviderCompleteRequest, 'system' | 'input' | 'history' | 'continuation'>,
 ): void {
   addSeenUrls(given.request, request.system);
-  addSeenUrls(given.request, textForScan(request.input).text);
+  if (!given.own.has(request.input)) addSeenUrls(given.request, textForScan(request.input).text);
   addHistoryUrls(given, request.history ?? []);
   addHistoryUrls(given, request.continuation ?? []);
 }

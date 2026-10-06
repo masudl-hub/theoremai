@@ -426,23 +426,19 @@ Deno.test('autoContinue names only kinds allowContinue lets through', () => {
   check(said(resumption({ allowContinue: [] })), 'defined', 'default auto is filtered at runtime');
 });
 
-Deno.test('egress counts are non-negative integers', () => {
+Deno.test('egress and blocked-reply counts are non-negative integers', () => {
   const enforce = () => ({ action: 'allow' as const });
-  for (const key of ['maxRetries', 'holdback']) {
-    const message = `Profile p: guardrails.egress.${key} must be a non-negative integer`;
+  const counts: Record<string, (value: number) => Loose> = {
+    'blockedReply.maxRetries': (maxRetries) => ({ blockedReply: { maxRetries } }),
+    'egress.holdback': (holdback) => ({ egress: { enforce, holdback } }),
+  };
+  for (const [key, guardrails] of Object.entries(counts)) {
+    const message = `Profile p: guardrails.${key} must be a non-negative integer`;
     for (const bad of [-1, 1.5, Number.NaN]) {
-      check(
-        said(textProfile({ guardrails: { egress: { enforce, [key]: bad } } })),
-        message,
-        `${key} ${bad}`,
-      );
+      check(said(textProfile({ guardrails: guardrails(bad) })), message, `${key} ${bad}`);
     }
     for (const ok of [0, 1, 7]) {
-      check(
-        said(textProfile({ guardrails: { egress: { enforce, [key]: ok } } })),
-        'defined',
-        `${key} ${ok}`,
-      );
+      check(said(textProfile({ guardrails: guardrails(ok) })), 'defined', `${key} ${ok}`);
     }
   }
 });
@@ -1104,29 +1100,46 @@ Deno.test('a compaction profile must be a text profile', () => {
   );
 });
 
-Deno.test('egress names its one of two, its function, its holdback and its checks', () => {
+Deno.test('egress names its missing enforce, its function and its settings; blockedReply and allow name theirs', () => {
   const enforce = () => ({ action: 'allow' as const });
-  const egress = (over: Loose) => said(textProfile({ guardrails: { egress: over } }));
-  const oneOf =
-    'Profile p: guardrails.egress takes enforce (your own check) or checks (the bundled ones), one of the two';
-  check(egress({}), oneOf, 'neither');
-  check(egress({ enforce, checks: true }), oneOf, 'both');
+  const guardrails = (over: Loose) => said(textProfile({ guardrails: over }));
+  const egress = (over: Loose) => guardrails({ egress: over });
+  check(egress({}), "Profile p: type 'text' must set guardrails.egress.enforce", 'no enforce');
+  check(
+    egress({ enforce, checks: true }),
+    'Profile p: guardrails.egress.checks is not a setting; it takes enforce and holdback',
+    'checks is gone',
+  );
+  check(
+    egress({ enforce, onBlock: 'refuse' }),
+    'Profile p: guardrails.egress.onBlock is not a setting; it takes enforce and holdback',
+    'onBlock moved',
+  );
   check(
     egress({ enforce: 'standard' }),
     'Profile p: guardrails.egress.enforce must be a function',
     'enforce not a function',
   );
   check(
-    egress({ checks: { imageHosts: [] } }).startsWith('Profile p: guardrails.egress.checks'),
-    true,
-    'checks problem',
+    guardrails({ detect: { ungiven_images: { allow: { imageHosts: [] } } } }),
+    'Profile p: guardrails.detect.ungiven_images.allow.imageHosts is not a setting of allow (hosts, fromTools)',
+    'allow problem',
   );
   check(
-    egress({ checks: true, holdback: 96 }),
-    'Profile p: guardrails.egress.holdback applies only to a host egress.enforce; the bundled policy holds exactly what could still become a match',
-    'holdback on the bundled policy',
+    guardrails({ blockedReply: { retries: 2 } }),
+    'Profile p: guardrails.blockedReply.retries is not a setting; it takes onBlock and maxRetries',
+    'blockedReply setting',
   );
-  check(egress({ checks: false }), 'defined', 'checks off');
+  check(
+    guardrails({ blockedReply: { onBlock: 'refuse_to_user' } }),
+    'Profile p: guardrails.blockedReply.onBlock must be one of retry, refuse',
+    'blockedReply onBlock',
+  );
+  check(
+    guardrails({ detect: { marker_leak: 'ignore', ungiven_images: 'ignore' } }),
+    'defined',
+    'reply detectors off',
+  );
 });
 
 Deno.test('a trigger above the window defines, a profile compacting itself must take text', () => {

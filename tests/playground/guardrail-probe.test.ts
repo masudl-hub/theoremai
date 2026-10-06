@@ -191,7 +191,6 @@ Deno.test('a probe carries the trace of its turn', async () => {
 const BATTERY_GAPS: ReadonlySet<string> = new Set([
   'reply.benign_explains',
   'reply.key_spelled',
-  'reply.link',
   'thought.key',
   'tool_arguments.base64_key',
   'tool_result_remote.action_only',

@@ -1943,7 +1943,7 @@ Deno.test('loader does not promote deferred tools before required permission is 
   assertEquals(lastTool(events, 'record_lookup'), undefined);
 });
 
-Deno.test('guardrails.egress refuse_to_user delivers in-character refusal without retry', async () => {
+Deno.test('guardrails.blockedReply refuse delivers in-character refusal without retry', async () => {
   registerProfile({
     type: 'text',
     id: 'voice_egress_bot',
@@ -1955,8 +1955,8 @@ Deno.test('guardrails.egress refuse_to_user delivers in-character refusal withou
     outputs: {},
     guardrails: {
       quota: { perDay: 50 },
+      blockedReply: { onBlock: 'refuse' },
       egress: {
-        onBlock: 'refuse_to_user',
         enforce: ({ text }): Verdict => {
           if (text.includes('internal_tool_abc')) {
             return {
@@ -1992,7 +1992,7 @@ Deno.test('guardrails.egress refuse_to_user delivers in-character refusal withou
   assertEquals(replyText(events), "i can't discuss internal wiring.");
 });
 
-Deno.test('guardrails.egress reject_to_agent triggers auto-repair retry loop', async () => {
+Deno.test('guardrails.blockedReply retry triggers auto-repair retry loop', async () => {
   registerProfile({
     type: 'text',
     id: 'chat_egress_bot',
@@ -2004,9 +2004,8 @@ Deno.test('guardrails.egress reject_to_agent triggers auto-repair retry loop', a
     outputs: {},
     guardrails: {
       quota: { perDay: 50 },
+      blockedReply: { onBlock: 'retry', maxRetries: 2 },
       egress: {
-        onBlock: 'reject_to_agent',
-        maxRetries: 2,
         enforce: ({ text }): Verdict => {
           if (text.includes('internal_tool_abc')) {
             return {
@@ -2058,7 +2057,7 @@ Deno.test('guardrails.egress reject_to_agent triggers auto-repair retry loop', a
   assertEquals(textEvents[0]?.text, 'Here is the clean public answer.');
 });
 
-Deno.test('guardrails.egress reject_to_agent withholds turn when retries exhausted', async () => {
+Deno.test('guardrails.blockedReply retry withholds turn when retries exhausted', async () => {
   registerProfile({
     type: 'text',
     id: 'exhausted_egress_bot',
@@ -2070,9 +2069,8 @@ Deno.test('guardrails.egress reject_to_agent withholds turn when retries exhaust
     outputs: {},
     guardrails: {
       quota: { perDay: 50 },
+      blockedReply: { onBlock: 'retry', maxRetries: 1 },
       egress: {
-        onBlock: 'reject_to_agent',
-        maxRetries: 1,
         enforce: (): Verdict => ({
           action: 'block',
           hits: [{ rule: 'persistent_leak', severity: 'high' }],
@@ -2128,9 +2126,8 @@ Deno.test('guardrails.egress withholds media until prose clears', async () => {
       },
       guardrails: {
         quota: { perDay: 50 },
+        blockedReply: { onBlock: 'retry', maxRetries: 1 },
         egress: {
-          onBlock: 'reject_to_agent',
-          maxRetries: 1,
           enforce: ({ text }): Verdict =>
             text.includes('internal_tool_abc')
               ? {
@@ -2203,8 +2200,8 @@ Deno.test('guardrails.egress progressive yield streams cleared prefixes under ss
       },
       guardrails: {
         quota: { perDay: 50 },
+        blockedReply: { onBlock: 'refuse' },
         egress: {
-          onBlock: 'refuse_to_user',
           enforce: (): Verdict => ({ action: 'allow' }),
         },
       },

@@ -1,8 +1,8 @@
 import type { TurnEventOf } from '../kernel/turn-events.ts';
 import type { Profile, TurnEvent } from '../kernel/types.ts';
 import { isStreamedCanaryEvent, type StreamedReplyEvent } from './canary.ts';
-import { detectEvent, scopeOf } from './detect-at.ts';
-import { readReply } from './detect-reply.ts';
+import { detectEvent, leakScopeOf, scopeOf } from './detect-at.ts';
+import { readReply, standingBlock } from './detect-reply.ts';
 import {
   eventLeak,
   isPromptLeakHit,
@@ -66,7 +66,7 @@ const UNTRANSCRIBED_HIT: GuardrailHit = { rule: 'live.untranscribed-audio', seve
 
 /**
  * The policy with Live's shorter default lookback when a host enforcer set
- * none: every held character of transcript holds its audio. The bundled policy
+ * none: every held character of transcript holds its audio. An `egressPolicy`
  * holds exactly and takes no lookback.
  */
 function liveHoldback(policy: ResolvedGuardrailPolicy): ResolvedGuardrailPolicy {
@@ -92,7 +92,7 @@ function createLiveOutboundGateSession(
     stage: 'live_outbound',
     trust: 'untrusted',
     profileId: profile.id,
-    ...scopeOf(policy.detect, { canary, privateSystem }),
+    ...leakScopeOf(policy.detect, { canary, privateSystem }),
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(givenUrls ? { givenUrls } : {}),
   };
@@ -361,17 +361,14 @@ async function finalEgressVerdict(
   gate: ProgressiveYieldGate,
   prior: TurnEvent[],
 ): Promise<LiveOutboundBatchResult> {
-  const { egress, detect } = session.policy;
+  const { egress, detect, blockedReply } = session.policy;
   const read = readReply({ text: gate.accumulated() }, detect, {
     boundary: 'live_reply',
     withheld: session.withholdVisible,
-    scope: session.context,
+    scope: scopeOf(session.policy, session.context),
   });
-  // why: A leak the gate stopped on that this reading does not find is out of step with it: the gate's finding stands.
-  const reread = new Set(read.events.flatMap((event) => event.hits.map((hit) => hit.rule)));
-  const unread = (session.promptLeaks ?? []).filter((hit) => !reread.has(hit.rule));
   // invariant: The host policy adds checks; it never releases a detector's block.
-  const stopped = read.blocked ?? (unread.length > 0 ? unread : undefined);
+  const stopped = standingBlock(read, session.promptLeaks);
   const verdict: Verdict = stopped
     ? { action: 'block', hits: stopped, rejection: WITHHELD_REASON.egress }
     : egress
@@ -388,7 +385,8 @@ async function finalEgressVerdict(
     return { action: 'emit', events: [...events, { type: 'text', text: verdict.text }] };
   }
   if (verdict.action === 'block') {
-    if (egress?.onBlock === 'refuse_to_user') {
+    // why: Live never rewrites: audio already spoken cannot be taken back for another try.
+    if (blockedReply.onBlock === 'refuse') {
       const text = lexiconText('egress.refusal', {}, session.context.lexicon);
       return { action: 'emit', events: [...events, { type: 'text', text }] };
     }

@@ -1,34 +1,28 @@
-import { resolveDetect } from './detectors.ts';
-import { egressPolicy } from './egress-policy.ts';
+import { resolveAllow, resolveDetect } from './detectors.ts';
 import type {
-  EgressEnforcer,
-  ProfileEgressSpec,
+  BlockedReplySpec,
   ProfileGuardrailsSpec,
-  ResolvedEgressSpec,
+  ResolvedBlockedReply,
   ResolvedGuardrailPolicy,
 } from './types.ts';
 
-/** One enforce per spec, so the gates' per-enforce plans are built once. */
-const BUNDLED = new WeakMap<ProfileEgressSpec, EgressEnforcer>();
+/** A blocked reply is rewritten once unless the profile says otherwise. */
+const BLOCKED_REPLY: ResolvedBlockedReply = { onBlock: 'retry', maxRetries: 1 };
 
-function resolveEgress(spec: ProfileEgressSpec | undefined): ResolvedEgressSpec | undefined {
-  if (!spec) return undefined;
-  const { enforce, checks, ...rest } = spec;
-  if (enforce) return { ...rest, enforce };
-  let bundled = BUNDLED.get(spec);
-  if (!bundled) {
-    bundled = egressPolicy({ bundled: checks ?? true });
-    BUNDLED.set(spec, bundled);
-  }
-  return { ...rest, enforce: bundled };
+function resolveBlockedReply(spec: BlockedReplySpec | undefined): ResolvedBlockedReply {
+  return {
+    onBlock: spec?.onBlock ?? BLOCKED_REPLY.onBlock,
+    maxRetries: spec?.maxRetries ?? BLOCKED_REPLY.maxRetries,
+  };
 }
 
 /** Every ingress and egress path resolves through here so none can drift on what "unset" means. */
 function resolveGuardrailPolicy(spec: ProfileGuardrailsSpec | undefined): ResolvedGuardrailPolicy {
-  const egress = resolveEgress(spec?.egress);
   return {
     detect: resolveDetect(spec?.detect),
-    egress,
+    allow: resolveAllow(spec?.detect),
+    blockedReply: resolveBlockedReply(spec?.blockedReply),
+    egress: spec?.egress,
     network: spec?.network,
     quota: spec?.quota,
     taint: spec?.taint,

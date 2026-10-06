@@ -81,13 +81,7 @@ function registerLiveProfile(
   apiId: string,
   effort: ThinkingLevel | 'default',
 ): void {
-  const guardrails = {
-    egress: {
-      onBlock: 'refuse_to_user' as const,
-      maxRetries: 0,
-      checks: true,
-    },
-  };
+  const guardrails = { blockedReply: { onBlock: 'refuse' as const } };
 
   if (providerKind === 'openrouter') {
     registerProfile(

@@ -1142,7 +1142,7 @@ async function* runRegisteredTool(
     provenance,
     policy,
     kind && toolBoundary('tool_arguments', kind),
-    scopeOf(policy.detect, args.scope ?? {}),
+    scopeOf(policy, args.scope ?? {}),
   );
   recordToolCheck(stages?.span, 'tool_arguments', performance.now() - argsStart, inspected.event);
   if (inspected.event) {

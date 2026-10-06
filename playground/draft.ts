@@ -10,15 +10,15 @@ import {
   profileAllowsInject,
   resolveGuardrailPolicy,
 } from '../mod.ts';
-import { NO_CHECKS, type ResolvedEgressChecks, type UrlCheck } from '../src/guardrails/egress.ts';
 import { type Boundary, recordOf } from '../src/guardrails/boundaries.ts';
 import {
   type DetectAction,
   DETECTORS,
   type Detector,
   detects,
+  type UrlDetector,
 } from '../src/guardrails/detectors.ts';
-import type { TaintGate } from '../src/guardrails/types.ts';
+import type { BlockedReplyOnBlock, TaintGate } from '../src/guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import { profileTypesForField } from '../src/kernel/profile-scope.ts';
@@ -29,7 +29,6 @@ import {
   type CompactionTiming,
   type CacheTtl,
   type ContinueStopKind,
-  type EgressOnBlock,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isValidProfileProtocol,
   type KeySlot,
@@ -190,18 +189,10 @@ export interface TurnBehaviourDraft {
   allowSteering: boolean;
 }
 
-/** A URL check's switch, and its options kept while it is off. */
-export interface UrlCheckDraft {
-  on: boolean;
+/** What a URL detector lets through besides the URLs the model was given. */
+export interface UrlAllowDraft {
   hosts: string[];
   fromTools: boolean;
-}
-
-/** The bundled egress checks, one switch each. */
-export interface EgressChecksDraft {
-  boundary: boolean;
-  images: UrlCheckDraft;
-  links: UrlCheckDraft;
 }
 
 export interface GuardrailsDraft {
@@ -212,10 +203,12 @@ export interface GuardrailsDraft {
   quotaEnabled: boolean;
   quotaPerDay: number | null;
   quotaMessage: string;
-  /** The bundled reply checks that run. A blank draft runs none. */
-  egressChecks: EgressChecksDraft;
-  egressOnBlock: EgressOnBlock | '';
-  egressMaxRetries: number | null;
+  /** What `ungiven_images` and `ungiven_links` let through. */
+  allow: Record<UrlDetector, UrlAllowDraft>;
+  /** `''` omits it (kernel default: retry). */
+  blockedReplyOnBlock: BlockedReplyOnBlock | '';
+  /** `null` omits it (kernel default: 1). */
+  blockedReplyMaxRetries: number | null;
   egressRepairGuidance: string;
   allowPrivateNetworks: boolean;
   allowedHosts: string[];
@@ -408,18 +401,6 @@ export function agentToolTarget(
   return isStub && agentId ? { agentKey, description: `Asks ${agentId} and returns its answer.` } : { agentKey };
 }
 
-function urlCheckDraft(check: UrlCheck | undefined): UrlCheckDraft {
-  return { on: check !== undefined, hosts: [...(check?.hosts ?? [])], fromTools: check?.fromTools ?? true };
-}
-
-export function egressChecksDraft(checks: ResolvedEgressChecks): EgressChecksDraft {
-  return {
-    boundary: checks.boundary,
-    images: urlCheckDraft(checks.images),
-    links: urlCheckDraft(checks.links),
-  };
-}
-
 function defaultGuardrails(): GuardrailsDraft {
   const resolved = resolveGuardrailPolicy(undefined);
   return {
@@ -428,9 +409,12 @@ function defaultGuardrails(): GuardrailsDraft {
     quotaEnabled: false,
     quotaPerDay: null,
     quotaMessage: '',
-    egressChecks: egressChecksDraft(NO_CHECKS),
-    egressOnBlock: '',
-    egressMaxRetries: null,
+    allow: {
+      ungiven_images: { hosts: [], fromTools: true },
+      ungiven_links: { hosts: [], fromTools: true },
+    },
+    blockedReplyOnBlock: '',
+    blockedReplyMaxRetries: null,
     egressRepairGuidance: '',
     allowPrivateNetworks: false,
     allowedHosts: [],

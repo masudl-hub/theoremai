@@ -22,7 +22,7 @@ function structuredProvider(structured: unknown): ModelProvider {
   };
 }
 
-function registerStructuredEgressProfile(id: string, onBlock: 'refuse_to_user'): void {
+function registerStructuredEgressProfile(id: string, onBlock: 'refuse'): void {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -35,8 +35,8 @@ function registerStructuredEgressProfile(id: string, onBlock: 'refuse_to_user'):
       outputs: { structured: 'egressStructured' },
       guardrails: {
         quota: { perDay: 50 },
+        blockedReply: { onBlock },
         egress: {
-          onBlock,
           enforce: (payload): Verdict => {
             const seen = `${payload.text}${JSON.stringify(payload.structured ?? null)}`;
             if (seen.includes(SECRET)) {
@@ -63,7 +63,7 @@ async function collect(profile: string, provider: ModelProvider): Promise<TurnEv
 }
 
 Deno.test('egress inspects structured output and blocks a leak carried only in JSON', async () => {
-  registerStructuredEgressProfile('structured_egress_block', 'refuse_to_user');
+  registerStructuredEgressProfile('structured_egress_block', 'refuse');
   const events = await collect(
     'structured_egress_block',
     structuredProvider({ answer: `I used ${SECRET} to look that up.` }),
@@ -89,8 +89,8 @@ Deno.test('egress redact releases the policy text in place of the model output',
       outputs: {},
       guardrails: {
         quota: { perDay: 50 },
+        blockedReply: { onBlock: 'retry' },
         egress: {
-          onBlock: 'reject_to_agent',
           enforce: (payload): Verdict =>
             payload.text.includes(SECRET)
               ? {
@@ -119,7 +119,7 @@ Deno.test('egress redact releases the policy text in place of the model output',
 });
 
 Deno.test('egress releases structured output that carries no disclosure', async () => {
-  registerStructuredEgressProfile('structured_egress_pass', 'refuse_to_user');
+  registerStructuredEgressProfile('structured_egress_pass', 'refuse');
   const events = await collect(
     'structured_egress_pass',
     structuredProvider({ answer: 'I looked it up.' }),

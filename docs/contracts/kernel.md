@@ -71,7 +71,7 @@ A `Profile` binds:
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
 | `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`) on `text` / `image` / `speech`; `allowSteering` on **text and live** (inject gate via `profileAllowsInject`; see [`stages.md`](stages.md)). Live must omit `turnBehaviour.resumption` (use `live.sessionResumption`) |
-| `guardrails` | Quota, canary, prompt echo, detect, egress, network, taint — on `host` narrowed to `HostGuardrailsSpec` (`detect`, `network`); on `decision`, only pre-dispatch `disclosure` is active. A guarded `live` profile (canary or `egress.enforce`) always requests its output transcript: `resolveTurn` sets `live.transcription.output` |
+| `guardrails` | Quota, detect, blockedReply, egress, network, taint — on `host` narrowed to `HostGuardrailsSpec` (`detect`, `network`); on `decision`, only pre-dispatch `disclosure` is active. A guarded `live` profile (canary or `egress.enforce`) always requests its output transcript: `resolveTurn` sets `live.transcription.output` |
 | `observability` | Trace destination, scrub, include, sampling (`writeTo`, `sampleRate`, …) |
 
 Closed unions (`protocol`, `provider`, `thinking`, stop kinds, turn stages,
@@ -289,9 +289,9 @@ Live sessions emit the same stage names around utterance cycles and
    passes. Out of retries, the last attempt goes out as it is, with its
    buffered events.
 10. **Egress** — progressive yield on the provider stream (canary, prompt
-   echo, `guardrails.egress`) releases cleared prefixes: the bundled
-   policy holds exactly what could still become a match, a host enforce a
-   fixed window; end-of-attempt may still refuse, repair, or withhold. SSE streaming and egress can both stay enabled.
+   echo, the other `guardrails.detect` detectors, `guardrails.egress`) releases
+   cleared prefixes: the detectors and an `egressPolicy` hold exactly what could
+   still become a match, a host enforce a fixed window; end-of-attempt may still refuse, repair, or withhold. SSE streaming and egress can both stay enabled.
 11. **Trace** — the turn records one `invoke_agent` span tree (model calls,
    HTTP tries, tools, stage events) and writes it as one `TraceRecord` to the
    request's sink, else `profile.observability`; failures are swallowed.
@@ -851,7 +851,8 @@ Profile `guardrails`:
 | `quota` | Host HTTP helper only (`@theoremjs/agents/guardrails`); not enforced inside `runTurn` |
 | `canary` | Canary token at the end of the system prompt, the same for the same prompt; egress checks leakage unless the model was given it this turn |
 | `detect` | What each detector does with a match at each boundary: `ignore`, `flag`, `redact` or `block` |
-| `egress` | Exactly one of `checks` (the bundled checks: `true`, `false` or `EgressChecks`) or a host `enforce` hook; `onBlock`: `reject_to_agent` or `refuse_to_user`; `maxRetries`; `holdback` (host enforce only: mid-stream lookback, default 256; 96 on Live; the bundled policy holds exactly and rejects it); repair guidance is the lexicon's `egress.default_repair_guidance` |
+| `blockedReply` | What happens to a reply a detector or the host policy blocks: `onBlock` (`retry`, the default, or `refuse`) and `maxRetries` (default 1) |
+| `egress` | The host's own check of a reply: an `enforce` hook (required) and `holdback` (mid-stream lookback, default 256; 96 on Live; an `egressPolicy` holds exactly and rejects it); repair guidance is the lexicon's `egress.default_repair_guidance` |
 
 ## Compaction
 
@@ -1254,7 +1255,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Token estimate | `loadTokenEstimator`, `mediaTokenFamily`, `TOKEN_TEXT_ENCODING`, `MediaPayload`, `MediaTokenFamily`, `TokenCount`, `TokenEstimator`, `sumTokens` |
 | Runner | `runTurn`, `runSession`, `runDecision`, `validateDecisionRequest`, `RunSessionOptions`, `SignInGatePolicy`, `RunDecisionOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `getTool`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelBinding`, `resetTools` |
-| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `THINKING_LEVELS`, `KEY_SLOT_NAME`, `isKeySlotName`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `ToolGateKind`, `TurnStage`, `TurnInjectStage`, `AwaitingUserInputKind`, `EGRESS_ON_BLOCK`, `EgressOnBlock` |
+| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `THINKING_LEVELS`, `KEY_SLOT_NAME`, `isKeySlotName`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `ToolGateKind`, `TurnStage`, `TurnInjectStage`, `AwaitingUserInputKind`, `BLOCKED_REPLY_ON_BLOCK`, `BlockedReplyOnBlock` |
 | Utilities | `base64ToBytes`, `bytesToBase64`, `isRecord`, `Equals` (compile-time type equality, for exact-shape checks) |
 | Scope | `KernelScope`, `createKernelScope`, `defaultKernelScope`, `KernelRegistry`, `createKernelRegistry` |
 | Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn` |

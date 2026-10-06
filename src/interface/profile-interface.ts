@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { BOUNDARIES, recordOf } from '../guardrails/boundaries.ts';
 import { DETECT_ACTIONS, DETECTORS } from '../guardrails/detectors.ts';
 import { LEXICON_KEYS } from '../guardrails/lexicon.ts';
+import { BLOCKED_REPLY_ON_BLOCK } from '../guardrails/types.ts';
 import {
   CACHE_MODES,
   CACHE_TTLS,
@@ -68,22 +69,14 @@ const detect = z.object(
   recordOf(DETECTORS, () => z.object(recordOf(BOUNDARIES, () => z.enum(DETECT_ACTIONS)))),
 );
 
-const urlCheck = z.union([
-  z.literal(false),
-  z.object({ hosts: z.array(z.string()), fromTools: z.boolean() }),
-]);
+const urlAllow = z.object({ hosts: z.array(z.string()), fromTools: z.boolean() });
 
 const guardrails = z.object({
   quota: z.object({ perDay: z.number() }).optional(),
   detect,
+  allow: z.object({ ungiven_images: urlAllow, ungiven_links: urlAllow }),
+  blockedReply: z.object({ onBlock: z.enum(BLOCKED_REPLY_ON_BLOCK), maxRetries: z.number() }),
   hasEgress: z.boolean(),
-  egressChecks: z
-    .object({
-      boundary: z.boolean(),
-      images: urlCheck,
-      links: urlCheck,
-    })
-    .nullable(),
 });
 
 const observability = z.object({

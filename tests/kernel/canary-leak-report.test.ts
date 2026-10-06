@@ -92,7 +92,7 @@ Deno.test('a canary in a non-streamed event is blocked and never shown to the ho
   assertEquals(JSON.stringify(events).includes(canary), false);
 });
 
-Deno.test('without egress.enforce, a model naming the input fence is not a canary leak', async () => {
+Deno.test('a thought naming the input fence loses the marker as a marker leak, not a canary leak', async () => {
   const fence = 'There is also a `<user_data>` block.';
   const { events } = await hostEvents(() => [
     { type: 'thought', text: 'Reading the input. ' },
@@ -100,8 +100,21 @@ Deno.test('without egress.enforce, a model naming the input fence is not a canar
     { type: 'text', text: 'OK' },
   ]);
   assertEquals(
-    events.some((e) => e.type === 'error' || e.type === 'guardrail'),
+    events.some((e) => e.type === 'error'),
     false,
   );
-  assertEquals(visibleText(events), `Reading the input. ${fence}OK`);
+  assertEquals(
+    events.flatMap((e) =>
+      e.type === 'guardrail'
+        ? [[e.guardrail.stage, e.guardrail.action, ...e.guardrail.hits.map((hit) => hit.rule)]]
+        : [],
+    ),
+    [['thought', 'redact', DETECT_RULES.marker_leak]],
+  );
+  const seen = visibleText(events);
+  assertEquals(seen.includes('<user_data>'), false);
+  assertEquals(
+    [seen.startsWith('Reading the input. There is also a `'), seen.endsWith('OK')],
+    [true, true],
+  );
 });

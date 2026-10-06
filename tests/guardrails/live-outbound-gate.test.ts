@@ -1,7 +1,6 @@
 import '../fixtures/test-host.ts';
 import { canaryHoldFrom, mintCanary } from '../../src/guardrails/canary.ts';
 import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
-import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
 import { givenUrlSets } from '../../src/guardrails/egress-urls.ts';
 import { type LexiconOverrides, lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import {
@@ -33,11 +32,27 @@ function session(canary?: string) {
   return createLiveOutboundGateSession(chatProfile(), canary);
 }
 
+/** A session of a profile no detector reads: nothing gates its reply. */
+function unreadSession(canary?: string) {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
+      id: 'live_unread',
+      ...geminiModels('gemini35FlashLite'),
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 100 }, detect: 'ignore' },
+    }),
+  );
+  return createLiveOutboundGateSession(getProfile('live_unread'), canary);
+}
+
 function egressProfile(
   id: string,
   enforce: EgressEnforcer,
   extras: {
-    onBlock?: 'refuse_to_user';
+    onBlock?: 'refuse';
     leaks?: 'ignore';
     lexicon?: LexiconOverrides;
     holdback?: number;
@@ -56,8 +71,8 @@ function egressProfile(
         ...(extras.leaks === 'ignore'
           ? { detect: { canary_leak: 'ignore', prompt_leak: 'ignore' } as const }
           : {}),
+        ...(extras.onBlock ? { blockedReply: { onBlock: extras.onBlock } } : {}),
         egress: {
-          ...(extras.onBlock ? { onBlock: extras.onBlock } : {}),
           ...(extras.holdback === undefined ? {} : { holdback: extras.holdback }),
           enforce,
         },
@@ -103,10 +118,11 @@ function blockVerdict(rule: string): Verdict {
   return { action: 'block', hits: [{ rule, severity: 'high' }], rejection: 'blocked' };
 }
 
-Deno.test('createLiveOutboundGateSession: canary gate is null when no canary supplied', () => {
+Deno.test('createLiveOutboundGateSession: with no canary the default detectors still gate the reply', () => {
   const s = session();
-  assertEquals(s.gate, null);
+  assertEquals(s.gate !== null, true);
   assertEquals(s.context.canary, undefined);
+  assertEquals(unreadSession().gate, null);
 });
 
 Deno.test('createLiveOutboundGateSession: gate is created when canary is supplied', () => {
@@ -438,7 +454,7 @@ Deno.test('finalizeLiveOutboundTurn releases a withheld cycle when the final ver
 
 Deno.test('finalizeLiveOutboundTurn drops withheld audio when the reply is refused', async () => {
   const profile = egressProfile('live_egress_refuse_audio', () => blockVerdict('host.rule'), {
-    onBlock: 'refuse_to_user',
+    onBlock: 'refuse',
   });
   const s = createLiveOutboundGateSession(profile);
   await processLiveOutboundBatch(s, [said('leaky'), audio(1)]);
@@ -460,7 +476,7 @@ Deno.test('finalizeLiveOutboundTurn starts the next cycle clean', async () => {
       typeof payload.text === 'string' && payload.text.includes('bad')
         ? blockVerdict('egress.bad')
         : { action: 'allow' },
-    { onBlock: 'refuse_to_user' },
+    { onBlock: 'refuse' },
   );
   const s = createLiveOutboundGateSession(profile);
   await processLiveOutboundBatch(s, [said('bad')]);
@@ -503,9 +519,9 @@ Deno.test('finalizeLiveOutboundTurn withholds when egress.enforce blocks', async
   }
 });
 
-Deno.test('finalizeLiveOutboundTurn emits refuse_to_user text when onBlock is set', async () => {
+Deno.test('finalizeLiveOutboundTurn emits the refusal when blockedReply.onBlock is refuse', async () => {
   const profile = egressProfile('live_egress_refuse', () => blockVerdict('egress.canary-leak'), {
-    onBlock: 'refuse_to_user',
+    onBlock: 'refuse',
   });
   const s = createLiveOutboundGateSession(profile, mintCanary());
   await processLiveOutboundBatch(s, [{ type: 'text', text: 'hello' }]);
@@ -524,7 +540,7 @@ Deno.test('finalizeLiveOutboundTurn emits refuse_to_user text when onBlock is se
 
 Deno.test('finalizeLiveOutboundTurn refuses in the profile lexicon wording', async () => {
   const profile = egressProfile('live_egress_refuse_lexicon', () => blockVerdict('egress.bad'), {
-    onBlock: 'refuse_to_user',
+    onBlock: 'refuse',
     lexicon: { 'egress.refusal': 'Host refusal.' },
   });
   const s = createLiveOutboundGateSession(profile);
@@ -536,9 +552,9 @@ Deno.test('finalizeLiveOutboundTurn refuses in the profile lexicon wording', asy
   }
 });
 
-Deno.test('finalizeLiveOutboundTurn emits refuse_to_user for non-canary egress hits', async () => {
+Deno.test('finalizeLiveOutboundTurn emits the refusal for non-canary egress hits', async () => {
   const profile = egressProfile('live_egress_refuse_inj', () => blockVerdict('host.rule'), {
-    onBlock: 'refuse_to_user',
+    onBlock: 'refuse',
   });
   const s = createLiveOutboundGateSession(profile);
   await processLiveOutboundBatch(s, [{ type: 'text', text: 'hello' }]);
@@ -588,8 +604,8 @@ Deno.test('abortLiveOutboundTurn clears progressive state and resets the gate', 
   assertEquals(s.gate?.accumulated(), '');
 });
 
-Deno.test('abortLiveOutboundTurn without canary does not recreate gate', () => {
-  const s = session();
+Deno.test('abortLiveOutboundTurn on an ungated session does not create a gate', () => {
+  const s = unreadSession();
   abortLiveOutboundTurn(s);
   assertEquals(s.gate, null);
 });
@@ -660,18 +676,20 @@ Deno.test('createLiveOutboundGateSession with a profile that reads for no leak i
   );
   const profile = getProfile('live_canary_disabled');
   const s = createLiveOutboundGateSession(profile, mintCanary());
-  assertEquals(s.gate, null);
+  // The detectors left at their defaults still gate the reply; none of them is given the canary.
+  assertEquals(s.gate !== null, true);
   assertEquals(s.context.canary, undefined);
 });
 
-Deno.test('createLiveOutboundGateSession with no canary string and no system prompt leaves gate null', () => {
-  const s = session();
-  assertEquals(s.gate, null);
-  assertEquals(s.context.canary, undefined);
+Deno.test('createLiveOutboundGateSession with no detector reading leaves gate null, canary or not', () => {
+  for (const s of [unreadSession(), unreadSession(mintCanary())]) {
+    assertEquals(s.gate, null);
+    assertEquals(s.context.canary, undefined);
+  }
 });
 
 Deno.test('finalizeLiveOutboundTurn is idle when gate is null', async () => {
-  const s = session();
+  const s = unreadSession();
   const result = await finalizeLiveOutboundTurn(s);
   assertEquals(result.action, 'idle');
 });
@@ -716,8 +734,8 @@ Deno.test('finalizeLiveOutboundTurn emits redact text in place of the model outp
   }
 });
 
-Deno.test('finalizeLiveOutboundTurn onBlock defaults to withhold for non-canary hits', async () => {
-  // onBlock defaults to reject_to_agent; with no retries left the turn is withheld.
+Deno.test('finalizeLiveOutboundTurn withholds on a non-canary hit when blockedReply is left out', async () => {
+  // blockedReply.onBlock defaults to retry, and Live never retries: the turn is withheld.
   const profile = egressProfile('live_refuse_both_parts', () => blockVerdict('host.rule'));
   const s = createLiveOutboundGateSession(profile, mintCanary());
   await processLiveOutboundBatch(s, [{ type: 'text', text: 'partial' }]);
@@ -911,7 +929,7 @@ Deno.test('a block at finalize keeps what the flush released, then the guardrail
 
 Deno.test('a refusal at finalize carries the flush events before the guardrail and the text', async () => {
   const profile = egressProfile('live_egress_refuse_prior', () => blockVerdict('egress.x'), {
-    onBlock: 'refuse_to_user',
+    onBlock: 'refuse',
   });
   const s = createLiveOutboundGateSession(profile);
   await processLiveOutboundBatch(s, [said('hello')]);
@@ -945,7 +963,8 @@ Deno.test('createLiveOutboundGateSession keeps a holdback the host set', async (
 });
 
 Deno.test('a Live reply image renders once its URL is among those the session gave the model', async () => {
-  const profile = egressProfile('live_egress_images', standardEgressEnforce);
+  // The host policy lets everything through: ungiven_images, left at its default, is what reads the image.
+  const profile = egressProfile('live_egress_images', passEnforce);
   const given = givenUrlSets();
   const image = '![p](https://news.site/photo.jpg)\n\nok';
   const withheld = createLiveOutboundGateSession(profile, undefined, undefined, given);

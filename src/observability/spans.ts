@@ -2,14 +2,18 @@ const OMIT_INJECTION = '[omitted - injection]';
 const OMIT_SENSITIVE = '[omitted -sensitive]';
 const OMIT_CANARY = '[omitted - canary]';
 const OMIT_PROMPT = '[omitted - instructions]';
+const OMIT_IMAGE = '[omitted - image]';
+const OMIT_LINK = '[omitted - link]';
 
-type RedactKind = 'injection' | 'sensitive' | 'canary' | 'prompt';
+type RedactKind = 'injection' | 'sensitive' | 'canary' | 'prompt' | 'image' | 'link';
 
 const OMIT: Readonly<Record<RedactKind, string>> = {
   injection: OMIT_INJECTION,
   sensitive: OMIT_SENSITIVE,
   canary: OMIT_CANARY,
   prompt: OMIT_PROMPT,
+  image: OMIT_IMAGE,
+  link: OMIT_LINK,
 };
 
 interface RedactSpan {

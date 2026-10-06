@@ -2,22 +2,18 @@ import type { Boundary } from '../../src/guardrails/boundaries.ts';
 import {
   boundaryReader,
   type Detection,
+  type DetectScope,
   detectAt,
   redactDetectors,
+  scopeOf,
 } from '../../src/guardrails/detect-at.ts';
 import {
   DETECTORS,
   type Detector,
   type DetectSpec,
+  NO_ALLOW,
   resolveDetect,
 } from '../../src/guardrails/detectors.ts';
-import {
-  collectEgressHits,
-  DEFAULT_CHECKS,
-  type EgressScope,
-  type ResolvedEgressChecks,
-  standardEgressEnforce,
-} from '../../src/guardrails/egress.ts';
 import {
   createEgressStream,
   type EgressStream,
@@ -43,9 +39,12 @@ export function readAt(text: string, boundary: Boundary, detect?: DetectSpec): D
   return detectAt(text, boundary, resolveDetect(detect));
 }
 
-/** The detectors a reply is read by in the scanner tests: every one but `network`, which names no secret. */
+/**
+ * The detectors a reply is read by in the scanner tests: every one but `network`, which names no
+ * secret, and `ungiven_links`, which a profile leaves at `ignore` unless it sets it.
+ */
 export const REPLY_DETECTORS: readonly Detector[] = DETECTORS.filter(
-  (detector) => detector !== 'network',
+  (detector) => detector !== 'network' && detector !== 'ungiven_links',
 );
 
 /** A matrix with `detectors` set to `block` at `reply` and every other detector off there. */
@@ -58,20 +57,16 @@ function blockingAtReply(detectors: readonly Detector[]): DetectSpec {
   );
 }
 
-/** Everything that stops `text` as a reply: the bundled policy's hits, and each match of `detectors`. */
+/** Everything that stops `text` as a reply in a turn of `scope`: each match of `detectors`. */
 export function replyHits(
   text: string,
-  scope: EgressScope = {},
-  checks: ResolvedEgressChecks = DEFAULT_CHECKS,
+  scope: DetectScope = {},
   detectors: readonly Detector[] = REPLY_DETECTORS,
 ): GuardrailHit[] {
-  return [
-    ...collectEgressHits(text, scope, checks),
-    ...readAt(text, 'reply', blockingAtReply(detectors)).hits,
-  ];
+  return detectAt(text, 'reply', resolveDetect(blockingAtReply(detectors)), scope).hits;
 }
 
-/** The stream scanner reading a reply for the bundled policy and `detectors`. */
+/** The stream scanner reading a reply for `detectors`. */
 export function replyStream(
   options: EgressStreamOptions = {},
   detectors: readonly Detector[] = REPLY_DETECTORS,
@@ -79,18 +74,19 @@ export function replyStream(
   return createEgressStream({ detect: detectors, ...options });
 }
 
-/** The stream gate under the bundled policy, with `detectors` set to `block` at `reply`. */
+/** The stream gate with `detectors` set to `block` at `reply` and no host policy. */
 export function replyGate(
   context: GuardrailContext,
   detectors: readonly Detector[] = REPLY_DETECTORS,
 ): ProgressiveYieldGate {
+  const matrix = resolveDetect(blockingAtReply(detectors));
   return createProgressiveYieldGate({
     context,
-    enforce: standardEgressEnforce,
     detect: {
-      matrix: resolveDetect(blockingAtReply(detectors)),
+      matrix,
       boundary: 'reply',
       rewrite: true,
+      scope: scopeOf({ detect: matrix, allow: NO_ALLOW }, context),
     },
   });
 }

@@ -1,22 +1,13 @@
 /**
- * `egressPolicy`: the bundled egress checks a host selects, with its own
- * rules added. The rules' automata come from `agents egress-compile`, so the
- * stream holds exactly the text a host match could still be under way in, as
- * it does for the bundled patterns.
+ * `egressPolicy`: a host's own rules on the reply, beside the detectors. The
+ * rules' automata come from `agents egress-compile`, so the stream holds
+ * exactly the text a host match could still be under way in, as it does for a
+ * detector's patterns.
  *
  * @module
  */
 
-import {
-  collectEgressHits,
-  type EgressChecks,
-  egressChecksProblem,
-  egressScope,
-  hitsEnforcer,
-  NO_CHECKS,
-  registerEgressChecks,
-  resolveEgressChecks,
-} from './egress.ts';
+import { hitsEnforcer } from './egress.ts';
 import {
   assertEgressRules,
   type CompiledEgressRules,
@@ -34,18 +25,12 @@ import { TheoremError } from './error.ts';
 import { hitFromSpan } from './hits.ts';
 import type { EgressEnforcer, GuardrailHit, Severity } from './types.ts';
 
-/** Options for the bundled egress policy: host rules, their compiled form, and which bundled checks run. */
+/** Options for a host's egress policy: its rules and their compiled form. */
 interface EgressPolicyOptions {
-  /** Host rules, blocked on alongside the bundled checks. */
+  /** Host rules: a reply matching one is blocked. */
   rules?: readonly EgressRule[];
   /** `compiledEgressRules` from the module `agents egress-compile` wrote for `rules`. */
   compiled?: CompiledEgressRules;
-  /**
-   * The bundled checks: `true` (the default) runs each at its default, `false`
-   * none, and an object switches the ones it names (`EgressChecks`). The
-   * system-prompt leak checks run either way.
-   */
-  bundled?: boolean | EgressChecks;
 }
 /** Every host rule's matches in `text`. An empty match is not a hit. */
 function ruleHits(
@@ -87,17 +72,8 @@ function configError(message: string): TheoremError {
   return new TheoremError('config', `egressPolicy: ${message}`);
 }
 
-function assertEgressChecks(checks: boolean | EgressChecks): void {
-  const problem = egressChecksProblem('bundled', checks);
-  if (problem !== undefined) throw configError(problem);
-}
-
-/** An egress enforce that blocks on each host rule and on the bundled checks `bundled` selects. */
-function egressPolicy({
-  rules = [],
-  compiled,
-  bundled = true,
-}: EgressPolicyOptions = {}): EgressEnforcer {
+/** An egress enforce that blocks on each host rule. The detectors run beside it (`guardrails.detect`). */
+function egressPolicy({ rules = [], compiled }: EgressPolicyOptions = {}): EgressEnforcer {
   assertEgressRules(rules);
   if (rules.length > 0) {
     if (compiled === undefined) {
@@ -105,31 +81,15 @@ function egressPolicy({
     }
     assertCompiledFor(rules, compiled);
   }
-  assertEgressChecks(bundled);
-  const checks =
-    bundled === false ? NO_CHECKS : resolveEgressChecks(bundled === true ? {} : bundled);
   const host = rules.map(({ rule, pattern, severity }) => ({
     rule,
     severity: severity ?? ('high' as const),
     pattern: globalPattern(pattern),
   }));
-  const enforce = hitsEnforcer((text, context) => {
-    const hits = collectEgressHits(text, egressScope(context), checks);
-    hits.push(...ruleHits(text, host));
-    return hits;
-  });
+  const enforce = hitsEnforcer((text) => ruleHits(text, host));
   const scan: EgressStreamOptions['host'] =
     compiled && host.length > 0 ? { automaton: compiled.automaton, rules: host } : undefined;
-  registerStreamPlan(enforce, (context) => {
-    const { given, note } = egressScope(context);
-    return createEgressStream({
-      checks,
-      ...(scan ? { host: scan } : {}),
-      ...(given ? { given } : {}),
-      ...(note ? { note } : {}),
-    });
-  });
-  registerEgressChecks(enforce, checks);
+  registerStreamPlan(enforce, () => createEgressStream(scan ? { host: scan } : {}));
   return enforce;
 }
 

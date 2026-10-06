@@ -18,20 +18,18 @@ export const DETECT_RULES = {
   injection: 'detect.injection',
   canary_leak: 'detect.canary_leak',
   prompt_leak: 'detect.prompt_leak',
+  marker_leak: 'detect.marker_leak',
+  ungiven_images: 'detect.ungiven_images',
+  ungiven_links: 'detect.ungiven_links',
 } as const satisfies Record<Detector, string>;
 
-/** What the bundled egress policy finds in the model's outbound text. */
+/** What stops a reply besides a detector's match. */
 export const EGRESS_RULES = {
   /**
    * A provider-side built-in tool carried the canary or the system prompt. It
    * ran before Theorem saw it: the data already left, so this is an incident.
    */
   providerToolLeak: 'egress.provider-tool-leak', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  boundary: 'egress.system-boundary',
-  /** An image loads a URL the model was not given, from a host not allowed. */
-  image: 'egress.image-exfil', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  /** A link goes to a URL the model was not given, on a host not allowed. */
-  link: 'egress.link-exfil', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /** Payload could not be rendered for inspection — released output is unverified. */
   unscannable: 'egress.unscannable', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   enforcerError: 'egress.enforcer-error', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)

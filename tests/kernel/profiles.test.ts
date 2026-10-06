@@ -1,7 +1,6 @@
 import { assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { compileEgressRules } from '../../src/guardrails/compile-egress.ts';
-import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
 import { egressPolicy } from '../../src/guardrails/egress-policy.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import {
@@ -138,27 +137,25 @@ Deno.test('defineProfile rejects observability.sampleRate outside 0–1', () => 
 Deno.test('defineProfile rejects a holdback with a policy the stream reads exactly', () => {
   const rules = [{ rule: 'acme.account', pattern: /ACCT-\d{6}/ }];
   const hostRules = egressPolicy({ rules, compiled: compileEgressRules(rules) });
-  for (const enforce of [standardEgressEnforce, hostRules]) {
-    assertThrows(
-      () =>
-        defineProfile({
-          id: 'bundled_holdback',
-          type: 'text',
-          identity: { handle: 'bundled_holdback' },
-          models: modelBindings('gemini35FlashLite'),
-          key: 'slotA',
-          tools: { allow: [] },
-          inputs: { text: true },
-          guardrails: { egress: { enforce, holdback: 96 } },
-        }),
-      TheoremError,
-      'applies only to a host egress.enforce',
-    );
-  }
+  assertThrows(
+    () =>
+      defineProfile({
+        id: 'bundled_holdback',
+        type: 'text',
+        identity: { handle: 'bundled_holdback' },
+        models: modelBindings('gemini35FlashLite'),
+        key: 'slotA',
+        tools: { allow: [] },
+        inputs: { text: true },
+        guardrails: { egress: { enforce: hostRules, holdback: 96 } },
+      }),
+    TheoremError,
+    'guardrails.egress.holdback applies only to your own enforce',
+  );
 });
 
-Deno.test('defineProfile takes enforce or checks for egress, one of the two, and only checks there are', () => {
-  const profile = (egress: Record<string, unknown>) => () =>
+Deno.test('defineProfile takes only enforce and holdback for egress; allow lists and blockedReply are checked where they moved', () => {
+  const profile = (guardrails: Record<string, unknown>) => () =>
     defineProfile({
       id: 'egress_checks',
       type: 'text',
@@ -167,30 +164,66 @@ Deno.test('defineProfile takes enforce or checks for egress, one of the two, and
       key: 'slotA',
       tools: { allow: [] },
       inputs: { text: true },
-      guardrails: { egress },
+      guardrails: guardrails as never,
     });
-  const oneOf = 'one of the two';
-  assertThrows(profile({}), TheoremError, oneOf);
-  assertThrows(profile({ onBlock: 'refuse_to_user' }), TheoremError, oneOf);
-  assertThrows(profile({ enforce: standardEgressEnforce, checks: true }), TheoremError, oneOf);
-  assertThrows(profile({ enforce: 'standard' }), TheoremError, 'must be a function');
-  assertThrows(profile({ checks: { imageHosts: [] } }), TheoremError, 'no check "imageHosts"');
+  const enforce = () => ({ action: 'allow' });
+  const notASetting = 'is not a setting; it takes enforce and holdback';
+  const mustSet = 'must set guardrails.egress.enforce';
+  assertThrows(profile({ egress: {} }), TheoremError, mustSet);
   assertThrows(
-    profile({ checks: { links: { hosts: ['https://docs.acme.io'] } } }),
+    profile({ egress: { enforce, onBlock: 'refuse_to_user' } }),
     TheoremError,
-    'guardrails.egress.checks.links.hosts lists',
+    `guardrails.egress.onBlock ${notASetting}`,
   );
   assertThrows(
-    profile({ checks: true, holdback: 96 }),
+    profile({ egress: { enforce, checks: true } }),
     TheoremError,
-    'applies only to a host egress.enforce',
+    `guardrails.egress.checks ${notASetting}`,
   );
-  profile({ checks: false })();
-  profile({ checks: { boundary: false, links: { hosts: ['docs.acme.io'] } } })();
+  assertThrows(profile({ egress: { enforce: 'standard' } }), TheoremError, 'must be a function');
+  assertThrows(profile({ egress: { holdback: 96 } }), TheoremError, mustSet);
+  assertThrows(
+    profile({ detect: { ungiven_images: { allow: { imageHosts: [] } } } }),
+    TheoremError,
+    'guardrails.detect.ungiven_images.allow.imageHosts is not a setting of allow',
+  );
+  assertThrows(
+    profile({ detect: { ungiven_links: { allow: { hosts: ['https://docs.acme.io'] } } } }),
+    TheoremError,
+    'guardrails.detect.ungiven_links.allow.hosts lists',
+  );
+  assertThrows(
+    profile({ detect: { marker_leak: { allow: { hosts: [] } } } }),
+    TheoremError,
+    'is a setting of ungiven_images and ungiven_links only',
+  );
+  assertThrows(
+    profile({ blockedReply: { retries: 2 } }),
+    TheoremError,
+    'guardrails.blockedReply.retries is not a setting; it takes onBlock and maxRetries',
+  );
+  assertThrows(
+    profile({ blockedReply: { onBlock: 'refuse_to_user' } }),
+    TheoremError,
+    'guardrails.blockedReply.onBlock must be one of retry, refuse',
+  );
+  profile({ detect: { marker_leak: 'ignore', ungiven_images: 'ignore' } })();
+  profile({
+    detect: {
+      marker_leak: 'ignore',
+      ungiven_links: { action: 'block', allow: { hosts: ['docs.acme.io'] } },
+    },
+    blockedReply: { onBlock: 'refuse', maxRetries: 0 },
+  })();
 });
 
 Deno.test('defineProfile rejects a non-integer or negative egress count', () => {
-  for (const egress of [{ holdback: -1 }, { holdback: 1.5 }, { maxRetries: -2 }]) {
+  const enforce = () => ({ action: 'allow' }) as const;
+  for (const guardrails of [
+    { egress: { enforce, holdback: -1 } },
+    { egress: { enforce, holdback: 1.5 } },
+    { blockedReply: { maxRetries: -2 } },
+  ]) {
     assertThrows(
       () =>
         defineProfile({
@@ -201,7 +234,7 @@ Deno.test('defineProfile rejects a non-integer or negative egress count', () => 
           key: 'main',
           tools: { allow: [] },
           inputs: { text: true },
-          guardrails: { egress: { enforce: () => ({ action: 'allow' }), ...egress } },
+          guardrails,
         }),
       TheoremError,
       'must be a non-negative integer',

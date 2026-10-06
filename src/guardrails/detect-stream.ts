@@ -9,9 +9,14 @@
  */
 
 import type { Boundary } from './boundaries.ts';
-import { detectorsAt, detectRelease, isScoped, type Release } from './detect-at.ts';
+import {
+  type DetectScope,
+  detectorsAt,
+  detectRelease,
+  isScoped,
+  type Release,
+} from './detect-at.ts';
 import type { Detector, ResolvedDetect } from './detectors.ts';
-import { NO_CHECKS } from './egress.ts';
 import { createEgressStream } from './egress-stream.ts';
 
 /** Text read at one boundary as it streams. Indices are of the text as written. */
@@ -28,14 +33,28 @@ interface DetectStream {
 }
 
 /**
- * A reader for text streaming across `boundary`, or `undefined` when no detector it streams reads
- * it. The detectors of what is the profile's own (`isScoped`) are not among them: the gate at the
- * boundary reads those as the text grows.
+ * A reader for text streaming across `boundary` in a turn of `scope`, or `undefined` when no
+ * detector it streams reads it. `canary_leak` and `prompt_leak` (`isScoped`) are not among them:
+ * the gate at the boundary reads those as the text grows. Nor are the detectors in `leave`, which
+ * another reader at the boundary has.
  */
-function createDetectStream(boundary: Boundary, detect: ResolvedDetect): DetectStream | undefined {
-  const detectors = detectorsAt(boundary, detect).filter((detector) => !isScoped(detector));
+function createDetectStream(
+  boundary: Boundary,
+  detect: ResolvedDetect,
+  scope: DetectScope = {},
+  leave: readonly Detector[] = [],
+): DetectStream | undefined {
+  const detectors = detectorsAt(boundary, detect).filter(
+    (detector) => !(isScoped(detector) || leave.includes(detector)),
+  );
   if (detectors.length === 0) return undefined;
-  const stream = createEgressStream({ checks: NO_CHECKS, detect: detectors });
+  const stream = createEgressStream({
+    detect: detectors,
+    skipImages: detect.ungiven_images[boundary] !== 'ignore',
+    ...(scope.allow ? { allow: scope.allow } : {}),
+    ...(scope.givenUrls ? { given: scope.givenUrls } : {}),
+    ...(scope.note ? { note: scope.note } : {}),
+  });
   let window = '';
   /** The matches the stream settled that no release has reached yet. */
   let settled: { start: number; detector: Detector }[] = [];
@@ -54,7 +73,7 @@ function createDetectStream(boundary: Boundary, detect: ResolvedDetect): DetectS
         return { action: 'allow', text: window.slice(from, to), hits: [], taken: to - from };
       }
       const stretch = { from, to, settled: reached.map(({ detector }) => detector) };
-      const release = detectRelease(window, stretch, boundary, detect);
+      const release = detectRelease(window, stretch, boundary, detect, { detectors, scope });
       settled = settled.filter(({ start }) => start >= from + release.taken);
       return release;
     },

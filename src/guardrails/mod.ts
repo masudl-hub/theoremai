@@ -46,7 +46,10 @@ export type {
   DetectorGroup,
   DetectorRule,
   DetectSpec,
+  ResolvedAllow,
   ResolvedDetect,
+  UrlAllow,
+  UrlDetector,
 } from './detectors.ts';
 export {
   DETECT_ACTION_META,
@@ -60,13 +63,7 @@ export {
   detectProblem,
   resolveDetect,
 } from './detectors.ts';
-export type { EgressChecks, UrlCheck } from './egress.ts';
-export {
-  collectEgressHits,
-  hitRules,
-  runEnforcer,
-  standardEgressEnforce,
-} from './egress.ts';
+export { hitRules, runEnforcer } from './egress.ts';
 export type { EgressPolicyOptions } from './egress-policy.ts';
 export { egressPolicy } from './egress-policy.ts';
 export type { CompiledEgressRules, EgressRule } from './egress-rules.ts';
@@ -185,8 +182,9 @@ export {
 } from './tool-result.ts';
 export type {
   AdvisoryLevel,
+  BlockedReplyOnBlock,
+  BlockedReplySpec,
   EgressEnforcer,
-  EgressOnBlock,
   GuardrailAction,
   GuardrailContext,
   GuardrailEvent,
@@ -199,7 +197,7 @@ export type {
   ProfileGuardrailsSpec,
   Provenance,
   QuotaGuardrailSpec,
-  ResolvedEgressSpec,
+  ResolvedBlockedReply,
   ResolvedGuardrailPolicy,
   Severity,
   TaintGate,
@@ -211,7 +209,7 @@ export type {
 } from './types.ts';
 export {
   ADVISORY_LEVELS,
-  EGRESS_ON_BLOCK,
+  BLOCKED_REPLY_ON_BLOCK,
   GUARDRAIL_STAGES,
   SEVERITIES,
   TAINT_GATES,

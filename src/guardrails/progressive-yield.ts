@@ -5,7 +5,7 @@ import {
   promptLeakCarry,
   RELEASED_LOOKBACK,
 } from './canary.ts';
-import { type Detection, type DetectScope, detectReads } from './detect-at.ts';
+import { type Detection, type DetectScope, detectReads, scopeOf } from './detect-at.ts';
 import { createDetectStream } from './detect-stream.ts';
 import type { DetectAction, ResolvedDetect } from './detectors.ts';
 import { promptEchoHits, runEnforcer } from './egress.ts';
@@ -62,10 +62,16 @@ export interface ProgressiveYieldGateOptions {
    * without it (Live, where the text is the transcript of audio already held)
    * the gate stops there and the cycle's verdict replaces the reply.
    */
-  detect?: { matrix: ResolvedDetect; boundary: ReplyBoundary; rewrite: boolean };
+  detect?: {
+    matrix: ResolvedDetect;
+    boundary: ReplyBoundary;
+    rewrite: boolean;
+    /** What the detectors read against (`scopeOf`). Left out, the URL and marker detectors read with none. */
+    scope?: DetectScope;
+  };
   /**
    * Lookback in characters under an `enforce` the gate cannot read (default
-   * `DEFAULT_HOLDBACK`). The bundled policy holds exactly and takes none: it
+   * `DEFAULT_HOLDBACK`). An `egressPolicy` holds exactly and takes none: it
    * is an error to set one with it. A tail that could start a canary leak is
    * always held on top.
    */
@@ -103,15 +109,15 @@ interface ProgressiveYieldGate {
 
 /**
  * Fixed lookback for a host policy the gate cannot read: `holdback`, or
- * `DEFAULT_HOLDBACK`. The canary, the prompt echo and the bundled policy need
- * none — each holds exactly the tail that could still start a match.
+ * `DEFAULT_HOLDBACK`. The detectors and an `egressPolicy` need none: each
+ * holds exactly the tail that could still start a match.
  */
 function resolveHoldback(options: ProgressiveYieldGateOptions, exact: boolean): number {
   if (exact) {
     if (options.holdback !== undefined) {
       throw new TheoremError(
         'config',
-        'holdback applies only to a host egress.enforce; the bundled policy holds exactly', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        'holdback applies only to a host egress.enforce; an egressPolicy holds exactly', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     return 0;
@@ -153,7 +159,9 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     ? streamPlanOf(options.enforce)?.(context)
     : undefined;
   const reads = options.detect;
-  const detecting = reads ? createDetectStream(reads.boundary, reads.matrix) : undefined;
+  const detecting = reads
+    ? createDetectStream(reads.boundary, reads.matrix, reads.scope)
+    : undefined;
   const baseHoldback = resolveHoldback(options, stream !== undefined);
   /** What a match of one of ours does at this gate's boundary. A gate given no matrix stops on it. */
   const ours = (detector: 'canary_leak' | 'prompt_leak'): DetectAction =>
@@ -407,7 +415,12 @@ function createOutboundProgressiveGate(
   }
   return createProgressiveYieldGate({
     context,
-    detect: { matrix: policy.detect, boundary, rewrite: boundary === 'reply' },
+    detect: {
+      matrix: policy.detect,
+      boundary,
+      rewrite: boundary === 'reply',
+      scope: scopeOf(policy, context),
+    },
     ...(egress?.enforce ? { enforce: egress.enforce } : {}),
     ...(egress?.holdback === undefined ? {} : { holdback: egress.holdback }),
     ...(carry ? { carry } : {}),

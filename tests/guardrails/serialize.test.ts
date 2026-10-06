@@ -1,19 +1,24 @@
 import '../fixtures/test-host.ts';
 import { eventHasCanary, mintCanary } from '../../src/guardrails/canary.ts';
-import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { scopeOf } from '../../src/guardrails/detect-at.ts';
+import { readReply } from '../../src/guardrails/detect-reply.ts';
+import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { DETECT_RULES, EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import { CIRCULAR, scanTextOf, textForScan } from '../../src/guardrails/serialize.ts';
-import type { GuardrailContext } from '../../src/guardrails/types.ts';
+import type { GuardrailHit } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
 
-function ctx(canary?: string): GuardrailContext {
-  return {
-    stage: 'output_final',
-    trust: 'untrusted',
-    profileId: 'chat',
-    ...(canary ? { canary } : {}),
-  };
+/** A profile that sets no guardrails. */
+const POLICY = resolveGuardrailPolicy(undefined);
+
+/** The hits a reply of `structured` output is blocked on under {@linkcode POLICY}, if it is. */
+function blockedOn(structured: unknown, canary?: string): GuardrailHit[] | undefined {
+  return readReply({ text: 'ok', structured }, POLICY.detect, {
+    boundary: 'reply',
+    withheld: false,
+    scope: scopeOf(POLICY, canary ? { canary } : {}),
+  }).blocked;
 }
 
 Deno.test('textForScan renders plain values', () => {
@@ -61,18 +66,15 @@ Deno.test('scanTextOf discards the unscannable signal', () => {
 Deno.test('egress survives a circular structured payload', () => {
   const circular: Record<string, unknown> = { answer: 'fine' };
   circular.self = circular;
-  assertEquals(standardEgressEnforce({ text: 'ok', structured: circular }, ctx()).action, 'allow');
+  assertEquals(blockedOn(circular), undefined);
 });
 
 Deno.test('egress still finds a leak inside a circular payload', () => {
   const canary = mintCanary();
   const circular: Record<string, unknown> = { answer: `token ${canary}` };
   circular.self = circular;
-  const verdict = standardEgressEnforce({ text: 'ok', structured: circular }, ctx(canary));
-  assertEquals(verdict.action, 'block');
-  if (verdict.action !== 'block') return;
   assertEquals(
-    verdict.hits.some((h) => h.rule === DETECT_RULES.canary_leak),
+    blockedOn(circular, canary)?.some((h) => h.rule === DETECT_RULES.canary_leak),
     true,
   );
 });
@@ -83,11 +85,8 @@ Deno.test('egress fails closed on a payload it cannot inspect', () => {
       throw new Error('nope');
     },
   };
-  const verdict = standardEgressEnforce({ text: 'ok', structured: hostile }, ctx());
-  assertEquals(verdict.action, 'block');
-  if (verdict.action !== 'block') return;
   assertEquals(
-    verdict.hits.some((h) => h.rule === EGRESS_RULES.unscannable),
+    blockedOn(hostile)?.some((h) => h.rule === EGRESS_RULES.unscannable),
     true,
   );
 });

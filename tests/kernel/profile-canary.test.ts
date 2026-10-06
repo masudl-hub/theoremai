@@ -229,7 +229,7 @@ Deno.test('a given canary still leaves the system prompt guarded against echo', 
   assertEquals(stoppedFor(events), DETECT_RULES.prompt_leak);
 });
 
-Deno.test('under the bundled egress checks, a given canary passes in a tool call and the reply', async () => {
+Deno.test('under the default detectors, a given canary passes in a tool call and the reply', async () => {
   const seen = { canary: '' };
   let step = 0;
   const provider: ModelProvider = {
@@ -247,13 +247,12 @@ Deno.test('under the bundled egress checks, a given canary passes in a tool call
       }
     },
   };
-  const guarded = { egress: { checks: true } } as const;
-  const scope = scopeWith((canary) => `The code on this page is ${canary}.`, seen, guarded);
+  const scope = scopeWith((canary) => `The code on this page is ${canary}.`, seen);
   const events = await run(scope, provider);
   assertEquals(stoppedFor(events), undefined);
   assertEquals(shown(events).includes(seen.canary), true);
 
   step = 0;
-  const unplanted = scopeWith(() => 'Nothing on this page.', seen, guarded);
+  const unplanted = scopeWith(() => 'Nothing on this page.', seen);
   assertEquals(stoppedFor(await run(unplanted, provider)), DETECT_RULES.canary_leak);
 });

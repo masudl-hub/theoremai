@@ -11,7 +11,7 @@ import { geminiModels } from '../fixtures/models.ts';
 function profile(
   id: string,
   enforce: EgressEnforcer,
-  onBlock: 'refuse_to_user' | 'reject_to_agent' = 'refuse_to_user',
+  onBlock: 'refuse' | 'retry' = 'refuse',
   maxRetries = 0,
   lexicon?: LexiconOverrides,
 ): void {
@@ -27,7 +27,8 @@ function profile(
       outputs: {},
       guardrails: {
         quota: { perDay: 50 },
-        egress: { onBlock, maxRetries, enforce },
+        blockedReply: { onBlock, maxRetries },
+        egress: { enforce },
       },
       ...(lexicon ? { lexicon } : {}),
     }),
@@ -84,7 +85,7 @@ Deno.test('a policy blocking consistently still withholds', async () => {
       hits: [{ rule: 'always', severity: 'high' }],
       rejection: 'always blocked',
     }),
-    'reject_to_agent',
+    'retry',
     1,
   );
 
@@ -119,7 +120,7 @@ Deno.test('a policy that throws can still be repaired against', async () => {
       }
       return { action: 'allow' };
     },
-    'reject_to_agent',
+    'retry',
     3,
   );
 
@@ -127,7 +128,7 @@ Deno.test('a policy that throws can still be repaired against', async () => {
   assertEquals(texts(events).join(''), 'answer');
 });
 
-Deno.test('refuse_to_user shows the lexicon refusal, never policy text', async () => {
+Deno.test('onBlock refuse shows the lexicon refusal, never policy text', async () => {
   profile(
     'fm_default_copy',
     (): Verdict => ({
@@ -146,7 +147,7 @@ Deno.test('refuse_to_user shows the lexicon refusal, never policy text', async (
   assertEquals(finalStop(events), EGRESS_FILTERED);
 });
 
-Deno.test('refuse_to_user shows the profile lexicon refusal', async () => {
+Deno.test('onBlock refuse shows the profile lexicon refusal', async () => {
   profile(
     'fm_profile_copy',
     (): Verdict => ({
@@ -154,7 +155,7 @@ Deno.test('refuse_to_user shows the profile lexicon refusal', async () => {
       hits: [{ rule: 'leak', severity: 'high' }],
       rejection: 'blocked',
     }),
-    'refuse_to_user',
+    'refuse',
     0,
     { 'egress.refusal': 'I cannot share that.' },
   );
@@ -186,9 +187,12 @@ Deno.test('final egress inspects reply text, not thoughts', async () => {
 
   const events = await collect('fm_thought_leak', provider);
   assertEquals(texts(events), ['safe visible text']);
+  // The thought guard, on by default, releases a thought in pieces.
   assertEquals(
-    eventsOf(events, 'thought').map((e) => e.text),
-    ['secret-thought'],
+    eventsOf(events, 'thought')
+      .map((e) => e.text ?? '')
+      .join(''),
+    'secret-thought',
   );
 });
 

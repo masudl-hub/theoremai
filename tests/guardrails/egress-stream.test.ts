@@ -1,12 +1,7 @@
 import { inboundFuzzPayloads } from '../../src/guardrails/corpus/inbound-payloads.ts';
 import * as secrets from '../../src/guardrails/corpus/secrets.ts';
 import * as strings from '../../src/guardrails/corpus/strings.ts';
-import type { Detector } from '../../src/guardrails/detectors.ts';
-import {
-  collectEgressHits,
-  type EgressChecks,
-  resolveEgressChecks,
-} from '../../src/guardrails/egress.ts';
+import { type Detector, type DetectSpec, resolveAllow } from '../../src/guardrails/detectors.ts';
 import {
   FORWARD_AUTOMATON,
   REVERSED_AUTOMATON,
@@ -22,6 +17,7 @@ import {
   typoNormalize,
 } from '../../src/guardrails/injection.ts';
 import { normalizeForDetection } from '../../src/guardrails/normalize.ts';
+import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import type { GuardrailContext } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { REPLY_DETECTORS, replyGate, replyHits, replyStream } from '../fixtures/detect.ts';
@@ -267,30 +263,30 @@ Deno.test('the egress stream holds every match from its first character and bloc
 const GIVEN = { request: new Set(['https://attacker.io/leak']), tools: new Set<string>() };
 
 Deno.test('the egress stream holds every leaking image the policy blocks, and only those, given what the model was shown', () => {
-  const checks = resolveEgressChecks({ images: { hosts: ['cdn.attacker.io'] } });
-  const scope = { given: GIVEN };
+  const allow = resolveAllow({ ungiven_images: { allow: { hosts: ['cdn.attacker.io'] } } });
+  const scope = { givenUrls: GIVEN, allow };
   const detectors = REPLY_DETECTORS;
   const problems: string[] = [];
   const outcomes = new Set<string>();
   const rnd = seeded(31);
   for (let k = 0; k < 3000; k++) {
     const text = fuzzText(rnd);
-    const start = referenceMatchStart(text, checks, GIVEN, detectors);
-    const blocks = replyHits(text, scope, checks, detectors).length > 0;
+    const start = referenceMatchStart(text, detectors, { given: GIVEN, allow });
+    const blocks = replyHits(text, scope, detectors).length > 0;
     if (blocks !== start < Number.POSITIVE_INFINITY) {
       problems.push(`reference disagrees with the policy: ${JSON.stringify(text)}`);
     }
-    const unscoped = collectEgressHits(text).some(({ rule }) => rule === 'egress.image-exfil');
-    const scoped = replyHits(text, scope, checks, detectors).some(
-      ({ rule }) => rule === 'egress.image-exfil',
+    const unscoped = replyHits(text).some(({ rule }) => rule === DETECT_RULES.ungiven_images);
+    const scoped = replyHits(text, scope, detectors).some(
+      ({ rule }) => rule === DETECT_RULES.ungiven_images,
     );
     outcomes.add(`${unscoped}/${scoped}`);
-    const stream = replyStream({ checks, given: GIVEN }, detectors);
+    const stream = replyStream({ allow, given: GIVEN }, detectors);
     let read = '';
     for (const chunk of fuzzChunks(text, rnd)) {
       read += chunk;
       if (stream.push(chunk).length > 0) {
-        if (replyHits(read, scope, checks, detectors).length === 0) {
+        if (replyHits(read, scope, detectors).length === 0) {
           problems.push(`blocked what the policy passes: ${JSON.stringify(read)}`);
         }
         break;
@@ -306,33 +302,36 @@ Deno.test('the egress stream holds every leaking image the policy blocks, and on
   assertEquals(problems, []);
 });
 
-Deno.test('the egress stream holds every leaking link the policy blocks, and only those, with each check chosen', () => {
+Deno.test('the egress stream holds every leaking link the policy blocks, and only those, with each detector chosen', () => {
   const problems: string[] = [];
   const outcomes = new Set<string>();
-  const selections: Array<{ checks: EgressChecks; detectors: readonly Detector[] }> = [
-    { checks: { links: true }, detectors: REPLY_DETECTORS },
-    { checks: { links: { hosts: ['cdn.attacker.io'] }, images: true }, detectors: REPLY_DETECTORS },
-    { checks: { links: true, images: true, boundary: false }, detectors: [] },
-    { checks: {}, detectors: ['ids', 'financial', 'network'] },
+  const selections: Array<{ spec?: DetectSpec; detectors: readonly Detector[] }> = [
+    { detectors: [...REPLY_DETECTORS, 'ungiven_links'] },
+    {
+      spec: { ungiven_links: { allow: { hosts: ['cdn.attacker.io'] } } },
+      detectors: [...REPLY_DETECTORS, 'ungiven_links'],
+    },
+    { detectors: ['ungiven_images', 'ungiven_links'] },
+    { detectors: ['ids', 'financial', 'network', 'marker_leak', 'ungiven_images'] },
   ];
   const rnd = seeded(37);
-  for (const { checks: selection, detectors } of selections) {
-    const checks = resolveEgressChecks(selection);
+  for (const { spec, detectors } of selections) {
+    const allow = resolveAllow(spec);
     for (let k = 0; k < 2000; k++) {
       const text = fuzzText(rnd);
-      const scope = { given: GIVEN };
-      const start = referenceMatchStart(text, checks, GIVEN, detectors);
-      const hits = replyHits(text, scope, checks, detectors);
+      const scope = { givenUrls: GIVEN, allow };
+      const start = referenceMatchStart(text, detectors, { given: GIVEN, allow });
+      const hits = replyHits(text, scope, detectors);
       if (hits.length > 0 !== start < Number.POSITIVE_INFINITY) {
         problems.push(`reference disagrees with the policy: ${JSON.stringify(text)}`);
       }
       outcomes.add(hits.map(({ rule }) => rule).find((rule) => rule.includes('link')) ?? '-');
-      const stream = replyStream({ checks, given: GIVEN }, detectors);
+      const stream = replyStream({ allow, given: GIVEN }, detectors);
       let read = '';
       for (const chunk of fuzzChunks(text, rnd)) {
         read += chunk;
         if (stream.push(chunk).length > 0) {
-          if (replyHits(read, scope, checks, detectors).length === 0) {
+          if (replyHits(read, scope, detectors).length === 0) {
             problems.push(`blocked what the policy passes: ${JSON.stringify(read)}`);
           }
           break;
@@ -346,7 +345,7 @@ Deno.test('the egress stream holds every leaking link the policy blocks, and onl
       }
     }
   }
-  assertEquals([...outcomes].sort(), ['-', 'egress.link-exfil']);
+  assertEquals([...outcomes].sort(), ['-', DETECT_RULES.ungiven_links]);
   assertEquals(problems, []);
 });
 
@@ -391,7 +390,7 @@ Deno.test('the settled stream views are prefixes of the batch views, each update
   assertEquals(drift, []);
 });
 
-/** The reply gate, bundled policy and detectors, fed `sentence` over and over, four characters at a time: four times the text takes about four times as long. */
+/** The reply gate and its detectors, fed `sentence` over and over, four characters at a time: four times the text takes about four times as long. */
 async function assertLinear(sentence: string, context: GuardrailContext): Promise<void> {
   const time = async (length: number): Promise<number> => {
     const text = sentence.repeat(Math.ceil(length / sentence.length)).slice(0, length);
@@ -421,7 +420,7 @@ for (const [kind, sentence] of [
     '\n[r]: https://example.com/r\n![a][r] ![b](https://example.com/b.png) <b>x</b> <img src=x.png> ',
   ],
 ]) {
-  Deno.test(`the bundled policy gate reads a reply of ${kind} in time linear in its length`, async () => {
+  Deno.test(`the detector gate reads a reply of ${kind} in time linear in its length`, async () => {
     await assertLinear(sentence, { stage: 'output_delta', trust: 'untrusted', profileId: 'cpu' });
   });
   Deno.test(`the gate reads a reply of ${kind} in time linear in its length, guarding a canary and its prompt`, async () => {

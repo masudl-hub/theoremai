@@ -5,9 +5,8 @@
  */
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
-import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
-import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
+import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import {
   registerProfile,
   registerTool,
@@ -51,7 +50,7 @@ registerProfile(
     outputs: {},
     guardrails: {
       quota: { perDay: 50 },
-      egress: { onBlock: 'refuse_to_user', enforce: standardEgressEnforce },
+      blockedReply: { onBlock: 'refuse' },
     },
   }),
 );
@@ -60,7 +59,7 @@ registerProfile(
 /** Whether the reply was stopped for an image, and whether a thought had one omitted. */
 function imageVerdicts(events: TurnEvent[]): { imageBlocked: boolean; thoughtOmitted: boolean } {
   const image = eventsOf(events, 'guardrail').filter((e) =>
-    e.guardrail.hits?.some((hit) => hit.rule === EGRESS_RULES.image),
+    e.guardrail.hits?.some((hit) => hit.rule === DETECT_RULES.ungiven_images),
   );
   return {
     imageBlocked: image.some((e) => e.guardrail.stage !== 'thought'),
@@ -166,7 +165,7 @@ async function liveReply(
     models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow: ['image_lookup'] },
-    guardrails: { egress: { onBlock: 'refuse_to_user', enforce: standardEgressEnforce } },
+    guardrails: { blockedReply: { onBlock: 'refuse' } },
   });
   registerProfile(profile);
   let mock: MockLiveWebSocket | undefined;

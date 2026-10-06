@@ -1,8 +1,7 @@
 // invariant: Must not import from `src/kernel/`: the kernel type-imports `ProfileGuardrailsSpec`, and that edge
 // stays one-directional. Other modules under `src/guardrails/` may import kernel types.
 
-import type { DetectSpec, ResolvedDetect } from './detectors.ts';
-import type { EgressChecks } from './egress.ts';
+import type { DetectSpec, ResolvedAllow, ResolvedDetect } from './detectors.ts';
 import type { GivenUrls } from './egress-urls.ts';
 import type { GuardrailEvent, GuardrailHit, Provenance } from './event-schemas.ts';
 import type { LexiconOverrides } from './lexicon.ts';
@@ -39,15 +38,32 @@ export const GUARDRAIL_STAGES = [
 /** One of {@linkcode GUARDRAIL_STAGES}. */
 export type GuardrailStage = (typeof GUARDRAIL_STAGES)[number];
 
-/** Does not decide what happens next; that is `onBlock`. */
+/** Does not decide what happens next; that is `blockedReply`. */
 export const SEVERITIES = ['info', 'low', 'medium', 'high'] as const;
 /** One of {@linkcode SEVERITIES}. */
 export type Severity = (typeof SEVERITIES)[number];
 
-/** What a blocked egress does: tell the agent, or refuse to the user. */
-export const EGRESS_ON_BLOCK = ['reject_to_agent', 'refuse_to_user'] as const;
-/** One of {@linkcode EGRESS_ON_BLOCK}. */
-export type EgressOnBlock = (typeof EGRESS_ON_BLOCK)[number];
+/** What follows a blocked reply: the model rewrites it, or the user reads a refusal. */
+export const BLOCKED_REPLY_ON_BLOCK = ['retry', 'refuse'] as const;
+/** One of {@linkcode BLOCKED_REPLY_ON_BLOCK}. */
+export type BlockedReplyOnBlock = (typeof BLOCKED_REPLY_ON_BLOCK)[number];
+
+/** What happens once a detector or the host's `egress.enforce` blocks a reply. */
+export interface BlockedReplySpec {
+  /**
+   * `retry` (the default) tells the model what blocked the reply and has it write another;
+   * `refuse` sends the user the lexicon's `egress.refusal` in its place.
+   */
+  onBlock?: BlockedReplyOnBlock;
+  /**
+   * Under `retry`, how many times the model may rewrite a blocked reply (default 1). Once they
+   * are spent the reply is withheld and the turn ends in a `safety` error.
+   */
+  maxRetries?: number;
+}
+
+/** {@linkcode BlockedReplySpec} with its defaults applied. */
+export type ResolvedBlockedReply = Required<BlockedReplySpec>;
 
 /**
  * A discriminated union so a new variant fails every unhandled `switch` at
@@ -61,8 +77,8 @@ export type Verdict =
       action: 'block';
       hits: GuardrailHit[];
       /**
-       * Sent to the model on a repair turn when `onBlock` is `reject_to_agent`.
-       * With `refuse_to_user` the user reads the lexicon's `egress.refusal`.
+       * Sent to the model on a repair turn when `blockedReply.onBlock` is `retry`.
+       * With `refuse` the user reads the lexicon's `egress.refusal`.
        */
       rejection: string;
       /**
@@ -195,23 +211,16 @@ export type EgressEnforcer = (
   context: GuardrailContext,
 ) => Verdict | Promise<Verdict>;
 
-/** `enforce` or `checks`, never both. */
+/** The host's own check on the reply, run beside the detectors. */
 export interface ProfileEgressSpec {
   /** The host's own check. */
-  enforce?: EgressEnforcer;
+  enforce: EgressEnforcer;
   /**
-   * The bundled policy's checks: `true` runs each at its default, `false` none
-   * but the system-prompt leak checks, and an object switches the ones it names.
-   */
-  checks?: boolean | EgressChecks;
-  onBlock?: EgressOnBlock;
-  maxRetries?: number;
-  /**
-   * For a host `enforce` only: characters the progressive gate holds back so
-   * `enforce` sees a match split across stream chunks before any of it is
-   * released (default `DEFAULT_HOLDBACK`, 256; on Live `LIVE_DEFAULT_HOLDBACK`,
-   * 96). The bundled `standardEgressEnforce` holds exactly what could still
-   * become a match, and setting this with it is a profile error.
+   * Characters the progressive gate holds back so `enforce` sees a match split
+   * across stream chunks before any of it is released (default
+   * `DEFAULT_HOLDBACK`, 256; on Live `LIVE_DEFAULT_HOLDBACK`, 96). An
+   * `egressPolicy` holds exactly what could still become a match, and setting
+   * this with one is a profile error.
    */
   holdback?: number;
 }
@@ -246,6 +255,8 @@ export interface ProfileGuardrailsSpec {
    * the lexicon's `canary.bind_note` (the profile's `lexicon` may replace it).
    */
   detect?: DetectSpec;
+  /** What happens once a reply is blocked. Left out, the model rewrites it once. */
+  blockedReply?: BlockedReplySpec;
   egress?: ProfileEgressSpec;
   network?: NetworkGuardrailSpec;
   taint?: TaintGuardrailSpec;
@@ -288,14 +299,12 @@ export type HostGuardrailsSpec = Pick<
 export interface ResolvedGuardrailPolicy {
   /** Every detector's action at every boundary. */
   detect: ResolvedDetect;
-  /** `checks` resolved to the bundled policy's `enforce`. */
-  egress?: ResolvedEgressSpec;
+  /** What `ungiven_images` and `ungiven_links` let through besides the given URLs. */
+  allow: ResolvedAllow;
+  blockedReply: ResolvedBlockedReply;
+  /** The host's own check, when the profile sets one. */
+  egress?: ProfileEgressSpec;
   network?: NetworkGuardrailSpec;
   quota?: QuotaGuardrailSpec;
   taint?: TaintGuardrailSpec;
 }
-
-/** A profile's egress rules with `checks` resolved to the enforcer that runs them. */
-export type ResolvedEgressSpec = Omit<ProfileEgressSpec, 'enforce' | 'checks'> & {
-  enforce: EgressEnforcer;
-};

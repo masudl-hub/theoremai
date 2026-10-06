@@ -814,6 +814,7 @@ Deno.test('runTurn catches a canary split across a tool step', async () => {
       maxSteps: 3,
       tools: { allow: ['fetch_sensor'] },
       inputs: { text: true },
+      guardrails: { blockedReply: { maxRetries: 0 } },
     }),
   );
   let call = 0;

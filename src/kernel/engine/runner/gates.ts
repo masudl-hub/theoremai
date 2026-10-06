@@ -1,5 +1,5 @@
 import { scopeOf } from '../../../guardrails/detect-at.ts';
-import { readReply, TURN_REPLY } from '../../../guardrails/detect-reply.ts';
+import { readReply, standingBlock, TURN_REPLY } from '../../../guardrails/detect-reply.ts';
 import { hitRules, runEnforcer, WITHHELD_REASON } from '../../../guardrails/egress.ts';
 import type { GivenUrls } from '../../../guardrails/egress-urls.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
@@ -108,12 +108,15 @@ function replyContext(args: {
   };
 }
 
+/** What judges a reply, and what follows a block. */
+type ReplyPolicy = Pick<ResolvedGuardrailPolicy, 'egress' | 'detect' | 'allow' | 'blockedReply'>;
+
 /**
  * The verdict on an attempt's reply: `guardrails.detect` reads it first, and a
  * host policy judges what the detectors let through.
  */
 async function evaluateEgressOutcome(args: {
-  policy: Pick<ResolvedGuardrailPolicy, 'egress' | 'detect'>;
+  policy: ReplyPolicy;
   attemptEvents: TurnEvent[];
   /** Whether the stream withheld the reply from the host. */
   withheld: boolean;
@@ -136,23 +139,22 @@ async function evaluateEgressOutcome(args: {
   structured?: unknown;
 }> {
   const { attemptEvents, request, profile, canRetry, promptLeaks } = args;
-  const { egress, detect } = args.policy;
+  const { egress, detect, blockedReply } = args.policy;
   const written = projectOutbound(attemptEvents);
-  const scope = scopeOf(detect, {
+  const scope = scopeOf(args.policy, {
     canary: args.generation.canary,
     canaryGiven: args.canaryGiven,
     privateSystem: args.privateSystem,
+    givenUrls: args.givenUrls,
+    ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
   });
   const read = readReply(written, detect, { boundary: 'reply', withheld: args.withheld, scope });
   const { payload } = read;
   const rejection = (hits: GuardrailHit[]) =>
     lexiconText('egress.rejection', { rules: hitRules(hits).join(', ') }, profile.lexicon);
   const context = replyContext(args);
-  // why: A leak the stream stopped on that this reading does not find is out of step with it: the stream's finding stands.
-  const reread = new Set(read.events.flatMap((event) => event.hits.map((hit) => hit.rule)));
-  const unread = (promptLeaks ?? []).filter((hit) => !reread.has(hit.rule));
   // why: The host policy adds checks; it never releases a detector's block.
-  const stopped = read.blocked ?? (unread.length > 0 ? unread : undefined);
+  const stopped = standingBlock(read, promptLeaks);
   const verdict: Verdict = stopped
     ? { action: 'block', hits: stopped, rejection: rejection(stopped) }
     : egress
@@ -189,7 +191,7 @@ async function evaluateEgressOutcome(args: {
     };
   }
 
-  if (egress?.onBlock === 'refuse_to_user') {
+  if (blockedReply.onBlock === 'refuse') {
     const text = lexiconText('egress.refusal', {}, profile.lexicon);
     return { outcome: { action: 'refusal', event: { type: 'text', text } }, guardrails };
   }
@@ -286,25 +288,38 @@ function updateFlowForRetry(
   const safe = sanitizeTurnRequest(nextReq, profile);
   if (profile.type === 'text') {
     // why: The conversation is already in turn history: the repair is its next user message.
+    const before = state.currentHistory.length;
     appendUserInput(
       state,
       resolveInputParts(profile, { ...safe, input: { repair: safe.input?.repair } }),
     );
+    for (const message of state.currentHistory.slice(before)) quotesOwnReply(state, message);
     return;
   }
   // why: An image or speech call reads only its input: the repair replaces the prompt.
-  flow.currentGen = { ...flow.currentGen, input: resolveInputParts(profile, safe) };
+  const input = resolveInputParts(profile, safe);
+  quotesOwnReply(state, input);
+  flow.currentGen = { ...flow.currentGen, input };
+}
+
+/**
+ * A repair hands the stopped reply back, and the model wrote that reply. What
+ * carries it gives the model nothing: a canary or a URL in it is still a leak
+ * on the next attempt.
+ */
+function quotesOwnReply(state: StepExecutionState, carrier: object): void {
+  state.canaryScanned.add(carrier);
+  state.givenUrls.own.add(carrier);
 }
 
 async function* handleEgressGate(
-  policy: Pick<ResolvedGuardrailPolicy, 'egress' | 'detect'>,
+  policy: ReplyPolicy,
   flow: AttemptFlowState,
   state: StepExecutionState,
   profile: Profile,
-  maxRetries: number,
   privateSystem: readonly string[],
 ): AsyncGenerator<TurnEvent, 'continue' | 'terminal' | 'pass'> {
-  const canRetry = flow.currentAttempt < maxRetries;
+  const canRetry = flow.currentAttempt < policy.blockedReply.maxRetries;
   const checkStart = performance.now();
   const { outcome, guardrails, structured } = await evaluateEgressOutcome({
     policy,
@@ -366,9 +381,8 @@ async function handleValidationGate(
   state: StepExecutionState,
   profile: Profile,
   latestStructured: unknown,
-  maxRetries: number,
 ): Promise<'continue' | 'pass'> {
-  const canRetry = flow.currentAttempt < maxRetries;
+  const canRetry = flow.currentAttempt < (validation.maxRetries ?? 0);
   const outcome = await evaluateValidationOutcome({
     validation,
     generation: flow.currentGen,
@@ -407,9 +421,8 @@ async function* executeSingleAttemptCycle(args: {
   profile: Profile;
   system: BoundSystem;
   provider: ModelProvider;
-  maxRetries: number;
 }): AsyncGenerator<TurnEvent, AttemptStepAction> {
-  const { flow, state, profile, system, provider, maxRetries } = args;
+  const { flow, state, profile, system, provider } = args;
   const validation = profileTurnOutputs(profile)?.validation;
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const judged = replyIsJudged(policy, TURN_REPLY);
@@ -471,14 +484,7 @@ async function* executeSingleAttemptCycle(args: {
   }
 
   if (judged) {
-    const status = yield* handleEgressGate(
-      policy,
-      flow,
-      state,
-      profile,
-      maxRetries,
-      system.private,
-    );
+    const status = yield* handleEgressGate(policy, flow, state, profile, system.private);
     const action = gateStatusToAction(status);
     if (action) {
       return action;
@@ -487,14 +493,7 @@ async function* executeSingleAttemptCycle(args: {
   }
 
   if (validation) {
-    const status = await handleValidationGate(
-      validation,
-      flow,
-      state,
-      profile,
-      latestStructured,
-      maxRetries,
-    );
+    const status = await handleValidationGate(validation, flow, state, profile, latestStructured);
     if (status === 'continue') {
       return { status: 'continue' };
     }
@@ -520,9 +519,11 @@ async function* runAttemptsWithValidation(
   provider: ModelProvider,
   state: StepExecutionState,
 ): AsyncGenerator<TurnEvent> {
+  const { blockedReply } = resolveGuardrailPolicy(profile.guardrails);
+  // why: Each gate counts the attempts against its own cap; the turn runs while either has one left.
   const maxRetries = Math.max(
     profileTurnOutputs(profile)?.validation?.maxRetries ?? 0,
-    resolveGuardrailPolicy(profile.guardrails).egress?.maxRetries ?? 0,
+    blockedReply.onBlock === 'retry' ? blockedReply.maxRetries : 0,
   );
   const flow: AttemptFlowState = {
     currentAttempt: 0,
@@ -538,7 +539,6 @@ async function* runAttemptsWithValidation(
       profile,
       system,
       provider,
-      maxRetries,
     });
     if (step.status === 'terminal' || step.status === 'success') {
       break;

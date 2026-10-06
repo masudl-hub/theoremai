@@ -13,14 +13,19 @@ import {
   DETECTOR_BOUNDARIES,
   DETECTOR_META,
   DETECTORS,
+  type Detector,
 } from '../guardrails/detectors.ts';
 import { LEXICON_NOTES, type LexiconKey } from '../guardrails/lexicon.ts';
-import { EGRESS_ON_BLOCK, type EgressOnBlock, TAINT_GATES } from '../guardrails/types.ts';
+import {
+  BLOCKED_REPLY_ON_BLOCK,
+  type BlockedReplyOnBlock,
+  TAINT_GATES,
+} from '../guardrails/types.ts';
 import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
 import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
 import { profileFieldScope } from './profile-scope.ts';
 
-export { EGRESS_ON_BLOCK, type EgressOnBlock };
+export { BLOCKED_REPLY_ON_BLOCK, type BlockedReplyOnBlock };
 
 /** The kinds of profile: each fixes which fields and models a profile may use. */
 export const PROFILE_TYPES = ['text', 'image', 'speech', 'live', 'decision', 'host'] as const;
@@ -497,6 +502,31 @@ export function catalogPathFor(keys: readonly string[]): string {
 
 const DETECT_ACTION_DOCS = recordOf(DETECT_ACTIONS, (action) => DETECT_ACTION_META[action].doc);
 
+/** The `allow` rows of a detector that reads URLs. */
+function allowFields(path: string, detector: Detector): [string, FieldMeta][] {
+  const hosts =
+    detector === 'ungiven_links'
+      ? 'Hostnames whose links pass whatever their URL; the hosts ungiven_images allows pass too.'
+      : 'Hostnames whose images load whatever their URL, such as your own CDN.';
+  return [
+    [
+      `${path}.allow`,
+      field('UrlAllow', 'What passes besides the URLs the model was given this turn.'),
+    ],
+    [`${path}.allow.hosts`, { ...field('string[]', hosts), unset: 'None' }],
+    [
+      `${path}.allow.fromTools`,
+      {
+        ...field(
+          'boolean',
+          'Whether a URL a tool returned counts as given. Off keeps only what the system prompt, the user and history gave.',
+        ),
+        unset: 'On',
+      },
+    ],
+  ];
+}
+
 /** The `guardrails.detect` rows: one for the setting, one per detector, and one per detector and boundary. */
 function detectFields(): Record<string, FieldMeta> {
   const action = (type: string, doc: string) =>
@@ -516,9 +546,10 @@ function detectFields(): Record<string, FieldMeta> {
       path,
       action(
         'DetectAction | DetectorConfig',
-        `${DETECTOR_META[detector].doc} Set one action, or action and at.`,
+        `${DETECTOR_META[detector].doc} Set one action, or ${DETECTOR_META[detector].allow ? 'action, at and allow' : 'action and at'}.`,
       ),
     ]);
+    if (DETECTOR_META[detector].allow) rows.push(...allowFields(path, detector));
     rows.push([
       `${path}.action`,
       action(
@@ -989,7 +1020,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'outputs.validation.maxRetries': field(
     'number',
-    "How many times the model may rewrite a reply that fails your checks or the schema's required keys before it goes out as it is; under sse, an attempt that gets rewritten has already streamed. The larger of this and egress.maxRetries applies to both.",
+    "How many times the model may rewrite a reply that fails your checks or the schema's required keys before it goes out as it is; under sse, an attempt that gets rewritten has already streamed. A rewrite of a blocked reply (guardrails.blockedReply) counts against this too.",
   ),
   'outputs.streaming': field(
     'ProfileStreamingSpec',
@@ -1055,64 +1086,35 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'Turns each client IP may run on this profile per UTC day, one at a time; counts live in the process, and a loopback caller is not counted.',
   ),
   ...detectFields(),
+  'guardrails.blockedReply': field(
+    'BlockedReplySpec',
+    'What happens once a detector or your own egress.enforce blocks the reply.',
+  ),
+  'guardrails.blockedReply.onBlock': field(
+    unionType(BLOCKED_REPLY_ON_BLOCK),
+    'What follows a blocked reply.',
+    BLOCKED_REPLY_ON_BLOCK,
+    {
+      retry:
+        'The model reads why and rewrites the reply, up to maxRetries times; once retries run out, the reply is withheld and the turn ends with a safety error. Live never rewrites: it withholds at once.',
+      refuse: 'The user sees the egress.refusal wording in place of the reply, and the turn ends.',
+    },
+  ),
+  'guardrails.blockedReply.maxRetries': field(
+    'number',
+    'How many times the model may rewrite a blocked reply. Live ignores it.',
+  ),
   'guardrails.egress': field(
     'ProfileEgressSpec',
-    'Your check on the reply before the user sees it.',
+    'Your own check on the reply before the user sees it, run beside the detectors.',
   ),
   'guardrails.egress.enforce': field(
     'EgressEnforcer',
-    'Your own check on the reply, run as it streams and when it ends. Return allow, flag (log only), redact (your text replaces what is not yet shown) or block (see onBlock); a block or redact holds the rest of the stream, and a throw counts as a block. Set exactly one of this and checks.',
-  ),
-  'guardrails.egress.checks': field(
-    'boolean | EgressChecks',
-    'The bundled reply checks. A finding blocks the reply. true: each at its default. false: the system-prompt leak checks only. An object: the checks it names. Set this or enforce, not both.',
-  ),
-  'guardrails.egress.checks.boundary': field(
-    'boolean',
-    "The markers the kernel puts around user data, and the words of the canary note (the profile's canary.bind_note, or the default), repeated in the reply.",
-  ),
-  'guardrails.egress.checks.images': field(
-    'boolean | UrlCheck',
-    'Images in the reply that load a URL the model was not given, which would send data off the device with no click.',
-  ),
-  'guardrails.egress.checks.images.hosts': field(
-    'string[]',
-    'Hostnames whose images load whatever their URL, such as your own CDN.',
-  ),
-  'guardrails.egress.checks.images.fromTools': field(
-    'boolean',
-    'Whether a URL a tool returned counts as given. Off keeps only what the system prompt, the user and history gave.',
-  ),
-  'guardrails.egress.checks.links': field(
-    'boolean | UrlCheck',
-    'Links in the reply to a URL the model was not given. Turn it on when your app unfurls links into previews.',
-  ),
-  'guardrails.egress.checks.links.hosts': field(
-    'string[]',
-    'Hostnames whose links pass whatever their URL; the images hosts pass too.',
-  ),
-  'guardrails.egress.checks.links.fromTools': field(
-    'boolean',
-    'Whether a URL a tool returned counts as given. Off keeps only what the system prompt, the user and history gave.',
-  ),
-  'guardrails.egress.onBlock': field(
-    unionType(EGRESS_ON_BLOCK),
-    'What happens when enforce or checks blocks the reply.',
-    EGRESS_ON_BLOCK,
-    {
-      reject_to_agent:
-        'The model reads why and rewrites the reply, up to maxRetries times; once retries run out, the reply is withheld and the turn ends with a safety error. Live never rewrites: it withholds at once.',
-      refuse_to_user:
-        'The user sees the egress.refusal wording in place of the reply, and the turn ends.',
-    },
-  ),
-  'guardrails.egress.maxRetries': field(
-    'number',
-    'How many times the model may rewrite a blocked reply; the larger of this and outputs.validation.maxRetries applies to both. Live ignores it.',
+    'Your own check on the reply, run as it streams and when it ends. Return allow, flag (log only), redact (your text replaces what is not yet shown) or block (see blockedReply); a block or redact holds the rest of the stream, and a throw counts as a block.',
   ),
   'guardrails.egress.holdback': field(
     'number',
-    'How many characters the stream holds back so your own enforce can catch text split across chunks (default 256; 96 on Live). Only for your own enforce: the bundled checks hold exactly what they need, and setting it with them is refused.',
+    'How many characters the stream holds back so your own enforce can catch text split across chunks (default 256; 96 on Live). Only for your own enforce: an egressPolicy holds exactly what it needs, and setting it with one is refused.',
   ),
   'guardrails.network': field(
     'NetworkGuardrailSpec',

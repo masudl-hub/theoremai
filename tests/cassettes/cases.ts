@@ -81,7 +81,7 @@ const GUARDED = {
     credentials: STOPS_REPLY,
     injection: STOPS_REPLY,
   },
-  egress: { onBlock: 'refuse_to_user' as const, maxRetries: 0, checks: true },
+  blockedReply: { onBlock: 'refuse' as const },
 };
 
 /**
@@ -355,7 +355,7 @@ function registerLiveProfile(scope: KernelScope, model: CassetteModel): void {
         ingress: { audio: true, text: true },
       },
       tools: { allow: [] },
-      guardrails: { ...GUARDED, egress: { checks: true } },
+      guardrails: { ...GUARDED, blockedReply: { onBlock: 'retry' as const } },
     }),
   );
 }

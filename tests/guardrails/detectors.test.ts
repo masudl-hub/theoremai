@@ -96,9 +96,23 @@ Deno.test('every detector is in a group, and its defaults name the boundaries it
 
 /** The detectors of what the profile itself must not give away: they read only what the model writes. */
 const LEAKS: readonly Detector[] = ['canary_leak', 'prompt_leak'];
+/** The detectors of what carries data out of a reply: they read only what the model says or thinks. */
+const SHOWN: readonly Detector[] = ['marker_leak', 'ungiven_images', 'ungiven_links'];
+
+Deno.test('a marker or an ungiven image stops the reply by default, and a link is not read', () => {
+  const replies: Boundary[] = ['reply', 'reply_structured', 'live_reply'];
+  for (const detector of ['marker_leak', 'ungiven_images'] as const) {
+    assertEquals(where(undefined, detector, 'block'), replies);
+    assertEquals(where(undefined, detector, 'redact'), ['thought']);
+  }
+  assertEquals(where(undefined, 'ungiven_links', 'ignore'), [...BOUNDARIES]);
+  for (const detector of SHOWN) {
+    assertEquals(DETECTOR_BOUNDARIES[detector], [...replies, 'thought']);
+  }
+});
 
 Deno.test('what comes in is redacted by default, and nothing the model writes is read for it', () => {
-  for (const detector of DETECTORS.filter((d) => !LEAKS.includes(d))) {
+  for (const detector of DETECTORS.filter((d) => !LEAKS.includes(d) && !SHOWN.includes(d))) {
     assertEquals(where(undefined, detector, 'block'), []);
     assertEquals(where(undefined, detector, 'ignore').includes('reply'), true);
     assertEquals(where(undefined, detector, 'ignore').includes('thought'), true);

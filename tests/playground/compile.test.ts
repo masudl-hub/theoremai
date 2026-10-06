@@ -85,62 +85,66 @@ Deno.test('the example draft compiles to the travel concierge', () => {
   assertEquals(profile.defaultModel, 'fast');
   assertEquals(result.customTools.length, demoToolSpecs().length);
   assert(profile.type === 'text' && profile.tools?.allow?.includes('geocode_city'));
-  assertEquals(profile.guardrails?.egress?.checks, true);
-  assertEquals(profile.guardrails?.egress?.enforce, undefined);
+  assertEquals(profile.guardrails?.blockedReply, { onBlock: 'refuse' });
+  assertEquals(profile.guardrails?.egress, undefined);
   assertEquals(profile.observability?.writeTo, 'playground');
 });
 
-Deno.test('egress checks compile to what differs from the bundled defaults', () => {
+Deno.test('what a URL detector allows compiles to what differs from the defaults, where it reads', () => {
   const draft = createExampleDraft();
-  const checks = (egressChecks: Partial<PlaygroundDraft['guardrails']['egressChecks']>) => {
+  type GuardrailsOf = PlaygroundDraft['guardrails'];
+  /** The `allow` of `ungiven_images` and of `ungiven_links`, as compiled. */
+  const allows = (allow: Partial<GuardrailsOf['allow']>, detect = draft.guardrails.detect) => {
     const { guardrails } = draft;
-    return compiled({
+    const spec = compiled({
       ...draft,
-      guardrails: { ...guardrails, egressChecks: { ...guardrails.egressChecks, ...egressChecks } },
-    }).profile.guardrails?.egress?.checks;
+      guardrails: { ...guardrails, detect, allow: { ...guardrails.allow, ...allow } },
+    }).profile.guardrails?.detect;
+    if (typeof spec === 'string') throw new Error('expected a rule for each detector');
+    return [spec?.ungiven_images, spec?.ungiven_links].map((rule) =>
+      typeof rule === 'object' ? rule.allow : undefined,
+    );
   };
-  const { egressChecks } = draft.guardrails;
-  assertEquals(checks({}), true);
+  assertEquals(allows({}), [undefined, undefined]);
   assertEquals(
-    checks({
-      boundary: false,
-      images: { on: true, hosts: [' cdn.acme.io '], fromTools: true },
-      links: { on: true, hosts: [], fromTools: false },
+    allows({
+      ungiven_images: { hosts: [' cdn.acme.io '], fromTools: true },
+      ungiven_links: { hosts: [], fromTools: false },
     }),
-    {
-      boundary: false,
-      images: { hosts: ['cdn.acme.io'] },
-      links: { fromTools: false },
-    },
+    [{ hosts: ['cdn.acme.io'] }, { fromTools: false }],
   );
-  assertEquals(checks({ links: { on: true, hosts: [], fromTools: true } }), { links: true });
-  assertEquals(checks({ images: { ...egressChecks.images, on: false } }), { images: false });
+  // A detector that reads no boundary lets nothing through: its allow is left out.
+  const unread = createBlankDraft().guardrails.detect;
+  assertEquals(unread.ungiven_links.reply, 'ignore');
   assertEquals(
-    checks({
-      boundary: false,
-      images: { ...egressChecks.images, on: false },
-    }),
-    false,
+    allows(
+      {
+        ungiven_images: { hosts: ['cdn.acme.io'], fromTools: false },
+        ungiven_links: { hosts: ['docs.acme.io'], fromTools: false },
+      },
+      unread,
+    ),
+    [{ hosts: ['cdn.acme.io'], fromTools: false }, undefined],
   );
 });
 
-Deno.test('a blank egress host is reported at its check', () => {
+Deno.test('a blank allowed host is reported at its detector', () => {
   const draft = createExampleDraft();
   const { guardrails } = draft;
   const result = compilePlayground({
     ...draft,
     guardrails: {
       ...guardrails,
-      egressChecks: {
-        ...guardrails.egressChecks,
-        links: { on: true, hosts: ['docs.acme.io', ' '], fromTools: true },
+      allow: {
+        ...guardrails.allow,
+        ungiven_links: { hosts: ['docs.acme.io', ' '], fromTools: true },
       },
     },
   });
   if (result.ok) throw new Error('expected issues');
   assertEquals(
     result.issues.map(({ nodeId, field, index }) => ({ nodeId, field, index })),
-    [{ nodeId: 'guardrails', field: 'egressChecks.links.hosts', index: 1 }],
+    [{ nodeId: 'guardrails', field: 'allow.ungiven_links.hosts', index: 1 }],
   );
 });
 
@@ -578,7 +582,7 @@ Deno.test('playgroundSource writes a module that registers the profile', () => {
   const source = playgroundSource(compiled(createExampleDraft()));
   assertStringIncludes(source, "import { z } from 'zod';");
   assert(!source.includes('standardEgressEnforce'));
-  assertStringIncludes(source, 'checks: true,');
+  assertStringIncludes(source, "onBlock: 'refuse',");
   assertStringIncludes(source, "name: 'geocode_city',");
   assertStringIncludes(source, 'registerProfile(profile);');
 });

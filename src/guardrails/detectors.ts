@@ -79,6 +79,12 @@ interface DetectorConfig {
   patterns?: readonly HostPattern[];
   /** The table compiled for `patterns` (`compilePatterns`, `agents detect-compile`). Patterns need it. */
   compiled?: CompiledPatterns;
+  /**
+   * One line telling the model what to leave out, sent when this detector blocks a reply that is
+   * then retried. Left out, the lexicon's `detect.hint.<detector>`. Only beside `patterns`: the
+   * lexicon's hint describes Theorem's patterns, not the host's.
+   */
+  hint?: string;
   /** `ungiven_images` and `ungiven_links` only: the addresses let through besides the given ones. */
   allow?: UrlAllow;
 }
@@ -123,6 +129,11 @@ interface HostDetectorConfig {
    * caught whole when it is no longer than that.
    */
   find?: HostFind;
+  /**
+   * One line telling the model what to leave out, sent when this detector blocks a reply that is
+   * then retried. Left out, the lexicon's `detect.hint.own`, which names the label.
+   */
+  hint?: string;
 }
 
 /** One action for every detector at every boundary, or a rule for the detectors it names. */
@@ -142,6 +153,7 @@ interface HostDetector {
   /** The table compiled for its patterns; absent when it has none. */
   compiled?: CompiledPatterns;
   find?: HostFind;
+  hint?: string;
 }
 
 /** How much of a streaming reply stays held for a host's `find`, in characters. */
@@ -171,6 +183,8 @@ type DetectMatrix = Readonly<Record<Detector, Readonly<Record<Boundary, DetectAc
  */
 type ResolvedDetect = DetectMatrix & {
   readonly sources?: DetectSources;
+  /** The hint of each of Theorem's detectors the profile set one on. */
+  readonly hints?: Readonly<Partial<Record<Detector, string>>>;
   /** The host's own detectors, in the order the profile lists them. */
   readonly host?: readonly HostDetector[];
 };
@@ -395,9 +409,12 @@ function resolveDetect(spec?: DetectSpec): ResolvedDetect {
   if (isAction(spec)) return recordOf(DETECTORS, (detector) => wherever(detector, spec));
   const matrix = recordOf(DETECTORS, (detector) => resolveRule(detector, spec[detector]));
   const sources: Partial<Record<Detector, DetectorSource>> = {};
+  const hints: Partial<Record<Detector, string>> = {};
   for (const detector of PATTERN_DETECTORS) {
-    const source = sourceOf(spec[detector]);
+    const rule = spec[detector];
+    const source = sourceOf(rule);
     if (source) sources[detector] = source;
+    if (rule !== undefined && !isAction(rule) && rule.hint) hints[detector] = rule.hint;
   }
   const host = Object.entries(spec).flatMap(([id, rule]) =>
     isHostId(id) ? [hostDetector(id, rule as HostDetectorConfig)] : [],
@@ -405,6 +422,7 @@ function resolveDetect(spec?: DetectSpec): ResolvedDetect {
   return {
     ...matrix,
     ...(Object.keys(sources).length > 0 ? { sources } : {}),
+    ...(Object.keys(hints).length > 0 ? { hints } : {}),
     ...(host.length > 0 ? { host } : {}),
   };
 }
@@ -414,7 +432,7 @@ function isHostId(key: string): key is HostDetectorId {
 }
 
 function hostDetector(id: HostDetectorId, config: HostDetectorConfig): HostDetector {
-  const { label, action = 'ignore', at, patterns = [], compiled, find } = config;
+  const { label, action = 'ignore', at, patterns = [], compiled, find, hint } = config;
   return {
     id,
     label,
@@ -422,6 +440,7 @@ function hostDetector(id: HostDetectorId, config: HostDetectorConfig): HostDetec
     matchers: matchersOf(patterns),
     ...(compiled && patterns.length > 0 ? { compiled } : {}),
     ...(find ? { find } : {}),
+    ...(hint ? { hint } : {}),
   };
 }
 
@@ -491,12 +510,14 @@ const CONFIG_KEYS: readonly string[] = [
   'theorem',
   'patterns',
   'compiled',
+  'hint',
   'allow',
 ] satisfies (keyof DetectorConfig)[];
 const SOURCE_KEYS: readonly string[] = [
   'theorem',
   'patterns',
   'compiled',
+  'hint',
 ] satisfies (keyof DetectorConfig)[];
 const ALLOW_KEYS: readonly string[] = ['hosts', 'fromTools'] satisfies (keyof UrlAllow)[];
 
@@ -562,7 +583,22 @@ function sourceProblem(
   if (rule.theorem !== undefined && typeof rule.theorem !== 'boolean') {
     return `${path}.theorem must be a boolean`;
   }
-  return patternsProblem(path, rule.patterns, rule.compiled);
+  if (rule.hint !== undefined && !(Array.isArray(rule.patterns) && rule.patterns.length > 0)) {
+    return `${path}.hint goes beside patterns of your own: without them the lexicon's detect.hint.${detector} is the hint`;
+  }
+  return (
+    hintProblem(`${path}.hint`, rule.hint) ?? patternsProblem(path, rule.patterns, rule.compiled)
+  );
+}
+
+/** A hint may be this long, in characters: it is a line in the retry, once for each detector that matched. */
+const MAX_HINT = 300;
+
+function hintProblem(path: string, hint: unknown): string | undefined {
+  if (hint === undefined) return undefined;
+  if (typeof hint !== 'string' || !hint.trim()) return `${path} must be a non-empty string`;
+  if (hint.includes('\n')) return `${path} must be one line`;
+  return hint.length > MAX_HINT ? `${path} must be ${MAX_HINT} characters or fewer` : undefined;
 }
 
 function isDetector(value: string): value is Detector {
@@ -601,6 +637,7 @@ const HOST_KEYS: readonly string[] = [
   'patterns',
   'compiled',
   'find',
+  'hint',
 ] satisfies (keyof HostDetectorConfig)[];
 
 /** What is wrong with a detector of the host's own. It has no default, so it says what it reads with and where. */
@@ -619,7 +656,7 @@ function hostProblem(
   if (unknown !== undefined) {
     return `${path}.${unknown} is not a setting of a detector of your own (${HOST_KEYS.join(', ')})`;
   }
-  const { label, action, at, patterns, compiled, find } = rule;
+  const { label, action, at, patterns, compiled, find, hint } = rule;
   if (typeof label !== 'string' || !label.trim()) return `${path}.label must be a non-empty string`;
   if (action !== undefined && !isAction(action))
     return `${path}.action must be one of ${ACTION_LIST}`;
@@ -630,7 +667,11 @@ function hostProblem(
   if (patterns === undefined && find === undefined) {
     return `${path} needs patterns or find: it has nothing to read with`;
   }
-  return atProblem(`${path}.at`, at, boundaries) ?? patternsProblem(path, patterns, compiled);
+  return (
+    atProblem(`${path}.at`, at, boundaries) ??
+    hintProblem(`${path}.hint`, hint) ??
+    patternsProblem(path, patterns, compiled)
+  );
 }
 
 export type {
@@ -669,6 +710,7 @@ export {
   detects,
   HOST_FIND_HOLD,
   HOST_FIND_HOLD_LIVE,
+  isDetector,
   NO_ALLOW,
   PATTERN_DETECTORS,
   resolveAllow,

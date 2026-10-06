@@ -1,6 +1,5 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import { registerProfile, registerTool, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
@@ -12,7 +11,7 @@ import type {
   TurnHistoryMessage,
   TurnRequest,
 } from '../../src/kernel/types.ts';
-import { blockNaming } from '../fixtures/detect.ts';
+import { blockNaming, TERM_HINT } from '../fixtures/detect.ts';
 import { eventsOf } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, geminiModels } from '../fixtures/models.ts';
 
@@ -52,7 +51,7 @@ const blockFirstReply = {
 };
 
 /** What the model is told after a blocked draft. */
-const REJECTION = lexiconDefault('egress.rejection', { rules: 'detect.test.term' });
+const REJECTION = TERM_HINT;
 
 registerProfile(
   defineProfile({

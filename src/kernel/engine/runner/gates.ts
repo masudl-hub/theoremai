@@ -5,10 +5,11 @@ import {
   standingBlock,
   TURN_REPLY,
 } from '../../../guardrails/detect-reply.ts';
-import { hitRules, WITHHELD_REASON } from '../../../guardrails/egress.ts';
+import { WITHHELD_REASON } from '../../../guardrails/egress.ts';
 import type { GivenUrls } from '../../../guardrails/egress-urls.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromHits, guardrailTurnEvent } from '../../../guardrails/events.ts';
+import { retryRejection } from '../../../guardrails/hints.ts';
 import { lexiconText } from '../../../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { replyIsJudged } from '../../../guardrails/progressive-yield.ts';
@@ -171,7 +172,7 @@ function evaluateEgressOutcome(args: {
     const nextRequest = buildRepairRequest(
       request,
       payload.text,
-      lexiconText('egress.rejection', { rules: hitRules(stopped).join(', ') }, profile.lexicon),
+      retryRejection(stopped, detect, profile.lexicon),
       lexiconText('egress.default_repair_guidance', {}, profile.lexicon),
     );
     return { outcome: { action: 'retry', nextRequest }, guardrails };

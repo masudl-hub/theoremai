@@ -1,6 +1,5 @@
 import '../fixtures/test-host.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import {
   getProfile,
   projectProfile,
@@ -32,7 +31,7 @@ import type {
 } from '../../src/kernel/types.ts';
 import { contentOf } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes } from '../../src/observability/trace-span.ts';
-import { blockNaming } from '../fixtures/detect.ts';
+import { blockNaming, TERM_HINT } from '../fixtures/detect.ts';
 import {
   eventsOf,
   failureOf,
@@ -2010,10 +2009,7 @@ Deno.test('guardrails.blockedReply retry triggers auto-repair retry loop', async
         };
       } else {
         // The repair request is the next user message in history: it names the rule the reply broke.
-        assertStringIncludes(
-          String(req.history?.at(-1)?.content),
-          lexiconDefault('egress.rejection', { rules: 'detect.test.term' }),
-        );
+        assertStringIncludes(String(req.history?.at(-1)?.content), TERM_HINT);
         yield { type: 'text', text: 'Here is the clean public answer.' };
       }
     },

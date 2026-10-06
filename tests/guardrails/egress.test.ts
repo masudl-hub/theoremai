@@ -4,12 +4,13 @@ import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import { scopeOf } from '../../src/guardrails/detect-at.ts';
 import { readReply } from '../../src/guardrails/detect-reply.ts';
-import { eventPromptLeakHits, hitRules } from '../../src/guardrails/egress.ts';
+import { eventPromptLeakHits } from '../../src/guardrails/egress.ts';
+import { retryRejection } from '../../src/guardrails/hints.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { DETECT_RULES, EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type { GuardrailContext, OutboundPayload, Verdict } from '../../src/guardrails/types.ts';
-import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
 import type { ProviderEvent } from '../../src/kernel/types.ts';
 
 function egressCtx(canary?: string): GuardrailContext {
@@ -42,7 +43,7 @@ function enforce(text: string, canary?: string, structured?: unknown): Verdict {
   return {
     action: 'block',
     hits: read.blocked,
-    rejection: lexiconDefault('egress.rejection', { rules: hitRules(read.blocked).join(', ') }),
+    rejection: retryRejection(read.blocked, POLICY.detect),
   };
 }
 
@@ -101,8 +102,8 @@ Deno.test('a reply read by default: rejection names all blocked categories', () 
   const verdict = enforce(`${canary} ${USER_OPEN}`, canary);
   assertEquals(verdict.action, 'block');
   if (verdict.action !== 'block') return;
-  assertEquals(verdict.rejection.includes(DETECT_RULES.canary_leak), true);
-  assertEquals(verdict.rejection.includes(DETECT_RULES.marker_leak), true);
+  assertStringIncludes(verdict.rejection, lexiconDefault('detect.hint.canary_leak'));
+  assertStringIncludes(verdict.rejection, lexiconDefault('detect.hint.marker_leak'));
 });
 
 Deno.test('a reply read by default: blocks "This turn\\u2019s canary is" boundary marker in text', () => {

@@ -596,6 +596,16 @@ function hostDetectorFields(path: string): [string, FieldMeta][] {
     ...patternRows(path),
     [`${path}.compiled`, field('CompiledPatterns', COMPILED_DOC)],
     [
+      `${path}.hint`,
+      {
+        ...field(
+          'string',
+          'One line telling the model what to leave out, sent when this detector blocks a reply that is then retried.',
+        ),
+        unset: 'The lexicon’s detect.hint.own, which names the label',
+      },
+    ],
+    [
       `${path}.find`,
       field(
         'HostFind',
@@ -630,13 +640,25 @@ function patternFields(path: string): [string, FieldMeta][] {
     ],
     ...patternRows(path),
     [`${path}.compiled`, field('CompiledPatterns', COMPILED_DOC)],
+    [
+      `${path}.hint`,
+      {
+        ...field(
+          'string',
+          'One line telling the model what to leave out, sent when this detector blocks a reply that is then retried. Set it beside patterns of your own.',
+        ),
+        unset: `The lexicon’s detect.hint line for this detector`,
+      },
+    ],
   ];
 }
 
 /** The settings a detector's full form takes, as a sentence lists them. */
 function settingsOf(detector: Detector): string {
   if (DETECTOR_META[detector].allow) return 'action, at and allow';
-  return DETECTOR_META[detector].patterns ? 'action, at, theorem and patterns' : 'action and at';
+  return DETECTOR_META[detector].patterns
+    ? 'action, at, theorem, patterns and hint'
+    : 'action and at';
 }
 
 /** The `guardrails.detect` rows: one for the setting, one per detector, and one per detector and boundary. */

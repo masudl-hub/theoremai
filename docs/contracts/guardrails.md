@@ -171,7 +171,16 @@ type Verdict =
 | `maxRetries` | `1` | How many rewrites `retry` allows. When they are spent, or at `0`, the turn ends withheld |
 
 The reason the model reads on a rewrite is the lexicon's `egress.rejection`,
-naming the rules. A
+with a line for each detector that matched (`retryRejection`). The line is the
+detector's hint, which says what to leave out, followed by up to three of the
+texts it matched, each cut to 120 characters (`egress.rejection_found`).
+`canary_leak` and `prompt_leak` give their hint alone: what they match is never
+repeated. A Theorem detector's hint is the lexicon's `detect.hint.<detector>`;
+one the profile adds patterns to may set its own `hint` beside them. A detector
+of the host's own sets `hint`, or gets `detect.hint.own`, which names its
+label. A hint is one line of at most 300 characters. The rewrite request is
+read at the `repair` boundary like any text on its way to the model, so a
+match quoted in it meets the action the profile set there. A
 Live reply is never rewritten, since audio already spoken cannot be taken
 back: `retry` withholds the rest of the cycle and `refuse` says the refusal.
 `outputs.validation.maxRetries` is a separate count, for a reply that fails
@@ -1536,7 +1545,7 @@ placeholder, or a placeholder the key never fills in.
 | Attachments | `attachments.*` | lexicon (structured codes also exposed) |
 | Errors | `error.<kind>` | lexicon (resolved where the event reaches the host) |
 | Quota | `quota.exhausted` | lexicon (`quotaExhausted` → `rate_limit`) |
-| Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.rejection` | lexicon |
+| Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.rejection`, `egress.rejection_found`, `egress.hint_unscannable`, `egress.hint_provider_tool_leak`, `detect.hint.*` | lexicon |
 | Thoughts | `thought.omitted_image`, `thought.omitted_link`, `thought.omitted_instructions` (a leading space is dropped after whitespace) | lexicon |
 | Session | `session.abandon_gated`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending`, `session.part_skipped` | lexicon |
 | Live | `live.session_ended` (the provider ended the call after warning it would) | lexicon (the Live session words the ended signal's `message` when it closes) |
@@ -1594,7 +1603,6 @@ From `src/guardrails/compile-egress.ts` (build time only):
 | Group | Symbols |
 | --- | --- |
 | Host patterns | `compileDetect`, `compilePatterns`, `compileDetectTables`, `compiledDetectModule` |
-| Host rules | `compileEgressRules`, `compiledEgressModule` |
 
 From `src/guardrails/testing.ts` (test / harness only):
 

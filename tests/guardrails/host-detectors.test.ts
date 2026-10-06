@@ -153,7 +153,7 @@ Deno.test('detectProblem says what a detector of the host’s own is missing', (
   );
   check(
     { 'acme.record': { label: 'R', find: finds('x'), action: 'flag', theorem: false } },
-    'd.acme.record.theorem is not a setting of a detector of your own (label, action, at, patterns, compiled, find)',
+    'd.acme.record.theorem is not a setting of a detector of your own (label, action, at, patterns, compiled, find, hint)',
   );
   check(
     { 'acme.record': { find: finds('x'), action: 'flag' } },

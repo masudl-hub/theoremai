@@ -19,16 +19,16 @@
     "npm:@ast-grep/cli@0.41": "0.41.1",
     "npm:@biomejs/biome@^2.5.8": "2.5.11",
     "npm:@eslint-community/regexpp@4.12.2": "4.12.2",
-    "npm:@openrouter/ai-sdk-provider@3": "3.0.0_ai@7.0.108_zod@4.5.4",
+    "npm:@openrouter/ai-sdk-provider@3": "3.0.0_ai@7.0.108__zod@4.6.5_zod@4.6.5",
     "npm:@stryker-mutator/core@10": "10.0.0_@types+node@20.19.43",
     "npm:@types/node@^20.19.43": "20.19.43",
-    "npm:ai@7": "7.0.108_zod@4.5.4",
-    "npm:ai@^7.0.108": "7.0.108_zod@4.5.4",
+    "npm:ai@7": "7.0.108_zod@4.6.5",
+    "npm:ai@^7.0.108": "7.0.108_zod@4.6.5",
     "npm:fallow@3.17.0": "3.17.0",
     "npm:gpt-tokenizer@4": "4.0.0",
     "npm:intl-messageformat@^11.2.9": "11.2.15",
     "npm:refa@0.12.1": "0.12.1",
-    "npm:zod@^4.1.8": "4.5.4"
+    "npm:zod@^4.6.5": "4.6.5"
   },
   "jsr": {
     "@david/code-block-writer@13.0.3": {
@@ -93,7 +93,7 @@
     }
   },
   "npm": {
-    "@ai-sdk/gateway@4.0.88_zod@4.5.4": {
+    "@ai-sdk/gateway@4.0.88_zod@4.6.5": {
       "integrity": "sha512-hpEdOAqrp3FOShSytk6n8BZVZ/xrCV7L9hqYA6Q55h7sQknvh99QfC0uQAIbQWjh+66tmo1Fo6ndQla8uCJGyA==",
       "dependencies": [
         "@ai-sdk/provider",
@@ -102,7 +102,7 @@
         "zod"
       ]
     },
-    "@ai-sdk/provider-utils@5.0.45_zod@4.5.4": {
+    "@ai-sdk/provider-utils@5.0.45_zod@4.6.5": {
       "integrity": "sha512-gLuaCups8OCIRz3eO6WWz5op7VLYNNtFzyH0sWUr0FE9v7cTxR0qxDpQdrKnGcql+9WWttobjnZsJVsuEbsPQQ==",
       "dependencies": [
         "@ai-sdk/provider",
@@ -772,7 +772,7 @@
         "@jridgewell/sourcemap-codec"
       ]
     },
-    "@openrouter/ai-sdk-provider@3.0.0_ai@7.0.108_zod@4.5.4": {
+    "@openrouter/ai-sdk-provider@3.0.0_ai@7.0.108__zod@4.6.5_zod@4.6.5": {
       "integrity": "sha512-m9XTSWoODH2RM5OsZpaGiN7QRR8cdP5paBWq699Tu3JVmGPBKT8xF8XwV0ZBVVsjikD/JgWfak4VSsTR4wAVbg==",
       "dependencies": [
         "ai",
@@ -969,7 +969,7 @@
     "@workflow/serde@4.1.0": {
       "integrity": "sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ=="
     },
-    "ai@7.0.108_zod@4.5.4": {
+    "ai@7.0.108_zod@4.6.5": {
       "integrity": "sha512-rYFuWl4H4Ki3hclcLm0UFxNQStooBkXMo5KCgFl6S/Snp/PxBEUa4c8XwgKIVHsQp1A6ZTyLAbRKolUIGJ10SQ==",
       "dependencies": [
         "@ai-sdk/gateway",
@@ -1519,8 +1519,8 @@
     "yoctocolors@2.2.0": {
       "integrity": "sha512-xYqdZFUK/VYazNl/oCDYN+3WloWQwMfZxBoiNt6qNyk+xfOdi598muWE42rNZFp1kNOiqW936q5RhUdnpqElSg=="
     },
-    "zod@4.5.4": {
-      "integrity": "sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA=="
+    "zod@4.6.5": {
+      "integrity": "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q=="
     }
   },
   "workspace": {
@@ -1534,7 +1534,7 @@
       "npm:gpt-tokenizer@4",
       "npm:intl-messageformat@^11.2.9",
       "npm:refa@0.12.1",
-      "npm:zod@^4.1.8"
+      "npm:zod@^4.6.5"
     ],
     "packageJson": {
       "dependencies": [

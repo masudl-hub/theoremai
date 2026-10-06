@@ -23,6 +23,7 @@
 
 import { type AST, RegExpParser, visitRegExpAST } from '@eslint-community/regexpp';
 import { type CharSet, type Concatenation, type Element, JS, NFA, type NoParent } from 'refa';
+import { analyse } from 'scslre';
 import type { DetectorRule, DetectSpec } from './detectors.ts';
 import { EGRESS_PATTERNS } from './egress-patterns.ts';
 import {
@@ -392,9 +393,24 @@ function patternError(message: string): TheoremError {
 }
 
 /**
+ * Why `pattern` could take far longer than the text is long, or `undefined`: a repeat that
+ * matches the same text in more than one way, or one the engine reads again from every position.
+ */
+function slowProblem(pattern: RegExp): string | undefined {
+  const [report] = analyse(pattern, { maxReports: 1 }).reports;
+  if (!report) return undefined;
+  const repeat = report.type === 'Trade' ? report.startQuant.raw : report.quant.raw;
+  // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  return report.type === 'Move'
+    ? `gets slow on long text: its time grows with the square of the text. Bound the repeat ${repeat} ({1,64} in place of + or *)`
+    : `can hang on text that nearly matches: the repeat ${repeat} matches the same text in more than one way. Bound it ({1,64} in place of + or *) or make its parts unable to overlap`;
+}
+
+/**
  * The table a detector needs for the host's `patterns`: each checked, and their automaton. A
- * pattern is refused when it does not compile, matches the empty text, is sticky, or has no
- * automaton the stream can hold by (a backreference to text that varies).
+ * pattern is refused when it does not compile, matches the empty text, is sticky, could hang
+ * or get slow on long text (`slowProblem`), or has no automaton the stream can hold by (a
+ * backreference to text that varies).
  */
 function compilePatterns(patterns: readonly HostPattern[]): CompiledPatterns {
   if (patterns.length > MAX_PATTERNS) {
@@ -406,6 +422,8 @@ function compilePatterns(patterns: readonly HostPattern[]): CompiledPatterns {
   });
   const sources = patternSources(patterns);
   const alternatives = sources.map(({ name, source, flags }) => {
+    const slow = slowProblem(new RegExp(source, flags));
+    if (slow !== undefined) throw patternError(`${name}: /${source}/${flags} ${slow}`);
     try {
       const units = parsed(new RegExp(source, flags));
       nfaOf(units);

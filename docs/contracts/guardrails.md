@@ -931,8 +931,16 @@ detect: compileDetect({
   longer than `MAX_PATTERN_LENGTH` (1024) or is one of more than
   `MAX_PATTERNS` (64); `patterns` with no `compiled`, or with one compiled from
   other patterns or by another compiler version. `compilePatterns` also
-  refuses a pattern with no automaton to hold by: a backreference to text
-  that varies.
+  refuses a pattern with no automaton to hold by (a backreference to text
+  that varies), and one whose time is not bound by the text's length:
+  - a repeat that matches the same text in more than one way, such as
+    `(a+)+b`, which can hang on text that nearly matches;
+  - a repeat the engine reads again from every position, such as `\d+x` or
+    `\w+@\w+\.\w+`, whose time grows with the square of the text.
+
+  The message names the repeat to bound: `\d{1,64}x` and
+  `\w{1,64}@\w{1,64}\.\w{2,24}` pass. The check is `scslre`'s, loaded with
+  the compiler and not by the kernel.
 
 `ResolvedDetect.sources` holds, for each detector the profile changed it for,
 whether Theorem's patterns run and the host's patterns ready to run.

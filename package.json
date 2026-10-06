@@ -60,7 +60,8 @@
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "ai": "^7.0.108",
     "gpt-tokenizer": "^4.0.0",
-    "refa": "0.12.1"
+    "refa": "0.12.1",
+    "scslre": "0.3.0"
   },
   "peerDependencies": {
     "zod": "^4.6.5"

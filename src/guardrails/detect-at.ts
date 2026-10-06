@@ -185,7 +185,30 @@ function detectAt(
     action = stronger(action, chosen);
   }
   if (action === 'block') return { action, hits };
-  return { action, text: applySpans(text, redact), hits };
+  if (redact.length === 0) return { action, text, hits };
+  const replaced = applySpans(text, redact);
+  // why: Replacing a match can join what was around it into a new one: that text does not cross.
+  if (leftAfterRedact(replaced, boundary, detect, scope)) return { action: 'block', hits };
+  return { action, text: replaced, hits };
+}
+
+/**
+ * Whether `replaced`, a text whose matches were replaced, still holds a match of a detector set
+ * to `redact` or `block` at `boundary`, among `detectors`.
+ */
+function leftAfterRedact(
+  replaced: string,
+  boundary: Boundary,
+  detect: ResolvedDetect,
+  scope: DetectScope,
+  detectors: readonly Detector[] = DETECTORS,
+): boolean {
+  return detectors.some((detector) => {
+    const chosen = detect[detector][boundary];
+    if (chosen !== 'redact' && chosen !== 'block') return false;
+    const skip = leavesImages(detector, boundary, detect);
+    return spansOf(detector, replaced, scope, skip).length > 0;
+  });
 }
 
 /** The detectors that read `boundary`: every one not set to `ignore`. */
@@ -275,9 +298,13 @@ function detectRelease(
   const spans = inside
     .filter(({ chosen }) => chosen === 'redact')
     .map(({ span }) => ({ ...span, start: Math.max(0, span.start - from), end: span.end - from }));
+  const text = applySpans(window.slice(from, end), spans);
+  if (spans.length > 0 && leftAfterRedact(text, boundary, detect, scope, detectors)) {
+    return { action: 'block', hits: inside.map(hitOf), taken: 0 };
+  }
   return {
     action: inside.reduce<DetectOutcome>((action, { chosen }) => stronger(action, chosen), 'allow'),
-    text: applySpans(window.slice(from, end), spans),
+    text,
     hits: inside.map(hitOf),
     taken: end - from,
   };

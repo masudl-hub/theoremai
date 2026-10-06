@@ -1,6 +1,8 @@
 import '../fixtures/test-host.ts';
 import { canaryHoldFrom, mintCanary } from '../../src/guardrails/canary.ts';
 import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
+import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
+import { DETECTORS } from '../../src/guardrails/detectors.ts';
 import { givenUrlSets } from '../../src/guardrails/egress-urls.ts';
 import { type LexiconOverrides, lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import {
@@ -980,4 +982,36 @@ Deno.test('a Live reply image renders once its URL is among those the session ga
     result.action === 'emit' ? result.events : [],
   );
   assertEquals([final.action === 'withhold', replyText(events)], [false, image]);
+});
+
+Deno.test('a thought is read on a session whose reply nothing reads', async () => {
+  const ignored = Object.fromEntries(DETECTORS.map((detector) => [detector, 'ignore' as const]));
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
+      id: 'live_thought_only',
+      ...geminiModels('gemini35FlashLite'),
+      inputs: { text: true },
+      guardrails: {
+        quota: { perDay: 100 },
+        detect: { ...ignored, credentials: { action: 'ignore', at: { thought: 'redact' } } },
+      },
+    }),
+  );
+  const s = createLiveOutboundGateSession(getProfile('live_thought_only'));
+  assertEquals(s.gate, null);
+  const batch = await processLiveOutboundBatch(s, [
+    { type: 'thought', text: `The key is ${TEST_OPENAI_KEY} and that is all.` },
+    { type: 'text', text: 'hi' },
+  ]);
+  const end = await finalizeLiveOutboundTurn(s);
+  const events = [batch, end].flatMap((result) => (result.action === 'emit' ? result.events : []));
+  const thought = eventsOf(events, 'thought')
+    .map((event) => event.text)
+    .join('');
+  assertEquals(thought.includes(TEST_OPENAI_KEY), false);
+  assertEquals(thought.includes('The key is'), true);
+  assertEquals(replyText(events), 'hi');
 });

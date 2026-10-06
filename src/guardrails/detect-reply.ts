@@ -70,25 +70,32 @@ function readStructured(
 /**
  * Reads a reply's text at `boundary`, and its structured output at
  * `reply_structured`. A flag in text the stream released was reported then, so
- * it is reported here only when the stream `withheld` the reply. `scope` is
- * what the detectors of what is the profile's own read of the turn.
+ * it is reported here only past `reportedTo`: how far into the text the stream
+ * released, or all of it when left out. `scope` is what the detectors of what
+ * is the profile's own read of the turn.
  */
 function readReply(
   written: OutboundPayload,
   detect: ResolvedDetect,
   {
     boundary,
-    withheld,
+    reportedTo = written.text.length,
     scope = {},
-  }: { boundary: 'reply' | 'live_reply'; withheld: boolean; scope?: DetectScope },
+  }: { boundary: 'reply' | 'live_reply'; reportedTo?: number; scope?: DetectScope },
 ): ReplyRead {
   const text = detectAt(written.text, boundary, detect, scope);
   const structured =
     written.structured === undefined
       ? undefined
       : readStructured(written.structured, detect, scope);
+  const flagged =
+    reportedTo >= written.text.length
+      ? []
+      : text.hits.filter((hit) => !hit.span || hit.span.start >= reportedTo);
   const events = [
-    text.action === 'flag' && !withheld ? undefined : detectEvent(boundary, text),
+    text.action === 'flag'
+      ? detectEvent(boundary, { action: flagged.length > 0 ? 'flag' : 'allow', hits: flagged })
+      : detectEvent(boundary, text),
     structured ? detectEvent('reply_structured', structured) : undefined,
   ].filter((event) => event !== undefined);
   const blocked = [text, structured].flatMap((found) =>
@@ -120,5 +127,14 @@ function standingBlock(
   return unread.length > 0 ? unread : undefined;
 }
 
+/**
+ * `text` as the host receives it after `shown`, the reply text it already has:
+ * the rest of it when it carries on from there, or else set apart from it.
+ */
+function replyAfter(shown: string, text: string): string {
+  if (!shown) return text;
+  return text.startsWith(shown) ? text.slice(shown.length) : `\n\n${text}`;
+}
+
 export type { ReplyRead };
-export { readReply, standingBlock, TURN_REPLY };
+export { readReply, replyAfter, standingBlock, TURN_REPLY };

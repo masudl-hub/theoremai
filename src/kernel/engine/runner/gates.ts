@@ -1,5 +1,10 @@
 import { scopeOf } from '../../../guardrails/detect-at.ts';
-import { readReply, standingBlock, TURN_REPLY } from '../../../guardrails/detect-reply.ts';
+import {
+  readReply,
+  replyAfter,
+  standingBlock,
+  TURN_REPLY,
+} from '../../../guardrails/detect-reply.ts';
 import { hitRules, runEnforcer, WITHHELD_REASON } from '../../../guardrails/egress.ts';
 import type { GivenUrls } from '../../../guardrails/egress-urls.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
@@ -120,6 +125,10 @@ async function evaluateEgressOutcome(args: {
   attemptEvents: TurnEvent[];
   /** Whether the stream withheld the reply from the host. */
   withheld: boolean;
+  /** The reply text the stream's gate released (`StepExecutionState.released`). */
+  released: string;
+  /** The reply text the host already has: `released`, unless the attempt holds its text to the end. */
+  shown: string;
   generation: ResolvedGeneration;
   request: TurnRequest;
   profile: Profile;
@@ -148,8 +157,17 @@ async function evaluateEgressOutcome(args: {
     givenUrls: args.givenUrls,
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
   });
-  const read = readReply(written, detect, { boundary: 'reply', withheld: args.withheld, scope });
+  const read = readReply(written, detect, {
+    boundary: 'reply',
+    ...(args.withheld ? { reportedTo: args.released.length } : {}),
+    scope,
+  });
   const { payload } = read;
+  /** A reply that replaces the one written, after what the host already has of that one. */
+  const replacement = (text: string): EgressOutcome => ({
+    action: 'refusal',
+    event: { type: 'text', text: replyAfter(args.shown, text) },
+  });
   const rejection = (hits: GuardrailHit[]) =>
     lexiconText('egress.rejection', { rules: hitRules(hits).join(', ') }, profile.lexicon);
   const context = replyContext(args);
@@ -170,8 +188,7 @@ async function evaluateEgressOutcome(args: {
   if (verdict.action === 'allow' || verdict.action === 'flag') {
     if (read.rewritten) {
       // why: Text the stream could not replace as it went: the reply goes out replaced, whole.
-      const event: TurnEvent = { type: 'text', text: payload.text };
-      return { outcome: { action: 'refusal', event }, guardrails };
+      return { outcome: replacement(payload.text), guardrails };
     }
     const replaced = payload.structured !== written.structured;
     return {
@@ -182,18 +199,12 @@ async function evaluateEgressOutcome(args: {
   }
 
   if (verdict.action === 'redact') {
-    return {
-      outcome: {
-        action: 'refusal',
-        event: { type: 'text', text: verdict.text },
-      },
-      guardrails,
-    };
+    return { outcome: replacement(verdict.text), guardrails };
   }
 
   if (blockedReply.onBlock === 'refuse') {
     const text = lexiconText('egress.refusal', {}, profile.lexicon);
-    return { outcome: { action: 'refusal', event: { type: 'text', text } }, guardrails };
+    return { outcome: replacement(text), guardrails };
   }
 
   if (canRetry) {
@@ -312,6 +323,11 @@ function quotesOwnReply(state: StepExecutionState, carrier: object): void {
   state.givenUrls.own.add(carrier);
 }
 
+/** Whether an attempt holds its reply text to its end: one validated and not streamed. */
+function holdsVisible(profile: Profile, generation: ResolvedGeneration): boolean {
+  return profileTurnOutputs(profile)?.validation !== undefined && generation.stream === false;
+}
+
 async function* handleEgressGate(
   policy: ReplyPolicy,
   flow: AttemptFlowState,
@@ -325,6 +341,8 @@ async function* handleEgressGate(
     policy,
     attemptEvents: state.attemptEvents,
     withheld: state.withheldVisible === true,
+    released: state.released,
+    shown: holdsVisible(profile, flow.currentGen) ? '' : state.released,
     generation: flow.currentGen,
     request: flow.currentReq,
     profile,
@@ -434,6 +452,7 @@ async function* executeSingleAttemptCycle(args: {
   let latestStructured: unknown;
   for (;;) {
     state.attemptEvents = [];
+    state.released = '';
     state.withheldVisible = false;
     state.promptLeaks = undefined;
     const attempt = yield* executeAttempt({
@@ -503,8 +522,7 @@ async function* executeSingleAttemptCycle(args: {
     // why: Progressive-yield already released text and media live under egress — unless it
     // withheld them mid-stream. A passing final verdict on the full text supersedes
     // that partial-window decision, so the buffer is released instead of dropped.
-    const heldVisible =
-      state.withheldVisible || (validation !== undefined && flow.currentGen.stream === false);
+    const heldVisible = state.withheldVisible || holdsVisible(profile, flow.currentGen);
     yield* yieldBufferedAttemptEvents(state.attemptEvents, !heldVisible);
   }
 

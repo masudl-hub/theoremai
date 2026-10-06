@@ -41,7 +41,6 @@ function enforce(text: string, canary?: string, structured?: unknown): Verdict {
   };
   const read = readReply(payload, POLICY.detect, {
     boundary: 'reply',
-    withheld: false,
     scope: scopeOf(POLICY, egressCtx(canary)),
   });
   if (!read.blocked) return { action: 'allow' };

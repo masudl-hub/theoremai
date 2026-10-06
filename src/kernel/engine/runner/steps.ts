@@ -193,6 +193,7 @@ async function* executeAutonomousStep(
         state.withheldVisible = true;
         continue;
       }
+      if (event.type === 'text') state.released += event.text;
       // why: Text and media stream via progressive-yield under egress, thoughts
       // stream unguarded; holdLate only buffers non-visible events (e.g.
       // structured) for validation.

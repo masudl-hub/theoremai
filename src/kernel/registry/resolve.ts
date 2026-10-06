@@ -4,6 +4,7 @@ import { TheoremError } from '../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { replyIsJudged } from '../../guardrails/progressive-yield.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
+import { DEFAULT_MAX_STEPS } from '../profile-presence.ts';
 import { profileTurnResumption } from '../stop.ts';
 import { projectTools } from '../tools/project.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
@@ -290,7 +291,7 @@ function resolveTurnInRegistry(
       tools: toolSnapshot,
       sessionPermissions: safe.sessionPermissions,
       history: input.history,
-      maxSteps: profile.maxSteps,
+      maxSteps: profile.maxSteps ?? DEFAULT_MAX_STEPS,
       structured: structuredId
         ? { id: structuredId, jsonSchema: registry.schemas.get(structuredId).jsonSchema }
         : null,

@@ -1,9 +1,15 @@
 import { mapStrings } from '../kernel/engine/tree.ts';
 import type { ToolBoundary } from './boundaries.ts';
-import { type Detection, type DetectScope, detectAt, detectEvent } from './detect-at.ts';
+import {
+  type Detection,
+  type DetectScope,
+  detectAt,
+  detectEvent,
+  detectReads,
+} from './detect-at.ts';
 import type { ResolvedDetect } from './detectors.ts';
 import { type LexiconOverrides, lexiconText } from './lexicon.ts';
-import { TOOL_RULES } from './rules.ts';
+import { EGRESS_RULES, TOOL_RULES } from './rules.ts';
 import { textForScan } from './serialize.ts';
 import { advisoryLevel, directiveHits } from './tool-directives.ts';
 import type {
@@ -225,17 +231,29 @@ function inspectToolArguments(
   boundary: ToolBoundary | undefined,
   scope: DetectScope = {},
 ): InspectedToolArguments {
-  const rendered = textForScan(args);
-  if (!boundary || rendered.unscannable) {
+  if (!(boundary && detectReads([boundary], policy.detect))) {
     return { args };
   }
+  const stopped = (hits: GuardrailHit[]): InspectedToolArguments => {
+    const event = detectEvent(boundary, { action: 'block', hits }, provenance);
+    return event ? { event } : {};
+  };
+  const rendered = textForScan(args);
+  if (rendered.unscannable) {
+    // why: Cannot inspect it, so cannot vouch for it. Fail closed.
+    return stopped([{ rule: EGRESS_RULES.unscannable, severity: 'high' }]);
+  }
   const detected = detectAt(rendered.text, boundary, policy.detect, scope);
+  if (detected.action === 'block') return stopped(detected.hits);
   const event = detectEvent(boundary, detected, provenance);
-  if (detected.action === 'block') return { ...(event ? { event } : {}) };
-  const safe =
-    detected.action === 'redact'
-      ? mapStrings(args, (text) => detectAt(text, boundary, policy.detect, scope).text ?? text)
-      : args;
+  if (detected.action !== 'redact') return { args, ...(event ? { event } : {}) };
+  const safe = mapStrings(
+    args,
+    (text) => detectAt(text, boundary, policy.detect, scope).text ?? '',
+  );
+  const left = detectAt(textForScan(safe).text, boundary, policy.detect, scope).action;
+  // why: A match in a key, or one that runs across values, has no string to replace: the tool is not called.
+  if (left === 'redact' || left === 'block') return stopped(detected.hits);
   return { args: safe, ...(event ? { event } : {}) };
 }
 

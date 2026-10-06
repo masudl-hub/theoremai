@@ -126,7 +126,7 @@ Deno.test('a definition must be an object with an id and a known type', () => {
 
 Deno.test('maxSteps is a whole number of 1 or more, or left out', () => {
   const refused =
-    'Profile p: maxSteps must be a whole number of 1 or more; leave it out for no cap';
+    'Profile p: maxSteps must be a whole number of 1 or more; leave it out for the default of 20';
   for (const maxSteps of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '3']) {
     check(said(textProfile({ maxSteps })), refused, `maxSteps ${String(maxSteps)}`);
   }

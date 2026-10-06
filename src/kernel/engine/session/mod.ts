@@ -280,28 +280,34 @@ async function applyOutbound(
   }
 
   const batch = await processLiveOutboundBatch(gate, events);
-  const out: TurnEvent[] = [];
   if (batch.action === 'withhold') {
     onWithhold();
-    return [...(batch.events ?? []), toErrorEvent(batch.error)];
+    return [
+      ...(batch.events ?? []).filter((event) => !isTurnComplete(event)),
+      toErrorEvent(batch.error),
+    ];
   }
-  if (batch.action === 'emit') {
-    out.push(...batch.events);
-  }
+  const out = batch.action === 'emit' ? batch.events : [];
+  if (turnPhase !== 'complete') return out;
 
-  if (turnPhase === 'complete') {
-    const finalized = await finalizeLiveOutboundTurn(gate);
-    if (finalized.action === 'withhold') {
-      onWithhold();
-      return [...out, ...(finalized.events ?? []), toErrorEvent(finalized.error)];
-    }
-    if (finalized.action === 'emit') {
-      out.push(...finalized.events);
-    }
-    out.push({ type: 'done', stop: { kind: 'completed' } });
+  // why: The response is whole only once its verdict is in: `turn_complete` follows what the
+  // verdict released, and a withheld response ends on its error.
+  const said = out.filter((event) => !isTurnComplete(event));
+  const finalized = await finalizeLiveOutboundTurn(gate);
+  if (finalized.action === 'withhold') {
+    onWithhold();
+    return [...said, ...(finalized.events ?? []), toErrorEvent(finalized.error)];
   }
+  return [
+    ...said,
+    ...(finalized.action === 'emit' ? finalized.events : []),
+    ...out.filter(isTurnComplete),
+    { type: 'done', stop: { kind: 'completed' } },
+  ];
+}
 
-  return out;
+function isTurnComplete(event: TurnEvent): boolean {
+  return event.type === 'session' && event.session.kind === 'turn_complete';
 }
 
 /**

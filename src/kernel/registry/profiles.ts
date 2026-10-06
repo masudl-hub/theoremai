@@ -773,13 +773,13 @@ function defineProfile(input: ProfileDefinition): Profile {
   return profile;
 }
 
-/** The step loop reads 0 or less as no cap, so only a positive whole number is a cap. */
+/** Only a positive whole number is a cap; left out, the turn gets `DEFAULT_MAX_STEPS`. */
 function assertMaxSteps(profile: ModelProfile): void {
   const { maxSteps } = profile;
   if (maxSteps === undefined || (Number.isInteger(maxSteps) && maxSteps > 0)) return;
   throw new TheoremError(
     'config',
-    `Profile ${profile.id}: maxSteps must be a whole number of 1 or more; leave it out for no cap`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    `Profile ${profile.id}: maxSteps must be a whole number of 1 or more; leave it out for the default of 20`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 

@@ -144,7 +144,7 @@ interface StreamArgs {
   privateSystem: readonly string[];
   provider: ModelProvider;
   /** This call's recorder: sees every tap row and every provider event before any gate. */
-  call: Pick<CallTrace, 'tap' | 'observe'> & Partial<Pick<CallTrace, 'guardTime'>>;
+  call: Pick<CallTrace, 'tap' | 'observe'> & Partial<Pick<CallTrace, 'guardTime' | 'guardrail'>>;
   signal?: AbortSignal;
   control?: OutboundStreamControl;
   /** Every URL the model has been given this turn. */
@@ -245,7 +245,17 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
   ): AsyncGenerator<StreamEvent, 'stop' | 'go'> {
     if (result.blocked) {
       recordPromptLeak(result.hits);
-      // why: A detector's stop is reported once, by the verdict on the whole reply.
+      // why: A detector's stop is reported once, by the verdict on the whole reply. The trace
+      // still records that this check is the one that stopped it.
+      const stopped =
+        result.boundary &&
+        detectEvent(
+          result.boundary,
+          { action: 'block', hits: result.hits },
+          undefined,
+          'output_delta',
+        );
+      if (stopped) call.guardrail?.(stopped);
       yield* drainBlockedDelta(result.boundary ? [] : result.hits, template);
       return 'go';
     }

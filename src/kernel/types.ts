@@ -499,7 +499,7 @@ export interface ProfileModelFields {
   defaultModel: ModelId;
   /** Turn may pass `{ model: "<id>" }`. Requires two or more `models` keys. */
   allowModelSelect?: boolean;
-  /** Tool-loop ceiling. Omit or `<= 0` = unbounded; `1` = one-shot; `> 1` = hard cap. */
+  /** Tool-loop ceiling. Omit = `DEFAULT_MAX_STEPS`; `1` = one-shot; `> 1` = hard cap. */
   maxSteps?: number;
   key?: KeySlot;
   /** Retried once when `key` is refused for quota. Off unless set. */
@@ -975,7 +975,7 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
    * the stored interaction plus these.
    */
   continuation?: TurnHistoryMessage[];
-  /** Tool-loop ceiling. `undefined` or `<= 0` = unbounded. */
+  /** Tool-loop ceiling: the profile's `maxSteps`, or `DEFAULT_MAX_STEPS`. */
   maxSteps?: number;
   structured: ResolvedStructured | null;
   image: ImageResponseFormat | null;

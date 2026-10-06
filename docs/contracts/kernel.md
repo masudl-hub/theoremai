@@ -271,7 +271,7 @@ Live sessions emit the same stage names around utterance cycles and
    the turn carries a possible canary opening from one call into the next
    (`canaryCarry` and `thoughtCarry` on the step state), so a token split across
    tool steps is one match.
-7. **Tool loop** — while under `maxSteps`, tool calls execute via `executeRegisteredTool`
+7. **Tool loop** — while under `maxSteps` (20 model calls when the profile sets none), tool calls execute via `executeRegisteredTool`
    (shared with `invokeTool`), threading the host's `credentials` source (`ToolCredentialSource`, read one slot at a time as a signed-in tool runs) for authenticated HTTP/MCP tools and the opaque `host` context slot; `pre_tool` / `post_tool` stages + `preTool` run on that path. After each
    settled tool, `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch. `generation.chains`
    (a binding with `persistViaInteractionId: true`) selects an Interactions continuation

@@ -2,7 +2,7 @@ import type { TurnEventOf } from '../kernel/turn-events.ts';
 import type { Profile, TurnEvent } from '../kernel/types.ts';
 import { isStreamedCanaryEvent, type StreamedReplyEvent } from './canary.ts';
 import { detectEvent, leakScopeOf, scopeOf } from './detect-at.ts';
-import { readReply, standingBlock } from './detect-reply.ts';
+import { readReply, replyAfter, standingBlock } from './detect-reply.ts';
 import {
   eventLeak,
   isPromptLeakHit,
@@ -264,7 +264,14 @@ async function processLiveOutboundBatch(
   const toEmit: TurnEvent[] = [];
   const { gate } = session;
   if (!gate) {
-    return emitOrIdle(events);
+    // why: Nothing reads the reply, but a thought is read at its own boundary.
+    const { thoughts } = session;
+    if (!thoughts) return emitOrIdle(events);
+    return emitOrIdle(
+      events.flatMap((event) =>
+        event.type === 'thought' ? thoughtEvents(thoughts.push(event.text), event) : [event],
+      ),
+    );
   }
 
   // why: One batch is one provider message: its transcript is its audio's.
@@ -364,8 +371,13 @@ async function finalEgressVerdict(
   const { egress, detect, blockedReply } = session.policy;
   const read = readReply({ text: gate.accumulated() }, detect, {
     boundary: 'live_reply',
-    withheld: session.withholdVisible,
+    ...(session.withholdVisible ? { reportedTo: clearedTo(gate) } : {}),
     scope: scopeOf(session.policy, session.context),
+  });
+  /** A reply that replaces the cycle's, after what the host already has of that one. */
+  const replacement = (text: string): TurnEvent => ({
+    type: 'text',
+    text: replyAfter(gate.accumulated().slice(0, session.releasedTo), text),
   });
   // invariant: The host policy adds checks; it never releases a detector's block.
   const stopped = standingBlock(read, session.promptLeaks);
@@ -382,13 +394,13 @@ async function finalEgressVerdict(
   const events = [...prior, ...read.events.map(guardrailTurnEvent), ...(judged ? [judged] : [])];
 
   if (verdict.action === 'redact') {
-    return { action: 'emit', events: [...events, { type: 'text', text: verdict.text }] };
+    return { action: 'emit', events: [...events, replacement(verdict.text)] };
   }
   if (verdict.action === 'block') {
     // why: Live never rewrites: audio already spoken cannot be taken back for another try.
     if (blockedReply.onBlock === 'refuse') {
       const text = lexiconText('egress.refusal', {}, session.context.lexicon);
-      return { action: 'emit', events: [...events, { type: 'text', text }] };
+      return { action: 'emit', events: [...events, replacement(text)] };
     }
     return {
       action: 'withhold',
@@ -398,7 +410,7 @@ async function finalEgressVerdict(
   }
   if (read.rewritten) {
     // why: The audio says what the transcript did: only the replaced text goes out.
-    return { action: 'emit', events: [...events, { type: 'text', text: read.payload.text }] };
+    return { action: 'emit', events: [...events, replacement(read.payload.text)] };
   }
   releaseHeld(session, gate, gate.accumulated().length, events, true);
   return emitOrIdle(events);
@@ -432,12 +444,10 @@ async function finalizeCycle(
 async function finalizeLiveOutboundTurn(
   session: LiveOutboundGateSession,
 ): Promise<LiveOutboundBatchResult> {
-  if (!session.gate) {
-    return { action: 'idle' };
-  }
   const thought = session.thoughts
     ? thoughtEvents(session.thoughts.flush(), { type: 'thought', text: '' })
     : [];
+  if (!session.gate) return emitOrIdle(thought);
   const result = await finalizeCycle(session, session.gate);
   resetCycle(session);
   if (thought.length === 0) return result;

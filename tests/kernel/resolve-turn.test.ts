@@ -321,3 +321,16 @@ Deno.test('a thinking level a model cannot take clamps to its default, then its 
     'an undeclared default: the first',
   );
 });
+
+Deno.test('a turn is capped at 20 model calls unless its profile says otherwise', () => {
+  clearProfiles();
+  define('capped');
+  define('own', { maxSteps: 3 });
+  const steps = (id: string) => {
+    const generation = resolved(turn(id));
+    return typeof generation === 'string' ? generation : generation.maxSteps;
+  };
+  check(steps('capped'), 20, 'unset');
+  check(steps('own'), 3, 'declared');
+  check(projectProfile('capped').maxSteps ?? null, null, 'the projection keeps what was declared');
+});

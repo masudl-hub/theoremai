@@ -10,6 +10,9 @@ export interface ProfileFieldPresence {
   unset?: string;
 }
 
+/** The most model calls a turn makes when its profile sets no `maxSteps`. */
+export const DEFAULT_MAX_STEPS = 20;
+
 /** Presence for profile paths, keyed like `PROFILE_FIELDS` (`models.*` matches every binding). */
 export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresence>> = {
   id: { required: true },
@@ -27,7 +30,7 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   models: { required: true },
   defaultModel: { required: 'when more than one model is declared', unset: 'The only model' },
   allowModelSelect: { unset: 'Off' },
-  maxSteps: { unset: 'Unbounded' },
+  maxSteps: { unset: `${DEFAULT_MAX_STEPS} model calls` },
   key: { required: 'when a hosted model has no key of its own', unset: 'No key slot' },
   fallbackKey: { unset: 'No fallback' },
   'models.*.protocol': { required: true },

@@ -16,7 +16,6 @@ const POLICY = resolveGuardrailPolicy(undefined);
 function blockedOn(structured: unknown, canary?: string): GuardrailHit[] | undefined {
   return readReply({ text: 'ok', structured }, POLICY.detect, {
     boundary: 'reply',
-    withheld: false,
     scope: scopeOf(POLICY, canary ? { canary } : {}),
   }).blocked;
 }

@@ -76,7 +76,7 @@ export interface IdentityDraft {
 export interface ModelsDraft {
   defaultModel: string;
   allowModelSelect: boolean;
-  /** `null` omits it (unbounded). */
+  /** `null` omits it: the kernel's default cap applies. */
   maxSteps: number | null;
   /** The vault slot every model uses unless it names its own. */
   key: KeySlot | '';

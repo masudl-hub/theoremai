@@ -1,7 +1,7 @@
 import '../fixtures/test-host.ts';
 import { TEST_OPENAI_KEY, TEST_SSN } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
-import { readReply } from '../../src/guardrails/detect-reply.ts';
+import { readReply, replyAfter } from '../../src/guardrails/detect-reply.ts';
 import { type DetectSpec, resolveDetect } from '../../src/guardrails/detectors.ts';
 import {
   createLiveOutboundGateSession,
@@ -129,7 +129,7 @@ Deno.test('the stream replaces exactly what reading the whole reply replaces', a
   assertEquals(drift, []);
 });
 
-const AT_END = { boundary: 'reply', withheld: false } as const;
+const AT_END = { boundary: 'reply' } as const;
 
 Deno.test('a reply read whole has its matches replaced, in text and in each structured string', () => {
   const detect = resolveDetect({
@@ -178,11 +178,19 @@ Deno.test('structured output that cannot be read does not cross a boundary a det
   assertEquals(readReply(payload, resolveDetect('ignore'), AT_END).blocked, undefined);
 });
 
-Deno.test('a flag is reported at the end only when the stream withheld the reply', () => {
+Deno.test('a flag is reported at the end only past what the stream released', () => {
   const detect = resolveDetect({ credentials: { at: { reply: 'flag' } } });
   assertEquals(readReply({ text: TEXT }, detect, AT_END).events, []);
-  const [event] = readReply({ text: TEXT }, detect, { boundary: 'reply', withheld: true }).events;
+  const [event] = readReply({ text: TEXT }, detect, { boundary: 'reply', reportedTo: 0 }).events;
   assertEquals([event?.boundary, event?.action], ['reply', 'flag']);
+  const past = { boundary: 'reply', reportedTo: TEXT.length - 1 } as const;
+  assertEquals(readReply({ text: TEXT }, detect, past).events, []);
+});
+
+Deno.test('a replacement follows what the host has: the rest of it, or set apart', () => {
+  assertEquals(replyAfter('', 'Sorry.'), 'Sorry.');
+  assertEquals(replyAfter('The key is', 'The key is [redacted]'), ' [redacted]');
+  assertEquals(replyAfter('The key is', 'Sorry.'), '\n\nSorry.');
 });
 
 Deno.test('block at the end names every match and lets nothing through', () => {

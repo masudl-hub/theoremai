@@ -4,7 +4,11 @@ import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import type { DetectSpec } from '../../src/guardrails/detectors.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
-import { guardToolFailureText, guardToolResult } from '../../src/guardrails/tool-result.ts';
+import {
+  guardToolFailureText,
+  guardToolResult,
+  inspectToolArguments,
+} from '../../src/guardrails/tool-result.ts';
 import {
   getProfile,
   registerProfile,
@@ -436,4 +440,43 @@ Deno.test('a local tool result is never annotated', () => {
     [],
   );
   assertEquals(guarded.text?.includes('[theorem]'), false);
+});
+
+const PROVENANCE = { tool: 'local_lookup', origin: 'local', depth: 1 } as const;
+
+/** What `inspectToolArguments` makes of `args` with credentials redacted from a function tool's call. */
+function inspected(args: unknown) {
+  const policy = resolveGuardrailPolicy({
+    detect: { credentials: { at: { tool_arguments_function: 'redact' } } },
+  });
+  return inspectToolArguments(args, PROVENANCE, policy, 'tool_arguments_function');
+}
+
+Deno.test('redacted arguments: a match with no string to replace stops the call', () => {
+  const inValue = inspected({ q: `key ${TEST_OPENAI_KEY}` });
+  assertEquals(JSON.stringify(inValue.args).includes(TEST_OPENAI_KEY), false);
+  assertEquals(inValue.event?.action, 'redact');
+
+  const inKey = inspected({ [TEST_OPENAI_KEY]: 1 });
+  assertEquals('args' in inKey, false);
+  assertEquals(inKey.event?.action, 'block');
+});
+
+Deno.test('arguments that cannot be read stop the call', () => {
+  const unreadable = {
+    toJSON() {
+      throw new Error('no');
+    },
+  };
+  const found = inspected({ q: unreadable });
+  assertEquals('args' in found, false);
+  assertEquals(found.event?.hits[0]?.rule, 'egress.unscannable');
+
+  const unread = inspectToolArguments(
+    { q: unreadable },
+    PROVENANCE,
+    resolveGuardrailPolicy({ detect: 'ignore' }),
+    'tool_arguments_function',
+  );
+  assertEquals('args' in unread, true);
 });

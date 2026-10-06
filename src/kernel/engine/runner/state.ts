@@ -42,6 +42,8 @@ interface StepExecutionState {
    * streamed, so the attempt gate must release the buffered text rather than drop it.
    */
   withheldVisible?: boolean;
+  /** The reply text the stream's gate released this attempt, as it released it. */
+  released: string;
   /** The canary opening the last provider call ended on, read in front of the next call's reply. */
   canaryCarry?: string;
   /** What the last provider call's thoughts ended on, read in front of the next call's thoughts. */
@@ -115,6 +117,7 @@ function openTurnState(args: {
     mediaFamily: args.mediaFamily,
     allEmittedEvents: args.allEmittedEvents ?? [],
     attemptEvents: [],
+    released: '',
     givenUrls: givenUrlSets(),
     canaryGiven: false,
     canaryScanned: new WeakSet(),

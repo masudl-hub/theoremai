@@ -61,10 +61,21 @@ jobs:
             --policy-path=.snyk \
             --severity-threshold=medium
 
-      # Static analysis of the source itself (exclusions live in .snyk).
+      # Static analysis of the source itself (exclusions live in .snyk). The
+      # SARIF file holds each finding's whole data flow, which the log leaves out.
       - name: Snyk Code
         if: env.SNYK_TOKEN != ''
-        run: npx --yes snyk@1.1307.3 code test --severity-threshold=medium
+        run: |
+          npx --yes snyk@1.1307.3 code test --severity-threshold=medium \
+            --sarif-file-output=snyk-code.sarif
+
+      - name: Keep the Snyk Code findings
+        if: failure() && env.SNYK_TOKEN != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: snyk-code-sarif
+          path: snyk-code.sarif
+          if-no-files-found: ignore
 
       # Snapshot main's dependency tree so Snyk alerts on newly disclosed issues
       # between pushes.

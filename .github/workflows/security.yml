@@ -51,13 +51,14 @@ jobs:
 
       # Every lockfile in the repo (root + react/), dev dependencies included:
       # they run in CI and on contributor machines. playground/ has no lockfile
-      # and npm/ is build output.
+      # and npm/ is build output. The root policy file covers react/ too.
       - name: Snyk Open Source (all projects)
         if: env.SNYK_TOKEN != ''
         run: |
           npx --yes snyk@1.1307.3 test \
             --all-projects --dev \
             --exclude=playground,npm,tmp \
+            --policy-path=.snyk \
             --severity-threshold=medium
 
       # Static analysis of the source itself (exclusions live in .snyk).

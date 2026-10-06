@@ -1,6 +1,14 @@
 # Snyk (https://snyk.io) policy file, patches or ignores known vulnerabilities.
 version: v1.25.1
-ignore: {}
+ignore:
+  SNYK-JS-ZOD-20510278:
+    - '*':
+        reason: >-
+          No fixed zod release exists (every version is affected): an array
+          schema with no length limit collects an issue for each failing
+          element. Read again when zod ships a fix or this expires.
+        expires: 2026-11-05T00:00:00.000Z
+        created: 2026-10-06T00:00:00.000Z
 patch: {}
 exclude:
   code:

@@ -1,6 +1,6 @@
 /**
  * Inbound and outbound guardrail primitives: sanitization, injection and sensitive detection,
- * canary egress gates, egress policy and public error mapping. App-specific policy copy stays host-owned.
+ * canary egress gates, the detectors and public error mapping. App-specific policy copy stays host-owned.
  *
  * @module
  */
@@ -74,10 +74,7 @@ export {
   PATTERN_DETECTORS,
   resolveDetect,
 } from './detectors.ts';
-export { hitRules, runEnforcer } from './egress.ts';
-export type { EgressPolicyOptions } from './egress-policy.ts';
-export { egressPolicy } from './egress-policy.ts';
-export type { CompiledEgressRules, EgressRule } from './egress-rules.ts';
+export { hitRules } from './egress.ts';
 export type { GivenUrls } from './egress-urls.ts';
 export type { ErrorCopies, ErrorCopy, ErrorKind, TheoremErrorOptions } from './error.ts';
 export {
@@ -133,12 +130,7 @@ export type {
   ProgressiveYieldGateOptions,
   ProgressiveYieldResult,
 } from './progressive-yield.ts';
-export {
-  createOutboundProgressiveGate,
-  createProgressiveYieldGate,
-  DEFAULT_HOLDBACK,
-  LIVE_DEFAULT_HOLDBACK,
-} from './progressive-yield.ts';
+export { createOutboundProgressiveGate, createProgressiveYieldGate } from './progressive-yield.ts';
 export { PROMPT_ECHO_WORDS, scanTextForPromptEcho } from './prompt-echo.ts';
 export type { QuotaSlotStatus } from './quota.ts';
 export {
@@ -198,7 +190,6 @@ export type {
   AdvisoryLevel,
   BlockedReplyOnBlock,
   BlockedReplySpec,
-  EgressEnforcer,
   GuardrailAction,
   GuardrailContext,
   GuardrailEvent,
@@ -207,7 +198,6 @@ export type {
   HostGuardrailsSpec,
   NetworkGuardrailSpec,
   OutboundPayload,
-  ProfileEgressSpec,
   ProfileGuardrailsSpec,
   Provenance,
   QuotaGuardrailSpec,

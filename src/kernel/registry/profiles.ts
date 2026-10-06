@@ -1,6 +1,5 @@
 import { TOOL_BOUNDARIES } from '../../guardrails/boundaries.ts';
 import { detectProblem } from '../../guardrails/detectors.ts';
-import { streamPlanOf } from '../../guardrails/egress-stream.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { type LexiconOverrides, validateLexiconOverrides } from '../../guardrails/lexicon.ts';
 import {
@@ -543,33 +542,23 @@ function assertValidation(profileId: string, validation: ProfileValidationSpec |
   }
 }
 
-function assertEgress(profileId: string, guardrails: ProfileGuardrailsSpec | undefined): void {
-  const egress = guardrails?.egress;
+function assertGuardrails(profileId: string, guardrails: ProfileGuardrailsSpec | undefined): void {
   const fail = (message: string) => new TheoremError('config', `Profile ${profileId}: ${message}`);
-  if (egress !== undefined) {
-    // why: A key this does not read would be a check the builder believes is on.
-    const unknown = Object.keys(egress).find((key) => !EGRESS_KEYS.includes(key));
-    if (unknown !== undefined) {
-      throw fail(`guardrails.egress.${unknown} is not a setting; it takes enforce and holdback`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
-    if (typeof egress.enforce !== 'function') {
-      throw fail('guardrails.egress.enforce must be a function'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
-    const { holdback } = egress;
-    if (holdback !== undefined && (!Number.isInteger(holdback) || holdback < 0)) {
-      throw fail('guardrails.egress.holdback must be a non-negative integer'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
-    if (holdback !== undefined && streamPlanOf(egress.enforce)) {
-      throw fail(
-        // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-        'guardrails.egress.holdback applies only to your own enforce; an egressPolicy holds exactly what could still become a match',
-      );
-    }
+  // why: A key this does not read would be a check the builder believes is on.
+  const unknown = Object.keys(guardrails ?? {}).find((key) => !GUARDRAIL_KEYS.includes(key));
+  if (unknown !== undefined) {
+    throw fail(`guardrails.${unknown} is not a setting; it takes ${GUARDRAIL_KEYS.join(', ')}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   assertBlockedReply(guardrails?.blockedReply, fail);
 }
 
-const EGRESS_KEYS: readonly string[] = ['enforce', 'holdback'];
+const GUARDRAIL_KEYS: readonly string[] = [
+  'quota',
+  'detect',
+  'blockedReply',
+  'network',
+  'taint',
+] satisfies (keyof ProfileGuardrailsSpec)[];
 const BLOCKED_REPLY_KEYS: readonly string[] = ['onBlock', 'maxRetries'];
 
 function assertBlockedReply(
@@ -673,7 +662,7 @@ function defineProfile(input: ProfileDefinition): Profile {
   }
   assertModelsNonEmpty(input.id, input.models);
   assertTurnBehaviour(input.id, input);
-  assertEgress(input.id, input.guardrails as ProfileGuardrailsSpec | undefined);
+  assertGuardrails(input.id, input.guardrails as ProfileGuardrailsSpec | undefined);
   if (input.type === 'text') assertValidation(input.id, input.outputs?.validation);
   assertObservability(input.id, input.observability);
   assertSlotName(input.id, 'key', input.key);

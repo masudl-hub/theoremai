@@ -108,7 +108,6 @@ Deno.test('interfaceFromProfile maps identity, inputs, model, and outputs', () =
   assertEquals(projected.models.gemini35FlashLite.protocol, 'geminiInteractions');
   assertEquals(iface.outputs?.structured, undefined);
   assertEquals(streamThoughtsEnabled(iface.outputs), true);
-  assertEquals(iface.guardrails?.hasEgress, false);
   assertEquals(iface.canStop, true);
   if (iface.type === 'text') {
     assertEquals(iface.tools.allow, []);
@@ -575,7 +574,6 @@ Deno.test('the interface reports what a profile detects, allows and does with a 
     },
     blockedReply: { onBlock: 'refuse' },
   });
-  assertEquals(view?.hasEgress, false);
   assertEquals(view?.allow, {
     ungiven_images: { hosts: [], fromTools: true },
     ungiven_links: { hosts: ['docs.acme.io'], fromTools: false },
@@ -585,11 +583,8 @@ Deno.test('the interface reports what a profile detects, allows and does with a 
   assertEquals(view?.blockedReply, { onBlock: 'refuse', maxRetries: 1 });
   const off = guardrailsOf({ detect: { marker_leak: 'ignore', ungiven_images: 'ignore' } });
   assertEquals(off?.detect.ungiven_images.reply, 'ignore');
-  const host = guardrailsOf({ egress: { enforce: () => ({ action: 'allow' }) } });
-  assertEquals(host?.hasEgress, true);
-  assertEquals(host?.allow, NO_URL_ALLOW);
   const unset = composerIface(ATTACHMENT_PROFILE).guardrails;
-  assertEquals(unset?.hasEgress, false);
+  assertEquals(unset?.allow, NO_URL_ALLOW);
   assertEquals(unset?.blockedReply, { onBlock: 'retry', maxRetries: 1 });
   assertEquals(unset?.detect.ungiven_images.reply, 'block');
 });
@@ -601,7 +596,6 @@ Deno.test('sanitizeUserDraft redacts injection spans under the default detect', 
       detect: DETECT_DEFAULTS,
       allow: NO_URL_ALLOW,
       blockedReply: { onBlock: 'retry', maxRetries: 1 },
-      hasEgress: false,
     },
   );
   assertEquals(draft.text?.includes('[omitted - injection]'), true);
@@ -658,7 +652,6 @@ Deno.test('sanitizeUserDraft leaves draft unchanged when guardrails are off', ()
       detect: resolveDetect('ignore'),
       allow: NO_URL_ALLOW,
       blockedReply: { onBlock: 'retry', maxRetries: 1 },
-      hasEgress: false,
     },
   );
   assertEquals(draft.text, raw);

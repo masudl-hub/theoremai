@@ -1,23 +1,11 @@
 import type { ProviderEvent, ProviderEvidence } from '../kernel/types.ts';
-import { isRecord } from '../kernel/util/record.ts';
 import { canaryNoteMarker, guardedEventTexts, scanTextForCanaryLeak } from './canary.ts';
 import type { DetectAction, ResolvedDetect } from './detectors.ts';
 import { SYSTEM_BOUNDARY } from './egress-patterns.ts';
-import { describeError } from './error.ts';
 import { CANARY_HIT, PROMPT_ECHO_HIT } from './hits.ts';
-import { lexiconText } from './lexicon.ts';
 import { scanTextForPromptEcho } from './prompt-echo.ts';
 import { DETECT_RULES, EGRESS_RULES } from './rules.ts';
-import { textForScan } from './serialize.ts';
-import type {
-  EgressEnforcer,
-  GuardrailContext,
-  GuardrailHit,
-  OutboundPayload,
-  Severity,
-  Verdict,
-} from './types.ts';
-import { SEVERITIES } from './types.ts';
+import type { GuardrailContext, GuardrailHit } from './types.ts';
 
 /** Why a reply was withheld, for the builder (`errorInternal`); the user reads `error.safety`. */
 const WITHHELD_REASON = {
@@ -141,7 +129,7 @@ const PROMPT_LEAK_RULES = new Set<string>([
   EGRESS_RULES.providerToolLeak,
 ]);
 
-/** Whether a hit is a system-prompt leak: a hard stop under any host policy. */
+/** Whether a hit is a system-prompt leak. */
 function isPromptLeakHit(hit: GuardrailHit): boolean {
   return PROMPT_LEAK_RULES.has(hit.rule);
 }
@@ -161,134 +149,6 @@ function hitRules(hits: GuardrailHit[]): string[] {
   return [...new Set(hits.map((hit) => hit.rule))];
 }
 
-function isGuardrailHit(value: unknown): value is GuardrailHit {
-  if (
-    !isRecord(value) ||
-    typeof value.rule !== 'string' ||
-    !value.rule.trim() ||
-    !SEVERITIES.includes(value.severity as Severity)
-  ) {
-    return false;
-  }
-  for (const key of ['match', 'label', 'doc'] as const) {
-    if (value[key] !== undefined && typeof value[key] !== 'string') return false;
-  }
-  if (value.span !== undefined) {
-    if (
-      !isRecord(value.span) ||
-      typeof value.span.start !== 'number' ||
-      !Number.isFinite(value.span.start) ||
-      typeof value.span.end !== 'number' ||
-      !Number.isFinite(value.span.end)
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function isGuardrailHits(value: unknown): value is GuardrailHit[] {
-  return Array.isArray(value) && value.every(isGuardrailHit);
-}
-
-function isVerdict(value: unknown): value is Verdict {
-  if (!isRecord(value)) return false;
-  switch (value.action) {
-    case 'allow':
-      return true;
-    case 'redact':
-      return typeof value.text === 'string' && isGuardrailHits(value.hits);
-    case 'flag':
-      return isGuardrailHits(value.hits);
-    case 'block':
-      return (
-        isGuardrailHits(value.hits) &&
-        typeof value.rejection === 'string' &&
-        (value.errorInternal === undefined || typeof value.errorInternal === 'string')
-      );
-    default:
-      return false;
-  }
-}
-
-function legacyHits(value: unknown): GuardrailHit[] {
-  if (!Array.isArray(value)) {
-    return [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }];
-  }
-  const hits = value
-    .map((hit): GuardrailHit | undefined => {
-      if (typeof hit === 'string' && hit.trim()) {
-        return { rule: hit, severity: 'high' };
-      }
-      if (isRecord(hit) && typeof hit.rule === 'string' && hit.rule.trim()) {
-        const severity = SEVERITIES.includes(hit.severity as Severity)
-          ? (hit.severity as Severity)
-          : 'high';
-        return {
-          rule: hit.rule,
-          severity,
-          ...(typeof hit.label === 'string' ? { label: hit.label } : {}),
-          ...(typeof hit.doc === 'string' ? { doc: hit.doc } : {}),
-        };
-      }
-      return undefined;
-    })
-    .filter((hit): hit is GuardrailHit => Boolean(hit));
-  return hits.length ? hits : [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }];
-}
-
-function normalizeVerdict(value: unknown, context: GuardrailContext): Verdict {
-  if (isVerdict(value)) {
-    return value;
-  }
-  if (isRecord(value) && typeof value.blocked === 'boolean') {
-    if (!value.blocked) {
-      return { action: 'allow' };
-    }
-    const hits = legacyHits(value.hits);
-    const rejection =
-      typeof value.rejectionMessage === 'string' && value.rejectionMessage.trim()
-        ? value.rejectionMessage
-        : lexiconText('egress.rejection', { rules: hitRules(hits).join(', ') }, context.lexicon);
-    return { action: 'block', hits, rejection };
-  }
-  return {
-    action: 'block',
-    hits: [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }],
-    rejection: lexiconText('egress.invalid_verdict', {}, context.lexicon),
-  };
-}
-
-/** An enforce that blocks on `collect`'s hits in the reply and in any structured output. */
-function hitsEnforcer(
-  collect: (text: string, context: GuardrailContext) => GuardrailHit[],
-): (payload: OutboundPayload, context: GuardrailContext) => Verdict {
-  return (payload, context) => {
-    const hits = collect(payload.text, context);
-    if (payload.structured !== undefined) {
-      const structured = textForScan(payload.structured);
-      if (structured.unscannable) {
-        // why: Cannot inspect it, so cannot vouch for it. Fail closed.
-        hits.push({ rule: EGRESS_RULES.unscannable, severity: 'high' }); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      } else {
-        hits.push(...collect(structured.text, context));
-      }
-    }
-    if (hits.length === 0) {
-      return { action: 'allow' };
-    }
-    return {
-      action: 'block',
-      hits,
-      rejection: lexiconText(
-        'egress.rejection',
-        { rules: hitRules(hits).join(', ') },
-        context.lexicon,
-      ),
-    };
-  };
-}
-
 /**
  * The words of the canary note a turn binds, when the profile's lexicon
  * rewords it so that `SYSTEM_BOUNDARY` no longer reads them.
@@ -302,40 +162,14 @@ function boundaryNote({
   return marker && !SYSTEM_BOUNDARY.test(marker) ? marker : undefined;
 }
 
-/**
- * A policy that throws has reached no decision, so it cannot vouch for the output:
- * the failure becomes a `block`, not a pass. The turn then follows the profile's
- * ordinary `blockedReply` handling instead of surfacing a raw host stack trace. The
- * thrown message may carry host internals, so it goes to the builder only
- * (`errorInternal`); the model reads the lexicon's `egress.policy_failed`.
- */
-async function runEnforcer(
-  enforce: EgressEnforcer,
-  payload: OutboundPayload,
-  context: GuardrailContext,
-): Promise<Verdict> {
-  try {
-    return normalizeVerdict(await enforce(payload, context), context);
-  } catch (err) {
-    return {
-      action: 'block',
-      hits: [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }],
-      rejection: lexiconText('egress.policy_failed', {}, context.lexicon),
-      errorInternal: describeError(err),
-    };
-  }
-}
-
 export type { EventLeak, LeakScope };
 export {
   boundaryNote,
   eventLeak,
   eventPromptLeakHits,
   hitRules,
-  hitsEnforcer,
   isPromptLeakHit,
   promptEchoHits,
   promptLeakReason,
-  runEnforcer,
   WITHHELD_REASON,
 };

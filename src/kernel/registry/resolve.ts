@@ -222,8 +222,7 @@ function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
 }
 
 /**
- * A guarded Live profile (`egress.enforce`, or a detector reading `live_reply`)
- * always transcribes its own speech: the outbound gate can only check audio
+ * A guarded Live profile (a detector reading `live_reply`) always transcribes its own speech: the outbound gate can only check audio
  * through its transcript.
  */
 function resolveLiveSpec(

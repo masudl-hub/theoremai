@@ -22,7 +22,6 @@ function resolveGuardrailPolicy(spec: ProfileGuardrailsSpec | undefined): Resolv
     detect: resolveDetect(spec?.detect),
     allow: resolveAllow(spec?.detect),
     blockedReply: resolveBlockedReply(spec?.blockedReply),
-    egress: spec?.egress,
     network: spec?.network,
     quota: spec?.quota,
     taint: spec?.taint,

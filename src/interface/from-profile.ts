@@ -56,7 +56,6 @@ function guardrailsView(guardrails?: ProfileGuardrailsSpec): ProfileGuardrailsVi
       ungiven_links: urlAllowView(policy.allow.ungiven_links),
     },
     blockedReply: policy.blockedReply,
-    hasEgress: Boolean(policy.egress),
   };
 }
 

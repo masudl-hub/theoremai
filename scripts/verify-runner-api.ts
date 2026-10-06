@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
 
+import type { DetectSpec } from '../src/guardrails/detectors.ts';
 import type { LexiconOverrides } from '../src/guardrails/lexicon.ts';
-import type { OutboundPayload, Verdict } from '../src/guardrails/types.ts';
 import { getProfile, registerProfile, runTurn } from '../src/kernel/default-scope.ts';
 import { loadTokenEstimator } from '../src/kernel/engine/token-estimate.ts';
 import { defineProfile, type TextProfileDefinition } from '../src/kernel/registry/profiles.ts';
@@ -76,26 +76,30 @@ const COMPACT_INPUT_BEFORE_ID = '__rl_compact_input_before__';
 const OPENROUTER_VERIFY_API_ID = 'openrouter/free';
 const GEMINI_VERIFY_API_ID = 'gemini-3.1-flash-lite';
 
-function alwaysBlock(_payload: OutboundPayload): Verdict {
-  return {
-    action: 'block',
-    hits: [{ rule: 'always', severity: 'high' }],
-    rejection: 'Always blocked.',
-  };
-}
+/** A detector of the host's own that blocks any reply. */
+const ALWAYS_BLOCK: DetectSpec = {
+  'verify.always': {
+    label: 'Always',
+    at: { reply: 'block' },
+    find: (text) => (text ? [{ start: 0, end: text.length }] : []),
+  },
+};
 
 const REFUSE_USER_COPY = "I can't share that.";
 
-function blockOnMarker(payload: OutboundPayload): Verdict {
-  if (payload.text.includes('[BLOCKED_MARKER]')) {
-    return {
-      action: 'block',
-      hits: [{ rule: 'marker', severity: 'high' }],
-      rejection: '[BLOCKED_MARKER] found — rewrite without it.',
-    };
-  }
-  return { action: 'allow' };
-}
+const BLOCKED_MARKER = '[BLOCKED_MARKER]';
+
+/** A detector of the host's own that blocks a reply holding the marker. */
+const BLOCK_ON_MARKER: DetectSpec = {
+  'verify.marker': {
+    label: 'Marker',
+    at: { reply: 'block' },
+    find: (text) => {
+      const at = text.indexOf(BLOCKED_MARKER);
+      return at < 0 ? [] : [{ start: at, end: at + BLOCKED_MARKER.length }];
+    },
+  },
+};
 
 function verifyApiId(): string {
   return PROVIDER_KIND === 'gemini' ? GEMINI_VERIFY_API_ID : OPENROUTER_VERIFY_API_ID;
@@ -206,22 +210,22 @@ function registerAllProfiles(): void {
 
   simpleProfile(EXHAUST_0_ID, {
     blockedReply: { maxRetries: 0 },
-    egress: { enforce: alwaysBlock },
+    detect: ALWAYS_BLOCK,
   });
   simpleProfile(EXHAUST_1_ID, {
     blockedReply: { maxRetries: 1 },
-    egress: { enforce: alwaysBlock },
+    detect: ALWAYS_BLOCK,
   });
   simpleProfile(EXHAUST_2_ID, {
     blockedReply: { maxRetries: 2 },
-    egress: { enforce: alwaysBlock },
+    detect: ALWAYS_BLOCK,
   });
 
   simpleProfile(
     REFUSE_USER_ID,
     {
       blockedReply: { onBlock: 'refuse', maxRetries: 2 },
-      egress: { enforce: alwaysBlock },
+      detect: ALWAYS_BLOCK,
     },
     { 'egress.refusal': REFUSE_USER_COPY },
   );
@@ -230,7 +234,7 @@ function registerAllProfiles(): void {
     REPAIR_1_ID,
     {
       blockedReply: { maxRetries: 1 },
-      egress: { enforce: blockOnMarker },
+      detect: BLOCK_ON_MARKER,
     },
     {
       'egress.default_repair_guidance':

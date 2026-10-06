@@ -105,7 +105,6 @@ Deno.test('a policy resolves its detectors, what they allow and what a blocked r
   assertEquals(unset.detect, DETECT_DEFAULTS);
   assertEquals(unset.allow, NO_ALLOW);
   assertEquals(unset.blockedReply, { onBlock: 'retry', maxRetries: 1 });
-  assertEquals(unset.egress, undefined);
   assertEquals(unset.detect.marker_leak.reply, 'block');
   assertEquals(unset.detect.ungiven_images.reply, 'block');
   assertEquals(unset.detect.ungiven_links.reply, 'ignore');
@@ -126,10 +125,4 @@ Deno.test('a policy resolves its detectors, what they allow and what a blocked r
     onBlock: 'retry',
     maxRetries: 0,
   });
-
-  // A host's own enforcer is carried as given: nothing wraps it and no detector rides in it.
-  const host = () => ({ action: 'allow' as const });
-  const hosted = resolveGuardrailPolicy({ egress: { enforce: host } });
-  assertEquals(hosted.egress?.enforce, host);
-  assertEquals(hosted.detect, DETECT_DEFAULTS);
 });

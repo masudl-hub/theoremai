@@ -3,27 +3,19 @@ import type { Profile, TurnEvent } from '../kernel/types.ts';
 import { isStreamedCanaryEvent, type StreamedReplyEvent } from './canary.ts';
 import { detectEvent, leakScopeOf, scopeOf } from './detect-at.ts';
 import { readReply, replyAfter, standingBlock } from './detect-reply.ts';
-import {
-  eventLeak,
-  isPromptLeakHit,
-  promptLeakReason,
-  runEnforcer,
-  WITHHELD_REASON,
-} from './egress.ts';
-import { streamPlanOf } from './egress-stream.ts';
+import { eventLeak, isPromptLeakHit, promptLeakReason, WITHHELD_REASON } from './egress.ts';
 import type { GivenUrls } from './egress-urls.ts';
 import { TheoremError } from './error.ts';
-import { guardrailFromHits, guardrailFromVerdict, guardrailTurnEvent } from './events.ts';
+import { guardrailFromHits, guardrailTurnEvent } from './events.ts';
 import { lexiconText } from './lexicon.ts';
 import { resolveGuardrailPolicy } from './policy.ts';
 import {
   createOutboundProgressiveGate,
-  LIVE_DEFAULT_HOLDBACK,
   type ProgressiveYieldGate,
   type ProgressiveYieldResult,
 } from './progressive-yield.ts';
 import { type ThoughtGuard, type ThoughtRelease, thoughtGuardFor } from './thought-guard.ts';
-import type { GuardrailContext, GuardrailHit, ResolvedGuardrailPolicy, Verdict } from './types.ts';
+import type { GuardrailContext, GuardrailHit, ResolvedGuardrailPolicy } from './types.ts';
 
 /**
  * One piece of output not yet released: a reply-stream chunk covering
@@ -47,10 +39,7 @@ export interface LiveOutboundGateSession {
   releasedTo: number;
   /** Stop releasing held output after a progressive egress hit. */
   withholdVisible: boolean;
-  /**
-   * System-prompt leaks this cycle withheld under a host policy. They pin the
-   * cycle's final verdict to block: no host verdict may release them.
-   */
+  /** System-prompt leaks this cycle withheld. They pin the cycle's final verdict to block. */
   promptLeaks?: GuardrailHit[];
   /** Omits what in the session's thoughts leaks; carries from one cycle to the next. */
   thoughts?: ThoughtGuard;
@@ -64,22 +53,6 @@ export type LiveOutboundBatchResult =
 
 const UNTRANSCRIBED_HIT: GuardrailHit = { rule: 'live.untranscribed-audio', severity: 'high' };
 
-/**
- * The policy with Live's shorter default lookback when a host enforcer set
- * none: every held character of transcript holds its audio. An `egressPolicy`
- * holds exactly and takes no lookback.
- */
-function liveHoldback(policy: ResolvedGuardrailPolicy): ResolvedGuardrailPolicy {
-  if (
-    !policy.egress ||
-    policy.egress.holdback !== undefined ||
-    streamPlanOf(policy.egress.enforce)
-  ) {
-    return policy;
-  }
-  return { ...policy, egress: { ...policy.egress, holdback: LIVE_DEFAULT_HOLDBACK } };
-}
-
 /** The canary and the system instruction are read for only while their detectors read somewhere (`scopeOf`). */
 function createLiveOutboundGateSession(
   profile: Profile,
@@ -87,7 +60,7 @@ function createLiveOutboundGateSession(
   privateSystem?: readonly string[],
   givenUrls?: GivenUrls,
 ): LiveOutboundGateSession {
-  const policy = liveHoldback(resolveGuardrailPolicy(profile.guardrails));
+  const policy = resolveGuardrailPolicy(profile.guardrails);
   const context: GuardrailContext = {
     stage: 'live_outbound',
     trust: 'untrusted',
@@ -205,15 +178,15 @@ function applyScan(
 }
 
 /** Scan and release everything held (a non-reply event, or the end of the cycle). */
-async function flushHeld(
+function flushHeld(
   session: LiveOutboundGateSession,
   gate: ProgressiveYieldGate,
   into: TurnEvent[],
-): Promise<void> {
+): void {
   if (session.withholdVisible || session.held.length === 0) {
     return;
   }
-  applyScan(session, gate, await gate.flush(), into);
+  applyScan(session, gate, gate.flush(), into);
 }
 
 /** Media waits behind the reply before it, so speech is heard only after its transcript clears the scan. */
@@ -238,12 +211,12 @@ function coverMedia(session: LiveOutboundGateSession, end: number): void {
   }
 }
 
-async function holdStreamChunk(
+function holdStreamChunk(
   session: LiveOutboundGateSession,
   gate: ProgressiveYieldGate,
   event: StreamedReplyEvent,
   into: TurnEvent[],
-): Promise<void> {
+): void {
   const text = event.text ?? '';
   if (!text) {
     return;
@@ -251,16 +224,16 @@ async function holdStreamChunk(
   const start = gate.accumulated().length;
   coverMedia(session, start + text.length);
   session.held.push({ event, start, end: start + text.length });
-  const result = await gate.process(text);
+  const result = gate.process(text);
   // why: A withheld cycle keeps feeding the window so finalize judges the whole of it.
   if (!session.withholdVisible) applyScan(session, gate, result, into);
 }
 
 /** Passes one provider message's events through the outbound gate: reply text and audio are held until the egress checks clear them, a prompt leak or egress hit withholds, and thoughts go through the thought guard. */
-async function processLiveOutboundBatch(
+function processLiveOutboundBatch(
   session: LiveOutboundGateSession,
   events: TurnEvent[],
-): Promise<LiveOutboundBatchResult> {
+): LiveOutboundBatchResult {
   const toEmit: TurnEvent[] = [];
   const { gate } = session;
   if (!gate) {
@@ -279,7 +252,7 @@ async function processLiveOutboundBatch(
   for (const event of events) {
     if (isStreamedCanaryEvent(event)) {
       transcribed ||= Boolean(event.text);
-      await holdStreamChunk(session, gate, event, toEmit);
+      holdStreamChunk(session, gate, event, toEmit);
       continue;
     }
 
@@ -290,7 +263,7 @@ async function processLiveOutboundBatch(
       continue;
     }
 
-    await flushHeld(session, gate, toEmit);
+    flushHeld(session, gate, toEmit);
     if (isGenerationComplete(event)) {
       releaseSpoken(session, gate, toEmit);
     }
@@ -358,17 +331,16 @@ function emitOrIdle(events: TurnEvent[]): LiveOutboundBatchResult {
 }
 
 /**
- * Live has no repair loop. `guardrails.detect` reads the cycle's transcript
- * first, and a host policy judges what the detectors let through. Allow
- * releases what is still held; redact and refuse replace it with text (held
- * audio is dropped); block withholds it as a `safety` error.
+ * Live has no repair loop. `guardrails.detect` reads the cycle's whole
+ * transcript. Allow releases what is still held; redact and refuse replace it
+ * with text (held audio is dropped); block withholds it as a `safety` error.
  */
-async function finalEgressVerdict(
+function finalEgressVerdict(
   session: LiveOutboundGateSession,
   gate: ProgressiveYieldGate,
   prior: TurnEvent[],
-): Promise<LiveOutboundBatchResult> {
-  const { egress, detect, blockedReply } = session.policy;
+): LiveOutboundBatchResult {
+  const { detect, blockedReply } = session.policy;
   const read = readReply({ text: gate.accumulated() }, detect, {
     boundary: 'live_reply',
     ...(session.withholdVisible ? { reportedTo: clearedTo(gate) } : {}),
@@ -379,24 +351,15 @@ async function finalEgressVerdict(
     type: 'text',
     text: replyAfter(gate.accumulated().slice(0, session.releasedTo), text),
   });
-  // invariant: The host policy adds checks; it never releases a detector's block.
   const stopped = standingBlock(read, session.promptLeaks);
-  const verdict: Verdict = stopped
-    ? { action: 'block', hits: stopped, rejection: WITHHELD_REASON.egress }
-    : egress
-      ? await runEnforcer(egress.enforce, read.payload, session.context)
-      : { action: 'allow' };
   // why: A detector's block is reported by its own event, which names the boundary.
   const judged =
-    stopped && stopped === read.blocked
-      ? undefined
-      : guardrailFromVerdict('live_outbound', 'untrusted', verdict);
+    stopped && stopped !== read.blocked
+      ? guardrailFromHits('live_outbound', 'untrusted', stopped, 'block')
+      : undefined;
   const events = [...prior, ...read.events.map(guardrailTurnEvent), ...(judged ? [judged] : [])];
 
-  if (verdict.action === 'redact') {
-    return { action: 'emit', events: [...events, replacement(verdict.text)] };
-  }
-  if (verdict.action === 'block') {
+  if (stopped) {
     // why: Live never rewrites: audio already spoken cannot be taken back for another try.
     if (blockedReply.onBlock === 'refuse') {
       const text = lexiconText('egress.refusal', {}, session.context.lexicon);
@@ -428,27 +391,25 @@ function dropUntranscribed(session: LiveOutboundGateSession, events: TurnEvent[]
   return guardrail ? [...events, guardrail] : events;
 }
 
-async function finalizeCycle(
+function finalizeCycle(
   session: LiveOutboundGateSession,
   gate: ProgressiveYieldGate,
-): Promise<LiveOutboundBatchResult> {
+): LiveOutboundBatchResult {
   const events: TurnEvent[] = [];
-  await flushHeld(session, gate, events);
+  flushHeld(session, gate, events);
   if (!gate.accumulated()) {
     return emitOrIdle(dropUntranscribed(session, events));
   }
-  return await finalEgressVerdict(session, gate, events);
+  return finalEgressVerdict(session, gate, events);
 }
 
 /** Call once after the provider has finished the cycle; it also starts the next one. */
-async function finalizeLiveOutboundTurn(
-  session: LiveOutboundGateSession,
-): Promise<LiveOutboundBatchResult> {
+function finalizeLiveOutboundTurn(session: LiveOutboundGateSession): LiveOutboundBatchResult {
   const thought = session.thoughts
     ? thoughtEvents(session.thoughts.flush(), { type: 'thought', text: '' })
     : [];
   if (!session.gate) return emitOrIdle(thought);
-  const result = await finalizeCycle(session, session.gate);
+  const result = finalizeCycle(session, session.gate);
   resetCycle(session);
   if (thought.length === 0) return result;
   if (result.action === 'idle') return { action: 'emit', events: thought };

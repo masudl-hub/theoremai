@@ -42,7 +42,7 @@ Deno.test('forClient strips errorInternal from guardrail events', () => {
       stage: 'output_final',
       trust: 'untrusted',
       action: 'block',
-      hits: [{ rule: 'egress.enforcer-error', severity: 'high' }],
+      hits: [{ rule: 'detect.acme.classifier', severity: 'high' }],
       errorInternal: 'classifier at 10.0.0.7 unreachable',
     },
   };

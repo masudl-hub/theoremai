@@ -318,10 +318,7 @@ const graph = {
           ],
           sections: ['Egress'],
         },
-        {
-          paths: ['src/guardrails/egress-policy.ts', 'src/guardrails/egress-rules.ts'],
-          sections: ['Host egress rules'],
-        },
+        { paths: ['src/guardrails/host-patterns.ts'], sections: ['Whose patterns'] },
       ],
     },
 
@@ -329,12 +326,12 @@ const graph = {
       export: './guardrails/compile',
       doc: 'docs/contracts/guardrails.md',
       owns: ['src/guardrails/compile-egress.ts', 'src/guardrails/egress-compiler.ts'],
-      validates: ['tests/guardrails/egress-policy.test.ts', 'tests/guardrails/egress-stream.test.ts'],
-      required_sections: ['Export', 'Host egress rules', 'Exported API'],
+      validates: ['tests/guardrails/host-pattern-holds.test.ts', 'tests/guardrails/egress-stream.test.ts'],
+      required_sections: ['Export', 'Whose patterns', 'Exported API'],
       section_triggers: [
         {
           paths: ['src/guardrails/compile-egress.ts', 'src/guardrails/egress-compiler.ts'],
-          sections: ['Host egress rules'],
+          sections: ['Whose patterns'],
         },
       ],
     },

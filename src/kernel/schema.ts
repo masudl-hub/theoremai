@@ -1044,7 +1044,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'live.transcription.input': field('boolean', "Whether the user's speech is transcribed."),
   'live.transcription.output': field(
     'boolean',
-    "Whether the model's speech is transcribed; always on while the canary, egress.enforce or a detector at live_reply is, since they read the transcript.",
+    "Whether the model's speech is transcribed; always on while a detector reads live_reply, since it reads the transcript.",
   ),
   'outputs.validation': field(
     'ProfileValidationSpec',
@@ -1128,7 +1128,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ...detectFields(),
   'guardrails.blockedReply': field(
     'BlockedReplySpec',
-    'What happens once a detector or your own egress.enforce blocks the reply.',
+    'What happens once a detector blocks the reply.',
   ),
   'guardrails.blockedReply.onBlock': field(
     unionType(BLOCKED_REPLY_ON_BLOCK),
@@ -1143,18 +1143,6 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'guardrails.blockedReply.maxRetries': field(
     'number',
     'How many times the model may rewrite a blocked reply. Live ignores it.',
-  ),
-  'guardrails.egress': field(
-    'ProfileEgressSpec',
-    'Your own check on the reply before the user sees it, run beside the detectors.',
-  ),
-  'guardrails.egress.enforce': field(
-    'EgressEnforcer',
-    'Your own check on the reply, run as it streams and when it ends. Return allow, flag (log only), redact (your text replaces what is not yet shown) or block (see blockedReply); a block or redact holds the rest of the stream, and a throw counts as a block.',
-  ),
-  'guardrails.egress.holdback': field(
-    'number',
-    'How many characters the stream holds back so your own enforce can catch text split across chunks (default 256; 96 on Live). Only for your own enforce: an egressPolicy holds exactly what it needs, and setting it with one is refused.',
   ),
   'guardrails.network': field(
     'NetworkGuardrailSpec',

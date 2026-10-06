@@ -8,29 +8,10 @@ import {
 import { type Detection, type DetectScope, detectReads, scopeOf } from './detect-at.ts';
 import { createDetectStream } from './detect-stream.ts';
 import type { DetectAction, ResolvedDetect } from './detectors.ts';
-import { promptEchoHits, runEnforcer } from './egress.ts';
-import { type EgressStream, type EgressStreamHit, streamPlanOf } from './egress-stream.ts';
-import { TheoremError } from './error.ts';
+import { promptEchoHits } from './egress.ts';
 import { CANARY_HIT } from './hits.ts';
 import { promptEchoHoldFrom, promptEchoScanFrom } from './prompt-echo.ts';
-import { EGRESS_RULES } from './rules.ts';
-import type {
-  EgressEnforcer,
-  GuardrailContext,
-  GuardrailHit,
-  ResolvedGuardrailPolicy,
-} from './types.ts';
-
-/** Default lookback under a host `egress.enforce` the gate cannot read. */
-const DEFAULT_HOLDBACK = 256;
-/**
- * Default lookback on Live under a host policy the gate cannot read, where the
- * held transcript holds back audio too: the shortest that shows the host no
- * character of any egress corpus match however the transcript is chunked
- * (88), with a margin.
- */
-const LIVE_DEFAULT_HOLDBACK = 96;
-const PEM_BEGIN = '-----BEGIN';
+import type { GuardrailContext, GuardrailHit, ResolvedGuardrailPolicy } from './types.ts';
 
 /** A reply boundary the gate reads as the reply streams. */
 export type ReplyBoundary = Extract<Boundary, 'reply' | 'live_reply'>;
@@ -50,12 +31,10 @@ export type ProgressiveYieldBlocked = {
 /** What one step of the progressive gate returns: the text to emit, or the hits that block the reply. */
 export type ProgressiveYieldResult = ProgressiveYieldOk | ProgressiveYieldBlocked;
 
-/** Settings for the progressive gate: the guardrail context, an optional egress policy to enforce on the held window, and the holdback and other lookback it keeps. */
+/** Settings for the progressive gate: the guardrail context, the detectors it reads with, and the carry from the window before. */
 export interface ProgressiveYieldGateOptions {
   /** Also carries the turn canary. */
   context: GuardrailContext;
-  /** When set, each step runs this policy on the accumulated window before emit. */
-  enforce?: EgressEnforcer;
   /**
    * `guardrails.detect` and the reply boundary this gate stands at. With
    * `rewrite`, a match set to `redact` is replaced as the text is released;
@@ -70,13 +49,6 @@ export interface ProgressiveYieldGateOptions {
     scope?: DetectScope;
   };
   /**
-   * Lookback in characters under an `enforce` the gate cannot read (default
-   * `DEFAULT_HOLDBACK`). An `egressPolicy` holds exactly and takes none: it
-   * is an error to set one with it. A tail that could start a canary leak is
-   * always held on top.
-   */
-  holdback?: number;
-  /**
    * Text an earlier window of the same canary ended on that could still open a
    * leak (`promptLeakCarry`). It is scanned in front of this window, never released
    * again, so a token split across steps or cycles is still one match.
@@ -89,8 +61,8 @@ export interface ProgressiveYieldGateOptions {
  * prefixes outside its retained lookback window.
  */
 interface ProgressiveYieldGate {
-  process: (fragment: string) => Promise<ProgressiveYieldResult>;
-  flush: () => Promise<ProgressiveYieldResult>;
+  process: (fragment: string) => ProgressiveYieldResult;
+  flush: () => ProgressiveYieldResult;
   /** Full window inspected so far (for end-of-attempt egress / repair). */
   accumulated: () => string;
   /** Lookback tail not yet released to the host. Peek only. */
@@ -107,62 +79,13 @@ interface ProgressiveYieldGate {
   carryOut: () => string;
 }
 
-/**
- * Fixed lookback for a host policy the gate cannot read: `holdback`, or
- * `DEFAULT_HOLDBACK`. The detectors and an `egressPolicy` need none: each
- * holds exactly the tail that could still start a match.
- */
-function resolveHoldback(options: ProgressiveYieldGateOptions, exact: boolean): number {
-  if (exact) {
-    if (options.holdback !== undefined) {
-      throw new TheoremError(
-        'config',
-        'holdback applies only to a host egress.enforce; an egressPolicy holds exactly', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
-    return 0;
-  }
-  return options.holdback ?? (options.enforce ? DEFAULT_HOLDBACK : 0);
-}
-
-function holdbackForWindow(window: string, base: number): number {
-  // why: Incomplete PEM bodies can be large; do not release past BEGIN until END/flush.
-  const begin = window.lastIndexOf(PEM_BEGIN);
-  if (begin < 0) return base;
-  const fromBegin = window.slice(begin);
-  if (/-----END (?:RSA )?PRIVATE KEY-----/.test(fromBegin)) return base;
-  return Math.max(base, window.length - begin);
-}
-
-/**
- * The verdict for a match the stream settled: the policy's own, run on the
- * window. The stream only ever settles a match the policy finds, so a policy
- * that does not block here is out of step with it: blocked anyway.
- */
-async function streamHitVerdict(
-  enforce: EgressEnforcer,
-  hit: EgressStreamHit,
-  window: string,
-  context: GuardrailContext,
-): Promise<GuardrailHit[]> {
-  const verdict = await runEnforcer(enforce, { text: window }, context);
-  if ((verdict.action === 'block' || verdict.action === 'redact') && verdict.hits.length > 0) {
-    return verdict.hits;
-  }
-  return [{ rule: hit.rule, severity: hit.severity }];
-}
-
 /** Call `flush` when the stream ends to release the held tail. */
 function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): ProgressiveYieldGate {
   const { context } = options;
-  const stream: EgressStream | undefined = options.enforce
-    ? streamPlanOf(options.enforce)?.(context)
-    : undefined;
   const reads = options.detect;
   const detecting = reads
     ? createDetectStream(reads.boundary, reads.matrix, reads.scope)
     : undefined;
-  const baseHoldback = resolveHoldback(options, stream !== undefined);
   /** What a match of one of ours does at this gate's boundary. A gate given no matrix stops on it. */
   const ours = (detector: 'canary_leak' | 'prompt_leak'): DetectAction =>
     reads ? reads.matrix[detector][reads.boundary] : 'block';
@@ -228,46 +151,12 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     return found.filter(([action]) => action !== 'flag').map(([, hit]) => hit);
   }
 
-  /**
-   * The host policy's hits on the window. The bundled policy reads only the
-   * new fragment (`egress-stream.ts`) and runs whole only when a match
-   * settles; a policy the gate cannot read runs whole at every step. At the
-   * end (`fragment` unset) every policy runs whole.
-   */
-  async function policyHits(window: string, fragment?: string): Promise<GuardrailHit[] | null> {
-    if (!options.enforce) {
-      return null;
-    }
-    if (stream && fragment !== undefined) {
-      const [hit] = stream.push(fragment);
-      return hit ? await streamHitVerdict(options.enforce, hit, window, context) : null;
-    }
-    // why: Mid-stream the gate can only release or stop: emitted prefixes cannot be
-    // rewritten, so `redact` stops here and end-of-attempt egress applies the
-    // full verdict. `flag` is advisory and keeps the stream flowing.
-    const verdict = await runEnforcer(options.enforce, { text: window }, context);
-    if (verdict.action === 'block' || verdict.action === 'redact') {
-      return verdict.hits.length > 0
-        ? verdict.hits
-        : [{ rule: EGRESS_RULES.blocked, severity: 'high' }];
-    }
-    return null;
-  }
-
-  /** What stops the reply at this step: a leak of ours, read at the gate's boundary, or the host policy's hits. */
-  async function scan(
-    window: string,
-    fragment?: string,
-  ): Promise<Pick<ProgressiveYieldBlocked, 'hits' | 'boundary'> | null> {
-    // invariant: The detectors of what is ours run under a host policy too: it adds
-    // checks, it never replaces these (the guardrail invariant).
+  /** What stops the reply at this step: a leak of ours, read at the gate's boundary. */
+  function scan(fragment?: string): Pick<ProgressiveYieldBlocked, 'hits' | 'boundary'> | null {
     const leaks = guarded ? leakStops(fragment ?? '') : [];
     if (fragment) detecting?.push(fragment);
-    if (leaks.length > 0) {
-      return { hits: leaks, ...(reads ? { boundary: reads.boundary } : {}) };
-    }
-    const hits = await policyHits(window, fragment);
-    return hits ? { hits } : null;
+    if (leaks.length === 0) return null;
+    return { hits: leaks, ...(reads ? { boundary: reads.boundary } : {}) };
   }
 
   /**
@@ -322,24 +211,15 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     );
   }
 
-  /** Where the host policy holds from: exactly for the bundled one, a fixed lookback otherwise. */
-  function policyHoldFrom(): number {
-    if (stream) {
-      return stream.holdFrom();
-    }
-    const hold = options.enforce ? holdbackForWindow(accumulated, baseHoldback) : baseHoldback;
-    return accumulated.length - hold;
-  }
-
-  async function release(fragment?: string): Promise<ProgressiveYieldResult> {
-    const stop = await scan(accumulated, fragment);
+  function release(fragment?: string): ProgressiveYieldResult {
+    const stop = scan(fragment);
     if (stop) {
       return { blocked: true, ...stop };
     }
     const ended = fragment === undefined;
     const end = ended
       ? accumulated.length
-      : Math.min(leakHoldFrom(), policyHoldFrom(), detecting?.holdFrom() ?? accumulated.length);
+      : Math.min(leakHoldFrom(), detecting?.holdFrom() ?? accumulated.length);
     const length = Math.max(0, end - emitted);
     if (!(reads && detecting)) {
       return withNoted({ blocked: false, emit: take(length) });
@@ -366,18 +246,16 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
   }
 
   return {
-    async process(fragment: string) {
+    process(fragment: string) {
       if (!fragment) {
         return { blocked: false, emit: '' };
       }
       accumulated += fragment;
       held += fragment;
       if (guarded) opening += fragment;
-      return await release(fragment);
+      return release(fragment);
     },
-    async flush() {
-      return await release();
-    },
+    flush: () => release(),
     accumulated: () => accumulated,
     unreleased: () => held,
     drainUnreleased: () => take(held.length),
@@ -387,21 +265,21 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
 
 /**
  * Whether a reply read at `boundaries` gets a verdict once it has ended: a
- * host policy runs, or a detector reads one of them. A gate that stops such a
- * reply withholds it for that verdict.
+ * detector reads one of them. A gate that stops such a reply withholds it for
+ * that verdict.
  */
 function replyIsJudged(
   policy: ResolvedGuardrailPolicy,
   boundaries: readonly Boundary[],
   scope?: DetectScope,
 ): boolean {
-  return policy.egress?.enforce !== undefined || detectReads(boundaries, policy.detect, scope);
+  return detectReads(boundaries, policy.detect, scope);
 }
 
 /**
- * Shared constructor for runTurn + Live: a gate when `egress.enforce` runs or a
- * detector reads `boundary`. `context.canary` is set only while `canary_leak`
- * is above `ignore` somewhere, and `context.privateSystem` while `prompt_leak` is.
+ * Shared constructor for runTurn + Live: a gate when a detector reads
+ * `boundary`. `context.canary` is set only while `canary_leak` is above
+ * `ignore` somewhere, and `context.privateSystem` while `prompt_leak` is.
  */
 function createOutboundProgressiveGate(
   policy: ResolvedGuardrailPolicy,
@@ -409,7 +287,6 @@ function createOutboundProgressiveGate(
   boundary: ReplyBoundary,
   carry?: string,
 ): ProgressiveYieldGate | null {
-  const egress = policy.egress;
   if (!replyIsJudged(policy, [boundary], context)) {
     return null;
   }
@@ -421,17 +298,9 @@ function createOutboundProgressiveGate(
       rewrite: boundary === 'reply',
       scope: scopeOf(policy, context),
     },
-    ...(egress?.enforce ? { enforce: egress.enforce } : {}),
-    ...(egress?.holdback === undefined ? {} : { holdback: egress.holdback }),
     ...(carry ? { carry } : {}),
   });
 }
 
 export type { ProgressiveYieldGate };
-export {
-  createOutboundProgressiveGate,
-  createProgressiveYieldGate,
-  DEFAULT_HOLDBACK,
-  LIVE_DEFAULT_HOLDBACK,
-  replyIsJudged,
-};
+export { createOutboundProgressiveGate, createProgressiveYieldGate, replyIsJudged };

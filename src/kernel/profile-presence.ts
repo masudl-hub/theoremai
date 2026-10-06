@@ -86,9 +86,6 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'guardrails.blockedReply': { unset: 'One rewrite' },
   'guardrails.blockedReply.onBlock': { unset: 'retry' },
   'guardrails.blockedReply.maxRetries': { unset: '1' },
-  'guardrails.egress': { unset: 'No check of your own' },
-  'guardrails.egress.enforce': { required: true },
-  'guardrails.egress.holdback': { unset: '256; 96 on Live' },
   'guardrails.network.allowPrivateNetworks': { unset: 'Off' },
   'guardrails.network.allowedHosts': { unset: 'None' },
   'guardrails.network.allowedSchemes': {
@@ -143,6 +140,6 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'live.contextCompression.slidingWindow.targetTokens': { unset: 'Provider default' },
   'live.transcription.input': { unset: 'Off' },
   'live.transcription.output': {
-    unset: 'Off; on with the canary, egress.enforce or a detector at live_reply',
+    unset: 'Off; on with a detector at live_reply',
   },
 };

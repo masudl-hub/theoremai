@@ -221,10 +221,6 @@ export const API_EXPORTS = {
     kind: 'function',
     doc: 'Removes every replacement that overrideLexicon made.',
   },
-  egressPolicy: {
-    kind: 'function',
-    doc: 'Builds an outbound check from your block rules, held as exactly as the bundled checks.',
-  },
   TheoremError: {
     kind: 'class',
     doc: 'The error Theorem throws; its kind tells your host which status and wording to use.',

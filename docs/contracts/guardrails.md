@@ -73,7 +73,7 @@ Owns every module under `src/guardrails/`.
 | `prompt-echo.ts` | System-prompt echo scan: 12 consecutive prompt words in a reply are a leak, also backwards, in rot13 or in leetspeak |
 | `canary-gate.ts` | Canary-only batch helper (`createCanaryGateSession`) |
 | `live-outbound-gate.ts` | Live outbound progressive-yield (canary + egress hold; audio streams once its message's transcript clears) |
-| `progressive-yield.ts` | Streaming gate for the detectors and egress: exact hold for the detectors and an `egressPolicy`, fixed lookback for a host enforce |
+| `progressive-yield.ts` | Streaming gate for a reply: exact hold for the detectors and a host's patterns, a fixed tail for a host's `find` |
 | `detectors.ts` | `DETECTORS`, each one's declaration and defaults, `resolveDetect`, `resolveAllow` |
 | `detect-reply.ts` | `readReply` — a reply read whole at its boundaries when the attempt ends |
 | `detect-stream.ts` | A reply read as it streams: what is released, replaced or held |
@@ -82,12 +82,10 @@ Owns every module under `src/guardrails/`.
 | `egress-urls.ts` | Reply images and links read as a renderer reads them, and whether each URL leaks (`givenUrls`, reserved hosts, a detector's `allow.hosts`) |
 | `thought-guard.ts` | Thought text released as it clears, each leak (image, link, canary, prompt echo, boundary marker) omitted |
 | `egress-automata.ts` | Generated (`scripts/gen-egress-automata.ts`): reversed injection patterns and each pattern's superset automaton |
-| `egress-stream.ts` | The detectors and host rules read incrementally: where a match could still start, and its settled hits |
-| `egress-rules.ts` | Host egress rule shape, the compiled table's shape, rule checks |
-| `egress-policy.ts` | `egressPolicy` — host rules, held exactly |
+| `egress-stream.ts` | The detectors and a host's patterns read incrementally: where a match could still start, and its settled hits |
 | `host-patterns.ts` | A host's own patterns: `HostPattern`, its checks, the matchers it runs as and the shape of its compiled table |
-| `compile-egress.ts` | `@theoremjs/agents/guardrails/compile` entry: `compileDetect`, `compilePatterns`, `compileDetectTables`, `compiledDetectModule`, `compileEgressRules`, `compiledEgressModule` |
-| `egress-compiler.ts` | Compiler from regexes to hold automata (`compileDetect`, `agents detect-compile`, `agents egress-compile`, `scripts/gen-egress-automata.ts`) |
+| `compile-egress.ts` | `@theoremjs/agents/guardrails/compile` entry: `compileDetect`, `compilePatterns`, `compileDetectTables`, `compiledDetectModule` |
+| `egress-compiler.ts` | Compiler from regexes to hold automata (`compileDetect`, `agents detect-compile`, `scripts/gen-egress-automata.ts`) |
 | `corpus/` | Adversarial bank (live attacks, inbound fuzz, canary egress catalog) |
 | `testing.ts` | Test-only re-exports (`@theoremjs/agents/guardrails/testing`) |
 | `normalize.ts` | Detection normalization |
@@ -131,40 +129,30 @@ What Theorem reads in a reply is `guardrails.detect` (see [Detect](#detect)):
 the canary, the system instruction, the kernel's markers, and images and links
 to addresses the model was not given are detectors like any other, each with an
 action at `reply`, `reply_structured`, `live_reply` and `thought`.
-`guardrails.egress` is the host's own check beside them, and
-`guardrails.blockedReply` is what happens to a reply either one stops:
+A host's own check of a reply is a detector too (see
+[Detectors of your own](#detectors-of-your-own)), and
+`guardrails.blockedReply` is what happens to a reply any detector stops:
 
 ```ts
 guardrails: {
   detect: { ungiven_links: 'block' },
   blockedReply: { onBlock: 'refuse' },
-  egress: { enforce: myPolicy },
 }
 ```
 
-`guardrails.egress` takes `enforce` (required) and `holdback`, and nothing
-else. The detectors read the reply first; `enforce` judges it as they left it,
-and no verdict of its own, not even `allow`, releases a reply a detector
-blocked.
+`guardrails` takes `quota`, `detect`, `blockedReply`, `network` and `taint`.
+`defineProfile` rejects any other key, `egress` among them.
 
-An enforcer receives the projected `OutboundPayload` and a `GuardrailContext`, and
-returns a `Verdict`:
+When an attempt ends, the reply is read whole (`OutboundPayload`: its text and
+any structured output) and the read comes to a `Verdict`:
 
 ```ts
-type EgressEnforcer = (
-  payload: OutboundPayload,      // { text, structured? }
-  context: GuardrailContext,     // { stage, trust, profileId, canary?, canaryGiven?, role?, slots?, givenUrls? }
-) => Verdict | Promise<Verdict>;
-
 type Verdict =
   | { action: 'allow' }
   | { action: 'redact'; text: string; hits: GuardrailHit[] }
   | { action: 'flag'; hits: GuardrailHit[] }
   | { action: 'block'; hits: GuardrailHit[]; rejection: string; errorInternal?: string };
 ```
-
-`Verdict` is a discriminated union, so adding a variant fails every unhandled
-`switch` at compile time rather than falling through at runtime.
 
 | Action | Effect at end of attempt |
 | --- | --- |
@@ -175,16 +163,15 @@ type Verdict =
 
 ### Blocked reply
 
-`guardrails.blockedReply` sets what happens to a reply a detector or the host
-policy blocks:
+`guardrails.blockedReply` sets what happens to a reply a detector blocks:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `onBlock` | `retry` | `retry` hands the reply and the reason back to the model, which writes another; `refuse` gives the person the lexicon's `egress.refusal` in its place |
 | `maxRetries` | `1` | How many rewrites `retry` allows. When they are spent, or at `0`, the turn ends withheld |
 
-The reason the model reads on a rewrite is `verdict.rejection`; for a
-detector's block it is the lexicon's `egress.rejection`, naming the rules. A
+The reason the model reads on a rewrite is the lexicon's `egress.rejection`,
+naming the rules. A
 Live reply is never rewritten, since audio already spoken cannot be taken
 back: `retry` withholds the rest of the cycle and `refuse` says the refusal.
 `outputs.validation.maxRetries` is a separate count, for a reply that fails
@@ -192,7 +179,7 @@ validation. `defineProfile` rejects a setting `blockedReply` does not have, an
 `onBlock` that is neither value, and a `maxRetries` that is not a non-negative
 integer.
 
-The policy decides; it never writes what the user reads. The refusal is the
+A detector decides; it never writes what the user reads. The refusal is the
 lexicon's `egress.refusal`, which the profile's `lexicon` can replace.
 
 A turn the egress gate withholds or answers with refusal copy ends with stop
@@ -217,15 +204,16 @@ interface GuardrailHit {
 ```
 
 **`payload.structured` is inspected alongside `payload.text`**, by the
-detectors at `reply_structured` and then by the host policy, so a profile with
-`outputs.structured` is covered — structured events are held until the gate
-runs rather than streaming ahead of it.
+detectors at `reply_structured`, so a profile with `outputs.structured` is
+covered — structured events are held until the gate runs rather than streaming
+ahead of it. A detector of the host's own reads structured output only when it
+names `reply_structured`.
 
 Non-text payloads are flattened by `textForScan`, which never throws: cycles
 collapse to `[circular]` and bigints render as digits, so an unserializable object
 is still inspected rather than aborting the turn. A payload that still cannot be
 rendered — a throwing `toJSON`, say — yields an `egress.unscannable` hit and the
-policy **fails closed**, because output that could not be inspected cannot be
+gate **fails closed**, because output that could not be inspected cannot be
 vouched for.
 
 ### Markers, images and links
@@ -328,67 +316,6 @@ Not covered:
 
 A thought is read by the same detectors, each at its `thought` action (see below).
 
-### Host egress rules
-
-`egressPolicy` blocks on host regexes with the same exact hold the detectors
-get, so a host rule does not fall back to the fixed lookback:
-
-```ts
-// acme-egress.ts
-export const rules: EgressRule[] = [
-  { rule: 'acme.account-number', pattern: /ACCT-\d{6,10}\b/ },
-  { rule: 'acme.codename', pattern: /\bproject nightjar\b/i, severity: 'medium' },
-];
-```
-
-```sh
-agents egress-compile ./acme-egress.ts --out ./acme-egress.compiled.ts
-```
-
-```ts
-import { egressPolicy } from '@theoremjs/agents/guardrails';
-import { rules } from './acme-egress.ts';
-import { compiledEgressRules } from './acme-egress.compiled.ts';
-
-guardrails: { egress: { enforce: egressPolicy({ rules, compiled: compiledEgressRules }) } }
-```
-
-- Each match of a rule is a hit under its `rule` id, `severity` default `high`;
-  an empty match is not. Host rules read the reply as written (and structured
-  output flattened by `textForScan`), not the rewrites the detectors' patterns read.
-- It runs the host rules only. The detectors run beside it, each at the action
-  `guardrails.detect` sets.
-- The compiler turns each regex into an automaton the way the detectors' patterns
-  are (lookbehinds and anchors dropped, lookaheads skipped or read, repeats
-  over 256 unbounded, an opening repeat of one character class kept out, an
-  inline modifier's flags set on the whole pattern; see
-  [Egress](#egress)). `regexpp`
-  reads the pattern, so current syntax (inline modifiers, repeated group names)
-  compiles; `refa` builds the automaton. That takes time a cold start cannot
-  spare, so it is a build step: `@theoremjs/agents/guardrails/compile` is the
-  only entry that imports either, `agents egress-compile` loads it only when
-  run, and `egressPolicy` only loads the table.
-- Rule ids must be non-empty and distinct, and may not start with `egress.`
-  (the kernel's). A sticky (`y`) pattern is rejected. A backreference to
-  text that varies has no automaton, so compiling it fails.
-- `egressPolicy` throws a config error when the table was compiled from other
-  rules or by another compiler version: compile again after changing a rule.
-- `egress.holdback` does not apply: setting it beside an `egressPolicy` is a
-  profile error.
-
-### When a policy fails
-
-A host `enforce` that throws or rejects has reached no decision, so it cannot vouch
-for the output. `runEnforcer` wraps every call site — end-of-attempt, mid-stream, and
-Live — and converts the failure into a `block` carrying `egress.enforcer-error`. The
-turn then follows the profile's ordinary `blockedReply` handling instead of surfacing a
-raw host stack trace, and the failure never becomes a silent pass. The user reads
-only lexicon wording, and so does the model: its repair turn gets
-`egress.policy_failed`, never the thrown message. That message may carry host
-internals, so it goes to the builder only, as the verdict's `errorInternal`. It
-rides the `guardrail` event on the host stream and the trace's `theorem.guardrail`
-event (`error`, content-gated), and `forClient` strips it.
-
 ### Nothing is dropped silently
 
 Progressive yield decides on a partial window; the end-of-attempt gate decides on the
@@ -397,10 +324,6 @@ verdict passes, the withheld text is released rather than discarded — the runn
 records that it withheld (`state.withheldVisible`) so the attempt gate knows nothing
 reached the host. Text is recorded exactly once: taking the withheld tail advances the
 release cursor (`drainUnreleased`), so a later flush cannot re-record the same range.
-
-Mid-stream, progressive yield can only release or stop: emitted prefixes cannot be
-rewritten, so `redact` stops the stream and the full verdict applies at
-end-of-attempt. `flag` is advisory and keeps the stream flowing.
 
 Outbound streaming uses **progressive yield** (`createProgressiveYieldGate` /
 `createOutboundProgressiveGate`): cleared prefixes release while a lookback
@@ -442,7 +365,7 @@ scan cannot read: arbitrary ciphers and arithmetic (a Caesar shift, the token
 as one big number, base64 of an already transformed token), and a token spread
 one character per sentence.
 
-For the detectors and an `egressPolicy` the gate holds exactly what could
+For the detectors and a host's patterns the gate holds exactly what could
 still become a match (`egress-stream.ts`). Each detector regex is compiled
 ahead of time (`scripts/gen-egress-automata.ts`, checked in as
 `egress-automata.ts`) into an automaton that accepts every match of it and
@@ -468,29 +391,27 @@ action at the boundary. Ordinary prose streams at
 once; a blocked match has shown the host none of its characters, however long
 and however chunked, including a match padded past any fixed window. Each
 character is read once per view, so the cost grows with the reply, not its
-square. `egress.holdback` does not apply to either.
+square.
 
-A host `enforce` the gate cannot read keeps a fixed lookback: `egress.holdback`
-characters (default `DEFAULT_HOLDBACK`, 256; on Live `LIVE_DEFAULT_HOLDBACK`,
-96, since held transcript holds its audio too), plus any incomplete PEM body
-until its END line, and the enforcer reruns on the whole window at every step.
+A host's `find` cannot say where a match might still start, so the gate keeps
+a fixed tail for it: `HOST_FIND_HOLD` characters (256; on Live
+`HOST_FIND_HOLD_LIVE`, 96, since held transcript holds its audio too), and
+`find` reads the reply again each time text comes up for release. Text shorter
+than the tail is read when the attempt ends.
 `redactCanary` and the trace and upstream-tape scrubbers replace every form the
 scan detects. A window that ends on a possible leak opening of any length
 carries it (`canaryCarry`) into the next window of the same canary — the next provider
 call of a `runTurn`, the next Live cycle — so a token split across tool steps
 or cycles is one match: the turn or session ends when it completes, and only
-the chunks before the completing one were released. `defineProfile` rejects a
-`holdback` that is not a non-negative integer, and a `holdback`
-with an `egressPolicy`. The same constructor backs `runTurn` and
+the chunks before the completing one were released. The same constructor backs
+`runTurn` and
 Live (`processLiveOutboundBatch`). The detectors of what is the profile's own
 (`canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`,
-`ungiven_links`) read every window under any policy, each at the
+`ungiven_links`) read every window, each at the
 action `guardrails.detect` gives it for the boundary: `ignore` is not read,
 `flag` is reported once and shown, `redact` and `block` hold the rest of the
-reply and the end of the attempt replaces the match or stops the reply. A host
-policy is authoritative for its own rules only: no host verdict, not even
-`allow`, releases a leak a detector stops, and a leak the end-of-attempt read
-cannot place still stops the reply. A model's tool call is read at
+reply and the end of the attempt replaces the match or stops the reply. A leak
+the end-of-attempt read cannot place still stops the reply. A model's tool call is read at
 `tool_arguments` (default: the canary refuses the call, the prompt is
 flagged), and structured output at `reply_structured`. Any other event
 carrying a leak follows the reply's action, where `redact` stops the turn as
@@ -508,9 +429,9 @@ the rest as it clears — in `runTurn` and Live alike:
 
 | Leak | Guarded when | Placeholder (lexicon key) |
 | --- | --- | --- |
-| Image | the egress policy's `images` check is on | `thought.omitted_image` |
-| Link | the egress policy's `links` check is on | `thought.omitted_link` |
-| Boundary marker | the egress policy's `boundary` check is on | `thought.omitted_instructions` |
+| Image | `ungiven_images` is above `ignore` at `thought` | `thought.omitted_image` |
+| Link | `ungiven_links` is above `ignore` at `thought` | `thought.omitted_link` |
+| Boundary marker | `marker_leak` is above `ignore` at `thought` | `thought.omitted_instructions` |
 | Canary, prompt echo | `canary_leak` / `prompt_leak` is above `ignore` at `thought` | `thought.omitted_instructions` |
 
 Each omission reports a `guardrail` event at stage `thought`, action `redact`,
@@ -521,9 +442,7 @@ thought. A leak still growing at the end of a chunk
 is held until it ends, so a canary split across chunks loses all of it. The
 canary and echo carry across provider calls and Live cycles, so a leak a
 thought starts in one call and ends in the next is still omitted. A thought
-still writing leaks past the sixteenth loses the rest. A host `enforce` the
-kernel cannot read the checks of gets the canary and echo guard alone; one
-built with `egressPolicy` gets its own checks.
+still writing leaks past the sixteenth loses the rest.
 
 **Live speech is guarded like text.** In Live the reply stream is text deltas
 and the spoken reply's transcript (`output_transcription` evidence); both run
@@ -539,22 +458,22 @@ the transcript is whole, so the audio after its last chunk goes then. Audio
 released before a later hit is not recalled — as with text, the gate withholds
 from the hit onward, and an interruption drops only what is still held. Reply
 text before the first audio streams as it clears (canary-only, only a tail that
-could start a leak waits; for the detectors and an `egressPolicy`, only what could still
-become a match; under a host enforce, up to `egress.holdback` characters, 96
-by default on Live).
+could start a leak waits; for the detectors and a host's patterns, only what could still
+become a match; under a host's `find`, `HOST_FIND_HOLD_LIVE` characters).
 Audio in a cycle that produced no transcript is dropped with a
 `live.untranscribed-audio` guardrail event. A guarded profile (a detector
-above `ignore` at `live_reply`, or `egress.enforce`) always requests the output transcript:
+above `ignore` at `live_reply`) always requests the output transcript:
 `resolveTurn` forces `live.transcription.output` on. Any
 other event (tool call, `turn_complete`, …) goes at once, after the reply held
 before it; audio still waiting for its cover stays held. The window spans one conversational cycle: `finalizeLiveOutboundTurn`
 judges the cycle's whole reply and starts the next, `abortLiveOutboundTurn`
 (interruption) drops what is held. After a mid-cycle hit (a detector's, a leak
-of the canary or the private prompt among them, or the host policy's) the rest
-of the cycle is held: a final `allow` releases it, `redact` or a refusal
+of the canary or the private prompt among them) the rest
+of the cycle is held and nothing is reported yet: a final `allow` releases it,
+`redact` or a refusal
 replaces it with a `text` event (held audio is dropped), `block` withholds it
-with the guardrail event that names the detector. A profile with no
-`egress.enforce` and no detector that has something to read at `live_reply`
+with the guardrail event that names the detector. A profile with no detector
+that has something to read at `live_reply`
 (every one at `ignore`, or only the leak detectors with no canary and no system
 prompt to read for) has no gate; everything streams.
 
@@ -719,7 +638,7 @@ event reaches the host (`withPublicWording(event, profile.lexicon)`), the one
 place that knows the profile. A host that catches a throw words it with
 `publicError(err, profile.lexicon)`.
 
-Canary leaks and host `egress.enforce` withholds on the outbound stream are
+Canary leaks and a detector's withholds on the outbound stream are
 kind `safety` (or the refusal copy under `blockedReply.onBlock: 'refuse'`). Detector hit names and
 leaked fragments never reach the client wire.
 
@@ -1048,17 +967,16 @@ detectors match one text, the strongest action is the one taken: `block`, then
 | `live_reply` | The cycle is withheld from the match on |
 | `thought` | The rest of the thought is not shown; the turn goes on |
 
-A reply is read as it streams, by the same scanner that holds text back for the
-egress policy, so no character of a match is shown before its action is taken:
+A reply is read as it streams, so no character of a match is shown before its action is taken:
 
 - `flag` and `redact` are reported as the text is released (`stage:
   'output_delta'`), and `redact` puts the placeholder into the stream.
 - `block` reports once, when the attempt ends (`stage: 'output_final'`).
-- When the attempt ends the reply is read whole (`readReply`), before
-  `egress.enforce`. A match the stream could not place, such as one that only
-  shows once the whole reply is decoded, is replaced then, and the person gets
-  the reply again with it replaced. The host policy judges the reply as the
-  detectors left it.
+- When the attempt ends the reply is read whole (`readReply`). A match the
+  stream could not place, such as one that only shows once the whole reply is
+  decoded, is replaced then, and the person gets the reply again with it
+  replaced. A match the stream held for that the whole reply does not have is
+  released.
 - In structured output each string value has its matches replaced. A match
   with no string to replace (a key, or one that runs across values) stops the
   output, as does output that cannot be read (`egress.unscannable`).
@@ -1432,8 +1350,8 @@ hits without a second copy of the secret:
 
 `errorInternal` is a block's builder-only reason; `forClient` strips it. `hits`
 carry rule identity and severity, plus offsets (`span`) when the detector located
-the match; a host's egress `enforce` hook may add `label` and `doc` to its own
-hits, and both reach the host stream and the trace; whole-payload rules (tool boundary, taint, arguments, network, canary)
+the match; a hit of a host's own detector carries its `label`, which reaches
+the host stream and the trace; whole-payload rules (tool boundary, taint, arguments, network, canary)
 carry none. Detectors may also attach
 `match` (the exact matched text, whole). The host stream and the
 trace's `theorem.guardrail` events strip `match` unless
@@ -1490,14 +1408,12 @@ union. The trace catalog gives each one a label and a sentence on why it
 matters (`theorem.guardrail` → `hits` → `rule`), keyed by `GuardrailRule`, so a
 new id does not typecheck until it is described. A detector of the host's own
 reports `detect.<key>` (`detectRule`), and its hit carries the detector's
-`label`. Ids a host's egress `enforce` hook reports are its own; the hit's
-`label` and `doc` name and explain them, and without those they show as the
-raw id.
+`label`.
 
 | Group | Rules |
 | --- | --- |
 | `DETECT_RULES` | `detect.ids`, `detect.financial`, `detect.network`, `detect.credentials`, `detect.injection`, `detect.canary_leak`, `detect.prompt_leak`, `detect.marker_leak`, `detect.ungiven_images`, `detect.ungiven_links` |
-| `EGRESS_RULES` | `egress.provider-tool-leak`, `egress.unscannable`, `egress.enforcer-error`, `egress.blocked` (the progressive gate stopped on a verdict that named no rule) |
+| `EGRESS_RULES` | `egress.provider-tool-leak`, `egress.unscannable` |
 | `DIRECTIVE_RULES` | `tool_result.names-callable-tool`, `tool_result.imperative`, `tool_result.authority-claim`, `tool_result.override` |
 | `TOOL_RULES` | `tool_call.tainted-turn`, `tool_call.steered-turn` |
 | `NETWORK_RULES` | `network.blocked` |
@@ -1618,7 +1534,7 @@ placeholder, or a placeholder the key never fills in.
 | Attachments | `attachments.*` | lexicon (structured codes also exposed) |
 | Errors | `error.<kind>` | lexicon (resolved where the event reaches the host) |
 | Quota | `quota.exhausted` | lexicon (`quotaExhausted` → `rate_limit`) |
-| Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.rejection`, `egress.invalid_verdict`, `egress.policy_failed` | lexicon |
+| Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.rejection` | lexicon |
 | Thoughts | `thought.omitted_image`, `thought.omitted_link`, `thought.omitted_instructions` (a leading space is dropped after whitespace) | lexicon |
 | Session | `session.abandon_gated`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending`, `session.part_skipped` | lexicon |
 | Live | `live.session_ended` (the provider ended the call after warning it would) | lexicon (the Live session words the ended signal's `message` when it closes) |
@@ -1657,7 +1573,7 @@ From `src/guardrails/mod.ts`:
 | --- | --- |
 | Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicWording`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
-| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `ResolvedEgressSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
+| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES` |
 | Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `MAX_PATTERNS`, `MAX_PATTERN_LENGTH`, `HostDetectorConfig`, `HostDetectorId`, `HostDetector`, `HostFind`, `HostSpan`, `HOST_FIND_HOLD`, `HOST_FIND_HOLD_LIVE`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `detectAt`, `Detection`, `DetectOutcome` |
 | Policy | `resolveGuardrailPolicy` |
 | Rule ids | `DETECT_RULES`, `detectRule`, `EGRESS_RULES`, `DIRECTIVE_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
@@ -1666,7 +1582,7 @@ From `src/guardrails/mod.ts`:
 | Sanitize | `sanitizeProjectId`, `sanitizeHistory`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `SanitizedTurnRequest` |
 | Events | `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
-| Egress / Live | `hitRules`, `EGRESS_RULES`, `egressPolicy`, `EgressPolicyOptions`, `BlockedReplySpec`, `BlockedReplyOnBlock`, `BLOCKED_REPLY_ON_BLOCK`, `ResolvedBlockedReply`, `UrlAllow`, `UrlDetector`, `ResolvedAllow`, `GivenUrls`, `EgressRule`, `CompiledEgressRules`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `LIVE_DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
+| Egress / Live | `hitRules`, `EGRESS_RULES`, `BlockedReplySpec`, `BlockedReplyOnBlock`, `BLOCKED_REPLY_ON_BLOCK`, `ResolvedBlockedReply`, `UrlAllow`, `UrlDetector`, `ResolvedAllow`, `GivenUrls`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions`, `NetworkGuardrailSpec` |
 | Quota | `QuotaSlotStatus`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 | Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |
@@ -1781,13 +1697,13 @@ From `src/guardrails/testing.ts` (test / harness only):
         { "kind": "contract_test", "path": "tests/guardrails/quota.test.ts" }
       ]
     },
-    "Host egress rules": {
+    "Whose patterns": {
       "supports": [
-        { "kind": "source", "path": "src/guardrails/egress-policy.ts" },
-        { "kind": "source", "path": "src/guardrails/egress-rules.ts" },
+        { "kind": "source", "path": "src/guardrails/host-patterns.ts" },
         { "kind": "source", "path": "src/guardrails/compile-egress.ts" },
         { "kind": "source", "path": "src/guardrails/egress-compiler.ts" },
-        { "kind": "contract_test", "path": "tests/guardrails/egress-policy.test.ts" }
+        { "kind": "contract_test", "path": "tests/guardrails/host-patterns.test.ts" },
+        { "kind": "contract_test", "path": "tests/guardrails/host-pattern-holds.test.ts" }
       ]
     },
     "Egress": {

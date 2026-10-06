@@ -75,7 +75,24 @@ export function replyStream(
   return createEgressStream({ detect: detectors, ...options });
 }
 
-/** The stream gate with `detectors` set to `block` at `reply` and no host policy. */
+/**
+ * A `guardrails.detect` with one detector of the host's own, `test.term`, which blocks a reply's
+ * text that names `term`.
+ */
+export function blockNaming(term: string): DetectSpec {
+  return {
+    'test.term': {
+      label: 'Test term',
+      at: { reply: 'block' },
+      find: (text) => {
+        const start = text.indexOf(term);
+        return start < 0 ? [] : [{ start, end: start + term.length }];
+      },
+    },
+  };
+}
+
+/** The stream gate with `detectors` set to `block` at `reply`. */
 export function replyGate(
   context: GuardrailContext,
   detectors: readonly Detector[] = REPLY_DETECTORS,

@@ -86,7 +86,6 @@ Deno.test('the example draft compiles to the travel concierge', () => {
   assertEquals(result.customTools.length, demoToolSpecs().length);
   assert(profile.type === 'text' && profile.tools?.allow?.includes('geocode_city'));
   assertEquals(profile.guardrails?.blockedReply, { onBlock: 'refuse' });
-  assertEquals(profile.guardrails?.egress, undefined);
   assertEquals(profile.observability?.writeTo, 'playground');
 });
 

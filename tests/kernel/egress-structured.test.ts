@@ -1,8 +1,8 @@
 // Regression: the egress gate projected only `text` events, so a profile with
-// `outputs.structured` handed its policy an empty string and always passed.
+// `outputs.structured` had an empty string read and always passed.
 import '../fixtures/test-host.ts';
+import type { DetectAction, HostFind } from '../../src/guardrails/detectors.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
-import type { Verdict } from '../../src/guardrails/types.ts';
 import { registerProfile, registerStructured, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -12,6 +12,24 @@ import { geminiModels } from '../fixtures/models.ts';
 registerStructured('egressStructured', { jsonSchema: { type: 'object' } });
 
 const SECRET = 'internal_tool_abc';
+
+/** Every place `SECRET` is written in a text. */
+const findSecret: HostFind = (text) =>
+  [...text.matchAll(new RegExp(SECRET, 'g'))].map(({ index }) => ({
+    start: index,
+    end: index + SECRET.length,
+  }));
+
+/** The host's own detector for `SECRET`, with `action` on a reply's text and its structured output. */
+function secretAt(action: DetectAction) {
+  return {
+    'test.tool': {
+      label: 'Internal tool',
+      at: { reply: action, reply_structured: action },
+      find: findSecret,
+    },
+  };
+}
 
 /** Provider that answers only in structured output — no user-visible text. */
 function structuredProvider(structured: unknown): ModelProvider {
@@ -36,19 +54,7 @@ function registerStructuredEgressProfile(id: string, onBlock: 'refuse'): void {
       guardrails: {
         quota: { perDay: 50 },
         blockedReply: { onBlock },
-        egress: {
-          enforce: (payload): Verdict => {
-            const seen = `${payload.text}${JSON.stringify(payload.structured ?? null)}`;
-            if (seen.includes(SECRET)) {
-              return {
-                action: 'block',
-                hits: [{ rule: 'internal_tool_name', severity: 'high' }],
-                rejection: 'Do not mention internal tool names.',
-              };
-            }
-            return { action: 'allow' };
-          },
-        },
+        detect: secretAt('block'),
       },
     }),
   );
@@ -62,7 +68,7 @@ async function collect(profile: string, provider: ModelProvider): Promise<TurnEv
   return events;
 }
 
-Deno.test('egress inspects structured output and blocks a leak carried only in JSON', async () => {
+Deno.test('a reply detector reads structured output and blocks a leak carried only in JSON', async () => {
   registerStructuredEgressProfile('structured_egress_block', 'refuse');
   const events = await collect(
     'structured_egress_block',
@@ -76,7 +82,7 @@ Deno.test('egress inspects structured output and blocks a leak carried only in J
   assertEquals(events.find((e) => e.type === 'text')?.text, lexiconDefault('egress.refusal'));
 });
 
-Deno.test('egress redact releases the policy text in place of the model output', async () => {
+Deno.test('a reply detector set to redact releases the reply without what it matched', async () => {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -90,16 +96,7 @@ Deno.test('egress redact releases the policy text in place of the model output',
       guardrails: {
         quota: { perDay: 50 },
         blockedReply: { onBlock: 'retry' },
-        egress: {
-          enforce: (payload): Verdict =>
-            payload.text.includes(SECRET)
-              ? {
-                  action: 'redact',
-                  text: 'I used an internal lookup.',
-                  hits: [{ rule: 'internal_tool_name', severity: 'medium' }],
-                }
-              : { action: 'allow' },
-        },
+        detect: secretAt('redact'),
       },
     }),
   );
@@ -109,16 +106,16 @@ Deno.test('egress redact releases the policy text in place of the model output',
     },
   };
   const events = await collect('structured_egress_redact', provider);
-  const texts = events.filter((e) => e.type === 'text').map((e) => e.text);
+  const text = events
+    .filter((e) => e.type === 'text')
+    .map((e) => e.text ?? '')
+    .join('');
 
-  assertEquals(texts.includes('I used an internal lookup.'), true);
-  assertEquals(
-    texts.some((t) => (t ?? '').includes(SECRET)),
-    false,
-  );
+  assertEquals([text.startsWith('I used '), text.endsWith(' to look that up.')], [true, true]);
+  assertEquals(text.includes(SECRET), false);
 });
 
-Deno.test('egress releases structured output that carries no disclosure', async () => {
+Deno.test('a reply detector releases structured output that carries no match', async () => {
   registerStructuredEgressProfile('structured_egress_pass', 'refuse');
   const events = await collect(
     'structured_egress_pass',

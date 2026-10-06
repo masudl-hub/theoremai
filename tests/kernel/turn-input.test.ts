@@ -1,7 +1,7 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
+import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
-import type { OutboundPayload, Verdict } from '../../src/guardrails/types.ts';
 import { registerProfile, registerTool, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -12,6 +12,7 @@ import type {
   TurnHistoryMessage,
   TurnRequest,
 } from '../../src/kernel/types.ts';
+import { blockNaming } from '../fixtures/detect.ts';
 import { eventsOf } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, geminiModels } from '../fixtures/models.ts';
 
@@ -47,17 +48,11 @@ const toolThenText = (call: number): TurnEvent[] =>
 const blockFirstReply = {
   quota: { perDay: 50 },
   blockedReply: { onBlock: 'retry' as const, maxRetries: 1 },
-  egress: {
-    enforce: (payload: OutboundPayload): Verdict =>
-      payload.text.includes('draft')
-        ? {
-            action: 'block',
-            hits: [{ rule: 'draft', severity: 'high' }],
-            rejection: 'Say it without the draft.',
-          }
-        : { action: 'allow' },
-  },
+  detect: blockNaming('draft'),
 };
+
+/** What the model is told after a blocked draft. */
+const REJECTION = lexiconDefault('egress.rejection', { rules: 'detect.test.term' });
 
 registerProfile(
   defineProfile({
@@ -137,7 +132,7 @@ for (const withStage of [false, true]) {
     );
     assertStringIncludes(JSON.stringify(opening?.parts), 'describe this');
     // Then the repair, text only.
-    assertStringIncludes(String(retry?.history?.[1]?.content), 'Say it without the draft.');
+    assertStringIncludes(String(retry?.history?.[1]?.content), REJECTION);
     assertEquals(
       eventsOf(events, 'text').map((e) => e.text),
       ['a leaf'],
@@ -206,7 +201,7 @@ Deno.test('turn input: a before_end inject on a retry lands after the repair', a
       profile: 'input.retry',
       input: { text: 'describe this' },
       onStage: ({ stage, history }) => {
-        const repaired = history.some((m) => String(m.content).includes('without the draft'));
+        const repaired = history.some((m) => String(m.content).includes(REJECTION));
         if (stage === 'before_end' && repaired && !injected) {
           injected = true;
           return { inject: [{ role: 'user', content: 'also name the plant' }] };
@@ -219,10 +214,7 @@ Deno.test('turn input: a before_end inject on a retry lands after the repair', a
   assertEquals(seen.length, 3);
   const contents = (seen[2]?.continuation ?? seen[2]?.history ?? []).map((m) => String(m.content));
   assertStringIncludes(contents.at(-1) ?? '', 'also name the plant');
-  assertEquals(
-    seen[2]?.history?.findIndex((m) => String(m.content).includes('without the draft')) ?? -1,
-    1,
-  );
+  assertEquals(seen[2]?.history?.findIndex((m) => String(m.content).includes(REJECTION)) ?? -1, 1);
 });
 
 Deno.test('turn input: a repair reaches a profile that takes no text from the user', async () => {
@@ -244,7 +236,7 @@ Deno.test('turn input: a repair reaches a profile that takes no text from the us
   );
   assertEquals(seen.length, 2);
   assertEquals(roles(seen[1]?.history), ['user', 'user']);
-  assertStringIncludes(String(seen[1]?.history?.[1]?.content), 'Say it without the draft.');
+  assertStringIncludes(String(seen[1]?.history?.[1]?.content), REJECTION);
 });
 
 Deno.test('turn input: an image turn with a stage handler keeps its prompt as input', async () => {

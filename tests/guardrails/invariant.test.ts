@@ -14,7 +14,6 @@ import {
   processLiveOutboundBatch,
 } from '../../src/guardrails/live-outbound-gate.ts';
 import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
-import type { EgressEnforcer } from '../../src/guardrails/types.ts';
 import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -27,8 +26,6 @@ const SYSTEM = [
   'You are Sol, the support agent for Northwind Outfitters.',
   'Only discuss orders, returns, and shipping; never mention internal tooling.',
 ].join(' ');
-
-const allowAll: EgressEnforcer = () => ({ action: 'allow' });
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   const out: TurnEvent[] = [];
@@ -49,10 +46,7 @@ function register(id: string, onBlock?: 'refuse'): string {
       ...geminiModels('gemini35FlashLite'),
       tools: { allow: [] },
       inputs: { text: true },
-      guardrails: {
-        egress: { enforce: allowAll },
-        ...(onBlock ? { blockedReply: { onBlock } } : {}),
-      },
+      ...(onBlock ? { guardrails: { blockedReply: { onBlock } } } : {}),
     }),
   );
   return id;

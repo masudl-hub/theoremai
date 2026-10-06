@@ -426,11 +426,9 @@ Deno.test('autoContinue names only kinds allowContinue lets through', () => {
   check(said(resumption({ allowContinue: [] })), 'defined', 'default auto is filtered at runtime');
 });
 
-Deno.test('egress and blocked-reply counts are non-negative integers', () => {
-  const enforce = () => ({ action: 'allow' as const });
+Deno.test('the blocked-reply count is a non-negative integer', () => {
   const counts: Record<string, (value: number) => Loose> = {
     'blockedReply.maxRetries': (maxRetries) => ({ blockedReply: { maxRetries } }),
-    'egress.holdback': (holdback) => ({ egress: { enforce, holdback } }),
   };
   for (const [key, guardrails] of Object.entries(counts)) {
     const message = `Profile p: guardrails.${key} must be a non-negative integer`;
@@ -1100,25 +1098,12 @@ Deno.test('a compaction profile must be a text profile', () => {
   );
 });
 
-Deno.test('egress names its missing enforce, its function and its settings; blockedReply and allow name theirs', () => {
-  const enforce = () => ({ action: 'allow' as const });
+Deno.test('guardrails names a key it does not take; blockedReply and allow name theirs', () => {
   const guardrails = (over: Loose) => said(textProfile({ guardrails: over }));
-  const egress = (over: Loose) => guardrails({ egress: over });
-  check(egress({}), "Profile p: type 'text' must set guardrails.egress.enforce", 'no enforce');
   check(
-    egress({ enforce, checks: true }),
-    'Profile p: guardrails.egress.checks is not a setting; it takes enforce and holdback',
-    'checks is gone',
-  );
-  check(
-    egress({ enforce, onBlock: 'refuse' }),
-    'Profile p: guardrails.egress.onBlock is not a setting; it takes enforce and holdback',
-    'onBlock moved',
-  );
-  check(
-    egress({ enforce: 'standard' }),
-    'Profile p: guardrails.egress.enforce must be a function',
-    'enforce not a function',
+    guardrails({ egress: {} }),
+    'Profile p: guardrails.egress is not a setting; it takes quota, detect, blockedReply, network, taint',
+    'egress is gone',
   );
   check(
     guardrails({ detect: { ungiven_images: { allow: { imageHosts: [] } } } }),

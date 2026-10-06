@@ -1,6 +1,6 @@
-import type { Verdict } from '../../src/guardrails/types.ts';
 import '../fixtures/test-host.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import {
   getProfile,
   projectProfile,
@@ -32,6 +32,7 @@ import type {
 } from '../../src/kernel/types.ts';
 import { contentOf } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes } from '../../src/observability/trace-span.ts';
+import { blockNaming } from '../fixtures/detect.ts';
 import {
   eventsOf,
   failureOf,
@@ -1956,18 +1957,7 @@ Deno.test('guardrails.blockedReply refuse delivers in-character refusal without 
     guardrails: {
       quota: { perDay: 50 },
       blockedReply: { onBlock: 'refuse' },
-      egress: {
-        enforce: ({ text }): Verdict => {
-          if (text.includes('internal_tool_abc')) {
-            return {
-              action: 'block',
-              hits: [{ rule: 'internal_tool_name', severity: 'high' }],
-              rejection: 'Do not mention internal tool names.',
-            };
-          }
-          return { action: 'allow' };
-        },
-      },
+      detect: blockNaming('internal_tool_abc'),
     },
     lexicon: { 'egress.refusal': "i can't discuss internal wiring." },
   });
@@ -2005,18 +1995,7 @@ Deno.test('guardrails.blockedReply retry triggers auto-repair retry loop', async
     guardrails: {
       quota: { perDay: 50 },
       blockedReply: { onBlock: 'retry', maxRetries: 2 },
-      egress: {
-        enforce: ({ text }): Verdict => {
-          if (text.includes('internal_tool_abc')) {
-            return {
-              action: 'block',
-              hits: [{ rule: 'internal_tool_name', severity: 'high' }],
-              rejection: 'Do not mention internal_tool_abc in public prose.',
-            };
-          }
-          return { action: 'allow' };
-        },
-      },
+      detect: blockNaming('internal_tool_abc'),
     },
   });
 
@@ -2030,10 +2009,10 @@ Deno.test('guardrails.blockedReply retry triggers auto-repair retry loop', async
           text: 'Here is what internal_tool_abc returned.',
         };
       } else {
-        // The repair request is the next user message in history.
+        // The repair request is the next user message in history: it names the rule the reply broke.
         assertStringIncludes(
           String(req.history?.at(-1)?.content),
-          'Do not mention internal_tool_abc',
+          lexiconDefault('egress.rejection', { rules: 'detect.test.term' }),
         );
         yield { type: 'text', text: 'Here is the clean public answer.' };
       }
@@ -2070,13 +2049,7 @@ Deno.test('guardrails.blockedReply retry withholds turn when retries exhausted',
     guardrails: {
       quota: { perDay: 50 },
       blockedReply: { onBlock: 'retry', maxRetries: 1 },
-      egress: {
-        enforce: (): Verdict => ({
-          action: 'block',
-          hits: [{ rule: 'persistent_leak', severity: 'high' }],
-          rejection: 'Persistent leak violation',
-        }),
-      },
+      detect: blockNaming('Persistent leak'),
     },
   });
 
@@ -2106,7 +2079,7 @@ Deno.test('guardrails.blockedReply retry withholds turn when retries exhausted',
   assertEquals(textEv, undefined);
 });
 
-Deno.test('guardrails.egress withholds media until prose clears', async () => {
+Deno.test('a blocked reply withholds its media until the prose clears', async () => {
   registerProfile(
     defineProfile({
       type: 'image',
@@ -2127,16 +2100,7 @@ Deno.test('guardrails.egress withholds media until prose clears', async () => {
       guardrails: {
         quota: { perDay: 50 },
         blockedReply: { onBlock: 'retry', maxRetries: 1 },
-        egress: {
-          enforce: ({ text }): Verdict =>
-            text.includes('internal_tool_abc')
-              ? {
-                  action: 'block',
-                  hits: [{ rule: 'internal_tool_name', severity: 'high' }],
-                  rejection: 'remove internal tool names',
-                }
-              : { action: 'allow' },
-        },
+        detect: blockNaming('internal_tool_abc'),
       },
     }),
   );
@@ -2184,8 +2148,8 @@ Deno.test('guardrails.egress withholds media until prose clears', async () => {
   );
 });
 
-Deno.test('guardrails.egress progressive yield streams cleared prefixes under sse', async () => {
-  const { DEFAULT_HOLDBACK } = await import('../../src/guardrails/progressive-yield.ts');
+Deno.test("a reply streams what a find of the host's has cleared under sse", async () => {
+  const { HOST_FIND_HOLD } = await import('../../src/guardrails/detectors.ts');
   registerProfile(
     defineProfile({
       type: 'text',
@@ -2201,14 +2165,12 @@ Deno.test('guardrails.egress progressive yield streams cleared prefixes under ss
       guardrails: {
         quota: { perDay: 50 },
         blockedReply: { onBlock: 'refuse' },
-        egress: {
-          enforce: (): Verdict => ({ action: 'allow' }),
-        },
+        detect: blockNaming('internal_tool_abc'),
       },
     }),
   );
 
-  const body = `${'n'.repeat(DEFAULT_HOLDBACK + 32)}END`;
+  const body = `${'n'.repeat(HOST_FIND_HOLD + 32)}END`;
   const provider: import('../../src/kernel/types.ts').ModelProvider = {
     async *complete() {
       yield { type: 'text', text: body };
@@ -2230,7 +2192,7 @@ Deno.test('guardrails.egress progressive yield streams cleared prefixes under ss
   assertEquals(textEvents.length >= 1, true);
   const joined = replyText(textEvents);
   assertEquals(joined, body);
-  // Cleared prefix should arrive as its own event before the lookback flush.
+  // The cleared opening arrives as its own event before the held tail.
   assertEquals((textEvents[0]?.text?.length ?? 0) > 0, true);
   assertEquals((textEvents[0]?.text ?? '').endsWith('END'), false);
 });

@@ -59,8 +59,6 @@ export const LEXICON_KEYS = [
   'egress.default_repair_guidance',
   'egress.refusal',
   'egress.rejection',
-  'egress.invalid_verdict',
-  'egress.policy_failed',
   'thought.omitted_image',
   'thought.omitted_link',
   'thought.omitted_instructions',
@@ -262,8 +260,6 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
     "The tool's output was withheld: it held content this agent may not read.",
   'egress.refusal': "Sorry, that reply couldn't be shared.",
   'egress.rejection': 'Egress blocked: {rules}',
-  'egress.invalid_verdict': 'Egress policy returned an invalid verdict shape',
-  'egress.policy_failed': 'Egress policy failed to reach a decision',
   // why: A space ends a URL the text before runs up to; no brackets, which after a `!` or `]` would open an image or link.
   'thought.omitted_image': ' (omitted - image)',
   'thought.omitted_link': ' (omitted - link)',
@@ -419,11 +415,7 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
   'egress.refusal':
     'Shown to the user in place of a reply the egress check blocked, when it is set to refuse rather than retry.',
   'egress.rejection':
-    'The reason recorded when the bundled egress checks or a system-prompt leak block a reply, and given to the model on a retry; your own enforce gives its own reason. Takes {rules}, the rules it broke.',
-  'egress.invalid_verdict':
-    "The reason recorded when the host's egress policy returns an answer of the wrong shape.",
-  'egress.policy_failed':
-    "The reason recorded when the host's egress policy throws before reaching a decision.",
+    'The reason recorded when a detector blocks a reply, and given to the model on a retry. Takes {rules}, the rules it broke.',
   'thought.omitted_image':
     'Shown in a thought in place of an image from an address the model was not given. Start it with a space and leave out brackets, so it neither runs into nor opens a link.',
   'thought.omitted_link':

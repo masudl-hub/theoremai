@@ -5,7 +5,7 @@
  * @module
  */
 
-import type { EgressAutomatonData } from './egress-rules.ts';
+import type { AutomatonData } from './host-patterns.ts';
 
 /** Each injection pattern reversed: it matches where the pattern matches the text written backwards. */
 const REVERSED_INJECTION_PATTERNS: RegExp[] = [
@@ -51,7 +51,7 @@ const REVERSED_INJECTION_PATTERNS: RegExp[] = [
 ];
 
 /** Every egress pattern, loosened to a superset automaton, in `EGRESS_PATTERNS` order. */
-const FORWARD_AUTOMATON: EgressAutomatonData = {
+const FORWARD_AUTOMATON: AutomatonData = {
   classStarts: [
     0, 9, 10, 11, 12, 13, 14, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
     49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72,
@@ -22765,7 +22765,7 @@ const FORWARD_AUTOMATON: EgressAutomatonData = {
 };
 
 /** Each reversed injection pattern, loosened the same way. */
-const REVERSED_AUTOMATON: EgressAutomatonData = {
+const REVERSED_AUTOMATON: AutomatonData = {
   classStarts: [
     0, 9, 10, 11, 13, 14, 32, 33, 39, 40, 45, 46, 47, 48, 58, 59, 60, 61, 62, 63, 65, 66, 67, 68,
     69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92,

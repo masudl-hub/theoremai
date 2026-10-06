@@ -53,7 +53,7 @@ export interface HostDetectorView {
   find: boolean;
 }
 
-/** Guardrails visible to UI — egress enforcer functions are omitted. */
+/** Guardrails visible to UI — a host detector's `find` is told of, not sent. */
 export type ProfileGuardrailsView = Pick<ResolvedGuardrailPolicy, 'quota' | 'blockedReply'> & {
   /** Every detector's action at every boundary. */
   detect: DetectMatrix;
@@ -63,8 +63,6 @@ export type ProfileGuardrailsView = Pick<ResolvedGuardrailPolicy, 'quota' | 'blo
   host?: HostDetectorView[];
   /** What `ungiven_images` and `ungiven_links` let through. */
   allow: Record<UrlDetector, UrlAllowView>;
-  /** Whether the host's own `egress.enforce` judges the reply. */
-  hasEgress: boolean;
 };
 
 /** Observability visible to UI — TraceSink / onWriteError functions are omitted. */

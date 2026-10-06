@@ -371,7 +371,7 @@ const GUARDRAIL_STAGE_OPTIONS: Readonly<Record<GuardrailStage, TraceOptionMeta>>
 /**
  * What each of Theorem's own guardrail rules caught. Keyed by every
  * {@link GuardrailRule}, so a new rule is described here before it compiles.
- * A host's own egress rules have no entry and show as their id.
+ * A host's own detectors have no entry and show as their label.
  */
 const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> = {
   'detect.ids': {
@@ -421,14 +421,6 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
   'egress.unscannable': {
     label: 'Reply could not be checked',
     doc: 'Structured output could not be turned into text to check, so it was treated as unsafe.',
-  },
-  'egress.enforcer-error': {
-    label: 'Output check failed',
-    doc: "The host's output check threw or returned no clear verdict, so the reply was treated as blocked.",
-  },
-  'egress.blocked': {
-    label: 'Stopped while streaming',
-    doc: "The host's output check stopped the reply mid-stream without naming a rule.",
   },
   'tool_result.names-callable-tool': {
     label: 'Named a callable tool',
@@ -658,7 +650,7 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'agent',
     'Time to first visible text',
     'seconds',
-    'From the start of the turn to the first reply text the host received, after every guardrail and holdback.',
+    'From the start of the turn to the first reply text the host received, after every guardrail and held tail.',
   ),
   'theorem.guardrail.stream_ms': attr(
     'agent',

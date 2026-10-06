@@ -29,12 +29,9 @@ function replyUnread(detect: Guardrails['detect']): Guardrails['detect'] {
   };
 }
 
-Deno.test('blank guardrails keep the kernel defaults: no detect, blockedReply or egress is set', () => {
+Deno.test('blank guardrails keep the kernel defaults: no detect or blockedReply is set', () => {
   const guardrails = guardrailsOf(() => ({}));
-  assertEquals(
-    [guardrails?.detect, guardrails?.blockedReply, guardrails?.egress],
-    [undefined, undefined, undefined],
-  );
+  assertEquals([guardrails?.detect, guardrails?.blockedReply], [undefined, undefined]);
 });
 
 Deno.test('what a blocked reply does is kept with the reply detectors off', () => {
@@ -55,5 +52,4 @@ Deno.test('one reply detector off sets detect with that detector alone', () => {
     detect: { ...detect, ungiven_images: { ...detect.ungiven_images, reply: 'ignore' } },
   }));
   assertEquals(guardrails?.detect, { ungiven_images: { at: { reply: 'ignore' } } });
-  assertEquals(guardrails?.egress, undefined);
 });

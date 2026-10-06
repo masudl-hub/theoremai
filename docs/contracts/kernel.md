@@ -71,7 +71,7 @@ A `Profile` binds:
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
 | `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`) on `text` / `image` / `speech`; `allowSteering` on **text and live** (inject gate via `profileAllowsInject`; see [`stages.md`](stages.md)). Live must omit `turnBehaviour.resumption` (use `live.sessionResumption`) |
-| `guardrails` | Quota, detect, blockedReply, egress, network, taint — on `host` narrowed to `HostGuardrailsSpec` (`detect`, `network`); on `decision`, only pre-dispatch `disclosure` is active. A guarded `live` profile (canary or `egress.enforce`) always requests its output transcript: `resolveTurn` sets `live.transcription.output` |
+| `guardrails` | Quota, detect, blockedReply, network, taint — on `host` narrowed to `HostGuardrailsSpec` (`detect`, `network`); on `decision`, only pre-dispatch `disclosure` is active. A guarded `live` profile (a detector above `ignore` at `live_reply`) always requests its output transcript: `resolveTurn` sets `live.transcription.output` |
 | `observability` | Trace destination, scrub, include, sampling (`writeTo`, `sampleRate`, …) |
 
 Closed unions (`protocol`, `provider`, `thinking`, stop kinds, turn stages,
@@ -289,9 +289,9 @@ Live sessions emit the same stage names around utterance cycles and
    passes. Out of retries, the last attempt goes out as it is, with its
    buffered events.
 10. **Egress** — progressive yield on the provider stream (canary, prompt
-   echo, the other `guardrails.detect` detectors, `guardrails.egress`) releases
-   cleared prefixes: the detectors and an `egressPolicy` hold exactly what could
-   still become a match, a host enforce a fixed window; end-of-attempt may still refuse, repair, or withhold. SSE streaming and egress can both stay enabled.
+   echo, the other `guardrails.detect` detectors, a host's own) releases
+   cleared prefixes: the detectors and a host's patterns hold exactly what could
+   still become a match, a host's `find` a fixed tail; end-of-attempt may still refuse, repair, or withhold. SSE streaming and egress can both stay enabled.
 11. **Trace** — the turn records one `invoke_agent` span tree (model calls,
    HTTP tries, tools, stage events) and writes it as one `TraceRecord` to the
    request's sink, else `profile.observability`; failures are swallowed.
@@ -851,8 +851,7 @@ Profile `guardrails`:
 | `quota` | Host HTTP helper only (`@theoremjs/agents/guardrails`); not enforced inside `runTurn` |
 | `canary` | Canary token at the end of the system prompt, the same for the same prompt; egress checks leakage unless the model was given it this turn |
 | `detect` | What each detector does with a match at each boundary: `ignore`, `flag`, `redact` or `block` |
-| `blockedReply` | What happens to a reply a detector or the host policy blocks: `onBlock` (`retry`, the default, or `refuse`) and `maxRetries` (default 1) |
-| `egress` | The host's own check of a reply: an `enforce` hook (required) and `holdback` (mid-stream lookback, default 256; 96 on Live; an `egressPolicy` holds exactly and rejects it); repair guidance is the lexicon's `egress.default_repair_guidance` |
+| `blockedReply` | What happens to a reply a detector blocks: `onBlock` (`retry`, the default, or `refuse`) and `maxRetries` (default 1) |
 
 ## Compaction
 

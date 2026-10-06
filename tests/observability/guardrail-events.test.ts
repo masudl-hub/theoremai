@@ -1,7 +1,5 @@
 import '../fixtures/test-host.ts';
-import { compileEgressRules } from '../../src/guardrails/compile-egress.ts';
-import { egressPolicy } from '../../src/guardrails/egress-policy.ts';
-import type { Verdict } from '../../src/guardrails/types.ts';
+import { compilePatterns } from '../../src/guardrails/egress-compiler.ts';
 import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -148,7 +146,7 @@ Deno.test('include.guardrailDecisions false drops guardrail rows from TraceRecor
   );
 });
 
-Deno.test('a failed egress policy tells the builder why and the model only that it failed', async () => {
+Deno.test('a find that throws blocks the reply, and what it threw reaches neither the model nor the trace', async () => {
   const base = requireModelProfile(getProfile('chat'), 'test');
   if (base.type !== 'text') throw new Error('expected text profile');
   const into: TraceRecord[] = [];
@@ -160,9 +158,13 @@ Deno.test('a failed egress policy tells the builder why and the model only that 
       guardrails: {
         ...base.guardrails,
         blockedReply: { onBlock: 'retry', maxRetries: 1 },
-        egress: {
-          enforce: () => {
-            throw new Error('classifier at 10.0.0.7 rejected token tk_synthetic_123');
+        detect: {
+          'acme.classifier': {
+            label: 'Classifier',
+            at: { reply: 'block' },
+            find: () => {
+              throw new Error('classifier at 10.0.0.7 rejected token tk_synthetic_123');
+            },
           },
         },
       },
@@ -181,24 +183,20 @@ Deno.test('a failed egress policy tells the builder why and the model only that 
     runTurn({ profile: 'chat-egress-policy-failed', input: { text: 'hi' } }, recording),
   );
 
-  // The model's repair turn reads the lexicon line, never the thrown message.
+  // The model's repair turn reads the rejection, never the thrown message.
   assertEquals(requests.length >= 2, true);
-  assertEquals(
-    requests.some((request) => request.includes('Egress policy failed to reach a decision')),
-    true,
-  );
   assertEquals(
     requests.some((request) => request.includes('tk_synthetic_123')),
     false,
   );
 
-  // The builder reads it on the host stream and in the trace.
+  // The host and the trace read which detector stopped the reply, and no more.
   const blocked = guardrailAt(events, 'output_final');
-  assertEquals(blocked?.errorInternal, 'classifier at 10.0.0.7 rejected token tk_synthetic_123');
-  const traced = into[0]?.spans
-    .flatMap((span) => span.events)
-    .find((e) => e.name === 'theorem.guardrail' && e.attributes.stage === 'output_final');
-  assertEquals(Object.hasOwn(traced?.attributes ?? {}, 'error'), true);
+  assertEquals(
+    blocked?.hits.map((hit) => [hit.rule, hit.label]),
+    [['detect.acme.classifier', 'Classifier']],
+  );
+  assertEquals(JSON.stringify([events, into]).includes('tk_synthetic_123'), false);
 });
 
 Deno.test('a clean turn times its input check as a pass and records when text first reached the host', async () => {
@@ -246,7 +244,7 @@ Deno.test('a stream check that acts carries its time so far, and records no sepa
   const into: TraceRecord[] = [];
   const base = requireModelProfile(getProfile('chat'), 'test');
   if (base.type !== 'text') throw new Error('expected text profile');
-  const rules = [{ rule: 'acme.account', pattern: /ACCT-\d{6}/ }];
+  const patterns = [{ name: 'account', pattern: 'ACCT-\\d{6}' }];
   registerProfile(
     defineProfile({
       ...base,
@@ -254,8 +252,14 @@ Deno.test('a stream check that acts carries its time so far, and records no sepa
       guardrails: {
         ...base.guardrails,
         blockedReply: { onBlock: 'refuse' },
-        // A host rule's stop is reported from the stream; a detector's is reported once, on the whole reply.
-        egress: { enforce: egressPolicy({ rules, compiled: compileEgressRules(rules) }) },
+        detect: {
+          'acme.account': {
+            label: 'Account number',
+            at: { reply: 'block' },
+            patterns,
+            compiled: compilePatterns(patterns),
+          },
+        },
       },
     }),
   );
@@ -278,7 +282,7 @@ Deno.test('a stream check that acts carries its time so far, and records no sepa
   assertEquals((stream[0]?.attributes.runs as number) >= 1, true);
 });
 
-Deno.test("a host rule's own name and reason reach the host and the trace", async () => {
+Deno.test("the label of a host's own detector reaches the host and the trace", async () => {
   const into: TraceRecord[] = [];
   const base = requireModelProfile(getProfile('chat'), 'test');
   if (base.type !== 'text') throw new Error('expected text profile');
@@ -289,22 +293,15 @@ Deno.test("a host rule's own name and reason reach the host and the trace", asyn
       guardrails: {
         ...base.guardrails,
         blockedReply: { onBlock: 'refuse' },
-        egress: {
-          enforce: ({ text }): Verdict =>
-            text.includes('internal_tool_abc')
-              ? {
-                  action: 'block',
-                  hits: [
-                    {
-                      rule: 'acme.internal-tool',
-                      severity: 'high',
-                      label: 'Internal tool name',
-                      doc: 'Our tool names are private.',
-                    },
-                  ],
-                  rejection: 'Do not name internal tools.',
-                }
-              : { action: 'allow' },
+        detect: {
+          'acme.internal_tool': {
+            label: 'Internal tool name',
+            at: { reply: 'block' },
+            find: (text) => {
+              const start = text.indexOf('internal_tool_abc');
+              return start < 0 ? [] : [{ start, end: start + 'internal_tool_abc'.length }];
+            },
+          },
         },
       },
     }),
@@ -321,16 +318,16 @@ Deno.test("a host rule's own name and reason reach the host and the trace", asyn
     ),
   );
   const heard = events.find(
-    (e) => e.type === 'guardrail' && e.guardrail.hits[0]?.rule === 'acme.internal-tool',
+    (e) => e.type === 'guardrail' && e.guardrail.hits[0]?.rule === 'detect.acme.internal_tool',
   );
   const hit = heard?.type === 'guardrail' ? heard.guardrail.hits[0] : undefined;
-  assertEquals([hit?.label, hit?.doc], ['Internal tool name', 'Our tool names are private.']);
+  assertEquals(hit?.label, 'Internal tool name');
   const traced = into[0]?.spans
     .flatMap((span) => span.events)
     .filter((e) => e.name === 'theorem.guardrail')
     .flatMap((e) => (e.attributes.hits ?? []) as TraceAttributes[])
-    .find((h) => h.rule === 'acme.internal-tool');
-  assertEquals([traced?.label, traced?.doc], ['Internal tool name', 'Our tool names are private.']);
+    .find((h) => h.rule === 'detect.acme.internal_tool');
+  assertEquals(traced?.label, 'Internal tool name');
 });
 
 catalogGate();

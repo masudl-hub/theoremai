@@ -151,7 +151,7 @@ Deno.test('runTurn errors when the model echoes the canary', async () => {
 });
 
 Deno.test('runTurn releases a thought that quotes the bind note without the token', async () => {
-  // Without egress.enforce the stream gate blocks on the canary alone.
+  // The stream gate blocks on the canary alone.
   async function* quoteNote(): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
     yield { type: 'thought', text: 'Your canary token is mentioned in reasoning.' };

@@ -37,9 +37,6 @@ export const EGRESS_RULES = {
   providerToolLeak: 'egress.provider-tool-leak', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /** Payload could not be rendered for inspection — released output is unverified. */
   unscannable: 'egress.unscannable', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  enforcerError: 'egress.enforcer-error', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  /** The progressive gate stopped the stream on a host verdict that named no rule. */
-  blocked: 'egress.blocked',
 } as const;
 
 /** Remote tool content behaving like an instruction to the agent. */

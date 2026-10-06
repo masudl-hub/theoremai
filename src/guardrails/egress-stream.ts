@@ -1,5 +1,5 @@
 /**
- * The detectors and a host's egress rules, run on a reply as it streams.
+ * The detectors, Theorem's and the host's own, run on a reply as it streams.
  *
  * Each matches its patterns on the reply as written and, for
  * injection phrasing, on
@@ -11,9 +11,8 @@
  * later starts at or after that place, so none of it has been released.
  *
  * A match whose outcome no later text can change is settled; a settled match
- * of the pattern itself (not the automaton) is a hit. A hit of the policy
- * blocks the reply there; a detector's does what `guardrails.detect` sets
- * (`detect-stream.ts`). Each character is read a bounded number of times, so a
+ * of the pattern itself (not the automaton) is a hit, and does what
+ * `guardrails.detect` sets (`detect-stream.ts`). Each character is read a bounded number of times, so a
  * long reply costs time in proportion to its length.
  *
  * @module
@@ -31,7 +30,6 @@ import {
   type EgressPatternKind,
   notePattern,
 } from './egress-patterns.ts';
-import { type EgressAutomatonData, globalPattern } from './egress-rules.ts';
 import {
   type GivenUrls,
   IMAGE_PATTERNS,
@@ -40,7 +38,7 @@ import {
   linkReadings,
   type UrlPatternReading,
 } from './egress-urls.ts';
-import type { CompiledPatterns, HostMatcher } from './host-patterns.ts';
+import type { AutomatonData, CompiledPatterns, HostMatcher } from './host-patterns.ts';
 import {
   decodeUrlRuns,
   INJECTION_BLOBS,
@@ -52,7 +50,7 @@ import {
 import { isEmoji, normalizeCodePoint } from './normalize.ts';
 import { detectRule } from './rules.ts';
 import { cardHit, SENSITIVE_PATTERNS } from './sensitive.ts';
-import type { EgressEnforcer, GuardrailContext, Severity } from './types.ts';
+import type { Severity } from './types.ts';
 
 /** A settled match. */
 interface EgressStreamHit {
@@ -60,14 +58,14 @@ interface EgressStreamHit {
   severity: Severity;
   /** Where in the reply the match starts (the start of its rewrite's source). */
   start: number;
-  /** The detector whose match it is, or the id of the host's own; unset for a match of the policy, which blocks. */
-  detector?: string;
+  /** The detector whose match it is, or the id of the host's own. */
+  detector: string;
 }
 
 interface EgressStream {
   /**
    * Read the next piece of the reply; the matches that settled, none when the reply is clear so
-   * far. A match of the policy is the last one read: it blocks.
+   * far.
    */
   push: (chunk: string) => EgressStreamHit[];
   /** The earliest index of the reply a match could still start at. */
@@ -90,7 +88,7 @@ interface Automaton {
 
 const UNITS = 0x10000;
 
-function compile(data: EgressAutomatonData): Automaton {
+function compile(data: AutomatonData): Automaton {
   const classCount = data.classStarts.length;
   const classOf = new Uint16Array(UNITS);
   for (let k = 0; k < classCount; k++) {
@@ -461,7 +459,7 @@ function urlView(reply: Grown): MappedView {
 interface ScanPattern {
   rule: string;
   severity: Severity;
-  detector?: string;
+  detector: string;
   /** The automaton's id for the pattern. */
   id: number;
   regex: RegExp;
@@ -723,7 +721,7 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
     }
     // why: A detector's match need not end the reply, so the next call finds the one after it.
     resume[p] = Math.max(from, at) + 1;
-    return { rule, severity, start: view.rawAt(at), ...(detector ? { detector } : {}) };
+    return { rule, severity, start: view.rawAt(at), detector };
   }
 
   /** A regex pattern's hit up to `settledTo`. */
@@ -748,12 +746,7 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
         // why: The scan reads on from the end of the match, so the next call finds the one after it.
         resume[p] = regex.lastIndex;
         recheck[p] = 1;
-        return {
-          rule,
-          severity,
-          start: view.rawAt(match.index),
-          ...(detector ? { detector } : {}),
-        };
+        return { rule, severity, start: view.rawAt(match.index), detector };
       }
       if (!blob) regex.lastIndex++;
       resume[p] = regex.lastIndex;
@@ -775,11 +768,7 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
     run(hits: EgressStreamHit[]): number {
       feed();
       const earliest = live();
-      for (let hit = detect(); hit; hit = detect()) {
-        hits.push(hit);
-        // why: A match of a host rule blocks, so nothing after it is read.
-        if (!hit.detector) break;
-      }
+      for (let hit = detect(); hit; hit = detect()) hits.push(hit);
       return view.rawAt(earliest);
     },
   };
@@ -795,11 +784,6 @@ interface EgressStreamOptions {
    * among `detect`. Set when another reader has the images.
    */
   skipImages?: boolean;
-  /** Host rules, read on the reply as written, with their compiled automaton. */
-  host?: {
-    automaton: EgressAutomatonData;
-    rules: readonly { rule: string; severity: Severity; pattern: RegExp }[];
-  };
   /**
    * The host's own patterns, read on the text as written, with their compiled table: those it
    * adds to a detector, or those of a detector of its own, named by its id.
@@ -816,9 +800,9 @@ interface EgressStreamOptions {
 }
 
 /** Compiled host automata, kept per table so each is built once. */
-const hostAutomata = new WeakMap<EgressAutomatonData, Automaton>();
+const hostAutomata = new WeakMap<AutomatonData, Automaton>();
 
-function hostAutomaton(data: EgressAutomatonData): Automaton {
+function hostAutomaton(data: AutomatonData): Automaton {
   let automaton = hostAutomata.get(data);
   if (!automaton) {
     automaton = compile(data);
@@ -827,16 +811,7 @@ function hostAutomaton(data: EgressAutomatonData): Automaton {
   return automaton;
 }
 
-function hostPatterns({ rules }: NonNullable<EgressStreamOptions['host']>): ScanPattern[] {
-  return rules.map(({ rule, severity, pattern }, id) => ({
-    rule,
-    severity,
-    id,
-    regex: globalPattern(pattern),
-  }));
-}
-
-/** Scans the detectors' patterns and any host rules, as a reply streams. */
+/** Scans the detectors' patterns, Theorem's and the host's own, as a reply streams. */
 function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
   const reply: Grown = { text: '', fresh: '' };
   const raw = rawView(reply);
@@ -883,9 +858,6 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
     }));
     scans.push(scan(raw, hostAutomaton(compiled.automaton), patterns));
   }
-  if (options.host) {
-    scans.push(scan(raw, hostAutomaton(options.host.automaton), hostPatterns(options.host)));
-  }
   let hold = 0;
   return {
     push(chunk) {
@@ -896,7 +868,6 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
       let from = reply.text.length;
       for (const s of scans) {
         from = Math.min(from, s.run(hits));
-        if (hits.some(({ detector }) => !detector)) return hits;
       }
       hold = from;
       return hits;
@@ -905,29 +876,5 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
   };
 }
 
-/** A stream running a policy's checks, for the turn or session `context` describes. */
-type EgressStreamPlan = (context: GuardrailContext) => EgressStream;
-
-/** Streaming plans for the policies whose checks the stream runs itself. */
-const STREAM_PLANS = new WeakMap<EgressEnforcer, EgressStreamPlan>();
-
-/** The streaming plan for `enforce`, when the stream knows its checks. */
-function streamPlanOf(enforce: EgressEnforcer): EgressStreamPlan | undefined {
-  return STREAM_PLANS.get(enforce);
-}
-
-/** Tell the gate `enforce` runs exactly the checks `plan` streams. */
-function registerStreamPlan(enforce: EgressEnforcer, plan: EgressStreamPlan): void {
-  STREAM_PLANS.set(enforce, plan);
-}
-
-export type {
-  EgressStream,
-  EgressStreamHit,
-  EgressStreamOptions,
-  EgressStreamPlan,
-  Grown,
-  MappedView,
-  View,
-};
-export { createEgressStream, normalizedView, registerStreamPlan, streamPlanOf, typoView, urlView };
+export type { EgressStream, EgressStreamHit, EgressStreamOptions, Grown, MappedView, View };
+export { createEgressStream, normalizedView, typoView, urlView };

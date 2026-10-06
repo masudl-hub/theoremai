@@ -64,11 +64,11 @@ Deno.test('decision profile rejects inert turn guardrails', () => {
       Promise.resolve().then(() =>
         defineProfile({
           ...profile('inert-guardrail'),
-          guardrails: { egress: { enforce: () => ({ action: 'allow' as const }) } },
+          guardrails: { blockedReply: { onBlock: 'refuse' as const } },
         }),
       ),
     Error,
-    "type 'decision' must not set guardrails.egress",
+    "type 'decision' must not set guardrails.blockedReply",
   );
 });
 

@@ -35,7 +35,6 @@ agents <command> [options]
 | `cassettes:record` | Repo-only task: record real-provider turns for offline replay (`--model`, `--only`, `--missing`, `--stale`) |
 | `cassettes:update` | Repo-only task: replay every cassette offline and keep the outcomes it now produces |
 | `detect-compile <module>` | Compile the patterns in a module's exported `guardrails.detect` setting into the tables each detector's `compiled` takes (`--out <path>`, `--export <name>`, default `detect`); exit `1` on a pattern it cannot compile |
-| `egress-compile <module>` | Compile a module's exported egress rules for `egressPolicy` (`--out <path>`, `--export <name>`, default `rules`); exit `1` on a rule it cannot compile |
 | `fuzz` | Adversarial inbound sanitization fuzzer; exit `1` on expected miss |
 | `fuzz-canary` | Adversarial canary egress fuzzer (`runTurn` stream gate + Live batch gate; an attack's turns are one turn's provider calls, or one session's cycles); exit `1` on bypass |
 | `guardrails:eval` | Repo-only task, not in the published CLI: score guardrail detectors against external corpora (`--cache-dir`, `--limit`) |

@@ -48,7 +48,7 @@ export const BLOCKED_REPLY_ON_BLOCK = ['retry', 'refuse'] as const;
 /** One of {@linkcode BLOCKED_REPLY_ON_BLOCK}. */
 export type BlockedReplyOnBlock = (typeof BLOCKED_REPLY_ON_BLOCK)[number];
 
-/** What happens once a detector or the host's `egress.enforce` blocks a reply. */
+/** What happens once a detector blocks a reply. */
 export interface BlockedReplySpec {
   /**
    * `retry` (the default) tells the model what blocked the reply and has it write another;
@@ -191,38 +191,18 @@ export interface GuardrailContext {
    * server. The kernel adds to them as the model is given more. Unset: none.
    */
   givenUrls?: GivenUrls;
-  /** The profile's lexicon, so a policy's rejection reads in the host's wording. */
+  /** The profile's lexicon, so a rejection reads in the host's wording. */
   lexicon?: LexiconOverrides;
 }
 
 /**
  * Structured output travels alongside text so a profile with `outputs.structured`
- * is not invisible to its own egress policy.
+ * has it read by the detectors too.
  */
 export interface OutboundPayload {
   /** Concatenated user-visible text for this attempt. */
   text: string;
   structured?: unknown;
-}
-
-/** A function that judges an outbound payload and returns a verdict. */
-export type EgressEnforcer = (
-  payload: OutboundPayload,
-  context: GuardrailContext,
-) => Verdict | Promise<Verdict>;
-
-/** The host's own check on the reply, run beside the detectors. */
-export interface ProfileEgressSpec {
-  /** The host's own check. */
-  enforce: EgressEnforcer;
-  /**
-   * Characters the progressive gate holds back so `enforce` sees a match split
-   * across stream chunks before any of it is released (default
-   * `DEFAULT_HOLDBACK`, 256; on Live `LIVE_DEFAULT_HOLDBACK`, 96). An
-   * `egressPolicy` holds exactly what could still become a match, and setting
-   * this with one is a profile error.
-   */
-  holdback?: number;
 }
 
 /** Which hosts and networks a tool's requests may reach. */
@@ -257,7 +237,6 @@ export interface ProfileGuardrailsSpec {
   detect?: DetectSpec;
   /** What happens once a reply is blocked. Left out, the model rewrites it once. */
   blockedReply?: BlockedReplySpec;
-  egress?: ProfileEgressSpec;
   network?: NetworkGuardrailSpec;
   taint?: TaintGuardrailSpec;
 }
@@ -302,8 +281,6 @@ export interface ResolvedGuardrailPolicy {
   /** What `ungiven_images` and `ungiven_links` let through besides the given URLs. */
   allow: ResolvedAllow;
   blockedReply: ResolvedBlockedReply;
-  /** The host's own check, when the profile sets one. */
-  egress?: ProfileEgressSpec;
   network?: NetworkGuardrailSpec;
   quota?: QuotaGuardrailSpec;
   taint?: TaintGuardrailSpec;

@@ -91,7 +91,6 @@ const guardrails = z.object({
   host: z.array(hostDetector).optional(),
   allow: z.object({ ungiven_images: urlAllow, ungiven_links: urlAllow }),
   blockedReply: z.object({ onBlock: z.enum(BLOCKED_REPLY_ON_BLOCK), maxRetries: z.number() }),
-  hasEgress: z.boolean(),
 });
 
 const observability = z.object({

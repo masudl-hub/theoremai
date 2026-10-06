@@ -1,4 +1,4 @@
-import type { Boundary } from '../../src/guardrails/boundaries.ts';
+import { type Boundary, recordOf } from '../../src/guardrails/boundaries.ts';
 import {
   boundaryReader,
   type Detection,
@@ -10,6 +10,7 @@ import {
 import {
   DETECTORS,
   type Detector,
+  type DetectorRule,
   type DetectSpec,
   NO_ALLOW,
   resolveDetect,
@@ -49,11 +50,11 @@ export const REPLY_DETECTORS: readonly Detector[] = DETECTORS.filter(
 
 /** A matrix with `detectors` set to `block` at `reply` and every other detector off there. */
 function blockingAtReply(detectors: readonly Detector[]): DetectSpec {
-  return Object.fromEntries(
-    DETECTORS.map((detector) => [
-      detector,
-      { at: { reply: detectors.includes(detector) ? 'block' : 'ignore' } },
-    ]),
+  return recordOf(
+    DETECTORS,
+    (detector): DetectorRule => ({
+      at: { reply: detectors.includes(detector) ? 'block' : 'ignore' },
+    }),
   );
 }
 

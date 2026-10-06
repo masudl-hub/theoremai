@@ -947,6 +947,64 @@ whether Theorem's patterns run and the host's patterns ready to run.
 `interfaceFromProfile` reports the same as `guardrails.patterns`: per detector,
 `theorem` and the `names` of the host's patterns, never their text.
 
+### Detectors of your own
+
+A key with a dot in it is a detector of the host's own (`HostDetectorConfig`),
+for what belongs to none of Theorem's: a record number, a codename, anything
+only the host can recognise. It goes through the same matrix: an action at each
+boundary, taken by `detectAt`, with the strongest action winning.
+
+```ts
+detect: compileDetect({
+  'acme.record': {
+    label: 'Record numbers',
+    action: 'redact',
+    at: { reply: 'block' },
+    patterns: [{ name: 'record-number', pattern: 'MRN-\\d{8}' }],
+  },
+  'acme.codename': {
+    label: 'Codenames',
+    at: { reply: 'block' },
+    find: (text, { boundary }) => codenamesIn(text),
+  },
+})
+```
+
+| Setting | Meaning |
+| --- | --- |
+| `label` | What the detector is called. Required; every hit carries it |
+| `action` | The action at every boundary `at` does not name |
+| `at` | The action at one boundary |
+| `patterns`, `compiled` | As under [Whose patterns](#whose-patterns) |
+| `find` | A function of the host's (`HostFind`): the text and its `boundary` in, the stretches it matched out (`HostSpan`, `[start, end)` in UTF-16 units) |
+
+- The key is `namespace.name`, in lower case, digits and `_`. The namespace is
+  the host's, so a detector Theorem adds later never takes its key.
+- It has no default. A boundary neither `action` nor `at` covers is `ignore`,
+  and it applies at any boundary the profile has.
+- A match is reported under `detect.<key>` (`detectRule`), with the `label`,
+  and a pattern's `name` as `pattern`. `redact` replaces it with `[omitted]`.
+- `find` runs in the turn, on every text crossing a boundary the detector
+  reads, and returns at once: it is not awaited. One that throws, or returns
+  a stretch outside the text, an empty one or anything but a list, stops the
+  text as `block` does whatever the action set; the hit names the detector and
+  no match.
+- A reply streams up to a pattern's match, as above. `find` cannot say where a
+  match might still start, so with one the last `HOST_FIND_HOLD` (256)
+  characters of a reply stay held, `HOST_FIND_HOLD_LIVE` (96) in a Live reply,
+  and `find` reads the reply again at every release. A match no longer than
+  that is never shown; a longer one is caught when the reply is read whole at
+  its end, after its start was shown.
+- `defineProfile` rejects: a key with no dot that is not a detector of
+  Theorem's; a key not in that form; a missing `label`; neither `action` nor
+  `at`; neither `patterns` nor `find`; a `find` that is not a function; and
+  the pattern problems above.
+
+`ResolvedDetect.host` holds them resolved (`HostDetector`), in the order the
+profile lists them. `interfaceFromProfile` reports them as `guardrails.host`:
+`id`, `label`, `actions`, the `names` of the patterns and whether there is a
+`find`. A client never runs them; `sanitizeUserDraft` leaves them to the kernel.
+
 | Boundaries | Sensitive detectors | `injection` |
 | --- | --- | --- |
 | `user` … `live_user`, `tool_output_*`, `tool_failure_*` | `redact` | `redact` |
@@ -1430,9 +1488,11 @@ Every rule id Theorem's own guardrails report lives in
 `DIRECTIVE_RULES`, `TOOL_RULES` and `NETWORK_RULES`; `GuardrailRule` is their
 union. The trace catalog gives each one a label and a sentence on why it
 matters (`theorem.guardrail` → `hits` → `rule`), keyed by `GuardrailRule`, so a
-new id does not typecheck until it is described. Ids a host's egress
-`enforce` hook reports are its own; the hit's `label` and `doc` name and
-explain them, and without those they show as the raw id.
+new id does not typecheck until it is described. A detector of the host's own
+reports `detect.<key>` (`detectRule`), and its hit carries the detector's
+`label`. Ids a host's egress `enforce` hook reports are its own; the hit's
+`label` and `doc` name and explain them, and without those they show as the
+raw id.
 
 | Group | Rules |
 | --- | --- |
@@ -1598,9 +1658,9 @@ From `src/guardrails/mod.ts`:
 | Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicWording`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
 | Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `ResolvedEgressSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
-| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `MAX_PATTERNS`, `MAX_PATTERN_LENGTH`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `detectAt`, `Detection`, `DetectOutcome` |
+| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `MAX_PATTERNS`, `MAX_PATTERN_LENGTH`, `HostDetectorConfig`, `HostDetectorId`, `HostDetector`, `HostFind`, `HostSpan`, `HOST_FIND_HOLD`, `HOST_FIND_HOLD_LIVE`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `detectAt`, `Detection`, `DetectOutcome` |
 | Policy | `resolveGuardrailPolicy` |
-| Rule ids | `DETECT_RULES`, `EGRESS_RULES`, `DIRECTIVE_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
+| Rule ids | `DETECT_RULES`, `detectRule`, `EGRESS_RULES`, `DIRECTIVE_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `InspectedToolArguments`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
 | Serialization | `textForScan`, `scanTextOf`, `ScanText` |
 | Sanitize | `sanitizeProjectId`, `sanitizeHistory`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `SanitizedTurnRequest` |

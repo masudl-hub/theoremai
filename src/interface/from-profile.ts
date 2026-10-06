@@ -26,7 +26,7 @@ import type {
 /** Resolved, not raw: a host sees what the kernel will enforce, not defaults of its own. */
 function guardrailsView(guardrails?: ProfileGuardrailsSpec): ProfileGuardrailsView {
   const policy = resolveGuardrailPolicy(guardrails);
-  const { sources, ...detect } = policy.detect;
+  const { sources, host, ...detect } = policy.detect;
   return {
     quota: policy.quota,
     detect,
@@ -38,6 +38,17 @@ function guardrailsView(guardrails?: ProfileGuardrailsSpec): ProfileGuardrailsVi
               { theorem, names: matchers.map(({ name }) => name) },
             ]),
           ),
+        }
+      : {}),
+    ...(host
+      ? {
+          host: host.map(({ id, label, actions, matchers, find }) => ({
+            id,
+            label,
+            actions,
+            names: matchers.map(({ name }) => name),
+            find: Boolean(find),
+          })),
         }
       : {}),
     allow: {

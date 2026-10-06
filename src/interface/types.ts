@@ -1,4 +1,5 @@
-import type { DetectMatrix, Detector, UrlDetector } from '../guardrails/detectors.ts';
+import type { Boundary } from '../guardrails/boundaries.ts';
+import type { DetectAction, DetectMatrix, Detector, UrlDetector } from '../guardrails/detectors.ts';
 import type { LexiconOverrides } from '../guardrails/lexicon.ts';
 import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
 import type {
@@ -39,12 +40,27 @@ export interface DetectorPatternsView {
   names: string[];
 }
 
+/** A detector of the host's own: what it is called and where it applies, never what it matches. */
+export interface HostDetectorView {
+  /** Its key in `guardrails.detect`, as in `acme.record`. Its rule is `detect.<id>`. */
+  id: string;
+  label: string;
+  /** Its action at every boundary. */
+  actions: Record<Boundary, DetectAction>;
+  /** The names of its patterns. */
+  names: string[];
+  /** Whether it also reads with a function of the host's. */
+  find: boolean;
+}
+
 /** Guardrails visible to UI — egress enforcer functions are omitted. */
 export type ProfileGuardrailsView = Pick<ResolvedGuardrailPolicy, 'quota' | 'blockedReply'> & {
   /** Every detector's action at every boundary. */
   detect: DetectMatrix;
   /** Whose patterns a detector reads with, for each one the profile changed it for. */
   patterns?: Partial<Record<Detector, DetectorPatternsView>>;
+  /** The host's own detectors, in the order the profile lists them. The kernel reads with them. */
+  host?: HostDetectorView[];
   /** What `ungiven_images` and `ungiven_links` let through. */
   allow: Record<UrlDetector, UrlAllowView>;
   /** Whether the host's own `egress.enforce` judges the reply. */

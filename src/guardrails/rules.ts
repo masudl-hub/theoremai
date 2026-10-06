@@ -23,6 +23,11 @@ export const DETECT_RULES = {
   ungiven_links: 'detect.ungiven_links',
 } as const satisfies Record<Detector, string>;
 
+/** The rule a match of `key` reports: a detector of Theorem's, or the id of one of the host's own (`detect.acme.record`). */
+export function detectRule(key: string): string {
+  return `detect.${key}`;
+}
+
 /** What stops a reply besides a detector's match. */
 export const EGRESS_RULES = {
   /**

@@ -5,7 +5,10 @@ const OMIT_PROMPT = '[omitted - instructions]';
 const OMIT_IMAGE = '[omitted - image]';
 const OMIT_LINK = '[omitted - link]';
 
-type RedactKind = 'injection' | 'sensitive' | 'canary' | 'prompt' | 'image' | 'link';
+/** A match of a detector of the host's own: it says nothing of what was there. */
+const OMIT_HOST = '[omitted]';
+
+type RedactKind = 'injection' | 'sensitive' | 'canary' | 'prompt' | 'image' | 'link' | 'host';
 
 const OMIT: Readonly<Record<RedactKind, string>> = {
   injection: OMIT_INJECTION,
@@ -14,6 +17,7 @@ const OMIT: Readonly<Record<RedactKind, string>> = {
   prompt: OMIT_PROMPT,
   image: OMIT_IMAGE,
   link: OMIT_LINK,
+  host: OMIT_HOST,
 };
 
 interface RedactSpan {

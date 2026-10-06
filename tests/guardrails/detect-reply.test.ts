@@ -1,8 +1,13 @@
 import '../fixtures/test-host.ts';
+import { recordOf } from '../../src/guardrails/boundaries.ts';
 import { TEST_OPENAI_KEY, TEST_SSN } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import { readReply, replyAfter } from '../../src/guardrails/detect-reply.ts';
-import { type DetectSpec, resolveDetect } from '../../src/guardrails/detectors.ts';
+import {
+  type DetectorRule,
+  type DetectSpec,
+  resolveDetect,
+} from '../../src/guardrails/detectors.ts';
 import {
   createLiveOutboundGateSession,
   finalizeLiveOutboundTurn,
@@ -105,11 +110,9 @@ Deno.test('a Live reply is spoken, so redact stops it as block does', async () =
 });
 
 Deno.test('the stream replaces exactly what reading the whole reply replaces', async () => {
-  const detect: DetectSpec = Object.fromEntries(
-    ['ids', 'financial', 'credentials', 'injection'].map((detector) => [
-      detector,
-      { at: { reply: 'redact' } },
-    ]),
+  const detect: DetectSpec = recordOf(
+    ['ids', 'financial', 'credentials', 'injection'] as const,
+    (): DetectorRule => ({ at: { reply: 'redact' } }),
   );
   const replies = [
     `SSN ${TEST_SSN}, card 4111 1111 1111 1111, key ${KEY}.`,

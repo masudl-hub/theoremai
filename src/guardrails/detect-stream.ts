@@ -13,10 +13,16 @@ import {
   type DetectScope,
   detectorsAt,
   detectRelease,
+  hostAt,
   isScoped,
   type Release,
 } from './detect-at.ts';
-import type { Detector, ResolvedDetect } from './detectors.ts';
+import {
+  type Detector,
+  HOST_FIND_HOLD,
+  HOST_FIND_HOLD_LIVE,
+  type ResolvedDetect,
+} from './detectors.ts';
 import { createEgressStream } from './egress-stream.ts';
 
 /** Text read at one boundary as it streams. Indices are of the text as written. */
@@ -44,28 +50,38 @@ function createDetectStream(
   scope: DetectScope = {},
   leave: readonly Detector[] = [],
 ): DetectStream | undefined {
-  const detectors = detectorsAt(boundary, detect).filter(
+  const theirs = detectorsAt(boundary, detect).filter(
     (detector) => !(isScoped(detector) || leave.includes(detector)),
   );
-  if (detectors.length === 0) return undefined;
+  const hosts = hostAt(boundary, detect);
+  if (theirs.length === 0 && hosts.length === 0) return undefined;
+  const detectors = [...theirs, ...hosts.map(({ id }) => id)];
   const sources = detect.sources ?? {};
+  /** The host's patterns, with whose they are: a detector they add to, or one of the host's own. */
+  const own = [
+    ...theirs.map((detector) => ({ detector, ...sources[detector] })),
+    ...hosts.map(({ id, matchers, compiled }) => ({ detector: id, matchers, compiled })),
+  ];
   // why: A host's patterns with no table have no automaton to hold by, so nothing is released
   // until the text ends and is read whole. Registration refuses such a profile.
-  const unheld = detectors.some((d) => sources[d]?.matchers.length && !sources[d]?.compiled);
+  const unheld = own.some(({ matchers, compiled }) => matchers?.length && !compiled);
   const stream = createEgressStream({
-    detect: detectors.filter((detector) => sources[detector]?.theorem !== false),
-    own: detectors.flatMap((detector) => {
-      const { compiled, matchers = [] } = sources[detector] ?? {};
-      return compiled ? [{ detector, compiled, matchers }] : [];
-    }),
+    detect: theirs.filter((detector) => sources[detector]?.theorem !== false),
+    own: own.flatMap(({ detector, compiled, matchers = [] }) =>
+      compiled ? [{ detector, compiled, matchers }] : [],
+    ),
     skipImages: detect.ungiven_images[boundary] !== 'ignore',
     ...(scope.allow ? { allow: scope.allow } : {}),
     ...(scope.givenUrls ? { given: scope.givenUrls } : {}),
     ...(scope.note ? { note: scope.note } : {}),
   });
+  // why: A `find` says nothing of where a match could still start, so a fixed tail stays held and
+  // every release is read: a match no longer than the tail is caught whole.
+  const finds = hosts.some(({ find }) => find);
+  const tail = boundary === 'live_reply' ? HOST_FIND_HOLD_LIVE : HOST_FIND_HOLD;
   let window = '';
   /** The matches the stream settled that no release has reached yet. */
-  let settled: { start: number; detector: Detector }[] = [];
+  let settled: { start: number; detector: string }[] = [];
   return {
     push(fragment) {
       window += fragment;
@@ -73,11 +89,15 @@ function createDetectStream(
         if (detector) settled.push({ start, detector });
       }
     },
-    holdFrom: () => (unheld ? 0 : stream.holdFrom()),
+    holdFrom() {
+      if (unheld) return 0;
+      const held = stream.holdFrom();
+      return finds ? Math.min(held, Math.max(0, window.length - tail)) : held;
+    },
     take(from, to, ended = false) {
       const reached = settled.filter(({ start }) => start < to);
       // why: A text that ends mid-match never settles it, so the end is read whole.
-      if (reached.length === 0 && !ended) {
+      if (reached.length === 0 && !ended && !finds) {
         return { action: 'allow', text: window.slice(from, to), hits: [], taken: to - from };
       }
       const stretch = { from, to, settled: reached.map(({ detector }) => detector) };

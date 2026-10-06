@@ -65,9 +65,17 @@ const outputs = z.object({
     .optional(),
 });
 
-const detect = z.object(
-  recordOf(DETECTORS, () => z.object(recordOf(BOUNDARIES, () => z.enum(DETECT_ACTIONS)))),
-);
+const actions = z.object(recordOf(BOUNDARIES, () => z.enum(DETECT_ACTIONS)));
+
+const detect = z.object(recordOf(DETECTORS, () => actions));
+
+const hostDetector = z.object({
+  id: z.string(),
+  label: z.string(),
+  actions,
+  names: z.array(z.string()),
+  find: z.boolean(),
+});
 
 const urlAllow = z.object({ hosts: z.array(z.string()), fromTools: z.boolean() });
 
@@ -80,6 +88,7 @@ const guardrails = z.object({
       z.object({ theorem: z.boolean(), names: z.array(z.string()) }),
     )
     .optional(),
+  host: z.array(hostDetector).optional(),
   allow: z.object({ ungiven_images: urlAllow, ungiven_links: urlAllow }),
   blockedReply: z.object({ onBlock: z.enum(BLOCKED_REPLY_ON_BLOCK), maxRetries: z.number() }),
   hasEgress: z.boolean(),

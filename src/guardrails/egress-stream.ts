@@ -50,7 +50,7 @@ import {
   typoNormalize,
 } from './injection.ts';
 import { isEmoji, normalizeCodePoint } from './normalize.ts';
-import { DETECT_RULES } from './rules.ts';
+import { detectRule } from './rules.ts';
 import { cardHit, SENSITIVE_PATTERNS } from './sensitive.ts';
 import type { EgressEnforcer, GuardrailContext, Severity } from './types.ts';
 
@@ -60,8 +60,8 @@ interface EgressStreamHit {
   severity: Severity;
   /** Where in the reply the match starts (the start of its rewrite's source). */
   start: number;
-  /** The detector whose match it is; unset for a match of the policy, which blocks. */
-  detector?: Detector;
+  /** The detector whose match it is, or the id of the host's own; unset for a match of the policy, which blocks. */
+  detector?: string;
 }
 
 interface EgressStream {
@@ -461,7 +461,7 @@ function urlView(reply: Grown): MappedView {
 interface ScanPattern {
   rule: string;
   severity: Severity;
-  detector?: Detector;
+  detector?: string;
   /** The automaton's id for the pattern. */
   id: number;
   regex: RegExp;
@@ -486,9 +486,9 @@ const SENSITIVE_HITS = new Map(
 
 type PatternRule = Pick<ScanPattern, 'rule' | 'severity' | 'detector'>;
 
-/** What a match of `detector` reports, with `detectAt`'s severity. */
-function detectorRule(detector: Detector): PatternRule {
-  return { rule: DETECT_RULES[detector], severity: 'high', detector };
+/** What a match of `detector`, or of the host's own by its id, reports, with `detectAt`'s severity. */
+function detectorRule(detector: string): PatternRule {
+  return { rule: detectRule(detector), severity: 'high', detector };
 }
 
 const INJECTION_RULE = detectorRule('injection');
@@ -547,7 +547,7 @@ function forwardPatterns(
   const out: ScanPattern[] = [];
   EGRESS_PATTERNS.forEach((entry, id) => {
     const rule = patternRule(entry);
-    if (!(rule?.detector && detectors.includes(rule.detector))) return;
+    if (!(rule?.detector && (detectors as readonly string[]).includes(rule.detector))) return;
     out.push({
       ...rule,
       id,
@@ -800,9 +800,12 @@ interface EgressStreamOptions {
     automaton: EgressAutomatonData;
     rules: readonly { rule: string; severity: Severity; pattern: RegExp }[];
   };
-  /** The host's own patterns of a detector, read on the text as written, with their compiled table. */
+  /**
+   * The host's own patterns, read on the text as written, with their compiled table: those it
+   * adds to a detector, or those of a detector of its own, named by its id.
+   */
   own?: readonly {
-    detector: Detector;
+    detector: string;
     compiled: CompiledPatterns;
     matchers: readonly HostMatcher[];
   }[];

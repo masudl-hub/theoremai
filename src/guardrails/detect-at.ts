@@ -5,11 +5,14 @@ import { applySpans, type RedactSpan, spansFromPatterns } from '../observability
 import { type Boundary, recordOf, TOOL_BOUNDARIES } from './boundaries.ts';
 import { canaryLeakRanges } from './canary.ts';
 import {
+  actionAt,
   DETECTORS,
   type DetectAction,
   type Detector,
   type DetectorSource,
   detects,
+  type HostDetector,
+  type HostFind,
   type ResolvedAllow,
   type ResolvedDetect,
   type UrlDetector,
@@ -22,7 +25,7 @@ import { CANARY_HIT, hitFromSpan, PROMPT_ECHO_HIT } from './hits.ts';
 import type { HostMatcher } from './host-patterns.ts';
 import { injectionSpans } from './injection.ts';
 import { promptEchoRanges } from './prompt-echo.ts';
-import { DETECT_RULES } from './rules.ts';
+import { DETECT_RULES, detectRule } from './rules.ts';
 import { SENSITIVE_GROUPS, type SensitiveGroups, sensitiveSpans } from './sensitive.ts';
 import type {
   GuardrailContext,
@@ -205,6 +208,92 @@ function leavesImages(detector: Detector, boundary: Boundary, detect: ResolvedDe
   return detector === 'ungiven_links' && detect.ungiven_images[boundary] !== 'ignore';
 }
 
+/** A detector reading one boundary, Theorem's or the host's: both go the same way from here. */
+interface Reader {
+  /** The detector, or the id of the host's own. */
+  key: string;
+  rule: string;
+  /** What a host called its own detector: its hits carry it, since no catalog names their rule. */
+  label?: string;
+  chosen: Exclude<DetectAction, 'ignore'>;
+  /** Its matches in `text`. `undefined` when a host's `find` failed: the text does not cross. */
+  spans(text: string): RedactSpan[] | undefined;
+  hit(text: string, span: RedactSpan): GuardrailHit;
+}
+
+/** What a host's `find` matched in `text`, or `undefined` when it threw or left the text. */
+function foundBy(find: HostFind, text: string, boundary: Boundary): RedactSpan[] | undefined {
+  try {
+    const spans = find(text, { boundary });
+    if (!Array.isArray(spans)) return undefined;
+    const inside = spans.every(
+      ({ start, end }) =>
+        Number.isInteger(start) &&
+        Number.isInteger(end) &&
+        start >= 0 &&
+        start < end &&
+        end <= text.length,
+    );
+    return inside ? spans.map(({ start, end }) => ({ start, end, kind: 'host' })) : undefined;
+  } catch {
+    // why: A reading that failed found nothing it can vouch for, so the text does not cross.
+    return undefined;
+  }
+}
+
+function hostReader(host: HostDetector, boundary: Boundary, chosen: Reader['chosen']): Reader {
+  const rule = detectRule(host.id);
+  return {
+    key: host.id,
+    rule,
+    label: host.label,
+    chosen,
+    spans(text) {
+      const matched = hostSpans(text, host.matchers, 'host');
+      if (!host.find) return matched;
+      const found = foundBy(host.find, text, boundary);
+      return found && [...matched, ...found];
+    },
+    hit: (text, span) => ({ ...hitFromSpan(text, span, rule, 'high'), label: host.label }),
+  };
+}
+
+/** The host's own detectors that read `boundary`. */
+function hostAt(boundary: Boundary, detect: ResolvedDetect): HostDetector[] {
+  return (detect.host ?? []).filter(({ actions }) => actions[boundary] !== 'ignore');
+}
+
+/** Every detector that reads `boundary`, Theorem's then the host's; among `keys` when given. */
+function readersAt(
+  boundary: Boundary,
+  detect: ResolvedDetect,
+  scope: DetectScope,
+  keys?: readonly string[],
+): Reader[] {
+  const readers: Reader[] = [];
+  for (const detector of DETECTORS) {
+    const chosen = detect[detector][boundary];
+    if (chosen === 'ignore') continue;
+    const skip = leavesImages(detector, boundary, detect);
+    readers.push({
+      key: detector,
+      rule: DETECT_RULES[detector],
+      chosen,
+      spans: (text) => spansOf(detector, text, scope, detect.sources?.[detector], skip),
+      hit: (text, span) => hitOf(detector, text, span),
+    });
+  }
+  for (const host of hostAt(boundary, detect)) {
+    readers.push(hostReader(host, boundary, host.actions[boundary] as Reader['chosen']));
+  }
+  return keys ? readers.filter(({ key }) => keys.includes(key)) : readers;
+}
+
+/** The hit of a host's `find` that failed: it names the detector and no match. */
+function failedHit({ rule, label }: Pick<Reader, 'rule' | 'label'>): GuardrailHit {
+  return { rule, severity: 'high', ...(label === undefined ? {} : { label }) };
+}
+
 /** Reads `text` as it crosses `boundary` under the profile's resolved matrix. */
 function detectAt(
   text: string,
@@ -215,20 +304,17 @@ function detectAt(
   const hits: GuardrailHit[] = [];
   const redact: RedactSpan[] = [];
   let action: DetectOutcome = 'allow';
-  for (const detector of DETECTORS) {
-    const chosen = detect[detector][boundary];
-    if (chosen === 'ignore') continue;
-    const spans = spansOf(
-      detector,
-      text,
-      scope,
-      detect.sources?.[detector],
-      leavesImages(detector, boundary, detect),
-    );
+  for (const reader of readersAt(boundary, detect, scope)) {
+    const spans = reader.spans(text);
+    if (!spans) {
+      hits.push(failedHit(reader));
+      action = 'block';
+      continue;
+    }
     if (spans.length === 0) continue;
-    for (const span of spans) hits.push(hitOf(detector, text, span));
-    if (chosen === 'redact') redact.push(...spans);
-    action = stronger(action, chosen);
+    for (const span of spans) hits.push(reader.hit(text, span));
+    if (reader.chosen === 'redact') redact.push(...spans);
+    action = stronger(action, reader.chosen);
   }
   if (action === 'block') return { action, hits };
   if (redact.length === 0) return { action, text, hits };
@@ -247,13 +333,12 @@ function leftAfterRedact(
   boundary: Boundary,
   detect: ResolvedDetect,
   scope: DetectScope,
-  detectors: readonly Detector[] = DETECTORS,
+  detectors?: readonly string[],
 ): boolean {
-  return detectors.some((detector) => {
-    const chosen = detect[detector][boundary];
-    if (chosen !== 'redact' && chosen !== 'block') return false;
-    const skip = leavesImages(detector, boundary, detect);
-    return spansOf(detector, replaced, scope, detect.sources?.[detector], skip).length > 0;
+  return readersAt(boundary, detect, scope, detectors).some(({ chosen, spans }) => {
+    if (chosen === 'flag') return false;
+    const left = spans(replaced);
+    return !left || left.length > 0;
   });
 }
 
@@ -278,8 +363,10 @@ function detectReads(
   detect: ResolvedDetect,
   scope?: DetectScope,
 ): boolean {
-  return boundaries.some((boundary) =>
-    detectorsAt(boundary, detect).some((detector) => !scope || hasPart(detector, scope)),
+  return boundaries.some(
+    (boundary) =>
+      hostAt(boundary, detect).length > 0 ||
+      detectorsAt(boundary, detect).some((detector) => !scope || hasPart(detector, scope)),
   );
 }
 
@@ -292,12 +379,12 @@ interface Release extends Detection {
 interface Stretch {
   from: number;
   to: number;
-  settled: readonly Detector[];
+  settled: readonly string[];
 }
 
-/** What a stream reads a released stretch for: its detectors, in a turn of `scope`. */
+/** What a stream reads a released stretch for: its detectors, Theorem's and the host's, in a turn of `scope`. */
 interface StreamRead {
-  detectors: readonly Detector[];
+  detectors: readonly string[];
   scope: DetectScope;
 }
 
@@ -315,25 +402,28 @@ function detectRelease(
   detect: ResolvedDetect,
   { detectors, scope }: StreamRead,
 ): Release {
-  const found = detectors.flatMap((detector) =>
-    spansOf(
-      detector,
-      window,
-      scope,
-      detect.sources?.[detector],
-      leavesImages(detector, boundary, detect),
-    )
+  const failed: Reader[] = [];
+  const found = readersAt(boundary, detect, scope, detectors).flatMap((reader) => {
+    const spans = reader.spans(window);
+    if (!spans) failed.push(reader);
+    return (spans ?? [])
       .filter((span) => span.end > from && span.start < to)
-      .map((span) => ({ span, detector, chosen: detect[detector][boundary] })),
-  );
-  const hitOf = ({ span, detector }: (typeof found)[number]): GuardrailHit =>
-    hitFromSpan(window, span, DETECT_RULES[detector], 'high');
+      .map((span) => ({ span, rule: reader.rule, label: reader.label, chosen: reader.chosen }));
+  });
+  if (failed.length > 0) return { action: 'block', hits: failed.map(failedHit), taken: 0 };
+  const hitOf = ({ span, rule, label }: (typeof found)[number]): GuardrailHit => ({
+    ...hitFromSpan(window, span, rule, 'high'),
+    ...(label === undefined ? {} : { label }),
+  });
   const blocking = found.filter(({ chosen }) => chosen === 'block');
   if (blocking.length > 0) return { action: 'block', hits: blocking.map(hitOf), taken: 0 };
-  const unread = settled.filter((detector) => detect[detector][boundary] === 'block');
+  const unread = settled.filter((key) => actionAt(detect, key, boundary) === 'block');
   if (unread.length > 0) {
-    const hits = unread.map(
-      (detector): GuardrailHit => ({ rule: DETECT_RULES[detector], severity: 'high' }),
+    const hits = unread.map((key) =>
+      failedHit({
+        rule: detectRule(key),
+        label: detect.host?.find(({ id }) => id === key)?.label,
+      }),
     );
     return { action: 'block', hits, taken: 0 };
   }
@@ -451,6 +541,7 @@ export {
   detectorsAt,
   detectReads,
   detectRelease,
+  hostAt,
   isScoped,
   leakScopeOf,
   redactDetectors,

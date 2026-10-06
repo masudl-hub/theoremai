@@ -86,8 +86,68 @@ interface DetectorConfig {
 /** One action at every boundary, or the setting in full. */
 type DetectorRule = DetectAction | DetectorConfig;
 
+/** The key of a detector of the host's own: its namespace, a dot, a name (`acme.record`). */
+type HostDetectorId = `${string}.${string}`;
+
+/** A stretch of the text a host's `find` matched: `[start, end)`, in UTF-16 units. */
+interface HostSpan {
+  start: number;
+  end: number;
+}
+
+/**
+ * A host's own reading of a text, for what patterns cannot say. It runs on every text crossing a
+ * boundary the detector reads, so it returns at once and does not wait on anything. If it throws,
+ * or returns a span outside the text, the text does not cross.
+ */
+type HostFind = (text: string, context: { boundary: Boundary }) => readonly HostSpan[];
+
+/**
+ * A detector of the host's own, under a key with a dot. It reads with `patterns`, `find` or both,
+ * and has no default: it reads the boundaries `action` and `at` put above `ignore`.
+ */
+interface HostDetectorConfig {
+  /** What an editor and the trace call it. */
+  label: string;
+  /** The action at every boundary. Left out, only the boundaries `at` names are read. */
+  action?: DetectAction;
+  /** An action for the boundaries it names, over `action`. */
+  at?: Partial<Record<Boundary, DetectAction>>;
+  /** Its patterns, read on the text as written. */
+  patterns?: readonly HostPattern[];
+  /** The table compiled for `patterns` (`compilePatterns`, `agents detect-compile`). Patterns need it. */
+  compiled?: CompiledPatterns;
+  /**
+   * Its own reading. As a reply streams, a `find` reads the text held so far, and the last
+   * `HOST_FIND_HOLD` characters stay held (`HOST_FIND_HOLD_LIVE` in a Live reply): a match is
+   * caught whole when it is no longer than that.
+   */
+  find?: HostFind;
+}
+
 /** One action for every detector at every boundary, or a rule for the detectors it names. */
-type DetectSpec = DetectAction | Partial<Record<Detector, DetectorRule>>;
+type DetectSpec =
+  | DetectAction
+  | (Partial<Record<Detector, DetectorRule>> & {
+      readonly [id: HostDetectorId]: HostDetectorConfig;
+    });
+
+/** A host's detector, resolved: its action at every boundary and what it reads with. */
+interface HostDetector {
+  id: HostDetectorId;
+  label: string;
+  actions: Readonly<Record<Boundary, DetectAction>>;
+  /** Its patterns, ready to run. */
+  matchers: readonly HostMatcher[];
+  /** The table compiled for its patterns; absent when it has none. */
+  compiled?: CompiledPatterns;
+  find?: HostFind;
+}
+
+/** How much of a streaming reply stays held for a host's `find`, in characters. */
+const HOST_FIND_HOLD = 256;
+/** The same in a Live reply, which is spoken as it is written. */
+const HOST_FIND_HOLD_LIVE = 96;
 
 /** Whose patterns a detector reads with: Theorem's, the host's, both or neither. */
 interface DetectorSource {
@@ -109,7 +169,11 @@ type DetectMatrix = Readonly<Record<Detector, Readonly<Record<Boundary, DetectAc
  * Every detector's action at every boundary, defaults applied, and whose patterns each reads
  * with. A detector left with no patterns at all is `ignore` everywhere: it has nothing to find.
  */
-type ResolvedDetect = DetectMatrix & { readonly sources?: DetectSources };
+type ResolvedDetect = DetectMatrix & {
+  readonly sources?: DetectSources;
+  /** The host's own detectors, in the order the profile lists them. */
+  readonly host?: readonly HostDetector[];
+};
 
 /** How a detector, a group or an action is named and described to a builder. */
 interface DetectMeta {
@@ -335,7 +399,36 @@ function resolveDetect(spec?: DetectSpec): ResolvedDetect {
     const source = sourceOf(spec[detector]);
     if (source) sources[detector] = source;
   }
-  return Object.keys(sources).length > 0 ? { ...matrix, sources } : matrix;
+  const host = Object.entries(spec).flatMap(([id, rule]) =>
+    isHostId(id) ? [hostDetector(id, rule as HostDetectorConfig)] : [],
+  );
+  return {
+    ...matrix,
+    ...(Object.keys(sources).length > 0 ? { sources } : {}),
+    ...(host.length > 0 ? { host } : {}),
+  };
+}
+
+function isHostId(key: string): key is HostDetectorId {
+  return key.includes('.');
+}
+
+function hostDetector(id: HostDetectorId, config: HostDetectorConfig): HostDetector {
+  const { label, action = 'ignore', at, patterns = [], compiled, find } = config;
+  return {
+    id,
+    label,
+    actions: recordOf(BOUNDARIES, (boundary) => at?.[boundary] ?? action),
+    matchers: matchersOf(patterns),
+    ...(compiled && patterns.length > 0 ? { compiled } : {}),
+    ...(find ? { find } : {}),
+  };
+}
+
+/** The action of `key`, a detector of Theorem's or the host's, at `boundary`. One unknown is `ignore`. */
+function actionAt(detect: ResolvedDetect, key: string, boundary: Boundary): DetectAction {
+  if (isDetector(key)) return detect[key][boundary];
+  return detect.host?.find(({ id }) => id === key)?.actions[boundary] ?? 'ignore';
 }
 
 /** The detectors whose setting takes `allow`. */
@@ -369,21 +462,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** `detector` left out is one of the host's own, which applies at every boundary. */
 function atProblem(
   path: string,
   at: unknown,
-  detector: Detector,
   boundaries: readonly Boundary[],
+  detector?: Detector,
 ): string | undefined {
   if (at === undefined) return undefined;
   if (!isRecord(at)) return `${path} must be an object of boundaries`;
   const known = new Set<string>(boundaries);
-  const applies = DETECTOR_BOUNDARIES[detector];
+  const applies: readonly string[] = detector ? DETECTOR_BOUNDARIES[detector] : BOUNDARIES;
   for (const [boundary, action] of Object.entries(at)) {
     if (!known.has(boundary)) {
       return `${path}.${boundary} is not a boundary this profile has (${boundaries.join(', ')})`;
     }
-    if (!(applies as readonly string[]).includes(boundary)) {
+    if (!applies.includes(boundary)) {
       return `${path}.${boundary} is not a boundary ${detector} applies at (${applies.join(', ')})`;
     }
     if (!isAction(action)) return `${path}.${boundary} must be one of ${ACTION_LIST}`;
@@ -447,7 +541,7 @@ function ruleProblem(
     return `${path}.action must be one of ${ACTION_LIST}`;
   }
   return (
-    atProblem(`${path}.at`, rule.at, detector, boundaries) ??
+    atProblem(`${path}.at`, rule.at, boundaries, detector) ??
     sourceProblem(path, rule, detector) ??
     allowProblem(`${path}.allow`, rule.allow, detector)
   );
@@ -488,13 +582,55 @@ function detectProblem(
   if (spec === undefined || isAction(spec)) return undefined;
   if (!isRecord(spec)) return `${path} must be one of ${ACTION_LIST}, or an object of detectors`;
   for (const [detector, rule] of Object.entries(spec)) {
-    if (!isDetector(detector)) {
-      return `${path}.${detector} is not a detector (${DETECTORS.join(', ')})`;
+    const at = `${path}.${detector}`;
+    if (!(isDetector(detector) || isHostId(detector))) {
+      return `${at} is not a detector (${DETECTORS.join(', ')}), nor one of your own: those have a dot in their key, as in acme.record`;
     }
-    const problem = ruleProblem(`${path}.${detector}`, rule, detector, boundaries);
+    const problem = isDetector(detector)
+      ? ruleProblem(at, rule, detector, boundaries)
+      : hostProblem(at, detector, rule, boundaries);
     if (problem !== undefined) return problem;
   }
   return undefined;
+}
+
+const HOST_KEYS: readonly string[] = [
+  'label',
+  'action',
+  'at',
+  'patterns',
+  'compiled',
+  'find',
+] satisfies (keyof HostDetectorConfig)[];
+
+/** What is wrong with a detector of the host's own. It has no default, so it says what it reads with and where. */
+function hostProblem(
+  path: string,
+  id: string,
+  rule: unknown,
+  boundaries: readonly Boundary[],
+): string | undefined {
+  if (!/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/.test(id)) {
+    return `${path}: a detector of your own is keyed namespace.name in lower case, digits and _, as in acme.record`;
+  }
+  if (!isRecord(rule))
+    return `${path} must be an object: a label, an action or at, and patterns or find`;
+  const unknown = Object.keys(rule).find((key) => !HOST_KEYS.includes(key));
+  if (unknown !== undefined) {
+    return `${path}.${unknown} is not a setting of a detector of your own (${HOST_KEYS.join(', ')})`;
+  }
+  const { label, action, at, patterns, compiled, find } = rule;
+  if (typeof label !== 'string' || !label.trim()) return `${path}.label must be a non-empty string`;
+  if (action !== undefined && !isAction(action))
+    return `${path}.action must be one of ${ACTION_LIST}`;
+  if (action === undefined && at === undefined) {
+    return `${path} needs an action or at: a detector of your own has no default`;
+  }
+  if (find !== undefined && typeof find !== 'function') return `${path}.find must be a function`;
+  if (patterns === undefined && find === undefined) {
+    return `${path} needs patterns or find: it has nothing to read with`;
+  }
+  return atProblem(`${path}.at`, at, boundaries) ?? patternsProblem(path, patterns, compiled);
 }
 
 export type {
@@ -509,12 +645,18 @@ export type {
   DetectorSource,
   DetectSources,
   DetectSpec,
+  HostDetector,
+  HostDetectorConfig,
+  HostDetectorId,
+  HostFind,
+  HostSpan,
   ResolvedAllow,
   ResolvedDetect,
   UrlAllow,
   UrlDetector,
 };
 export {
+  actionAt,
   DETECT_ACTION_META,
   DETECT_ACTIONS,
   DETECT_DEFAULTS,
@@ -525,6 +667,8 @@ export {
   DETECTORS,
   detectProblem,
   detects,
+  HOST_FIND_HOLD,
+  HOST_FIND_HOLD_LIVE,
   NO_ALLOW,
   PATTERN_DETECTORS,
   resolveAllow,

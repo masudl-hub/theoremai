@@ -49,6 +49,11 @@ export type {
   DetectorSource,
   DetectSources,
   DetectSpec,
+  HostDetector,
+  HostDetectorConfig,
+  HostDetectorId,
+  HostFind,
+  HostSpan,
   ResolvedAllow,
   ResolvedDetect,
   UrlAllow,
@@ -64,6 +69,8 @@ export {
   DETECTOR_META,
   DETECTORS,
   detectProblem,
+  HOST_FIND_HOLD,
+  HOST_FIND_HOLD_LIVE,
   PATTERN_DETECTORS,
   resolveDetect,
 } from './detectors.ts';
@@ -146,6 +153,7 @@ export type { GuardrailRule } from './rules.ts';
 export {
   DETECT_RULES,
   DIRECTIVE_RULES,
+  detectRule,
   EGRESS_RULES,
   NETWORK_RULES,
   TOOL_RULES,

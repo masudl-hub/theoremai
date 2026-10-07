@@ -214,8 +214,9 @@ function Interrupted() {
   );
 }
 
-/** A message's time, copy button and status; a failure says why on the line beneath. */
+/** A message's copy button (outermost), time and status; a failure says why on the line beneath. */
 function MessageChrome(props: {
+  sender: 'user' | 'assistant';
   at: number;
   copyText: string;
   status?: ChatMessageStatus;
@@ -226,30 +227,20 @@ function MessageChrome(props: {
   usage?: TurnUsage;
 }) {
   const failed = props.error !== undefined;
-  const copyButton = <CopyButton text={props.copyText} />;
-  // why: Astryx's statuses are a closed set, so this one rides the footer, after the same dot.
-  const copy = props.interrupted ? (
-    <>
-      {copyButton}
-      <span>·</span>
-      <Interrupted />
-    </>
-  ) : (
-    copyButton
-  );
+  const copy = <CopyButton text={props.copyText} />;
+  const time = <MessageTime at={props.at} />;
+  const usage = props.usage ? <Usage tokens={props.usage} /> : undefined;
   const metadata = (
     <ChatMessageMetadata
-      timestamp={<MessageTime at={props.at} />}
-      footer={
-        props.usage ? (
-          <HStack gap={1} vAlign="center">
-            {copy}
-            <Usage tokens={props.usage} />
-          </HStack>
-        ) : (
-          copy
-        )
+      // why: The copy button sits on the outside: the row's first slot is the one nearest the margin.
+      timestamp={
+        <HStack gap={1} vAlign="center">
+          {props.sender === 'user' ? time : copy}
+          {props.sender === 'user' ? copy : time}
+        </HStack>
       }
+      // why: Astryx's statuses are a closed set, so this one rides the footer.
+      footer={props.interrupted ? <Interrupted /> : usage}
       status={failed ? 'error' : props.interrupted ? undefined : props.status}
     />
   );
@@ -813,6 +804,7 @@ function AssistantTurn(props: {
       metadata={
         props.streaming ? undefined : (
           <MessageChrome
+            sender="assistant"
             at={props.at}
             copyText={copyText}
             error={props.error}
@@ -860,6 +852,7 @@ function UserTurn(props: {
     .join('\n\n');
   const chrome = (
     <MessageChrome
+      sender="user"
       at={props.at}
       copyText={copyText}
       status={props.status}

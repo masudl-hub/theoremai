@@ -8,7 +8,8 @@ const SECTION_NOTES = {
   'models.decision': 'A decision uses one model. Select its binding in the tree to configure it.',
   decisionModel: 'This binding answers the questions configured under Decision.',
   slots: "Each slot's picker sets what the preview sends. It is not saved in the profile.",
-  context: 'Preview is what the playground sends as the page. It is not saved in the profile.',
+  context:
+    'Preview is what the playground sends as the page. It is not saved in the profile.',
   compaction: "The playground's chat compacts only before a turn.",
   quota: 'Playground runs are not counted.',
   'detect.mixed': 'Actions differ by boundary.',

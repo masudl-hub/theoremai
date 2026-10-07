@@ -1476,6 +1476,14 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     'ProfileId',
     'The profile this agent tool runs: text, image or speech. Register it first. Nothing it calls may stop on a gate.',
   ),
+  answeredBy: {
+    ...field(
+      "'page'",
+      'Who answers a call to a function tool. With page, the page the agent is on returns the output, and the tool has no handler.',
+      ['page'],
+    ),
+    unset: 'Its handler',
+  },
   maxCallsPerTurn: {
     ...field('number', 'How many times one turn of the calling agent may run this tool.'),
     unset: 'As many as its steps allow',

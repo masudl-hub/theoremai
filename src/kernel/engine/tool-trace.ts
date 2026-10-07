@@ -21,15 +21,22 @@ import {
   tracePart,
 } from './turn-trace.ts';
 
-/** A check at the tool boundary: the call's arguments, the remote-content gate, the result, or the network target. */
+/** A check at the tool boundary: the call's arguments, the remote-content gate, its destinations, the result, or the network target. */
 type ToolCheck = Extract<
   GuardrailCheck,
-  'tool_arguments' | 'taint' | 'tool_result' | 'tool_failure' | 'network' | 'network_request'
+  | 'tool_arguments'
+  | 'taint'
+  | 'destination'
+  | 'tool_result'
+  | 'tool_failure'
+  | 'network'
+  | 'network_request'
 >;
 
 const TOOL_CHECK_STAGE: Readonly<Record<ToolCheck, GuardrailStage>> = {
   tool_arguments: 'tool_call',
   taint: 'tool_call',
+  destination: 'tool_call',
   tool_result: 'tool_result',
   tool_failure: 'tool_result',
   network: 'network',

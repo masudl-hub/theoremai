@@ -438,6 +438,10 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
     label: 'Change after a remote instruction',
     doc: 'A tool that writes or deletes was called after the turn read remote content that also looked like instructions to the agent.',
   },
+  'tool_call.remote-destination': {
+    label: 'Destination from remote content',
+    doc: "A tool call's argument carried an email address, a link's host or a bank account that the turn read in a remote tool's result, and that the user and the system never gave.",
+  },
   'network.blocked': {
     label: 'Address blocked',
     doc: 'A tool tried to reach a private, local or disallowed address. The request was never made.',
@@ -451,6 +455,10 @@ const GUARDRAIL_CHECK_OPTIONS: Readonly<Record<GuardrailCheck, TraceOptionMeta>>
   taint: {
     label: 'Remote-content gate',
     doc: 'Checked whether a tool that writes or deletes was called after the turn read remote content.',
+  },
+  destination: {
+    label: 'Destination check',
+    doc: "Checked whether the call sends to an address that only a remote tool's result named.",
   },
   tool_result: {
     label: 'Result check',

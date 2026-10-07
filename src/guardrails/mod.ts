@@ -35,6 +35,15 @@ export {
 } from './canary.ts';
 export type { CanaryGateSession } from './canary-gate.ts';
 export { createCanaryGateSession, filterCanaryGatedEvents } from './canary-gate.ts';
+export type { DestinationVerdict, TurnDestinations } from './destinations.ts';
+export {
+  addGivenDestinations,
+  addHistoryDestinations,
+  addRequestDestinations,
+  addResultDestinations,
+  checkDestinationGate,
+  turnDestinations,
+} from './destinations.ts';
 export type { Detection, DetectOutcome } from './detect-at.ts';
 export { detectAt } from './detect-at.ts';
 export type {
@@ -187,6 +196,7 @@ export type {
   AdvisoryLevel,
   BlockedReplyOnBlock,
   BlockedReplySpec,
+  DestinationGate,
   GuardrailAction,
   GuardrailContext,
   GuardrailEvent,
@@ -211,6 +221,7 @@ export type {
 export {
   ADVISORY_LEVELS,
   BLOCKED_REPLY_ON_BLOCK,
+  DESTINATION_GATES,
   GUARDRAIL_STAGES,
   SEVERITIES,
   TAINT_GATES,

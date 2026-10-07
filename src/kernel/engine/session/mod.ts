@@ -1,5 +1,13 @@
 import { canaryNote, userDataNote } from '../../../guardrails/canary.ts';
 import {
+  addGivenDestinations,
+  addHistoryDestinations,
+  addRequestDestinations,
+  addResultDestinations,
+  type TurnDestinations,
+  turnDestinations,
+} from '../../../guardrails/destinations.ts';
+import {
   addHistoryUrls,
   addRequestUrls,
   addSeenUrls,
@@ -387,6 +395,8 @@ function buildLiveSession(args: {
   gate: LiveOutboundGateSession;
   /** Every URL the model has been given this session (`GuardrailContext.givenUrls`). */
   givenUrls: GivenUrlSets;
+  /** The destinations the model has been given this session, and those this cycle read remotely. */
+  destinations: TurnDestinations;
   signal?: AbortSignal;
   onStage?: StageHandler;
   host?: unknown;
@@ -408,6 +418,7 @@ function buildLiveSession(args: {
     connection,
     gate,
     givenUrls,
+    destinations,
     signal,
     onStage,
     host: sessionHost,
@@ -447,6 +458,7 @@ function buildLiveSession(args: {
     if (!trimmed) return;
     history.push({ role: 'user', content: trimmed });
     addSeenUrls(givenUrls.request, trimmed);
+    addGivenDestinations(destinations, trimmed);
   };
 
   const recordAssistantText = (text: string) => {
@@ -692,6 +704,7 @@ function buildLiveSession(args: {
     cycle = 'open';
     cycleStep += 1;
     cycleTaint = undefined;
+    destinations.remote.clear();
     const pre = await runCycleStage('pre_turn');
     if (pre.abort) {
       await cancelCycle(pre.abort);
@@ -763,7 +776,7 @@ function buildLiveSession(args: {
         signal,
         resume,
         host,
-        turn: { step: Math.max(1, cycleStep), taint: cycleTaint },
+        turn: { step: Math.max(1, cycleStep), taint: cycleTaint, destinations },
       },
       snapshot,
       stages: {
@@ -838,6 +851,7 @@ function buildLiveSession(args: {
 
     if (s.modelResult?.provenance) {
       cycleTaint = recordTaint(cycleTaint, s.modelResult.provenance, s.modelResult.suspicious);
+      addResultDestinations(destinations, s.modelResult, s.modelResult.provenance);
     }
 
     const { pendingInject } = s;
@@ -1234,6 +1248,9 @@ async function openTracedSession(
   const givenUrls = givenUrlSets();
   addRequestUrls(givenUrls, completeReq);
   addHistoryUrls(givenUrls, req.history ?? []);
+  const destinations = turnDestinations();
+  addRequestDestinations(destinations, completeReq, givenUrls.own);
+  addHistoryDestinations(destinations, req.history ?? [], givenUrls.own);
   const gate = createLiveOutboundGateSession(
     profile,
     generation.canary || undefined,
@@ -1255,6 +1272,7 @@ async function openTracedSession(
     connection,
     gate,
     givenUrls,
+    destinations,
     signal: safe.signal,
     onStage: req.onStage,
     host: req.host,

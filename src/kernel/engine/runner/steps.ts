@@ -1,4 +1,5 @@
 import { requestGivesCanary } from '../../../guardrails/canary.ts';
+import { addRequestDestinations, addResultDestinations } from '../../../guardrails/destinations.ts';
 import { TURN_REPLY } from '../../../guardrails/detect-reply.ts';
 import { addRequestUrls } from '../../../guardrails/egress-urls.ts';
 import { isAbortError, throwIfAborted } from '../../../guardrails/error.ts';
@@ -114,6 +115,7 @@ function startProviderCall(
   const genForStep = generationForProviderStep(generation, state);
   const request = providerCompleteRequest(state.tools, genForStep, system.text);
   addRequestUrls(state.givenUrls, request);
+  addRequestDestinations(state.destinations, request, state.givenUrls.own);
   if (generation.canary && !state.canaryGiven) {
     state.canaryGiven = requestGivesCanary(request, generation.canary, state.canaryScanned);
   }
@@ -357,6 +359,11 @@ function* applyToolSettlement(
       settlement.modelResult.provenance,
       settlement.modelResult.suspicious,
     );
+    addResultDestinations(
+      state.destinations,
+      settlement.modelResult,
+      settlement.modelResult.provenance,
+    );
   }
   if (!settlement.modelResult) return 'continue';
   recordToolModelResult(state, call, settlement.modelResult, chainOn);
@@ -441,7 +448,7 @@ async function* handleModelCalls(
         ctx: {
           sessionPermissions: generation.sessionPermissions,
           path: generation.tools.path,
-          turn: { step: state.stepCount, taint: state.taint },
+          turn: { step: state.stepCount, taint: state.taint, destinations: state.destinations },
           credentials,
           resolveHost,
           host: generation.host,

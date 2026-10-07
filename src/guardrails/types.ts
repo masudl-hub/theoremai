@@ -138,6 +138,11 @@ export const TAINT_GATES = ['off', 'destructive', 'write'] as const;
 /** One of {@linkcode TAINT_GATES}. */
 export type TaintGate = (typeof TAINT_GATES)[number];
 
+/** What happens to a tool call that sends to a destination only remote content named. */
+export const DESTINATION_GATES = ['off', 'confirm', 'block'] as const;
+/** One of {@linkcode DESTINATION_GATES}. */
+export type DestinationGate = (typeof DESTINATION_GATES)[number];
+
 /**
  * Enforcement is opt-in: every remote read is reported, but refusing tool calls
  * changes what working agents may do, so the host declares which access levels
@@ -161,6 +166,16 @@ export interface TaintGuardrailSpec {
    * maps a tool's declared access onto it.
    */
   afterRemoteRead?: TaintGate;
+  /**
+   * A call whose argument carries an email address, a link's host or a bank
+   * account number that the turn read in a remote result's running text, and
+   * that the user, the system prompt and local tools never gave.
+   *
+   * - `off` (default) — report only.
+   * - `confirm` — hold the call until the user approves it.
+   * - `block` — refuse the call.
+   */
+  remoteDestination?: DestinationGate;
 }
 
 /** Facts a check may read. Deliberately excludes the full profile. */

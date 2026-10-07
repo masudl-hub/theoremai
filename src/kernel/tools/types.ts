@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import type { TurnDestinations } from '../../guardrails/destinations.ts';
 import type { ResolveHost } from '../../guardrails/network.ts';
 import type { GuardrailHit, Provenance, TurnTaint } from '../../guardrails/types.ts';
 import type { ToolCredentialSource } from '../auth/credential-source.ts';
@@ -113,7 +114,7 @@ export interface ToolContext {
   sessionPermissions?: string[];
   path?: string;
   signal?: AbortSignal;
-  turn?: { step: number; taint?: TurnTaint };
+  turn?: { step: number; taint?: TurnTaint; destinations?: TurnDestinations };
   resume?: InvokeToolResume;
   credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;

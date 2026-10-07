@@ -671,7 +671,7 @@ not the key.
 
 | Where it fails (`ToolFailure.code`) | Kind |
 | --- | --- |
-| `network_blocked`, `tainted_turn`, `not_allowed`; a host `pre_tool` / `post_tool` deny (host code, default `not_authorized`) | `blocked` |
+| `network_blocked`, `tainted_turn`, `remote_destination`, `not_allowed`; a host `pre_tool` / `post_tool` deny (host code, default `not_authorized`) | `blocked` |
 | `denied` | `declined` |
 | A remote tool without its credential (`not_authorized`); tool HTTP 401 / 403 | `auth` |
 | `network_error` | `network` |
@@ -1239,6 +1239,7 @@ The tool boundary's rules (all ids: [Rule ids](#rule-ids)):
 | `detect.<detector>` | `tool_call`, `tool_result` | That detector matched arguments, output or a failure message; the event's `boundary` says which |
 | `tool_call.tainted-turn` | `tool_call` | State-changing call on a turn that has read remote content |
 | `tool_call.steered-turn` | `tool_call` | Same, where that content carried a directive |
+| `tool_call.remote-destination` | `tool_call` | An argument carries a destination that only a remote result named |
 
 ### Tool instructions
 
@@ -1363,9 +1364,10 @@ guardrails: {
 `afterRemoteRead` takes `off` (default, report only), `destructive` (refuse
 destructive calls, flag `read-write`), or `write` (refuse both).
 
-**It is the only gate, and it is deliberately structural.** It keys on whether the
+**The gate is deliberately structural.** It keys on whether the
 turn fetched remotely — a fact the kernel knows exactly. A host enabling it can
-predict precisely when it fires.
+predict precisely when it fires. `remoteDestination` below is the second gate,
+and it keys on a fact of the same kind: where a value in the call came from.
 
 There is no gate on the directive signals, and that is a design decision rather
 than an omission. Those signals are pattern matches with no measured precision.
@@ -1385,6 +1387,47 @@ risk is reported from the first turn, so a host can see how often the gate *woul
 fire before turning it on. The threshold is stated as a capability level rather
 than a list of tool `access` values, which keeps the guardrail vocabulary
 independent of the tool registry; the kernel maps a tool's declared access onto it.
+
+### Destinations — sending where the content says
+
+Use `remoteDestination` to stop an agent that sends data where a web page or an
+email told it to. An attacker who hijacks the agent must say where the data
+goes, and the address reaches the agent in the text of a remote result.
+
+A **destination** is an email address, the host of a link, or a bank account
+number in IBAN shape. `checkDestinationGate` reads the arguments of every tool
+call, read-only calls too: a fetch of an attacker's link sends data. It reports
+`tool_call.remote-destination` when an argument carries a destination that
+passes both tests:
+
+1. The turn read it in the running text of a remote tool's result.
+2. Nothing else gave it: not the system prompt, the user, the host's history or
+   a local tool's result.
+
+A destination that is the whole value of one field is data the tool returned,
+not text someone wrote. The agent may reply to an email's `sender` or open a
+search result's `url`. JSON that a tool returns as text is read by its fields.
+Two links to one host are one destination, whatever their paths.
+
+```ts
+guardrails: {
+  taint: { remoteDestination: 'confirm' },
+}
+```
+
+| `remoteDestination` | The call |
+| --- | --- |
+| `off` (default) | Runs. The guardrail event reports it. |
+| `confirm` | Waits at a `confirmation` gate. The gate's `summary` is `taint.destination_confirm`. An approval runs the call. |
+| `block` | Fails with `remote_destination`. The model reads `taint.destination_blocked`. |
+
+`TurnDestinations` holds the two sets. The turn runner fills `given` from each
+provider request and from local results, and `remote` from remote results. A
+Live session keeps `given` for the session and empties `remote` when a cycle
+opens. An earlier turn's tool results are in neither set.
+
+The rule does not find a call that needs no new destination: a deletion, or a
+message to a contact the user already has. `afterRemoteRead` covers those calls.
 
 ## Guardrail events
 
@@ -1438,6 +1481,7 @@ that acts records its time so far on the decision instead, and
 inbound text check records on the session span as `live_input`. The tool
 boundary's checks record the same way on the tool's span, pass or not:
 `tool_arguments` (`inspectToolArguments`), `taint` (`checkTaintGate`),
+`destination` (`checkDestinationGate`),
 `tool_result` (`guardToolResult`), `tool_failure` (`guardToolFailureText`),
 `network` (`assertSafeUrl` before a declarative HTTP or MCP request) and
 `network_request` (the host lookup and every redirect hop inside
@@ -1463,7 +1507,7 @@ reports `detect.<key>` (`detectRule`), and its hit carries the detector's
 | --- | --- |
 | `DETECT_RULES` | `detect.ids`, `detect.financial`, `detect.network`, `detect.credentials`, `detect.injection`, `detect.tool_instructions`, `detect.canary_leak`, `detect.prompt_leak`, `detect.marker_leak`, `detect.ungiven_images`, `detect.ungiven_links`, `detect.tool_leak` |
 | `EGRESS_RULES` | `egress.provider-tool-leak`, `egress.unscannable` |
-| `TOOL_RULES` | `tool_call.tainted-turn`, `tool_call.steered-turn` |
+| `TOOL_RULES` | `tool_call.tainted-turn`, `tool_call.steered-turn`, `tool_call.remote-destination` |
 | `NETWORK_RULES` | `network.blocked` |
 
 ## Network
@@ -1625,7 +1669,7 @@ From `src/guardrails/mod.ts`:
 | Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `MAX_PATTERNS`, `MAX_PATTERN_LENGTH`, `HostDetectorConfig`, `HostDetectorId`, `HostDetector`, `HostFind`, `HostSpan`, `HOST_FIND_HOLD`, `HOST_FIND_HOLD_LIVE`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `detectAt`, `Detection`, `DetectOutcome` |
 | Policy | `resolveGuardrailPolicy` |
 | Rule ids | `DETECT_RULES`, `detectRule`, `EGRESS_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
-| Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directives`, `DIRECTIVE_SIGNALS`, `Directive`, `DirectiveSignal`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `InspectedToolArguments`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
+| Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `checkDestinationGate`, `turnDestinations`, `addGivenDestinations`, `addHistoryDestinations`, `addRequestDestinations`, `addResultDestinations`, `TurnDestinations`, `DestinationVerdict`, `DESTINATION_GATES`, `DestinationGate`, `directives`, `DIRECTIVE_SIGNALS`, `Directive`, `DirectiveSignal`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `InspectedToolArguments`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
 | Serialization | `textForScan`, `scanTextOf`, `ScanText` |
 | Sanitize | `sanitizeProjectId`, `sanitizeHistory`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `SanitizedTurnRequest` |
 | Events | `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |

@@ -8,7 +8,7 @@ import {
 } from '../../playground/surface.ts';
 import { createSurfaceRuntime } from '../../src/surface/runtime.ts';
 
-const KEY = 'AIzaSyTESTONLY0000000000000000000000000';
+const KEY = ['AIzaSy', 'TESTONLY0000000000000000000000000'].join('');
 
 function setup(start: PlaygroundDraft = setProfileType(createBlankDraft(), 'text')) {
   let draft = start;

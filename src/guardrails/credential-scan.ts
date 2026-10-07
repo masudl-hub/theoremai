@@ -14,6 +14,8 @@
  * @module
  */
 
+import { createHash } from 'node:crypto';
+
 import type { RedactSpan } from '../observability/spans.ts';
 
 /** Matches a credential rule lets through. */
@@ -21,6 +23,8 @@ interface CredentialAllowlist {
   /** What the regexes read: the secret, the whole match, or the lines the match is on. */
   target: 'secret' | 'match' | 'line';
   regexes: readonly RegExp[];
+  /** SHA-256 hex digests of values that let through, so a literal is not kept in source. */
+  hashes: readonly string[];
   /** Words that, anywhere in the secret, case aside, let it through. */
   stopwords: readonly string[];
 }
@@ -59,6 +63,9 @@ function allowed(
   const lower = read.secret.toLowerCase();
   return (
     (target !== '' && list.regexes.some((regex) => regex.test(target))) ||
+    (target !== '' &&
+      list.hashes.length > 0 &&
+      list.hashes.includes(createHash('sha256').update(target).digest('hex'))) ||
     (lower !== '' && list.stopwords.some((word) => lower.includes(word)))
   );
 }

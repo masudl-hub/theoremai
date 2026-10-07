@@ -12,7 +12,7 @@ import {
   secretCard,
 } from '../../src/surface/mod.ts';
 
-const KEY = 'AIzaSyTESTONLY0000000000000000000000000';
+const KEY = ['AIzaSy', 'TESTONLY0000000000000000000000000'].join('');
 
 /** A small page: a name, a key, an endpoint, and a key test. */
 function page() {

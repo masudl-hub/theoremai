@@ -49,6 +49,7 @@ const GLOBAL_ALLOWLIST: CredentialAllowlist = {
     /^\/Users\/(?:[a-zA-Z0-9]+\/[\w .-/]+$)/,
     /^\/(?:bin|etc|home|opt|tmp|usr|var)\/[\w ./-]+$/,
   ],
+  hashes: [],
   stopwords: ['014df517-39d1-4453-b7b3-9930c563627c', 'abcdefghijklmnopqrstuvwxyz'],
 };
 
@@ -193,7 +194,7 @@ const CREDENTIAL_RULES: readonly CredentialRule[] = [
     pattern: /\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b/,
     entropy: 3,
     keywords: ['a3t', 'akia', 'asia', 'abia', 'acca'],
-    allowlists: [{ target: 'secret', regexes: [/[^\n]+EXAMPLE$/], stopwords: [] }],
+    allowlists: [{ target: 'secret', regexes: [/[^\n]+EXAMPLE$/], hashes: [], stopwords: [] }],
   },
   {
     id: 'aws-amazon-bedrock-api-key-long-lived',
@@ -365,6 +366,7 @@ const CREDENTIAL_RULES: readonly CredentialRule[] = [
           /\$\([^)]+\):\$\([^)]+\)/,
           /['"]?\$?\{\{[^}]+\}\}['"]?:['"]?\$?\{\{[^}]+\}\}['"]?/,
         ],
+        hashes: [],
         stopwords: [],
       },
     ],
@@ -611,23 +613,24 @@ const CREDENTIAL_RULES: readonly CredentialRule[] = [
     allowlists: [
       {
         target: 'secret',
-        regexes: [
-          /AIzaSyabcdefghijklmnopqrstuvwxyz1234567/,
-          /AIzaSyAnLA7NfeLquW1tJFpx_eQCxoX-oo6YyIs/,
-          /AIzaSyCkEhVjf3pduRDt6d1yKOMitrUEke8agEM/,
-          /AIzaSyDMAScliyLx7F0NPDEJi1QmyCgHIAODrlU/,
-          /AIzaSyD3asb-2pEZVqMkmL6M9N6nHZRR_znhrh0/,
-          /AIzayDNSXIbFmlXbIE6mCzDLQAqITYefhixbX4A/,
-          /AIzaSyAdOS2zB6NCsk1pCdZ4-P6GBdi_UUPwX7c/,
-          /AIzaSyASWm6HmTMdYWpgMnjRBjxcQ9CKctWmLd4/,
-          /AIzaSyANUvH9H9BsUccjsu2pCmEkOPjjaXeDQgY/,
-          /AIzaSyA5_iVawFQ8ABuTZNUdcwERLJv_a_p4wtM/,
-          /AIzaSyA4UrcGxgwQFTfaI3no3t7Lt1sjmdnP5sQ/,
-          /AIzaSyDSb51JiIcB6OJpwwMicseKRhhrOq1cS7g/,
-          /AIzaSyBF2RrAIm4a0mO64EShQfqfd2AFnzAvvuU/,
-          /AIzaSyBcE-OOIbhjyR83gm4r2MFCu4MJmprNXsw/,
-          /AIzaSyB8qGxt4ec15vitgn44duC5ucxaOi4FmqE/,
-          /AIzaSyA8vmApnrHNFE0bApF4hoZ11srVL_n0nvY/,
+        regexes: [],
+        hashes: [
+          'f56e323494a6ffc2064e7a955908957d84f0755e5f975dabd64328d0359a8f7c',
+          '2037abcaffb2b77785da716cf7ccff4ff4d00c4ea930db0167b7d71f50af7eb4',
+          '3f370c9dd8225c63b5c77de1f785edc9712958f18bb612d5fa2e0ae33aeca682',
+          'e4a5542bb7fd7b67e943c71ad29c34b5972c9840597e7eda53e666f44d5da0b9',
+          'a19f89ab3555eac10c40741f6df79ecf0935998f15569f8db9d67bce0181fff6',
+          '0b476bdf9acf2123d547b5ae76f1e59884d8ec9553ee0c47e9f31fd4768f3f3c',
+          'eb540d2b6ee2a0a47c5779bc8a0141784c6b753840d4c6f4e2428a6e86e9e0b1',
+          '37f8f09bdf12c2f2eae4ead7273a62ddb0c23459cbf902892f282b57f7ed6619',
+          '8731261cb72d86267a32a532ebd3df429e2144e5e4ced7e13568bc9e6c8fb1b1',
+          '49f777db995e8260da7ca9ffdf0c08d66f0453e97ec967018baf2cdfe3b582d0',
+          '27a9a42931dff7eb2f8434e20a9bce976ea364e7bee49187f19d5cfeca9c7045',
+          'dc0fcf046c61640cbd1e8b999ada3262d722c2ca4bf42dceac999020ffdbb614',
+          '4c98242dcadc8b29005c6b4aad526552d5ea1842149154c0694adeec75847583',
+          'ea9bb1082cf95663f5faca23b8b15ef2aa0fce0a5c6df9c32dcb85b2e0a4513d',
+          '3a8b61d0f636b007840c0d40ba12bcf48465dc054cdc1a68704a33521d84b665',
+          'a6c814bc555ae62c7bd8b58ec07bf559c7ed3a009976a1e0acc9cef0d4473b41',
         ],
         stopwords: [],
       },
@@ -651,12 +654,13 @@ const CREDENTIAL_RULES: readonly CredentialRule[] = [
       'token',
     ],
     allowlists: [
-      { target: 'secret', regexes: [/^[a-zA-Z_.-]+$/], stopwords: [] },
+      { target: 'secret', regexes: [/^[a-zA-Z_.-]+$/], hashes: [], stopwords: [] },
       {
         target: 'match',
         regexes: [
           /(?:(?:[aA][cC][cC][eE][sS][sS](?:[iI][bB][iI][lL][iI][tT][yY]|[oO][rR])|[aA][cC][cC][eE][sS][sS][_.-]?[iI][dD]|[rR][aA][nN][dD][oO][mM][_.-]?[aA][cC][cC][eE][sS][sS]|[aA][pP][iI][_.-]?(?:[iI][dD]|[nN][aA][mM][eE]|[vV][eE][rR][sS][iI][oO][nN])|[rR][aA][pP][iI][dD]|[cC][aA][pP][iI][tT][aA][lL]|[a-zA-Z0-9-]*?[aA][pP][iI][a-zA-Z0-9-]*?:[jJ][aA][rR]:|[aA][uU][tT][hH][oO][rR]|[Xx]-[Mm][Ss]-[Ee][xX][cC][hH][aA][nN][gG][eE]-[Oo][rR][gG][aA][nN][iI][zZ][aA][tT][iI][oO][nN]-[Aa][uU][tT][hH]|[Aa][uU][tT][hH][eE][nN][tT][iI][cC][aA][tT][iI][oO][nN]-[Rr][eE][sS][uU][lL][tT][sS]|(?:[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][sS]?[_.-]?[iI][dD]|[wW][iI][tT][hH][Cc][rR][eE][dD][eE][nN][tT][iI][aA][lL][sS])|(?:[bB][uU][cC][kK][eE][tT]|[fF][oO][rR][eE][iI][gG][nN]|[hH][oO][tT]|[iI][dD][xX]|[nN][aA][tT][uU][rR][aA][lL]|[pP][rR][iI][mM][aA][rR][yY]|[pP][uU][bB](?:[lL][iI][cC])?|[sS][cC][hH][eE][mM][aA]|[sS][eE][qQ][uU][eE][nN][cC][eE])[_.-]?[kK][eE][yY]|(?:[tT][uU][rR][kK][eE][yY])|[kK][eE][yY][_.-]?(?:[aA][lL][iI][aA][sS]|[bB][oO][aA][rR][dD]|[cC][oO][dD][eE]|[fF][rR][aA][mM][eE]|[iI][dD]|[lL][eE][nN][gG][tT][hH]|[mM][eE][sS][hH]|[nN][aA][mM][eE]|[pP][aA][iI][rR]|[pP][rR][eE][sS][sS](?:[eE][dD])?|[rR][iI][nN][gG]|[sS][eE][lL][eE][cC][tT][oO][rR]|[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[sS][iI][zZ][eE]|[sS][tT][oO][nN][eE]|[sS][tT][oO][rR][eE][tT][yY][pP][eE]|[wW][oO][rR][dD]|[uU][pP]|[dD][oO][wW][nN]|[lL][eE][fF][tT]|[rR][iI][gG][hH][tT])|[kK][eE][yY][_.-]?[vV][aA][uU][lL][tT][_.-]?(?:[iI][dD]|[nN][aA][mM][eE])|[kK][eE][yY][Vv][aA][uU][lL][tT][Tt][oO][Ss][tT][oO][rR][eE][Ss][eE][cC][rR][eE][tT][sS]|[kK][eE][yY](?:[sS][tT][oO][rR][eE]|[tT][aA][bB])[_.-]?(?:[fF][iI][lL][eE]|[pP][aA][tT][hH])|[iI][sS][sS][uU][eE][rR][kK][eE][yY][hH][aA][sS][hH]|(?:[DdMm]onkey|[DM]ONKEY)|[kK][eE][yY][iI][nN][gG]|(?:[sS][eE][cC][rR][eE][tT])[_.-]?(?:[lL][eE][nN][gG][tT][hH]|[nN][aA][mM][eE]|[sS][iI][zZ][eE])|[Uu][sS][eE][rR][Ss][eE][cC][rR][eE][tT][sS][Ii][dD]|(?:[cC][sS][rR][fF])[_.-]?[tT][oO][kK][eE][nN]|(?:[iI][oO]\.[jJ][sS][oO][nN][wW][eE][bB][tT][oO][kK][eE][nN][ \t]?:[ \t]?[\w-]+)|(?:[aA][pP][iI]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][sS]|[tT][oO][kK][eE][nN])[_.-]?(?:[eE][nN][dD][pP][oO][iI][nN][tT]|[uU][rR][iIlL])|[pP][uU][bB][lL][iI][cC][_.-]?[tT][oO][kK][eE][nN]|(?:[kK][eE][yY]|[tT][oO][kK][eE][nN])[_.-]?[fF][iI][lL][eE]|(?:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|$))|(?:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|$))))/,
         ],
+        hashes: [],
         stopwords: [
           '000000',
           '6fe4476ee5a1832882e326b506d14126',
@@ -2112,6 +2116,7 @@ const CREDENTIAL_RULES: readonly CredentialRule[] = [
           /--mount=type=secret,/,
           /import[ \t]+\{[ \t\w,]+\}[ \t]+from[ \t]+['"][^'"]+['"]/,
         ],
+        hashes: [],
         stopwords: [],
       },
     ],
@@ -3082,7 +3087,7 @@ const CREDENTIAL_RULES: readonly CredentialRule[] = [
     pattern: /\b((?:hvs\.[\w-]{90,120}|s\.(?:[a-zA-Z0-9]{24})))(?:[`'"\t\n\f\r ;]|\\[nr]|$)/,
     entropy: 3.5,
     keywords: ['hvs.', 's.'],
-    allowlists: [{ target: 'secret', regexes: [/s\.[A-Za-z]{24}/], stopwords: [] }],
+    allowlists: [{ target: 'secret', regexes: [/s\.[A-Za-z]{24}/], hashes: [], stopwords: [] }],
   },
   {
     id: 'yandex-access-token',

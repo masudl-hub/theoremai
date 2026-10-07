@@ -9,7 +9,7 @@ import {
 import { sensitiveSpans } from '../../src/guardrails/sensitive.ts';
 import { replyStream } from '../fixtures/detect.ts';
 
-const NONE: CredentialAllowlist = { target: 'secret', regexes: [], stopwords: [] };
+const NONE: CredentialAllowlist = { target: 'secret', regexes: [], hashes: [], stopwords: [] };
 
 function rule(over: Partial<CredentialRule> & Pick<CredentialRule, 'pattern'>): CredentialRule {
   return { id: 'r', keywords: [], allowlists: [], ...over };
@@ -83,6 +83,10 @@ Deno.test('an allowlist reads the secret, the match or the line, and stopwords r
     found(text, rule({ pattern, allowlists: [{ ...NONE, ...list }] }));
   assertEquals(lets({}), ['abcd', 'wxyz']);
   assertEquals(lets({ regexes: [/^abcd$/] }), ['wxyz']);
+  assertEquals(
+    lets({ hashes: ['88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589'] }),
+    ['wxyz'],
+  );
   assertEquals(lets({ regexes: [/^key=abcd$/] }), ['abcd', 'wxyz']);
   assertEquals(lets({ target: 'match', regexes: [/^key=abcd$/] }), ['wxyz']);
   assertEquals(lets({ target: 'line', regexes: [/^example key=abcd here$/] }), ['wxyz']);

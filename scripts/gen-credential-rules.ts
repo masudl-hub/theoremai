@@ -20,6 +20,7 @@
  * @module
  */
 
+import { createHash } from 'node:crypto';
 import { type AST, RegExpParser } from '@eslint-community/regexpp';
 import { parse } from '@std/toml';
 import type { CredentialAllowlist, CredentialRule } from '../src/guardrails/credential-scan.ts';
@@ -322,10 +323,19 @@ function chatAllowlist(list: GitleaksAllowlist): boolean {
   return content && !(needsFile && list.condition === 'AND');
 }
 
+/** A regex that is only a literal value: stored as its SHA-256 digest, not as source. */
+function literalValue(source: string): boolean {
+  return /^[A-Za-z0-9_-]+$/.test(source);
+}
+
 function allowlistOf(list: GitleaksAllowlist): CredentialAllowlist {
+  const sources = list.regexes ?? [];
   return {
     target: list.regexTarget ?? 'secret',
-    regexes: (list.regexes ?? []).map(goRegex),
+    regexes: sources.filter((source) => !literalValue(source)).map(goRegex),
+    hashes: sources
+      .filter(literalValue)
+      .map((value) => createHash('sha256').update(value).digest('hex')),
     stopwords: (list.stopwords ?? []).map((word) => word.toLowerCase()),
   };
 }
@@ -358,7 +368,7 @@ async function gitleaksRules(): Promise<CredentialRuleSet> {
 }
 
 function allowlistText(list: CredentialAllowlist): string {
-  return `{ target: ${JSON.stringify(list.target)}, regexes: [${list.regexes.join(', ')}], stopwords: ${JSON.stringify(list.stopwords)} }`;
+  return `{ target: ${JSON.stringify(list.target)}, regexes: [${list.regexes.join(', ')}], hashes: ${JSON.stringify(list.hashes)}, stopwords: ${JSON.stringify(list.stopwords)} }`;
 }
 
 function ruleText(rule: CredentialRule): string {

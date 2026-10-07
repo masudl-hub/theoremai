@@ -802,9 +802,7 @@ function compileInputs(
       'limitsByMimeJson',
     );
   });
-  const slots = recordField(inputs.slotsJson, isValueList, () => {
-    report('inputs', 'Slots must be a JSON object of lists of text.', 'slotsJson');
-  });
+  const slots = compileSlots(inputs, report);
   return {
     ...(inputs.text ? {} : { text: false }),
     ...(inputs.attachmentsAccept.length
@@ -817,6 +815,18 @@ function compileInputs(
     ...(limitsByMime ? { limitsByMime } : {}),
     ...(slots ? { slots } : {}),
   };
+}
+
+function compileSlots(inputs: InputsDraft, report: Report): Record<string, string[]> | undefined {
+  return recordField(inputs.slotsJson, isValueList, () => {
+    report('inputs', 'Slots must be a JSON object of lists of text.', 'slotsJson');
+  });
+}
+
+/** A call profile's inputs are its slots, and are left out when it names none. */
+function compileLiveInputs(inputs: InputsDraft, report: Report): { inputs?: ProfileInputsSpec } {
+  const slots = compileSlots(inputs, report);
+  return slots ? { inputs: { slots } } : {};
 }
 
 const isPositiveWhole = (value: unknown): value is number =>
@@ -1770,7 +1780,11 @@ function assemble(
     ...(facets.has('speech') ? { speech: compileSpeech(draft.speech, draft, report) } : {}),
     ...(facets.has('live') ? { live: compileLive(draft.live, report, mode) } : {}),
     ...(tools ? { tools } : {}),
-    ...(facets.has('inputs') ? { inputs: compileInputs(draft.inputs, type, report) } : {}),
+    ...(!facets.has('inputs')
+      ? {}
+      : type === 'live'
+        ? compileLiveInputs(draft.inputs, report)
+        : { inputs: compileInputs(draft.inputs, type, report) }),
     ...(outputs ? { outputs } : {}),
     ...(turnBehaviour ? { turnBehaviour } : {}),
     ...(guardrails ? { guardrails } : {}),

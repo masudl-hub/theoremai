@@ -1,10 +1,12 @@
-import { wrapUserData } from '../../guardrails/canary.ts';
-import { detectAt, detectEvent } from '../../guardrails/detect-at.ts';
+import { wrapContext, wrapUserData } from '../../guardrails/canary.ts';
+import { boundaryReader, detectAt, detectEvent } from '../../guardrails/detect-at.ts';
 import { guardrailTurnEvent, projectGuardrailTurnEvent } from '../../guardrails/events.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
+import { sanitizeContext } from '../../guardrails/sanitize.ts';
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
+import { CONTEXT_SENDERS } from '../schema.ts';
 import type { TurnEventOf } from '../turn-events.ts';
-import type { Profile } from '../types.ts';
+import type { Profile, TurnContext } from '../types.ts';
 
 export interface LiveInboundPrepareResult {
   /** The message to send, wrapped as user data. Absent when a match blocks: it does not reach the model. */
@@ -30,4 +32,32 @@ function prepareLiveInboundText(profile: Profile, text: string): LiveInboundPrep
   };
 }
 
-export { prepareLiveInboundText };
+export interface LiveContextPrepareResult {
+  /** Each package that crossed, in its sender's fence, the host's first. */
+  texts: string[];
+  /** One per package a detector matched in. */
+  guardrails: TurnEventOf<'guardrail'>[];
+}
+
+/** Reads each sender's context at the `context` boundary, as a turn does. A package a match blocks does not reach the model. */
+function prepareLiveContext(profile: Profile, context: TurnContext): LiveContextPrepareResult {
+  const { detect } = resolveGuardrailPolicy(profile.guardrails);
+  const includeMatch = resolveObservabilityPolicy(profile.observability).include
+    .guardrailMatchPreview;
+  const texts: string[] = [];
+  const guardrails: TurnEventOf<'guardrail'>[] = [];
+  for (const sender of [...CONTEXT_SENDERS].reverse()) {
+    if (context[sender] === undefined) continue;
+    const read = sanitizeContext({ [sender]: context[sender] }, () =>
+      boundaryReader('context', detect),
+    );
+    for (const event of read.events) {
+      guardrails.push(projectGuardrailTurnEvent(guardrailTurnEvent(event), includeMatch));
+    }
+    const text = read.context?.[sender];
+    if (!read.blocked && typeof text === 'string') texts.push(wrapContext(sender, text));
+  }
+  return { texts, guardrails };
+}
+
+export { prepareLiveContext, prepareLiveInboundText };

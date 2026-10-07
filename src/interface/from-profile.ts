@@ -96,6 +96,12 @@ function observabilityView(
   };
 }
 
+/** The live settings a client reads. The greeting and resume prompts are the host's, like `identity.system`. */
+function liveView(live: ProjectedProfile['live']): LiveProfileInterface['live'] {
+  const { greeting: _greeting, resumed: _resumed, ...view } = live ?? {};
+  return view;
+}
+
 function toolsView(projected: ProjectedProfile, profile?: ModelProfile): ProfileToolsView {
   if (profile) {
     const t2Loader = profileToolsSpec(profile)?.t2Loader;
@@ -161,7 +167,7 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
       return profileInterfaceSchema.parse({
         ...shared,
         type: 'live',
-        live: projected.live ?? {},
+        live: liveView(projected.live),
         ...(projected.inputs ? { inputs: { slots: inputs.slots, context: inputs.context } } : {}),
         tools: { allow: toolsView(projected, profile).allow },
       });

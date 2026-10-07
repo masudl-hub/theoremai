@@ -80,7 +80,7 @@ function pipeBrowserToSession(
             forward(session.sendText(msg.text));
             return;
           case 'context':
-            forward(session.sendContext(msg.text));
+            forward(session.sendContext({ client: msg.text }));
             return;
           case 'executeTool': {
             const { type: _type, output, ...call } = msg;

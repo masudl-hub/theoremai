@@ -1,4 +1,4 @@
-import { canaryNote, userDataNote } from '../../../guardrails/canary.ts';
+import { canaryNote, contextNote, userDataNote } from '../../../guardrails/canary.ts';
 import {
   addGivenDestinations,
   addHistoryDestinations,
@@ -47,10 +47,12 @@ import {
 import { openGoogleLiveSession } from '../../../providers/google/live/session.ts';
 import type { GoAwayClose, SessionQueueItem } from '../../../providers/google/live/stream.ts';
 import { memoryCredentialSource, type ToolCredentialSource } from '../../auth/credential-source.ts';
+import { assertTurnContext } from '../../registry/ingress.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { resolveTurnInRegistry } from '../../registry/resolve.ts';
-import type { TurnStage } from '../../schema.ts';
+import { fillSlots } from '../../registry/slot-fill.ts';
+import { DEFAULT_RESUMED_AFTER_MS, type TurnStage } from '../../schema.ts';
 import {
   type InjectUnit,
   injectedStageEvent,
@@ -98,11 +100,12 @@ import type {
   ProviderCompleteRequest,
   ResolvedGeneration,
   SessionRequest,
+  TurnContext,
   TurnEvent,
   TurnHistoryMessage,
   TurnRequest,
 } from '../../types.ts';
-import { prepareLiveInboundText } from '../live-inbound.ts';
+import { prepareLiveContext, prepareLiveInboundText } from '../live-inbound.ts';
 import { assertLiveIngress } from '../live-ingress.ts';
 import { mediaTokenFamily } from '../token-estimate.ts';
 import { type LiveCloser, type LiveTrace, startLiveTrace } from './session-trace.ts';
@@ -243,8 +246,33 @@ function toTurnRequest(req: SessionRequest): TurnRequest {
       text: '',
       history: req.history,
       sessionResumptionHandle: req.sessionResumptionHandle,
+      slots: req.slots,
     },
   };
+}
+
+/**
+ * The prompt the session opens with: the greeting on a new call, the resume prompt when the
+ * caller was away long enough to notice. It is the profile's own copy, so no boundary reads it.
+ */
+function openingPrompt(
+  profile: LiveProfile,
+  req: SessionRequest,
+  slots: Record<string, string> | undefined,
+): string | undefined {
+  const { greeting, resumed } = profile.live;
+  if (!req.sessionResumptionHandle) {
+    return greeting ? fillSlots(profile, greeting, slots, 'live.greeting') : undefined;
+  }
+  if (!resumed || (req.awayMs ?? 0) < (resumed.afterMs ?? DEFAULT_RESUMED_AFTER_MS)) {
+    return undefined;
+  }
+  return fillSlots(profile, resumed.prompt, slots, 'live.resumed.prompt');
+}
+
+/** Refuses context the profile's `inputs.context` does not take. */
+function assertSessionContext(profile: Profile, context: TurnContext): void {
+  assertTurnContext(profile, { profile: profile.id, input: { context } });
 }
 
 function applyVoiceOverride(
@@ -408,6 +436,10 @@ function buildLiveSession(args: {
   /** Seed for StageContext.history (cloned). */
   historySeed?: TurnHistoryMessage[];
   openInitialCycle: boolean;
+  /** What the request told the agent, sent before anything draws a reply. */
+  initialContext?: TurnContext;
+  /** The greeting or resume prompt, sent once the cycle is open. */
+  opening?: string;
   trace: LiveTrace;
   gateTtlMs: number;
   signInGate: SignInGatePolicy;
@@ -645,6 +677,20 @@ function buildLiveSession(args: {
     trace.inboundCheck(performance.now() - start, prepared.guardrail);
     if (prepared.guardrail) enqueuePending(prepared.guardrail);
     return prepared.text;
+  };
+
+  /** Context is background: it joins no history and opens no cycle, and its addresses count as given. */
+  const landContext = (context: TurnContext) => {
+    assertSessionContext(profile, context);
+    const start = performance.now();
+    const prepared = prepareLiveContext(profile, context);
+    trace.inboundCheck(performance.now() - start, prepared.guardrails[0]);
+    for (const guardrail of prepared.guardrails) enqueuePending(guardrail);
+    for (const text of prepared.texts) {
+      addSeenUrls(givenUrls.request, text);
+      addGivenDestinations(destinations, text);
+      sendJson(buildGeminiLiveContext(text));
+    }
   };
 
   const ingestPreparedLiveText = (text: string) => {
@@ -1064,11 +1110,9 @@ function buildLiveSession(args: {
         ingestPreparedLiveText(text);
       });
     },
-    sendContext(text: string): Promise<void> {
+    sendContext(context: TurnContext): Promise<void> {
       return withIngress(() => {
-        assertLiveIngress(profile, 'text');
-        const safe = readLiveText(text);
-        if (safe !== undefined) sendJson(buildGeminiLiveContext(safe));
+        landContext(context);
         return Promise.resolve();
       });
     },
@@ -1175,9 +1219,15 @@ function buildLiveSession(args: {
     },
   };
 
-  if (args.openInitialCycle) {
+  const { initialContext, opening } = args;
+  if (args.openInitialCycle || initialContext || opening) {
     void withIngress(async () => {
-      await openCycleIfNeeded();
+      if (initialContext) landContext(initialContext);
+      if (!args.openInitialCycle && !opening) return;
+      const opened = await openCycleIfNeeded();
+      if (opening && !opened.aborted) {
+        sendJson(buildGeminiLiveRealtimeInput({ type: 'text', text: opening }));
+      }
     });
   }
 
@@ -1216,6 +1266,7 @@ async function openTracedSession(
 
   const { profile, generation: gen0 } = resolveTurnInRegistry(registry, safe);
   assertLiveProfile(profile);
+  if (req.context) assertSessionContext(profile, req.context);
 
   if (req.snapshot) {
     gen0.tools = sessionSnapshotWithinAllow(profile, req.snapshot);
@@ -1229,6 +1280,7 @@ async function openTracedSession(
   const system = bindSystem(generation.resolvedSystem, [
     canaryNote(generation.canary, profile.lexicon),
     userDataNote(profile.lexicon),
+    profile.inputs?.context ? contextNote(profile.lexicon) : '',
   ]);
   const completeReq: ProviderCompleteRequest = {
     ...providerCompleteRequest(registry.tools, generation, system.text),
@@ -1283,6 +1335,8 @@ async function openTracedSession(
     snapshot: gen0.tools,
     historySeed: req.history,
     openInitialCycle: hasInitialInput,
+    initialContext: req.context,
+    opening: hasInitialInput ? undefined : openingPrompt(profile, req, safe.input?.slots),
     trace,
     gateTtlMs,
     signInGate: options.signInGate ?? 'hold',

@@ -141,8 +141,10 @@ export type SpeechProfileInterface = Omit<
 /** A live profile as a client sees it, without its server-only fields. */
 export type LiveProfileInterface = Omit<
   LiveProfile,
-  'tools' | 'guardrails' | 'observability' | 'lexicon' | 'models'
+  'tools' | 'guardrails' | 'observability' | 'lexicon' | 'models' | 'live'
 > & {
+  /** Without `greeting` and `resumed`: the prompts stay on the host. */
+  live: Omit<LiveProfile['live'], 'greeting' | 'resumed'>;
   models: Record<ModelId, ModelBindingView>;
   /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
   lexicon: LexiconOverrides;

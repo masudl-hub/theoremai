@@ -122,6 +122,9 @@ export const SPEECH_AUDIO_FORMATS = ['pcm', 'mp3'] as const;
 export type SpeechAudioFormat = (typeof SPEECH_AUDIO_FORMATS)[number];
 
 /** Who can send a turn its context: the browser, or the host's own code. */
+/** How long a caller is away, in milliseconds, before `live.resumed.prompt` is sent, when the profile sets no `afterMs`. */
+export const DEFAULT_RESUMED_AFTER_MS = 3000;
+
 export const CONTEXT_SENDERS = ['client', 'server'] as const;
 /** One of {@linkcode CONTEXT_SENDERS}. */
 export type ContextSender = (typeof CONTEXT_SENDERS)[number];
@@ -1157,6 +1160,22 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'live.sessionResumption': field(
     'boolean',
     'Whether Google sends resume handles, which the host can pass to a new session to carry this one on.',
+  ),
+  'live.greeting': field(
+    'string',
+    'A prompt the call sends itself when it opens new, so the agent speaks first. The visitor does not see it. It may use {slot}.',
+  ),
+  'live.resumed': field(
+    '{ prompt: string; afterMs?: number }',
+    'What happens when a call comes back after a drop. It needs live.sessionResumption.',
+  ),
+  'live.resumed.prompt': field(
+    'string',
+    'A prompt the call sends itself when it resumes, so the agent says it is back. The visitor does not see it. It may use {slot}.',
+  ),
+  'live.resumed.afterMs': field(
+    'number',
+    'The shortest time away, in milliseconds, that earns the prompt; a shorter drop resumes silently.',
   ),
   'live.contextCompression': field(
     'LiveContextCompressionSpec',

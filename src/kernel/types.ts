@@ -455,12 +455,23 @@ export interface LiveIngressSpec {
   text?: boolean;
 }
 
+/** The prompt a resumed call opens with, and how long away earns it. */
+export interface LiveResumedSpec {
+  prompt: string;
+  /** The shortest time away, in milliseconds, the agent remarks on. Omit → `DEFAULT_RESUMED_AFTER_MS`. */
+  afterMs?: number;
+}
+
 /** The settings only a live profile has: ingress, voice, detection, windowing, transcription and resumption. */
 export interface ProfileLiveSpec {
   ingress?: LiveIngressSpec;
   voice?: string;
   vad?: LiveVadSpec;
   sessionResumption?: boolean;
+  /** A prompt the session sends itself when a call opens new, so the agent speaks first. Omit → the agent waits. */
+  greeting?: string;
+  /** What the agent is prompted with when a call resumes after the caller was away. Omit → a resumed call is silent. */
+  resumed?: LiveResumedSpec;
   /** Context window compression. Omit → none: the provider ends the session at its limit. */
   contextCompression?: LiveContextCompressionSpec;
   transcription?: LiveTranscriptionSpec;
@@ -1067,7 +1078,13 @@ export interface SessionRequest {
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
   sessionResumptionHandle?: string;
-  /** Optional realtime parts sent immediately after setup. */
+  /** The value chosen for each of the profile's `inputs.slots`. */
+  slots?: Record<string, string>;
+  /** What the page and the host tell the agent as the call opens; `sendContext` replaces it later. */
+  context?: TurnContext;
+  /** How long the caller was away before this resume, in milliseconds. The session keeps no clock across calls. */
+  awayMs?: number;
+  /** Optional realtime parts sent immediately after setup. A call that sends them gets no `live.greeting`. */
   input?: InteractionPart[];
   /**
    * Registry-resolved tool snapshot from the process that owns the tool registry
@@ -1157,11 +1174,11 @@ export interface LiveSession {
   sendVideo(args: { data: string; mimeType: string }): Promise<void>;
   sendText(text: string): Promise<void>;
   /**
-   * Text the model reads as background, not as the caller speaking: it opens no
-   * turn and draws no reply. Same `ingress.text` gate and inbound guardrails as
-   * `sendText`; the model sees it from its next turn on.
+   * What the page or the host tells the model to know, by sender: it opens no turn and
+   * draws no reply. Checked against `inputs.context` and read at the `context` boundary;
+   * the model sees it from its next turn on.
    */
-  sendContext(text: string): Promise<void>;
+  sendContext(context: TurnContext): Promise<void>;
   /**
    * Run a call the model made through the registry, with stages; its events
    * join `events()`. A gate returns `gated` and answers the model nothing yet;

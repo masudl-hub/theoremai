@@ -763,6 +763,7 @@ function defineProfile(input: ProfileDefinition): Profile {
       } satisfies LiveProfile;
       assertLiveIngressConfigured(profile);
       assertLiveCompression(profile.id, profile.live.contextCompression);
+      assertLiveOpening(profile);
       break;
     }
     default: {
@@ -844,6 +845,29 @@ function assertImageAccept(profileId: string, accept: string[] | undefined) {
     `Profile ${profileId}: an image profile's attachments take images, video and PDF only, ` +
       `not ${outside.join(', ')}`,
   );
+}
+
+/** A greeting is a prompt, and a resume prompt needs the handles that make a resume. */
+function assertLiveOpening(profile: LiveProfile): void {
+  const { greeting, resumed, sessionResumption } = profile.live;
+  const tag = `Profile ${profile.id} live`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  if (greeting !== undefined && (typeof greeting !== 'string' || !greeting.trim())) {
+    throw new TheoremError('config', `${tag}.greeting must be a prompt; leave it out to wait`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (!resumed) return;
+  if (typeof resumed.prompt !== 'string' || !resumed.prompt.trim()) {
+    throw new TheoremError('config', `${tag}.resumed.prompt must be a prompt`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  const { afterMs } = resumed;
+  if (afterMs !== undefined && !(Number.isFinite(afterMs) && afterMs >= 0)) {
+    throw new TheoremError('config', `${tag}.resumed.afterMs must be 0 or more milliseconds`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (!sessionResumption) {
+    throw new TheoremError(
+      'config',
+      `${tag}.resumed needs live.sessionResumption: without it no call resumes`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
 }
 
 function assertLiveCompression(profileId: string, spec: LiveContextCompressionSpec | undefined) {

@@ -203,6 +203,7 @@ export type { SanitizedTurnRequest };
 export {
   contextText,
   requestRefused,
+  sanitizeContext,
   sanitizeHistory,
   sanitizeProjectId,
   sanitizeTurnRequest,

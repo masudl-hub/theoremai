@@ -1361,8 +1361,8 @@ guardrails: {
 }
 ```
 
-`afterRemoteRead` takes `off` (default, report only), `destructive` (refuse
-destructive calls, flag `read-write`), or `write` (refuse both).
+The catalog entry `guardrails.taint.afterRemoteRead` lists the values. Read it
+with `fieldMeta`. At `destructive`, a `read-write` call runs and is reported.
 
 **The gate is deliberately structural.** It keys on whether the
 turn fetched remotely — a fact the kernel knows exactly. A host enabling it can
@@ -1394,34 +1394,35 @@ Use `remoteDestination` to stop an agent that sends data where a web page or an
 email told it to. An attacker who hijacks the agent must say where the data
 goes, and the address reaches the agent in the text of a remote result.
 
-A **destination** is an email address, the host of a link, or a bank account
-number in IBAN shape. `checkDestinationGate` reads the arguments of every tool
-call, read-only calls too: a fetch of an attacker's link sends data. It reports
-`tool_call.remote-destination` when an argument carries a destination that
-passes both tests:
-
-1. The turn read it in the running text of a remote tool's result.
-2. Nothing else gave it: not the system prompt, the user, the host's history or
-   a local tool's result.
-
-A destination that is the whole value of one field is data the tool returned,
-not text someone wrote. The agent may reply to an email's `sender` or open a
-search result's `url`. JSON that a tool returns as text is read by its fields.
-Two links to one host are one destination, whatever their paths.
-
 ```ts
 guardrails: {
   taint: { remoteDestination: 'confirm' },
 }
 ```
 
-| `remoteDestination` | The call |
-| --- | --- |
-| `off` (default) | Runs. The guardrail event reports it. |
-| `confirm` | Waits at a `confirmation` gate. The gate's `summary` is `taint.destination_confirm`. An approval runs the call. |
-| `block` | Fails with `remote_destination`. The model reads `taint.destination_blocked`. |
+The catalog entry `guardrails.taint.remoteDestination` owns the rule's
+definition: what a destination is, which ones pass, and what each value does.
+Read it with `fieldMeta`. This section holds only the reasons and the parts a
+host or a maintainer wires to.
 
-`TurnDestinations` holds the two sets. The turn runner fills `given` from each
+Three parts of the definition have a reason:
+
+- A read-only call counts, because a fetch of an attacker's link sends data.
+- A destination that is a whole field passes, because it is data the tool
+  returned, not text someone wrote. The agent may reply to an email's `sender`
+  or open a search result's `url`. JSON that a tool returns as text is read by
+  its fields.
+- Links compare by host, so two paths on one host are one destination.
+
+`checkDestinationGate` reports `tool_call.remote-destination` at every value,
+so a host can count the calls before it turns the gate on.
+
+| `remoteDestination` | Wire |
+| --- | --- |
+| `confirm` | A `confirmation` gate. Its `summary` is the lexicon text `taint.destination_confirm`. |
+| `block` | A `ToolFailure` with code `remote_destination`. The model reads the lexicon text `taint.destination_blocked`. |
+
+`TurnDestinations` holds two sets. The turn runner fills `given` from each
 provider request and from local results, and `remote` from remote results. A
 Live session keeps `given` for the session and empties `remote` when a cycle
 opens. An earlier turn's tool results are in neither set.

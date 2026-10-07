@@ -157,24 +157,11 @@ export type DestinationGate = (typeof DESTINATION_GATES)[number];
  */
 export interface TaintGuardrailSpec {
   /**
-   * - `off` (default) — report only.
-   * - `destructive` — refuse hard-to-undo calls.
-   * - `write` — refuse those and any state-changing call.
-   *
    * Stated as a capability threshold rather than a list of tool `access` values so
    * the guardrail vocabulary stays independent of the tool registry; the kernel
    * maps a tool's declared access onto it.
    */
   afterRemoteRead?: TaintGate;
-  /**
-   * A call whose argument carries an email address, a link's host or a bank
-   * account number that the turn read in a remote result's running text, and
-   * that the user, the system prompt and local tools never gave.
-   *
-   * - `off` (default) — report only.
-   * - `confirm` — hold the call until the user approves it.
-   * - `block` — refuse the call.
-   */
   remoteDestination?: DestinationGate;
 }
 

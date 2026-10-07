@@ -1276,12 +1276,12 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.taint.remoteDestination': field(
     unionType(DESTINATION_GATES),
-    "What happens to a tool call that sends to an email address, a link's host or a bank account that only the running text of a remote tool's result named. One the user, the system prompt or a local tool gave passes, and so does one that is a whole field of the result.",
+    "What happens to a tool call, read-only ones too, that sends to an email address, a link's host or a bank account that only the running text of a remote tool's result named. One the user, the system prompt, your history or a local tool gave passes, and so does one that is a whole field of the result.",
     DESTINATION_GATES,
     {
       off: 'The call runs; it is only logged.',
-      confirm: 'The call waits for the user to approve it.',
-      block: 'The call is refused.',
+      confirm: 'The call waits for the user to approve it; an approval runs it.',
+      block: 'The call is refused, and the model is told why.',
     },
   ),
   'guardrails.disclosure': field(

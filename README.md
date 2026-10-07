@@ -245,7 +245,7 @@ Theorem scans each piece of text according to where it came from.
 
 - **Coming in.** `detect` replaces prompt-injection phrasing, secrets and personal data with a placeholder before the model sees them.
 - **Going out.** A **canary** is a secret token that Theorem hides in the system prompt. If the token appears in a reply, the prompt leaked, and the `canary_leak` detector stops the reply. The `prompt_leak` detector also stops a reply that repeats 12 words of the prompt. Both are set in `detect`, like every other detector. `egress` checks every outbound payload and can send the model back to repair its answer.
-- **Tool results.** Remote content is data. Theorem fences it, scans it, and refuses destructive calls after a remote read when `taint.afterRemoteRead` is set. With `taint.remoteDestination`, a call that sends to an address only remote content named waits for the user, or fails.
+- **Tool results.** Remote content is data. Theorem fences it, scans it, and refuses destructive calls after a remote read when `taint.afterRemoteRead` is set. `taint.remoteDestination` gates a call that sends to an address only remote content named.
 - **Network.** HTTP and MCP targets must pass `network.allowedHosts`. Theorem refuses private and metadata addresses by default.
 
 The checks fail closed: a payload that cannot be scanned counts as a block. The guardrails have an adversarial corpus, fuzzing and mutation tests. The corpus ships as `@theoremjs/agents/guardrails/testing`.

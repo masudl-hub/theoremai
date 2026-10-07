@@ -1,13 +1,6 @@
 /**
  * A hijacked agent has to send what it took somewhere, and the hijacker has to
- * say where. A destination is an email address, the host of a link, or a bank
- * account number. A tool call is reported when one of its arguments carries a
- * destination that this turn read in the running text of a remote tool's
- * result, and that nothing the user, the system prompt or a host tool gave.
- *
- * A destination that is the whole value of a field in the result (an email's
- * `sender`, a search result's `url`) is data the tool returned, so the model
- * may use it: only one written into prose counts.
+ * say where.
  *
  * @module
  */

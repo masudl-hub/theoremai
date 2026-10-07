@@ -440,7 +440,7 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
   },
   'tool_call.remote-destination': {
     label: 'Destination from remote content',
-    doc: "A tool call's argument carried an email address, a link's host or a bank account that the turn read in a remote tool's result, and that the user and the system never gave.",
+    doc: "A tool call's argument carried an address that only a remote tool's result named.",
   },
   'network.blocked': {
     label: 'Address blocked',

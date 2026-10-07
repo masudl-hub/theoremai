@@ -1,3 +1,4 @@
+import { type TurnDestinations, turnDestinations } from '../../../guardrails/destinations.ts';
 import { type GivenUrlSets, givenUrlSets } from '../../../guardrails/egress-urls.ts';
 import type { OwnTools } from '../../../guardrails/tool-leak.ts';
 import type { GuardrailHit, TurnTaint } from '../../../guardrails/types.ts';
@@ -54,6 +55,8 @@ interface StepExecutionState {
   promptLeaks?: GuardrailHit[];
   /** Untrusted content read so far, so a later tool call is judged against all the turn ingested. */
   taint?: TurnTaint;
+  /** The destinations the turn has read, by who wrote them, so a tool call's own are judged against them. */
+  destinations: TurnDestinations;
   /** Every URL the model has been given this turn (`GuardrailContext.givenUrls`). */
   givenUrls: GivenUrlSets;
   /** The names of the profile's tools and of their parameters (`GuardrailContext.ownTools`). */
@@ -124,6 +127,7 @@ function openTurnState(args: {
     attemptEvents: [],
     released: '',
     givenUrls: givenUrlSets(),
+    destinations: turnDestinations(),
     canaryGiven: false,
     canaryScanned: new WeakSet(),
     ...(ownTools ? { ownTools } : {}),

@@ -1,4 +1,5 @@
 import { type ToolBoundary, type ToolKind, toolBoundary } from '../../guardrails/boundaries.ts';
+import { checkDestinationGate } from '../../guardrails/destinations.ts';
 import { type DetectScope, scopeOf } from '../../guardrails/detect-at.ts';
 import { errorKind, isAbortError, throwIfAborted } from '../../guardrails/error.ts';
 import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
@@ -1197,6 +1198,43 @@ async function* runRegisteredTool(
     };
     yield failureEvent(base, failure);
     return { ...earlyFailure(failure), denied: true };
+  }
+
+  const destinationStart = performance.now();
+  const destination = checkDestinationGate(
+    ctx.turn?.destinations,
+    inspected.args,
+    policy,
+    profile.lexicon,
+  );
+  const destinationEvent = toolCallEvent(destination.verdict, provenance);
+  recordToolCheck(
+    stages?.span,
+    'destination',
+    performance.now() - destinationStart,
+    destinationEvent,
+  );
+  if (destinationEvent) {
+    yield { type: 'guardrail', guardrail: destinationEvent };
+  }
+  if (destination.verdict.action === 'block') {
+    const failure: ToolFailure = {
+      code: 'remote_destination',
+      kind: 'blocked',
+      message: destination.verdict.rejection,
+    };
+    yield failureEvent(base, failure);
+    return { ...earlyFailure(failure), denied: true };
+  }
+  if (destination.confirm && !isGateResumeGranted(ctx.resume)) {
+    const gate: ToolGate = {
+      kind: 'confirmation',
+      tool: name,
+      summary: destination.confirm,
+      ...gateDetails(tool, inspected.args),
+    };
+    yield* emitGateSettlement({ base, gate, callId, toolName: name, lexicon: profile.lexicon });
+    return { gated: gate, callNotStarted: true };
   }
 
   return yield* settleByType(

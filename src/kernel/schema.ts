@@ -19,6 +19,7 @@ import { LEXICON_NOTES, type LexiconKey } from '../guardrails/lexicon.ts';
 import {
   BLOCKED_REPLY_ON_BLOCK,
   type BlockedReplyOnBlock,
+  DESTINATION_GATES,
   TAINT_GATES,
 } from '../guardrails/types.ts';
 import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
@@ -1280,6 +1281,16 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
       off: 'None; risky calls are only logged.',
       destructive: 'Destructive calls.',
       write: 'Read-write and destructive calls.',
+    },
+  ),
+  'guardrails.taint.remoteDestination': field(
+    unionType(DESTINATION_GATES),
+    "What happens to a tool call that sends to an email address, a link's host or a bank account that only a remote tool's result named.",
+    DESTINATION_GATES,
+    {
+      off: 'The call runs; it is only logged.',
+      confirm: 'The call waits for the user to approve it.',
+      block: 'The call is refused.',
     },
   ),
   'guardrails.disclosure': field(

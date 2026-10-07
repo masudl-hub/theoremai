@@ -361,6 +361,7 @@ type GuardrailCheck =
   | 'egress'
   | 'tool_arguments'
   | 'taint'
+  | 'destination'
   | 'tool_result'
   | 'tool_failure'
   | 'network'

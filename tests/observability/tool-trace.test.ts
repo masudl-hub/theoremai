@@ -264,6 +264,7 @@ Deno.test("every check at the tool boundary is timed on the call's span, and a p
   assertEquals(checksOf(toolSpan(record)), [
     ['tool_arguments', 'allow', true],
     ['taint', 'allow', true],
+    ['destination', 'allow', true],
     ['tool_result', 'allow', true],
   ]);
   assertEquals(

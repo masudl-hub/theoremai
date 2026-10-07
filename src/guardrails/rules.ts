@@ -45,6 +45,7 @@ export const EGRESS_RULES = {
 export const TOOL_RULES = {
   taintedTurn: 'tool_call.tainted-turn',
   steeredTurn: 'tool_call.steered-turn',
+  remoteDestination: 'tool_call.remote-destination',
 } as const;
 
 /** A tool's network target refused before any request was made. */

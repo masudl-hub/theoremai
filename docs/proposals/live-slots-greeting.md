@@ -1,6 +1,6 @@
 # Context, slots in prompts, a greeting and page tools on the profile
 
-Status: decided, not built. Section 8 is the build order.
+Status: built. Section 8 is the order it was built in.
 
 ## 1. The problem
 
@@ -141,4 +141,5 @@ Removed, with no alias:
    `context` and `pageTools`, and reconnects.
 4. Playground: the editor shows context, the greeting, the resume prompt and
    page tools.
-5. Frontend: the Th30 dock moves onto the package's call view.
+5. Frontend: the Th30 dock runs its call on the package's client, so it has the greeting, the
+   reconnect and page tools. It keeps its own layout: the strip and the messages panel.

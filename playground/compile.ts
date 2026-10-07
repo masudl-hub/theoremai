@@ -1189,6 +1189,16 @@ function isUrlDetector(detector: Detector): detector is UrlDetector {
   return DETECTOR_META[detector].allow === 'urls';
 }
 
+function compileTaint(guardrails: GuardrailsDraft): ProfileGuardrailsSpec['taint'] {
+  const { taintAfterRemoteRead: afterRemoteRead, taintRemoteDestination: remoteDestination } =
+    guardrails;
+  if (!afterRemoteRead && !remoteDestination) return undefined;
+  return {
+    ...(afterRemoteRead ? { afterRemoteRead } : {}),
+    ...(remoteDestination ? { remoteDestination } : {}),
+  };
+}
+
 function compileGuardrails(
   guardrails: GuardrailsDraft,
   report: Report,
@@ -1199,9 +1209,7 @@ function compileGuardrails(
     quota: compileQuota(guardrails, report),
     blockedReply: compileBlockedReply(guardrails, report),
     network: compileNetwork(guardrails, report),
-    taint: guardrails.taintAfterRemoteRead
-      ? { afterRemoteRead: guardrails.taintAfterRemoteRead }
-      : undefined,
+    taint: compileTaint(guardrails),
   };
   const spec = Object.fromEntries(
     Object.entries(parts).filter(([, value]) => value !== undefined),

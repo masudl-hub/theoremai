@@ -19,7 +19,7 @@ import {
   PATTERN_DETECTORS,
   type UrlDetector,
 } from '../src/guardrails/detectors.ts';
-import type { BlockedReplyOnBlock, TaintGate } from '../src/guardrails/types.ts';
+import type { BlockedReplyOnBlock, DestinationGate, TaintGate } from '../src/guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import { profileTypesForField } from '../src/kernel/profile-scope.ts';
@@ -255,6 +255,8 @@ export interface GuardrailsDraft {
   allowedSchemes: string[];
   /** `''` omits it (kernel default: off). */
   taintAfterRemoteRead: TaintGate | '';
+  /** `''` omits it (kernel default: off). */
+  taintRemoteDestination: DestinationGate | '';
 }
 
 export interface ObservabilityDraft {
@@ -480,6 +482,7 @@ function defaultGuardrails(): GuardrailsDraft {
     allowedHosts: [],
     allowedSchemes: [],
     taintAfterRemoteRead: '',
+    taintRemoteDestination: '',
   };
 }
 

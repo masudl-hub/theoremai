@@ -1101,6 +1101,7 @@ Deno.test('a prompt leak action, schemes, taint and trace resource compile when 
       },
       allowedSchemes: ['https', ' '],
       taintAfterRemoteRead: 'write',
+      taintRemoteDestination: 'confirm',
     },
     observability: { ...draft.observability, resourceJson: '{"service.name":"concierge"}' },
   });
@@ -1108,7 +1109,10 @@ Deno.test('a prompt leak action, schemes, taint and trace resource compile when 
     at: recordOf(DETECTOR_BOUNDARIES.prompt_leak, () => 'ignore'),
   });
   assertEquals(profile.guardrails?.network?.allowedSchemes, ['https']);
-  assertEquals(profile.guardrails?.taint, { afterRemoteRead: 'write' });
+  assertEquals(profile.guardrails?.taint, {
+    afterRemoteRead: 'write',
+    remoteDestination: 'confirm',
+  });
   assertEquals(profile.observability?.resource, { 'service.name': 'concierge' });
 
   const plain = compiled(draft).profile;

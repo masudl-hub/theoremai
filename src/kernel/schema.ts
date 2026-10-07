@@ -769,7 +769,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
       image: 'Makes pictures from a prompt, in the shape, size and format the image block sets.',
       speech:
         'Gives your app a voice. Each turn reads text aloud in the voice the speech block names.',
-      live: 'For talking in real time. One continuous voice and video session over Gemini Live, rather than separate turns.',
+      live: 'For talking in real time. One continuous voice and video session, rather than separate turns.',
       decision:
         'For when your app needs a judgement, not a reply. It answers questions about a JSON state, each with a choice, a score or a number.',
       host: 'A governed passthrough to your tool registry, with no model. It calls MCP, HTTP and in-app function tools under the same permissions and traces as any agent, guarded by detect and network.',
@@ -785,7 +785,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'identity.system': field(
     'string | Array<string | { private: string }>',
-    'The instruction the model gets on every turn unless a systemByRole entry replaces it; OpenRouter image profiles send it only with includeText on. Mark what must not leak as { private: text }; only that is guarded. With none, the whole prompt is.',
+    'The instruction the model gets on every turn unless a systemByRole entry replaces it; some providers send it for an image profile only with includeText on. Mark what must not leak as { private: text }; only that is guarded. With none, the whole prompt is.',
   ),
   'identity.systemByRole': field(
     'Record<string, string | Array<string | { private: string }>>',
@@ -840,20 +840,20 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.efforts': field(
     'Record<string, ThinkingLevel>',
-    'Named thinking levels. A turn picks one when allowEffortSelect is on. A local server refuses a level its model does not take. Speech, and OpenRouter image without includeText, ignore them.',
+    'Named thinking levels. A turn picks one when allowEffortSelect is on. A provider refuses a level its model does not take. Speech ignores them, and so may an image profile without includeText.',
   ),
   'models.*.efforts.*': field(
     unionType(THINKING_LEVELS),
     'The thinking level sent to the provider for this name.',
     THINKING_LEVELS,
     {
-      none: 'No thinking; OpenRouter only.',
+      none: 'No thinking, where the provider has that level.',
       minimal: 'The least thinking.',
       low: 'Light thinking.',
       medium: 'Moderate thinking.',
       high: 'Heavy thinking.',
-      xhigh: 'Heavier thinking; OpenRouter only.',
-      max: 'The most thinking the model supports; OpenRouter only.',
+      xhigh: 'Heavier thinking, where the provider has that level.',
+      max: 'The most thinking the model supports, where the provider has that level.',
     },
   ),
   'models.*.defaultEffort': field('string', "The effort a turn gets when it doesn't pick one."),
@@ -863,15 +863,15 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.summaries': field(
     'boolean',
-    'Asks Gemini for summaries of its thinking, which not every Live model sends; on OpenRouter and local models, off only hides thoughts, and other providers ignore it.',
+    'Asks the model for summaries of its thinking, which not every model sends; with some providers, off only hides thoughts, and others ignore it.',
   ),
   'models.*.maxOutputTokens': field(
     'number',
-    'The token limit for one reply. OpenRouter speech, and OpenRouter image without includeText, never send it.',
+    'The token limit for one reply. Some providers never send it for speech, or for image without includeText.',
   ),
   'models.*.temperature': field(
     'number',
-    "How varied the model's wording is; higher is more random. OpenRouter speech, and OpenRouter image without includeText, never send it.",
+    "How varied the model's wording is; higher is more random. Some providers never send it for speech, or for image without includeText.",
   ),
   'models.*.builtInTools': field(
     'BuiltinToolId[]',
@@ -930,7 +930,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.cache': field(
     'CacheSpec',
-    'Prompt caching for OpenRouter text profiles. Reuses a prompt start it has seen. A cached system instruction, canary included, is shared across turns and users.',
+    'Prompt caching for text profiles, where the provider has it. Reuses a prompt start it has seen. A cached system instruction, canary included, is shared across turns and users.',
   ),
   'models.*.cache.mode': field(
     unionType(CACHE_MODES),
@@ -952,11 +952,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.store': field(
     'boolean',
-    'Whether Google stores the interaction (Gemini Interactions only); a turn can override it.',
+    'Whether the provider stores the interaction, where it can; a turn can override it.',
   ),
   'models.*.persistViaInteractionId': field(
     'boolean',
-    'true: Google builds the context from its stored interaction. false: each call sends the history. Gemini Interactions only. true needs storing on.',
+    'true: the provider builds the context from its stored interaction. false: each call sends the history. Only for a provider that stores interactions. true needs storing on.',
   ),
   'models.*.server': field(
     'string',
@@ -1071,35 +1071,35 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'image.resolution': field('string', 'How detailed generated images are, such as 1K, 2K or 4K.'),
   'image.mimeType': field(
     'string',
-    'The file type of generated images; OpenRouter takes png, jpeg or webp and uses png for anything else.',
+    'The file type of generated images; a provider that takes a fixed set of types may use png for any other.',
   ),
   'image.quality': field(
     'string',
-    'How much effort the model spends on each image; OpenRouter takes auto, low, medium or high, and Google refuses it.',
+    'How much effort the model spends on each image: auto, low, medium or high. A provider that has no such setting refuses it.',
   ),
   'image.background': field(
     'string',
-    'The background of generated images; OpenRouter takes auto, transparent or opaque, and Google refuses it.',
+    'The background of generated images: auto, transparent or opaque. A provider that has no such setting refuses it.',
   ),
   'image.n': field(
     'number',
-    'How many images one request makes; only OpenRouter `/images` takes it.',
+    'How many images one request makes, where the provider takes a count.',
   ),
   'image.seed': field(
     'number',
-    'A seed for repeatable images; OpenRouter `/images` and Google take it, where the model honours it.',
+    'A seed for repeatable images, where the provider and the model honour it.',
   ),
   'image.outputCompression': field(
     'number',
-    'Compression from 0 to 100 for jpeg and webp images; OpenRouter only.',
+    'Compression from 0 to 100 for jpeg and webp images, where the provider takes it.',
   ),
   'image.references': field(
     'Array<TurnBlob | TurnMediaRef>',
-    "Images sent with every turn, before the user's. Each is bytes (`data`) or a link (`uri`). OpenRouter `/images` takes http(s) links only, and none with includeText.",
+    "Images sent with every turn, before the user's. Each is bytes (`data`) or a link (`uri`). Some providers take http(s) links only, and none with includeText.",
   ),
   'image.includeText': field(
     'boolean',
-    'Whether the model may write text alongside its images; on OpenRouter this also sends the system instruction and history.',
+    'Whether the model may write text alongside its images; with some providers this also sends the system instruction and history.',
   ),
   speech: field('ProfileSpeechSpec', 'Settings for the audio this profile speaks.'),
   'speech.voice': field(
@@ -1132,7 +1132,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'string',
     'The voice the model speaks in.',
     GOOGLE_SPEECH_VOICES,
-    "Google's voice names; any other name is sent as written.",
+    'Voice names to pick from; any other name is sent as written.',
   ),
   'live.vad': field(
     'LiveVadSpec',
@@ -1175,7 +1175,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'live.sessionResumption': field(
     'boolean',
-    'Whether Google sends resume handles, which the host can pass to a new session to carry this one on.',
+    'Whether the provider sends resume handles, which the host can pass to a new session to carry this one on.',
   ),
   'live.greeting': field(
     'string',
@@ -1240,7 +1240,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'Whether the reply reaches the host as the model writes it, or whole.',
     STREAM_MODES,
     {
-      sse: 'Events arrive as the model writes, so a reply that fails outputs.validation has already streamed when it is rewritten; OpenRouter image and speech always answer in one piece.',
+      sse: 'Events arrive as the model writes, so a reply that fails outputs.validation has already streamed when it is rewritten; some providers always answer image and speech in one piece.',
       buffered:
         'One non-streaming call, whose events arrive together; under outputs.validation, only once the reply passes or retries run out. Thinking still streams.',
     },

@@ -91,7 +91,7 @@ export function createExampleDraft(): PlaygroundDraft {
       systemByRoleJson: '',
     },
     included: ['outputs', 'turnBehaviour', 'guardrails', 'observability', 'wording'],
-    models: { defaultModel: 'fast', allowModelSelect: true, maxSteps: 12, key: 'gemini' },
+    models: { defaultModel: 'smart', allowModelSelect: true, maxSteps: 12, key: 'gemini' },
     modelBindings: [
       defaultModelBinding({
         modelId: 'fast',

@@ -1,4 +1,4 @@
-import type { ProfileDefinition, TraceRecord, TurnEvent, TurnInput } from '../mod.ts';
+import type { ProfileDefinition, TraceRecord, TurnEvent } from '../mod.ts';
 import {
   registerTraceDestination,
   resolveObservabilityPolicy,
@@ -7,9 +7,14 @@ import {
 } from '../mod.ts';
 import type { DecisionTransport } from '../react/src/client/decision-transport.ts';
 import type { TheoremHostCallRequest } from '../react/src/client/host-transport.ts';
-import type { TheoremInvokeRequest, TheoremReplay } from '../react/src/client/transport.ts';
+import type {
+  TheoremInvokeRequest,
+  TheoremReplay,
+  TheoremTurnInput,
+} from '../react/src/client/transport.ts';
 import { checkRequest } from '../react/src/server/request-check.ts';
 import { type SteerInbox, steerStage } from '../react/src/server/steer-inbox.ts';
+import { kernelTurnInput } from '../react/src/server/turn-input.ts';
 import { checkWalkAway, type WalkedAwayCall, walkAway } from '../react/src/server/walk-away.ts';
 import type { RunDecisionOptions } from '../src/kernel/engine/decision.ts';
 import type { GateAnswerRequest } from '../src/kernel/mod.ts';
@@ -68,7 +73,8 @@ export async function* streamPlaygroundTurn(args: {
   profile: ProfileDefinition;
   customTools: ToolRegistration[];
   structured?: StructuredRegistration;
-  input: TurnInput;
+  /** The turn as the browser sent it; its context is read as the client's. */
+  input: TheoremTurnInput;
   previousInteractionId?: string;
   sessionPermissions?: string[];
   model?: string;
@@ -90,10 +96,11 @@ export async function* streamPlaygroundTurn(args: {
     args.dependencies,
   );
   assertNotLiveProfile(profile.type, 'turn runner — use runSession');
+  const sent = kernelTurnInput(args.input);
   const abandon = args.abandon ?? [];
   if (abandon.length) {
     checkWalkAway(
-      args.input,
+      sent,
       abandon.map(({ callId }) => callId),
     );
   }
@@ -122,7 +129,7 @@ export async function* streamPlaygroundTurn(args: {
         callId,
         events: scope.invokeTool({ ...invoke, metadata, signal: args.signal }),
       }));
-      const input = calls.length ? yield* walkAway(args.input, calls) : args.input;
+      const input = calls.length ? yield* walkAway(sent, calls) : sent;
       if (!input) return;
       yield* scope.runTurn(
         {
@@ -205,7 +212,7 @@ function answerReplayed(
           }),
         }
       : {}),
-    turnInput: replay.turnInput,
+    turnInput: replay.turnInput && kernelTurnInput(replay.turnInput),
     snapshot: replay.snapshot,
     promoted: replay.promoted,
     model: replay.model,

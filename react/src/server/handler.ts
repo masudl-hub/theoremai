@@ -100,6 +100,7 @@ import {
   type TheoremSessionStore,
 } from './session-store.ts';
 import { createMemorySteerInbox, type SteerInbox, steerStage, steerUnitOf } from './steer-inbox.ts';
+import { turnContext } from './turn-input.ts';
 import { checkWalkAway, walkAway } from './walk-away.ts';
 
 export type TheoremRequestContext = {
@@ -228,13 +229,10 @@ function conversationOnly(messages: readonly TurnHistoryMessage[]): TurnHistoryM
  * in as `client`; `server` is the host's own (`options.context`).
  */
 function userTurnInput(input: TheoremTurnInput, server: unknown): TurnInput {
-  const context = {
-    ...(input.context === undefined ? {} : { client: input.context }),
-    ...(server === undefined ? {} : { server }),
-  };
+  const context = turnContext(input.context, server);
   return {
     ...(input.slots ? { slots: input.slots } : {}),
-    ...(Object.keys(context).length > 0 ? { context } : {}),
+    ...(context ? { context } : {}),
     ...(input.text !== undefined ? { text: input.text } : {}),
     ...(input.attachments ? { attachments: input.attachments } : {}),
     ...(input.voice ? { voice: input.voice } : {}),

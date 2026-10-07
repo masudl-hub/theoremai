@@ -177,6 +177,17 @@ function showTurnStopped(state: ChatState): void {
   state.setDelivery(null);
 }
 
+/** What a run that did not finish shows: why it failed, or that the person stopped it. */
+function showUnfinished(
+  state: ChatState,
+  result: TurnFailure,
+  streamed: TranscriptBlock[],
+  open: boolean,
+): void {
+  if (!result.aborted) showTurnFailure(state, result, streamed, open);
+  else if (!open) showTurnStopped(state);
+}
+
 /**
  * The run begins: busy, and streaming unless its message goes live when it
  * posts (onUserBlocks), so the previous reply never renders as streaming in
@@ -219,8 +230,7 @@ function failRun(
   const waits = (result.session ?? state.sessionRef.current).gatedTool !== null;
   const open = unposted || waits;
   if (result.session) state.setSession(result.session);
-  if (!result.aborted) showTurnFailure(state, result, stream.streamed, open);
-  else if (!open) showTurnStopped(state);
+  showUnfinished(state, result, stream.streamed, open);
   if (!open) state.setStreamBlocks([]);
   else state.setStreamBlocks(result.session ? stream.streamed : stream.before);
 }

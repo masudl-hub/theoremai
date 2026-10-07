@@ -76,14 +76,19 @@ function useNarrow() {
   );
 }
 
-/** One column: the request, then the response under it, in the page's own card. */
+/**
+ * One column: the request, then the response under it, in the page's own card.
+ * `wide` is a pair stacked on a narrow page, which takes the page's width.
+ */
 function ConsoleSingle({
   flush,
+  wide,
   maxWidth,
   children,
 }: {
   flush: boolean;
-  maxWidth: string | undefined;
+  wide: boolean;
+  maxWidth: string;
   children: ReactNode;
 }) {
   return (
@@ -95,7 +100,7 @@ function ConsoleSingle({
         style={flush ? { overflowY: 'auto' } : { ...RAISED, overflowY: 'auto' }}
       >
         <Center axis="horizontal" width="100%">
-          <VStack width="100%" maxWidth={maxWidth} gap={3} padding={4}>
+          <VStack width="100%" maxWidth={wide ? undefined : maxWidth} gap={3} padding={4}>
             {children}
           </VStack>
         </Center>
@@ -142,7 +147,7 @@ export function ConsoleFrame({
                 {children}
               </ConsoleColumns>
             ) : (
-              <ConsoleSingle flush={flush} maxWidth={paired ? undefined : maxWidth}>
+              <ConsoleSingle flush={flush} wide={paired} maxWidth={maxWidth}>
                 {children}
               </ConsoleSingle>
             )}

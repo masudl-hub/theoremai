@@ -1406,8 +1406,22 @@ function compileSpeech(
       );
     }
   }
+  const { speed } = speech;
+  if (speed !== null) {
+    if (speed <= 0) report('speech', "Speed is above 0, where 1 is the voice's own pace.", 'speed');
+    const refused = draft.modelBindings.find((binding) => binding.protocol !== 'openAi');
+    if (refused) {
+      report(
+        'speech',
+        `Speed needs every model on openAi; ${refused.modelId} is ${refused.protocol}. Set the pace in Style.`,
+        'speed',
+      );
+    }
+  }
   return {
     ...(speech.voice.trim() ? { voice: speech.voice.trim() } : {}),
+    ...(speech.style.trim() ? { style: speech.style.trim() } : {}),
+    ...(speed !== null ? { speed } : {}),
     ...(format ? { format } : {}),
   };
 }

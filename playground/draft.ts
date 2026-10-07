@@ -308,6 +308,10 @@ export interface ImageDraft {
 
 export interface SpeechDraft {
   voice: string;
+  /** How the script is delivered; blank gives no direction. */
+  style: string;
+  /** The speaking rate; `null` keeps the voice's own pace. */
+  speed: number | null;
   format: '' | SpeechAudioFormat;
 }
 
@@ -637,7 +641,7 @@ export function createBlankDraft(): PlaygroundDraft {
       includeText: false,
       references: [],
     },
-    speech: { voice: '', format: '' },
+    speech: { voice: '', style: '', speed: null, format: '' },
     live: {
       ingressAudio: liveIngressChannelDefault('audio'),
       ingressVideo: liveIngressChannelDefault('video'),

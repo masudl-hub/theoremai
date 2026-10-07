@@ -190,7 +190,11 @@ export function createLiveExampleDraft(): PlaygroundDraft {
 /** A speech agent that reads a script aloud. */
 export function createNarratorExampleDraft(): PlaygroundDraft {
   const draft = setProfileType(createBlankDraft(), 'speech');
-  return { ...draft, identity: { ...draft.identity, agentId: 'studio.narrator', handle: 'narrator' } };
+  return {
+    ...draft,
+    identity: { ...draft.identity, agentId: 'studio.narrator', handle: 'narrator' },
+    speech: { ...draft.speech, style: 'Warm and unhurried, like a podcast host talking to one listener.' },
+  };
 }
 
 /** A host with no model: a few demo tools, one of each kind of result. */

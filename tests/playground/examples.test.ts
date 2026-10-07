@@ -1,6 +1,7 @@
 import { assert, assertEquals } from '@std/assert';
 import {
   addArchitectExample,
+  compilePlayground,
   compileWorkspace,
   createArchitectWorkspace,
   createConsoleExampleDraft,
@@ -144,4 +145,18 @@ Deno.test('resetting a tool puts back its start and keeps who allows it', () => 
   const reset = resetLibraryTool(edited, weather.key);
   assertEquals(reset.toolSpecs, start.toolSpecs);
   assertEquals(reset.agents, start.agents);
+});
+
+Deno.test("the narrator's style reaches its profile, and a speed is refused off openAi", () => {
+  const narrator = createNarratorExampleDraft();
+  const result = compilePlayground(narrator);
+  assert(result.ok && result.profile.type === 'speech');
+  assertEquals(result.profile.speech, { style: narrator.speech.style });
+
+  const fast = compilePlayground({ ...narrator, speech: { ...narrator.speech, speed: 1.2 } });
+  assert(!fast.ok);
+  assertEquals(
+    fast.issues.map((issue) => [issue.nodeId, issue.field]),
+    [['speech', 'speed']],
+  );
 });

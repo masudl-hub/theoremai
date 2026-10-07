@@ -1126,6 +1126,8 @@ function imageOf(image: Record<string, unknown>): PlaygroundDraft['image'] {
 function speechOf(speech: Record<string, unknown>): PlaygroundDraft['speech'] {
   return {
     voice: text(speech.voice),
+    style: text(speech.style),
+    speed: whole(speech.speed),
     format: text(speech.format) as PlaygroundDraft['speech']['format'],
   };
 }

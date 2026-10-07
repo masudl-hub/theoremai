@@ -65,12 +65,13 @@ export function createSpanExampleDraft(): PlaygroundDraft {
 /** A fresh copy of the travel concierge draft. */
 /**
  * The example's `detect`: a reply that carries sensitive data or injection phrasing is blocked.
- * Network addresses are left alone, since a reply cites them.
+ * Network addresses are left alone, since a reply cites them, and so are tool names, since a
+ * reply repeats one the visitor asks about.
  */
 function exampleDetect(detect: GuardrailsDraft['detect']): GuardrailsDraft['detect'] {
   const next = structuredClone(detect);
   for (const detector of DETECTORS) {
-    if (detector === 'network') continue;
+    if (detector === 'network' || detector === 'tool_leak') continue;
     for (const boundary of ['reply', 'reply_structured', 'live_reply'] as const) {
       if (DETECTOR_BOUNDARIES[detector].includes(boundary)) next[detector][boundary] = 'block';
     }

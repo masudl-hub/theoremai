@@ -24,7 +24,14 @@ import {
   IconVideoOff,
 } from '@tabler/icons-react';
 import type { LiveProfileInterface } from '@theoremjs/agents/interface';
-import { Fragment, type ReactNode, useEffect, useLayoutEffect, useRef } from 'react';
+import {
+  type CSSProperties,
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from 'react';
 import type { LiveCallOptions } from '../client/live/live-page-tool.ts';
 import type { LiveToolGatePrompt } from '../client/live/live-tool.ts';
 import type { LiveFacingMode } from '../client/live/live-video.ts';
@@ -44,7 +51,7 @@ import {
   useSidePanel,
 } from './SidePanel.tsx';
 import { DEFAULT_CHAT_MAX_WIDTH } from './TheoremChat.tsx';
-import { ApprovalCard, AuthChallengeCard } from './ToolGateCard.tsx';
+import { ApprovalCard, AuthChallengeCard, GATE_CARD_WIDTH } from './ToolGateCard.tsx';
 import { useTraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
 import { TheoremThemeProvider } from './theme.tsx';
 
@@ -448,7 +455,16 @@ function LiveVideoPreview({
   );
 }
 
-/** Tool approvals and credential prompts, as a dialog that must be answered. */
+/** Room around the gate card for its shadow. */
+const GATE_DIALOG_PADDING = 4;
+const GATE_DIALOG_WIDTH = GATE_CARD_WIDTH + 2 * GATE_DIALOG_PADDING * 4;
+/** The dialog draws no surface of its own: the card is the one chat shows, alone. */
+const GATE_DIALOG_BARE: CSSProperties = { background: 'transparent', boxShadow: 'none' };
+
+/**
+ * Tool approvals and credential prompts, as a dialog that must be answered. It shows the card
+ * chat shows inline and nothing else, and closes on the answer.
+ */
 function LiveToolGateDialog({
   prompt,
   agent,
@@ -462,7 +478,9 @@ function LiveToolGateDialog({
     <Dialog
       isOpen={prompt !== null}
       purpose="required"
-      width={480}
+      width={GATE_DIALOG_WIDTH}
+      padding={GATE_DIALOG_PADDING}
+      style={GATE_DIALOG_BARE}
       // why: "required" disables dismissal; should one slip through, it denies.
       onOpenChange={(open) => {
         if (!open) onResolve({ action: 'deny' });

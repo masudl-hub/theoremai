@@ -20,6 +20,9 @@ import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 
 export type ToolDecision = ToolDecisionAction;
 
+/** The widest a gate card gets, in pixels. */
+export const GATE_CARD_WIDTH = 400;
+
 function formatInput(value: unknown): string {
   if (typeof value === 'string') return value;
   if (value === undefined || value === null) return '';
@@ -93,7 +96,7 @@ function ApprovalBody({
   const args = formatInput(input);
 
   return (
-    <Card variant="bubble" elevation="med" maxWidth={400}>
+    <Card variant="bubble" elevation="med" maxWidth={GATE_CARD_WIDTH}>
       <VStack gap={3}>
         <HStack justify="between" align="start" gap={3}>
           <Text type="large" weight="semibold">

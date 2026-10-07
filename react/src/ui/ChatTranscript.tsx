@@ -214,6 +214,18 @@ function Interrupted() {
   );
 }
 
+/** A message's copy button and time, the button on the outside: right for the person, left for the agent. */
+function CopyAndTime(props: { sender: 'user' | 'assistant'; at: number; copyText: string }) {
+  const copy = <CopyButton text={props.copyText} />;
+  const time = <MessageTime at={props.at} />;
+  return (
+    <HStack gap={1} vAlign="center">
+      {props.sender === 'user' ? time : copy}
+      {props.sender === 'user' ? copy : time}
+    </HStack>
+  );
+}
+
 /** A message's copy button (outermost), time and status; a failure says why on the line beneath. */
 function MessageChrome(props: {
   sender: 'user' | 'assistant';
@@ -227,18 +239,11 @@ function MessageChrome(props: {
   usage?: TurnUsage;
 }) {
   const failed = props.error !== undefined;
-  const copy = <CopyButton text={props.copyText} />;
-  const time = <MessageTime at={props.at} />;
   const usage = props.usage ? <Usage tokens={props.usage} /> : undefined;
   const metadata = (
     <ChatMessageMetadata
-      // why: The copy button sits on the outside: the row's first slot is the one nearest the margin.
-      timestamp={
-        <HStack gap={1} vAlign="center">
-          {props.sender === 'user' ? time : copy}
-          {props.sender === 'user' ? copy : time}
-        </HStack>
-      }
+      // why: The row's first slot is the one nearest the margin.
+      timestamp={<CopyAndTime sender={props.sender} at={props.at} copyText={props.copyText} />}
       // why: Astryx's statuses are a closed set, so this one rides the footer.
       footer={props.interrupted ? <Interrupted /> : usage}
       status={failed ? 'error' : props.interrupted ? undefined : props.status}

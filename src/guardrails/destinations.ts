@@ -39,11 +39,47 @@ interface Found {
 }
 
 const LOCAL_PART = /[\p{L}\p{N}_.+-]/u;
-const DOMAIN = /[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)+/uy;
+const LABEL_CHAR = /[\p{L}\p{N}_-]/u;
 const LINK = /(?:https?:\/\/|www\.)[^\s'"<>)\]]+/gi;
 /** An IBAN's shape: two letters, two check digits, then the account. */
 const ACCOUNT = /\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b/g;
 const HOST_END = /[/?#]/;
+
+/** Where the run of label characters starting at `from` ends. */
+function labelEnd(text: string, from: number): number {
+  let end = from;
+  while (end < text.length) {
+    const char = String.fromCodePoint(text.codePointAt(end) ?? 0);
+    if (!LABEL_CHAR.test(char)) break;
+    end += char.length;
+  }
+  return end;
+}
+
+/**
+ * Where the domain starting at `from` ends: two or more labels joined by single
+ * dots. `-1` when there is no domain there. Read in one pass, so a long run of
+ * hyphens costs its length once.
+ */
+function domainEnd(text: string, from: number): number {
+  let end = labelEnd(text, from);
+  if (end === from) return -1;
+  let labels = 1;
+  while (text.charAt(end) === '.') {
+    const next = labelEnd(text, end + 1);
+    if (next === end + 1) break;
+    end = next;
+    labels += 1;
+  }
+  return labels > 1 ? end : -1;
+}
+
+/** `host` without the full stops and commas a sentence left on its end. */
+function withoutTrailingPunctuation(host: string): string {
+  let end = host.length;
+  while (end > 0 && (host.charAt(end - 1) === '.' || host.charAt(end - 1) === ',')) end -= 1;
+  return host.slice(0, end);
+}
 
 /** Read outward from each `@`, so a long run of letters with no address in it is read once. */
 function emailsIn(text: string): Found[] {
@@ -52,10 +88,8 @@ function emailsIn(text: string): Found[] {
   while (at >= 0) {
     let start = at;
     while (start > 0 && LOCAL_PART.test(text.charAt(start - 1))) start -= 1;
-    DOMAIN.lastIndex = at + 1;
-    const domain = start < at ? DOMAIN.exec(text) : null;
-    if (domain) {
-      const end = at + 1 + domain[0].length;
+    const end = start < at ? domainEnd(text, at + 1) : -1;
+    if (end >= 0) {
       found.push({ key: `email:${text.slice(start, end).toLowerCase()}`, start, end });
       at = text.indexOf('@', end);
     } else {
@@ -71,10 +105,7 @@ function hostOf(link: string): string {
   const end = afterScheme.search(HOST_END);
   const authority = end < 0 ? afterScheme : afterScheme.slice(0, end);
   const host = authority.slice(authority.lastIndexOf('@') + 1).replace(/:\d*$/, '');
-  return host
-    .toLowerCase()
-    .replace(/[.,]+$/, '')
-    .replace(/^www\./, '');
+  return withoutTrailingPunctuation(host.toLowerCase()).replace(/^www\./, '');
 }
 
 function destinationsIn(text: string): Found[] {

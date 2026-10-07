@@ -11,7 +11,7 @@ import {
   inspectToolArguments,
   toolCallEvent,
 } from '../../guardrails/tool-result.ts';
-import type { Provenance, ToolOrigin } from '../../guardrails/types.ts';
+import type { Provenance, ResolvedGuardrailPolicy, ToolOrigin } from '../../guardrails/types.ts';
 import type { SpanHandle, TraceAttributes } from '../../observability/trace-span.ts';
 import {
   recordToolCheck,
@@ -1200,42 +1200,16 @@ async function* runRegisteredTool(
     return { ...earlyFailure(failure), denied: true };
   }
 
-  const destinationStart = performance.now();
-  const destination = checkDestinationGate(
-    ctx.turn?.destinations,
-    inspected.args,
+  const stopped = yield* settleRemoteDestination({
+    tool,
+    input: inspected.args,
+    ctx: fullCtx,
+    base,
+    provenance,
     policy,
-    profile.lexicon,
-  );
-  const destinationEvent = toolCallEvent(destination.verdict, provenance);
-  recordToolCheck(
-    stages?.span,
-    'destination',
-    performance.now() - destinationStart,
-    destinationEvent,
-  );
-  if (destinationEvent) {
-    yield { type: 'guardrail', guardrail: destinationEvent };
-  }
-  if (destination.verdict.action === 'block') {
-    const failure: ToolFailure = {
-      code: 'remote_destination',
-      kind: 'blocked',
-      message: destination.verdict.rejection,
-    };
-    yield failureEvent(base, failure);
-    return { ...earlyFailure(failure), denied: true };
-  }
-  if (destination.confirm && !isGateResumeGranted(ctx.resume)) {
-    const gate: ToolGate = {
-      kind: 'confirmation',
-      tool: name,
-      summary: destination.confirm,
-      ...gateDetails(tool, inspected.args),
-    };
-    yield* emitGateSettlement({ base, gate, callId, toolName: name, lexicon: profile.lexicon });
-    return { gated: gate, callNotStarted: true };
-  }
+    span: stages?.span,
+  });
+  if (stopped) return stopped;
 
   return yield* settleByType(
     args.tools,
@@ -1247,6 +1221,56 @@ async function* runRegisteredTool(
     stages,
     args.agents,
   );
+}
+
+/** The call's settlement when a destination in its arguments stops it: refused, or held for the user's answer. */
+async function* settleRemoteDestination(args: {
+  tool: Parameters<typeof gateDetails>[0] & { name: string };
+  input: unknown;
+  ctx: ToolContext;
+  base: ToolCallBase;
+  provenance: Provenance;
+  policy: ResolvedGuardrailPolicy;
+  span: ToolStageSupport['span'];
+}): AsyncGenerator<TurnEvent, ToolExecuteSettlement | undefined> {
+  const { tool, input, ctx, base } = args;
+  const { lexicon } = ctx.profile;
+  const start = performance.now();
+  const { verdict, confirm } = checkDestinationGate(
+    ctx.turn?.destinations,
+    input,
+    args.policy,
+    lexicon,
+  );
+  const event = toolCallEvent(verdict, args.provenance);
+  recordToolCheck(args.span, 'destination', performance.now() - start, event);
+  if (event) {
+    yield { type: 'guardrail', guardrail: event };
+  }
+  if (verdict.action === 'block') {
+    const failure: ToolFailure = {
+      code: 'remote_destination',
+      kind: 'blocked',
+      message: verdict.rejection,
+    };
+    yield failureEvent(base, failure);
+    return { ...earlyFailure(failure), denied: true };
+  }
+  if (!confirm || isGateResumeGranted(ctx.resume)) return undefined;
+  const gate: ToolGate = {
+    kind: 'confirmation',
+    tool: tool.name,
+    summary: confirm,
+    ...gateDetails(tool, input),
+  };
+  yield* emitGateSettlement({
+    base,
+    gate,
+    callId: ctx.callId,
+    toolName: tool.name,
+    lexicon,
+  });
+  return { gated: gate, callNotStarted: true };
 }
 
 /**

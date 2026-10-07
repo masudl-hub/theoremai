@@ -3,7 +3,6 @@ import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
 import { Center } from '@astryxdesign/core/Center';
 import { Dialog } from '@astryxdesign/core/Dialog';
-import { EmptyState } from '@astryxdesign/core/EmptyState';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
@@ -21,27 +20,24 @@ import {
   IconMicrophoneOff,
   IconPhone,
   IconPhoneOff,
-  IconSubtitles,
   IconVideo,
   IconVideoOff,
 } from '@tabler/icons-react';
 import type { LiveProfileInterface } from '@theoremjs/agents/interface';
 import { Fragment, type ReactNode, useEffect, useLayoutEffect, useRef } from 'react';
-import { liveCaptionStreaming, liveCaptionTranscript } from '../client/live/live-captions.ts';
+import type { LiveCallOptions } from '../client/live/live-page-tool.ts';
 import type { LiveToolGatePrompt } from '../client/live/live-tool.ts';
 import type { LiveFacingMode } from '../client/live/live-video.ts';
 import type { LiveConnection } from '../client/live-client.ts';
 import type { ToolGateResolution } from '../client/tool-resume.ts';
 import { InkWaveform } from '../components/InkWaveform.tsx';
 import { useLiveRunnerModel } from '../components/live/use-live-runner-model.ts';
-import { ChatComposerBar } from './ChatComposerBar.tsx';
-import { ChatTranscript } from './ChatTranscript.tsx';
+import { LiveCaptionsPanel } from './LiveCaptionsPanel.tsx';
 import { liveStateLabel, type TheoremLabels } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import {
   PANEL_BOTTOM,
   PANEL_EDGE,
-  PanelScroll,
   SidePanel,
   SidePanelHeader,
   SidePanelToggle,
@@ -68,7 +64,7 @@ export type LiveRunnerProps = {
    * Needs a profile that records traces.
    */
   trace?: boolean;
-};
+} & LiveCallOptions;
 
 type LiveModel = ReturnType<typeof useLiveRunnerModel>;
 
@@ -97,9 +93,12 @@ function LiveRunnerBody({
   iface,
   connection,
   trace,
-}: Pick<LiveRunnerProps, 'iface' | 'connection' | 'trace'>) {
+  slots,
+  context,
+  pageTools,
+}: Omit<LiveRunnerProps, 'theme' | 'mode' | 'labels'>) {
   const t = useLabels();
-  const model = useLiveRunnerModel(iface, connection);
+  const model = useLiveRunnerModel(iface, connection, { slots, context, pageTools });
   // why: Both panels size against the whole live layout, so a third means the same for each.
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const inspector = useTraceInspector(iface, model.traces, trace);
@@ -155,7 +154,7 @@ function LiveRunnerBody({
                     resizable={captions.resizable}
                     open={captions.open}
                   >
-                    <LiveCaptions iface={iface} model={model} />
+                    <LiveCaptions model={model} />
                   </SidePanel>
                 }
                 content={
@@ -254,8 +253,7 @@ function LiveStage({ model, captionsToggle }: { model: LiveModel; captionsToggle
             >
               <InkWaveform
                 status={model.status}
-                inputLevel={model.inputLevel}
-                outputLevel={model.outputLevel}
+                levelsRef={model.levelsRef}
                 toolActive={model.toolActive}
                 variant="hero"
               />
@@ -389,52 +387,23 @@ function LiveControls({ model, captionsToggle }: { model: LiveModel; captionsTog
  * Captions drawn by the chat's own transcript, with the text composer in its
  * dock when the profile takes text.
  */
-function LiveCaptions({ iface, model }: { iface: LiveProfileInterface; model: LiveModel }) {
-  const t = useLabels();
-  const agentName = t('@theorem.agent.handle', { handle: model.handle });
-  const composer = model.textAvailable ? (
-    <ChatComposerBar
-      iface={iface}
+function LiveCaptions({ model }: { model: LiveModel }) {
+  return (
+    <LiveCaptionsPanel
+      handle={model.handle}
+      captions={model.captions}
+      pastCalls={model.pastCalls}
       draftText={model.textDraft}
       onDraftTextChange={model.setTextDraft}
       onSubmit={model.handleSendText}
       isDisabled={!model.sessionActive}
+      showComposer={model.textAvailable}
+      leading={
+        model.videoPreview ? (
+          <LiveVideoPreview video={model.videoPreview} facingMode={model.videoFacingMode} />
+        ) : null
+      }
     />
-  ) : null;
-
-  const { blocks, callStarts } = liveCaptionTranscript(model.pastCalls, model.captions);
-  const newSession = t('@theorem.live.new_session');
-  const dividers = Object.fromEntries(callStarts.map((id) => [id, newSession]));
-
-  const captions = (
-    <ChatTranscript
-      blocks={blocks}
-      dividers={dividers}
-      handle={agentName}
-      streaming={liveCaptionStreaming(model.captions)}
-    />
-  );
-  return (
-    <VStack height="100%">
-      {model.videoPreview ? (
-        <LiveVideoPreview video={model.videoPreview} facingMode={model.videoFacingMode} />
-      ) : null}
-      <StackItem size="fill">
-        {blocks.length > 0 ? (
-          <PanelScroll label={t('@theorem.panel.captions.name')}>{captions}</PanelScroll>
-        ) : (
-          <VStack height="100%" vAlign="center" padding={4}>
-            <EmptyState
-              icon={<Icon icon={IconSubtitles} size="lg" color="secondary" />}
-              title={t('@theorem.panel.captions.empty.title')}
-              description={t('@theorem.panel.captions.empty.description')}
-              isCompact
-            />
-          </VStack>
-        )}
-      </StackItem>
-      {composer}
-    </VStack>
   );
 }
 

@@ -1026,6 +1026,10 @@ export const THEOREM_UI_CATALOG = {
     params: ['tool'],
   },
   '@theorem.live.state.connecting': { defaultMessage: 'connecting', description: 'Call status.' },
+  '@theorem.live.state.reconnecting': {
+    defaultMessage: 'reconnecting',
+    description: 'Call status: the call dropped and is being taken up again.',
+  },
   '@theorem.live.state.requesting_mic': {
     defaultMessage: 'requesting mic',
     description: 'Call status.',

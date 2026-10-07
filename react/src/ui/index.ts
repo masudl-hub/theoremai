@@ -16,7 +16,19 @@ import '@astryxdesign/core/astryx.css';
 import './built/theme.css';
 
 export type { InkWaveStatus } from '../client/ink-waveform.ts';
-export { InkWaveform, type InkWaveformProps } from '../components/InkWaveform.tsx';
+export type {
+  LiveCallOptions,
+  LivePageTool,
+  LivePageToolAnswer,
+  LivePageTools,
+} from '../client/live/live-page-tool.ts';
+export { useLiveCaptionLog } from '../client/live/use-live-caption-log.ts';
+export {
+  InkWaveform,
+  type InkWaveformProps,
+  type InkWaveLevels,
+} from '../components/InkWaveform.tsx';
+export { useLiveRunnerModel } from '../components/live/use-live-runner-model.ts';
 export { tablerIcons, theoremTheme } from './built/theorem.js';
 export {
   ChatComposerBar,
@@ -26,6 +38,7 @@ export {
 export { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';
 export { TheoremDecisionAnswers, type TheoremDecisionAnswersProps } from './DecisionAnswers.tsx';
 export { useDisclosureMotion } from './disclosure-motion.ts';
+export { LiveCaptionsPanel, type LiveCaptionsPanelProps } from './LiveCaptionsPanel.tsx';
 export {
   composerDrawerLabel,
   type LabelText,

@@ -11,6 +11,7 @@ export function inkWavePhases(count: number): number[] {
 export type InkWaveStatus =
   | 'disconnected'
   | 'connecting'
+  | 'reconnecting'
   | 'connected'
   | 'ready'
   | 'listening'
@@ -29,7 +30,7 @@ export function inkWaveDriver(
 ): InkWaveDriver {
   if (frozen) return 'idle';
   if (status === 'disconnected' || status === 'error') return 'idle';
-  if (status === 'connecting') return 'connecting';
+  if (status === 'connecting' || status === 'reconnecting') return 'connecting';
   if (toolActive) return 'tool';
   if (status === 'speaking' || outputLevel > LEVEL_FLOOR) return 'output';
   if (inputLevel > LEVEL_FLOOR) return 'input';

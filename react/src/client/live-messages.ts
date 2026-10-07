@@ -27,16 +27,39 @@ import {
   type WireLines,
 } from './wire-line.ts';
 
-/** The longest context message a relay accepts. */
-const LIVE_CONTEXT_MAX_CHARS = 2000;
+/**
+ * The live client's first message, before the relay opens the session: the
+ * values the call starts with. A relay reads it with `parseLiveOpenMessage`.
+ */
+export type LiveOpenMessage = {
+  type: 'open';
+  /** The value chosen for each of the profile's `inputs.slots`. */
+  slots?: Record<string, string>;
+  /** What the page tells the agent as the call opens: the client's context package. */
+  context?: unknown;
+  /** A call that dropped, taken up again: the provider's handle, and how long the caller was away. */
+  resume?: { handle: string; awayMs: number };
+  /** The host's own `openMessage`, for its relay to read. */
+  host?: Record<string, unknown>;
+};
+const liveOpenMessage = z.object({
+  type: z.literal('open'),
+  slots: z.record(z.string(), z.string()).optional(),
+  context: z.unknown().optional(),
+  resume: z.object({ handle: z.string().min(1), awayMs: z.number().nonnegative() }).optional(),
+  host: z.record(z.string(), z.unknown()).optional(),
+});
+true satisfies Equals<z.infer<typeof liveOpenMessage>, LiveOpenMessage>;
+/** The live client's first message, as `parseLiveOpenMessage` checks it for a relay. */
+export const liveOpenMessageSchema: z.ZodType<LiveOpenMessage> = liveOpenMessage;
 
-/** What the live client sends its relay, besides the host's own `openMessage`. */
+/** What the live client sends its relay once the call is open. */
 export type LiveClientMessage =
   | { type: 'audio'; data: string }
   | { type: 'video'; data: string; mimeType: string }
   | { type: 'text'; text: string }
-  /** Background the model reads without replying: the page the visitor is on, say. */
-  | { type: 'context'; text: string }
+  /** The page's context package, replacing the last: background the model reads without replying. */
+  | { type: 'context'; context: unknown }
   /** Run a call the model made, by its id; the live session holds its name, input and gate. */
   | {
       type: 'executeTool';
@@ -51,7 +74,7 @@ const liveClientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('audio'), data: z.string() }),
   z.object({ type: z.literal('video'), data: z.string(), mimeType: z.string() }),
   z.object({ type: z.literal('text'), text: z.string() }),
-  z.object({ type: z.literal('context'), text: z.string().max(LIVE_CONTEXT_MAX_CHARS) }),
+  z.object({ type: z.literal('context'), context: z.unknown() }),
   z.object({
     type: z.literal('executeTool'),
     callId: z.string().min(1),
@@ -157,6 +180,9 @@ export type LiveSocket = Pick<
   WebSocket,
   'readyState' | 'binaryType' | 'send' | 'close' | 'onopen' | 'onmessage' | 'onclose' | 'onerror'
 >;
-export type LiveConnection = ({ profile: string } | { openMessage: Record<string, unknown> }) & {
+/** What a call connects to: a profile the relay knows by id, or the host's own message for its relay. */
+export type LiveConnection = {
+  profile?: string;
+  openMessage?: Record<string, unknown>;
   createSocket?: () => LiveSocket;
 };

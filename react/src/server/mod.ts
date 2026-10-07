@@ -6,7 +6,7 @@
  */
 
 export { theoremHostCallRequestSchema } from '../client/host-transport.ts';
-export type { LiveClientMessage } from '../client/live-messages.ts';
+export type { LiveClientMessage, LiveOpenMessage } from '../client/live-messages.ts';
 export {
   theoremInvokeRequestSchema,
   theoremReplaySchema,
@@ -31,7 +31,8 @@ export {
   type TheoremRequestContext,
   theoremSessionId,
 } from './handler.ts';
-export { checkRequest, parseLiveClientMessage } from './request-check.ts';
+export { checkRequest, parseLiveClientMessage, parseLiveOpenMessage } from './request-check.ts';
+export { liveSessionOpen } from './turn-input.ts';
 export {
   createMemorySessionStore,
   type MemorySessionStoreOptions,

@@ -3,6 +3,8 @@ import type { LiveConnection, LiveSocket } from '../react/src/client/live-messag
 import type { LiveSession, LexiconOverrides } from '../mod.ts';
 import type { PlaygroundTraceRoute } from './traces.ts';
 import type { PlaygroundBrowserRuntime } from './browser-transport.ts';
+import { parseLiveOpenMessage } from '../react/src/server/request-check.ts';
+import { liveSessionOpen } from '../react/src/server/turn-input.ts';
 import { attachPlaygroundLiveSession } from './live-session-bridge.ts';
 import type { PlaygroundRunPayload } from './run-payload.ts';
 import { playgroundTraces } from './runtime.ts';
@@ -65,8 +67,14 @@ class BrowserLiveSocket implements LiveSocket {
       if (!runtime.providers?.vault) {
         throw new TheoremError('auth', 'Fill the vault slot this model names.'); // lexicon-exempt: builder diagnostic
       }
+      // The client sends its open message as the socket opens: the call's slots, context and resume.
+      const [first] = this.queued.splice(0, 1);
+      if (typeof first !== 'string') {
+        throw new TheoremError('request', 'A live call must open with its open message'); // lexicon-exempt: internal diagnostic
+      }
       const session = await scope.runSession(
         {
+          ...liveSessionOpen(parseLiveOpenMessage(first)),
           profile: profile.id,
           metadata: traces.metadata,
           signal: runtime.signal,
@@ -108,11 +116,7 @@ class BrowserLiveSocket implements LiveSocket {
       );
       this.closeSession = undefined;
       this.listening = true;
-      // The in-process connection knows its draft; discard the relay's opening draft message.
       for (const data of this.queued.splice(0)) {
-        if (typeof data === 'string' && JSON.parse(data).type === 'draft') {
-          continue;
-        }
         this.outbound.dispatchEvent(new MessageEvent('message', { data }));
       }
       await ended;
@@ -128,8 +132,6 @@ export function browserPlaygroundLiveConnection(
   payload: PlaygroundRunPayload,
   runtime: PlaygroundBrowserRuntime,
 ): LiveConnection {
-  return {
-    openMessage: { type: 'draft' },
-    createSocket: () => new BrowserLiveSocket(payload, runtime),
-  };
+  // The in-process connection knows its draft, so its open message carries none.
+  return { createSocket: () => new BrowserLiveSocket(payload, runtime) };
 }

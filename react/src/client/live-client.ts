@@ -32,6 +32,7 @@ import { isPermissionDeniedError } from './live-errors.ts';
 import {
   type ExecuteToolOnRelay,
   type LiveClientMessage,
+  type LiveOpenMessage,
   type LiveServerEnvelope,
   type LiveToolStep,
   parseLiveServerEnvelope,
@@ -77,14 +78,21 @@ function emptyInboundTurnAccum(): InboundTurnAccum {
  */
 const BARGE_IN_RMS_WHILE_SPEAKING = 0.05;
 
+/** How long the client waits before each try at taking a dropped call up again. After the last, the call fails. */
+export const LIVE_RECONNECT_DELAYS_MS: readonly number[] = [500, 1000, 2000, 4000, 8000];
+
 export type { LiveConnection, LiveSocket } from './live-messages.ts';
 
 import type { LiveSocket } from './live-messages.ts';
 
 export interface LiveClientOptions {
   profile?: string;
-  /** JSON sent before anything else, as the socket opens. */
+  /** The host's own JSON for its relay, sent as the open message's `host`. */
   openMessage?: Record<string, unknown>;
+  /** The value chosen for each of the profile's `inputs.slots`, fixed for the call. */
+  slots?: Record<string, string>;
+  /** What the page tells the agent as the call opens; `setContext` replaces it during the call. */
+  context?: unknown;
   relayUrl?: string;
   /** In-process connections reuse the same microphone, playback and tool client. */
   createSocket?: () => LiveSocket;
@@ -208,9 +216,21 @@ export class LiveSessionClient {
     string,
     { resolve: (value: LiveToolStep) => void; reject: (reason: Error) => void }
   >();
+  /** The page's context package, and the JSON of the one the relay last got. */
+  private context: unknown;
+  private sentContext: string | undefined;
+  /** The provider's latest handle for taking this call up again after a drop. */
+  private resumeHandle: string | undefined;
+  /** The session said it ended, or failed: a close after that is the end, not a drop. */
+  private sessionOver = false;
+  /** When the call dropped, for the time away a resume reports. */
+  private droppedAt: number | undefined;
+  private reconnectTries = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: LiveClientOptions) {
     this.options = options;
+    this.context = options.context;
   }
 
   private setStatus(newStatus: LiveSessionStatus): void {
@@ -219,6 +239,11 @@ export class LiveSessionClient {
       this.clearConnectTimeout();
     }
     this.options.onStatusChange?.(newStatus);
+  }
+
+  /** Still opening: the first connect, or a try at taking a dropped call up again. */
+  private get opening(): boolean {
+    return this.status === 'connecting' || this.status === 'reconnecting';
   }
 
   private setConnectPhase(phase: LiveConnectPhase | null): void {
@@ -253,6 +278,13 @@ export class LiveSessionClient {
     this.ws = null;
   }
 
+  private clearReconnect(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.reconnectTries = 0;
+    this.droppedAt = undefined;
+  }
+
   private teardownConnection(): void {
     this.clearConnectTimeout();
     this.micActivating = false;
@@ -264,6 +296,7 @@ export class LiveSessionClient {
   /** End the session on `error`: a failed connect or a lost socket. */
   private failSession(error: Error): void {
     if (this.status === 'error' || this.status === 'disconnected') return;
+    this.clearReconnect();
     this.teardownConnection();
     this.options.onError?.(error);
     this.setStatus('error');
@@ -273,10 +306,74 @@ export class LiveSessionClient {
     return this.options.createSocket?.() ?? new WebSocket(url);
   }
 
-  public async connect(): Promise<void> {
+  /** Start a new call. A call that drops takes itself up again; this is not for that. */
+  public connect(): Promise<void> {
+    this.clearReconnect();
+    this.resumeHandle = undefined;
+    return this.open('connecting');
+  }
+
+  /** The first message: the call's values, and the handle and time away when it takes a dropped call up again. */
+  private openMessage(): LiveOpenMessage {
+    const { slots, openMessage: host } = this.options;
+    return {
+      type: 'open',
+      ...(slots ? { slots } : {}),
+      ...(this.context === undefined ? {} : { context: this.context }),
+      ...(this.resumeHandle
+        ? {
+            resume: {
+              handle: this.resumeHandle,
+              awayMs: this.droppedAt === undefined ? 0 : Date.now() - this.droppedAt,
+            },
+          }
+        : {}),
+      ...(host ? { host } : {}),
+    };
+  }
+
+  /** The socket closed while the call was open: take it up again if the provider gave a handle, else end. */
+  private handleDrop(): void {
+    if (!this.resumeHandle || this.sessionOver) {
+      this.teardownConnection();
+      this.setStatus('disconnected');
+      return;
+    }
+    this.droppedAt ??= Date.now();
     this.teardownConnection();
-    this.setStatus('connecting');
-    this.setConnectPhase('socket');
+    this.setStatus('reconnecting');
+    this.scheduleReconnect();
+  }
+
+  private scheduleReconnect(): void {
+    const delay = LIVE_RECONNECT_DELAYS_MS[this.reconnectTries];
+    if (delay === undefined) {
+      // lexicon-exempt: internal diagnostic; the user reads error.network
+      this.failSession(new TheoremError('network', 'live call dropped and could not reconnect'));
+      return;
+    }
+    this.reconnectTries += 1;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.open('reconnecting');
+    }, delay);
+  }
+
+  /** A try at opening failed: a reconnect waits and tries again, a first connect fails the call. */
+  private failOpen(error: Error): void {
+    if (this.status !== 'reconnecting') {
+      this.failSession(error);
+      return;
+    }
+    this.teardownConnection();
+    this.scheduleReconnect();
+  }
+
+  private async open(as: 'connecting' | 'reconnecting'): Promise<void> {
+    this.teardownConnection();
+    this.sessionOver = false;
+    this.setStatus(as);
+    if (as === 'connecting') this.setConnectPhase('socket');
 
     try {
       const AudioContextClass = globalThis.AudioContext;
@@ -295,17 +392,16 @@ export class LiveSessionClient {
       this.ws = this.createSocket(url);
       this.ws.binaryType = 'arraybuffer';
 
-      const { openMessage } = this.options;
-      if (openMessage) {
-        this.ws.onopen = () => {
-          this.ws?.send(JSON.stringify(openMessage));
-        };
-      }
+      this.ws.onopen = () => {
+        const open = this.openMessage();
+        this.sentContext = JSON.stringify(open.context);
+        this.ws?.send(JSON.stringify(open));
+      };
 
       this.connectTimeout = setTimeout(() => {
-        if (this.status === 'connecting') {
+        if (this.opening) {
           // lexicon-exempt: internal diagnostic; the user reads error.timeout
-          this.failSession(new TheoremError('timeout', 'live connect timed out'));
+          this.failOpen(new TheoremError('timeout', 'live connect timed out'));
         }
       }, 20_000);
 
@@ -314,21 +410,24 @@ export class LiveSessionClient {
       };
 
       this.ws.onclose = () => {
-        if (this.status === 'connecting') {
+        if (this.opening) {
           // lexicon-exempt: internal diagnostic; the user reads error.network
-          this.failSession(new TheoremError('network', 'live socket closed before ready'));
+          this.failOpen(new TheoremError('network', 'live socket closed before ready'));
           return;
         }
-        this.teardownConnection();
-        this.setStatus('disconnected');
+        this.handleDrop();
       };
 
       this.ws.onerror = () => {
+        if (!this.opening && this.resumeHandle && !this.sessionOver) {
+          this.handleDrop();
+          return;
+        }
         // lexicon-exempt: internal diagnostic; the user reads error.network
-        this.failSession(new TheoremError('network', 'live socket error'));
+        this.failOpen(new TheoremError('network', 'live socket error'));
       };
     } catch (err) {
-      this.failSession(new TheoremError('internal', describeError(err), { cause: err }));
+      this.failOpen(new TheoremError('internal', describeError(err), { cause: err }));
     }
   }
 
@@ -343,9 +442,9 @@ export class LiveSessionClient {
   }
 
   private async activateMicrophone(): Promise<void> {
-    if (this.micActivating || this.status !== 'connecting') return;
+    if (this.micActivating || !this.opening) return;
     this.micActivating = true;
-    this.setConnectPhase('microphone');
+    if (this.status === 'connecting') this.setConnectPhase('microphone');
 
     try {
       await this.ensureAudioContext();
@@ -359,8 +458,7 @@ export class LiveSessionClient {
       });
 
       await this.setupMicrophonePipeline();
-      this.setConnectPhase(null);
-      this.setStatus('listening');
+      this.becomeReady();
     } catch (err) {
       const denied = isPermissionDeniedError(err);
       this.failSession(
@@ -503,11 +601,18 @@ export class LiveSessionClient {
       profile: payload.profile,
     });
     if (this.options.voiceIngress === false) {
-      this.setConnectPhase(null);
-      this.setStatus('listening');
+      this.becomeReady();
     } else {
       await this.activateMicrophone();
     }
+  }
+
+  /** The call is open, first or again: the page's context catches up with what changed meanwhile. */
+  private becomeReady(): void {
+    this.clearReconnect();
+    this.setConnectPhase(null);
+    this.setStatus('listening');
+    this.flushContext();
   }
 
   private handleExecuteToolResultEnvelope(payload: ExecuteToolReply): void {
@@ -535,6 +640,7 @@ export class LiveSessionClient {
       return true;
     }
     if (payload.type === 'error') {
+      this.sessionOver = true;
       this.options.onError?.(hostError(payload, 'unavailable'));
       this.setStatus('error');
       return true;
@@ -572,6 +678,7 @@ export class LiveSessionClient {
   }
 
   private handleEvidenceTurnEvent(event: TurnEventOf<'evidence'>): void {
+    if (event.sessionResumptionHandle) this.resumeHandle = event.sessionResumptionHandle;
     const transcript = liveTranscriptFromEvidence(event);
     if (transcript) {
       this.options.onTranscript?.(transcript.text, transcript.isUser, {
@@ -594,6 +701,7 @@ export class LiveSessionClient {
       return true;
     }
     if (session.kind !== 'ended') return false;
+    this.sessionOver = true;
     this.options.onSessionEnded?.(session);
     return true;
   }
@@ -725,10 +833,21 @@ export class LiveSessionClient {
     }
   }
 
-  public sendContext(text: string): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(clientMessage({ type: 'context', text }));
-    }
+  /**
+   * Replace the page's context package. In a call it reaches the agent as
+   * background, with no reply; before one, it goes with the call's opening.
+   */
+  public setContext(context: unknown): void {
+    this.context = context;
+    this.flushContext();
+  }
+
+  private flushContext(): void {
+    if (this.opening || this.ws?.readyState !== WebSocket.OPEN) return;
+    const next = JSON.stringify(this.context);
+    if (next === this.sentContext) return;
+    this.sentContext = next;
+    this.ws.send(clientMessage({ type: 'context', context: this.context }));
   }
 
   public sendVideo(data: string, mimeType = 'image/jpeg'): void {
@@ -738,6 +857,8 @@ export class LiveSessionClient {
   }
 
   public disconnect(): void {
+    this.clearReconnect();
+    this.resumeHandle = undefined;
     this.teardownConnection();
     this.setStatus('disconnected');
   }

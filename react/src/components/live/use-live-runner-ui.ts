@@ -10,7 +10,7 @@ import {
 import { type ClientFailure, clientFailure } from '../../client/failure.ts';
 import { applyLiveTurnToolEvent } from '../../client/live/apply-live-turn-tool-event.ts';
 import {
-  applyLiveThought,
+  applyLiveTurnEvent,
   clearLiveCaptionInterim,
   emptyLiveCaptionState,
   type LiveCaptionState,
@@ -24,8 +24,16 @@ import type { ToolGateResolution } from '../../client/tool-resume.ts';
 export function useLiveRunnerUiState(lexicon: LexiconOverrides) {
   const [status, setStatus] = useState<LiveSessionStatus>('disconnected');
   const [connectPhase, setConnectPhase] = useState<LiveConnectPhase | null>(null);
-  const [inputLevel, setInputLevel] = useState(0);
-  const [outputLevel, setOutputLevel] = useState(0);
+  // why: Levels move the waveform only. Writing them here keeps a sample off the React tree.
+  const levelsRef = useRef({ input: 0, output: 0 });
+  const setInputLevel = useCallback((value: SetStateAction<number>) => {
+    const levels = levelsRef.current;
+    levels.input = typeof value === 'function' ? value(levels.input) : value;
+  }, []);
+  const setOutputLevel = useCallback((value: SetStateAction<number>) => {
+    const levels = levelsRef.current;
+    levels.output = typeof value === 'function' ? value(levels.output) : value;
+  }, []);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [activeTool, setActiveTool] = useState<string | null>(null);
@@ -93,9 +101,8 @@ export function useLiveRunnerUiState(lexicon: LexiconOverrides) {
     setStatus,
     connectPhase,
     setConnectPhase,
-    inputLevel,
+    levelsRef,
     setInputLevel,
-    outputLevel,
     setOutputLevel,
     isMuted,
     setIsMuted,
@@ -153,10 +160,7 @@ export function useLiveRunnerGate(args: {
 
   const handleLiveTurnEvent = useCallback(
     (event: Parameters<typeof applyLiveTurnToolEvent>[0]) => {
-      if (event.type === 'thought') {
-        args.setCaptions((prev) => applyLiveThought(prev, event.text));
-        return;
-      }
+      args.setCaptions((prev) => applyLiveTurnEvent(prev, event));
       applyLiveTurnToolEvent(event, {
         gateCallId: gatePromptRef.current?.callId,
         withdrawGate: () => {

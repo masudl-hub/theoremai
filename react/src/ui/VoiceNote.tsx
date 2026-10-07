@@ -28,7 +28,7 @@ export type VoiceNoteProps = {
  */
 export function VoiceNote({ src, mimeType = 'audio/webm', label, onRemove }: VoiceNoteProps) {
   const t = useLabels();
-  const { playing, outputLevel, toggle, audioProps } = useVoicePlayback();
+  const { playing, levelsRef, toggle, audioProps } = useVoicePlayback();
   const name = label ?? voiceNoteName(t, voiceFormatFromMime(mimeType));
   const remove = t('@theorem.voice_note.remove', { name });
 
@@ -54,7 +54,7 @@ export function VoiceNote({ src, mimeType = 'audio/webm', label, onRemove }: Voi
         >
           <InkWaveform
             frozen={!playing}
-            outputLevel={outputLevel}
+            levelsRef={levelsRef}
             status={playing ? 'speaking' : 'ready'}
             variant="pill"
           />

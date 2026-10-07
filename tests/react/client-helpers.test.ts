@@ -14,8 +14,8 @@ import {
   stepInkBarHeights,
 } from '../../react/src/client/ink-waveform.ts';
 import {
-  applyLiveThought,
   applyLiveTranscript,
+  applyLiveTurnEvent,
   clearLiveCaptionInterim,
   emptyLiveCaptionState,
   latestLiveCaptionTurnId,
@@ -169,6 +169,12 @@ Deno.test('transcriptBlockCopyText formats all block kinds', () => {
   assertEquals(transcriptBlockCopyText(t, { kind: 'turn-done', id: '12' }), '');
 });
 
+/** The words of the caption line at `index`. */
+function said(state: ReturnType<typeof emptyLiveCaptionState>, index: number): string {
+  const turn = state.turns[index];
+  return turn.role === 'work' ? '' : turn.text;
+}
+
 Deno.test('applyLiveTranscript merges interim and final text correctly', () => {
   let state = emptyLiveCaptionState();
   assertEquals(state.turns.length, 0);
@@ -180,21 +186,21 @@ Deno.test('applyLiveTranscript merges interim and final text correctly', () => {
 
   state = applyLiveTranscript(state, 'Hello world', true, false);
   assertEquals(state.turns.length, 1);
-  assertEquals(state.turns[0].text, 'Hello world');
+  assertEquals(said(state, 0), 'Hello world');
   assertEquals(state.interimUser, '');
 
   state = applyLiveTranscript(state, 'again', true, false);
   assertEquals(state.turns.length, 1);
-  assertEquals(state.turns[0].text, 'Hello world again');
+  assertEquals(said(state, 0), 'Hello world again');
 
   state = applyLiveTranscript(state, 'Hi there', false, false);
   assertEquals(state.turns.length, 2);
   assertEquals(state.turns[1].role, 'agent');
-  assertEquals(state.turns[1].text, 'Hi there');
+  assertEquals(said(state, 1), 'Hi there');
 
   state = applyLiveTranscript(state, 'New prompt', false, false, { forceNew: true });
   assertEquals(state.turns.length, 3);
-  assertEquals(state.turns[2].text, 'New prompt');
+  assertEquals(said(state, 2), 'New prompt');
 
   state = applyLiveTranscript(state, 'thinking', false, true);
   assertEquals(state.interimAgent, 'thinking');
@@ -205,26 +211,70 @@ Deno.test('applyLiveTranscript merges interim and final text correctly', () => {
   assertEquals(typeof latestLiveCaptionTurnId(state), 'string');
 });
 
-Deno.test('applyLiveThought keeps a thought on its own line, before the speech that follows', () => {
-  let state = applyLiveTranscript(emptyLiveCaptionState(), 'What is on today?', true, false);
-  assertEquals(applyLiveThought(state, ''), state);
+/** Work that is one thought, as a live call's captions hold it. */
+function thought(id: string, text: string) {
+  return { id, role: 'work' as const, events: [{ type: 'thought' as const, text }] };
+}
 
-  state = applyLiveThought(state, '**Checking the calendar**\n\n');
-  state = applyLiveThought(state, 'The user wants today.');
+Deno.test('applyLiveTurnEvent keeps a thought on its own line, before the speech that follows', () => {
+  let state = applyLiveTranscript(emptyLiveCaptionState(), 'What is on today?', true, false);
+  assertEquals(applyLiveTurnEvent(state, { type: 'thought', text: '' }), state);
+  assertEquals(applyLiveTurnEvent(state, { type: 'thought', text: '\n\n' }), state);
+
+  state = applyLiveTurnEvent(state, { type: 'thought', text: '**Checking the calendar**\n\n' });
+  state = applyLiveTurnEvent(state, { type: 'thought', text: 'The user wants today.' });
+  assertEquals(liveCaptionStreaming(state), true);
   state = applyLiveTranscript(state, 'You have', false, false);
   state = applyLiveTranscript(state, 'two meetings.', false, false);
 
   // The thought guard releases a held blank tail when the turn ends, after the speech.
-  assertEquals(applyLiveThought(state, '\n\n'), state);
+  assertEquals(applyLiveTurnEvent(state, { type: 'thought', text: '\n\n' }), state);
 
   assertEquals(
-    state.turns.map((turn) => [turn.role, turn.text]),
+    liveCaptionTranscript([], state).blocks.map((block) => [
+      block.kind,
+      'text' in block ? block.text : '',
+    ]),
     [
-      ['user', 'What is on today?'],
+      ['user-text', 'What is on today?'],
       ['thought', '**Checking the calendar**\n\nThe user wants today.'],
-      ['agent', 'You have two meetings.'],
+      ['text', 'You have two meetings.'],
     ],
   );
+});
+
+Deno.test('applyLiveTurnEvent folds a tool call into the block the chat draws', () => {
+  const call = { name: 'get_weather', callId: 'c1', arguments: { city: 'Lisbon' } };
+  let state = applyLiveTranscript(emptyLiveCaptionState(), 'Weather in Lisbon?', true, false);
+  // A phase for a call the captions never saw is left out.
+  assertEquals(
+    applyLiveTurnEvent(state, { type: 'tool', tool: { ...call, phase: 'running', at: 1 } }),
+    state,
+  );
+
+  state = applyLiveTurnEvent(state, { type: 'thought', text: 'Looking it up.' });
+  state = applyLiveTurnEvent(state, { type: 'tool', tool: call });
+  state = applyLiveTurnEvent(state, { type: 'tool', tool: { ...call, phase: 'running', at: 1 } });
+  state = applyLiveTranscript(state, 'One moment.', false, false);
+  // The call settles after the agent has spoken: it stays in the work that made it.
+  state = applyLiveTurnEvent(state, {
+    type: 'tool',
+    tool: { ...call, phase: 'complete', at: 5, output: { celsius: 18 } },
+  });
+  assertEquals(liveCaptionStreaming(state), true);
+  state = applyLiveTurnEvent(state, { type: 'done', stop: { kind: 'completed' } });
+  assertEquals(liveCaptionStreaming(state), false);
+
+  const { blocks } = liveCaptionTranscript([], state);
+  assertEquals(
+    blocks.map((block) => block.kind),
+    ['user-text', 'thought', 'tool', 'text'],
+  );
+  const tool = blocks[2];
+  assertEquals(tool.kind === 'tool' && tool.id, 'tool-c1');
+  assertEquals(tool.kind === 'tool' && tool.tool.arguments, { city: 'Lisbon' });
+  assertEquals(tool.kind === 'tool' && tool.tool.state?.phase, 'complete');
+  assertEquals(tool.kind === 'tool' && [tool.tool.startedAt, tool.tool.endedAt], [1, 5]);
 });
 
 Deno.test('liveCaptionTranscript turns captions into the transcript blocks the chat draws', () => {
@@ -232,17 +282,18 @@ Deno.test('liveCaptionTranscript turns captions into the transcript blocks the c
   const captions = {
     turns: [
       { id: 'a', role: 'user' as const, text: 'Hi' },
-      { id: 'b', role: 'thought' as const, text: '**Greeting**' },
+      thought('b', '**Greeting**'),
       { id: 'c', role: 'agent' as const, text: 'Hello.' },
     ],
     interimUser: 'And',
     interimAgent: '',
+    working: false,
   };
   assertEquals(liveCaptionTranscript(past, captions), {
     blocks: [
       { id: '0:a', kind: 'user-text', text: 'Earlier' },
       { id: 'a', kind: 'user-text', text: 'Hi' },
-      { id: 'b', kind: 'thought', text: '**Greeting**' },
+      { id: 'b-1', kind: 'thought', text: '**Greeting**' },
       { id: 'c', kind: 'text', text: 'Hello.' },
       { id: 'interim-user', kind: 'user-text', text: 'And' },
     ],
@@ -251,42 +302,44 @@ Deno.test('liveCaptionTranscript turns captions into the transcript blocks the c
   assertEquals(liveCaptionTranscript([], emptyLiveCaptionState()), { blocks: [], callStarts: [] });
   assertEquals(liveCaptionStreaming(captions), false);
   assertEquals(liveCaptionStreaming({ ...captions, interimAgent: 'So' }), true);
-  assertEquals(liveCaptionStreaming({ ...captions, turns: captions.turns.slice(0, 2) }), true);
+  assertEquals(liveCaptionStreaming({ ...captions, working: true }), true);
 });
 
 Deno.test('liveCaptionTranscript drops speech the agent broke off and began again', () => {
   const cutOff = 'Lisbon in November is a fantastic choice for a tight budget. Outside of the';
   const again =
     'Lisbon in November is a fantastic choice for a tight budget. You get lower prices.';
-  const ids = (
-    turns: { id: string; role: 'user' | 'agent' | 'thought'; text: string }[],
-    interimAgent = '',
-  ) =>
-    liveCaptionTranscript([], { turns, interimUser: '', interimAgent }).blocks.map(
+  const ids = (turns: Parameters<typeof liveCaptionTranscript>[1]['turns'], interimAgent = '') =>
+    liveCaptionTranscript([], { turns, interimUser: '', interimAgent, working: false }).blocks.map(
       (block) => block.id,
     );
   const start = [
     { id: 'q', role: 'user' as const, text: 'Plan a trip' },
-    { id: 't1', role: 'thought' as const, text: 'Plan' },
+    thought('t1', 'Plan'),
     { id: 'a1', role: 'agent' as const, text: cutOff },
-    { id: 't2', role: 'thought' as const, text: 'Searched' },
+    thought('t2', 'Searched'),
   ];
-  assertEquals(ids([...start, { id: 'a2', role: 'agent', text: again }]), ['q', 't1', 't2', 'a2']);
+  assertEquals(ids([...start, { id: 'a2', role: 'agent', text: again }]), [
+    'q',
+    't1-1',
+    't2-1',
+    'a2',
+  ]);
   // The first line stays until the second has repeated enough of it, heard or still arriving.
   assertEquals(ids([...start, { id: 'a2', role: 'agent', text: 'Lisbon in' }]), [
     'q',
-    't1',
+    't1-1',
     'a1',
-    't2',
+    't2-1',
     'a2',
   ]);
-  assertEquals(ids(start, again), ['q', 't1', 't2', 'interim-agent']);
+  assertEquals(ids(start, again), ['q', 't1-1', 't2-1', 'interim-agent']);
   // Different words after a thought are a second line, and a later reply never replaces an earlier one.
   assertEquals(ids([...start, { id: 'a2', role: 'agent', text: 'Here is the plan.' }]), [
     'q',
-    't1',
+    't1-1',
     'a1',
-    't2',
+    't2-1',
     'a2',
   ]);
   assertEquals(
@@ -295,20 +348,17 @@ Deno.test('liveCaptionTranscript drops speech the agent broke off and began agai
       { id: 'q2', role: 'user', text: 'Again?' },
       { id: 'a2', role: 'agent', text: again },
     ]),
-    ['q', 't1', 'a1', 't2', 'q2', 'a2'],
+    ['q', 't1-1', 'a1', 't2-1', 'q2', 'a2'],
   );
   // A short line is restarted only by one that opens with all of it.
-  const short = [
-    { id: 'a1', role: 'agent' as const, text: 'Okay.' },
-    { id: 't', role: 'thought' as const, text: 'x' },
-  ];
+  const short = [{ id: 'a1', role: 'agent' as const, text: 'Okay.' }, thought('t', 'x')];
   assertEquals(ids([...short, { id: 'a2', role: 'agent', text: 'Okay. Here it is.' }]), [
-    't',
+    't-1',
     'a2',
   ]);
   assertEquals(ids([...short, { id: 'a2', role: 'agent', text: 'Okra is cheap.' }]), [
     'a1',
-    't',
+    't-1',
     'a2',
   ]);
 });
@@ -408,6 +458,11 @@ Deno.test('liveState maps all states and connect phases; liveStateLabel words th
       isMuted: false,
     }),
     'requesting mic',
+  );
+  // A dropped call says so, over a tool that was running when it dropped.
+  assertEquals(
+    liveLine({ status: 'reconnecting', connectPhase: null, toolName: 'search', isMuted: false }),
+    'reconnecting',
   );
   assertEquals(
     liveLine({ status: 'speaking', connectPhase: null, toolName: null, isMuted: false }),

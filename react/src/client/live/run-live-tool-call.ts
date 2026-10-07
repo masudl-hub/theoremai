@@ -1,15 +1,19 @@
 import type { ExecuteToolOnRelay } from '../live-messages.ts';
 import { continueGatedToolInvocation } from '../tool-resume.ts';
+import type { LivePageTools } from './live-page-tool.ts';
 import type { LiveGateAnswer, LiveToolGatePrompt } from './live-tool.ts';
 
 /**
- * Live provider tool-call handler: run the model's call on the relay; at a
- * gate, ask the user and send their decision. The session answers the model
+ * Live provider tool-call handler: the page answers the call if it is the
+ * page's; else run the model's call on the relay; at a gate, ask the user and
+ * send their decision. The session answers the model
  * however the call ends; its tool events tell the user. A call the model
  * cancels while its gate is open is gone: nothing is sent.
  */
 export async function runLiveToolCall(args: {
   executeToolOnRelay: ExecuteToolOnRelay;
+  /** The host's page tools, if it has any. */
+  pageTools?: LivePageTools;
   name: string;
   toolArgs: Record<string, unknown>;
   callId: string;
@@ -19,7 +23,10 @@ export async function runLiveToolCall(args: {
 }): Promise<void> {
   const { executeToolOnRelay, name, toolArgs, callId } = args;
   let sessionPermissions = args.sessionPermissions;
-  let step = await executeToolOnRelay({ callId });
+  // why: A name from the model is looked up among the host's own keys only.
+  const pageTool = args.pageTools && Object.hasOwn(args.pageTools, name) ? args.pageTools[name] : undefined;
+  const answer = await pageTool?.(toolArgs, { callId });
+  let step = await executeToolOnRelay(answer ? { callId, output: answer.output } : { callId });
   while (step.status === 'gated') {
     const { gate } = step;
     const resolution = await args.waitForGateDecision({

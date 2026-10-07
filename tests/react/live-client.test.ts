@@ -9,6 +9,7 @@ import {
 } from '../../react/src/client/audio-level.ts';
 import { clientFailure } from '../../react/src/client/failure.ts';
 import { applyLiveTurnToolEvent } from '../../react/src/client/live/apply-live-turn-tool-event.ts';
+import { pageToolMismatch } from '../../react/src/client/live/live-page-tool.ts';
 import { runLiveToolCall } from '../../react/src/client/live/run-live-tool-call.ts';
 import { LiveSessionClient, type LiveSocket } from '../../react/src/client/live-client.ts';
 import { isPermissionDeniedError } from '../../react/src/client/live-errors.ts';
@@ -21,7 +22,11 @@ import {
   pcm16BytesToFloat32,
 } from '../../react/src/client/pcm-downsample.ts';
 import type { HostErrorBody } from '../../react/src/client/transport.ts';
-import { parseLiveClientMessage } from '../../react/src/server/request-check.ts';
+import {
+  parseLiveClientMessage,
+  parseLiveOpenMessage,
+} from '../../react/src/server/request-check.ts';
+import { liveSessionOpen } from '../../react/src/server/turn-input.ts';
 import { assertMalformed } from '../fixtures/malformed.ts';
 
 Deno.test('isPermissionDeniedError detects permission denial variants', () => {
@@ -292,19 +297,51 @@ Deno.test('a live deny goes to the session, which settles the call; nothing else
   assertEquals(sent, [{ callId: 'call-gated' }, { callId: 'call-gated', decision: 'deny' }]);
 });
 
+Deno.test('a page tool answers its call with the page output; any other call runs on the relay', async () => {
+  const sent: unknown[] = [];
+  const seen: unknown[] = [];
+  const call = (name: string, callId: string) =>
+    runLiveToolCall({
+      executeToolOnRelay: (args) => {
+        sent.push(args);
+        return Promise.resolve({ status: 'settled' });
+      },
+      pageTools: {
+        highlight: (args, made) => {
+          seen.push([args, made]);
+          return { output: { success: true } };
+        },
+      },
+      name,
+      toolArgs: { target: 'pricing' },
+      callId,
+      sessionPermissions: [],
+      setSessionPermissions: () => {},
+      waitForGateDecision: () => Promise.resolve('withdrawn'),
+    });
+  await call('highlight', 'call-page');
+  await call('lookup', 'call-relay');
+  // A name the model made up is not looked up on the object's prototype.
+  await call('toString', 'call-proto');
+  assertEquals(seen, [[{ target: 'pricing' }, { callId: 'call-page' }]]);
+  assertEquals(sent, [
+    { callId: 'call-page', output: { success: true } },
+    { callId: 'call-relay' },
+    { callId: 'call-proto' },
+  ]);
+});
+
 Deno.test('a relay reads each live message by its schema; a malformed one is a request error', () => {
   assertEquals(parseLiveClientMessage(JSON.stringify({ type: 'text', text: 'hi', extra: 1 })), {
     type: 'text',
     text: 'hi',
   });
-  assertEquals(parseLiveClientMessage(JSON.stringify({ type: 'context', text: '(page) /' })), {
-    type: 'context',
-    text: '(page) /',
-  });
-  assertThrows(
-    () => parseLiveClientMessage(JSON.stringify({ type: 'context', text: 'x'.repeat(2001) })),
-    TheoremError,
+  assertEquals(
+    parseLiveClientMessage(JSON.stringify({ type: 'context', context: { page: '/' } })),
+    { type: 'context', context: { page: '/' } },
   );
+  // The open message is the call's first, and only its first.
+  assertThrows(() => parseLiveClientMessage(JSON.stringify({ type: 'open' })), TheoremError);
   assertEquals(
     parseLiveClientMessage(
       JSON.stringify({ type: 'executeTool', callId: 'c', decision: 'approve', input: { id: 2 } }),
@@ -332,23 +369,27 @@ Deno.test('a relay reads each live message by its schema; a malformed one is a r
   }
 });
 
-Deno.test('a live client sends text and context to the socket as typed messages, and nothing before it is open', async () => {
-  const sent: string[] = [];
-  let readyState: LiveSocket['readyState'] = WebSocket.CONNECTING;
-  const socket: LiveSocket = {
-    get readyState() {
-      return readyState;
-    },
-    binaryType: 'blob',
-    send: (data: string) => void sent.push(data),
-    close: () => {},
-    onopen: null,
-    onmessage: null,
-    onclose: null,
-    onerror: null,
+/** The provider's resumption handle, as the session sends it. */
+function handleEvent(handle: string): TurnEvent {
+  return {
+    type: 'evidence',
+    sessionResumptionHandle: handle,
+    evidence: { provider: 'google', kind: 'session_resumption', resumable: true, raw: {} },
   };
-  const realAudioContext = Reflect.get(globalThis, 'AudioContext');
-  const realLocation = Reflect.get(globalThis, 'location');
+}
+
+/** A socket the test drives, and timers it fires by hand. */
+function liveHarness() {
+  const sockets: Array<LiveSocket & { sent: unknown[]; state: number }> = [];
+  const timers: Array<{ run: () => void; ms: number; id: number }> = [];
+  const real = {
+    AudioContext: Reflect.get(globalThis, 'AudioContext'),
+    location: Reflect.get(globalThis, 'location'),
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+    now: Date.now,
+  };
+  let now = 1_000_000;
   Reflect.set(
     globalThis,
     'AudioContext',
@@ -358,29 +399,240 @@ Deno.test('a live client sends text and context to the socket as typed messages,
     },
   );
   Reflect.set(globalThis, 'location', { protocol: 'https:', host: 'example.test' });
+  Reflect.set(globalThis, 'setTimeout', (run: () => void, ms: number) => {
+    const id = timers.length + 1;
+    timers.push({ run, ms, id });
+    return id;
+  });
+  Reflect.set(globalThis, 'clearTimeout', (id: number) => {
+    const at = timers.findIndex((timer) => timer.id === id);
+    if (at !== -1) timers.splice(at, 1);
+  });
+  Date.now = () => now;
+  return {
+    sockets,
+    createSocket: (): LiveSocket => {
+      const socket = {
+        state: WebSocket.CONNECTING as number,
+        get readyState() {
+          return this.state;
+        },
+        binaryType: 'blob' as BinaryType,
+        sent: [] as unknown[],
+        send(data: string) {
+          this.sent.push(JSON.parse(data));
+        },
+        close: () => {},
+        onopen: null,
+        onmessage: null,
+        onclose: null,
+        onerror: null,
+      } as LiveSocket & { sent: unknown[]; state: number };
+      sockets.push(socket);
+      return socket;
+    },
+    /** The socket opens, and the relay says the session is ready. */
+    async ready(socket: LiveSocket & { state: number }, events: unknown[] = []) {
+      socket.state = WebSocket.OPEN;
+      socket.onopen?.call(socket as never, new Event('open'));
+      const say = (envelope: unknown) =>
+        socket.onmessage?.call(
+          socket as never,
+          new MessageEvent('message', { data: JSON.stringify(envelope) }),
+        );
+      say({ type: 'ready' });
+      if (events.length) say({ type: 'events', events });
+      await new Promise<void>((resolve) => real.setTimeout(resolve, 0));
+    },
+    drop(socket: LiveSocket & { state: number }) {
+      socket.state = WebSocket.CLOSED;
+      socket.onclose?.call(socket as never, new CloseEvent('close'));
+    },
+    /** The reconnect waits, without the 20 second connect timeout. */
+    waits: () => timers.filter((timer) => timer.ms !== 20_000).map((timer) => timer.ms),
+    advance(ms: number) {
+      now += ms;
+    },
+    fire(ms: number) {
+      const at = timers.findIndex((timer) => timer.ms === ms);
+      const [timer] = timers.splice(at, 1);
+      timer.run();
+    },
+    restore() {
+      Reflect.set(globalThis, 'AudioContext', real.AudioContext);
+      Reflect.set(globalThis, 'location', real.location);
+      Reflect.set(globalThis, 'setTimeout', real.setTimeout);
+      Reflect.set(globalThis, 'clearTimeout', real.clearTimeout);
+      Date.now = real.now;
+    },
+  };
+}
+
+Deno.test('a call opens with its slots, context and host message; a changed context follows once', async () => {
+  const live = liveHarness();
   const client = new LiveSessionClient({
-    createSocket: () => socket,
+    createSocket: live.createSocket,
+    openMessage: { type: 'draft' },
+    slots: { language: 'fr' },
+    context: { page: '/docs' },
+    voiceIngress: false,
     onToolCall: async () => {},
   });
   try {
     await client.connect();
+    const [socket] = live.sockets;
     client.sendText('hello');
-    client.sendContext('the visitor is on /docs');
-    assertEquals(sent, []);
+    // Set before the call is through: it goes with the opening.
+    client.setContext({ page: '/pricing' });
+    assertEquals(socket.sent, []);
 
-    readyState = WebSocket.OPEN;
+    await live.ready(socket);
     client.sendText('hello');
-    client.sendContext('the visitor is on /docs');
-    assertEquals(
-      sent.map((message) => JSON.parse(message)),
-      [
-        { type: 'text', text: 'hello' },
-        { type: 'context', text: 'the visitor is on /docs' },
-      ],
-    );
+    client.setContext({ page: '/pricing' });
+    client.setContext({ page: '/pricing', cart: 2 });
+    assertEquals(socket.sent, [
+      {
+        type: 'open',
+        slots: { language: 'fr' },
+        context: { page: '/pricing' },
+        host: { type: 'draft' },
+      },
+      { type: 'text', text: 'hello' },
+      { type: 'context', context: { page: '/pricing', cart: 2 } },
+    ]);
   } finally {
     client.disconnect();
-    Reflect.set(globalThis, 'AudioContext', realAudioContext);
-    Reflect.set(globalThis, 'location', realLocation);
+    live.restore();
   }
+});
+
+Deno.test('a dropped call with a resumption handle reconnects, and reports the time away', async () => {
+  const live = liveHarness();
+  const statuses: string[] = [];
+  const client = new LiveSessionClient({
+    createSocket: live.createSocket,
+    context: { page: '/docs' },
+    voiceIngress: false,
+    onStatusChange: (status) => void statuses.push(status),
+    onToolCall: async () => {},
+  });
+  try {
+    await client.connect();
+    await live.ready(live.sockets[0], [handleEvent('handle-1')]);
+    live.drop(live.sockets[0]);
+    assertEquals(statuses, ['connecting', 'listening', 'reconnecting']);
+    assertEquals(live.waits(), [500]);
+
+    // The first try fails before it is ready: the next waits longer.
+    live.advance(500);
+    live.fire(500);
+    await Promise.resolve();
+    live.drop(live.sockets[1]);
+    assertEquals(live.waits(), [1000]);
+
+    // The page moved on while the call was away.
+    client.setContext({ page: '/pricing' });
+    live.advance(1000);
+    live.fire(1000);
+    await Promise.resolve();
+    await live.ready(live.sockets[2]);
+    assertEquals(live.sockets[2].sent, [
+      {
+        type: 'open',
+        context: { page: '/pricing' },
+        resume: { handle: 'handle-1', awayMs: 1500 },
+      },
+    ]);
+    assertEquals(statuses.slice(3), ['reconnecting', 'reconnecting', 'listening']);
+  } finally {
+    client.disconnect();
+    live.restore();
+  }
+});
+
+Deno.test('a drop with no handle, or after the session ended, ends the call; five failed tries fail it', async () => {
+  const live = liveHarness();
+  const statuses: string[] = [];
+  const errors: string[] = [];
+  const options = {
+    createSocket: live.createSocket,
+    voiceIngress: false,
+    onStatusChange: (status: string) => void statuses.push(status),
+    onError: (err: Error) => void errors.push(err instanceof TheoremError ? err.kind : 'other'),
+    onToolCall: async () => {},
+  };
+  const client = new LiveSessionClient(options);
+  try {
+    await client.connect();
+    await live.ready(live.sockets[0]);
+    live.drop(live.sockets[0]);
+    assertEquals(statuses, ['connecting', 'listening', 'disconnected']);
+
+    await client.connect();
+    await live.ready(live.sockets[1], [
+      handleEvent('handle-2'),
+      {
+        type: 'session',
+        session: {
+          kind: 'ended',
+          message: 'The call ended.',
+          ended: { cause: 'go_away', code: 1000, closedAfterMs: 10 },
+        },
+      },
+    ]);
+    live.drop(live.sockets[1]);
+    assertEquals(statuses.slice(3), ['connecting', 'listening', 'disconnected']);
+
+    await client.connect();
+    await live.ready(live.sockets[2], [handleEvent('handle-3')]);
+    live.drop(live.sockets[2]);
+    for (const [index, ms] of [500, 1000, 2000, 4000, 8000].entries()) {
+      assertEquals(live.waits(), [ms]);
+      live.fire(ms);
+      await Promise.resolve();
+      live.drop(live.sockets[3 + index]);
+    }
+    assertEquals(live.waits(), []);
+    assertEquals(statuses.at(-1), 'error');
+    assertEquals(errors, ['network']);
+  } finally {
+    client.disconnect();
+    live.restore();
+  }
+});
+
+Deno.test('a relay reads the open message into the session request, with the host context as server', () => {
+  const open = parseLiveOpenMessage(
+    JSON.stringify({
+      type: 'open',
+      slots: { language: 'fr' },
+      context: { page: '/docs' },
+      resume: { handle: 'handle-1', awayMs: 4200 },
+      host: { type: 'draft' },
+    }),
+  );
+  assertEquals(liveSessionOpen(open, { tier: 'pro' }), {
+    slots: { language: 'fr' },
+    context: { client: { page: '/docs' }, server: { tier: 'pro' } },
+    sessionResumptionHandle: 'handle-1',
+    awayMs: 4200,
+  });
+  assertEquals(liveSessionOpen(parseLiveOpenMessage('{"type":"open"}')), {});
+  for (const bad of [
+    '{not json',
+    '{"type":"text","text":"hi"}',
+    '{"type":"open","resume":{"handle":"","awayMs":0}}',
+    '{"type":"open","resume":{"handle":"h","awayMs":-1}}',
+    '{"type":"open","slots":{"language":2}}',
+  ]) {
+    assertEquals(assertThrows(() => parseLiveOpenMessage(bad), TheoremError).kind, 'request');
+  }
+});
+
+Deno.test('pageToolMismatch names a page tool with no handler, and a handler for no page tool', () => {
+  assertEquals(pageToolMismatch(['highlight', 'scroll'], ['highlight', 'lookup']), {
+    unanswered: ['scroll'],
+    unused: ['lookup'],
+  });
+  assertEquals(pageToolMismatch([], []), { unanswered: [], unused: [] });
 });

@@ -272,9 +272,60 @@ import { LiveRunner } from '@theoremjs/react/live';
 <LiveRunner iface={iface} connection={() => ({ profile: 'support.voice' })} />
 ```
 
-This code opens `wss://<your host>/api/live/relay?profile=<id>`. To send your own open message to the relay, return `{ openMessage }` instead of `{ profile }`. To use your own socket, add `createSocket`.
+This code opens `wss://<your host>/api/live/relay?profile=<id>`. To send your own message to the relay, add `openMessage`. To use your own socket, add `createSocket`.
 
 `LiveRunner` also accepts `theme`, `mode`, `labels` and `trace`. Tool gates in a call appear in a dialog over the call.
+
+### The page's part in a call
+
+Three more props give the call values from the page. The profile declares each one; the page only supplies the value.
+
+| Prop | The profile declares | What the page gives |
+| --- | --- | --- |
+| `slots` | `inputs.slots` | The value chosen for each slot. It is read when the call starts. |
+| `context` | `inputs.context` with `from: ['client']` | Any JSON the agent should know, such as the page the person is on. |
+| `pageTools` | A function tool with `answeredBy: 'page'` | A function for each page tool, by name. It returns `{ output }`. |
+
+```tsx
+<LiveRunner
+  iface={iface}
+  connection={() => ({ profile: 'support.voice' })}
+  slots={{ language: 'fr' }}
+  context={{ page: '/pricing', cart }}
+  pageTools={{
+    highlight: (args) => ({ output: { success: highlight(String(args.target)) } }),
+  }}
+/>
+```
+
+- `context` goes with the start of the call. When its value changes, the runner sends it again. The agent reads it as background and does not reply to it.
+- A page tool's output schema checks what the page returned. Every other tool runs on the relay, with its gates.
+- The runner writes a console warning when the profile has a page tool with no function in `pageTools`, and when `pageTools` has a function for a tool that is not a page tool.
+
+To make the agent speak first, set `live.greeting` on the profile. The page sends nothing for it.
+
+### A call that drops
+
+When the profile sets `live.sessionResumption` and the connection drops, the runner takes the call up again. It shows `reconnecting` and tries 5 times, after 0.5, 1, 2, 4 and 8 seconds. If no try connects, the call fails with a `network` error. The runner tells the relay how long the person was away. If the profile sets `live.resumed`, the agent says that it is back after an absence of `afterMs` or longer.
+
+A call that the provider ends, or that fails, is not taken up again.
+
+### Your relay
+
+The live client's first message is the open message. Read it before you open the session:
+
+```ts
+import { liveSessionOpen, parseLiveOpenMessage } from '@theoremjs/react/server';
+
+const open = parseLiveOpenMessage(firstFrame);
+const session = await runSession({ profile, ...liveSessionOpen(open, hostContext) });
+```
+
+- `liveSessionOpen` returns the session's `slots`, `context`, `sessionResumptionHandle` and `awayMs`. Its second argument is your server's own context. Pass it only if the profile lists `server` in `inputs.context.from`.
+- `open.host` is the `openMessage` that your `connection` returned.
+- Read each later message with `parseLiveClientMessage`. Give a `context` message to `session.sendContext({ client: message.context })`.
+
+To build your own call view, use `useLiveRunnerModel(iface, connection, { slots, context, pageTools })` from `@theoremjs/react/ui`. It returns the state of the call, its captions and its controls. `LiveCaptionsPanel` draws the captions.
 
 ## Server options
 

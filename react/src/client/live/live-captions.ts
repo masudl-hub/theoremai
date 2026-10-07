@@ -1,15 +1,20 @@
-import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import type { TurnEvent } from '@theoremjs/agents';
+import { foldTurnEvents, type TranscriptBlock } from '@theoremjs/agents/interface';
 
-export type LiveCaptionTurn = {
-  id: string;
-  role: 'user' | 'agent' | 'thought';
-  text: string;
-};
+/** What the agent did between its lines of speech: the events the chat folds into a reply's work. */
+export type LiveWorkEvent = Extract<TurnEvent, { type: 'thought' | 'tool' | 'citation' }>;
+
+/** A line of speech, or the work the agent did before its next one. */
+export type LiveCaptionTurn =
+  | { id: string; role: 'user' | 'agent'; text: string }
+  | { id: string; role: 'work'; events: LiveWorkEvent[] };
 
 export type LiveCaptionState = {
   turns: LiveCaptionTurn[];
   interimUser: string;
   interimAgent: string;
+  /** The agent has worked and its reply has not ended. */
+  working: boolean;
 };
 
 export type ApplyLiveTranscriptOptions = {
@@ -18,7 +23,16 @@ export type ApplyLiveTranscriptOptions = {
 };
 
 export function emptyLiveCaptionState(): LiveCaptionState {
-  return { turns: [], interimUser: '', interimAgent: '' };
+  return { turns: [], interimUser: '', interimAgent: '', working: false };
+}
+
+/** Keep this call's lines so the next call starts below a divider. A call with no lines adds nothing. */
+export function stashLiveCaptionCall(
+  past: LiveCaptionTurn[][],
+  turns: readonly LiveCaptionTurn[],
+): LiveCaptionTurn[][] {
+  if (turns.length === 0) return past;
+  return [...past, [...turns]];
 }
 
 function mergeInterimWithFinal(interim: string, final: string): string {
@@ -82,28 +96,62 @@ export function applyLiveTranscript(
   }
 
   return {
+    ...state,
     turns,
     interimUser: isUser ? '' : state.interimUser,
     interimAgent: isUser ? state.interimAgent : '',
   };
 }
 
-/** Fold a thought into the captions: it extends an open thought line, else starts one unless it is blank. */
-export function applyLiveThought(state: LiveCaptionState, text: string): LiveCaptionState {
-  if (!text) return state;
-  const turns = [...state.turns];
-  const last = turns.at(-1);
-  if (last?.role === 'thought') {
-    turns[turns.length - 1] = { ...last, text: `${last.text}${text}` };
-  } else if (text.trim()) {
-    turns.push({ id: nextTurnId(state), role: 'thought', text });
-  } else {
-    return state;
-  }
-  return { ...state, turns };
+function isWorkEvent(event: TurnEvent): event is LiveWorkEvent {
+  return event.type === 'thought' || event.type === 'tool' || event.type === 'citation';
 }
 
-const BLOCK_KIND = { user: 'user-text', agent: 'text', thought: 'thought' } as const;
+/** The work that made the call `callId`: where the call's later events go. -1 when no work made it. */
+function callWorkIndex(turns: readonly LiveCaptionTurn[], callId: string): number {
+  return turns.findIndex(
+    (turn) =>
+      turn.role === 'work' &&
+      turn.events.some((made) => made.type === 'tool' && made.tool.callId === callId),
+  );
+}
+
+/** Which line takes `event`: `turns.length` starts a new one, -1 leaves the event out. */
+function workIndex(turns: readonly LiveCaptionTurn[], event: LiveWorkEvent): number {
+  if (event.type === 'tool' && event.tool.phase !== undefined) {
+    // why: The call view's dialog asks a gate's question; the transcript's card would ask it twice.
+    return event.tool.phase === 'gate' ? -1 : callWorkIndex(turns, event.tool.callId);
+  }
+  const open = turns.at(-1)?.role === 'work';
+  // why: The thought guard releases a held blank tail after the speech; it is not work of its own.
+  if (event.type === 'thought' && !(open ? event.text : event.text.trim())) return -1;
+  return open ? turns.length - 1 : turns.length;
+}
+
+/**
+ * Fold a live turn event into the captions. A thought, a tool call or a citation joins the open
+ * work, else starts it; a tool call's later events go to the work that made the call. `done` ends
+ * the reply.
+ */
+export function applyLiveTurnEvent(state: LiveCaptionState, event: TurnEvent): LiveCaptionState {
+  if (event.type === 'done') return state.working ? { ...state, working: false } : state;
+  if (!isWorkEvent(event)) return state;
+  const at = workIndex(state.turns, event);
+  if (at === -1) return state;
+  const turns = [...state.turns];
+  const work = turns[at];
+  turns[at] =
+    work?.role === 'work'
+      ? { ...work, events: [...work.events, event] }
+      : { id: nextTurnId(state), role: 'work', events: [event] };
+  return { ...state, turns, working: true };
+}
+
+/** A line as the chat's blocks: speech is one, work is what the chat folds its events into. */
+function turnBlocks(turn: LiveCaptionTurn): TranscriptBlock[] {
+  if (turn.role === 'work') return foldTurnEvents(turn.events, { idPrefix: turn.id });
+  return [{ id: turn.id, kind: turn.role === 'user' ? 'user-text' : 'text', text: turn.text }];
+}
 
 /** How much of a broken-off line the next one must repeat to count as starting it again. */
 const RESTART_MATCH = 24;
@@ -154,17 +202,17 @@ export function liveCaptionTranscript(
     ),
     current,
   ]
-    .map(withoutRestarts)
+    .map((call) => withoutRestarts(call).flatMap(turnBlocks))
     .filter((call) => call.length > 0);
   return {
-    blocks: calls.flat().map(({ id, role, text }) => ({ id, kind: BLOCK_KIND[role], text })),
+    blocks: calls.flat(),
     callStarts: calls.slice(1).map((call) => call[0].id),
   };
 }
 
-/** The agent is mid-reply: a line of its speech is still arriving, or it has thought and not yet spoken. */
-export function liveCaptionStreaming({ turns, interimAgent }: LiveCaptionState): boolean {
-  return interimAgent !== '' || turns.at(-1)?.role === 'thought';
+/** The agent is mid-reply: a line of its speech is still arriving, or it is working. */
+export function liveCaptionStreaming({ working, interimAgent }: LiveCaptionState): boolean {
+  return interimAgent !== '' || working;
 }
 
 /** Clear streaming partials when a live turn completes or is interrupted. */

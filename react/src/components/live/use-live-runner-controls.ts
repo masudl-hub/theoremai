@@ -12,7 +12,6 @@ import type { LiveConnection, LiveSessionClient } from '../../client/live-client
 export function useLiveRunnerControls(args: {
   clientRef: MutableRefObject<LiveSessionClient | null>;
   videoCaptureRef: MutableRefObject<LiveVideoCapture | null>;
-  captionsRef: MutableRefObject<LiveCaptionState>;
   connectionRef: MutableRefObject<() => LiveConnection | Promise<LiveConnection>>;
   statusRef: MutableRefObject<LiveSessionStatus>;
   isMutedRef: MutableRefObject<boolean>;
@@ -72,17 +71,18 @@ export function useLiveRunnerControls(args: {
     }
   }, [args]);
 
-  const handleSendText = useCallback(() => {
-    const text = args.textDraft.trim();
-    if (!text || !args.clientRef.current || !args.sessionActive || !args.textAvailable) return;
-    args.clientRef.current.sendText(text);
-    args.setTextDraft('');
-    const next = applyLiveTranscript(args.captionsRef.current, text, true, false, {
-      forceNew: true,
-    });
-    args.captionsRef.current = next;
-    args.setCaptions(next);
-  }, [args]);
+  const handleSendText = useCallback(
+    (text?: string) => {
+      const message = (typeof text === 'string' ? text : args.textDraft).trim();
+      if (!message || !args.clientRef.current || !args.sessionActive || !args.textAvailable) return;
+      args.clientRef.current.sendText(message);
+      args.setTextDraft('');
+      args.setCaptions((prev) =>
+        applyLiveTranscript(prev, message, true, false, { forceNew: true }),
+      );
+    },
+    [args],
+  );
 
   const handleToggleVideo = useCallback(async () => {
     if (!args.clientRef.current || !args.sessionActive || !args.videoAvailable) return;

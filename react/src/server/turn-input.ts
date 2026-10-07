@@ -1,4 +1,5 @@
-import type { TurnContext, TurnInput } from '@theoremjs/agents';
+import type { SessionRequest, TurnContext, TurnInput } from '@theoremjs/agents';
+import type { LiveOpenMessage } from '../client/live-messages.ts';
 import type { TheoremTurnInput } from '../client/transport.ts';
 
 /** The page's context as the client's and the host's as the server's; nothing when neither gave any. */
@@ -15,4 +16,22 @@ export function kernelTurnInput(input: TheoremTurnInput, server?: unknown): Turn
   const { context: client, ...rest } = input;
   const context = turnContext(client, server);
   return context ? { ...rest, context } : rest;
+}
+
+/**
+ * What a live call's first message asks of the session, as `runSession` takes
+ * it: the page's context is the client's, and `server` is the host's own.
+ */
+export function liveSessionOpen(
+  open: LiveOpenMessage,
+  server?: unknown,
+): Pick<SessionRequest, 'slots' | 'context' | 'sessionResumptionHandle' | 'awayMs'> {
+  const context = turnContext(open.context, server);
+  return {
+    ...(open.slots ? { slots: open.slots } : {}),
+    ...(context ? { context } : {}),
+    ...(open.resume
+      ? { sessionResumptionHandle: open.resume.handle, awayMs: open.resume.awayMs }
+      : {}),
+  };
 }

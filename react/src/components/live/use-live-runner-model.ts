@@ -1,7 +1,12 @@
 import { liveIngressEnabledFromSpec } from '@theoremjs/agents';
 import type { LiveProfileInterface } from '@theoremjs/agents/interface';
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { LiveCaptionState, LiveCaptionTurn } from '../../client/live/live-captions.ts';
+import {
+  type LiveCaptionState,
+  type LiveCaptionTurn,
+  stashLiveCaptionCall,
+} from '../../client/live/live-captions.ts';
+import { type LiveCallOptions, pageToolMismatch } from '../../client/live/live-page-tool.ts';
 import { liveState } from '../../client/live/live-state.ts';
 import type { LiveConnection } from '../../client/live-client.ts';
 import { createTraceFeed } from '../../client/trace-feed.ts';
@@ -53,7 +58,7 @@ function useLiveCallLifecycle(
 
   const handleRestart = useCallback(async () => {
     const previous = captionsRef.current.turns;
-    if (previous.length > 0) setPastCalls((calls) => [...calls, previous]);
+    setPastCalls((calls) => stashLiveCaptionCall(calls, previous));
     setEnded(false);
     await controls.handleRestart();
   }, [controls, captionsRef]);
@@ -73,11 +78,13 @@ function useLiveCallLifecycle(
 /**
  * Owns LiveRunner state, session client, and stage callbacks.
  * `connection` resolves what the call opens: a host with a fixed profile returns
- * its id; the playground returns its draft as the relay's open message.
+ * its id; the playground returns its draft as the relay's open message. `options`
+ * are the host's part in the call: its slots, the page's context, and its page tools.
  */
 export function useLiveRunnerModel(
   iface: LiveProfileInterface,
   connection: () => LiveConnection | Promise<LiveConnection>,
+  options: LiveCallOptions = {},
 ) {
   const ui = useLiveRunnerUiState(iface.lexicon);
   const gate = useLiveRunnerGate({
@@ -107,11 +114,13 @@ export function useLiveRunnerModel(
   // why: One feed per runner: every session it opens adds its records.
   const traces = useMemo(createTraceFeed, []);
   const { clientRef, ensureClient, clearClient } = useLiveSessionClient({
+    slots: options.slots,
+    context: options.context,
+    pageTools: options.pageTools,
     voiceAvailable,
     traces,
     handleLiveTurnEvent: gate.handleLiveTurnEvent,
     waitForGateDecision: gate.waitForGateDecision,
-    captionsRef: ui.captionsRef,
     gatePromptRef: gate.gatePromptRef,
     isMutedRef: ui.isMutedRef,
     sessionPermissionsRef: ui.sessionPermissionsRef,
@@ -136,7 +145,6 @@ export function useLiveRunnerModel(
   const controls = useLiveRunnerControls({
     clientRef,
     videoCaptureRef: ui.videoCaptureRef,
-    captionsRef: ui.captionsRef,
     connectionRef,
     statusRef: ui.statusRef,
     isMutedRef: ui.isMutedRef,
@@ -171,6 +179,31 @@ export function useLiveRunnerModel(
   const { callStarted, ended, pastCalls, startCall, handleEnd, handleRestart } =
     useLiveCallLifecycle(controls, ui.captionsRef, ui.sessionActive, videoAvailable);
 
+  // why: The page's context is compared by value, so a host may build it inline on each render.
+  const contextJson = JSON.stringify(options.context);
+  const contextRef = useRef(options.context);
+  contextRef.current = options.context;
+  useEffect(() => {
+    clientRef.current?.setContext(contextRef.current);
+  }, [clientRef, contextJson]);
+
+  const pageToolNames = Object.keys(options.pageTools ?? {})
+    .sort()
+    .join('\n');
+  // why: A wrong name is the builder's to fix, so it is said in the console, once, not to the visitor.
+  useEffect(() => {
+    const handled = pageToolNames ? pageToolNames.split('\n') : [];
+    const { unanswered, unused } = pageToolMismatch(iface.tools.page, handled);
+    for (const name of unanswered) {
+      // lexicon-exempt: builder diagnostic
+      console.warn(`Theorem: page tool '${name}' has no handler in pageTools; the agent gets no answer.`);
+    }
+    for (const name of unused) {
+      // lexicon-exempt: builder diagnostic
+      console.warn(`Theorem: pageTools has '${name}', which the profile does not declare answeredBy: 'page'.`);
+    }
+  }, [iface.tools.page, pageToolNames]);
+
   return {
     handle: iface.identity.handle,
     traces,
@@ -179,10 +212,9 @@ export function useLiveRunnerModel(
     captions: ui.captions,
     failure: ui.failure,
     sessionEnded: ui.sessionEnded,
-    inputLevel: ui.inputLevel,
+    levelsRef: ui.levelsRef,
     isMuted: ui.isMuted,
     isVideoOn: ui.isVideoOn,
-    outputLevel: ui.outputLevel,
     sessionActive: ui.sessionActive,
     liveState: state,
     activeTool: ui.activeTool,

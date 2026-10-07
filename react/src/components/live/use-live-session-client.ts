@@ -7,6 +7,7 @@ import {
   useRef,
 } from 'react';
 import { applyLiveTranscript, type LiveCaptionState } from '../../client/live/live-captions.ts';
+import type { LiveCallOptions } from '../../client/live/live-page-tool.ts';
 import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live/live-state.ts';
 import type { LiveGateAnswer, LiveToolGatePrompt } from '../../client/live/live-tool.ts';
 import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video.ts';
@@ -14,13 +15,12 @@ import { runLiveToolCall } from '../../client/live/run-live-tool-call.ts';
 import { type LiveConnection, LiveSessionClient } from '../../client/live-client.ts';
 import type { TraceFeed } from '../../client/trace-feed.ts';
 
-export type LiveClientBindings = {
+export type LiveClientBindings = LiveCallOptions & {
   voiceAvailable: boolean;
   /** Where the session's trace records go, when the relay delivers them. */
   traces: TraceFeed;
   handleLiveTurnEvent: (event: TurnEvent) => void;
   waitForGateDecision: (prompt: LiveToolGatePrompt) => Promise<LiveGateAnswer>;
-  captionsRef: MutableRefObject<LiveCaptionState>;
   gatePromptRef: MutableRefObject<LiveToolGatePrompt | null>;
   isMutedRef: MutableRefObject<boolean>;
   sessionPermissionsRef: MutableRefObject<string[]>;
@@ -67,9 +67,8 @@ function onLiveTranscript(
   meta: { interim?: boolean } | undefined,
   bindings: LiveClientBindings,
 ): void {
-  const next = applyLiveTranscript(bindings.captionsRef.current, text, isUser, meta?.interim);
-  bindings.captionsRef.current = next;
-  bindings.setCaptions(next);
+  // why: A thought or a tool call in the same batch is already queued; each folds onto the last.
+  bindings.setCaptions((prev) => applyLiveTranscript(prev, text, isUser, meta?.interim));
 }
 
 async function onLiveToolCall(
@@ -89,6 +88,7 @@ async function onLiveToolCall(
   }
   try {
     await runLiveToolCall({
+      pageTools: bindings.pageTools,
       executeToolOnRelay: (call) => client.executeToolOnRelay(call),
       name,
       toolArgs,
@@ -118,6 +118,8 @@ export function useLiveSessionClient(bindings: LiveClientBindings) {
     const b = bindingsRef.current;
     const client = new LiveSessionClient({
       ...connection,
+      slots: b.slots,
+      context: b.context,
       voiceIngress: b.voiceAvailable,
       onConnectPhase: (phase) => {
         b.setConnectPhase(phase);

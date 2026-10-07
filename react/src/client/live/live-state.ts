@@ -1,6 +1,8 @@
 export type LiveSessionStatus =
   | 'disconnected'
   | 'connecting'
+  /** The call dropped and the client is taking it up again. */
+  | 'reconnecting'
   | 'ready'
   | 'listening'
   | 'speaking'
@@ -13,6 +15,7 @@ export type LiveConnectPhase = 'socket' | 'microphone';
 export type LiveState =
   | 'calling_tool'
   | 'connecting'
+  | 'reconnecting'
   | 'requesting_mic'
   | 'speaking'
   | 'connected'
@@ -28,6 +31,7 @@ export function liveState(args: {
   isMuted: boolean;
   voiceEnabled?: boolean;
 }): LiveState {
+  if (args.status === 'reconnecting') return 'reconnecting';
   if (args.toolName) return 'calling_tool';
   if (args.connectPhase === 'socket') return 'connecting';
   if (args.connectPhase === 'microphone') return 'requesting_mic';

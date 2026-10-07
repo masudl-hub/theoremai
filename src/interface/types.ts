@@ -16,6 +16,7 @@ import type {
   LiveProfile,
   ModelBinding,
   ModelId,
+  ProfileContextSpec,
   ProfileOutputsSpec,
   ProviderEvidence,
   Source,
@@ -85,6 +86,7 @@ export interface ProfileInputsInterface {
   maxTurnBytes?: number;
   limitsByMime?: Record<string, number>;
   slots?: Record<string, string[]>;
+  context?: ProfileContextSpec;
 }
 
 /** A tool's definition (handler, schemas, endpoint, headers) stays on the host; `t1Policy` too. */

@@ -17,6 +17,7 @@ import { outOfScopeFields } from '../profile-scope.ts';
 import {
   CACHE_MODES,
   CACHE_TTLS,
+  CONTEXT_SENDERS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isKeySlotName,
   isValidPair,
@@ -1076,6 +1077,26 @@ function assertStructuredSchemas(schemas: SchemaRegistry, profile: ModelProfile)
   }
 }
 
+function assertContextSpec(profile: ModelProfile): void {
+  const context = profileInputs(profile)?.context;
+  if (!context) {
+    return;
+  }
+  const senders: readonly string[] = CONTEXT_SENDERS;
+  if (context.from.length === 0 || context.from.some((sender) => !senders.includes(sender))) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id}: inputs.context.from must list ${CONTEXT_SENDERS.join(' or ')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (!(Number.isInteger(context.maxChars) && context.maxChars > 0)) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id}: inputs.context.maxChars must be a positive integer`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
 function assertMediaLimits(profile: ModelProfile): void {
   const inputs = profileInputs(profile);
   if (!inputs) {
@@ -1124,6 +1145,7 @@ function createProfileRegistry(tools: ToolRegistry, schemas: SchemaRegistry): Pr
     if (profile.type !== 'host' && profile.type !== 'decision') {
       assertModelBuiltInTools(tools, profile);
       assertMediaLimits(profile);
+      assertContextSpec(profile);
       assertStructuredSchemas(schemas, profile);
       for (const [modelId, binding] of Object.entries(profile.models)) {
         if (binding.compaction) {

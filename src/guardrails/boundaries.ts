@@ -43,6 +43,7 @@ const INBOUND_BOUNDARIES = [
   'attachment',
   'voice',
   'slots',
+  'context',
   'history',
   'injected',
   'system',
@@ -110,6 +111,7 @@ const BOUNDARY_META: Readonly<Record<Boundary, BoundaryMeta>> = {
   attachment: { label: 'Attachments', doc: 'The text of a file the person attached.' },
   voice: { label: 'Voice', doc: 'The transcript of what the person said.' },
   slots: { label: 'Slots', doc: 'The values the host fills into the prompt.' },
+  context: { label: 'Context', doc: 'What the page or the host tells the model to know.' },
   history: { label: 'History', doc: 'Earlier messages the host replays.' },
   injected: { label: 'Stage messages', doc: 'Messages a host stage adds during the turn.' },
   system: {

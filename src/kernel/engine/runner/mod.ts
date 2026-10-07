@@ -1,4 +1,9 @@
-import { canaryNote, profileCanary, userDataNote } from '../../../guardrails/canary.ts';
+import {
+  canaryNote,
+  contextNote,
+  profileCanary,
+  userDataNote,
+} from '../../../guardrails/canary.ts';
 import {
   isAbortError,
   TheoremError,
@@ -21,7 +26,7 @@ import {
 } from '../../../observability/trace-span.ts';
 import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
 import { profileTypesForField } from '../../profile-scope.ts';
-import { requireModelBinding } from '../../registry/catalog.ts';
+import { profileInputs, requireModelBinding } from '../../registry/catalog.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { resolveTurnInRegistry } from '../../registry/resolve.ts';
 import { type BoundSystem, bindSystem } from '../../system-parts.ts';
@@ -685,6 +690,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
     profileTypesForField('identity.system').includes(profile.type)
       ? userDataNote(profile.lexicon)
       : '',
+    profileInputs(profile)?.context ? contextNote(profile.lexicon) : '',
   ]);
 
   yield* streamTurnEvents(ctx, profile, gen, provider, compactionSpec);

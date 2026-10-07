@@ -1,7 +1,9 @@
-import { wrapUserData } from '../../guardrails/canary.ts';
+import { wrapContext, wrapUserData } from '../../guardrails/canary.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { lexiconText } from '../../guardrails/lexicon.ts';
+import { contextText } from '../../guardrails/sanitize.ts';
 import { synthesizeRepairPrompt } from '../engine/repair.ts';
+import { CONTEXT_SENDERS } from '../schema.ts';
 import { CONTINUE_INSTRUCTION_TYPES } from '../stop.ts';
 import type {
   ImageResponseFormat,
@@ -111,7 +113,17 @@ function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | 
   const promptText = repair
     ? synthesizeRepairPrompt({ profile, repair, history })
     : (continueText(profile, req) ?? text);
-  return promptText ? { type: 'text', text: wrapUserData(promptText) } : null;
+  const blocks = [...contextBlocks(req), ...(promptText ? [wrapUserData(promptText)] : [])];
+  return blocks.length > 0 ? { type: 'text', text: blocks.join('\n\n') } : null;
+}
+
+/** Each sender's context in its own fence, the host's first: the model reads it before the user's message. */
+function contextBlocks(req: TurnRequest): string[] {
+  const context = req.input?.context ?? {};
+  return [...CONTEXT_SENDERS]
+    .reverse()
+    .filter((sender) => context[sender] !== undefined)
+    .map((sender) => wrapContext(sender, contextText(context[sender])));
 }
 
 /** Image and speech get none: their continue re-sends the host's request unchanged. */
@@ -172,9 +184,33 @@ function assertTurnSlots(profile: Profile, req: TurnRequest): void {
   }
 }
 
+/** Refuses context from a sender the profile's `inputs.context` does not list, and a package over its `maxChars`. */
+function assertTurnContext(profile: Profile, req: TurnRequest): void {
+  const context = req.input?.context;
+  if (!context) return;
+  const spec = profileInputs(profile)?.context;
+  for (const [sender, value] of Object.entries(context)) {
+    if (value === undefined) continue;
+    const allowed = (CONTEXT_SENDERS as readonly string[]).includes(sender);
+    if (!allowed || !spec?.from.some((from) => from === sender)) {
+      throw new TheoremError(
+        'request',
+        `Profile ${profile.id} takes no context from '${sender}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    if (contextText(value).length > spec.maxChars) {
+      throw new TheoremError(
+        'request',
+        `Profile ${profile.id}: context from '${sender}' is over inputs.context.maxChars (${String(spec.maxChars)})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+  }
+}
+
 export {
   assertOutputMode,
   assertSpeechRole,
+  assertTurnContext,
   assertTurnSlots,
   resolveImageFormat,
   resolveInputParts,

@@ -557,6 +557,7 @@ const TOOL_STAGE: Readonly<Record<string, GuardrailStage>> = Object.fromEntries(
 const BOUNDARY_STAGE: Readonly<Record<Boundary, GuardrailStage>> = {
   user: 'input',
   slots: 'input',
+  context: 'input',
   repair: 'input',
   attachment: 'attachment',
   voice: 'attachment',

@@ -21,6 +21,11 @@ export const REQUEST_FIELDS: Record<keyof TurnRequest | `input.${keyof TurnInput
     type: 'Record<string, string>',
     doc: 'The choice the turn makes for each slot the profile declares in inputs.slots; a slot or a value the profile does not declare is refused.',
   },
+  'input.context': {
+    type: "Partial<Record<'client' | 'server', unknown>>",
+    doc: "What the page (client) or the host (server) wants the model to know, as any JSON or text; a sender the profile's inputs.context does not list, or a package over its maxChars, is refused.",
+    unset: 'No context',
+  },
   'input.attachments': {
     type: 'Array<TurnBlob | TurnMediaRef>',
     doc: "Files sent with the turn, as bytes or as a provider file reference; each must pass the profile's inputs.attachments.",

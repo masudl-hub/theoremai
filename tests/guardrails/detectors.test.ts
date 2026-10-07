@@ -54,7 +54,7 @@ function where(
 
 Deno.test('every boundary is named once, and each kind of tool has its three', () => {
   assertEquals(new Set(BOUNDARIES).size, BOUNDARIES.length);
-  assertEquals(BOUNDARIES.length, 25);
+  assertEquals(BOUNDARIES.length, 26);
   assertEquals(TOOL_BOUNDARIES.length, 12);
   for (const kind of ['function', 'http', 'mcp', 'agent']) {
     for (const crossing of ['tool_arguments', 'tool_output', 'tool_failure']) {

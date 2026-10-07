@@ -121,6 +121,11 @@ export const SPEECH_AUDIO_FORMATS = ['pcm', 'mp3'] as const;
 /** One of {@linkcode SPEECH_AUDIO_FORMATS}. */
 export type SpeechAudioFormat = (typeof SPEECH_AUDIO_FORMATS)[number];
 
+/** Who can send a turn its context: the browser, or the host's own code. */
+export const CONTEXT_SENDERS = ['client', 'server'] as const;
+/** One of {@linkcode CONTEXT_SENDERS}. */
+export type ContextSender = (typeof CONTEXT_SENDERS)[number];
+
 /** What the user starting to speak does to a live model that is mid-reply. */
 export const LIVE_ACTIVITY_HANDLINGS = ['START_OF_ACTIVITY_INTERRUPTS', 'NO_INTERRUPTION'] as const;
 /** One of {@linkcode LIVE_ACTIVITY_HANDLINGS}. */
@@ -1027,6 +1032,23 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'inputs.slots.*': field(
     'string[]',
     'The values a turn may choose for this slot; any other is refused.',
+  ),
+  'inputs.context': field(
+    '{ from: ContextSender[]; maxChars: number }',
+    'Lets the page or the host send the agent one package of things to know, read at the context boundary.',
+  ),
+  'inputs.context.from': field(
+    "Array<'client' | 'server'>",
+    'Who may send context; context from anyone else is refused.',
+    CONTEXT_SENDERS,
+    {
+      client: 'The browser. A visitor can change it, so it is untrusted.',
+      server: "The host's own code. It is assembled, like turn system text.",
+    },
+  ),
+  'inputs.context.maxChars': field(
+    'number',
+    'The longest package, in characters of its JSON, each sender may send.',
   ),
   outputs: field(
     'ProfileOutputsSpec',

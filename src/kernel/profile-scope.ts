@@ -184,6 +184,10 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     profileTypes: TURN_INPUT_TYPES,
     reason: TURN_INPUT_REASON,
   },
+  'inputs.context': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
   'inputs.state': {
     profileTypes: ['decision'],
     reason: 'only a decision reads JSON state; a turn takes text, files and slots',

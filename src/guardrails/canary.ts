@@ -1,5 +1,6 @@
 import { sha256 } from '../kernel/engine/hash.ts';
 import { mapStrings } from '../kernel/engine/tree.ts';
+import type { ContextSender } from '../kernel/schema.ts';
 import {
   type ProviderEvent,
   type TurnEvent,
@@ -16,12 +17,15 @@ import { scanTextOf, textForScan } from './serialize.ts';
 const USER_OPEN = '<user_data>';
 /** The tag that closes the fence around user content. */
 const USER_CLOSE = '</user_data>';
+/** The tag that closes the fence around context. */
+const CONTEXT_CLOSE = '</page_context>';
 const CANARY_BYTES = 16;
 const HEX_RADIX = 16;
 const HEX_PAD = 2;
 /** What replaces canary text a reply or event would have carried. */
 /** A fence tag as a model could read one: spacing, case and closing `>` aside. */
-const FENCE = /<\s*(?:\/\s*)?user[\s_-]*data\b(?:\s*(?:\/\s*)?>)?/gi;
+const FENCE =
+  /<\s*(?:\/\s*)?(?:user[\s_-]*data|page[\s_-]*context)\b(?:[^<>\n]{0,40}>|\s*(?:\/\s*)?>)?/gi;
 
 /** Creates a 128-bit, cryptographically random token for one turn's canary binding. */
 function mintCanary(): string {
@@ -78,6 +82,19 @@ function stripUserFences(text: string): string {
  */
 function wrapUserData(text: string): string {
   return `${USER_OPEN}\n${stripUserFences(text)}\n${USER_CLOSE}`;
+}
+
+/**
+ * Encloses context in the fence that names its sender, with any fence already in it removed, so
+ * neither the page nor the person can pass text off as the host's.
+ */
+function wrapContext(sender: ContextSender, text: string): string {
+  return `<page_context from="${sender}">\n${stripUserFences(text)}\n${CONTEXT_CLOSE}`;
+}
+
+/** The lexicon's `context.note`, which tells the model what `wrapContext`'s tags mean. */
+function contextNote(lexicon?: LexiconOverrides): string {
+  return lexiconText('context.note', {}, lexicon);
 }
 
 /**
@@ -1176,6 +1193,7 @@ export {
   canaryNote,
   canaryNoteMarker,
   canaryOpeningFrom,
+  contextNote,
   createCanaryScanner,
   createCanaryStreamGate,
   eventHasCanary,
@@ -1194,5 +1212,6 @@ export {
   USER_OPEN,
   userDataNote,
   wordStartAcross,
+  wrapContext,
   wrapUserData,
 };

@@ -4,6 +4,7 @@ import type {
   CompactionMeter,
   CompactionOutcome,
   CompactionTiming,
+  ContextSender,
   ContinueStopKind,
   FieldMeta,
   KeySlot,
@@ -516,7 +517,17 @@ export interface ProfileInputsSpec {
   maxTurnBytes?: number;
   limitsByMime?: Record<string, number>;
   slots?: Record<string, string[]>;
+  context?: ProfileContextSpec;
 }
+
+/** Who may send a turn its context, and how much. */
+export interface ProfileContextSpec {
+  from: ContextSender[];
+  maxChars: number;
+}
+
+/** The context each sender gives a turn: any JSON, or text. */
+export type TurnContext = Partial<Record<ContextSender, unknown>>;
 
 /** What a profile returns: its structured schema, validation and streaming. */
 export interface ProfileOutputsSpec {
@@ -800,6 +811,8 @@ export interface TurnInput {
   text?: string;
   role?: string;
   slots?: Record<string, string>;
+  /** What the page or the host wants the model to know, by sender; the profile's `inputs.context` allows it. */
+  context?: TurnContext;
   attachments?: Array<TurnBlob | TurnMediaRef>;
   voice?: TurnBlob[];
   history?: TurnHistoryMessage[];

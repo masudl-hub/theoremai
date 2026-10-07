@@ -8,6 +8,7 @@ import {
   CACHE_TTLS,
   COMPACTION_METERS,
   COMPACTION_TIMINGS,
+  CONTEXT_SENDERS,
   CONTINUE_STOP_KINDS,
   KEY_SLOT_NAME,
   LIVE_ACTIVITY_HANDLINGS,
@@ -123,6 +124,7 @@ const inputs = z.object({
   maxTurnBytes: z.number().optional(),
   limitsByMime: z.record(z.string(), z.number()).optional(),
   slots: z.record(z.string(), z.array(z.string())).optional(),
+  context: z.object({ from: z.array(z.enum(CONTEXT_SENDERS)), maxChars: z.number() }).optional(),
 });
 
 const resumption = z.object({

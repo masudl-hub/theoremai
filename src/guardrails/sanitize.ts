@@ -1,8 +1,10 @@
 import { sanitizeTurnBlobs } from '../kernel/registry/attachments.ts';
+import { CONTEXT_SENDERS, type ContextSender } from '../kernel/schema.ts';
 import { mapSystemPrompt } from '../kernel/system-parts.ts';
 import type {
   NormalizedTurnRequest,
   Profile,
+  TurnContext,
   TurnEvent,
   TurnHistoryMessage,
   TurnRepairRequest,
@@ -13,6 +15,7 @@ import { type BoundaryReader, boundaryReader, detectEvent } from './detect-at.ts
 import { guardrailTurnEvent } from './events.ts';
 import { resolveGuardrailPolicy } from './policy.ts';
 import { TheoremError } from './theorem-error.ts';
+import type { GuardrailEvent, TrustLevel } from './types.ts';
 
 /** The boundaries one turn request crosses, in the order their events are reported. */
 const REQUEST_BOUNDARIES = [
@@ -33,6 +36,39 @@ function sanitizeSlots(
     return slots;
   }
   return Object.fromEntries(Object.entries(slots).map(([key, value]) => [key, reader.read(value)]));
+}
+
+/** The browser's context is the visitor's to change; the host's is built by its own code, like turn system text. */
+const CONTEXT_TRUST: Readonly<Record<ContextSender, TrustLevel>> = {
+  client: 'untrusted',
+  server: 'assembled',
+};
+
+/** A context package as the model reads it: text as written, anything else as JSON. */
+function contextText(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+/** Each sender's package read at the `context` boundary, with what was found there. */
+function sanitizeContext(
+  context: TurnContext | undefined,
+  readerFor: () => BoundaryReader,
+): { context: TurnContext | undefined; events: GuardrailEvent[]; blocked: boolean } {
+  const events: GuardrailEvent[] = [];
+  let blocked = false;
+  if (!context) return { context, events, blocked };
+  const read: TurnContext = {};
+  for (const sender of CONTEXT_SENDERS) {
+    const value = context[sender];
+    if (value === undefined) continue;
+    const reader = readerFor();
+    read[sender] = reader.read(contextText(value));
+    const found = reader.found();
+    const event = detectEvent('context', found);
+    if (event) events.push({ ...event, trust: CONTEXT_TRUST[sender] });
+    blocked ||= found.action === 'block';
+  }
+  return { context: read, events, blocked };
 }
 
 const PROJECT_ID_OK = /^[A-Za-z0-9._-]+$/;
@@ -116,6 +152,7 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): Sani
       ? undefined
       : mapSystemPrompt(req.system, 'TurnRequest.system', (part) => at.system.read(part));
   const slots = sanitizeSlots(input.slots, at.slots);
+  const told = sanitizeContext(input.context, () => boundaryReader('context', detect));
   const repair = sanitizeRepair(input.repair, at.repair);
   const history = input.history ? sanitizeHistory(input.history, at.history) : undefined;
   const { attachments, voice } =
@@ -131,13 +168,24 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): Sani
     if (event) events.push(guardrailTurnEvent(event));
     if (found.action === 'block') refusal ??= requestRefused(boundary);
   }
+  events.push(...told.events.map(guardrailTurnEvent));
+  if (told.blocked) refusal ??= requestRefused('context');
 
   return {
     request: {
       ...req,
       system,
       projectId: sanitizeProjectId(req.projectId),
-      input: { ...input, text, slots, repair, history, attachments, voice },
+      input: {
+        ...input,
+        text,
+        slots,
+        ...(told.context ? { context: told.context } : {}),
+        repair,
+        history,
+        attachments,
+        voice,
+      },
     },
     events,
     ...(refusal ? { refusal } : {}),
@@ -153,6 +201,7 @@ function sanitizeTurnRequest(req: TurnRequest, profile: Profile): NormalizedTurn
 
 export type { SanitizedTurnRequest };
 export {
+  contextText,
   requestRefused,
   sanitizeHistory,
   sanitizeProjectId,

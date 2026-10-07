@@ -27,6 +27,7 @@ import { profileInputs, requireModelBinding } from './catalog.ts';
 import {
   assertOutputMode,
   assertSpeechRole,
+  assertTurnContext,
   assertTurnSlots,
   resolveImageFormat,
   resolveInputParts,
@@ -254,6 +255,7 @@ function resolveTurnInRegistry(
 } {
   const profile = requireModelProfile(registry.profiles.get(req.profile), 'resolveTurn');
   assertTurnSlots(profile, req);
+  assertTurnContext(profile, req);
   const safe = sanitizeTurnRequest(req, profile);
   const input = safe.input ?? {};
   assertTurnResumption(profile, safe);

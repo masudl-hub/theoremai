@@ -67,7 +67,7 @@ A `Profile` binds:
 | `identity` | `handle`, optional `system` / `systemByRole` — absent on `host`; `handle` only on `speech` and `decision` |
 | `models` | Host-named `ModelBinding`s (each carries `protocol`, `provider`, `apiId`), `defaultModel` (registration always sets it: the declared one, else the only key), optional `allowModelSelect` / `maxSteps` / `key` — absent on `host`; `decision` binds exactly one model and never selects |
 | `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host`; absent on `speech` and `decision`. Tier loading (`t1Policy`, `t2Loader`) is declared only on `text` and `image` |
-| `inputs` | Text / attachments / voice / slots / per-mime limits — present on `text`, `image`; absent on `speech` and `live` (live uses `live.ingress` instead); `decision` carries its own `DecisionInputsSpec`, not turn inputs |
+| `inputs` | Text / attachments / voice / slots / context / per-mime limits — present on `text`, `image`; absent on `speech` and `live` (live uses `live.ingress` instead); `decision` carries its own `DecisionInputsSpec`, not turn inputs |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
 | `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`) on `text` / `image` / `speech`; `allowSteering` on **text and live** (inject gate via `profileAllowsInject`; see [`stages.md`](stages.md)). Live must omit `turnBehaviour.resumption` (use `live.sessionResumption`) |

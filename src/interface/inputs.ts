@@ -35,6 +35,7 @@ function inputsFromSpec(inputs: ProfileInputsSpec | null | undefined): ProfileIn
     maxTurnBytes: inputs?.maxTurnBytes,
     limitsByMime: inputs?.limitsByMime,
     slots: inputs?.slots,
+    context: inputs?.context,
   };
 }
 
@@ -48,6 +49,7 @@ function toProfileInputsSpec(inputs: ProfileInputsInterface): ProfileInputsSpec 
     maxTurnBytes: inputs.maxTurnBytes,
     limitsByMime: inputs.limitsByMime,
     slots: inputs.slots,
+    context: inputs.context,
   };
 }
 

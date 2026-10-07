@@ -101,6 +101,8 @@ Owns every module under `src/guardrails/`.
 | `mintCanary` | Generate a random 32-hex token (128 bits, no prefix): a Live session's canary |
 | `bindCanary` | Append canary note to system prompt |
 | `wrapUserData` | Fence untrusted user text in `<user_data>`, first stripping any fence tag in it, however spaced, cased or nested |
+| `wrapContext` | Fence a context package in `<page_context from="client">` or `from="server"`, first stripping any fence tag in it, so neither the page nor the person can pass text off as the host's |
+| `contextNote` | The `context.note` lexicon line, which tells the model what that fence means; the runner appends it to the system prompt of a profile that sets `inputs.context`. An empty override leaves it out. |
 | `userDataNote` | The `user_data.note` lexicon line, which tells the model what the fence means; the runner appends it, private, to the system prompt of every text, image and live turn (speech has no system prompt). An empty override leaves it out. |
 | `createCanaryStreamGate` | Holds only a tail that could start a leak, for split-token streaming; with the private stretches of the system prompt, also stops a reply echoing them |
 | `scanTextForCanaryLeak` | The token — as written, reversed, in ROT13, spelled out (digit words, NATO letters), as character or byte codes, or in base64 at any offset — read through case, lookalike and fullwidth characters, and separators up to 32 characters; any 16 consecutive characters of it count |
@@ -699,7 +701,8 @@ explicit allow-or-block host boundary, documented in [Decision disclosure](#deci
 | --- | --- | --- |
 | `trusted` | `identity.system` — author-time profile copy | Never |
 | `assembled` | `req.system` — host-built per turn | `system` |
-| `untrusted` | User text, slots, history, attachments, tool results | The boundary it crosses |
+| `assembled` | `input.context.server` — context the host's own code sends | `context` |
+| `untrusted` | User text, slots, `input.context.client`, history, attachments, tool results | The boundary it crosses |
 
 Trusted on the way in is not public on the way out. The private text of the
 system prompt as sent is guarded against echo by the `prompt_leak` detector
@@ -772,6 +775,7 @@ looks, and what it does: a detector, a boundary, an action.
 | `attachment` | The text of a file the person attached |
 | `voice` | The transcript of what the person said |
 | `slots` | The values the host fills into the prompt |
+| `context` | What the page or the host tells the model to know |
 | `history` | Earlier messages the host replays |
 | `injected` | Messages a host stage adds during the turn |
 | `system` | Text the host adds to the system instruction for one turn |
@@ -976,7 +980,7 @@ detectors match one text, the strongest action is the one taken: `block`, then
 
 | Boundary | What `block` does |
 | --- | --- |
-| `user`, `attachment`, `voice`, `slots`, `history`, `system`, `repair` | The turn is refused before the model is called: an `input` error worded by lexicon `detect.blocked` |
+| `user`, `attachment`, `voice`, `slots`, `context`, `history`, `system`, `repair` | The turn is refused before the model is called: an `input` error worded by lexicon `detect.blocked` |
 | `injected` | The same, at the stage that added the message |
 | `live_user` | The message is not sent into the session |
 | `tool_arguments_<kind>` | The tool is not called; the model is told so (`arguments_blocked`, lexicon `detect.call_blocked`) |
@@ -1024,7 +1028,7 @@ switch cannot mean different things on different paths.
 
 | API | Role |
 | --- | --- |
-| `sanitizeTurnRequest(req, profile)` | Full turn: text, slots, repair, history, system and blobs, each read at its boundary under `profile`'s guardrails; throws when a match blocks |
+| `sanitizeTurnRequest(req, profile)` | Full turn: text, slots, context, repair, history, system and blobs, each read at its boundary under `profile`'s guardrails; throws when a match blocks |
 | `sanitizeTurnRequestWithEvents(req, profile)` | A `SanitizedTurnRequest`: the request, one `{ type: 'guardrail' }` event for each boundary where something matched, and the `refusal` to end the turn on when a match blocks |
 | `sanitizeProjectId` | Trim a project id; drop it unless it is only letters, digits, `.`, `_`, `-` |
 | `sanitizeHistory` | Sanitize historical turn exchanges |
@@ -1618,6 +1622,7 @@ placeholder, or a placeholder the key never fills in.
 | Continue (text profiles; the turn's user message) | `continue.instruction` | lexicon |
 | Canary | `canary.bind_note` | lexicon (must keep `{canary}`) |
 | User-data fence | `user_data.note` | lexicon (empty leaves it out) |
+| Context fence | `context.note` | lexicon (empty leaves it out) |
 | Taint / advisory | `taint.*`, `advisory.*` | lexicon |
 | Attachments | `attachments.*` | lexicon (structured codes also exposed) |
 | Errors | `error.<kind>` | lexicon (resolved where the event reaches the host) |

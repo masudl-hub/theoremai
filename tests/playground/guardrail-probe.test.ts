@@ -220,3 +220,47 @@ Deno.test('the battery runs on every boundary, and its gaps are the known ones',
   }
   assertEquals(gaps.sort(), [...BATTERY_GAPS].sort());
 });
+
+Deno.test('a probe keeps what each hit matched', async () => {
+  const result = await probe('user', `${KEY} and more`);
+  const matched = result.guardrails.flatMap((event) => event.hits.map((hit) => hit.match));
+  assert(matched.includes(TEST_OPENAI_KEY), JSON.stringify(matched));
+});
+
+Deno.test('a probe of one detector reads with it alone, where it is not ignored', async () => {
+  const run = concierge();
+  const text = `${INJECTION}. ${KEY}`;
+  const answers = await runGuardrailProbes({ ...run, text, only: 'credentials' });
+  assert(answers.length > 0);
+  assertEquals(
+    [...new Set(answers.flatMap(rules).flatMap((rule) => rule.match(/detect\..*/) ?? []))],
+    ['detect.credentials'],
+  );
+  const off = { detect: { credentials: 'ignore' } } as ProfileDefinition['guardrails'];
+  const profile = { ...run.profile, guardrails: off } as ProfileDefinition;
+  assertEquals(await runGuardrailProbes({ ...run, profile, text, only: 'credentials' }), []);
+});
+
+Deno.test('a probe of a host’s own detector reads with it alone', async () => {
+  const run = concierge();
+  const own = {
+    label: 'Codenames',
+    action: 'block',
+    patterns: [{ name: 'bluebird', words: ['bluebird'] }],
+  };
+  const guardrails = { detect: { 'acme.codenames': own } } as ProfileDefinition['guardrails'];
+  const profile = { ...run.profile, guardrails } as ProfileDefinition;
+  const text = `project bluebird. ${KEY}`;
+  const answers = await runGuardrailProbes({ ...run, profile, text, only: 'acme.codenames' });
+  assert(answers.length > 0);
+  for (const answer of answers) {
+    assertEquals(answer.status, 'blocked', answer.boundary);
+    const hits = answer.guardrails.flatMap((event) => event.hits);
+    const read = hits.filter((hit) => hit.rule.startsWith('detect.'));
+    assert(
+      read.every((hit) => hit.rule === 'detect.acme.codenames'),
+      answer.boundary,
+    );
+    assert(hits.some((hit) => hit.pattern === 'bluebird' && hit.match === 'bluebird'));
+  }
+});

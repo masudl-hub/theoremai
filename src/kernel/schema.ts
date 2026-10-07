@@ -582,7 +582,7 @@ function hostDetectorFields(path: string): [string, FieldMeta][] {
       path,
       field(
         'HostDetectorConfig',
-        'A detector of your own, under a key with a dot such as acme.codenames. It reads with patterns, find or both, and has no default: it reads the boundaries action and at put above Ignore.',
+        'Your own detector, keyed with a dot: acme.codenames. No default action.',
       ),
     ],
     [`${path}.label`, field('string', 'What an editor and the trace call it.')],
@@ -685,7 +685,7 @@ function detectFields(): Record<string, FieldMeta> {
       'guardrails.detect',
       action(
         'DetectAction | { [detector]: DetectorRule }',
-        'The action on a detector match at a boundary. Set one for all, or one per detector. The rest keep their defaults.',
+        'The action on a match, for each detector.',
       ),
     ],
   ];
@@ -1230,17 +1230,14 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   guardrails: field('ProfileGuardrailsSpec', "Protections for this profile's turns."),
   'guardrails.quota': field(
     'QuotaGuardrailSpec',
-    "A daily turn limit your server middleware enforces with takeSlot; runTurn itself doesn't count turns.",
+    'A daily turn limit. Your server enforces it with takeSlot.',
   ),
   'guardrails.quota.perDay': field(
     'number',
     'Turns each client IP may run on this profile per UTC day, one at a time; counts live in the process, and a loopback caller is not counted.',
   ),
   ...detectFields(),
-  'guardrails.blockedReply': field(
-    'BlockedReplySpec',
-    'What happens once a detector blocks the reply.',
-  ),
+  'guardrails.blockedReply': field('BlockedReplySpec', 'What follows a blocked reply.'),
   'guardrails.blockedReply.onBlock': field(
     unionType(BLOCKED_REPLY_ON_BLOCK),
     'What follows a blocked reply.',
@@ -1255,10 +1252,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'number',
     'How many times the model may rewrite a blocked reply. Live ignores it.',
   ),
-  'guardrails.network': field(
-    'NetworkGuardrailSpec',
-    'Which addresses your HTTP and MCP tools may reach.',
-  ),
+  'guardrails.network': field('NetworkGuardrailSpec', 'Addresses HTTP and MCP tools may reach.'),
   'guardrails.network.allowPrivateNetworks': field(
     'boolean',
     'Lets tools reach localhost and private network addresses, for local development.',
@@ -1268,10 +1262,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     "Hostnames tools may reach even when they resolve to a private address; public hosts don't need listing. Names are resolved only when the host passes resolveHost.",
   ),
   'guardrails.network.allowedSchemes': field('string[]', 'The URL schemes tools may use.'),
-  'guardrails.taint': field(
-    'TaintGuardrailSpec',
-    "What tools may still do after the turn reads a remote tool's result.",
-  ),
+  'guardrails.taint': field('TaintGuardrailSpec', 'Tool limits after a remote read.'),
   'guardrails.taint.afterRemoteRead': field(
     unionType(TAINT_GATES),
     "Which tool calls are refused, by each tool's access, once the turn has read a remote tool's result.",

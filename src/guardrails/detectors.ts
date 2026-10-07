@@ -217,15 +217,15 @@ type DetectorGroup = (typeof DETECTOR_GROUPS)[number];
 
 /** The label of every group, and what its detectors find. */
 const DETECTOR_GROUP_META: Readonly<Record<DetectorGroup, DetectMeta>> = {
-  data: { label: 'Sensitive data', doc: 'Personal and secret data, whoever wrote it.' },
-  manipulation: { label: 'Manipulation', doc: 'Text written to steer the agent.' },
+  data: { label: 'Sensitive data', doc: 'Personal and secret data.' },
+  manipulation: { label: 'Manipulation', doc: 'Text that steers the agent.' },
   setup: {
     label: 'Agent setup',
-    doc: "The profile's own text in what the model writes: the canary, the system instruction, the kernel's markers and the names of its tools.",
+    doc: "The profile's own text in model output.",
   },
   addresses: {
     label: 'Unknown addresses',
-    doc: 'Images and links to addresses the model was not given. Loading one can carry data out.',
+    doc: 'Addresses the model was not given.',
   },
 };
 
@@ -311,60 +311,60 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
   },
   credentials: {
     label: 'Credentials',
-    doc: 'API keys and tokens in the formats gitleaks knows (AWS, Google, OpenAI, Anthropic, GitHub, Slack and Stripe among them), key and password assignments, OpenRouter keys, bearer tokens and PEM private keys.',
+    doc: 'API keys, tokens, passwords and private keys.',
     group: 'data',
     defaults: everywhere('flag'),
     patterns: true,
   },
   injection: {
     label: 'Injection',
-    doc: 'Prompt-injection phrasing, as written or disguised.',
+    doc: 'Prompt-injection phrasing, plain or disguised.',
     group: 'manipulation',
     defaults: everywhere('ignore'),
     patterns: true,
   },
   tool_instructions: {
     label: 'Tool instructions',
-    doc: "A tool's output or error text that instructs the agent: it tells it to drop its instructions, or beside an address to send to it names a tool the agent can call, gives an order or claims authority. A page of documentation can read this way, so it starts at Flag. A match raises the turn's taint at any action above Ignore.",
+    doc: 'Tool output that instructs the agent. A match raises taint. Default Flag.',
     group: 'manipulation',
     defaults: returned('flag', 'ignore'),
     patterns: true,
   },
   canary_leak: {
     label: 'Canary leak',
-    doc: 'The token the kernel plants in the system instruction, as written or encoded. The token is planted only while this is above Ignore somewhere.',
+    doc: 'The canary token, plain or encoded. Planted only above Ignore.',
     group: 'setup',
     defaults: leaving('block', 'block', 'redact'),
   },
   prompt_leak: {
     label: 'Prompt leak',
-    doc: 'A run of words from the private system instruction, also reversed, in rot13 or in leetspeak.',
+    doc: 'Private system-instruction text, plain or disguised.',
     group: 'setup',
     defaults: leaving('flag', 'block', 'redact'),
   },
   marker_leak: {
     label: 'Marker leak',
-    doc: 'The markers the kernel fences user data with, and the words of the note that binds the canary.',
+    doc: "The kernel's data markers and canary note.",
     group: 'setup',
     defaults: shown('block', 'redact'),
   },
   ungiven_images: {
     label: 'Ungiven images',
-    doc: 'An image whose address the model was not given, on a host not allowed. Showing it loads the address, which can carry data out with no click.',
+    doc: 'An image at an address not given. Loads with no click.',
     group: 'addresses',
     defaults: shown('block', 'redact'),
     allow: 'urls',
   },
   ungiven_links: {
     label: 'Ungiven links',
-    doc: 'A link to an address the model was not given, on a host not allowed. It loads on a click, or where the host unfurls links into previews; replies cite pages from what the model knows, so it starts at Ignore.',
+    doc: 'A link to an address not given. Default Ignore: replies cite known pages.',
     group: 'addresses',
     defaults: shown('ignore', 'ignore'),
     allow: 'urls',
   },
   tool_leak: {
     label: 'Tool leak',
-    doc: "The names of the profile's own tools, each as a word of its own, and the names of their parameters in double quotes, as tool-call JSON writes them. An agent often names a tool honestly, so it starts at Flag.",
+    doc: "The profile's tool and parameter names. Default Flag.",
     group: 'setup',
     defaults: shown('flag', 'flag'),
     allow: 'names',

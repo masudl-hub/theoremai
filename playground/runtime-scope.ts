@@ -78,9 +78,9 @@ function runtimeNetwork(runtime: NetworkRuntime): RuntimeNetwork {
 }
 
 const NETWORK_NOTES: Record<RuntimeNetwork, string> = {
-  public: "The playground's server reaches public hosts only.",
-  asWritten: 'Runs from this browser keep these rules as written.',
-  none: 'Remote tools are off, so tools reach no host.',
+  public: 'Playground server: public hosts only.',
+  asWritten: 'Browser runs: rules as written.',
+  none: 'Remote tools off: no host reached.',
 };
 
 /** What the playground does with the Network section on `runtime`. */
@@ -93,7 +93,7 @@ function playgroundNetworkNote(runtime: NetworkRuntime): string {
  * steer the agent into deleting or overwriting. A draft that asks for stricter keeps it.
  */
 const PLAYGROUND_TAINT_NOTE =
-  "Playground runs refuse a destructive call once a turn has read a remote tool's result; a stricter setting is kept.";
+  'Playground runs refuse destructive calls after a remote read. Stricter settings hold.';
 
 function withRemoteReadGate<G extends { taint?: { afterRemoteRead?: TaintGate } }>(
   guardrails: G,

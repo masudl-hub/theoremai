@@ -31,16 +31,16 @@ async function runOn(runtime: PlaygroundRuntime) {
 Deno.test("the Network note says what the playground's runtime does with the rules", async () => {
   const demo = await runOn({ mode: 'demo' });
   assertEquals(demo.guardrails?.network, undefined);
-  assertEquals(demo.note, "The playground's server reaches public hosts only.");
+  assertEquals(demo.note, 'Playground server: public hosts only.');
 
   const browser = await runOn({ mode: 'byok' });
   assertEquals(browser.guardrails?.network?.allowPrivateNetworks, true);
-  assertEquals(browser.note, 'Runs from this browser keep these rules as written.');
+  assertEquals(browser.note, 'Browser runs: rules as written.');
 
   const local = { baseUrl: 'http://127.0.0.1:11434' };
   const offline = await runOn({ mode: 'byok', providers: { local }, remoteTools: false });
   assertEquals(offline.guardrails?.network, { allowedSchemes: [] });
-  assertEquals(offline.note, 'Remote tools are off, so tools reach no host.');
+  assertEquals(offline.note, 'Remote tools off: no host reached.');
 
   const online = await runOn({ mode: 'byok', providers: { local }, remoteTools: true });
   assertEquals(online.guardrails?.network?.allowPrivateNetworks, true);
@@ -49,7 +49,7 @@ Deno.test("the Network note says what the playground's runtime does with the rul
 
 Deno.test('the Taint note says playground runs refuse destructive calls after a remote read', async () => {
   assertEquals(afterRemoteRead((await runOn({ mode: 'demo' })).guardrails), 'destructive');
-  assert(PLAYGROUND_TAINT_NOTE.includes('refuse a destructive call'));
+  assert(PLAYGROUND_TAINT_NOTE.includes('refuse destructive calls'));
 
   const draft = createExampleDraft();
   draft.guardrails.taintAfterRemoteRead = 'write';
@@ -64,5 +64,5 @@ Deno.test('the Taint note says playground runs refuse destructive calls after a 
     },
   );
   assertEquals(afterRemoteRead(profile.guardrails), 'write');
-  assert(PLAYGROUND_TAINT_NOTE.includes('a stricter setting is kept'));
+  assert(PLAYGROUND_TAINT_NOTE.includes('Stricter settings hold'));
 });

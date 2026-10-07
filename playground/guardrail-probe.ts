@@ -2,7 +2,8 @@
  * Sends one text across one guardrail boundary of a draft and reports what its
  * guardrails did. The turn is the kernel's own on a scripted model, so every
  * check is the one a real turn runs, on the draft's guardrails as written, and
- * no model or host is called.
+ * no model or host is called. A probe keeps what each hit matched: its text
+ * is the builder's own sample, and its trace goes nowhere but its result.
  *
  * @module
  */
@@ -15,6 +16,13 @@ import type {
   TurnInput,
 } from '../mod.ts';
 import { TheoremError } from '../mod.ts';
+import type { Boundary } from '../src/guardrails/boundaries.ts';
+import {
+  actionAt,
+  DETECTORS,
+  type DetectSpec,
+  resolveDetect,
+} from '../src/guardrails/detectors.ts';
 import type { GuardrailEvent } from '../src/guardrails/event-schemas.ts';
 import { TOOL_RULES } from '../src/guardrails/rules.ts';
 import type { ErrorKind } from '../src/guardrails/theorem-error.ts';
@@ -36,6 +44,18 @@ export const PROBE_BOUNDARIES = [
 ] as const;
 /** One of {@linkcode PROBE_BOUNDARIES}. */
 export type ProbeBoundary = (typeof PROBE_BOUNDARIES)[number];
+
+/** The kernel boundary a probe's text crosses. */
+const PROBE_READS: Record<ProbeBoundary, Boundary> = {
+  user: 'user',
+  history: 'history',
+  system: 'system',
+  tool_result_local: 'tool_output_function',
+  tool_result_remote: 'tool_output_agent',
+  tool_arguments: 'tool_arguments_function',
+  reply: 'reply',
+  thought: 'thought',
+};
 
 /** A boundary as the tester tells it. */
 export interface ProbeBoundaryNote {
@@ -203,8 +223,47 @@ function unobserved(profile: TextProfile): TextProfile {
   return rest;
 }
 
+/** `spec` with every detector but `key` set to ignore. */
+function detectOnly(spec: DetectSpec | undefined, key: string): DetectSpec {
+  // why: One action for everything covers Theorem's detectors, never a host's own.
+  const blanket = key.includes('.') ? undefined : spec;
+  const rule = typeof spec === 'object' ? spec[key as never] : blanket;
+  const others = DETECTORS.filter((detector) => detector !== key);
+  const only: Record<string, unknown> = Object.fromEntries(
+    others.map((detector) => [detector, 'ignore']),
+  );
+  if (rule !== undefined) only[key] = rule;
+  return only as DetectSpec;
+}
+
+/** `profile` reading with the detector `key` alone. */
+function onlyDetector(profile: ProfileDefinition, key: string): ProfileDefinition {
+  const detect = detectOnly(profile.guardrails?.detect, key);
+  return { ...profile, guardrails: { ...profile.guardrails, detect } } as ProfileDefinition;
+}
+
+/** The boundaries where the detector `key` of `profile` does something with a match. */
+function readBy(profile: ProfileDefinition, key: string): ProbeBoundary[] {
+  const detect = resolveDetect(profile.guardrails?.detect);
+  return PROBE_BOUNDARIES.filter(
+    (boundary) => actionAt(detect, key, PROBE_READS[boundary]) !== 'ignore',
+  );
+}
+
 /** The failures that are a guardrail's doing; any other is the probe's own. */
 const REFUSALS: ReadonlySet<ErrorKind> = new Set<ErrorKind>(['safety', 'blocked']);
+
+/**
+ * Whether a turn that failed with `kind` was refused by a guardrail. A block of the request
+ * fails as a bad input does, so there the block already among `events` tells them apart.
+ */
+function refusedBy(kind: ErrorKind, events: readonly TurnEvent[]): boolean {
+  if (REFUSALS.has(kind)) return true;
+  return (
+    kind === 'input' &&
+    events.some((event) => event.type === 'guardrail' && event.guardrail.action === 'block')
+  );
+}
 
 /** The draft with the probe's tools beside its own. */
 function probedDraft(
@@ -234,6 +293,7 @@ function probedDraft(
   return {
     profile: {
       ...unobserved(profile),
+      observability: { include: { guardrailMatchPreview: true } },
       tools: {
         ...profile.tools,
         allow: [...(profile.tools?.allow ?? []), ...tools.map((tool) => tool.name)],
@@ -454,12 +514,12 @@ export async function runGuardrailProbe(args: {
       events.push(event);
     }
   } catch (error) {
-    if (!(error instanceof TheoremError && REFUSALS.has(error.kind))) throw error;
+    if (!(error instanceof TheoremError && refusedBy(error.kind, events))) throw error;
     refused = { kind: error.kind, message: error.message };
   }
   const failure = events.find((event) => event.type === 'error');
   if (failure?.type === 'error') {
-    if (!REFUSALS.has(failure.errorKind)) {
+    if (!refusedBy(failure.errorKind, events)) {
       throw new TheoremError(failure.errorKind, failure.errorInternal ?? failure.error ?? ''); // lexicon-exempt: builder diagnostic
     }
     refused = { kind: failure.errorKind, message: failure.error };
@@ -488,15 +548,21 @@ export interface GuardrailProbeAnswer extends GuardrailProbeResult {
   boundary: ProbeBoundary;
 }
 
-/** Runs `text` across every boundary of the draft, each in its own turn, in the order of {@linkcode PROBE_BOUNDARIES}. */
+/**
+ * Runs `text` across every boundary of the draft, each in its own turn, in the order of
+ * {@linkcode PROBE_BOUNDARIES}. Given `only`, a detector's key, the draft reads with that
+ * detector alone, and the answers are the boundaries where it is not set to ignore.
+ */
 export function runGuardrailProbes(
-  args: Omit<Parameters<typeof runGuardrailProbe>[0], 'probe'> & { text: string },
+  args: Omit<Parameters<typeof runGuardrailProbe>[0], 'probe'> & { text: string; only?: string },
 ): Promise<GuardrailProbeAnswer[]> {
-  const { text, ...draft } = args;
+  const { text, only, ...draft } = args;
+  const profile = only === undefined ? draft.profile : onlyDetector(draft.profile, only);
+  const boundaries = only === undefined ? PROBE_BOUNDARIES : readBy(profile, only);
   return Promise.all(
-    PROBE_BOUNDARIES.map(async (boundary) => ({
+    boundaries.map(async (boundary) => ({
       boundary,
-      ...(await runGuardrailProbe({ ...draft, probe: { boundary, text } })),
+      ...(await runGuardrailProbe({ ...draft, profile, probe: { boundary, text } })),
     })),
   );
 }

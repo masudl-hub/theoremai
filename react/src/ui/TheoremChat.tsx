@@ -309,7 +309,7 @@ function ChatBody({
                 <ChatColumn maxWidth={maxWidth}>
                   {emptyState ?? (
                     <VStack gap={1}>
-                      <Text type="large" as="h2">
+                      <Text type="supporting" as="h2">
                         {handle}
                       </Text>
                       <Text type="display-2" as="h1">

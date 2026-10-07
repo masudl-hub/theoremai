@@ -203,17 +203,40 @@ function Usage({ tokens }: { tokens: TurnUsage }) {
   return usageLine(useLabels(), useLocale(), tokens);
 }
 
+/** A stopped message's status, drawn as the delivery statuses are. */
+function Interrupted() {
+  const label = useLabels()('@theorem.transcript.interrupted');
+  return (
+    <HStack gap={1} vAlign="center">
+      <Icon icon="stop" size="xsm" color="inherit" />
+      <span>{label}</span>
+    </HStack>
+  );
+}
+
 /** A message's time, copy button and status; a failure says why on the line beneath. */
 function MessageChrome(props: {
   at: number;
   copyText: string;
   status?: ChatMessageStatus;
+  /** The person stopped its turn: it says so where its status goes. */
+  interrupted?: boolean;
   error?: string;
   /** What the reply used, when the transcript shows usage. */
   usage?: TurnUsage;
 }) {
   const failed = props.error !== undefined;
-  const copy = <CopyButton text={props.copyText} />;
+  const copyButton = <CopyButton text={props.copyText} />;
+  // why: Astryx's statuses are a closed set, so this one rides the footer, after the same dot.
+  const copy = props.interrupted ? (
+    <>
+      {copyButton}
+      <span>·</span>
+      <Interrupted />
+    </>
+  ) : (
+    copyButton
+  );
   const metadata = (
     <ChatMessageMetadata
       timestamp={<MessageTime at={props.at} />}
@@ -227,7 +250,7 @@ function MessageChrome(props: {
           copy
         )
       }
-      status={failed ? 'error' : props.status}
+      status={failed ? 'error' : props.interrupted ? undefined : props.status}
     />
   );
   if (!failed) return metadata;
@@ -825,6 +848,8 @@ function UserTurn(props: {
   blocks: TranscriptBlock[];
   at: number;
   status?: ChatMessageStatus;
+  /** The person stopped its turn before any reply. */
+  interrupted?: boolean;
   /** Why the turn failed before any reply. */
   error?: string;
 }) {
@@ -834,7 +859,13 @@ function UserTurn(props: {
     .filter(Boolean)
     .join('\n\n');
   const chrome = (
-    <MessageChrome at={props.at} copyText={copyText} status={props.status} error={props.error} />
+    <MessageChrome
+      at={props.at}
+      copyText={copyText}
+      status={props.status}
+      interrupted={props.interrupted}
+      error={props.error}
+    />
   );
   // why: Astryx: metadata goes on the last bubble, or on the message when the last
   // content is unbubbled (an attachment or voice note).
@@ -917,6 +948,7 @@ function ChatTranscriptBody({
         blocks={group.blocks}
         at={promptTime(groups, index, timeOf)}
         status={status}
+        interrupted={group.interrupted}
         error={error}
       />
     );

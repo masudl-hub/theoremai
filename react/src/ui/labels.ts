@@ -187,6 +187,10 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'now',
     description: 'Message time during its first minute.',
   },
+  '@theorem.transcript.interrupted': {
+    defaultMessage: 'Interrupted',
+    description: 'Message status: the person stopped its turn.',
+  },
   '@theorem.transcript.generated_image': {
     defaultMessage: 'Generated image',
     description: 'Alt text for a generated image.',

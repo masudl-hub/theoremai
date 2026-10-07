@@ -166,6 +166,18 @@ function showTurnFailure(
 }
 
 /**
+ * The person stopped the turn: its message says so, and the next message
+ * starts a turn of its own. The reply as far as it got leaves the transcript.
+ */
+function showTurnStopped(state: ChatState): void {
+  state.setBlocks((prev) => [
+    ...prev,
+    { id: crypto.randomUUID(), kind: 'turn-done', stop: { kind: 'cancelled' } },
+  ]);
+  state.setDelivery(null);
+}
+
+/**
  * The run begins: busy, and streaming unless its message goes live when it
  * posts (onUserBlocks), so the previous reply never renders as streaming in
  * between. Returns the delivery before it, which a new message replaces.
@@ -208,6 +220,7 @@ function failRun(
   const open = unposted || waits;
   if (result.session) state.setSession(result.session);
   if (!result.aborted) showTurnFailure(state, result, stream.streamed, open);
+  else if (!open) showTurnStopped(state);
   if (!open) state.setStreamBlocks([]);
   else state.setStreamBlocks(result.session ? stream.streamed : stream.before);
 }

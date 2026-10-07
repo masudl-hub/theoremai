@@ -382,6 +382,25 @@ Deno.test('groupTranscriptBlocks starts a new turn at a break', () => {
   );
 });
 
+Deno.test('groupTranscriptBlocks closes a message whose turn was stopped', () => {
+  const groups = groupTranscriptBlocks([
+    { id: 'a', kind: 'user-text', text: 'Tell me a story' },
+    { id: 's', kind: 'turn-done', stop: { kind: 'cancelled' } },
+    { id: 'b', kind: 'user-text', text: 'A short one' },
+    { id: 'c', kind: 'text', text: 'Once.' },
+    { id: 'd', kind: 'turn-done', stop: { kind: 'completed' }, workedMs: 5, endedAt: 9 },
+  ]);
+  assertEquals(
+    groups.map((group) => [group.key, group.kind === 'user' && group.interrupted === true]),
+    [
+      ['a', true],
+      ['b', false],
+      ['c', false],
+    ],
+  );
+  assertEquals(groups[2]?.kind === 'assistant' && groups[2].workedMs, 5);
+});
+
 Deno.test('inkWaveDriver and computeInkBarTargets calculate animations', () => {
   assertEquals(inkWaveDriver('disconnected', false, 0, 0), 'idle');
   assertEquals(inkWaveDriver('connecting', false, 0, 0), 'connecting');

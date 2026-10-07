@@ -21,7 +21,13 @@ function addUsage(used: TurnUsage | undefined, more: TurnUsage): TurnUsage {
 }
 
 export type TranscriptTurnGroup =
-  | { kind: 'user'; key: string; blocks: TranscriptBlock[] }
+  | {
+      kind: 'user';
+      key: string;
+      blocks: TranscriptBlock[];
+      /** The person stopped its turn before any reply. */
+      interrupted?: true;
+    }
   | {
       kind: 'assistant';
       key: string;
@@ -60,7 +66,34 @@ function isHiddenTranscriptBlock(block: TranscriptBlock): boolean {
   return block.kind === 'turn-done';
 }
 
-/** Blocks as turns: neighbours from the same side share one, unless a block is in `breaks`, which always starts its own. */
+/** A `turn-done` on the turn it closes: a reply's work and usage, or a message's stop. */
+function closeTurn(
+  last: TranscriptTurnGroup | undefined,
+  done: Extract<TranscriptBlock, { kind: 'turn-done' }>,
+): void {
+  if (last?.kind === 'user') {
+    if (done.stop?.kind === 'cancelled') last.interrupted = true;
+    return;
+  }
+  if (!last) return;
+  if (done.workedMs !== undefined) {
+    last.workedMs = done.workedMs;
+    last.endedAt = done.endedAt;
+  }
+  if (done.tokens) last.usage = addUsage(last.usage, done.tokens);
+}
+
+/** Whether `block` joins the turn before it: the same side, and that turn still open. */
+function joinsTurn(last: TranscriptTurnGroup | undefined, isUser: boolean): boolean {
+  if (!last || last.kind !== (isUser ? 'user' : 'assistant')) return false;
+  return !(last.kind === 'user' && last.interrupted);
+}
+
+/**
+ * Blocks as turns: neighbours from the same side share one, unless a block is
+ * in `breaks`, which always starts its own. A message whose turn was stopped
+ * is closed: the next message starts its own turn.
+ */
 export function groupTranscriptBlocks(
   blocks: readonly TranscriptBlock[],
   breaks?: ReadonlySet<string>,
@@ -68,20 +101,11 @@ export function groupTranscriptBlocks(
   const groups: TranscriptTurnGroup[] = [];
 
   for (const block of blocks) {
-    if (block.kind === 'turn-done') {
-      const last = groups.at(-1);
-      if (last?.kind === 'assistant' && block.workedMs !== undefined) {
-        last.workedMs = block.workedMs;
-        last.endedAt = block.endedAt;
-      }
-      if (last?.kind === 'assistant' && block.tokens) {
-        last.usage = addUsage(last.usage, block.tokens);
-      }
-    }
+    if (block.kind === 'turn-done') closeTurn(groups.at(-1), block);
     if (isHiddenTranscriptBlock(block)) continue;
     const isUser = isUserTranscriptBlock(block);
     const last = groups.at(-1);
-    if (last && last.kind === (isUser ? 'user' : 'assistant') && !breaks?.has(block.id)) {
+    if (last && joinsTurn(last, isUser) && !breaks?.has(block.id)) {
       last.blocks.push(block);
       continue;
     }

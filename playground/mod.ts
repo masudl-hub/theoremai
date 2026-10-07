@@ -212,7 +212,7 @@ export { sectionNote } from './section-notes.ts';
 export { sampleToolInput, stubOutputFromSchema } from './stub.ts';
 export type { PlaygroundInputsSpec, PlaygroundToolSeed, PlaygroundToolSpecSeed } from './types.ts';
 export type { PlaygroundLiveDraftMessage } from './live-connection.ts';
-export { playgroundLiveConnection } from './live-connection.ts';
+export { playgroundLiveConnection, playgroundPageTools } from './live-connection.ts';
 export type {
   AgentToolRegistration,
   FunctionToolRegistration,

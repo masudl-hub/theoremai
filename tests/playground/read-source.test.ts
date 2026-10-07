@@ -4,6 +4,7 @@ import {
   compilePlayground,
   createDecisionExampleDraft,
   createExampleDraft,
+  playgroundPageTools,
   playgroundSource,
   readPlaygroundSource,
   setProfileType,
@@ -222,4 +223,8 @@ Deno.test('context and a tool the page answers read back', () => {
   assertEquals(read.draft.inputs, draft.inputs);
   assertEquals(read.draft.toolSpecs[at]?.answeredBy, 'page');
   assertEquals(read.draft.toolSpecs[at]?.stubOutputJson, '{"ok":true}');
+  // The playground's page answers that tool with its stub.
+  const pageTools = playgroundPageTools(compiled);
+  assertEquals(Object.keys(pageTools), [first.toolName]);
+  assertEquals(pageTools[first.toolName]?.({}, { callId: 'call-1' }), { output: { ok: true } });
 });

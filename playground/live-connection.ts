@@ -1,6 +1,8 @@
 import type { ProfileDefinition } from '../mod.ts';
+import type { LivePageTools } from '../react/src/client/live/live-page-tool.ts';
 import type { ToolRegistration } from './registrations.ts';
 import type { PlaygroundRunPayload } from './run-payload.ts';
+import { stubOutputFromSchema } from './stub.ts';
 
 /** The first message on a playground live call: the draft the relay runs, on a scope of its own. */
 export type PlaygroundLiveDraftMessage = {
@@ -22,4 +24,20 @@ export function playgroundLiveConnection(payload: PlaygroundRunPayload): {
     customTools: payload.customTools,
   };
   return { openMessage };
+}
+
+/**
+ * The playground's page: for each tool the page answers (`answeredBy: 'page'`), a function that
+ * answers with the tool's stub. A host's page does the real thing here.
+ */
+export function playgroundPageTools(
+  payload: Pick<PlaygroundRunPayload, 'customTools'>,
+): LivePageTools {
+  const pageTools: LivePageTools = {};
+  for (const tool of payload.customTools) {
+    if (tool.type !== 'function' || tool.answeredBy !== 'page') continue;
+    const output = tool.stubResponse ?? stubOutputFromSchema(tool.outputSchema);
+    pageTools[tool.name] = () => ({ output });
+  }
+  return pageTools;
 }

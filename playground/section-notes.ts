@@ -1,10 +1,9 @@
 /**
- * What a section of the playground's profile editor adds to the catalog doc
- * of the field it edits: how the editor works, and what the playground does.
+ * What a section of the playground's profile editor says that the catalog doc
+ * of the field it edits does not: how the editor works, and what the
+ * playground does. The catalog doc is on the field's hover; a note never repeats it.
  */
 const SECTION_NOTES = {
-  system:
-    'Wrap what must not leak in {private: …}; only that is guarded. With none, the whole prompt is.',
   models: 'Add a model here, then select its binding in the tree to configure it.',
   'models.decision': 'A decision uses one model. Select its binding in the tree to configure it.',
   decisionModel: 'This binding answers the questions configured under Decision.',
@@ -23,9 +22,7 @@ const SECTION_NOTES = {
   'tools.host': 'What the host runs. Each call names one.',
   'tool.test.http': 'Sends one real {method} request with the sample input.',
   'tool.test.mcp': 'Asks the server which tools it has.',
-  tool: "What the model calls, and what it's told the tool does.",
   'tool.host': 'What a call runs, and what the console says it does.',
-  'tool.contract': 'What it takes and gives back, as JSON Schema.',
   'tool.headers': 'Headers are saved in the profile, so keep secrets under Auth.',
   'tool.auth': 'The playground stores no credential: at a sign-in gate you type one for that call only.',
   'decision.state': "The JSON every question is asked about. It's filled in the preview, not saved.",

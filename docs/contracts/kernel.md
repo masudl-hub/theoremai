@@ -667,6 +667,11 @@ Builtins (`type: 'builtin'`) are provider-native — kernel pins capabilities in
 Function tools (`type: 'function'`) run host TypeScript handlers.
 A handler returns the type of the tool's `output` schema; any other return type fails to compile.
 A handler that cannot type its result returns `uncheckedOutput(value)`.
+A function tool with `answeredBy: 'page'` has no handler of the host's: the page the person is on
+answers the call, and the kernel returns what it sent (`ToolContext.page`, from
+`LiveSession.executeTool({ callId, page })`). With no answer the call fails to the model
+(`tool.page_no_answer`); a relay that stopped waiting sends `page: { timedOut: true }`
+(`tool.page_timed_out`). A function tool with neither a handler nor `answeredBy` does not register.
 The kernel checks every result against `output`, and a mismatch fails the call as `invalid_output`.
 Declarative HTTP tools (`type: 'http'`) call REST APIs directly with templated URLs, query parameters, headers, and body mapping.
 Remote MCP tools (`type: 'mcp'`) call external Model Context Protocol servers over Streamable HTTP.
@@ -1174,8 +1179,8 @@ Framework-neutral helpers for profile-driven runtime UIs, published at
 `@theoremjs/agents/interface`. `@theoremjs/react` renders them.
 
 `ProfileInterface` is `Profile` as JSON, what a host sends the browser:
-resolved `inputs` (with `acceptAttr`), tool ids (`ProfileToolsView`; a tool's
-definition, including its endpoint and headers, stays on the host), and
+resolved `inputs` (with `acceptAttr`), tool ids (`ProfileToolsView`: `allow`, and `page` for the
+tools the page answers; a tool's definition, including its endpoint and headers, stays on the host), and
 `models`, `outputs`, `guardrails` and `observability` without host functions
 (`ModelBindingView` drops a compaction `trigger`; `ProfileOutputsView` drops
 `validation`). Projection flows through kernel `projectProfileObject` /

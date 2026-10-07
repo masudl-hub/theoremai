@@ -103,14 +103,22 @@ function liveView(live: ProjectedProfile['live']): LiveProfileInterface['live'] 
 }
 
 function toolsView(projected: ProjectedProfile, profile?: ModelProfile): ProfileToolsView {
+  const page = projected.tools
+    .filter((tool) => 'type' in tool && tool.type === 'function' && tool.answeredBy === 'page')
+    .map((tool) => tool.name);
   if (profile) {
     const t2Loader = profileToolsSpec(profile)?.t2Loader;
-    return { allow: [...profileToolAllow(profile)], ...(t2Loader ? { t2Loader } : {}) };
+    return { allow: [...profileToolAllow(profile)], page, ...(t2Loader ? { t2Loader } : {}) };
   }
   const allow = projected.tools
     .filter((tool) => !('type' in tool && tool.type === 'builtin'))
     .map((tool) => tool.name);
-  return { allow };
+  return { allow, page };
+}
+
+/** A call has no T2 loader. */
+function liveToolsView({ allow, page }: ProfileToolsView): LiveProfileInterface['tools'] {
+  return { allow, page };
 }
 
 function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInterface {
@@ -169,7 +177,7 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
         type: 'live',
         live: liveView(projected.live),
         ...(projected.inputs ? { inputs: { slots: inputs.slots, context: inputs.context } } : {}),
-        tools: { allow: toolsView(projected, profile).allow },
+        tools: liveToolsView(toolsView(projected, profile)),
       });
     default: {
       const exhaustive: never = projected.type;

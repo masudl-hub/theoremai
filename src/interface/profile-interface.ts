@@ -135,7 +135,11 @@ const resumption = z.object({
 
 const mediaTurnBehaviour = z.object({ resumption: resumption.optional() });
 
-const tools = z.object({ allow: z.array(z.string()), t2Loader: z.string().optional() });
+const tools = z.object({
+  allow: z.array(z.string()),
+  page: z.array(z.string()),
+  t2Loader: z.string().optional(),
+});
 
 const common = {
   id: z.string(),
@@ -254,7 +258,7 @@ const profileInterface = z.discriminatedUnion('type', [
         .object({ input: z.boolean().optional(), output: z.boolean().optional() })
         .optional(),
     }),
-    tools: z.object({ allow: z.array(z.string()) }),
+    tools: tools.pick({ allow: true, page: true }),
     turnBehaviour: z.object({ allowSteering: z.boolean().optional() }).optional(),
   }),
 ]);

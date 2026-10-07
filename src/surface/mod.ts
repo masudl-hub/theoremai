@@ -15,7 +15,7 @@ export type {
 } from './runtime.ts';
 export { createSurfaceRuntime, SURFACE_TOOL_NAMES } from './runtime.ts';
 export type { SurfaceToolsOptions } from './tools.ts';
-export { clientAnsweredHandler, SURFACE_PROMPT, surfaceTools } from './tools.ts';
+export { SURFACE_PROMPT, surfaceTools } from './tools.ts';
 export type {
   Surface,
   SurfaceAction,

@@ -20,7 +20,7 @@ secret reaches the agent only as a card.
 | `src/surface/types.ts` | `Surface`, `SurfaceNode`, `SurfaceField`, `SurfaceAction`, `defineAction` |
 | `src/surface/formats.ts` | Field formats: secret cards, URL and header masking, scrubbing |
 | `src/surface/runtime.ts` | `createSurfaceRuntime`: answers `look` and `act`, ledger, notes, state line |
-| `src/surface/tools.ts` | `surfaceTools()`, `clientAnsweredHandler`, `SURFACE_PROMPT` |
+| `src/surface/tools.ts` | `surfaceTools()`, `SURFACE_PROMPT` |
 
 ## Protocol
 
@@ -85,8 +85,7 @@ can never `set` a secret: it `point`s the person at it and they enter it.
 | Export | Role |
 | --- | --- |
 | `createSurfaceRuntime(options?)` | `{ mount, declare, isSurfaceTool, answer, settled, stateLine }`; options `now`, `open`, `mountWaitMs`, `onNote`, `ledger` |
-| `surfaceTools(options?)` | The `look` and `act` function tool definitions, answered by the client |
-| `clientAnsweredHandler(name)` | Returns `ctx.host.clientOutput` as `uncheckedOutput`; fails on `host.clientTimedOut` or no output |
+| `surfaceTools(options?)` | The `look` and `act` function tool definitions, answered by the page (`answeredBy: 'page'`) |
 | `SURFACE_PROMPT` | How an agent uses `look` and `act` |
 | `SURFACE_TOOL_NAMES` | `['look', 'act']` |
 | `defineAction(action)` | Types an action's input, for `SurfaceNode.actions` |

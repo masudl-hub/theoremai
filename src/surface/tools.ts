@@ -1,25 +1,5 @@
 import { z } from 'zod';
-import type { ToolContext, ToolDefinitionInput } from '../kernel/tools/types.ts';
-import { type UncheckedOutput, uncheckedOutput } from '../kernel/tools/unchecked-output.ts';
-
-/**
- * The handler for a function tool the client answers: it returns what the client sent back for
- * the call, which the relay bridge hands over as `ctx.host.clientOutput`. With no output the call
- * fails to the model, naming the tool; so does a call the bridge settled because the client never
- * answered (`host.clientTimedOut`).
- */
-export function clientAnsweredHandler(
-  name: string,
-): (input: unknown, ctx: ToolContext) => UncheckedOutput {
-  return (_input, ctx) => {
-    const host = ctx.host as { clientOutput?: unknown; clientTimedOut?: boolean } | undefined;
-    if (host && 'clientOutput' in host) return uncheckedOutput(host.clientOutput);
-    if (host?.clientTimedOut) {
-      throw new Error("The page didn't answer. Look before trying again.");
-    }
-    throw new Error(`${name} runs in the client, and the client sent no result.`);
-  };
-}
+import type { ToolDefinitionInput } from '../kernel/tools/types.ts';
 
 const answer = z.record(z.string(), z.unknown());
 
@@ -68,6 +48,7 @@ export function surfaceTools(options: SurfaceToolsOptions = {}): ToolDefinitionI
     loadTier: 'T0' as const,
     permission: 'auto' as const,
     output: answer,
+    answeredBy: 'page' as const,
   };
   return [
     {
@@ -77,7 +58,6 @@ export function surfaceTools(options: SurfaceToolsOptions = {}): ToolDefinitionI
         "See what is on the person's screen. With no `at`: every surface, its revision, summary, nodes and issue counts. With `at`: that node's fields (secrets only as cards: set, what it looks like, problems), what each means, its issues, its actions with their input schemas, and its children.",
       access: 'read-only',
       input: lookInput,
-      handler: clientAnsweredHandler('look'),
     },
     {
       ...base,
@@ -86,7 +66,6 @@ export function surfaceTools(options: SurfaceToolsOptions = {}): ToolDefinitionI
         "Do one of a node's actions: `set` fields, `point` the person at something, or the node's own (test, send, launch…). Comes back applied, unchanged, done, stale (the page changed: look again), refused or failed, with what was rejected and why.",
       access: 'read-write',
       input: actInput,
-      handler: clientAnsweredHandler('act'),
     },
   ];
 }

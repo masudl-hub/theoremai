@@ -108,6 +108,12 @@ export interface InvokeToolResume {
   edited?: { from: Record<string, unknown> };
 }
 
+/**
+ * What the page did for a call to a tool it answers: its `output`, or `timedOut` when the relay
+ * stopped waiting for it.
+ */
+export type PageAnswer = { output: unknown; timedOut?: undefined } | { timedOut: true };
+
 export interface ToolContext {
   profile: Profile;
   callId: string;
@@ -120,6 +126,8 @@ export interface ToolContext {
   resolveHost?: ResolveHost;
   /** Opaque application context from `TurnRequest.host` / `InvokeToolRequest.host`; the kernel never reads it. */
   host?: unknown;
+  /** The page's answer to this call, for a tool with `answeredBy: 'page'`. */
+  page?: PageAnswer;
   /** W3C `traceparent` of this call's `execute_tool` span; parent a tool's own outbound spans on it. */
   traceparent?: string;
   /** Set for a function tool with `auth` once its credential resolved: requests carrying it. */
@@ -187,6 +195,11 @@ export interface FunctionToolDef<TIn = unknown, TOut = unknown>
   output: z.ZodType<TOut>;
   /** Returns `output`'s type, or `uncheckedOutput(value)` for a value it cannot type. */
   handler: ToolHandler<TIn, NoInfer<TOut>>;
+  /**
+   * `'page'`: the page the person is on answers the call, and the kernel supplies the handler.
+   * `output` checks what the page sent.
+   */
+  answeredBy?: 'page';
   /**
    * The service the handler acts on for the person. The kernel resolves the slot
    * before the handler runs (gating, refreshing, or telling the model as the policy
@@ -321,12 +334,21 @@ export type RegisteredTool<TIn = unknown, TOut = unknown> =
   | McpToolDef<TIn, TOut>
   | RegisteredAgentTool;
 
+/** A function tool as registered: it has a `handler`, or the page answers it. */
+export type FunctionToolInput<TIn = unknown, TOut = unknown> = Omit<
+  FunctionToolDef<TIn, TOut>,
+  'inputSchema' | 'outputSchema' | 'handler' | 'answeredBy'
+> & {
+  input: z.ZodType<TIn>;
+  output: z.ZodType<TOut>;
+} & (
+    | { handler: ToolHandler<TIn, NoInfer<TOut>>; answeredBy?: 'page' }
+    | { answeredBy: 'page'; handler?: undefined }
+  );
+
 export type ToolDefinitionInput<TIn = unknown, TOut = unknown> =
   | BuiltinToolDef
-  | (Omit<FunctionToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
-      input: z.ZodType<TIn>;
-      output: z.ZodType<TOut>;
-    })
+  | FunctionToolInput<TIn, TOut>
   | (Omit<HttpToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
       input: z.ZodType<TIn>;
       output: z.ZodType<TOut>;

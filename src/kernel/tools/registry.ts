@@ -4,14 +4,17 @@ import type { Profile, ProfileId } from '../types.ts';
 import { activityLabelProblem } from './activity-label.ts';
 import { agentToolInput, agentToolOutput, normalizeAgent } from './agent.ts';
 import { createMcpSessionCache, type McpSessionCache } from './mcp-sessions.ts';
+import { pageAnswerHandler } from './page-answer.ts';
 import { assertFixedEndpointOrigin, jsonSchemaFromZod, validateToolSchema } from './schema.ts';
 import type {
   FunctionToolDef,
+  FunctionToolInput,
   HttpToolDef,
   McpToolDef,
   RegisteredTool,
   ToolAuthConfig,
   ToolDefinitionInput,
+  ToolHandler,
   ToolLabels,
 } from './types.ts';
 
@@ -75,13 +78,20 @@ function normalizeMcp<TIn = unknown, TOut = unknown>(
 }
 
 function normalizeFunction<TIn = unknown, TOut = unknown>(
-  def: Omit<FunctionToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
-    input: z.ZodType<TIn>;
-    output: z.ZodType<TOut>;
-  },
+  def: FunctionToolInput<TIn, TOut>,
 ): FunctionToolDef<TIn, TOut> {
   assertAuthService(def.name, def.auth);
-  return { ...def, type: 'function', ...schemasFromZod(def) };
+  const handler =
+    def.answeredBy === 'page'
+      ? (pageAnswerHandler(def.name) as ToolHandler<TIn, NoInfer<TOut>>)
+      : def.handler;
+  if (typeof handler !== 'function') {
+    throw new TheoremError(
+      'config',
+      `Tool '${def.name}' needs a handler, or answeredBy: 'page'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  return { ...def, handler, type: 'function', ...schemasFromZod(def) };
 }
 
 function normalizeToolDefinition<TIn = unknown, TOut = unknown>(

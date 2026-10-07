@@ -801,7 +801,7 @@ function buildLiveSession(args: {
     held: HeldCall,
     input: unknown,
     resume: InvokeToolResume | undefined,
-    per: Pick<LiveExecuteToolArgs, 'credentials' | 'host'>,
+    per: Pick<LiveExecuteToolArgs, 'credentials' | 'host' | 'page'>,
   ): Promise<LiveExecuteToolResult> => {
     const waiting = held.state;
     const wasReleased = isReleased(held);
@@ -822,6 +822,7 @@ function buildLiveSession(args: {
         signal,
         resume,
         host,
+        page: per.page,
         turn: { step: Math.max(1, cycleStep), taint: cycleTaint, destinations },
       },
       snapshot,
@@ -1123,6 +1124,7 @@ function buildLiveSession(args: {
       secret,
       credentials,
       host,
+      page,
     }: LiveExecuteToolArgs): Promise<LiveExecuteToolResult> {
       assertOpen();
       const held = await takeHeld(callId);
@@ -1134,7 +1136,7 @@ function buildLiveSession(args: {
             `call ${callId} is not waiting on a gate; it takes no decision, input or secret`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
           );
         }
-        return await runHeld(callId, held, held.arguments, undefined, { credentials, host });
+        return await runHeld(callId, held, held.arguments, undefined, { credentials, host, page });
       }
       if (decision === undefined) {
         throw new TheoremError(
@@ -1162,6 +1164,7 @@ function buildLiveSession(args: {
       return await runHeld(callId, held, answered.input, answered.resume, {
         credentials,
         host,
+        page,
       });
     },
     answerToolCall({ callId, events }: LiveAnswerToolCallArgs): LiveExecuteToolResult {

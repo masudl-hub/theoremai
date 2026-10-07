@@ -1,6 +1,5 @@
 import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from '@std/assert';
 import { z } from 'zod';
-import { browserToolHandler } from '../../playground/browser-tool.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { lexiconText } from '../../src/guardrails/lexicon.ts';
 import type { ResolveHost } from '../../src/guardrails/network.ts';
@@ -1849,11 +1848,11 @@ function registerBrowserTool(): void {
     permission: 'auto',
     input: z.object({}),
     output: z.object({ count: z.number() }),
-    handler: browserToolHandler('live_browser_count'),
+    answeredBy: 'page',
   });
 }
 
-Deno.test('a browser tool settles with what the browser sent as host.clientOutput', async () => {
+Deno.test('a page tool settles with what the page sent', async () => {
   clearProfiles();
   resetTools();
   registerBrowserTool();
@@ -1861,13 +1860,13 @@ Deno.test('a browser tool settles with what the browser sent as host.clientOutpu
   await h.modelCalls({ id: 'c1', name: 'live_browser_count' });
   const settled = await h.session.executeTool({
     callId: 'c1',
-    host: { clientOutput: { count: 3 } },
+    page: { output: { count: 3 } },
   });
   assertEquals(settled.outputRaw, { count: 3 });
   await h.close();
 });
 
-Deno.test('a browser tool with no result, a timeout or an off-schema result fails to the model', async () => {
+Deno.test('a page tool with no result, a timeout or an off-schema result fails to the model', async () => {
   clearProfiles();
   resetTools();
   registerBrowserTool();
@@ -1878,10 +1877,10 @@ Deno.test('a browser tool with no result, a timeout or an off-schema result fail
     { id: 'c3', name: 'live_browser_count' },
   );
   const missing = await h.session.executeTool({ callId: 'c1' });
-  const timedOut = await h.session.executeTool({ callId: 'c2', host: { clientTimedOut: true } });
+  const timedOut = await h.session.executeTool({ callId: 'c2', page: { timedOut: true } });
   const wrong = await h.session.executeTool({
     callId: 'c3',
-    host: { clientOutput: { count: 'x' } },
+    page: { output: { count: 'x' } },
   });
   assertEquals(missing.failure !== undefined, true);
   assertStringIncludes(JSON.stringify(timedOut.failure), "didn't answer");

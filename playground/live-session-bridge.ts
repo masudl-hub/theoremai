@@ -35,7 +35,7 @@ function callWatch(session: LiveSession, timeoutMs: number): CallWatch {
         setTimeout(() => {
           timers.delete(callId);
           // The kernel never times out an ungated held call; a refusal here means it already settled.
-          session.executeTool({ callId, host: { clientTimedOut: true } }).catch(() => {});
+          session.executeTool({ callId, page: { timedOut: true } }).catch(() => {});
         }, timeoutMs),
       );
     },
@@ -88,7 +88,7 @@ function pipeBrowserToSession(
             void answerExecuteTool(
               serverWs,
               session,
-              output === undefined ? call : { ...call, host: { clientOutput: output } },
+              output === undefined ? call : { ...call, page: { output } },
               lexicon,
             );
             return;

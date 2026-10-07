@@ -40,6 +40,7 @@ import type {
   InvokeToolResume,
   LiveProfileToolsSpec,
   ModelToolResult,
+  PageAnswer,
   ProfileToolsSpec,
   RegisteredTool,
   ToolCallEvent,
@@ -1139,6 +1140,8 @@ export type LiveExecuteToolArgs = {
   secret?: string;
   credentials?: ToolCredentialSource;
   host?: unknown;
+  /** The page's answer, for a call to a tool with `answeredBy: 'page'`. */
+  page?: PageAnswer;
 };
 
 /**

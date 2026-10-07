@@ -126,19 +126,18 @@ so the relay passes the browser's `executeTool` message, less its `type`, to
 A tool the browser answers (a `function` tool whose result lives in the page) is
 settled by the same message: `executeToolOnRelay({ callId, output })` sends the
 browser's `output`, and the relay passes it to `session.executeTool` as
-`host: { clientOutput: output }`. The tool's handler is
-`browserToolHandler(name)` (`@theoremjs/playground/browser`): it returns
-`uncheckedOutput(host.clientOutput)`, so the tool's `output` schema checks what the browser sent
+`page: { output }`. The tool is registered with `answeredBy: 'page'` and no handler: the kernel
+returns what the page sent, so the tool's `output` schema checks it
 and a mismatch reaches the model as an ordinary tool failure. With no
-`clientOutput` the call fails to the model, naming the tool.
+`page` the call fails to the model, naming the tool.
 
 The kernel never times out an ungated held call, so the relay does:
 `attachPlaygroundLiveSession` starts a timer when the model makes a call
 (`clientCallTimeoutMs` in its options, default 20 s) and clears it when the
 browser's `executeTool` for that call arrives or the call settles or is
 cancelled. When it fires the relay calls `session.executeTool` with
-`host: { clientTimedOut: true }`, and `browserToolHandler` fails the call with
-"The page didn't answer. Look before trying again." The browser's
+`page: { timedOut: true }`, and the kernel fails the call with
+`tool.page_timed_out` ("The page didn't answer"). The browser's
 late answer is then refused like any `executeTool` for a settled call.
 
 | Export | Role |

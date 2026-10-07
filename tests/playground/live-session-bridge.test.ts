@@ -51,13 +51,13 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const call = (callId: string) =>
   ({ type: 'tool', tool: { name: 't', callId, arguments: {} } }) as TurnEvent;
 
-Deno.test('the bridge hands a browser tool outcome to executeTool as host.clientOutput', async () => {
+Deno.test('the bridge hands the outcome of a page tool to executeTool as page.output', async () => {
   const b = bridge([]);
   b.message({ type: 'executeTool', callId: 'c1', output: { done: true } });
   b.message({ type: 'executeTool', callId: 'c2' });
   await wait(0);
   assertEquals(b.calls, [
-    { callId: 'c1', host: { clientOutput: { done: true } } },
+    { callId: 'c1', page: { output: { done: true } } },
     {
       callId: 'c2',
     },
@@ -71,8 +71,8 @@ Deno.test('the bridge settles a call the browser never answered, and only that o
   b.message({ type: 'executeTool', callId: 'fast', output: 1 });
   await wait(60);
   assertEquals(b.calls, [
-    { callId: 'fast', host: { clientOutput: 1 } },
-    { callId: 'slow', host: { clientTimedOut: true } },
+    { callId: 'fast', page: { output: 1 } },
+    { callId: 'slow', page: { timedOut: true } },
   ]);
   await b.end();
 });

@@ -18,5 +18,4 @@ export {
   createBrowserPlaygroundTransport,
   type PlaygroundBrowserRuntime,
 } from './browser-transport.ts';
-export { browserToolHandler } from './browser-tool.ts';
 export { attachPlaygroundLiveSession } from './live-session-bridge.ts';

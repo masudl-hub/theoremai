@@ -44,7 +44,7 @@ export type LiveClientMessage =
       decision?: GateDecision;
       input?: unknown;
       secret?: string;
-      /** What the browser did for a tool that runs there; a relay hands it to the tool as `host.clientOutput`. */
+      /** What the browser did for a tool that runs there; a relay hands it to the session as `page.output`. */
       output?: unknown;
     };
 const liveClientMessage = z.discriminatedUnion('type', [
@@ -147,7 +147,7 @@ export type LiveToolStep = { status: 'settled' } | { status: 'gated'; gate: Tool
  * `decision` answers its gate; `input` is the user's edit to an approval;
  * `secret` is the key the user typed at a sign-in gate, sent once: the
  * session makes it the credential for the gate's slot. `output` is the
- * browser's result for a tool that runs in the page (see `browserToolHandler`).
+ * browser's result for a tool the page answers (`answeredBy: 'page'`).
  */
 export type ExecuteToolOnRelay = (
   args: Omit<Extract<LiveClientMessage, { type: 'executeTool' }>, 'type'>,

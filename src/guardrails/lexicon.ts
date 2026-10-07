@@ -110,6 +110,8 @@ export const LEXICON_KEYS = [
   'tool.input_invalid_after_mutate',
   'tool.output_invalid_after_mutate',
   'tool.handler_no_output',
+  'tool.page_no_answer',
+  'tool.page_timed_out',
   'tool.output_invalid',
   'tool.not_loaded_t2',
   'tool.not_visible',
@@ -342,6 +344,8 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'tool.input_invalid_after_mutate': 'Tool input validation failed after mutate',
   'tool.output_invalid_after_mutate': 'Tool output validation failed after mutate',
   'tool.handler_no_output': 'Handler returned no output',
+  'tool.page_no_answer': "Tool '{tool}' runs in the page, and the page sent no result",
+  'tool.page_timed_out': "The page didn't answer",
   'tool.output_invalid': 'Tool output validation failed',
   'tool.not_loaded_t2': "Tool '{tool}' is not loaded — run profile.tools.t2Loader first",
   'tool.not_visible': "Tool '{tool}' is not visible this turn",
@@ -553,6 +557,9 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
   'tool.output_invalid_after_mutate':
     "Told to the model when a tool's output fails its schema after a guardrail changed it.",
   'tool.handler_no_output': "Told to the model when a tool's handler returns nothing.",
+  'tool.page_no_answer':
+    'Told to the model when a tool the page answers is run with no answer from the page. Takes {tool}.',
+  'tool.page_timed_out': 'Told to the model when the page does not answer a tool call in time.',
   'tool.output_invalid': "Told to the model when a tool's output fails the tool's output schema.",
   'tool.not_loaded_t2':
     'Told to the model when it calls a T2 tool the T2 loader has not loaded yet. Takes {tool}.',
@@ -611,6 +618,7 @@ const LEXICON_PLACEHOLDERS: Partial<Record<LexiconKey, readonly string[]>> = {
   'tool.awaiting_user': ['kind', 'prompt'],
   'tool.t2_loader_needs_snapshot': TOOL,
   'tool.t2_loader_shape': TOOL,
+  'tool.page_no_answer': TOOL,
   'tool.not_loaded_t2': TOOL,
   'tool.not_visible': TOOL,
   'tool.builtin_not_enabled': TOOL,

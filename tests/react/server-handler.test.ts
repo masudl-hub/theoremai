@@ -137,6 +137,7 @@ Deno.test("describe sends a tool's id, never its definition", async () => {
   const iface = await transportFor(handler).describe();
   assertEquals(iface.type === 'text' ? iface.tools : undefined, {
     allow: ['handler_describe_http'],
+    page: [],
   });
 });
 

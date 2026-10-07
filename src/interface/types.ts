@@ -2,12 +2,7 @@ import type { Boundary } from '../guardrails/boundaries.ts';
 import type { DetectAction, DetectMatrix, Detector, UrlDetector } from '../guardrails/detectors.ts';
 import type { LexiconOverrides } from '../guardrails/lexicon.ts';
 import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
-import type {
-  LiveProfileToolsSpec,
-  ProfileToolsSpec,
-  ToolCallEdit,
-  ToolPhaseEvent,
-} from '../kernel/tools/types.ts';
+import type { ProfileToolsSpec, ToolCallEdit, ToolPhaseEvent } from '../kernel/tools/types.ts';
 import type {
   AttachmentValidationIssue,
   CompactionSpec,
@@ -89,8 +84,11 @@ export interface ProfileInputsInterface {
   context?: ProfileContextSpec;
 }
 
-/** A tool's definition (handler, schemas, endpoint, headers) stays on the host; `t1Policy` too. */
-export type ProfileToolsView = Pick<ProfileToolsSpec, 'allow' | 't2Loader'>;
+/**
+ * A tool's definition (handler, schemas, endpoint, headers) stays on the host; `t1Policy` too.
+ * `page` names the tools the page answers (`answeredBy: 'page'`): the page needs a function for each.
+ */
+export type ProfileToolsView = Pick<ProfileToolsSpec, 'allow' | 't2Loader'> & { page: string[] };
 
 /** A model binding as the interface carries it: a compaction `trigger` is a host function. */
 export type ModelBindingView = Omit<ModelBinding, 'compaction'> & {
@@ -148,7 +146,7 @@ export type LiveProfileInterface = Omit<
   models: Record<ModelId, ModelBindingView>;
   /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
   lexicon: LexiconOverrides;
-  tools: LiveProfileToolsSpec;
+  tools: Pick<ProfileToolsView, 'allow' | 'page'>;
   guardrails?: ProfileGuardrailsView;
   observability?: ProfileObservabilityView;
 };

@@ -1,4 +1,5 @@
 import { assertEquals, assertFalse, assertThrows } from '@std/assert';
+import { z } from 'zod';
 import { DETECT_DEFAULTS, resolveDetect } from '../../src/guardrails/detectors.ts';
 import { compileDetect } from '../../src/guardrails/egress-compiler.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
@@ -162,6 +163,48 @@ Deno.test('interfaceFromProfile maps live type without turn inputs', () => {
     assertFalse('inputs' in iface);
     assertEquals(iface.live.ingress, undefined);
   }
+});
+
+Deno.test('the interface names the tools the page answers', () => {
+  const pageTool = {
+    type: 'function' as const,
+    description: 'marks a part of the page',
+    category: 'test',
+    access: 'read-only' as const,
+    paths: ['*'],
+    loadTier: 'T0' as const,
+    permission: 'auto' as const,
+    input: z.object({}),
+    output: z.object({ done: z.boolean() }),
+  };
+  defaultKernelScope.tools.register({ ...pageTool, name: 'iface_page_mark', answeredBy: 'page' });
+  defaultKernelScope.tools.register({
+    ...pageTool,
+    name: 'iface_host_mark',
+    handler: () => ({ done: true }),
+  });
+  const text = defineProfile({
+    id: 'interface.text.page_tools',
+    type: 'text',
+    identity: { handle: 'page_agent' },
+    ...geminiModels('gemini35FlashLite'),
+    tools: { allow: ['iface_page_mark', 'iface_host_mark'] },
+    inputs: { text: true },
+  });
+  const iface = interfaceFromProfile(text, defaultKernelScope.tools);
+  assertEquals(iface.type === 'text' ? iface.tools : undefined, {
+    allow: ['iface_page_mark', 'iface_host_mark'],
+    page: ['iface_page_mark'],
+  });
+  assertThrows(
+    () =>
+      defaultKernelScope.tools.register({
+        ...pageTool,
+        name: 'iface_no_handler',
+      } as unknown as Parameters<typeof defaultKernelScope.tools.register>[0]),
+    TheoremError,
+    "needs a handler, or answeredBy: 'page'",
+  );
 });
 
 Deno.test('interfaceFromProfile preserves live.ingress on projection', () => {

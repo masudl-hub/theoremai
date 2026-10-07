@@ -31,6 +31,7 @@ import {
   assertTurnSlots,
   resolveImageFormat,
   resolveInputParts,
+  resolveSpeech,
 } from './ingress.ts';
 import type { KernelRegistry } from './kernel-registry.ts';
 import { resolveTurnSystemPrompt } from './system-prompt.ts';
@@ -297,7 +298,7 @@ function resolveTurnInRegistry(
         ? { id: structuredId, jsonSchema: registry.schemas.get(structuredId).jsonSchema }
         : null,
       image: resolveImageFormat(profile),
-      speech: profile.type === 'speech' ? profile.speech : undefined,
+      speech: resolveSpeech(profile, safe),
       live: profile.type === 'live' ? resolveLiveSpec(profile.live, profile.guardrails) : undefined,
       input: resolveInputParts(profile, safe),
       ...keys,

@@ -118,10 +118,7 @@ Deno.test('createProvider throws for openAi/local speech profile', () => {
 
 Deno.test('createProvider returns a speech provider for openAi/openrouter speech profile', () => {
   const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'speech');
-  const provider = createProvider(profile, {
-    vault: { slot_a: 'key' },
-    openAiGateway: { voice: 'Kore' },
-  });
+  const provider = createProvider(profile, { vault: { slot_a: 'key' } });
   assertEquals(typeof provider.complete, 'function');
 });
 

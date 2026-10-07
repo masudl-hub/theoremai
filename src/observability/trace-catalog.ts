@@ -114,7 +114,7 @@ interface TraceSpanMeta {
 /** Labels and descriptions for each attribute group. */
 const TRACE_ATTRIBUTE_GROUPS: Readonly<Record<TraceAttributeGroup, TraceOptionMeta>> = {
   agent: { label: 'Agent', doc: 'Which agent ran, for which conversation, and how it ended.' },
-  request: { label: 'Request', doc: 'What THEOREM asked the provider for.' },
+  request: { label: 'Request', doc: 'What theorem asked the provider for.' },
   response: { label: 'Response', doc: 'What the provider said about its answer.' },
   messages: { label: 'Messages', doc: 'What was read and written, stored by hash.' },
   usage: { label: 'Usage', doc: 'Tokens and cost, as reported or estimated.' },
@@ -199,7 +199,7 @@ const STOP_KINDS: Readonly<Record<TurnStopKind | 'go_away', TraceOptionMeta>> = 
 
 const ERROR_KIND_OPTIONS: Readonly<Record<ErrorKind, TraceOptionMeta>> = {
   config: { label: 'Setup', doc: 'The profile, tool, or schema is set up wrong.' },
-  request: { label: 'Host request', doc: 'The host called THEOREM wrongly.' },
+  request: { label: 'Host request', doc: 'The host called theorem wrongly.' },
   input: { label: 'User input', doc: 'The user sent input the profile does not accept.' },
   action: { label: 'Not allowed', doc: 'The user asked for something the profile does not allow.' },
   auth: {
@@ -215,7 +215,7 @@ const ERROR_KIND_OPTIONS: Readonly<Record<ErrorKind, TraceOptionMeta>> = {
   },
   network: { label: 'Network', doc: 'The request never reached the provider.' },
   timeout: { label: 'Timeout', doc: 'The model took longer than the host allowed.' },
-  safety: { label: 'Safety', doc: 'THEOREM or the provider held the reply back.' },
+  safety: { label: 'Safety', doc: 'theorem or the provider held the reply back.' },
   blocked: {
     label: 'Blocked',
     doc: "A guardrail or host policy stopped one of the agent's steps.",
@@ -223,7 +223,7 @@ const ERROR_KIND_OPTIONS: Readonly<Record<ErrorKind, TraceOptionMeta>> = {
   declined: { label: 'Declined', doc: "The user declined one of the agent's steps." },
   failed: { label: 'Failed', doc: "One of the agent's steps ran and failed." },
   cancelled: { label: 'Cancelled', doc: 'The user or host stopped the turn.' },
-  internal: { label: 'Internal', doc: 'A THEOREM invariant broke.' },
+  internal: { label: 'Internal', doc: 'A theorem invariant broke.' },
 };
 
 /** `error.type`: an error kind, or the failing stop. An HTTP status or exception shows as is. */
@@ -250,7 +250,7 @@ const TOOL_OUTCOMES: Readonly<
 
 const TOOL_ORIGIN_OPTIONS: Readonly<Record<ToolOrigin, TraceOptionMeta>> = {
   local: { label: 'Host code', doc: 'TypeScript the host registered, run in-process.' },
-  builtin: { label: 'Built-in', doc: 'A tool THEOREM ships.' },
+  builtin: { label: 'Built-in', doc: 'A tool theorem ships.' },
   http: { label: 'HTTP', doc: 'A remote HTTP endpoint.' },
   mcp: { label: 'MCP', doc: 'A tool on an MCP server.' },
   delegated: { label: 'Another agent', doc: 'A specialist agent the tool ran.' },
@@ -298,7 +298,7 @@ const OPERATIONS: Readonly<
   invoke_agent: { label: 'Run agent', doc: 'One turn of an agent, or one Live session.' },
   chat: { label: 'Chat', doc: 'A model call over a chat-completions API.' },
   generate_content: { label: 'Generate content', doc: 'A model call over a Gemini API.' },
-  execute_tool: { label: 'Run tool', doc: 'A tool call THEOREM ran.' },
+  execute_tool: { label: 'Run tool', doc: 'A tool call theorem ran.' },
   decide: {
     label: 'Decide',
     doc: 'One model decision: typed answers to questions over JSON state.',
@@ -584,7 +584,7 @@ const SESSION_KINDS: Readonly<
 const CLOSE_INITIATORS: Readonly<Record<'host' | 'provider' | 'theorem', TraceOptionMeta>> = {
   host: { label: 'Host', doc: 'The host closed the session.' },
   provider: { label: 'Provider', doc: 'The provider closed the socket.' },
-  theorem: { label: 'THEOREM', doc: 'THEOREM closed the socket.' },
+  theorem: { label: 'theorem', doc: 'theorem closed the socket.' },
 };
 
 const CLOCK_OPTIONS: Readonly<Record<'io', TraceOptionMeta>> = {
@@ -769,6 +769,7 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
   }),
   'theorem.request.speech': fields('request', 'Speech settings', 'The audio asked for.', {
     voice: attr('request', 'Voice', 'text', 'The voice.'),
+    speed: attr('request', 'Speed', 'number', "The speaking rate; 1 is the voice's own pace."),
     format: attr('request', 'Format', 'text', 'The audio format.'),
   }),
   'theorem.request.live': fields('request', 'Live settings', 'The Live session setup, as sent.', {
@@ -968,7 +969,7 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'usage',
     'Estimated',
     'list',
-    'Sides whose token counts THEOREM estimated rather than the provider reporting them.',
+    'Sides whose token counts theorem estimated rather than the provider reporting them.',
     USAGE_SIDES,
   ),
   'theorem.usage.unknown_media': fields(
@@ -1057,7 +1058,7 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'http',
     'Wait before retry',
     'milliseconds',
-    'How long THEOREM waited after the previous try.',
+    'How long theorem waited after the previous try.',
   ),
 
   'error.type': {
@@ -1111,7 +1112,7 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'part',
     'Seen at',
     'time',
-    'When THEOREM saw this provider-run step whole.',
+    'When theorem saw this provider-run step whole.',
   ),
   'theorem.partial': attr(
     'part',
@@ -1369,7 +1370,7 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
   },
   'theorem.compaction': {
     label: 'Compaction',
-    doc: 'THEOREM decided whether to summarize earlier messages.',
+    doc: 'theorem decided whether to summarize earlier messages.',
     attributes: {
       timing: attr('agent', 'Timing', 'text', 'When compaction runs.', COMPACTION_TIMING_OPTIONS),
       meter: attr(
@@ -1612,7 +1613,7 @@ const TRACE_SPAN_TYPES: Readonly<Record<TraceSpanType, TraceOptionMeta>> = {
   session: { label: 'Live session', doc: 'A Live session, from setup to close.' },
   call: { label: 'Model call', doc: 'One request to a model and its answer.' },
   response: { label: 'Live response', doc: 'One spoken response in a Live session.' },
-  tool: { label: 'Tool call', doc: 'One tool call THEOREM ran, from its hooks to settlement.' },
+  tool: { label: 'Tool call', doc: 'One tool call theorem ran, from its hooks to settlement.' },
   http: { label: 'HTTP try', doc: 'One HTTP attempt of a model call.' },
   cutout: { label: 'Cutout', doc: 'A side effect the host recorded after the turn.' },
   decision: { label: 'Decision', doc: 'One typed decision over JSON state.' },

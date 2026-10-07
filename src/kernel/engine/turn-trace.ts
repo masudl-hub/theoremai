@@ -536,6 +536,7 @@ function controlAttributes(req: ProviderCompleteRequest): TraceAttributes {
       ? {
           'theorem.request.speech': {
             ...optional('voice', speech.voice),
+            ...optional('speed', speech.speed),
             ...optional('format', speech.format),
           },
         }

@@ -1,5 +1,6 @@
 import '../../../fixtures/test-host.ts';
-import { assertEquals } from '@std/assert';
+import { assertEquals, assertThrows } from '@std/assert';
+import { TheoremError } from '../../../../src/guardrails/error.ts';
 import { getProfile, registerProfile, resolveTurn } from '../../../../src/kernel/default-scope.ts';
 import { providerBuiltins } from '../../../../src/kernel/registry/provider-request.ts';
 import { defaultKernelScope } from '../../../../src/kernel/scope.ts';
@@ -40,24 +41,9 @@ function sseResponse(events: unknown[]): Response {
   return new Response(`${payload}\ndata: [DONE]\n`, { status: 200 });
 }
 
-Deno.test('speech profile resolves pins and model wire ids', () => {
-  const { generation } = resolveTurn({
-    profile: 'speech',
-    input: { text: 'Hello there' },
-  });
-  assertEquals(generation.model, 'gemini31FlashTts');
-  assertEquals(generation.apiId, 'gemini-3.1-flash-tts-preview');
-  assertEquals(generation.speech, { voice: 'Kore', format: 'pcm' });
-  assertEquals(generation.image, null);
-  assertEquals(generation.structured, null);
-});
-
-Deno.test('Interactions body for speech uses audio response_format and speech_config', () => {
-  const { generation } = resolveTurn({
-    profile: 'speech',
-    input: { text: 'Say hello' },
-  });
-  const body = toInteractionsBody({
+/** The provider request a resolved speech turn makes. */
+function speechRequest(generation: ReturnType<typeof resolveTurn>['generation']) {
+  return {
     model: generation.model,
     apiId: generation.apiId,
     thinking: generation.thinking,
@@ -71,7 +57,75 @@ Deno.test('Interactions body for speech uses audio response_format and speech_co
     image: generation.image,
     speech: generation.speech,
     keySlot: generation.keySlot,
+  };
+}
+
+Deno.test('speech profile resolves pins and model wire ids', () => {
+  const { generation } = resolveTurn({
+    profile: 'speech',
+    input: { text: 'Hello there' },
   });
+  assertEquals(generation.model, 'gemini31FlashTts');
+  assertEquals(generation.apiId, 'gemini-3.1-flash-tts-preview');
+  assertEquals(generation.speech, { voice: 'Kore', format: 'pcm' });
+  assertEquals(generation.image, null);
+  assertEquals(generation.structured, null);
+});
+
+Deno.test("a turn's speech settings replace the profile's, field by field", () => {
+  const { generation } = resolveTurn({
+    profile: 'speech',
+    input: { text: 'Hello there' },
+    speech: { voice: 'Aoede', style: 'Slow and warm.', speed: undefined },
+  });
+  assertEquals(generation.speech, { voice: 'Aoede', style: 'Slow and warm.', format: 'pcm' });
+});
+
+Deno.test('the script reaches a speech model as written, with no fence around it', () => {
+  const { generation } = resolveTurn({ profile: 'speech', input: { text: 'Hello there' } });
+  assertEquals(generation.input, [{ type: 'text', text: 'Hello there' }]);
+});
+
+Deno.test('speech settings on a profile that does not speak are refused', () => {
+  assertThrows(
+    () => resolveTurn({ profile: 'chat', input: { text: 'hi' }, speech: { voice: 'Aoede' } }),
+    TheoremError,
+    'takes no speech settings',
+  );
+});
+
+Deno.test('Interactions carries the style beside the script, and refuses a speed', () => {
+  const { generation } = resolveTurn({
+    profile: 'speech',
+    input: { text: 'Hello there' },
+    speech: { style: 'Slow and warm.' },
+  });
+  const req = speechRequest(generation);
+  assertEquals(toInteractionsBody(req).input, [
+    {
+      type: 'user_input',
+      content: [
+        {
+          type: 'text',
+          text: 'Hello there',
+          annotations: [{ type: 'speech_metadata', style: 'Slow and warm.' }],
+        },
+      ],
+    },
+  ]);
+  assertThrows(
+    () => toInteractionsBody({ ...req, speech: { ...req.speech, speed: 1.5 } }),
+    TheoremError,
+    'no speed field',
+  );
+});
+
+Deno.test('Interactions body for speech uses audio response_format and speech_config', () => {
+  const { generation } = resolveTurn({
+    profile: 'speech',
+    input: { text: 'Say hello' },
+  });
+  const body = toInteractionsBody(speechRequest(generation));
 
   const format = body[camelToSnake('responseFormat')] as Record<string, string>;
   const gen = body[camelToSnake('generationConfig')] as Record<string, unknown>;

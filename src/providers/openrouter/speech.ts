@@ -17,10 +17,7 @@ import { openRouterFetch } from './transport.ts';
 
 const HTTP_OK = 200;
 
-export type SpeechProviderConfig = OpenAiGatewayTransport & {
-  /** Fallback when the profile does not pin `speech.voice`. */
-  voice?: string;
-};
+export type SpeechProviderConfig = OpenAiGatewayTransport;
 
 export function extractInputText(input: InteractionPart[]): string {
   return input
@@ -47,9 +44,7 @@ export function buildPayload(
   req: ProviderCompleteRequest,
   text: string,
   speech: ProfileSpeechSpec | undefined,
-  configVoice?: string,
 ): Record<string, unknown> {
-  const voice = speech?.voice ?? configVoice;
   const payload: Record<string, unknown> = {
     model: req.apiId,
     input: text,
@@ -57,8 +52,15 @@ export function buildPayload(
   if (speech?.format) {
     payload.response_format = speech.format;
   }
-  if (voice) {
-    payload.voice = voice;
+  if (speech?.voice) {
+    payload.voice = speech.voice;
+  }
+  if (speech?.speed !== undefined) {
+    payload.speed = speech.speed;
+  }
+  // why: `instructions` is the endpoint's own field for delivery, never read aloud (probe 07/10/2026: Gemini 3.8 slowed and sped by it).
+  if (speech?.style) {
+    payload.instructions = speech.style;
   }
   return payload;
 }
@@ -75,7 +77,7 @@ export async function requestSpeech(
   return await fetchFn(url, {
     method: 'POST',
     headers: buildSpeechHeaders(apiKey, config),
-    body: JSON.stringify(buildPayload(req, text, req.speech, config.voice)),
+    body: JSON.stringify(buildPayload(req, text, req.speech)),
     signal: req.signal,
   });
 }

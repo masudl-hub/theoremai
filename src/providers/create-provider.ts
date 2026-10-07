@@ -27,8 +27,7 @@ export interface CreateProviderOptions {
    */
   vault?: KeyVault;
   gemini?: GeminiOptions;
-  /** `voice` is the fallback when a speech profile omits `speech.voice`. */
-  openAiGateway?: OpenAiGatewayConfig & { voice?: string };
+  openAiGateway?: OpenAiGatewayConfig;
   /** Required for `local` profiles. */
   local?: LocalProviderConfig;
 }

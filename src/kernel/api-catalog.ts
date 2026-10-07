@@ -134,6 +134,11 @@ export const REQUEST_FIELDS: Record<keyof TurnRequest | `input.${keyof TurnInput
     type: 'number',
     doc: 'Which continue attempt this is, from 1; checked against the maxContinues of the profile.',
   },
+  speech: {
+    type: 'TurnSpeech',
+    doc: "This turn's voice, style and speed; each one given replaces the profile's speech field of that name. Refused on a profile that is not speech.",
+    unset: "The profile's speech settings",
+  },
   googleMapsLocation: {
     type: '{ latitude: number; longitude: number }',
     doc: 'Where the Google Maps built-in tool looks first; ignored when the model has no googleMaps.',

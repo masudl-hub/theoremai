@@ -185,11 +185,29 @@ export function attachSpeechConfig(
   if (!req.speech) {
     return;
   }
-  const voice = req.speech.voice;
+  const { voice, speed } = req.speech;
+  if (speed !== undefined) {
+    // why: Interactions has no rate field, and a speed dropped here would be a setting the host believes it made.
+    throw new TheoremError(
+      'config',
+      'Gemini Interactions speech has no speed field: set the pace in speech.style',
+    );
+  }
   if (!voice) {
     return;
   }
   generationConfig.speechConfig = [{ voice }];
+}
+
+/** The script's text parts, each carrying the delivery note: Gemini reads `text` aloud and `speech_metadata` as direction. */
+function speechInputStep(parts: InteractionPart[], style: string): Record<string, unknown> {
+  const annotations = [{ type: 'speech_metadata', style }];
+  return {
+    type: USER_INPUT,
+    content: parts
+      .map(wirePart)
+      .map((part) => (part.type === 'text' ? { ...part, annotations } : part)),
+  };
 }
 
 function wireInteractionsFunctionTool(decl: WireFunctionTool): Record<string, unknown> {
@@ -252,7 +270,8 @@ export function inputStepsFromRequest(req: ProviderCompleteRequest): Record<stri
     inputSteps.push(...historySteps(h));
   }
   if (req.input.length > 0 || inputSteps.length === 0) {
-    inputSteps.push(userInputStep(req.input));
+    const style = req.speech?.style;
+    inputSteps.push(style ? speechInputStep(req.input, style) : userInputStep(req.input));
   }
   return inputSteps;
 }

@@ -69,7 +69,7 @@ Owns every module under `src/providers/`.
 const provider = createProvider(profile, {
   vault: { main, spare }, // one vault for every provider; slot names are yours
   gemini: { fetch?, wait? },
-  openAiGateway: { baseUrl?, siteUrl?, siteName?, fetch?, wait?, voice? },
+  openAiGateway: { baseUrl?, siteUrl?, siteName?, fetch?, wait? },
   local: { baseUrl?, fetch? },
 }, modelId?)
 ```
@@ -148,7 +148,6 @@ the model or profile names in `key`.
 | `siteUrl` / `siteName` | Optional HTTP-Referer / X-Title style metadata |
 | `fetch` | Optional custom fetch |
 | `wait` | Optional backoff wait for image and speech (see Retries) |
-| `voice` | Optional fallback when `outputs.speech.voice` omitted |
 
 Chat and speech requests use `ProviderCompleteRequest.apiId` on the wire — same
 field as Google Interactions and local OpenAI-compat paths.
@@ -335,6 +334,26 @@ When `profile.type === 'speech'` and protocol/provider is
 | --- | --- | --- | --- |
 | OpenAI | `src/providers/openrouter/speech.ts` | `/audio/speech` | `speech.format` rides `response_format` when set; unset sends none, and the upstream picks. `mp3` allowed. The response carries no usage; the runner estimates the call. The response's `content-type` states the audio; raw PCM with a rate is wrapped as WAV. The endpoint answers whole or not at all, so a body with audio ends `done` with stop `completed`. |
 | Interactions | `src/providers/google/interactions/mod.ts` | `responseFormat: { type: 'audio' }` | Real PCM → WAV only. Missing audio on a speech-role turn (text-only or empty) yields an `error` event — never invents PCM from text bytes. `mp3` is refused (`unsupported`) when the request is framed; Gemini speech takes only `GOOGLE_SPEECH_FORMATS`. |
+
+A speech turn's settings are `profile.speech` with the request's
+`TurnRequest.speech` (`voice`, `style`, `speed`) laid over it, field by field
+(`resolveSpeech`, `src/kernel/registry/ingress.ts`); a host that lets each user
+pick a voice sends it there. The kernel carries the three as plain values and
+each transport maps them:
+
+| Setting | OpenAI `/audio/speech` | Interactions |
+| --- | --- | --- |
+| `voice` | `voice` | `generationConfig.speechConfig: [{ voice }]` |
+| `style` | `instructions` | a `{ type: 'speech_metadata', style }` annotation on each text part of the script |
+| `speed` | `speed` | refused (`config`): the API has no rate field, so the pace goes in `style` |
+
+Neither transport knows what a model honours before it is called: a provider's
+refusal comes back as the turn's `error` event with the provider's own message
+in `errorInternal`, and an upstream that drops a setting it does not know (probe
+07/10/2026: OpenRouter ignored `speed` on Gemini, Grok and Voxtral) says nothing.
+
+The script is sent as written, with no `<user_data>` fence: a speech model reads
+its whole input aloud and follows no instruction in it.
 
 Speech turns carry no system prompt. The input text is the transcript: Gemini
 TTS rejects developer instructions ("Developer instruction is not enabled") and

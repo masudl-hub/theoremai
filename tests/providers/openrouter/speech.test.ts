@@ -116,7 +116,7 @@ Deno.test('streamSpeech yields error when response is empty', async () => {
 Deno.test('streamSpeech yields media and done on successful synthesis (no usage reported)', async () => {
   const req = {
     ...createMockSpeechRequest('Hello, welcome to the demo!'),
-    speech: { format: 'pcm' as const },
+    speech: { voice: 'Orus', format: 'pcm' as const },
   };
   const mockPcmBytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
@@ -142,7 +142,6 @@ Deno.test('streamSpeech yields media and done on successful synthesis (no usage 
 
   const provider = createSpeechProvider({
     vault: { slot_a: 'mock-openrouter-key' },
-    voice: 'Orus',
     fetch: mockFetch,
   });
 
@@ -299,33 +298,35 @@ Deno.test('buildSpeechHeaders adds both when siteUrl and siteName are set', () =
 
 Deno.test('buildPayload omits response_format when speech.format is unset', () => {
   const req = createMockSpeechRequest('hi');
-  const payload = buildPayload(req, 'hi there', undefined, undefined);
-  assertEquals('response_format' in payload, false);
-  assertEquals(payload.input, 'hi there');
-  assertEquals('voice' in payload, false);
+  const payload = buildPayload(req, 'hi there', undefined);
+  assertEquals(payload, { model: req.apiId, input: 'hi there' });
 });
 
-Deno.test('buildPayload prefers speech.voice over configVoice', () => {
+Deno.test('buildPayload sends the voice, the speed, and the style as instructions', () => {
   const req = createMockSpeechRequest('hi');
-  const payload = buildPayload(req, 'hi there', { voice: 'Kore' }, 'fallback-voice');
-  assertEquals(payload.voice, 'Kore');
-});
-
-Deno.test('buildPayload falls back to configVoice when speech.voice is absent', () => {
-  const req = createMockSpeechRequest('hi');
-  const payload = buildPayload(req, 'hi there', undefined, 'fallback-voice');
-  assertEquals(payload.voice, 'fallback-voice');
+  const payload = buildPayload(req, 'hi there', {
+    voice: 'Kore',
+    speed: 1.5,
+    style: 'Slow and warm.',
+  });
+  assertEquals(payload, {
+    model: req.apiId,
+    input: 'hi there',
+    voice: 'Kore',
+    speed: 1.5,
+    instructions: 'Slow and warm.',
+  });
 });
 
 Deno.test('buildPayload honors speech.format', () => {
   const req = createMockSpeechRequest('hi');
-  const payload = buildPayload(req, 'hi there', { format: 'mp3' }, undefined);
+  const payload = buildPayload(req, 'hi there', { format: 'mp3' });
   assertEquals(payload.response_format, 'mp3');
 });
 
 Deno.test('buildPayload uses apiId on the wire', () => {
   const req = createMockSpeechRequest('hi');
-  const payload = buildPayload(req, 'hi there', undefined, undefined);
+  const payload = buildPayload(req, 'hi there', undefined);
   assertEquals(payload.model, req.apiId);
 });
 

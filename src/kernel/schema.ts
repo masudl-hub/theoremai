@@ -1097,7 +1097,18 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'Whether the model may write text alongside its images; on OpenRouter this also sends the system instruction and history.',
   ),
   speech: field('ProfileSpeechSpec', 'Settings for the audio this profile speaks.'),
-  'speech.voice': field('string', 'The voice the speech is read in.'),
+  'speech.voice': field(
+    'string',
+    "The voice the speech is read in, by the provider's own name for it; a turn's speech.voice replaces it.",
+  ),
+  'speech.style': field(
+    'string',
+    "How the script is delivered, in plain words (pace, mood, accent); it is never read aloud, and a turn's speech.style replaces it. A model that takes no direction ignores it.",
+  ),
+  'speech.speed': field(
+    'number',
+    "The speaking rate, where 1 is the voice's own pace; a turn's speech.speed replaces it. Gemini Interactions refuses it (set the pace in speech.style), and an OpenRouter model that has no rate ignores it.",
+  ),
   'speech.format': field(
     unionType(SPEECH_AUDIO_FORMATS),
     'The audio format asked of the provider.',

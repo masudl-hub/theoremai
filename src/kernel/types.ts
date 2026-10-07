@@ -398,9 +398,16 @@ export interface ProfileValidationSpec {
 /** `voice` is the TTS voice id, not ingress audio (`inputs.voice`). */
 export interface ProfileSpeechSpec {
   voice?: string;
+  /** How the script is delivered, in plain words: pace, mood, accent. Never read aloud. */
+  style?: string;
+  /** The speaking rate; 1 is the voice's own pace. */
+  speed?: number;
   /** `mp3` requires `protocol: 'openAi'` speech; rejected on Interactions. */
   format?: SpeechAudioFormat;
 }
+
+/** What one speech turn sets for itself; each field given replaces the profile's `speech` field of that name. */
+export type TurnSpeech = Pick<ProfileSpeechSpec, 'voice' | 'style' | 'speed'>;
 
 /** Voice activity detection settings for a live session. */
 export interface LiveVadSpec {
@@ -888,6 +895,8 @@ export interface TurnRequest {
   effort?: string;
   /** Host-provided dynamic system prompt combined with profile persona */
   system?: SystemPrompt;
+  /** This turn's voice, style and speed, over `profile.speech`. Speech profiles only. */
+  speech?: TurnSpeech;
   sessionPermissions?: string[];
   /** Host channel/path for catalog `paths` filtering. */
   path?: string;

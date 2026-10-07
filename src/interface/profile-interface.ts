@@ -218,6 +218,8 @@ const profileInterface = z.discriminatedUnion('type', [
     outputs: outputs.optional(),
     speech: z.object({
       voice: z.string().optional(),
+      style: z.string().optional(),
+      speed: z.number().optional(),
       format: z.enum(SPEECH_AUDIO_FORMATS).optional(),
     }),
     inputs,

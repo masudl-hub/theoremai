@@ -10,9 +10,11 @@ import type {
   InteractionPart,
   MediaInputKind,
   Profile,
+  ProfileSpeechSpec,
   TurnBlob,
   TurnMediaRef,
   TurnRequest,
+  TurnSpeech,
 } from '../types.ts';
 import { isTurnMediaRef } from './attachments.ts';
 import { mediaKindForMime, mimeEssence, profileInputs } from './catalog.ts';
@@ -51,6 +53,12 @@ function assertOutputMode(profile: Profile, structuredId: string | null): void {
 
 function assertSpeechRole(profile: Profile, req: TurnRequest): void {
   if (profile.type !== 'speech') {
+    if (req.speech) {
+      throw new TheoremError(
+        'request',
+        `Profile ${profile.id} (${profile.type}) takes no speech settings — only a speech profile speaks`, // lexicon-exempt: developer contract error
+      );
+    }
     return;
   }
   if (req.system) {
@@ -59,6 +67,19 @@ function assertSpeechRole(profile: Profile, req: TurnRequest): void {
       `Profile ${profile.id} (speech) takes no system prompt — the input text is the transcript`, // lexicon-exempt: developer contract error
     );
   }
+}
+
+/** The profile's speech settings with this turn's laid over them. */
+function resolveSpeech(profile: Profile, req: TurnRequest): ProfileSpeechSpec | undefined {
+  return profile.type === 'speech'
+    ? { ...profile.speech, ...definedFields(req.speech) }
+    : undefined;
+}
+
+function definedFields(speech: TurnSpeech | undefined): TurnSpeech {
+  return Object.fromEntries(
+    Object.entries(speech ?? {}).filter(([, value]) => value !== undefined),
+  );
 }
 
 function resolveImageFormat(profile: Profile): ImageResponseFormat | null {
@@ -113,6 +134,10 @@ function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | 
   const promptText = repair
     ? synthesizeRepairPrompt({ profile, repair, history })
     : (continueText(profile, req) ?? text);
+  // why: A speech model reads its input aloud, fence and all; it follows no instruction, so none needs fencing.
+  if (profile.type === 'speech') {
+    return promptText ? { type: 'text', text: promptText } : null;
+  }
   const blocks = [...contextBlocks(req), ...(promptText ? [wrapUserData(promptText)] : [])];
   return blocks.length > 0 ? { type: 'text', text: blocks.join('\n\n') } : null;
 }
@@ -214,4 +239,5 @@ export {
   assertTurnSlots,
   resolveImageFormat,
   resolveInputParts,
+  resolveSpeech,
 };

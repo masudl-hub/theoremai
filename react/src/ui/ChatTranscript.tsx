@@ -645,6 +645,12 @@ function TraceList({ items, streaming }: { items: readonly TraceItem[]; streamin
   return <VStack gap={2}>{rows}</VStack>;
 }
 
+/** The gate a person decides. The page answers a page gate, so it has none. */
+function personGate(tool: ToolBlock['tool']) {
+  if (tool.state?.phase !== 'gate' || tool.state.gate.kind === 'page') return null;
+  return tool.state.gate;
+}
+
 function GateCard({
   block,
   handle,
@@ -655,10 +661,8 @@ function GateCard({
   handlers: BlockHandlers;
 }) {
   const { tool } = block;
-  if (tool.state?.phase !== 'gate') return null;
-  const { gate } = tool.state;
-  // why: The page answers a page gate, so there is nothing here for a person to decide.
-  if (gate.kind === 'page') return null;
+  const gate = personGate(tool);
+  if (!gate) return null;
   const index = handlers.indexOf(block);
   const answer = handlers.answering?.callId === tool.callId ? handlers.answering.action : null;
   if (gate.kind === 'auth') {

@@ -88,6 +88,17 @@ function usePageAnswers(
   }, [waiting]);
 }
 
+/** The page's side of a chat: answers the calls that wait on it, and warns of a tool it cannot answer. */
+function usePageTools(
+  iface: UseTheoremChatOptions['iface'],
+  waitingOn: InterfaceTurnSession['gatedTool'],
+  pageTools: PageTools | undefined,
+  answer: (resolution: ToolGateResolution) => Promise<void>,
+) {
+  usePageAnswers(waitingOn, pageTools, answer);
+  usePageToolWarnings(iface && 'tools' in iface ? iface.tools.page : undefined, pageTools);
+}
+
 /** What `sendText` hands back: the blocks the turn added, its user message and the reply. */
 export type SentTurn = { blocks: TranscriptBlock[] };
 
@@ -427,8 +438,12 @@ export function useTheoremChat({
   });
 
   useQueueDrain(phase, state, actions.startTurnFromDraft);
-  usePageAnswers(state.busy ? null : state.session.gatedTool, pageTools, actions.resumeGatedTool);
-  usePageToolWarnings(iface && 'tools' in iface ? iface.tools.page : undefined, pageTools);
+  usePageTools(
+    iface,
+    phase === 'gated' ? state.session.gatedTool : null,
+    pageTools,
+    actions.resumeGatedTool,
+  );
 
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;

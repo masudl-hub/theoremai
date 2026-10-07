@@ -550,6 +550,44 @@ Deno.test('a dropped call with a resumption handle reconnects, and reports the t
   }
 });
 
+const ENDED_EVENT = {
+  type: 'session',
+  session: {
+    kind: 'ended',
+    message: 'The call ended.',
+    ended: { cause: 'go_away', code: 1000, closedAfterMs: 10 },
+  },
+};
+
+Deno.test('a call the provider ends at its limit is taken up again when it has a handle', async () => {
+  const live = liveHarness();
+  const statuses: string[] = [];
+  let ended = 0;
+  const client = new LiveSessionClient({
+    createSocket: live.createSocket,
+    voiceIngress: false,
+    onStatusChange: (status) => void statuses.push(status),
+    onSessionEnded: () => void ended++,
+    onToolCall: async () => {},
+  });
+  try {
+    await client.connect();
+    await live.ready(live.sockets[0], [handleEvent('handle-1'), ENDED_EVENT]);
+    assertEquals(statuses, ['connecting', 'listening', 'reconnecting']);
+    assertEquals(ended, 0);
+    live.fire(500);
+    await Promise.resolve();
+    await live.ready(live.sockets[1]);
+    assertEquals(live.sockets[1].sent, [
+      { type: 'open', resume: { handle: 'handle-1', awayMs: 0 } },
+    ]);
+    assertEquals(statuses.at(-1), 'listening');
+  } finally {
+    client.disconnect();
+    live.restore();
+  }
+});
+
 Deno.test('a drop with no handle, or after the session ended, ends the call; five failed tries fail it', async () => {
   const live = liveHarness();
   const statuses: string[] = [];
@@ -569,17 +607,7 @@ Deno.test('a drop with no handle, or after the session ended, ends the call; fiv
     assertEquals(statuses, ['connecting', 'listening', 'disconnected']);
 
     await client.connect();
-    await live.ready(live.sockets[1], [
-      handleEvent('handle-2'),
-      {
-        type: 'session',
-        session: {
-          kind: 'ended',
-          message: 'The call ended.',
-          ended: { cause: 'go_away', code: 1000, closedAfterMs: 10 },
-        },
-      },
-    ]);
+    await live.ready(live.sockets[1], [ENDED_EVENT]);
     live.drop(live.sockets[1]);
     assertEquals(statuses.slice(3), ['connecting', 'listening', 'disconnected']);
 

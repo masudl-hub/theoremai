@@ -306,9 +306,9 @@ To make the agent speak first, set `live.greeting` on the profile. The page send
 
 ### A call that drops
 
-When the profile sets `live.sessionResumption` and the connection drops, the runner takes the call up again. It shows `reconnecting` and tries 5 times, after 0.5, 1, 2, 4 and 8 seconds. If no try connects, the call fails with a `network` error. The runner tells the relay how long the person was away. If the profile sets `live.resumed`, the agent says that it is back after an absence of `afterMs` or longer.
+When the profile sets `live.sessionResumption` and the connection drops, or the provider ends the call at its time limit, the runner takes the call up again. It shows `reconnecting` and tries 5 times, after 0.5, 1, 2, 4 and 8 seconds. If no try connects, the call fails with a `network` error. The runner tells the relay how long the person was away. If the profile sets `live.resumed`, the agent says that it is back after an absence of `afterMs` or longer.
 
-A call that the provider ends, or that fails, is not taken up again.
+A call that fails is not taken up again. Without `live.sessionResumption`, a call the provider ends is over.
 
 ### Your relay
 

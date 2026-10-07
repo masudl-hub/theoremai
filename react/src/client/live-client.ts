@@ -701,6 +701,12 @@ export class LiveSessionClient {
       return true;
     }
     if (session.kind !== 'ended') return false;
+    // why: The provider ends a call at its time limit. With a handle the call is taken up
+    // again, so the person is not told it ended.
+    if (this.resumeHandle) {
+      this.handleDrop();
+      return true;
+    }
     this.sessionOver = true;
     this.options.onSessionEnded?.(session);
     return true;

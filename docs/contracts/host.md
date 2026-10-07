@@ -114,7 +114,7 @@ The live client's first message is the open message (`parseLiveOpenMessage`): th
 
 The live client's `context` message carries the page's whole package, replacing the last. It goes to `session.sendContext` as the `client` sender's package: background the model reads without replying, such as the page the visitor is on. The profile's `inputs.context` decides whether the browser may send it and how long it may be.
 
-The live client takes a dropped call up again when the provider gave a resumption handle (`live.sessionResumption`): status `reconnecting`, a try after 0.5, 1, 2, 4 and 8 seconds, then a `network` failure. A close after the session's `ended` event or an `error` envelope is the end of the call, not a drop.
+The live client takes a dropped call up again when the provider gave a resumption handle (`live.sessionResumption`): status `reconnecting`, a try after 0.5, 1, 2, 4 and 8 seconds, then a `network` failure. The session's `ended` event (the provider's time limit) is taken up the same way when there is a handle; without one it is the end of the call. A close after an `error` envelope is the end of the call, not a drop.
 
 A relay only forwards the live client's tool messages. The session holds the
 model's calls and gates (see [`stages.md`](stages.md), "`LiveSession.executeTool`"),

@@ -27,7 +27,7 @@ import { injectionSpans } from './injection.ts';
 import { promptEchoRanges } from './prompt-echo.ts';
 import { DETECT_RULES, detectRule } from './rules.ts';
 import { SENSITIVE_GROUPS, type SensitiveGroups, sensitiveSpans } from './sensitive.ts';
-import { directives } from './tool-directives.ts';
+import { directives, mergedRanges } from './tool-directives.ts';
 import { ownToolsWithout, toolLeakSpans } from './tool-leak.ts';
 import type {
   GuardrailContext,
@@ -126,13 +126,7 @@ function isScoped(detector: Detector): detector is (typeof SCOPED)[number] {
 
 /** One span for each run of overlapping `ranges`: a passage matched window by window is one match. */
 function ranged(ranges: readonly [number, number][], kind: RedactSpan['kind']): RedactSpan[] {
-  const runs: [number, number][] = [];
-  for (const [start, end] of [...ranges].sort((a, b) => a[0] - b[0])) {
-    const last = runs.at(-1);
-    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
-    else runs.push([start, end]);
-  }
-  return runs.map(([start, end]) => ({ start, end, kind }));
+  return mergedRanges(ranges).map(([start, end]) => ({ start, end, kind }));
 }
 
 /** What `detector` lets through in a turn of `scope`. */

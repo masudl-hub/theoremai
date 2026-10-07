@@ -55,6 +55,7 @@ import {
   toolCallLabel,
   workStatus,
 } from '../client/transcript-groups.ts';
+import { useSecondTicker } from '../hooks/use-second-ticker.ts';
 import { useDisclosureMotion } from './disclosure-motion.ts';
 import { type LabelText, usageLine, workDuration, workStatusLabel } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
@@ -120,18 +121,6 @@ function useFirstSeen(keys: readonly string[]): (key: string) => number {
     if (!times.current.has(key)) times.current.set(key, now);
   }
   return (key) => times.current.get(key) ?? now;
-}
-
-/** `Date.now()`, refreshed every second while `isActive`. */
-function useSecondTicker(isActive: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!isActive) return;
-    setNow(Date.now());
-    const timer = globalThis.setInterval(() => setNow(Date.now()), 1_000);
-    return () => globalThis.clearInterval(timer);
-  }, [isActive]);
-  return now;
 }
 
 /**

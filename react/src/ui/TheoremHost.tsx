@@ -12,7 +12,7 @@ import { Token } from '@astryxdesign/core/Token';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconMathFunction, IconWorld } from '@tabler/icons-react';
-import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useMemo, useRef, useState } from 'react';
 import {
   type HostCallStatus,
   hostCallFailure,
@@ -30,6 +30,7 @@ import { missingFields } from '../client/schema-fields.ts';
 import { isRow, json } from '../client/shaped-data.ts';
 import { toolCallLabel } from '../client/transcript-groups.ts';
 import type { HttpOptions } from '../client/transport.ts';
+import { useSecondTicker } from '../hooks/use-second-ticker.ts';
 import { type TheoremHostCall, useTheoremHost } from '../hooks/use-theorem-host.ts';
 import { Arrive, Stream } from './arrive.tsx';
 import {
@@ -136,18 +137,6 @@ function ToolTokens({ tool }: { tool: HostToolView }) {
       />
     </HStack>
   );
-}
-
-/** Whole seconds while a call runs, so the activity line can tick. */
-function useSecondTicker(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    setNow(Date.now());
-    const timer = globalThis.setInterval(() => setNow(Date.now()), 1_000);
-    return () => globalThis.clearInterval(timer);
-  }, [active]);
-  return now;
 }
 
 /** The tool's activity while it runs, and its activityPast once it has finished, with the clock beside it. */

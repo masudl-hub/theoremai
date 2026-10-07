@@ -739,16 +739,32 @@ function guardrailsOf(spec: unknown): GuardrailsDraft {
   };
 }
 
+/** The wording a section's own field holds, and the field it goes back into. */
+const LEXICON_FIELDS: Partial<Record<string, (draft: PlaygroundDraft, value: string) => void>> = {
+  'continue.instruction': (draft, value) => {
+    draft.turnBehaviour.continueInstruction = value;
+  },
+  'canary.bind_note': (draft, value) => {
+    draft.guardrails.canaryBindNote = value;
+  },
+  'quota.exhausted': (draft, value) => {
+    draft.guardrails.quotaMessage = value;
+  },
+  'repair.default_guidance': (draft, value) => {
+    draft.outputs.repairGuidance = value;
+  },
+  'egress.default_repair_guidance': (draft, value) => {
+    draft.guardrails.egressRepairGuidance = value;
+  },
+};
+
 function applyLexicon(draft: PlaygroundDraft, lexicon: unknown): void {
   if (!isRecord(lexicon)) return;
   const wording: PlaygroundDraft['wording'] = {};
   for (const [key, value] of Object.entries(lexicon)) {
     if (typeof value !== 'string') continue;
-    if (key === 'continue.instruction') draft.turnBehaviour.continueInstruction = value;
-    else if (key === 'canary.bind_note') draft.guardrails.canaryBindNote = value;
-    else if (key === 'quota.exhausted') draft.guardrails.quotaMessage = value;
-    else if (key === 'repair.default_guidance') draft.outputs.repairGuidance = value;
-    else if (key === 'egress.default_repair_guidance') draft.guardrails.egressRepairGuidance = value;
+    const field = LEXICON_FIELDS[key];
+    if (field) field(draft, value);
     else if (!INLINE_WORDING[key as LexiconKey]) wording[key as LexiconKey] = value;
   }
   draft.wording = wording;

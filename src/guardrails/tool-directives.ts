@@ -164,15 +164,20 @@ interface Directive {
   end: number;
 }
 
-/** One directive for each run of overlapping `ranges`. */
-function directivesOf(signal: DirectiveSignal, ranges: readonly Range[]): Directive[] {
+/** One range for each run of overlapping `ranges`, in order. */
+function mergedRanges(ranges: readonly Range[]): Range[] {
   const runs: Range[] = [];
   for (const [start, end] of [...ranges].sort((a, b) => a[0] - b[0])) {
     const last = runs.at(-1);
     if (last && start <= last[1]) last[1] = Math.max(last[1], end);
     else runs.push([start, end]);
   }
-  return runs.map(([start, end]) => ({ signal, start, end }));
+  return runs;
+}
+
+/** One directive for each run of overlapping `ranges`. */
+function directivesOf(signal: DirectiveSignal, ranges: readonly Range[]): Directive[] {
+  return mergedRanges(ranges).map(([start, end]) => ({ signal, start, end }));
 }
 
 /**
@@ -225,4 +230,4 @@ function advisoryLevel(signals: readonly (string | undefined)[]): AdvisoryLevel 
 }
 
 export type { Directive, DirectiveSignal };
-export { advisoryLevel, DIRECTIVE_SIGNALS, directives };
+export { advisoryLevel, DIRECTIVE_SIGNALS, directives, mergedRanges };

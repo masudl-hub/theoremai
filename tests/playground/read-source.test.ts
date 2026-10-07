@@ -6,6 +6,7 @@ import {
   createExampleDraft,
   playgroundSource,
   readPlaygroundSource,
+  setProfileType,
   withAgentDraft,
   workspaceFromDraft,
 } from '../../playground/mod.ts';
@@ -148,4 +149,55 @@ Deno.test('a name in tools.allow with no registerTool is marked on that name', (
   const line = next.split('\n')[error.line - 1] ?? '';
   assert(line.includes(`'${name}'`));
   assert(!line.includes('name:'));
+});
+
+Deno.test('a structured output with streaming and repair settings reads back', () => {
+  const draft = createExampleDraft();
+  draft.outputs = {
+    ...draft.outputs,
+    mode: 'structured',
+    schemaId: 'trip_plan',
+    schemaJson: JSON.stringify({
+      type: 'object',
+      properties: { city: { type: 'string' } },
+      required: ['city'],
+    }),
+    streamThoughts: false,
+    validationEnabled: true,
+    maxRetries: 2,
+    repairGuidance: 'Return the plan as JSON.',
+  };
+  roundTrip(draft);
+  const compiled = compilePlayground(draft);
+  assert(compiled.ok);
+  const read = readPlaygroundSource(playgroundSource(compiled), createExampleDraft());
+  assert(read.ok);
+  assertEquals(read.draft.outputs.mode, 'structured');
+  assertEquals(read.draft.outputs.schemaId, 'trip_plan');
+  assertEquals(read.draft.outputs.streamThoughts, false);
+  assertEquals(read.draft.outputs.validationEnabled, true);
+  assertEquals(read.draft.outputs.maxRetries, 2);
+  assertEquals(read.draft.outputs.repairGuidance, 'Return the plan as JSON.');
+});
+
+Deno.test('a live profile’s session settings read back', () => {
+  const draft = setProfileType(createExampleDraft(), 'live');
+  draft.live = {
+    ...draft.live,
+    ingressVideo: !draft.live.ingressVideo,
+    sessionResumption: true,
+    contextCompression: true,
+    compressionTriggerTokens: 20_000,
+    compressionTargetTokens: 8_000,
+    transcriptionInput: true,
+    transcriptionOutput: true,
+    vadPrefixPaddingMs: 200,
+    vadSilenceDurationMs: 600,
+  };
+  roundTrip(draft);
+  const compiled = compilePlayground(draft);
+  assert(compiled.ok);
+  const read = readPlaygroundSource(playgroundSource(compiled), draft);
+  assert(read.ok);
+  assertEquals(read.draft.live, draft.live);
 });

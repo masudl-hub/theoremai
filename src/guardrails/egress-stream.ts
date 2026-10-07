@@ -138,6 +138,16 @@ function unitsLike(unit: number): number[] {
   return caseUnits.get(canonicalUnit(unit)) ?? [unit];
 }
 
+/** Class starts that give each of the sorted `units` a class of its own. */
+function classStartsOf(units: readonly number[]): number[] {
+  const classStarts = [0];
+  for (const unit of units) {
+    if (classStarts.at(-1) !== unit) classStarts.push(unit);
+    if (unit + 1 < UNITS) classStarts.push(unit + 1);
+  }
+  return classStarts;
+}
+
 /** Literal automata, kept per text so each is built once. */
 const literalAutomata = new Map<string, Automaton>();
 
@@ -146,12 +156,7 @@ function literalAutomaton(text: string): Automaton {
   const cached = literalAutomata.get(text);
   if (cached) return cached;
   const positions = Array.from({ length: text.length }, (_, i) => unitsLike(text.charCodeAt(i)));
-  const units = [...new Set(positions.flat())].sort((a, b) => a - b);
-  const classStarts = [0];
-  for (const unit of units) {
-    if (classStarts.at(-1) !== unit) classStarts.push(unit);
-    if (unit + 1 < UNITS) classStarts.push(unit + 1);
-  }
+  const classStarts = classStartsOf([...new Set(positions.flat())].sort((a, b) => a - b));
   const classOfUnit = (unit: number) => classStarts.indexOf(unit);
   const charsets = positions.map((like) => like.map(classOfUnit));
   const nodes = [...positions.map((_, i) => [0, 0, i + 1, i]), [0, 1]];
@@ -171,11 +176,7 @@ function literalsAutomaton(texts: readonly string[]): Automaton {
   if (cached) return cached;
   const units = [...new Set(texts.flatMap((text) => Array.from(text, (c) => c.charCodeAt(0))))];
   units.sort((a, b) => a - b);
-  const classStarts = [0];
-  for (const unit of units) {
-    if (classStarts.at(-1) !== unit) classStarts.push(unit);
-    if (unit + 1 < UNITS) classStarts.push(unit + 1);
-  }
+  const classStarts = classStartsOf(units);
   const charsets = units.map((unit) => [classStarts.indexOf(unit)]);
   const nodes: number[][] = [];
   const initials = texts.map((text, id) => {

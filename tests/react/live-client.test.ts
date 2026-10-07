@@ -664,6 +664,51 @@ Deno.test('a drop with no handle, or after the session ended, ends the call; fiv
   }
 });
 
+Deno.test('the call after one that could not reconnect takes it up again; a refused handle starts a new call', async () => {
+  const live = liveHarness();
+  const statuses: string[] = [];
+  const client = new LiveSessionClient({
+    createSocket: live.createSocket,
+    voiceIngress: false,
+    onStatusChange: (status) => void statuses.push(status),
+    onToolCall: async () => {},
+  });
+  /** The open socket drops, and all five tries to reconnect fail. */
+  const lose = async (open: number) => {
+    live.drop(live.sockets[open]);
+    for (const [index, ms] of [500, 1000, 2000, 4000, 8000].entries()) {
+      live.advance(ms);
+      live.fire(ms);
+      await Promise.resolve();
+      live.drop(live.sockets[open + 1 + index]);
+    }
+    assertEquals(statuses.at(-1), 'error');
+  };
+  try {
+    await client.connect();
+    await live.ready(live.sockets[0], [handleEvent('handle-1')]);
+    await lose(0);
+
+    live.advance(4500);
+    await client.connect();
+    await live.ready(live.sockets[6], [handleEvent('handle-2')]);
+    assertEquals(live.sockets[6].sent, [
+      { type: 'open', resume: { handle: 'handle-1', awayMs: 20_000 } },
+    ]);
+
+    // The provider refuses the handle: the call opens as a new one.
+    await lose(6);
+    await client.connect();
+    live.drop(live.sockets[12]);
+    await live.ready(live.sockets[13]);
+    assertEquals(live.sockets[13].sent, [{ type: 'open' }]);
+    assertEquals(statuses.at(-1), 'listening');
+  } finally {
+    client.disconnect();
+    live.restore();
+  }
+});
+
 Deno.test('a relay reads the open message into the session request, with the host context as server', () => {
   const open = parseLiveOpenMessage(
     JSON.stringify({

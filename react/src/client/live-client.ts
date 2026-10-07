@@ -225,6 +225,8 @@ export class LiveSessionClient {
   private sessionOver = false;
   /** When the call dropped, for the time away a resume reports. */
   private droppedAt: number | undefined;
+  /** When the call that could not reconnect dropped: the next call takes it up again. */
+  private lostAt: number | undefined;
   private reconnectTries = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -306,11 +308,26 @@ export class LiveSessionClient {
     return this.options.createSocket?.() ?? new WebSocket(url);
   }
 
-  /** Start a new call. A call that drops takes itself up again; this is not for that. */
+  /**
+   * Start a call. After one that dropped and could not reconnect, it takes that call up again,
+   * so the agent neither greets twice nor forgets; after a hang-up it is a new call.
+   */
   public connect(): Promise<void> {
+    const lostAt = this.lostAt;
     this.clearReconnect();
-    this.resumeHandle = undefined;
+    this.lostAt = undefined;
+    if (lostAt === undefined) this.resumeHandle = undefined;
+    else this.droppedAt = lostAt;
     return this.open('connecting');
+  }
+
+  /** A lost call that cannot be taken up again, its handle refused or expired, starts as a new one. */
+  private startOver(): boolean {
+    if (this.status !== 'connecting' || !this.resumeHandle) return false;
+    this.resumeHandle = undefined;
+    this.droppedAt = undefined;
+    void this.open('connecting');
+    return true;
   }
 
   /** The first message: the call's values, and the handle and time away when it takes a dropped call up again. */
@@ -348,8 +365,10 @@ export class LiveSessionClient {
   private scheduleReconnect(): void {
     const delay = LIVE_RECONNECT_DELAYS_MS[this.reconnectTries];
     if (delay === undefined) {
+      const droppedAt = this.droppedAt;
       // lexicon-exempt: internal diagnostic; the user reads error.network
       this.failSession(new TheoremError('network', 'live call dropped and could not reconnect'));
+      this.lostAt = droppedAt;
       return;
     }
     this.reconnectTries += 1;
@@ -362,7 +381,7 @@ export class LiveSessionClient {
   /** A try at opening failed: a reconnect waits and tries again, a first connect fails the call. */
   private failOpen(error: Error): void {
     if (this.status !== 'reconnecting') {
-      this.failSession(error);
+      if (!this.startOver()) this.failSession(error);
       return;
     }
     this.teardownConnection();
@@ -640,6 +659,7 @@ export class LiveSessionClient {
       return true;
     }
     if (payload.type === 'error') {
+      if (this.startOver()) return true;
       this.sessionOver = true;
       this.options.onError?.(hostError(payload, 'unavailable'));
       this.setStatus('error');
@@ -876,6 +896,7 @@ export class LiveSessionClient {
 
   public disconnect(): void {
     this.clearReconnect();
+    this.lostAt = undefined;
     this.resumeHandle = undefined;
     this.teardownConnection();
     this.setStatus('disconnected');

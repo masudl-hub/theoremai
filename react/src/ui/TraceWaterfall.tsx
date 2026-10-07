@@ -352,7 +352,7 @@ export function TraceWaterfall({
   const [picked, setPicked] = useState<Window | null>(null);
   const zoom = picked?.root === root.id ? picked : null;
   return (
-    <VStack gap={2}>
+    <VStack gap={2} className="theorem-arrive">
       <HStack gap={2} align="center" justify="between">
         <Text type="supporting" color="secondary">
           {t('@theorem.panel.trace.timeline.zoom')}

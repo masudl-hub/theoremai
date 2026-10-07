@@ -85,6 +85,7 @@ import type {
   TurnBehaviourDraft,
   UrlAllowDraft,
 } from './draft.ts';
+import { PLAYGROUND_TOOL_TYPE_MESSAGE, PLAYGROUND_TOOL_TYPES } from './types.ts';
 import {
   COMPACTION_DRAFT_DEFAULTS,
   draftAllows,
@@ -706,12 +707,20 @@ const TOOL_COMPILERS = {
   agent: agentTool,
 };
 
+function isCompiledToolType(type: string): type is keyof typeof TOOL_COMPILERS {
+  return (PLAYGROUND_TOOL_TYPES as readonly string[]).includes(type);
+}
+
 function compileTool(
   tool: ToolSpecDraft,
   report: Report,
   agentIdOf: AgentIdOf,
 ): ToolRegistration | undefined {
   const nodeId = toolSpecNodeId(tool.key);
+  if (!isCompiledToolType(tool.toolType)) {
+    report(nodeId, PLAYGROUND_TOOL_TYPE_MESSAGE, 'toolType');
+    return undefined;
+  }
   let failed = false;
   const fail: Fail = (message, field) => {
     failed = true;

@@ -23,6 +23,7 @@ import {
   traceOutcome,
 } from '../client/trace-story.ts';
 import type { TraceNode } from '../client/trace-view.ts';
+import { Arrive, Stream } from './arrive.tsx';
 import { useTraceFormat } from './TraceValues.tsx';
 
 /** Each actor's mark, shared by the story and the turn list. */
@@ -236,15 +237,17 @@ function StepItem({
   onSelect: (node: TraceNode) => void;
 }) {
   return (
-    <div
-      style={{
-        paddingInlineStart: step.kind === 'span' && step.nested ? 20 : 0,
-        opacity: isDimmed ? 0.35 : 1,
-        transition: 'opacity 120ms ease',
-      }}
-    >
-      <StepBody step={step} isSelected={isSelected} select={() => onSelect(step.node)} />
-    </div>
+    <Arrive>
+      <div
+        style={{
+          paddingInlineStart: step.kind === 'span' && step.nested ? 20 : 0,
+          opacity: isDimmed ? 0.35 : 1,
+          transition: 'opacity 120ms ease',
+        }}
+      >
+        <StepBody step={step} isSelected={isSelected} select={() => onSelect(step.node)} />
+      </div>
+    </Arrive>
   );
 }
 
@@ -266,16 +269,18 @@ export function TraceStory({
   onSelect: (node: TraceNode) => void;
 }) {
   return (
-    <VStack gap={0}>
-      {steps.map((step) => (
-        <StepItem
-          key={step.id}
-          step={step}
-          isSelected={step.kind === 'span' ? step.node.id === selectedId : false}
-          isDimmed={matches !== undefined && !matches.has(step.node.id)}
-          onSelect={onSelect}
-        />
-      ))}
-    </VStack>
+    <Stream>
+      <VStack gap={0}>
+        {steps.map((step) => (
+          <StepItem
+            key={step.id}
+            step={step}
+            isSelected={step.kind === 'span' ? step.node.id === selectedId : false}
+            isDimmed={matches !== undefined && !matches.has(step.node.id)}
+            onSelect={onSelect}
+          />
+        ))}
+      </VStack>
+    </Stream>
   );
 }

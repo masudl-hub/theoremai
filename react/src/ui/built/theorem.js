@@ -541,7 +541,7 @@ export const theoremTheme = {
         ":where([role=\"complementary\"])": {
           "transition": "width var(--duration-medium) var(--ease-standard)"
         },
-        ":where([data-resizing] + [role=\"complementary\"])": {
+        ":where([data-resizing] + [role=\"complementary\"], [role=\"complementary\"]:has(+ [data-resizing]))": {
           "transition": "none"
         }
       }

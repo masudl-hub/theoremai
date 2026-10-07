@@ -1,6 +1,7 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import { EmptyState } from '@astryxdesign/core/EmptyState';
 import { HStack } from '@astryxdesign/core/HStack';
+import type { IconType } from '@astryxdesign/core/Icon';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { List, ListItem } from '@astryxdesign/core/List';
 import { Selector } from '@astryxdesign/core/Selector';
@@ -10,7 +11,8 @@ import { Text } from '@astryxdesign/core/Text';
 import { Token } from '@astryxdesign/core/Token';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
-import { type CSSProperties, useMemo, useRef, useState } from 'react';
+import { IconMathFunction, IconWorld } from '@tabler/icons-react';
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type HostCallStatus,
   hostCallFailure,
@@ -20,22 +22,27 @@ import {
 import {
   createHostTransport,
   type HostInterface,
+  type HostToolKind,
   type HostToolView,
   type HostTransport,
 } from '../client/host-transport.ts';
 import { missingFields } from '../client/schema-fields.ts';
 import { isRow, json } from '../client/shaped-data.ts';
+import { toolCallLabel } from '../client/transcript-groups.ts';
 import type { HttpOptions } from '../client/transport.ts';
 import { type TheoremHostCall, useTheoremHost } from '../hooks/use-theorem-host.ts';
+import { Arrive, Stream } from './arrive.tsx';
 import {
   ConsoleFrame,
   type ConsoleView,
   JsonRequest,
   RequestCard,
+  ResponseColumn,
   RunBar,
 } from './ConsoleFrame.tsx';
-import { type LabelText, type TheoremLabels, workDuration } from './labels.ts';
+import { type LabelText, liveDuration, type TheoremLabels, workDuration } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
+import { IconMcp } from './mcp-icon.tsx';
 import { SchemaFields } from './SchemaFields.tsx';
 import { ApprovalCard, AuthChallengeCard } from './ToolGateCard.tsx';
 import { ToolResult } from './ToolResult.tsx';
@@ -56,11 +63,19 @@ export type TheoremHostProps = {
   /** Widest the column may grow, as a CSS length. Default `960px`. */
   maxWidth?: string;
   /**
-   * Show the trace in place of the console, from the host's own control; the
-   * built-in trace toggle then hides. Omit to keep the toggle. Needs a profile
-   * that records traces.
+   * Drive the trace from the host's own control. The built-in toggle hides.
+   * The open trace takes the console's place, unless this page is inside
+   * `TracePlacement value="panel"`, where it docks. Omit to keep the toggle.
+   * Needs a profile that records traces.
    */
   trace?: boolean;
+  /**
+   * The page is already a raised panel. The console sits in it instead of
+   * painting the ground it uses on a flat page.
+   */
+  flush?: boolean;
+  /** The request on the left and the response on the right. */
+  columns?: boolean;
   className?: string;
   style?: CSSProperties;
 };
@@ -95,21 +110,62 @@ function checkRequest(t: LabelText, tool: HostToolView, text: string): RequestCh
   return { ok: true, input };
 }
 
-/** A tool's kind, and its access when it can change things. */
+/** The kind's icon. The same glyphs the playground uses for a tool's type. */
+const KIND_ICON: Record<HostToolKind, IconType> = {
+  function: IconMathFunction,
+  http: IconWorld,
+  mcp: IconMcp,
+};
+
+/** Kind and description, shown on the dropdown row and nowhere else. */
+function toolOptionDescription(t: LabelText, tool: HostToolView): string {
+  const kind = t(`@theorem.host.kind.${tool.kind}`);
+  return tool.description ? `${kind} · ${tool.description}` : kind;
+}
+
+/** A tool's access when it can change things. Its kind stays in the dropdown. */
 function ToolTokens({ tool }: { tool: HostToolView }) {
   const t = useLabels();
+  if (tool.access === 'read-only') return null;
   return (
     <HStack gap={1} wrap="wrap">
-      <Token label={t(`@theorem.host.kind.${tool.kind}`)} size="sm" color="gray" />
-      {tool.access === 'read-only' ? null : (
-        <Token
-          label={t(`@theorem.tool.access.${tool.access}`)}
-          size="sm"
-          color={tool.access === 'destructive' ? 'red' : 'orange'}
-        />
-      )}
+      <Token
+        label={t(`@theorem.tool.access.${tool.access}`)}
+        size="sm"
+        color={tool.access === 'destructive' ? 'red' : 'orange'}
+      />
     </HStack>
   );
+}
+
+/** Whole seconds while a call runs, so the activity line can tick. */
+function useSecondTicker(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  return now;
+}
+
+/** The tool's activity while it runs, and its activityPast once it has finished, with the clock beside it. */
+function callActivity(
+  t: LabelText,
+  call: TheoremHostCall,
+  now: number,
+): {
+  label: string;
+  duration: string | null;
+} {
+  const label = call.call ? toolCallLabel(call.call) : call.name;
+  const duration = call.isRunning
+    ? liveDuration(t, now - call.startedAt)
+    : call.elapsedMs == null
+      ? null
+      : workDuration(t, call.elapsedMs);
+  return { label, duration };
 }
 
 /** The gate a call paused on, answered in place. */
@@ -143,7 +199,54 @@ function CallGate({
   );
 }
 
-/** One call's outcome: its gate, its failure, or its output, then a line for the tool, time, and status. */
+/** A call is settled once it failed, completed, or stopped running. */
+function callSettled(call: TheoremHostCall): boolean {
+  const state = call.call?.state;
+  return Boolean(hostCallFailure(call)) || state?.phase === 'complete' || !call.isRunning;
+}
+
+/** A running call with nothing else in the column fills the card, the way an empty trace does. */
+function responseFills(call: TheoremHostCall): boolean {
+  const state = call.call?.state;
+  return !callSettled(call) && state?.phase !== 'gate';
+}
+
+/** A call still running: its activity and the clock, centred in the card. */
+function CallWaiting({ label, duration }: { label: string; duration: string | null }) {
+  return (
+    <VStack height="100%" vAlign="center" padding={4}>
+      <EmptyState
+        icon={<Spinner size="lg" />}
+        title={label}
+        description={duration ?? undefined}
+        isCompact
+      />
+    </VStack>
+  );
+}
+
+/** A settled call: its failure or its output, then the activity line once it has stopped. */
+function CallSettled({ call, activity }: { call: TheoremHostCall; activity: ReactNode }) {
+  const state = call.call?.state;
+  const failure = hostCallFailure(call);
+  return (
+    <Stream>
+      <VStack gap={3}>
+        {failure ? (
+          <Arrive>
+            <Banner status="error" title={failure.title} description={failure.description} />
+          </Arrive>
+        ) : null}
+        {state?.phase === 'complete' ? (
+          <ToolResult output={state.output} parts={state.parts} />
+        ) : null}
+        {call.isRunning ? null : <Arrive>{activity}</Arrive>}
+      </VStack>
+    </Stream>
+  );
+}
+
+/** One call's outcome: its gate, its failure, or its output, then the tool's activity and the time. */
 function CallOutcome({
   call,
   onAnswer,
@@ -152,27 +255,18 @@ function CallOutcome({
   onAnswer: ReturnType<typeof useTheoremHost>['answer'];
 }) {
   const t = useLabels();
-  const state = call.call?.state;
-  const failure = hostCallFailure(call);
-  const meta = [
-    call.name,
-    call.elapsedMs == null ? null : workDuration(t, call.elapsedMs),
-    t(`@theorem.host.status.${hostCallStatus(call)}`),
-  ].filter(Boolean);
+  const now = useSecondTicker(call.isRunning);
+  const { label, duration } = callActivity(t, call, now);
+  if (responseFills(call)) return <CallWaiting label={label} duration={duration} />;
+  const activity = (
+    <Text size="sm" color="secondary">
+      {duration ? `${label} ${duration}` : label}
+    </Text>
+  );
   return (
     <VStack gap={3}>
       <CallGate call={call} onAnswer={onAnswer} />
-      {failure ? (
-        <Banner status="error" title={failure.title} description={failure.description} />
-      ) : null}
-      {state?.phase === 'complete' ? (
-        <ToolResult output={state.output} parts={state.parts} />
-      ) : null}
-      {call.isRunning ? null : (
-        <Text type="supporting" color="secondary" hasTabularNumbers>
-          {meta.join(' · ')}
-        </Text>
-      )}
+      {callSettled(call) ? <CallSettled call={call} activity={activity} /> : null}
     </VStack>
   );
 }
@@ -268,11 +362,11 @@ function ToolRequest({
           options={tools.map((option) => ({
             value: option.name,
             label: option.name,
-            description: option.description,
+            icon: KIND_ICON[option.kind],
+            description: toolOptionDescription(t, option),
           }))}
           value={tool.name}
           hasSearch={tools.length > 8}
-          description={tool.description}
           onChange={onPick}
         />
         <ToolTokens tool={tool} />
@@ -320,21 +414,26 @@ type BodyProps = Omit<
   host: ReturnType<typeof useTheoremHost>;
 };
 
-function HostBody({
-  transport,
-  iface,
-  host,
-  maxWidth = '960px',
-  trace,
-  className,
-  style,
-}: BodyProps) {
+type Host = BodyProps['host'];
+
+/** Starts the request as a call, and returns its id. Nothing starts while one is on screen running. */
+function startCall(
+  host: Host,
+  tool: HostToolView | undefined,
+  check: RequestCheck | null,
+  shown: TheoremHostCall | null,
+): string | null {
+  if (!tool || !check?.ok || shown?.isRunning) return null;
+  return host.run(tool.name, check.input);
+}
+
+/** What the console is showing: the picked tool, its request, and the call on screen. */
+function useHostConsole(iface: HostInterface, host: Host) {
   const t = useLabels();
   const [picked, setPicked] = useState(iface.tools[0]?.name);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [shownId, setShownId] = useState<string | null>(null);
   const [view, setView] = useState<ConsoleView>('fields');
-  const inspector = useTraceInspector(iface, transport.traces, trace);
   const { tool, text, shown, earlier } = hostConsoleView({
     tools: iface.tools,
     picked,
@@ -348,35 +447,108 @@ function HostBody({
     if (tool) setDrafts((previous) => ({ ...previous, [tool.name]: next }));
   };
   const run = () => {
-    if (tool && check?.ok && !shown?.isRunning) setShownId(host.run(tool.name, check.input));
+    const id = startCall(host, tool, check, shown);
+    if (id !== null) setShownId(id);
   };
   const pick = (call: TheoremHostCall) => {
     setPicked(call.name);
     setDrafts((previous) => ({ ...previous, [call.name]: json(call.input) }));
     setShownId(call.id);
   };
+  return { tool, text, shown, earlier, check, view, setView, setPicked, setText, run, pick };
+}
+
+/** The call on screen, then this page's earlier ones. */
+function HostCalls({
+  shown,
+  earlier,
+  onAnswer,
+  onPick,
+}: {
+  shown: TheoremHostCall | null;
+  earlier: readonly TheoremHostCall[];
+  onAnswer: Host['answer'];
+  onPick: (call: TheoremHostCall) => void;
+}) {
+  return (
+    <>
+      {shown ? <CallOutcome call={shown} onAnswer={onAnswer} /> : null}
+      <EarlierCalls calls={earlier} onPick={onPick} />
+    </>
+  );
+}
+
+/**
+ * The frame's second child. A call, not a component: the frame counts its
+ * children to choose a layout, and no calls yet has to count as none.
+ */
+function hostResponse(
+  columns: boolean,
+  label: string,
+  shown: TheoremHostCall | null,
+  earlier: readonly TheoremHostCall[],
+  calls: ReactNode,
+): ReactNode {
+  if (!columns) return calls;
+  const alone = earlier.length === 0;
+  if (!shown && alone) return null;
+  return (
+    <ResponseColumn label={label} fill={shown != null && responseFills(shown) && alone}>
+      {calls}
+    </ResponseColumn>
+  );
+}
+
+function HostBody({
+  transport,
+  iface,
+  host,
+  maxWidth = '960px',
+  trace,
+  flush,
+  columns = false,
+  className,
+  style,
+}: BodyProps) {
+  const t = useLabels();
+  const inspector = useTraceInspector(iface, transport.traces, trace);
+  const desk = useHostConsole(iface, host);
+  const { tool, check, shown, earlier } = desk;
 
   return (
-    <ConsoleFrame inspector={inspector} maxWidth={maxWidth} className={className} style={style}>
+    <ConsoleFrame
+      inspector={inspector}
+      maxWidth={maxWidth}
+      flush={flush}
+      columns={columns}
+      requestLabel={t('@theorem.host.request')}
+      className={className}
+      style={style}
+    >
       {tool && check ? (
         <ToolRequest
           tools={iface.tools}
           tool={tool}
           check={check}
-          text={text}
-          view={view}
+          text={desk.text}
+          view={desk.view}
           shown={shown}
-          onText={setText}
-          onPick={setPicked}
-          onView={setView}
-          onRun={run}
+          onText={desk.setText}
+          onPick={desk.setPicked}
+          onView={desk.setView}
+          onRun={desk.run}
           onStop={host.cancel}
         />
       ) : (
         <EmptyState title={t('@theorem.host.no_tools')} />
       )}
-      {shown ? <CallOutcome call={shown} onAnswer={host.answer} /> : null}
-      <EarlierCalls calls={earlier} onPick={pick} />
+      {hostResponse(
+        columns,
+        t('@theorem.host.response'),
+        shown,
+        earlier,
+        <HostCalls shown={shown} earlier={earlier} onAnswer={host.answer} onPick={desk.pick} />,
+      )}
     </ConsoleFrame>
   );
 }

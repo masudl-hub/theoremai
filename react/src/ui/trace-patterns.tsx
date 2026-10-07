@@ -90,7 +90,11 @@ export function ChartCard({
   children?: ReactNode;
 }) {
   return (
-    <Card variant="muted" padding={4} style={{ background: 'var(--color-background-surface)' }}>
+    <Card
+      variant="muted"
+      padding={4}
+      style={{ background: 'var(--theorem-console-card, var(--color-background-surface))' }}
+    >
       <VStack gap={3}>
         <Text type="supporting" color="secondary">
           {title}

@@ -64,9 +64,10 @@ export type TheoremChatProps = {
   /** Page scroller when the chat is not its own scroll container (e.g. `document.documentElement`). */
   scrollRef?: React.RefObject<HTMLElement | null>;
   /**
-   * Show the trace in place of the chat, from the host's own control; the
-   * built-in trace toggle then hides. Omit to keep the toggle. Needs a profile
-   * that records traces.
+   * Drive the trace from the host's own control. The built-in toggle hides.
+   * The open trace takes the chat's place, unless this page is inside
+   * `TracePlacement value="panel"`, where it docks. Omit to keep the toggle.
+   * Needs a profile that records traces.
    */
   trace?: boolean;
   /**

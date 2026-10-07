@@ -2,8 +2,9 @@ import { Banner } from '@astryxdesign/core/Banner';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { Spinner } from '@astryxdesign/core/Spinner';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
+import { VStack } from '@astryxdesign/core/VStack';
 import type { DecisionJson } from '@theoremjs/agents';
-import { type CSSProperties, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useMemo, useRef, useState } from 'react';
 import {
   createDecisionTransport,
   type DecisionInterface,
@@ -16,6 +17,7 @@ import {
   type ConsoleView,
   JsonRequest,
   RequestCard,
+  ResponseColumn,
   RunBar,
 } from './ConsoleFrame.tsx';
 import { TheoremDecisionAnswers } from './DecisionAnswers.tsx';
@@ -41,11 +43,19 @@ export type TheoremDecisionProps = {
   /** Widest the column may grow, as a CSS length. Default `960px`. */
   maxWidth?: string;
   /**
-   * Show the trace in place of the decision, from the host's own control; the
-   * built-in trace toggle then hides. Omit to keep the toggle. Needs a profile
-   * that records traces.
+   * Drive the trace from the host's own control. The built-in toggle hides.
+   * The open trace takes the decision's place, unless this page is inside
+   * `TracePlacement value="panel"`, where it docks. Omit to keep the toggle.
+   * Needs a profile that records traces.
    */
   trace?: boolean;
+  /**
+   * The page is already a raised panel. The console sits in it instead of
+   * painting the ground it uses on a flat page.
+   */
+  flush?: boolean;
+  /** The request on the left and the answers on the right. */
+  columns?: boolean;
   className?: string;
   style?: CSSProperties;
 };
@@ -117,69 +127,89 @@ type BodyProps = Omit<
   decision: ReturnType<typeof useTheoremDecision>;
 };
 
-function DecisionBody({
-  transport,
-  iface,
-  decision,
-  defaultState = '{}',
-  maxWidth = '960px',
-  trace,
-  className,
-  style,
-}: BodyProps) {
-  const t = useLabels();
-  const bytes = useBytes();
+type Decision = BodyProps['decision'];
+
+/** Where a decision stands: nothing asked, asked with nothing back yet, or answered or failed. */
+function decisionPhase(decision: Decision): 'idle' | 'waiting' | 'settled' {
+  if (decision.failure || decision.result) return 'settled';
+  return decision.status === 'deciding' ? 'waiting' : 'idle';
+}
+
+/** The state a decision is asked about, held as text, and the view it is edited in. */
+function useDecisionState(defaultState: string, maxStateBytes: DecisionInterface['maxStateBytes']) {
   const [text, setText] = useState(defaultState);
-  const check = checkState(text, iface.maxStateBytes);
-  const note = stateNote(t, check, iface.maxStateBytes, bytes);
+  const check = checkState(text, maxStateBytes);
   const [view, setView] = useState<ConsoleView>(() =>
     check.state === undefined ? 'json' : 'fields',
   );
-  const shown = check.state === undefined ? 'json' : view;
-  const inspector = useTraceInspector(iface, transport.traces, trace);
-  const deciding = decision.status === 'deciding';
+  const shown: ConsoleView = check.state === undefined ? 'json' : view;
+  return { text, setText, check, shown, setView };
+}
 
-  const decide = () => {
-    if (check.ok) void decision.decide(check.state);
-  };
-
+/** The state, as fields or JSON, and Decide. */
+function DecisionRequest({
+  form,
+  note,
+  isRunning,
+  onRun,
+  onStop,
+}: {
+  form: ReturnType<typeof useDecisionState>;
+  note: string | null;
+  isRunning: boolean;
+  onRun: () => void;
+  onStop: () => void;
+}) {
+  const t = useLabels();
+  const { text, setText, check, shown, setView } = form;
   return (
-    <ConsoleFrame inspector={inspector} maxWidth={maxWidth} className={className} style={style}>
-      <RequestCard
-        title={t('@theorem.decision.state')}
-        view={shown}
-        hasFields={check.state !== undefined}
-        onView={setView}
-        onRun={decide}
-      >
-        {shown === 'fields' && check.state !== undefined ? (
-          <StateFields
-            label={t('@theorem.decision.state')}
-            value={check.state}
-            onChange={(next) => {
-              setText(JSON.stringify(next, null, 2));
-            }}
-          />
-        ) : (
-          <JsonRequest
-            label={t('@theorem.decision.state')}
-            text={text}
-            isInvalid={!check.ok}
-            onChange={setText}
-          />
-        )}
-        <RunBar
-          note={note}
-          isReady={check.ok}
-          isRunning={deciding}
-          runLabel={t('@theorem.decision.decide')}
-          runningLabel={t('@theorem.decision.deciding')}
-          stopLabel={t('@theorem.decision.stop')}
-          onRun={decide}
-          onStop={decision.cancel}
+    <RequestCard
+      title={t('@theorem.decision.state')}
+      view={shown}
+      hasFields={check.state !== undefined}
+      onView={setView}
+      onRun={onRun}
+    >
+      {shown === 'fields' && check.state !== undefined ? (
+        <StateFields
+          label={t('@theorem.decision.state')}
+          value={check.state}
+          onChange={(next) => {
+            setText(JSON.stringify(next, null, 2));
+          }}
         />
-      </RequestCard>
+      ) : (
+        <JsonRequest
+          label={t('@theorem.decision.state')}
+          text={text}
+          isInvalid={!check.ok}
+          onChange={setText}
+        />
+      )}
+      <RunBar
+        note={note}
+        isReady={check.ok}
+        isRunning={isRunning}
+        runLabel={t('@theorem.decision.decide')}
+        runningLabel={t('@theorem.decision.deciding')}
+        stopLabel={t('@theorem.decision.stop')}
+        onRun={onRun}
+        onStop={onStop}
+      />
+    </RequestCard>
+  );
+}
+
+/** What came back: the failure, the answers, or a spinner until the first of either. */
+function DecisionAnswered({ iface, decision }: { iface: DecisionInterface; decision: Decision }) {
+  const t = useLabels();
+  const deciding = decision.status === 'deciding';
+  return (
+    <>
       {decision.failure ? <Banner status="error" title={decision.failure.error} /> : null}
+      {deciding && !decision.result ? (
+        <Spinner size="lg" label={t('@theorem.decision.deciding')} />
+      ) : null}
       {decision.result ? (
         <TheoremDecisionAnswers
           iface={iface}
@@ -188,6 +218,81 @@ function DecisionBody({
           isStale={deciding}
         />
       ) : null}
+    </>
+  );
+}
+
+/**
+ * The frame's second child. A call, not a component: the frame counts its
+ * children to choose a layout, and no response yet has to count as none.
+ */
+function decisionResponse(
+  columns: boolean,
+  phase: ReturnType<typeof decisionPhase>,
+  labels: { answers: string; deciding: string },
+  answers: ReactNode,
+): ReactNode {
+  if (!columns) return answers;
+  if (phase === 'idle') return null;
+  const waiting = phase === 'waiting';
+  return (
+    <ResponseColumn label={labels.answers} fill={waiting}>
+      {waiting ? (
+        <VStack height="100%" vAlign="center" padding={4}>
+          <Spinner size="lg" label={labels.deciding} />
+        </VStack>
+      ) : (
+        answers
+      )}
+    </ResponseColumn>
+  );
+}
+
+function DecisionBody({
+  transport,
+  iface,
+  decision,
+  defaultState = '{}',
+  maxWidth = '960px',
+  trace,
+  flush,
+  columns = false,
+  className,
+  style,
+}: BodyProps) {
+  const t = useLabels();
+  const bytes = useBytes();
+  const form = useDecisionState(defaultState, iface.maxStateBytes);
+  const { check } = form;
+  const inspector = useTraceInspector(iface, transport.traces, trace);
+
+  const decide = () => {
+    if (check.ok) void decision.decide(check.state);
+  };
+
+  return (
+    <ConsoleFrame
+      inspector={inspector}
+      maxWidth={maxWidth}
+      flush={flush}
+      columns={columns}
+      requestLabel={t('@theorem.decision.state')}
+      className={className}
+      style={style}
+    >
+      <DecisionRequest
+        form={form}
+        note={stateNote(t, check, iface.maxStateBytes, bytes)}
+        isRunning={decision.status === 'deciding'}
+        onRun={decide}
+        onStop={decision.cancel}
+      />
+      {decisionResponse(
+        columns,
+        decisionPhase(decision),
+        { answers: t('@theorem.decision.answers'), deciding: t('@theorem.decision.deciding') },
+        <DecisionAnswered iface={iface} decision={decision} />,
+      )}
     </ConsoleFrame>
   );
 }

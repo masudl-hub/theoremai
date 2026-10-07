@@ -61,5 +61,5 @@ export {
   type ToolDecision,
 } from './ToolGateCard.tsx';
 export { ToolResult } from './ToolResult.tsx';
-export { TraceGuardrailsView } from './TraceInspectorPanel.tsx';
+export { TraceGuardrailsView, TracePlacement } from './TraceInspectorPanel.tsx';
 export { TheoremThemeProvider, type TheoremThemeProviderProps } from './theme.tsx';

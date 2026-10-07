@@ -1,15 +1,26 @@
-import type {
-  AuthUnauthenticatedPolicy,
-  CustomToolType,
-  HttpMethod,
-  PlaygroundAuthType,
-  ToolAccess,
-  ToolLoadTier,
-  ToolPermission,
+import {
+  TOOL_TYPES,
+  type AuthUnauthenticatedPolicy,
+  type CustomToolType,
+  type HttpMethod,
+  type PlaygroundAuthType,
+  type ToolAccess,
+  type ToolLoadTier,
+  type ToolPermission,
 } from '../src/kernel/schema.ts';
 
 /** The tool types a playground draft builds. */
 export type PlaygroundToolType = CustomToolType;
+
+/** Those types, in the kernel's order. `builtin` is not one a draft builds. */
+export const PLAYGROUND_TOOL_TYPES = TOOL_TYPES.filter(
+  (type): type is PlaygroundToolType => type !== 'builtin',
+);
+
+const toolTypeList = PLAYGROUND_TOOL_TYPES.join(', ').replace(/, ([^,]+)$/, ', or $1');
+
+/** What a file or a draft is told when a tool's type is not one of those. */
+export const PLAYGROUND_TOOL_TYPE_MESSAGE = `Tool type must be ${toolTypeList}.`;
 
 /** Serializable tool facet seed — UI adds `kind` / `expanded` in the frontend. */
 export type PlaygroundToolSpecSeed = {

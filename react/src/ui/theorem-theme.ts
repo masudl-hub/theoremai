@@ -68,10 +68,12 @@ export const theoremTheme: DefinedTheme = defineTheme({
         ':where([role="complementary"])': {
           transition: 'width var(--duration-medium) var(--ease-standard)',
         },
-        // why: While its ResizeHandle (the sibling before it) drags, follow the pointer.
-        ':where([data-resizing] + [role="complementary"])': {
-          transition: 'none',
-        },
+        // why: While its ResizeHandle drags, follow the pointer. An end panel's
+        // handle is the sibling before it; a start panel's handle is the sibling after it.
+        ':where([data-resizing] + [role="complementary"], [role="complementary"]:has(+ [data-resizing]))':
+          {
+            transition: 'none',
+          },
       },
     },
   },

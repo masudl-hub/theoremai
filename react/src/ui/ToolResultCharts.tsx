@@ -18,6 +18,7 @@ import {
 } from 'recharts';
 import { withUnit } from '../client/shaped-data.ts';
 import { type ResultChart, timeFormats } from '../client/tool-result.ts';
+import { Arrive } from './arrive.tsx';
 import { ChartFrame, ChartTip, FIRST_WIDTH_PX } from './TraceOverview.tsx';
 import {
   ChartCard,
@@ -285,13 +286,11 @@ function CategoryCard({ chart }: { chart: CategoryChart }) {
 export function ToolResultCharts({ charts }: { charts: readonly ResultChart[] }) {
   return (
     <Grid columns={{ minWidth: 260, repeat: 'fill' }} gap={3}>
-      {charts.map((chart) =>
-        chart.kind === 'time' ? (
-          <TimeCard key={chart.key} chart={chart} />
-        ) : (
-          <CategoryCard key={chart.key} chart={chart} />
-        ),
-      )}
+      {charts.map((chart) => (
+        <Arrive key={chart.key}>
+          {chart.kind === 'time' ? <TimeCard chart={chart} /> : <CategoryCard chart={chart} />}
+        </Arrive>
+      ))}
     </Grid>
   );
 }

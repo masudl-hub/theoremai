@@ -2,7 +2,6 @@ import { AspectRatio } from '@astryxdesign/core/AspectRatio';
 import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
 import { Center } from '@astryxdesign/core/Center';
-import { ChatLayout } from '@astryxdesign/core/Chat';
 import { Dialog } from '@astryxdesign/core/Dialog';
 import { EmptyState } from '@astryxdesign/core/EmptyState';
 import { HStack } from '@astryxdesign/core/HStack';
@@ -39,7 +38,15 @@ import { ChatComposerBar } from './ChatComposerBar.tsx';
 import { ChatTranscript } from './ChatTranscript.tsx';
 import { liveStateLabel, type TheoremLabels } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
-import { SidePanel, SidePanelHeader, SidePanelToggle, useSidePanel } from './SidePanel.tsx';
+import {
+  PANEL_BOTTOM,
+  PANEL_EDGE,
+  PanelScroll,
+  SidePanel,
+  SidePanelHeader,
+  SidePanelToggle,
+  useSidePanel,
+} from './SidePanel.tsx';
 import { DEFAULT_CHAT_MAX_WIDTH } from './TheoremChat.tsx';
 import { ApprovalCard, AuthChallengeCard } from './ToolGateCard.tsx';
 import { useTraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
@@ -55,9 +62,10 @@ export type LiveRunnerProps = {
   /** Replacement lines by locale, as on `TheoremChat`. */
   labels?: TheoremLabels;
   /**
-   * Show the trace in place of the call, from the host's own control; the
-   * built-in trace toggle then hides. Omit to keep the toggle. Needs a profile
-   * that records traces.
+   * Drive the trace from the host's own control. The built-in toggle hides.
+   * The open trace takes the call's place, unless this page is inside
+   * `TracePlacement value="panel"`, where it docks. Omit to keep the toggle.
+   * Needs a profile that records traces.
    */
   trace?: boolean;
 };
@@ -146,14 +154,13 @@ function LiveRunnerBody({
                     labels={captionLabels}
                     resizable={captions.resizable}
                     open={captions.open}
-                    padding={0}
                   >
                     <LiveCaptions iface={iface} model={model} />
                   </SidePanel>
                 }
                 content={
                   <LayoutContent padding={0}>
-                    <VStack height="100%" paddingInline={3} paddingBlockEnd={3}>
+                    <VStack height="100%" paddingInline={PANEL_EDGE} paddingBlockEnd={PANEL_BOTTOM}>
                       <LiveStage model={model} captionsToggle={captionsToggle} />
                     </VStack>
                   </LayoutContent>
@@ -399,34 +406,34 @@ function LiveCaptions({ iface, model }: { iface: LiveProfileInterface; model: Li
   const newSession = t('@theorem.live.new_session');
   const dividers = Object.fromEntries(callStarts.map((id) => [id, newSession]));
 
-  // why: The empty state goes in ChatLayout's slot, which centres it; the list's
-  // own slot sits under its bottom-align spacer. ChatLayout flexes to fill the
-  // stack below any video preview.
+  const captions = (
+    <ChatTranscript
+      blocks={blocks}
+      dividers={dividers}
+      handle={agentName}
+      streaming={liveCaptionStreaming(model.captions)}
+    />
+  );
   return (
     <VStack height="100%">
       {model.videoPreview ? (
         <LiveVideoPreview video={model.videoPreview} facingMode={model.videoFacingMode} />
       ) : null}
-      <ChatLayout
-        composer={composer}
-        emptyState={
-          <EmptyState
-            icon={<Icon icon={IconSubtitles} size="lg" color="secondary" />}
-            title={t('@theorem.panel.captions.empty.title')}
-            description={t('@theorem.panel.captions.empty.description')}
-            isCompact
-          />
-        }
-      >
+      <StackItem size="fill">
         {blocks.length > 0 ? (
-          <ChatTranscript
-            blocks={blocks}
-            dividers={dividers}
-            handle={agentName}
-            streaming={liveCaptionStreaming(model.captions)}
-          />
-        ) : null}
-      </ChatLayout>
+          <PanelScroll label={t('@theorem.panel.captions.name')}>{captions}</PanelScroll>
+        ) : (
+          <VStack height="100%" vAlign="center" padding={4}>
+            <EmptyState
+              icon={<Icon icon={IconSubtitles} size="lg" color="secondary" />}
+              title={t('@theorem.panel.captions.empty.title')}
+              description={t('@theorem.panel.captions.empty.description')}
+              isCompact
+            />
+          </VStack>
+        )}
+      </StackItem>
+      {composer}
     </VStack>
   );
 }

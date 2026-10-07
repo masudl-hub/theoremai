@@ -15,6 +15,7 @@ import {
   type ResultMedia,
   returnedMedia,
 } from '../client/tool-result.ts';
+import { Arrive } from './arrive.tsx';
 import { useLabels } from './labels-provider.tsx';
 import { keyedByContent } from './row-keys.ts';
 import { ShapedData } from './ShapedData.tsx';
@@ -36,16 +37,17 @@ function Images({ images }: { images: readonly ResultImage[] }) {
     <>
       <Grid columns={{ minWidth: IMAGE_CARD_PX, repeat: 'fill' }} gap={3}>
         {images.map((image, index) => (
-          <ClickableCard
-            key={image.src}
-            label={image.alt || 'Open image'}
-            padding={0}
-            onClick={() => setOpen(index)}
-          >
-            <AspectRatio ratio={4 / 3} fit="cover">
-              <img src={image.src} alt={image.alt} loading="lazy" />
-            </AspectRatio>
-          </ClickableCard>
+          <Arrive key={image.src}>
+            <ClickableCard
+              label={image.alt || 'Open image'}
+              padding={0}
+              onClick={() => setOpen(index)}
+            >
+              <AspectRatio ratio={4 / 3} fit="cover">
+                <img src={image.src} alt={image.alt} loading="lazy" />
+              </AspectRatio>
+            </ClickableCard>
+          </Arrive>
         ))}
       </Grid>
       <Lightbox
@@ -71,11 +73,12 @@ function Figures({ figures }: { figures: ResultLayout['figures'] }) {
   return (
     <Grid columns={{ minWidth: 160, repeat: 'fill' }} gap={3}>
       {figures.map((figure) => (
-        <ChartCard
-          key={figure.key}
-          title={figure.label}
-          value={withUnit(decimal.format(figure.value), figure.unit)}
-        />
+        <Arrive key={figure.key}>
+          <ChartCard
+            title={figure.label}
+            value={withUnit(decimal.format(figure.value), figure.unit)}
+          />
+        </Arrive>
       ))}
     </Grid>
   );
@@ -89,7 +92,9 @@ function Charts({ charts }: { charts: ResultLayout['charts'] }) {
       fallback={
         <Grid columns={{ minWidth: 260, repeat: 'fill' }} gap={3}>
           {charts.map((chart) => (
-            <Skeleton key={chart.key} height={CHART_CARD_PX} />
+            <Arrive key={chart.key}>
+              <Skeleton height={CHART_CARD_PX} />
+            </Arrive>
           ))}
         </Grid>
       }
@@ -119,7 +124,9 @@ function ResultLead({
       <Charts charts={layout.charts} />
       {media.images.length > 0 ? <Images images={media.images} /> : null}
       {keyedByContent(media.audio, (clip) => clip.src).map(({ item: clip, key }) => (
-        <VoiceNote key={key} src={clip.src} mimeType={clip.mimeType} />
+        <Arrive key={key}>
+          <VoiceNote src={clip.src} mimeType={clip.mimeType} />
+        </Arrive>
       ))}
     </VStack>
   );

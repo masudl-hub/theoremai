@@ -27,7 +27,7 @@ const SIDE_PANEL_SIZING = {
 } as const satisfies UseResizableSingleConfig;
 
 /** Whether a side panel is wide enough for two readable columns: twice its minimum. */
-function isSidePanelWide(size: number): boolean {
+export function isSidePanelWide(size: number): boolean {
   return size >= SIDE_PANEL_SIZING.minSize * 2;
 }
 
@@ -98,6 +98,12 @@ export type SidePanelProps = {
   open?: boolean;
   /** Card padding; 0 for content that brings its own (e.g. ChatLayout). */
   padding?: 0;
+  /**
+   * `end` docks on the trailing edge: the handle, then the panel. `start`
+   * docks on the leading edge: the panel, then the handle.
+   */
+  side?: 'start' | 'end';
+  className?: string;
   children?: ReactNode;
 };
 
@@ -108,10 +114,64 @@ export const RAISED = {
   overflow: 'hidden',
 };
 
+/** A docked panel's inset: 12px off the outer edge, 16px off the bottom (the page inset). */
+export const PANEL_EDGE = 3;
+export const PANEL_BOTTOM = 4;
+
+/** The raised card every docked panel and the content beside one share. */
+export function PanelBody({
+  padding,
+  inset = 'end',
+  className,
+  children,
+}: {
+  padding?: 0;
+  /**
+   * `end` insets the trailing edge (a panel docked there, or the content
+   * filling beside a start panel). `start` insets the leading edge. `beside`
+   * insets both.
+   */
+  inset?: 'end' | 'start' | 'beside';
+  className?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <VStack
+      height="100%"
+      className={className}
+      paddingInlineStart={inset === 'end' ? undefined : PANEL_EDGE}
+      paddingInlineEnd={inset === 'start' ? undefined : PANEL_EDGE}
+      paddingBlockEnd={PANEL_BOTTOM}
+    >
+      <Card variant="transparent" height="100%" padding={padding} style={RAISED}>
+        {children}
+      </Card>
+    </VStack>
+  );
+}
+
+/** The scroll inside a panel card. The same area the trace uses, so a short body sizes to its rows. */
+export function PanelScroll({
+  label,
+  padding,
+  children,
+}: {
+  label: string;
+  padding?: 4;
+  children?: ReactNode;
+}) {
+  return (
+    <ScrollableArea className="theorem-panel-scroll" label={label} height="100%" padding={padding}>
+      {children}
+    </ScrollableArea>
+  );
+}
+
 /**
- * A Layout `end` panel as Astryx's IDE template builds one (a reversed
- * `ResizeHandle` before a `LayoutPanel` sized by `useResizable`), holding a
- * raised section inset from the layout edge and bottom instead of a flat pane.
+ * A Layout side panel as Astryx's IDE template builds one (a `ResizeHandle`
+ * beside a `LayoutPanel` sized by `useResizable`), holding a raised section
+ * inset from the layout's outer edge and bottom instead of a flat pane.
+ * `end` puts the handle first and reverses it; `start` puts the panel first.
  * For more than one panel, nest Layouts, one panel each, as the template does.
  */
 export function SidePanel({
@@ -120,42 +180,52 @@ export function SidePanel({
   resizable,
   open = true,
   padding,
+  side = 'end',
+  className,
   children,
 }: SidePanelProps) {
-  return (
+  const handle = open ? (
+    <ResizeHandle
+      direction="horizontal"
+      isReversed={side === 'end'}
+      hasDivider={false}
+      isAlwaysVisible={false}
+      resizable={resizable.props}
+      label={labels.resize}
+    />
+  ) : null;
+  const panel = (
+    <LayoutPanel
+      id={id}
+      className={className}
+      label={labels.name}
+      role="complementary"
+      width={open ? resizable.size : 0}
+      hasDivider={false}
+      padding={0}
+      isScrollable={false}
+      inert={!open}
+    >
+      <PanelBody padding={padding} inset={side}>
+        {open ? children : null}
+      </PanelBody>
+    </LayoutPanel>
+  );
+  return side === 'start' ? (
     <>
-      {open ? (
-        <ResizeHandle
-          direction="horizontal"
-          isReversed
-          hasDivider={false}
-          isAlwaysVisible={false}
-          resizable={resizable.props}
-          label={labels.resize}
-        />
-      ) : null}
-      <LayoutPanel
-        id={id}
-        label={labels.name}
-        role="complementary"
-        width={open ? resizable.size : 0}
-        hasDivider={false}
-        padding={0}
-        isScrollable={false}
-        inert={!open}
-      >
-        <VStack height="100%" paddingInlineEnd={3} paddingBlockEnd={3}>
-          <Card variant="transparent" height="100%" padding={padding} style={RAISED}>
-            {open ? children : null}
-          </Card>
-        </VStack>
-      </LayoutPanel>
+      {panel}
+      {handle}
+    </>
+  ) : (
+    <>
+      {handle}
+      {panel}
     </>
   );
 }
 
 /** The element's width, kept current. */
-function useWidth() {
+export function useWidth() {
   const [width, setWidth] = useState(0);
   const ref = useCallback((node: HTMLDivElement | null) => {
     if (!node) return;
@@ -218,19 +288,19 @@ export function PaneLayout({
 }) {
   if (!isWide) {
     return (
-      <ScrollableArea label={label} height="100%">
+      <PanelScroll label={label}>
         {lead}
         {detail ?? overview}
-      </ScrollableArea>
+      </PanelScroll>
     );
   }
   return (
     <HStack height="100%" gap={0}>
       <StackItem size="fill">
-        <ScrollableArea label={label} height="100%">
+        <PanelScroll label={label}>
           {lead}
           {overview}
-        </ScrollableArea>
+        </PanelScroll>
       </StackItem>
       {detail ? (
         <div
@@ -241,9 +311,7 @@ export function PaneLayout({
             borderInlineStart: '1px solid var(--color-border)',
           }}
         >
-          <ScrollableArea label={detailLabel} height="100%">
-            {detail}
-          </ScrollableArea>
+          <PanelScroll label={detailLabel}>{detail}</PanelScroll>
         </div>
       ) : null}
     </HStack>

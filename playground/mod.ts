@@ -109,6 +109,13 @@ export {
   keySlotRequired,
 } from './requirements.ts';
 export {
+  type AgentKeyOf,
+  type PlaygroundSourceError,
+  type PlaygroundSourceRead,
+  type PlaygroundSourceSpan,
+  readPlaygroundSource,
+} from './read-source.ts';
+export {
   agentModulePath,
   importSpecifier,
   playgroundSource,

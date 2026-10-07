@@ -460,6 +460,10 @@ export const THEOREM_UI_CATALOG = {
     description: "The state is larger than the profile's limit.",
     params: ['limit'],
   },
+  '@theorem.decision.answers': {
+    defaultMessage: 'Answers',
+    description: 'The decision response column.',
+  },
   '@theorem.decision.decide': {
     defaultMessage: 'Decide',
     description: 'Asks the questions about the state.',
@@ -604,6 +608,11 @@ export const THEOREM_UI_CATALOG = {
   '@theorem.panel.trace.resize': {
     defaultMessage: 'Resize trace',
     description: 'Trace panel drag handle.',
+  },
+  '@theorem.panel.resize': {
+    defaultMessage: 'Resize {name}',
+    description: 'Drag handle for a named console panel.',
+    params: ['name'],
   },
   '@theorem.panel.trace.empty.title': {
     defaultMessage: 'No trace yet',
@@ -1098,7 +1107,7 @@ export function workDuration(t: LabelText, durationMs: number): string {
 }
 
 /** Whole-second ticker while a turn runs: "0s", "12s", "1m 5s". */
-function liveDuration(t: LabelText, durationMs: number): string {
+export function liveDuration(t: LabelText, durationMs: number): string {
   const total = Math.floor(Math.max(0, durationMs) / 1_000);
   if (total < 60) return t('@theorem.duration.seconds', { seconds: total });
   return minutesAndSeconds(t, Math.floor(total / 60), total % 60);

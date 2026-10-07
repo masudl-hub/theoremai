@@ -6,6 +6,7 @@ import { VStack } from '@astryxdesign/core/VStack';
 import type { DecisionAnswer, DecisionResult } from '@theoremjs/agents';
 import { useMemo } from 'react';
 import type { DecisionInterface, DecisionQuestionView } from '../client/decision-transport.ts';
+import { Arrive, Stream } from './arrive.tsx';
 import { workDuration } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { ChartCard, TRACE_RADIUS, traceFill } from './trace-patterns.tsx';
@@ -248,19 +249,26 @@ export function TheoremDecisionAnswers({
     result.usage?.costUsd === undefined ? null : n.usd.format(result.usage.costUsd),
   ].filter(Boolean);
   return (
-    <VStack
-      gap={3}
-      style={{ opacity: isStale ? 0.5 : 1, transition: `opacity ${EASE}` }}
-      aria-busy={isStale}
-    >
-      <Grid columns={{ minWidth: 260, repeat: 'fill' }} gap={3}>
-        {iface.questions.map((question) => (
-          <AnswerCard key={question.id} question={question} answer={result.answers[question.id]} />
-        ))}
-      </Grid>
-      <Text type="supporting" color="secondary" hasTabularNumbers>
-        {meta.join(' · ')}
-      </Text>
-    </VStack>
+    <Stream>
+      <VStack
+        key={elapsedMs ?? 0}
+        gap={3}
+        style={{ opacity: isStale ? 0.5 : 1, transition: `opacity ${EASE}` }}
+        aria-busy={isStale}
+      >
+        <Grid columns={{ minWidth: 260, repeat: 'fill' }} gap={3}>
+          {iface.questions.map((question) => (
+            <Arrive key={question.id}>
+              <AnswerCard question={question} answer={result.answers[question.id]} />
+            </Arrive>
+          ))}
+        </Grid>
+        <Arrive>
+          <Text type="supporting" color="secondary" hasTabularNumbers>
+            {meta.join(' · ')}
+          </Text>
+        </Arrive>
+      </VStack>
+    </Stream>
   );
 }

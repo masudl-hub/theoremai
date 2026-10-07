@@ -173,7 +173,9 @@ export function InkWaveform({
     >
       {bars.map((bar) => (
         <line
-          key={`${String(bar.x)}:${String(bar.y2)}`}
+          // why: The height changes every frame. Keying on it would remount the line and restart
+          // its entrance. A bar's x is its own and never moves.
+          key={bar.x}
           className="ink-wave__bar"
           x1={bar.x}
           x2={bar.x}

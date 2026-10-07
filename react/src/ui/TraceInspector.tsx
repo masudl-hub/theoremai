@@ -38,6 +38,7 @@ import {
   traceTree,
 } from '../client/trace-view.ts';
 import { useTraceRecords } from '../hooks/use-trace-records.ts';
+import { Stream, useArrive } from './arrive.tsx';
 import type { LabelText } from './labels.ts';
 import { PaneLayout } from './SidePanel.tsx';
 import { ConversationCharts, TraceCharts } from './TraceCharts.tsx';
@@ -169,9 +170,12 @@ function TurnRow({
   onOpen: () => void;
 }) {
   const { t } = useTraceFormat();
+  const arrive = useArrive();
   const row = useMemo(() => traceTurnRow(turn, isCall), [turn, isCall]);
   return (
     <Item
+      className={arrive?.className}
+      style={arrive?.style}
       startContent={<ActorMark actor={row.actor} />}
       label={
         <Text weight="medium" maxLines={1}>
@@ -229,17 +233,19 @@ function ConversationOverview({
         <SectionTitle
           title={t(isCalls ? '@theorem.panel.trace.calls' : '@theorem.panel.trace.turns')}
         />
-        <VStack gap={0}>
-          {turns.map((turn, index) => (
-            <TurnRow
-              key={turn.node.id}
-              turn={turn}
-              index={index}
-              isCall={isCalls}
-              onOpen={() => onPick(index)}
-            />
-          ))}
-        </VStack>
+        <Stream>
+          <VStack gap={0}>
+            {turns.map((turn, index) => (
+              <TurnRow
+                key={turn.node.id}
+                turn={turn}
+                index={index}
+                isCall={isCalls}
+                onOpen={() => onPick(index)}
+              />
+            ))}
+          </VStack>
+        </Stream>
       </VStack>
     </VStack>
   );
@@ -294,7 +300,13 @@ function TurnOverview({
           resultCount={matches?.size}
           size="sm"
         />
-        <TraceWaterfall root={root} selectedId={selectedId} matches={matches} onSelect={onSelect} />
+        <TraceWaterfall
+          key={root.id}
+          root={root}
+          selectedId={selectedId}
+          matches={matches}
+          onSelect={onSelect}
+        />
       </VStack>
       {story.length > 0 ? (
         <VStack gap={2}>

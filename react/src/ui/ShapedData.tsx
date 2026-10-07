@@ -11,7 +11,7 @@ import { Table, type TableColumn } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
-import { Component, type ReactNode, useMemo, useState } from 'react';
+import { Component, type CSSProperties, type ReactNode, useMemo, useState } from 'react';
 import {
   fieldLabel,
   fieldReading,
@@ -25,12 +25,14 @@ import {
   plainReading,
   type Row,
   rowHeading,
+  type Section,
   type Shape,
   shapeOf,
   splitFields,
   unpacked,
   withUnit,
 } from '../client/shaped-data.ts';
+import { Arrive, useArrive } from './arrive.tsx';
 import { useLabels } from './labels-provider.tsx';
 import { keyedByContent } from './row-keys.ts';
 
@@ -187,58 +189,145 @@ function ListRowEnd({ row }: { row: ListRow }) {
   );
 }
 
-function DataList({ rows }: { rows: readonly ListRow[] }) {
+function dataListItem(row: ListRow) {
+  return {
+    label: row.title,
+    description: row.description,
+    href: row.href,
+    target: row.href ? ('_blank' as const) : undefined,
+    rel: row.href ? ('noreferrer' as const) : undefined,
+    endContent: <ListRowEnd row={row} />,
+  };
+}
+
+/** A top-level row eases in with the rest of a returned result. Nested rows stay put. */
+function ArrivingDataRow({ row }: { row: ListRow }) {
+  const arrive = useArrive();
+  return <ListItem className={arrive?.className} style={arrive?.style} {...dataListItem(row)} />;
+}
+
+function DataList({ rows, depth }: { rows: readonly ListRow[]; depth: number }) {
   return (
     <VStack gap={1}>
       <List hasDividers density="compact">
-        {keyedByContent(rows.slice(0, MAX_ROWS), (row) => row.title).map(({ item: row, key }) => (
-          <ListItem
-            key={key}
-            label={row.title}
-            description={row.description}
-            href={row.href}
-            target={row.href ? '_blank' : undefined}
-            rel={row.href ? 'noreferrer' : undefined}
-            endContent={<ListRowEnd row={row} />}
-          />
-        ))}
+        {keyedByContent(rows.slice(0, MAX_ROWS), (row) => row.title).map(({ item: row, key }) =>
+          depth === 0 ? (
+            <ArrivingDataRow key={key} row={row} />
+          ) : (
+            <ListItem key={key} {...dataListItem(row)} />
+          ),
+        )}
       </List>
       <More total={rows.length} />
     </VStack>
   );
 }
 
-function Rows({ items, depth }: { items: readonly unknown[]; depth: number }) {
+function ObjectRow({
+  item,
+  index,
+  depth,
+  className,
+  style,
+}: {
+  item: unknown;
+  index: number;
+  depth: number;
+  className?: string;
+  style?: CSSProperties;
+}) {
   const t = useLabels();
+  const heading = rowHeading(item);
+  return (
+    <Collapsible
+      className={className}
+      style={style}
+      value={String(index)}
+      trigger={
+        <HStack gap={2} vAlign="center" wrap="wrap">
+          <Text type="body">
+            {heading.title ?? t('@theorem.data.item', { index: String(index + 1) })}
+          </Text>
+          {heading.tags.map((tag) => (
+            <Token key={tag} label={tag} size="sm" />
+          ))}
+        </HStack>
+      }
+    >
+      <Node value={heading.rest} depth={depth + 1} />
+    </Collapsible>
+  );
+}
+
+/** A top-level object row eases in with the result. One nested under it does not. */
+function ArrivingObjectRow({
+  item,
+  index,
+  depth,
+}: {
+  item: unknown;
+  index: number;
+  depth: number;
+}) {
+  const arrive = useArrive();
+  return (
+    <ObjectRow
+      item={item}
+      index={index}
+      depth={depth}
+      className={arrive?.className}
+      style={arrive?.style}
+    />
+  );
+}
+
+function Rows({ items, depth }: { items: readonly unknown[]; depth: number }) {
   return (
     <VStack gap={1}>
       <CollapsibleGroup type="multiple" hasDividers density="compact">
         {keyedByContent(items.slice(0, MAX_ROWS), (item) => JSON.stringify(item) ?? '').map(
-          ({ item, index, key }) => {
-            const heading = rowHeading(item);
-            return (
-              <Collapsible
-                key={key}
-                value={String(index)}
-                trigger={
-                  <HStack gap={2} vAlign="center" wrap="wrap">
-                    <Text type="body">
-                      {heading.title ?? t('@theorem.data.item', { index: String(index + 1) })}
-                    </Text>
-                    {heading.tags.map((tag) => (
-                      <Token key={tag} label={tag} size="sm" />
-                    ))}
-                  </HStack>
-                }
-              >
-                <Node value={heading.rest} depth={depth + 1} />
-              </Collapsible>
-            );
-          },
+          ({ item, index, key }) =>
+            depth === 0 ? (
+              <ArrivingObjectRow key={key} item={item} index={index} depth={depth} />
+            ) : (
+              <ObjectRow key={key} item={item} index={index} depth={depth} />
+            ),
         )}
       </CollapsibleGroup>
       <More total={items.length} />
     </VStack>
+  );
+}
+
+function FieldSection({
+  shown,
+  depth,
+  className,
+  style,
+}: {
+  shown: Section;
+  depth: number;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  return (
+    <Collapsible
+      className={className}
+      style={style}
+      value={shown.key}
+      trigger={<Text type="label">{shown.title}</Text>}
+    >
+      <VStack paddingInlineStart={3}>
+        <Node value={shown.value} depth={depth + 1} units={shown.units} />
+      </VStack>
+    </Collapsible>
+  );
+}
+
+function ArrivingFieldSection({ shown, depth }: { shown: Section; depth: number }) {
+  const arrive = useArrive();
+  return (
+    <FieldSection shown={shown} depth={depth} className={arrive?.className} style={arrive?.style} />
   );
 }
 
@@ -272,20 +361,16 @@ function Fields({ row, depth, units }: { row: Row; depth: number; units?: Row })
           // why: The top level's first section starts open: it's usually the payload. The rest wait to be asked for.
           defaultValue={depth === 0 ? sections.slice(0, 1).map((shown) => shown.key) : []}
         >
-          {sections.map((shown) => (
-            <Collapsible
-              key={shown.key}
-              value={shown.key}
-              trigger={<Text type="label">{shown.title}</Text>}
-            >
-              <VStack paddingInlineStart={3}>
-                <Node value={shown.value} depth={depth + 1} units={shown.units} />
-              </VStack>
-            </Collapsible>
-          ))}
+          {sections.map((shown) =>
+            depth === 0 ? (
+              <ArrivingFieldSection key={shown.key} shown={shown} depth={depth} />
+            ) : (
+              <FieldSection key={shown.key} shown={shown} depth={depth} />
+            ),
+          )}
         </CollapsibleGroup>
       )}
-      {depth === 0 && fields}
+      {depth === 0 && fields ? <Arrive>{fields}</Arrive> : null}
     </VStack>
   );
 }
@@ -313,7 +398,7 @@ const SHAPES: {
       <More total={items.length} />
     </VStack>
   ),
-  list: ({ rows }) => <DataList rows={rows} />,
+  list: ({ rows }, { depth }) => <DataList rows={rows} depth={depth} />,
   table: ({ columns, rows }, { units }) => (
     <DataTable columns={columns} rows={rows} units={units} />
   ),
@@ -333,12 +418,17 @@ function Node({
   const t = useLabels();
   const value = unpacked(raw);
   const shape = shapeOf(value, depth);
-  return (SHAPES[shape.kind] as (shape: Shape, props: NodeProps) => ReactNode)(shape, {
+  const body = (SHAPES[shape.kind] as (shape: Shape, props: NodeProps) => ReactNode)(shape, {
     value,
     depth,
     units,
     t,
   });
+  // why: A list, a set of rows, or an object's sections stagger their own children. Anything else at the top of a result is one arrival.
+  if (depth !== 0 || shape.kind === 'list' || shape.kind === 'rows' || shape.kind === 'fields') {
+    return body;
+  }
+  return <Arrive>{body}</Arrive>;
 }
 
 /** A render the rules didn't foresee throws into the JSON, never into the transcript. */

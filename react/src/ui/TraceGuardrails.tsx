@@ -14,6 +14,7 @@ import {
 import { TOOL_RULES } from '@theoremjs/agents/guardrails';
 import type { TraceGuardrailCheck, TraceGuardrailHit } from '../client/trace-story.ts';
 import type { TraceNode } from '../client/trace-view.ts';
+import { Arrive, Stream } from './arrive.tsx';
 import { useTraceFormat } from './TraceValues.tsx';
 
 type Format = ReturnType<typeof useTraceFormat>;
@@ -170,15 +171,21 @@ export function TraceGuardrails({
     format,
   );
   return (
-    <VStack gap={1}>
-      {acted.map((check) => (
-        <ActedCheck key={check.id} check={check} format={format} onSelect={onSelect} />
-      ))}
-      {passed ? (
-        <Text type="supporting" color="secondary" hasTabularNumbers>
-          {format.t('@theorem.panel.trace.guardrails.passed', { checks: passed })}
-        </Text>
-      ) : null}
-    </VStack>
+    <Stream>
+      <VStack gap={1}>
+        {acted.map((check) => (
+          <Arrive key={check.id}>
+            <ActedCheck check={check} format={format} onSelect={onSelect} />
+          </Arrive>
+        ))}
+        {passed ? (
+          <Arrive>
+            <Text type="supporting" color="secondary" hasTabularNumbers>
+              {format.t('@theorem.panel.trace.guardrails.passed', { checks: passed })}
+            </Text>
+          </Arrive>
+        ) : null}
+      </VStack>
+    </Stream>
   );
 }

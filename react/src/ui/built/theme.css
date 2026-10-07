@@ -685,7 +685,7 @@
     transition: width var(--duration-medium) var(--ease-standard);
   }
 
-  .astryx-layout-panel:where([data-resizing] + [role="complementary"]) {
+  .astryx-layout-panel:where([data-resizing] + [role="complementary"], [role="complementary"]:has(+ [data-resizing])) {
     transition: none;
   }
 

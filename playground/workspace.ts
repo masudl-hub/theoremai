@@ -130,16 +130,19 @@ function mapAgent(
  * Writes one agent's draft back. Its tools go to the library: a changed tool
  * changes there for every agent, a new one joins the library and this agent's
  * allow list, and one the draft dropped leaves only this agent's allow list.
+ * `registered` updates the library for a tool the file defines and does not allow.
  */
 export function withAgentDraft(
   workspace: PlaygroundWorkspace,
   key: string,
   draft: PlaygroundDraft,
+  registered?: readonly ToolSpecDraft[],
 ): PlaygroundWorkspace {
   if (!workspace.agents.some((agent) => agent.key === key)) return workspace;
+  const defined = registered ? mergeLibrary(workspace.toolSpecs, [...registered]) : workspace.toolSpecs;
   return {
     ...workspace,
-    toolSpecs: mergeLibrary(workspace.toolSpecs, draft.toolSpecs),
+    toolSpecs: mergeLibrary(defined, draft.toolSpecs),
     agents: mapAgent(workspace, key, () => agentFromDraft(draft, key)),
   };
 }

@@ -32,7 +32,9 @@ function mediaKindForMime(mime: string): MediaInputKind | undefined {
 }
 
 function profileInputs(profile: Profile): ProfileInputsSpec | undefined {
-  return profile.type === 'text' || profile.type === 'image' ? profile.inputs : undefined;
+  return profile.type === 'text' || profile.type === 'image' || profile.type === 'live'
+    ? profile.inputs
+    : undefined;
 }
 
 function profileAccept(profile: Profile, channel: MediaInputChannel): string[] | undefined {

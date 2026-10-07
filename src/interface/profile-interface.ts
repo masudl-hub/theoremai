@@ -224,6 +224,7 @@ const profileInterface = z.discriminatedUnion('type', [
     ...common,
     type: z.literal('live'),
     identity,
+    inputs: inputs.pick({ slots: true, context: true }).optional(),
     live: z.object({
       ingress: z
         .object({

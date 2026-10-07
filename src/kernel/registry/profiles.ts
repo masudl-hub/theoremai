@@ -13,7 +13,7 @@ import { resolveObservabilityPolicy } from '../../observability/resolve-policy.t
 import type { ProfileObservabilitySpec } from '../../observability/types.ts';
 import { assertLiveIngressConfigured } from '../engine/live-ingress.ts';
 import { schemaReaches } from '../engine/runner/schema-validation.ts';
-import { outOfScopeFields } from '../profile-scope.ts';
+import { outOfScopeFields, profileTypesForField } from '../profile-scope.ts';
 import {
   CACHE_MODES,
   CACHE_TTLS,
@@ -114,6 +114,7 @@ export type SpeechProfileDefinition = Omit<ProfileDefinitionBase, 'identity'> & 
 export type LiveProfileDefinition = ProfileDefinitionBase & {
   type: 'live';
   live: NonNullable<LiveProfile['live']>;
+  inputs?: LiveProfile['inputs'];
   tools: LiveProfileToolsSpec;
   /** Inject gate only — resumption is `live.sessionResumption`. */
   turnBehaviour?: Pick<ProfileTurnBehaviourSpec, 'allowSteering'>;
@@ -515,6 +516,16 @@ function assertRequiredFields(input: ProfileDefinition): void {
   }
 }
 
+/** `inputs` is optional on a live profile only, where it holds slots and context and nothing else. */
+function assertInputsSet(input: ProfileDefinition): void {
+  const { id, type } = input;
+  if (type === 'live' || !profileTypesForField('inputs').includes(type)) return;
+  const inputs = (input as { inputs?: unknown }).inputs;
+  if (inputs === undefined || inputs === null) {
+    throw new TheoremError('config', `Profile ${id}: type '${type}' must set inputs`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+}
+
 /** Covers untyped hosts that the definition types can't stop. */
 function assertFieldScope(input: ProfileDefinition): void {
   const [field] = outOfScopeFields(input);
@@ -651,6 +662,7 @@ function defineProfile(input: ProfileDefinition): Profile;
 function defineProfile(input: ProfileDefinition): Profile {
   assertProfileShape(input);
   assertFieldScope(input);
+  assertInputsSet(input);
   assertRequiredFields(input);
   if (input.lexicon) validateLexiconOverrides(input.lexicon, `Profile ${input.id}`);
   assertIdentitySystem(input);
@@ -742,6 +754,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         identity,
         ...modelFields,
         live: input.live,
+        inputs: input.inputs,
         tools: { allow: input.tools.allow },
         turnBehaviour: input.turnBehaviour,
         guardrails,

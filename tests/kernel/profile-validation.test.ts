@@ -981,7 +981,7 @@ Deno.test('a field the type may carry only as its off value names that value', (
         models: { m: { ...BINDING, persistViaInteractionId: undefined } },
         inputs: { text: true },
       }),
-    ).startsWith("Profile p: type 'live' must not set inputs — "),
+    ).startsWith("Profile p: type 'live' must not set inputs.text — "),
     true,
     'no off value to name',
   );

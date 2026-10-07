@@ -27,6 +27,11 @@ const TURN_INPUT_TYPES: readonly ProfileType[] = ['text', 'image'];
 
 const TURN_INPUT_REASON = 'a decision takes JSON state, not turn text, files or slots';
 
+/** Types that take slots and context: the turn types, and a call. */
+const SLOT_TYPES: readonly ProfileType[] = ['text', 'image', 'live'];
+
+const SLOT_REASON = 'a decision takes JSON state, and speech reads its transcript only';
+
 export interface ProfileFieldScope {
   profileTypes: readonly ProfileType[];
   /** Why other types can't take it — shown in `defineProfile` errors and authoring UIs. */
@@ -148,9 +153,8 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
       'live function declarations are fixed at session setup, and a host profile can execute every allowed tool',
   },
   inputs: {
-    profileTypes: ['text', 'image', 'decision'],
-    reason:
-      'speech input is the transcript, live ingress is live.ingress, and a host profile takes no turns',
+    profileTypes: ['text', 'image', 'live', 'decision'],
+    reason: 'speech input is the transcript, and a host profile takes no turns',
   },
   'inputs.voice': {
     profileTypes: ['text'],
@@ -181,12 +185,12 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     reason: TURN_INPUT_REASON,
   },
   'inputs.slots': {
-    profileTypes: TURN_INPUT_TYPES,
-    reason: TURN_INPUT_REASON,
+    profileTypes: SLOT_TYPES,
+    reason: SLOT_REASON,
   },
   'inputs.context': {
-    profileTypes: TURN_INPUT_TYPES,
-    reason: TURN_INPUT_REASON,
+    profileTypes: SLOT_TYPES,
+    reason: SLOT_REASON,
   },
   'inputs.state': {
     profileTypes: ['decision'],

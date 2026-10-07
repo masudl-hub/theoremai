@@ -62,7 +62,7 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'models.*.cache.ttl': { unset: 'Provider default' },
   'models.*.store': { unset: 'Provider default' },
   'models.*.persistViaInteractionId': { required: 'when the protocol is geminiInteractions' },
-  inputs: { required: true },
+  inputs: { required: 'on every type that takes it but live', unset: 'No slots or context' },
   'inputs.text': { unset: 'Accepted' },
   'inputs.attachments.accept': { unset: 'No attachments' },
   'inputs.voice.accept': { unset: 'No voice' },

@@ -520,6 +520,9 @@ export interface ProfileInputsSpec {
   context?: ProfileContextSpec;
 }
 
+/** What a live profile declares beside its ingress channels. */
+export type LiveInputsSpec = Pick<ProfileInputsSpec, 'slots' | 'context'>;
+
 /** Who may send a turn its context, and how much. */
 export interface ProfileContextSpec {
   from: ContextSender[];
@@ -732,6 +735,7 @@ export interface SpeechProfile extends Omit<ProfileCommon, 'identity'> {
 export interface LiveProfile extends Omit<ProfileCommon, 'outputs'> {
   type: 'live';
   live: ProfileLiveSpec;
+  inputs?: LiveInputsSpec;
   tools: LiveProfileToolsSpec;
   /** Stage inject gate only; live resumption is `live.sessionResumption`. */
   turnBehaviour?: Pick<ProfileTurnBehaviourSpec, 'allowSteering'>;

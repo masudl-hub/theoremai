@@ -75,13 +75,13 @@ Deno.test('host spine is tools, guardrails, observability and wording under the 
   assertEquals(modelBinding?.profileTypes.includes('host'), false);
 });
 
-Deno.test('speech spine omits tools and inputs; live omits inputs and outputs', () => {
+Deno.test('speech spine omits tools and inputs; live omits outputs', () => {
   const speech = spineFacetsForProfileType('speech').map((f) => f.id);
   assertEquals(speech.includes('tools'), false);
   assertEquals(speech.includes('inputs'), false);
 
   const live = spineFacetsForProfileType('live').map((f) => f.id);
-  assertEquals(live.includes('inputs'), false);
+  assertEquals(live.includes('inputs'), true);
   assertEquals(live.includes('outputs'), false);
   assertEquals(live.includes('turnBehaviour'), true);
 });

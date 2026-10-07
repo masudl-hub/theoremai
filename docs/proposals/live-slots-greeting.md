@@ -40,7 +40,8 @@ tools: [{ name: 'highlight', type: 'function', answeredBy: 'page', input: …, o
 - A slot keeps its shape: a name and its allowed values.
 - `{name}` in `identity.system`, `live.greeting` and `live.resumed.prompt` is
   replaced with the value the turn or call chose.
-- A `{name}` that is not a declared slot is a profile error at registration.
+- A `{name}` that is not a declared slot stays as written: a prompt may use
+  braces for other things.
 - A prompt that uses a slot the caller did not fill is a request error.
 - This is safe because every value is one the builder listed. Free-form data
   never goes into a prompt; it goes through context.

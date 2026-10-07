@@ -1027,7 +1027,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'inputs.slots': field(
     'Record<string, string[]>',
-    'Named choices a turn can make, such as language, each with its allowed values.',
+    'Named choices a turn or a call can make, such as language, each with its allowed values. {name} in a prompt becomes the chosen value.',
   ),
   'inputs.slots.*': field(
     'string[]',

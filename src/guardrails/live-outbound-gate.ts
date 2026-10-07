@@ -2,12 +2,11 @@ import type { TurnEventOf } from '../kernel/turn-events.ts';
 import type { Profile, TurnEvent } from '../kernel/types.ts';
 import { isStreamedCanaryEvent, type StreamedReplyEvent } from './canary.ts';
 import { detectEvent, leakScopeOf, scopeOf } from './detect-at.ts';
-import { readReply, replyAfter, standingBlock } from './detect-reply.ts';
+import { readReply, refusalAfter, replyAfter, standingBlock } from './detect-reply.ts';
 import { eventLeak, isPromptLeakHit, promptLeakReason, WITHHELD_REASON } from './egress.ts';
 import type { GivenUrls } from './egress-urls.ts';
 import { TheoremError } from './error.ts';
 import { guardrailFromHits, guardrailTurnEvent } from './events.ts';
-import { lexiconText } from './lexicon.ts';
 import { resolveGuardrailPolicy } from './policy.ts';
 import {
   createOutboundProgressiveGate,
@@ -349,11 +348,8 @@ function finalEgressVerdict(
     ...(session.withholdVisible ? { reportedTo: clearedTo(gate) } : {}),
     scope: scopeOf(session.policy, session.context),
   });
-  /** A reply that replaces the cycle's, after what the host already has of that one. */
-  const replacement = (text: string): TurnEvent => ({
-    type: 'text',
-    text: replyAfter(gate.accumulated().slice(0, session.releasedTo), text),
-  });
+  /** The part of the cycle's reply the host already has. */
+  const shown = gate.accumulated().slice(0, session.releasedTo);
   const stopped = standingBlock(read, session.promptLeaks);
   // why: A detector's block is reported by its own event, which names the boundary.
   const judged =
@@ -365,8 +361,8 @@ function finalEgressVerdict(
   if (stopped) {
     // why: Live never rewrites: audio already spoken cannot be taken back for another try.
     if (blockedReply.onBlock === 'refuse') {
-      const text = lexiconText('egress.refusal', {}, session.context.lexicon);
-      return { action: 'emit', events: [...events, replacement(text)] };
+      const text = refusalAfter(shown, session.context.lexicon);
+      return { action: 'emit', events: [...events, { type: 'text', text }] };
     }
     return {
       action: 'withhold',
@@ -376,7 +372,8 @@ function finalEgressVerdict(
   }
   if (read.rewritten) {
     // why: The audio says what the transcript did: only the replaced text goes out.
-    return { action: 'emit', events: [...events, replacement(read.payload.text)] };
+    const text = replyAfter(shown, read.payload.text);
+    return { action: 'emit', events: [...events, { type: 'text', text }] };
   }
   releaseHeld(session, gate, gate.accumulated().length, events, true);
   return emitOrIdle(events);

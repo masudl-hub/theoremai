@@ -1,6 +1,7 @@
 import { scopeOf } from '../../../guardrails/detect-at.ts';
 import {
   readReply,
+  refusalAfter,
   replyAfter,
   standingBlock,
   TURN_REPLY,
@@ -141,10 +142,10 @@ function evaluateEgressOutcome(args: {
     scope,
   });
   const { payload } = read;
-  /** A reply that replaces the one written, after what the host already has of that one. */
+  /** Text that takes the written reply's place, as the host receives it. */
   const replacement = (text: string): EgressOutcome => ({
     action: 'refusal',
-    event: { type: 'text', text: replyAfter(args.shown, text) },
+    event: { type: 'text', text },
   });
   const stopped = standingBlock(read, promptLeaks);
   // why: A detector's block is reported by its own event, which names the boundary.
@@ -157,7 +158,7 @@ function evaluateEgressOutcome(args: {
   if (!stopped) {
     if (read.rewritten) {
       // why: Text the stream could not replace as it went: the reply goes out replaced, whole.
-      return { outcome: replacement(payload.text), guardrails };
+      return { outcome: replacement(replyAfter(args.shown, payload.text)), guardrails };
     }
     const replaced = payload.structured !== written.structured;
     return {
@@ -168,8 +169,7 @@ function evaluateEgressOutcome(args: {
   }
 
   if (blockedReply.onBlock === 'refuse') {
-    const text = lexiconText('egress.refusal', {}, profile.lexicon);
-    return { outcome: replacement(text), guardrails };
+    return { outcome: replacement(refusalAfter(args.shown, profile.lexicon)), guardrails };
   }
 
   if (canRetry) {

@@ -169,7 +169,7 @@ type Verdict =
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `onBlock` | `retry` | `retry` hands the reply and the reason back to the model, which writes another; `refuse` gives the person the lexicon's `egress.refusal` in its place |
+| `onBlock` | `retry` | `retry` hands the reply and the reason back to the model, which writes another; `refuse` gives the person the lexicon's `egress.refusal` in its place, or ends the part they already have with `egress.refusal_cut` |
 | `maxRetries` | `1` | How many rewrites `retry` allows. When they are spent, or at `0`, the turn ends withheld |
 
 The reason the model reads on a rewrite is the lexicon's `egress.rejection`,
@@ -191,7 +191,10 @@ validation. `defineProfile` rejects a setting `blockedReply` does not have, an
 integer.
 
 A detector decides; it never writes what the user reads. The refusal is the
-lexicon's `egress.refusal`, which the profile's `lexicon` can replace.
+lexicon's `egress.refusal`, which the profile's `lexicon` can replace. When the
+user already has part of the reply, that part ends with `egress.refusal_cut`
+instead, joined with no space: `I notice the—sorry, this reply couldn't be
+continued.`
 
 A turn the egress gate withholds or answers with refusal copy ends with stop
 `filtered`, `native: 'egress'`, a leak of the canary or the private prompt in
@@ -1627,7 +1630,7 @@ placeholder, or a placeholder the key never fills in.
 | Attachments | `attachments.*` | lexicon (structured codes also exposed) |
 | Errors | `error.<kind>` | lexicon (resolved where the event reaches the host) |
 | Quota | `quota.exhausted` | lexicon (`quotaExhausted` → `rate_limit`) |
-| Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.rejection`, `egress.rejection_found`, `egress.hint_unscannable`, `egress.hint_provider_tool_leak`, `detect.hint.*` | lexicon |
+| Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.refusal_cut`, `egress.rejection`, `egress.rejection_found`, `egress.hint_unscannable`, `egress.hint_provider_tool_leak`, `detect.hint.*` | lexicon |
 | Thoughts | `thought.omitted_image`, `thought.omitted_link`, `thought.omitted_instructions` (a leading space is dropped after whitespace) | lexicon |
 | Session | `session.abandon_gated`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending`, `session.part_skipped` | lexicon |
 | Live | `live.session_ended` (the provider ended the call after warning it would) | lexicon (the Live session words the ended signal's `message` when it closes) |

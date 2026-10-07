@@ -100,10 +100,12 @@ Deno.test('block at reply: the reply stops before the key and the turn says it w
   assertEquals(finalStop(events)?.kind, 'filtered');
 });
 
-Deno.test('block at reply with blockedReply refuse: the user reads the refusal', async () => {
+Deno.test('block at reply with blockedReply refuse: the part shown ends with the cut', async () => {
   const detect: DetectSpec = { credentials: { at: { reply: 'block' } } };
   const events = await turn('detect_reply_refuse', detect, said(TEXT), { refuse: true });
-  assertEquals(replyText(events).endsWith(lexiconDefault('egress.refusal')), true);
+  const shown = replyText(events).slice(0, -lexiconDefault('egress.refusal_cut').length);
+  assertEquals(replyText(events), `${shown}${lexiconDefault('egress.refusal_cut')}`);
+  assertEquals(shown.length > 0 && TEXT.startsWith(shown), true);
   assertEquals(replyText(events).includes(KEY), false);
 });
 

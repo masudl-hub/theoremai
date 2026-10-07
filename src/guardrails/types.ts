@@ -53,7 +53,8 @@ export type BlockedReplyOnBlock = (typeof BLOCKED_REPLY_ON_BLOCK)[number];
 export interface BlockedReplySpec {
   /**
    * `retry` (the default) tells the model what blocked the reply and has it write another;
-   * `refuse` sends the user the lexicon's `egress.refusal` in its place.
+   * `refuse` sends the user the lexicon's `egress.refusal` in its place, or ends the part
+   * they already have with `egress.refusal_cut`.
    */
   onBlock?: BlockedReplyOnBlock;
   /**

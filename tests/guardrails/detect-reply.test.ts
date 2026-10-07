@@ -2,7 +2,7 @@ import '../fixtures/test-host.ts';
 import { recordOf } from '../../src/guardrails/boundaries.ts';
 import { TEST_OPENAI_KEY, TEST_SSN } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
-import { readReply, replyAfter } from '../../src/guardrails/detect-reply.ts';
+import { readReply, refusalAfter, replyAfter } from '../../src/guardrails/detect-reply.ts';
 import {
   type DetectorRule,
   type DetectSpec,
@@ -194,6 +194,12 @@ Deno.test('a replacement follows what the host has: the rest of it, or set apart
   assertEquals(replyAfter('', 'Sorry.'), 'Sorry.');
   assertEquals(replyAfter('The key is', 'The key is [redacted]'), ' [redacted]');
   assertEquals(replyAfter('The key is', 'Sorry.'), '\n\nSorry.');
+});
+
+Deno.test('a refusal stands alone, or cuts short the part the user already has', () => {
+  assertEquals(refusalAfter(''), "Sorry, that reply couldn't be shared.");
+  assertEquals(refusalAfter('I notice the'), "—sorry, this reply couldn't be continued.");
+  assertEquals(refusalAfter('I notice the', { 'egress.refusal_cut': ' [cut]' }), ' [cut]');
 });
 
 Deno.test('block at the end names every match and lets nothing through', () => {

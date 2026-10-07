@@ -74,6 +74,7 @@ export const LEXICON_KEYS = [
   'detect.hint.own',
   'egress.default_repair_guidance',
   'egress.refusal',
+  'egress.refusal_cut',
   'egress.rejection',
   'egress.rejection_found',
   'egress.hint_unscannable',
@@ -301,6 +302,7 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'detect.output_blocked':
     "The tool's output was withheld: it held content this agent may not read.",
   'egress.refusal': "Sorry, that reply couldn't be shared.",
+  'egress.refusal_cut': "—sorry, this reply couldn't be continued.",
   'egress.rejection': 'The reply was stopped for what it held.\n{found}',
   'egress.rejection_found': '{hint} Found: {matches}',
   'egress.hint_unscannable':
@@ -495,6 +497,8 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
     'What the model is told to leave out when a detector of your own that sets no hint blocks a reply. Takes {label}, the label of the detector.',
   'egress.refusal':
     'Shown to the user in place of a reply the egress check blocked, when it is set to refuse rather than retry.',
+  'egress.refusal_cut':
+    'Ends a reply the egress check blocked after the user already has part of it, when it is set to refuse. It follows that part with no space.',
   'egress.rejection':
     'Given to the model when a blocked reply is retried. Takes {found}: a line for each detector that matched, with its hint.',
   'egress.rejection_found':

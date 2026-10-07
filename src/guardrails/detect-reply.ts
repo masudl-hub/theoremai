@@ -18,6 +18,7 @@ import {
 } from './detect-at.ts';
 import type { ResolvedDetect } from './detectors.ts';
 import type { GuardrailEvent, GuardrailHit } from './event-schemas.ts';
+import { type LexiconOverrides, lexiconText } from './lexicon.ts';
 import { EGRESS_RULES } from './rules.ts';
 import { textForScan } from './serialize.ts';
 import type { OutboundPayload } from './types.ts';
@@ -136,5 +137,13 @@ function replyAfter(shown: string, text: string): string {
   return text.startsWith(shown) ? text.slice(shown.length) : `\n\n${text}`;
 }
 
+/**
+ * The refusal as the host receives it after `shown`: the whole refusal when the user has
+ * none of the reply, or the cut that ends the part they have.
+ */
+function refusalAfter(shown: string, lexicon?: LexiconOverrides): string {
+  return lexiconText(shown ? 'egress.refusal_cut' : 'egress.refusal', {}, lexicon);
+}
+
 export type { ReplyRead };
-export { readReply, replyAfter, standingBlock, TURN_REPLY };
+export { readReply, refusalAfter, replyAfter, standingBlock, TURN_REPLY };

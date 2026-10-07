@@ -373,7 +373,8 @@ Deno.test('awaitingUserInputSchema: strict shape', () => {
 });
 
 Deno.test('toolGateSchema: auth requires challenge; kinds closed', () => {
-  assertEquals([...TOOL_GATE_KINDS], ['confirmation', 'permission', 'auth']);
+  assertEquals([...TOOL_GATE_KINDS], ['confirmation', 'permission', 'auth', 'page']);
+  assertEquals(gateOf({ kind: 'page', tool: 'highlight' })?.kind, 'page');
   assertEquals(isToolGateKind('interactive'), false);
   assertEquals(isToolGateKind('pause'), false);
 

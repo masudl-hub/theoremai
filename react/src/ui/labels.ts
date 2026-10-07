@@ -346,13 +346,10 @@ export const THEOREM_UI_CATALOG = {
   '@theorem.gate.tag.bearer': { defaultMessage: 'bearer', description: 'Credential type tag.' },
   '@theorem.gate.tag.api_key': { defaultMessage: 'api_key', description: 'Credential type tag.' },
   '@theorem.gate.tag.oauth2': { defaultMessage: 'oauth2', description: 'Credential type tag.' },
-  '@theorem.gate.auth.badge': {
-    defaultMessage: 'Sign-in required',
-    description: 'Credential card badge.',
-  },
   '@theorem.gate.auth.title': {
-    defaultMessage: 'Authentication:',
-    description: 'Before the tool name on the credential card.',
+    defaultMessage: 'Sign in to use {tool}',
+    description: "Credential card heading. {tool} is the tool's name in words.",
+    params: ['tool'],
   },
   '@theorem.gate.auth.resource': {
     defaultMessage: 'Resource: {resource}',

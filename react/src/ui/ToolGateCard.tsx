@@ -3,7 +3,6 @@ import { Button } from '@astryxdesign/core/Button';
 import { Card } from '@astryxdesign/core/Card';
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Collapsible } from '@astryxdesign/core/Collapsible';
-import { Heading } from '@astryxdesign/core/Heading';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { Text } from '@astryxdesign/core/Text';
@@ -12,8 +11,9 @@ import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconEye, IconFlame, IconPencil, type Icon as TablerIcon } from '@tabler/icons-react';
 import type { ToolAccess, ToolGate } from '@theoremjs/agents/kernel';
-import { useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { isOAuthComplete } from '../client/oauth-popup.ts';
+import { humanize } from '../client/shaped-data.ts';
 import type { ToolDecisionAction } from '../client/tool-resume.ts';
 import { approvalHeading } from './approval-heading.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
@@ -29,17 +29,20 @@ function formatInput(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-function CardHeader(props: { badge: string; title: string; toolName: string; tag: string }) {
+/** The one frame of every gate card: what is asked, a tag beside it, and what answers it. */
+function GateCard(props: { heading: string; tag?: ReactNode; children: ReactNode }) {
   return (
-    <HStack justify="between" align="center" gap={2}>
-      <VStack gap={1}>
-        <Badge variant="warning" label={props.badge} />
-        <Heading level={4}>
-          {props.title} <code>{props.toolName}</code>
-        </Heading>
+    <Card variant="bubble" elevation="med" maxWidth={GATE_CARD_WIDTH}>
+      <VStack gap={3}>
+        <HStack justify="between" align="start" gap={3}>
+          <Text type="large" weight="semibold">
+            {props.heading}
+          </Text>
+          {props.tag}
+        </HStack>
+        {props.children}
       </VStack>
-      <Badge variant="neutral" label={props.tag} />
-    </HStack>
+    </Card>
   );
 }
 
@@ -96,41 +99,36 @@ function ApprovalBody({
   const args = formatInput(input);
 
   return (
-    <Card variant="bubble" elevation="med" maxWidth={GATE_CARD_WIDTH}>
-      <VStack gap={3}>
-        <HStack justify="between" align="start" gap={3}>
-          <Text type="large" weight="semibold">
-            {approvalHeading(t, gate, toolName, agent)}
-          </Text>
-          {gate.access ? <ToolAccessTag access={gate.access} /> : null}
-        </HStack>
-        {gate.summary ? <Text color="secondary">{gate.summary}</Text> : null}
-        {args ? (
-          <Collapsible
-            defaultIsOpen={false}
-            trigger={<Text type="supporting">{t('@theorem.gate.approval.input')}</Text>}
-          >
-            <CodeBlock code={args} language="json" size="sm" />
-          </Collapsible>
-        ) : null}
-        <HStack gap={2} justify="end">
-          <Button
-            label={t('@theorem.gate.approval.deny')}
-            variant="ghost"
-            isLoading={decided === 'deny'}
-            isDisabled={decided === 'allow'}
-            onClick={() => onDecision?.('deny')}
-          />
-          <Button
-            label={t('@theorem.gate.approval.approve')}
-            variant="primary"
-            isLoading={decided === 'allow'}
-            isDisabled={decided === 'deny'}
-            onClick={() => onDecision?.('allow')}
-          />
-        </HStack>
-      </VStack>
-    </Card>
+    <GateCard
+      heading={approvalHeading(t, gate, toolName, agent)}
+      tag={gate.access ? <ToolAccessTag access={gate.access} /> : null}
+    >
+      {gate.summary ? <Text color="secondary">{gate.summary}</Text> : null}
+      {args ? (
+        <Collapsible
+          defaultIsOpen={false}
+          trigger={<Text type="supporting">{t('@theorem.gate.approval.input')}</Text>}
+        >
+          <CodeBlock code={args} language="json" size="sm" />
+        </Collapsible>
+      ) : null}
+      <HStack gap={2} justify="end">
+        <Button
+          label={t('@theorem.gate.approval.deny')}
+          variant="ghost"
+          isLoading={decided === 'deny'}
+          isDisabled={decided === 'allow'}
+          onClick={() => onDecision?.('deny')}
+        />
+        <Button
+          label={t('@theorem.gate.approval.approve')}
+          variant="primary"
+          isLoading={decided === 'allow'}
+          isDisabled={decided === 'deny'}
+          onClick={() => onDecision?.('allow')}
+        />
+      </HStack>
+    </GateCard>
   );
 }
 
@@ -155,9 +153,9 @@ function AuthChallengeDetails({ challenge }: { challenge: AuthChallenge }) {
   const t = useLabels();
   return (
     <>
-      <Text>{challenge.message}</Text>
+      <Text color="secondary">{challenge.message}</Text>
       {challenge.resource ? (
-        <Text size="sm" color="secondary">
+        <Text type="supporting" color="secondary">
           {t('@theorem.gate.auth.resource', { resource: challenge.resource })}
         </Text>
       ) : null}
@@ -219,27 +217,26 @@ function AuthChallengeBody({
   }
 
   return (
-    <Card padding={4}>
-      <VStack gap={3}>
-        <CardHeader
-          badge={t('@theorem.gate.auth.badge')}
-          title={t('@theorem.gate.auth.title')}
-          toolName={toolName}
-          tag={t(`@theorem.gate.tag.${authType}`)}
-        />
-        <AuthChallengeDetails challenge={challenge} />
-        <AuthAction
-          authType={authType}
-          authUrl={challenge.authorizationUrl}
-          slot={slot}
-          secret={secret}
-          submitted={submitted}
-          onSecretChange={setSecret}
-          onSubmit={submit}
-          onOpenSignIn={openSignIn}
-        />
-      </VStack>
-    </Card>
+    <GateCard
+      heading={t('@theorem.gate.auth.title', { tool: humanize(toolName).toLowerCase() })}
+      tag={
+        <Text type="supporting" textWrap="nowrap">
+          {t(`@theorem.gate.tag.${authType}`)}
+        </Text>
+      }
+    >
+      <AuthChallengeDetails challenge={challenge} />
+      <AuthAction
+        authType={authType}
+        authUrl={challenge.authorizationUrl}
+        slot={slot}
+        secret={secret}
+        submitted={submitted}
+        onSecretChange={setSecret}
+        onSubmit={submit}
+        onOpenSignIn={openSignIn}
+      />
+    </GateCard>
   );
 }
 
@@ -264,13 +261,15 @@ function AuthAction(props: {
       return <Text color="secondary">{t('@theorem.gate.auth.no_oauth')}</Text>;
     }
     return (
-      <Button
-        label={t('@theorem.gate.auth.authorize')}
-        variant="primary"
-        onClick={() => {
-          if (props.authUrl) props.onOpenSignIn(props.authUrl);
-        }}
-      />
+      <HStack justify="end">
+        <Button
+          label={t('@theorem.gate.auth.authorize')}
+          variant="primary"
+          onClick={() => {
+            if (props.authUrl) props.onOpenSignIn(props.authUrl);
+          }}
+        />
+      </HStack>
     );
   }
   const label = t(

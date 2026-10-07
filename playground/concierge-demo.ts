@@ -25,6 +25,8 @@ export const DEMO_HTTP_SAMPLE_INPUT: Record<string, Record<string, unknown>> = {
   archive_text_search: { q: 'mediatype:texts AND travel', rows: 1 },
   lookup_postal_code: { country: 'us', postal: '90210' },
   get_pokemon: { name: 'pikachu' },
+  read_repo_file: { owner: 'denoland', repo: 'std', path: 'README.md' },
+  lookup_package: { name: 'zod' },
   get_cat_fact: {},
   tell_joke: {},
   get_advice: {},
@@ -37,7 +39,7 @@ export function demoHttpSampleInput(toolName: string): Record<string, unknown> |
 
 /** Comma-separated hosts for guardrails.egress allowlist in the demo graph. */
 export const DEMO_ALLOWED_HOSTS =
-  'nominatim.openstreetmap.org, geocoding-api.open-meteo.com, api.open-meteo.com, api.frankfurter.dev, api.sunrise-sunset.org, api.zippopotam.us, en.wikipedia.org, archive.org, pokeapi.co, dog.ceo, api.adviceslip.com, catfact.ninja, official-joke-api.appspot.com, mcp.deepwiki.com, mcp.context7.com, learn.microsoft.com, docs.mcp.cloudflare.com, knowledge-mcp.global.api.aws, huggingface.co, mcp.docs.astro.build, mcp.exa.ai';
+  'nominatim.openstreetmap.org, geocoding-api.open-meteo.com, api.open-meteo.com, api.frankfurter.dev, api.sunrise-sunset.org, api.zippopotam.us, en.wikipedia.org, archive.org, pokeapi.co, dog.ceo, api.adviceslip.com, catfact.ninja, official-joke-api.appspot.com, mcp.deepwiki.com, mcp.context7.com, learn.microsoft.com, docs.mcp.cloudflare.com, knowledge-mcp.global.api.aws, huggingface.co, mcp.docs.astro.build, mcp.exa.ai, raw.githubusercontent.com, registry.npmjs.org';
 
 export const DEMO_CONCIERGE_SYSTEM = `Role: Elite, charismatic travel concierge.
 
@@ -1112,7 +1114,150 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
 }`,
     },
   },
+  // --- Code (GitHub raw files and the npm registry; public, no key) ---
+  {
+    id: 'tool-read-repo-file',
+    data: {
+      toolName: 'read_repo_file',
+      activity: 'Reading {path}',
+      activityPast: 'Read {path}',
+      request: 'read {path} in {owner}/{repo}',
+      toolType: 'http',
+      description:
+        'Read one text file from the default branch of a public GitHub repository, e.g. package.json or README.md.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: ['*'],
+      endpoint: 'https://raw.githubusercontent.com/{owner}/{repo}/HEAD/{path}',
+      method: 'GET',
+      pathParams: ['owner', 'repo', 'path'],
+      inputJson: `{
+  "type": "object",
+  "properties": {
+    "owner": { "type": "string", "examples": ["denoland"], "description": "The repository's owner" },
+    "repo": { "type": "string", "examples": ["std"], "description": "The repository's name" },
+    "path": { "type": "string", "examples": ["README.md"], "description": "The file's path from the repository root, e.g. src/index.ts" }
+  },
+  "required": ["owner", "repo", "path"]
+}`,
+      outputJson: `{ "type": "string" }`,
+    },
+  },
+  {
+    id: 'tool-lookup-package',
+    data: {
+      toolName: 'lookup_package',
+      activity: 'Looking up {name}',
+      activityPast: 'Looked up {name}',
+      request: 'look up {name}',
+      toolType: 'http',
+      description:
+        'Look up the latest published version of an npm package: its version, description, licence and dependencies.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: ['*'],
+      endpoint: 'https://registry.npmjs.org/{name}/latest',
+      method: 'GET',
+      pathParams: ['name'],
+      inputJson: `{
+  "type": "object",
+  "properties": {
+    "name": { "type": "string", "examples": ["zod"], "description": "The package name, e.g. zod or @scope/name" }
+  },
+  "required": ["name"]
+}`,
+      outputJson: `{
+  "type": "object",
+  "properties": {
+    "name": { "type": "string" },
+    "version": { "type": "string" },
+    "description": { "type": "string" },
+    "license": { "type": "string" },
+    "dependencies": { "type": "object" },
+    "peerDependencies": { "type": "object" }
+  },
+  "required": ["name", "version"]
+}`,
+    },
+  },
 ];
+
+/** The tools the travel concierge allows: places, weather, money, trip helpers and research. */
+export const DEMO_CONCIERGE_TOOLS: readonly string[] = [
+  'geocode_city',
+  'search_places',
+  'reverse_geocode',
+  'lookup_postal_code',
+  'haversine_distance',
+  'get_weather',
+  'weather_code_label',
+  'get_sun_times',
+  'convert_currency',
+  'convert_units',
+  'plan_day',
+  'trip_budget_estimate',
+  'packing_suggestions',
+  'search_web',
+  'wikipedia_summary',
+  'discover_tools',
+  ...DISCOVER_LOADED,
+];
+
+/** The tools the code architect allows: docs, repositories, packages and research. */
+export const DEMO_ARCHITECT_TOOLS: readonly string[] = [
+  'ask_repo_docs',
+  'read_repo_file',
+  'lookup_package',
+  'find_library',
+  'read_library_docs',
+  'search_microsoft_docs',
+  'search_cloudflare_docs',
+  'list_aws_regions',
+  'search_aws_docs',
+  'search_hugging_face',
+  'search_astro_docs',
+  'search_web',
+  'wikipedia_summary',
+];
+
+/** The tools the tool console serves: one of each kind of result, and the two no agent allows. */
+export const DEMO_CONSOLE_TOOLS: readonly string[] = [
+  'get_weather',
+  'search_places',
+  'convert_currency',
+  'ask_repo_docs',
+  'random_dog_image',
+  'get_pokemon',
+  'archive_text_search',
+];
+
+export const DEMO_ARCHITECT_SYSTEM = `Role: Senior software architect who researches before advising.
+
+Communication Standards:
+- Readable Formatting: Use markdown where it helps the reader: short headings, bullet lists, code blocks for code, and tables for side-by-side comparisons.
+- Answer First: Lead with the recommendation, then the reasons and the trade-offs. Name what you could not confirm.
+
+Tool & Fact Grounding:
+- Absolute Grounding: Ground claims about a library, a repository, a package version or a cloud service in the tools before answering. Never invent an API, a version or a default.
+- Silent Execution: Never narrate tool calls or announce function names. Work findings into the answer.
+- Complete Resolution: Finish multi-step research before you answer.
+
+Audio briefings:
+- When asked for a podcast, a briefing or anything to listen to, write a short spoken script of what you found, in plain sentences with no markdown, and pass it to narrate. Then say in one line what the briefing covers.`;
+
+export const DEMO_LIVE_CONCIERGE_SYSTEM = `Role: Elite, charismatic travel concierge, on a call.
+
+Speaking:
+- Speak in short, natural sentences. No lists, no markdown, no reading out of addresses or codes unless asked.
+- Give the recommendation first, then offer one next step.
+
+Tool & Fact Grounding:
+- Ground weather, currency, distances and places in the tools before you answer. Never invent live data.
+- Never name a tool or say that you are calling one.`;
 
 export function demoToolSpecs(): PlaygroundToolSeed[] {
   return DEMO_TOOL_SPECS;

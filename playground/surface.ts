@@ -37,7 +37,13 @@ import {
   setProfileType,
   updateModelBinding,
 } from './draft.ts';
-import { createDecisionExampleDraft, createExampleDraft } from './example.ts';
+import {
+  createConsoleExampleDraft,
+  createDecisionExampleDraft,
+  createExampleDraft,
+  createLiveExampleDraft,
+  createNarratorExampleDraft,
+} from './example.ts';
 import { type PlaygroundConnectionMode, modelBindingViolation } from './policy.ts';
 import { playgroundNodeRef, playgroundTree, type PlaygroundTreeNode } from './tree.ts';
 
@@ -263,6 +269,17 @@ function keySlots(draft: PlaygroundDraft): Map<string, string[]> {
 
 const typeInput = z.enum(PLAYGROUND_PROFILE_TYPES as unknown as [PlaygroundProfileType]);
 
+/** The worked examples one draft holds. The code architect is two agents, so the page loads it. */
+const EXAMPLE_DRAFTS = {
+  travel: createExampleDraft,
+  live: createLiveExampleDraft,
+  narrator: createNarratorExampleDraft,
+  console: createConsoleExampleDraft,
+  decision: createDecisionExampleDraft,
+} satisfies Record<string, () => PlaygroundDraft>;
+
+const exampleInput = z.enum(Object.keys(EXAMPLE_DRAFTS) as [keyof typeof EXAMPLE_DRAFTS]);
+
 /** The playground's surface, over a host the page (or a test) provides. */
 export function playgroundSurface(host: PlaygroundSurfaceHost): Surface {
   const draft = () => host.getDraft();
@@ -316,16 +333,11 @@ export function playgroundSurface(host: PlaygroundSurfaceHost): Surface {
       intent: true,
       input: z.object({
         type: typeInput.describe('The agent type'),
-        example: z.enum(['travel', 'decision']).optional().describe('Start from a worked example'),
+        example: exampleInput.optional().describe('Start from a worked example'),
       }),
       run: ({ type, example }) => {
         const blank = createBlankDraft();
-        const next =
-          example === 'travel'
-            ? createExampleDraft()
-            : example === 'decision'
-              ? createDecisionExampleDraft()
-              : withNewSections(blank, setProfileType(blank, type));
+        const next = example ? EXAMPLE_DRAFTS[example]() : withNewSections(blank, setProfileType(blank, type));
         host.replaceDraft(next, 'th30 started a new agent.');
         return { node: 'identity' };
       },

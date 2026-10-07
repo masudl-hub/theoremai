@@ -1,6 +1,11 @@
 import {
   DEMO_ALLOWED_HOSTS,
+  DEMO_ARCHITECT_SYSTEM,
+  DEMO_ARCHITECT_TOOLS,
   DEMO_CONCIERGE_SYSTEM,
+  DEMO_CONCIERGE_TOOLS,
+  DEMO_CONSOLE_TOOLS,
+  DEMO_LIVE_CONCIERGE_SYSTEM,
   demoInputsSpec,
   demoToolSpecs,
 } from './concierge-demo.ts';
@@ -15,7 +20,9 @@ import {
   includeFacet,
   type PlaygroundDraft,
   setProfileType,
+  type ToolSpecDraft,
 } from './draft.ts';
+import { addAgent, agentNodeId, type PlaygroundWorkspace, workspaceFromDraft } from './workspace.ts';
 import { GEMINI_PLAYGROUND_DEFAULT_API_ID, OPENROUTER_DECISION_MODELS, OPENROUTER_PLAYGROUND_API_ID } from './policy.ts';
 
 /**
@@ -62,7 +69,6 @@ export function createSpanExampleDraft(): PlaygroundDraft {
   };
 }
 
-/** A fresh copy of the travel concierge draft. */
 /**
  * The example's `detect`: a reply that carries sensitive data or injection phrasing is blocked.
  * Network addresses are left alone, since a reply cites them, and so are tool names, since a
@@ -79,18 +85,24 @@ function exampleDetect(detect: GuardrailsDraft['detect']): GuardrailsDraft['dete
   return next;
 }
 
-export function createExampleDraft(): PlaygroundDraft {
+/** The demo tools named, in the library's order. */
+function exampleTools(names: readonly string[]): ToolSpecDraft[] {
+  const wanted = new Set(names);
+  return demoToolSpecs()
+    .filter((seed) => wanted.has(seed.data.toolName ?? ''))
+    .map((seed) => defaultToolSpec(seed.data));
+}
+
+/** A text agent on the playground's models, with the example's inputs and guardrails. */
+function exampleTextDraft(
+  identity: Pick<PlaygroundDraft['identity'], 'agentId' | 'handle' | 'system'>,
+  tools: Pick<PlaygroundDraft, 'tools' | 'toolSpecs'>,
+): PlaygroundDraft {
   const blank = createBlankDraft();
   const inputs = demoInputsSpec();
   return {
     ...blank,
-    identity: {
-      agentId: 'travel.concierge',
-      profileType: 'text',
-      handle: 'concierge',
-      system: DEMO_CONCIERGE_SYSTEM,
-      systemByRoleJson: '',
-    },
+    identity: { ...identity, profileType: 'text', systemByRoleJson: '' },
     included: ['outputs', 'turnBehaviour', 'guardrails', 'observability', 'wording'],
     models: { defaultModel: 'smart', allowModelSelect: true, maxSteps: 12, key: 'gemini' },
     modelBindings: [
@@ -131,8 +143,7 @@ export function createExampleDraft(): PlaygroundDraft {
         keySlot: 'openrouter',
       }),
     ],
-    tools: { t2Loader: 'discover_tools' },
-    toolSpecs: demoToolSpecs().map((seed) => defaultToolSpec(seed.data)),
+    ...tools,
     inputs: {
       text: inputs.text,
       attachmentsAccept: [...inputs.attachmentsAccept],
@@ -151,5 +162,75 @@ export function createExampleDraft(): PlaygroundDraft {
       blockedReplyOnBlock: 'refuse',
       allowedHosts: DEMO_ALLOWED_HOSTS.split(',').map((host) => host.trim()),
     },
+  };
+}
+
+/** A fresh copy of the travel concierge draft: a text agent with the tools a trip needs. */
+export function createExampleDraft(): PlaygroundDraft {
+  return exampleTextDraft(
+    { agentId: 'travel.concierge', handle: 'concierge', system: DEMO_CONCIERGE_SYSTEM },
+    { tools: { t2Loader: 'discover_tools' }, toolSpecs: exampleTools(DEMO_CONCIERGE_TOOLS) },
+  );
+}
+
+/** The travel concierge on a call: the same tools, a live model and an instruction for speech. */
+export function createLiveExampleDraft(): PlaygroundDraft {
+  const draft = setProfileType(createExampleDraft(), 'live');
+  return {
+    ...draft,
+    identity: {
+      ...draft.identity,
+      agentId: 'travel.concierge.live',
+      system: DEMO_LIVE_CONCIERGE_SYSTEM,
+    },
+  };
+}
+
+/** A speech agent that reads a script aloud. */
+export function createNarratorExampleDraft(): PlaygroundDraft {
+  const draft = setProfileType(createBlankDraft(), 'speech');
+  return { ...draft, identity: { ...draft.identity, agentId: 'studio.narrator', handle: 'narrator' } };
+}
+
+/** A host with no model: a few demo tools, one of each kind of result. */
+export function createConsoleExampleDraft(): PlaygroundDraft {
+  const draft = setProfileType(createBlankDraft(), 'host');
+  return {
+    ...draft,
+    identity: { ...draft.identity, agentId: 'tools.console' },
+    toolSpecs: exampleTools(DEMO_CONSOLE_TOOLS),
+  };
+}
+
+/**
+ * The code architect and the narrator it calls: a text agent that researches docs, repositories
+ * and packages, with an agent tool that has the narrator read a briefing aloud.
+ */
+export function createArchitectWorkspace(): PlaygroundWorkspace {
+  const architectDraft = exampleTextDraft(
+    { agentId: 'code.architect', handle: 'architect', system: DEMO_ARCHITECT_SYSTEM },
+    { tools: { t2Loader: '' }, toolSpecs: exampleTools(DEMO_ARCHITECT_TOOLS) },
+  );
+  const pair = addAgent(workspaceFromDraft(architectDraft), createNarratorExampleDraft());
+  const [architect, narrator] = pair.agents;
+  if (!architect || !narrator) return pair;
+  const narrate = defaultToolSpec({
+    toolName: 'narrate',
+    toolType: 'agent',
+    agentKey: narrator.key,
+    description: 'Has the narrator read a script aloud and returns the audio.',
+    activity: 'Recording the briefing',
+    activityPast: 'Recorded the briefing',
+    category: 'demo',
+  });
+  return {
+    ...pair,
+    agents: [
+      { ...architect, tools: { ...architect.tools, allow: [...architect.tools.allow, narrate.key] } },
+      narrator,
+    ],
+    toolSpecs: [...pair.toolSpecs, narrate],
+    selected: agentNodeId(architect.key),
+    chatWith: architect.key,
   };
 }

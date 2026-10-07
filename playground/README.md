@@ -22,6 +22,7 @@ stays out of every npm/JSR artifact. Consumers link it directly, e.g.
 | Export | Purpose |
 | --- | --- |
 | `PlaygroundDraft`, `createBlankDraft()`, `createExampleDraft()` | Editable profile draft; blank, or the travel concierge |
+| `createLiveExampleDraft()`, `createNarratorExampleDraft()`, `createConsoleExampleDraft()`, `createArchitectWorkspace()` | The other examples: the concierge as a live agent, a speech narrator, a host tool console, and a code architect that calls the narrator through an agent tool |
 | `setProfileType()`, `includeFacet()`, `excludeFacet()`, `newModelBinding()`, `newToolSpec()` | Draft edits that keep it consistent with `PROFILE_GRAPH` |
 | `playgroundTree()`, `playgroundNodeRef()`, `modelBindingNodeId()`, `toolSpecNodeId()` | The draft as a tree; node ids that issues point at |
 | `compilePlayground()` | Draft → profile definition, custom tools, structured schema; or issues keyed by node |
@@ -33,7 +34,7 @@ stays out of every npm/JSR artifact. Consumers link it directly, e.g.
 | `runGuardrailProbes()`, `runGuardrailProbe()`, `probeDraft()`, `PROBE_BOUNDARIES`, `PROBE_BOUNDARY_NOTES`, `PROBE_STATUSES` | Test a draft's guardrails: send one text across every boundary, or across one, on a scripted model. Each boundary answers with a status (passed, flagged, redacted or blocked), whether its turn was tainted by a remote read, the guardrail events, what went on past the boundary, and the turn's trace records. No model or host is called. Each boundary's note says what crosses it, when the kernel reads it and what the kernel does there |
 | `PROBE_BATTERY` | Hard texts to probe with: disguised attacks and harmless texts that look like attacks, each with the boundary it crosses and whether a guardrail should act on it |
 | `createPlaygroundTraceRouter()`, `PLAYGROUND_RUN_METADATA_KEY`, `PlaygroundTraceLine` | Trace delivery: the server registers the router's sink for `PLAYGROUND_TRACE_DESTINATION`; each run opens a route and passes its metadata, and gets back `{ type: 'trace', record }` lines (after a text run's events, or on the Live socket as each record is written) |
-| `demoToolSpecs()`, `demoInputsSpec()` | Travel concierge tool + inputs facet seeds |
+| `demoToolSpecs()`, `demoInputsSpec()` | Every example tool seed, and the inputs facet seed |
 | `DEMO_CONCIERGE_SYSTEM`, `DEMO_ALLOWED_HOSTS` | Demo system prompt and egress allowlist |
 | `DEMO_HTTP_SAMPLE_INPUT`, `demoHttpSampleInput()` | Connection-test payloads for demo HTTP tools |
 | `playgroundDemoHandler()`, `PlaygroundDemoHandler` | Local function-tool handlers (unit conversion, haversine, …) |

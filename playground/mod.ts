@@ -63,8 +63,12 @@ export {
   type WordingDraft,
 } from './draft.ts';
 export {
+  createArchitectWorkspace,
+  createConsoleExampleDraft,
   createDecisionExampleDraft,
   createExampleDraft,
+  createLiveExampleDraft,
+  createNarratorExampleDraft,
   createSpanExampleDraft,
 } from './example.ts';
 export { type AcceptSection, acceptSections, expandAccept, nextAccept } from './media-accept.ts';

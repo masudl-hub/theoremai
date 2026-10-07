@@ -6,7 +6,6 @@ import {
   createBlankDraft,
   createExampleDraft,
   defaultToolSpec,
-  demoToolSpecs,
   draftAllows,
   draftFacets,
   excludeFacet,
@@ -85,7 +84,7 @@ Deno.test('the example draft compiles to the travel concierge', () => {
   assertEquals(profile.type, 'text');
   assertEquals(Object.keys(profile.models), ['fast', 'smart', 'open']);
   assertEquals(profile.defaultModel, 'smart');
-  assertEquals(result.customTools.length, demoToolSpecs().length);
+  assertEquals(result.customTools.length, createExampleDraft().toolSpecs.length);
   assert(profile.type === 'text' && profile.tools?.allow?.includes('geocode_city'));
   assertEquals(profile.guardrails?.blockedReply, { onBlock: 'refuse' });
   assertEquals(profile.observability?.writeTo, 'playground');
@@ -754,7 +753,7 @@ Deno.test('a host draft compiles to its tools, with no model or identity', () =>
   assertEquals(profile.type, 'host');
   assert(!('models' in profile));
   assert(!('identity' in profile));
-  assertEquals(result.customTools.length, demoToolSpecs().length);
+  assertEquals(result.customTools.length, host.toolSpecs.length);
   assert(profile.type === 'host' && profile.tools?.allow?.includes('get_weather'));
 });
 

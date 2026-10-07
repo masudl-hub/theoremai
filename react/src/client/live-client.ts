@@ -79,7 +79,7 @@ function emptyInboundTurnAccum(): InboundTurnAccum {
 const BARGE_IN_RMS_WHILE_SPEAKING = 0.05;
 
 /** How long the client waits before each try at taking a dropped call up again. After the last, the call fails. */
-export const LIVE_RECONNECT_DELAYS_MS: readonly number[] = [500, 1000, 2000, 4000, 8000];
+const LIVE_RECONNECT_DELAYS_MS: readonly number[] = [500, 1000, 2000, 4000, 8000];
 
 export type { LiveConnection, LiveSocket } from './live-messages.ts';
 

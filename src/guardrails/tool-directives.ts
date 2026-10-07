@@ -165,8 +165,8 @@ interface Directive {
 }
 
 /** One range for each run of overlapping `ranges`, in order. */
-function mergedRanges(ranges: readonly Range[]): Range[] {
-  const runs: Range[] = [];
+function mergedRanges(ranges: readonly [number, number][]): [number, number][] {
+  const runs: [number, number][] = [];
   for (const [start, end] of [...ranges].sort((a, b) => a[0] - b[0])) {
     const last = runs.at(-1);
     if (last && start <= last[1]) last[1] = Math.max(last[1], end);

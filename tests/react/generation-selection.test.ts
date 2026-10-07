@@ -8,9 +8,15 @@ import {
 import { followGenerationDefaults } from '../../react/src/client/generation-selection.ts';
 import type { ComposerProfileInterface } from '../../src/interface/mod.ts';
 
-/** The example draft's interface: models fast (efforts fast, deep), smart (normal, deep), open. */
+/**
+ * The example draft's interface, with fast as its default model: models fast (efforts fast, deep),
+ * smart (normal, deep), open.
+ */
 function iface(edit: (draft: PlaygroundDraft) => PlaygroundDraft = (draft) => draft) {
-  const result = compilePlayground(edit(createExampleDraft()));
+  const example = createExampleDraft();
+  const result = compilePlayground(
+    edit({ ...example, models: { ...example.models, defaultModel: 'fast' } }),
+  );
   if (!result.ok) throw new Error(JSON.stringify(result.issues));
   const described = playgroundInterface(result);
   if (described.type === 'live') throw new Error('expected a composer profile');

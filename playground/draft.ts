@@ -29,6 +29,7 @@ import {
   type CompactionMeter,
   type CompactionTiming,
   type CacheTtl,
+  type ContextSender,
   type ContinueStopKind,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isValidProfileProtocol,
@@ -167,6 +168,10 @@ export interface InputsDraft {
   limitsByMimeJson: string;
   /** Named choices a turn can make, as a JSON object of value lists; blank omits it. */
   slotsJson: string;
+  /** Who may send the agent context; none omits `inputs.context`. */
+  contextFrom: ContextSender[];
+  /** The longest context package from each sender, in characters of JSON. */
+  contextMaxChars: number | null;
 }
 
 export interface OutputsDraft {
@@ -312,6 +317,11 @@ export interface LiveDraft {
   ingressText: boolean;
   voice: string;
   sessionResumption: boolean;
+  /** The prompt a new call opens with, so the agent speaks first; blank omits it. */
+  greeting: string;
+  /** The prompt a resumed call opens with; blank omits `live.resumed`. */
+  resumedPrompt: string;
+  resumedAfterMs: number | null;
   /** Context window compression by sliding window; the two numbers are its trigger and target. */
   contextCompression: boolean;
   compressionTriggerTokens: number | null;
@@ -592,6 +602,8 @@ export function createBlankDraft(): PlaygroundDraft {
       maxTurnBytes: null,
       limitsByMimeJson: '',
       slotsJson: '',
+      contextFrom: [],
+      contextMaxChars: null,
     },
     outputs: {
       mode: 'text',
@@ -632,6 +644,9 @@ export function createBlankDraft(): PlaygroundDraft {
       ingressText: liveIngressChannelDefault('text'),
       voice: '',
       sessionResumption: false,
+      greeting: '',
+      resumedPrompt: '',
+      resumedAfterMs: null,
       contextCompression: false,
       compressionTriggerTokens: null,
       compressionTargetTokens: null,

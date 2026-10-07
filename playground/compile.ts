@@ -50,7 +50,9 @@ import { agentToolInput, agentToolOutput } from '../src/kernel/tools/agent.ts';
 import { jsonSchemaFromZod } from '../src/kernel/tools/schema.ts';
 import type {
   LiveContextCompressionSpec,
+  LiveInputsSpec,
   ModelBinding,
+  ProfileContextSpec,
   ProfileImageSpec,
   ProfileInputsSpec,
   ProfileLiveSpec,
@@ -668,12 +670,14 @@ function mcpTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegis
 }
 
 function functionTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegistration {
-  if (!tool.stubOutputJson?.trim()) return { type: 'function', ...common };
+  const page = tool.answeredBy === 'page' ? { answeredBy: 'page' as const } : {};
+  if (!tool.stubOutputJson?.trim()) return { type: 'function', ...common, ...page };
   const stub = parseJsonSchema(tool.stubOutputJson, 'Stub output');
   if (!stub.ok) fail(stub.error.replace(' JSON Schema', ''), 'stubOutputJson');
   return {
     type: 'function',
     ...common,
+    ...page,
     ...(stub.ok ? { stubResponse: stub.schema } : {}),
   };
 }
@@ -803,6 +807,7 @@ function compileInputs(
     );
   });
   const slots = compileSlots(inputs, report);
+  const context = compileContext(inputs, report);
   return {
     ...(inputs.text ? {} : { text: false }),
     ...(inputs.attachmentsAccept.length
@@ -814,7 +819,18 @@ function compileInputs(
     ...(inputs.maxTurnBytes !== null ? { maxTurnBytes: inputs.maxTurnBytes } : {}),
     ...(limitsByMime ? { limitsByMime } : {}),
     ...(slots ? { slots } : {}),
+    ...(context ? { context } : {}),
   };
+}
+
+/** Context is on when a sender is listed; then it needs its limit. */
+function compileContext(inputs: InputsDraft, report: Report): ProfileContextSpec | undefined {
+  if (!inputs.contextFrom.length) return undefined;
+  if (inputs.contextMaxChars === null) {
+    report('inputs', 'Max characters is required with context.', 'contextMaxChars');
+  }
+  checkWhole(report, 'inputs', 'contextMaxChars', 'Max characters', inputs.contextMaxChars, 1);
+  return { from: [...inputs.contextFrom], maxChars: inputs.contextMaxChars ?? 0 };
 }
 
 function compileSlots(inputs: InputsDraft, report: Report): Record<string, string[]> | undefined {
@@ -823,10 +839,12 @@ function compileSlots(inputs: InputsDraft, report: Report): Record<string, strin
   });
 }
 
-/** A call profile's inputs are its slots, and are left out when it names none. */
-function compileLiveInputs(inputs: InputsDraft, report: Report): { inputs?: ProfileInputsSpec } {
+/** A call profile's inputs are its slots and context, and are left out when it has neither. */
+function compileLiveInputs(inputs: InputsDraft, report: Report): { inputs?: LiveInputsSpec } {
   const slots = compileSlots(inputs, report);
-  return slots ? { inputs: { slots } } : {};
+  const context = compileContext(inputs, report);
+  if (!slots && !context) return {};
+  return { inputs: { ...(slots ? { slots } : {}), ...(context ? { context } : {}) } };
 }
 
 const isPositiveWhole = (value: unknown): value is number =>
@@ -1405,6 +1423,14 @@ function compileLive(
   );
 
   if (live.contextCompression) checkCompression(live, report, mode);
+  checkWhole(report, 'live', 'resumedAfterMs', 'Away for', live.resumedAfterMs, 0);
+  const resumedPrompt = live.resumedPrompt.trim();
+  if (resumedPrompt && !live.sessionResumption) {
+    report('live', 'A resume prompt needs Resumption on.', 'resumedPrompt');
+  }
+  if (!resumedPrompt && live.resumedAfterMs !== null) {
+    report('live', 'Away for needs a resume prompt.', 'resumedAfterMs');
+  }
 
   const channels = {
     audio: live.ingressAudio,
@@ -1432,6 +1458,15 @@ function compileLive(
     ...(live.voice.trim() ? { voice: live.voice.trim() } : {}),
     ...(Object.keys(vad).length ? { vad } : {}),
     ...(live.sessionResumption ? { sessionResumption: true } : {}),
+    ...(live.greeting.trim() ? { greeting: live.greeting.trim() } : {}),
+    ...(resumedPrompt
+      ? {
+          resumed: {
+            prompt: resumedPrompt,
+            ...(live.resumedAfterMs !== null ? { afterMs: live.resumedAfterMs } : {}),
+          },
+        }
+      : {}),
     ...(live.contextCompression ? { contextCompression: contextCompression(live) } : {}),
     ...(Object.keys(transcription).length ? { transcription } : {}),
   };

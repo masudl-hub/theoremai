@@ -82,6 +82,8 @@ function toolSource(tool: ToolRegistration, indent = 0): string {
   };
   if (fields.type !== 'function') return call({ ...fields, ...zod });
   const { stubResponse, ...functionFields } = fields;
+  // The page answers the call, so the tool has no handler; the stub is the playground's stand-in.
+  if (functionFields.answeredBy === 'page') return call({ ...functionFields, ...zod });
   const stub = stubResponse ?? stubOutputFromSchema(outputSchema);
   const handler = new Expr(`() => Promise.resolve(${literal(stub, indent + 1)})`);
   return call({ ...functionFields, ...zod, handler });

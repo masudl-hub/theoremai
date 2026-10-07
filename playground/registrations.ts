@@ -31,6 +31,8 @@ export type FunctionToolRegistration = {
 	labels?: PlaygroundToolLabels;
 	/** Overrides the generic stub. */
 	stubResponse?: Record<string, unknown>;
+	/** The page answers the call: the kernel supplies the handler, and the page sends the output. */
+	answeredBy?: 'page';
 };
 
 export type HttpToolRegistration = {

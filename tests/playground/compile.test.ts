@@ -953,6 +953,52 @@ Deno.test('instructions by role, slots and limits by type compile from their JSO
   ]);
 });
 
+Deno.test('context compiles for a chat agent and a call, and needs its limit', () => {
+  const draft = createExampleDraft();
+  const inputs = { ...draft.inputs, contextFrom: ['client' as const], contextMaxChars: 2000 };
+  const chat = compiled({ ...draft, inputs }).profile;
+  assert(chat.type === 'text');
+  assertEquals(chat.inputs?.context, { from: ['client'], maxChars: 2000 });
+  const call = compiled({ ...setProfileType(draft, 'live'), inputs }).profile;
+  assert(call.type === 'live');
+  assertEquals(call.inputs, { context: { from: ['client'], maxChars: 2000 } });
+
+  const bad = compilePlayground({ ...draft, inputs: { ...inputs, contextMaxChars: null } });
+  assert(!bad.ok);
+  assertEquals(
+    bad.issues.map((issue) => issue.field),
+    ['contextMaxChars'],
+  );
+});
+
+Deno.test('a call’s greeting and resume prompt compile, and the resume prompt needs resumption', () => {
+  const live = setProfileType(createExampleDraft(), 'live');
+  const set = {
+    ...live.live,
+    sessionResumption: true,
+    greeting: ' Greet the visitor. ',
+    resumedPrompt: 'Say you are back.',
+    resumedAfterMs: 5000,
+  };
+  const { profile } = compiled({ ...live, live: set });
+  assert(profile.type === 'live');
+  assertEquals(profile.live.greeting, 'Greet the visitor.');
+  assertEquals(profile.live.resumed, { prompt: 'Say you are back.', afterMs: 5000 });
+
+  const off = compilePlayground({ ...live, live: { ...set, sessionResumption: false } });
+  assert(!off.ok);
+  assertEquals(
+    off.issues.map((issue) => issue.field),
+    ['resumedPrompt'],
+  );
+  const noPrompt = compilePlayground({ ...live, live: { ...set, resumedPrompt: '' } });
+  assert(!noPrompt.ok);
+  assertEquals(
+    noPrompt.issues.map((issue) => issue.field),
+    ['resumedAfterMs'],
+  );
+});
+
 Deno.test('the system prompt compiles its {private: sections to parts', () => {
   const draft = createExampleDraft();
   const withSystem = (system: string) =>

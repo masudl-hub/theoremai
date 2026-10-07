@@ -186,6 +186,9 @@ Deno.test('a live profile’s session settings read back', () => {
     ...draft.live,
     ingressVideo: !draft.live.ingressVideo,
     sessionResumption: true,
+    greeting: 'Greet the visitor.',
+    resumedPrompt: 'Say you are back.',
+    resumedAfterMs: 5000,
     contextCompression: true,
     compressionTriggerTokens: 20_000,
     compressionTargetTokens: 8_000,
@@ -200,4 +203,23 @@ Deno.test('a live profile’s session settings read back', () => {
   const read = readPlaygroundSource(playgroundSource(compiled), draft);
   assert(read.ok);
   assertEquals(read.draft.live, draft.live);
+});
+
+Deno.test('context and a tool the page answers read back', () => {
+  const draft = createExampleDraft();
+  draft.inputs = { ...draft.inputs, contextFrom: ['client', 'server'], contextMaxChars: 4000 };
+  const at = draft.toolSpecs.findIndex((tool) => tool.toolType === 'function');
+  const first = draft.toolSpecs[at];
+  assert(first);
+  draft.toolSpecs = draft.toolSpecs.map((tool, index) =>
+    index === at ? { ...tool, answeredBy: 'page' as const, stubOutputJson: '{"ok":true}' } : tool,
+  );
+  const compiled = compilePlayground(draft);
+  assert(compiled.ok);
+  const source = playgroundSource(compiled);
+  const read = readPlaygroundSource(source, draft);
+  assert(read.ok);
+  assertEquals(read.draft.inputs, draft.inputs);
+  assertEquals(read.draft.toolSpecs[at]?.answeredBy, 'page');
+  assertEquals(read.draft.toolSpecs[at]?.stubOutputJson, '{"ok":true}');
 });

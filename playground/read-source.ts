@@ -17,7 +17,7 @@ import {
   type Detector,
 } from '../src/guardrails/detectors.ts';
 import { PROFILE_GRAPH } from '../src/kernel/profile-graph.ts';
-import type { ProfileType } from '../src/kernel/schema.ts';
+import { CONTEXT_SENDERS, type ContextSender, type ProfileType } from '../src/kernel/schema.ts';
 import {
   createBlankDraft,
   defaultModelBinding,
@@ -867,6 +867,7 @@ function toolOf(
   const type = text(spec.type, base.toolType) as ToolSpecDraft['toolType'];
   const labels = record(spec.labels) ?? {};
   const agentId = text(spec.profile);
+  const page = spec.answeredBy === 'page';
   return {
     ...base,
     key: current?.key ?? draftKey('tool'),
@@ -883,7 +884,9 @@ function toolOf(
     activity: filled(labels.activity),
     activityPast: filled(labels.activityPast),
     request: filled(labels.request),
-    stubOutputJson: stubOf(type, spec),
+    // A page tool's source has no handler: its stub is the playground's own, so it is kept.
+    stubOutputJson: page ? current?.stubOutputJson : stubOf(type, spec),
+    answeredBy: page ? 'page' : undefined,
     ...toolRoute(spec),
     agentKey: agentId ? agentKeyOf(agentId) : undefined,
     maxCallsPerTurn: whole(spec.maxCallsPerTurn),
@@ -1036,7 +1039,12 @@ function modelsOf(profile: Record<string, unknown>): PlaygroundDraft['models'] {
   };
 }
 
+function isContextSender(value: string): value is ContextSender {
+  return (CONTEXT_SENDERS as readonly string[]).includes(value);
+}
+
 function inputsOf(inputs: Record<string, unknown>): PlaygroundDraft['inputs'] {
+  const context = record(inputs.context);
   return {
     text: inputs.text !== false,
     attachmentsAccept: strings(record(inputs.attachments)?.accept),
@@ -1046,6 +1054,8 @@ function inputsOf(inputs: Record<string, unknown>): PlaygroundDraft['inputs'] {
     maxTurnBytes: whole(inputs.maxTurnBytes),
     limitsByMimeJson: jsonText(inputs.limitsByMime),
     slotsJson: jsonText(inputs.slots),
+    contextFrom: strings(context?.from).filter(isContextSender),
+    contextMaxChars: whole(context?.maxChars),
   };
 }
 
@@ -1141,6 +1151,9 @@ function liveOf(live: Record<string, unknown>): PlaygroundDraft['live'] {
     ingressText: ingressOf(ingress, 'text'),
     voice: text(live.voice),
     sessionResumption: live.sessionResumption === true,
+    greeting: text(live.greeting),
+    resumedPrompt: text(record(live.resumed)?.prompt),
+    resumedAfterMs: whole(record(live.resumed)?.afterMs),
     contextCompression: compression !== undefined,
     compressionTriggerTokens: whole(compression?.triggerTokens),
     compressionTargetTokens: whole(sliding?.targetTokens),

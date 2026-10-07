@@ -55,6 +55,10 @@ function registerCustomTool(tools: ToolRegistry, tool: ToolRegistration): void {
     });
     return;
   }
+  if (tool.answeredBy === 'page') {
+    tools.register({ ...shared, type: 'function', answeredBy: 'page' });
+    return;
+  }
   const demoHandler = playgroundDemoHandler(tool.name);
   const stub = tool.stubResponse ?? stubOutputFromSchema(tool.outputSchema);
   tools.register({

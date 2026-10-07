@@ -141,6 +141,8 @@ export function createExampleDraft(): PlaygroundDraft {
       maxTurnBytes: inputs.maxTurnBytes,
       limitsByMimeJson: '',
       slotsJson: '',
+      contextFrom: [],
+      contextMaxChars: null,
     },
     guardrails: {
       ...blank.guardrails,

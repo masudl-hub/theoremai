@@ -38,6 +38,8 @@ export type PlaygroundToolSpecSeed = {
   activityPast?: string;
   request?: string;
   stubOutputJson?: string;
+  /** A function tool the page answers; the playground's page answers with the stub. */
+  answeredBy?: 'page';
   endpoint?: string;
   method?: HttpMethod;
   headersJson?: string;

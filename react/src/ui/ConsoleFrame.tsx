@@ -65,13 +65,13 @@ const ConsoleChrome = createContext(true);
 function useNarrow() {
   return useSyncExternalStore(
     (change) => {
-      const query = window.matchMedia(NARROW);
+      const query = globalThis.matchMedia(NARROW);
       query.addEventListener('change', change);
       return () => {
         query.removeEventListener('change', change);
       };
     },
-    () => window.matchMedia(NARROW).matches,
+    () => globalThis.matchMedia(NARROW).matches,
     () => false,
   );
 }

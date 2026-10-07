@@ -144,8 +144,8 @@ function useSecondTicker(active: boolean): number {
   useEffect(() => {
     if (!active) return;
     setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
+    const timer = globalThis.setInterval(() => setNow(Date.now()), 1_000);
+    return () => globalThis.clearInterval(timer);
   }, [active]);
   return now;
 }

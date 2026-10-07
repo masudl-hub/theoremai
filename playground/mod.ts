@@ -171,6 +171,8 @@ export {
   type PlaygroundWorkspace,
   removeAgent,
   removeLibraryTool,
+  resetAgent,
+  resetLibraryTool,
   scopedNodeId,
   setToolAllowed,
   withAgentDraft,
@@ -178,6 +180,7 @@ export {
   workspaceFromDraft,
   type WorkspaceNodeRef,
   workspaceNodeRef,
+  type WorkspaceStarts,
   type WorkspaceTree,
   workspaceTree,
 } from './workspace.ts';

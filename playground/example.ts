@@ -23,7 +23,7 @@ import {
   setProfileType,
   type ToolSpecDraft,
 } from './draft.ts';
-import { addAgent, agentNodeId, type PlaygroundWorkspace, workspaceFromDraft } from './workspace.ts';
+import { addAgent, agentNodeId, markAgentStart, type PlaygroundWorkspace, workspaceFromDraft } from './workspace.ts';
 import { GEMINI_PLAYGROUND_DEFAULT_API_ID, OPENROUTER_DECISION_MODELS, OPENROUTER_PLAYGROUND_API_ID } from './policy.ts';
 
 /**
@@ -230,16 +230,20 @@ function withNarrator(workspace: PlaygroundWorkspace): PlaygroundWorkspace {
     activityPast: 'Recorded the briefing',
     category: 'demo',
   });
-  return {
-    ...pair,
-    agents: pair.agents.map((agent) =>
-      agent.key === architect.key
-        ? { ...agent, tools: { ...agent.tools, allow: [...agent.tools.allow, narrate.key] } }
-        : agent,
-    ),
-    toolSpecs: [...pair.toolSpecs, narrate],
-    selected: agentNodeId(architect.key),
-  };
+  // The architect starts with `narrate` allowed, so a reset keeps the two linked.
+  return markAgentStart(
+    {
+      ...pair,
+      agents: pair.agents.map((agent) =>
+        agent.key === architect.key
+          ? { ...agent, tools: { ...agent.tools, allow: [...agent.tools.allow, narrate.key] } }
+          : agent,
+      ),
+      toolSpecs: [...pair.toolSpecs, narrate],
+      selected: agentNodeId(architect.key),
+    },
+    architect.key,
+  );
 }
 
 /** The code architect and the narrator it calls, added to a workspace that keeps its other agents. */

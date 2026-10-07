@@ -23,7 +23,7 @@ import {
   toolSpecNodes,
 } from './tree.ts';
 
-export const PLAYGROUND_WORKSPACE_VERSION = 2;
+export const PLAYGROUND_WORKSPACE_VERSION = 3;
 
 export interface AgentToolsDraft extends ToolsDraft {
   /** The library tools this agent allows, by `ToolSpecDraft.key`. */
@@ -36,6 +36,16 @@ export interface AgentDraft extends Omit<PlaygroundDraft, 'toolSpecs' | 'tools'>
   tools: AgentToolsDraft;
 }
 
+/**
+ * What each agent and tool held when it joined the workspace, by key: an example as it loaded, or a
+ * new one as it was made. Reset puts one back. A tool that left the library keeps its start while
+ * an agent that started with it is still here, so resetting that agent brings the tool back.
+ */
+export interface WorkspaceStarts {
+  agents: Record<string, AgentDraft>;
+  tools: Record<string, ToolSpecDraft>;
+}
+
 export interface PlaygroundWorkspace {
   v: typeof PLAYGROUND_WORKSPACE_VERSION;
   /** In the tree's order. */
@@ -46,6 +56,7 @@ export interface PlaygroundWorkspace {
   selected: string;
   /** The agent the preview chats with, by key. */
   chatWith: string;
+  starts: WorkspaceStarts;
 }
 
 const AGENT_PREFIX = 'agent:';
@@ -127,6 +138,34 @@ function mapAgent(
 }
 
 /**
+ * Gives a start to each agent and tool that has none, and forgets the starts nothing can reach:
+ * a removed agent's, and a tool's that is in no library and no agent's start.
+ */
+function remembered(workspace: PlaygroundWorkspace): PlaygroundWorkspace {
+  const agents = Object.fromEntries(
+    workspace.agents.map((agent) => [agent.key, workspace.starts.agents[agent.key] ?? agent]),
+  );
+  const held = new Map(workspace.toolSpecs.map((tool) => [tool.key, tool]));
+  const reachable = new Set([...held.keys(), ...Object.values(agents).flatMap((agent) => agent.tools.allow)]);
+  const tools: Record<string, ToolSpecDraft> = {};
+  for (const key of reachable) {
+    const start = workspace.starts.tools[key] ?? held.get(key);
+    if (start) tools[key] = start;
+  }
+  return { ...workspace, starts: { agents, tools } };
+}
+
+/** Makes what an agent holds now its start: for an example that links its agents after adding them. */
+export function markAgentStart(workspace: PlaygroundWorkspace, key: string): PlaygroundWorkspace {
+  const agent = workspace.agents.find((candidate) => candidate.key === key);
+  if (!agent) return workspace;
+  return remembered({
+    ...workspace,
+    starts: { ...workspace.starts, agents: { ...workspace.starts.agents, [key]: agent } },
+  });
+}
+
+/**
  * Writes one agent's draft back. Its tools go to the library: a changed tool
  * changes there for every agent, a new one joins the library and this agent's
  * allow list, and one the draft dropped leaves only this agent's allow list.
@@ -140,11 +179,11 @@ export function withAgentDraft(
 ): PlaygroundWorkspace {
   if (!workspace.agents.some((agent) => agent.key === key)) return workspace;
   const defined = registered ? mergeLibrary(workspace.toolSpecs, [...registered]) : workspace.toolSpecs;
-  return {
+  return remembered({
     ...workspace,
     toolSpecs: mergeLibrary(defined, draft.toolSpecs),
     agents: mapAgent(workspace, key, () => agentFromDraft(draft, key)),
-  };
+  });
 }
 
 /**
@@ -153,13 +192,14 @@ export function withAgentDraft(
  */
 export function workspaceFromDraft(draft: PlaygroundDraft, selectedId = 'identity'): PlaygroundWorkspace {
   const agent = agentFromDraft(draft);
-  return {
+  return remembered({
     v: PLAYGROUND_WORKSPACE_VERSION,
     agents: [agent],
     toolSpecs: draft.toolSpecs,
     selected: scopedNodeId(agent.key, selectedId),
     chatWith: agent.key,
-  };
+    starts: { agents: {}, tools: {} },
+  });
 }
 
 /** A workspace with one blank agent. */
@@ -192,7 +232,7 @@ export function withLibraryDraft(
   const added = draft.toolSpecs.filter((tool) => !known.has(tool.key)).map((tool) => tool.key);
   const keep = (allow: string[]) => allow.filter((toolKey) => kept.has(toolKey));
   const { toolSpecs: _library, tools, ...rest } = draft;
-  return {
+  return remembered({
     ...workspace,
     toolSpecs: draft.toolSpecs,
     agents: workspace.agents.map((each) =>
@@ -202,7 +242,7 @@ export function withLibraryDraft(
         ? each
         : { ...each, tools: { ...each.tools, allow: keep(each.tools.allow) } }
     ),
-  };
+  });
 }
 
 /**
@@ -219,7 +259,7 @@ export function addAgent(
   const agentId = base && freeName(base, taken, (n) => `${base}_${n}`);
   const agent = agentFromDraft({ ...draft, identity: { ...draft.identity, agentId } });
   agent.tools.allow = draft.toolSpecs.map((tool) => shared.get(tool.toolName) ?? tool.key);
-  return {
+  return remembered({
     ...workspace,
     agents: [...workspace.agents, agent],
     toolSpecs: [
@@ -227,7 +267,7 @@ export function addAgent(
       ...draft.toolSpecs.filter((tool) => !shared.has(tool.toolName)),
     ],
     selected: agentNodeId(agent.key),
-  };
+  });
 }
 
 /** A copy of an agent right after it, allowing the same tools, with an id it doesn't share. */
@@ -241,7 +281,7 @@ export function duplicateAgent(workspace: PlaygroundWorkspace, key: string): Pla
   copy.identity.agentId = freeName(`${base}_copy`, taken, (n) => `${base}_copy${n}`);
   const agents = [...workspace.agents];
   agents.splice(index + 1, 0, copy);
-  return { ...workspace, agents, selected: agentNodeId(copy.key) };
+  return remembered({ ...workspace, agents, selected: agentNodeId(copy.key) });
 }
 
 /**
@@ -271,13 +311,13 @@ export function removeAgent(workspace: PlaygroundWorkspace, key: string): Playgr
     }));
   const gone = parseAgentNodeId(workspace.selected)?.key === key ||
     [...ranIt].some((toolKey) => workspace.selected === toolSpecNodeId(toolKey));
-  return {
+  return remembered({
     ...workspace,
     agents,
     toolSpecs: workspace.toolSpecs.filter((tool) => !ranIt.has(tool.key)),
     selected: gone ? agentNodeId(neighbour.key) : workspace.selected,
     chatWith: workspace.chatWith === key ? neighbour.key : workspace.chatWith,
-  };
+  });
 }
 
 /** Allows or stops allowing a library tool on one agent. */
@@ -305,14 +345,69 @@ export function removeLibraryTool(workspace: PlaygroundWorkspace, toolKey: strin
       ? { ...agent, tools: { ...agent.tools, allow: agent.tools.allow.filter((key) => key !== toolKey) } }
       : agent
   );
-  return {
+  return remembered({
     ...workspace,
     agents,
     toolSpecs: workspace.toolSpecs.filter((tool) => tool.key !== toolKey),
     selected: workspace.selected === toolSpecNodeId(toolKey)
       ? agentNodeId(workspace.agents[0]?.key ?? '')
       : workspace.selected,
+  });
+}
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * Puts one agent back to its start: its own settings and the tools it allowed. The tools keep
+ * their edits, since other agents share them; one that left the library comes back as it started.
+ * Nothing else changes. An agent already at its start returns the same workspace.
+ */
+export function resetAgent(workspace: PlaygroundWorkspace, key: string): PlaygroundWorkspace {
+  const start = workspace.starts.agents[key];
+  const now = workspace.agents.find((agent) => agent.key === key);
+  if (!start || !now) return workspace;
+  const here = new Set(workspace.agents.map((agent) => agent.key));
+  const library = new Set(workspace.toolSpecs.map((tool) => tool.key));
+  const names = workspace.toolSpecs.map((tool) => tool.toolName);
+  const back: ToolSpecDraft[] = [];
+  for (const toolKey of start.tools.allow) {
+    const tool = workspace.starts.tools[toolKey];
+    if (library.has(toolKey) || !tool) continue;
+    // An agent tool whose agent was removed has nothing to run.
+    if (tool.toolType === 'agent' && !here.has(tool.agentKey ?? '')) continue;
+    const toolName = freeName(tool.toolName, names, (n) => `${tool.toolName}_${n}`);
+    names.push(toolName);
+    back.push({ ...tool, toolName });
+  }
+  const toolSpecs = back.length ? [...workspace.toolSpecs, ...back] : workspace.toolSpecs;
+  const held = new Set(toolSpecs.map((tool) => tool.key));
+  const id = start.identity.agentId;
+  const others = workspace.agents.filter((agent) => agent.key !== key).map((agent) => agent.identity.agentId);
+  const agent: AgentDraft = {
+    ...start,
+    identity: { ...start.identity, agentId: id && freeName(id, others, (n) => `${id}_${n}`) },
+    tools: { ...start.tools, allow: start.tools.allow.filter((toolKey) => held.has(toolKey)) },
+    modelBindings: start.modelBindings.map((binding) =>
+      binding.compactWith && !here.has(binding.compactWith) ? { ...binding, compactWith: undefined } : binding
+    ),
   };
+  if (back.length === 0 && same(agent, now)) return workspace;
+  const next = { ...workspace, agents: mapAgent(workspace, key, () => agent), toolSpecs };
+  return workspaceNodeRef(next, next.selected) ? next : { ...next, selected: agentNodeId(key) };
+}
+
+/**
+ * Puts one library tool back to its start, for every agent that allows it. Which agents allow it
+ * stays as it is. A tool already at its start returns the same workspace.
+ */
+export function resetLibraryTool(workspace: PlaygroundWorkspace, toolKey: string): PlaygroundWorkspace {
+  const start = workspace.starts.tools[toolKey];
+  const now = workspace.toolSpecs.find((tool) => tool.key === toolKey);
+  if (!start || !now) return workspace;
+  const others = workspace.toolSpecs.filter((tool) => tool.key !== toolKey).map((tool) => tool.toolName);
+  const tool = { ...start, toolName: freeName(start.toolName, others, (n) => `${start.toolName}_${n}`) };
+  if (same(tool, now)) return workspace;
+  return { ...workspace, toolSpecs: workspace.toolSpecs.map((each) => (each.key === toolKey ? tool : each)) };
 }
 
 function scopeTree(agentKey: string, node: PlaygroundTreeNode): PlaygroundTreeNode {

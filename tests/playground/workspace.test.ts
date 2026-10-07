@@ -43,7 +43,7 @@ Deno.test('a v1 draft opens as one agent that allows every tool', () => {
   const draft = createExampleDraft();
   const workspace = workspaceFromDraft(draft, 'guardrails');
   const [key] = keys(workspace);
-  assertEquals(workspace.v, 2);
+  assertEquals(workspace.v, 3);
   assertEquals(workspace.agents.length, 1);
   assertEquals(workspace.toolSpecs, draft.toolSpecs);
   assertEquals(

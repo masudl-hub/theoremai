@@ -588,6 +588,41 @@ Deno.test('a call the provider ends at its limit is taken up again when it has a
   }
 });
 
+Deno.test('a changed slot takes an open call up again with it; with no handle the next call has it', async () => {
+  const live = liveHarness();
+  const statuses: string[] = [];
+  const client = new LiveSessionClient({
+    createSocket: live.createSocket,
+    voiceIngress: false,
+    slots: { language: 'en' },
+    onStatusChange: (status) => void statuses.push(status),
+    onToolCall: async () => {},
+  });
+  try {
+    await client.connect();
+    await live.ready(live.sockets[0]);
+    client.setSlots({ language: 'fr' });
+    assertEquals(statuses, ['connecting', 'listening']);
+
+    await client.connect();
+    await live.ready(live.sockets[1], [handleEvent('handle-1')]);
+    assertEquals(live.sockets[1].sent, [{ type: 'open', slots: { language: 'fr' } }]);
+    client.setSlots({ language: 'fr' });
+    assertEquals(statuses.at(-1), 'listening');
+    client.setSlots({ language: 'en' });
+    assertEquals(statuses.at(-1), 'reconnecting');
+    live.fire(500);
+    await Promise.resolve();
+    await live.ready(live.sockets[2]);
+    assertEquals(live.sockets[2].sent, [
+      { type: 'open', slots: { language: 'en' }, resume: { handle: 'handle-1', awayMs: 0 } },
+    ]);
+  } finally {
+    client.disconnect();
+    live.restore();
+  }
+});
+
 Deno.test('a drop with no handle, or after the session ended, ends the call; five failed tries fail it', async () => {
   const live = liveHarness();
   const statuses: string[] = [];

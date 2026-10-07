@@ -282,7 +282,7 @@ Three more props give the call values from the page. The profile declares each o
 
 | Prop | The profile declares | What the page gives |
 | --- | --- | --- |
-| `slots` | `inputs.slots` | The value chosen for each slot. It is read when the call starts. |
+| `slots` | `inputs.slots` | The value chosen for each slot. It is read when the call starts. A value that changes during a call takes the call up again with it when the profile has resumption on; otherwise the next call has it. |
 | `context` | `inputs.context` with `from: ['client']` | Any JSON the agent should know, such as the page the person is on. |
 | `pageTools` | A function tool with `answeredBy: 'page'` | A function for each page tool, by name. It returns `{ output }`. |
 

@@ -185,6 +185,12 @@ export function useLiveRunnerModel(
     clientRef.current?.setContext(contextJson === undefined ? undefined : JSON.parse(contextJson));
   }, [clientRef, contextJson]);
 
+  // why: Slots are compared by value too; a changed value takes an open call up again with it.
+  const slotsJson = JSON.stringify(options.slots);
+  useEffect(() => {
+    clientRef.current?.setSlots(slotsJson === undefined ? undefined : JSON.parse(slotsJson));
+  }, [clientRef, slotsJson]);
+
   const pageToolNames = Object.keys(options.pageTools ?? {})
     .sort()
     .join('\n');

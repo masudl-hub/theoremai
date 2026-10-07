@@ -843,6 +843,18 @@ export class LiveSessionClient {
    * Replace the page's context package. In a call it reaches the agent as
    * background, with no reply; before one, it goes with the call's opening.
    */
+  /**
+   * The call's slot values. An open call is taken up again with them when the provider gave a
+   * handle; with none, the next call has them.
+   */
+  public setSlots(slots: Record<string, string> | undefined): void {
+    if (JSON.stringify(slots) === JSON.stringify(this.options.slots)) return;
+    this.options = { ...this.options, slots };
+    if (this.resumeHandle && !this.opening && this.ws?.readyState === WebSocket.OPEN) {
+      this.handleDrop();
+    }
+  }
+
   public setContext(context: unknown): void {
     this.context = context;
     this.flushContext();

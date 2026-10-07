@@ -840,10 +840,6 @@ export class LiveSessionClient {
   }
 
   /**
-   * Replace the page's context package. In a call it reaches the agent as
-   * background, with no reply; before one, it goes with the call's opening.
-   */
-  /**
    * The call's slot values. An open call is taken up again with them when the provider gave a
    * handle; with none, the next call has them.
    */
@@ -855,6 +851,10 @@ export class LiveSessionClient {
     }
   }
 
+  /**
+   * Replace the page's context package. In a call it reaches the agent as
+   * background, with no reply; before one, it goes with the call's opening.
+   */
   public setContext(context: unknown): void {
     this.context = context;
     this.flushContext();
@@ -909,6 +909,8 @@ export class LiveSessionClient {
         // why: close() throws on a context that already closed.
       }
       this.audioContext = null;
+      // why: A worklet module belongs to its context; the next context loads it again.
+      this.micWorkletModuleLoaded = false;
     }
   }
 }

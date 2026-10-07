@@ -170,6 +170,7 @@ async function* invokeTraced(
         path: request.path,
         signal: request.signal,
         resume: request.resume,
+        page: request.page,
         host: request.host,
       },
       snapshot,

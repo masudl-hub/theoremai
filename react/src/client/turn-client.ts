@@ -12,6 +12,7 @@ import {
 } from '@theoremjs/agents/interface';
 import { filesToPending } from './encode-files.ts';
 import { defaultModel } from './generation-selection.ts';
+import type { PagePart } from './tool-resume.ts';
 import type {
   TheoremInvokeRequest,
   TheoremReplay,
@@ -134,12 +135,14 @@ export function buildInvokeRequest(
     gateId: string;
     decision: TheoremInvokeRequest['decision'];
     secret?: string;
+    page?: PagePart;
   },
 ): TheoremInvokeRequest {
   return {
     gateId: args.gateId,
     decision: args.decision,
     ...(args.secret === undefined ? {} : { secret: args.secret }),
+    ...(args.page === undefined ? {} : { page: args.page }),
     replay: gateReplay(iface, session, args),
   };
 }

@@ -627,6 +627,10 @@ function invokeAnswered(
     callId,
     input: answer.input,
     resume: answer.resume,
+    // why: An approval that names no answer is the page saying it has none, so the call is not held again.
+    ...(pending.gate.kind === 'page' && answer.resume.granted
+      ? { page: answer.page ?? { unanswered: true } }
+      : {}),
     sessionPermissions: answer.sessionPermissions,
     credentials: sessionCredentials(ctx, sessionId),
     turnInput: pending.turnInput,
@@ -785,7 +789,13 @@ async function* callEvents(
 }
 
 function answerRequest(body: TheoremInvokeRequest): GateAnswerRequest {
-  return { callId: body.gateId, decision: body.decision, input: body.input, secret: body.secret };
+  return {
+    callId: body.gateId,
+    decision: body.decision,
+    input: body.input,
+    secret: body.secret,
+    page: body.page,
+  };
 }
 
 /** A route this profile doesn't serve. */

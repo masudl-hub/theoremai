@@ -18,9 +18,9 @@ import './built/theme.css';
 export type { InkWaveStatus } from '../client/ink-waveform.ts';
 export type {
   LiveCallOptions,
-  LivePageTool,
-  LivePageToolAnswer,
-  LivePageTools,
+  PageTool,
+  PageToolAnswer,
+  PageTools,
 } from '../client/live/live-page-tool.ts';
 export { useLiveCaptionLog } from '../client/live/use-live-caption-log.ts';
 export {

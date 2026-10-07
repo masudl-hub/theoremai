@@ -230,8 +230,8 @@ export function isTurnInjectStage(value: unknown): value is TurnInjectStage {
   return typeof value === 'string' && TURN_INJECT_STAGE_SET.has(value);
 }
 
-/** `pre_tool` gates; not `awaiting_user_input`. */
-export const TOOL_GATE_KINDS = ['confirmation', 'permission', 'auth'] as const;
+/** `pre_tool` gates; not `awaiting_user_input`. `page` holds a call for the page that answers it. */
+export const TOOL_GATE_KINDS = ['confirmation', 'permission', 'auth', 'page'] as const;
 /** One of {@linkcode TOOL_GATE_KINDS}. */
 export type ToolGateKind = (typeof TOOL_GATE_KINDS)[number];
 

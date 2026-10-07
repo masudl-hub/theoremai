@@ -6,10 +6,11 @@ import {
   type LiveCaptionTurn,
   stashLiveCaptionCall,
 } from '../../client/live/live-captions.ts';
-import { type LiveCallOptions, pageToolMismatch } from '../../client/live/live-page-tool.ts';
+import type { LiveCallOptions } from '../../client/live/live-page-tool.ts';
 import { liveState } from '../../client/live/live-state.ts';
 import type { LiveConnection } from '../../client/live-client.ts';
 import { createTraceFeed } from '../../client/trace-feed.ts';
+import { usePageToolWarnings } from '../../hooks/use-page-tool-warnings.ts';
 import { useLiveRunnerControls } from './use-live-runner-controls.ts';
 import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui.ts';
 import { useLiveSessionClient } from './use-live-session-client.ts';
@@ -191,26 +192,7 @@ export function useLiveRunnerModel(
     clientRef.current?.setSlots(slotsJson === undefined ? undefined : JSON.parse(slotsJson));
   }, [clientRef, slotsJson]);
 
-  const pageToolNames = Object.keys(options.pageTools ?? {})
-    .sort()
-    .join('\n');
-  // why: A wrong name is the builder's to fix, so it is said in the console, once, not to the visitor.
-  useEffect(() => {
-    const handled = pageToolNames ? pageToolNames.split('\n') : [];
-    const { unanswered, unused } = pageToolMismatch(iface.tools.page, handled);
-    for (const name of unanswered) {
-      // lexicon-exempt: builder diagnostic
-      console.warn(
-        `Theorem: page tool '${name}' has no handler in pageTools; the agent gets no answer.`,
-      );
-    }
-    for (const name of unused) {
-      // lexicon-exempt: builder diagnostic
-      console.warn(
-        `Theorem: pageTools has '${name}', which the profile does not declare answeredBy: 'page'.`,
-      );
-    }
-  }, [iface.tools.page, pageToolNames]);
+  usePageToolWarnings(iface.tools.page, options.pageTools);
 
   return {
     handle: iface.identity.handle,

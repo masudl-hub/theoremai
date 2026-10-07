@@ -669,9 +669,11 @@ A handler returns the type of the tool's `output` schema; any other return type 
 A handler that cannot type its result returns `uncheckedOutput(value)`.
 A function tool with `answeredBy: 'page'` has no handler of the host's: the page the person is on
 answers the call, and the kernel returns what it sent (`ToolContext.page`, from
-`LiveSession.executeTool({ callId, page })`). With no answer the call fails to the model
-(`tool.page_no_answer`); a relay that stopped waiting sends `page: { timedOut: true }`
-(`tool.page_timed_out`). A function tool with neither a handler nor `answeredBy` does not register.
+`LiveSession.executeTool({ callId, page })` or `InvokeToolRequest.page`). Run with no `page`, the call
+is held at a `page` gate, after every other check, until the caller sends it again with the page's
+answer. A live session never holds a call: with no answer it sends `page: { unanswered: true }`, and
+the call fails to the model (`tool.page_no_answer`). A relay that stopped waiting sends
+`page: { timedOut: true }` (`tool.page_timed_out`). A function tool with neither a handler nor `answeredBy` does not register.
 The kernel checks every result against `output`, and a mismatch fails the call as `invalid_output`.
 Declarative HTTP tools (`type: 'http'`) call REST APIs directly with templated URLs, query parameters, headers, and body mapping.
 Remote MCP tools (`type: 'mcp'`) call external Model Context Protocol servers over Streamable HTTP.

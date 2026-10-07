@@ -809,6 +809,51 @@ Deno.test("an approval with the user's edit runs the edited input", async () => 
   assertEquals(ran, ['user-edited']);
 });
 
+registerTool({
+  type: 'function',
+  name: 'handler_highlight',
+  description: 'Highlight something on the page',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  input: z.object({ id: z.string() }),
+  output: z.object({ shown: z.boolean() }),
+  answeredBy: 'page',
+});
+
+Deno.test('a chat turn pauses for the page, and runs the call with what the page sent', async () => {
+  const pausedFor = async (id: string) => {
+    const handler = createTheoremHandler({
+      profile: profile(id, ['handler_highlight']),
+      provider: () => toolCallingProvider('handler_highlight', 'pricing'),
+    });
+    const transport = transportFor(handler);
+    const turn = await collect((onEvent) => transport.turn({ input: { text: 'show' } }, onEvent));
+    const gate = toolEventsOf(turn, 'gate').at(-1);
+    assertEquals(gate?.phase === 'gate' ? gate.gate.kind : undefined, 'page');
+    return { transport, gateId: pausedGate(turn).callId };
+  };
+
+  const answered = await pausedFor('handler-page');
+  const done = await collect((onEvent) =>
+    answered.transport.invoke(
+      { gateId: answered.gateId, decision: 'approve', page: { output: { shown: true } } },
+      onEvent,
+    ),
+  );
+  assertEquals(toolPhases(done, 'handler_highlight').at(-1), 'complete');
+
+  for (const page of [{ unanswered: true } as const, { output: { shown: 'yes' } }, undefined]) {
+    const { transport, gateId } = await pausedFor(`handler-page-${JSON.stringify(page)}`);
+    const failed = await collect((onEvent) =>
+      transport.invoke({ gateId, decision: 'approve', ...(page ? { page } : {}) }, onEvent),
+    );
+    assertEquals(toolPhases(failed, 'handler_highlight').at(-1), 'error');
+  }
+});
+
 Deno.test("another session can't approve this session's paused call", async () => {
   ran.length = 0;
   const handler = createTheoremHandler({

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { type ClientFailure, clientFailure } from '../client/failure.ts';
 import type { ToolCall } from '../client/host-call.ts';
 import type { HostInterface, HostTransport } from '../client/host-transport.ts';
-import { continueGatedToolInvocation, type ToolGateResolution } from '../client/tool-resume.ts';
+import { continueGatedToolInvocation, type PersonGateResolution } from '../client/tool-resume.ts';
 import type { ClientTurnEvent } from '../client/transport.ts';
 import { useDescribed } from './use-described.ts';
 
@@ -26,7 +26,7 @@ export type TheoremHostCall = {
   /** The call never reached its tool, or its stream broke. */
   failure: ClientFailure | null;
   /** The answer on its way to the gate the call paused on. */
-  answering: ToolGateResolution['action'] | null;
+  answering: PersonGateResolution['action'] | null;
   startedAt: number;
   /** Round trip, once it settles or pauses. */
   elapsedMs: number | null;
@@ -60,7 +60,7 @@ function withEvent(call: TheoremHostCall, event: TurnEvent): TheoremHostCall {
  */
 export function useTheoremHost(transport: HostTransport): TheoremHostState & {
   run: (name: string, input: unknown) => string;
-  answer: (id: string, resolution: ToolGateResolution) => Promise<void>;
+  answer: (id: string, resolution: PersonGateResolution) => Promise<void>;
   cancel: (id: string) => void;
 } {
   const { iface, describeFailure } = useDescribed(transport);
@@ -144,7 +144,7 @@ export function useTheoremHost(transport: HostTransport): TheoremHostState & {
   );
 
   const answer = useCallback(
-    async (id: string, resolution: ToolGateResolution) => {
+    async (id: string, resolution: PersonGateResolution) => {
       const held = latest.current.find((call) => call.id === id);
       const state = held?.call?.state;
       if (!held?.call || state?.phase !== 'gate') return;

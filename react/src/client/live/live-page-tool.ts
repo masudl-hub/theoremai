@@ -1,17 +1,17 @@
 /** The page's result for a call: the tool's output schema checks it, then the model reads it. */
-export type LivePageToolAnswer = { output: unknown };
+export type PageToolAnswer = { output: unknown };
 
 /** One page tool: what the page does for a call the model made, and what it tells the model. */
-export type LivePageTool = (
+export type PageTool = (
   args: Record<string, unknown>,
   call: { callId: string },
-) => LivePageToolAnswer | Promise<LivePageToolAnswer>;
+) => PageToolAnswer | Promise<PageToolAnswer>;
 
 /**
  * The page's tools, by name: each answers a tool the profile declares with
  * `answeredBy: 'page'`. Any other tool runs on the relay, gates and all.
  */
-export type LivePageTools = Record<string, LivePageTool>;
+export type PageTools = Record<string, PageTool>;
 
 /** What a host gives a live call. */
 export type LiveCallOptions = {
@@ -22,7 +22,7 @@ export type LiveCallOptions = {
    * again whenever it changes, as background the agent reads without replying.
    */
   context?: unknown;
-  pageTools?: LivePageTools;
+  pageTools?: PageTools;
 };
 
 /**

@@ -313,7 +313,8 @@ function useGateActions(args: TheoremChatActionArgs) {
         await args.runTurnStream((view) => {
           started = true;
           const session = args.sessionRef.current;
-          if (session.gatedTool)
+          // why: A person's answer shows on its gate while it settles; the page's has no gate to show on.
+          if (session.gatedTool && resolution.action !== 'page')
             args.setAnswering({ callId: session.gatedTool.callId, action: resolution.action });
           return resumeInterfaceTool({
             iface: composer,
@@ -344,13 +345,13 @@ function useGateActions(args: TheoremChatActionArgs) {
     [resumeGatedTool],
   );
 
-  return { handleToolDecision, handleAuthenticated };
+  return { handleToolDecision, handleAuthenticated, resumeGatedTool };
 }
 
 export function useTheoremChatActions(args: TheoremChatActionArgs) {
   const { startTurnFromFields, startTurnFromDraft } = useTurnStarters(args);
   const { enqueuePending, handlePendingRestore } = usePendingActions(args);
-  const { handleToolDecision, handleAuthenticated } = useGateActions(args);
+  const { handleToolDecision, handleAuthenticated, resumeGatedTool } = useGateActions(args);
 
   const handleStop = useCallback(() => {
     args.abortRef.current?.abort();
@@ -440,6 +441,7 @@ export function useTheoremChatActions(args: TheoremChatActionArgs) {
     handleMenuAction,
     handleToolDecision,
     handleAuthenticated,
+    resumeGatedTool,
     handlePendingRestore,
     enqueuePending,
   };

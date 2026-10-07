@@ -204,6 +204,7 @@ function answerReplayed(
     callId: request.callId,
     input: answered.input,
     resume: answered.resume,
+    ...(answered.page ? { page: answered.page } : {}),
     sessionPermissions: answered.sessionPermissions,
     ...(answered.typed
       ? {
@@ -240,11 +241,11 @@ export async function* streamPlaygroundInvoke(args: {
     args.dependencies,
   );
   assertNotLiveProfile(profile.type, 'invoke');
-  const { gateId, decision, input, secret, replay = {} } = args.answer;
+  const { gateId, decision, input, secret, page, replay = {} } = args.answer;
   const invoke = answerReplayed(
     scope,
     profile.id,
-    { callId: gateId, decision, input, secret },
+    { callId: gateId, decision, input, secret, page },
     replay,
     args.runtime,
   );

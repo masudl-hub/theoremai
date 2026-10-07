@@ -1,6 +1,6 @@
 import type { ExecuteToolOnRelay } from '../live-messages.ts';
 import { continueGatedToolInvocation } from '../tool-resume.ts';
-import type { LivePageTools } from './live-page-tool.ts';
+import type { PageTools } from './live-page-tool.ts';
 import type { LiveGateAnswer, LiveToolGatePrompt } from './live-tool.ts';
 
 /**
@@ -13,7 +13,7 @@ import type { LiveGateAnswer, LiveToolGatePrompt } from './live-tool.ts';
 export async function runLiveToolCall(args: {
   executeToolOnRelay: ExecuteToolOnRelay;
   /** The host's page tools, if it has any. */
-  pageTools?: LivePageTools;
+  pageTools?: PageTools;
   name: string;
   toolArgs: Record<string, unknown>;
   callId: string;

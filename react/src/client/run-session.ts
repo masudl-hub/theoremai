@@ -342,6 +342,7 @@ export async function resumeInterfaceTool(args: {
             ...(reply.decision === 'approve' && reply.secret !== undefined
               ? { secret: reply.secret }
               : {}),
+            ...(reply.decision === 'approve' && reply.page ? { page: reply.page } : {}),
           }),
           onEvent,
         ),

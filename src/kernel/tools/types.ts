@@ -109,10 +109,13 @@ export interface InvokeToolResume {
 }
 
 /**
- * What the page did for a call to a tool it answers: its `output`, or `timedOut` when the relay
- * stopped waiting for it.
+ * What the page did for a call to a tool it answers: its `output`, `timedOut` when the relay
+ * stopped waiting for it, or `unanswered` when the page has nothing that answers the tool.
  */
-export type PageAnswer = { output: unknown; timedOut?: undefined } | { timedOut: true };
+export type PageAnswer =
+  | { output: unknown; timedOut?: undefined; unanswered?: undefined }
+  | { timedOut: true; unanswered?: undefined }
+  | { unanswered: true; timedOut?: undefined };
 
 export interface ToolContext {
   profile: Profile;
@@ -405,6 +408,8 @@ export interface InvokeToolRequest {
   signal?: AbortSignal;
   /** Handed to the tool as `ctx.host`; the kernel never reads it. */
   host?: unknown;
+  /** The page's answer, when this invoke answers a `page` gate. */
+  page?: PageAnswer;
   /** W3C `traceparent` of the host span this invoke runs under. */
   traceparent?: string;
   /** Recorded as `gen_ai.conversation.id`. */

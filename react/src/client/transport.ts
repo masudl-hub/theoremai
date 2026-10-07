@@ -28,6 +28,7 @@ import {
 import { kindOfHttpStatus } from '@theoremjs/agents/guardrails';
 import { type ProfileInterface, profileInterfaceSchema } from '@theoremjs/agents/interface';
 import type { Equals } from '@theoremjs/agents/kernel';
+import type { PagePart } from './tool-resume.ts';
 import type { TraceFeed } from './trace-feed.ts';
 import {
   checkWire,
@@ -163,13 +164,23 @@ export type TheoremInvokeRequest = {
    * callback saved the token.
    */
   secret?: string;
+  /** The page's answer to a `page` gate, only with `approve`: the tool's output schema checks it. */
+  page?: PagePart;
   replay?: TheoremReplay;
 };
+const pagePart = z.union([
+  z.strictObject({ unanswered: z.literal(true) }),
+  z
+    .strictObject({ output: z.unknown() })
+    .refine((part) => 'output' in part)
+    .transform((part) => ({ output: part.output })),
+]);
 const theoremInvokeRequest = z.object({
   gateId: z.string().min(1),
   decision: z.enum(INVOKE_DECISIONS),
   input: z.unknown().optional(),
   secret: z.string().optional(),
+  page: pagePart.optional(),
   replay: theoremReplay.optional(),
 });
 true satisfies Equals<z.infer<typeof theoremInvokeRequest>, TheoremInvokeRequest>;

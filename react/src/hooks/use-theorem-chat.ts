@@ -16,7 +16,10 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { clientFailure, type TurnFailure } from '../client/failure.ts';
 import { followGenerationDefaults } from '../client/generation-selection.ts';
 import { applyTurnResultToTranscript, type StreamView } from '../client/index.ts';
+import type { PageTools } from '../client/live/live-page-tool.ts';
+import type { ToolGateResolution } from '../client/tool-resume.ts';
 import type { TheoremTransport, TheoremTurnRequest, TurnEventSink } from '../client/transport.ts';
+import { usePageToolWarnings } from './use-page-tool-warnings.ts';
 import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions.ts';
 import {
   type ChatSnapshot,
@@ -44,10 +47,46 @@ export type UseTheoremChatOptions = {
   slots?: Record<string, string>;
   /** What the page wants the agent to know: any JSON. The latest value goes with every turn. */
   context?: unknown;
+  /** The page's tools, by name: each answers a tool the profile declares with `answeredBy: 'page'`. */
+  pageTools?: PageTools;
 };
 
 /** What the page sends with each turn besides the message. */
 type TurnValues = Pick<UseTheoremChatOptions, 'slots' | 'context'>;
+
+/**
+ * Answers a `page` gate the reply waits on: runs the page's tool for the call and sends what it
+ * returned, or that the page has nothing for the tool. Each call is answered once.
+ */
+function usePageAnswers(
+  gated: InterfaceTurnSession['gatedTool'],
+  pageTools: PageTools | undefined,
+  answer: (resolution: ToolGateResolution) => Promise<void>,
+) {
+  const answered = useRef<string | null>(null);
+  const latest = useRef({ pageTools, answer });
+  latest.current = { pageTools, answer };
+  const waiting = gated?.gateKind === 'page' ? gated : null;
+  useEffect(() => {
+    if (!waiting || answered.current === waiting.callId) return;
+    answered.current = waiting.callId;
+    const { pageTools: tools, answer: send } = latest.current;
+    // why: A name from the model is looked up among the host's own keys only.
+    const tool = tools && Object.hasOwn(tools, waiting.name) ? tools[waiting.name] : undefined;
+    void (async () => {
+      const page = tool
+        ? await Promise.resolve(tool(waiting.arguments, { callId: waiting.callId })).catch(
+            (err: unknown) => {
+              // lexicon-exempt: builder diagnostic
+              console.error(`Theorem: page tool '${waiting.name}' threw.`, err);
+              return { unanswered: true } as const;
+            },
+          )
+        : ({ unanswered: true } as const);
+      await send({ action: 'page', page });
+    })();
+  }, [waiting]);
+}
 
 /** What `sendText` hands back: the blocks the turn added, its user message and the reply. */
 export type SentTurn = { blocks: TranscriptBlock[] };
@@ -354,6 +393,7 @@ export function useTheoremChat({
   onChange,
   slots,
   context,
+  pageTools,
 }: UseTheoremChatOptions) {
   const state = useTheoremChatState(initial, initialText);
   useDefaultGeneration(iface, state.session, state.setSession);
@@ -387,6 +427,8 @@ export function useTheoremChat({
   });
 
   useQueueDrain(phase, state, actions.startTurnFromDraft);
+  usePageAnswers(state.busy ? null : state.session.gatedTool, pageTools, actions.resumeGatedTool);
+  usePageToolWarnings(iface && 'tools' in iface ? iface.tools.page : undefined, pageTools);
 
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;

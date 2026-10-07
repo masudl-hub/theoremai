@@ -300,6 +300,7 @@ Three more props give the call values from the page. The profile declares each o
 
 - `context` goes with the start of the call. When its value changes, the runner sends it again. The agent reads it as background and does not reply to it.
 - A page tool's output schema checks what the page returned. Every other tool runs on the relay, with its gates.
+- `TheoremChat` and `useTheoremChat` take the same `pageTools`. When a chat agent calls a page tool, the reply waits for the page's answer and then goes on. The person is shown no prompt.
 - The runner writes a console warning when the profile has a page tool with no function in `pageTools`, and when `pageTools` has a function for a tool that is not a page tool.
 
 To make the agent speak first, set `live.greeting` on the profile. The page sends nothing for it.

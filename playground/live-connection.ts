@@ -1,5 +1,5 @@
 import type { ProfileDefinition } from '../mod.ts';
-import type { LivePageTools } from '../react/src/client/live/live-page-tool.ts';
+import type { PageTools } from '../react/src/client/live/live-page-tool.ts';
 import type { ToolRegistration } from './registrations.ts';
 import type { PlaygroundRunPayload } from './run-payload.ts';
 import { stubOutputFromSchema } from './stub.ts';
@@ -32,8 +32,8 @@ export function playgroundLiveConnection(payload: PlaygroundRunPayload): {
  */
 export function playgroundPageTools(
   payload: Pick<PlaygroundRunPayload, 'customTools'>,
-): LivePageTools {
-  const pageTools: LivePageTools = {};
+): PageTools {
+  const pageTools: PageTools = {};
   for (const tool of payload.customTools) {
     if (tool.type !== 'function' || tool.answeredBy !== 'page') continue;
     const output = tool.stubResponse ?? stubOutputFromSchema(tool.outputSchema);

@@ -515,6 +515,7 @@ const GATE_KINDS: Readonly<Record<ToolGateKind, TraceOptionMeta>> = {
   confirmation: { label: 'Confirmation', doc: 'The user must confirm this call.' },
   permission: { label: 'Permission', doc: 'The user must allow this tool.' },
   auth: { label: 'Sign-in', doc: 'The tool needs a credential the user must provide.' },
+  page: { label: 'Page', doc: 'The call waits for the page that answers this tool.' },
 };
 
 const RETRY_REASONS: Readonly<Record<'egress' | 'validation', TraceOptionMeta>> = {

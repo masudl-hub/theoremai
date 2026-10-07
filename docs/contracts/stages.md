@@ -77,7 +77,7 @@ type TurnStage =
 
 /** Confirm-to-run / permission gate — NOT ToolPause, NOT awaiting. */
 interface ToolGate {
-  kind: 'confirmation' | 'permission' | 'auth';
+  kind: 'confirmation' | 'permission' | 'auth' | 'page';
   tool: string;
   permission?: ToolPermission;
   summary?: string;

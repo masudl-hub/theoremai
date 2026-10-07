@@ -697,6 +697,19 @@ export async function* executeFunction(
   }
   input = preBody.input;
 
+  if (tool.answeredBy === 'page' && ctx.page === undefined) {
+    // why: Last of the checks, so the page is asked only for a call every guardrail and gate let through.
+    const gate: ToolGate = { kind: 'page', tool: tool.name, ...gateDetails(tool, input) };
+    yield* emitGateSettlement({
+      base,
+      gate,
+      callId,
+      toolName: tool.name,
+      lexicon: ctx.profile.lexicon,
+    });
+    return { gated: gate, callNotStarted: true };
+  }
+
   throwIfAborted(ctx.signal);
   const { secret } = signedIn;
   const fail = (failure: ToolFailure) =>

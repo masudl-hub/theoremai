@@ -135,6 +135,10 @@ returns what the page sent, so the tool's `output` schema checks it
 and a mismatch reaches the model as an ordinary tool failure. With no
 `page` the call fails to the model, naming the tool.
 
+In a chat, the same tool pauses the turn at a `page` gate. The page answers it on `/invoke` with
+`{ gateId, decision: 'approve', page: { output } }`, or `page: { unanswered: true }` when it has no
+function for the tool. `useTheoremChat` does this from its `pageTools` option, and shows no prompt.
+
 The kernel never times out an ungated held call, so the relay does:
 `attachPlaygroundLiveSession` starts a timer when the model makes a call
 (`clientCallTimeoutMs` in its options, default 20 s) and clears it when the

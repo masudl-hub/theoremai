@@ -657,6 +657,8 @@ function GateCard({
   const { tool } = block;
   if (tool.state?.phase !== 'gate') return null;
   const { gate } = tool.state;
+  // why: The page answers a page gate, so there is nothing here for a person to decide.
+  if (gate.kind === 'page') return null;
   const index = handlers.indexOf(block);
   const answer = handlers.answering?.callId === tool.callId ? handlers.answering.action : null;
   if (gate.kind === 'auth') {

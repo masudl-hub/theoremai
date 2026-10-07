@@ -11,9 +11,9 @@ import './ui/built/theme.css';
 
 export type {
   LiveCallOptions,
-  LivePageTool,
-  LivePageToolAnswer,
-  LivePageTools,
+  PageTool,
+  PageToolAnswer,
+  PageTools,
 } from './client/live/live-page-tool.ts';
 export type { LiveConnection } from './client/live-client.ts';
 export type { LiveRunnerProps } from './ui/LiveRunner.tsx';

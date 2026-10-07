@@ -468,14 +468,15 @@ const toolGateBase = {
 };
 
 /**
- * Confirm-to-run / permission / sign-in gate: the tool's body did not run.
- * A sign-in gate (`auth`) carries the challenge that says where.
+ * Confirm-to-run / permission / sign-in / page gate: the tool's body did not run.
+ * A sign-in gate (`auth`) carries the challenge that says where. A `page` gate waits for the
+ * page's answer to a tool with `answeredBy: 'page'`; no person decides it.
  */
 export type ToolGate =
-  | (ToolGateBase & { kind: 'confirmation' | 'permission' })
+  | (ToolGateBase & { kind: 'confirmation' | 'permission' | 'page' })
   | (ToolGateBase & { kind: 'auth'; authChallenge: ToolAuthChallenge });
 const toolGate = z.discriminatedUnion('kind', [
-  z.object({ ...toolGateBase, kind: z.enum(['confirmation', 'permission']) }),
+  z.object({ ...toolGateBase, kind: z.enum(['confirmation', 'permission', 'page']) }),
   z.object({ ...toolGateBase, kind: z.literal('auth'), authChallenge: toolAuthChallenge }),
 ]);
 true satisfies Equals<z.infer<typeof toolGate>, ToolGate>;

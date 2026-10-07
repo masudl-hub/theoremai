@@ -3,7 +3,7 @@ import { credentialForSignInGate } from '../auth/typed-secret.ts';
 import type { ApiKeyCredential, BearerCredential } from '../auth/types.ts';
 import type { ToolPermission } from '../schema.ts';
 import type { ToolAuthChallenge } from '../turn-events.ts';
-import type { InvokeToolResume } from './types.ts';
+import type { InvokeToolResume, PageAnswer } from './types.ts';
 
 /** What a sign-in gate asks for, minus the challenge's OAuth details. */
 export type ToolGateAuth = Pick<ToolAuthChallenge, 'slot' | 'authType' | 'service'>;
@@ -73,6 +73,8 @@ export type GateAnswerRequest = {
   input?: unknown;
   /** The key typed at a sign-in gate; approvals only. */
   secret?: string;
+  /** The page's answer at a `page` gate; approvals only. */
+  page?: PageAnswer;
 };
 
 /** A tool call held at a gate, with what answering it needs. */
@@ -90,6 +92,7 @@ export type AnsweredGate = {
   input: unknown;
   sessionPermissions: string[];
   typed?: { slot: string; credential: BearerCredential | ApiKeyCredential };
+  page?: PageAnswer;
 };
 
 /** Shared by `createTheoremHandler` and `runSession`. A refused key throws, so the gate keeps waiting for another. */
@@ -98,11 +101,12 @@ export function answerGatedCall(
   call: HeldGatedCall,
   sessionPermissions: readonly string[],
 ): AnsweredGate {
-  const { callId, decision, input, secret } = request;
-  if ((input !== undefined || secret !== undefined) && decision !== 'approve') {
+  const { callId, decision, input, secret, page } = request;
+  const approvalOnly = input !== undefined || secret !== undefined || page !== undefined;
+  if (approvalOnly && decision !== 'approve') {
     throw new TheoremError(
       'request',
-      `only an approval takes edited input or a secret (call ${callId})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `only an approval takes edited input, a secret or a page answer (call ${callId})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (decision !== 'approve') {
@@ -125,5 +129,6 @@ export function answerGatedCall(
       call.permission,
     ),
     ...(typed ? { typed } : {}),
+    ...(page ? { page } : {}),
   };
 }

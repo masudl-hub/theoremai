@@ -822,7 +822,8 @@ function buildLiveSession(args: {
         signal,
         resume,
         host,
-        page: per.page,
+        // why: A call opens no second line to the page, so a call the page did not answer is not held for it.
+        page: per.page ?? { unanswered: true },
         turn: { step: Math.max(1, cycleStep), taint: cycleTaint, destinations },
       },
       snapshot,

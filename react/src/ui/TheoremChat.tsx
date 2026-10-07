@@ -21,6 +21,7 @@ import {
   useRef,
 } from 'react';
 import { parseAspectRatio } from '../client/image-output.ts';
+import type { PageTools } from '../client/live/live-page-tool.ts';
 import {
   createHttpTransport,
   type HttpTransportOptions,
@@ -59,6 +60,11 @@ export type TheoremChatProps = {
    * turn, and the profile's `inputs.context.from` must list `client`.
    */
   context?: unknown;
+  /**
+   * The page's tools, by name: each answers a tool the profile declares with
+   * `answeredBy: 'page'`. The reply waits while the page answers; no one is asked.
+   */
+  pageTools?: PageTools;
   placeholder?: string;
   /** Shown above the centred composer before the first message. Default: the agent's handle and a prompt. */
   emptyState?: ReactNode;
@@ -257,6 +263,7 @@ function ChatBody({
   chatRef,
   slots,
   context,
+  pageTools,
 }: ChatBodyProps) {
   const t = useLabels();
   const chat = useTheoremChat({
@@ -267,6 +274,7 @@ function ChatBody({
     onChange: onChatChange,
     slots,
     context,
+    pageTools,
   });
   const sendText = chat.sendText;
   useImperativeHandle(chatRef, () => ({ send: sendText }), [sendText]);

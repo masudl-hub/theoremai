@@ -1112,7 +1112,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'speech.speed': field(
     'number',
-    "The speaking rate, where 1 is the voice's own pace; a turn's speech.speed replaces it. Gemini Interactions refuses it (set the pace in speech.style), and an OpenRouter model that has no rate ignores it.",
+    "The speaking rate, where 1 is the voice's own pace; a turn's speech.speed replaces it. A provider that has no rate refuses it or ignores it.",
   ),
   'speech.format': field(
     unionType(SPEECH_AUDIO_FORMATS),
@@ -1120,7 +1120,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     SPEECH_AUDIO_FORMATS,
     {
       pcm: 'Uncompressed audio, delivered as WAV.',
-      mp3: 'Compressed audio; OpenRouter only.',
+      mp3: 'Compressed audio; a provider that cannot make it refuses the turn.',
     },
   ),
   live: field('ProfileLiveSpec', 'Settings for the realtime voice and video session.'),

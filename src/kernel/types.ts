@@ -402,7 +402,7 @@ export interface ProfileSpeechSpec {
   style?: string;
   /** The speaking rate; 1 is the voice's own pace. */
   speed?: number;
-  /** `mp3` requires `protocol: 'openAi'` speech; rejected on Interactions. */
+  /** A provider that cannot make the format refuses the turn. */
   format?: SpeechAudioFormat;
 }
 

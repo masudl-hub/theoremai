@@ -147,16 +147,13 @@ Deno.test('resetting a tool puts back its start and keeps who allows it', () => 
   assertEquals(reset.agents, start.agents);
 });
 
-Deno.test("the narrator's style reaches its profile, and a speed is refused off openAi", () => {
+Deno.test("the narrator's style and a speed reach its profile as written", () => {
   const narrator = createNarratorExampleDraft();
   const result = compilePlayground(narrator);
   assert(result.ok && result.profile.type === 'speech');
   assertEquals(result.profile.speech, { style: narrator.speech.style });
 
   const fast = compilePlayground({ ...narrator, speech: { ...narrator.speech, speed: 1.2 } });
-  assert(!fast.ok);
-  assertEquals(
-    fast.issues.map((issue) => [issue.nodeId, issue.field]),
-    [['speech', 'speed']],
-  );
+  assert(fast.ok && fast.profile.type === 'speech');
+  assertEquals(fast.profile.speech.speed, 1.2);
 });

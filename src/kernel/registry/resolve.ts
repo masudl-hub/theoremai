@@ -239,8 +239,7 @@ function resolveLiveSpec(
 
 /**
  * A canary for the turn while `canary_leak` reads somewhere, else none. Speech
- * has no system prompt to plant one in: Gemini TTS rejects developer
- * instructions and OpenAI-compatible `/audio/speech` has no field for one.
+ * has no system prompt to plant one in.
  */
 function plantedCanary(profile: ModelProfile): string {
   const { detect } = resolveGuardrailPolicy(profile.guardrails);

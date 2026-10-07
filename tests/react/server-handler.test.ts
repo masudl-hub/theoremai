@@ -162,6 +162,45 @@ Deno.test('turn streams kernel events from the host profile, not the client', as
   assertEquals(seen[0]?.system?.includes(SYSTEM), true);
 });
 
+Deno.test("a turn carries the page's slots and context, and the host's context as server", async () => {
+  const seen: { system?: string; sent?: string }[] = [];
+  const provider: ModelProvider = {
+    complete: (req) =>
+      (async function* () {
+        seen.push({ system: req.system, sent: req.history?.at(-1)?.content });
+        yield { type: 'text' as const, text: 'ok' };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
+      })(),
+  };
+  const handler = createTheoremHandler({
+    profile: {
+      type: 'text',
+      id: 'handler-context',
+      identity: { handle: 'helper', system: 'Reply in {language}.' },
+      key: 'slot_a',
+      models: { stub: { protocol: 'openAi', provider: 'openrouter', apiId: 'stub-model' } },
+      tools: { allow: [] },
+      guardrails: { detect: 'ignore' },
+      inputs: {
+        text: true,
+        slots: { language: ['en', 'fr'] },
+        context: { from: ['client', 'server'], maxChars: 200 },
+      },
+    },
+    provider: () => provider,
+    context: () => ({ tier: 'pro' }),
+  });
+  await collect((onEvent) =>
+    transportFor(handler).turn(
+      { input: { text: 'hi', slots: { language: 'fr' }, context: { page: 'Pricing' } } },
+      onEvent,
+    ),
+  );
+  assertEquals(seen[0]?.system?.includes('Reply in fr.'), true);
+  assertEquals(seen[0]?.sent?.includes('<page_context from="server">\n{"tier":"pro"}'), true);
+  assertEquals(seen[0]?.sent?.includes('<page_context from="client">\n{"page":"Pricing"}'), true);
+});
+
 Deno.test('provider failures reach the client in the lexicon wording for their kind', async () => {
   const handler = createTheoremHandler({
     profile: profile('handler-error'),

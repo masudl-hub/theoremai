@@ -52,8 +52,14 @@ export type TheoremTurnInput = {
   history?: TurnHistoryMessage[];
   historyTokens?: number;
   inputTokens?: number;
+  /** The value chosen for each of the profile's `inputs.slots`. */
+  slots?: Record<string, string>;
+  /** What the page wants the agent to know: any JSON. The host reads it as untrusted. */
+  context?: unknown;
 };
 const theoremTurnInput = z.object({
+  slots: z.record(z.string(), z.string()).optional(),
+  context: z.unknown().optional(),
   text: z.string().optional(),
   attachments: z.array(encodedBlob).optional(),
   voice: z.array(encodedBlob).optional(),

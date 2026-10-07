@@ -16,7 +16,11 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { clientFailure, type TurnFailure } from '../client/failure.ts';
 import { followGenerationDefaults } from '../client/generation-selection.ts';
 import { applyTurnResultToTranscript, type StreamView } from '../client/index.ts';
-import type { TheoremTransport, TurnEventSink } from '../client/transport.ts';
+import type {
+  TheoremTransport,
+  TheoremTurnRequest,
+  TurnEventSink,
+} from '../client/transport.ts';
 import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions.ts';
 import {
   type ChatSnapshot,
@@ -40,7 +44,14 @@ export type UseTheoremChatOptions = {
    * removed. Never while a reply streams or waits on a gate.
    */
   onChange?: (snapshot: ChatSnapshot) => void;
+  /** The value chosen for each of the profile's `inputs.slots`. Sent with every turn. */
+  slots?: Record<string, string>;
+  /** What the page wants the agent to know: any JSON. The latest value goes with every turn. */
+  context?: unknown;
 };
+
+/** What the page sends with each turn besides the message. */
+type TurnValues = Pick<UseTheoremChatOptions, 'slots' | 'context'>;
 
 /** What `sendText` hands back: the blocks the turn added, its user message and the reply. */
 export type SentTurn = { blocks: TranscriptBlock[] };
@@ -289,10 +300,29 @@ function deliveryOf(event: Parameters<TurnEventSink>[0]): MessageDelivery {
 /**
  * The transport, with each turn's events also clearing the steers they report
  * as landed (so the run's end requeues only the steers the agent never saw),
- * and moving the posted message's delivery forward.
+ * and moving the posted message's delivery forward. Each turn carries the
+ * page's slots and context as they are when it is sent.
  */
-function useTappedTransport(transport: TheoremTransport, state: ChatState): TheoremTransport {
+function useTappedTransport(
+  transport: TheoremTransport,
+  state: ChatState,
+  values: TurnValues,
+): TheoremTransport {
+  const valuesRef = useRef(values);
+  valuesRef.current = values;
   return useMemo(() => {
+    const withValues = (request: TheoremTurnRequest): TheoremTurnRequest => {
+      const { slots, context } = valuesRef.current;
+      if (slots === undefined && context === undefined) return request;
+      return {
+        ...request,
+        input: {
+          ...request.input,
+          ...(slots === undefined ? {} : { slots }),
+          ...(context === undefined ? {} : { context }),
+        },
+      };
+    };
     const tap =
       (onEvent: TurnEventSink): TurnEventSink =>
       (event) => {
@@ -309,7 +339,7 @@ function useTappedTransport(transport: TheoremTransport, state: ChatState): Theo
       };
     return {
       ...transport,
-      turn: (request, onEvent, signal) => transport.turn(request, tap(onEvent), signal),
+      turn: (request, onEvent, signal) => transport.turn(withValues(request), tap(onEvent), signal),
       invoke: (request, onEvent, signal) => transport.invoke(request, tap(onEvent), signal),
     };
   }, [transport, state.pendingRef, state.setPendingMessages, state.deliveryRef, state.setDelivery]);
@@ -326,6 +356,8 @@ export function useTheoremChat({
   initial,
   initialText,
   onChange,
+  slots,
+  context,
 }: UseTheoremChatOptions) {
   const state = useTheoremChatState(initial, initialText);
   useDefaultGeneration(iface, state.session, state.setSession);
@@ -348,7 +380,7 @@ export function useTheoremChat({
 
   const runTurnStream = useRunTurnStream(iface, state);
 
-  const steerTransport = useTappedTransport(transport, state);
+  const steerTransport = useTappedTransport(transport, state, { slots, context });
   const actions = useTheoremChatActions({
     ...state,
     iface,

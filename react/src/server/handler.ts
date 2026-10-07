@@ -121,6 +121,12 @@ export type TheoremHandlerOptions = {
   /** Opaque app context for tool handlers (`ctx.host`) — e.g. the signed-in user. */
   host?: (request: Request) => unknown;
   /**
+   * What the host wants the agent to know on each turn: any JSON. The profile's
+   * `inputs.context.from` must list `server`. The page's own context arrives in the
+   * request and is read as untrusted; this one is the host's.
+   */
+  context?: (request: Request) => unknown;
+  /**
    * Resolve the caller's session id — e.g. `${userId}:${conversationId}` from your
    * auth. Return `undefined` to refuse the request (401). Default: an opaque id
    * in an HttpOnly, SameSite=Lax cookie the handler issues on first contact.
@@ -218,10 +224,17 @@ function conversationOnly(messages: readonly TurnHistoryMessage[]): TurnHistoryM
 /**
  * Keep the user-authored parts of a turn input. Drops fields that would let a
  * client speak as the host: system-role history, `role`, `repair` guidance,
- * token-meter overrides, and live resumption handles.
+ * token-meter overrides, and live resumption handles. The page's context goes
+ * in as `client`; `server` is the host's own (`options.context`).
  */
-function userTurnInput(input: TheoremTurnInput): TurnInput {
+function userTurnInput(input: TheoremTurnInput, server: unknown): TurnInput {
+  const context = {
+    ...(input.context === undefined ? {} : { client: input.context }),
+    ...(server === undefined ? {} : { server }),
+  };
   return {
+    ...(input.slots ? { slots: input.slots } : {}),
+    ...(Object.keys(context).length > 0 ? { context } : {}),
     ...(input.text !== undefined ? { text: input.text } : {}),
     ...(input.attachments ? { attachments: input.attachments } : {}),
     ...(input.voice ? { voice: input.voice } : {}),
@@ -825,7 +838,7 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
   if (request.method !== 'POST' || target === '' || target === 'call') return refused(ctx);
   if (target === 'turn') {
     const body = await readBody(request, theoremTurnRequestSchema);
-    const input = userTurnInput(body.input);
+    const input = userTurnInput(body.input, await ctx.options.context?.(request));
     // why: Take the walked-away calls before streaming, so a stale one is a reply status, not a stream error.
     const calls = body.abandon ? await takeWalkedAway(ctx, session, input, body.abandon) : [];
     return eventStream(ctx, request, () =>

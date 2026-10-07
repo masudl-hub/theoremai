@@ -52,6 +52,13 @@ export type TheoremChatProps = {
    * the host's Astryx `InternationalizationProvider` locale (default `en`).
    */
   labels?: TheoremLabels;
+  /** The value chosen for each of the profile's `inputs.slots`, sent with every turn. */
+  slots?: Record<string, string>;
+  /**
+   * What the page wants the agent to know: any JSON. The latest value goes with every
+   * turn, and the profile's `inputs.context.from` must list `client`.
+   */
+  context?: unknown;
   placeholder?: string;
   /** Shown above the centred composer before the first message. Default: the agent's handle and a prompt. */
   emptyState?: ReactNode;
@@ -248,6 +255,8 @@ function ChatBody({
   initialText,
   onChatChange,
   chatRef,
+  slots,
+  context,
 }: ChatBodyProps) {
   const t = useLabels();
   const chat = useTheoremChat({
@@ -256,6 +265,8 @@ function ChatBody({
     initial: initialChat,
     initialText,
     onChange: onChatChange,
+    slots,
+    context,
   });
   const sendText = chat.sendText;
   useImperativeHandle(chatRef, () => ({ send: sendText }), [sendText]);

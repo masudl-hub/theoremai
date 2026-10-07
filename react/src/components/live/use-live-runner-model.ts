@@ -181,10 +181,8 @@ export function useLiveRunnerModel(
 
   // why: The page's context is compared by value, so a host may build it inline on each render.
   const contextJson = JSON.stringify(options.context);
-  const contextRef = useRef(options.context);
-  contextRef.current = options.context;
   useEffect(() => {
-    clientRef.current?.setContext(contextRef.current);
+    clientRef.current?.setContext(contextJson === undefined ? undefined : JSON.parse(contextJson));
   }, [clientRef, contextJson]);
 
   const pageToolNames = Object.keys(options.pageTools ?? {})
@@ -196,11 +194,15 @@ export function useLiveRunnerModel(
     const { unanswered, unused } = pageToolMismatch(iface.tools.page, handled);
     for (const name of unanswered) {
       // lexicon-exempt: builder diagnostic
-      console.warn(`Theorem: page tool '${name}' has no handler in pageTools; the agent gets no answer.`);
+      console.warn(
+        `Theorem: page tool '${name}' has no handler in pageTools; the agent gets no answer.`,
+      );
     }
     for (const name of unused) {
       // lexicon-exempt: builder diagnostic
-      console.warn(`Theorem: pageTools has '${name}', which the profile does not declare answeredBy: 'page'.`);
+      console.warn(
+        `Theorem: pageTools has '${name}', which the profile does not declare answeredBy: 'page'.`,
+      );
     }
   }, [iface.tools.page, pageToolNames]);
 

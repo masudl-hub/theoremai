@@ -1397,6 +1397,22 @@ function compileSpeech(
   };
 }
 
+/** What a resumed call opens with; it needs resumption on, and the wait needs a prompt. */
+function compileResumed(live: LiveDraft, report: Report): ProfileLiveSpec['resumed'] {
+  checkWhole(report, 'live', 'resumedAfterMs', 'Away for', live.resumedAfterMs, 0);
+  const prompt = live.resumedPrompt.trim();
+  if (prompt && !live.sessionResumption) {
+    report('live', 'A resume prompt needs Resumption on.', 'resumedPrompt');
+  }
+  if (!prompt) {
+    if (live.resumedAfterMs !== null) {
+      report('live', 'Away for needs a resume prompt.', 'resumedAfterMs');
+    }
+    return undefined;
+  }
+  return { prompt, ...(live.resumedAfterMs !== null ? { afterMs: live.resumedAfterMs } : {}) };
+}
+
 function compileLive(
   live: LiveDraft,
   report: Report,
@@ -1423,14 +1439,7 @@ function compileLive(
   );
 
   if (live.contextCompression) checkCompression(live, report, mode);
-  checkWhole(report, 'live', 'resumedAfterMs', 'Away for', live.resumedAfterMs, 0);
-  const resumedPrompt = live.resumedPrompt.trim();
-  if (resumedPrompt && !live.sessionResumption) {
-    report('live', 'A resume prompt needs Resumption on.', 'resumedPrompt');
-  }
-  if (!resumedPrompt && live.resumedAfterMs !== null) {
-    report('live', 'Away for needs a resume prompt.', 'resumedAfterMs');
-  }
+  const resumed = compileResumed(live, report);
 
   const channels = {
     audio: live.ingressAudio,
@@ -1459,14 +1468,7 @@ function compileLive(
     ...(Object.keys(vad).length ? { vad } : {}),
     ...(live.sessionResumption ? { sessionResumption: true } : {}),
     ...(live.greeting.trim() ? { greeting: live.greeting.trim() } : {}),
-    ...(resumedPrompt
-      ? {
-          resumed: {
-            prompt: resumedPrompt,
-            ...(live.resumedAfterMs !== null ? { afterMs: live.resumedAfterMs } : {}),
-          },
-        }
-      : {}),
+    ...(resumed ? { resumed } : {}),
     ...(live.contextCompression ? { contextCompression: contextCompression(live) } : {}),
     ...(Object.keys(transcription).length ? { transcription } : {}),
   };

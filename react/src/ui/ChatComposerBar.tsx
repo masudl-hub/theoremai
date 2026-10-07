@@ -46,7 +46,15 @@ import {
   type LiveProfileInterface,
   modelSelectEnabled,
 } from '@theoremjs/agents/interface';
-import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ChangeEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { stageComposerFiles } from '../client/composer-attachments.ts';
 import { type ComposerDrawerSummary, composerDrawerSummary } from '../client/composer-drawer.ts';
 import {
@@ -97,11 +105,19 @@ export type ChatComposerBarProps = {
 };
 
 /** A Live call's text line: it is sent as typed, so there is nothing to attach, queue or stop. */
-export type LiveComposerBarProps = Pick<
-  ChatComposerBarProps,
-  'draftText' | 'placeholder' | 'inputRef' | 'onDraftTextChange' | 'onSubmit'
+export type LiveComposerBarProps = Omit<
+  Pick<
+    ChatComposerBarProps,
+    'draftText' | 'placeholder' | 'inputRef' | 'onDraftTextChange' | 'onSubmit'
+  >,
+  'onSubmit'
 > & {
-  iface: LiveProfileInterface;
+  /** The typed line. The button reads the field, so this is the text, not the click. */
+  onSubmit: (text: string) => void;
+  /** The live profile, when the host has one. The placeholder uses its handle. */
+  iface?: LiveProfileInterface;
+  /** Profile handle, when the host has no interface object. Wins over `iface`. */
+  handle?: string;
   /** Off while no call is connected. */
   isDisabled: boolean;
 };
@@ -587,7 +603,7 @@ function ComposerTextInput({
 function isLiveComposer(
   props: ChatComposerBarProps | LiveComposerBarProps,
 ): props is LiveComposerBarProps {
-  return props.iface.type === 'live';
+  return 'isDisabled' in props;
 }
 
 /**
@@ -608,6 +624,24 @@ export function ChatComposerBar(props: ChatComposerBarProps | LiveComposerBarPro
 
 function LiveComposerBarBody(props: LiveComposerBarProps) {
   const t = useLabels();
+  const editorRef = useRef<ChatComposerInputHandle>(null);
+  const setEditor = useCallback(
+    (node: ChatComposerInputHandle | null) => {
+      editorRef.current = node;
+      const outer = props.inputRef;
+      if (typeof outer === 'function') outer(node);
+      else if (outer) outer.current = node;
+    },
+    [props.inputRef],
+  );
+  // why: The button used to send only the React draft. Typing lives in the field first, so an
+  // empty draft left the button dead. Read the field.
+  const submitTyped = () => {
+    const text = (editorRef.current?.getValue() ?? props.draftText).trim();
+    if (!text || props.isDisabled) return;
+    props.onSubmit(text);
+    props.onDraftTextChange('');
+  };
   return (
     <ChatComposer
       style={NO_FOCUS_RING}
@@ -617,15 +651,12 @@ function LiveComposerBarBody(props: LiveComposerBarProps) {
       isDisabled={props.isDisabled}
       placeholder={
         props.placeholder ??
-        t('@theorem.composer.placeholder', { handle: props.iface.identity.handle })
+        t('@theorem.composer.placeholder', {
+          handle: props.handle ?? props.iface?.identity.handle ?? '',
+        })
       }
-      input={<ChatComposerInput handleRef={props.inputRef} />}
-      sendButton={
-        <ChatSendButton
-          isDisabled={props.isDisabled || !props.draftText.trim()}
-          onSend={props.onSubmit}
-        />
-      }
+      input={<ChatComposerInput handleRef={setEditor} />}
+      sendButton={<ChatSendButton isDisabled={props.isDisabled} onSend={submitTyped} />}
     />
   );
 }

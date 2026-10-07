@@ -16,11 +16,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { clientFailure, type TurnFailure } from '../client/failure.ts';
 import { followGenerationDefaults } from '../client/generation-selection.ts';
 import { applyTurnResultToTranscript, type StreamView } from '../client/index.ts';
-import type {
-  TheoremTransport,
-  TheoremTurnRequest,
-  TurnEventSink,
-} from '../client/transport.ts';
+import type { TheoremTransport, TheoremTurnRequest, TurnEventSink } from '../client/transport.ts';
 import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions.ts';
 import {
   type ChatSnapshot,

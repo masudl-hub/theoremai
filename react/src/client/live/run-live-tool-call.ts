@@ -24,7 +24,8 @@ export async function runLiveToolCall(args: {
   const { executeToolOnRelay, name, toolArgs, callId } = args;
   let sessionPermissions = args.sessionPermissions;
   // why: A name from the model is looked up among the host's own keys only.
-  const pageTool = args.pageTools && Object.hasOwn(args.pageTools, name) ? args.pageTools[name] : undefined;
+  const pageTool =
+    args.pageTools && Object.hasOwn(args.pageTools, name) ? args.pageTools[name] : undefined;
   const answer = await pageTool?.(toolArgs, { callId });
   let step = await executeToolOnRelay(answer ? { callId, output: answer.output } : { callId });
   while (step.status === 'gated') {

@@ -32,7 +32,6 @@ export {
   theoremSessionId,
 } from './handler.ts';
 export { checkRequest, parseLiveClientMessage, parseLiveOpenMessage } from './request-check.ts';
-export { liveSessionOpen } from './turn-input.ts';
 export {
   createMemorySessionStore,
   type MemorySessionStoreOptions,
@@ -48,4 +47,5 @@ export {
   steerStage,
   steerUnitOf,
 } from './steer-inbox.ts';
+export { liveSessionOpen } from './turn-input.ts';
 export { checkWalkAway, type WalkedAwayCall, walkAway } from './walk-away.ts';

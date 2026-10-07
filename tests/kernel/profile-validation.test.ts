@@ -925,6 +925,25 @@ Deno.test('a live profile checks its context compression numbers and window', ()
   check(said(live({ slidingWindow: { targetTokens: 50 } })), 'defined', 'only a target');
 });
 
+Deno.test('an id takes 64 characters and a handle 32', () => {
+  check(said(textProfile({ id: 'a'.repeat(64) })), 'defined', 'a 64-character id');
+  check(
+    said(textProfile({ id: 'a'.repeat(65) })),
+    `Profile ${'a'.repeat(64)}: id must be at most 64 characters`,
+    'a 65-character id',
+  );
+  check(
+    said(textProfile({ identity: { handle: 'h'.repeat(32) } })),
+    'defined',
+    'a 32-character handle',
+  );
+  check(
+    said(textProfile({ identity: { handle: 'h'.repeat(33) } })),
+    'Profile p: identity.handle must be at most 32 characters',
+    'a 33-character handle',
+  );
+});
+
 Deno.test('a required field is named when null, empty or missing, shallowest first', () => {
   check(
     said(textProfile({ identity: { handle: null } })),

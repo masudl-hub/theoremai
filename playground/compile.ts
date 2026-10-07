@@ -42,6 +42,8 @@ import {
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isValidPair,
   isValidProfileProtocol,
+  PROFILE_HANDLE_MAX_CHARS,
+  PROFILE_ID_MAX_CHARS,
   protocolsForProfileType,
 } from '../src/kernel/schema.ts';
 import { systemPromptProblem } from '../src/kernel/system-parts.ts';
@@ -191,13 +193,26 @@ function checkWhole(
   report(nodeId, `${label} must be a ${min ? 'positive' : 'non-negative'} whole number.`, field);
 }
 
-function checkIdentity(draft: PlaygroundDraft, report: Report): void {
-  if (!draft.identity.agentId.trim()) {
-    report('identity', 'Profile id is required.', 'agentId');
+const NAME_LIMITS = {
+  agentId: { label: 'Profile id', max: PROFILE_ID_MAX_CHARS },
+  handle: { label: 'Handle', max: PROFILE_HANDLE_MAX_CHARS },
+} as const;
+
+/** A name is set, and fits the kernel's limit for it. */
+function checkName(report: Report, field: keyof typeof NAME_LIMITS, name: string): void {
+  const { label, max } = NAME_LIMITS[field];
+  if (!name.trim()) {
+    report('identity', `${label} is required.`, field);
+  } else if (Array.from(name).length > max) {
+    report('identity', `${label} is at most ${max} characters.`, field);
   }
+}
+
+function checkIdentity(draft: PlaygroundDraft, report: Report): void {
+  checkName(report, 'agentId', draft.identity.agentId);
   // A host has no agent identity: it runs no model.
-  if (draft.identity.profileType !== 'host' && !draft.identity.handle.trim()) {
-    report('identity', 'Handle is required.', 'handle');
+  if (draft.identity.profileType !== 'host') {
+    checkName(report, 'handle', draft.identity.handle);
   }
 }
 

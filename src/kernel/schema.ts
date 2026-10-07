@@ -56,6 +56,11 @@ export const PROVIDERS = ['google', 'openrouter', 'local', 'typesafe'] as const;
 /** One of {@linkcode PROVIDERS}. */
 export type Provider = (typeof PROVIDERS)[number];
 
+/** The longest a profile's `id` may be, in characters: room for a dotted or generated one. */
+export const PROFILE_ID_MAX_CHARS = 64;
+/** The longest a profile's `identity.handle` may be, in characters: it is a name people read. */
+export const PROFILE_HANDLE_MAX_CHARS = 32;
+
 /** Turn pairs are handled by `createProvider`; decision pairs by `runDecision`. */
 export const PROTOCOL_PROVIDERS = {
   geminiInteractions: ['google'],
@@ -753,7 +758,7 @@ function withScopeAndPresence(fields: Record<string, FieldMeta>): Record<string,
 export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   id: field(
     'string',
-    'The name this profile is registered and looked up by; registering the same id again replaces it.',
+    'The name this profile is registered and looked up by, at most 64 characters; registering the same id again replaces it.',
   ),
   type: field(
     "'text' | 'image' | 'speech' | 'live' | 'decision' | 'host'",
@@ -776,7 +781,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'identity.handle': field(
     'string',
-    "The agent's display name for hosts and users (the model never sees it), and the systemByRole entry a turn gets when it names no known role.",
+    "The agent's display name for hosts and users (the model never sees it), at most 32 characters, and the systemByRole entry a turn gets when it names no known role.",
   ),
   'identity.system': field(
     'string | Array<string | { private: string }>',

@@ -23,6 +23,8 @@ import {
   isValidPair,
   isValidProfileProtocol,
   PROFILE_FIELDS,
+  PROFILE_HANDLE_MAX_CHARS,
+  PROFILE_ID_MAX_CHARS,
   PROFILE_TYPES,
   type ProfileType,
   protocolsForProfileType,
@@ -493,6 +495,22 @@ function assertProfileShape(input: unknown): asserts input is ProfileDefinition 
   }
 }
 
+/** A profile's id and its handle each fit their limit. */
+function assertNameLengths(input: ProfileDefinition): void {
+  const handle = (input as { identity?: { handle?: unknown } }).identity?.handle;
+  const names = [
+    ['id', input.id, PROFILE_ID_MAX_CHARS],
+    ['identity.handle', typeof handle === 'string' ? handle : '', PROFILE_HANDLE_MAX_CHARS],
+  ] as const;
+  for (const [path, name, max] of names) {
+    if (Array.from(name).length <= max) continue;
+    throw new TheoremError(
+      'config',
+      `Profile ${input.id.slice(0, PROFILE_ID_MAX_CHARS)}: ${path} must be at most ${max} characters`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
 /** A field under an optional parent the definition leaves out is not required. */
 function assertRequiredFields(input: ProfileDefinition): void {
   const { id, type } = input;
@@ -664,6 +682,7 @@ function defineProfile(input: ProfileDefinition): Profile {
   assertFieldScope(input);
   assertInputsSet(input);
   assertRequiredFields(input);
+  assertNameLengths(input);
   if (input.lexicon) validateLexiconOverrides(input.lexicon, `Profile ${input.id}`);
   assertIdentitySystem(input);
   assertDetect(input);

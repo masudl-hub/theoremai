@@ -38,12 +38,14 @@ import { DETECTOR_BOUNDARIES } from '../../src/guardrails/detectors.ts';
 
 Deno.test('renaming a binding preserves the selected default and leaves other bindings alone', () => {
   const draft = createExampleDraft();
-  const renamed = updateModelBinding(draft, draft.modelBindings[0].key, { modelId: 'primary' });
+  // The example's default is its second binding, `smart`.
+  const renamed = updateModelBinding(draft, draft.modelBindings[1].key, { modelId: 'primary' });
   assertEquals(renamed.models.defaultModel, 'primary');
-  assertEquals(renamed.modelBindings[0].key, draft.modelBindings[0].key);
-  assertEquals(renamed.modelBindings.slice(1), draft.modelBindings.slice(1));
+  assertEquals(renamed.modelBindings[1].key, draft.modelBindings[1].key);
+  assertEquals(renamed.modelBindings[0], draft.modelBindings[0]);
+  assertEquals(renamed.modelBindings.slice(2), draft.modelBindings.slice(2));
   assert(compilePlayground(renamed).ok);
-  const other = updateModelBinding(renamed, draft.modelBindings[1].key, { modelId: 'secondary' });
+  const other = updateModelBinding(renamed, draft.modelBindings[0].key, { modelId: 'secondary' });
   assertEquals(other.models.defaultModel, 'primary');
   assert(compilePlayground(other).ok);
 });
@@ -82,7 +84,7 @@ Deno.test('the example draft compiles to the travel concierge', () => {
   assertEquals(result.agentId, 'travel.concierge');
   assertEquals(profile.type, 'text');
   assertEquals(Object.keys(profile.models), ['fast', 'smart', 'open']);
-  assertEquals(profile.defaultModel, 'fast');
+  assertEquals(profile.defaultModel, 'smart');
   assertEquals(result.customTools.length, demoToolSpecs().length);
   assert(profile.type === 'text' && profile.tools?.allow?.includes('geocode_city'));
   assertEquals(profile.guardrails?.blockedReply, { onBlock: 'refuse' });
@@ -163,6 +165,22 @@ Deno.test('a binding issue is keyed to its binding node', () => {
   assertEquals(issueNodes(result), [modelBindingNodeId(open.key)]);
   assert(!result.ok);
   assertEquals(result.issues[0].field, 'apiId');
+});
+
+Deno.test('an id over 64 characters and a handle over 32 are issues', () => {
+  const draft = createExampleDraft();
+  const result = compilePlayground({
+    ...draft,
+    identity: { ...draft.identity, agentId: 'a'.repeat(65), handle: 'h'.repeat(33) },
+  });
+  assert(!result.ok);
+  assertEquals(
+    result.issues.map(({ field, message }) => ({ field, message })),
+    [
+      { field: 'agentId', message: 'Profile id is at most 64 characters.' },
+      { field: 'handle', message: 'Handle is at most 32 characters.' },
+    ],
+  );
 });
 
 Deno.test('a model with several efforts and no default is an issue on its default effort', () => {

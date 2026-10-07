@@ -63,6 +63,7 @@ export {
   type WordingDraft,
 } from './draft.ts';
 export {
+  addArchitectExample,
   createArchitectWorkspace,
   createConsoleExampleDraft,
   createDecisionExampleDraft,

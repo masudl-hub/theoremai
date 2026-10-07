@@ -15,6 +15,7 @@ import {
   defaultModelBinding,
   defaultToolSpec,
   draftKey,
+  freeName,
   includableFacets,
   type GuardrailsDraft,
   includeFacet,
@@ -202,20 +203,26 @@ export function createConsoleExampleDraft(): PlaygroundDraft {
   };
 }
 
-/**
- * The code architect and the narrator it calls: a text agent that researches docs, repositories
- * and packages, with an agent tool that has the narrator read a briefing aloud.
- */
-export function createArchitectWorkspace(): PlaygroundWorkspace {
-  const architectDraft = exampleTextDraft(
+/** The code architect on its own: the code and docs tools, before the narrator joins it. */
+function architectDraft(): PlaygroundDraft {
+  return exampleTextDraft(
     { agentId: 'code.architect', handle: 'architect', system: DEMO_ARCHITECT_SYSTEM },
     { tools: { t2Loader: '' }, toolSpecs: exampleTools(DEMO_ARCHITECT_TOOLS) },
   );
-  const pair = addAgent(workspaceFromDraft(architectDraft), createNarratorExampleDraft());
-  const [architect, narrator] = pair.agents;
+}
+
+/**
+ * Adds the narrator after the workspace's last agent, the architect, and the `narrate` agent tool
+ * that lets the architect call it. The architect is left selected.
+ */
+function withNarrator(workspace: PlaygroundWorkspace): PlaygroundWorkspace {
+  const architect = workspace.agents.at(-1);
+  const pair = addAgent(workspace, createNarratorExampleDraft());
+  const narrator = pair.agents.at(-1);
   if (!architect || !narrator) return pair;
+  const taken = pair.toolSpecs.map((tool) => tool.toolName);
   const narrate = defaultToolSpec({
-    toolName: 'narrate',
+    toolName: freeName('narrate', taken, (n) => `narrate_${n}`),
     toolType: 'agent',
     agentKey: narrator.key,
     description: 'Has the narrator read a script aloud and returns the audio.',
@@ -225,12 +232,22 @@ export function createArchitectWorkspace(): PlaygroundWorkspace {
   });
   return {
     ...pair,
-    agents: [
-      { ...architect, tools: { ...architect.tools, allow: [...architect.tools.allow, narrate.key] } },
-      narrator,
-    ],
+    agents: pair.agents.map((agent) =>
+      agent.key === architect.key
+        ? { ...agent, tools: { ...agent.tools, allow: [...agent.tools.allow, narrate.key] } }
+        : agent,
+    ),
     toolSpecs: [...pair.toolSpecs, narrate],
     selected: agentNodeId(architect.key),
-    chatWith: architect.key,
   };
+}
+
+/** The code architect and the narrator it calls, added to a workspace that keeps its other agents. */
+export function addArchitectExample(workspace: PlaygroundWorkspace): PlaygroundWorkspace {
+  return withNarrator(addAgent(workspace, architectDraft()));
+}
+
+/** A workspace of the code architect and its narrator, with the architect in the chat. */
+export function createArchitectWorkspace(): PlaygroundWorkspace {
+  return withNarrator(workspaceFromDraft(architectDraft()));
 }

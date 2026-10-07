@@ -1,5 +1,6 @@
 import { assert, assertEquals } from '@std/assert';
 import {
+  addArchitectExample,
   compileWorkspace,
   createArchitectWorkspace,
   createConsoleExampleDraft,
@@ -51,4 +52,30 @@ Deno.test('the examples between them use every demo tool', () => {
     .map((seed) => seed.data.toolName)
     .filter((name) => !used.has(name ?? ''));
   assertEquals(unused, []);
+});
+
+Deno.test('adding the architect brings its narrator, linked, and keeps the agents already there', () => {
+  const start = workspaceFromDraft(createExampleDraft());
+  const once = addArchitectExample(start);
+  const twice = addArchitectExample(once);
+  assertEquals(
+    twice.agents.map((agent) => agent.identity.agentId),
+    [
+      'travel.concierge',
+      'code.architect',
+      'studio.narrator',
+      'code.architect_2',
+      'studio.narrator_2',
+    ],
+  );
+  assertEquals(once.chatWith, start.chatWith);
+  assertEquals(
+    toolNames(twice).filter((name) => name.startsWith('narrate')),
+    ['narrate', 'narrate_2'],
+  );
+  const second = twice.toolSpecs.find((tool) => tool.toolName === 'narrate_2');
+  assertEquals(second?.agentKey, twice.agents[4]?.key);
+  assert(twice.agents[3]?.tools.allow.includes(second?.key ?? ''));
+  assert(!twice.agents[1]?.tools.allow.includes(second?.key ?? ''));
+  compiled(twice);
 });

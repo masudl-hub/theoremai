@@ -789,14 +789,9 @@ looks, and what it does: a detector, a boundary, an action.
 builtin has no boundary: the provider runs it and the kernel never reads its
 text (see the known exception under [Invariant](#invariant)).
 
-An action means the same at every boundary:
-
-| Action | Effect |
-| --- | --- |
-| `ignore` | The text is not read |
-| `flag` | The match is reported in the trace; the text crosses unchanged |
-| `redact` | The match is replaced with a placeholder; the rest crosses |
-| `block` | The thing crossing does not cross |
+An action means the same at every boundary. `DETECT_ACTION_META` in
+`src/guardrails/detectors.ts` holds what each of `ignore`, `flag`, `redact` and
+`block` does, and the catalog shows that text beside every detector's action.
 
 `DetectSpec` is one action for every detector at every boundary, or a
 `DetectorRule` per detector: one action everywhere, or a `DetectorConfig`.

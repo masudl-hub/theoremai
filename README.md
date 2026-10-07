@@ -156,8 +156,6 @@ Every event is typed. A `structured` event arrives only after validation and the
 
 Use the `type` field to choose what the agent does. The type sets the shape of the profile and picks the runner.
 
-Use the `type` field to choose what the agent does. The type sets the shape of the profile and picks the runner.
-
 | Type | Runner | Takes | Returns | Transports |
 | :--- | :--- | :--- | :--- | :--- |
 | `text` | `runTurn` | text, attachments, voice notes, slots, history | text, thoughts, validated JSON, tool calls | Google Interactions, OpenRouter, local |

@@ -63,6 +63,16 @@ export const theoremTheme: DefinedTheme = defineTheme({
         },
       },
     },
+    // why: A card that waits on the user sits in the transcript as a turn of its
+    // own, so it takes the surface of the user's message bubble.
+    card: {
+      'variant:bubble': {
+        backgroundColor: 'var(--color-neutral)',
+        borderRadius: 'var(--radius-chat)',
+        paddingBlock: 'var(--spacing-3)',
+        paddingInline: 'var(--spacing-4)',
+      },
+    },
     'layout-panel': {
       base: {
         ':where([role="complementary"])': {

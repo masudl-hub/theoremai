@@ -641,6 +641,15 @@
     --astryx-card-padding: var(--spacing-3);
   }
 
+  .astryx-card[data-variant="bubble"] {
+    background-color: var(--color-neutral);
+    border-radius: var(--radius-chat);
+    --astryx-card-padding-inline: var(--spacing-4);
+    --astryx-card-padding-block-start: var(--spacing-3);
+    --astryx-card-padding-block-end: var(--spacing-3);
+    --_card-radius: var(--radius-chat);
+  }
+
   .astryx-section {
     --astryx-section-padding: var(--spacing-3);
   }

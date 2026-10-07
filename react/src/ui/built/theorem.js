@@ -488,6 +488,12 @@ export const theoremTheme = {
     "card": {
       "base": {
         "padding": "var(--spacing-3)"
+      },
+      "variant:bubble": {
+        "backgroundColor": "var(--color-neutral)",
+        "borderRadius": "var(--radius-chat)",
+        "paddingBlock": "var(--spacing-3)",
+        "paddingInline": "var(--spacing-4)"
       }
     },
     "section": {

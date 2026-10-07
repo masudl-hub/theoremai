@@ -93,7 +93,7 @@ function ApprovalBody({
   const args = formatInput(input);
 
   return (
-    <Card elevation="low" maxWidth={400}>
+    <Card variant="bubble" elevation="med" maxWidth={400}>
       <VStack gap={3}>
         <HStack justify="between" align="start" gap={3}>
           <Text type="large" weight="semibold">

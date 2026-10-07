@@ -14,3 +14,9 @@ declare module '@astryxdesign/core/Badge' {
     gray: true;
   }
 }
+
+declare module '@astryxdesign/core/Card' {
+  interface CardVariantMap {
+    bubble: true;
+  }
+}

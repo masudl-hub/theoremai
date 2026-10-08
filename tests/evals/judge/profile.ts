@@ -5,7 +5,6 @@
  * Jev. Importing this module registers both; the judge suites import it so
  * `agents eval` finds them.
  */
-
 import { EVAL_JUDGMENT } from '../../../src/evals/graders/judge.ts';
 import { registerProfile } from '../../../src/kernel/default-scope.ts';
 import { geminiModels } from '../../fixtures/models.ts';
@@ -13,7 +12,6 @@ import { geminiModels } from '../../fixtures/models.ts';
 const JUDGE = 'eval.judge';
 const JEV_JUDGE = 'eval.judge.jev';
 const SEEING_JUDGE = 'eval.judge.seeing';
-
 registerProfile({
   type: 'text',
   id: JUDGE,
@@ -28,7 +26,6 @@ registerProfile({
   inputs: { text: true },
   outputs: { structured: EVAL_JUDGMENT },
 });
-
 registerProfile({
   type: 'text',
   id: SEEING_JUDGE,
@@ -44,21 +41,19 @@ registerProfile({
     text: true,
     attachments: { accept: ['image/*'] },
     maxFiles: 8,
-    maxBytes: 5_000_000,
-    maxTurnBytes: 20_000_000,
+    maxBytes: 5000000,
+    maxTurnBytes: 20000000,
   },
   outputs: { structured: EVAL_JUDGMENT },
 });
-
 registerProfile({
   type: 'decision',
   id: JEV_JUDGE,
   identity: { handle: 'jev judge' },
-  key: 'jev',
   models: {
-    jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 10_000 },
+    jev: { provider: 'typesafe', keySlot: 'jev', apiId: 'jev-latest', timeoutMs: 10000 },
   },
-  inputs: { state: 'json', maxStateBytes: 64_000 },
+  inputs: { state: 'json', maxStateBytes: 64000 },
   decision: { contract: 'eval.judgment.v1' },
 });
 

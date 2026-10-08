@@ -1,8 +1,9 @@
 import { errorKind, TheoremError } from '../guardrails/error.ts';
 import { getProfile, runTurn } from '../kernel/default-scope.ts';
 import type { RunDecisionOptions } from '../kernel/engine/decision.ts';
+import type { ProviderHostOptions } from '../kernel/provider-contract.ts';
 import { isModelProfile } from '../kernel/registry/resolve.ts';
-import type { ModelProvider, TurnRequest } from '../kernel/types.ts';
+import type { TurnRequest } from '../kernel/types.ts';
 import { isRecord } from '../kernel/util/record.ts';
 import { resolveObservabilityPolicy } from '../observability/resolve-policy.ts';
 import { memorySink, writeTrace } from '../observability/trace.ts';
@@ -61,8 +62,8 @@ interface TrialReport {
 
 /** Options for `runSuite`: the providers, the judge and how often to repeat. */
 interface RunSuiteOptions {
-  provider?: ModelProvider;
-  judgeProvider?: ModelProvider;
+  provider?: ProviderHostOptions;
+  judgeProvider?: ProviderHostOptions;
   judgeDecision?: Omit<RunDecisionOptions, 'sink'>;
   media?: EvalMediaResolver;
   recorded?: TraceRecord[];
@@ -161,7 +162,7 @@ function erroredResults(
 
 interface Judging {
   suiteJudge?: string;
-  provider?: ModelProvider;
+  provider?: ProviderHostOptions;
   decision?: Omit<RunDecisionOptions, 'sink'>;
   media?: EvalMediaResolver;
   policies: Map<string, ResolvedObservabilityPolicy>;
@@ -300,7 +301,7 @@ async function turnRequest(
 
 async function runLiveTrial(
   grading: Grading,
-  provider: ModelProvider,
+  provider: ProviderHostOptions,
   evalCase: EvalCase,
   index: number,
   signal: AbortSignal | undefined,
@@ -466,7 +467,7 @@ async function gradeRecorded(grading: Grading, records: TraceRecord[]): Promise<
 /** The cost ceiling is checked before each start, so a stop lets what is in flight finish and count. */
 async function runLive(
   grading: Grading,
-  provider: ModelProvider,
+  provider: ProviderHostOptions,
   repeat: number,
   options: RunSuiteOptions,
 ): Promise<Ran> {

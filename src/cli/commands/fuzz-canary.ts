@@ -56,10 +56,9 @@ function registerFuzzCanaryProfile(): void {
     identity: { handle: 'fuzz-canary', system: 'Canary fuzz profile.' },
     models: {
       'fuzz-model': {
-        protocol: 'openAi',
         provider: 'openrouter',
         apiId: 'fuzz-model',
-        key: 'fuzz',
+        keySlot: 'fuzz',
         efforts: { normal: 'none' },
         summaries: false,
         maxOutputTokens: 4096,

@@ -1,3 +1,4 @@
+import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 /**
  * The judge grader: a rubric filled from the judged trace and put to the
  * judge profile the host picks. A text judge answers through its own turn and
@@ -168,7 +169,12 @@ Deno.test('a judge grades a trial through a turn beneath the trial span; the res
   const written: TraceRecord[] = [];
   const run = await runSuite(
     await judged([delivered.json(), judge({ rubric: rubrics.correctness })]),
-    { provider: translator, judgeProvider: provider, repeat: 2, sink: memorySink(written) },
+    {
+      provider: fixtureHostOptions(translator),
+      judgeProvider: fixtureHostOptions(provider),
+      repeat: 2,
+      sink: memorySink(written),
+    },
   );
   assertEquals(run.passed, true);
   assertEquals(run.trials.length, 2);
@@ -212,14 +218,14 @@ Deno.test('grading a judged run again leaves the judge calls inside each trace o
   const written: TraceRecord[] = [];
   const graders = [judge({ rubric: rubrics.correctness })];
   const live = await runSuite(await judged(graders), {
-    provider: translator,
-    judgeProvider: verdictJudge('correct'),
+    provider: fixtureHostOptions(translator),
+    judgeProvider: fixtureHostOptions(verdictJudge('correct')),
     repeat: 2,
     sink: memorySink(written),
   });
   const again = await runSuite(await judged(graders), {
     recorded: written,
-    judgeProvider: verdictJudge('correct'),
+    judgeProvider: fixtureHostOptions(verdictJudge('correct')),
   });
   assertEquals(again.trials.length, 2);
   assertEquals(
@@ -253,7 +259,7 @@ Deno.test('an injected instruction in the judged transcript is redacted before t
   assertStringIncludes(Object.values(record.content).join('\n'), attack);
   const run = await runSuite(await judged([judge({ rubric: rubrics.correctness })]), {
     recorded: [record],
-    judgeProvider: provider,
+    judgeProvider: fixtureHostOptions(provider),
   });
   const [report] = run.trials;
   const result = report?.results[0];
@@ -271,8 +277,8 @@ Deno.test('an injected instruction in the judged transcript is redacted before t
 
 Deno.test('a declared label in another case is read as the declared one; the prompt shouts its headings', async () => {
   const shouted = await runSuite(await judged([judge({ rubric: rubrics.correctness })]), {
-    provider: translator,
-    judgeProvider: verdictJudge('CORRECT'),
+    provider: fixtureHostOptions(translator),
+    judgeProvider: fixtureHostOptions(verdictJudge('CORRECT')),
     repeat: 1,
   });
   const result = shouted.trials[0]?.results[0];
@@ -283,8 +289,8 @@ Deno.test('a declared label in another case is read as the declared one; the pro
 
 Deno.test('a label the rubric did not declare is a bad response, as is a reply that is not a judgment', async () => {
   const undeclared = await runSuite(await judged([judge({ rubric: rubrics.correctness })]), {
-    provider: translator,
-    judgeProvider: verdictJudge('meh'),
+    provider: fixtureHostOptions(translator),
+    judgeProvider: fixtureHostOptions(verdictJudge('meh')),
     repeat: 1,
   });
   const result = undeclared.trials[0]?.results[0];
@@ -295,8 +301,8 @@ Deno.test('a label the rubric did not declare is a bad response, as is a reply t
   assertEquals(undeclared.trials[0]?.outcome, 'errored');
 
   const shapeless = await runSuite(await judged([judge({ rubric: rubrics.correctness })]), {
-    provider: translator,
-    judgeProvider: scriptedJudge(() => ({ verdict: 'yes' })),
+    provider: fixtureHostOptions(translator),
+    judgeProvider: fixtureHostOptions(scriptedJudge(() => ({ verdict: 'yes' }))),
     repeat: 1,
   });
   assertEquals(shapeless.trials[0]?.results[0]?.errorType, 'bad_response');
@@ -311,8 +317,8 @@ Deno.test('a judge whose turn fails reports that failure, not a verdict', async 
     }),
   };
   const run = await runSuite(await judged([judge({ rubric: rubrics.correctness })]), {
-    provider: translator,
-    judgeProvider: dead,
+    provider: fixtureHostOptions(translator),
+    judgeProvider: fixtureHostOptions(dead),
     repeat: 1,
   });
   const result = run.trials[0]?.results[0];
@@ -328,13 +334,14 @@ Deno.test('the runner refuses a model grader without a judge profile, a judge th
     () =>
       runSuite(
         { ...loaded, suite: { ...loaded.suite, graders: [grader] } },
-        { provider: translator },
+        { provider: fixtureHostOptions(translator) },
       ),
     TheoremError,
     'names no judge profile, and neither does the suite',
   );
   await assertRejects(
-    async () => runSuite(await judged([grader], TRANSLATOR), { provider: translator }),
+    async () =>
+      runSuite(await judged([grader], TRANSLATOR), { provider: fixtureHostOptions(translator) }),
     TheoremError,
     `must set outputs.structured to 'evalJudgment'`,
   );
@@ -345,7 +352,7 @@ Deno.test('the runner refuses a model grader without a judge profile, a judge th
   );
   // With no judgeProvider the agent's provider judges too: the same host client often serves both.
   const run = await runSuite(await judged([grader]), {
-    provider: verdictJudge('correct'),
+    provider: fixtureHostOptions(verdictJudge('correct')),
     repeat: 1,
   });
   assertEquals(run.trials[0]?.results[0]?.score?.label, 'correct');
@@ -570,7 +577,7 @@ Deno.test('a turn that broke or delivered nothing is not judged, and no judge is
   const jev = scriptedJev(SURE);
   const context = {
     judge: JUDGE,
-    judgeProvider: provider,
+    judgeProvider: fixtureHostOptions(provider),
     judgeDecision: jev,
     traced: () => {},
   };
@@ -619,7 +626,11 @@ Deno.test("a trial's judges run at once, and their records come back in grader o
       judge({ rubric: rubrics.correctness, name: 'first' }),
       judge({ rubric: rubrics.correctness, name: 'second' }),
     ]),
-    { provider: translator, judgeProvider: provider, repeat: 1 },
+    {
+      provider: fixtureHostOptions(translator),
+      judgeProvider: fixtureHostOptions(provider),
+      repeat: 1,
+    },
   );
   assertEquals(most, 2);
   const [report] = run.trials;
@@ -641,7 +652,7 @@ Deno.test('a judge sees the media the turn carried, from the case or the host, o
 
   // The case attached it: the judge gets its bytes, under the label the prompt names.
   const provider = verdictJudge('correct');
-  const context = { judgeProvider: provider, traced: () => {} };
+  const context = { judgeProvider: fixtureHostOptions(provider), traced: () => {} };
   const fromCase = await photoTrial([PHOTO_ATTACHMENT]);
   assertEquals((await grader.grade(fromCase, context)).passed, true);
   assertEquals(provider.seen, [[{ type: 'image', ...PHOTO_ATTACHMENT }]]);
@@ -684,7 +695,7 @@ Deno.test('a judge sees the media the turn carried, from the case or the host, o
   const textOnly = verdictJudge('correct');
   const plainResult = await plain.grade(bare, {
     judge: JUDGE,
-    judgeProvider: textOnly,
+    judgeProvider: fixtureHostOptions(textOnly),
     traced: () => {},
   });
   assertEquals(plainResult.passed, true);
@@ -694,7 +705,11 @@ Deno.test('a decision judge hands media to its escalate judge, or leaves the tri
   const trial = await photoTrial([PHOTO_ATTACHMENT]);
   const jev = scriptedJev(SURE);
   const provider = verdictJudge('incorrect');
-  const context = { judgeProvider: provider, judgeDecision: jev, traced: () => {} };
+  const context = {
+    judgeProvider: fixtureHostOptions(provider),
+    judgeDecision: jev,
+    traced: () => {},
+  };
 
   const alone = judge({ rubric: rubrics.correctness, profile: JEV_JUDGE });
   assertEquals(await alone.grade(trial, context), {
@@ -740,7 +755,7 @@ Deno.test('a Jev judge answers the rubric question over the trace as state, and 
   const jev = scriptedJev(SURE);
   const written: TraceRecord[] = [];
   const run = await runSuite(await judged([judge({ rubric: rubrics.correctness })], JEV_JUDGE), {
-    provider: translator,
+    provider: fixtureHostOptions(translator),
     judgeDecision: jev,
     repeat: 1,
     sink: memorySink(written),
@@ -793,7 +808,7 @@ Deno.test('a Jev judge answers the rubric question over the trace as state, and 
 
 Deno.test('a failed Jev call is an error on the result that still names the decision', async () => {
   const run = await runSuite(await judged([judge({ rubric: rubrics.correctness })], JEV_JUDGE), {
-    provider: translator,
+    provider: fixtureHostOptions(translator),
     judgeDecision: scriptedJev(SURE, 429),
     repeat: 1,
   });
@@ -811,9 +826,9 @@ async function jevTrial(
   judgeProvider?: ModelProvider,
 ) {
   const run = await runSuite(await judged([grader], JEV_JUDGE), {
-    provider: translator,
+    provider: fixtureHostOptions(translator),
     judgeDecision: scriptedJev(probabilities),
-    ...(judgeProvider ? { judgeProvider } : {}),
+    ...(judgeProvider ? { judgeProvider: fixtureHostOptions(judgeProvider) } : {}),
     repeat: 1,
   });
   return run.trials[0];
@@ -855,8 +870,8 @@ Deno.test('escalate hands what Jev is unsure of to the text judge, and the resul
     runSuite(
       { ...loaded, cases: loaded.cases.slice(0, 1) },
       {
-        provider: translator,
-        judgeProvider: text,
+        provider: fixtureHostOptions(translator),
+        judgeProvider: fixtureHostOptions(text),
         judgeDecision: scriptedJev(probabilities),
         repeat: 1,
         sink: memorySink(written),
@@ -917,7 +932,7 @@ Deno.test('wrongPassCost and escalate refuse what they cannot apply to', async (
   await assertRejects(
     async () =>
       runSuite(await judged([judge({ rubric: rubrics.correctness, escalate: JUDGE })]), {
-        provider: translator,
+        provider: fixtureHostOptions(translator),
       }),
     TheoremError,
     'escalate needs a decision judge, and eval.judge is a text profile',
@@ -927,7 +942,7 @@ Deno.test('wrongPassCost and escalate refuse what they cannot apply to', async (
       runSuite(
         await judged([judge({ rubric: rubrics.correctness, escalate: JEV_JUDGE })], JEV_JUDGE),
         {
-          provider: translator,
+          provider: fixtureHostOptions(translator),
           judgeDecision: scriptedJev(SURE),
         },
       ),
@@ -946,7 +961,7 @@ Deno.test('the runner refuses a judge that cannot run the rubric or has no key',
   await assertRejects(
     async () =>
       runSuite(await judged([judge({ rubric: promptOnly })], JEV_JUDGE), {
-        provider: translator,
+        provider: fixtureHostOptions(translator),
         judgeDecision: scriptedJev({ calm: 0.9, heated: 0.1 }),
       }),
     TheoremError,
@@ -959,14 +974,17 @@ Deno.test('the runner refuses a judge that cannot run the rubric or has no key',
     question: { instructions: 'Is it calm?', criteria: { calm: 'Calm.', heated: 'Heated.' } },
   });
   await assertRejects(
-    async () => runSuite(await judged([judge({ rubric: questionOnly })]), { provider: translator }),
+    async () =>
+      runSuite(await judged([judge({ rubric: questionOnly })]), {
+        provider: fixtureHostOptions(translator),
+      }),
     TheoremError,
     'rubric tone has no prompt for text profile eval.judge',
   );
   await assertRejects(
     async () =>
       runSuite(await judged([judge({ rubric: rubrics.correctness })], JEV_JUDGE), {
-        provider: translator,
+        provider: fixtureHostOptions(translator),
       }),
     TheoremError,
     'grader correctness needs a key for decision judge profile eval.judge.jev; export judgeDecision',

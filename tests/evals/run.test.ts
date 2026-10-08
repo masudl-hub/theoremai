@@ -1,3 +1,4 @@
+import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 /**
  * Running a suite: live mode runs the profile and grades what the sink caught;
  * recorded mode grades the same records to the same results. Errors, budget
@@ -95,7 +96,7 @@ Deno.test('live mode runs every case repeat times and passes the translator', as
   const loaded = await loadSuite(SUITE_PATH);
   const written: TraceRecord[] = [];
   const run = await runSuite(loaded, {
-    provider: translator({ costUsd: 0.001 }),
+    provider: fixtureHostOptions(translator({ costUsd: 0.001 })),
     repeat: 2,
     sink: catalogedSink(written),
   });
@@ -135,7 +136,7 @@ Deno.test('live mode runs every case repeat times and passes the translator', as
 Deno.test('recorded mode over the live run records gives byte-identical results', async () => {
   const loaded = await loadSuite(SUITE_PATH);
   const live = await runSuite(loaded, {
-    provider: translator({ wrong: ['de-01'] }),
+    provider: fixtureHostOptions(translator({ wrong: ['de-01'] })),
     repeat: 2,
   });
   assertEquals(live.passed, false);
@@ -150,7 +151,10 @@ Deno.test('recorded mode over the live run records gives byte-identical results'
 
 Deno.test('a wrong answer names the grader and the field', async () => {
   const loaded = await loadSuite(SUITE_PATH);
-  const run = await runSuite(loaded, { provider: translator({ wrong: ['fr-01'] }), repeat: 1 });
+  const run = await runSuite(loaded, {
+    provider: fixtureHostOptions(translator({ wrong: ['fr-01'] })),
+    repeat: 1,
+  });
   const report = run.trials.find((entry) => entry.case?.id === 'fr-01');
   assertEquals(report?.outcome, 'failed');
   const json = report?.results.find((result) => result.name === 'delivered_json');
@@ -171,7 +175,7 @@ Deno.test('a turn that fails still leaves a trace, and the trace is what gets gr
       }),
     }),
   };
-  const run = await runSuite(loaded, { provider, repeat: 1 });
+  const run = await runSuite(loaded, { provider: fixtureHostOptions(provider), repeat: 1 });
   assertEquals(run.passed, false);
   for (const report of run.trials) {
     assertEquals(report.records.length > 0, true);
@@ -186,7 +190,7 @@ Deno.test('an error before the trace marks every applicable result with its kind
     ...loaded,
     cases: [{ id: 'session', kind: 'regression', input: { session: { steps: [] } } }],
   };
-  const run = await runSuite(caseless, { provider: translator(), repeat: 1 });
+  const run = await runSuite(caseless, { provider: fixtureHostOptions(translator()), repeat: 1 });
   const [report] = run.trials;
   assertEquals(report?.records, []);
   assertEquals(report?.error, 'config');
@@ -204,7 +208,7 @@ Deno.test('the cost ceiling stops the run before the next trial, and the run say
   const loaded = await loadSuite(SUITE_PATH);
   const seen: TrialReport[] = [];
   const run = await runSuite(loaded, {
-    provider: translator({ costUsd: 0.004 }),
+    provider: fixtureHostOptions(translator({ costUsd: 0.004 })),
     repeat: 3,
     maxCostUsd: 0.01,
     onTrial: (report) => seen.push(report),
@@ -222,7 +226,11 @@ Deno.test('the cost ceiling stops the run before the next trial, and the run say
 
 Deno.test('calls whose provider reports no cost are counted, not read as free, and the ceiling warns', async () => {
   const loaded = await loadSuite(SUITE_PATH);
-  const run = await runSuite(loaded, { provider: translator(), repeat: 2, maxCostUsd: 1 });
+  const run = await runSuite(loaded, {
+    provider: fixtureHostOptions(translator()),
+    repeat: 2,
+    maxCostUsd: 1,
+  });
   assertEquals(run.costUsd, 0);
   assertEquals(run.unpriced, 8);
   assertEquals(run.trials[0]?.unpriced, 1);
@@ -231,7 +239,7 @@ Deno.test('calls whose provider reports no cost are counted, not read as free, a
   ]);
   // With costs reported there is nothing to warn about.
   const priced = await runSuite(loaded, {
-    provider: translator({ costUsd: 0.001 }),
+    provider: fixtureHostOptions(translator({ costUsd: 0.001 })),
     repeat: 2,
     maxCostUsd: 1,
   });
@@ -261,7 +269,7 @@ Deno.test('concurrency runs trials side by side yet reports them in suite order'
   };
   const finished: string[] = [];
   const run = await runSuite(loaded, {
-    provider,
+    provider: fixtureHostOptions(provider),
     repeat: 2,
     concurrency: 3,
     onTrial: (report) => finished.push(`${report.case?.id}:${report.index}`),
@@ -280,7 +288,7 @@ Deno.test('concurrency runs trials side by side yet reports them in suite order'
   assertEquals(run.costUsd, 0.008);
   // The same verdicts whichever way the trials were run; only wall-clock latency wording differs.
   const sequential = await runSuite(loaded, {
-    provider: translator({ costUsd: 0.001 }),
+    provider: fixtureHostOptions(translator({ costUsd: 0.001 })),
     repeat: 2,
   });
   const passes = (suiteRun: SuiteRun) =>
@@ -296,7 +304,7 @@ Deno.test('concurrency runs trials side by side yet reports them in suite order'
 Deno.test('with concurrency, a budget stop lets in-flight trials finish and count', async () => {
   const loaded = await loadSuite(SUITE_PATH);
   const run = await runSuite(loaded, {
-    provider: translator({ costUsd: 0.004 }),
+    provider: fixtureHostOptions(translator({ costUsd: 0.004 })),
     repeat: 3,
     concurrency: 2,
     maxCostUsd: 0.01,
@@ -380,7 +388,10 @@ Deno.test('a grader that throws is a grader_error result, not a crash', async ()
       stopKind('completed'),
     ],
   };
-  const run = await runSuite({ ...loaded, suite: throwing }, { provider: translator(), repeat: 1 });
+  const run = await runSuite(
+    { ...loaded, suite: throwing },
+    { provider: fixtureHostOptions(translator()), repeat: 1 },
+  );
   const [report] = run.trials;
   assertEquals(report?.outcome, 'errored');
   assertEquals(report?.results[0], {
@@ -397,7 +408,10 @@ Deno.test('runSuite refuses what it cannot run, as config errors', async () => {
   const refuse = (patch: Partial<EvalSuite>, message: string) =>
     assertRejects(
       () =>
-        runSuite({ ...loaded, suite: { ...loaded.suite, ...patch } }, { provider: translator() }),
+        runSuite(
+          { ...loaded, suite: { ...loaded.suite, ...patch } },
+          { provider: fixtureHostOptions(translator()) },
+        ),
       TheoremError,
       message,
     );
@@ -428,7 +442,7 @@ Deno.test('loadSuite reads the module and its cases, and names a bad line', asyn
     `import { stopKind } from '${Deno.cwd()}/src/evals/graders/code.ts';
      import { registerProfile } from '${Deno.cwd()}/src/kernel/default-scope.ts';
      export default { id: 'dup', profile: 'translator', mode: 'turn', cases: './cases.jsonl', trials: { repeat: 3 }, graders: [stopKind('completed')] };
-     export const provider = { complete: async function* () { await Promise.resolve(); } };
+     export const provider = { fetch: async function* () { await Promise.resolve(); } };
      void registerProfile;`,
   );
   await assertRejects(() => loadSuite(`${dir}/suite.ts`), TheoremError, 'case id a appears twice');
@@ -454,7 +468,7 @@ Deno.test('loadSuite reads the module and its cases, and names a bad line', asyn
     '{"id":"a","kind":"regression","input":{"text":"x"}}\n',
   );
   const withProvider = await loadSuite(`${dir}/suite.ts`);
-  assertEquals(typeof withProvider.provider?.complete, 'function');
+  assertEquals(typeof withProvider.provider?.fetch, 'function');
 
   await Deno.writeTextFile(`${dir}/empty.ts`, 'export const nothing = 1;');
   await assertRejects(
@@ -484,7 +498,7 @@ Deno.test('the sink sees trial records inside the judged trace and one run recor
   const loaded = await loadSuite(SUITE_PATH);
   const written: TraceRecord[] = [];
   const run = await runSuite(loaded, {
-    provider: translator(),
+    provider: fixtureHostOptions(translator()),
     repeat: 1,
     sink: memorySink(written),
     revision: 'abc123',

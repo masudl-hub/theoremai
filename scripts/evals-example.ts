@@ -16,10 +16,10 @@ import { withOpenInference } from '../src/observability/openinference.ts';
 import { toOtlpJson } from '../src/observability/otlp.ts';
 import { phoenixAnnotations } from '../src/observability/phoenix.ts';
 import type { TraceRecord } from '../src/observability/trace-record.ts';
-import { createProvider } from '../src/providers/create-provider.ts';
 import { JUDGE } from '../tests/evals/judge/profile.ts';
 import { TRANSLATOR } from '../tests/evals/translator/profile.ts';
 import { hostVault, loadHostEnv } from './host-env.ts';
+import { scriptProviderOptions } from './provider-options.ts';
 
 const SUITES = {
   none: 'tests/evals/translator/suite.ts',
@@ -140,8 +140,8 @@ async function sendToPhoenix(traceDir: string, since: bigint): Promise<boolean> 
 
 const since = BigInt(Date.now()) * 1_000_000n;
 const ok = await evalCommand(options, {
-  ...(recorded ? {} : { provider: createProvider(getProfile(TRANSLATOR), { vault }) }),
-  ...(textJudge ? { judgeProvider: createProvider(getProfile(JUDGE), { vault }) } : {}),
+  ...(recorded ? {} : { provider: scriptProviderOptions(getProfile(TRANSLATOR), { vault }) }),
+  ...(textJudge ? { judgeProvider: scriptProviderOptions(getProfile(JUDGE), { vault }) } : {}),
   ...(jevKey ? { judgeDecision: { vault: { ...vault, jev: jevKey } } } : {}),
 });
 const sent = Deno.args.includes('--phoenix') ? await sendToPhoenix(options.traceDir, since) : true;

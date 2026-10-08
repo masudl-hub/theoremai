@@ -1,8 +1,9 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { assertEquals } from '@std/assert';
 import { createCliTraceCapture, printTraceRecord } from '../../src/cli/event-log.ts';
 import { forClient } from '../../src/host/client-turn.ts';
-import { runTurn } from '../../src/kernel/default-scope.ts';
+
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
 
 Deno.test('createCliTraceCapture records turns and supports jsonl mirror', async () => {

@@ -4,7 +4,7 @@ import { loadSuite, readTraceRecords } from '../../evals/suite.ts';
 import { summarizeRun } from '../../evals/summary.ts';
 import type { EvalMediaResolver, EvalPassRule } from '../../evals/types.ts';
 import type { RunDecisionOptions } from '../../kernel/engine/decision.ts';
-import type { ModelProvider } from '../../kernel/types.ts';
+import type { ProviderHostOptions } from '../../kernel/provider-contract.ts';
 import { jsonlSink } from '../../observability/jsonl.ts';
 
 export interface EvalOptions {
@@ -177,9 +177,9 @@ function printJson(run: SuiteRun): void {
 /** What the host hands the eval command: providers and keys it never creates or reads itself. */
 export interface EvalHost {
   /** The provider for the profile under test. */
-  provider?: ModelProvider;
+  provider?: ProviderHostOptions;
   /** The provider for text judge profiles. */
-  judgeProvider?: ModelProvider;
+  judgeProvider?: ProviderHostOptions;
   /** The key for decision judge profiles (Jev). */
   judgeDecision?: Omit<RunDecisionOptions, 'sink'>;
   /** Where a judge finds media a trace names only by hash. */

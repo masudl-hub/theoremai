@@ -1,3 +1,4 @@
+import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 /**
  * Identification datasets: cases whose photos sit beside the cases file,
  * pinned by hash; the `answer` grader labelling a trial against the case's
@@ -425,7 +426,7 @@ Deno.test('a photo beside the cases is pinned at load and its bytes reach the tu
   ]);
 
   const provider = namer('Golden pothos');
-  const run = await runSuite(loaded, { provider });
+  const run = await runSuite(loaded, { provider: fixtureHostOptions(provider) });
   const image = {
     type: 'image',
     mimeType: 'image/jpeg',
@@ -447,7 +448,10 @@ Deno.test('a photo beside the cases is pinned at load and its bytes reach the tu
 
   // A photo changed after the case pinned it is refused at the trial that reads it.
   await Deno.writeFile(`${dir}/photos/leaf.jpg`, new Uint8Array([0, 1, 2]));
-  const changed = await runSuite(loaded, { provider: namer('Golden pothos'), repeat: 1 });
+  const changed = await runSuite(loaded, {
+    provider: fixtureHostOptions(namer('Golden pothos')),
+    repeat: 1,
+  });
   assertEquals(
     changed.trials.map((report) => [report.outcome, report.error]),
     [['errored', 'config']],

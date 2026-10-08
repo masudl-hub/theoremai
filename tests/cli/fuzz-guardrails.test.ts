@@ -1,3 +1,8 @@
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
+
+registerFixtureProviders(defaultKernelScope);
+
 import { fuzzGuardrailsCommand } from '../../src/cli/commands/fuzz-guardrails.ts';
 import { missedCause, runInboundGuardrailFuzz } from '../../src/guardrails/corpus/fuzz-inbound.ts';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';

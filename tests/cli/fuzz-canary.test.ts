@@ -1,3 +1,8 @@
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
+
+registerFixtureProviders(defaultKernelScope);
+
 import { assertEquals } from '@std/assert';
 import { runCanaryFuzz } from '../../src/cli/commands/fuzz-canary.ts';
 

@@ -1,3 +1,7 @@
+import { z } from 'zod';
+import { registerProvider } from '../../kernel/default-scope.ts';
+import { defineProvider } from '../../kernel/provider-contract.ts';
+import { translateProviderEvent } from '../../providers/adapters.ts';
 // why: TTFE: time to first event (profile resolve + provider setup). TTFT: time to first text delta.
 // Overhead: total wall-clock delta vs. raw provider consumption.
 
@@ -47,7 +51,6 @@ function registerBenchProfile(): void {
     },
     models: {
       'bench-model': {
-        protocol: 'openAi',
         provider: 'openrouter',
         apiId: 'bench-model',
         efforts: { normal: 'none' },
@@ -150,7 +153,7 @@ async function measureRawProvider(provider: ModelProvider): Promise<TimingResult
   };
 }
 
-async function measureKernelPipeline(provider: ModelProvider): Promise<TimingResult> {
+async function measureKernelPipeline(_provider: ModelProvider): Promise<TimingResult> {
   const req = buildBenchRequest();
   const start = performance.now();
   let firstEvent = 0;
@@ -159,7 +162,7 @@ async function measureKernelPipeline(provider: ModelProvider): Promise<TimingRes
   let gotFirst = false;
   let gotFirstText = false;
 
-  for await (const event of runTurn(req, provider)) {
+  for await (const event of runTurn(req)) {
     if (!gotFirst) {
       firstEvent = performance.now() - start;
       gotFirst = true;
@@ -452,7 +455,7 @@ async function microTraceRecord(chunks: TurnEvent[], iterations: number): Promis
       req,
       usage: startCallUsage('', { history: [], input: req.input }),
       binding: undefined,
-      transport: 'interactions',
+      transport: 'turn',
       step: 0,
       attempt: 0,
     });
@@ -534,6 +537,49 @@ export async function benchCommand(options: BenchOptions = {}): Promise<void> {
   const chunks = generateChunks(chunkCount);
   const provider = createMockProvider(chunks);
 
+  registerProvider(
+    defineProvider({
+      id: 'openrouter',
+      connection: {},
+      adapter: {
+        apiVersion: 1,
+        id: 'bench',
+        connectionSchema: z.strictObject({}),
+        optionsSchema: z.strictObject({}),
+        credentialSchema: z.string(),
+        capabilities: () => ({
+          profileTypes: ['text'],
+          features: {
+            streaming: 'supported',
+            clientTools: 'unsupported',
+            parallelTools: 'unsupported',
+            structuredOutput: 'unsupported',
+            thinking: 'unsupported',
+            summaries: 'unsupported',
+            storedContinuation: 'unsupported',
+          },
+          inputKinds: ['text'],
+          outputKinds: ['text'],
+          builtins: [],
+        }),
+        validateRequest() {},
+        create() {
+          return Promise.resolve().then(() => {
+            return {
+              async *complete(
+                request: import('../../kernel/provider-contract.ts').ProviderTurnRequest,
+              ) {
+                for await (const event of provider.complete(request)) {
+                  const converted = translateProviderEvent(event);
+                  if (converted) yield converted;
+                }
+              },
+            };
+          });
+        },
+      },
+    }),
+  );
   registerBenchProfile();
 
   for (let i = 0; i < warmup; i++) {

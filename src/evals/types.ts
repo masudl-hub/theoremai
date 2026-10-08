@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { RunDecisionOptions } from '../kernel/engine/decision.ts';
+import type { ProviderHostOptions } from '../kernel/provider-contract.ts';
 import type { TurnTokens } from '../kernel/turn-events.ts';
-import type { ModelProvider } from '../kernel/types.ts';
 import type { Equals } from '../kernel/util/exact-type.ts';
 import { isRecord } from '../kernel/util/record.ts';
 import type { TraceRecord } from '../observability/trace-record.ts';
@@ -226,7 +226,7 @@ true satisfies Equals<z.infer<typeof evalTrials>, EvalTrials>;
 /** What a grader gets besides the trial: the judge model and its trace parent. */
 export interface EvalGradeContext {
   judge?: string;
-  judgeProvider?: ModelProvider;
+  judgeProvider?: ProviderHostOptions;
   judgeDecision?: Omit<RunDecisionOptions, 'sink'>;
   /** The trial span as a W3C `traceparent`: a judge call runs under it, so it lands in the judged trace beneath the trial. Absent, each judge call starts a trace of its own. */
   traceparent?: string;

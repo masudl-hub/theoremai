@@ -3,7 +3,7 @@ import { cwd } from 'node:process';
 import type { z } from 'zod';
 import { TheoremError } from '../guardrails/error.ts';
 import type { RunDecisionOptions } from '../kernel/engine/decision.ts';
-import type { ModelProvider } from '../kernel/types.ts';
+import type { ProviderHostOptions } from '../kernel/provider-contract.ts';
 import { isRecord } from '../kernel/util/record.ts';
 import { type TraceRecord, traceRecordSchema } from '../observability/trace-schema.ts';
 import { pinCaseFiles } from './attachments.ts';
@@ -19,15 +19,15 @@ import {
 interface LoadedSuite {
   suite: EvalSuite;
   cases: EvalCase[];
-  provider?: ModelProvider;
-  judgeProvider?: ModelProvider;
+  provider?: ProviderHostOptions;
+  judgeProvider?: ProviderHostOptions;
   judgeDecision?: Omit<RunDecisionOptions, 'sink'>;
   media?: EvalMediaResolver;
   path: string;
 }
 
-function isProvider(value: unknown): value is ModelProvider {
-  return isRecord(value) && typeof value.complete === 'function';
+function isProvider(value: unknown): value is ProviderHostOptions {
+  return isRecord(value) && !('complete' in value);
 }
 
 function isDecisionKey(value: unknown): value is Omit<RunDecisionOptions, 'sink'> {

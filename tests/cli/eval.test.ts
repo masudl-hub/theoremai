@@ -3,6 +3,7 @@ import { evalCommand } from '../../src/cli/commands/eval.ts';
 import { main } from '../../src/cli/index.ts';
 import type { ModelProvider } from '../../src/kernel/types.ts';
 import { turnRecord } from '../evals/fixture.ts';
+import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 
 const SUITE = 'tests/evals/translator/suite.ts';
 
@@ -45,7 +46,10 @@ async function captured(
 
 Deno.test('eval runs a suite live with the host provider and prints one row per case', async () => {
   const { ok, out } = await captured(() =>
-    evalCommand({ suite: SUITE, trials: 2, concurrency: 4 }, { provider: translator }),
+    evalCommand(
+      { suite: SUITE, trials: 2, concurrency: 4 },
+      { provider: fixtureHostOptions(translator) },
+    ),
   );
   assertEquals(ok, true);
   assertStringIncludes(out, 'Suite: translator.v1 (live, 2 trials per case)');
@@ -110,7 +114,10 @@ Deno.test('eval grades recorded traces from a directory, names failures, and hon
 Deno.test('eval writes trial and run records under --trace-dir', async () => {
   const dir = await Deno.makeTempDir();
   const { ok } = await captured(() =>
-    evalCommand({ suite: SUITE, trials: 1, traceDir: dir }, { provider: translator }),
+    evalCommand(
+      { suite: SUITE, trials: 1, traceDir: dir },
+      { provider: fixtureHostOptions(translator) },
+    ),
   );
   assertEquals(ok, true);
   const files: string[] = [];
@@ -169,11 +176,11 @@ Deno.test('eval says a cost went unreported rather than printing zero', async ()
     },
   };
   const { out } = await captured(() =>
-    evalCommand({ suite: SUITE, trials: 2 }, { provider: unpriced }),
+    evalCommand({ suite: SUITE, trials: 2 }, { provider: fixtureHostOptions(unpriced) }),
   );
   assertStringIncludes(out, '4/4 cases passed; cost not reported (8 calls)');
   const priced = await captured(() =>
-    evalCommand({ suite: SUITE, trials: 2 }, { provider: translator }),
+    evalCommand({ suite: SUITE, trials: 2 }, { provider: fixtureHostOptions(translator) }),
   );
   assertStringIncludes(priced.out, '4/4 cases passed; cost $0.0080');
   // A reported $0 is a cost: free calls beside unreported ones are not "not reported".
@@ -196,7 +203,9 @@ Deno.test('eval says a cost went unreported rather than printing zero', async ()
       }
     },
   };
-  const free = await captured(() => evalCommand({ suite: SUITE, trials: 2 }, { provider: mixed }));
+  const free = await captured(() =>
+    evalCommand({ suite: SUITE, trials: 2 }, { provider: fixtureHostOptions(mixed) }),
+  );
   assertStringIncludes(
     free.out,
     '4/4 cases passed; cost $0.0000, plus 4 calls whose cost went unreported',
@@ -220,7 +229,10 @@ Deno.test('eval hands a judged suite the judge provider the host passes, and its
   const { ok, out } = await captured(() =>
     evalCommand(
       { suite: judged, trials: 1, json: true },
-      { provider: translator, judgeProvider: affirmingJudge },
+      {
+        provider: fixtureHostOptions(translator),
+        judgeProvider: fixtureHostOptions(affirmingJudge),
+      },
     ),
   );
   assertEquals(ok, true);
@@ -241,7 +253,10 @@ Deno.test('eval hands a judged suite the judge provider the host passes, and its
     }),
   };
   const down = await captured(() =>
-    evalCommand({ suite: judged, trials: 1 }, { provider: translator, judgeProvider: dead }),
+    evalCommand(
+      { suite: judged, trials: 1 },
+      { provider: fixtureHostOptions(translator), judgeProvider: fixtureHostOptions(dead) },
+    ),
   );
   assertEquals(down.ok, false);
   // An errored result says why, not only what kind of error.

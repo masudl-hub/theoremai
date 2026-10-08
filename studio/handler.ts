@@ -71,7 +71,7 @@ function handleOf(profile: Profile): string | undefined {
 }
 
 /** The registered profiles and tools, as the tree shows them. */
-export function describeStudio(project: string): StudioDescription {
+function describeStudio(project: string): StudioDescription {
   const profiles = listProfiles()
     .filter((profile) => profile.id !== STUDIO_HOST_ID)
     .map((profile) => {

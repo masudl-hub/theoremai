@@ -191,7 +191,9 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
  * Serves the studio for the tools and profiles registered when it is called.
  * Register the project first.
  */
-export function createStudioHandler(options: StudioHandlerOptions): Serve {
+export function createStudioHandler(
+  options: StudioHandlerOptions,
+): (request: Request) => Promise<Response> {
   const base = (options.base ?? '/api/studio').replace(/\/$/, '');
   /** The page's own origin, echoed: a request from any other was refused before this. */
   const corsFor = (request: Request): Record<string, string> => ({

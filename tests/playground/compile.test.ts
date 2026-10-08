@@ -536,6 +536,16 @@ Deno.test('Wording compiles into the profile lexicon; lines edited beside their 
   assertEquals(compiled(excludeFacet(draft, 'wording')).profile.lexicon, undefined);
 });
 
+Deno.test('the refusal line beside On block compiles into the profile lexicon', () => {
+  const draft = includeFacet(createExampleDraft(), 'guardrails');
+  draft.guardrails = {
+    ...draft.guardrails,
+    blockedReplyOnBlock: 'refuse',
+    egressRefusal: ' I cannot share that. ',
+  };
+  assertEquals(compiled(draft).profile.lexicon?.['egress.refusal'], 'I cannot share that.');
+});
+
 Deno.test('a canary bind note without {canary} is an issue on the guardrails node', () => {
   const text = includeFacet(createExampleDraft(), 'guardrails');
   const result = compilePlayground({

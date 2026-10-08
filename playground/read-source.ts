@@ -756,6 +756,9 @@ const LEXICON_FIELDS: Partial<Record<string, (draft: PlaygroundDraft, value: str
   'egress.default_repair_guidance': (draft, value) => {
     draft.guardrails.egressRepairGuidance = value;
   },
+  'egress.refusal': (draft, value) => {
+    draft.guardrails.egressRefusal = value;
+  },
 };
 
 function applyLexicon(draft: PlaygroundDraft, lexicon: unknown): void {

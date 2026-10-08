@@ -254,6 +254,8 @@ export interface GuardrailsDraft {
   /** `null` omits it (kernel default: 1). */
   blockedReplyMaxRetries: number | null;
   egressRepairGuidance: string;
+  /** What the user reads in place of a refused reply. `''` keeps the lexicon's. */
+  egressRefusal: string;
   allowPrivateNetworks: boolean;
   allowedHosts: string[];
   /** Empty omits it: https, plus http with private networks. */
@@ -375,6 +377,7 @@ export const INLINE_WORDING: Partial<Record<LexiconKey, ProfileGraphFacetId>> = 
   'quota.exhausted': 'guardrails',
   'repair.default_guidance': 'outputs',
   'egress.default_repair_guidance': 'guardrails',
+  'egress.refusal': 'guardrails',
 };
 
 export interface PlaygroundDraft {
@@ -492,6 +495,7 @@ function defaultGuardrails(): GuardrailsDraft {
     blockedReplyOnBlock: '',
     blockedReplyMaxRetries: null,
     egressRepairGuidance: '',
+    egressRefusal: '',
     allowPrivateNetworks: false,
     allowedHosts: [],
     allowedSchemes: [],

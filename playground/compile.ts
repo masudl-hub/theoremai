@@ -981,6 +981,7 @@ function compileLexicon(
       'egress.default_repair_guidance',
       guardrails.egressRepairGuidance.trim(),
     ]);
+    entries.push(['guardrails', 'egressRefusal', 'egress.refusal', guardrails.egressRefusal.trim()]);
   }
   if (facets.has('wording')) {
     for (const [key, template] of Object.entries(draft.wording) as [LexiconKey, string][]) {

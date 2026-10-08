@@ -1,5 +1,6 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
-import { registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
+import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { noopSink } from '../../src/observability/trace.ts';
@@ -11,7 +12,6 @@ import { STUB_WRITE, stubRecord } from '../fixtures/trace-record.ts';
 
 /** Media the model returns: the record must hold its hash, never its bytes. */
 const MEDIA_BASE64 = btoa('secret-bytes');
-
 async function* fakeComplete(): AsyncGenerator<TurnEvent> {
   await Promise.resolve();
   yield { type: 'text', text: 'ok' };
@@ -20,17 +20,16 @@ async function* fakeComplete(): AsyncGenerator<TurnEvent> {
     media: { mimeType: 'image/jpeg', data: MEDIA_BASE64 },
   };
 }
-
 const fake: ModelProvider = { complete: fakeComplete };
-
 function modelCall(record: TraceRecord): TraceSpan {
-  const span = record.spans.find((s) => s.name.startsWith('generate_content'));
+  const span = record.spans.find(
+    (s) => s.name.startsWith('generate_content') || s.name.startsWith('chat '),
+  );
   if (!span) {
     throw new Error('no model call span');
   }
   return span;
 }
-
 Deno.test('runTurn traces projectId and hashes media not bytes', async () => {
   const into: TraceRecord[] = [];
   await Array.fromAsync(
@@ -65,13 +64,14 @@ Deno.test('runTurn traces projectId and hashes media not bytes', async () => {
   const call = modelCall(record);
   assertEquals(call.attributes['gen_ai.request.model'], 'gemini-3.1-flash-lite-image');
   assertEquals(call.attributes['gen_ai.output.type'], 'image');
-  const [output] = call.attributes['gen_ai.output.messages'] as { parts: TraceAttributes[] }[];
+  const [output] = call.attributes['gen_ai.output.messages'] as {
+    parts: TraceAttributes[];
+  }[];
   const media = output?.parts.find((part) => part.type === 'blob');
   assertEquals(media?.mime_type, 'image/jpeg');
   assertEquals(typeof media?.content_sha256, 'string');
   assertEquals(JSON.stringify(record).includes(MEDIA_BASE64), false);
 });
-
 Deno.test('runTurn records what the host received on the turn root, beside what the model wrote', async () => {
   registerProfile({
     type: 'text',
@@ -79,7 +79,6 @@ Deno.test('runTurn records what the host received on the turn root, beside what 
     identity: { handle: 'quiet', system: 'Reply briefly.' },
     models: { gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite },
     maxSteps: 1,
-    key: 'main',
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: null, streaming: { streamThoughts: false } },
@@ -121,37 +120,17 @@ Deno.test('runTurn records what the host received on the turn root, beside what 
   const [produced] = inlineContent(
     record,
     modelCall(record).attributes['gen_ai.output.messages'],
-  ) as { parts: { type: string }[] }[];
+  ) as {
+    parts: {
+      type: string;
+    }[];
+  }[];
   assertEquals(
     produced?.parts.map((part) => part.type),
     ['reasoning', 'text', 'structured'],
   );
 });
-
-Deno.test('runTurn traces explicit Interactions state controls', async () => {
-  const into: TraceRecord[] = [];
-  await Array.fromAsync(
-    runTurn(
-      {
-        profile: 'chat',
-        previousInteractionId: 'v1_prev',
-        store: true,
-        input: { text: 'continue' },
-      },
-      { complete: fakeComplete },
-      catalogedSink(into),
-    ),
-  );
-  const [record] = into;
-  if (!record) {
-    throw new Error('missing trace');
-  }
-  const call = modelCall(record);
-  assertEquals(call.attributes['gen_ai.request.previous_response.id'], 'v1_prev');
-  assertEquals(call.attributes['theorem.request.store'], true);
-});
-
-Deno.test('runTurn forwards Interactions state controls and preserves host metadata', async () => {
+Deno.test('runTurn preserves host metadata without forwarding vendor continuation fields', async () => {
   const into: TraceRecord[] = [];
   const seen: ProviderCompleteRequest[] = [];
   const provider: ModelProvider = {
@@ -160,13 +139,10 @@ Deno.test('runTurn forwards Interactions state controls and preserves host metad
       yield { type: 'text', text: 'continued' };
     },
   };
-
   await Array.fromAsync(
     runTurn(
       {
         profile: 'chat',
-        previousInteractionId: 'v1_prev_2',
-        store: true,
         metadata: {
           channel: 'imessage',
           deliveryPath: 'demo',
@@ -178,18 +154,15 @@ Deno.test('runTurn forwards Interactions state controls and preserves host metad
       catalogedSink(into),
     ),
   );
-
-  assertEquals(seen[0]?.previousInteractionId, 'v1_prev_2');
-  assertEquals(seen[0]?.store, true);
+  assertEquals(seen[0]?.previousInteractionId, undefined);
+  assertEquals(seen[0]?.store, undefined);
   assertEquals(into[0]?.metadata, {
     channel: 'imessage',
     deliveryPath: 'demo',
     nested: { untouched: true },
   });
 });
-
 Deno.test('noopSink drops traces without filesystem access', async () => {
   await noopSink().write(stubRecord(), STUB_WRITE);
 });
-
 catalogGate();

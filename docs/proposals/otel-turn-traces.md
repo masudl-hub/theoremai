@@ -4,6 +4,10 @@
 **Version:** ships within `@theoremjs/agents` 2.x (decided 22/09/2026). The `TraceRecord` shape changes, so every reader updates in the same change.
 **Worked example (step-2 target, approved 23/09/2026; `gen_ai.*` names kept wherever semconv defines the exact meaning, `theorem.*` otherwise):** [otel-turn-traces-example.md](./otel-turn-traces-example.md) — the v3 record drawn across a 12-exchange conversation.
 
+**Update, 07/10/2026:** Theorem now estimates text as UTF-16 code units divided by four, rounded up per string.
+The tokenizer dependency was removed. The survey and tokenizer design below record the earlier proposal.
+Current behavior is specified in [kernel.md](../contracts/kernel.md#history-estimate-meter-history).
+
 ## Goal
 
 A Theorem turn should produce a trace that any OpenTelemetry GenAI tool can read without translation: one span per agent run, per model call, and per tool call, with real timing, real usage and real cost.
@@ -28,7 +32,7 @@ Theorem stays unopinionated:
 | F7 | Live sessions (`runSession`) write no trace. | No `writeTrace`/`buildRecord` under `engine/session`. |
 | F8 | When a provider reports no usage, the kernel invents token counts (characters ÷ 4). Those counts are indistinguishable from reported ones. This breaks "unknown is first-class". | `runner/tokens.ts` `calculateFallbackTokens` |
 | F9 | Bonsai keeps a second span system: `AgentTurnTraceCollector`, flat `{name, ms}` spans that go to `done.timing` for DevTools. Its Theorem spans are rebuilt from the event stream. | `agent-turn-trace.ts`, `theorem-turn-observability.ts` |
-| F11 | **Four token estimators, one real one.** Theorem's `estimateHistoryTokens` counts text with the o200k tokenizer (tiktoken's encoding, via `gpt-tokenizer`) and counts media with per-type minimums: image or document 258, audio 32/s, video 263/s. Only compaction uses it. The fallback (F8) uses characters ÷ 4 instead. Bonsai has two more characters ÷ 4 copies: `estTokensDiv4` in the wire budget, which the frontend mirrors, and `estimateTokens` in `context/format.ts`, which `build-prompt.ts` uses for history budgeting and truncation. | `kernel/engine/history-tokens.ts`, `runner/tokens.ts`, `theorem-interaction-wire-budget.ts`, `context/format.ts` |
+| F11 | **Four token estimators, one real one.** Theorem's `estimateHistoryTokens` counts text with the o200k tokenizer (tiktoken's encoding, via gpt-tokenizer) and counts media with per-type minimums: image or document 258, audio 32/s, video 263/s. Only compaction uses it. The fallback (F8) uses characters ÷ 4 instead. Bonsai has two more characters ÷ 4 copies: `estTokensDiv4` in the wire budget, which the frontend mirrors, and `estimateTokens` in `context/format.ts`, which `build-prompt.ts` uses for history budgeting and truncation. | `kernel/engine/history-tokens.ts`, `runner/tokens.ts`, `theorem-interaction-wire-budget.ts`, `context/format.ts` |
 | F12 | Token counts mean different things per provider: Google's output leaves reasoning out, OpenRouter's includes it (see P2). | Live probes, 22/09/2026 |
 | F10 | `flushMintTrace` (a host-side audit row written after an image cutout) has no Bonsai caller. | grep |
 

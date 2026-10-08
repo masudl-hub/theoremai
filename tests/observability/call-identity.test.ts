@@ -1,5 +1,6 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
-import { runTurn } from '../../src/kernel/default-scope.ts';
+
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { turnEventSchema } from '../../src/kernel/turn-events.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';

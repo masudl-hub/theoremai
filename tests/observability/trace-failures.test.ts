@@ -1,5 +1,6 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 // No test-host fixture: these tests do not depend on the profile registry.
-import { runTurn } from '../../src/kernel/default-scope.ts';
+
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { resolveObservabilityPolicy } from '../../src/observability/resolve-policy.ts';
 import { writeTrace } from '../../src/observability/trace.ts';

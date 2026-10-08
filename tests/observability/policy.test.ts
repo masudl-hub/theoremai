@@ -1,5 +1,6 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
-import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
+import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';

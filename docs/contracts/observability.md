@@ -5,6 +5,12 @@ does not own a database, does not read trace-related environment variables for
 destinations, and never lets tracing fail a turn. Hosts that need a signal when
 sinks die set `TraceSink.onError` or `observability.onWriteError`.
 
+Registered model turns use the normalized `chat` operation; live responses use
+`generate_content`. The provider name is the registered provider instance ID.
+Native finish values on turns use `gen_ai.response.finish_reasons` rather than a
+vendor-specific status attribute. Credential values resolved by an adapter are removed
+at the upstream tap boundary before the existing trace scrub and content-hash policy.
+
 ## Export
 
 | Field | Value |
@@ -174,7 +180,7 @@ for await (const event of runTurn(request, provider, jsonlSink(hostTraceDir))) {
 `TraceWriteContext` — `{ retainForDays, rotateAfterMiB }` from the
 observability policy of the profile that wrote it. Storage policy has one
 owner: a host store computes its own expiry from `context.retainForDays` (for
-example `retain_until`, null when `<= 0`), and the JSONL writer prunes and
+example a host-defined expiry timestamp, null when `<= 0`), and the JSONL writer prunes and
 rotates by the same values.
 
 `writeTrace(sink, recordPromise, policy)` awaits the record and writes it with

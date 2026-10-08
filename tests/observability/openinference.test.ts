@@ -1,3 +1,8 @@
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
+
+registerFixtureProviders(defaultKernelScope);
+
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
   clearProfiles,
@@ -14,7 +19,6 @@ import { stubRecord, stubSpan } from '../fixtures/trace-record.ts';
 function recordWith(...spans: TraceAttributes[]) {
   return { ...stubRecord(), spans: spans.map((attributes) => ({ ...stubSpan(), attributes })) };
 }
-
 Deno.test('withOpenInference copies reasoning tokens and cost onto model calls', () => {
   const record = recordWith(
     {
@@ -31,7 +35,6 @@ Deno.test('withOpenInference copies reasoning tokens and cost onto model calls',
   // Google reports no cost, so none is written.
   assertEquals('llm.cost.total' in (generate?.attributes ?? {}), false);
 });
-
 Deno.test('withOpenInference leaves agent and tool spans, and partial costs, alone', () => {
   const agent = { 'gen_ai.operation.name': 'invoke_agent', 'theorem.usage.cost_usd': 0.5 };
   const tool = { 'gen_ai.operation.name': 'execute_tool' };
@@ -49,7 +52,6 @@ Deno.test('withOpenInference leaves agent and tool spans, and partial costs, alo
   // The input record is not changed.
   assertEquals(record.spans[2]?.attributes, partial);
 });
-
 Deno.test('withOpenInference flattens a model call’s messages the way Phoenix reads them', () => {
   const record: TraceRecord = {
     ...stubRecord(),
@@ -138,7 +140,6 @@ Deno.test('withOpenInference flattens a model call’s messages the way Phoenix 
   // The semconv names stay.
   assertEquals(Array.isArray(attributes['gen_ai.input.messages']), true);
 });
-
 Deno.test('withOpenInference shows a structured answer once when the model’s text is that same JSON', () => {
   const record: TraceRecord = {
     ...stubRecord(),
@@ -167,7 +168,6 @@ Deno.test('withOpenInference shows a structured answer once when the model’s t
   const attributes = withOpenInference([record])[0]?.spans[0]?.attributes ?? {};
   assertEquals(attributes['output.value'], '{"lang":"es","text":"Hola"}');
 });
-
 Deno.test('withOpenInference gives a turn its input and output values, names media, and reads Live’s delivered parts', () => {
   const record: TraceRecord = {
     ...stubRecord(),
@@ -215,7 +215,6 @@ Deno.test('withOpenInference gives a turn its input and output values, names med
   assertEquals(live?.attributes['output.value'], 'Hello there.');
   assertEquals('input.value' in (live?.attributes ?? {}), false);
 });
-
 Deno.test('withOpenInference shows a decision as an LLM span: its state in, its answers out', async () => {
   clearProfiles();
   registerProfile(
@@ -223,8 +222,7 @@ Deno.test('withOpenInference shows a decision as an LLM span: its state in, its 
       type: 'decision',
       id: 'oi-decision',
       identity: { handle: 'Decision' },
-      key: 'slot_a',
-      models: { jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest' } },
+      models: { jev: { provider: 'typesafe', apiId: 'jev-latest' } },
       inputs: { state: 'json' },
       decision: { contract: 'oi.v1' },
     }),
@@ -256,7 +254,7 @@ Deno.test('withOpenInference shows a decision as an LLM span: its state in, its 
             JSON.stringify({
               model: 'jev-1.13.0',
               answers,
-              usage: { input_tokens: 500_000, output_tokens: 3 },
+              usage: { input_tokens: 500000, output_tokens: 3 },
             }),
           ),
         ),
@@ -278,9 +276,9 @@ Deno.test('withOpenInference shows a decision as an LLM span: its state in, its 
       'openinference.span.kind': 'LLM',
       'llm.model_name': 'jev-1.13.0',
       'llm.provider': 'typesafe',
-      'llm.token_count.prompt': 500_000,
+      'llm.token_count.prompt': 500000,
       'llm.token_count.completion': 3,
-      'llm.token_count.total': 500_003,
+      'llm.token_count.total': 500003,
       // Jev's fixed price, which Phoenix's own price table lacks.
       'llm.cost.total': 0.021,
       'input.value': JSON.stringify({ output: 'hola' }),
@@ -290,7 +288,6 @@ Deno.test('withOpenInference shows a decision as an LLM span: its state in, its 
     },
   );
 });
-
 Deno.test('withOpenInference names an eval trial an evaluator and a run a chain', () => {
   const record = {
     ...stubRecord(),

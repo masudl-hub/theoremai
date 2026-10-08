@@ -1,14 +1,10 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import { memoryCredentialSource } from '../../src/kernel/auth/credential-source.ts';
-import {
-  invokeTool,
-  registerProfile,
-  registerTool,
-  runTurn,
-} from '../../src/kernel/default-scope.ts';
+import { invokeTool, registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { sha256 } from '../../src/kernel/engine/hash.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -438,7 +434,9 @@ Deno.test('a provider error types the turn and the call by its kind', async () =
   );
   const [record] = into;
   const [root] = record?.spans ?? [];
-  const call = record?.spans.find((span) => span.name.startsWith('generate_content'));
+  const call = record?.spans.find(
+    (span) => span.name.startsWith('generate_content') || span.name.startsWith('chat '),
+  );
   assertEquals(root?.attributes['error.type'], 'rate_limit');
   assertEquals(root?.status, { code: 'ERROR', message: 'rate_limit' });
   assertEquals(call?.attributes['error.type'], 'rate_limit');
@@ -500,19 +498,18 @@ Deno.test('every warning of a call is recorded on its span, from the tool and fr
   assertEquals(toolSpan(record).attributes['theorem.tool.outcome'], 'ok');
 });
 
-Deno.test('malformed arguments are recorded as the raw text the model sent', async () => {
-  const raw = '{"orderId": "A1';
+Deno.test('malformed provider arguments cannot manufacture a client tool trace', async () => {
   const record = await recordOf(
-    asking(malformedToolCall({ name: 'lookup_order', callId: 'c1' }, 'bad json', raw)),
+    asking(
+      malformedToolCall({ name: 'lookup_order', callId: 'c1' }, 'bad json', '{"orderId": "A1'),
+    ),
   );
-  const span = toolSpan(record);
-  assertEquals(span.status, { code: 'ERROR', message: 'bad_response' });
-  assertEquals(span.attributes['error.type'], 'bad_response');
-  assertEquals(span.attributes['theorem.tool.failure.code'], 'malformed_arguments');
-  assertEquals(contentOf(record, span.attributes['gen_ai.tool.call.arguments']), raw);
-  assertEquals('gen_ai.tool.call.result' in span.attributes, true);
+  assertEquals(
+    record.spans.some((span) => span.name.startsWith('execute_tool')),
+    false,
+  );
+  assertEquals(record.spans[0]?.attributes['error.type'], 'bad_response');
 });
-
 Deno.test('tool media is hashed in the raw output and the result parts', async () => {
   seenTraceparents.length = 0;
   const record = await turnRecord({ callId: 'c1', name: 'tool_trace_image', arguments: {} });

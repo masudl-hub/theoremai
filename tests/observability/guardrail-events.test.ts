@@ -1,6 +1,7 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { compilePatterns } from '../../src/guardrails/egress-compiler.ts';
-import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
+import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { requireModelProfile } from '../../src/kernel/registry/resolve.ts';

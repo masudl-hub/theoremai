@@ -49,6 +49,11 @@ export type UseTheoremChatOptions = {
   context?: unknown;
   /** The page's tools, by name: each answers a tool the profile declares with `answeredBy: 'page'`. */
   pageTools?: PageTools;
+  /**
+   * Every event of every turn, as it arrives and before the transcript takes it: the ones the
+   * transcript shows, and the ones it does not (a stage, a session, a guardrail decision).
+   */
+  onTurnEvent?: TurnEventSink;
 };
 
 /** What the page sends with each turn besides the message. */
@@ -376,9 +381,12 @@ function useTappedTransport(
   transport: TheoremTransport,
   state: ChatState,
   values: TurnValues,
+  onTurnEvent: TurnEventSink | undefined,
 ): TheoremTransport {
   const valuesRef = useRef(values);
   valuesRef.current = values;
+  const onTurnEventRef = useRef(onTurnEvent);
+  onTurnEventRef.current = onTurnEvent;
   return useMemo(() => {
     const withValues = (request: TheoremTurnRequest): TheoremTurnRequest => {
       const { slots, context } = valuesRef.current;
@@ -404,6 +412,7 @@ function useTappedTransport(
         if (delivery && DELIVERY_ORDER.indexOf(reached) > DELIVERY_ORDER.indexOf(delivery.status)) {
           state.setDelivery({ status: reached });
         }
+        onTurnEventRef.current?.(event);
         onEvent(event);
       };
     return {
@@ -428,6 +437,7 @@ export function useTheoremChat({
   slots,
   context,
   pageTools,
+  onTurnEvent,
 }: UseTheoremChatOptions) {
   const state = useTheoremChatState(initial, initialText);
   useDefaultGeneration(iface, state.session, state.setSession);
@@ -450,7 +460,7 @@ export function useTheoremChat({
 
   const runTurnStream = useRunTurnStream(iface, state);
 
-  const steerTransport = useTappedTransport(transport, state, { slots, context });
+  const steerTransport = useTappedTransport(transport, state, { slots, context }, onTurnEvent);
   const actions = useTheoremChatActions({
     ...state,
     iface,

@@ -51,8 +51,8 @@ export type TheoremSessionState = {
   gates: Record<string, PendingToolGate>;
   /** Paused calls the server answered and settled, by call id. */
   settled: Record<string, SettledToolGate>;
-  /** Provider interaction ids this session produced, newest last. */
-  interactions: string[];
+  /** Checkpoint identities this session produced, newest last. */
+  providerCheckpoints: string[];
 };
 
 /**
@@ -67,7 +67,7 @@ export interface TheoremSessionStore {
 }
 
 export function emptySessionState(): TheoremSessionState {
-  return { permissions: [], gates: {}, settled: {}, interactions: [] };
+  return { permissions: [], gates: {}, settled: {}, providerCheckpoints: [] };
 }
 
 /** Drop gates (waiting or settled) older than `ttlMs`. */

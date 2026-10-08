@@ -25,6 +25,7 @@
 		"react-dom": "^19.0.0"
 	},
 	"dependencies": {
+		"@speed-highlight/core": "2.1.0",
 		"@tabler/icons-react": "^3.46.0",
 		"intl-messageformat": "^11.2.9",
 		"recharts": "^3.10.1"

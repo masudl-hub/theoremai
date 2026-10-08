@@ -1,4 +1,5 @@
 /// <reference lib="dom" />
+
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError, type ToolGate, type TurnEvent } from '../../mod.ts';
 import {
@@ -28,6 +29,7 @@ import {
 } from '../../react/src/server/request-check.ts';
 import { liveSessionOpen } from '../../react/src/server/turn-input.ts';
 import { assertMalformed } from '../fixtures/malformed.ts';
+import { checkpointFixture } from '../fixtures/provider-checkpoint.ts';
 
 Deno.test('isPermissionDeniedError detects permission denial variants', () => {
   assertEquals(isPermissionDeniedError(null), false);
@@ -372,9 +374,8 @@ Deno.test('a relay reads each live message by its schema; a malformed one is a r
 /** The provider's resumption handle, as the session sends it. */
 function handleEvent(handle: string): TurnEvent {
   return {
-    type: 'evidence',
-    sessionResumptionHandle: handle,
-    evidence: { provider: 'google', kind: 'session_resumption', resumable: true, raw: {} },
+    type: 'provider_checkpoint',
+    providerState: { ...checkpointFixture, data: { liveHandle: handle } },
   };
 }
 
@@ -540,7 +541,7 @@ Deno.test('a dropped call with a resumption handle reconnects, and reports the t
       {
         type: 'open',
         context: { page: '/pricing' },
-        resume: { handle: 'handle-1', awayMs: 1500 },
+        resume: { providerState: checkpointFixture, awayMs: 1500 },
       },
     ]);
     assertEquals(statuses.slice(3), ['reconnecting', 'reconnecting', 'listening']);
@@ -579,7 +580,7 @@ Deno.test('a call the provider ends at its limit is taken up again when it has a
     await Promise.resolve();
     await live.ready(live.sockets[1]);
     assertEquals(live.sockets[1].sent, [
-      { type: 'open', resume: { handle: 'handle-1', awayMs: 0 } },
+      { type: 'open', resume: { providerState: checkpointFixture, awayMs: 0 } },
     ]);
     assertEquals(statuses.at(-1), 'listening');
   } finally {
@@ -615,7 +616,11 @@ Deno.test('a changed slot takes an open call up again with it; with no handle th
     await Promise.resolve();
     await live.ready(live.sockets[2]);
     assertEquals(live.sockets[2].sent, [
-      { type: 'open', slots: { language: 'en' }, resume: { handle: 'handle-1', awayMs: 0 } },
+      {
+        type: 'open',
+        slots: { language: 'en' },
+        resume: { providerState: checkpointFixture, awayMs: 0 },
+      },
     ]);
   } finally {
     client.disconnect();
@@ -693,7 +698,7 @@ Deno.test('the call after one that could not reconnect takes it up again; a refu
     await client.connect();
     await live.ready(live.sockets[6], [handleEvent('handle-2')]);
     assertEquals(live.sockets[6].sent, [
-      { type: 'open', resume: { handle: 'handle-1', awayMs: 20_000 } },
+      { type: 'open', resume: { providerState: checkpointFixture, awayMs: 20_000 } },
     ]);
 
     // The provider refuses the handle: the call opens as a new one.
@@ -715,14 +720,14 @@ Deno.test('a relay reads the open message into the session request, with the hos
       type: 'open',
       slots: { language: 'fr' },
       context: { page: '/docs' },
-      resume: { handle: 'handle-1', awayMs: 4200 },
+      resume: { providerState: checkpointFixture, awayMs: 4200 },
       host: { type: 'draft' },
     }),
   );
   assertEquals(liveSessionOpen(open, { tier: 'pro' }), {
     slots: { language: 'fr' },
     context: { client: { page: '/docs' }, server: { tier: 'pro' } },
-    sessionResumptionHandle: 'handle-1',
+    providerState: checkpointFixture,
     awayMs: 4200,
   });
   assertEquals(liveSessionOpen(parseLiveOpenMessage('{"type":"open"}')), {});

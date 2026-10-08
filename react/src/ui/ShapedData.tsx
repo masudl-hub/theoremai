@@ -34,6 +34,7 @@ import {
 } from '../client/shaped-data.ts';
 import { Arrive, useArrive } from './arrive.tsx';
 import { useLabels } from './labels-provider.tsx';
+import { useMarkdownPlugins } from './markdown-plugins.tsx';
 import { keyedByContent } from './row-keys.ts';
 
 /**
@@ -67,6 +68,14 @@ type Formats = {
 };
 
 /** Each way a plain value reads, drawn. */
+function ProseReading({ text }: { text: string }) {
+  return (
+    <Markdown density="compact" headingLevelStart={4} plugins={useMarkdownPlugins()}>
+      {text}
+    </Markdown>
+  );
+}
+
 const READINGS: {
   [K in PlainReading['kind']]: (
     reading: Extract<PlainReading, { kind: K }>,
@@ -88,9 +97,7 @@ const READINGS: {
   // why: Prose (an answer, a summary) is usually Markdown; headings start small, under the section's own.
   text: ({ text }) =>
     isProse(text) ? (
-      <Markdown density="compact" headingLevelStart={4}>
-        {text}
-      </Markdown>
+      <ProseReading text={text} />
     ) : (
       <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</span>
     ),

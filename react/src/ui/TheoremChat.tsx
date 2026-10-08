@@ -27,12 +27,18 @@ import {
   type HttpTransportOptions,
   type TheoremTransport,
 } from '../client/transport.ts';
-import { type ChatSnapshot, type SentTurn, useTheoremChat } from '../hooks/use-theorem-chat.ts';
+import {
+  type ChatSnapshot,
+  type SentTurn,
+  type UseTheoremChatOptions,
+  useTheoremChat,
+} from '../hooks/use-theorem-chat.ts';
 import { useTheoremInterface } from '../hooks/use-theorem-interface.ts';
 import { ChatComposerBar } from './ChatComposerBar.tsx';
 import { ChatTranscript } from './ChatTranscript.tsx';
 import type { TheoremLabels } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
+import { MarkdownPluginsProvider } from './markdown-plugins.tsx';
 import { SidePanelHeader } from './SidePanel.tsx';
 import { useTraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
 import { TheoremThemeProvider } from './theme.tsx';
@@ -53,6 +59,12 @@ export type TheoremChatProps = {
    * the host's Astryx `InternationalizationProvider` locale (default `en`).
    */
   labels?: TheoremLabels;
+  /**
+   * Colour code the reply left untagged: a fence with no language is read and, when it is plainly
+   * one of JavaScript, TypeScript, Python, shell, JSON, CSS, HTML, XML, YAML or Markdown, shown as it.
+   * A fence with a language is never changed. Off by default.
+   */
+  detectCodeLanguage?: boolean;
   /** The value chosen for each of the profile's `inputs.slots`, sent with every turn. */
   slots?: Record<string, string>;
   /**
@@ -65,6 +77,8 @@ export type TheoremChatProps = {
    * `answeredBy: 'page'`. The reply waits while the page answers; no one is asked.
    */
   pageTools?: PageTools;
+  /** Every event of every turn, as it arrives: also the ones the chat shows nothing for. */
+  onTurnEvent?: UseTheoremChatOptions['onTurnEvent'];
   placeholder?: string;
   /** Shown above the centred composer before the first message. Default: the agent's handle and a prompt. */
   emptyState?: ReactNode;
@@ -176,7 +190,7 @@ function useComposerGlide(landing: boolean, inputRef: RefObject<ChatComposerInpu
 
 type ChatBodyProps = Omit<
   TheoremChatProps,
-  'endpoint' | 'http' | 'transport' | 'theme' | 'mode' | 'labels'
+  'endpoint' | 'http' | 'transport' | 'theme' | 'mode' | 'labels' | 'detectCodeLanguage'
 > & {
   transport: TheoremTransport;
   iface: ComposerProfileInterface;
@@ -264,6 +278,7 @@ function ChatBody({
   slots,
   context,
   pageTools,
+  onTurnEvent,
 }: ChatBodyProps) {
   const t = useLabels();
   const chat = useTheoremChat({
@@ -275,6 +290,7 @@ function ChatBody({
     slots,
     context,
     pageTools,
+    onTurnEvent,
   });
   const sendText = chat.sendText;
   useImperativeHandle(chatRef, () => ({ send: sendText }), [sendText]);
@@ -383,7 +399,10 @@ function ChatBody({
 }
 
 function ChatForTransport(
-  props: Omit<TheoremChatProps, 'endpoint' | 'http' | 'theme' | 'mode' | 'labels'> & {
+  props: Omit<
+    TheoremChatProps,
+    'endpoint' | 'http' | 'theme' | 'mode' | 'labels' | 'detectCodeLanguage'
+  > & {
     transport: TheoremTransport;
   },
 ) {
@@ -420,6 +439,7 @@ export function TheoremChat({
   theme,
   mode,
   labels,
+  detectCodeLanguage,
   ...rest
 }: TheoremChatProps) {
   const httpRef = useRef(http);
@@ -431,7 +451,9 @@ export function TheoremChat({
   return (
     <TheoremThemeProvider theme={theme} mode={mode}>
       <TheoremLabelsProvider labels={labels}>
-        <ChatForTransport {...rest} transport={resolved} />
+        <MarkdownPluginsProvider detectCodeLanguage={detectCodeLanguage}>
+          <ChatForTransport {...rest} transport={resolved} />
+        </MarkdownPluginsProvider>
       </TheoremLabelsProvider>
     </TheoremThemeProvider>
   );

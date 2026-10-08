@@ -188,8 +188,12 @@ export const THEOREM_UI_CATALOG = {
     description: 'Message time during its first minute.',
   },
   '@theorem.transcript.interrupted': {
-    defaultMessage: 'Interrupted',
+    defaultMessage: 'interrupted',
     description: 'Message status: the person stopped its turn.',
+  },
+  '@theorem.transcript.failed': {
+    defaultMessage: 'failed',
+    description: 'Message status: the turn failed. The reason shows on hover.',
   },
   '@theorem.transcript.generated_image': {
     defaultMessage: 'Generated image',
@@ -574,24 +578,29 @@ export const THEOREM_UI_CATALOG = {
     description: 'A tool that can delete or overwrite.',
   },
   '@theorem.host.status.running': {
-    defaultMessage: 'Running',
+    defaultMessage: 'running',
     description: 'A tool call in progress.',
   },
   '@theorem.host.status.gate': {
-    defaultMessage: 'Waiting',
+    defaultMessage: 'waiting',
     description: 'A tool call paused on approval or sign-in.',
   },
   '@theorem.host.status.complete': {
-    defaultMessage: 'Done',
+    defaultMessage: 'done',
     description: 'A tool call that returned.',
   },
   '@theorem.host.status.error': {
-    defaultMessage: 'Failed',
+    defaultMessage: 'failed',
     description: 'A tool call that failed.',
   },
   '@theorem.host.status.cancel': {
-    defaultMessage: 'Stopped',
+    defaultMessage: 'stopped',
     description: 'A tool call that was cancelled.',
+  },
+  '@theorem.host.finished': {
+    defaultMessage: '{activity} in {duration}',
+    description: 'A finished tool call: what it did, and how long it took.',
+    params: ['activity', 'duration'],
   },
 
   '@theorem.panel.trace.name': {

@@ -690,6 +690,10 @@
     align-self: baseline;
   }
 
+  .astryx-code-block[data-container="card"] {
+    border-radius: var(--radius-container);
+  }
+
   .astryx-layout-panel:where([role="complementary"]) {
     transition: width var(--duration-medium) var(--ease-standard);
   }

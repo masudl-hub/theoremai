@@ -43,6 +43,7 @@ import {
 } from './ConsoleFrame.tsx';
 import { type LabelText, liveDuration, type TheoremLabels, workDuration } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
+import { MarkdownPluginsProvider } from './markdown-plugins.tsx';
 import { IconMcp } from './mcp-icon.tsx';
 import { SchemaFields } from './SchemaFields.tsx';
 import { ApprovalCard, AuthChallengeCard } from './ToolGateCard.tsx';
@@ -61,6 +62,12 @@ export type TheoremHostProps = {
   mode?: 'system' | 'light' | 'dark';
   /** Replacement lines by locale, for any `@theorem.*` or `@astryx.*` key. */
   labels?: TheoremLabels;
+  /**
+   * Colour code the reply left untagged: a fence with no language is read and, when it is plainly
+   * one of JavaScript, TypeScript, Python, shell, JSON, CSS, HTML, XML, YAML or Markdown, shown as it.
+   * A fence with a language is never changed. Off by default.
+   */
+  detectCodeLanguage?: boolean;
   /** Widest the column may grow, as a CSS length. Default `960px`. */
   maxWidth?: string;
   /**
@@ -249,7 +256,7 @@ function CallOutcome({
   if (responseFills(call)) return <CallWaiting label={label} duration={duration} />;
   const activity = (
     <Text size="sm" color="secondary">
-      {duration ? `${label} ${duration}` : label}
+      {duration ? t('@theorem.host.finished', { activity: label, duration }) : label}
     </Text>
   );
   return (
@@ -567,6 +574,7 @@ export function TheoremHost({
   theme,
   mode,
   labels,
+  detectCodeLanguage,
   ...rest
 }: TheoremHostProps) {
   const httpRef = useRef(http);
@@ -578,7 +586,9 @@ export function TheoremHost({
   return (
     <TheoremThemeProvider theme={theme} mode={mode}>
       <TheoremLabelsProvider labels={labels}>
-        <HostForTransport {...rest} transport={resolved} />
+        <MarkdownPluginsProvider detectCodeLanguage={detectCodeLanguage}>
+          <HostForTransport {...rest} transport={resolved} />
+        </MarkdownPluginsProvider>
       </TheoremLabelsProvider>
     </TheoremThemeProvider>
   );

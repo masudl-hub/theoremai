@@ -220,7 +220,7 @@ export class LiveSessionClient {
   private context: unknown;
   private sentContext: string | undefined;
   /** The provider's latest handle for taking this call up again after a drop. */
-  private resumeHandle: string | undefined;
+  private providerState: import('@theoremjs/agents').ProviderCheckpoint | undefined;
   /** The session said it ended, or failed: a close after that is the end, not a drop. */
   private sessionOver = false;
   /** When the call dropped, for the time away a resume reports. */
@@ -316,15 +316,15 @@ export class LiveSessionClient {
     const lostAt = this.lostAt;
     this.clearReconnect();
     this.lostAt = undefined;
-    if (lostAt === undefined) this.resumeHandle = undefined;
+    if (lostAt === undefined) this.providerState = undefined;
     else this.droppedAt = lostAt;
     return this.open('connecting');
   }
 
   /** A lost call that cannot be taken up again, its handle refused or expired, starts as a new one. */
   private startOver(): boolean {
-    if (this.status !== 'connecting' || !this.resumeHandle) return false;
-    this.resumeHandle = undefined;
+    if (this.status !== 'connecting' || !this.providerState) return false;
+    this.providerState = undefined;
     this.droppedAt = undefined;
     void this.open('connecting');
     return true;
@@ -337,10 +337,10 @@ export class LiveSessionClient {
       type: 'open',
       ...(slots ? { slots } : {}),
       ...(this.context === undefined ? {} : { context: this.context }),
-      ...(this.resumeHandle
+      ...(this.providerState
         ? {
             resume: {
-              handle: this.resumeHandle,
+              providerState: this.providerState,
               awayMs: this.droppedAt === undefined ? 0 : Date.now() - this.droppedAt,
             },
           }
@@ -351,7 +351,7 @@ export class LiveSessionClient {
 
   /** The socket closed while the call was open: take it up again if the provider gave a handle, else end. */
   private handleDrop(): void {
-    if (!this.resumeHandle || this.sessionOver) {
+    if (!this.providerState || this.sessionOver) {
       this.teardownConnection();
       this.setStatus('disconnected');
       return;
@@ -438,7 +438,7 @@ export class LiveSessionClient {
       };
 
       this.ws.onerror = () => {
-        if (!this.opening && this.resumeHandle && !this.sessionOver) {
+        if (!this.opening && this.providerState && !this.sessionOver) {
           this.handleDrop();
           return;
         }
@@ -677,6 +677,9 @@ export class LiveSessionClient {
   }
 
   private processTurnEvent(event: ClientTurnEvent, accum: InboundTurnAccum): void {
+    if ((event.type === 'provider_checkpoint' || event.type === 'done') && event.providerState)
+      this.providerState = event.providerState;
+    if (event.type === 'provider_warning') this.providerState = undefined;
     this.options.onTurnEvent?.(event);
     switch (event.type) {
       case 'evidence':
@@ -698,7 +701,6 @@ export class LiveSessionClient {
   }
 
   private handleEvidenceTurnEvent(event: TurnEventOf<'evidence'>): void {
-    if (event.sessionResumptionHandle) this.resumeHandle = event.sessionResumptionHandle;
     const transcript = liveTranscriptFromEvidence(event);
     if (transcript) {
       this.options.onTranscript?.(transcript.text, transcript.isUser, {
@@ -723,7 +725,7 @@ export class LiveSessionClient {
     if (session.kind !== 'ended') return false;
     // why: The provider ends a call at its time limit. With a handle the call is taken up
     // again, so the person is not told it ended.
-    if (this.resumeHandle) {
+    if (this.providerState) {
       this.handleDrop();
       return true;
     }
@@ -866,7 +868,7 @@ export class LiveSessionClient {
   public setSlots(slots: Record<string, string> | undefined): void {
     if (JSON.stringify(slots) === JSON.stringify(this.options.slots)) return;
     this.options = { ...this.options, slots };
-    if (this.resumeHandle && !this.opening && this.ws?.readyState === WebSocket.OPEN) {
+    if (this.providerState && !this.opening && this.ws?.readyState === WebSocket.OPEN) {
       this.handleDrop();
     }
   }
@@ -897,7 +899,7 @@ export class LiveSessionClient {
   public disconnect(): void {
     this.clearReconnect();
     this.lostAt = undefined;
-    this.resumeHandle = undefined;
+    this.providerState = undefined;
     this.teardownConnection();
     this.setStatus('disconnected');
   }

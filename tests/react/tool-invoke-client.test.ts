@@ -23,23 +23,24 @@ import type { ToolGate } from '../../src/kernel/tools/types.ts';
 import type { ModelBinding } from '../../src/kernel/types.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import { CHAT_MEDIA_LIMITS, HOST_BINDINGS } from '../fixtures/models.ts';
+import { checkpointFixture } from '../fixtures/provider-checkpoint.ts';
 
 registerGooglePreset();
-
 const DELETE_GATE: ToolGate = {
   kind: 'permission',
   tool: 'delete_resource',
   permission: 'session_consent',
 };
-
 function session(patch: Partial<InterfaceTurnSession> = {}): InterfaceTurnSession {
   return { ...emptyInterfaceTurnSession(), ...patch };
 }
-
 function textInterface(
   id: string,
   models: Record<string, ModelBinding>,
-  extra: { allowModelSelect?: boolean; defaultModel?: string } = {},
+  extra: {
+    allowModelSelect?: boolean;
+    defaultModel?: string;
+  } = {},
 ): ComposerProfileInterface {
   const iface = interfaceFromProfile(
     defineProfile({
@@ -47,7 +48,6 @@ function textInterface(
       type: 'text',
       identity: { handle: 'invoke_bot', system: 'You reply.' },
       models,
-      key: 'main',
       ...extra,
       tools: { allow: [] },
       inputs: { text: true, ...CHAT_MEDIA_LIMITS },
@@ -57,10 +57,8 @@ function textInterface(
   if (iface.type !== 'text') throw new Error('expected a text interface');
   return iface;
 }
-
 const fast = HOST_BINDINGS.gemini35FlashLite;
 const smart = HOST_BINDINGS.gemini31ProPreview;
-
 Deno.test('approving a session_consent tool grants it for the session, once', () => {
   const once = sessionPermissionsAfterApproval([], 'delete_resource', 'session_consent');
   assertEquals(once, ['delete_resource']);
@@ -69,7 +67,6 @@ Deno.test('approving a session_consent tool grants it for the session, once', ()
     'delete_resource',
   ]);
 });
-
 Deno.test('approving any other gate grants this call only', () => {
   const existing = ['search'];
   for (const permission of [undefined, 'auto', 'always_confirm'] as const) {
@@ -78,7 +75,6 @@ Deno.test('approving any other gate grants this call only', () => {
     ]);
   }
 });
-
 Deno.test('an approved always_confirm tool still gates on its next call', () => {
   const after = sessionPermissionsAfterApproval([], 'wire_money', 'always_confirm');
   assertEquals(checkPermission('wire_money', 'always_confirm', after)?.kind, 'permission');
@@ -92,7 +88,6 @@ Deno.test('an approved always_confirm tool still gates on its next call', () => 
     null,
   );
 });
-
 Deno.test('session grants never touch other tools, add a wildcard or mutate the input', () => {
   const existing = Object.freeze(['search']) as readonly string[];
   const next = sessionPermissionsAfterApproval(existing, 'delete_resource', 'session_consent');
@@ -100,7 +95,6 @@ Deno.test('session grants never touch other tools, add a wildcard or mutate the 
   assertEquals(existing, ['search']);
   assertEquals(next.includes('*'), false);
 });
-
 Deno.test('continueGatedToolInvocation denies without new permissions', () => {
   assertEquals(
     continueGatedToolInvocation({
@@ -112,7 +106,6 @@ Deno.test('continueGatedToolInvocation denies without new permissions', () => {
     { decision: 'deny' },
   );
 });
-
 Deno.test('continueGatedToolInvocation approves a sign-in with the typed secret, once', () => {
   assertEquals(
     continueGatedToolInvocation({
@@ -134,7 +127,6 @@ Deno.test('continueGatedToolInvocation approves a sign-in with the typed secret,
     { decision: 'approve', sessionPermissions: [] },
   );
 });
-
 Deno.test('continueGatedToolInvocation approves with the permissions the host will hold', () => {
   assertEquals(
     continueGatedToolInvocation({
@@ -145,7 +137,6 @@ Deno.test('continueGatedToolInvocation approves with the permissions the host wi
     }),
     { decision: 'approve', sessionPermissions: ['search', 'delete_resource'] },
   );
-
   for (const gate of [{ permission: 'always_confirm' }, {}] as const) {
     assertEquals(
       continueGatedToolInvocation({
@@ -158,7 +149,6 @@ Deno.test('continueGatedToolInvocation approves with the permissions the host wi
     );
   }
 });
-
 Deno.test('turnInputFromSession carries history and token counters', () => {
   const history = [{ role: 'user', content: 'hi' }] as InterfaceTurnSession['history'];
   assertEquals(
@@ -169,26 +159,23 @@ Deno.test('turnInputFromSession carries history and token counters', () => {
   );
   assertEquals(turnInputFromSession(session()), { history: [] });
 });
-
 Deno.test('buildTurnRequest sends session permissions and the interaction id', () => {
   const iface = textInterface('react.invoke.turn', { fast });
   const body = buildTurnRequest(
     iface,
-    session({ previousInteractionId: 'ix-1', sessionPermissions: ['search'] }),
+    session({ providerState: checkpointFixture, sessionPermissions: ['search'] }),
     { text: 'hello' },
     { turnId: 't1' },
   );
-  assertEquals(body.previousInteractionId, 'ix-1');
+  assertEquals(body.providerState, checkpointFixture);
   assertEquals(body.turnId, 't1');
   assertEquals(body.replay, { sessionPermissions: ['search'] });
   assertEquals(body.input, { text: 'hello' });
 });
-
 Deno.test('buildTurnRequest forwards the selected model only with allowModelSelect', () => {
   const models = { fast, smart };
   const locked = textInterface('react.invoke.locked', models, { defaultModel: 'fast' });
   assertEquals(buildTurnRequest(locked, session({ selectedModel: 'smart' }), {}).model, undefined);
-
   const selectable = textInterface('react.invoke.select', models, {
     allowModelSelect: true,
     defaultModel: 'fast',
@@ -199,7 +186,6 @@ Deno.test('buildTurnRequest forwards the selected model only with allowModelSele
   );
   assertEquals(buildTurnRequest(selectable, session(), {}).model, 'fast');
 });
-
 Deno.test('buildTurnRequest forwards effort only when the model allows effort select', () => {
   const iface = textInterface(
     'react.invoke.effort',
@@ -219,7 +205,6 @@ Deno.test('buildTurnRequest forwards effort only when the model allows effort se
     undefined,
   );
 });
-
 Deno.test('buildInvokeRequest replays the snapshot, promoted tools and selected model', () => {
   const iface = textInterface(
     'react.invoke.replay',
@@ -258,7 +243,6 @@ Deno.test('buildInvokeRequest replays the snapshot, promoted tools and selected 
   assertEquals(body.replay?.sessionPermissions, ['search']);
   assertEquals(body.replay?.turnInput, { history: [], inputTokens: 5 });
 });
-
 Deno.test('buildInvokeRequest prefers explicit permissions and omits empty replay fields', () => {
   const iface = textInterface('react.invoke.explicit', { fast });
   const body = buildInvokeRequest(iface, session({ sessionPermissions: ['search'] }), {
@@ -275,7 +259,6 @@ Deno.test('buildInvokeRequest prefers explicit permissions and omits empty repla
   assertEquals('promoted' in (body.replay ?? {}), false);
   assertEquals('model' in (body.replay ?? {}), false);
 });
-
 Deno.test('filesToPending keeps name, size and a fallback mime type', () => {
   assertEquals(
     filesToPending([

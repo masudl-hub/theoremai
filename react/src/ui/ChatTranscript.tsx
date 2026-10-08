@@ -24,6 +24,7 @@ import { Text } from '@astryxdesign/core/Text';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Timestamp } from '@astryxdesign/core/Timestamp';
 import { Token } from '@astryxdesign/core/Token';
+import { Tooltip as HoverTip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
@@ -59,6 +60,7 @@ import { useSecondTicker } from '../hooks/use-second-ticker.ts';
 import { useDisclosureMotion } from './disclosure-motion.ts';
 import { type LabelText, usageLine, workDuration, workStatusLabel } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
+import { useMarkdownPlugins } from './markdown-plugins.tsx';
 import { keyedByContent } from './row-keys.ts';
 import { ShapedData } from './ShapedData.tsx';
 import { ApprovalCard, AuthChallengeCard, type ToolDecision } from './ToolGateCard.tsx';
@@ -214,6 +216,19 @@ function Interrupted() {
   );
 }
 
+/** A failed message's status, drawn as Astryx draws its error status; the reason shows on hover. */
+function Failed({ reason }: { reason: string }) {
+  const label = useLabels()('@theorem.transcript.failed');
+  return (
+    <HoverTip content={reason}>
+      <HStack gap={1} vAlign="center" style={{ color: 'var(--color-error)' }}>
+        <Icon icon="error" size="xsm" color="inherit" />
+        <span>{label}</span>
+      </HStack>
+    </HoverTip>
+  );
+}
+
 /** A message's copy button and time, the button on the outside: right for the person, left for the agent. */
 function CopyAndTime(props: { sender: 'user' | 'assistant'; at: number; copyText: string }) {
   const copy = <CopyButton text={props.copyText} />;
@@ -226,7 +241,7 @@ function CopyAndTime(props: { sender: 'user' | 'assistant'; at: number; copyText
   );
 }
 
-/** A message's copy button (outermost), time and status; a failure says why on the line beneath. */
+/** A message's copy button (outermost), time and status; a failure says why on hovering its status. */
 function MessageChrome(props: {
   sender: 'user' | 'assistant';
   at: number;
@@ -238,25 +253,23 @@ function MessageChrome(props: {
   /** What the reply used, when the transcript shows usage. */
   usage?: TurnUsage;
 }) {
-  const failed = props.error !== undefined;
   const usage = props.usage ? <Usage tokens={props.usage} /> : undefined;
-  const metadata = (
+  const aside =
+    props.error !== undefined ? (
+      <Failed reason={props.error} />
+    ) : props.interrupted ? (
+      <Interrupted />
+    ) : (
+      usage
+    );
+  return (
     <ChatMessageMetadata
       // why: The row's first slot is the one nearest the margin.
       timestamp={<CopyAndTime sender={props.sender} at={props.at} copyText={props.copyText} />}
-      // why: Astryx's statuses are a closed set, so this one rides the footer.
-      footer={props.interrupted ? <Interrupted /> : usage}
-      status={failed ? 'error' : props.interrupted ? undefined : props.status}
+      // why: Astryx's statuses are a closed set, so these ride the footer.
+      footer={aside}
+      status={props.error !== undefined || props.interrupted ? undefined : props.status}
     />
-  );
-  if (!failed) return metadata;
-  return (
-    <VStack gap={1}>
-      {metadata}
-      <Text type="supporting" color="secondary">
-        {props.error}
-      </Text>
-    </VStack>
   );
 }
 
@@ -483,12 +496,13 @@ function StreamedMarkdown({
 }) {
   const [revealing, setRevealing] = useState(streaming);
   if (streaming && !revealing) setRevealing(true);
+  const plugins = useMarkdownPlugins();
   const shown = useStreamingText(text, revealing);
   useEffect(() => {
     if (!streaming && shown.length >= text.length) setRevealing(false);
   }, [streaming, shown, text]);
   return (
-    <Markdown isStreaming={revealing} density={density} components={components}>
+    <Markdown isStreaming={revealing} density={density} components={components} plugins={plugins}>
       {text}
     </Markdown>
   );

@@ -116,7 +116,7 @@ export function buildTurnRequest(
 ): TheoremTurnRequest {
   const walked = options.walkAway ? abandonFields(iface, options.walkAway) : undefined;
   return {
-    previousInteractionId: session.previousInteractionId,
+    providerState: session.providerState,
     ...(options.turnId ? { turnId: options.turnId } : {}),
     ...generationFields(iface, session),
     input,

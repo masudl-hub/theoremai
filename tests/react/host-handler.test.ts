@@ -5,12 +5,11 @@ import { createHostTransport } from '../../react/src/client/host-transport.ts';
 import type { TurnEventSink } from '../../react/src/client/transport.ts';
 import { createTheoremHandler, createTheoremHostHandler } from '../../react/src/server/mod.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
+import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 
 const BASE = 'http://host.test/api/host';
 type Handler = (request: Request) => Promise<Response>;
-
 const ran: string[] = [];
-
 registerTool({
   type: 'function',
   name: 'host_handler_lookup',
@@ -23,7 +22,9 @@ registerTool({
   input: z.object({ id: z.string() }),
   output: z.object({ id: z.string(), size: z.number() }),
   handler: (input) => {
-    const { id } = input as { id: string };
+    const { id } = input as {
+      id: string;
+    };
     ran.push(`lookup:${id}`);
     return { id, size: id.length };
   },
@@ -40,7 +41,9 @@ registerTool({
   input: z.object({ id: z.string() }),
   output: z.object({ deleted: z.string() }),
   handler: (input) => {
-    const { id } = input as { id: string };
+    const { id } = input as {
+      id: string;
+    };
     ran.push(`delete:${id}`);
     return { deleted: id };
   },
@@ -60,13 +63,15 @@ registerTool({
   input: z.object({ q: z.string() }),
   output: z.object({}).passthrough(),
 });
-
-type HostDefinition = Extract<ProfileDefinition, { type: 'host' }>;
-
+type HostDefinition = Extract<
+  ProfileDefinition,
+  {
+    type: 'host';
+  }
+>;
 function host(id: string, allow: string[]): HostDefinition {
   return { type: 'host', id, tools: { allow }, guardrails: { detect: { injection: 'ignore' } } };
 }
-
 /** A browser: keeps the session cookie the handler issues. */
 function transportFor(handler: Handler) {
   let cookie = '';
@@ -82,7 +87,6 @@ function transportFor(handler: Handler) {
     },
   });
 }
-
 async function collect(run: (onEvent: TurnEventSink) => Promise<void>): Promise<TurnEvent[]> {
   const events: TurnEvent[] = [];
   await run((event) => {
@@ -92,7 +96,6 @@ async function collect(run: (onEvent: TurnEventSink) => Promise<void>): Promise<
   });
   return events;
 }
-
 function post(handler: Handler, path: string, body: unknown) {
   return handler(
     new Request(`${BASE}/${path}`, {
@@ -102,7 +105,6 @@ function post(handler: Handler, path: string, body: unknown) {
     }),
   );
 }
-
 Deno.test("describe lists the host's allowed tools with their schemas, and nothing of their endpoints", async () => {
   const handler = createTheoremHostHandler({
     profile: host('host-handler-describe', ['host_handler_lookup', 'host_handler_http']),
@@ -123,7 +125,6 @@ Deno.test("describe lists the host's allowed tools with their schemas, and nothi
   assertEquals(wire.includes('internal.example'), false);
   assertEquals(wire.includes('static-key-value'), false);
 });
-
 Deno.test('a call streams the tool through to its output', async () => {
   const handler = createTheoremHostHandler({
     profile: host('host-handler-call', ['host_handler_lookup']),
@@ -135,7 +136,6 @@ Deno.test('a call streams the tool through to its output', async () => {
   assertEquals(complete?.output, { id: 'abc', size: 3 });
   assertEquals(events.at(-1)?.type, 'done');
 });
-
 Deno.test('a call body without a tool name is refused before anything runs', async () => {
   const handler = createTheoremHostHandler({
     profile: host('host-handler-bad-body', ['host_handler_lookup']),
@@ -144,7 +144,6 @@ Deno.test('a call body without a tool name is refused before anything runs', asy
   assertEquals(res.status, 400);
   assertEquals((await res.json()).errorKind, 'request');
 });
-
 Deno.test('a tool the host does not allow never runs', async () => {
   const before = ran.length;
   const handler = createTheoremHostHandler({
@@ -156,7 +155,6 @@ Deno.test('a tool the host does not allow never runs', async () => {
   assertEquals(ran.length, before);
   assertEquals(toolEventsOf(events, 'complete').length, 0);
 });
-
 Deno.test('a gated call pauses, and runs only once the user approves it', async () => {
   const handler = createTheoremHostHandler({
     profile: host('host-handler-gate', ['host_handler_delete']),
@@ -168,7 +166,6 @@ Deno.test('a gated call pauses, and runs only once the user approves it', async 
   const gate = toolEventsOf(paused, 'gate').at(-1);
   assert(gate, 'expected the call to pause on a gate');
   assertEquals(ran.includes('delete:r7'), false);
-
   const settled = await collect((onEvent) =>
     transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent),
   );
@@ -176,7 +173,6 @@ Deno.test('a gated call pauses, and runs only once the user approves it', async 
   assertEquals(toolEventsOf(settled, 'complete')[0]?.output, { deleted: 'r7' });
   assert(ran.includes('delete:r7'));
 });
-
 Deno.test('a host serves no chat: its turn route is refused', async () => {
   const handler = createTheoremHostHandler({
     profile: host('host-handler-no-turn', ['host_handler_lookup']),
@@ -184,13 +180,12 @@ Deno.test('a host serves no chat: its turn route is refused', async () => {
   const res = await post(handler, 'turn', { input: { text: 'hi' } });
   assertEquals(res.status >= 400 && res.status < 500, true);
 });
-
 Deno.test('each handler refuses the other kind of profile, naming the right one', () => {
   assertThrows(
     () =>
       createTheoremHandler({
         profile: host('host-handler-wrong-a', []) as never,
-        provider: () => ({ complete: () => (async function* () {})() }),
+        provider: () => fixtureHostOptions({ complete: () => (async function* () {})() }),
       }),
     Error,
     'createTheoremHostHandler',
@@ -202,8 +197,7 @@ Deno.test('each handler refuses the other kind of profile, naming the right one'
           type: 'text',
           id: 'host-handler-wrong-b',
           identity: { handle: 'helper', system: 'x' },
-          key: 'slot_a',
-          models: { stub: { protocol: 'openAi', provider: 'openrouter', apiId: 'stub-model' } },
+          models: { stub: { provider: 'openrouter', apiId: 'stub-model' } },
           tools: { allow: [] },
           inputs: { text: true },
         } as never,

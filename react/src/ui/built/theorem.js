@@ -542,6 +542,11 @@ export const theoremTheme = {
         }
       }
     },
+    "code-block": {
+      "container:card": {
+        "borderRadius": "var(--radius-container)"
+      }
+    },
     "layout-panel": {
       "base": {
         ":where([role=\"complementary\"])": {

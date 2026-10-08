@@ -73,6 +73,11 @@ export const theoremTheme: DefinedTheme = defineTheme({
         paddingInline: 'var(--spacing-4)',
       },
     },
+    // why: A code block sits among cards and panels, so it takes a card's corner
+    // (--radius-container) rather than the smaller element radius Astryx gives it.
+    'code-block': {
+      'container:card': { borderRadius: 'var(--radius-container)' },
+    },
     'layout-panel': {
       base: {
         ':where([role="complementary"])': {

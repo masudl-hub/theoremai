@@ -14,7 +14,6 @@ import { CHAT_MEDIA_LIMITS, HOST_BINDINGS } from '../fixtures/models.ts';
 import { unskippedView } from '../fixtures/stream-view.ts';
 
 registerGooglePreset();
-
 function textInterface(): ComposerProfileInterface {
   const iface = interfaceFromProfile(
     defineProfile({
@@ -22,7 +21,6 @@ function textInterface(): ComposerProfileInterface {
       type: 'text',
       identity: { handle: 'failed_turn_bot', system: 'You reply.' },
       models: { fast: HOST_BINDINGS.gemini35FlashLite },
-      key: 'main',
       tools: { allow: [] },
       inputs: { text: true, ...CHAT_MEDIA_LIMITS },
     }),
@@ -31,7 +29,6 @@ function textInterface(): ComposerProfileInterface {
   if (iface.type !== 'text') throw new Error('expected a text interface');
   return iface;
 }
-
 /** Streams the start of a reply, then fails the way a provider does mid-stream. */
 function failingTransport(error: TheoremError): TheoremTransport {
   return {
@@ -44,7 +41,6 @@ function failingTransport(error: TheoremError): TheoremTransport {
     describe: () => Promise.reject(new Error('unused')),
   };
 }
-
 Deno.test('a turn that fails partway keeps the message and what the reply got through', async () => {
   const result = await streamInterfaceTurn({
     iface: textInterface(),
@@ -63,7 +59,6 @@ Deno.test('a turn that fails partway keeps the message and what the reply got th
   ]);
   assertEquals(result.session?.pendingUserDraft, null);
 });
-
 Deno.test('a stopped turn keeps the message but not the reply it dropped', async () => {
   const result = await streamInterfaceTurn({
     iface: textInterface(),
@@ -78,7 +73,6 @@ Deno.test('a stopped turn keeps the message but not the reply it dropped', async
   assertEquals(result.aborted, true);
   assertEquals(result.session?.history, [{ role: 'user', content: 'Tell me a story' }]);
 });
-
 Deno.test('a line the stream left out is named, and the reply goes on without it', async () => {
   const skipped: TheoremError[] = [];
   const left = new TheoremError(

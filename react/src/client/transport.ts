@@ -1,3 +1,4 @@
+import { type ProviderCheckpoint, providerCheckpointSchema } from '@theoremjs/agents';
 /**
  * Transport contract between a Theorem chat UI and the host that runs turns.
  *
@@ -114,7 +115,7 @@ const clientId = z.string().trim().min(1);
  */
 export type TheoremTurnRequest = {
   input: TheoremTurnInput;
-  previousInteractionId?: string;
+  providerState?: ProviderCheckpoint;
   model?: string;
   effort?: string;
   /** Client-generated id so mid-turn steers can find this turn's inbox. */
@@ -128,7 +129,7 @@ export type TheoremTurnRequest = {
 };
 const theoremTurnRequest = z.object({
   input: theoremTurnInput,
-  previousInteractionId: z.string().optional(),
+  providerState: providerCheckpointSchema.optional(),
   model: z.string().optional(),
   effort: z.string().optional(),
   turnId: clientId.optional(),

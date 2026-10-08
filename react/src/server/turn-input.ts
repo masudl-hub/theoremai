@@ -25,13 +25,13 @@ export function kernelTurnInput(input: TheoremTurnInput, server?: unknown): Turn
 export function liveSessionOpen(
   open: LiveOpenMessage,
   server?: unknown,
-): Pick<SessionRequest, 'slots' | 'context' | 'sessionResumptionHandle' | 'awayMs'> {
+): Pick<SessionRequest, 'slots' | 'context' | 'providerState' | 'awayMs'> {
   const context = turnContext(open.context, server);
   return {
     ...(open.slots ? { slots: open.slots } : {}),
     ...(context ? { context } : {}),
     ...(open.resume
-      ? { sessionResumptionHandle: open.resume.handle, awayMs: open.resume.awayMs }
+      ? { providerState: open.resume.providerState, awayMs: open.resume.awayMs }
       : {}),
   };
 }

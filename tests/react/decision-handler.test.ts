@@ -1,24 +1,26 @@
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
+
+registerFixtureProviders(defaultKernelScope);
+
 import { assertEquals, assertStringIncludes, assertThrows } from '@std/assert';
 import { type DecisionQuestion, lexiconDefault } from '../../mod.ts';
 import { createTheoremDecisionHandler, createTheoremHandler } from '../../react/src/server/mod.ts';
 import type { DecisionProfileDefinition } from '../../src/kernel/mod.ts';
 
 const BASE = 'http://host.test/api/decision';
-
 function profile(id = 'decision-handler-test'): DecisionProfileDefinition {
   return {
     type: 'decision',
     id,
     identity: { handle: 'triage' },
-    key: 'slot_a',
     models: {
-      jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+      jev: { provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
     },
     inputs: { state: 'json', maxStateBytes: 200 },
     decision: { contract: 'test.v1' },
   };
 }
-
 const questions: Record<string, DecisionQuestion> = {
   next: {
     type: 'choice',
@@ -27,7 +29,6 @@ const questions: Record<string, DecisionQuestion> = {
   },
   risk: { type: 'score', instructions: 'How risky?', criteria: ['low: fine', 'high: not fine'] },
 };
-
 const jevReply = {
   model: 'jev-1.13.0',
   answers: {
@@ -47,7 +48,6 @@ const jevReply = {
   },
   usage: { input_tokens: 1000, output_tokens: 5 },
 };
-
 function jev(status = 200, body: unknown = jevReply) {
   const calls: unknown[] = [];
   const fetch: typeof globalThis.fetch = (_url, init) => {
@@ -56,7 +56,6 @@ function jev(status = 200, body: unknown = jevReply) {
   };
   return { calls, fetch };
 }
-
 function decide(state: unknown): Request {
   return new Request(`${BASE}/decide`, {
     method: 'POST',
@@ -64,7 +63,6 @@ function decide(state: unknown): Request {
     body: JSON.stringify({ state }),
   });
 }
-
 Deno.test('GET describes the decision without its instructions', async () => {
   const handler = createTheoremDecisionHandler({
     profile: profile(),
@@ -87,7 +85,6 @@ Deno.test('GET describes the decision without its instructions', async () => {
     ],
   });
 });
-
 Deno.test('POST decide asks the host questions about the posted state', async () => {
   const mock = jev();
   const handler = createTheoremDecisionHandler({
@@ -104,7 +101,6 @@ Deno.test('POST decide asks the host questions about the posted state', async ()
   assertEquals(mock.calls.length, 1);
   assertStringIncludes(JSON.stringify(mock.calls[0]), 'SECRET');
 });
-
 Deno.test('a null or oversized state is a request error, and Jev is never called', async () => {
   const mock = jev();
   const handler = createTheoremDecisionHandler({
@@ -130,7 +126,6 @@ Deno.test('a null or oversized state is a request error, and Jev is never called
   assertEquals(malformed.status, 400);
   assertEquals(mock.calls.length, 0);
 });
-
 Deno.test('decision handlers reject malformed JSON and non-JSON content types', async () => {
   const mock = jev();
   const handler = createTheoremDecisionHandler({
@@ -151,7 +146,6 @@ Deno.test('decision handlers reject malformed JSON and non-JSON content types', 
   }
   assertEquals(mock.calls.length, 0);
 });
-
 Deno.test("Jev's failures reach the page as their kind, in the lexicon's words", async () => {
   const cases = [
     [401, 'auth', 401],
@@ -174,7 +168,6 @@ Deno.test("Jev's failures reach the page as their kind, in the lexicon's words",
     assertEquals(errors.length, 1);
   }
 });
-
 Deno.test('a vault without the profile slot is an auth error, and Jev is never called', async () => {
   const mock = jev();
   const errors: unknown[] = [];
@@ -190,10 +183,9 @@ Deno.test('a vault without the profile slot is an auth error, and Jev is never c
   const body = await response.json();
   assertEquals(body.errorKind, 'auth');
   assertEquals(body.error, lexiconDefault('error.auth'));
-  assertEquals(String(errors[0]).includes("the vault has no key in slot 'slot_a'"), true);
+  assertEquals(String(errors[0]).includes('Decision provider failed'), true);
   assertEquals(mock.calls.length, 0);
 });
-
 Deno.test('other methods and paths are refused', async () => {
   const handler = createTheoremDecisionHandler({
     profile: profile(),
@@ -204,7 +196,6 @@ Deno.test('other methods and paths are refused', async () => {
   assertEquals((await handler(new Request(`${BASE}/decide`))).status, 405);
   assertEquals((await handler(new Request(BASE, { method: 'POST', body: '{}' }))).status, 405);
 });
-
 Deno.test('the turn handler refuses a decision profile and names the decision handler', () => {
   assertThrows(
     () => createTheoremHandler({ profile: profile('decision-handler-turn') } as never),

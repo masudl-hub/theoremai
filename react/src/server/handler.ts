@@ -28,16 +28,15 @@
 
 import type { z } from '@theoremjs/agents';
 import {
-  type CreateProviderOptions,
-  createProvider,
   defaultKernelScope,
   defineProfile,
   errorKind,
   invokeTool,
   lexiconText,
-  type ModelProvider,
   type Profile,
   type ProfileDefinition,
+  type ProviderCheckpoint,
+  type ProviderHostOptions,
   publicError,
   registerProfile,
   runTurn,
@@ -113,12 +112,12 @@ export type TheoremHandlerOptions = {
   /** Profile to serve. Registered with the kernel when the handler is created. */
   profile: Profile | ProfileDefinition;
   /**
-   * Provider credentials passed to `createProvider`, or a factory for hosts that
+   * Host options for registered providers, or a factory for hosts that
    * pick keys per request (BYOK, tenant vaults). Tools are registered by the host.
    */
   provider:
-    | CreateProviderOptions
-    | ((ctx: TheoremRequestContext) => ModelProvider | Promise<ModelProvider>);
+    | ProviderHostOptions
+    | ((ctx: TheoremRequestContext) => ProviderHostOptions | Promise<ProviderHostOptions>);
   /** Opaque app context for tool handlers (`ctx.host`) — e.g. the signed-in user. */
   host?: (request: Request) => unknown;
   /**
@@ -389,12 +388,12 @@ function providerFor(
   ctx: HandlerContext,
   request: Request,
   model?: string,
-): ModelProvider | Promise<ModelProvider> {
+): ProviderHostOptions | Promise<ProviderHostOptions> {
   const { provider } = ctx.options;
   // lexicon-exempt: builder config error; the user reads error.config
   if (!provider) throw new TheoremError('config', `profile ${ctx.profile.id} has no provider`);
   if (typeof provider === 'function') return provider({ request, model });
-  return createProvider(ctx.profile, provider, model);
+  return provider;
 }
 
 /** Steer inboxes are scoped to the session, so a turn id alone can't reach another user's turn. */
@@ -432,19 +431,40 @@ function pendingGatesFrom(
  * Record what the stream established: interaction ids for continuation and,
  * when it paused on gates, the exact calls the user may now approve.
  */
+async function checkpointIdentity(checkpoint: ProviderCheckpoint): Promise<string> {
+  const ordered = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(ordered);
+    if (value && typeof value === 'object')
+      return Object.fromEntries(
+        Object.entries(value)
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+          .map(([key, item]) => [key, ordered(item)]),
+      );
+    return value;
+  };
+  const hash = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(JSON.stringify(ordered(checkpoint))),
+  );
+  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 async function recordOutcome(
   sessions: LockedStore<TheoremSessionState>,
   sessionId: string,
   events: TurnEvent[],
   context: OutcomeContext,
 ): Promise<void> {
-  const interactionIds = events.flatMap((event) =>
-    event.type === 'done' && event.interactionId ? [event.interactionId] : [],
+  const checkpoints = events.flatMap((event) =>
+    (event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState
+      ? [event.providerState]
+      : [],
   );
+  const identities = await Promise.all(checkpoints.map(checkpointIdentity));
   const pending = pendingGatesFrom(events, context);
-  if (!interactionIds.length && !pending.length) return;
+  if (!identities.length && !pending.length) return;
   await sessions.mutate(sessionId, (state) => {
-    state.interactions.push(...interactionIds);
+    state.providerCheckpoints = [...(state.providerCheckpoints ?? []), ...identities].slice(-64);
     for (const { callId, gate } of pending) state.gates[callId] = gate;
   });
 }
@@ -686,11 +706,12 @@ async function* turnEvents(
   if (!input) return;
   const state = await ctx.sessions.read(session.id);
   const provider = await providerFor(ctx, request, body.model);
-  // why: Only continue provider-side conversations this session started.
-  const previousInteractionId =
-    body.previousInteractionId && state.interactions.includes(body.previousInteractionId)
-      ? body.previousInteractionId
-      : undefined;
+  // why: A browser cannot resume native state owned by another server session.
+  const providerState = body.providerState
+    ? (state.providerCheckpoints ?? []).includes(await checkpointIdentity(body.providerState))
+      ? body.providerState
+      : { ...body.providerState, providerId: `unowned:${body.providerState.providerId}` }
+    : undefined;
   const key = body.turnId ? inboxKey(session.id, body.turnId) : undefined;
   if (key) await ctx.inbox.open(key);
   try {
@@ -698,7 +719,7 @@ async function* turnEvents(
       {
         profile: ctx.profile.id,
         input,
-        previousInteractionId,
+        providerState,
         sessionPermissions: state.permissions,
         credentials: sessionCredentials(ctx, session.id),
         signal: request.signal,

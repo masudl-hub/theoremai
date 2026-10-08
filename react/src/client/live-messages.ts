@@ -1,3 +1,4 @@
+import { type ProviderCheckpoint, providerCheckpointSchema } from '@theoremjs/agents';
 /**
  * The live wire between the browser and a host's relay: the messages the live
  * client sends (a relay reads them with `parseLiveClientMessage`) and the envelopes it reads
@@ -38,7 +39,7 @@ export type LiveOpenMessage = {
   /** What the page tells the agent as the call opens: the client's context package. */
   context?: unknown;
   /** A call that dropped, taken up again: the provider's handle, and how long the caller was away. */
-  resume?: { handle: string; awayMs: number };
+  resume?: { providerState: ProviderCheckpoint; awayMs: number };
   /** The host's own `openMessage`, for its relay to read. */
   host?: Record<string, unknown>;
 };
@@ -46,7 +47,9 @@ const liveOpenMessage = z.object({
   type: z.literal('open'),
   slots: z.record(z.string(), z.string()).optional(),
   context: z.unknown().optional(),
-  resume: z.object({ handle: z.string().min(1), awayMs: z.number().nonnegative() }).optional(),
+  resume: z
+    .object({ providerState: providerCheckpointSchema, awayMs: z.number().nonnegative() })
+    .optional(),
   host: z.record(z.string(), z.unknown()).optional(),
 });
 true satisfies Equals<z.infer<typeof liveOpenMessage>, LiveOpenMessage>;

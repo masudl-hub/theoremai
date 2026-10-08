@@ -466,6 +466,7 @@ const graph = {
       doc: 'docs/contracts/presets.md',
       owns: [
         'src/presets/mod.ts',
+        'src/presets/facts.ts',
         'src/presets/local.ts',
         'src/presets/openrouter.ts',
         'src/presets/typesafe.ts',

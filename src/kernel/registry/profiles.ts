@@ -11,6 +11,7 @@ import {
 } from '../../guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../../observability/types.ts';
+import { PROVIDER_FACTS, providersWhere } from '../../presets/facts.ts';
 import { assertLiveIngressConfigured } from '../engine/live-ingress.ts';
 import { schemaReaches } from '../engine/runner/schema-validation.ts';
 import { outOfScopeFields, profileTypesForField } from '../profile-scope.ts';
@@ -329,7 +330,7 @@ function assertKeySlot(
   assertSlotName(profileId, `models.${modelId}.fallbackKey`, binding.fallbackKey);
   const key = binding.key ?? profile.key;
   const fallback = binding.fallbackKey ?? profile.fallbackKey;
-  if (binding.provider !== 'local' && !key) {
+  if (PROVIDER_FACTS[binding.provider].needsKey && !key) {
     throw new TheoremError(
       'config',
       `Profile ${profileId} model '${modelId}': a ${binding.provider} model needs models.*.key or the profile key`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -349,8 +350,11 @@ function assertLocalServer(profileId: string, modelId: ModelId, binding: ModelBi
     return;
   }
   const tag = `Profile ${profileId} model '${modelId}'`;
-  if (binding.provider !== 'local') {
-    throw new TheoremError('config', `${tag}: server is only valid when provider is 'local'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  if (!PROVIDER_FACTS[binding.provider].takesServer) {
+    throw new TheoremError(
+      'config',
+      `${tag}: server is only valid when provider is ${providersWhere((facts) => facts.takesServer)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
   if (typeof binding.server !== 'string' || binding.server.trim() === '') {
     throw new TheoremError('config', `${tag}: server must be a non-empty string`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)

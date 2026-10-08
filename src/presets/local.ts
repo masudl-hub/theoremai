@@ -5,6 +5,7 @@
  */
 
 import type { ModelBinding } from '../kernel/types.ts';
+import type { ProviderFacts } from './facts.ts';
 
 /**
  * Whether an Ollama model thinks, read from the server's `POST /api/show` reply for it:
@@ -40,5 +41,11 @@ function localBindingViolation(
   return undefined;
 }
 
+/**
+ * What a local server can do, as the kernel's rules read it. It needs no key, so a profile's hosted
+ * key never reaches it, and its binding names the server.
+ */
+const LOCAL_FACTS: ProviderFacts = { needsKey: false, takesServer: true };
+
 export type { LocalBindingViolation };
-export { localBindingViolation, ollamaModelThinks };
+export { LOCAL_FACTS, localBindingViolation, ollamaModelThinks };

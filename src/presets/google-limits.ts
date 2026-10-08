@@ -1,4 +1,5 @@
 import { TheoremError } from '../guardrails/theorem-error.ts';
+import type { ProviderFacts } from './facts.ts';
 
 /** The thinking levels Gemini's `thinkingLevel` takes; OpenRouter models take them all. */
 const GOOGLE_THINKING_LEVELS = ['minimal', 'low', 'medium', 'high'] as const;
@@ -27,5 +28,13 @@ function googleEfforts<Efforts extends Record<string, GoogleThinkingLevel>>(
   return efforts;
 }
 
+/** What Google's Gemini API can do, as the kernel's rules read it. */
+const GOOGLE_FACTS: ProviderFacts = {
+  needsKey: true,
+  takesServer: false,
+  storesOn: 'geminiInteractions',
+  traceName: 'gcp.gemini',
+};
+
 export type { GoogleThinkingLevel };
-export { GOOGLE_SPEECH_FORMATS, GOOGLE_THINKING_LEVELS, googleEfforts };
+export { GOOGLE_FACTS, GOOGLE_SPEECH_FORMATS, GOOGLE_THINKING_LEVELS, googleEfforts };

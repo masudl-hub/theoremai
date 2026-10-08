@@ -1,9 +1,12 @@
 /**
- * Optional host-convenience catalogs (provider builtins, media vocabularies) kept out of the kernel.
+ * Everything provider-specific: each provider's facts, which the kernel's general rules read, and
+ * host-convenience catalogs (provider builtins, media vocabularies).
  *
  * @module
  */
 
+export type { ProviderFacts } from './facts.ts';
+export { PROVIDER_FACTS } from './facts.ts';
 export type {
   GoogleBindingViolation,
   GoogleFreeTierGrounding,

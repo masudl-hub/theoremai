@@ -1,8 +1,8 @@
 # Presets (`@theoremjs/agents/presets`)
 
-Optional convenience packs. Presets register host-convenience catalogs
-(provider builtins, media vocabularies) without baking product opinions into the
-kernel.
+Everything provider-specific. Each provider's preset states its facts, which the
+kernel's general rules read, so the kernel names no provider. Presets also hold
+optional host-convenience catalogs (provider builtins, media vocabularies).
 
 ## Export
 
@@ -15,7 +15,8 @@ kernel.
 
 | Path | Role |
 | --- | --- |
-| `src/presets/mod.ts` | Barrel re-exporting the Google pack, the local checks, OpenRouter's image inputs and TypeSafe's price |
+| `src/presets/mod.ts` | Barrel re-exporting the provider facts, the Google pack, the local checks, OpenRouter's image inputs and TypeSafe's price |
+| `src/presets/facts.ts` | The one table of every provider's facts, which the kernel's rules read |
 | `src/presets/google.ts` | Documented in [`presets-google.md`](./presets-google.md) |
 | `src/presets/local.ts` | What a local server would refuse on a binding |
 | `src/presets/openrouter.ts` | The attachment types an OpenRouter `/images` profile may accept |
@@ -25,6 +26,7 @@ kernel.
 
 | Concern | Kernel | Preset |
 | --- | --- | --- |
+| Provider rules | General: a model needs a key, a binding may name its server | Each provider's answer (`PROVIDER_FACTS`): whether it needs a key, whether its binding names a server |
 | Tool ids | `string` allowlist | Registers `googleSearch`, `googleMaps`, `urlContext`, `codeExecution`, each with its Interactions and Live wire name |
 | Image/speech pins | Open `string` fields | Typed constants (`GOOGLE_IMAGE_RESOLUTIONS`, `GOOGLE_IMAGE_OUTPUT_MIMES`, voices, …) |
 | Registration | `registerTools` API (default scope) or `scope.tools.registerMany` | `registerGooglePreset()` at host startup fills the default scope; `GOOGLE_BUILTIN_TOOLS` fills any other |
@@ -32,8 +34,9 @@ kernel.
 Call preset registration **before** registering profiles that allowlist preset
 builtins. Import `@theoremjs/agents/presets/google` when you only need the Google pack.
 
-Presets are optional — the kernel runs without them when hosts register their
-own tools and vocabularies directly via `registerTools`.
+The catalogs are optional — the kernel runs without them when hosts register their
+own tools and vocabularies directly via `registerTools`. The provider facts are not:
+the kernel reads them for every binding, with nothing for a host to register.
 
 ## When to use
 
@@ -45,10 +48,11 @@ own tools and vocabularies directly via `registerTools`.
 
 ## Exported API
 
-This barrel re-exports the Google pack, the local checks, OpenRouter's image inputs and TypeSafe's price:
+This barrel re-exports the provider facts, the Google pack, the local checks, OpenRouter's image inputs and TypeSafe's price:
 
 | Export | Role |
 | --- | --- |
+| `PROVIDER_FACTS`, `ProviderFacts` | Each provider's answers to what the kernel's rules ask: `needsKey`, `takesServer`, and where it has them `cacheOn`, `storesOn`, `traceName` and `decisionsUrl` |
 | `registerGooglePreset` | Register Google builtins into the default scope's tool registry |
 | `GOOGLE_BUILTIN_TOOLS` | Catalog entries; register them into any scope's `tools` |
 | `GOOGLE_SINGLE_TURN_API_IDS` | TTS models that reject history with a model turn, so they can't take compaction |

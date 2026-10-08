@@ -1058,6 +1058,13 @@ emoji and backslashes between letters dropped), ROT13, leet, and URL escapes,
 each run of `%XX` escapes decoded on its own so a stray `%` elsewhere in the
 text ("50% off") does not stop the rest decoding.
 
+A match in a rewrite is the stretch of the written text it was read from.
+`redact` replaces that stretch and keeps the text around it. A page that quotes
+`ignore your instructions` loses the quote, not the page. ROT13 and leet keep
+each character in its place. A match in the normalized text is placed through
+`normalizedView`. A match in decoded URL escapes covers each run of escapes it
+touches.
+
 Typo folding reads a misspelt word as the word a pattern expects. It applies
 to the words in `TYPO_TARGETS` (`injection.ts`) only. A word folds to a target
 in two cases:
@@ -1272,8 +1279,9 @@ invoke on this turn; a failure message is read without it.
 A match is each stretch that matched: the order or the claim, the tool's name,
 and each destination that made it count. `redact` replaces those stretches
 with `[omitted - directive]` and keeps the rest; the kernel does not promise to
-remove a sentence. The text is read normalized (`normalizeForDetection`), and
-where that changes it a signal is the whole text once.
+remove a sentence. The text is read normalized (`normalizeForDetection`). A
+signal found there is placed on the stretch of the written text it was read
+from (`normalizedView`).
 
 **The first three signals only count when they co-occur with a concrete external
 destination** — an address or URL. This is the load-bearing constraint, and it came out of

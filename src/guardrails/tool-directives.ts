@@ -1,6 +1,6 @@
 import { typoFolded } from './injection.ts';
 import { overrideFrame } from './injection-patterns.ts';
-import { normalizeForDetection } from './normalize.ts';
+import { normalizedView, normalizeForDetection } from './normalize.ts';
 import type { AdvisoryLevel } from './types.ts';
 
 /**
@@ -190,8 +190,8 @@ function directivesOf(signal: DirectiveSignal, ranges: readonly Range[]): Direct
  * highest-precision signal: ordinary data has no reason to, and no generic filter can check it
  * without the turn's registry.
  *
- * The text is read normalized. Where that changes it, an index of what was read is not one of
- * `text`, and each signal found is the whole text once.
+ * The text is read normalized. Where that changes it, each signal found is placed on the
+ * stretch of `text` it was read from (`normalizedView`).
  */
 function directives(text: string, callableTools: readonly string[] = []): Directive[] {
   if (!text) {
@@ -211,10 +211,13 @@ function directives(text: string, callableTools: readonly string[] = []): Direct
       ...directivesOf('authority', directsOut(AUTHORITY, normalized)),
     );
   }
-  if (normalized === text) return found;
-  return DIRECTIVE_SIGNALS.filter((signal) => found.some((one) => one.signal === signal)).map(
-    (signal) => ({ signal, start: 0, end: text.length }),
-  );
+  if (normalized === text || found.length === 0) return found;
+  const view = normalizedView(text);
+  return found.map(({ signal, start, end }) => ({
+    signal,
+    start: view.start[start] ?? text.length,
+    end: view.end[end - 1] ?? text.length,
+  }));
 }
 
 /**

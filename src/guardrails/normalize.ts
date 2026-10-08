@@ -140,4 +140,49 @@ function normalizeForDetection(text: string): string {
   return out.replace(EMOJI_BETWEEN, '').replace(BACKSLASH_BEFORE_ALPHA, '');
 }
 
-export { isEmoji, normalizeCodePoint, normalizeForDetection };
+/** `normalizeForDetection` of a text, and for each index of it the stretch of the text it stands for. */
+interface NormalizedView {
+  text: string;
+  /** Where in the text as written the character at each index starts. */
+  start: number[];
+  /** Where in the text as written the character at each index ends. */
+  end: number[];
+}
+
+function withoutMatches(view: NormalizedView, pattern: RegExp): NormalizedView {
+  const kept: NormalizedView = { text: '', start: [], end: [] };
+  let last = 0;
+  const keep = (to: number): void => {
+    kept.text += view.text.slice(last, to);
+    kept.start.push(...view.start.slice(last, to));
+    kept.end.push(...view.end.slice(last, to));
+  };
+  for (const match of view.text.matchAll(pattern)) {
+    keep(match.index);
+    last = match.index + match[0].length;
+  }
+  keep(view.text.length);
+  return kept;
+}
+
+/**
+ * `normalizeForDetection(text)` with its way back: a match in the normalized
+ * text is placed on the characters of `text` it was read from.
+ */
+function normalizedView(text: string): NormalizedView {
+  const view: NormalizedView = { text: '', start: [], end: [] };
+  let at = 0;
+  for (const ch of text) {
+    const folded = normalizeCodePoint(ch);
+    for (let i = 0; i < folded.length; i += 1) {
+      view.start.push(at);
+      view.end.push(at + ch.length);
+    }
+    view.text += folded;
+    at += ch.length;
+  }
+  return withoutMatches(withoutMatches(view, EMOJI_BETWEEN), BACKSLASH_BEFORE_ALPHA);
+}
+
+export type { NormalizedView };
+export { isEmoji, normalizeCodePoint, normalizedView, normalizeForDetection };

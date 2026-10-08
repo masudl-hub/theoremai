@@ -1,5 +1,5 @@
 import { injectionSpans } from '../../src/guardrails/injection.ts';
-import { normalizeForDetection } from '../../src/guardrails/normalize.ts';
+import { normalizedView, normalizeForDetection } from '../../src/guardrails/normalize.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 
 Deno.test('normalizeForDetection passes plain ASCII through unchanged', () => {
@@ -351,4 +351,25 @@ Deno.test('normalizeForDetection maps Mathematical Sans-Serif Bold Digit 0 (U+1D
 
 Deno.test('normalizeForDetection maps Mathematical Monospace Digit 0 (U+1D7F6)', () => {
   assertEquals(normalizeForDetection(String.fromCodePoint(0x1d7f6)), '0');
+});
+
+Deno.test('normalizedView reads the same text as normalizeForDetection', () => {
+  for (const text of [
+    'plain',
+    'ig\u{200b}nore',
+    'ｉｇｎｏｒｅ',
+    `${String.fromCodePoint(0x1d41a)}b`,
+    'ig😀nore',
+    'ig\\nore',
+    'e\u{0301}',
+  ]) {
+    assertEquals(normalizedView(text).text, normalizeForDetection(text));
+  }
+});
+
+Deno.test('normalizedView places each character on the characters it was read from', () => {
+  const view = normalizedView(`a\u{200b}${String.fromCodePoint(0x1d41b)}c`);
+  assertEquals(view.text, 'abc');
+  assertEquals(view.start, [0, 2, 4]);
+  assertEquals(view.end, [1, 4, 5]);
 });

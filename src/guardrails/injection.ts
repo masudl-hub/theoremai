@@ -7,7 +7,7 @@ import {
   PIPE_SEPARATED,
   SPACED_LETTERS,
 } from './injection-patterns.ts';
-import { normalizeForDetection } from './normalize.ts';
+import { normalizedView, normalizeForDetection } from './normalize.ts';
 
 const TYPO_TARGETS = [
   'ignore',
@@ -398,54 +398,129 @@ function tryLeet(text: string): string | undefined {
   return decoded !== text ? decoded : undefined;
 }
 
-/**
- * Text written backwards reads as an injection: each pattern reversed
- * (`REVERSED_INJECTION_PATTERNS`), matched on the text as written.
- */
-function reversedHits(text: string): boolean {
-  return spansFromPatterns(text, REVERSED_INJECTION_PATTERNS, 'injection').length > 0;
+/** A rewrite of a text, and for an index of it the stretch of the text as written it stands for. */
+interface View {
+  text: string;
+  start: (index: number) => number;
+  end: (index: number) => number;
 }
 
-function decodedTextSpans(text: string): RedactSpan[] {
-  const attempts: (string | undefined)[] = [tryRot13(text), tryUrlDecode(text), tryLeet(text)];
-  const decodedHit = attempts.some(
-    (decoded) => decoded && decoded !== text && injectionSpansOn(decoded).length > 0,
-  );
-  return decodedHit || reversedHits(text)
-    ? [{ start: 0, end: text.length, kind: 'injection' }]
-    : [];
+/** Matches found in a rewrite, each placed on the stretch of the text as written it was read from. */
+function placed(spans: readonly RedactSpan[], view: Omit<View, 'text'>): RedactSpan[] {
+  return spans.map((span) => ({
+    ...span,
+    start: view.start(span.start),
+    end: view.end(span.end - 1),
+  }));
 }
 
-/** The spans of injection in the text, each stretch once: direct matches, matches after typo normalization, the whole text when only a Unicode-normalized form matches, and encoded blobs and decoded text. */
-function injectionSpans(text: string): RedactSpan[] {
-  const direct = injectionSpansOn(text);
-
+/** The matches in the text typo-folded, as indexes of the folded text, and the way back from it. */
+function typoSpans(text: string): { spans: RedactSpan[]; view: View } {
   const folded = typoFolded(text);
-  let typo: RedactSpan[] = [];
-  if (folded.text !== text) {
-    typo = injectionSpansOn(folded.text).map((span) => ({
-      ...span,
-      start: folded.at(span.start),
-      end: folded.at(span.end - 1) + 1,
-    }));
-  }
+  return {
+    spans: folded.text === text ? [] : injectionSpansOn(folded.text),
+    view: { text: folded.text, start: folded.at, end: (index) => folded.at(index) + 1 },
+  };
+}
 
-  const normalized = normalizeForDetection(text);
-  let unicodeHits: RedactSpan[] = [];
-  if (normalized !== text) {
-    const normalizedTypo = typoNormalize(normalized);
-    if (
-      injectionSpansOn(normalized).length > 0 ||
-      (normalizedTypo !== normalized && injectionSpansOn(normalizedTypo).length > 0)
-    ) {
-      unicodeHits = [{ start: 0, end: text.length, kind: 'injection' }];
+function unicodeView(text: string): View {
+  const view = normalizedView(text);
+  return {
+    text: view.text,
+    start: (index) => view.start[index] ?? text.length,
+    end: (index) => view.end[index] ?? text.length,
+  };
+}
+
+/** `decodeUrlRuns(text)`: a decoded character stands for the whole run of escapes it came from. */
+function urlView(text: string): View {
+  const start: number[] = [];
+  const end: number[] = [];
+  let decoded = '';
+  let last = 0;
+  const keep = (to: number): void => {
+    for (let i = last; i < to; i += 1) {
+      start.push(i);
+      end.push(i + 1);
     }
+    decoded += text.slice(last, to);
+  };
+  for (const match of text.matchAll(URL_ESCAPES)) {
+    keep(match.index);
+    const run = decodeUrlRuns(match[0]);
+    last = match.index + match[0].length;
+    for (let i = 0; i < run.length; i += 1) {
+      start.push(match.index);
+      end.push(last);
+    }
+    decoded += run;
   }
+  keep(text.length);
+  return {
+    text: decoded,
+    start: (index) => start[index] ?? text.length,
+    end: (index) => end[index] ?? text.length,
+  };
+}
 
+/** A rewrite of a rewrite: `inner` is a view of `outer.text`. */
+function through(inner: View, outer: View): View {
+  return {
+    text: inner.text,
+    start: (index) => outer.start(inner.start(index)),
+    end: (index) => outer.end(inner.end(index) - 1),
+  };
+}
+
+function urlSpans(text: string): RedactSpan[] {
+  const decoded = tryUrlDecode(text);
+  const spans = decoded === undefined ? [] : injectionSpansOn(decoded);
+  return spans.length > 0 ? placed(spans, urlView(text)) : [];
+}
+
+/**
+ * The matches in the text decoded: ROT13 and leet keep each character in its
+ * place, a URL-decoded match is placed through {@linkcode urlView}, and text
+ * written backwards is matched as written, by each pattern reversed
+ * (`REVERSED_INJECTION_PATTERNS`).
+ */
+function decodedTextSpans(text: string): RedactSpan[] {
+  const leet = tryLeet(text);
+  return [
+    ...injectionSpansOn(tryRot13(text)),
+    ...(leet === undefined ? [] : injectionSpansOn(leet)),
+    ...urlSpans(text),
+    ...spansFromPatterns(text, REVERSED_INJECTION_PATTERNS, 'injection'),
+  ];
+}
+
+/** The matches in the text normalized, and in that typo-folded. The way back is built only when one of them matches. */
+function unicodeSpans(text: string): RedactSpan[] {
+  const normalized = normalizeForDetection(text);
+  if (normalized === text) {
+    return [];
+  }
+  const spans = injectionSpansOn(normalized);
+  const typo = typoSpans(normalized);
+  if (spans.length === 0 && typo.spans.length === 0) {
+    return [];
+  }
+  const view = unicodeView(text);
+  return [...placed(spans, view), ...placed(typo.spans, through(typo.view, view))];
+}
+
+/**
+ * The spans of injection in the text, each stretch once. The text is read as
+ * written and in each rewrite of it: typo-folded, normalized, decoded, and its
+ * encoded blobs. A match in a rewrite is the stretch of the text as written it
+ * was read from, so text around a match stays.
+ */
+function injectionSpans(text: string): RedactSpan[] {
+  const typo = typoSpans(text);
   return mergeSpans([
-    ...direct,
-    ...typo,
-    ...unicodeHits,
+    ...injectionSpansOn(text),
+    ...placed(typo.spans, typo.view),
+    ...unicodeSpans(text),
     ...blobSpans(text),
     ...decodedTextSpans(text),
   ]);

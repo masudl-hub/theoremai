@@ -17,7 +17,8 @@ const STUDIO_HOST_ID = 'theorem-studio';
 /** One builder on one machine: every request is the same session, so a gate's answer finds its call. */
 const STUDIO_SESSION = 'theorem-studio-local';
 const CALLABLE = ['function', 'http', 'mcp'] as const;
-type CallableKind = (typeof CALLABLE)[number];
+/** How a tool the page can call reaches its work. */
+export type CallableKind = (typeof CALLABLE)[number];
 
 export type StudioProfileView = {
   id: string;
@@ -106,6 +107,18 @@ function json(status: number, body: unknown, headers: HeadersInit): Response {
 }
 
 /**
+ * Whether a request comes from somewhere other than the studio's own page.
+ * A page on another site can reach 127.0.0.1 through the builder's browser: the
+ * origin check stops its requests, and the host check stops a name it pointed at
+ * this machine.
+ */
+function isForeign(request: Request, options: StudioHandlerOptions): boolean {
+  if (request.headers.get('host') !== options.listenHost) return true;
+  const origin = request.headers.get('origin');
+  return origin !== null && origin !== options.pageOrigin;
+}
+
+/**
  * Serves the studio for the tools and profiles registered when it is called.
  * Register the project first.
  */
@@ -131,24 +144,22 @@ export function createStudioHandler(
         })
       : undefined;
 
-  return async (request) => {
-    const url = new URL(request.url);
-    // why: a page on another site can reach 127.0.0.1 through the builder's browser. The origin
-    // check stops its requests; the host check stops a name it pointed at this machine.
-    if (request.headers.get('host') !== options.listenHost) return json(403, {}, {});
-    const origin = request.headers.get('origin');
-    if (origin !== null && origin !== options.pageOrigin) return json(403, {}, {});
-    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+  const serveConsole = async (request: Request): Promise<Response> => {
+    if (!console_) return json(404, {}, cors);
+    const response = await console_(request);
+    const headers = new Headers(response.headers);
+    for (const [key, value] of Object.entries(cors)) headers.set(key, value);
+    return new Response(response.body, { status: response.status, headers });
+  };
 
-    if (url.pathname === base && request.method === 'GET') {
+  return async (request) => {
+    if (isForeign(request, options)) return json(403, {}, {});
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+    const path = new URL(request.url).pathname;
+    if (path === base && request.method === 'GET') {
       return json(200, describeStudio(options.project), cors);
     }
-    if (console_ && (url.pathname === `${base}/host` || url.pathname.startsWith(`${base}/host/`))) {
-      const response = await console_(request);
-      const headers = new Headers(response.headers);
-      for (const [key, value] of Object.entries(cors)) headers.set(key, value);
-      return new Response(response.body, { status: response.status, headers });
-    }
+    if (path === `${base}/host` || path.startsWith(`${base}/host/`)) return serveConsole(request);
     return json(404, {}, cors);
   };
 }

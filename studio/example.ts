@@ -5,8 +5,7 @@
  * @module
  */
 
-import { z } from 'zod';
-import { defineProfile, registerProfile, registerTool } from '../mod.ts';
+import { defineProfile, registerProfile, registerTool, z } from '../mod.ts';
 
 const PLANTS = [
   { id: 'fern', name: 'Boston fern', waterEveryDays: 3, light: 'shade' },

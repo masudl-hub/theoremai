@@ -407,7 +407,7 @@ const REQUIRED_PATHS: readonly (readonly [string, readonly ProfileType[] | undef
     .map(([path, meta]) => [path, meta.profileTypes] as const)
     .sort(([a], [b]) => a.split('.').length - b.split('.').length);
 
-/** A definition may come over the network (a playground draft), so its shape is checked before anything reads it. */
+/** A definition may come over the network (a studio draft), so its shape is checked before anything reads it. */
 function assertProfileShape(input: unknown): asserts input is ProfileDefinition {
   if (!isRecord(input)) {
     throw new TheoremError('config', 'Profile definition must be an object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)

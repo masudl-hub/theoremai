@@ -26,8 +26,8 @@
     "react/src/ui/theorem-theme.ts",
     "react/src/ui/icons.ts",
     // Theorem Studio: the local server, the example project it opens, and the page.
-    "studio/serve.ts",
-    "studio/example.ts",
+    "studio/server/serve.ts",
+    "studio/server/example.ts",
     "react/src/studio/main.tsx"
   ],
   // @astryxdesign/cli is used only as the `astryx` binary in react's theme scripts; whether fallow

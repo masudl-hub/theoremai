@@ -29,7 +29,7 @@ jobs:
             --config p/secrets \
             --metrics=off \
             --error \
-            --exclude tests --exclude npm --exclude playground --exclude tmp \
+            --exclude tests --exclude npm --exclude studio --exclude tmp \
             src react/src mod.ts scripts
 
   snyk:
@@ -50,14 +50,14 @@ jobs:
         run: echo "::notice::SNYK_TOKEN is not configured; Snyk scans skipped."
 
       # Every lockfile in the repo (root + react/), dev dependencies included:
-      # they run in CI and on contributor machines. playground/ has no lockfile
+      # they run in CI and on contributor machines. studio/ has no lockfile
       # and npm/ is build output. The root policy file covers react/ too.
       - name: Snyk Open Source (all projects)
         if: env.SNYK_TOKEN != ''
         run: |
           npx --yes snyk@1.1307.3 test \
             --all-projects --dev \
-            --exclude=playground,npm,tmp \
+            --exclude=studio,npm,tmp \
             --policy-path=.snyk \
             --severity-threshold=medium
 
@@ -84,5 +84,5 @@ jobs:
         run: |
           npx --yes snyk@1.1307.3 monitor \
             --all-projects --dev \
-            --exclude=playground,npm,tmp \
+            --exclude=studio,npm,tmp \
             --project-tags=repo=theoremai

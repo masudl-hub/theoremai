@@ -8,7 +8,7 @@ const lookInput = z.object({
     .string()
     .optional()
     .describe(
-      'A surface ("playground") or a node in one ("playground/identity"); leave out to see every surface',
+      'A surface ("studio") or a node in one ("studio/identity"); leave out to see every surface',
     ),
 });
 

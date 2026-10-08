@@ -389,7 +389,7 @@ export const THEOREM_UI_CATALOG = {
   '@theorem.gate.auth.secret_note': {
     defaultMessage: ' ',
     description:
-      'Under the secret field: how the host handles the credential. Blank by default, since only the host knows; the playground says it is used for one call.',
+      'Under the secret field: how the host handles the credential. Blank by default, since only the host knows; the studio says it is used for one call.',
   },
   '@theorem.gate.auth.submit': {
     defaultMessage: 'Submit & continue',

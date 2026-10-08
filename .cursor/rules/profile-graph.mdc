@@ -1,6 +1,6 @@
 ---
-description: Profile graph / playground projection ownership in theorem
-globs: src/kernel/profile-graph.ts,src/kernel/schema.ts,docs/contracts/playground.md
+description: Profile graph / studio projection ownership in theorem
+globs: src/kernel/profile-graph.ts,src/kernel/schema.ts,docs/contracts/studio.md
 alwaysApply: false
 ---
 
@@ -14,4 +14,4 @@ When adding a top-level profile authoring field:
 
 Drift is gated by `tests/kernel/profile-graph.test.ts`.
 
-Playground UI, compile, and run must project this catalog. Free-tier policy stays in the frontend `playground-policy.ts` only.
+Studio UI, compile, and run must project this catalog. Free-tier policy stays in the frontend `studio-policy.ts` only.

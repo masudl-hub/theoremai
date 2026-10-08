@@ -96,7 +96,7 @@ export type LiveServerEnvelope =
   | { type: 'ready'; profile?: string; sessionId?: string }
   /** The session's events; one of a kind this client does not know arrives as `unsupported`, one that fails its check as `malformed`. */
   | { type: 'events'; events: (TurnEvent | UnsupportedEvent | MalformedEvent)[] }
-  /** A trace record the session wrote, from a relay that delivers its traces (the playground). */
+  /** A trace record the session wrote, from a relay that delivers its traces (the studio). */
   | { type: 'trace'; record: TraceRecord }
   /** The relay's error body, read as a host error. */
   | ({ type: 'error' } & HostErrorBody)

@@ -568,6 +568,21 @@ Not done:
 - The thrown-away page's files (`react/src/studio/`, `studio/vite.config.ts`,
   `studio/package.json`) are still in the tree, unused.
 
+**Renamed on 8 Oct:**
+
+Masud chose one name: studio everywhere. The paths above are the old ones.
+
+- `playground/` is now `studio/`, and the package is `@theoremjs/studio`.
+  Every `Playground…` name in the code is `Studio…`.
+- The local server is `studio/server/` (`serve.ts`, `handler.ts`,
+  `example.ts`). The thrown-away page's Vite files are `studio/app/`.
+- The website's page moves from `/playground` to `/studio`. The old address
+  stops working; there is no redirect.
+- A new tab opened from a project runs the project's code, not the draft's
+  stand-in tools.
+- Still to do: move the screen itself from the website into `studio/`, so
+  the website and the local command show one copy.
+
 ### 5.7 Fit and finish
 
 - Finding a profile among 41: search, and which profile calls which.

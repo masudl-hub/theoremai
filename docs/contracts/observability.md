@@ -312,7 +312,7 @@ drawn in twelve worked traces including a Live voice session — is
 
 What a record holds is named and described once, in code
 (`src/observability/trace-catalog.ts`), so a viewer never invents wording for
-it. The playground's trace panel reads it; a host's own tooling can too.
+it. The studio's trace panel reads it; a host's own tooling can too.
 
 | Lookup | Returns |
 | --- | --- |

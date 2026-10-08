@@ -140,7 +140,7 @@ In a chat, the same tool pauses the turn at a `page` gate. The page answers it o
 function for the tool. `useTheoremChat` does this from its `pageTools` option, and shows no prompt.
 
 The kernel never times out an ungated held call, so the relay does:
-`attachPlaygroundLiveSession` starts a timer when the model makes a call
+`attachStudioLiveSession` starts a timer when the model makes a call
 (`clientCallTimeoutMs` in its options, default 20 s) and clears it when the
 browser's `executeTool` for that call arrives or the call settles or is
 cancelled. When it fires the relay calls `session.executeTool` with

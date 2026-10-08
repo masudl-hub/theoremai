@@ -79,7 +79,7 @@ function useLiveCallLifecycle(
 /**
  * Owns LiveRunner state, session client, and stage callbacks.
  * `connection` resolves what the call opens: a host with a fixed profile returns
- * its id; the playground returns its draft as the relay's open message. `options`
+ * its id; the studio returns its draft as the relay's open message. `options`
  * are the host's part in the call: its slots, the page's context, and its page tools.
  */
 export function useLiveRunnerModel(

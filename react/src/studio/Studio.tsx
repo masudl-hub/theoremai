@@ -160,7 +160,7 @@ export default function Studio() {
         <Banner
           status="warning"
           title="The studio's server is not running"
-          description="Start it in your project: deno run -A studio/serve.ts <setup-module>. Then reload this page."
+          description="Start it in your project: deno run -A studio/server/serve.ts <setup-module>. Then reload this page."
         />
       </div>
     );

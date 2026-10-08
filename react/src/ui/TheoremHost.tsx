@@ -56,7 +56,7 @@ export type TheoremHostProps = {
   endpoint?: string;
   /** Extra fetch options for the default HTTP transport (auth headers, custom fetch). */
   http?: HttpOptions;
-  /** Bring your own transport (tests, playgrounds, non-HTTP hosts). */
+  /** Bring your own transport (tests, studios, non-HTTP hosts). */
   transport?: HostTransport;
   theme?: DefinedTheme;
   mode?: 'system' | 'light' | 'dark';
@@ -118,7 +118,7 @@ function checkRequest(t: LabelText, tool: HostToolView, text: string): RequestCh
   return { ok: true, input };
 }
 
-/** The kind's icon. The same glyphs the playground uses for a tool's type. */
+/** The kind's icon. The same glyphs the studio uses for a tool's type. */
 const KIND_ICON: Record<HostToolKind, IconType> = {
   function: IconMathFunction,
   http: IconWorld,

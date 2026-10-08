@@ -1,5 +1,5 @@
 /**
- * First-party catalog facts used by presets and the playground. Registered adapters
+ * First-party catalog facts used by presets and the studio. Registered adapters
  * validate runtime support independently of this catalog.
  *
  * @module

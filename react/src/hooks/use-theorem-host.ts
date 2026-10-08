@@ -166,7 +166,7 @@ export function useTheoremHost(transport: HostTransport): TheoremHostState & {
             ...(reply.decision === 'approve' && reply.secret !== undefined
               ? { secret: reply.secret }
               : {}),
-            // why: A host without sessions (the playground) replays the paused call; others ignore it.
+            // why: A host without sessions (the studio) replays the paused call; others ignore it.
             replay: {
               name: held.name,
               input: held.input,

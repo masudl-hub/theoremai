@@ -1,6 +1,6 @@
 import { assertEquals } from '@std/assert';
-import registerExample from '../../studio/example.ts';
-import { createStudioHandler, type StudioDescription } from '../../studio/handler.ts';
+import registerExample from '../../studio/server/example.ts';
+import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 
 registerExample();
 

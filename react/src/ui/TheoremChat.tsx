@@ -48,7 +48,7 @@ export type TheoremChatProps = {
   endpoint?: string;
   /** Extra fetch options for the default HTTP transport (auth headers, custom fetch). */
   http?: Omit<HttpTransportOptions, 'endpoint'>;
-  /** Bring your own transport (tests, playgrounds, non-HTTP hosts). */
+  /** Bring your own transport (tests, studios, non-HTTP hosts). */
   transport?: TheoremTransport;
   /** Astryx theme. Omit to inherit the host's `<Theme>` or use `theoremTheme`. */
   theme?: DefinedTheme;

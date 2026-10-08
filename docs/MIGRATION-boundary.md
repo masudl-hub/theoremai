@@ -2,18 +2,18 @@
 
 Breaking cut. No deprecation aliases.
 
-## Removed: playground entrypoint
+## Removed: studio entrypoint
 
-Demo fixtures moved to the **repo-private** package `@theoremjs/playground`
-(`playground/` in the repo). It is never published.
+Demo fixtures moved to the **repo-private** package `@theoremjs/studio`
+(`studio/` in the repo). It is never published.
 
 ```diff
-- import { demoToolSpecs } from '@theoremjs/playground';
-+ import { demoToolSpecs } from '@theoremjs/playground';
+- import { demoToolSpecs } from '@theoremjs/studio';
++ import { demoToolSpecs } from '@theoremjs/studio';
 ```
 
-Hosts link it with `"@theoremjs/playground": "file:../theoremai/playground"`.
-`PLAYGROUND_AUTH_TYPES` / `PlaygroundAuthType` remain on `@theoremjs/agents/schema`
+Hosts link it with `"@theoremjs/studio": "file:../theoremai/studio"`.
+`STUDIO_AUTH_TYPES` / `StudioAuthType` remain on `@theoremjs/agents/schema`
 (authoring vocabulary, not demo product).
 
 ## Changed: one vault, slots are yours to name
@@ -104,7 +104,7 @@ builder with their own UI owns every line.
 | `workStatusLabel`, drawer `label`, hint `message` / `actionLabel` | `workStatus` → `{ phase, elapsedMs? }`, drawer `parts`, hint `id`; wording in `ui/labels` (`@theorem.transcript.work*`, `@theorem.composer.drawer.*`, `@theorem.composer.hint.*`) |
 | `voiceLabelFromMime`, `voiceFormatLabel` | `voiceFormatFromMime` → format or `undefined`; the default UI words it with `@theorem.voice_note.name` / `.unnamed` |
 | Default UI chrome constants (`COMPOSER_PRIMARY_LABELS`, `COMPOSER_MENU_ACTION_LABELS`, `COMPOSER_HINT_LABELS`, `VOICE_NOTE_LABEL`, …) | `THEOREM_UI_CATALOG` (`@theorem.*` Astryx i18n keys); replace any line, and Astryx's own `@astryx.*` lines, with the `labels` prop on `TheoremChat` / `LiveRunner` |
-| Playground transports' `failureLabel` option | Removed; failures carry their kind |
+| Studio transports' `failureLabel` option | Removed; failures carry their kind |
 | `TheoremStreamError(message, …)` | `TheoremStreamError(kind, publicMessage?, internalMessage?)` |
 | Handler stream `{ type: 'error', error }` | `{ type: 'error', error, errorKind }`, as on every error reply |
 | A Live close whose reason names a quota (setup refused with 1011, "You exceeded your current quota") → `unavailable`; the Live open never tried `paid` | `rate_limit`; a setup refused for quota on a free slot reopens once on the vault's distinct `paid` key, as HTTP 429 does (trace: `theorem.session { kind: "key_overflow" }`) |

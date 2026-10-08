@@ -128,7 +128,7 @@ const graph = {
       ],
       section_triggers: [
         {
-          paths: ['src/guardrails/lexicon.ts', 'src/kernel/stop.ts', 'playground/'],
+          paths: ['src/guardrails/lexicon.ts', 'src/kernel/stop.ts', 'studio/'],
           sections: ['Facts and policy'],
         },
         {

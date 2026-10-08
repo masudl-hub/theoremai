@@ -32,7 +32,7 @@ export type TheoremDecisionProps = {
   endpoint?: string;
   /** Extra fetch options for the default HTTP transport (auth headers, custom fetch). */
   http?: HttpOptions;
-  /** Bring your own transport (tests, playgrounds, non-HTTP hosts). */
+  /** Bring your own transport (tests, studios, non-HTTP hosts). */
   transport?: DecisionTransport;
   /** The JSON the state field starts with. Default `{}`. */
   defaultState?: string;

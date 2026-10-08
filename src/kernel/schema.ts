@@ -46,7 +46,7 @@ export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 export const PROTOCOLS = ['geminiInteractions', 'geminiLive', 'openAi', 'decision'] as const;
 /** One of {@linkcode PROTOCOLS}. */
 export type Protocol = (typeof PROTOCOLS)[number];
-/** First-party provider names used by the preset and playground catalogs. Model bindings accept registered IDs. */
+/** First-party provider names used by the preset and studio catalogs. Model bindings accept registered IDs. */
 export const PROVIDERS = ['google', 'openrouter', 'local', 'typesafe'] as const;
 /** One of {@linkcode PROVIDERS}. */
 export type Provider = string;
@@ -259,9 +259,9 @@ export const TOOL_AUTH_TYPES = ['bearer', 'api_key', 'oauth2'] as const;
 /** One of {@linkcode TOOL_AUTH_TYPES}. */
 export type ToolAuthType = (typeof TOOL_AUTH_TYPES)[number];
 /** Adds UI-only `none`, which omits auth at compile time. */
-export const PLAYGROUND_AUTH_TYPES = ['none', ...TOOL_AUTH_TYPES] as const;
-/** One of {@linkcode PLAYGROUND_AUTH_TYPES}. */
-export type PlaygroundAuthType = (typeof PLAYGROUND_AUTH_TYPES)[number];
+export const STUDIO_AUTH_TYPES = ['none', ...TOOL_AUTH_TYPES] as const;
+/** One of {@linkcode STUDIO_AUTH_TYPES}. */
+export type StudioAuthType = (typeof STUDIO_AUTH_TYPES)[number];
 /** One of {@linkcode TOOL_TYPES}. */
 export type ToolType = (typeof TOOL_TYPES)[number];
 /** A tool type the host defines, which is every type but `builtin`. */
@@ -1342,14 +1342,14 @@ const CREDENTIAL_KINDS = {
 };
 /** The catalog of the fields `registerTool` takes, keyed by path like `PROFILE_FIELDS`. */
 export const EXTRA_FIELDS: Record<string, FieldMeta> = {
-  /** Playground / UI path — avoids collision with profile `type` in fieldMeta(). */
+  /** Studio / UI path — avoids collision with profile `type` in fieldMeta(). */
   'registerTool.type': TOOL_TYPE_FIELD,
-  /** Playground-only rows: the editor's local-model connection, and a decision question's kind. */
+  /** Studio-only rows: the editor's local-model connection, and a decision question's kind. */
   'local.baseUrl': field(
     'string',
     'Where your local model server listens, such as Ollama, llama.cpp or vLLM. The browser calls it directly.',
   ),
-  'playground.remoteTools': {
+  'studio.remoteTools': {
     ...field(
       'boolean',
       'Whether tools that reach other hosts (HTTP and MCP) may run while a local model is in use. Off, a run with a local model reaches no host.',
@@ -1480,32 +1480,32 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     'string',
     "Your OAuth redirect URI, kept for the host's sign-in flow; the kernel doesn't read it.",
   ),
-  'playground.authType': field(
-    unionType(PLAYGROUND_AUTH_TYPES),
+  'studio.authType': field(
+    unionType(STUDIO_AUTH_TYPES),
     'The kind of credential the tool expects, or none.',
-    PLAYGROUND_AUTH_TYPES,
+    STUDIO_AUTH_TYPES,
     { none: 'The tool sends no credential.', ...CREDENTIAL_KINDS },
   ),
-  'playground.testCredential': field(
+  'studio.testCredential': field(
     'string',
     "A credential for this tool's connection tests, kept in the tab and never saved.",
   ),
-  'playground.stubOutput': {
+  'studio.stubOutput': {
     ...field(
       'Record<string, unknown>',
-      'What a function tool returns in the playground, unless a demo handler has its name.',
+      'What a function tool returns in the studio, unless a demo handler has its name.',
     ),
     unset: 'A stand-in built from the output schema',
   },
-  'playground.sampleInput': field(
+  'studio.sampleInput': field(
     'Record<string, unknown>',
     'Arguments for the connection test, never saved.',
   ),
-  'playground.inputSchema': field(
+  'studio.inputSchema': field(
     'Record<string, unknown>',
     "The tool's arguments as a JSON Schema, sent to the model.",
   ),
-  'playground.outputSchema': field(
+  'studio.outputSchema': field(
     'Record<string, unknown>',
     "The tool's result as a JSON Schema, which a function tool's stand-in result is built from.",
   ),

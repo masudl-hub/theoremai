@@ -2,7 +2,7 @@ import type { TraceRecord } from '@theoremjs/agents';
 
 /**
  * Trace records a host sends back to the client, in arrival order. Only a host
- * that delivers its traces (the playground) has one; `useTraceRecords` reads it.
+ * that delivers its traces (the studio) has one; `useTraceRecords` reads it.
  */
 export interface TraceFeed {
   push(record: TraceRecord): void;

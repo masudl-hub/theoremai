@@ -21,7 +21,7 @@ const ARTIFACT_DIRS = [
   'scripts',
   'ast-grep-rules',
   'docs',
-  'playground',
+  'studio',
   'react',
   'src/guardrails/eval',
 ] as const;
@@ -250,41 +250,39 @@ async function assertNoGlobalTestInternals(): Promise<void> {
 }
 
 /**
- * The playground demo package is repo-private and must never ship: no
- * `./playground` entry in any exports map, no `playground/` in the npm files
- * whitelist or tarball, and no `src/playground` tree resurrected.
+ * The studio demo package is repo-private and must never ship: no
+ * `./studio` entry in any exports map, no `studio/` in the npm files
+ * whitelist or tarball, and no `src/studio` tree resurrected.
  */
-async function assertNoPlaygroundInBundles(): Promise<void> {
+async function assertNoStudioInBundles(): Promise<void> {
   const pkg = JSON.parse(await Deno.readTextFile(`${root}/package.json`)) as {
     files?: string[];
     exports?: Record<string, unknown>;
   };
-  if (Object.keys(pkg.exports ?? {}).some((key) => key.includes('playground'))) {
-    throw new Error('package.json exports must not include a playground entrypoint');
+  if (Object.keys(pkg.exports ?? {}).some((key) => key.includes('studio'))) {
+    throw new Error('package.json exports must not include a studio entrypoint');
   }
-  if ((pkg.files ?? []).some((f) => f.includes('playground'))) {
-    throw new Error('package.json files must not include playground/');
+  if ((pkg.files ?? []).some((f) => f.includes('studio'))) {
+    throw new Error('package.json files must not include studio/');
   }
   const denoConfig = JSON.parse(await Deno.readTextFile(`${root}/deno.json`)) as {
     exports?: Record<string, unknown>;
   };
-  if (Object.keys(denoConfig.exports ?? {}).some((key) => key.includes('playground'))) {
-    throw new Error('deno.json exports must not include a playground entrypoint');
+  if (Object.keys(denoConfig.exports ?? {}).some((key) => key.includes('studio'))) {
+    throw new Error('deno.json exports must not include a studio entrypoint');
   }
   const npmignore = await Deno.readTextFile(`${root}/.npmignore`).catch(() => '');
-  if (!npmignore.includes('playground/')) {
-    throw new Error('.npmignore must exclude playground/ from the npm tarball');
+  if (!npmignore.includes('studio/')) {
+    throw new Error('.npmignore must exclude studio/ from the npm tarball');
   }
-  if (await exists(`${root}/src/playground`)) {
-    throw new Error(
-      'src/playground must not exist — demo fixtures live in repo-private playground/',
-    );
+  if (await exists(`${root}/src/studio`)) {
+    throw new Error('src/studio must not exist — demo fixtures live in repo-private studio/');
   }
-  // dnt output tree, when present, must not contain a playground module.
+  // dnt output tree, when present, must not contain a studio module.
   if (await exists(`${root}/npm`)) {
     for await (const file of walkFiles(`${root}/npm`)) {
-      if (file.includes('/playground/')) {
-        throw new Error(`npm build output must not contain playground modules: ${file}`);
+      if (file.includes('/studio/')) {
+        throw new Error(`npm build output must not contain studio modules: ${file}`);
       }
     }
   }
@@ -321,7 +319,7 @@ async function main(): Promise<void> {
   await assertExportMapsMatch();
   await assertNpmPackageFilesOmitRepoDocs();
   await assertNoReactInBundles();
-  await assertNoPlaygroundInBundles();
+  await assertNoStudioInBundles();
   await assertNoExportedInternals();
   await assertPublicEntrypointsOmitTestHooks();
   await assertNoGlobalTestInternals();
@@ -335,7 +333,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    'verify-publish-bundle: exclude list covers artifacts; export maps match; repo docs omitted from package; playground absent from all bundles; react absent from the agents bundles; no exported _internals; no global test internals in src/; no oversized local files.',
+    'verify-publish-bundle: exclude list covers artifacts; export maps match; repo docs omitted from package; studio absent from all bundles; react absent from the agents bundles; no exported _internals; no global test internals in src/; no oversized local files.',
   );
 }
 

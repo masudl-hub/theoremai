@@ -71,7 +71,7 @@ chains all passed). A streamed profile with tools that chains will hit it;
 | With `freeTier`, a model missing from `GOOGLE_FREE_TIER_GROUNDING` | `apiId` | The model has no free-tier quota |
 | With `freeTier`, `googleSearch` or `googleMaps` the model's free quota doesn't allow | `builtInTools` | Live closes 1011 "You exceeded your current quota" at setup, whatever the key's usage, so it reads as a quota failure |
 
-`GOOGLE_FREE_TIER_GROUNDING` maps each free-tier model to `{ googleSearch, googleMaps }` (AI Studio, Sep 2026); `googleFreeTierBuiltins(apiId)` lists the grounding builtins it allows. The playground's model policy reads this table. The kernel does not run the check; a host calls it on the profiles it registers.
+`GOOGLE_FREE_TIER_GROUNDING` maps each free-tier model to `{ googleSearch, googleMaps }` (AI Studio, Sep 2026); `googleFreeTierBuiltins(apiId)` lists the grounding builtins it allows. The studio's model policy reads this table. The kernel does not run the check; a host calls it on the profiles it registers.
 
 ## Vocabularies
 

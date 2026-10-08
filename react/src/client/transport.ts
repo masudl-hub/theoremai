@@ -73,7 +73,7 @@ true satisfies Equals<z.infer<typeof theoremTurnInput>, TheoremTurnInput>;
 
 /**
  * State only the client holds, for hosts whose profile also lives in the browser
- * (the playground). `createHttpTransport` never sends it: `createTheoremHandler`
+ * (the studio). `createHttpTransport` never sends it: `createTheoremHandler`
  * keeps permissions, paused calls, and tool snapshots in its own session.
  */
 export type TheoremReplay = {
@@ -99,7 +99,7 @@ const theoremReplay = z.object({
   path: z.string().optional(),
 });
 true satisfies Equals<z.infer<typeof theoremReplay>, TheoremReplay>;
-/** For a host that reads the playground's client-held state. */
+/** For a host that reads the studio's client-held state. */
 export const theoremReplaySchema: z.ZodType<TheoremReplay> = theoremReplay;
 
 /** An id the client made: trimmed, never blank. */
@@ -219,7 +219,7 @@ export interface TheoremTransport {
     signal?: AbortSignal,
   ): Promise<void>;
   steer(request: TheoremSteerRequest): Promise<void>;
-  /** Trace records the host sends back, when it delivers them (the playground does). */
+  /** Trace records the host sends back, when it delivers them (the studio does). */
   traces?: TraceFeed;
 }
 

@@ -7,7 +7,7 @@ message: >-
   set; text with no profile in hand uses redactDetectors.
 files:
   - 'src/**/*.ts'
-  - 'playground/**/*.ts'
+  - 'studio/**/*.ts'
   - 'react/src/**/*.ts'
   - 'react/src/**/*.tsx'
 ignores:

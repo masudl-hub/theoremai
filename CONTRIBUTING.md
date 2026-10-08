@@ -44,9 +44,9 @@ CI runs the same scans in the `Security` and `Mutation testing` workflows.
 
 ```bash
 semgrep scan --config p/typescript --config p/secrets --metrics=off --error \
-  --exclude tests --exclude npm --exclude playground --exclude tmp \
+  --exclude tests --exclude npm --exclude studio --exclude tmp \
   src react/src mod.ts scripts
-snyk test --all-projects --dev --exclude=playground,npm,tmp --severity-threshold=medium
+snyk test --all-projects --dev --exclude=studio,npm,tmp --severity-threshold=medium
 snyk code test --severity-threshold=medium
 npx stryker run stryker.guardrails.config.json --mutate src/guardrails/canary.ts --concurrency 4
 ```
@@ -87,7 +87,7 @@ node scripts/docs-claims.mjs affected               # docs that mention what you
 | [`docs/contracts/presets.md`](docs/contracts/presets.md) | `@theoremjs/agents/presets` |
 | [`docs/contracts/presets-google.md`](docs/contracts/presets-google.md) | `@theoremjs/agents/presets/google` |
 
-Two migration notes explain past cuts: [`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md) (the old per-turn dynamic tools) and [`docs/MIGRATION-boundary.md`](docs/MIGRATION-boundary.md) (playground, quota, lexicon and composer moved out of the package).
+Two migration notes explain past cuts: [`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md) (the old per-turn dynamic tools) and [`docs/MIGRATION-boundary.md`](docs/MIGRATION-boundary.md) (studio, quota, lexicon and composer moved out of the package).
 
 ## Keep the package boundary
 

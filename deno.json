@@ -65,7 +65,7 @@
       "reports/",
       "node_modules/",
       "npm/",
-      "playground/",
+      "studio/",
       "package-lock.json",
       "scripts/",
       "react/",

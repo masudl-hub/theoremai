@@ -2,7 +2,7 @@
 
 **Status: target — slices 1–3 on branch.** Locked design replacing steer
 barriers and overlapping tool pre-gates. **Foundation + text `runTurn` + tool
-execute + live cycle/`executeTool` + playground `onStage` inbox + react
+execute + live cycle/`executeTool` + studio `onStage` inbox + react
 `gated*` (pause aliases removed) landed on branch.** **No dual API** on a
 released line: stages are not “shipped” until `kernel.md` matches this file on
 the release cut.
@@ -21,14 +21,14 @@ the release cut.
 | `ask_user` awaiting completion; gate vs deny wire | landed |
 | Interface gated/awaiting split (text) | landed |
 | Live profile `allowSteering`; cycle `idle`\|`open`; `LiveSession.executeTool` | landed |
-| Playground steer inbox via `onStage` (inject-capable stages only) | landed |
+| Studio steer inbox via `onStage` (inject-capable stages only) | landed |
 | React / interface `gated*` only (`paused*` removed; no aliases) | landed |
 | Cancelled `done` + `post_turn` for AbortSignal (not only stage abort) | landed |
 
 Slice 1 removed: `TURN_STEER_BARRIERS`, `TurnSteer*`, `onSteer`, `barrier` events.
 Slice 2 removed: `canExecute`, `preflight`, `interactive` tool config; pause fiction for
 confirm/permission/auth (`phase: 'gate'` + `stop.kind: 'gate'`). `ask_user` completes with
-`awaiting_user_input`. Slice 3: live stages + `executeTool` + playground `onStage`
+`awaiting_user_input`. Slice 3: live stages + `executeTool` + studio `onStage`
 + full `paused*` → `gated*` cut (no aliases).
 
 ## Ownership
@@ -437,7 +437,7 @@ never supplies the tool name or the model's input.
 
 A relay (the process between the browser and the session) forwards the
 browser's `executeTool` message and holds no authority: the session decides
-what runs. Playground HTTP `/api/playground/live/tool` is **removed** — live
+what runs. Studio HTTP `/api/studio/live/tool` is **removed** — live
 tools run only via relay `executeTool`.
 
 **Process split:** when the registry lives in another process, that process
@@ -464,7 +464,7 @@ tool-request events.
 
 ---
 
-## Interface / composer / playground
+## Interface / composer / studio
 
 | Concern | Target |
 | --- | --- |
@@ -474,7 +474,7 @@ tool-request events.
 | Gate helpers | `gatedToolFromEvents` (stop `gate`) + `awaitingFromEvents` (complete+awaiting) |
 | Abandon | The message walks away in its own turn request (`abandon`): the host settles each waiting call cancelled before the reply, and the model reads it. A call an earlier answer already settled (its client never heard) replays that settle instead |
 | Failed answer | A request that ends before the call it answers or walks away from settles puts the call back to wait (`createTheoremHandler`); the client leaves the gate to answer again. After the settle, the client keeps the result |
-| Playground steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn`. Each steer carries the client's id (`TheoremSteerRequest.id`) and is returned as `injectId`, so the turn names it in `stage.injected` once it lands. One owner in `@theoremjs/react/server`: `steerUnitOf` (id + user messages only) and `steerStage(inbox, key)`; a host brings only its `SteerInbox` store |
+| Studio steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn`. Each steer carries the client's id (`TheoremSteerRequest.id`) and is returned as `injectId`, so the turn names it in `stage.injected` once it lands. One owner in `@theoremjs/react/server`: `steerUnitOf` (id + user messages only) and `steerStage(inbox, key)`; a host brings only its `SteerInbox` store |
 | Snapshot | Still on `done` when `stop.kind === 'gate'` (and available on normal `done` when tools ran — not only gates) |
 
 ---
@@ -506,7 +506,7 @@ tool-request events.
 | --- | --- |
 | **1 — Spine** | `TURN_STAGES`, `stage` events, `onStage` attach points, inject gate semantics, text maps, delete `onSteer`/barriers, cancelled `done`+`post_turn`, maxSteps inject reject, frozen types |
 | **2 — Tools** | Pipeline order, `preTool`, remove three old hooks, gate vs deny vs awaiting wire, `ask_user` awaiting payload, synthetic deny results, T2-before-post_tool, interface gated/awaiting split (text) |
-| **3 — Live + playground** | Live profile `allowSteering`, cycle machine, `executeTool`, live inject, playground/session inbox, react rename |
+| **3 — Live + studio** | Live profile `allowSteering`, cycle machine, `executeTool`, live inject, studio/session inbox, react rename |
 
 **Release rule:** do not publish a theorem version that exports stages while any
 slice above is missing. Branch work may land incrementally; **mainline release
@@ -533,5 +533,5 @@ slice 1 alone is the product.
 
 Text mid-turn inject is stages (`onStage`); steer barriers are deleted.
 Tool execute uses `preTool` + gate/deny/awaiting ([`stages.md`](stages.md) slice 2).
-Live `executeTool` / playground inbox / cycle stages / react+interface `gated*`
+Live `executeTool` / studio inbox / cycle stages / react+interface `gated*`
 (no `paused*` aliases) are on branch (slice 3).

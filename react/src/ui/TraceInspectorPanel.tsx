@@ -199,7 +199,7 @@ export function WithTrace({
 
 /**
  * What `records` say of guardrails, for a host that holds a trace of its own
- * (the playground's guardrail test): the checks' time and count, then each
+ * (the studio's guardrail test): the checks' time and count, then each
  * check, laid out as the trace lays them out. `head` leads it.
  */
 export function TraceGuardrailsView({

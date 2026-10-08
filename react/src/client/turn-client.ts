@@ -61,7 +61,7 @@ function generationFields(
   return { ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
 }
 
-/** A gated call as the client holds it, for a host without a session (the playground). */
+/** A gated call as the client holds it, for a host without a session (the studio). */
 export type HeldCall = {
   name: string;
   /** The model's input to the call. */

@@ -181,7 +181,7 @@ Deno.test('EXTRA_FIELDS covers registerTool keys shown in profile docs', () => {
     'auth.type',
     'auth.slot',
     'auth.onUnauthenticated',
-    'playground.authType',
+    'studio.authType',
   ];
   for (const key of registerToolKeys) {
     assertEquals(fieldMeta(key) != null, true, `missing EXTRA_FIELDS.${key}`);
@@ -190,10 +190,10 @@ Deno.test('EXTRA_FIELDS covers registerTool keys shown in profile docs', () => {
   assertEquals(toolType != null, true, 'missing registerTool.type');
   assertEquals(toolType?.options?.includes('http'), true);
   assertEquals(toolType?.options?.includes('mcp'), true);
-  const playgroundAuth = fieldMeta('playground.authType');
-  assertEquals(playgroundAuth != null, true, 'missing playground.authType');
-  assertEquals(playgroundAuth?.options?.includes('none'), true);
-  assertEquals(playgroundAuth?.options?.includes('bearer'), true);
+  const studioAuth = fieldMeta('studio.authType');
+  assertEquals(studioAuth != null, true, 'missing studio.authType');
+  assertEquals(studioAuth?.options?.includes('none'), true);
+  assertEquals(studioAuth?.options?.includes('bearer'), true);
 });
 
 Deno.test('live wires every load tier; host is a model-less profile type', () => {

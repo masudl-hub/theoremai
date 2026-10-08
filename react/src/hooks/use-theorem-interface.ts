@@ -18,7 +18,7 @@ export function useTheoremInterface(transport: TheoremTransport): TheoremInterfa
   useEffect(() => {
     const controller = new AbortController();
     // why: A new transport keeps the last interface up until it describes itself, so swapping one
-    // in (a recompiled playground profile) doesn't blank the chat to a spinner.
+    // in (a recompiled studio profile) doesn't blank the chat to a spinner.
     setState((previous) => (previous.status === 'ready' ? previous : LOADING));
     transport.describe(controller.signal).then(
       (iface) => {

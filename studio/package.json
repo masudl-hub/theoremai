@@ -1,11 +1,17 @@
 {
-  "name": "theorem-studio-page",
+  "name": "@theoremjs/studio",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
-  "scripts": {
-    "page": "vite"
+  "description": "Repo-private studio for theorem hosts: the profile draft, its tree and compiler, source export, and the travel concierge demo. Never published \u2014 demo product belongs to the host, not the kernel.",
+  "exports": {
+    ".": "./mod.ts",
+    "./runtime": "./runtime.ts",
+    "./browser": "./browser.ts",
+    "./surface": "./surface.ts"
   },
-  "devDependencies": {
-    "vite": "^8.0.16"
+  "peerDependencies": {
+    "@theoremjs/agents": "*",
+    "zod": "^4.6.5"
   }
 }

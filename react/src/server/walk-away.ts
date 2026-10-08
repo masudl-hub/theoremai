@@ -1,6 +1,6 @@
 /**
  * A message that walks away from the calls its reply paused on, the same on
- * every host (`createTheoremHandler`, the playground). The message's history
+ * every host (`createTheoremHandler`, the studio). The message's history
  * leaves exactly those calls open; each settles cancelled, its events stream
  * ahead of the reply, and the model reads each answer before the message.
  *

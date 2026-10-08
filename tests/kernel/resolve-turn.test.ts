@@ -209,7 +209,7 @@ Deno.test('the transport follows the model, streaming follows the profile, and c
   check(gen('gem').store, undefined, 'no store');
   check(
     resolved(turn('gem', { store: false })),
-    "Profile gem model 'm': store: false cannot apply to a binding with persistViaInteractionId: true — Google chains only from a stored interaction",
+    "Profile gem model 'm': store: false cannot apply to a binding with persistViaInteractionId: true — the provider chains only from a stored interaction",
     'a chaining turn keeps storage on',
   );
 });

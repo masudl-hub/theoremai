@@ -42,5 +42,15 @@ function providersWhere(holds: (facts: ProviderFacts) => boolean): string {
     .join(' or ');
 }
 
+/** The pairs a fact holds on, as a config error says them: `protocol is 'x' and provider is 'y'`. */
+function pairsWhere(on: (facts: ProviderFacts) => Protocol | undefined): string {
+  return (Object.keys(PROVIDER_FACTS) as Provider[])
+    .flatMap((provider) => {
+      const protocol = on(PROVIDER_FACTS[provider]);
+      return protocol ? [`protocol is '${protocol}' and provider is '${provider}'`] : [];
+    })
+    .join(', or ');
+}
+
 export type { ProviderFacts };
-export { PROVIDER_FACTS, providersWhere };
+export { PROVIDER_FACTS, pairsWhere, providersWhere };

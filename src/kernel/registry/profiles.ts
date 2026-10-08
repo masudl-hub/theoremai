@@ -11,7 +11,7 @@ import {
 } from '../../guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../../observability/types.ts';
-import { PROVIDER_FACTS, providersWhere } from '../../presets/facts.ts';
+import { PROVIDER_FACTS, pairsWhere, providersWhere } from '../../presets/facts.ts';
 import { assertLiveIngressConfigured } from '../engine/live-ingress.ts';
 import { schemaReaches } from '../engine/runner/schema-validation.ts';
 import { outOfScopeFields, profileTypesForField } from '../profile-scope.ts';
@@ -957,10 +957,10 @@ function assertCacheSpec(
   spec: NonNullable<ModelBinding['cache']>,
 ): void {
   const tag = `Profile ${profileId} model '${modelId}'`;
-  if (binding.provider !== 'openrouter') {
+  if (PROVIDER_FACTS[binding.provider].cacheOn !== binding.protocol) {
     throw new TheoremError(
       'config',
-      `${tag}: cache is only valid when protocol is 'openAi' and provider is 'openrouter'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `${tag}: cache is only valid when ${pairsWhere((facts) => facts.cacheOn)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (!(CACHE_MODES as readonly string[]).includes(spec.mode)) {
@@ -979,17 +979,17 @@ function assertInteractionsPersistence(
   modelId: ModelId,
   binding: ModelBinding,
 ): void {
-  if (binding.protocol === 'geminiInteractions') {
+  if (PROVIDER_FACTS[binding.provider].storesOn === binding.protocol) {
     if (binding.persistViaInteractionId === undefined) {
       throw new TheoremError(
         'config',
-        `Profile ${profileId} model '${modelId}': persistViaInteractionId is required on a 'geminiInteractions' binding — true chains on Google's stored interaction, false sends the host's history plus this turn's steps every call`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profileId} model '${modelId}': persistViaInteractionId is required on a '${binding.protocol}' binding — true chains on the provider's stored interaction, false sends the host's history plus this turn's steps every call`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     if (binding.persistViaInteractionId && binding.store === false) {
       throw new TheoremError(
         'config',
-        `Profile ${profileId} model '${modelId}': persistViaInteractionId: true needs store left on — Google chains only from a stored interaction`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profileId} model '${modelId}': persistViaInteractionId: true needs store left on — the provider chains only from a stored interaction`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     return;
@@ -1005,7 +1005,7 @@ function assertInteractionsPersistence(
         : 'persistViaInteractionId';
   throw new TheoremError(
     'config',
-    `Profile ${profileId} model '${modelId}': ${which} is only valid when protocol is 'geminiInteractions' and provider is 'google'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    `Profile ${profileId} model '${modelId}': ${which} is only valid when ${pairsWhere((facts) => facts.storesOn)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 

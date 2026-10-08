@@ -175,7 +175,7 @@ function assertTurnChaining(
   if (chains && store === false) {
     throw new TheoremError(
       'request',
-      `Profile ${profile.id} model '${model}': store: false cannot apply to a binding with persistViaInteractionId: true — Google chains only from a stored interaction`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profile.id} model '${model}': store: false cannot apply to a binding with persistViaInteractionId: true — the provider chains only from a stored interaction`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -184,7 +184,7 @@ function resolveTransport(profile: ModelProfile, binding: ModelBinding): Provide
   if (profile.type === 'live') {
     return 'geminiLive';
   }
-  if (binding.protocol === 'geminiInteractions' && binding.provider === 'google') {
+  if (binding.protocol === 'geminiInteractions') {
     return 'interactions';
   }
   return 'openAiCompat';

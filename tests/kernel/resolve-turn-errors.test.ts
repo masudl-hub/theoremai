@@ -173,7 +173,7 @@ Deno.test('chaining refusals are request errors that name the model', () => {
   );
   check(
     say(turn('chained', { store: false })),
-    "request: Profile chained model 'm': store: false cannot apply to a binding with persistViaInteractionId: true — Google chains only from a stored interaction",
+    "request: Profile chained model 'm': store: false cannot apply to a binding with persistViaInteractionId: true — the provider chains only from a stored interaction",
     'no store on a chain',
   );
   check(say(turn('chained', { previousInteractionId: 'i1' })), 'returned', 'a chain');

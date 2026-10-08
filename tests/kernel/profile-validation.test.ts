@@ -334,12 +334,12 @@ Deno.test('cache, persistence and server fields are only valid on the bindings t
     [
       'chaining left unset on gemini',
       textProfile(modelWith({ persistViaInteractionId: undefined })),
-      `${at}: persistViaInteractionId is required on a 'geminiInteractions' binding — true chains on Google's stored interaction, false sends the host's history plus this turn's steps every call`,
+      `${at}: persistViaInteractionId is required on a 'geminiInteractions' binding — true chains on the provider's stored interaction, false sends the host's history plus this turn's steps every call`,
     ],
     [
       'chaining with storage off',
       textProfile(modelWith({ persistViaInteractionId: true, store: false })),
-      `${at}: persistViaInteractionId: true needs store left on — Google chains only from a stored interaction`,
+      `${at}: persistViaInteractionId: true needs store left on — the provider chains only from a stored interaction`,
     ],
     [
       'store on openrouter',

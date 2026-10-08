@@ -11,8 +11,13 @@
     "./surface": "./surface.ts",
     "./ui/*": "./ui/*"
   },
+  "dependencies": {
+    "@tabler/icons-react": "^3.46.0"
+  },
   "peerDependencies": {
+    "@astryxdesign/core": "0.6.5",
     "@theoremjs/agents": "*",
+    "react": "^19.0.0",
     "zod": "^4.6.5"
   }
 }

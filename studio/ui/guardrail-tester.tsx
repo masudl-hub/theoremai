@@ -216,11 +216,17 @@ function Crossed({ answer }: { answer: GuardrailProbeAnswer }) {
 	);
 }
 
-function SectionTitle({ title, children }: { title: string; children?: ReactNode }) {
+/** The way out of a view: back to the tester, or closing it when it opened on its own. */
+function BackButton({ isClose, onBack }: { isClose: boolean; onBack: () => void }) {
 	return (
-		<HStack gap={2} align="center" justify="between">
-			<Text weight="semibold">{title}</Text>
-			{children}
+		<HStack>
+			<Button
+				label={isClose ? 'Close' : 'Back'}
+				variant="ghost"
+				size="sm"
+				icon={<Icon icon={isClose ? IconX : IconArrowLeft} />}
+				onClick={onBack}
+			/>
 		</HStack>
 	);
 }
@@ -341,15 +347,7 @@ function Examples({
 		<VStack padding={4}>
 			<VStack gap={4}>
 				<VStack gap={2}>
-					<HStack>
-						<Button
-							label={isClose ? 'Close' : 'Back'}
-							variant="ghost"
-							size="sm"
-							icon={<Icon icon={isClose ? IconX : IconArrowLeft} />}
-							onClick={onBack}
-						/>
-					</HStack>
+					<BackButton isClose={isClose} onBack={onBack} />
 					<Item
 						startContent={<Icon icon={IconShieldSearch} size="sm" color="secondary" />}
 						label={<Text weight="semibold">Examples</Text>}
@@ -437,7 +435,7 @@ function SentOverview({
 			</VStack>
 			{sent.answers && (
 				<VStack gap={2}>
-					<SectionTitle title="Boundaries" />
+					<Text weight="semibold">Boundaries</Text>
 					<VStack gap={0}>
 						{sent.answers.map((answer) => (
 							<AnswerRow
@@ -469,15 +467,7 @@ function AnswerHead({
 	return (
 		<VStack gap={4}>
 			<VStack gap={2}>
-				<HStack>
-					<Button
-						label={isClose ? 'Close' : 'Back'}
-						variant="ghost"
-						size="sm"
-						icon={<Icon icon={isClose ? IconX : IconArrowLeft} />}
-						onClick={onBack}
-					/>
-				</HStack>
+				<BackButton isClose={isClose} onBack={onBack} />
 				<Item
 					startContent={<Icon icon={BOUNDARY_ICONS[answer.boundary]} size="sm" color="secondary" />}
 					label={<Text weight="semibold">{label}</Text>}
@@ -607,7 +597,7 @@ export function GuardrailTester({
 			</VStack>
 			{sent.length > 0 && (
 				<VStack gap={2}>
-					<SectionTitle title="Sent" />
+					<Text weight="semibold">Sent</Text>
 					<VStack gap={0}>
 						{sent.map((entry) => (
 							<SentRow

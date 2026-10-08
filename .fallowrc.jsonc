@@ -28,6 +28,8 @@
     // Theorem Studio: the local server, the example project it opens, and the page.
     "studio/server/serve.ts",
     "studio/server/example.ts",
+    // The studio screen, published as `@theoremjs/studio/ui/*`; the website imports its files.
+    "studio/ui/**/*.{ts,tsx}",
     "react/src/studio/main.tsx"
   ],
   // @astryxdesign/cli is used only as the `astryx` binary in react's theme scripts; whether fallow
@@ -59,7 +61,14 @@
     "maxCognitive": 34,
     "maxCrap": 57,
     "maxUnitSize": 140,
-    "coverage": "coverage/coverage-final.json"
+    "coverage": "coverage/coverage-final.json",
+    "thresholdOverrides": [
+      {
+        "files": ["studio/ui/**"],
+        "maxCrap": 307,
+        "reason": "The studio screen moved here from the website with no coverage: its tests still run there and move with the page. Just above the current worst (facetEditor), so nothing new may exceed it."
+      }
+    ]
   },
   "rules": {
     "unused-files": "error",

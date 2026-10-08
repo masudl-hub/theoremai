@@ -35,7 +35,7 @@ function parseObject(
 }
 
 /** The test-connection request for `tool`. The server applies its own network policy. */
-export function probeRequest(
+function probeRequest(
 	tool: ToolSpecDraft,
 	sampleInput: string,
 	credential: string,

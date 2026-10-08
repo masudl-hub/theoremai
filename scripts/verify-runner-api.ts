@@ -123,9 +123,9 @@ function baseModelBinding(apiId: string): import('../src/kernel/types.ts').Model
     protocol: 'openAi',
     provider: 'openrouter',
     apiId,
-    efforts: { normal: 'none' },
     summaries: false,
-    maxOutputTokens: 300,
+    // The free route picks any model, and one that thinks needs room left to answer.
+    maxOutputTokens: 2000,
     temperature: 0.1,
     builtInTools: [],
   };
@@ -860,7 +860,7 @@ function compactionCases(): Case[] {
   ];
 }
 
-/** Local o200k estimate of a text-only history (no media, so no family rule applies). */
+/** Local heuristic estimate of a text-only history (no media, so no family rule applies). */
 async function estimateHistoryText(history: TurnHistoryMessage[]): Promise<number> {
   return (await (await loadTokenEstimator()).messages(history, undefined)).tokens;
 }
@@ -1018,7 +1018,7 @@ function tokenCases(): Case[] {
         return {
           passed: ok,
           detail: ok
-            ? `host historyTokens=30 overrode tiktoken estimate=${estimate}; signal fired`
+            ? `host historyTokens=30 overrode heuristic estimate=${estimate}; signal fired`
             : `Signal did not fire — host override may not be respected. signal=${JSON.stringify(
                 signal,
               )}`,

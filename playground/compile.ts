@@ -1071,10 +1071,32 @@ function compileUrlAllow(
   return Object.keys(spec).length ? spec : undefined;
 }
 
+/**
+ * What is wrong with the builder's patterns, as the builder reads it: a pattern by its place in
+ * the list, where the kernel names it by its path in the profile.
+ */
+function patternIssue(
+  drafts: readonly PatternDraft[],
+  patterns: readonly HostPattern[],
+): string | undefined {
+  for (const [index, draft] of drafts.entries()) {
+    const which = `Pattern ${index + 1}`;
+    if (!draft.name.trim()) return `${which} needs a name.`;
+    if (draft.kind === 'words') {
+      if (!cleanList(draft.words).length) return `${which} needs a word to match.`;
+    } else if (!draft.pattern) return `${which} needs a regular expression.`;
+  }
+  const problem = patternListProblem('', patterns);
+  if (problem === undefined) return undefined;
+  const at = /^\.patterns\[(\d+)\](?:\.(\w+))?:? (.*)$/s.exec(problem);
+  if (!at) return problem.replace(/^\.patterns/, 'This');
+  const [, index, setting, rest] = at;
+  return `Pattern ${Number(index) + 1}${setting ? `, ${setting}` : ''}: ${rest}`;
+}
+
 /** The builder's patterns as the kernel takes them; what is wrong with one is reported at `field`. */
 function compilePatterns(
   drafts: readonly PatternDraft[],
-  path: string,
   field: string,
   report: Report,
 ): HostPattern[] {
@@ -1084,7 +1106,7 @@ function compilePatterns(
     const flags = draft.flags.trim();
     return { name, pattern: draft.pattern, ...(flags ? { flags } : {}) };
   });
-  const problem = patternListProblem(path, patterns);
+  const problem = patternIssue(drafts, patterns);
   if (problem !== undefined) report('guardrails', problem, field);
   return patterns;
 }
@@ -1096,13 +1118,8 @@ function compileSource(
   report: Report,
 ): Pick<DetectorConfig, 'theorem' | 'patterns' | 'hint'> {
   if (!source || !DETECTOR_META[detector].patterns) return {};
-  const hint = compileHint(source.hint, `Detect.${detector}`, `sources.${detector}.hint`, report);
-  const patterns = compilePatterns(
-    source.patterns,
-    `Detect.${detector}`,
-    `sources.${detector}.patterns`,
-    report,
-  );
+  const hint = compileHint(source.hint, `sources.${detector}.hint`, report);
+  const patterns = compilePatterns(source.patterns, `sources.${detector}.patterns`, report);
   return {
     ...(source.theorem ? {} : { theorem: false }),
     ...(patterns.length ? { patterns } : {}),
@@ -1112,17 +1129,21 @@ function compileSource(
 }
 
 /** A hint as the kernel takes it, or `undefined` when the builder wrote none. */
-function compileHint(
-  draft: string,
-  path: string,
-  field: string,
-  report: Report,
-): string | undefined {
+function compileHint(draft: string, field: string, report: Report): string | undefined {
   const hint = draft.trim();
   if (!hint) return undefined;
-  const problem = hintProblem(`${path}.hint`, hint);
-  if (problem !== undefined) report('guardrails', problem, field);
+  const problem = hintProblem('The retry hint', hint);
+  if (problem !== undefined) report('guardrails', `${problem}.`, field);
   return hint;
+}
+
+/** What is wrong with the key of one of the builder's detectors; the kernel judges its form. */
+function ownKeyIssue(key: string, boundaries: readonly Boundary[]): string | undefined {
+  if (!key) return 'Give this detector a key, such as acme.codenames.';
+  const sound = { label: key, action: 'flag', find: PATTERNS_PENDING };
+  return detectProblem('Detect', { [key]: sound }, boundaries) === undefined
+    ? undefined
+    : 'A key is a namespace, a dot and a name, in lower case letters, digits and _, such as acme.codenames.';
 }
 
 /** The builder's own detectors, each read at the boundaries of the profile it sets above `ignore`. */
@@ -1139,13 +1160,21 @@ function compileOwnDetectors(
       continue;
     }
     const read = boundaries.filter((boundary) => detector.at[boundary] !== 'ignore');
-    const hint = compileHint(detector.hint, `Detect.${key}`, `own.${index}.hint`, report);
+    const hint = compileHint(detector.hint, `own.${index}.hint`, report);
+    const patterns = compilePatterns(detector.patterns, `own.${index}.patterns`, report);
+    const label = detector.label.trim();
+    const keyed = ownKeyIssue(key, boundaries);
+    if (keyed !== undefined) report('guardrails', keyed, 'own', index);
+    if (!label) report('guardrails', 'Give this detector a name.', `own.${index}.label`);
+    if (!read.length) {
+      report('guardrails', 'Pick what a match does. It is ignored now.', `own.${index}.at`);
+    }
+    // Each is said above in the builder's words, so the kernel is not asked to say it again.
+    if (keyed !== undefined || !label || !read.length) continue;
     spec[key] = {
-      label: detector.label.trim(),
-      ...(read.length
-        ? { at: Object.fromEntries(read.map((boundary) => [boundary, detector.at[boundary]])) }
-        : {}),
-      patterns: compilePatterns(detector.patterns, `Detect.${key}`, `own.${index}.patterns`, report),
+      label,
+      at: Object.fromEntries(read.map((boundary) => [boundary, detector.at[boundary]])),
+      patterns,
       ...(hint ? { hint } : {}),
     };
   }

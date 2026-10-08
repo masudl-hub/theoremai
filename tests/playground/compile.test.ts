@@ -18,6 +18,8 @@ import {
   modelBindingNodeId,
   modelBindingViolation,
   newModelBinding,
+  newOwnDetector,
+  newPattern,
   newToolSpec,
   OPENROUTER_PLAYGROUND_API_ID,
   type PlaygroundCompileResult,
@@ -544,6 +546,46 @@ Deno.test('the refusal line beside On block compiles into the profile lexicon', 
     egressRefusal: ' I cannot share that. ',
   };
   assertEquals(compiled(draft).profile.lexicon?.['egress.refusal'], 'I cannot share that.');
+});
+
+Deno.test('a blank detector of the builder says what it needs in plain words', () => {
+  const draft = includeFacet(createExampleDraft(), 'guardrails');
+  draft.guardrails = { ...draft.guardrails, own: [newOwnDetector()] };
+  const result = compilePlayground(draft);
+  if (result.ok) throw new Error('expected issues');
+  assertEquals(
+    result.issues.map(({ field, index, message }) => ({ field, index, message })),
+    [
+      { field: 'own.0.patterns', index: undefined, message: 'Pattern 1 needs a name.' },
+      {
+        field: 'own',
+        index: 0,
+        message: 'Give this detector a key, such as acme.codenames.',
+      },
+      { field: 'own.0.label', index: undefined, message: 'Give this detector a name.' },
+      {
+        field: 'own.0.at',
+        index: undefined,
+        message: 'Pick what a match does. It is ignored now.',
+      },
+    ],
+  );
+});
+
+Deno.test('a pattern that does not compile is named by its place in the list', () => {
+  const draft = includeFacet(createExampleDraft(), 'guardrails');
+  const own = {
+    ...newOwnDetector(),
+    key: 'Acme',
+    label: 'Codenames',
+    patterns: [{ ...newPattern(), kind: 'pattern' as const, name: 'code', pattern: '(' }],
+  };
+  draft.guardrails = { ...draft.guardrails, own: [own] };
+  const result = compilePlayground(draft);
+  if (result.ok) throw new Error('expected issues');
+  const messages = result.issues.map((issue) => issue.message);
+  assertStringIncludes(messages[0], 'Pattern 1: does not compile');
+  assertStringIncludes(messages[1], 'A key is a namespace, a dot and a name');
 });
 
 Deno.test('a canary bind note without {canary} is an issue on the guardrails node', () => {

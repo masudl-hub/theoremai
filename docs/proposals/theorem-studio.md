@@ -529,36 +529,44 @@ Checked on 8 Oct:
   needs two new things: the studio built as a page inside the package, and
   a small local server.
 
-**Built on 8 Oct (new files in `studio/`, not committed):**
+**Built on 8 Oct:**
 
+A first page of its own was built and thrown away the same day. Masud:
+"studio uses the exact same playground implementation." What stands:
+
+- The studio is the website's playground at `/studio`, on the site's dev
+  server only. Same page, tree, editor and preview. Nothing is copied.
 - `studio/serve.ts` starts the local server for one project. It takes the
-  project's setup module: the default export registers the tools and
-  profiles, and an optional `host` export gives the tools their context.
-- `studio/handler.ts` gives the page the tree, and serves every registered
-  tool through one host console. It answers this machine only, and refuses a
-  request from any other site.
-- `studio/example.ts` is a small project to open while Bonsai cannot load.
-- `react/src/studio/` is the page: the tree with a search, and the console
-  for the picked tool. The console is the package's `TheoremHost`, not a
-  copy. The list of the tree is new and plain; it goes when the playground's
-  tree moves into the package. Vite serves the page from `studio/` while it
-  is developed (`npm run page`, on 127.0.0.1:4984).
-- Two processes for now: the server and the page. One command comes later.
-- Checked by hand against the example: the tree lists, a read-only tool
-  runs, a tool that writes stops to ask, and a request from another site is
-  refused. The page has not been seen in a browser.
-- Not done: D8 for a tool whose own setting does not ask. Today a tool asks
-  only when the tool itself says so.
+  project's setup module: the default export registers the tools, profiles
+  and providers; an optional `host` export gives the tools their context.
+- `studio/handler.ts` hands the page the project as the playground's own
+  workspace: one agent per registered profile, and every registered tool in
+  the library. No new mapping was written. The playground already prints a
+  profile as source and reads that source back as a draft; the server uses
+  both. A profile that cannot be read is listed as a problem, not dropped
+  silently.
+- A run is the project's own code. The page names the profile by id and the
+  server runs the registered one. Host profiles run in the tool console;
+  text, image and speech profiles run in the chat. Decision and live
+  profiles show but do not run yet.
+- The server answers this machine only, and refuses a request from any site
+  but the dev site.
+- `studio/example.ts` is a small project to open while Bonsai is untried.
+- Seen in a browser against the example: the tree, the editor and a
+  read-only tool run with the project's real output.
 
-Claude's plan (a default, not agreed):
+Not done:
 
-1. **Slice 1a: the tree with a search, and the tool console.** Small. It
-   uses what the package ships, plus a new tree on screen.
-2. **Slice 1b: read each profile's settings.** This needs the editor's rows.
-   Move the editor from the website into the package, and make the website
-   import it. One editor, in one place. This is the large job.
-3. Do the move when no other work is open in those files. On 8 Oct they
-   hold uncommitted work.
+- Edits on the page are not written to the project. A note above the editor
+  says so.
+- The chat path is wired but untried: the example has no model profile.
+- Bonsai has not been opened.
+- A profile the page's own compile refuses shows no preview.
+- D8 for a tool whose own setting does not ask. Today a tool asks only when
+  the tool itself says so.
+- Two processes: the site's dev server and the studio server.
+- The thrown-away page's files (`react/src/studio/`, `studio/vite.config.ts`,
+  `studio/package.json`) are still in the tree, unused.
 
 ### 5.7 Fit and finish
 

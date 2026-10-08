@@ -5,8 +5,12 @@ import { createStudioHandler, type StudioDescription } from '../../studio/handle
 registerExample();
 
 const LISTEN = '127.0.0.1:4983';
-const PAGE = 'http://127.0.0.1:4984';
-const handler = createStudioHandler({ project: 'garden', pageOrigin: PAGE, listenHost: LISTEN });
+const PAGE = 'http://localhost:5174';
+const handler = createStudioHandler({
+  project: 'garden',
+  pageOrigins: [PAGE],
+  listenHost: LISTEN,
+});
 
 function request(path: string, init: RequestInit & { host?: string; origin?: string } = {}) {
   const headers = new Headers(init.headers);
@@ -17,7 +21,7 @@ function request(path: string, init: RequestInit & { host?: string; origin?: str
 
 async function call(name: string, input: unknown): Promise<Array<Record<string, unknown>>> {
   const response = await handler(
-    request('/api/studio/host/call', {
+    request('/api/studio/profiles/garden-desk/call', {
       method: 'POST',
       origin: PAGE,
       headers: { 'content-type': 'application/json' },
@@ -31,31 +35,42 @@ async function call(name: string, input: unknown): Promise<Array<Record<string, 
     .map((line) => JSON.parse(line));
 }
 
-Deno.test('the tree lists the project: each profile with its tools, each tool with who allows it', async () => {
+Deno.test('the project opens as a workspace: an agent per profile, and every registered tool in the library', async () => {
   const response = await handler(request('/api/studio'));
   assertEquals(response.status, 200);
   const studio: StudioDescription = await response.json();
   assertEquals(studio.project, 'garden');
-  const desk = studio.profiles.find((profile) => profile.id === 'garden-desk');
-  assertEquals(desk?.tools, ['list_plants', 'log_watering']);
-  const byName = new Map(studio.tools.map((tool) => [tool.name, tool]));
-  assertEquals(byName.get('list_plants')?.usedBy, ['garden-desk']);
-  assertEquals(byName.get('remove_plant')?.usedBy, []);
-  assertEquals(byName.get('remove_plant')?.access, 'destructive');
-  // The profile the studio serves tools through is not the project's.
+  assertEquals(studio.problems, []);
+  const { agents, toolSpecs } = studio.workspace;
   assertEquals(
-    studio.profiles.some((profile) => profile.id === 'theorem-studio'),
-    false,
+    agents.map((agent) => [agent.identity.agentId, agent.identity.profileType]),
+    [['garden-desk', 'host']],
   );
+  const named = (key: string) => toolSpecs.find((tool) => tool.key === key)?.toolName;
+  assertEquals(agents[0]?.tools.allow.map(named), ['list_plants', 'log_watering']);
+  // A tool no profile allows is still the project's.
+  const removal = toolSpecs.find((tool) => tool.toolName === 'remove_plant');
+  assertEquals(removal?.access, 'destructive');
 });
 
-Deno.test('a tool no profile allows is still callable from the console', async () => {
-  const response = await handler(request('/api/studio/host'));
+Deno.test("a tool keeps the project's own schema, with its choices and notes", async () => {
+  const studio: StudioDescription = await (await handler(request('/api/studio'))).json();
+  const list = studio.workspace.toolSpecs.find((tool) => tool.toolName === 'list_plants');
+  assertEquals(JSON.parse(list?.inputJson ?? '{}').properties.light, {
+    description: 'Only plants that want this light.',
+    type: 'string',
+    enum: ['sun', 'shade'],
+  });
+});
+
+Deno.test('a profile runs only the tools it allows', async () => {
+  const response = await handler(request('/api/studio/profiles/garden-desk'));
   const { interface: host } = await response.json();
   assertEquals(
-    host.tools.map((tool: { name: string }) => tool.name).includes('remove_plant'),
-    true,
+    host.tools.map((tool: { name: string }) => tool.name),
+    ['list_plants', 'log_watering'],
   );
+  assertEquals((await handler(request('/api/studio/profiles/nobody'))).status, 404);
 });
 
 Deno.test('a read-only tool runs and returns its output', async () => {

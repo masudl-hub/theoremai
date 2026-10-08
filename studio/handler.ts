@@ -1,7 +1,10 @@
 /**
- * The studio's local server: what a project registered, and its tools to call.
- * The page reads the tree from `GET <base>` and runs a tool through the host
- * console mounted at `<base>/host`.
+ * The studio's local server: a project's registered profiles and tools, as the
+ * playground's workspace, and each profile served to run.
+ *
+ * The page is the playground. It reads its workspace from `GET <base>` and runs
+ * the open profile at `<base>/profiles/<id>`, so a run is the project's own
+ * code, not the page's draft.
  *
  * First slice (docs/proposals/theorem-studio.md, section 4.4). It reads and
  * runs; it writes nothing to the project.
@@ -9,94 +12,134 @@
  * @module
  */
 
-import { listProfiles, listTools, type Profile } from '../mod.ts';
-import { createTheoremHostHandler } from '../react/src/server/mod.ts';
+import { listProfiles, listTools, type Profile, type ProviderHostOptions } from '../mod.ts';
+import { createBlankDraft, type PlaygroundDraft, type ToolSpecDraft } from '../playground/draft.ts';
+import { readPlaygroundSource } from '../playground/read-source.ts';
+import type { ToolRegistration } from '../playground/registrations.ts';
+import { playgroundSource } from '../playground/source.ts';
+import {
+  addAgent,
+  agentNodeId,
+  createBlankWorkspace,
+  type PlaygroundWorkspace,
+  workspaceFromDraft,
+} from '../playground/workspace.ts';
+import { createTheoremHandler, createTheoremHostHandler } from '../react/src/server/mod.ts';
 
-/** The profile the studio serves every tool through. A project never sees it. */
-const STUDIO_HOST_ID = 'theorem-studio';
 /** One builder on one machine: every request is the same session, so a gate's answer finds its call. */
 const STUDIO_SESSION = 'theorem-studio-local';
-const CALLABLE = ['function', 'http', 'mcp'] as const;
-/** How a tool the page can call reaches its work. */
-export type CallableKind = (typeof CALLABLE)[number];
 
-export type StudioProfileView = {
-  id: string;
-  type: Profile['type'];
-  handle?: string;
-  /** The tools the profile allows, in its order. */
-  tools: string[];
-};
+/** A profile the page could not show or run, and why. */
+export type StudioProblem = { profile: string; message: string };
 
-export type StudioToolView = {
-  name: string;
-  description: string;
-  kind: CallableKind;
-  access: string;
-  /** The profiles that allow the tool. */
-  usedBy: string[];
-};
-
-/** What the tree is drawn from. */
+/** What the page opens. */
 export type StudioDescription = {
   project: string;
-  profiles: StudioProfileView[];
-  tools: StudioToolView[];
+  /** The project as the playground holds one: an agent per profile, and the tools they share. */
+  workspace: PlaygroundWorkspace;
+  problems: StudioProblem[];
 };
 
 export type StudioHandlerOptions = {
   /** The project's name, shown at the top of the page. */
   project: string;
-  /** The one origin whose page may call the server. Any other origin is refused. */
-  pageOrigin: string;
+  /** The origins whose page may call the server. Any other origin is refused. */
+  pageOrigins: readonly string[];
   /** The `host:port` the server listens on. A request that names another host is refused. */
   listenHost: string;
   /** Opaque application context for tool handlers (`ctx.host`): the test user, a database client. */
   host?: (request: Request) => unknown;
+  /** How the project's registered providers find their keys. Default: as the project registered them. */
+  provider?: ProviderHostOptions;
   /** Where the handler is mounted. Default `/api/studio`. */
   base?: string;
 };
 
-function isCallable(type: string): type is CallableKind {
-  return (CALLABLE as readonly string[]).includes(type);
+type Serve = (request: Request) => Promise<Response>;
+
+/** The registered tools as the playground's printer takes them: their fields and JSON schemas. */
+function registeredTools(): ToolRegistration[] {
+  return listTools().map((tool) => {
+    const fields: Record<string, unknown> = { ...tool };
+    for (const own of ['handler', 'input', 'output']) delete fields[own];
+    return fields as ToolRegistration;
+  });
 }
 
-function allowedTools(profile: Profile): string[] {
-  const tools = (profile as { tools?: { allow?: readonly string[] } }).tools;
-  return [...(tools?.allow ?? [])];
+/** The tool with the project's own schemas: the printer's zod keeps a schema's shape, not its notes. */
+function withOwnSchemas(spec: ToolSpecDraft, tools: readonly ToolRegistration[]): ToolSpecDraft {
+  const own = tools.find((tool) => tool.name === spec.toolName);
+  if (!own || !('inputSchema' in own)) return spec;
+  return {
+    ...spec,
+    inputJson: JSON.stringify(own.inputSchema, null, 2),
+    outputJson: JSON.stringify(own.outputSchema, null, 2),
+  };
 }
 
-function handleOf(profile: Profile): string | undefined {
-  return (profile as { identity?: { handle?: string } }).identity?.handle;
-}
+type ProfileRead =
+  | { ok: true; draft: PlaygroundDraft; registered: ToolSpecDraft[] }
+  | { ok: false; message: string };
 
-/** The registered profiles and tools, as the tree shows them. */
-function describeStudio(project: string): StudioDescription {
-  const profiles = listProfiles()
-    .filter((profile) => profile.id !== STUDIO_HOST_ID)
-    .map((profile) => {
-      const handle = handleOf(profile);
-      return {
-        id: profile.id,
-        type: profile.type,
-        ...(handle ? { handle } : {}),
-        tools: allowedTools(profile),
-      };
+/** One registered profile as the draft the editor shows, read from the source the playground prints for it. */
+function readProfile(profile: Profile, tools: readonly ToolRegistration[]): ProfileRead {
+  try {
+    const source = playgroundSource({
+      agentId: profile.id,
+      profile: profile as Parameters<typeof playgroundSource>[0]['profile'],
+      customTools: [...tools],
     });
-  const tools = listTools().flatMap((tool) =>
-    isCallable(tool.type)
-      ? [
-          {
-            name: tool.name,
-            description: tool.description,
-            kind: tool.type,
-            access: tool.access,
-            usedBy: profiles.filter((p) => p.tools.includes(tool.name)).map((p) => p.id),
-          },
-        ]
-      : [],
-  );
-  return { project, profiles, tools };
+    const read = readPlaygroundSource(source, createBlankDraft());
+    if (!read.ok) return { ok: false, message: read.errors.map((error) => error.message).join(' ') };
+    const own = (spec: ToolSpecDraft) => withOwnSchemas(spec, tools);
+    return {
+      ok: true,
+      draft: { ...read.draft, toolSpecs: read.draft.toolSpecs.map(own) },
+      registered: read.registered.map(own),
+    };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** The tools of `registered` the workspace does not hold yet, by name. */
+function unlisted(workspace: PlaygroundWorkspace, registered: ToolSpecDraft[]): ToolSpecDraft[] {
+  const held = new Set(workspace.toolSpecs.map((tool) => tool.toolName));
+  return registered.filter((tool) => !held.has(tool.toolName));
+}
+
+/** The registered profiles and tools, as the workspace the playground opens. */
+function describeStudio(project: string): StudioDescription {
+  const tools = registeredTools();
+  const problems: StudioProblem[] = [];
+  let workspace: PlaygroundWorkspace | undefined;
+  let library: ToolSpecDraft[] = [];
+  for (const profile of listProfiles()) {
+    const read = readProfile(profile, tools);
+    if (!read.ok) {
+      problems.push({ profile: profile.id, message: read.message });
+      continue;
+    }
+    workspace = workspace ? addAgent(workspace, read.draft) : workspaceFromDraft(read.draft);
+    library = read.registered;
+  }
+  const opened = workspace ?? createBlankWorkspace();
+  // A tool no profile allows is still the project's: it joins the library.
+  const extra = unlisted(opened, library);
+  const first = opened.agents[0];
+  return {
+    project,
+    workspace: {
+      ...opened,
+      toolSpecs: [...opened.toolSpecs, ...extra],
+      starts: {
+        ...opened.starts,
+        tools: { ...opened.starts.tools, ...Object.fromEntries(extra.map((t) => [t.key, t])) },
+      },
+      ...(first ? { selected: agentNodeId(first.key), chatWith: first.key } : {}),
+    },
+    problems,
+  };
 }
 
 function json(status: number, body: unknown, headers: HeadersInit): Response {
@@ -115,38 +158,58 @@ function json(status: number, body: unknown, headers: HeadersInit): Response {
 function isForeign(request: Request, options: StudioHandlerOptions): boolean {
   if (request.headers.get('host') !== options.listenHost) return true;
   const origin = request.headers.get('origin');
-  return origin !== null && origin !== options.pageOrigin;
+  return origin !== null && !options.pageOrigins.includes(origin);
+}
+
+/** Each registered profile's own handler, by id; a profile that cannot be served is a problem. */
+function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[]): Map<string, Serve> {
+  const served = new Map<string, Serve>();
+  const shared = {
+    session: () => STUDIO_SESSION,
+    ...(options.host ? { host: options.host } : {}),
+  };
+  for (const profile of listProfiles()) {
+    if (profile.type === 'decision') continue;
+    try {
+      served.set(
+        profile.id,
+        profile.type === 'host'
+          ? createTheoremHostHandler({ profile, ...shared })
+          : createTheoremHandler({ profile, provider: options.provider ?? {}, ...shared }),
+      );
+    } catch (error) {
+      problems.push({
+        profile: profile.id,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return served;
 }
 
 /**
  * Serves the studio for the tools and profiles registered when it is called.
  * Register the project first.
  */
-export function createStudioHandler(
-  options: StudioHandlerOptions,
-): (request: Request) => Promise<Response> {
+export function createStudioHandler(options: StudioHandlerOptions): Serve {
   const base = (options.base ?? '/api/studio').replace(/\/$/, '');
-  const cors = {
-    'access-control-allow-origin': options.pageOrigin,
+  /** The page's own origin, echoed: a request from any other was refused before this. */
+  const corsFor = (request: Request): Record<string, string> => ({
+    'access-control-allow-origin': request.headers.get('origin') ?? options.pageOrigins[0] ?? '',
     'access-control-allow-headers': 'content-type',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     vary: 'origin',
-  };
-  const allow = listTools()
-    .filter((tool) => isCallable(tool.type))
-    .map((tool) => tool.name);
-  const console_ =
-    allow.length > 0
-      ? createTheoremHostHandler({
-          profile: { type: 'host', id: STUDIO_HOST_ID, tools: { allow } },
-          session: () => STUDIO_SESSION,
-          ...(options.host ? { host: options.host } : {}),
-        })
-      : undefined;
+  });
+  const description = describeStudio(options.project);
+  const served = profileHandlers(options, description.problems);
+  const prefix = `${base}/profiles/`;
 
-  const serveConsole = async (request: Request): Promise<Response> => {
-    if (!console_) return json(404, {}, cors);
-    const response = await console_(request);
+  const run = async (request: Request, path: string): Promise<Response> => {
+    const cors = corsFor(request);
+    const id = decodeURIComponent(path.slice(prefix.length).split('/')[0] ?? '');
+    const serve = served.get(id);
+    if (!serve) return json(404, {}, cors);
+    const response = await serve(request);
     const headers = new Headers(response.headers);
     for (const [key, value] of Object.entries(cors)) headers.set(key, value);
     return new Response(response.body, { status: response.status, headers });
@@ -154,12 +217,11 @@ export function createStudioHandler(
 
   return async (request) => {
     if (isForeign(request, options)) return json(403, {}, {});
+    const cors = corsFor(request);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     const path = new URL(request.url).pathname;
-    if (path === base && request.method === 'GET') {
-      return json(200, describeStudio(options.project), cors);
-    }
-    if (path === `${base}/host` || path.startsWith(`${base}/host/`)) return serveConsole(request);
+    if (path === base && request.method === 'GET') return json(200, description, cors);
+    if (path.startsWith(prefix)) return run(request, path);
     return json(404, {}, cors);
   };
 }

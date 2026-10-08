@@ -28,7 +28,14 @@
   ],
   // @astryxdesign/cli is used only as the `astryx` binary in react's theme scripts; whether fallow
   // sees it depends on react/node_modules/.bin existing, so it is declared here to keep runs stable.
-  "ignoreDependencies": ["@ast-grep/cli", "@theoremjs/agents", "@astryxdesign/cli"],
+  // @astryxdesign/core belongs to react/package.json; a test under tests/react may reach it through
+  // react/node_modules, which fallow reads as an import the root package does not list.
+  "ignoreDependencies": [
+    "@ast-grep/cli",
+    "@theoremjs/agents",
+    "@astryxdesign/cli",
+    "@astryxdesign/core"
+  ],
   // docs-truth loads the ownership graph via dynamic import (graph.mjs → _map.mjs).
   "dynamicallyLoaded": ["docs/_map.mjs"],
   "ignorePatterns": [

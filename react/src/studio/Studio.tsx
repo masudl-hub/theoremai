@@ -5,19 +5,19 @@ import { Text } from '@astryxdesign/core/Text';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Token } from '@astryxdesign/core/Token';
 import { IconSearch } from '@tabler/icons-react';
-import { createHostTransport, type HostTransport } from '@theoremjs/react/client';
-import { TheoremHost } from '@theoremjs/react/ui';
 import { useEffect, useMemo, useState } from 'react';
+import { createHostTransport, type HostTransport } from '../client/index.ts';
+import { TheoremHost } from '../ui/index.ts';
 import './studio.css';
 
 /**
  * Theorem Studio, first slice: a project's own tools and profiles, read from the
  * local server the builder started in that project, and the host console to run
- * a tool. Not yet served by the package: an app with a bundler mounts it as a route.
+ * a tool.
  */
 
-/** Where `studio/serve.ts` listens. Only this machine reaches it. */
-const SERVER = 'http://127.0.0.1:4983/api/studio';
+/** Where the studio's server is mounted, on the page's own origin. */
+const SERVER = '/api/studio';
 
 type StudioProfile = { id: string; type: string; handle?: string; tools: string[] };
 type StudioTool = {
@@ -34,11 +34,8 @@ type Loaded =
   | { state: 'unreachable' }
   | { state: 'ready'; studio: StudioDescription };
 
-const ACCESS_COLOR = {
-  'read-only': 'neutral',
-  'read-write': 'accent',
-  destructive: 'error',
-} as const;
+/** A tool that only reads carries no mark, as in the console. */
+const ACCESS_COLOR = { 'read-write': 'orange', destructive: 'red' } as const;
 
 function useStudio(): Loaded {
   const [loaded, setLoaded] = useState<Loaded>({ state: 'loading' });
@@ -136,10 +133,12 @@ function Tree(props: {
             isSelected={props.tool === tool.name}
             onClick={() => props.onTool(tool.name)}
             endContent={
-              <Token
-                label={tool.access}
-                color={ACCESS_COLOR[tool.access as keyof typeof ACCESS_COLOR] ?? 'neutral'}
-              />
+              tool.access in ACCESS_COLOR ? (
+                <Token
+                  label={tool.access}
+                  color={ACCESS_COLOR[tool.access as keyof typeof ACCESS_COLOR]}
+                />
+              ) : undefined
             }
           />
         ))}
@@ -159,7 +158,7 @@ export default function Studio() {
     return (
       <div className="studio-page">
         <Banner
-          variant="warning"
+          status="warning"
           title="The studio's server is not running"
           description="Start it in your project: deno run -A studio/serve.ts <setup-module>. Then reload this page."
         />

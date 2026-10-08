@@ -538,9 +538,12 @@ Checked on 8 Oct:
   tool through one host console. It answers this machine only, and refuses a
   request from any other site.
 - `studio/example.ts` is a small project to open while Bonsai cannot load.
-- `studio/page/` is the page: the tree with a search, and the console for
-  the picked tool. No bundler in the package yet, so an application with one
-  must mount it.
+- `react/src/studio/` is the page: the tree with a search, and the console
+  for the picked tool. The console is the package's `TheoremHost`, not a
+  copy. The list of the tree is new and plain; it goes when the playground's
+  tree moves into the package. Vite serves the page from `studio/` while it
+  is developed (`npm run page`, on 127.0.0.1:4984).
+- Two processes for now: the server and the page. One command comes later.
 - Checked by hand against the example: the tree lists, a read-only tool
   runs, a tool that writes stops to ask, and a request from another site is
   refused. The page has not been seen in a browser.

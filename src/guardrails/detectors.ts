@@ -328,7 +328,7 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
   tool_instructions: {
     label: 'Tool instructions',
     short: 'From tools',
-    doc: 'Tool output that instructs the agent. A match raises taint. Default Flag.',
+    doc: 'Tool output that instructs the agent. A match raises taint.',
     group: 'manipulation',
     defaults: returned('flag', 'ignore'),
     patterns: true,
@@ -362,14 +362,14 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
   ungiven_links: {
     label: 'Ungiven links',
     short: 'Links',
-    doc: 'A link to an address not given. Default Ignore: replies cite known pages.',
+    doc: 'A link to an address not given. Replies cite known pages, so it is not checked by default.',
     group: 'addresses',
     defaults: shown('ignore', 'ignore'),
     allow: 'urls',
   },
   tool_leak: {
     label: 'Tool leak',
-    doc: "The profile's tool and parameter names. Default Flag.",
+    doc: "The profile's tool and parameter names.",
     group: 'setup',
     defaults: shown('flag', 'flag'),
     allow: 'names',

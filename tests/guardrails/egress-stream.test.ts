@@ -9,7 +9,7 @@ import {
 } from '../../src/guardrails/egress-automata.ts';
 import { bundledEgressAutomata } from '../../src/guardrails/egress-compiler.ts';
 import { EGRESS_PATTERNS } from '../../src/guardrails/egress-patterns.ts';
-import { normalizedView, typoView, urlView } from '../../src/guardrails/egress-stream.ts';
+import { normalizedReplyView, typoView, urlView } from '../../src/guardrails/egress-stream.ts';
 import {
   decodeUrlRuns,
   injectionSpans,
@@ -364,7 +364,7 @@ Deno.test('the settled stream views are prefixes of the batch views, each update
         raw.fresh = reply.fresh;
       },
     };
-    const normalized = normalizedView(reply);
+    const normalized = normalizedReplyView(reply);
     const url = urlView(reply);
     const typo = typoView(raw);
     const typoNormalized = typoView(normalized);

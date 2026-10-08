@@ -1,3 +1,4 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import {
   bindCanary,
@@ -19,7 +20,7 @@ import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.
 import { givenUrlSets } from '../../src/guardrails/egress-urls.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
-import { registerProfile, resolveTurn, runTurn } from '../../src/kernel/default-scope.ts';
+import { registerProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
   type OutboundStreamControl,

@@ -18,10 +18,9 @@ function registerFuzzProfile(): void {
     identity: { handle: 'fuzz', system: 'Fuzz profile.' },
     models: {
       'fuzz-model': {
-        protocol: 'openAi',
         provider: 'openrouter',
         apiId: 'fuzz-model',
-        key: 'fuzz',
+        keySlot: 'fuzz',
         efforts: { normal: 'none' },
         summaries: false,
         maxOutputTokens: 4096,

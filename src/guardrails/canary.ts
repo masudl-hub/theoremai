@@ -1054,6 +1054,8 @@ function hostContentOf(event: ProviderEvent): unknown[] {
     case 'stage':
     case 'done':
     case 'response':
+    case 'provider_checkpoint':
+    case 'provider_warning':
       return [];
     default: {
       const unhandled: never = event;

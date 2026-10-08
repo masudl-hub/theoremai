@@ -365,7 +365,7 @@ const LOW_HI = 0xdfff;
  * or in the mapped text), an emoji run after a letter until the character
  * after it, a backslash until the character after it.
  */
-function normalizedView(reply: Grown): MappedView {
+function normalizedReplyView(reply: Grown): MappedView {
   let read = 0;
   /** Mapped text the emoji pass has not read: at most a trailing high surrogate. */
   let mapped = '';
@@ -867,7 +867,7 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
   if (detectors.includes('injection')) {
     forward ??= compile(FORWARD_AUTOMATON);
     backward ??= compile(REVERSED_AUTOMATON);
-    const normalized = normalizedView(reply);
+    const normalized = normalizedReplyView(reply);
     const injection = injectionPatterns();
     scans.push(
       scan(raw, backward, reversedPatterns()),
@@ -921,4 +921,4 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
 }
 
 export type { EgressStream, EgressStreamHit, EgressStreamOptions, Grown, MappedView, View };
-export { createEgressStream, normalizedView, typoView, urlView };
+export { createEgressStream, normalizedReplyView, typoView, urlView };

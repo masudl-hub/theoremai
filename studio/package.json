@@ -8,7 +8,8 @@
     ".": "./mod.ts",
     "./runtime": "./runtime.ts",
     "./browser": "./browser.ts",
-    "./surface": "./surface.ts"
+    "./surface": "./surface.ts",
+    "./ui/*": "./ui/*"
   },
   "peerDependencies": {
     "@theoremjs/agents": "*",

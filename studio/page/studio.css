@@ -1,0 +1,35 @@
+/* The studio fills its panel: the project's tree on the left, the picked
+   tool's console on the right. */
+.studio-page {
+  height: 100%;
+  min-height: 0;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.studio-columns {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.studio-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.studio-console {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+@media (width < 768px) {
+  .studio-columns {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+}

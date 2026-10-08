@@ -11,6 +11,7 @@ import {
   traceContent,
   traceJson,
 } from '../../observability/trace-span.ts';
+import { PROVIDER_FACTS } from '../../presets/facts.ts';
 import { historyMessageParts } from '../interaction-parts.ts';
 import type { ToolCallEvent, ToolCallRequest, ToolFailure } from '../tools/types.ts';
 import type {
@@ -455,16 +456,10 @@ function operationName(transport: ProviderTransport): 'chat' | 'generate_content
   return transport === 'openAiCompat' ? 'chat' : 'generate_content';
 }
 
-/** `gen_ai.provider.name`: semconv's name where one exists; a local server only when declared. */
+/** `gen_ai.provider.name`: the name the provider's preset states; else the binding's server, when declared. */
 function providerName(binding: ModelBinding | undefined): string | undefined {
-  switch (binding?.provider) {
-    case 'google':
-      return 'gcp.gemini';
-    case 'openrouter':
-      return 'openrouter';
-    default:
-      return binding?.server;
-  }
+  if (!binding) return undefined;
+  return PROVIDER_FACTS[binding.provider].traceName ?? binding.server;
 }
 
 function outputType(req: ProviderCompleteRequest, transport: ProviderTransport): string {

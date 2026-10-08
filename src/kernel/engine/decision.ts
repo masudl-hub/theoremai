@@ -9,6 +9,7 @@ import { resolveTraceWriter } from '../../observability/policy.ts';
 import { writeSpans } from '../../observability/trace.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
 import { type SpanHandle, startTrace, traceJson } from '../../observability/trace-span.ts';
+import { PROVIDER_FACTS } from '../../presets/facts.ts';
 import { decisionUsage } from '../../providers/decision/usage.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import { soleModelId } from '../registry/sole-model.ts';
@@ -25,8 +26,17 @@ import type {
 import { isRecord } from '../util/record.ts';
 import { endThrownSpan } from './turn-trace.ts';
 
-const TYPESAFE_SYSTEM_ONE_URL = 'https://api.typesafe.ai/v1/systemone';
-const OPENROUTER_DECISIONS_URL = 'https://openrouter.ai/api/alpha/decisions';
+/** Where the provider takes decision requests, as its preset states. */
+function decisionsUrl(provider: DecisionProfile['models'][string]['provider']): string {
+  const url = PROVIDER_FACTS[provider].decisionsUrl;
+  if (!url) {
+    throw new TheoremError(
+      'config',
+      `provider '${provider}' takes no decision requests`, // lexicon-exempt: developer contract error
+    );
+  }
+  return url;
+}
 
 const DECISION_ERROR_KINDS = {
   invalid_request: 'request',
@@ -351,8 +361,7 @@ async function sendDecisionRequest(args: {
 }): Promise<Response> {
   try {
     const response = await (args.options.fetch ?? globalThis.fetch)(
-      args.options.endpoint ??
-        (args.provider === 'openrouter' ? OPENROUTER_DECISIONS_URL : TYPESAFE_SYSTEM_ONE_URL),
+      args.options.endpoint ?? decisionsUrl(args.provider),
       {
         method: 'POST',
         headers: {

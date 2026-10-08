@@ -1,5 +1,6 @@
 import type { Boundary } from '../guardrails/boundaries.ts';
 import type { DetectAction, DetectMatrix, Detector, UrlDetector } from '../guardrails/detectors.ts';
+import type { GuardrailEvent } from '../guardrails/event-schemas.ts';
 import type { LexiconOverrides } from '../guardrails/lexicon.ts';
 import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
 import type { ProfileToolsSpec, ToolCallEdit, ToolPhaseEvent } from '../kernel/tools/types.ts';
@@ -174,6 +175,7 @@ export type TranscriptBlockKind =
   | 'grounding'
   | 'citation'
   | 'evidence'
+  | 'guardrail'
   | 'error'
   | 'turn-done';
 
@@ -275,6 +277,16 @@ export interface EvidenceBlock extends TranscriptBlockBase {
   evidence: ProviderEvidence;
 }
 
+/**
+ * A guardrail's decision on the turn: a flag, a redaction or a block. It names the rule and where
+ * it matched (`hits[].span`), never the matched text. It comes before the text it was read from.
+ * Theorem's own transcript shows nothing for it; a host reads it to show its own notice.
+ */
+export interface GuardrailBlock extends TranscriptBlockBase {
+  kind: 'guardrail';
+  guardrail: GuardrailEvent;
+}
+
 export interface ErrorBlock extends TranscriptBlockBase {
   kind: 'error';
   message: string;
@@ -307,6 +319,7 @@ export type TranscriptBlock =
   | GroundingBlock
   | CitationBlock
   | EvidenceBlock
+  | GuardrailBlock
   | ErrorBlock
   | TurnDoneBlock;
 

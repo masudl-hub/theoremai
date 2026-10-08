@@ -52,6 +52,16 @@ function appendText(
   });
 }
 
+/**
+ * A decision made while text streams goes ahead of that text's block, so the block stays last and
+ * the rest of the text joins it.
+ */
+function addGuardrailBlock(blocks: TranscriptBlock[], block: TranscriptBlock): void {
+  const last = blocks.at(-1);
+  const streaming = last?.kind === 'text' || last?.kind === 'thought';
+  blocks.splice(streaming ? blocks.length - 1 : blocks.length, 0, block);
+}
+
 /** One block per call, keyed by `callId`; each event folds into it (`applyToolEvent`). */
 function upsertToolBlock(blocks: TranscriptBlock[], tool: ToolCallEvent): void {
   const id = `tool-${tool.callId}`;
@@ -217,6 +227,13 @@ function foldTurnEvents(
           id: nextBlockId(idPrefix),
           kind: 'evidence',
           evidence: event.evidence,
+        });
+        break;
+      case 'guardrail':
+        addGuardrailBlock(blocks, {
+          id: nextBlockId(idPrefix),
+          kind: 'guardrail',
+          guardrail: event.guardrail,
         });
         break;
       case 'error':

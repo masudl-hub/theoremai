@@ -4,18 +4,13 @@ import { DETECT_ACTIONS, DETECTORS } from '../guardrails/detectors.ts';
 import { LEXICON_KEYS } from '../guardrails/lexicon.ts';
 import { BLOCKED_REPLY_ON_BLOCK } from '../guardrails/types.ts';
 import {
-  CACHE_MODES,
-  CACHE_TTLS,
   COMPACTION_METERS,
   COMPACTION_TIMINGS,
   CONTEXT_SENDERS,
   CONTINUE_STOP_KINDS,
-  KEY_SLOT_NAME,
   LIVE_ACTIVITY_HANDLINGS,
   LIVE_END_SENSITIVITIES,
   LIVE_START_SENSITIVITIES,
-  PROTOCOLS,
-  PROVIDERS,
   SPEECH_AUDIO_FORMATS,
   STREAM_MODES,
   THINKING_LEVELS,
@@ -25,8 +20,10 @@ import { traceAttributesSchema } from '../observability/trace-schema.ts';
 import type { ProfileInterface } from './types.ts';
 
 const modelBinding = z.object({
-  protocol: z.enum(PROTOCOLS),
-  provider: z.enum(PROVIDERS),
+  provider: z.string(),
+  keySlot: z.string().optional(),
+  fallbackKeySlot: z.string().optional(),
+  providerOptions: z.record(z.string(), z.json()).optional(),
   apiId: z.string(),
   efforts: z.record(z.string(), z.enum(THINKING_LEVELS)).optional(),
   defaultEffort: z.string().optional(),
@@ -35,8 +32,6 @@ const modelBinding = z.object({
   maxOutputTokens: z.number().optional(),
   temperature: z.number().optional(),
   builtInTools: z.array(z.string()).optional(),
-  key: z.string().regex(KEY_SLOT_NAME).optional(),
-  fallbackKey: z.string().regex(KEY_SLOT_NAME).optional(),
   compaction: z
     .object({
       maxTokens: z.number(),
@@ -47,10 +42,6 @@ const modelBinding = z.object({
       meter: z.enum(COMPACTION_METERS).optional(),
     })
     .optional(),
-  cache: z.object({ mode: z.enum(CACHE_MODES), ttl: z.enum(CACHE_TTLS).optional() }).optional(),
-  store: z.boolean().optional(),
-  persistViaInteractionId: z.boolean().optional(),
-  server: z.string().optional(),
 });
 
 const outputs = z.object({
@@ -142,13 +133,12 @@ const tools = z.object({
 });
 
 const common = {
+  providerContinuation: z.object({ onMismatch: z.enum(['rebuild', 'error']) }).optional(),
   id: z.string(),
   models: z.record(z.string(), modelBinding),
   defaultModel: z.string(),
   allowModelSelect: z.boolean().optional(),
   maxSteps: z.number().optional(),
-  key: z.string().regex(KEY_SLOT_NAME).optional(),
-  fallbackKey: z.string().regex(KEY_SLOT_NAME).optional(),
   lexicon: z.partialRecord(z.enum(LEXICON_KEYS), z.string()),
   guardrails: guardrails.optional(),
   observability: observability.optional(),

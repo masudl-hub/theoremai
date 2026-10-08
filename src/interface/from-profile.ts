@@ -134,7 +134,7 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
     defaultModel: projected.defaultModel,
     allowModelSelect: projected.allowModelSelect,
     maxSteps: projected.maxSteps,
-    key: projected.key,
+    providerContinuation: projected.providerContinuation,
     outputs,
     guardrails,
     observability,

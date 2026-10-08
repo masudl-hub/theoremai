@@ -34,11 +34,10 @@ export type AwaitingToolContext = {
   options?: string[];
 };
 
-/** The state a client keeps between turns: history, interaction id and permissions. */
+/** The state a client keeps between turns: portable history, native checkpoint and permissions. */
 export type InterfaceTurnSession = {
   history: TurnHistoryMessage[];
-  /** Google Interactions id for server-side continuity; cleared on branch. */
-  previousInteractionId?: string;
+  providerState?: import('../kernel/provider-contract.ts').ProviderCheckpoint;
   sessionPermissions: string[];
   /** Last turn `tokens.input` for compaction meter `timing: 'before'`. */
   inputTokens?: number;
@@ -136,16 +135,16 @@ function applyTurnEventsToSession(
   session: InterfaceTurnSession,
   events: readonly TurnEvent[],
 ): InterfaceTurnSession {
-  let previousInteractionId = session.previousInteractionId;
+  let providerState = session.providerState;
   let inputTokens = session.inputTokens;
   let historyTokens = session.historyTokens;
   let toolSnapshot = session.toolSnapshot;
   let promotedToolIds = session.promotedToolIds;
 
   for (const event of events) {
-    if ((event.type === 'tokens' || event.type === 'done') && event.interactionId) {
-      previousInteractionId = event.interactionId;
-    }
+    if (event.type === 'provider_checkpoint') providerState = event.providerState;
+    if (event.type === 'done' && event.providerState) providerState = event.providerState;
+    if (event.type === 'provider_warning') providerState = undefined;
     // why: A call's own input size, not the turn's sum (`done.tokens`).
     if (event.type === 'tokens' && event.tokens.input) {
       inputTokens = event.tokens.input;
@@ -167,7 +166,7 @@ function applyTurnEventsToSession(
   const gated = gatedToolFromEvents(events);
   return {
     ...session,
-    previousInteractionId,
+    providerState,
     inputTokens,
     historyTokens,
     gatedTool: gated,
@@ -177,7 +176,7 @@ function applyTurnEventsToSession(
   };
 }
 
-/** Drops `previousInteractionId` so the next turn sends the rebuilt history, not a stale handle. */
+/** Drops native provider state so the next turn sends the rebuilt history, not a stale handle. */
 function branchInterfaceTurnSession(
   session: InterfaceTurnSession,
   blocks: readonly TranscriptBlock[],

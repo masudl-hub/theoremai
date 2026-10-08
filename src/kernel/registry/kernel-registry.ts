@@ -1,9 +1,11 @@
+import { createProviderRegistry, type ProviderRegistry } from '../provider-contract.ts';
 import { createToolRegistry, type ToolRegistry } from '../tools/registry.ts';
 import { createProfileRegistry, type ProfileRegistry } from './profiles.ts';
 import { createSchemaRegistry, type SchemaRegistry } from './schemas.ts';
 
 /** Every run takes one explicitly; nothing reads a registry it was not handed. */
 interface KernelRegistry {
+  readonly providers: ProviderRegistry;
   readonly tools: ToolRegistry;
   readonly profiles: ProfileRegistry;
   readonly schemas: SchemaRegistry;
@@ -15,8 +17,9 @@ function createKernelRegistry(): KernelRegistry {
   // the other. Tools look profiles up only when one registers, after both exist.
   const tools = createToolRegistry((id) => profiles.find(id));
   const schemas = createSchemaRegistry();
-  const profiles = createProfileRegistry(tools, schemas);
-  return { tools, profiles, schemas };
+  const providers = createProviderRegistry();
+  const profiles = createProfileRegistry(tools, schemas, providers);
+  return { tools, profiles, schemas, providers };
 }
 
 export type { KernelRegistry };

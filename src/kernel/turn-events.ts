@@ -1,3 +1,9 @@
+import {
+  type ProviderCheckpoint,
+  type ProviderWarning,
+  providerCheckpointSchema,
+  providerWarningSchema,
+} from './provider-contract.ts';
 // invariant: Each type is paired with a zod schema checked against it (`Equals`), so a field in one and
 // not the other fails the build. Schemas are plain `z.object`, never `.strict()`: an unlisted
 // field is dropped. An unmapped provider step is `evidence` of kind `provider_step`.
@@ -19,7 +25,6 @@ import {
   type CompactionOutcome,
   MEDIA_INPUT_KIND_VALUES,
   type MediaInputKind,
-  PROVIDERS,
   type Provider,
   STAGE_APPLY_WARNING_CODES,
   type StageApplyWarningCode,
@@ -129,7 +134,11 @@ export interface TurnStop {
   kind: TurnStopKind;
   native?: string;
 }
-const turnStop = z.object({ kind: z.enum(TURN_STOP_KINDS), native: z.string().optional() });
+export const turnStopSchema = z.object({
+  kind: z.enum(TURN_STOP_KINDS),
+  native: z.string().optional(),
+});
+const turnStop = turnStopSchema;
 true satisfies Equals<z.infer<typeof turnStop>, TurnStop>;
 
 const TURN_TOKEN_SIDES = ['input', 'output'] as const;
@@ -287,7 +296,7 @@ export interface EvidenceBase {
   partial?: boolean;
 }
 const evidenceBase = {
-  provider: z.enum(PROVIDERS),
+  provider: z.string().min(1),
   raw: jsonObject.optional(),
   partial: z.boolean().optional(),
 };
@@ -808,6 +817,7 @@ const TOOL_SNAPSHOT_STOP_KINDS = [
 ] as const satisfies readonly ToolSnapshotStopKind[];
 
 export interface DoneBase {
+  providerState?: ProviderCheckpoint;
   /** The turn's summed usage (`sumTokens` over its `tokens` events). */
   tokens?: TurnTokens;
   /** The turn's root span as a W3C `traceparent`, for a later request's `links`. */
@@ -830,6 +840,8 @@ export type DoneEvent = DoneBase &
 
 /** Every event a host receives from `runTurn`, `invokeTool` or a live session. */
 export type TurnEvent =
+  | { type: 'provider_warning'; warning: ProviderWarning }
+  | { type: 'provider_checkpoint'; providerState: ProviderCheckpoint }
   | { type: 'text'; text: string }
   | { type: 'thought'; text: string }
   /** The profile's structured-output schema validates `structured`. */
@@ -900,6 +912,7 @@ export type TurnEventOf<K extends TurnEventType> = Extract<TurnEvent, { type: K 
  * reports the turn's own `done`; a live session forwards it (`turnDoneOf`).
  */
 export interface CallDone {
+  providerState?: ProviderCheckpoint;
   stop: TurnStop;
   interactionId?: string;
   /** A user utterance interrupted the live response (barge-in). */
@@ -943,6 +956,7 @@ export function turnDoneOf(
 const snapshotStopKind = z.enum(TOOL_SNAPSHOT_STOP_KINDS);
 const otherStopKind = z.enum(TURN_STOP_KINDS).exclude(TOOL_SNAPSHOT_STOP_KINDS);
 const doneBase = {
+  providerState: providerCheckpointSchema.optional(),
   type: z.literal('done'),
   tokens: turnTokens.optional(),
   traceparent: z.string().optional(),
@@ -965,6 +979,14 @@ const doneEvent = z.union([
 
 /** Each kind's own schema: a wire parser checks a line against its kind's alone, so a failure names the field that broke. */
 const TURN_EVENTS = {
+  provider_checkpoint: z.object({
+    type: z.literal('provider_checkpoint'),
+    providerState: providerCheckpointSchema,
+  }),
+  provider_warning: z.object({
+    type: z.literal('provider_warning'),
+    warning: providerWarningSchema,
+  }),
   text: z.object({ type: z.literal('text'), text: z.string() }),
   thought: z.object({ type: z.literal('thought'), text: z.string() }),
   structured: z.object({ type: z.literal('structured'), structured: z.unknown() }),
@@ -1042,6 +1064,8 @@ const TURN_EVENTS = {
 
 const turnEvent = z.union([
   z.discriminatedUnion('type', [
+    TURN_EVENTS.provider_warning,
+    TURN_EVENTS.provider_checkpoint,
     TURN_EVENTS.text,
     TURN_EVENTS.thought,
     TURN_EVENTS.structured,

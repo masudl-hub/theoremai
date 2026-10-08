@@ -110,9 +110,8 @@ Deno.test('MEDIA_INPUT_KINDS values are MediaInputKind', () => {
 });
 
 Deno.test('PROFILE_FIELDS protocol / accept / text match live unions', () => {
-  const protocol = fieldMeta('models.*.protocol');
-  assertEquals(protocol?.options, PROTOCOLS);
-  assertEquals(protocol?.type.includes('geminiInteractions'), true);
+  assertEquals(fieldMeta('models.*.protocol'), undefined);
+  assertEquals(fieldMeta('models.*.provider')?.type, 'string');
 
   const handle = fieldMeta('identity.handle');
   assertEquals(handle?.type, 'string');

@@ -1,10 +1,12 @@
+import { createTestKernelScope as createKernelScope } from '../fixtures/provider-scope.ts';
+import { runScopedTurn, runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
-import { hasProfile, hasTool, runTurn } from '../../src/kernel/default-scope.ts';
+import { hasProfile, hasTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertRejects } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import { createKernelScope, type KernelScope } from '../../src/kernel/scope.ts';
+import type { KernelScope } from '../../src/kernel/scope.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
@@ -87,10 +89,10 @@ Deno.test('a scope runs turns on its own registry, never the default one', async
   const seenB: ProviderCompleteRequest[] = [];
 
   await Array.fromAsync(
-    a.runTurn({ profile: PROFILE, input: { text: 'hi' } }, recordingProvider(seenA)),
+    runScopedTurn(a, { profile: PROFILE, input: { text: 'hi' } }, recordingProvider(seenA)),
   );
   await Array.fromAsync(
-    b.runTurn({ profile: PROFILE, input: { text: 'hi' } }, recordingProvider(seenB)),
+    runScopedTurn(b, { profile: PROFILE, input: { text: 'hi' } }, recordingProvider(seenB)),
   );
 
   assertEquals(seenA[0]?.system.includes('system alpha'), true);

@@ -7,6 +7,7 @@ import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { replyIsJudged } from '../../../guardrails/progressive-yield.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
 import type { TraceAttributes } from '../../../observability/trace-span.ts';
+import { historyToolCalls } from '../../interaction-parts.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
@@ -24,7 +25,6 @@ import type { ModelToolResult, ToolCallEvent, ToolFailure } from '../../tools/ty
 import type {
   ModelProvider,
   Profile,
-  ProviderEvent,
   ResolvedGeneration,
   TurnEvent,
   TurnHistoryMessage,
@@ -47,24 +47,7 @@ function generationForProviderStep(
   generation: ResolvedGeneration,
   state: StepExecutionState,
 ): ResolvedGeneration {
-  if (state.interactionsContinuation) {
-    const { previousInteractionId, messages } = state.interactionsContinuation;
-    state.interactionsContinuation = undefined;
-    return {
-      ...generation,
-      history: [],
-      input: [],
-      previousInteractionId,
-      continuation: [...messages],
-    };
-  }
   return { ...generation, history: state.currentHistory };
-}
-
-function captureInteractionId(event: ProviderEvent, state: StepExecutionState): void {
-  if ((event.type === 'tokens' || event.type === 'done') && event.interactionId) {
-    state.lastInteractionId = event.interactionId;
-  }
 }
 
 /**
@@ -104,13 +87,10 @@ function startProviderCall(
   system: BoundSystem,
   state: StepExecutionState,
 ) {
-  const continuation = state.interactionsContinuation;
-  const usage = startCallUsage(
-    system.text,
-    continuation && state.lastCall
-      ? { previous: state.lastCall, continuation: continuation.messages }
-      : { history: state.currentHistory, input: generation.input },
-  );
+  const usage = startCallUsage(system.text, {
+    history: state.currentHistory,
+    input: generation.input,
+  });
   state.lastCall = usage;
   const genForStep = generationForProviderStep(generation, state);
   const request = providerCompleteRequest(state.tools, genForStep, system.text);
@@ -172,7 +152,6 @@ async function* executeAutonomousStep(
       canaryGiven: state.canaryGiven,
       ...(state.ownTools ? { ownTools: state.ownTools } : {}),
     })) {
-      captureInteractionId(event, state);
       if (observeCallEvent(usage, event)) {
         continue;
       }
@@ -183,6 +162,7 @@ async function* executeAutonomousStep(
         latestStructured = event.structured;
       }
       if (event.type === 'done') {
+        state.providerState = event.providerState;
         stop = event.stop;
         state.lastStop = event.stop;
         continue;
@@ -243,56 +223,14 @@ function toolResultMessage(call: ModelCall, result: ModelToolResult): TurnHistor
  * Providers read a step's calls together, then their results: Google rejects
  * a call replayed after an earlier call's result (probe 25/09/2026).
  */
-function stepCallsMessage(calls: readonly ModelCall[]): TurnHistoryMessage {
-  return {
-    role: 'assistant',
-    tool_calls: calls.map((call) => ({
-      id: call.callId,
-      type: 'function',
-      function: { name: call.name, arguments: JSON.stringify(call.arguments) },
-      ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}),
-    })),
-  };
-}
 
-/**
- * The stored interaction a step's results chain on, or `undefined` when they go
- * in history: the turn does not chain, or no interaction id arrived to chain on.
- */
-function chainedInteractionId(
-  generation: ResolvedGeneration,
-  state: StepExecutionState,
-): string | undefined {
-  return generation.chains
-    ? (state.lastInteractionId ?? generation.previousInteractionId)
-    : undefined;
-}
-
-function queueInteractionsToolContinuation(
-  state: StepExecutionState,
-  message: TurnHistoryMessage,
-  previousInteractionId: string,
-): void {
-  if (state.interactionsContinuation?.previousInteractionId === previousInteractionId) {
-    state.interactionsContinuation.messages.push(message);
-    return;
-  }
-  state.interactionsContinuation = { previousInteractionId, messages: [message] };
-}
-
-/** A call's result: chained on the stored interaction, else after the step's calls in history. */
+/** Record the approved read-back in portable history. */
 function recordToolModelResult(
   state: StepExecutionState,
   call: ModelCall,
   modelResult: ModelToolResult,
-  chainOn: string | undefined,
 ): void {
-  const message = toolResultMessage(call, modelResult);
-  if (chainOn) {
-    queueInteractionsToolContinuation(state, message, chainOn);
-    return;
-  }
-  state.currentHistory.push(message);
+  state.currentHistory.push(toolResultMessage(call, modelResult));
 }
 
 async function* forwardToolEvents(
@@ -321,7 +259,6 @@ function recordProviderToolFailure(
   state: StepExecutionState,
   call: ModelCall,
   failure: ToolFailure,
-  chainOn: string | undefined,
 ): TurnEvent {
   const event = failureEvent(call, failure);
   state.allEmittedEvents.push(event);
@@ -336,7 +273,7 @@ function recordProviderToolFailure(
     result: { text: formatToolResult(modelResult) },
     failure,
   });
-  recordToolModelResult(state, call, modelResult, chainOn);
+  recordToolModelResult(state, call, modelResult);
   return event;
 }
 
@@ -344,7 +281,6 @@ function* applyToolSettlement(
   settlement: ToolExecuteSettlement,
   state: StepExecutionState,
   call: ModelCall,
-  chainOn: string | undefined,
 ): Generator<TurnEvent, 'continue' | 'stop_cancelled' | 'gated'> {
   if (settlement.aborted) {
     state.lastStop = stageAbortStop(settlement.aborted);
@@ -366,7 +302,7 @@ function* applyToolSettlement(
     );
   }
   if (!settlement.modelResult) return 'continue';
-  recordToolModelResult(state, call, settlement.modelResult, chainOn);
+  recordToolModelResult(state, call, settlement.modelResult);
   if (settlement.pendingInject) {
     yield* applyStageInjects(state, 'post_tool', settlement.pendingInject, {
       callId: call.callId,
@@ -389,9 +325,8 @@ async function* handleModelCalls(
   system: BoundSystem,
   { onStage, signal, credentials, resolveHost }: Partial<TurnRequest> = {},
 ): AsyncGenerator<TurnEvent, boolean> {
-  const chainOn = chainedInteractionId(generation, state);
-  if (!chainOn && calls.length > 0) {
-    state.currentHistory.push(stepCallsMessage(calls));
+  if (calls.length > 0) {
+    state.currentHistory.push(historyToolCalls(calls));
   }
   const stepId = crypto.randomUUID();
   const leakScope = {
@@ -422,7 +357,7 @@ async function* handleModelCalls(
     yield announce(call);
 
     if (call.failure) {
-      yield recordProviderToolFailure(state, call, call.failure, chainOn);
+      yield recordProviderToolFailure(state, call, call.failure);
       continue;
     }
 
@@ -463,7 +398,7 @@ async function* handleModelCalls(
       state,
     );
 
-    const outcome = yield* applyToolSettlement(settlement, state, call, chainOn);
+    const outcome = yield* applyToolSettlement(settlement, state, call);
     if (outcome === 'stop_cancelled') return false;
     if (outcome === 'gated') gated = true;
   }

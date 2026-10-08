@@ -474,12 +474,12 @@ Deno.test('provider POSTs Interactions SSE on the resolved key slot', async () =
     { type: 'thought', text: 'hmm' },
     { type: 'text', text: '{"message":"ok"}' },
     { type: 'response', response: { id: 'v1_int' } },
+    { type: 'structured', structured: { message: 'ok' } },
     {
       type: 'done',
       stop: { kind: 'completed', native: 'completed' },
       interactionId: 'v1_int',
     },
-    { type: 'structured', structured: { message: 'ok' } },
   ]);
 });
 
@@ -1371,12 +1371,12 @@ Deno.test('an image profile that returns no image fails, streamed and buffered',
       ),
     imageRequest(),
   );
-  check(streamed, ['text', 'response', 'done', wanted], 'streamed');
+  check(streamed, ['text', 'response', wanted, 'done'], 'streamed');
   const buffered = await summaryOf(
     () => Promise.resolve(Response.json({ id: 'v1_i', status: 'completed', steps: [] })),
     { ...imageRequest(), stream: false },
   );
-  check(buffered, ['response', 'done', wanted], 'buffered');
+  check(buffered, ['response', wanted, 'done'], 'buffered');
 });
 
 Deno.test('an empty response body is named; rows after [DONE] are ignored', async () => {

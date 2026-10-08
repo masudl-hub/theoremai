@@ -1,85 +1,47 @@
-import type { ProviderCompleteRequest } from '../../../src/kernel/types.ts';
-import { createProvider } from '../../../src/providers/create-provider.ts';
-import { stubProfile } from '../profiles.ts';
-
-function baseProfile(
-  model: {
-    protocol: 'geminiInteractions' | 'openAi';
-    provider: 'google' | 'openrouter' | 'local';
-  },
-  speech: boolean,
-) {
-  return stubProfile({
-    protocol: model.protocol,
-    provider: model.provider,
-    role: speech ? 'speech' : 'text',
-    id: 'probe-profile',
-  });
-}
-
-function localCompleteRequest(): ProviderCompleteRequest {
-  return {
-    model: 'local-model',
-    apiId: 'llama3.2',
-    thinking: 'none',
-    summaries: undefined,
-    maxOutputTokens: 256,
-    temperature: 0.2,
-    builtins: [],
-    system: 'Be brief.',
-    input: [{ type: 'text', text: 'Hello' }],
-    structured: null,
-    image: null,
-  };
-}
-
-function sseResponse(chunks: string[]): Response {
-  const body = new ReadableStream({
-    start(controller) {
-      for (const chunk of chunks) {
-        controller.enqueue(new TextEncoder().encode(chunk));
-      }
-      controller.close();
-    },
-  });
-  return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
-}
+import type { ProviderTurnRequest } from '../../../src/providers/mod.ts';
+import {
+  defineProvider,
+  googleAdapter,
+  openAIChat,
+  openRouterAdapter,
+} from '../../../src/providers/mod.ts';
 
 console.log('PHASE:providers-created');
-
-createProvider(baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, false), {
-  vault: { main: 'a', backup: 'b', extra: 'c', spare: 'p' },
+defineProvider({ id: 'google', connection: {}, adapter: googleAdapter() });
+defineProvider({ id: 'router', connection: {}, adapter: openRouterAdapter() });
+const local = defineProvider({
+  id: 'local',
+  connection: { baseURL: 'http://127.0.0.1:8080' },
+  adapter: openAIChat(),
 });
-createProvider(baseProfile({ protocol: 'openAi', provider: 'openrouter' }, false), {
-  vault: { slot_a: 'key' },
-});
-createProvider(baseProfile({ protocol: 'openAi', provider: 'openrouter' }, true), {
-  vault: { slot_a: 'key' },
-});
-createProvider(baseProfile({ protocol: 'openAi', provider: 'local' }, false), {
-  local: { baseUrl: 'http://127.0.0.1:8080' },
-});
-
 console.log('PHASE:before-complete');
-
-const local = createProvider(baseProfile({ protocol: 'openAi', provider: 'local' }, false), {
-  local: {
-    baseUrl: 'http://127.0.0.1:8080',
-    fetch: () =>
-      Promise.resolve(
-        sseResponse([
-          'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n',
-          'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
-          'data: [DONE]\n\n',
-        ]),
+const operations = await local.adapter.create({
+  connection: local.connection,
+  providerOptions: {},
+  apiId: 'local',
+  resolveCredential: () => Promise.resolve(undefined),
+  fetch: () =>
+    Promise.resolve(
+      new Response(
+        'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+        { headers: { 'Content-Type': 'text/event-stream' } },
       ),
-  },
+    ),
+  wait: () => Promise.resolve(),
+  tapUpstream() {},
 });
-
 console.log('PHASE:after-local-complete');
-
-for await (const _ of local.complete(localCompleteRequest())) {
-  // drain one local turn to force the lazy adapter import
+const request: ProviderTurnRequest = {
+  model: 'local',
+  apiId: 'local',
+  system: '',
+  input: [{ type: 'text', text: 'hi' }],
+  builtins: [],
+  structured: null,
+  image: null,
+};
+if (!operations.complete) throw new Error('Missing completion operation');
+for await (const event of operations.complete(request)) {
+  if (event.type === 'text') console.log('LOCAL_TEXT');
 }
-
 console.log('PROBE_DONE');

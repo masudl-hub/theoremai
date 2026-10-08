@@ -1,11 +1,10 @@
 import '../../../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../../../src/guardrails/error.ts';
-import { getProfile, registerProfile, resolveTurn } from '../../../../src/kernel/default-scope.ts';
+import { registerProfile, resolveTurn } from '../../../../src/kernel/default-scope.ts';
 import { providerBuiltins } from '../../../../src/kernel/registry/provider-request.ts';
 import { defaultKernelScope } from '../../../../src/kernel/scope.ts';
 import type { KeyVault } from '../../../../src/kernel/types.ts';
-import { createProvider } from '../../../../src/providers/create-provider.ts';
 import {
   camelToSnake,
   toInteractionsBody,
@@ -218,7 +217,7 @@ Deno.test('Interactions speech profile errors when model emits text only (no fak
   );
   assertEquals(
     events.map((event) => event.type),
-    ['text', 'response', 'done', 'error'],
+    ['text', 'response', 'error', 'done'],
   );
   assertEquals(firstOf(events, 'text')?.text, 'hello');
   assertEquals(firstOf(events, 'error')?.errorKind, 'bad_response');
@@ -275,19 +274,4 @@ Deno.test('Interactions speech profile carries mp3 to the provider, which refuse
   });
   const { generation } = resolveTurn({ profile: 'bad-speech', input: { text: 'hi' } });
   assertEquals(generation.speech?.format, 'mp3');
-});
-
-Deno.test('createProvider routes speech-role Interactions to the same adapter', () => {
-  registerProfile({
-    id: 'speech-test',
-    type: 'speech',
-    identity: { handle: 'speech' },
-    ...geminiModels('gemini31FlashTts'),
-    speech: { voice: 'Kore', format: 'pcm' },
-  });
-  const profile = getProfile('speech-test');
-  const provider = createProvider(profile, {
-    vault: vault,
-  });
-  assertEquals(typeof provider.complete, 'function');
 });

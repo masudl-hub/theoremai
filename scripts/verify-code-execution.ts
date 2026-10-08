@@ -1,10 +1,8 @@
 #!/usr/bin/env -S deno run --allow-net --allow-read --allow-sys --allow-env
-
 /**
  * The CLI matrix plus asserted cases its prompt does not guarantee (error, multi-exec, media,
  * batch, structured pairing).
  */
-
 import { executeSingleTest, testProfileCommand } from '../src/cli/commands/test.ts';
 import { synthesizeMatrixCombos } from '../src/cli/matrix/synthesizer.ts';
 import {
@@ -15,37 +13,27 @@ import {
 } from '../src/kernel/default-scope.ts';
 import { defineProfile } from '../src/kernel/registry/profiles.ts';
 import { requireModelProfile } from '../src/kernel/registry/resolve.ts';
-import type {
-  BuiltinToolId,
-  ModelBinding,
-  ModelProvider,
-  TurnEvent,
-  TurnRequest,
-} from '../src/kernel/types.ts';
+import type { BuiltinToolId, ModelBinding, TurnEvent, TurnRequest } from '../src/kernel/types.ts';
 import { registerGooglePreset } from '../src/presets/google.ts';
-import { createProvider } from '../src/providers/create-provider.ts';
 import { hostVault, loadHostEnv, vaultEnv } from './host-env.ts';
+import { scriptProviderOptions } from './provider-options.ts';
 
 function valueAfterFlag(flag: string): string | undefined {
   const idx = Deno.args.indexOf(flag);
   if (idx < 0) return undefined;
   return Deno.args[idx + 1];
 }
-
 loadHostEnv();
 const vault = hostVault();
 const modelId = valueAfterFlag('--model') ?? 'gemini-3.5-flash-lite';
 const thinkingLevel = valueAfterFlag('--thinking') ?? 'high';
-
 if (!vault.slot_a) {
   console.error(
     `${vaultEnv('slot_a')} unset (this script reads it; Theorem itself never reads env)`,
   );
   Deno.exit(1);
 }
-
 registerGooglePreset();
-
 registerStructured('liveCodeAnswer', {
   jsonSchema: {
     type: 'object',
@@ -56,25 +44,19 @@ registerStructured('liveCodeAnswer', {
     required: ['answer', 'usedCode'],
   },
 });
-
 const PROFILE = 'live.code_execution';
 const PROFILE_BUFFERED = 'live.code_execution.buffered';
 const PROFILE_STRUCTURED = 'live.code_execution.structured';
-
 function effortAlias(level: string): string {
   if (level === 'high') return 'high';
   if (level === 'medium') return 'medium';
   if (level === 'low') return 'low';
   return 'normal';
 }
-
 const turnEffort = effortAlias(thinkingLevel);
-
 function flashBinding(builtInTools: BuiltinToolId[]): ModelBinding {
   return {
-    protocol: 'geminiInteractions',
     provider: 'google',
-    persistViaInteractionId: false,
     apiId: modelId,
     efforts: { normal: 'minimal', low: 'low', medium: 'medium', high: 'high' },
     defaultEffort: turnEffort,
@@ -83,9 +65,11 @@ function flashBinding(builtInTools: BuiltinToolId[]): ModelBinding {
     maxOutputTokens: 4096,
     temperature: 0.2,
     builtInTools,
+    providerOptions: {
+      persistViaInteractionId: false,
+    },
   };
 }
-
 const streamed = defineProfile({
   type: 'text',
   id: PROFILE,
@@ -97,7 +81,6 @@ const streamed = defineProfile({
   models: { flash: flashBinding(['codeExecution', 'googleSearch']) },
   defaultModel: 'flash',
   maxSteps: 3,
-  key: 'slot_a',
   tools: { allow: [] },
   inputs: { text: true },
   outputs: {},
@@ -112,7 +95,6 @@ registerProfile(
     outputs: { streaming: { mode: 'buffered' } },
   }),
 );
-
 registerProfile(
   defineProfile({
     type: 'text',
@@ -124,27 +106,23 @@ registerProfile(
     models: { flash: flashBinding(['codeExecution']) },
     defaultModel: 'flash',
     maxSteps: 1,
-    key: 'slot_a',
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: 'liveCodeAnswer' },
     guardrails: { quota: { perDay: 1000 } },
   }),
 );
-
-const provider: ModelProvider = createProvider(getProfile(PROFILE), {
+const provider = scriptProviderOptions(getProfile(PROFILE), {
   vault: vault,
   gemini: {
     wait: () => Promise.resolve(),
   },
 });
-
 interface CaseResult {
   name: string;
   passed: boolean;
   detail: string;
 }
-
 function collect(events: TurnEvent[]) {
   const evidence = events.filter((e) => e.type === 'evidence').map((e) => e.evidence);
   const calls = evidence.filter((e) => e?.kind === 'code_execution_call');
@@ -155,7 +133,6 @@ function collect(events: TurnEvent[]) {
   const text = events.flatMap((e) => (e.type === 'text' ? [e.text] : [])).join('');
   return { calls, results, media, errors, structured, text, events };
 }
-
 async function runCase(
   name: string,
   req: TurnRequest,
@@ -195,9 +172,7 @@ async function runCase(
   console.log('  ✓ passed');
   return { name, passed: true, detail: 'ok' };
 }
-
 const asserted: CaseResult[] = [];
-
 console.log(`\n${'='.repeat(70)}\n CLI MATRIX via testProfileCommand\n${'='.repeat(70)}`);
 console.log(
   'matrix combos:',
@@ -215,7 +190,6 @@ asserted.push({
   passed: matrixOk,
   detail: matrixOk ? 'all matrix rows completed without error events' : 'matrix failed',
 });
-
 // Prefer-tool stress with codeExecution forced on (search may also be on).
 asserted.push(
   await (async () => {
@@ -234,7 +208,6 @@ asserted.push(
     };
   })(),
 );
-
 asserted.push(
   await runCase(
     'stream arithmetic',
@@ -256,7 +229,6 @@ asserted.push(
     },
   ),
 );
-
 asserted.push(
   await runCase(
     'batch arithmetic',
@@ -277,7 +249,6 @@ asserted.push(
     },
   ),
 );
-
 asserted.push(
   await runCase(
     'sandbox error isError=true',
@@ -296,15 +267,12 @@ asserted.push(
         return `turn error: ${got.errors[0]?.errorInternal ?? got.errors[0]?.error}`;
       if (got.calls.length < 1) return 'missing call';
       if (!got.results.some((r) => r?.isError === true)) {
-        return `expected isError=true, results=${JSON.stringify(
-          got.results.map((r) => ({ isError: r?.isError, result: r?.result?.slice(0, 80) })),
-        )}`;
+        return `expected isError=true, results=${JSON.stringify(got.results.map((r) => ({ isError: r?.isError, result: r?.result?.slice(0, 80) })))}`;
       }
       return undefined;
     },
   ),
 );
-
 asserted.push(
   await runCase(
     'multi-exec in one turn',
@@ -330,7 +298,6 @@ asserted.push(
     },
   ),
 );
-
 asserted.push(
   await runCase(
     'matplotlib media',
@@ -357,7 +324,6 @@ asserted.push(
     },
   ),
 );
-
 asserted.push(
   await runCase(
     'codeExecution + googleSearch',
@@ -381,7 +347,6 @@ asserted.push(
     },
   ),
 );
-
 asserted.push(
   await runCase(
     'structured + codeExecution (API may reject)',
@@ -405,7 +370,6 @@ asserted.push(
     },
   ),
 );
-
 console.log(`\n${'='.repeat(70)}\n LIVE CODE EXECUTION SUMMARY\n${'='.repeat(70)}`);
 let failed = 0;
 for (const r of asserted) {

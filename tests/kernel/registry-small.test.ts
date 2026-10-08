@@ -63,11 +63,11 @@ Deno.test('a builtin that is not registered, or is registered as something else,
   );
 });
 
-Deno.test('interactions-only request fields are sent on the interactions transport and dropped elsewhere', () => {
+Deno.test('the kernel request omits vendor continuation and option fields', () => {
   const generation = {
     model: 'm',
     apiId: 'a',
-    transport: 'interactions',
+    transport: 'turn',
     previousInteractionId: 'prev',
     store: true,
     googleMapsLocation: { latitude: 1, longitude: 2 },
@@ -99,27 +99,21 @@ Deno.test('interactions-only request fields are sent on the interactions transpo
     {
       model: 'm',
       apiId: 'a',
-      previousInteractionId: 'prev',
-      store: true,
       stream: true,
       thinking: 'low',
       summaries: 'auto',
       maxOutputTokens: 9,
       temperature: 0.5,
       builtins: [],
-      googleMapsLocation: { latitude: 1, longitude: 2 },
-      cache: 'c',
       sessionId: 's',
       system: 'sys',
       input: 'in',
       history: ['h'],
-      continuation: { c: 1 },
       wireTools: [{ name: 't' }],
       structured: 'st',
       image: 'im',
       speech: 'sp',
       live: 'lv',
-      sessionResumptionHandle: 'rh',
       keySlot: 'k',
       fallbackKeySlot: 'fk',
     },

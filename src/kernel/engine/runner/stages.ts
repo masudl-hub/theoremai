@@ -32,7 +32,7 @@ export interface ApplyTurnStageResult {
   warnings: StageApplyWarning[];
 }
 
-/** Injects must arrive sanitized; they are mirrored into an active Interactions continuation too. */
+/** Sanitized stage injects extend portable history. */
 export function* applyStageInjects(
   state: StepExecutionState,
   stage: TurnStage,
@@ -42,12 +42,6 @@ export function* applyStageInjects(
   const inject = injectMessages(units);
   if (inject.length === 0) return 0;
   state.currentHistory.push(...inject);
-  if (state.interactionsContinuation) {
-    for (const msg of inject) {
-      if (msg.role === 'tool') continue;
-      state.interactionsContinuation.messages.push(msg);
-    }
-  }
   const landed = injectedStageEvent(stage, units, extra);
   if (landed) {
     state.allEmittedEvents.push(landed);

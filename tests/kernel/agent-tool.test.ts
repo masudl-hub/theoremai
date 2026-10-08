@@ -1,10 +1,12 @@
+import { createTestKernelScope as createKernelScope } from '../fixtures/provider-scope.ts';
+import { fixtureHostOptions, runScopedTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import { createKernelScope, type KernelScope } from '../../src/kernel/scope.ts';
+import type { KernelScope } from '../../src/kernel/scope.ts';
 import { agentToolOrigin } from '../../src/kernel/tools/agent.ts';
 import type { AgentCallHook, AgentToolDef } from '../../src/kernel/tools/types.ts';
 import type {
@@ -133,7 +135,8 @@ async function collect(
 ): Promise<TurnEvent[]> {
   const events: TurnEvent[] = [];
   const req = { profile: CALLER, input: { text: 'Help' }, ...(onAgentCall ? { onAgentCall } : {}) };
-  for await (const event of scope.runTurn(
+  for await (const event of runScopedTurn(
+    scope,
     req,
     provider,
     records ? memorySink(records) : undefined,
@@ -225,25 +228,23 @@ Deno.test('the host can shape the call and sees who made it', async () => {
   );
 });
 
-Deno.test("a called agent on another provider needs the host's provider", async () => {
+Deno.test('a called agent resolves its own registered provider', async () => {
   const scope = createKernelScope();
   scope.profiles.register(
     textProfile(RESEARCHER, RESEARCHER_SYSTEM, [], {
       models: { sonar: HOST_BINDINGS.sonar },
-      key: 'slot_a',
     }),
   );
   scope.tools.register(agentTool());
   scope.profiles.register(textProfile(CALLER, 'You help.', ['ask_researcher']));
-  const events = await collect(scope, routedProvider()).catch((err) => [{ thrown: err }]);
-  const thrown = (events[0] as { thrown?: unknown }).thrown;
-  const errorEvent = (events as TurnEvent[]).find((e) => e.type === 'error') as
-    | TurnEventOf<'error'>
-    | undefined;
-  assertEquals(thrown instanceof TheoremError ? thrown.kind : errorEvent?.errorKind, 'config');
+  const events = await collect(scope, routedProvider());
+  assertEquals(
+    events.some((event) => event.type === 'error'),
+    false,
+  );
   const seen: string[] = [];
   const ok = await collect(scope, routedProvider(1, seen), () => ({
-    provider: routedProvider(0, seen),
+    provider: fixtureHostOptions(routedProvider(0, seen), scope),
   }));
   assertEquals(seen, ['question 0']);
   assertEquals(doneOf(ok).stop.kind, 'completed');
@@ -267,7 +268,7 @@ Deno.test('a host can invoke an agent tool with its own provider', async () => {
     profile: CALLER,
     name: 'ask_researcher',
     input: { text: 'direct' },
-    provider: routedProvider(0, seen),
+    provider: fixtureHostOptions(routedProvider(0, seen), scope),
   })) {
     events.push(event);
   }

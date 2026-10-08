@@ -1,3 +1,4 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import {
@@ -5,7 +6,6 @@ import {
   projectProfile,
   registerProfile,
   resolveTurn,
-  runTurn,
 } from '../../src/kernel/default-scope.ts';
 import {
   assertEquals,
@@ -62,7 +62,6 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
       guardrails: { quota: { perDay: 10 } },
     }),
   );
-
   registerProfile(
     defineProfile({
       type: 'text',
@@ -76,7 +75,6 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
       guardrails: { quota: { perDay: 10 } },
     }),
   );
-
   const mockDeferredProvider: ModelProvider = {
     complete: () => {
       return (async function* () {
@@ -89,7 +87,6 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
       })();
     },
   };
-
   const deferredEvents: TurnEvent[] = [];
   for await (const ev of runTurn(
     {
@@ -103,7 +100,6 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
   const deferredTool = lastTool(deferredEvents, 'record_lookup');
   assertEquals(deferredTool?.phase, 'error');
   assertStringIncludes(failureOf(deferredTool)?.message ?? '', 'not loaded');
-
   const noHandlerReq: TurnRequest = {
     profile: 'dynamic_runner_bot',
     input: { text: 'run stub' },
@@ -129,7 +125,6 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
     stubEvents.push(ev);
   }
   assertEquals(replyText(stubEvents), 'finished');
-
   registerProfile(
     defineProfile({
       type: 'text',
@@ -163,7 +158,6 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
     // drain
   }
 });
-
 Deno.test('runTurn emits one final done when provider also emits done', async () => {
   const provider: ModelProvider = {
     complete: () => {
@@ -174,16 +168,13 @@ Deno.test('runTurn emits one final done when provider also emits done', async ()
       })();
     },
   };
-
   const events: TurnEvent[] = [];
   for await (const ev of runTurn({ profile: 'chat', input: { text: 'ping' } }, provider)) {
     events.push(ev);
   }
-
   assertEquals(eventsOf(events, 'done').length, 1);
   assertDoneThenPostTurn(events);
 });
-
 /** Text turns end with terminal `done` then observe-only `post_turn`. */
 function assertDoneThenPostTurn(events: TurnEvent[]): void {
   assertEquals(eventsOf(events, 'done').length, 1);
@@ -196,7 +187,6 @@ function assertDoneThenPostTurn(events: TurnEvent[]): void {
     true,
   );
 }
-
 async function* fakeComplete(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
   await Promise.resolve();
   yield { type: 'text', text: `${req.model}:${req.thinking}` };
@@ -210,11 +200,8 @@ async function* fakeComplete(req: ProviderCompleteRequest): AsyncGenerator<TurnE
     };
   }
 }
-
 const fake: ModelProvider = { complete: fakeComplete };
-
-const LONG_FLASH = 40_000;
-
+const LONG_FLASH = 40000;
 function withTools(id: ProfileId, extra: ToolId[]) {
   const profile = getProfile(id);
   if (profile.type === 'speech' || profile.type === 'decision') {
@@ -222,14 +209,12 @@ function withTools(id: ProfileId, extra: ToolId[]) {
   }
   return withProfileTools(profile, extra);
 }
-
 Deno.test('every profile is oneshot', () => {
   const ids: ProfileId[] = ['chat', 'pinned', 'formatter', 'selector', 'image'];
   for (const id of ids) {
     assertEquals(requireModelProfile(getProfile(id), 'test').maxSteps, 1);
   }
 });
-
 Deno.test('runTurn accepts an omitted input object', async () => {
   registerProfile({
     type: 'text',
@@ -239,7 +224,6 @@ Deno.test('runTurn accepts an omitted input object', async () => {
     id: 'no_input_bot',
     ...geminiModels('gemini35FlashLite'),
   });
-
   const provider: ModelProvider = {
     async *complete() {
       await Promise.resolve();
@@ -247,11 +231,9 @@ Deno.test('runTurn accepts an omitted input object', async () => {
     },
   };
   const events = await Array.fromAsync(runTurn({ profile: 'no_input_bot' }, provider));
-
   assertEquals(replyText(events), 'empty input ok');
   assertDoneThenPostTurn(events);
 });
-
 Deno.test('flash lite thinking off is minimal', () => {
   const { generation } = resolveTurn({
     profile: 'chat',
@@ -263,7 +245,6 @@ Deno.test('flash lite thinking off is minimal', () => {
   assertEquals(generation.summaries, 'auto');
   assertEquals(HOST_BINDINGS.gemini35FlashLite.efforts?.normal, 'minimal');
 });
-
 Deno.test('thinking level shapes differ by model family', () => {
   assertEquals(Object.values(HOST_BINDINGS.gemini31FlashLite.efforts ?? {}), [
     'minimal',
@@ -299,7 +280,6 @@ Deno.test('thinking level shapes differ by model family', () => {
   );
   assertEquals(modelEntryByApiId(HOST_BINDINGS, 'unknown-model-api-id'), undefined);
 });
-
 Deno.test('flash lite thinking on is high', () => {
   const { generation } = resolveTurn({
     profile: 'chat',
@@ -309,13 +289,11 @@ Deno.test('flash lite thinking on is high', () => {
   assertEquals(generation.thinking, 'high');
   assertEquals(generation.summaries, 'auto');
 });
-
 Deno.test('pinned profile uses fixed thinking without a control', () => {
   const { generation } = resolveTurn({ profile: 'pinned', input: {} });
   assertEquals(generation.thinking, 'low');
   assertEquals(projectProfile('pinned').models.gemini35FlashLite.allowEffortSelect, false);
 });
-
 Deno.test('selectable profile picks model and pinned thinking', () => {
   const fast = resolveTurn({
     profile: 'selector',
@@ -333,7 +311,6 @@ Deno.test('selectable profile picks model and pinned thinking', () => {
   assertEquals(smart.generation.model, 'gemini31ProPreview');
   assertEquals(smart.generation.thinking, 'high');
 });
-
 Deno.test('model builtInTools lists search and maps when both are allowlisted', () => {
   registerProfile(
     defineProfile({
@@ -346,7 +323,6 @@ Deno.test('model builtInTools lists search and maps when both are allowlisted', 
           builtInTools: ['googleSearch', 'googleMaps'],
         },
       },
-      key: 'main',
       maxSteps: 1,
       tools: { allow: [] },
       inputs: { text: true },
@@ -359,7 +335,6 @@ Deno.test('model builtInTools lists search and maps when both are allowlisted', 
   });
   assertEquals(generation.builtins, ['googleSearch', 'googleMaps']);
 });
-
 Deno.test('model builtInTools ceiling blocks unlisted builtins', () => {
   registerProfile(
     defineProfile({
@@ -372,7 +347,6 @@ Deno.test('model builtInTools ceiling blocks unlisted builtins', () => {
           builtInTools: ['googleSearch', 'googleMaps'],
         },
       },
-      key: 'main',
       maxSteps: 1,
       tools: { allow: [] },
       inputs: { text: true },
@@ -385,7 +359,6 @@ Deno.test('model builtInTools ceiling blocks unlisted builtins', () => {
   });
   assertEquals(generation.builtins, ['googleSearch', 'googleMaps']);
 });
-
 Deno.test('allow puts T0 custom tools on the wire; builtins follow the model', () => {
   const idle = resolveTurn({ profile: 'chat', input: { text: 'x' } });
   assertEquals(idle.generation.builtins, []);
@@ -401,7 +374,6 @@ Deno.test('allow puts T0 custom tools on the wire; builtins follow the model', (
           builtInTools: ['googleSearch'],
         },
       },
-      key: 'main',
       maxSteps: 1,
       tools: { allow: ['ask_user'] },
       inputs: { text: true },
@@ -415,7 +387,6 @@ Deno.test('allow puts T0 custom tools on the wire; builtins follow the model', (
   assertEquals(search.generation.builtins, ['googleSearch']);
   assertEquals(search.generation.tools.visible.includes('ask_user'), true);
 });
-
 Deno.test('language slot picks structured schema', () => {
   const html = resolveTurn({
     profile: 'formatter',
@@ -428,7 +399,6 @@ Deno.test('language slot picks structured schema', () => {
   });
   assertEquals(tsx.generation.structured?.id, 'tsxTurn');
 });
-
 Deno.test('a turn passes only declared slots, set to a declared choice', () => {
   assertThrows(
     () => resolveTurn({ profile: 'formatter', input: { text: 'x', slots: { language: 'py' } } }),
@@ -452,7 +422,6 @@ Deno.test('a turn passes only declared slots, set to a declared choice', () => {
     "Profile chat has no slot 'language'",
   );
 });
-
 Deno.test('disallowed tool cannot run', async () => {
   const events = await invokeRegisteredTool({
     profile: 'pinned',
@@ -461,7 +430,6 @@ Deno.test('disallowed tool cannot run', async () => {
   });
   assertEquals(lastTool(events, 'ask_user')?.phase, 'error');
 });
-
 Deno.test('ask_user completes with awaiting when allowed', async () => {
   registerProfile({
     ...withTools('chat', ['ask_user']),
@@ -474,10 +442,16 @@ Deno.test('ask_user completes with awaiting when allowed', async () => {
   });
   const toolEv = lastTool(events, 'ask_user');
   assertEquals(toolEv?.phase, 'complete');
-  assertEquals((outputOf(toolEv) as { status?: string })?.status, 'awaiting_user_input');
+  assertEquals(
+    (
+      outputOf(toolEv) as {
+        status?: string;
+      }
+    )?.status,
+    'awaiting_user_input',
+  );
   assertEquals(finalStop(events)?.kind, 'completed');
 });
-
 Deno.test('invokeTool ask_user is denied until allowed', async () => {
   const events = await invokeRegisteredTool({
     profile: 'pinned',
@@ -489,7 +463,6 @@ Deno.test('invokeTool ask_user is denied until allowed', async () => {
   assertEquals(failureOf(toolEv)?.code, 'not_allowed');
   assertEquals(failureOf(toolEv)?.kind, 'blocked');
 });
-
 Deno.test('runTurn oneshot yields text structured done', async () => {
   const events = await Array.fromAsync(runTurn({ profile: 'chat', input: { text: 'flow' } }, fake));
   const types = events.map((e) => e.type);
@@ -504,7 +477,6 @@ Deno.test('runTurn oneshot yields text structured done', async () => {
     ['pre_turn', 'before_end', 'post_turn'],
   );
 });
-
 Deno.test('projection lists only allowed tools', () => {
   const ui = projectProfile('formatter');
   assertEquals(
@@ -514,7 +486,6 @@ Deno.test('projection lists only allowed tools', () => {
   assertEquals(projectProfile('formatter').models.gemini35FlashLite.allowEffortSelect, true);
   assertEquals(ui.inputs?.voice, undefined);
 });
-
 Deno.test('unknown profile model is rejected', () => {
   assertThrows(
     () =>
@@ -526,7 +497,6 @@ Deno.test('unknown profile model is rejected', () => {
     TheoremError,
   );
 });
-
 Deno.test('ask_user validates kind and prompt', async () => {
   registerProfile({ ...withTools('chat', ['ask_user']), id: 'ask_user_validate_bot' });
   const badKind = await invokeRegisteredTool({
@@ -542,7 +512,6 @@ Deno.test('ask_user validates kind and prompt', async () => {
   });
   assertEquals(lastOf(badPrompt, 'tool')?.tool?.phase, 'error');
 });
-
 Deno.test('unregistered custom tools fail at execution', async () => {
   registerProfile({ ...withTools('chat', ['host_tool']), id: 'host_tool_bot' });
   const events = await invokeRegisteredTool({
@@ -554,7 +523,6 @@ Deno.test('unregistered custom tools fail at execution', async () => {
   assertEquals(toolEv?.phase, 'error');
   assertStringIncludes(failureOf(toolEv)?.message ?? '', 'not registered');
 });
-
 Deno.test('provider tool call is dispatched', async () => {
   async function* complete(): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
@@ -575,7 +543,6 @@ Deno.test('provider tool call is dispatched', async () => {
   );
   assertDoneThenPostTurn(events);
 });
-
 Deno.test('role-specific system prompt still completes', async () => {
   const events = await Array.fromAsync(
     runTurn(
@@ -592,7 +559,6 @@ Deno.test('role-specific system prompt still completes', async () => {
     true,
   );
 });
-
 Deno.test('empty text input still runs', async () => {
   const events = await Array.fromAsync(runTurn({ profile: 'chat', input: {} }, fake));
   assertEquals(
@@ -600,7 +566,6 @@ Deno.test('empty text input still runs', async () => {
     true,
   );
 });
-
 Deno.test('chat voice audio becomes an audio interaction part', () => {
   const { generation } = resolveTurn({
     profile: 'chat',
@@ -615,7 +580,6 @@ Deno.test('chat voice audio becomes an audio interaction part', () => {
     assertEquals(audio.mimeType, 'audio/webm');
   }
 });
-
 Deno.test('chat pdf attachment becomes a document part', () => {
   const { generation } = resolveTurn({
     profile: 'chat',
@@ -627,7 +591,6 @@ Deno.test('chat pdf attachment becomes a document part', () => {
   const doc = generation.input.find((part) => part.type === 'document');
   assertEquals(doc?.type, 'document');
 });
-
 Deno.test('chat rejects video because the profile does not allow it', () => {
   assertThrows(
     () =>
@@ -641,7 +604,6 @@ Deno.test('chat rejects video because the profile does not allow it', () => {
     TheoremError,
   );
 });
-
 Deno.test('chat rejects audio on the attachments channel', () => {
   assertThrows(
     () =>
@@ -655,7 +617,6 @@ Deno.test('chat rejects audio on the attachments channel', () => {
     TheoremError,
   );
 });
-
 Deno.test('pinned does not accept voice', () => {
   assertThrows(
     () =>
@@ -666,7 +627,6 @@ Deno.test('pinned does not accept voice', () => {
     TheoremError,
   );
 });
-
 Deno.test('synthesizeRepairPrompt scopes history to last 2 exchanges and includes rejection/output', () => {
   const prompt = synthesizeRepairPrompt({
     profile: getProfile('chat'),
@@ -691,7 +651,6 @@ Deno.test('synthesizeRepairPrompt scopes history to last 2 exchanges and include
   assertEquals(prompt.includes('Remove internal_marker from user-visible prose.'), true);
   assertEquals(prompt.includes('Rewrite as safe user-facing text.'), true);
 });
-
 Deno.test('runTurn executes profile validation and auto-corrects', async () => {
   registerProfile({
     type: 'text',
@@ -716,7 +675,6 @@ Deno.test('runTurn executes profile validation and auto-corrects', async () => {
     guardrails: { quota: { perDay: 10 } },
     lexicon: { 'repair.default_guidance': 'emit good code' },
   });
-
   let callCount = 0;
   async function* mockRepairComplete(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
@@ -736,7 +694,6 @@ Deno.test('runTurn executes profile validation and auto-corrects', async () => {
       yield { type: 'structured', structured: { code: 'good' } };
     }
   }
-
   const events = await Array.fromAsync(
     runTurn(
       { profile: 'validatedProfile', input: { text: 'make code' } },
@@ -750,7 +707,6 @@ Deno.test('runTurn executes profile validation and auto-corrects', async () => {
   });
   assertDoneThenPostTurn(events);
 });
-
 Deno.test('runTurn skips optional field validators when optional path is omitted', async () => {
   let codeValidatorCalls = 0;
   registerProfile({
@@ -775,14 +731,12 @@ Deno.test('runTurn skips optional field validators when optional path is omitted
     },
     guardrails: { quota: { perDay: 10 } },
   });
-
   let callCount = 0;
   async function* mockMessageOnly(): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
     callCount++;
     yield { type: 'structured', structured: { message: '2 + 2 is 4.' } };
   }
-
   const events = await Array.fromAsync(
     runTurn(
       { profile: 'optionalArtifactProfile', input: { text: 'what is 2+2?' } },
@@ -796,7 +750,6 @@ Deno.test('runTurn skips optional field validators when optional path is omitted
   });
   assertDoneThenPostTurn(events);
 });
-
 Deno.test('runTurn streams thought and text live while validation buffers structured', async () => {
   registerProfile({
     type: 'text',
@@ -817,7 +770,6 @@ Deno.test('runTurn streams thought and text live while validation buffers struct
     },
     guardrails: { quota: { perDay: 10 } },
   });
-
   async function* mockComplete(): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
     yield { type: 'thought', text: 'planning' };
@@ -825,7 +777,6 @@ Deno.test('runTurn streams thought and text live while validation buffers struct
     yield { type: 'structured', structured: { code: 'good' } };
     yield { type: 'tokens', tokens: { input: 1, output: 1, thinking: 0, total: 2 } };
   }
-
   const events = await Array.fromAsync(
     runTurn({ profile: 'streamWhileValidate', input: { text: 'go' } }, { complete: mockComplete }),
   );
@@ -839,7 +790,6 @@ Deno.test('runTurn streams thought and text live while validation buffers struct
   assertEquals(types.indexOf('text') < types.indexOf('structured'), true);
   assertDoneThenPostTurn(events);
 });
-
 Deno.test('buffered delivery keeps a rewritten attempt off the host, and out of retries sends the last as it is', async () => {
   const holdProfile = (id: string, maxRetries: number) =>
     registerProfile({
@@ -865,7 +815,6 @@ Deno.test('buffered delivery keeps a rewritten attempt off the host, and out of 
     });
   holdProfile('bufferedRetry', 1);
   holdProfile('bufferedSpent', 0);
-
   let callCount = 0;
   async function* mockComplete(): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
@@ -875,7 +824,6 @@ Deno.test('buffered delivery keeps a rewritten attempt off the host, and out of 
     yield { type: 'text', text: `{"code":"${code}"}` };
     yield { type: 'structured', structured: { code } };
   }
-
   const retried = await Array.fromAsync(
     runTurn({ profile: 'bufferedRetry', input: { text: 'go' } }, { complete: mockComplete }),
   );
@@ -894,7 +842,6 @@ Deno.test('buffered delivery keeps a rewritten attempt off the host, and out of 
   const types = retried.map((e) => e.type);
   assertEquals(types.lastIndexOf('thought') < types.indexOf('text'), true);
   assertDoneThenPostTurn(retried);
-
   callCount = 0;
   const spent = await Array.fromAsync(
     runTurn({ profile: 'bufferedSpent', input: { text: 'go' } }, { complete: mockComplete }),
@@ -907,7 +854,6 @@ Deno.test('buffered delivery keeps a rewritten attempt off the host, and out of 
   );
   assertDoneThenPostTurn(spent);
 });
-
 Deno.test('streamed delivery shows a failed attempt, and out of retries the last goes out once', async () => {
   registerProfile({
     type: 'text',
@@ -926,7 +872,6 @@ Deno.test('streamed delivery shows a failed attempt, and out of retries the last
     },
     guardrails: { quota: { perDay: 10 } },
   });
-
   let callCount = 0;
   async function* mockComplete(): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
@@ -934,7 +879,6 @@ Deno.test('streamed delivery shows a failed attempt, and out of retries the last
     yield { type: 'text', text: `attempt ${callCount}. ` };
     yield { type: 'structured', structured: { code: `v${callCount}` } };
   }
-
   const events = await Array.fromAsync(
     runTurn({ profile: 'streamThenRetry', input: { text: 'go' } }, { complete: mockComplete }),
   );
@@ -946,7 +890,6 @@ Deno.test('streamed delivery shows a failed attempt, and out of retries the last
   );
   assertDoneThenPostTurn(events);
 });
-
 Deno.test('runTurn retries when required field is missing', async () => {
   registerProfile({
     type: 'text',
@@ -962,7 +905,6 @@ Deno.test('runTurn retries when required field is missing', async () => {
     },
     guardrails: { quota: { perDay: 10 } },
   });
-
   let callCount = 0;
   async function* mockComplete(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
@@ -975,7 +917,6 @@ Deno.test('runTurn retries when required field is missing', async () => {
     assertStringIncludes(String(req.history?.at(-1)?.content), "required field 'code' is missing");
     yield { type: 'structured', structured: { code: 'good' } };
   }
-
   const events = await Array.fromAsync(
     runTurn(
       { profile: 'requiredMissingProfile', input: { text: 'make code' } },
@@ -985,7 +926,6 @@ Deno.test('runTurn retries when required field is missing', async () => {
   assertEquals(callCount, 2);
   assertEquals(firstOf(events, 'structured')?.structured, { code: 'good' });
 });
-
 Deno.test('runTurn validates nested required under present optional object', async () => {
   let mermaidCalls = 0;
   registerProfile({
@@ -1011,7 +951,6 @@ Deno.test('runTurn validates nested required under present optional object', asy
     },
     guardrails: { quota: { perDay: 10 } },
   });
-
   let callCount = 0;
   async function* mockComplete(): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
@@ -1028,7 +967,6 @@ Deno.test('runTurn validates nested required under present optional object', asy
       structured: { message: 'here', diagram: { mermaid: 'flowchart TD\nA --> B' } },
     };
   }
-
   const events = await Array.fromAsync(
     runTurn(
       { profile: 'nestedOptionalProfile', input: { text: 'draw' } },
@@ -1042,7 +980,6 @@ Deno.test('runTurn validates nested required under present optional object', asy
     diagram: { mermaid: 'flowchart TD\nA --> B' },
   });
 });
-
 Deno.test('runTurn validation without structured schema throws', async () => {
   registerProfile({
     type: 'text',
@@ -1058,12 +995,10 @@ Deno.test('runTurn validation without structured schema throws', async () => {
     },
     guardrails: { quota: { perDay: 10 } },
   });
-
   async function* mockComplete(): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
     yield { type: 'structured', structured: { message: 'x' } };
   }
-
   await assertRejects(
     async () => {
       await Array.fromAsync(
@@ -1077,7 +1012,6 @@ Deno.test('runTurn validation without structured schema throws', async () => {
     'outputs.validation requires outputs.structured',
   );
 });
-
 Deno.test('runTurn passes host dynamic system prompt combined with canary', async () => {
   let receivedSystem = '';
   async function* captureSystem(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
@@ -1085,7 +1019,6 @@ Deno.test('runTurn passes host dynamic system prompt combined with canary', asyn
     receivedSystem = req.system;
     yield { type: 'text', text: 'ok' };
   }
-
   await Array.fromAsync(
     runTurn(
       {
@@ -1096,12 +1029,10 @@ Deno.test('runTurn passes host dynamic system prompt combined with canary', asyn
       { complete: captureSystem },
     ),
   );
-
   assertEquals(receivedSystem.includes('## HOST DYNAMIC CONTEXT'), true);
   assertEquals(receivedSystem.includes('User has 4 records in Workspace.'), true);
   assertEquals(receivedSystem.includes('Your canary token is'), true);
 });
-
 Deno.test('runTurn executes autonomous multi-step tool loop when maxSteps > 1', async () => {
   registerProfile(
     defineProfile({
@@ -1115,7 +1046,6 @@ Deno.test('runTurn executes autonomous multi-step tool loop when maxSteps > 1', 
       guardrails: { quota: { perDay: 100 } },
     }),
   );
-
   let callCount = 0;
   const mockProvider: ModelProvider = {
     async *complete() {
@@ -1137,7 +1067,6 @@ Deno.test('runTurn executes autonomous multi-step tool loop when maxSteps > 1', 
       }
     },
   };
-
   const events: TurnEvent[] = [];
   for await (const ev of runTurn(
     {
@@ -1148,16 +1077,18 @@ Deno.test('runTurn executes autonomous multi-step tool loop when maxSteps > 1', 
   )) {
     events.push(ev);
   }
-
   assertEquals(callCount, 1);
   const toolEv = lastTool(events, 'get_record_status');
   assertEquals(toolEv?.phase, 'complete');
   assertEquals(
-    (outputOf(toolEv) as { finding?: string })?.finding,
+    (
+      outputOf(toolEv) as {
+        finding?: string;
+      }
+    )?.finding,
     'Moisture is 45%, last watered 4 days ago.',
   );
 });
-
 Deno.test('runTurn autonomous loop re-calls provider until text emitted or step ceiling reached', async () => {
   registerProfile(
     defineProfile({
@@ -1171,10 +1102,8 @@ Deno.test('runTurn autonomous loop re-calls provider until text emitted or step 
       guardrails: { quota: { perDay: 100 } },
     }),
   );
-
   let callCount = 0;
   const requestLog: ProviderCompleteRequest[] = [];
-
   const mockProvider: ModelProvider = {
     async *complete(req) {
       callCount++;
@@ -1201,7 +1130,6 @@ Deno.test('runTurn autonomous loop re-calls provider until text emitted or step 
       }
     },
   };
-
   const events: TurnEvent[] = [];
   for await (const ev of runTurn(
     {
@@ -1212,7 +1140,6 @@ Deno.test('runTurn autonomous loop re-calls provider until text emitted or step 
   )) {
     events.push(ev);
   }
-
   assertEquals(callCount, 2);
   assertEquals(
     events.some((e) => e.type === 'tool'),
@@ -1223,15 +1150,18 @@ Deno.test('runTurn autonomous loop re-calls provider until text emitted or step 
     events.some((e) => e.type === 'done'),
     true,
   );
-
   const step2 = requestLog[1];
-  assertEquals(step2?.previousInteractionId, 'v1_sensor');
-  const continuationText = String(step2?.continuation?.[0]?.content);
+  assertEquals(step2?.previousInteractionId, undefined);
+  const continuationText = String(
+    step2?.history?.find((message) => message.role === 'tool')?.content,
+  );
   assertStringIncludes(continuationText, 'Sensor raw value: 22%');
-  assertEquals(step2?.history, []);
+  assertEquals(
+    step2?.history?.some((message) => message.tool_calls?.length),
+    true,
+  );
   assertEquals(step2?.input, []);
 });
-
 Deno.test('runTurn sends every Interactions function_result in one continuation', async () => {
   registerProfile(
     defineProfile({
@@ -1245,10 +1175,8 @@ Deno.test('runTurn sends every Interactions function_result in one continuation'
       guardrails: { quota: { perDay: 100 } },
     }),
   );
-
   let callCount = 0;
   const requestLog: ProviderCompleteRequest[] = [];
-
   const mockProvider: ModelProvider = {
     async *complete(req) {
       callCount++;
@@ -1272,7 +1200,6 @@ Deno.test('runTurn sends every Interactions function_result in one continuation'
       }
     },
   };
-
   for await (const _ev of runTurn(
     {
       profile: 'host_assistant_multi_fn',
@@ -1282,15 +1209,13 @@ Deno.test('runTurn sends every Interactions function_result in one continuation'
   )) {
     // drain
   }
-
   assertEquals(callCount, 2);
-  const continuation = requestLog[1]?.continuation ?? [];
+  const continuation = requestLog[1]?.history?.filter((message) => message.role === 'tool') ?? [];
   assertEquals(continuation.length, 2);
   assertEquals(continuation[0]?.role, 'tool');
   assertStringIncludes(String(continuation[0]?.content), '22%');
   assertStringIncludes(String(continuation[1]?.content), 'shipped');
 });
-
 Deno.test('runTurn records the call and its result in history when the Interactions id is missing', async () => {
   registerProfile(
     defineProfile({
@@ -1304,10 +1229,8 @@ Deno.test('runTurn records the call and its result in history when the Interacti
       guardrails: { quota: { perDay: 100 } },
     }),
   );
-
   let callCount = 0;
   const historyLog: import('../../src/kernel/types.ts').TurnHistoryMessage[][] = [];
-
   const mockProvider: ModelProvider = {
     async *complete(req) {
       callCount++;
@@ -1322,7 +1245,6 @@ Deno.test('runTurn records the call and its result in history when the Interacti
       }
     },
   };
-
   for await (const _ev of runTurn(
     {
       profile: 'host_assistant_history_fallback',
@@ -1332,7 +1254,6 @@ Deno.test('runTurn records the call and its result in history when the Interacti
   )) {
     // drain
   }
-
   assertEquals(callCount, 2);
   // The question, then the call, then its result: never a result without its call.
   const step2History = historyLog[1] ?? [];
@@ -1344,7 +1265,6 @@ Deno.test('runTurn records the call and its result in history when the Interacti
   assertEquals(step2History[1]?.tool_calls?.[0]?.id, 'call_sensor_1');
   assertEquals(step2History[2]?.tool_call_id, 'call_sensor_1');
 });
-
 Deno.test('an Interactions binding that does not persist sends full history every step', async () => {
   registerProfile(
     defineProfile({
@@ -1354,17 +1274,17 @@ Deno.test('an Interactions binding that does not persist sends full history ever
       models: {
         gemini35FlashLite: {
           ...HOST_BINDINGS.gemini35FlashLite,
-          persistViaInteractionId: false,
+          providerOptions: {
+            persistViaInteractionId: false,
+          },
         },
       },
-      key: 'main',
       maxSteps: 3,
       tools: { allow: ['fetch_sensor'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 100 } },
     }),
   );
-
   const requestLog: ProviderCompleteRequest[] = [];
   const mockProvider: ModelProvider = {
     async *complete(req) {
@@ -1385,7 +1305,6 @@ Deno.test('an Interactions binding that does not persist sends full history ever
       }
     },
   };
-
   for await (const _ev of runTurn(
     {
       profile: 'host_assistant_unchained',
@@ -1399,7 +1318,6 @@ Deno.test('an Interactions binding that does not persist sends full history ever
   )) {
     // drain
   }
-
   assertEquals(requestLog.length, 2);
   for (const req of requestLog) {
     assertEquals(req.previousInteractionId, undefined);
@@ -1414,7 +1332,6 @@ Deno.test('an Interactions binding that does not persist sends full history ever
   assertEquals(step2History[2]?.tool_call_id, 'call_unchained');
   assertEquals(step2History[3]?.content, 'also check light');
 });
-
 Deno.test('a step that makes parallel calls records them in one assistant message, then their results', async () => {
   registerProfile(
     defineProfile({
@@ -1424,17 +1341,17 @@ Deno.test('a step that makes parallel calls records them in one assistant messag
       models: {
         gemini35FlashLite: {
           ...HOST_BINDINGS.gemini35FlashLite,
-          persistViaInteractionId: false,
+          providerOptions: {
+            persistViaInteractionId: false,
+          },
         },
       },
-      key: 'main',
       maxSteps: 3,
       tools: { allow: ['fetch_sensor'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 100 } },
     }),
   );
-
   const requestLog: ProviderCompleteRequest[] = [];
   const mockProvider: ModelProvider = {
     async *complete(req) {
@@ -1459,14 +1376,12 @@ Deno.test('a step that makes parallel calls records them in one assistant messag
       }
     },
   };
-
   const events = await Array.fromAsync(
     runTurn(
       { profile: 'host_assistant_parallel_unchained', input: { text: 'Check both' } },
       mockProvider,
     ),
   );
-
   const calls = rawCallsOf(events);
   assertEquals(
     calls.map((call) => call.thoughtSignature),
@@ -1498,7 +1413,6 @@ Deno.test('a step that makes parallel calls records them in one assistant messag
     ['call_soil', 'call_light'],
   );
 });
-
 Deno.test('calls from different model responses carry different step ids', async () => {
   let step = 0;
   const mockProvider: ModelProvider = {
@@ -1524,7 +1438,6 @@ Deno.test('calls from different model responses carry different step ids', async
   assertEquals(typeof first?.stepId, 'string');
   assertEquals(first?.stepId === second?.stepId, false);
 });
-
 Deno.test('a profile that reads for no canary leak plants no canary and binds none', async () => {
   registerProfile(
     defineProfile({
@@ -1540,7 +1453,6 @@ Deno.test('a profile that reads for no canary leak plants no canary and binds no
       },
     }),
   );
-
   let capturedSystem = '';
   const mockProvider: import('../../src/kernel/types.ts').ModelProvider = {
     async *complete(req) {
@@ -1549,19 +1461,16 @@ Deno.test('a profile that reads for no canary leak plants no canary and binds no
       yield { type: 'text', text: 'eval response' };
     },
   };
-
   const { generation } = resolveTurn({
     profile: 'internal_eval_bot',
     input: { text: 'hello' },
   });
   assertEquals(generation.canary, '');
-
   await Array.fromAsync(
     runTurn({ profile: 'internal_eval_bot', input: { text: 'hello' } }, mockProvider),
   );
   assertEquals(capturedSystem.includes('Your canary token is'), false);
 });
-
 Deno.test('inputs.text=false rejects text turns with TheoremError', () => {
   registerProfile(
     defineProfile({
@@ -1580,7 +1489,6 @@ Deno.test('inputs.text=false rejects text turns with TheoremError', () => {
       guardrails: { quota: { perDay: 100 } },
     }),
   );
-
   assertThrows(
     () =>
       resolveTurn({
@@ -1590,7 +1498,6 @@ Deno.test('inputs.text=false rejects text turns with TheoremError', () => {
     TheoremError,
   );
 });
-
 Deno.test('outputs.streaming.streamThoughts=false filters out thought events from SSE stream', async () => {
   registerProfile(
     defineProfile({
@@ -1606,7 +1513,6 @@ Deno.test('outputs.streaming.streamThoughts=false filters out thought events fro
       guardrails: { quota: { perDay: 100 } },
     }),
   );
-
   const mockProvider: import('../../src/kernel/types.ts').ModelProvider = {
     async *complete() {
       await Promise.resolve();
@@ -1614,11 +1520,9 @@ Deno.test('outputs.streaming.streamThoughts=false filters out thought events fro
       yield { type: 'text', text: 'final clean output' };
     },
   };
-
   const events: import('../../src/kernel/types.ts').TurnEvent[] = [];
   const records: import('../../src/observability/trace-record.ts').TraceRecord[] = [];
   const mockSink = catalogedSink(records);
-
   for await (const ev of runTurn(
     { profile: 'quiet_bot', input: { text: 'solve problem' } },
     mockProvider,
@@ -1626,7 +1530,6 @@ Deno.test('outputs.streaming.streamThoughts=false filters out thought events fro
   )) {
     events.push(ev);
   }
-
   // Filtered from outer SSE stream
   assertEquals(
     events.some((e) => e.type === 'thought'),
@@ -1637,17 +1540,17 @@ Deno.test('outputs.streaming.streamThoughts=false filters out thought events fro
     events.some((e) => e.type === 'done'),
     true,
   );
-
   // But preserved in the trace: the model call's output holds the reasoning.
   const [record] = records;
-  const call = record?.spans.find((span) => span.name.startsWith('generate_content'));
+  const call = record?.spans.find(
+    (span) => span.name.startsWith('generate_content') || span.name.startsWith('chat '),
+  );
   const [message] = (call?.attributes['gen_ai.output.messages'] ?? []) as {
     parts: TraceAttributes[];
   }[];
   const reasoning = message?.parts.find((part) => part.type === 'reasoning');
   assertEquals(record && contentOf(record, reasoning), 'internal deep thoughts...');
 });
-
 Deno.test('registered tool exception is safely caught and converted to error finding', async () => {
   registerProfile(
     defineProfile({
@@ -1661,7 +1564,6 @@ Deno.test('registered tool exception is safely caught and converted to error fin
       guardrails: { quota: { perDay: 100 } },
     }),
   );
-
   let callCount = 0;
   let receivedToolError = '';
   const mockProvider: ModelProvider = {
@@ -1682,12 +1584,13 @@ Deno.test('registered tool exception is safely caught and converted to error fin
           interactionId: 'v1_crash',
         };
       } else {
-        receivedToolError = String(req.continuation?.[0]?.content ?? '');
+        receivedToolError = String(
+          req.history?.find((message) => message.role === 'tool')?.content ?? '',
+        );
         yield { type: 'text', text: 'Handled error gracefully.' };
       }
     },
   };
-
   const events: TurnEvent[] = [];
   for await (const ev of runTurn(
     {
@@ -1698,7 +1601,6 @@ Deno.test('registered tool exception is safely caught and converted to error fin
   )) {
     events.push(ev);
   }
-
   assertEquals(callCount, 2);
   assertEquals(
     events.some((e) => e.type === 'tool' && e.tool.phase === 'error'),
@@ -1707,7 +1609,6 @@ Deno.test('registered tool exception is safely caught and converted to error fin
   assertEquals(receivedToolError.includes('Database connection timed out'), true);
   assertEquals(replyText(events), 'Handled error gracefully.');
 });
-
 Deno.test('autonomous loop strictly enforces maxSteps ceiling when tool requests repeat endlessly', async () => {
   registerProfile(
     defineProfile({
@@ -1721,7 +1622,6 @@ Deno.test('autonomous loop strictly enforces maxSteps ceiling when tool requests
       guardrails: { quota: { perDay: 100 } },
     }),
   );
-
   let callCount = 0;
   const mockProvider: ModelProvider = {
     async *complete() {
@@ -1736,7 +1636,6 @@ Deno.test('autonomous loop strictly enforces maxSteps ceiling when tool requests
       };
     },
   };
-
   const events: TurnEvent[] = [];
   for await (const ev of runTurn(
     {
@@ -1747,11 +1646,9 @@ Deno.test('autonomous loop strictly enforces maxSteps ceiling when tool requests
   )) {
     events.push(ev);
   }
-
   assertEquals(callCount, 2);
   assertDoneThenPostTurn(events);
 });
-
 Deno.test('registered tool enforces session_consent pause unless granted', async () => {
   registerProfile({
     type: 'text',
@@ -1764,7 +1661,6 @@ Deno.test('registered tool enforces session_consent pause unless granted', async
     outputs: {},
     guardrails: { quota: { perDay: 50 } },
   });
-
   const mockProvider: ModelProvider = {
     async *complete() {
       yield {
@@ -1777,7 +1673,6 @@ Deno.test('registered tool enforces session_consent pause unless granted', async
       };
     },
   };
-
   const events1: TurnEvent[] = [];
   for await (const ev of runTurn(
     {
@@ -1788,11 +1683,9 @@ Deno.test('registered tool enforces session_consent pause unless granted', async
   )) {
     events1.push(ev);
   }
-
   const toolEv1 = lastTool(events1, 'delete_resource');
   assertEquals(toolEv1?.phase, 'gate');
   assertEquals(gateOf(toolEv1)?.kind, 'permission');
-
   const events2: TurnEvent[] = [];
   for await (const ev of runTurn(
     {
@@ -1804,21 +1697,24 @@ Deno.test('registered tool enforces session_consent pause unless granted', async
   )) {
     events2.push(ev);
   }
-
   const toolEv2 = lastTool(events2, 'delete_resource');
   assertEquals(toolEv2?.phase, 'complete');
-  assertEquals((outputOf(toolEv2) as { finding?: string })?.finding, 'deleted res_123');
+  assertEquals(
+    (
+      outputOf(toolEv2) as {
+        finding?: string;
+      }
+    )?.finding,
+    'deleted res_123',
+  );
 });
-
 Deno.test('loader promotes deferred tools and continues the same turn loop', async () => {
   registerProfile({
     type: 'text',
     id: 'loader_bot',
     identity: { handle: 'loader_bot' },
-    key: 'slot_a',
     models: {
       gemini35FlashLite: {
-        protocol: 'openAi',
         provider: 'openrouter',
         apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
         efforts: { normal: 'minimal' },
@@ -1834,7 +1730,6 @@ Deno.test('loader promotes deferred tools and continues the same turn loop', asy
     outputs: {},
     guardrails: { quota: { perDay: 50 } },
   });
-
   let callCount = 0;
   const seenToolLists: string[][] = [];
   const provider: ModelProvider = {
@@ -1863,7 +1758,6 @@ Deno.test('loader promotes deferred tools and continues the same turn loop', asy
       yield { type: 'text', text: 'lookup complete' };
     },
   };
-
   const events = await Array.fromAsync(
     runTurn(
       {
@@ -1873,26 +1767,28 @@ Deno.test('loader promotes deferred tools and continues the same turn loop', asy
       provider,
     ),
   );
-
   assertEquals(callCount, 3);
   assertEquals(seenToolLists[0], ['load_tools']);
   assertEquals(seenToolLists[1], ['load_tools', 'record_lookup']);
   assertEquals(
-    Array.isArray((outputOf(lastTool(events, 'load_tools')) as { loaded?: string[] })?.loaded),
+    Array.isArray(
+      (
+        outputOf(lastTool(events, 'load_tools')) as {
+          loaded?: string[];
+        }
+      )?.loaded,
+    ),
     true,
   );
   assertEquals(lastTool(events, 'record_lookup')?.phase, 'complete');
 });
-
 Deno.test('loader does not promote deferred tools before required permission is granted', async () => {
   registerProfile({
     type: 'text',
     id: 'loader_permission_bot',
     identity: { handle: 'loader_permission_bot' },
-    key: 'slot_a',
     models: {
       gemini35FlashLite: {
-        protocol: 'openAi',
         provider: 'openrouter',
         apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
         efforts: { normal: 'minimal' },
@@ -1908,7 +1804,6 @@ Deno.test('loader does not promote deferred tools before required permission is 
     outputs: {},
     guardrails: { quota: { perDay: 50 } },
   });
-
   const seenToolLists: string[][] = [];
   const provider: ModelProvider = {
     async *complete(req) {
@@ -1927,7 +1822,6 @@ Deno.test('loader does not promote deferred tools before required permission is 
       yield { type: 'text', text: 'permission not granted' };
     },
   };
-
   const events = await Array.fromAsync(
     runTurn(
       {
@@ -1937,12 +1831,10 @@ Deno.test('loader does not promote deferred tools before required permission is 
       provider,
     ),
   );
-
   assertEquals(seenToolLists, [['load_tools_consent']]);
   assertEquals(lastTool(events, 'load_tools_consent')?.phase, 'gate');
   assertEquals(lastTool(events, 'record_lookup'), undefined);
 });
-
 Deno.test('guardrails.blockedReply refuse delivers in-character refusal without retry', async () => {
   registerProfile({
     type: 'text',
@@ -1960,13 +1852,11 @@ Deno.test('guardrails.blockedReply refuse delivers in-character refusal without 
     },
     lexicon: { 'egress.refusal': "i can't discuss internal wiring." },
   });
-
   const mockProvider: import('../../src/kernel/types.ts').ModelProvider = {
     async *complete() {
       yield { type: 'text', text: 'I used internal_tool_abc to look that up.' };
     },
   };
-
   const events: import('../../src/kernel/types.ts').TurnEvent[] = [];
   for await (const ev of runTurn(
     {
@@ -1977,10 +1867,8 @@ Deno.test('guardrails.blockedReply refuse delivers in-character refusal without 
   )) {
     events.push(ev);
   }
-
   assertEquals(replyText(events), "i can't discuss internal wiring.");
 });
-
 Deno.test('guardrails.blockedReply retry triggers auto-repair retry loop', async () => {
   registerProfile({
     type: 'text',
@@ -1997,7 +1885,6 @@ Deno.test('guardrails.blockedReply retry triggers auto-repair retry loop', async
       detect: blockNaming('internal_tool_abc'),
     },
   });
-
   let callCount = 0;
   const mockProvider: import('../../src/kernel/types.ts').ModelProvider = {
     async *complete(req) {
@@ -2014,7 +1901,6 @@ Deno.test('guardrails.blockedReply retry triggers auto-repair retry loop', async
       }
     },
   };
-
   const events: import('../../src/kernel/types.ts').TurnEvent[] = [];
   for await (const ev of runTurn(
     {
@@ -2025,13 +1911,11 @@ Deno.test('guardrails.blockedReply retry triggers auto-repair retry loop', async
   )) {
     events.push(ev);
   }
-
   assertEquals(callCount, 2);
   const textEvents = eventsOf(events, 'text');
   assertEquals(textEvents.length, 1);
   assertEquals(textEvents[0]?.text, 'Here is the clean public answer.');
 });
-
 Deno.test('guardrails.blockedReply retry withholds turn when retries exhausted', async () => {
   registerProfile({
     type: 'text',
@@ -2048,7 +1932,6 @@ Deno.test('guardrails.blockedReply retry withholds turn when retries exhausted',
       detect: blockNaming('Persistent leak'),
     },
   });
-
   let callCount = 0;
   const mockProvider: import('../../src/kernel/types.ts').ModelProvider = {
     async *complete() {
@@ -2056,7 +1939,6 @@ Deno.test('guardrails.blockedReply retry withholds turn when retries exhausted',
       yield { type: 'text', text: 'Persistent leak content' };
     },
   };
-
   const events: import('../../src/kernel/types.ts').TurnEvent[] = [];
   for await (const ev of runTurn(
     {
@@ -2067,14 +1949,12 @@ Deno.test('guardrails.blockedReply retry withholds turn when retries exhausted',
   )) {
     events.push(ev);
   }
-
   assertEquals(callCount, 2); // Initial attempt (0) + 1 retry = 2 attempts
   const errorEv = firstOf(events, 'error');
   assertEquals(errorEv?.errorKind, 'safety');
   const textEv = firstOf(events, 'text');
   assertEquals(textEv, undefined);
 });
-
 Deno.test('a blocked reply withholds its media until the prose clears', async () => {
   registerProfile(
     defineProfile({
@@ -2100,7 +1980,6 @@ Deno.test('a blocked reply withholds its media until the prose clears', async ()
       },
     }),
   );
-
   let callCount = 0;
   const provider: import('../../src/kernel/types.ts').ModelProvider = {
     async *complete() {
@@ -2120,7 +1999,6 @@ Deno.test('a blocked reply withholds its media until the prose clears', async ()
       };
     },
   };
-
   const events = await Array.fromAsync(
     runTurn(
       {
@@ -2132,7 +2010,6 @@ Deno.test('a blocked reply withholds its media until the prose clears', async ()
       provider,
     ),
   );
-
   assertEquals(callCount, 2);
   assertEquals(
     events.some((event) => event.type === 'media' && event.media.data === 'leaky-image'),
@@ -2143,7 +2020,6 @@ Deno.test('a blocked reply withholds its media until the prose clears', async ()
     true,
   );
 });
-
 Deno.test("a reply streams what a find of the host's has cleared under sse", async () => {
   const { HOST_FIND_HOLD } = await import('../../src/guardrails/detectors.ts');
   registerProfile(
@@ -2165,14 +2041,12 @@ Deno.test("a reply streams what a find of the host's has cleared under sse", asy
       },
     }),
   );
-
   const body = `${'n'.repeat(HOST_FIND_HOLD + 32)}END`;
   const provider: import('../../src/kernel/types.ts').ModelProvider = {
     async *complete() {
       yield { type: 'text', text: body };
     },
   };
-
   const events: import('../../src/kernel/types.ts').TurnEvent[] = [];
   for await (const ev of runTurn(
     {
@@ -2183,7 +2057,6 @@ Deno.test("a reply streams what a find of the host's has cleared under sse", asy
   )) {
     events.push(ev);
   }
-
   const textEvents = eventsOf(events, 'text');
   assertEquals(textEvents.length >= 1, true);
   const joined = replyText(textEvents);
@@ -2192,7 +2065,6 @@ Deno.test("a reply streams what a find of the host's has cleared under sse", asy
   assertEquals((textEvents[0]?.text?.length ?? 0) > 0, true);
   assertEquals((textEvents[0]?.text ?? '').endsWith('END'), false);
 });
-
 function createCanExecBotProfile(id: string, toolName: string): void {
   registerProfile({
     type: 'text',
@@ -2206,7 +2078,6 @@ function createCanExecBotProfile(id: string, toolName: string): void {
     guardrails: { quota: { perDay: 50 } },
   });
 }
-
 function createToolProvider(toolName: string): import('../../src/kernel/types.ts').ModelProvider {
   return {
     async *complete() {
@@ -2217,7 +2088,6 @@ function createToolProvider(toolName: string): import('../../src/kernel/types.ts
     },
   };
 }
-
 Deno.test('registered tool preTool deny yields unauthorized error', async () => {
   createCanExecBotProfile('can_exec_bot_1', 'denied_tool');
   const events = await Array.fromAsync(
@@ -2233,7 +2103,6 @@ Deno.test('registered tool preTool deny yields unauthorized error', async () => 
   assertEquals(toolEv?.phase, 'error');
   assertStringIncludes(failureOf(toolEv)?.message ?? '', 'not authorized');
 });
-
 Deno.test('registered tool preTool throwing error propagates from runTurn', async () => {
   createCanExecBotProfile('can_exec_bot_3', 'throwing_auth_tool');
   let threw = false;
@@ -2253,5 +2122,4 @@ Deno.test('registered tool preTool throwing error propagates from runTurn', asyn
   }
   assertEquals(threw, true);
 });
-
 catalogGate();

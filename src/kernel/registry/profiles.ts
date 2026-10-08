@@ -1,7 +1,12 @@
+import type { z } from 'zod';
 import { TOOL_BOUNDARIES } from '../../guardrails/boundaries.ts';
 import { detectProblem } from '../../guardrails/detectors.ts';
 import { TheoremError } from '../../guardrails/error.ts';
-import { type LexiconOverrides, validateLexiconOverrides } from '../../guardrails/lexicon.ts';
+import {
+  type LexiconOverrides,
+  lexiconText,
+  validateLexiconOverrides,
+} from '../../guardrails/lexicon.ts';
 import {
   BLOCKED_REPLY_ON_BLOCK,
   type BlockedReplySpec,
@@ -11,24 +16,24 @@ import {
 } from '../../guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../../observability/types.ts';
-import { PROVIDER_FACTS, pairsWhere, providersWhere } from '../../presets/facts.ts';
 import { assertLiveIngressConfigured } from '../engine/live-ingress.ts';
 import { schemaReaches } from '../engine/runner/schema-validation.ts';
 import { outOfScopeFields, profileTypesForField } from '../profile-scope.ts';
 import {
-  CACHE_MODES,
-  CACHE_TTLS,
+  decisionModelBindingSchema,
+  modelBindingSchema,
+  type ProviderRegistry,
+  providerContinuationSchema,
+  validateProviderModel,
+} from '../provider-contract.ts';
+import {
   CONTEXT_SENDERS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
-  isKeySlotName,
-  isValidPair,
-  isValidProfileProtocol,
   PROFILE_FIELDS,
   PROFILE_HANDLE_MAX_CHARS,
   PROFILE_ID_MAX_CHARS,
   PROFILE_TYPES,
   type ProfileType,
-  protocolsForProfileType,
   THINKING_LEVELS,
 } from '../schema.ts';
 import {
@@ -47,7 +52,6 @@ import type {
   HostProfileToolsSpec,
   ImageInputsSpec,
   ImageProfile,
-  KeySlot,
   LiveContextCompressionSpec,
   LiveProfile,
   LiveProfileToolsSpec,
@@ -77,11 +81,10 @@ export type ProfileDefinitionBase = {
   id: Profile['id'];
   identity: ProfileIdentity;
   models: Record<ModelId, ModelBinding>;
+  providerContinuation?: import('../provider-contract.ts').ProviderContinuationPolicy;
   defaultModel?: ModelId;
   allowModelSelect?: boolean;
   maxSteps?: number;
-  key?: ProfileModelFields['key'];
-  fallbackKey?: ProfileModelFields['fallbackKey'];
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
@@ -130,7 +133,6 @@ export type DecisionProfileDefinition = {
   identity: Pick<ProfileIdentity, 'handle'>;
   /** Exactly one model. */
   models: Record<ModelId, DecisionModelBinding>;
-  key?: import('../types.ts').KeySlot;
   inputs: DecisionProfile['inputs'];
   decision: DecisionProfile['decision'];
   guardrails?: DecisionGuardrailsSpec;
@@ -159,28 +161,27 @@ export type ProfileDefinition =
   | HostProfileDefinition;
 
 function assertModelRoute(
+  _profileId: string,
+  _modelId: string,
+  binding: Pick<ModelBinding, 'provider' | 'apiId'>,
+  _type?: ProfileType,
+): void {
+  if (!binding.provider?.trim() || !binding.apiId?.trim())
+    throw new TheoremError('config', lexiconText('provider.binding_identity'));
+}
+
+function assertBindingData(
   profileId: string,
   modelId: string,
-  binding: Pick<ModelBinding, 'protocol' | 'provider' | 'apiId'>,
-  type?: ProfileType,
+  binding: unknown,
+  schema: z.ZodType,
 ): void {
-  if (type === 'decision' && !binding.apiId.trim()) {
-    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set apiId`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  if (type === 'decision' && !isValidProfileProtocol(type, binding.protocol)) {
+  const parsed = schema.safeParse(binding);
+  if (!parsed.success)
     throw new TheoremError(
       'config',
-      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      `Profile ${profileId} model '${modelId}': type 'decision' cannot use protocol '${binding.protocol}'. Supported: decision`,
+      `Profile ${profileId} model '${modelId}': ${parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`,
     );
-  }
-  if (!isValidPair(binding.protocol, binding.provider)) {
-    throw new TheoremError(
-      'config',
-      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      `Profile ${profileId} model '${modelId}': protocol '${binding.protocol}' is not valid for provider '${binding.provider}'`,
-    );
-  }
 }
 
 function validateDecisionBinding(
@@ -188,6 +189,7 @@ function validateDecisionBinding(
   modelId: string,
   binding: DecisionModelBinding,
 ): void {
+  assertBindingData(profileId, modelId, binding, decisionModelBindingSchema);
   assertModelRoute(profileId, modelId, binding, 'decision');
   if ('retry' in binding) {
     throw new TheoremError(
@@ -237,16 +239,6 @@ function validateDecisionConfig(input: DecisionProfileDefinition): void {
 function defineDecisionProfile(input: DecisionProfileDefinition): DecisionProfile {
   validateDecisionModel(input);
   validateDecisionConfig(input);
-  assertSlotName(input.id, 'key', input.key);
-  for (const [modelId, binding] of Object.entries(input.models)) {
-    assertSlotName(input.id, `models.${modelId}.key`, binding.key);
-    if (!binding.key && !input.key) {
-      throw new TheoremError(
-        'config',
-        `Profile ${input.id} model '${modelId}': a decision model needs models.*.key or the profile key`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
-  }
   assertObservability(input.id, input.observability);
   return { ...input, identity: { handle: input.identity.handle } };
 }
@@ -301,64 +293,9 @@ function resolveDefaultModel(profileId: string, input: ProfileDefinitionBase): M
 }
 
 function assertModelBinding(profileId: string, modelId: ModelId, binding: ModelBinding): void {
-  assertModelRoute(profileId, modelId, binding);
   assertModelEfforts(profileId, modelId, binding);
-  if (binding.cache) {
-    assertCacheSpec(profileId, modelId, binding, binding.cache);
-  }
-  assertInteractionsPersistence(profileId, modelId, binding);
-  assertLocalServer(profileId, modelId, binding);
-}
-
-function assertSlotName(profileId: string, path: string, slot: KeySlot | undefined): void {
-  if (slot !== undefined && !isKeySlotName(slot)) {
-    throw new TheoremError(
-      'config',
-      `Profile ${profileId}: ${path} '${slot}' is not a key slot name; use letters, digits, '-' and '_', up to 32 characters`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-}
-
-/** A model's key and fallback, each its own or the profile's. A fallback is never implied. */
-function assertKeySlot(
-  profileId: string,
-  modelId: ModelId,
-  binding: ModelBinding,
-  profile: { key?: KeySlot; fallbackKey?: KeySlot },
-): void {
-  assertSlotName(profileId, `models.${modelId}.key`, binding.key);
-  assertSlotName(profileId, `models.${modelId}.fallbackKey`, binding.fallbackKey);
-  const key = binding.key ?? profile.key;
-  const fallback = binding.fallbackKey ?? profile.fallbackKey;
-  if (PROVIDER_FACTS[binding.provider].needsKey && !key) {
-    throw new TheoremError(
-      'config',
-      `Profile ${profileId} model '${modelId}': a ${binding.provider} model needs models.*.key or the profile key`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  if (fallback === undefined) return;
-  if (fallback === key) {
-    throw new TheoremError(
-      'config',
-      `Profile ${profileId} model '${modelId}': fallbackKey '${fallback}' is the same slot as its key`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-}
-
-function assertLocalServer(profileId: string, modelId: ModelId, binding: ModelBinding): void {
-  if (binding.server === undefined) {
-    return;
-  }
-  const tag = `Profile ${profileId} model '${modelId}'`;
-  if (!PROVIDER_FACTS[binding.provider].takesServer) {
-    throw new TheoremError(
-      'config',
-      `${tag}: server is only valid when provider is ${providersWhere((facts) => facts.takesServer)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  if (typeof binding.server !== 'string' || binding.server.trim() === '') {
-    throw new TheoremError('config', `${tag}: server must be a non-empty string`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
+  assertBindingData(profileId, modelId, binding, modelBindingSchema);
+  assertModelEfforts(profileId, modelId, binding);
 }
 
 function assertModelEfforts(profileId: string, modelId: ModelId, binding: ModelBinding): void {
@@ -402,26 +339,15 @@ function assertModelEfforts(profileId: string, modelId: ModelId, binding: ModelB
   }
 }
 
-function assertTypeProtocols(profile: ModelProfile): void {
-  for (const [modelId, binding] of Object.entries(profile.models)) {
-    if (!isValidProfileProtocol(profile.type, binding.protocol)) {
-      const valid = protocolsForProfileType(profile.type).join(', ');
-      throw new TheoremError(
-        'config',
-        `Profile ${profile.id} model '${modelId}': type '${profile.type}' cannot use protocol '${binding.protocol}'. Supported: ${valid}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
-  }
-}
-
 function profileModelFields(input: ProfileDefinitionBase): ProfileModelFields {
   return {
+    providerContinuation: input.providerContinuation
+      ? providerContinuationSchema.parse(input.providerContinuation)
+      : { onMismatch: 'rebuild' },
     models: input.models,
     defaultModel: resolveDefaultModel(input.id, input),
     allowModelSelect: input.allowModelSelect,
     maxSteps: input.maxSteps,
-    key: input.key,
-    fallbackKey: input.fallbackKey,
   };
 }
 
@@ -683,6 +609,12 @@ function defineProfile(input: ProfileDefinition): Profile;
 /** Validate any definition and return the profile. */
 function defineProfile(input: ProfileDefinition): Profile {
   assertProfileShape(input);
+  for (const field of ['key', 'fallbackKey', 'protocol', 'provider'])
+    if (field in input)
+      throw new TheoremError(
+        'config',
+        lexiconText('provider.profile_configuration', { profile: input.id, field }),
+      );
   assertFieldScope(input);
   assertInputsSet(input);
   assertRequiredFields(input);
@@ -701,11 +633,8 @@ function defineProfile(input: ProfileDefinition): Profile {
   assertGuardrails(input.id, input.guardrails as ProfileGuardrailsSpec | undefined);
   if (input.type === 'text') assertValidation(input.id, input.outputs?.validation);
   assertObservability(input.id, input.observability);
-  assertSlotName(input.id, 'key', input.key);
-  assertSlotName(input.id, 'fallbackKey', input.fallbackKey);
   for (const [modelId, binding] of Object.entries(input.models)) {
     assertModelBinding(input.id, modelId, binding);
-    assertKeySlot(input.id, modelId, binding, input);
   }
 
   const identity: ProfileIdentity =
@@ -795,7 +724,6 @@ function defineProfile(input: ProfileDefinition): Profile {
     }
   }
   assertStructuredSlot(profile);
-  assertTypeProtocols(profile);
   assertMaxSteps(profile);
   return profile;
 }
@@ -948,65 +876,6 @@ function assertCompactionSpec(
       `${tag}: compaction profile '${spec.profile}' must be a text profile that takes text`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-}
-
-function assertCacheSpec(
-  profileId: string,
-  modelId: ModelId,
-  binding: ModelBinding,
-  spec: NonNullable<ModelBinding['cache']>,
-): void {
-  const tag = `Profile ${profileId} model '${modelId}'`;
-  if (PROVIDER_FACTS[binding.provider].cacheOn !== binding.protocol) {
-    throw new TheoremError(
-      'config',
-      `${tag}: cache is only valid when ${pairsWhere((facts) => facts.cacheOn)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  if (!(CACHE_MODES as readonly string[]).includes(spec.mode)) {
-    throw new TheoremError(
-      'config',
-      `${tag}: cache.mode must be one of ${CACHE_MODES.join(' | ')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  if (spec.ttl != null && !(CACHE_TTLS as readonly string[]).includes(spec.ttl)) {
-    throw new TheoremError('config', `${tag}: cache.ttl must be one of ${CACHE_TTLS.join(' | ')}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-}
-
-function assertInteractionsPersistence(
-  profileId: string,
-  modelId: ModelId,
-  binding: ModelBinding,
-): void {
-  if (PROVIDER_FACTS[binding.provider].storesOn === binding.protocol) {
-    if (binding.persistViaInteractionId === undefined) {
-      throw new TheoremError(
-        'config',
-        `Profile ${profileId} model '${modelId}': persistViaInteractionId is required on a '${binding.protocol}' binding — true chains on the provider's stored interaction, false sends the host's history plus this turn's steps every call`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
-    if (binding.persistViaInteractionId && binding.store === false) {
-      throw new TheoremError(
-        'config',
-        `Profile ${profileId} model '${modelId}': persistViaInteractionId: true needs store left on — the provider chains only from a stored interaction`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
-    return;
-  }
-  if (binding.store === undefined && binding.persistViaInteractionId === undefined) {
-    return;
-  }
-  const which =
-    binding.store !== undefined && binding.persistViaInteractionId !== undefined
-      ? 'store and persistViaInteractionId' // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      : binding.store !== undefined
-        ? 'store'
-        : 'persistViaInteractionId';
-  throw new TheoremError(
-    'config',
-    `Profile ${profileId} model '${modelId}': ${which} is only valid when ${pairsWhere((facts) => facts.storesOn)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  );
 }
 
 function assertCompactionBudget(tag: string, spec: CompactionSpec): void {
@@ -1196,10 +1065,18 @@ interface ProfileRegistry {
 }
 
 /** Profiles are checked against `tools` and `schemas`, so register a scope's tools and schemas before its profiles. */
-function createProfileRegistry(tools: ToolRegistry, schemas: SchemaRegistry): ProfileRegistry {
+function createProfileRegistry(
+  tools: ToolRegistry,
+  schemas: SchemaRegistry,
+  providers?: ProviderRegistry,
+): ProfileRegistry {
   const profiles = new Map<string, Profile>();
   const register = (profileInput: Profile | ProfileDefinition) => {
     const profile = defineProfile(profileInput as ProfileDefinition);
+    if (providers && profile.type !== 'host') {
+      for (const binding of Object.values(profile.models))
+        validateProviderModel(providers.require(binding.provider), binding, profile.type);
+    }
     assertCustomToolsOnly(tools, profile);
     assertProfileToolLoader(tools, profile);
     if (profile.type !== 'host' && profile.type !== 'decision') {

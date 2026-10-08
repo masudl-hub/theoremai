@@ -1,6 +1,6 @@
 import { describeError, isAbortError, TheoremError } from '../../../guardrails/error.ts';
 import type { InteractionPart, ProviderCompleteRequest } from '../../../kernel/types.ts';
-import { fallbackKey, requireKey } from '../../shared/vault.ts';
+import { requireKey, resolveFallbackKey } from '../../shared/vault.ts';
 import { LIVE_FALLBACK_ROW, type LiveConnection, type LiveQueueItem } from '../../types.ts';
 import type { GeminiTransport } from '../keys.ts';
 import {
@@ -119,8 +119,14 @@ async function openWithOverflow(
   try {
     return await openOnKey(req, primary, openWebSocket);
   } catch (err) {
-    const fallback = fallbackKey(req.fallbackKeySlot, transport.vault, primary);
-    if (!fallback || !(err instanceof TheoremError) || err.kind !== 'rate_limit') throw err;
+    if (!(err instanceof TheoremError) || err.kind !== 'rate_limit') throw err;
+    const fallback = await resolveFallbackKey(
+      req.fallbackKeySlot,
+      transport.vault,
+      primary,
+      req.signal,
+    );
+    if (!fallback) throw err;
     req.tapUpstream?.({
       eventType: LIVE_FALLBACK_ROW,
       from: req.keySlot,
@@ -167,8 +173,8 @@ export async function openGoogleLiveSession(
     sendInput(input: InteractionPart) {
       send(buildGeminiLiveRealtimeInput(input));
     },
-    sendToolResponse(callId: string, name: string, output: unknown) {
-      send(buildGeminiLiveToolResponse(callId, name, output));
+    sendToolResponse(callId: string, name: string, output: unknown, parts?: InteractionPart[]) {
+      send(buildGeminiLiveToolResponse(callId, name, output, parts));
     },
     async *batches(): AsyncGenerator<LiveQueueItem> {
       try {

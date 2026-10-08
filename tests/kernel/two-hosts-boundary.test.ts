@@ -1,3 +1,4 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 // P2: two hosts with contradictory overrides each see only their own copy, and no kernel default
 // string appears in either turn's emitted text.
 import '../fixtures/test-host.ts';
@@ -10,7 +11,6 @@ import {
   quotaExhausted,
   registerProfile,
   resetLexicon,
-  runTurn,
   type TurnEvent,
 } from '../../mod.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';

@@ -13,14 +13,12 @@ import { toolEventsOf } from '../fixtures/events.ts';
 
 const TOKEN = 'sheet-token-sentinel';
 const RESOLVE = () => Promise.resolve(['93.184.216.34']);
-
 const profile: Profile = {
   id: 'function-auth-profile',
   type: 'text',
   identity: { handle: 'test-agent' },
   models: {
     'test-model': {
-      protocol: 'geminiInteractions',
       provider: 'google',
       apiId: 'test-model-id',
       efforts: { normal: 'minimal' },
@@ -33,14 +31,15 @@ const profile: Profile = {
   inputs: { text: true },
   outputs: {},
 };
-
 /** A function tool that reads one URL with its signed-in fetch and returns the body. */
 function registerSheetTool(
   auth: Omit<ToolAuthConfig, 'service'>,
   url = 'https://sheets.example.com/v4/s/1',
 ) {
   resetTools();
-  const seen: { ctx?: ToolContext } = {};
+  const seen: {
+    ctx?: ToolContext;
+  } = {};
   registerTool({
     name: 'read_sheet',
     description: 'Read a spreadsheet',
@@ -62,7 +61,6 @@ function registerSheetTool(
   });
   return seen;
 }
-
 async function run(credentials: Readonly<Record<string, ToolCredential>>) {
   const events = [];
   for await (const ev of executeRegisteredTool({
@@ -77,7 +75,6 @@ async function run(credentials: Readonly<Record<string, ToolCredential>>) {
   }
   return events;
 }
-
 async function withFetch<T>(fetchFn: typeof fetch, body: () => Promise<T>): Promise<T> {
   const original = globalThis.fetch;
   globalThis.fetch = fetchFn;
@@ -87,9 +84,11 @@ async function withFetch<T>(fetchFn: typeof fetch, body: () => Promise<T>): Prom
     globalThis.fetch = original;
   }
 }
-
 function answering(status: number, text: string, headers: Record<string, string> = {}) {
-  const sent: { url: string; authorization: string | null }[] = [];
+  const sent: {
+    url: string;
+    authorization: string | null;
+  }[] = [];
   const fetchFn: typeof fetch = (input, init) => {
     sent.push({
       url: input.toString(),
@@ -99,12 +98,10 @@ function answering(status: number, text: string, headers: Record<string, string>
   };
   return { fetchFn, sent };
 }
-
 const BEARER = { sheets: { type: 'bearer', token: TOKEN } } satisfies Record<
   string,
   ToolCredential
 >;
-
 Deno.test('a function tool that signs in gates, naming its service, when the slot is empty', async () => {
   const seen = registerSheetTool({ slot: 'sheets', type: 'bearer' });
   const events = await run({});
@@ -112,14 +109,12 @@ Deno.test('a function tool that signs in gates, naming its service, when the slo
   assertEquals(gate?.gate.kind === 'auth' ? gate.gate.authChallenge.service : '', 'Sheets');
   assertEquals(seen.ctx, undefined);
 });
-
 Deno.test('a function tool that signs in tells the model when its policy says so', async () => {
   registerSheetTool({ slot: 'sheets', type: 'bearer', onUnauthenticated: 'report_to_model' });
   const events = await run({});
   assertEquals(toolEventsOf(events, 'gate').length, 0);
   assertEquals(toolEventsOf(events, 'complete').length, 1);
 });
-
 Deno.test('the handler requests with the credential but never holds it, and an echo is omitted', async () => {
   const seen = registerSheetTool({ slot: 'sheets', type: 'bearer' });
   const { fetchFn, sent } = answering(200, `you sent ${TOKEN}`);
@@ -131,7 +126,6 @@ Deno.test('the handler requests with the credential but never holds it, and an e
   assertEquals(JSON.stringify(events).includes(TOKEN), false);
   assertEquals(toolEventsOf(events, 'complete').length, 1);
 });
-
 Deno.test('a credential the service refuses asks a function tool for a new sign-in', async () => {
   registerSheetTool({ slot: 'sheets', type: 'bearer', scopes: ['read', 'write'] });
   for (const [status, challenge] of [
@@ -145,7 +139,6 @@ Deno.test('a credential the service refuses asks a function tool for a new sign-
     assertEquals(toolEventsOf(events, 'error').length, 0);
   }
 });
-
 Deno.test('a function tool asked for scopes it never declared fails without a sign-in', async () => {
   registerSheetTool({ slot: 'sheets', type: 'bearer', scopes: ['read'] });
   const { fetchFn } = answering(403, 'refused', {
@@ -160,7 +153,6 @@ Deno.test('a function tool asked for scopes it never declared fails without a si
     lexiconText('sign_in.out_of_scope', { service: 'Sheets' }),
   );
 });
-
 Deno.test('a 403 that asks for no sign-in reaches the handler as a response', async () => {
   registerSheetTool({ slot: 'sheets', type: 'bearer' });
   const { fetchFn } = answering(403, 'not shared with you');
@@ -168,7 +160,6 @@ Deno.test('a 403 that asks for no sign-in reaches the handler as a response', as
   assertEquals(toolEventsOf(events, 'gate').length, 0);
   assertEquals(toolEventsOf(events, 'complete').length, 1);
 });
-
 Deno.test('an OAuth token goes only to the resource it was issued for', async () => {
   registerSheetTool({ slot: 'sheets', type: 'oauth2' }, 'https://elsewhere.example.com/x');
   const { fetchFn, sent } = answering(200, 'ok');
@@ -188,7 +179,6 @@ Deno.test('an OAuth token goes only to the resource it was issued for', async ()
   assertEquals(sent.length, 0);
   assertEquals(toolEventsOf(events, 'error')[0]?.failure?.code, 'handler_error');
 });
-
 Deno.test('a function tool that signs in must name its service', () => {
   resetTools();
   assertThrows(

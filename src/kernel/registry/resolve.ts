@@ -148,46 +148,8 @@ function resolveStreamFlag(profile: ModelProfile): boolean {
   return profile.outputs?.streaming?.mode !== 'buffered';
 }
 
-function resolveStore(binding: ModelBinding, reqStore: boolean | undefined): boolean | undefined {
-  if (reqStore !== undefined) {
-    return reqStore;
-  }
-  return binding.store;
-}
-
-/**
- * A turn chains only on a binding that says so: an interaction id sent to one
- * that does not, or a chaining turn that switches storage off, is a request error.
- */
-function assertTurnChaining(
-  profile: ModelProfile,
-  model: ModelId,
-  chains: boolean,
-  req: TurnRequest,
-  store: boolean | undefined,
-): void {
-  if (req.previousInteractionId && !chains) {
-    throw new TheoremError(
-      'request',
-      `Profile ${profile.id} model '${model}': previousInteractionId needs a binding with persistViaInteractionId: true`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  if (chains && store === false) {
-    throw new TheoremError(
-      'request',
-      `Profile ${profile.id} model '${model}': store: false cannot apply to a binding with persistViaInteractionId: true — the provider chains only from a stored interaction`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-}
-
-function resolveTransport(profile: ModelProfile, binding: ModelBinding): ProviderTransport {
-  if (profile.type === 'live') {
-    return 'geminiLive';
-  }
-  if (binding.protocol === 'geminiInteractions') {
-    return 'interactions';
-  }
-  return 'openAiCompat';
+function resolveTransport(profile: ModelProfile, _binding: ModelBinding): ProviderTransport {
+  return profile.type === 'live' ? 'live' : 'turn';
 }
 
 function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
@@ -266,28 +228,20 @@ function resolveTurnInRegistry(
   const structuredId = resolveStructured(profile, input.slots);
   assertOutputMode(profile, structuredId);
   assertSpeechRole(profile, safe);
-  const keys = resolveKeySlot(profile, binding);
+  const keys = resolveKeySlot(registry.providers.require(binding.provider), binding);
   const transport = resolveTransport(profile, binding);
-  const chains = binding.persistViaInteractionId === true;
-  const store = resolveStore(binding, safe.store);
-  assertTurnChaining(profile, model, chains, safe, store);
   return {
     profile,
     generation: {
       model,
       apiId: binding.apiId,
       transport,
-      chains,
-      previousInteractionId: safe.previousInteractionId,
-      store,
       stream: resolveStreamFlag(profile),
       thinking: resolveEffort(profile, binding, model, safe.effort),
       summaries: resolveSummaries(binding),
       maxOutputTokens: binding.maxOutputTokens,
       temperature: binding.temperature,
       builtins,
-      googleMapsLocation: safe.googleMapsLocation,
-      cache: binding.cache,
       sessionId: safe.sessionId,
       tools: toolSnapshot,
       sessionPermissions: safe.sessionPermissions,
@@ -302,7 +256,6 @@ function resolveTurnInRegistry(
       input: resolveInputParts(profile, safe),
       ...keys,
       canary: plantedCanary(profile),
-      sessionResumptionHandle: safe.sessionResumptionHandle ?? input.sessionResumptionHandle,
       resolvedSystem: resolveTurnSystemPrompt(profile, safe),
       host: safe.host,
     },
@@ -327,7 +280,6 @@ function projectProfileObject(tools: ToolRegistry, input: Profile): ProjectedPro
     defaultModel: profile.defaultModel,
     allowModelSelect: profile.allowModelSelect,
     maxSteps: profile.maxSteps,
-    key: profile.key,
     tools: projectTools(tools, profile),
     inputs,
     outputs,

@@ -1,6 +1,7 @@
+import { runTurn } from '../../fixtures/registered-runner.ts';
 import '../../fixtures/test-host.ts';
 import { OMIT_CANARY } from '../../../src/guardrails/canary.ts';
-import { runTurn } from '../../../src/kernel/default-scope.ts';
+
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import { sha256 } from '../../../src/kernel/engine/hash.ts';
 import type { KeyVault } from '../../../src/kernel/types.ts';
@@ -45,7 +46,7 @@ function eventContent(record: TraceRecord, span: TraceSpan, name: string, key: s
 }
 
 function assertFullTape(record: TraceRecord): void {
-  const call = spanNamed(record, 'generate_content gemini-3.5-flash-lite');
+  const call = spanNamed(record, 'chat gemini-3.5-flash-lite');
   const post = spanNamed(record, 'POST');
   assertEquals(post.parentSpanId, call.spanId);
   assertEquals(post.attributes['http.request.header.x-goog-api-key'], ['[redacted]']);
@@ -88,7 +89,7 @@ function sseResponse(events: unknown[]): Response {
       return `event: ${name}\ndata: ${JSON.stringify(event)}\n`;
     })
     .join('\n');
-  return new Response(`${blocks}\nevent: done\ndata: [DONE]\n`, {
+  return new Response(`${blocks}\nevent: done\ndata: [DONE]\n\n`, {
     status: HTTP_OK,
   });
 }

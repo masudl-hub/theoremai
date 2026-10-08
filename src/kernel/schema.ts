@@ -3,7 +3,6 @@
  *
  * @module
  */
-
 /** lexicon-exempt-file: authoring field-meta / closed unions — not runtime user or model copy (P2) */
 import { BOUNDARIES, BOUNDARY_META, recordOf } from '../guardrails/boundaries.ts';
 import {
@@ -27,12 +26,10 @@ import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
 import { profileFieldScope } from './profile-scope.ts';
 
 export { BLOCKED_REPLY_ON_BLOCK, type BlockedReplyOnBlock };
-
 /** The kinds of profile: each fixes which fields and models a profile may use. */
 export const PROFILE_TYPES = ['text', 'image', 'speech', 'live', 'decision', 'host'] as const;
 /** One of {@linkcode PROFILE_TYPES}. */
 export type ProfileType = (typeof PROFILE_TYPES)[number];
-
 /** Reasoning effort levels, lowest to highest; a model accepts only the levels its catalog row lists. */
 export const THINKING_LEVELS = [
   'none',
@@ -45,30 +42,25 @@ export const THINKING_LEVELS = [
 ] as const;
 /** One of {@linkcode THINKING_LEVELS}. */
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
-
 /** The wire protocols a model binding can speak. */
 export const PROTOCOLS = ['geminiInteractions', 'geminiLive', 'openAi', 'decision'] as const;
 /** One of {@linkcode PROTOCOLS}. */
 export type Protocol = (typeof PROTOCOLS)[number];
-
-/** The providers `createProvider` and `runDecision` can bind a model to. */
+/** First-party provider names used by the preset and playground catalogs. Model bindings accept registered IDs. */
 export const PROVIDERS = ['google', 'openrouter', 'local', 'typesafe'] as const;
 /** One of {@linkcode PROVIDERS}. */
-export type Provider = (typeof PROVIDERS)[number];
-
+export type Provider = string;
 /** The longest a profile's `id` may be, in characters: room for a dotted or generated one. */
 export const PROFILE_ID_MAX_CHARS = 64;
 /** The longest a profile's `identity.handle` may be, in characters: it is a name people read. */
 export const PROFILE_HANDLE_MAX_CHARS = 32;
-
-/** Turn pairs are handled by `createProvider`; decision pairs by `runDecision`. */
+/** First-party protocol metadata for catalogs; registered adapters own runtime compatibility. */
 export const PROTOCOL_PROVIDERS = {
   geminiInteractions: ['google'],
   geminiLive: ['google'],
   openAi: ['openrouter', 'local'],
   decision: ['typesafe', 'openrouter'],
 } as const satisfies Record<Protocol, readonly Provider[]>;
-
 /** The protocols each profile type may bind; `host` profiles bind no model. */
 export const PROFILE_TYPE_PROTOCOLS = {
   text: ['geminiInteractions', 'openAi'],
@@ -78,67 +70,52 @@ export const PROFILE_TYPE_PROTOCOLS = {
   decision: ['decision'],
   host: [],
 } as const satisfies Record<ProfileType, readonly Protocol[]>;
-
 /** The protocols a profile of type `T` may bind. */
 export type ProfileTypeProtocol<T extends ProfileType> = (typeof PROFILE_TYPE_PROTOCOLS)[T][number];
-
 /** The protocols a profile type may bind. */
 export function protocolsForProfileType(type: ProfileType): readonly Protocol[] {
   return PROFILE_TYPE_PROTOCOLS[type];
 }
-
 /** True when a profile of this type may bind this protocol. */
 export function isValidProfileProtocol(type: ProfileType, protocol: Protocol): boolean {
   return (PROFILE_TYPE_PROTOCOLS[type] as readonly string[]).includes(protocol);
 }
-
 /** A vault slot's name, chosen by the host. The profile names slots; the host fills them with keys. */
 export type KeySlot = string;
-
 /** Letters, digits, `-` and `_`, up to 32 characters, starting with a letter or digit. */
 export const KEY_SLOT_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/;
-
 /** True when the value is a legal key slot name. */
 export function isKeySlotName(value: unknown): value is KeySlot {
   return typeof value === 'string' && KEY_SLOT_NAME.test(value);
 }
-
 /** The host-filled keys by slot name; a slot with no key is `undefined`. */
-export type KeyVault = Readonly<Record<KeySlot, string | undefined>>;
-
+export type KeyVault = import('./provider-contract.ts').ProviderVault;
 /** The kinds of media a model can take as input. */
 export const MEDIA_INPUT_KIND_VALUES = ['image', 'audio', 'video', 'document'] as const;
 /** One of {@linkcode MEDIA_INPUT_KIND_VALUES}. */
 export type MediaInputKind = (typeof MEDIA_INPUT_KIND_VALUES)[number];
-
 /** Whether thought summaries are asked for (`auto`) or not (`none`). */
 export const SUMMARY_MODES = ['auto', 'none'] as const;
 /** One of {@linkcode SUMMARY_MODES}. */
 export type SummaryMode = (typeof SUMMARY_MODES)[number];
-
 /** Whether the provider call streams (`sse`) or is one buffered call. */
 export const STREAM_MODES = ['sse', 'buffered'] as const;
 /** One of {@linkcode STREAM_MODES}. */
 export type StreamMode = (typeof STREAM_MODES)[number];
-
 /** Audio encodings a speech profile can return. */
 export const SPEECH_AUDIO_FORMATS = ['pcm', 'mp3'] as const;
 /** One of {@linkcode SPEECH_AUDIO_FORMATS}. */
 export type SpeechAudioFormat = (typeof SPEECH_AUDIO_FORMATS)[number];
-
 /** Who can send a turn its context: the browser, or the host's own code. */
 /** How long a caller is away, in milliseconds, before `live.resumed.prompt` is sent, when the profile sets no `afterMs`. */
 export const DEFAULT_RESUMED_AFTER_MS = 3000;
-
 export const CONTEXT_SENDERS = ['client', 'server'] as const;
 /** One of {@linkcode CONTEXT_SENDERS}. */
 export type ContextSender = (typeof CONTEXT_SENDERS)[number];
-
 /** What the user starting to speak does to a live model that is mid-reply. */
 export const LIVE_ACTIVITY_HANDLINGS = ['START_OF_ACTIVITY_INTERRUPTS', 'NO_INTERRUPTION'] as const;
 /** One of {@linkcode LIVE_ACTIVITY_HANDLINGS}. */
 export type LiveActivityHandling = (typeof LIVE_ACTIVITY_HANDLINGS)[number];
-
 /** How readily live voice detection decides the user has started speaking. */
 export const LIVE_START_SENSITIVITIES = [
   'START_SENSITIVITY_LOW',
@@ -146,22 +123,18 @@ export const LIVE_START_SENSITIVITIES = [
 ] as const;
 /** One of {@linkcode LIVE_START_SENSITIVITIES}. */
 export type LiveStartSensitivity = (typeof LIVE_START_SENSITIVITIES)[number];
-
 /** How readily live voice detection decides the user has stopped speaking. */
 export const LIVE_END_SENSITIVITIES = ['END_SENSITIVITY_LOW', 'END_SENSITIVITY_HIGH'] as const;
 /** One of {@linkcode LIVE_END_SENSITIVITIES}. */
 export type LiveEndSensitivity = (typeof LIVE_END_SENSITIVITIES)[number];
-
 /** What compaction counts against its token limit: the stored history or the next request's input. */
 export const COMPACTION_METERS = ['history', 'input'] as const;
 /** One of {@linkcode COMPACTION_METERS}. */
 export type CompactionMeter = (typeof COMPACTION_METERS)[number];
-
 /** Whether compaction runs before or after a turn. */
 export const COMPACTION_TIMINGS = ['before', 'after'] as const;
 /** One of {@linkcode COMPACTION_TIMINGS}. */
 export type CompactionTiming = (typeof COMPACTION_TIMINGS)[number];
-
 /**
  * - `compacted`: a summary replaced the compacted messages.
  * - `deferred`: the compactor failed and the history still fits `maxTokens`, so it is kept whole.
@@ -170,17 +143,14 @@ export type CompactionTiming = (typeof COMPACTION_TIMINGS)[number];
 export const COMPACTION_OUTCOMES = ['compacted', 'deferred', 'dropped'] as const;
 /** One of {@linkcode COMPACTION_OUTCOMES}. */
 export type CompactionOutcome = (typeof COMPACTION_OUTCOMES)[number];
-
 /** Which part of the prompt is cached: the whole request (`automatic`) or the system instruction only (`system`). */
 export const CACHE_MODES = ['automatic', 'system'] as const;
 /** One of {@linkcode CACHE_MODES}. */
 export type CacheMode = (typeof CACHE_MODES)[number];
-
 /** How long a provider keeps a cached prompt. */
 export const CACHE_TTLS = ['5m', '1h'] as const;
 /** One of {@linkcode CACHE_TTLS}. */
 export type CacheTtl = (typeof CACHE_TTLS)[number];
-
 /** Why a turn stopped, as `done.stop.kind` reports it. */
 export const TURN_STOP_KINDS = [
   'completed',
@@ -199,12 +169,10 @@ export const TURN_STOP_KINDS = [
 ] as const;
 /** One of {@linkcode TURN_STOP_KINDS}. */
 export type TurnStopKind = (typeof TURN_STOP_KINDS)[number];
-
 /** Every other stop resumes by another host path, or not at all. */
 export const CONTINUE_STOP_KINDS = ['length', 'stream_incomplete', 'provider_error'] as const;
 /** One of {@linkcode CONTINUE_STOP_KINDS}. */
 export type ContinueStopKind = (typeof CONTINUE_STOP_KINDS)[number];
-
 /** The points in a turn where a stage handler runs. */
 export const TURN_STAGES = [
   'pre_turn',
@@ -215,38 +183,29 @@ export const TURN_STAGES = [
 ] as const;
 /** One of {@linkcode TURN_STAGES}. */
 export type TurnStage = (typeof TURN_STAGES)[number];
-
 const TURN_STAGE_SET = new Set<string>(TURN_STAGES);
-
 /** True when the value names a turn stage. */
 export function isTurnStage(value: unknown): value is TurnStage {
   return typeof value === 'string' && TURN_STAGE_SET.has(value);
 }
-
 /** Stages where an inject can land; the inject gate still applies. */
 export const TURN_INJECT_STAGES = ['pre_turn', 'post_tool', 'before_end'] as const;
 /** One of {@linkcode TURN_INJECT_STAGES}. */
 export type TurnInjectStage = (typeof TURN_INJECT_STAGES)[number];
-
 const TURN_INJECT_STAGE_SET = new Set<string>(TURN_INJECT_STAGES);
-
 /** True when the value names a stage an inject can land in. */
 export function isTurnInjectStage(value: unknown): value is TurnInjectStage {
   return typeof value === 'string' && TURN_INJECT_STAGE_SET.has(value);
 }
-
 /** `pre_tool` gates; not `awaiting_user_input`. `page` holds a call for the page that answers it. */
 export const TOOL_GATE_KINDS = ['confirmation', 'permission', 'auth', 'page'] as const;
 /** One of {@linkcode TOOL_GATE_KINDS}. */
 export type ToolGateKind = (typeof TOOL_GATE_KINDS)[number];
-
 /** Why a refused gate settles: the user said no, walked away, or let it run out. */
 export const TOOL_RESUME_CAUSES = ['declined', 'abandoned', 'expired'] as const;
 /** One of {@linkcode TOOL_RESUME_CAUSES}. */
 export type ToolResumeCause = (typeof TOOL_RESUME_CAUSES)[number];
-
 const TOOL_GATE_KIND_SET = new Set<string>(TOOL_GATE_KINDS);
-
 /** True when the value names a tool gate kind. */
 export function isToolGateKind(value: unknown): value is ToolGateKind {
   return typeof value === 'string' && TOOL_GATE_KIND_SET.has(value);
@@ -255,7 +214,6 @@ export function isToolGateKind(value: unknown): value is ToolGateKind {
 export const AWAITING_USER_INPUT_KINDS = ['confirm', 'choice', 'text'] as const;
 /** One of {@linkcode AWAITING_USER_INPUT_KINDS}. */
 export type AwaitingUserInputKind = (typeof AWAITING_USER_INPUT_KINDS)[number];
-
 /** Why a stage handler's result was partly or wholly ignored. */
 export const STAGE_APPLY_WARNING_CODES = [
   'affordance_not_allowed',
@@ -272,52 +230,42 @@ export const STAGE_APPLY_WARNING_CODES = [
 ] as const;
 /** One of {@linkcode STAGE_APPLY_WARNING_CODES}. */
 export type StageApplyWarningCode = (typeof STAGE_APPLY_WARNING_CODES)[number];
-
 /** The `status` of a tool output that asks the user a question. */
 export const AWAITING_USER_INPUT_STATUS = 'awaiting_user_input' as const;
 /** Enforced by the kernel at resolve time. */
 export const TOOL_LOAD_TIERS = ['T0', 'T2'] as const;
 /** One of {@linkcode TOOL_LOAD_TIERS}. */
 export type ToolLoadTier = (typeof TOOL_LOAD_TIERS)[number];
-
 /** The HTTP methods an `http` tool may use. */
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 /** One of {@linkcode HTTP_METHODS}. */
 export type HttpMethod = (typeof HTTP_METHODS)[number];
-
 /** When remote tool auth is missing or expired. */
 export const AUTH_UNAUTHENTICATED_POLICIES = ['gate', 'report_to_model'] as const;
 /** One of {@linkcode AUTH_UNAUTHENTICATED_POLICIES}. */
 export type AuthUnauthenticatedPolicy = (typeof AUTH_UNAUTHENTICATED_POLICIES)[number];
-
 /** The kinds of tool a profile can list. */
 export const TOOL_TYPES = ['builtin', 'function', 'http', 'mcp', 'agent'] as const;
-
 /** How much a tool can change: nothing, data, or irreversibly. */
 export const TOOL_ACCESS = ['read-only', 'read-write', 'destructive'] as const;
 /** One of {@linkcode TOOL_ACCESS}. */
 export type ToolAccess = (typeof TOOL_ACCESS)[number];
-
 /** When the user must approve a tool call: never, once per session, or every call. */
 export const TOOL_PERMISSION = ['auto', 'session_consent', 'always_confirm'] as const;
 /** One of {@linkcode TOOL_PERMISSION}. */
 export type ToolPermission = (typeof TOOL_PERMISSION)[number];
-
 /** The credential shapes a remote tool can authenticate with. */
 export const TOOL_AUTH_TYPES = ['bearer', 'api_key', 'oauth2'] as const;
 /** One of {@linkcode TOOL_AUTH_TYPES}. */
 export type ToolAuthType = (typeof TOOL_AUTH_TYPES)[number];
-
 /** Adds UI-only `none`, which omits auth at compile time. */
 export const PLAYGROUND_AUTH_TYPES = ['none', ...TOOL_AUTH_TYPES] as const;
 /** One of {@linkcode PLAYGROUND_AUTH_TYPES}. */
 export type PlaygroundAuthType = (typeof PLAYGROUND_AUTH_TYPES)[number];
-
 /** One of {@linkcode TOOL_TYPES}. */
 export type ToolType = (typeof TOOL_TYPES)[number];
 /** A tool type the host defines, which is every type but `builtin`. */
 export type CustomToolType = Exclude<ToolType, 'builtin'>;
-
 /**
  * The package's complete media-input vocabulary: `assertMediaMime` refuses any MIME not
  * here, so hosts keep no second table. Rows follow Google Interactions / Live's documented
@@ -376,14 +324,11 @@ export const MEDIA_INPUT_KINDS: Record<string, MediaInputKind> = {
   'application/x-python': 'document',
   'application/json': 'document',
 };
-
 /** Type-prefix wildcards accepted by `mimeAllowed`. */
 export const MEDIA_WILDCARDS = ['image/*', 'audio/*', 'video/*'] as const;
-
 function mimesOf(kind: MediaInputKind): string[] {
   return Object.keys(MEDIA_INPUT_KINDS).filter((mime) => MEDIA_INPUT_KINDS[mime] === kind);
 }
-
 /** The MIME types a text profile's `accept` entries may list. */
 export const ATTACHMENT_ACCEPT_MIMES: readonly string[] = [
   'image/*',
@@ -392,7 +337,6 @@ export const ATTACHMENT_ACCEPT_MIMES: readonly string[] = [
   ...mimesOf('video'),
   ...mimesOf('document'),
 ];
-
 /**
  * The attachment `accept` values an image profile may list: images, video and
  * PDF, the inputs image models document reading. Also the allowlist each of its
@@ -405,15 +349,12 @@ export const IMAGE_ATTACHMENT_ACCEPT_MIMES: readonly string[] = [
   ...mimesOf('video'),
   'application/pdf',
 ];
-
 /** The MIME types a voice profile's `accept` entries may list. */
 export const VOICE_ACCEPT_MIMES: readonly string[] = ['audio/*', ...mimesOf('audio')];
-
 /** The providers that can serve a protocol. */
 export function providersFor(protocol: Protocol): readonly Provider[] {
   return PROTOCOL_PROVIDERS[protocol];
 }
-
 /** The protocols a provider can serve. */
 export function protocolsFor(provider: Provider): readonly Protocol[] {
   const found: Protocol[] = [];
@@ -424,30 +365,25 @@ export function protocolsFor(provider: Provider): readonly Protocol[] {
   }
   return found;
 }
-
-/** True when `createProvider` will accept this pair. */
+/** True when the first-party catalog includes this protocol/provider pair. */
 export function isValidPair(protocol: Protocol, provider: Provider): boolean {
   return (PROTOCOL_PROVIDERS[protocol] as readonly Provider[]).includes(provider);
 }
-
 /** When protocol changes, snap provider to a valid partner. */
 export function coerceProvider(protocol: Protocol, provider: Provider): Provider {
   const allowed = providersFor(protocol);
   const [first] = allowed;
   return allowed.includes(provider) ? provider : first;
 }
-
 /** When provider changes, snap protocol to a valid partner. */
 export function coerceProtocol(protocol: Protocol, provider: Provider): Protocol {
   const allowed = protocolsFor(provider);
   const [first] = allowed;
   return allowed.includes(protocol) ? protocol : first;
 }
-
 function unionType(values: readonly string[]): string {
   return values.map((value) => `'${value}'`).join(' | ');
 }
-
 /** What the catalog records about one profile field: its type, description, options and when it applies. */
 export type FieldMeta = {
   type: string;
@@ -464,7 +400,6 @@ export type FieldMeta = {
   /** What leaving the field out does, as a short phrase a blank control can show. */
   unset?: string;
 };
-
 function field(
   type: string,
   doc: string,
@@ -485,7 +420,6 @@ function field(
   }
   return { type, doc };
 }
-
 /**
  * Parents whose next key is a host-owned map key (model id, slot name, …).
  * The annotator substitutes `*` so `models.flash.apiId` → `models.*.apiId`.
@@ -499,7 +433,6 @@ export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
   'inputs.limitsByMime',
   'outputs.validation.fields',
 ]);
-
 /** Turns a key path into its catalog path, replacing host-chosen map keys with `*`. */
 export function catalogPathFor(keys: readonly string[]): string {
   const resolved: string[] = [];
@@ -513,9 +446,7 @@ export function catalogPathFor(keys: readonly string[]): string {
   }
   return resolved.join('.');
 }
-
 const DETECT_ACTION_DOCS = recordOf(DETECT_ACTIONS, (action) => DETECT_ACTION_META[action].doc);
-
 /** The `allow` rows of a detector: the URLs it lets through, or for `tool_leak` the names. */
 function allowFields(path: string, detector: Detector): [string, FieldMeta][] {
   if (DETECTOR_META[detector].allow === 'names') {
@@ -555,10 +486,8 @@ function allowFields(path: string, detector: Detector): [string, FieldMeta][] {
     ],
   ];
 }
-
 const COMPILED_DOC =
   'The table your patterns compile to, from compileDetect or `agents detect-compile`. Needed whenever patterns is set.';
-
 /** The rows of one pattern in a detector's `patterns`. */
 function patternRows(path: string): [string, FieldMeta][] {
   const each = `${path}.patterns.*`;
@@ -587,7 +516,6 @@ function patternRows(path: string): [string, FieldMeta][] {
     ],
   ];
 }
-
 /** The rows of a detector of the host's own, under a key with a dot. */
 function hostDetectorFields(path: string): [string, FieldMeta][] {
   const action = (doc: string) => field('DetectAction', doc, DETECT_ACTIONS, DETECT_ACTION_DOCS);
@@ -603,7 +531,7 @@ function hostDetectorFields(path: string): [string, FieldMeta][] {
     [
       `${path}.action`,
       {
-        ...action('The action at every boundary.'),
+        ...action('What a match does, at every boundary.'),
         unset: 'Only the boundaries at names are read',
       },
     ],
@@ -643,7 +571,6 @@ function hostDetectorFields(path: string): [string, FieldMeta][] {
     ],
   ];
 }
-
 /** The rows of a detector that reads with patterns: whose it reads with. */
 function patternFields(path: string): [string, FieldMeta][] {
   return [
@@ -681,7 +608,6 @@ function patternFields(path: string): [string, FieldMeta][] {
     ],
   ];
 }
-
 /** The settings a detector's full form takes, as a sentence lists them. */
 function settingsOf(detector: Detector): string {
   const { allow, patterns } = DETECTOR_META[detector];
@@ -689,7 +615,6 @@ function settingsOf(detector: Detector): string {
   if (allow) return 'action, at and allow';
   return patterns ? 'action, at, theorem, patterns and hint' : 'action and at';
 }
-
 /** The `guardrails.detect` rows: one for the setting, one per detector, and one per detector and boundary. */
 function detectFields(): Record<string, FieldMeta> {
   const action = (type: string, doc: string) =>
@@ -716,10 +641,10 @@ function detectFields(): Record<string, FieldMeta> {
     if (DETECTOR_META[detector].patterns) rows.push(...patternFields(path));
     rows.push([
       `${path}.action`,
-      action(
-        'DetectAction',
-        `${DETECTOR_META[detector].doc} The action at every boundary. Unset: each keeps its default.`,
-      ),
+      {
+        ...action('DetectAction', DETECTOR_META[detector].doc),
+        unset: 'Each boundary keeps its default',
+      },
     ]);
     rows.push([
       `${path}.at`,
@@ -734,7 +659,6 @@ function detectFields(): Record<string, FieldMeta> {
   rows.push(...hostDetectorFields('guardrails.detect.*'));
   return Object.fromEntries(rows);
 }
-
 function withScopeAndPresence(fields: Record<string, FieldMeta>): Record<string, FieldMeta> {
   return Object.fromEntries(
     Object.entries(fields).map(([path, meta]) => {
@@ -750,7 +674,6 @@ function withScopeAndPresence(fields: Record<string, FieldMeta>): Record<string,
     }),
   );
 }
-
 /**
  * Adding a profile field? Add it here; scope it in `PROFILE_FIELD_SCOPE` if only some types
  * take it, and record it in `PROFILE_FIELD_PRESENCE` if it is required or its absence matters.
@@ -803,27 +726,58 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'ModelBinding | DecisionModelBinding',
     'One model: how to reach it and the settings sent with it.',
   ),
-  'models.*.protocol': field(
-    unionType(PROTOCOLS),
-    'The API this model is called through: Gemini, OpenAI-style, or the Decisions API.',
-    PROTOCOLS,
+  'models.*.provider': field('string', 'The registered provider instance that runs this model.'),
+  'models.*.keySlot': field('KeySlot', 'Overrides the provider primary credential slot.'),
+  'models.*.fallbackKeySlot': field(
+    'KeySlot',
+    'Overrides an explicitly configured fallback credential slot.',
+  ),
+  'models.*.providerOptions': field(
+    'JsonObject',
+    'Adapter options validated by the selected provider schema.',
+  ),
+  'models.*.providerOptions.store': field(
+    'boolean',
+    'Whether the provider stores the interaction, where it can; a turn can override it.',
+  ),
+  'models.*.providerOptions.persistViaInteractionId': field(
+    'boolean',
+    'true: the provider builds the context from its stored interaction. false: each call sends the history. Only for a provider that stores interactions. true needs storing on.',
+  ),
+  'models.*.providerOptions.server': field(
+    'string',
+    "Which local server runs the model (ollama, vllm, …), recorded on traces; it doesn't change where requests go.",
+  ),
+  'models.*.providerOptions.cache': field(
+    'CacheSpec',
+    'Prompt caching for text profiles, where the provider has it. Reuses a prompt start it has seen. A cached system instruction, canary included, is shared across turns and users.',
+  ),
+  'models.*.providerOptions.cache.mode': field(
+    unionType(CACHE_MODES),
+    'Which part of the prompt is cached.',
+    CACHE_MODES,
     {
-      geminiInteractions: "Google's Gemini Interactions API.",
-      geminiLive: "Google's Gemini Live streaming API.",
-      openAi: 'The OpenAI-style API, served by OpenRouter or a local server.',
-      decision: 'The typed Decisions API, served by TypeSafe or OpenRouter.',
+      automatic: 'The whole request, so the cached part grows with the conversation.',
+      system: "The system instruction only, with the kernel's notes after it.",
     },
   ),
-  'models.*.provider': field(
-    unionType(PROVIDERS),
-    'Who serves the model: Google, OpenRouter, a local server, or TypeSafe.',
-    PROVIDERS,
+  'models.*.providerOptions.cache.ttl': field(
+    unionType(CACHE_TTLS),
+    'How long a cached prompt lasts.',
+    CACHE_TTLS,
     {
-      google: "Google's Gemini API.",
-      openrouter: 'OpenRouter, which routes to many model vendors.',
-      local: 'A server you run (Ollama, llama.cpp, vLLM), for text profiles only.',
-      typesafe: 'TypeSafe, serving its native decision models.',
+      '5m': 'Five minutes.',
+      '1h': 'One hour; writing the cache costs more, which pays off in long sessions.',
     },
+  ),
+  providerContinuation: field(
+    'ProviderContinuationPolicy',
+    'How incompatible provider checkpoints are handled.',
+  ),
+  'providerContinuation.onMismatch': field(
+    "'rebuild' | 'error'",
+    'Rebuild from portable history or reject an incompatible checkpoint.',
+    ['rebuild', 'error'],
   ),
   'models.*.apiId': field('string', "The model's name at the provider."),
   'models.*.timeoutMs': field(
@@ -877,14 +831,6 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'BuiltinToolId[]',
     "The provider's own tools, such as Google Search, this model may use; each must be registered as a builtin tool.",
   ),
-  'models.*.key': field(
-    'KeySlot',
-    "The key slot this model's calls use, ahead of the profile's key; a local model uses only its own.",
-  ),
-  'models.*.fallbackKey': field(
-    'KeySlot',
-    "The key slot this model's calls retry on when its key is refused for quota, ahead of the profile's fallbackKey; a local model uses only its own.",
-  ),
   'models.*.compaction': field(
     'CompactionSpec',
     'Summarises history past a threshold. A text agent can write the summary. Other types name a compaction profile.',
@@ -905,7 +851,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'models.*.compaction.profile': {
     ...field(
       'ProfileId',
-      'The text profile that writes the summary; register it before this one. Leave it out and a text agent summarises its own history, with its own instructions and model and no tools. Unless the turn passes compactionProvider, it must use the same provider and protocol as a text agent.',
+      'The text profile that writes the summary; register it before this one. Leave it out and a text agent summarises its own history, with its own instructions and model and no tools. Its registered model binding selects the provider independently of the calling agent.',
     ),
     unset: 'The agent itself',
   },
@@ -928,53 +874,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
         'The prompt tokens the provider reported for the last call, or the count the host passes in.',
     },
   ),
-  'models.*.cache': field(
-    'CacheSpec',
-    'Prompt caching for text profiles, where the provider has it. Reuses a prompt start it has seen. A cached system instruction, canary included, is shared across turns and users.',
-  ),
-  'models.*.cache.mode': field(
-    unionType(CACHE_MODES),
-    'Which part of the prompt is cached.',
-    CACHE_MODES,
-    {
-      automatic: 'The whole request, so the cached part grows with the conversation.',
-      system: "The system instruction only, with the kernel's notes after it.",
-    },
-  ),
-  'models.*.cache.ttl': field(
-    unionType(CACHE_TTLS),
-    'How long a cached prompt lasts.',
-    CACHE_TTLS,
-    {
-      '5m': 'Five minutes.',
-      '1h': 'One hour; writing the cache costs more, which pays off in long sessions.',
-    },
-  ),
-  'models.*.store': field(
-    'boolean',
-    'Whether the provider stores the interaction, where it can; a turn can override it.',
-  ),
-  'models.*.persistViaInteractionId': field(
-    'boolean',
-    'true: the provider builds the context from its stored interaction. false: each call sends the history. Only for a provider that stores interactions. true needs storing on.',
-  ),
-  'models.*.server': field(
-    'string',
-    "Which local server runs the model (ollama, vllm, …), recorded on traces; it doesn't change where requests go.",
-  ),
   defaultModel: field('ModelId', "The model a turn gets when it doesn't pick one."),
   allowModelSelect: field('boolean', 'Lets a turn pick a model; needs two or more models.'),
   maxSteps: field(
     'number',
     'The most model calls one turn may make while using tools, counted afresh for each rewrite; 1 runs the tools asked for but never sends their results back. Live sessions ignore it.',
-  ),
-  key: field(
-    'KeySlot',
-    'The key slot a hosted model uses when it has no key of its own; local models never use it.',
-  ),
-  fallbackKey: field(
-    'KeySlot',
-    'The key slot a hosted call retries on when its key is refused for quota. Off unless set.',
   ),
   tools: field(
     '{ allow: ToolId[]; t1Policy?; t2Loader? }',
@@ -1424,7 +1328,6 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     "Your function called when a trace can't be built or written; the turn carries on, and a destination's own error handler takes priority. An unregistered writeTo id is a config error instead.",
   ),
 });
-
 const TOOL_TYPE_FIELD = field(unionType(TOOL_TYPES), 'How the tool runs.', TOOL_TYPES, {
   builtin: "The provider's own tool, such as Google Search, run by the provider.",
   function: 'Your handler runs it.',
@@ -1432,17 +1335,37 @@ const TOOL_TYPE_FIELD = field(unionType(TOOL_TYPES), 'How the tool runs.', TOOL_
   mcp: 'The kernel calls a tool on a remote MCP server.',
   agent: 'The kernel runs one turn of another registered agent and returns its reply.',
 });
-
 const CREDENTIAL_KINDS = {
   bearer: 'A token; a secret typed in at the prompt becomes a bearer token.',
   ['api_' + 'key']: 'An API key; a secret typed in at the prompt becomes an API key.',
   oauth2: 'An OAuth sign-in; the host supplies the token.',
 };
-
 /** The catalog of the fields `registerTool` takes, keyed by path like `PROFILE_FIELDS`. */
 export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   /** Playground / UI path — avoids collision with profile `type` in fieldMeta(). */
   'registerTool.type': TOOL_TYPE_FIELD,
+  /** Playground-only rows: the editor's local-model connection, and a decision question's kind. */
+  'local.baseUrl': field(
+    'string',
+    'Where your local model server listens, such as Ollama, llama.cpp or vLLM. The browser calls it directly.',
+  ),
+  'playground.remoteTools': {
+    ...field(
+      'boolean',
+      'Whether tools that reach other hosts (HTTP and MCP) may run while a local model is in use. Off, a run with a local model reaches no host.',
+    ),
+    unset: 'Off',
+  },
+  'decision.questions.type': field(
+    "'choice' | 'score' | 'noul'",
+    'The kind of answer the question takes.',
+    ['choice', 'score', 'noul'],
+    {
+      choice: 'One of the named options, with a confidence and a probability for each option.',
+      score: 'A level on an ordered scale, with a confidence.',
+      noul: 'One number, with no options.',
+    },
+  ),
   name: field(
     'string',
     "The tool's id, which profiles list in tools.allow (or a model's builtInTools) and the model calls a custom tool by.",
@@ -1653,7 +1576,6 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     unset: 'Every path',
   },
 };
-
 /** `lexicon.<key>` resolves to `lexicon.*` with that key's own note. */
 export function fieldMeta(path: string): FieldMeta | undefined {
   const meta = PROFILE_FIELDS[path] ?? EXTRA_FIELDS[path];
@@ -1663,7 +1585,6 @@ export function fieldMeta(path: string): FieldMeta | undefined {
   if (!wildcard || !Object.hasOwn(LEXICON_NOTES, key)) return undefined;
   return { ...wildcard, doc: LEXICON_NOTES[key as LexiconKey] };
 }
-
 export { API_EXPORTS, type ApiExportMeta, REQUEST_FIELDS } from './api-catalog.ts';
 export type {
   ProfileGraphEditor,

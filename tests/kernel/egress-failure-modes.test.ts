@@ -1,7 +1,8 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { HOST_FIND_HOLD, type HostFind } from '../../src/guardrails/detectors.ts';
 import { type LexiconOverrides, lexiconDefault } from '../../src/guardrails/lexicon.ts';
-import { registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
+import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';

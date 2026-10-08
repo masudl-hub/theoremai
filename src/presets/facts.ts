@@ -1,6 +1,6 @@
 /**
- * What each provider can do, as the kernel's general rules read it. A provider's own facts live in
- * its preset; this is the one table of them.
+ * First-party catalog facts used by presets and the playground. Registered adapters
+ * validate runtime support independently of this catalog.
  *
  * @module
  */
@@ -12,17 +12,17 @@ import { LOCAL_FACTS } from './local.ts';
 import { OPENROUTER_FACTS } from './openrouter.ts';
 import { TYPESAFE_FACTS } from './typesafe.ts';
 
-/** One provider's answers to the questions the kernel's rules ask. */
+/** First-party catalog metadata for profile editors and usage estimates. */
 interface ProviderFacts {
-  /** Whether a model here needs a key slot. One that does not never inherits the profile's key. */
+  /** Whether the catalog asks the builder to choose a credential slot. */
   needsKey: boolean;
-  /** Whether a binding names the server it calls (`models.*.server`). */
+  /** Whether a binding names the server it calls (`models.*.providerOptions.server`). */
   takesServer: boolean;
-  /** The protocol on which it takes `models.*.cache`; absent when it has no prompt caching. */
+  /** The protocol on which it takes `models.*.providerOptions.cache`; absent when it has no prompt caching. */
   cacheOn?: Protocol;
   /** The protocol on which it can store the interaction and chain from it; absent when it cannot. */
   storesOn?: Protocol;
-  /** Its `gen_ai.provider.name` in a trace; absent when the binding's `server` names it. */
+  /** A catalog display name; runtime traces use the registered provider ID. */
   traceName?: string;
   /** Where its decisions are asked for; absent when it serves none. */
   decisionsUrl?: string;
@@ -37,23 +37,5 @@ const PROVIDER_FACTS: Record<Provider, ProviderFacts> = {
   typesafe: TYPESAFE_FACTS,
 };
 
-/** The providers a fact holds for, quoted for a config error: `'local'`, or `'a' or 'b'`. */
-function providersWhere(holds: (facts: ProviderFacts) => boolean): string {
-  return (Object.keys(PROVIDER_FACTS) as Provider[])
-    .filter((provider) => holds(PROVIDER_FACTS[provider]))
-    .map((provider) => `'${provider}'`)
-    .join(' or ');
-}
-
-/** The pairs a fact holds on, as a config error says them: `protocol is 'x' and provider is 'y'`. */
-function pairsWhere(on: (facts: ProviderFacts) => Protocol | undefined): string {
-  return (Object.keys(PROVIDER_FACTS) as Provider[])
-    .flatMap((provider) => {
-      const protocol = on(PROVIDER_FACTS[provider]);
-      return protocol ? [`protocol is '${protocol}' and provider is '${provider}'`] : [];
-    })
-    .join(', or ');
-}
-
 export type { ProviderFacts };
-export { PROVIDER_FACTS, pairsWhere, providersWhere };
+export { PROVIDER_FACTS };

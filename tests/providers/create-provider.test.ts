@@ -1,228 +1,54 @@
-import { TheoremError } from '../../src/guardrails/error.ts';
-import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import type { Provider } from '../../src/kernel/types.ts';
-import { createProvider, isImageRole, isSpeechRole } from '../../src/providers/create-provider.ts';
-import { HOST_BINDINGS } from '../fixtures/models.ts';
-import { stubProfile } from '../fixtures/profiles.ts';
+import { assertEquals, assertThrows } from '@std/assert';
+import {
+  createKernelScope,
+  defineProfile,
+  defineProvider,
+  googleAdapter,
+  openAIChat,
+  openRouterAdapter,
+  typesafeAdapter,
+} from '../../mod.ts';
 
-function baseProfile(
-  model: { protocol: 'geminiInteractions' | 'openAi'; provider: Provider },
-  role: 'text' | 'speech' | 'image',
-) {
-  return stubProfile({ protocol: model.protocol, provider: model.provider, role });
-}
-
-Deno.test('isSpeechRole is true when type is speech', () => {
-  const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'speech');
-  assertEquals(isSpeechRole(profile), true);
-});
-
-Deno.test('isSpeechRole is false when type is not speech', () => {
-  const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'text');
-  assertEquals(isSpeechRole(profile), false);
-});
-
-Deno.test('isImageRole is true when type is image', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'image');
-  assertEquals(isImageRole(profile), true);
-});
-
-Deno.test('isImageRole is false when type is not image', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'text');
-  assertEquals(isImageRole(profile), false);
-});
-
-Deno.test('createProvider throws when gemini transport is missing for geminiInteractions/google', () => {
-  const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'text');
-  let thrown: unknown;
-  try {
-    createProvider(profile, {});
-  } catch (err) {
-    thrown = err;
+Deno.test('built-in provider factories are lazy and bindings are serializable', () => {
+  for (const provider of [
+    defineProvider({ id: 'deployment', connection: {}, adapter: openRouterAdapter() }),
+    defineProvider({ id: 'deployment', connection: {}, adapter: googleAdapter() }),
+    defineProvider({ id: 'deployment', connection: {}, adapter: typesafeAdapter() }),
+  ]) {
+    assertEquals(provider.model('model').provider, 'deployment');
+    assertEquals(typeof JSON.stringify(provider.model('model')), 'string');
   }
-  assertEquals(thrown instanceof TheoremError, true);
-  assertEquals((thrown as Error).message, 'createProvider requires a vault for google models');
 });
-
-Deno.test('createProvider returns a provider when gemini transport is supplied', () => {
-  const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'text');
-  const provider = createProvider(profile, {
-    vault: { main: 'a', backup: 'b', extra: 'c', spare: 'p' },
+Deno.test('compatible endpoints require declarations for unverified tools', () => {
+  const provider = defineProvider({
+    id: 'deployment',
+    connection: { baseURL: 'https://gateway.test/v1' },
+    adapter: openAIChat(),
   });
-  assertEquals(typeof provider.complete, 'function');
-});
-
-Deno.test('createProvider throws when the vault is missing for openAi/openrouter', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'text');
-  let thrown: unknown;
-  try {
-    createProvider(profile, {});
-  } catch (err) {
-    thrown = err;
-  }
-  assertEquals(thrown instanceof TheoremError, true);
-  assertEquals((thrown as Error).message, 'createProvider requires a vault for openrouter models');
-  let gatewayOnly: unknown;
-  try {
-    createProvider(profile, { openAiGateway: { baseUrl: 'https://gateway.test/v1' } });
-  } catch (err) {
-    gatewayOnly = err;
-  }
   assertEquals(
-    (gatewayOnly as Error).message,
-    'createProvider requires a vault for openrouter models',
+    provider.adapter.capabilities({
+      apiId: 'model',
+      connection: provider.connection,
+      providerOptions: {},
+    }).features.clientTools,
+    'unknown',
   );
 });
-
-Deno.test('createProvider returns a text provider for openAi/openrouter non-speech profile', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'text');
-  const provider = createProvider(profile, { vault: { slot_a: 'key' } });
-  assertEquals(typeof provider.complete, 'function');
-});
-
-Deno.test('createProvider returns an image provider for openAi/openrouter image profile', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'image');
-  const provider = createProvider(profile, { vault: { slot_a: 'key' } });
-  assertEquals(typeof provider.complete, 'function');
-});
-
-Deno.test('createProvider throws for openAi/local image profile', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'local' }, 'image');
-  let thrown: unknown;
-  try {
-    createProvider(profile, {});
-  } catch (err) {
-    thrown = err;
-  }
-  assertEquals(thrown instanceof TheoremError, true);
-  assertEquals(
-    (thrown as Error).message,
-    'createProvider: type image requires openrouter provider for openAi protocol',
-  );
-});
-
-Deno.test('createProvider throws for openAi/local speech profile', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'local' }, 'speech');
-  let thrown: unknown;
-  try {
-    createProvider(profile, {});
-  } catch (err) {
-    thrown = err;
-  }
-  assertEquals(thrown instanceof TheoremError, true);
-  assertEquals(
-    (thrown as Error).message,
-    'createProvider: type speech requires openrouter provider for openAi protocol',
-  );
-});
-
-Deno.test('createProvider returns a speech provider for openAi/openrouter speech profile', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'speech');
-  const provider = createProvider(profile, { vault: { slot_a: 'key' } });
-  assertEquals(typeof provider.complete, 'function');
-});
-
-Deno.test('createProvider throws for unsupported protocol/provider pairs', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'google' }, 'text');
-  let thrown: unknown;
-  try {
-    createProvider(profile, {});
-  } catch (err) {
-    thrown = err;
-  }
-  assertEquals(thrown instanceof TheoremError, true);
-  assertEquals(
-    (thrown as Error).message,
-    "createProvider: unsupported protocol/provider pair 'openAi'/'google'",
-  );
-});
-
-Deno.test('createProvider routes openAi/local only when the host configures local', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'local' }, 'text');
-  let thrown: unknown;
-  try {
-    createProvider(profile, {});
-  } catch (err) {
-    thrown = err;
-  }
-  assertEquals(thrown instanceof TheoremError, true);
-  assertEquals((thrown as Error).message, 'createProvider requires local config for openAi/local');
-  const provider = createProvider(profile, { local: { baseUrl: 'http://127.0.0.1:8080' } });
-  assertEquals(typeof provider.complete, 'function');
-  const withUrl = createProvider(profile, { local: { baseUrl: 'http://127.0.0.1:8080' } });
-  assertEquals(typeof withUrl.complete, 'function');
-});
-
-Deno.test('create-provider has no eager adapter imports', async () => {
-  const src = await Deno.readTextFile(
-    new URL('../../src/providers/create-provider.ts', import.meta.url),
-  );
-  assertEquals(/from\s+['"]\.\/openrouter\//.test(src), false);
-  assertEquals(/from\s+['"]\.\/local\/local\.ts['"]/.test(src), false);
-  assertEquals(/from\s+['"]\.\/google\/interactions\//.test(src), false);
-  assertEquals(/from\s+['"]\.\/google\/live\//.test(src), false);
-  assertEquals(src.includes("import('./openrouter/chat.ts')"), true);
-  assertEquals(src.includes("import('./google/interactions/mod.ts')"), true);
-  assertEquals(src.includes("import('./google/live/mod.ts')"), false);
-  assertEquals(src.includes("import('./openrouter/speech.ts')"), true);
-  assertEquals(src.includes("import('./openrouter/image.ts')"), true);
-  assertEquals(src.includes("import('./local/local.ts')"), true);
-});
-
-Deno.test('createProvider rejects geminiLive — use runSession', () => {
-  const profile = stubProfile({
-    protocol: 'geminiInteractions',
-    provider: 'google',
-    role: 'text',
+Deno.test('profiles require registration and reject unavailable profile operations', () => {
+  const scope = createKernelScope();
+  const provider = defineProvider({
+    id: 'deployment',
+    connection: { baseURL: 'https://gateway.test/v1' },
+    adapter: openAIChat(),
   });
-  // Force live protocol pair via narrow cast on a defined live-shaped profile
-  const liveProfile = {
-    ...profile,
-    type: 'live' as const,
-    models: {
-      gemini31FlashLive: {
-        ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'main' as const,
-      },
-    },
-    defaultModel: 'gemini31FlashLive',
-    live: { voice: 'Aoede' },
-    tools: { allow: [] as string[] },
-    turnBehaviour: undefined,
-  };
-  let thrown: unknown;
-  try {
-    createProvider(liveProfile, {
-      vault: { main: 'a', backup: 'b', extra: 'c', spare: 'p' },
-    });
-  } catch (err) {
-    thrown = err;
-  }
-  assertEquals(thrown instanceof TheoremError, true);
-  assertEquals(
-    (thrown as Error).message,
-    "createProvider does not support type 'live' / geminiLive — use runSession(req, { vault })",
-  );
-});
-
-Deno.test('create-provider loads OpenRouter adapter only via dynamic import', () => {
-  // Sync createProvider for openrouter chat must not touch the Vercel graph.
-  // This file's suite runs without --allow-sys; an eager openrouter import would throw.
-  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'text');
-  const provider = createProvider(profile, { vault: { slot_a: 'key' } });
-  assertEquals(typeof provider.complete, 'function');
-});
-
-Deno.test('create-provider loads Google adapter only via dynamic import', () => {
-  const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'text');
-  const provider = createProvider(profile, {
-    vault: { main: 'a', backup: 'b', extra: 'c', spare: 'p' },
+  const profile = defineProfile({
+    id: 'profile',
+    type: 'speech',
+    identity: { handle: 'voice' },
+    models: { default: provider.model('model') },
+    speech: { voice: 'test' },
   });
-  assertEquals(typeof provider.complete, 'function');
-});
-
-Deno.test('create-provider loads local adapter only via dynamic import', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'local' }, 'text');
-  const provider = createProvider(profile, { local: { baseUrl: 'http://127.0.0.1:8080' } });
-  assertEquals(typeof provider.complete, 'function');
+  assertThrows(() => scope.profiles.register(profile), Error, 'Unknown provider');
+  scope.providers.register(provider);
+  assertThrows(() => scope.profiles.register(profile), Error, 'cannot run');
 });

@@ -1,28 +1,31 @@
 import { assert, assertEquals } from '@std/assert';
 import { z } from 'zod';
 import { memoryCredentialSource } from '../../src/kernel/auth/credential-source.ts';
-import { createKernelScope, type KernelScope } from '../../src/kernel/scope.ts';
+import type { KernelScope } from '../../src/kernel/scope.ts';
 import type { ToolExecuteSettlement } from '../../src/kernel/tools/execute.ts';
 import { executeRegisteredTool } from '../../src/kernel/tools/mod.ts';
 import type { ToolContext } from '../../src/kernel/tools/types.ts';
 import type { Profile } from '../../src/kernel/types.ts';
+import { createTestKernelScope as createKernelScope } from '../fixtures/provider-scope.ts';
 
 const SERVER = 'https://mcp.example.com/mcp';
 const REQUIRED = 'Bad Request: Mcp-Session-Id header is required';
-
 const profile: Profile = {
   id: 'sessions',
   type: 'text',
   identity: { handle: 'sessions' },
-  models: { m: { protocol: 'openAi', provider: 'openrouter', apiId: 'test' } },
+  models: { m: { provider: 'openrouter', apiId: 'test' } },
   defaultModel: 'm',
   tools: { allow: ['search'] },
   inputs: { text: true },
   outputs: {},
 };
-
-type Seen = { url: string; method: string; session: string | null; version: string | null };
-
+type Seen = {
+  url: string;
+  method: string;
+  session: string | null;
+  version: string | null;
+};
 function scopeWithTool(auth = false): KernelScope {
   const scope = createKernelScope();
   scope.tools.register({
@@ -51,17 +54,14 @@ function scopeWithTool(auth = false): KernelScope {
   });
   return scope;
 }
-
 function json(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init.headers },
   });
 }
-
 const answer = (id: unknown) =>
   json({ jsonrpc: '2.0', id, result: { structuredContent: { answer: 'ok' } } });
-
 /**
  * A server that requires sessions. `issue` names the ID each initialize hands out, and `call`
  * answers a tools/call made in a session.
@@ -70,7 +70,10 @@ function sessionServer(options: {
   issue?: () => string;
   call?: (session: string, id: unknown) => Response;
   initialize?: () => Response;
-}): { seen: Seen[]; fetch: typeof fetch } {
+}): {
+  seen: Seen[];
+  fetch: typeof fetch;
+} {
   const seen: Seen[] = [];
   let issued = 0;
   const handler = (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -118,7 +121,6 @@ function sessionServer(options: {
   };
   return { seen, fetch: handler as typeof fetch };
 }
-
 async function withFetch<T>(fetchFn: typeof fetch, run: () => Promise<T>): Promise<T> {
   const original = globalThis.fetch;
   globalThis.fetch = fetchFn;
@@ -128,11 +130,13 @@ async function withFetch<T>(fetchFn: typeof fetch, run: () => Promise<T>): Promi
     globalThis.fetch = original;
   }
 }
-
 async function call(
   scope: KernelScope,
   ctx: Partial<ToolContext> = {},
-): Promise<{ events: unknown[]; settlement: ToolExecuteSettlement }> {
+): Promise<{
+  events: unknown[];
+  settlement: ToolExecuteSettlement;
+}> {
   const exec = executeRegisteredTool({
     tools: scope.tools,
     profile,
@@ -148,9 +152,7 @@ async function call(
     events.push(next.value);
   }
 }
-
 const count = (seen: Seen[], method: string) => seen.filter((s) => s.method === method).length;
-
 Deno.test('a server that requires a session gets one, and later calls reuse it', async () => {
   const scope = scopeWithTool();
   const server = sessionServer({});
@@ -173,7 +175,6 @@ Deno.test('a server that requires a session gets one, and later calls reuse it',
   assert(!events.includes('sess-1'), 'the session ID never reaches events');
   assert(!events.includes('SECRET-INSTRUCTIONS'), "the server's instructions are never read");
 });
-
 Deno.test('an expired session is reopened once, and a server that keeps expiring it fails', async () => {
   const scope = scopeWithTool();
   const server = sessionServer({
@@ -183,13 +184,11 @@ Deno.test('an expired session is reopened once, and a server that keeps expiring
   const { settlement } = await withFetch(server.fetch, () => call(scope));
   assertEquals(settlement.outputRaw, { answer: 'ok' });
   assertEquals(count(server.seen, 'initialize'), 2);
-
   const looping = sessionServer({ call: () => new Response('gone', { status: 404 }) });
   const failed = await withFetch(looping.fetch, () => call(scopeWithTool()));
   assertEquals(failed.settlement.failure?.code, 'mcp_session_expired');
   assertEquals(count(looping.seen, 'initialize'), 2);
 });
-
 Deno.test('sessions are per credential and per scope', async () => {
   const scope = scopeWithTool(true);
   const server = sessionServer({});
@@ -202,7 +201,6 @@ Deno.test('sessions are per credential and per scope', async () => {
     await call(scope, as('key-a'));
   });
   assertEquals(count(server.seen, 'initialize'), 2);
-
   const other = sessionServer({});
   await withFetch(other.fetch, async () => {
     await call(scopeWithTool());
@@ -210,7 +208,6 @@ Deno.test('sessions are per credential and per scope', async () => {
   });
   assertEquals(count(other.seen, 'initialize'), 2);
 });
-
 Deno.test('a session ID that is not short visible ASCII is refused and never sent', async () => {
   for (const bad of ['has space', 'x'.repeat(257)]) {
     const server = sessionServer({ issue: () => bad });
@@ -219,7 +216,6 @@ Deno.test('a session ID that is not short visible ASCII is refused and never sen
     assert(server.seen.every((s) => s.session === null));
   }
 });
-
 Deno.test('initialize does not follow a redirect, so a session only comes from the server', async () => {
   const server = sessionServer({
     initialize: () =>
@@ -229,7 +225,6 @@ Deno.test('initialize does not follow a redirect, so a session only comes from t
   assertEquals(settlement.failure?.code, 'mcp_session_http_307');
   assert(server.seen.every((s) => new URL(s.url).origin !== 'https://elsewhere.example'));
 });
-
 Deno.test('the session ID is not sent past a redirect to another origin', async () => {
   const server = sessionServer({
     call: () =>
@@ -253,7 +248,6 @@ Deno.test('the session ID is not sent past a redirect to another origin', async 
   assert(elsewhere.length > 0);
   assert(elsewhere.every((s) => s.session === null));
 });
-
 Deno.test("a server's request inside the response stream is ignored, never answered", async () => {
   const server = sessionServer({
     call: (_session, id) =>
@@ -273,7 +267,6 @@ Deno.test("a server's request inside the response stream is ignored, never answe
     ['tools/call', 'initialize', 'notifications/initialized', 'tools/call'],
   );
 });
-
 Deno.test('a stateless server never sees an initialize', async () => {
   const seen: string[] = [];
   const stateless = ((_input: string | URL | Request, init?: RequestInit) => {
@@ -288,7 +281,6 @@ Deno.test('a stateless server never sees an initialize', async () => {
   });
   assertEquals(seen, ['tools/call', 'tools/call']);
 });
-
 Deno.test('parallel calls share one initialize', async () => {
   const scope = scopeWithTool();
   const server = sessionServer({});

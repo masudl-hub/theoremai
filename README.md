@@ -58,7 +58,7 @@ Current release: `0.3.0`, on JSR as `jsr:@theoremjs/agents` and on npm as `@theo
 | Describe the whole agent in one place | Six profile types, several models per profile, typed file inputs, and outputs that a schema checks | [Profile types](#profile-types) |
 | Stop a prompt injection or a data leak | Input scanning by trust level, canary tokens, and egress checks that can send the model back to try again | [Guardrails](#guardrails) |
 | Let the model act, safely | One tool registry for function, HTTP, MCP and provider tools, gated in layers, with OAuth 2.1 and PKCE built in | [Tools](#tools) |
-| Use any model provider | One door, `createProvider`, for Google, OpenRouter and local servers; `runSession` for Gemini Live | [Providers](#providers) |
+| Use any model provider | Registered adapters for Google, OpenRouter, compatible endpoints and external protocols | [Providers](#providers) |
 | See what happened | Traces to JSONL, memory or your own sink, with sampling, scrubbing and retention | [Observability](#observability) |
 | Trust the kernel | A kernel that imports with every Deno permission denied. A test proves it. | [Package Boundary](#package-boundary) |
 
@@ -108,7 +108,15 @@ registerTool({
 The profile is the agent. It names the model, the tools that the agent may call and the guardrails. `defineProfile` checks it when your application starts.
 
 ```ts
-import { defineProfile, registerProfile } from "@theoremjs/agents";
+import { defineProfile, defineProvider, openRouterAdapter, registerProvider, registerProfile } from "@theoremjs/agents";
+
+const router = defineProvider({
+  id: "company-router",
+  connection: {},
+  keySlot: "openrouter",
+  adapter: openRouterAdapter(),
+});
+registerProvider(router);
 
 const support = defineProfile({
   type: "text",
@@ -118,10 +126,9 @@ const support = defineProfile({
     system: "You help customers with their account. Cite the docs you used.",
   },
   models: {
-    main: { protocol: "openAi", provider: "openrouter", apiId: "anthropic/claude-opus-5.5" },
+    main: router.model("anthropic/claude-opus-5.5"),
   },
   defaultModel: "main",
-  key: "openrouter",
   tools: { allow: ["search_tickets"] },
   inputs: { text: true },
 });
@@ -133,16 +140,14 @@ The profile sets no `guardrails`, so input cleaning, sensitive-data redaction an
 
 ### Run a turn
 
-`createProvider` binds the profile to a model and a key vault. `runTurn` then streams typed events.
+`runTurn` resolves the registered provider from the profile. Pass credentials through the vault.
 
 ```ts
-import { createProvider, runTurn } from "@theoremjs/agents";
-
-const provider = createProvider(support, { vault: { openrouter: apiKey } });
+import { runTurn } from "@theoremjs/agents";
 
 for await (const event of runTurn(
   { profile: "support.agent", input: { text: "The export crashes on large CSVs. Can you file this?" } },
-  provider,
+  { vault: { openrouter: apiKey } },
 )) {
   send(event); // text · thought · structured · media · tool · guardrail · stage · tokens · done
 }
@@ -172,7 +177,7 @@ Use the `type` field to choose what the agent does. The type sets the shape of t
 
 ## Architecture
 
-The runner is one deterministic path for one agent turn. A profile is a declaration that the host owns. `createProvider` routes turn transports, and `runSession` opens live sessions. Traces go to destinations that the host registers. There are no environment variables and no bundled database.
+The runner is one deterministic path for one agent turn. A profile is a declaration that the host owns. Registered adapters supply model operations; `runSession` opens live sessions. Traces go to destinations that the host registers. There are no environment variables and no bundled database.
 
 ```text
  request
@@ -256,23 +261,31 @@ The checks fail closed: a payload that cannot be scanned counts as a block. The 
 
 ## Providers
 
-`createProvider` is the one door for turns. `runSession` opens live sessions.
+Define a provider once, register it, then bind models through its typed `.model()` helper.
+Profiles contain ordinary data; adapters and credential resolvers remain host code.
 
 ```ts
-import { createProvider, runSession } from "@theoremjs/agents";
+import { runTurn, runSession } from "@theoremjs/agents";
 
-const provider = createProvider(profile, { vault: hostKeyVault }, "deep"); // model id is optional
+const events = runTurn({ profile: "support.agent", model: "deep" }, { vault: hostKeyVault });
 const session = await runSession({ profile: "support.voice" }, { vault: hostKeyVault });
 ```
 
-| Protocol + provider | Transport | Profile types |
-| :--- | :--- | :--- |
-| `geminiInteractions` + `google` | Google Interactions API | text, image, speech |
-| `geminiLive` + `google` | Gemini Live over WebSocket (`runSession`) | live |
-| `openAi` + `openrouter` | OpenRouter chat completions via AI SDK Core | text, image, speech |
-| `openAi` + `local` | Any OpenAI-compatible `/v1/chat/completions` (Ollama, llama.cpp, vLLM, LM Studio) | text |
+| Factory | Operations |
+| :--- | :--- |
+| `googleAdapter` | Interactions text, image and speech; live WebSocket sessions |
+| `openRouterAdapter` | Official SDK chat; native image, speech and decision endpoints |
+| `openAIChat` | Compatible chat endpoint with explicit deployment capabilities |
+| `typesafeAdapter` | Native decisions |
+| An external `ProviderAdapter` | Any operations its contract and capabilities declare |
 
-Each model in `profile.models` names its own protocol and provider, so one profile can mix Google and OpenRouter. A profile names key slots (`key`, and `fallbackKey` for a retry when quota runs out). Your vault fills them, so a profile never holds a key. Adapters load on first use, and Theorem reads no environment variables.
+Provider definitions hold credential-slot defaults. Models may override `keySlot` and
+`fallbackKeySlot`; the host's vault supplies string/object values or asynchronous resolvers.
+Adapter options use `providerOptions`. Required features fail when support is unknown or absent.
+Native continuation uses `providerState` alongside portable history. Switching provider, model
+or deployment rebuilds native state with a warning, or fails under the profile's declared policy.
+
+See [the provider contract](docs/contracts/providers.md) for schemas and extension boundaries.
 
 ---
 
@@ -290,7 +303,7 @@ Import from the narrowest entrypoint that has what you need. Each row gives the 
 | :--- | :--- |
 | `jsr:@theoremjs/agents` / `@theoremjs/agents` | Main kernel API: profiles, schemas, runner, core types, provider constructors, declarative HTTP/MCP tool execution. |
 | `jsr:@theoremjs/agents/kernel` / `@theoremjs/agents/kernel` | Profile/turn types, tool catalog, `requireModelBinding`, thinking clamps over host model maps, OAuth 2.1 PKCE helpers (`createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`). |
-| `jsr:@theoremjs/agents/providers` / `@theoremjs/agents/providers` | `createProvider` + the vault type + host option bags. |
+| `jsr:@theoremjs/agents/providers` / `@theoremjs/agents/providers` | Provider definitions, adapters, vault contracts and transport helpers. |
 | `jsr:@theoremjs/agents/providers/local` / `@theoremjs/agents/providers/local` | Direct local OpenAI-compat adapter (`createLocalProvider`). |
 | `jsr:@theoremjs/agents/guardrails` / `@theoremjs/agents/guardrails` | Sanitization, canary/egress gates, public error mapping, inbound injection/sensitive-data primitives. |
 | `jsr:@theoremjs/agents/guardrails/testing` / `@theoremjs/agents/guardrails/testing` | Adversarial corpus + fuzz helpers (test/harness only). |
@@ -347,7 +360,13 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `awaitingUserInputSchema`, `toolGateSchema`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — contract [`docs/contracts/stages.md`](https://github.com/masudl-hub/theoremai/blob/main/docs/contracts/stages.md) |
 | Turn events | `TURN_EVENT_SCHEMAS` (each kind's schema, for a wire parser), `turnEventSchema`, `turnHistoryMessageSchema`, `turnToolSnapshotSchema`, `turnDoneOf`, `z` (the zod these schemas are built with; compose them with it, since two copies of zod do not mix) — the event types themselves come through `export type *` from `src/kernel/types.ts` |
 | Observability | `memorySink`, `noopSink`, `readTraceparent`, `writeTrace`, `buildRecord`, `traceRecordSchema`, `contentOf`, `inlineContent`, `toOtlpJson`, `startTrace`, `traceContent`, `traceBytes`, `traceJson`, `registerTraceDestination`, `requireTraceDestination`, `getTraceDestination`, `listTraceDestinationIds`, `clearTraceDestinations`, `isTraceSink`, `resolveTraceWriter`, `resolveObservabilityPolicy`, `traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`, `traceEventAttributeMeta`, `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS`, `TRACE_SPAN_TYPES`, `TraceSpanMeta`, `TraceSpanType`, `TraceAttributeMeta`, `TraceEventMeta`, `TraceOptionMeta`, `TraceAttributeGroup`, `TraceValueFormat`, `TraceRecord`, `TraceSink`, `TraceWriteContext`, `TraceSpan`, `TraceSpanEvent`, `TraceSpanKind`, `TraceSpanLink`, `TraceSpanStatus`, `TraceAttributes`, `TraceAttributeValue`, `TraceContent`, `TraceBytes`, `TraceJson`, `TraceTree`, `SpanHandle`, `SpanOptions`, `SpanLinkInput`, `TraceClock`, `ProfileObservabilitySpec`, `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub`, `TraceIncludeSpec`, `TraceScrubSpec`, `ScrubSwitch`, `ResolvedScrubSwitch`, `OtlpTraceRequest`, `OtlpSpan`, `OtlpKeyValue`, `OtlpAnyValue` (file sink: `@theoremjs/agents/observability/jsonl` → `jsonlSink`, `JsonlSinkOptions`) |
-| Providers | `CreateProviderOptions`, `GeminiOptions`, `KeyVault`, `LocalProviderConfig`, `OpenAiGatewayConfig`, `createProvider` (local: `@theoremjs/agents/providers/local` → `createLocalProvider`) |
+| Providers | `registerProvider`, `registerProviders`, `getProvider`, `requireProvider`, `hasProvider`, `listProviders`, `resetProviders`, `defineProvider`, `ProviderAdapter`, `ProviderContext`, `ProviderHostOptions`, `KeyVault`, `openRouterAdapter`, `googleAdapter`, `openAIChat`, `typesafeAdapter` (local: `@theoremjs/agents/providers/local` → `createLocalProvider`) |
+| Provider definitions | `ProviderAdapter`, `ProviderDefinition`, `DefinedProvider`, `RegisteredProvider`, `ProviderRegistry`, `defineProvider`, `createProviderRegistry` |
+| Provider data | `JsonValue`, `JsonObject`, `CapabilitySupport`, `ProviderCapabilities`, `ResolvedProviderModel`, `ProviderModelSettings` |
+| Provider vault | `ProviderCredential`, `CredentialContext`, `CredentialResolver`, `ProviderVault`, `ProviderWait`, `OpenProviderWebSocket` |
+| Provider operations | `ProviderHostOptions`, `ProviderContext`, `ProviderOperations`, `ProviderRequest`, `ProviderTurnRequest`, `ProviderSessionRequest`, `ProviderDecisionRequest`, `ProviderLiveConnection`, `ProviderToolResult` |
+| Provider output | `ProviderContentEvent`, `ProviderModelEvent`, `ProviderCheckpoint`, `ProviderWarning`, `ProviderContinuationPolicy` |
+| Provider schemas | `jsonValueSchema`, `jsonObjectSchema`, `keySlotSchema`, `commonModelSettingsSchema`, `modelBindingSchema`, `decisionModelBindingSchema`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema`, `providerCapabilitiesSchema` |
 
 </details>
 
@@ -385,7 +404,7 @@ Four properties are invariant. Where a test or a lint checks one, the table name
 | P3 | No buried policy — behavioral defaults are declared profile-schema fields | `PROFILE_FIELDS` / schema |
 | P4 | Inert extras — optional entrypoints removable without behavior change | publish-bundle gate excludes `playground/` |
 
-Provider adapters load on the first `complete` call for their transport. `createProvider` and `@theoremjs/agents/providers` stay a thin barrel (`src/providers/mod.ts`). Implementation modules, such as `google/interactions/`, `openrouter/` and `local/`, are not pulled in when you import.
+First-party operation implementations load lazily. Provider definition and registration perform validation without opening transport (`src/providers/adapters.ts`). Implementation modules, such as `google/interactions/`, `openrouter/` and `local/`, are not pulled in when you import.
 
 Domain rules, delivery policy, product copy, database access and session memory belong in your application, not in Theorem.
 

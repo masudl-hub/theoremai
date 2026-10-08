@@ -32,18 +32,17 @@ import {
   processLiveOutboundBatch,
 } from '../../../guardrails/live-outbound-gate.ts';
 import type { ResolveHost } from '../../../guardrails/network.ts';
-import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
+import { sanitizeTurnRequestWithEvents } from '../../../guardrails/sanitize.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
 import type { TurnTaint } from '../../../guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
 import type { TraceSink } from '../../../observability/trace-sink.ts';
-import {
-  type LiveProviderOptions,
-  liveToolReadBack,
-  openLiveSession,
-} from '../../../providers/live.ts';
+import { liveToolReadBack } from '../../../providers/live.ts';
 import type { LiveConnection, LiveGoAway, LiveQueueItem } from '../../../providers/types.ts';
 import { memoryCredentialSource, type ToolCredentialSource } from '../../auth/credential-source.ts';
+import type { ProviderHostOptions } from '../../provider-contract.ts';
+import { historyHash } from '../../provider-contract.ts';
+import { openRegisteredLiveSession } from '../../provider-live.ts';
 import { assertTurnContext } from '../../registry/ingress.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
@@ -110,10 +109,9 @@ import { type LiveCloser, type LiveTrace, startLiveTrace } from './session-trace
 export type { LiveSession, SessionRequest };
 
 /** Options for opening a live session: the key vault, a provider's own settings, a WebSocket opener, how long a gated call waits for its decision, and the sign-in gate policy. */
-export interface RunSessionOptions {
+export interface RunSessionOptions extends ProviderHostOptions {
   /** The host's keys by slot; the session uses the slots its profile names. */
-  vault: KeyVault;
-  gemini?: LiveProviderOptions['gemini'];
+  vault?: KeyVault;
   /** Override socket open (Cloudflare fetch-upgrade, tests). Default: `new WebSocket(url)`. */
   openWebSocket?: (url: string) => Promise<WebSocket>;
   /**
@@ -232,17 +230,16 @@ function sessionSnapshotWithinAllow(
 function toTurnRequest(req: SessionRequest): TurnRequest {
   return {
     profile: req.profile,
+    providerState: req.providerState,
     system: req.system,
     path: req.path,
     sessionPermissions: req.sessionPermissions,
-    sessionResumptionHandle: req.sessionResumptionHandle,
     signal: req.signal,
     metadata: req.metadata,
     host: req.host,
     input: {
       text: '',
       history: req.history,
-      sessionResumptionHandle: req.sessionResumptionHandle,
       slots: req.slots,
     },
   };
@@ -258,7 +255,7 @@ function openingPrompt(
   slots: Record<string, string> | undefined,
 ): string | undefined {
   const { greeting, resumed } = profile.live;
-  if (!req.sessionResumptionHandle) {
+  if (!req.providerState) {
     return greeting ? fillSlots(profile, greeting, slots, 'live.greeting') : undefined;
   }
   if (!resumed || (req.awayMs ?? 0) < (resumed.afterMs ?? DEFAULT_RESUMED_AFTER_MS)) {
@@ -318,7 +315,9 @@ async function applyOutbound(
   if (batch.action === 'withhold') {
     onWithhold();
     return [
-      ...(batch.events ?? []).filter((event) => !isTurnComplete(event)),
+      ...(batch.events ?? []).filter(
+        (event) => !isTurnComplete(event) && event.type !== 'provider_checkpoint',
+      ),
       toErrorEvent(batch.error),
     ];
   }
@@ -331,7 +330,11 @@ async function applyOutbound(
   const finalized = await finalizeLiveOutboundTurn(gate);
   if (finalized.action === 'withhold') {
     onWithhold();
-    return [...said, ...(finalized.events ?? []), toErrorEvent(finalized.error)];
+    return [
+      ...said.filter((event) => event.type !== 'provider_checkpoint'),
+      ...(finalized.events ?? []),
+      toErrorEvent(finalized.error),
+    ];
   }
   return [
     ...said,
@@ -357,9 +360,13 @@ function liveToolOutput(s: ToolExecuteSettlement): string | undefined {
 }
 
 /** What the model reads back from a Live call: the `functionResponse.response` sent. */
-function liveReadBack(s: ToolExecuteSettlement): { text: string } | undefined {
+function liveReadBack(
+  s: ToolExecuteSettlement,
+): { text: string; parts?: InteractionPart[] } | undefined {
   const output = liveToolOutput(s);
-  return output === undefined ? undefined : { text: liveToolReadBack(output) };
+  return output === undefined
+    ? undefined
+    : { text: liveToolReadBack(output), parts: s.modelResult?.parts };
 }
 
 /**
@@ -431,6 +438,8 @@ function buildLiveSession(args: {
   /** Seed for StageContext.history (cloned). */
   historySeed?: TurnHistoryMessage[];
   openInitialCycle: boolean;
+  /** What the opening request's boundaries matched (seeded history, system text), reported first. */
+  requestEvents: readonly TurnEvent[];
   /** What the request told the agent, sent before anything draws a reply. */
   initialContext?: TurnContext;
   /** The greeting or resume prompt, sent once the cycle is open. */
@@ -502,6 +511,7 @@ function buildLiveSession(args: {
   const recordToolSettle = (
     tool: { name: string; callId: string; arguments: Record<string, unknown> },
     readBack: string,
+    parts?: InteractionPart[],
   ) => {
     history.push(
       {
@@ -522,6 +532,7 @@ function buildLiveSession(args: {
         tool_call_id: tool.callId,
         name: tool.name,
         content: readBack,
+        ...(parts?.length ? { parts } : {}),
       },
     );
     addSeenUrls(givenUrls.tools, readBack);
@@ -533,6 +544,8 @@ function buildLiveSession(args: {
     wakeHost = undefined;
     wake?.();
   };
+
+  for (const ev of args.requestEvents) enqueuePending(ev);
 
   const hostEventQueued = (): Promise<'queued'> =>
     pendingHostEvents.length > 0
@@ -552,16 +565,26 @@ function buildLiveSession(args: {
     connection.sendInput(input);
   };
 
-  const answerModel = (callId: string, held: HeldCall, readBack: string) => {
-    recordToolSettle({ name: held.name, callId, arguments: held.arguments }, readBack);
+  const answerModel = (
+    callId: string,
+    held: HeldCall,
+    readBack: string,
+    parts?: InteractionPart[],
+  ) => {
+    recordToolSettle({ name: held.name, callId, arguments: held.arguments }, readBack, parts);
     assertOpen();
-    connection.sendToolResponse(callId, held.name, readBack);
+    connection.sendToolResponse(callId, held.name, readBack, parts);
   };
 
-  const settleHeld = (callId: string, held: HeldCall, readBack: string) => {
+  const settleHeld = (
+    callId: string,
+    held: HeldCall,
+    readBack: string,
+    parts?: InteractionPart[],
+  ) => {
     clearTimeout(held.lapse);
     calls.delete(callId);
-    answerModel(callId, held, readBack);
+    answerModel(callId, held, readBack, parts);
   };
 
   /** A released call nobody answered in time: the model reads that its sign-in expired. */
@@ -781,7 +804,11 @@ function buildLiveSession(args: {
   };
 
   const withIngress = (fn: () => Promise<void>): Promise<void> => {
-    const next = ingressChain.then(fn, fn);
+    const flush = async () => {
+      await fn();
+      await connection.flush?.();
+    };
+    const next = ingressChain.then(flush, flush);
     ingressChain = next.then(
       () => undefined,
       () => undefined,
@@ -793,7 +820,7 @@ function buildLiveSession(args: {
    * Run a held call through the registry, with stages. A gate holds it for its
    * decision; any other settlement answers the model and lets it go.
    */
-  const runHeld = async (
+  const runHeldCore = async (
     callId: string,
     held: HeldCall,
     input: unknown,
@@ -880,7 +907,7 @@ function buildLiveSession(args: {
       } else {
         const output = liveToolOutput(s);
         if (output === undefined) calls.delete(callId);
-        else settleHeld(callId, held, output);
+        else settleHeld(callId, held, output, s.modelResult?.parts);
       }
       const { aborted } = s;
       await withIngress(async () => {
@@ -910,7 +937,7 @@ function buildLiveSession(args: {
 
     const output = liveToolOutput(s);
     if (output === undefined) calls.delete(callId);
-    else settleHeld(callId, held, output);
+    else settleHeld(callId, held, output, s.modelResult?.parts);
 
     return {
       outputRaw: s.outputRaw,
@@ -918,6 +945,12 @@ function buildLiveSession(args: {
       failure: s.failure,
       awaiting: s.awaiting,
     };
+  };
+
+  const runHeld = async (...input: Parameters<typeof runHeldCore>) => {
+    const result = await runHeldCore(...input);
+    await connection.flush?.();
+    return result;
   };
 
   const gateExpiredError = (callId: string) =>
@@ -981,7 +1014,35 @@ function buildLiveSession(args: {
       if (ev.type === 'guardrail') trace.outbound(ev);
     }
 
-    const doneBatch = yield* yieldLiveNonDoneEvents(gated, includeMatch, recordAssistantText);
+    const sealed: TurnEvent[] = [];
+    for (const event of gated) {
+      if ((event.type === 'provider_checkpoint' || event.type === 'done') && event.providerState) {
+        const covered = [...history];
+        for (const [callId, held] of calls) {
+          if (covered.some((message) => message.tool_calls?.some((call) => call.id === callId)))
+            continue;
+          covered.push({
+            role: 'assistant',
+            tool_calls: [
+              {
+                id: callId,
+                type: 'function',
+                function: { name: held.name, arguments: JSON.stringify(held.arguments) },
+              },
+            ],
+          });
+        }
+        sealed.push({
+          ...event,
+          providerState: {
+            ...event.providerState,
+            coveredHistoryLength: covered.length,
+            coveredHistoryHash: await historyHash(covered),
+          },
+        });
+      } else sealed.push(event);
+    }
+    const doneBatch = yield* yieldLiveNonDoneEvents(sealed, includeMatch, recordAssistantText);
     const tokens = await trace.settle();
     if (tokens) yield tokens;
 
@@ -1197,13 +1258,14 @@ function buildLiveSession(args: {
         ? { outputRaw: settled.output, ...(settled.awaiting ? { awaiting: true } : {}) }
         : { failure: settled.failure };
     },
-    close(reason = 'session-closed'): Promise<void> {
+    async close(reason = 'session-closed'): Promise<void> {
       if (!closed) {
         closed = true;
         stopLapses();
         closeSocket(1000, reason, 'host');
       }
       // why: The session record is sealed here; frames the host reads after closing are not in it.
+      await connection.flush?.();
       return trace.close({});
     },
   };
@@ -1250,7 +1312,12 @@ async function openTracedSession(
 ): Promise<LiveSession> {
   const gateTtlMs = resolveGateTtlMs('runSession', options.gateTtlMs);
   const turnReq = toTurnRequest(req);
-  const safe = sanitizeTurnRequest(turnReq, registry.profiles.get(turnReq.profile));
+  const {
+    request: safe,
+    events: requestEvents,
+    refusal,
+  } = sanitizeTurnRequestWithEvents(turnReq, registry.profiles.get(turnReq.profile));
+  if (refusal) throw refusal;
   throwIfAborted(safe.signal);
 
   const { profile, generation: gen0 } = resolveTurnInRegistry(registry, safe);
@@ -1299,7 +1366,15 @@ async function openTracedSession(
     givenUrls,
     ownToolsOf(registry.tools, profile),
   );
-  const connection = await openLiveSession(completeReq, options, options.openWebSocket);
+  const definition = registry.providers.require(binding.provider);
+  const connection = await openRegisteredLiveSession(
+    definition,
+    { ...binding },
+    completeReq,
+    options,
+    req.providerState,
+    profile.providerContinuation?.onMismatch,
+  );
   trace.setup(connection.setup);
 
   return buildLiveSession({
@@ -1320,6 +1395,7 @@ async function openTracedSession(
     snapshot: gen0.tools,
     historySeed: req.history,
     openInitialCycle: hasInitialInput,
+    requestEvents,
     initialContext: req.context,
     opening: hasInitialInput ? undefined : openingPrompt(profile, req, safe.input?.slots),
     trace,

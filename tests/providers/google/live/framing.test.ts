@@ -941,3 +941,23 @@ Deno.test('buildGeminiLiveSetupMessage refuses a thinking level Gemini does not 
   };
   assertThrows(() => buildGeminiLiveSetupMessage(req), TheoremError, 'xhigh');
 });
+
+Deno.test('live tool results preserve approved inline media in function-response parts', () => {
+  assertEquals(
+    buildGeminiLiveToolResponse('media-call', 'inspect', 'Approved image', [
+      { type: 'image', mimeType: 'image/png', data: 'AQ==' },
+    ]),
+    {
+      toolResponse: {
+        functionResponses: [
+          {
+            id: 'media-call',
+            name: 'inspect',
+            response: { result: 'Approved image' },
+            parts: [{ inlineData: { mimeType: 'image/png', data: 'AQ==' } }],
+          },
+        ],
+      },
+    },
+  );
+});

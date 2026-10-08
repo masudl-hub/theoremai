@@ -1,12 +1,8 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { wrapUserData } from '../../src/guardrails/canary.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
-import {
-  projectProfile,
-  registerProfile,
-  resolveTurn,
-  runTurn,
-} from '../../src/kernel/default-scope.ts';
+import { projectProfile, registerProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile, type ProfileDefinition } from '../../src/kernel/registry/profiles.ts';
 import { providerBuiltins } from '../../src/kernel/registry/provider-request.ts';
@@ -26,9 +22,7 @@ async function* fakeComplete(req: ProviderCompleteRequest): AsyncGenerator<TurnE
     };
   }
 }
-
 const fake: ModelProvider = { complete: fakeComplete };
-
 Deno.test('image oneshot uses image model and image response format', () => {
   const { generation } = resolveTurn({
     profile: 'image',
@@ -54,7 +48,6 @@ Deno.test('image oneshot uses image model and image response format', () => {
   ]);
   assertEquals(generation.builtins, []);
 });
-
 Deno.test('image rejects too many reference images', () => {
   const images = Array.from({ length: CHAT_MEDIA_LIMITS.maxFiles + 1 }, () => ({
     mimeType: 'image/png',
@@ -65,7 +58,6 @@ Deno.test('image rejects too many reference images', () => {
     TheoremError,
   );
 });
-
 Deno.test('image rejects mime the image model does not take', () => {
   assertThrows(
     () =>
@@ -76,7 +68,6 @@ Deno.test('image rejects mime the image model does not take', () => {
     TheoremError,
   );
 });
-
 function googleImageBody() {
   const { generation } = resolveTurn({
     profile: 'image',
@@ -97,9 +88,11 @@ function googleImageBody() {
     keySlot: generation.keySlot,
   });
 }
-
 function assertImageWireBody(body: Record<string, unknown>): void {
-  const turns = body.input as { type: string; content: Record<string, string>[] }[];
+  const turns = body.input as {
+    type: string;
+    content: Record<string, string>[];
+  }[];
   const [turn] = turns;
   const [textPart, part] = turn.content;
   const format = body[camelToSnake('responseFormat')] as Record<string, string>;
@@ -117,7 +110,6 @@ function assertImageWireBody(body: Record<string, unknown>): void {
   assertEquals(format[camelToSnake('imageSize')], '1K');
   assertEquals(Object.hasOwn(body, camelToSnake('responseModalities')), false);
 }
-
 function assertImageWithTextWireBody(body: Record<string, unknown>): void {
   const format = body[camelToSnake('responseFormat')] as Record<string, unknown>[];
   assertEquals(Array.isArray(format), true);
@@ -128,11 +120,9 @@ function assertImageWithTextWireBody(body: Record<string, unknown>): void {
   assertEquals(format[1]?.[camelToSnake('imageSize')], '1K');
   assertEquals(Object.hasOwn(body, camelToSnake('responseModalities')), false);
 }
-
 Deno.test('interactions body places refs in input and image in response format', () => {
   assertImageWireBody(googleImageBody());
 });
-
 Deno.test('interactions body requests text and image when includeText is set', () => {
   registerProfile({
     id: 'image_with_text',
@@ -175,7 +165,6 @@ Deno.test('interactions body requests text and image when includeText is set', (
   });
   assertImageWithTextWireBody(body);
 });
-
 Deno.test('image runTurn yields media then done', async () => {
   const events = await Array.fromAsync(runTurn({ profile: 'image', input: { text: 'fox' } }, fake));
   assertEquals(eventTypesByReply(events), [
@@ -194,13 +183,11 @@ Deno.test('image runTurn yields media then done', async () => {
   assertEquals(tokens?.estimated, ['input', 'output']);
   assertEquals(tokens?.unknownMedia, { output: 1 });
 });
-
 Deno.test('chat profile does not attach image response format', () => {
   const { generation } = resolveTurn({ profile: 'chat', input: { text: 'hi' } });
   assertEquals(generation.image, null);
   assertEquals(generation.input, [{ type: 'text', text: wrapUserData('hi') }]);
 });
-
 Deno.test('image projection exposes image pins not tools', () => {
   const ui = projectProfile('image');
   assertEquals(ui.tools, []);
@@ -209,7 +196,6 @@ Deno.test('image projection exposes image pins not tools', () => {
   assertEquals(ui.image?.resolution, '1K');
   assertEquals(ui.models.gemini31FlashLiteImage.summaries, false);
 });
-
 Deno.test('media validations allow omitted aspect/resolution; reject structured mixing and invalid mime', () => {
   registerProfile(
     defineProfile({
@@ -235,7 +221,6 @@ Deno.test('media validations allow omitted aspect/resolution; reject structured 
     resolution: undefined,
     includeText: false,
   });
-
   // A structured reply on an image profile is refused when the profile is defined
   assertThrows(
     () =>
@@ -255,7 +240,6 @@ Deno.test('media validations allow omitted aspect/resolution; reject structured 
     TheoremError,
     'outputs.structured',
   );
-
   // codeExecution on image profiles is a host/model choice — kernel does not block it
   registerProfile(
     defineProfile({
@@ -268,7 +252,6 @@ Deno.test('media validations allow omitted aspect/resolution; reject structured 
           builtInTools: ['codeExecution'],
         },
       },
-      key: 'slot_a',
       image: {
         aspectRatio: '1:1',
         resolution: '1K',
@@ -286,7 +269,6 @@ Deno.test('media validations allow omitted aspect/resolution; reject structured 
     resolveTurn({ profile: 'image_with_code_exec', input: { text: 'plot' } }).generation.builtins,
     ['codeExecution'],
   );
-
   // googleSearch on image profiles is a host/model choice — kernel does not block it
   registerProfile(
     defineProfile({
@@ -299,7 +281,6 @@ Deno.test('media validations allow omitted aspect/resolution; reject structured 
           builtInTools: ['googleSearch'],
         },
       },
-      key: 'slot_a',
       image: {
         aspectRatio: '1:1',
         resolution: '1K',
@@ -319,7 +300,6 @@ Deno.test('media validations allow omitted aspect/resolution; reject structured 
     ['googleSearch'],
   );
 });
-
 Deno.test('speech profiles use top-level speech pins', () => {
   registerProfile({
     id: 'speech_output_test',
@@ -337,7 +317,6 @@ Deno.test('speech profiles use top-level speech pins', () => {
     },
   );
 });
-
 function speechDefinition(overrides: Record<string, unknown>): ProfileDefinition {
   return {
     type: 'speech',
@@ -348,7 +327,6 @@ function speechDefinition(overrides: Record<string, unknown>): ProfileDefinition
     ...overrides,
   } as ProfileDefinition;
 }
-
 Deno.test('speech profiles store no guardrails and resolve no system prompt or canary', () => {
   const profile = defineProfile(speechDefinition({}));
   assertEquals(profile.type === 'speech' && profile.guardrails, undefined);
@@ -357,7 +335,6 @@ Deno.test('speech profiles store no guardrails and resolve no system prompt or c
   assertEquals(generation.canary, '');
   assertEquals(generation.resolvedSystem, []);
 });
-
 Deno.test('speech profiles reject a system prompt', () => {
   for (const overrides of [
     { identity: { handle: 'speech_contract', system: 'Speak warmly.' } },
@@ -366,7 +343,6 @@ Deno.test('speech profiles reject a system prompt', () => {
     assertThrows(() => defineProfile(speechDefinition(overrides)), TheoremError);
   }
 });
-
 Deno.test('speech turns reject a host system prompt', () => {
   registerProfile(speechDefinition({}));
   assertThrows(
@@ -375,7 +351,6 @@ Deno.test('speech turns reject a host system prompt', () => {
     TheoremError,
   );
 });
-
 Deno.test('image and speech continueFrom re-send the request with nothing added', () => {
   registerProfile(speechDefinition({}));
   for (const req of [
@@ -391,7 +366,6 @@ Deno.test('image and speech continueFrom re-send the request with nothing added'
     assertEquals(resumed.resolvedSystem, fresh.resolvedSystem);
   }
 });
-
 Deno.test('image and speech profiles take a lexicon; continueFrom still adds nothing', () => {
   const lexicon = { 'continue.instruction': 'Keep going.', 'error.internal': 'Host copy.' };
   registerProfile(speechDefinition({ id: 'speech_lexicon', lexicon }));
@@ -415,7 +389,6 @@ Deno.test('image and speech profiles take a lexicon; continueFrom still adds not
     assertEquals(JSON.stringify(resumed.generation).includes('Keep going.'), false);
   }
 });
-
 function imageWithInputs(id: string, inputs: Record<string, unknown>): ProfileDefinition {
   return {
     id,
@@ -427,13 +400,11 @@ function imageWithInputs(id: string, inputs: Record<string, unknown>): ProfileDe
     inputs: { text: true, ...CHAT_MEDIA_LIMITS, ...inputs },
   } as ProfileDefinition;
 }
-
 Deno.test('image attachments take images, video and PDF', () => {
   const accept = ['image/*', 'video/mp4', 'application/pdf'];
   const profile = defineProfile(imageWithInputs('image_accepts', { attachments: { accept } }));
   assertEquals(profile.type === 'image' && profile.inputs.attachments?.accept, accept);
 });
-
 Deno.test('image attachments refuse audio, text and other documents', () => {
   for (const mime of ['audio/wav', 'text/plain', 'application/json', '*/*']) {
     assertThrows(
@@ -443,7 +414,6 @@ Deno.test('image attachments refuse audio, text and other documents', () => {
     );
   }
 });
-
 Deno.test('an image profile takes no voice', () => {
   assertThrows(
     () => defineProfile(imageWithInputs('image_voice', { voice: { accept: ['audio/wav'] } })),
@@ -451,7 +421,6 @@ Deno.test('an image profile takes no voice', () => {
     'must not set inputs.voice',
   );
 });
-
 Deno.test('image pins reach the resolved image format; unset pins stay unset', () => {
   registerProfile(
     defineProfile({
@@ -469,7 +438,6 @@ Deno.test('image pins reach the resolved image format; unset pins stay unset', (
   assertEquals(plain?.quality, undefined);
   assertEquals(plain?.n, undefined);
 });
-
 Deno.test('image pins are checked as whole numbers in range', () => {
   for (const image of [
     { n: 0 },
@@ -485,7 +453,6 @@ Deno.test('image pins are checked as whole numbers in range', () => {
     );
   }
 });
-
 Deno.test('image references go ahead of the turn attachments, before any wire', () => {
   registerProfile(
     defineProfile({
@@ -508,7 +475,6 @@ Deno.test('image references go ahead of the turn attachments, before any wire', 
     { type: 'image', mimeType: 'image/webp', data: 'turn' },
   ]);
 });
-
 Deno.test('image references must be images with a source', () => {
   for (const references of [
     [{ mimeType: 'video/mp4', data: 'x' }],

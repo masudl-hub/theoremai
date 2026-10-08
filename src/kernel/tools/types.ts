@@ -29,7 +29,6 @@ import type {
 import type {
   InteractionPart,
   ModelId,
-  ModelProvider,
   Profile,
   ProfileId,
   ToolId,
@@ -76,6 +75,7 @@ export interface ToolBase {
 }
 
 export interface BuiltinWire {
+  [adapterId: string]: string | undefined;
   interactions?: string;
   openRouter?: string;
   live?: string;
@@ -317,7 +317,7 @@ export interface AgentCallRequest
     Pick<TurnRequest, 'input' | 'effort' | 'metadata' | 'onStage' | 'conversationId'>
   > {
   model?: ModelId;
-  provider?: ModelProvider;
+  provider?: import('../provider-contract.ts').ProviderHostOptions;
 }
 
 /** Return nothing to run the agent on the model's text alone; `refuse` is read back to the model. */
@@ -420,7 +420,7 @@ export interface InvokeToolRequest {
   /** Receives `pre_tool` / `post_tool` only. */
   onStage?: import('../stages.ts').StageHandler;
   /** Runs an agent tool's turn; an agent tool needs it, or `onAgentCall` returning one. */
-  provider?: ModelProvider;
+  provider?: import('../provider-contract.ts').ProviderHostOptions;
   /** As `TurnRequest.onAgentCall`, for an agent tool this invoke runs. */
   onAgentCall?: AgentCallHook;
 }

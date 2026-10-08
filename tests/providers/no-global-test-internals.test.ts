@@ -1,8 +1,7 @@
 // F-01: the global test bag must never appear after loading the public and provider surface.
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import '../../mod.ts';
-import '../../src/providers/create-provider.ts';
-import '../../src/providers/probe.ts';
+import '../../src/providers/mod.ts';
 
 /** Assembled so this file does not contain the banned whole-token literal. */
 const BANNED_GLOBALS = [['__theorem', 'TestInternals'].join('')];

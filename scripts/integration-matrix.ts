@@ -4,8 +4,8 @@ import '../tests/fixtures/test-host.ts';
 import { testProfileCommand } from '../src/cli/commands/test.ts';
 import { listProfiles } from '../src/kernel/default-scope.ts';
 import { isModelProfile } from '../src/kernel/registry/resolve.ts';
-import { createProvider } from '../src/providers/create-provider.ts';
 import { hostVault, loadHostEnv } from './host-env.ts';
+import { scriptProviderOptions } from './provider-options.ts';
 
 loadHostEnv();
 
@@ -17,16 +17,14 @@ console.log(`Registered profiles: ${profiles.map((p) => p.id).join(', ')}`);
 const geminiProfiles = profiles
   .filter(isModelProfile)
   .filter((p) =>
-    Object.values(p.models).some(
-      (binding) => binding.protocol === 'geminiInteractions' && binding.provider === 'google',
-    ),
+    Object.values(p.models).some((binding) => binding.provider === 'google' && p.type !== 'live'),
   );
 
 console.log(
   `\nRunning matrix for ${geminiProfiles.length} Gemini profiles: ${geminiProfiles.map((p) => p.id).join(', ')}\n`,
 );
 
-const provider = createProvider(geminiProfiles[0], { vault });
+const provider = scriptProviderOptions(geminiProfiles[0], { vault });
 
 let success = true;
 if (Deno.args.length === 0) {

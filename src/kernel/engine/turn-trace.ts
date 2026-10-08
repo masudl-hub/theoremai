@@ -11,7 +11,6 @@ import {
   traceContent,
   traceJson,
 } from '../../observability/trace-span.ts';
-import { PROVIDER_FACTS } from '../../presets/facts.ts';
 import { historyMessageParts } from '../interaction-parts.ts';
 import type { ToolCallEvent, ToolCallRequest, ToolFailure } from '../tools/types.ts';
 import type {
@@ -453,18 +452,18 @@ function usageAttributes(tokens: TurnTokens): TraceAttributes {
 }
 
 function operationName(transport: ProviderTransport): 'chat' | 'generate_content' {
-  return transport === 'openAiCompat' ? 'chat' : 'generate_content';
+  return transport === 'turn' ? 'chat' : 'generate_content';
 }
 
 /** `gen_ai.provider.name`: the name the provider's preset states; else the binding's server, when declared. */
 function providerName(binding: ModelBinding | undefined): string | undefined {
   if (!binding) return undefined;
-  return PROVIDER_FACTS[binding.provider].traceName ?? binding.server;
+  return binding.provider;
 }
 
 function outputType(req: ProviderCompleteRequest, transport: ProviderTransport): string {
   // why: Live answers in audio: its setup asks for `responseModalities: ['AUDIO']` (live/framing.ts).
-  if (transport === 'geminiLive') return 'speech';
+  if (transport === 'live') return 'speech';
   if (req.structured) return 'json';
   if (req.image) return 'image';
   if (req.speech) return 'speech';
@@ -577,7 +576,7 @@ function liveAttributes(
           },
         }
       : {}),
-    resumed: Boolean(req.sessionResumptionHandle),
+    resumed: Boolean(req.providerState),
   };
 }
 
@@ -807,7 +806,7 @@ function responseAttributes(
 ): TraceAttributes {
   const reported: TraceAttributes = !native
     ? {}
-    : transport === 'openAiCompat'
+    : transport === 'turn'
       ? { 'gen_ai.response.finish_reasons': [native] }
       : { 'gen_ai.response.status': native };
   return {

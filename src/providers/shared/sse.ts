@@ -1,21 +1,19 @@
-const DATA_PREFIX = 'data: ';
-const EVENT_PREFIX = 'event: ';
 const DONE = '[DONE]';
 
-export function asObject(parsed: unknown): Record<string, unknown> | undefined {
+function asObject(parsed: unknown): Record<string, unknown> | undefined {
   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
     return parsed as Record<string, unknown>;
   }
   return undefined;
 }
 
-export function dataRecord(raw: string, sseEvent: string): Record<string, unknown> {
-  const data = raw.slice(DATA_PREFIX.length).trim();
+function dataRecord(raw: string, sseEvent: string): Record<string, unknown> {
+  const data = raw.startsWith('data:') ? raw.slice(5).replace(/^ /, '') : raw;
   const row: Record<string, unknown> = {};
   if (sseEvent) {
     row.sseEvent = sseEvent;
   }
-  if (!data || data === DONE) {
+  if (data === DONE) {
     row.eventType = 'sse_done';
     return row;
   }
@@ -40,18 +38,34 @@ export function takeSsePayloads(
   pendingEvent = '',
 ): { rest: string; payloads: Record<string, unknown>[]; pendingEvent: string } {
   const payloads: Record<string, unknown>[] = [];
-  const chunks = buffer.split('\n');
-  const rest = chunks.pop() ?? '';
-  let sseEvent = pendingEvent;
-  for (const line of chunks) {
-    if (line.startsWith(EVENT_PREFIX)) {
-      sseEvent = line.slice(EVENT_PREFIX.length).trim();
-    } else if (line.startsWith(DATA_PREFIX)) {
-      payloads.push(dataRecord(line, sseEvent));
-      sseEvent = '';
+  let event = pendingEvent;
+  let data: string[] = [];
+  let hasData = false;
+  let consumed = 0;
+  const lineEnds = /\r\n|\r|\n/g;
+  let start = 0;
+  for (let match = lineEnds.exec(buffer); match; match = lineEnds.exec(buffer)) {
+    if (match[0] === '\r' && match.index === buffer.length - 1) break;
+    const line = buffer.slice(start, match.index);
+    start = match.index + match[0].length;
+    if (!line) {
+      if (hasData) payloads.push(dataRecord(data.join('\n'), event));
+      event = '';
+      data = [];
+      hasData = false;
+      consumed = start;
+    } else if (!line.startsWith(':')) {
+      const colon = line.indexOf(':');
+      const field = colon < 0 ? line : line.slice(0, colon);
+      const value = colon < 0 ? '' : line.slice(colon + 1).replace(/^ /, '');
+      if (field === 'event') event = value;
+      if (field === 'data') {
+        data.push(value);
+        hasData = true;
+      }
     }
   }
-  return { rest, payloads, pendingEvent: sseEvent };
+  return { rest: buffer.slice(consumed), payloads, pendingEvent: '' };
 }
 
 export async function* readSseChunks(
@@ -60,17 +74,22 @@ export async function* readSseChunks(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let pendingEvent = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const result = takeSsePayloads(buffer, pendingEvent);
-    buffer = result.rest;
-    pendingEvent = result.pendingEvent;
-    for (const payload of result.payloads) {
-      yield payload;
+  let ended = false;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        ended = true;
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const result = takeSsePayloads(buffer);
+      buffer = result.rest;
+      for (const payload of result.payloads) yield payload;
     }
+  } finally {
+    if (!ended) void reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
 }
 

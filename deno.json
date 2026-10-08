@@ -79,9 +79,7 @@
   },
   "imports": {
     "@eslint-community/regexpp": "npm:@eslint-community/regexpp@4.12.2",
-    "@openrouter/ai-sdk-provider": "npm:@openrouter/ai-sdk-provider@^3.0.0",
-    "ai": "npm:ai@^7.0.0",
-    "gpt-tokenizer": "npm:gpt-tokenizer@^4.0.0",
+    "@openrouter/sdk": "npm:@openrouter/sdk@1.4.25",
     "intl-messageformat": "npm:intl-messageformat@^11.2.9",
     "refa": "npm:refa@0.12.1",
     "scslre": "npm:scslre@0.3.0",

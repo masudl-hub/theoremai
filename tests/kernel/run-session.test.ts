@@ -26,6 +26,7 @@ import { OMIT_INJECTION } from '../../src/observability/spans.ts';
 import { eventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
+import { googleLiveCheckpoint } from '../fixtures/provider-checkpoint.ts';
 
 function registerLiveProfile(id: string) {
   const profile = defineProfile({
@@ -35,7 +36,7 @@ function registerLiveProfile(id: string) {
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'main',
+        keySlot: 'main',
       },
     },
     live: { voice: 'Aoede' },
@@ -44,7 +45,6 @@ function registerLiveProfile(id: string) {
   registerProfile(profile);
   return profile;
 }
-
 Deno.test('runSession rejects non-live profiles', async () => {
   clearProfiles();
   resetTools();
@@ -54,13 +54,14 @@ Deno.test('runSession rejects non-live profiles', async () => {
     identity: { handle: 't' },
     models: {
       m: {
-        protocol: 'geminiInteractions',
         provider: 'google',
         apiId: 'gemini-test',
-        persistViaInteractionId: false,
         summaries: false,
         builtInTools: [],
-        key: 'main',
+        keySlot: 'main',
+        providerOptions: {
+          persistViaInteractionId: false,
+        },
       },
     },
     tools: { allow: [] },
@@ -68,19 +69,16 @@ Deno.test('runSession rejects non-live profiles', async () => {
     outputs: {},
   });
   registerProfile(profile);
-
   await assertRejects(
     () => runSession({ profile: profile.id }, { vault: { main: 'k' } }),
     TheoremError,
     "runSession requires profile.type 'live'",
   );
 });
-
 Deno.test('runSession requires registered live profile with gemini vault', async () => {
   clearProfiles();
   resetTools();
   const profile = registerLiveProfile('session_live_missing_key');
-
   await assertRejects(
     () =>
       runSession(
@@ -93,7 +91,6 @@ Deno.test('runSession requires registered live profile with gemini vault', async
   );
   assertEquals(profile.type, 'live');
 });
-
 Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', async () => {
   clearProfiles();
   resetTools();
@@ -104,14 +101,13 @@ Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', as
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'main',
+        keySlot: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { video: false } },
     tools: { allow: [] },
   });
   registerProfile(profile);
-
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(
     { profile: profile.id },
@@ -124,9 +120,7 @@ Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', as
       },
     },
   );
-
   await new Promise((r) => setTimeout(r, 0));
-
   await assertRejects(
     () => session.sendVideo({ data: 'abc', mimeType: 'image/jpeg' }),
     TheoremError,
@@ -135,12 +129,10 @@ Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', as
   (mock as unknown as MockLiveWebSocket)?.close();
   await session.close();
 });
-
 Deno.test('runSession sends setup on an already-open socket (fetch upgrade)', async () => {
   clearProfiles();
   resetTools();
   const profile = registerLiveProfile('session_live_preopened');
-
   const mock = new MockLiveWebSocket();
   mock.readyState = 1;
   const session = await runSession(
@@ -150,12 +142,10 @@ Deno.test('runSession sends setup on an already-open socket (fetch upgrade)', as
       openWebSocket: () => Promise.resolve(mock as unknown as WebSocket),
     },
   );
-
   assertEquals(mock.sent.filter((frame) => frame.includes('"setup"')).length, 1);
   mock.close();
   await session.close();
 });
-
 Deno.test('runSession sendText rejects when live.ingress.text is disabled', async () => {
   clearProfiles();
   resetTools();
@@ -166,14 +156,13 @@ Deno.test('runSession sendText rejects when live.ingress.text is disabled', asyn
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'main',
+        keySlot: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: false } },
     tools: { allow: [] },
   });
   registerProfile(profile);
-
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(
     { profile: profile.id },
@@ -186,9 +175,7 @@ Deno.test('runSession sendText rejects when live.ingress.text is disabled', asyn
       },
     },
   );
-
   await new Promise((r) => setTimeout(r, 0));
-
   await assertRejects(
     () => session.sendText('hello'),
     TheoremError,
@@ -197,7 +184,6 @@ Deno.test('runSession sendText rejects when live.ingress.text is disabled', asyn
   (mock as unknown as MockLiveWebSocket)?.close();
   await session.close();
 });
-
 Deno.test('runSession sendText frames sanitized realtime input when text ingress enabled', async () => {
   clearProfiles();
   resetTools();
@@ -208,7 +194,7 @@ Deno.test('runSession sendText frames sanitized realtime input when text ingress
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'main',
+        keySlot: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
@@ -216,7 +202,6 @@ Deno.test('runSession sendText frames sanitized realtime input when text ingress
     guardrails: {},
   });
   registerProfile(profile);
-
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(
     { profile: profile.id },
@@ -229,23 +214,21 @@ Deno.test('runSession sendText frames sanitized realtime input when text ingress
       },
     },
   );
-
   await new Promise((r) => setTimeout(r, 0));
-
   await session.sendText('hello concierge');
   const liveMock = mock as unknown as MockLiveWebSocket;
   const textFrame = liveMock.sent.find((frame) => frame.includes('"realtimeInput"'));
   assertEquals(textFrame !== undefined, true);
   const parsed = JSON.parse(textFrame ?? '{}') as {
-    realtimeInput?: { text?: string };
+    realtimeInput?: {
+      text?: string;
+    };
   };
   assertEquals(parsed.realtimeInput?.text?.includes('<user_data>'), true);
   assertEquals(parsed.realtimeInput?.text?.includes('hello concierge'), true);
-
   liveMock.close();
   await session.close();
 });
-
 /** Opens a live session on a mock socket and returns both. */
 async function openLive(
   live: Record<string, unknown>,
@@ -258,7 +241,7 @@ async function openLive(
     type: 'live',
     id: 'session_live_opening',
     identity: { handle: 'live', system: 'Reply in {language}.' },
-    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'main' } },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'main' } },
     live: { voice: 'Aoede', ...live },
     inputs: {
       slots: { language: ['en', 'fr'] },
@@ -288,14 +271,30 @@ async function openLive(
       .map(
         (frame) =>
           frame.clientContent as
-            | { turns: Array<{ parts: Array<{ text: string }> }>; turnComplete: boolean }
+            | {
+                turns: Array<{
+                  parts: Array<{
+                    text: string;
+                  }>;
+                }>;
+                turnComplete: boolean;
+              }
             | undefined,
       )
       .filter((content) => content?.turnComplete === false)
       .map((content) => content?.turns[0]?.parts[0]?.text);
   const spoken = () =>
     frames()
-      .map((frame) => (frame.realtimeInput as { text?: string } | undefined)?.text)
+      .map(
+        (frame) =>
+          (
+            frame.realtimeInput as
+              | {
+                  text?: string;
+                }
+              | undefined
+          )?.text,
+      )
       .filter((text) => text !== undefined);
   const done = async () => {
     socket.close();
@@ -303,7 +302,6 @@ async function openLive(
   };
   return { session, contexts, spoken, done };
 }
-
 Deno.test('a new call sends its context, then its greeting with the slot filled', async () => {
   const live = await openLive(
     { greeting: 'Greet the visitor in {language}.' },
@@ -316,7 +314,6 @@ Deno.test('a new call sends its context, then its greeting with the slot filled'
   assertEquals(live.spoken(), ['Greet the visitor in fr.']);
   await live.done();
 });
-
 Deno.test('a call with no greeting waits, and a greeting that needs an unfilled slot is refused', async () => {
   const quiet = await openLive({});
   assertEquals(quiet.spoken(), []);
@@ -327,30 +324,36 @@ Deno.test('a call with no greeting waits, and a greeting that needs an unfilled 
     "uses slot 'language'",
   );
 });
-
 Deno.test('a resumed call speaks only after a gap the caller noticed', async () => {
   const resumable = {
     sessionResumption: true,
     greeting: 'Greet the visitor.',
     resumed: { prompt: 'Say you are back, in {language}.', afterMs: 2000 },
   };
-  const brief = await openLive(resumable, { sessionResumptionHandle: 'h', awayMs: 500 });
+  const brief = await openLive(resumable, {
+    providerState: googleLiveCheckpoint(HOST_BINDINGS.gemini31FlashLive.apiId, 'h'),
+    awayMs: 500,
+  });
   assertEquals(brief.spoken(), []);
   await brief.done();
-  const unknown = await openLive(resumable, { sessionResumptionHandle: 'h' });
+  const unknown = await openLive(resumable, {
+    providerState: googleLiveCheckpoint(HOST_BINDINGS.gemini31FlashLive.apiId, 'h'),
+  });
   assertEquals(unknown.spoken(), []);
   await unknown.done();
-  const long = await openLive(resumable, { sessionResumptionHandle: 'h', awayMs: 2000 });
+  const long = await openLive(resumable, {
+    providerState: googleLiveCheckpoint(HOST_BINDINGS.gemini31FlashLive.apiId, 'h'),
+    awayMs: 2000,
+  });
   assertEquals(long.spoken(), ['Say you are back, in fr.']);
   await long.done();
 });
-
 Deno.test('live.resumed needs session resumption, and its prompt', () => {
   const base = {
     type: 'live' as const,
     id: 'session_live_resumed_config',
     identity: { handle: 'live', system: 'hi' },
-    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'main' } },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'main' } },
     tools: { allow: [] },
   };
   assertThrows(
@@ -364,7 +367,6 @@ Deno.test('live.resumed needs session resumption, and its prompt', () => {
     'live.resumed.prompt must be a prompt',
   );
 });
-
 Deno.test('sendContext sends each package in its fence, opens no turn, and needs no text channel', async () => {
   const live = await openLive({ ingress: { text: false } });
   await live.session.sendContext({ client: '(page) /docs' });
@@ -372,7 +374,6 @@ Deno.test('sendContext sends each package in its fence, opens no turn, and needs
   assertEquals(live.spoken(), []);
   await live.done();
 });
-
 Deno.test('sendContext refuses a sender the profile does not list, and reads the package at the context boundary', async () => {
   const live = await openLive(
     {},
@@ -393,12 +394,10 @@ Deno.test('sendContext refuses a sender the profile does not list, and reads the
   assertEquals(sent?.includes(OMIT_INJECTION), true);
   await live.done();
 });
-
-Deno.test('runSession abort phase still forwards tool events', async () => {
+Deno.test('runSession abort phase cannot authorize pending tool calls', async () => {
   clearProfiles();
   resetTools();
   const profile = registerLiveProfile('session_live_abort_tools');
-
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(
     { profile: profile.id },
@@ -412,11 +411,13 @@ Deno.test('runSession abort phase still forwards tool events', async () => {
       },
     },
   );
-
   assertEquals(mock !== null, true);
   const liveMock = mock as unknown as MockLiveWebSocket;
-
-  const collected: Array<{ type: string; name?: string; interrupted?: boolean }> = [];
+  const collected: Array<{
+    type: string;
+    name?: string;
+    interrupted?: boolean;
+  }> = [];
   const drain = (async () => {
     for await (const event of session.events()) {
       if (event.type === 'tool') {
@@ -427,7 +428,6 @@ Deno.test('runSession abort phase still forwards tool events', async () => {
       if (event.type === 'done' && event.interrupted) break;
     }
   })();
-
   // After setup, inject toolCall + barge-in in one upstream frame (abort turnPhase).
   await new Promise((r) => setTimeout(r, 0));
   liveMock.deliver({
@@ -439,20 +439,17 @@ Deno.test('runSession abort phase still forwards tool events', async () => {
   // onmessage handler is async — let the batch enqueue before socket close.
   await new Promise((r) => setTimeout(r, 0));
   liveMock.close();
-
   await drain;
   await session.close();
-
   assertEquals(
     collected.some((e) => e.type === 'tool' && e.name === 'navigate'),
-    true,
+    false,
   );
   assertEquals(
     collected.some((e) => e.type === 'done' && e.interrupted === true),
     true,
   );
 });
-
 Deno.test('runSession setup declarations equal the full allow list regardless of loadTier', async () => {
   clearProfiles();
   resetTools();
@@ -481,14 +478,13 @@ Deno.test('runSession setup declarations equal the full allow list regardless of
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'main',
+        keySlot: 'main',
       },
     },
     live: { voice: 'Aoede' },
     tools: { allow: ['session_t0', 'session_t2'] },
   });
   registerProfile(profile);
-
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(
     { profile: profile.id },
@@ -501,21 +497,24 @@ Deno.test('runSession setup declarations equal the full allow list regardless of
       },
     },
   );
-
   const liveMock = mock as unknown as MockLiveWebSocket;
   const setupFrame = liveMock.sent.find((frame) => frame.includes('"setup"'));
   const parsed = JSON.parse(setupFrame ?? '{}') as {
-    setup?: { tools?: Array<{ functionDeclarations?: Array<{ name: string }> }> };
+    setup?: {
+      tools?: Array<{
+        functionDeclarations?: Array<{
+          name: string;
+        }>;
+      }>;
+    };
   };
   const declared = (parsed.setup?.tools ?? []).flatMap((t) =>
     (t.functionDeclarations ?? []).map((d) => d.name),
   );
   assertEquals(declared, ['session_t0', 'session_t2']);
-
   liveMock.close();
   await session.close();
 });
-
 function registerTieredSessionTools(): void {
   for (const [name, loadTier] of [
     ['snap_t0', 'T0'],
@@ -536,7 +535,6 @@ function registerTieredSessionTools(): void {
     });
   }
 }
-
 function defineSnapshotLiveProfile(id: string, allow: string[]) {
   return defineProfile({
     type: 'live',
@@ -545,14 +543,13 @@ function defineSnapshotLiveProfile(id: string, allow: string[]) {
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'main',
+        keySlot: 'main',
       },
     },
     live: { voice: 'Aoede' },
     tools: { allow },
   });
 }
-
 async function openWithMock(req: Parameters<typeof runSession>[0]) {
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(req, {
@@ -565,17 +562,21 @@ async function openWithMock(req: Parameters<typeof runSession>[0]) {
   });
   return { session, mock: mock as unknown as MockLiveWebSocket };
 }
-
 function declaredToolNames(mock: MockLiveWebSocket): string[] {
   const setupFrame = mock.sent.find((frame) => frame.includes('"setup"'));
   const parsed = JSON.parse(setupFrame ?? '{}') as {
-    setup?: { tools?: Array<{ functionDeclarations?: Array<{ name: string }> }> };
+    setup?: {
+      tools?: Array<{
+        functionDeclarations?: Array<{
+          name: string;
+        }>;
+      }>;
+    };
   };
   return (parsed.setup?.tools ?? []).flatMap((t) =>
     (t.functionDeclarations ?? []).map((d) => d.name),
   );
 }
-
 Deno.test('runSession declares a host-supplied snapshot when the registry is not local', async () => {
   clearProfiles();
   resetTools();
@@ -583,7 +584,6 @@ Deno.test('runSession declares a host-supplied snapshot when the registry is not
   const allow = ['snap_t0', 'snap_t2'];
   const profile = defineSnapshotLiveProfile('session_snapshot_remote', allow);
   registerProfile(profile);
-
   // The registry-owning process resolves the snapshot …
   const snapshot = await prepareTurnToolSnapshot(
     defaultKernelScope.tools,
@@ -595,7 +595,6 @@ Deno.test('runSession declares a host-supplied snapshot when the registry is not
     snapshot.wire.map((w) => w.name),
     allow,
   );
-
   // … and the relay process has the profile but not the tools.
   resetTools();
   const { session, mock } = await openWithMock({
@@ -606,24 +605,19 @@ Deno.test('runSession declares a host-supplied snapshot when the registry is not
   assertEquals(declaredToolNames(mock), allow);
   const setupFrame = mock.sent.find((frame) => frame.includes('"setup"')) ?? '';
   assertEquals(setupFrame.includes('"T2 tool"'), true);
-
   mock.close();
   await session.close();
 });
-
 Deno.test('runSession without a snapshot declares nothing when the registry is not local', async () => {
   clearProfiles();
   resetTools();
   const profile = defineSnapshotLiveProfile('session_snapshot_missing', ['snap_t0']);
   registerProfile(profile);
-
   const { session, mock } = await openWithMock({ profile: profile.id, path: 'live-call' });
   assertEquals(declaredToolNames(mock), []);
-
   mock.close();
   await session.close();
 });
-
 Deno.test('runSession refuses a snapshot that declares tools outside tools.allow', async () => {
   clearProfiles();
   resetTools();
@@ -636,17 +630,14 @@ Deno.test('runSession refuses a snapshot that declares tools outside tools.allow
     { profile: wide.id, path: 'live-call', input: { text: '' } },
     'gemini31FlashLive',
   );
-
   const narrow = defineSnapshotLiveProfile('session_snapshot_narrow', ['snap_t0']);
   registerProfile(narrow);
-
   await assertRejects(
     () => openWithMock({ profile: narrow.id, path: 'live-call', snapshot }),
     TheoremError,
     'outside tools.allow: snap_t2',
   );
 });
-
 Deno.test('runSession emits pre_turn before first sendText and post_turn after cycle done', async () => {
   clearProfiles();
   resetTools();
@@ -657,14 +648,13 @@ Deno.test('runSession emits pre_turn before first sendText and post_turn after c
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'main',
+        keySlot: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow: [] },
   });
   registerProfile(profile);
-
   const stages: string[] = [];
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(
@@ -683,9 +673,7 @@ Deno.test('runSession emits pre_turn before first sendText and post_turn after c
       },
     },
   );
-
   await new Promise((r) => setTimeout(r, 0));
-
   const eventsPromise = (async () => {
     const out = [];
     for await (const ev of session.events()) {
@@ -694,15 +682,12 @@ Deno.test('runSession emits pre_turn before first sendText and post_turn after c
     }
     return out;
   })();
-
   await session.sendText('open cycle');
   assertEquals(stages.includes('pre_turn'), true);
-
   const liveMock = mock as unknown as MockLiveWebSocket;
   liveMock.deliver({
     serverContent: { turnComplete: true },
   });
-
   const events = await eventsPromise;
   assertEquals(
     events.some((e) => e.type === 'stage' && e.stage === 'pre_turn'),
@@ -713,11 +698,9 @@ Deno.test('runSession emits pre_turn before first sendText and post_turn after c
     true,
   );
   assertEquals(stages, ['pre_turn', 'before_end', 'post_turn']);
-
   liveMock.close();
   await session.close();
 });
-
 Deno.test('runSession StageContext.history seeds from SessionRequest.history', async () => {
   clearProfiles();
   resetTools();
@@ -728,14 +711,13 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'main',
+        keySlot: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow: [] },
   });
   registerProfile(profile);
-
   let seenSeed = false;
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(
@@ -757,7 +739,6 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
       },
     },
   );
-
   await new Promise((r) => setTimeout(r, 0));
   const drain = (async () => {
     for await (const ev of session.events()) {
@@ -770,7 +751,6 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
   await drain;
   await session.close();
 });
-
 /** A live session over a mock socket whose events are collected as they arrive. */
 async function openToolSession(
   allow: string[],
@@ -785,7 +765,7 @@ async function openToolSession(
     type: 'live',
     id: `session_live_tools_${allow.join('_')}`,
     identity: { handle: 'live', system: 'hi' },
-    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'main' } },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'main' } },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow },
   });
@@ -816,12 +796,26 @@ async function openToolSession(
     for await (const ev of session.events()) events.push(ev);
   })();
   const toolResponses = () =>
-    mock.sent.flatMap((frame): { id: string; name: string; response: unknown }[] => {
-      const parsed = JSON.parse(frame);
-      return parsed?.toolResponse?.functionResponses ?? [];
-    });
+    mock.sent.flatMap(
+      (
+        frame,
+      ): {
+        id: string;
+        name: string;
+        response: unknown;
+      }[] => {
+        const parsed = JSON.parse(frame);
+        return parsed?.toolResponse?.functionResponses ?? [];
+      },
+    );
   /** The model calls tools; resolves once the session has held them. */
-  const modelCalls = async (...calls: { id: string; name: string; args?: unknown }[]) => {
+  const modelCalls = async (
+    ...calls: {
+      id: string;
+      name: string;
+      args?: unknown;
+    }[]
+  ) => {
     mock.deliver({
       toolCall: { functionCalls: calls.map((c) => ({ args: {}, ...c })) },
     });
@@ -855,7 +849,6 @@ async function openToolSession(
   };
   return { session, mock, events, toolResponses, modelCalls, invokeFor, close };
 }
-
 /** An HTTP tool that signs in to Tracker with a bearer token, gating when it has none. */
 function registerTrackerTool(): void {
   registerTool({
@@ -874,7 +867,6 @@ function registerTrackerTool(): void {
     output: z.object({ ok: z.boolean() }),
   });
 }
-
 function registerConfirmTool(): void {
   registerTool({
     type: 'function',
@@ -891,7 +883,6 @@ function registerConfirmTool(): void {
     handler: ({ n }) => ({ n: n ?? 0 }),
   });
 }
-
 function registerLookupTool(): void {
   registerTool({
     type: 'function',
@@ -907,14 +898,12 @@ function registerLookupTool(): void {
     handler: () => ({ finding: 'found the record', ssn: '123-45-6789' }),
   });
 }
-
 Deno.test('runSession executeTool sends the guarded text a turn sends, never the raw output', async () => {
   clearProfiles();
   resetTools();
   registerLookupTool();
   const h = await openToolSession(['live_lookup_ssn']);
   await h.modelCalls({ id: 'c1', name: 'live_lookup_ssn' });
-
   const settled = await h.session.executeTool({ callId: 'c1' });
   const [answer] = h.toolResponses();
   assertEquals(answer?.response, { result: settled.outputModel?.modelText });
@@ -922,14 +911,12 @@ Deno.test('runSession executeTool sends the guarded text a turn sends, never the
   assertEquals(String(settled.outputModel?.modelText).includes('123-45-6789'), false);
   await h.close();
 });
-
 Deno.test('runSession executeTool runs only a call the model made, once, with its arguments', async () => {
   clearProfiles();
   resetTools();
   registerLookupTool();
   const h = await openToolSession(['live_lookup_ssn']);
   await assertRejects(() => h.session.executeTool({ callId: 'never-made' }), TheoremError);
-
   await h.modelCalls({ id: 'c1', name: 'live_lookup_ssn' });
   await assertRejects(
     () => h.session.executeTool({ callId: 'c1', decision: 'approve' }),
@@ -946,12 +933,14 @@ Deno.test('runSession executeTool runs only a call the model made, once, with it
   assertEquals(h.toolResponses().length, 1);
   await h.close();
 });
-
 Deno.test('runSession records the text it sent the model as the call result in history', async () => {
   clearProfiles();
   resetTools();
   registerLookupTool();
-  let history: readonly { role: string; content?: unknown }[] = [];
+  let history: readonly {
+    role: string;
+    content?: unknown;
+  }[] = [];
   const h = await openToolSession(['live_lookup_ssn'], {
     onStage: (ctx) => {
       if (ctx.stage === 'pre_turn') history = ctx.history;
@@ -965,7 +954,6 @@ Deno.test('runSession records the text it sent the model as the call result in h
   assertEquals({ result: recorded?.content }, answer?.response);
   await h.close();
 });
-
 Deno.test('runSession executeTool holds a gate for its decision, then runs the approval', async () => {
   clearProfiles();
   resetTools();
@@ -977,7 +965,6 @@ Deno.test('runSession executeTool holds a gate for its decision, then runs the a
     },
   });
   await h.modelCalls({ id: 'c-gate', name: 'live_confirm_tool' });
-
   const gated = await h.session.executeTool({ callId: 'c-gate' });
   assertEquals(gated.gated?.kind, 'confirmation');
   assertEquals(stages.includes('pre_tool'), true);
@@ -987,7 +974,6 @@ Deno.test('runSession executeTool holds a gate for its decision, then runs the a
     TheoremError,
     'answer it with a decision',
   );
-
   stages.length = 0;
   const allowed = await h.session.executeTool({ callId: 'c-gate', decision: 'approve' });
   assertEquals(allowed.failure, undefined);
@@ -999,7 +985,6 @@ Deno.test('runSession executeTool holds a gate for its decision, then runs the a
   );
   await h.close();
 });
-
 Deno.test("runSession streams a call's gate and result to the host while the model waits", async () => {
   clearProfiles();
   resetTools();
@@ -1019,14 +1004,12 @@ Deno.test("runSession streams a call's gate and result to the host while the mod
     }
     throw new Error(`the host never read the call's ${phase}`);
   };
-
   await h.session.executeTool({ callId: 'c-wait' });
   await reached('gate');
   await h.session.executeTool({ callId: 'c-wait', decision: 'approve' });
   await reached('complete');
   await h.close();
 });
-
 Deno.test('runSession executeTool runs an approval with the edited input, and only an approval takes one', async () => {
   clearProfiles();
   resetTools();
@@ -1066,7 +1049,6 @@ Deno.test('runSession executeTool runs an approval with the edited input, and on
     { from: { n: 1 }, to: { n: 2 } },
   );
 });
-
 Deno.test('runSession executeTool settles a denial: the model reads it', async () => {
   clearProfiles();
   resetTools();
@@ -1083,7 +1065,6 @@ Deno.test('runSession executeTool settles a denial: the model reads it', async (
   );
   await h.close();
 });
-
 Deno.test('runSession settles an expired gate as abandoned, then refuses the decision', async () => {
   clearProfiles();
   resetTools();
@@ -1092,7 +1073,6 @@ Deno.test('runSession settles an expired gate as abandoned, then refuses the dec
   await h.modelCalls({ id: 'c-late', name: 'live_confirm_tool' });
   await h.session.executeTool({ callId: 'c-late' });
   await new Promise((r) => setTimeout(r, 5));
-
   const refused = await assertRejects(
     () => h.session.executeTool({ callId: 'c-late', decision: 'approve' }),
     TheoremError,
@@ -1114,7 +1094,6 @@ Deno.test('runSession settles an expired gate as abandoned, then refuses the dec
     'cancelled',
   );
 });
-
 Deno.test('runSession refuses a gateTtlMs that is not a positive number', async () => {
   clearProfiles();
   resetTools();
@@ -1125,7 +1104,6 @@ Deno.test('runSession refuses a gateTtlMs that is not a positive number', async 
     'runSession gateTtlMs',
   );
 });
-
 Deno.test('runSession keeps a session_consent approval for the rest of the session', async () => {
   clearProfiles();
   resetTools();
@@ -1146,14 +1124,12 @@ Deno.test('runSession keeps a session_consent approval for the rest of the sessi
   await h.modelCalls({ id: 'c-first', name: 'live_consent_tool' });
   assertEquals((await h.session.executeTool({ callId: 'c-first' })).gated?.kind, 'permission');
   await h.session.executeTool({ callId: 'c-first', decision: 'approve' });
-
   await h.modelCalls({ id: 'c-second', name: 'live_consent_tool' });
   const second = await h.session.executeTool({ callId: 'c-second' });
   assertEquals(second.gated, undefined);
   assertEquals(second.outputRaw, { ok: true });
   await h.close();
 });
-
 Deno.test('runSession makes a key typed at a sign-in gate the slot credential, for the rest of the session', async () => {
   clearProfiles();
   resetTools();
@@ -1186,7 +1162,6 @@ Deno.test('runSession makes a key typed at a sign-in gate the slot credential, f
       secret: 'typed-key-123',
     });
     assertEquals(signed.outputRaw, { ok: true });
-
     await h.modelCalls({ id: 'c-again', name: 'live_tracker' });
     assertEquals((await h.session.executeTool({ callId: 'c-again' })).outputRaw, { ok: true });
     assertEquals(sent, ['Bearer typed-key-123', 'Bearer typed-key-123']);
@@ -1195,9 +1170,12 @@ Deno.test('runSession makes a key typed at a sign-in gate the slot credential, f
     globalThis.fetch = original;
   }
 });
-
 /** A source that records every slot read and write. */
-function watchedSource(): { source: ToolCredentialSource; reads: string[]; writes: string[] } {
+function watchedSource(): {
+  source: ToolCredentialSource;
+  reads: string[];
+  writes: string[];
+} {
   const inner = memoryCredentialSource();
   const reads: string[] = [];
   const writes: string[] = [];
@@ -1216,7 +1194,6 @@ function watchedSource(): { source: ToolCredentialSource; reads: string[]; write
     },
   };
 }
-
 Deno.test('runSession puts a key typed at a sign-in gate in the source the call runs with', async () => {
   clearProfiles();
   resetTools();
@@ -1246,7 +1223,6 @@ Deno.test('runSession puts a key typed at a sign-in gate in the source the call 
     assertEquals(perCall.reads, ['tracker', 'tracker']);
     assertEquals(perCall.writes, ['tracker']);
     assertEquals(sent, ['Bearer typed-key-456']);
-
     // The session's own source never saw the key.
     await h.modelCalls({ id: 'c-bare', name: 'live_tracker' });
     assertEquals((await h.session.executeTool({ callId: 'c-bare' })).gated?.kind, 'auth');
@@ -1255,7 +1231,6 @@ Deno.test('runSession puts a key typed at a sign-in gate in the source the call 
     globalThis.fetch = original;
   }
 });
-
 Deno.test('runSession with signInGate answer tells the model the sign-in is pending and releases the call', async () => {
   clearProfiles();
   resetTools();
@@ -1263,7 +1238,6 @@ Deno.test('runSession with signInGate answer tells the model the sign-in is pend
   const pending = lexiconText('sign_in.pending', { service: 'Tracker' });
   const h = await openToolSession(['live_tracker'], { signInGate: 'answer' });
   await h.modelCalls({ id: 'c-wait', name: 'live_tracker' });
-
   const gated = await h.session.executeTool({ callId: 'c-wait' });
   assertEquals(gated.gated?.kind, 'auth');
   assertEquals(h.toolResponses(), [
@@ -1276,7 +1250,6 @@ Deno.test('runSession with signInGate answer tells the model the sign-in is pend
     gate?.type === 'tool' && gate.tool.phase === 'gate' ? gate.tool.readBack : '',
     pending,
   );
-
   // The released call still takes its outcome; the model reads it as the call's next result.
   const declined = await h.session.executeTool({ callId: 'c-wait', decision: 'deny' });
   assertEquals(declined.failure?.kind, 'declined');
@@ -1289,22 +1262,20 @@ Deno.test('runSession with signInGate answer tells the model the sign-in is pend
   await assertRejects(() => h.session.executeTool({ callId: 'c-wait' }), TheoremError);
   await h.close();
 });
-
 Deno.test('runSession with signInGate answer tells the model a released sign-in it settles elsewhere', async () => {
   clearProfiles();
   resetTools();
   registerTrackerTool();
   const h = await openToolSession(['live_tracker'], { signInGate: 'answer' });
   await h.modelCalls({ id: 'c-later', name: 'live_tracker' });
-  h.session.answerToolCall({
+  await h.session.answerToolCall({
     callId: 'c-later',
     events: await h.invokeFor('live_tracker', 'c-later'),
   });
-
   // The sign-in finished outside the call; its outcome reaches the model as a second result.
   const outcome = await h.invokeFor('live_tracker', 'c-later', { granted: false, signIn: true });
   assertEquals(
-    h.session.answerToolCall({ callId: 'c-later', events: outcome }).failure?.kind,
+    await h.session.answerToolCall({ callId: 'c-later', events: outcome }).failure?.kind,
     'declined',
   );
   const responses = h.toolResponses();
@@ -1319,19 +1290,17 @@ Deno.test('runSession with signInGate answer tells the model a released sign-in 
   );
   await h.close();
 });
-
 Deno.test('runSession with signInGate answer tells the model when a released sign-in lapses', async () => {
   clearProfiles();
   resetTools();
   registerTrackerTool();
   const h = await openToolSession(['live_tracker'], { signInGate: 'answer', gateTtlMs: 20 });
   await h.modelCalls({ id: 'c-lapse', name: 'live_tracker' });
-  h.session.answerToolCall({
+  await h.session.answerToolCall({
     callId: 'c-lapse',
     events: await h.invokeFor('live_tracker', 'c-lapse'),
   });
   await new Promise((r) => setTimeout(r, 40));
-
   const expired = lexiconText('sign_in.expired', { service: 'Tracker' });
   const responses = h.toolResponses();
   assertEquals(responses.length, 2);
@@ -1347,7 +1316,6 @@ Deno.test('runSession with signInGate answer tells the model when a released sig
   assertThrows(() => h.session.answerToolCall({ callId: 'c-lapse', events: late }), TheoremError);
   await h.close();
 });
-
 Deno.test('runSession with signInGate answer settles a sign-in gate another process raised', async () => {
   clearProfiles();
   resetTools();
@@ -1355,7 +1323,7 @@ Deno.test('runSession with signInGate answer settles a sign-in gate another proc
   const h = await openToolSession(['live_tracker'], { signInGate: 'answer' });
   await h.modelCalls({ id: 'c-split-sign', name: 'live_tracker' });
   const gatedRun = await h.invokeFor('live_tracker', 'c-split-sign');
-  const gated = h.session.answerToolCall({ callId: 'c-split-sign', events: gatedRun });
+  const gated = await h.session.answerToolCall({ callId: 'c-split-sign', events: gatedRun });
   assertEquals(gated.gated?.kind, 'auth');
   assertEquals(h.toolResponses(), [
     {
@@ -1366,7 +1334,6 @@ Deno.test('runSession with signInGate answer settles a sign-in gate another proc
   ]);
   await h.close();
 });
-
 Deno.test('runSession holds a confirmation gate even with signInGate answer', async () => {
   clearProfiles();
   resetTools();
@@ -1377,7 +1344,6 @@ Deno.test('runSession holds a confirmation gate even with signInGate answer', as
   assertEquals(h.toolResponses().length, 0);
   await h.close();
 });
-
 Deno.test('a refused sign-in tells the model it was declined or expired, naming the service', async () => {
   clearProfiles();
   resetTools();
@@ -1389,21 +1355,18 @@ Deno.test('a refused sign-in tells the model it was declined or expired, naming 
       ? failed.tool.failure
       : undefined;
   };
-
   const declined = failureOf(
     await h.invokeFor('live_tracker', 'c-no', { granted: false, signIn: true }),
   );
   assertEquals(declined?.code, 'denied');
   assertEquals(declined?.kind, 'declined');
   assertEquals(declined?.message, lexiconText('sign_in.declined', { service: 'Tracker' }));
-
   const expired = failureOf(
     await h.invokeFor('live_tracker', 'c-late', { granted: false, signIn: true, cause: 'expired' }),
   );
   assertEquals(expired?.code, 'expired');
   assertEquals(expired?.kind, 'cancelled');
   assertEquals(expired?.message, lexiconText('sign_in.expired', { service: 'Tracker' }));
-
   const walkedAway = failureOf(
     await h.invokeFor('live_tracker', 'c-gone', {
       granted: false,
@@ -1414,7 +1377,6 @@ Deno.test('a refused sign-in tells the model it was declined or expired, naming 
   assertEquals(walkedAway?.code, 'cancelled');
   await h.close();
 });
-
 Deno.test('runSession answers a call a stage stopped, then ends the cycle cancelled', async () => {
   clearProfiles();
   resetTools();
@@ -1428,7 +1390,6 @@ Deno.test('runSession answers a call a stage stopped, then ends the cycle cancel
   });
   await h.session.sendText('look it up');
   await h.modelCalls({ id: 'c-stop', name: 'live_lookup_ssn' });
-
   const stopped = await h.session.executeTool({ callId: 'c-stop' });
   assertEquals(stopped.failure?.kind, 'cancelled');
   assertEquals(stopped.outputRaw, undefined);
@@ -1445,7 +1406,6 @@ Deno.test('runSession answers a call a stage stopped, then ends the cycle cancel
     'not waiting to run',
   );
   await h.close();
-
   const error = h.events.find((ev) => ev.type === 'tool' && ev.tool.phase === 'error');
   assertEquals(
     error?.type === 'tool' && error.tool.phase === 'error' ? error.tool.failure.kind : undefined,
@@ -1457,7 +1417,6 @@ Deno.test('runSession answers a call a stage stopped, then ends the cycle cancel
     native: 'host stopped it',
   });
 });
-
 Deno.test('runSession answers a call stopped after it ran with its own result, then ends the cycle cancelled', async () => {
   clearProfiles();
   resetTools();
@@ -1471,7 +1430,6 @@ Deno.test('runSession answers a call stopped after it ran with its own result, t
   });
   await h.session.sendText('look it up');
   await h.modelCalls({ id: 'c-ran', name: 'live_lookup_ssn' });
-
   const ran = await h.session.executeTool({ callId: 'c-ran' });
   assertEquals(ran.failure, undefined);
   const [answer] = h.toolResponses();
@@ -1484,11 +1442,9 @@ Deno.test('runSession answers a call stopped after it ran with its own result, t
     'not waiting to run',
   );
   await h.close();
-
   const done = h.events.find((ev) => ev.type === 'done');
   assertEquals(done?.type === 'done' ? done.stop : undefined, { kind: 'cancelled' });
 });
-
 Deno.test('runSession refuses a typed key on a gate that is not a sign-in', async () => {
   clearProfiles();
   resetTools();
@@ -1505,25 +1461,26 @@ Deno.test('runSession refuses a typed key on a gate that is not a sign-in', asyn
   assertEquals(approved.outputRaw, { n: 0 });
   await h.close();
 });
-
-Deno.test('runSession answers a malformed call itself: the model reads the failure', async () => {
+Deno.test('runSession rejects malformed provider calls without authorizing client execution', async () => {
   clearProfiles();
   resetTools();
   registerLookupTool();
   const h = await openToolSession(['live_lookup_ssn']);
-  await h.modelCalls({ id: 'c-bad', name: 'live_lookup_ssn', args: 'not an object' });
-  const failed = h.events.find(
-    (ev) => ev.type === 'tool' && ev.tool.callId === 'c-bad' && ev.tool.phase === 'error',
+  h.mock.deliver({
+    toolCall: { functionCalls: [{ id: 'c-bad', name: 'live_lookup_ssn', args: 'not an object' }] },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEquals(
+    h.events.some((event) => event.type === 'tool'),
+    false,
   );
-  const readBack =
-    failed?.type === 'tool' && failed.tool.phase === 'error' ? failed.tool.readBack : undefined;
-  assertEquals(h.toolResponses(), [
-    { id: 'c-bad', name: 'live_lookup_ssn', response: { result: readBack } },
-  ]);
+  assertEquals(
+    h.events.some((event) => event.type === 'error' && event.errorKind === 'bad_response'),
+    true,
+  );
   await assertRejects(() => h.session.executeTool({ callId: 'c-bad' }), TheoremError);
   await h.close();
 });
-
 Deno.test('runSession lets go of a call the model cancels', async () => {
   clearProfiles();
   resetTools();
@@ -1537,7 +1494,6 @@ Deno.test('runSession lets go of a call the model cancels', async () => {
   assertEquals(h.toolResponses().length, 0);
   await h.close();
 });
-
 Deno.test('runSession answerToolCall settles a call another process ran, with its readBack', async () => {
   clearProfiles();
   resetTools();
@@ -1550,8 +1506,7 @@ Deno.test('runSession answerToolCall settles a call another process ran, with it
     complete?.type === 'tool' && complete.tool.phase === 'complete'
       ? complete.tool.readBack
       : undefined;
-
-  const answered = h.session.answerToolCall({ callId: 'c-split', events: ran });
+  const answered = await h.session.answerToolCall({ callId: 'c-split', events: ran });
   assertEquals(answered.outputRaw, { finding: 'found the record', ssn: '123-45-6789' });
   assertEquals(h.toolResponses(), [
     { id: 'c-split', name: 'live_lookup_ssn', response: { result: readBack } },
@@ -1569,21 +1524,18 @@ Deno.test('runSession answerToolCall settles a call another process ran, with it
     true,
   );
 });
-
 Deno.test('runSession answerToolCall holds a gate open until a later run answers it', async () => {
   clearProfiles();
   resetTools();
   registerConfirmTool();
   const h = await openToolSession(['live_confirm_tool']);
   await h.modelCalls({ id: 'c-split-gate', name: 'live_confirm_tool' });
-
   const gatedRun = await h.invokeFor('live_confirm_tool', 'c-split-gate');
-  const gated = h.session.answerToolCall({ callId: 'c-split-gate', events: gatedRun });
+  const gated = await h.session.answerToolCall({ callId: 'c-split-gate', events: gatedRun });
   assertEquals(gated.gated?.kind, 'confirmation');
   assertEquals(h.toolResponses().length, 0);
-
   const approvedRun = await h.invokeFor('live_confirm_tool', 'c-split-gate', { granted: true });
-  const approved = h.session.answerToolCall({ callId: 'c-split-gate', events: approvedRun });
+  const approved = await h.session.answerToolCall({ callId: 'c-split-gate', events: approvedRun });
   assertEquals(approved.outputRaw, { n: 0 });
   assertEquals(
     h.toolResponses().map((r) => r.id),
@@ -1591,7 +1543,6 @@ Deno.test('runSession answerToolCall holds a gate open until a later run answers
   );
   await h.close();
 });
-
 Deno.test('runSession answerToolCall refuses a run that is not an answer to that call', async () => {
   clearProfiles();
   resetTools();
@@ -1619,7 +1570,6 @@ Deno.test('runSession answerToolCall refuses a run that is not an answer to that
   assertEquals(h.toolResponses().length, 0);
   await h.close();
 });
-
 Deno.test('runSession pre_turn inject schedules realtime text and lands in later history', async () => {
   clearProfiles();
   resetTools();
@@ -1630,14 +1580,13 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'main',
+        keySlot: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow: [] },
   });
   registerProfile(profile);
-
   let beforeEndSawInject = false;
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(
@@ -1666,7 +1615,6 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
       },
     },
   );
-
   await new Promise((r) => setTimeout(r, 0));
   const eventsPromise = (async () => {
     const out: TurnEvent[] = [];
@@ -1676,7 +1624,6 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
     }
     return out;
   })();
-
   await session.sendText('user open');
   const liveMock = mock as unknown as MockLiveWebSocket;
   const injectedWire = liveMock.sent.some((s) => s.includes('injected steer'));
@@ -1690,7 +1637,6 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
   );
   await session.close();
 });
-
 Deno.test('runSession refuses an inject live cannot write as text, whole, and never reports it landed', async () => {
   clearProfiles();
   resetTools();
@@ -1701,14 +1647,13 @@ Deno.test('runSession refuses an inject live cannot write as text, whole, and ne
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'main',
+        keySlot: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow: [] },
   });
   registerProfile(profile);
-
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(
     {
@@ -1733,7 +1678,6 @@ Deno.test('runSession refuses an inject live cannot write as text, whole, and ne
       },
     },
   );
-
   await new Promise((r) => setTimeout(r, 0));
   const eventsPromise = (async () => {
     const out: TurnEvent[] = [];
@@ -1743,7 +1687,6 @@ Deno.test('runSession refuses an inject live cannot write as text, whole, and ne
     }
     return out;
   })();
-
   await session.sendText('open');
   const liveMock = mock as unknown as MockLiveWebSocket;
   liveMock.deliver({ serverContent: { turnComplete: true } });
@@ -1763,7 +1706,6 @@ Deno.test('runSession refuses an inject live cannot write as text, whole, and ne
   );
   await session.close();
 });
-
 Deno.test('runSession before_end inject schedules realtime text and still emits done/post_turn', async () => {
   clearProfiles();
   resetTools();
@@ -1774,14 +1716,13 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'main',
+        keySlot: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow: [] },
   });
   registerProfile(profile);
-
   const stages: string[] = [];
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(
@@ -1803,7 +1744,6 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
       },
     },
   );
-
   await new Promise((r) => setTimeout(r, 0));
   const eventsPromise = (async () => {
     const out = [];
@@ -1813,7 +1753,6 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
     }
     return out;
   })();
-
   await session.sendText('open');
   const liveMock = mock as unknown as MockLiveWebSocket;
   liveMock.deliver({ serverContent: { turnComplete: true } });
@@ -1831,11 +1770,9 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
     eventsOf(events, 'stage').filter((e) => e.injected !== undefined),
     [{ type: 'stage', stage: 'before_end', injected: [{ id: 'steer-end' }] }],
   );
-
   liveMock.close();
   await session.close();
 });
-
 function registerBrowserTool(): void {
   registerTool({
     type: 'function',
@@ -1851,7 +1788,6 @@ function registerBrowserTool(): void {
     answeredBy: 'page',
   });
 }
-
 Deno.test('a page tool settles with what the page sent', async () => {
   clearProfiles();
   resetTools();
@@ -1865,7 +1801,6 @@ Deno.test('a page tool settles with what the page sent', async () => {
   assertEquals(settled.outputRaw, { count: 3 });
   await h.close();
 });
-
 Deno.test('a page tool with no result, a timeout or an off-schema result fails to the model', async () => {
   clearProfiles();
   resetTools();

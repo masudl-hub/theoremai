@@ -1,10 +1,7 @@
 // invariant: Leaf module: `schema.ts` and `profile-graph.ts` read it at load time.
-
 /** lexicon-exempt-file: authoring field-meta scope reasons — not runtime user or model copy (P2) */
-
 import { HOST_GUARDRAIL_FIELDS } from '../guardrails/types.ts';
 import type { ProfileType } from './schema.ts';
-
 /**
  * Mirrors `PROFILE_TYPES` — a value import would cycle through `schema.ts`.
  * Drift is gated by tests/kernel/profile-scope.test.ts.
@@ -17,21 +14,14 @@ export const ALL_PROFILE_TYPES: readonly ProfileType[] = [
   'decision',
   'host',
 ];
-
 const MODEL_PROFILE_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live', 'decision'];
-
 const TURN_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live'];
-
 /** Types whose `inputs` are turn inputs (text, files, slots) rather than decision state. */
 const TURN_INPUT_TYPES: readonly ProfileType[] = ['text', 'image'];
-
 const TURN_INPUT_REASON = 'a decision takes JSON state, not turn text, files or slots';
-
 /** Types that take slots and context: the turn types, and a call. */
 const SLOT_TYPES: readonly ProfileType[] = ['text', 'image', 'live'];
-
 const SLOT_REASON = 'a decision takes JSON state, and speech reads its transcript only';
-
 export interface ProfileFieldScope {
   profileTypes: readonly ProfileType[];
   /** Why other types can't take it — shown in `defineProfile` errors and authoring UIs. */
@@ -42,16 +32,18 @@ export interface ProfileFieldScope {
    */
   offValue?: null;
 }
-
 /** Guardrails a host profile may set keep `host`; the rest guard a model turn. */
 function turnGuardrailTypes(key: string): readonly ProfileType[] {
   return (HOST_GUARDRAIL_FIELDS as readonly string[]).includes(key)
     ? [...TURN_TYPES, 'host']
     : TURN_TYPES;
 }
-
 /** Keyed like `PROFILE_FIELDS`; `models.*` matches every model binding. */
 export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = {
+  providerContinuation: {
+    profileTypes: TURN_TYPES,
+    reason: 'only model turns and live sessions use provider continuation',
+  },
   ...Object.fromEntries(
     [
       'efforts',
@@ -61,7 +53,6 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
       'maxOutputTokens',
       'temperature',
       'builtInTools',
-      'fallbackKey',
     ].map((field) => [
       `models.*.${field}`,
       {
@@ -70,22 +61,6 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
       },
     ]),
   ),
-  'models.*.cache': {
-    profileTypes: ['text'],
-    reason: 'only an OpenRouter text call carries a cache marker',
-  },
-  'models.*.store': {
-    profileTypes: ['text', 'image', 'speech'],
-    reason: 'only Gemini Interactions stores an interaction; live runs on Gemini Live',
-  },
-  'models.*.persistViaInteractionId': {
-    profileTypes: ['text', 'image', 'speech'],
-    reason: 'only Gemini Interactions stores an interaction; live runs on Gemini Live',
-  },
-  'models.*.server': {
-    profileTypes: ['text'],
-    reason: 'a local server serves text profiles only',
-  },
   'models.*.timeoutMs': {
     profileTypes: ['decision'],
     reason: 'only decision bindings configure a request timeout here',
@@ -105,10 +80,6 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
       'speech has no system channel (the input text is the transcript) and a decision is asked only through its questions',
   },
   models: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
-  'models.*.protocol': {
-    profileTypes: MODEL_PROFILE_TYPES,
-    reason: 'a host profile runs no model',
-  },
   'models.*.provider': {
     profileTypes: MODEL_PROFILE_TYPES,
     reason: 'a host profile runs no model',
@@ -116,11 +87,6 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   'models.*.compaction': {
     profileTypes: ['text', 'image', 'speech'],
     reason: 'live compacts with live.contextCompression',
-  },
-  key: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
-  fallbackKey: {
-    profileTypes: TURN_TYPES,
-    reason: 'a host profile runs no model and a decision makes one call on its key',
   },
   defaultModel: {
     profileTypes: TURN_TYPES,
@@ -251,7 +217,6 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     reason: 'disclosure gates state leaving a decision profile for its model',
   },
 };
-
 /**
  * The scope entry that governs `path`: its own, else its nearest ancestor's.
  * `undefined` means every profile type.
@@ -264,17 +229,14 @@ export function profileFieldScope(path: string): ProfileFieldScope | undefined {
   }
   return undefined;
 }
-
 export function profileTypesForField(path: string): readonly ProfileType[] {
   return profileFieldScope(path)?.profileTypes ?? ALL_PROFILE_TYPES;
 }
-
 export interface OutOfScopeField {
   /** e.g. `models.fast.compaction` for the `models.*.compaction` scope. */
   path: string;
   scope: ProfileFieldScope;
 }
-
 /** Every set value under `segments`, keyed by concrete path; `*` walks each key of a map. */
 function valuesAt(root: unknown, segments: readonly string[], at = ''): [string, unknown][] {
   if (!segments.length) return root === undefined ? [] : [[at, root]];
@@ -284,7 +246,6 @@ function valuesAt(root: unknown, segments: readonly string[], at = ''): [string,
   const keys = head === '*' ? Object.keys(record) : [head];
   return keys.flatMap((key) => valuesAt(record[key], rest, at ? `${at}.${key}` : key));
 }
-
 /**
  * Every field `profile` sets that its type may not, ancestors before their
  * children. A scope's off value is not reported.

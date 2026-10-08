@@ -27,7 +27,6 @@ const testProfile: Profile = {
   identity: { handle: 'test-agent' },
   models: {
     'test-model': {
-      protocol: 'geminiInteractions',
       provider: 'google',
       apiId: 'test-model-id',
       efforts: { normal: 'minimal' },
@@ -51,7 +50,6 @@ const testProfile: Profile = {
   inputs: { text: true },
   outputs: {},
 };
-
 Deno.test('Declarative HTTP Tool gates when credentials are missing and policy is pause', async () => {
   resetTools();
   registerTool({
@@ -77,7 +75,6 @@ Deno.test('Declarative HTTP Tool gates when credentials are missing and policy i
       pathParams: ['id'],
     },
   });
-
   const events = [];
   const exec = executeRegisteredTool({
     tools: defaultKernelScope.tools,
@@ -87,7 +84,6 @@ Deno.test('Declarative HTTP Tool gates when credentials are missing and policy i
     callId: 'call_1',
     ctx: {},
   });
-
   let settlement: ToolExecuteSettlement | undefined;
   while (true) {
     const next = await exec.next();
@@ -97,7 +93,6 @@ Deno.test('Declarative HTTP Tool gates when credentials are missing and policy i
     }
     events.push(next.value);
   }
-
   const gate = toolEventsOf(events, 'gate')[0]?.gate;
   assertEquals(gate?.kind, 'auth');
   assertEquals(gate?.kind === 'auth' ? gate.authChallenge.slot : undefined, 'user_auth');
@@ -110,7 +105,6 @@ Deno.test('Declarative HTTP Tool gates when credentials are missing and policy i
   assertEquals(settlement?.callNotStarted, true);
   assertEquals(settlement?.modelResult, undefined);
 });
-
 Deno.test('Declarative HTTP Tool preTool deny settles with modelResult + post_tool', async () => {
   resetTools();
   registerTool({
@@ -128,7 +122,6 @@ Deno.test('Declarative HTTP Tool preTool deny settles with modelResult + post_to
     output: z.unknown(),
     preTool: () => ({ deny: { code: 'not_authorized', message: 'http denied' } }),
   });
-
   const events = [];
   const exec = executeRegisteredTool({
     tools: defaultKernelScope.tools,
@@ -145,7 +138,6 @@ Deno.test('Declarative HTTP Tool preTool deny settles with modelResult + post_to
       injectAllowed: false,
     },
   });
-
   let settlement: ToolExecuteSettlement | undefined;
   while (true) {
     const next = await exec.next();
@@ -155,7 +147,6 @@ Deno.test('Declarative HTTP Tool preTool deny settles with modelResult + post_to
     }
     events.push(next.value);
   }
-
   assertEquals(settlement?.failure?.code, 'not_authorized');
   assertEquals(settlement?.failure?.kind, 'blocked');
   assertEquals(settlement?.callNotStarted, true);
@@ -164,7 +155,6 @@ Deno.test('Declarative HTTP Tool preTool deny settles with modelResult + post_to
   assertEquals(Boolean(postTool), true);
   assertEquals(postTool?.type === 'stage' ? postTool.callNotStarted : undefined, true);
 });
-
 Deno.test('Declarative HTTP Tool reports error finding when policy is report_to_model', async () => {
   resetTools();
   registerTool({
@@ -190,7 +180,6 @@ Deno.test('Declarative HTTP Tool reports error finding when policy is report_to_
       pathParams: ['id'],
     },
   });
-
   const exec = executeRegisteredTool({
     tools: defaultKernelScope.tools,
     profile: testProfile,
@@ -199,7 +188,6 @@ Deno.test('Declarative HTTP Tool reports error finding when policy is report_to_
     callId: 'call_1',
     ctx: {},
   });
-
   let settlement: ToolExecuteSettlement | undefined;
   while (true) {
     const next = await exec.next();
@@ -208,13 +196,11 @@ Deno.test('Declarative HTTP Tool reports error finding when policy is report_to_
       break;
     }
   }
-
   assertEquals(
     Boolean(settlement?.modelResult?.finding?.includes('Authentication required')),
     true,
   );
 });
-
 Deno.test('Declarative HTTP Tool triggers SSRF guardrail on private IP without permission', async () => {
   resetTools();
   registerTool({
@@ -231,7 +217,6 @@ Deno.test('Declarative HTTP Tool triggers SSRF guardrail on private IP without p
     input: z.object({}),
     output: z.unknown(),
   });
-
   const events = [];
   const exec = executeRegisteredTool({
     tools: defaultKernelScope.tools,
@@ -241,18 +226,15 @@ Deno.test('Declarative HTTP Tool triggers SSRF guardrail on private IP without p
     callId: 'call_1',
     ctx: {},
   });
-
   for await (const ev of exec) {
     events.push(ev);
   }
-
   const errorEvents = toolEventsOf(events, 'error');
   assertEquals(errorEvents.length, 1);
   assertEquals(errorEvents[0]?.failure?.code, 'network_blocked');
   assertEquals(errorEvents[0]?.failure?.kind, 'blocked');
   assertEquals(errorEvents[0]?.failure?.message.includes('blocked by network guardrail'), true);
 });
-
 Deno.test('Declarative HTTP Tool executes successfully with auth header and param mapping', async () => {
   resetTools();
   registerTool({
@@ -278,11 +260,9 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
       queryParams: ['includeHistory'],
     },
   });
-
   const originalFetch = globalThis.fetch;
   let requestedUrl = '';
   let authHeader = '';
-
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
     requestedUrl = input.toString();
     const headers = new Headers(init?.headers);
@@ -294,7 +274,6 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
       }),
     );
   }) as typeof fetch;
-
   try {
     const events = [];
     const exec = executeRegisteredTool({
@@ -312,7 +291,6 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
         }),
       },
     });
-
     let settlement: ToolExecuteSettlement | undefined;
     while (true) {
       const next = await exec.next();
@@ -322,11 +300,16 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
       }
       events.push(next.value);
     }
-
     assertEquals(requestedUrl, 'https://api.example.com/users/usr_123?includeHistory=true');
     assertEquals(authHeader, 'Bearer valid-secret-token');
-    assertEquals((settlement?.outputRaw as { name: string })?.name, 'Alice');
-
+    assertEquals(
+      (
+        settlement?.outputRaw as {
+          name: string;
+        }
+      )?.name,
+      'Alice',
+    );
     const completes = toolEventsOf(events, 'complete');
     assertEquals(completes.length, 1);
     assertEquals(completes[0]?.output, { id: 'usr_123', name: 'Alice' });
@@ -334,7 +317,6 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
     globalThis.fetch = originalFetch;
   }
 });
-
 Deno.test('Declarative HTTP Tool fails when required path param is missing', async () => {
   resetTools();
   registerTool({
@@ -354,7 +336,6 @@ Deno.test('Declarative HTTP Tool fails when required path param is missing', asy
       pathParams: ['id'],
     },
   });
-
   const events = [];
   const exec = executeRegisteredTool({
     tools: defaultKernelScope.tools,
@@ -364,17 +345,14 @@ Deno.test('Declarative HTTP Tool fails when required path param is missing', asy
     callId: 'call_missing_param',
     ctx: {},
   });
-
   for await (const ev of exec) {
     events.push(ev);
   }
-
   const failure = toolEventsOf(events, 'error')[0]?.failure;
   assertEquals(failure?.code, 'invalid_input');
   assertEquals(failure?.kind, 'bad_response');
   assertEquals(failure?.message.includes('Missing required path parameter'), true);
 });
-
 Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () => {
   resetTools();
   registerTool({
@@ -397,22 +375,23 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
     input: z.object({ title: z.string(), description: z.string() }),
     output: z.object({ issueId: z.string(), url: z.string() }),
   });
-
   const originalFetch = globalThis.fetch;
   let receivedRpc: unknown;
   let receivedHeaders: Record<string, string> = {};
-
   globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
     receivedRpc = JSON.parse(String(init?.body));
     const headers = new Headers(init?.headers);
     receivedHeaders = Object.fromEntries(headers.entries());
-
     // MCP JSON-RPC 2026-07-28 response
     return Promise.resolve(
       new Response(
         JSON.stringify({
           jsonrpc: '2.0',
-          id: (receivedRpc as { id: unknown }).id,
+          id: (
+            receivedRpc as {
+              id: unknown;
+            }
+          ).id,
           result: {
             content: [
               {
@@ -429,7 +408,6 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
       ),
     );
   }) as typeof fetch;
-
   try {
     const events = [];
     const exec = executeRegisteredTool({
@@ -447,7 +425,6 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
         }),
       },
     });
-
     let settlement: ToolExecuteSettlement | undefined;
     while (true) {
       const next = await exec.next();
@@ -457,18 +434,44 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
       }
       events.push(next.value);
     }
-
-    assertEquals((receivedRpc as { method: string }).method, 'tools/call');
-    assertEquals((receivedRpc as { params: { name: string } }).params.name, 'create_issue');
     assertEquals(
-      (receivedRpc as { params: { _meta: { 'io.modelcontextprotocol/protocolVersion': string } } })
-        .params._meta['io.modelcontextprotocol/protocolVersion'],
+      (
+        receivedRpc as {
+          method: string;
+        }
+      ).method,
+      'tools/call',
+    );
+    assertEquals(
+      (
+        receivedRpc as {
+          params: {
+            name: string;
+          };
+        }
+      ).params.name,
+      'create_issue',
+    );
+    assertEquals(
+      (
+        receivedRpc as {
+          params: {
+            _meta: {
+              'io.modelcontextprotocol/protocolVersion': string;
+            };
+          };
+        }
+      ).params._meta['io.modelcontextprotocol/protocolVersion'],
       '2026-07-28',
     );
     assertEquals(
-      (receivedRpc as { params: { _meta: Record<string, unknown> } }).params._meta[
-        'io.modelcontextprotocol/clientCapabilities'
-      ],
+      (
+        receivedRpc as {
+          params: {
+            _meta: Record<string, unknown>;
+          };
+        }
+      ).params._meta['io.modelcontextprotocol/clientCapabilities'],
       {},
     );
     assertEquals(receivedHeaders['mcp-protocol-version'], '2026-07-28');
@@ -476,8 +479,11 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
     assertEquals(receivedHeaders['mcp-name'], 'create_issue');
     assertEquals(receivedHeaders.accept, 'application/json, text/event-stream');
     assertEquals(receivedHeaders['x-api-key'], 'lin_api_key_xyz');
-
-    const data = settlement?.outputRaw as { issueId: string } | undefined;
+    const data = settlement?.outputRaw as
+      | {
+          issueId: string;
+        }
+      | undefined;
     assertEquals(data?.issueId, 'LIN-101');
     const completeEvent = events.find((e) => e.type === 'tool' && e.tool.phase === 'complete');
     assertEquals(Boolean(completeEvent), true);
@@ -485,7 +491,6 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
     globalThis.fetch = originalFetch;
   }
 });
-
 Deno.test('Proactive OAuth token refresh names the slot on the stream and updates ctx', async () => {
   resetTools();
   registerTool({
@@ -507,15 +512,12 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
     input: z.object({}),
     output: z.object({ ok: z.boolean() }),
   });
-
   const originalFetch = globalThis.fetch;
   let refreshedTokenUsedInToolCall = false;
   const clientSecretsSent: (string | null)[] = [];
-
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
     const urlStr = input.toString();
     const headers = new Headers(init?.headers);
-
     if (urlStr === 'https://auth.example.com/oauth/token') {
       clientSecretsSent.push(new URLSearchParams(String(init?.body)).get('client_secret'));
       return Promise.resolve(
@@ -530,7 +532,6 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
         ),
       );
     }
-
     if (urlStr === 'https://api.example.com/me') {
       if (headers.get('authorization') === 'Bearer new-shiny-access-token') {
         refreshedTokenUsedInToolCall = true;
@@ -542,10 +543,8 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
         }),
       );
     }
-
     throw new Error(`Unexpected request to ${urlStr}`);
   }) as typeof fetch;
-
   try {
     const events = [];
     const slots = memoryCredentialSource({
@@ -567,7 +566,6 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
       clientSecret: (clientId) =>
         Promise.resolve(clientId === 'client-abc' ? 'client-secret-sentinel' : undefined),
     };
-
     const exec = executeRegisteredTool({
       tools: defaultKernelScope.tools,
       profile: testProfile,
@@ -578,11 +576,9 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
         credentials: ctxCredentials,
       },
     });
-
     for await (const ev of exec) {
       events.push(ev);
     }
-
     // The progress event names the slot; no token rides the event stream.
     assertEquals(
       toolEventsOf(events, 'progress').map((progress) => progress.data),
@@ -594,7 +590,6 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
     assertEquals(streamed.includes('client-secret-sentinel'), false);
     assertEquals(clientSecretsSent, ['client-secret-sentinel']);
     assertEquals(refreshedTokenUsedInToolCall, true);
-
     // The refreshed grant went back to the source before the call went on.
     const persisted = await ctxCredentials.get('oauth_slot');
     assertEquals(
@@ -609,7 +604,6 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
     globalThis.fetch = originalFetch;
   }
 });
-
 Deno.test('buildHttpToolTarget maps path and query parameters', () => {
   const target = buildHttpToolTarget(
     'https://geocoding-api.open-meteo.com/v1/search?count=3',
@@ -619,7 +613,6 @@ Deno.test('buildHttpToolTarget maps path and query parameters', () => {
   );
   assertEquals(target.url, 'https://geocoding-api.open-meteo.com/v1/search?count=3&name=Paris');
   assertEquals(target.body, undefined);
-
   const pathTarget = buildHttpToolTarget(
     'https://en.wikipedia.org/api/rest_v1/page/summary/{title}',
     'GET',
@@ -628,20 +621,17 @@ Deno.test('buildHttpToolTarget maps path and query parameters', () => {
   );
   assertEquals(pathTarget.url, 'https://en.wikipedia.org/api/rest_v1/page/summary/Paris');
 });
-
 Deno.test('parseMcpRpcResponse extracts JSON-RPC result from SSE', () => {
   const sse = `: ping\n\nevent: message\ndata: {"method":"notifications/message","params":{"level":"info"},"jsonrpc":"2.0"}\n\nevent: message\ndata: {"jsonrpc":"2.0","id":9,"result":{"content":[{"type":"text","text":"ok"}]}}\n`;
   const parsed = parseMcpRpcResponse(sse);
   assertEquals(parsed.id, 9);
   assertEquals(parsed.result?.content?.[0]?.text, 'ok');
 });
-
 Deno.test('parseMcpRpcResponse parses plain JSON bodies', () => {
   const parsed = parseMcpRpcResponse('{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}');
   const tools = parsed.result?.tools;
   assertEquals(Array.isArray(tools) && tools.length === 0, true);
 });
-
 function registerLinearMcpFixture() {
   resetTools();
   registerTool({
@@ -665,7 +655,6 @@ function registerLinearMcpFixture() {
     output: z.object({ issueId: z.string(), url: z.string() }),
   });
 }
-
 async function collectToolRun(name: string, input: unknown, callId: string) {
   const events = [];
   const exec = executeRegisteredTool({
@@ -691,13 +680,11 @@ async function collectToolRun(name: string, input: unknown, callId: string) {
   }
   return { events, settlement };
 }
-
 Deno.test('Remote MCP Tool reports invalid input and network blocks', async () => {
   registerLinearMcpFixture();
   const invalid = await collectToolRun('linear_issue', { title: 1 }, 'call_mcp_invalid');
   assertEquals(toolEventsOf(invalid.events, 'error')[0]?.failure?.code, 'invalid_input');
   assertEquals(toolEventsOf(invalid.events, 'error')[0]?.failure?.kind, 'bad_response');
-
   resetTools();
   registerTool({
     name: 'local_mcp',
@@ -727,12 +714,10 @@ Deno.test('Remote MCP Tool reports invalid input and network blocks', async () =
   assertEquals(toolEventsOf(events, 'error')[0]?.failure?.code, 'network_blocked');
   assertEquals(toolEventsOf(events, 'error')[0]?.failure?.kind, 'blocked');
 });
-
 Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async () => {
   registerLinearMcpFixture();
   const originalFetch = globalThis.fetch;
   const input = { title: 'Bug', description: 'x' };
-
   try {
     globalThis.fetch = (() =>
       Promise.resolve(
@@ -748,7 +733,6 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
     const rpcErr = await collectToolRun('linear_issue', input, 'call_mcp_rpc_err');
     assertEquals(toolEventsOf(rpcErr.events, 'error')[0]?.failure?.code, 'mcp_rpc_error_-32000');
     assertEquals(toolEventsOf(rpcErr.events, 'error')[0]?.failure?.kind, 'failed');
-
     globalThis.fetch = (() =>
       Promise.resolve(
         new Response(
@@ -766,14 +750,12 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
       'mcp_tool_execution_failed',
     );
     assertEquals(toolEventsOf(toolErr.events, 'error')[0]?.failure?.kind, 'failed');
-
     globalThis.fetch = (() =>
       Promise.resolve(new Response('no token', { status: 401 }))) as typeof fetch;
     const authErr = await collectToolRun('linear_issue', input, 'call_mcp_auth_err');
     // A refused credential is a sign-in, not a failure.
     assertEquals(toolEventsOf(authErr.events, 'gate')[0]?.gate.kind, 'auth');
     assertEquals(toolEventsOf(authErr.events, 'error').length, 0);
-
     const errorPage = `${'stack frame\n'.repeat(100)}key lin_api_key_xyz rejected`;
     globalThis.fetch = (() =>
       Promise.resolve(new Response(errorPage, { status: 500 }))) as typeof fetch;
@@ -783,7 +765,6 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
       toolEventsOf(httpErr.events, 'error')[0]?.failure?.message,
       `MCP server error HTTP 500: ${errorPage.replace('lin_api_key_xyz', '[omitted - credential]')}`,
     );
-
     globalThis.fetch = (() =>
       Promise.resolve(
         new Response(errorPage, { status: 200, headers: { 'Content-Type': 'text/html' } }),
@@ -794,7 +775,6 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
       `MCP server returned non-JSON response: ${errorPage.replace('lin_api_key_xyz', '[omitted - credential]')}`,
     );
     assertEquals(toolEventsOf(httpErr.events, 'error')[0]?.failure?.kind, 'failed');
-
     globalThis.fetch = (() =>
       Promise.resolve(
         new Response(
@@ -809,7 +789,6 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
     const schemaErr = await collectToolRun('linear_issue', input, 'call_mcp_schema_err');
     assertEquals(toolEventsOf(schemaErr.events, 'error')[0]?.failure?.code, 'invalid_output');
     assertEquals(toolEventsOf(schemaErr.events, 'error')[0]?.failure?.kind, 'bad_response');
-
     globalThis.fetch = (() => {
       throw new Error('socket reset');
     }) as typeof fetch;
@@ -820,7 +799,6 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
     globalThis.fetch = originalFetch;
   }
 });
-
 Deno.test('Remote MCP Tool retries unsupported protocol versions then succeeds', async () => {
   registerLinearMcpFixture();
   const originalFetch = globalThis.fetch;
@@ -860,7 +838,6 @@ Deno.test('Remote MCP Tool retries unsupported protocol versions then succeeds',
       ),
     );
   }) as typeof fetch;
-
   try {
     const { settlement } = await collectToolRun(
       'linear_issue',
@@ -868,12 +845,20 @@ Deno.test('Remote MCP Tool retries unsupported protocol versions then succeeds',
       'call_mcp_retry',
     );
     assertEquals(attempt >= 2, true);
-    assertEquals((settlement?.outputRaw as { issueId?: string } | undefined)?.issueId, 'LIN-202');
+    assertEquals(
+      (
+        settlement?.outputRaw as
+          | {
+              issueId?: string;
+            }
+          | undefined
+      )?.issueId,
+      'LIN-202',
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
-
 Deno.test('Remote MCP Tool retries HTTP 400 unsupported protocol versions then succeeds', async () => {
   registerLinearMcpFixture();
   const originalFetch = globalThis.fetch;
@@ -920,7 +905,6 @@ Deno.test('Remote MCP Tool retries HTTP 400 unsupported protocol versions then s
       ),
     );
   }) as typeof fetch;
-
   try {
     const { settlement } = await collectToolRun(
       'linear_issue',
@@ -929,12 +913,20 @@ Deno.test('Remote MCP Tool retries HTTP 400 unsupported protocol versions then s
     );
     assertEquals(attempt >= 2, true);
     assertEquals(secondProtocol, '2025-11-25');
-    assertEquals((settlement?.outputRaw as { issueId?: string } | undefined)?.issueId, 'LIN-400');
+    assertEquals(
+      (
+        settlement?.outputRaw as
+          | {
+              issueId?: string;
+            }
+          | undefined
+      )?.issueId,
+      'LIN-400',
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
-
 Deno.test('Declarative HTTP Tool post_tool mutate re-validates and replaces what the model sees', async () => {
   resetTools();
   registerTool({
@@ -951,7 +943,6 @@ Deno.test('Declarative HTTP Tool post_tool mutate re-validates and replaces what
     input: z.object({}),
     output: z.object({ name: z.string(), ssn: z.string().optional() }),
   });
-
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (() =>
     Promise.resolve(
@@ -960,7 +951,6 @@ Deno.test('Declarative HTTP Tool post_tool mutate re-validates and replaces what
         headers: { 'Content-Type': 'application/json' },
       }),
     )) as typeof fetch;
-
   try {
     const events = [];
     const exec = executeRegisteredTool({
@@ -1003,7 +993,6 @@ Deno.test('Declarative HTTP Tool post_tool mutate re-validates and replaces what
     globalThis.fetch = originalFetch;
   }
 });
-
 /** Register `fetch_user_profile` against a path-parameter endpoint with a bearer slot and a host header. */
 function registerProfileTool(auth: Pick<ToolAuthConfig, 'slot' | 'type' | 'scopes'>) {
   const service = 'Example';
@@ -1026,7 +1015,6 @@ function registerProfileTool(auth: Pick<ToolAuthConfig, 'slot' | 'type' | 'scope
     mapping: { pathParams: ['id'] },
   });
 }
-
 async function runProfileTool(id: string, credentials: Readonly<Record<string, ToolCredential>>) {
   const events = [];
   for await (const ev of executeRegisteredTool({
@@ -1041,10 +1029,21 @@ async function runProfileTool(id: string, credentials: Readonly<Record<string, T
   }
   return events;
 }
-
 /** Answer with a redirect for each URL in `hops`, then `{ ok: true }`; record every request. */
-function redirectingFetch(hops: Record<string, { status: number; location: string }>) {
-  const seen: { url: string; headers: Headers; method: string }[] = [];
+function redirectingFetch(
+  hops: Record<
+    string,
+    {
+      status: number;
+      location: string;
+    }
+  >,
+) {
+  const seen: {
+    url: string;
+    headers: Headers;
+    method: string;
+  }[] = [];
   const fetchFn = ((input: string | URL | Request, init?: RequestInit) => {
     const url = input.toString();
     seen.push({ url, headers: new Headers(init?.headers), method: init?.method ?? 'GET' });
@@ -1063,9 +1062,7 @@ function redirectingFetch(hops: Record<string, { status: number; location: strin
   }) as typeof fetch;
   return { fetchFn, seen };
 }
-
 const BEARER_SLOT = { user_auth: { type: 'bearer' as const, token: 'user-bearer-token' } };
-
 Deno.test('HTTP tool credentials follow a redirect on their origin and never off it', async () => {
   registerProfileTool({ slot: 'user_auth', type: 'bearer' });
   const { fetchFn, seen } = redirectingFetch({
@@ -1095,7 +1092,6 @@ Deno.test('HTTP tool credentials follow a redirect on their origin and never off
     ],
   );
 });
-
 Deno.test('a redirect hop into a private network is refused as a network block', async () => {
   registerProfileTool({ slot: 'user_auth', type: 'bearer' });
   const { fetchFn, seen } = redirectingFetch({
@@ -1117,7 +1113,6 @@ Deno.test('a redirect hop into a private network is refused as a network block',
   }
   assertEquals(seen.length, 1);
 });
-
 Deno.test('an MCP server redirecting into a private network is refused', async () => {
   registerLinearMcpFixture();
   const { fetchFn, seen } = redirectingFetch({
@@ -1133,7 +1128,6 @@ Deno.test('an MCP server redirecting into a private network is refused', async (
   }
   assertEquals(seen.length, 1);
 });
-
 Deno.test('an OAuth token is never sent outside the resource it was issued for', async () => {
   registerProfileTool({ slot: 'oauth_slot', type: 'oauth2' });
   const { fetchFn, seen } = redirectingFetch({});
@@ -1156,7 +1150,6 @@ Deno.test('an OAuth token is never sent outside the resource it was issued for',
   }
   assertEquals(seen.length, 0);
 });
-
 Deno.test('a path parameter of "." or ".." is refused before any request', async () => {
   registerProfileTool({ slot: 'user_auth', type: 'bearer' });
   const { fetchFn, seen } = redirectingFetch({});
@@ -1180,7 +1173,6 @@ Deno.test('a path parameter of "." or ".." is refused before any request', async
     ['https://api.example.com/users/...'],
   );
 });
-
 const OAUTH_SLOT = (overrides: Record<string, unknown> = {}) => ({
   oauth_slot: {
     type: 'oauth2' as const,
@@ -1194,7 +1186,6 @@ const OAUTH_SLOT = (overrides: Record<string, unknown> = {}) => ({
     ...overrides,
   },
 });
-
 Deno.test('a refresh the server refuses keeps its words from the model and the client', async () => {
   registerProfileTool({ slot: 'oauth_slot', type: 'oauth2' });
   const originalFetch = globalThis.fetch;
@@ -1222,7 +1213,6 @@ Deno.test('a refresh the server refuses keeps its words from the model and the c
     globalThis.fetch = originalFetch;
   }
 });
-
 Deno.test('calls that find the same expired token share one refresh', async () => {
   registerProfileTool({ slot: 'oauth_slot', type: 'oauth2' });
   const refreshes: string[] = [];
@@ -1264,7 +1254,6 @@ Deno.test('calls that find the same expired token share one refresh', async () =
   assertEquals(refreshes, ['valid-refresh-token']);
   assertEquals(used, ['Bearer access-1', 'Bearer access-1']);
 });
-
 Deno.test('an OAuth credential that names no resource sends nothing', async () => {
   registerProfileTool({ slot: 'oauth_slot', type: 'oauth2' });
   const { fetchFn, seen } = redirectingFetch({});
@@ -1282,7 +1271,6 @@ Deno.test('an OAuth credential that names no resource sends nothing', async () =
   }
   assertEquals(seen.length, 0);
 });
-
 Deno.test('a response that repeats the credential never passes it on', async () => {
   resetTools();
   registerTool({
@@ -1327,7 +1315,6 @@ Deno.test('a response that repeats the credential never passes it on', async () 
   assertEquals(streamed.includes('user-bearer-token'), false);
   assertEquals(streamed.includes('Bearer [omitted - credential]'), true);
 });
-
 Deno.test('an endpoint whose scheme or host is a placeholder is refused', () => {
   for (const endpoint of [
     'https://{host}/users',
@@ -1380,7 +1367,6 @@ Deno.test('an endpoint whose scheme or host is a placeholder is refused', () => 
     'https://api.example.com/users/a%20b?q=x',
   );
 });
-
 Deno.test('HTTP and MCP tools refuse a host whose name resolves inward', async () => {
   const shared = {
     category: 'api' as const,
@@ -1440,7 +1426,6 @@ Deno.test('HTTP and MCP tools refuse a host whose name resolves inward', async (
   assertEquals(asked, ['metadata.example.com', 'mcp.example.com']);
   assertEquals(fetched, 0);
 });
-
 Deno.test('Declarative HTTP Tool fails, without reading on, when the response is too large', async () => {
   resetTools();
   registerTool({
@@ -1492,12 +1477,13 @@ Deno.test('Declarative HTTP Tool fails, without reading on, when the response is
     globalThis.fetch = originalFetch;
   }
 });
-
 /** Answers every MCP call with `result`. */
 async function withMcpResult<T>(result: unknown, run: () => Promise<T>): Promise<T> {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
-    const { id } = JSON.parse(String(init?.body)) as { id: unknown };
+    const { id } = JSON.parse(String(init?.body)) as {
+      id: unknown;
+    };
     return Promise.resolve(
       new Response(JSON.stringify({ jsonrpc: '2.0', id, result }), {
         status: 200,
@@ -1511,9 +1497,7 @@ async function withMcpResult<T>(result: unknown, run: () => Promise<T>): Promise
     globalThis.fetch = originalFetch;
   }
 }
-
 const LINEAR_INPUT = { title: 'Bug', description: 'Investigate' };
-
 Deno.test('an MCP result is its structured content when that fits the declared output', async () => {
   registerLinearMcpFixture();
   const issue = { issueId: 'LIN-7', url: 'https://linear.app/issue/LIN-7' };
@@ -1524,7 +1508,6 @@ Deno.test('an MCP result is its structured content when that fits the declared o
   assertEquals(settlement?.outputRaw, issue);
   assertEquals(toolEventsOf(events, 'warning'), []);
 });
-
 Deno.test('structured content that misses the declared output falls back to the text, and says why', async () => {
   registerLinearMcpFixture();
   const issue = { issueId: 'LIN-8', url: 'https://linear.app/issue/LIN-8' };
@@ -1540,7 +1523,6 @@ Deno.test('structured content that misses the declared output falls back to the 
   assertEquals(warning?.warning.code, 'mcp_structured_mismatch');
   assertStringIncludes(warning?.warning.message ?? '', 'so the text content was used. issueId:');
 });
-
 Deno.test('an MCP image reaches the model and the client as media, beside the value', async () => {
   registerLinearMcpFixture();
   const issue = { issueId: 'LIN-9', url: 'https://linear.app/issue/LIN-9' };
@@ -1557,7 +1539,6 @@ Deno.test('an MCP image reaches the model and the client as media, beside the va
   const [complete] = toolEventsOf(events, 'complete');
   assertEquals(complete?.parts, [image]);
 });
-
 Deno.test('a tool that signs in must name its service', () => {
   const auth: ToolAuthConfig = { slot: 'tracker', type: 'bearer', service: '  ' };
   assertThrows(
@@ -1601,7 +1582,6 @@ Deno.test('a tool that signs in must name its service', () => {
     'names no service',
   );
 });
-
 /** Answer every request with `status` and a `WWW-Authenticate` challenge. */
 function refusingFetch(status: number, challenge?: string): typeof fetch {
   return () =>
@@ -1612,7 +1592,6 @@ function refusingFetch(status: number, challenge?: string): typeof fetch {
       }),
     );
 }
-
 async function withFetch<T>(fetchFn: typeof fetch, run: () => Promise<T>): Promise<T> {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = fetchFn;
@@ -1622,7 +1601,6 @@ async function withFetch<T>(fetchFn: typeof fetch, run: () => Promise<T>): Promi
     globalThis.fetch = originalFetch;
   }
 }
-
 Deno.test('a refused credential asks the person to sign in again', async () => {
   registerProfileTool({ slot: 'user_auth', type: 'bearer', scopes: ['read', 'write'] });
   for (const [status, challenge] of [
@@ -1638,7 +1616,6 @@ Deno.test('a refused credential asks the person to sign in again', async () => {
     assertEquals(toolEventsOf(events, 'error').length, 0);
   }
 });
-
 Deno.test('access outside the declared scopes fails without a sign-in, recording what was asked', async () => {
   registerProfileTool({ slot: 'user_auth', type: 'bearer', scopes: ['read'] });
   for (const challenge of [
@@ -1666,14 +1643,12 @@ Deno.test('access outside the declared scopes fails without a sign-in, recording
     ]);
   }
 });
-
 Deno.test('a 403 that asks for no scope is the call failing, not a sign-in', async () => {
   registerProfileTool({ slot: 'user_auth', type: 'bearer', scopes: ['read'] });
   const events = await withFetch(refusingFetch(403), () => runProfileTool('1', BEARER_SLOT));
   assertEquals(toolEventsOf(events, 'gate').length, 0);
   assertEquals(toolEventsOf(events, 'error')[0]?.failure?.code, 'http_403');
 });
-
 Deno.test('an MCP server refusing the credential gates or fails as an HTTP tool does', async () => {
   resetTools();
   registerTool({

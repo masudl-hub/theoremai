@@ -1,5 +1,4 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
-
 import type { DetectSpec } from '../src/guardrails/detectors.ts';
 import type { LexiconOverrides } from '../src/guardrails/lexicon.ts';
 import { getProfile, registerProfile, runTurn } from '../src/kernel/default-scope.ts';
@@ -11,18 +10,16 @@ import type {
   TurnEventOf,
   TurnHistoryMessage,
 } from '../src/kernel/types.ts';
-import { createProvider } from '../src/providers/create-provider.ts';
 import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV } from './host-env.ts';
+import { scriptProviderOptions, scriptTurnOptions } from './provider-options.ts';
 
 function valueAfterFlag(flag: string): string | undefined {
   const idx = Deno.args.indexOf(flag);
   return idx >= 0 ? Deno.args[idx + 1] : undefined;
 }
-
 function hasFlag(flag: string): boolean {
   return Deno.args.includes(flag);
 }
-
 function parseListFlag(flag: string): string[] | undefined {
   const raw = valueAfterFlag(flag);
   if (!raw) return undefined;
@@ -31,11 +28,9 @@ function parseListFlag(flag: string): string[] | undefined {
     .map((s) => s.trim())
     .filter(Boolean);
 }
-
 const VERBOSE = hasFlag('--verbose');
 const GROUP_FILTER = parseListFlag('--suite');
 const PROVIDER_FLAG = valueAfterFlag('--provider');
-
 function resolveProviderKind(): 'openrouter' | 'gemini' {
   const flag = PROVIDER_FLAG ?? 'openrouter';
   if (flag !== 'openrouter' && flag !== 'gemini') {
@@ -44,15 +39,11 @@ function resolveProviderKind(): 'openrouter' | 'gemini' {
   }
   return flag;
 }
-
 const PROVIDER_KIND = resolveProviderKind();
-
 // Stay under 15 RPM.
-
-const MIN_CALL_GAP_MS = 4_100;
+const MIN_CALL_GAP_MS = 4100;
 let lastCallAt = 0;
 let totalApiCalls = 0;
-
 async function pace(): Promise<void> {
   const elapsed = Date.now() - lastCallAt;
   if (lastCallAt > 0 && elapsed < MIN_CALL_GAP_MS) {
@@ -61,7 +52,6 @@ async function pace(): Promise<void> {
   lastCallAt = Date.now();
   totalApiCalls++;
 }
-
 const PLAIN_ID = '__rl_plain__';
 const EXHAUST_0_ID = '__rl_exhaust0__';
 const EXHAUST_1_ID = '__rl_exhaust1__';
@@ -72,10 +62,8 @@ const COMPACT_SUB_ID = '__rl_compact_sub__';
 const COMPACT_HISTORY_ID = '__rl_compact_history__';
 const COMPACT_INPUT_ID = '__rl_compact_input__';
 const COMPACT_INPUT_BEFORE_ID = '__rl_compact_input_before__';
-
 const OPENROUTER_VERIFY_API_ID = 'openrouter/free';
 const GEMINI_VERIFY_API_ID = 'gemini-3.1-flash-lite';
-
 /** A detector of the host's own that blocks any reply. */
 const ALWAYS_BLOCK: DetectSpec = {
   'verify.always': {
@@ -84,11 +72,8 @@ const ALWAYS_BLOCK: DetectSpec = {
     find: (text) => (text ? [{ start: 0, end: text.length }] : []),
   },
 };
-
 const REFUSE_USER_COPY = "I can't share that.";
-
 const BLOCKED_MARKER = '[BLOCKED_MARKER]';
-
 /** A detector of the host's own that blocks a reply holding the marker. */
 const BLOCK_ON_MARKER: DetectSpec = {
   'verify.marker': {
@@ -100,27 +85,25 @@ const BLOCK_ON_MARKER: DetectSpec = {
     },
   },
 };
-
 function verifyApiId(): string {
   return PROVIDER_KIND === 'gemini' ? GEMINI_VERIFY_API_ID : OPENROUTER_VERIFY_API_ID;
 }
-
 function baseModelBinding(apiId: string): import('../src/kernel/types.ts').ModelBinding {
   if (PROVIDER_KIND === 'gemini') {
     return {
-      protocol: 'geminiInteractions',
       provider: 'google',
-      persistViaInteractionId: false,
       apiId,
       efforts: { normal: 'minimal' },
       summaries: false,
       maxOutputTokens: 300,
       temperature: 0.1,
       builtInTools: [],
+      providerOptions: {
+        persistViaInteractionId: false,
+      },
     };
   }
   return {
-    protocol: 'openAi',
     provider: 'openrouter',
     apiId,
     summaries: false,
@@ -130,23 +113,19 @@ function baseModelBinding(apiId: string): import('../src/kernel/types.ts').Model
     builtInTools: [],
   };
 }
-
-function modelFields(apiId: string): Pick<TextProfileDefinition, 'models' | 'maxSteps' | 'key'> {
+function modelFields(apiId: string): Pick<TextProfileDefinition, 'models' | 'maxSteps'> {
   const binding = baseModelBinding(apiId);
   if (PROVIDER_KIND === 'gemini') {
     return {
       models: { [apiId]: binding },
       maxSteps: 1,
-      key: 'slot_a',
     };
   }
   return {
     models: { [apiId]: binding },
     maxSteps: 1,
-    key: 'openrouter',
   };
 }
-
 function simpleProfile(
   id: string,
   guardrails: TextProfileDefinition['guardrails'] = {},
@@ -165,7 +144,6 @@ function simpleProfile(
     }),
   );
 }
-
 function compactionProfile(
   id: string,
   meter: 'history' | 'input',
@@ -204,10 +182,8 @@ function compactionProfile(
     }),
   );
 }
-
 function registerAllProfiles(): void {
   simpleProfile(PLAIN_ID, {});
-
   simpleProfile(EXHAUST_0_ID, {
     blockedReply: { maxRetries: 0 },
     detect: ALWAYS_BLOCK,
@@ -220,7 +196,6 @@ function registerAllProfiles(): void {
     blockedReply: { maxRetries: 2 },
     detect: ALWAYS_BLOCK,
   });
-
   simpleProfile(
     REFUSE_USER_ID,
     {
@@ -229,7 +204,6 @@ function registerAllProfiles(): void {
     },
     { 'egress.refusal': REFUSE_USER_COPY },
   );
-
   simpleProfile(
     REPAIR_1_ID,
     {
@@ -241,27 +215,22 @@ function registerAllProfiles(): void {
         'Remove any [BLOCKED_MARKER] text and give a short helpful reply.',
     },
   );
-
   // Registered before the profiles that compact into it.
   simpleProfile(COMPACT_SUB_ID, {});
-
   compactionProfile(COMPACT_HISTORY_ID, 'history', COMPACT_SUB_ID);
-
   compactionProfile(COMPACT_INPUT_ID, 'input', COMPACT_SUB_ID);
-
   compactionProfile(COMPACT_INPUT_BEFORE_ID, 'input', COMPACT_SUB_ID, {
     timing: 'before',
   });
 }
-
-function makeProvider(profileId: string): ModelProvider {
+function makeProvider(profileId: string): import('../mod.ts').ProviderHostOptions {
   const profile = getProfile(profileId);
   if (PROVIDER_KIND === 'gemini') {
-    return createProvider(profile, { vault: hostVault() });
+    return scriptProviderOptions(profile, { vault: hostVault() });
   }
   const key = hostOpenRouterKey();
   if (!key) throw new Error(`${OPENROUTER_ENV} missing`);
-  return createProvider(profile, {
+  return scriptProviderOptions(profile, {
     vault: { ...hostVault(), openrouter: key },
     openAiGateway: {
       siteUrl: 'https://theorem.dev',
@@ -269,20 +238,30 @@ function makeProvider(profileId: string): ModelProvider {
     },
   });
 }
-
-function countingProvider(base: ModelProvider): { provider: ModelProvider; calls: () => number } {
+function countingProvider(base: ModelProvider | import('../mod.ts').ProviderHostOptions): {
+  provider: ModelProvider | import('../mod.ts').ProviderHostOptions;
+  calls: () => number;
+} {
   let n = 0;
   return {
-    provider: {
-      async *complete(req) {
-        n++;
-        yield* base.complete(req);
-      },
-    },
+    provider:
+      'complete' in base
+        ? {
+            async *complete(request) {
+              n++;
+              yield* base.complete(request);
+            },
+          }
+        : {
+            ...base,
+            fetch(input, init) {
+              n++;
+              return (base.fetch ?? fetch)(input, init);
+            },
+          },
     calls: () => n,
   };
 }
-
 /** Real models won't reliably emit a magic marker on command, so egress repair uses this stub. */
 function markerThenCleanProvider(): ModelProvider {
   let attempt = 0;
@@ -302,10 +281,9 @@ function markerThenCleanProvider(): ModelProvider {
     },
   };
 }
-
 async function runOnce(
   profileId: string,
-  provider: ModelProvider,
+  provider: ModelProvider | import('../mod.ts').ProviderHostOptions,
   input: {
     text?: string;
     history?: TurnHistoryMessage[];
@@ -315,22 +293,30 @@ async function runOnce(
 ): Promise<TurnEvent[]> {
   await pace();
   const events: TurnEvent[] = [];
-  for await (const ev of runTurn({ profile: profileId, input }, provider)) {
+  for await (const ev of runTurn(
+    { profile: profileId, input },
+    scriptTurnOptions(profileId, provider),
+  )) {
     events.push(ev);
     if (VERBOSE) console.log(`      ${JSON.stringify(ev).slice(0, 160)}`);
   }
   return events;
 }
-
 async function runCounting(
   profileId: string,
-  provider: ModelProvider,
+  provider: ModelProvider | import('../mod.ts').ProviderHostOptions,
   input: Parameters<typeof runOnce>[2],
-): Promise<{ events: TurnEvent[]; providerCalls: number }> {
+): Promise<{
+  events: TurnEvent[];
+  providerCalls: number;
+}> {
   const { provider: counted, calls } = countingProvider(provider);
   await pace();
   const events: TurnEvent[] = [];
-  for await (const ev of runTurn({ profile: profileId, input }, counted)) {
+  for await (const ev of runTurn(
+    { profile: profileId, input },
+    scriptTurnOptions(profileId, counted),
+  )) {
     events.push(ev);
     if (VERBOSE) console.log(`      ${JSON.stringify(ev).slice(0, 160)}`);
   }
@@ -338,7 +324,6 @@ async function runCounting(
   totalApiCalls += calls() - 1;
   return { events, providerCalls: calls() };
 }
-
 /** Last `tokens.input`, not the max: intermediate reports are flaky. */
 function lastInputTokens(events: TurnEvent[]): number | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
@@ -348,37 +333,30 @@ function lastInputTokens(events: TurnEvent[]): number | undefined {
   }
   return undefined;
 }
-
 function dumpTokenEvents(events: TurnEvent[]): string {
   const rows = events.flatMap((e) => (e.type === 'tokens' ? [JSON.stringify(e.tokens)] : []));
   return rows.length ? rows.join(' | ') : '<none>';
 }
-
 function textOf(events: TurnEvent[]): string {
   return events.flatMap((e) => (e.type === 'text' && e.text ? [e.text] : [])).join('');
 }
-
 function hasErrorEvent(events: TurnEvent[]): boolean {
   return events.some((e) => e.type === 'error');
 }
-
 function doneOf(events: TurnEvent[]): TurnEventOf<'done'> | undefined {
   return events.find((e): e is TurnEventOf<'done'> => e.type === 'done');
 }
-
 interface Case {
   group: string;
   name: string;
   run: () => Promise<CaseResult>;
 }
-
 interface CaseResult {
   passed: boolean;
   detail: string;
   warning?: string;
   calls: number;
 }
-
 function history2(): TurnHistoryMessage[] {
   return [
     { role: 'user', content: 'What is a variable in programming?' },
@@ -394,7 +372,6 @@ function history2(): TurnHistoryMessage[] {
     },
   ];
 }
-
 function history5(): TurnHistoryMessage[] {
   return [
     { role: 'user', content: 'What is recursion in programming?' },
@@ -428,7 +405,6 @@ function history5(): TurnHistoryMessage[] {
     },
   ];
 }
-
 function history10(): TurnHistoryMessage[] {
   const pairs: [string, string][] = [
     [
@@ -477,7 +453,6 @@ function history10(): TurnHistoryMessage[] {
     { role: 'assistant' as const, content: a },
   ]);
 }
-
 function egressCases(): Case[] {
   return [
     {
@@ -500,7 +475,6 @@ function egressCases(): Case[] {
         };
       },
     },
-
     {
       group: 'egress',
       name: 'egress-refuse-to-user',
@@ -512,9 +486,7 @@ function egressCases(): Case[] {
         });
         const delivered = textOf(events);
         const errored = hasErrorEvent(events);
-        const detail = `provider_calls=${providerCalls} text=${JSON.stringify(
-          delivered,
-        )} errored=${errored}`;
+        const detail = `provider_calls=${providerCalls} text=${JSON.stringify(delivered)} errored=${errored}`;
         if (providerCalls !== 1) {
           return {
             passed: false,
@@ -539,7 +511,6 @@ function egressCases(): Case[] {
         return { passed: true, detail, calls: totalApiCalls - before };
       },
     },
-
     {
       group: 'egress',
       name: 'egress-exhaust-0',
@@ -565,7 +536,6 @@ function egressCases(): Case[] {
         };
       },
     },
-
     {
       group: 'egress',
       name: 'egress-exhaust-1',
@@ -591,7 +561,6 @@ function egressCases(): Case[] {
         };
       },
     },
-
     {
       group: 'egress',
       name: 'egress-exhaust-2',
@@ -617,7 +586,6 @@ function egressCases(): Case[] {
         };
       },
     },
-
     {
       group: 'egress',
       name: 'egress-repair',
@@ -660,7 +628,6 @@ function egressCases(): Case[] {
     },
   ];
 }
-
 function compactionCases(): Case[] {
   return [
     // historyTokens=20 < 25 (maxTokens 50 × compactAt 0.5)
@@ -681,15 +648,12 @@ function compactionCases(): Case[] {
         return {
           passed: ok,
           detail: ok
-            ? `No compaction signal (historyTokens=20 < threshold=25). done.compaction=${JSON.stringify(
-                signal,
-              )}`
+            ? `No compaction signal (historyTokens=20 < threshold=25). done.compaction=${JSON.stringify(signal)}`
             : `Unexpected signal: ${JSON.stringify(signal)}`,
           calls: totalApiCalls - before,
         };
       },
     },
-
     // Threshold is exclusive (>, not >=).
     {
       group: 'compaction',
@@ -708,17 +672,12 @@ function compactionCases(): Case[] {
         return {
           passed: ok,
           detail: ok
-            ? `No signal at exact threshold (25 > 25 is false). done.compaction=${JSON.stringify(
-                signal,
-              )}`
-            : `Signal fired at boundary — check compactionNeeded uses strict >. signal=${JSON.stringify(
-                signal,
-              )}`,
+            ? `No signal at exact threshold (25 > 25 is false). done.compaction=${JSON.stringify(signal)}`
+            : `Signal fired at boundary — check compactionNeeded uses strict >. signal=${JSON.stringify(signal)}`,
           calls: totalApiCalls - before,
         };
       },
     },
-
     {
       group: 'compaction',
       name: 'compact-above-threshold',
@@ -742,7 +701,6 @@ function compactionCases(): Case[] {
         };
       },
     },
-
     // timing=before compacts through a sub-turn and never attaches done.compaction,
     // so the extra provider.complete call is the only signal.
     {
@@ -762,14 +720,11 @@ function compactionCases(): Case[] {
           passed: ok,
           detail: ok
             ? `before-meter compacted: providerCalls=${providerCalls} (host inputTokens=30 > 25); done.compaction unset (timing=before)`
-            : `Expected ≥2 provider calls and no done.compaction. providerCalls=${providerCalls} signal=${JSON.stringify(
-                signal,
-              )}`,
+            : `Expected ≥2 provider calls and no done.compaction. providerCalls=${providerCalls} signal=${JSON.stringify(signal)}`,
           calls: totalApiCalls - before,
         };
       },
     },
-
     {
       group: 'compaction',
       name: 'compact-input-after-follows-usage',
@@ -784,9 +739,7 @@ function compactionCases(): Case[] {
         if (promptTokens == null) {
           return {
             passed: false,
-            detail: `No tokens.input from provider — cannot check after-meter. tokens_events=${dumpTokenEvents(
-              events,
-            )}`,
+            detail: `No tokens.input from provider — cannot check after-meter. tokens_events=${dumpTokenEvents(events)}`,
             calls: totalApiCalls - before,
           };
         }
@@ -800,14 +753,11 @@ function compactionCases(): Case[] {
           passed: ok,
           detail: ok
             ? `after-meter matches usage: promptTokens=${promptTokens} threshold=${threshold} needed=${expectNeeded}`
-            : `after-meter mismatch: promptTokens=${promptTokens} threshold=${threshold} expectNeeded=${expectNeeded} signal=${JSON.stringify(
-                signal,
-              )}`,
+            : `after-meter mismatch: promptTokens=${promptTokens} threshold=${threshold} expectNeeded=${expectNeeded} signal=${JSON.stringify(signal)}`,
           calls: totalApiCalls - before,
         };
       },
     },
-
     {
       group: 'compaction',
       name: 'compact-input-quiet',
@@ -825,14 +775,11 @@ function compactionCases(): Case[] {
           passed: ok,
           detail: ok
             ? `before-meter quiet: providerCalls=1 (host inputTokens=20 < 25)`
-            : `Expected exactly 1 provider call and no signal. providerCalls=${providerCalls} signal=${JSON.stringify(
-                signal,
-              )}`,
+            : `Expected exactly 1 provider call and no signal. providerCalls=${providerCalls} signal=${JSON.stringify(signal)}`,
           calls: totalApiCalls - before,
         };
       },
     },
-
     // History-empty guard: no signal even with a high historyTokens.
     {
       group: 'compaction',
@@ -849,9 +796,7 @@ function compactionCases(): Case[] {
         return {
           passed: ok,
           detail: ok
-            ? `No signal with empty history (guard works). done.compaction=${JSON.stringify(
-                signal,
-              )}`
+            ? `No signal with empty history (guard works). done.compaction=${JSON.stringify(signal)}`
             : `Signal fired on empty history — guard missing: ${JSON.stringify(signal)}`,
           calls: totalApiCalls - before,
         };
@@ -859,12 +804,10 @@ function compactionCases(): Case[] {
     },
   ];
 }
-
 /** Local heuristic estimate of a text-only history (no media, so no family rule applies). */
 async function estimateHistoryText(history: TurnHistoryMessage[]): Promise<number> {
   return (await (await loadTokenEstimator()).messages(history, undefined)).tokens;
 }
-
 function tokenCases(): Case[] {
   return [
     {
@@ -880,7 +823,6 @@ function tokenCases(): Case[] {
         };
       },
     },
-
     {
       group: 'tokens',
       name: 'token-2ex',
@@ -907,15 +849,12 @@ function tokenCases(): Case[] {
           passed: ok,
           detail:
             PROVIDER_KIND === 'openrouter'
-              ? `estimate=${estimate} provider_input=${providerInput} ratio=${ratio.toFixed(
-                  3,
-                )} — provider ratio advisory for openrouter/free`
+              ? `estimate=${estimate} provider_input=${providerInput} ratio=${ratio.toFixed(3)} — provider ratio advisory for openrouter/free`
               : `estimate=${estimate} provider_input=${providerInput} ratio=${ratio.toFixed(3)}`,
           calls: totalApiCalls - before,
         };
       },
     },
-
     {
       group: 'tokens',
       name: 'token-5ex',
@@ -942,15 +881,12 @@ function tokenCases(): Case[] {
           passed: ok,
           detail:
             PROVIDER_KIND === 'openrouter'
-              ? `estimate=${estimate} provider_input=${providerInput} ratio=${ratio.toFixed(
-                  3,
-                )} — provider ratio advisory for openrouter/free`
+              ? `estimate=${estimate} provider_input=${providerInput} ratio=${ratio.toFixed(3)} — provider ratio advisory for openrouter/free`
               : `estimate=${estimate} provider_input=${providerInput} ratio=${ratio.toFixed(3)}`,
           calls: totalApiCalls - before,
         };
       },
     },
-
     {
       group: 'tokens',
       name: 'token-10ex',
@@ -977,18 +913,13 @@ function tokenCases(): Case[] {
           passed: ok,
           detail: ok
             ? PROVIDER_KIND === 'openrouter'
-              ? `estimate=${estimate} provider_input=${providerInput} ratio=${ratio.toFixed(
-                  3,
-                )} — provider ratio advisory for openrouter/free`
+              ? `estimate=${estimate} provider_input=${providerInput} ratio=${ratio.toFixed(3)} — provider ratio advisory for openrouter/free`
               : `estimate=${estimate} provider_input=${providerInput} ratio=${ratio.toFixed(3)}`
-            : `estimate=${estimate} provider_input=${providerInput} ratio=${ratio.toFixed(
-                3,
-              )} tokens_events=${dumpTokenEvents(events)}`,
+            : `estimate=${estimate} provider_input=${providerInput} ratio=${ratio.toFixed(3)} tokens_events=${dumpTokenEvents(events)}`,
           calls: totalApiCalls - before,
         };
       },
     },
-
     // The host historyTokens must win over the local estimate.
     {
       group: 'tokens',
@@ -1019,16 +950,13 @@ function tokenCases(): Case[] {
           passed: ok,
           detail: ok
             ? `host historyTokens=30 overrode heuristic estimate=${estimate}; signal fired`
-            : `Signal did not fire — host override may not be respected. signal=${JSON.stringify(
-                signal,
-              )}`,
+            : `Signal did not fire — host override may not be respected. signal=${JSON.stringify(signal)}`,
           calls: totalApiCalls - before,
         };
       },
     },
   ];
 }
-
 function integrityCases(): Case[] {
   return [
     {
@@ -1051,7 +979,6 @@ function integrityCases(): Case[] {
         };
       },
     },
-
     {
       group: 'integrity',
       name: 'canary-no-false-positive',
@@ -1075,18 +1002,15 @@ function integrityCases(): Case[] {
         };
       },
     },
-
     {
       group: 'integrity',
       name: 'multi-turn-isolation',
       async run() {
         const before = totalApiCalls;
         const p = makeProvider(PLAIN_ID);
-
         const eventsA = await runOnce(PLAIN_ID, p, { text: 'What is 2+2?' });
         const textA = textOf(eventsA);
         const doneA = doneOf(eventsA);
-
         const historyFromA: TurnHistoryMessage[] = [
           { role: 'user', content: 'What is 2+2?' },
           { role: 'assistant', content: textA },
@@ -1097,21 +1021,15 @@ function integrityCases(): Case[] {
         });
         const textB = textOf(eventsB);
         const doneB = doneOf(eventsB);
-
         const aOk = !hasErrorEvent(eventsA) && textA.trim().length > 0 && !!doneA;
         const bOk = !hasErrorEvent(eventsB) && textB.trim().length > 0 && !!doneB;
-
         return {
           passed: aOk && bOk,
-          detail: `Turn A: ${aOk ? 'ok' : 'FAIL'} "${textA.slice(
-            0,
-            40,
-          )}" | Turn B: ${bOk ? 'ok' : 'FAIL'} "${textB.slice(0, 40)}"`,
+          detail: `Turn A: ${aOk ? 'ok' : 'FAIL'} "${textA.slice(0, 40)}" | Turn B: ${bOk ? 'ok' : 'FAIL'} "${textB.slice(0, 40)}"`,
           calls: totalApiCalls - before,
         };
       },
     },
-
     {
       group: 'integrity',
       name: 'sanitize-inbound',
@@ -1133,24 +1051,20 @@ function integrityCases(): Case[] {
         };
       },
     },
-
     {
       group: 'integrity',
       name: 'tokens-grow-with-history',
       async run() {
         const before = totalApiCalls;
         const p = makeProvider(PLAIN_ID);
-
         const evShort = await runOnce(PLAIN_ID, p, { text: 'Say yes.' });
         const tokShort = lastInputTokens(evShort) ?? 0;
-
         const longHistory = history10();
         const evLong = await runOnce(PLAIN_ID, p, {
           text: 'Say yes.',
           history: longHistory,
         });
         const tokLong = lastInputTokens(evLong) ?? 0;
-
         const hostShort = await estimateHistoryText([]);
         const hostLong = await estimateHistoryText(longHistory);
         const ok = PROVIDER_KIND === 'openrouter' ? hostLong > hostShort : tokLong > tokShort;
@@ -1158,36 +1072,35 @@ function integrityCases(): Case[] {
           passed: ok,
           detail:
             PROVIDER_KIND === 'openrouter'
-              ? `provider short=${tokShort} long=${tokLong}; host history short=${hostShort} long=${hostLong} — ${
-                  ok ? 'host long > short ✓' : 'FAIL: host long should be greater'
-                }`
-              : `short=${tokShort} long=${tokLong} — ${
-                  ok ? 'long > short ✓' : 'FAIL: long should be greater'
-                }`,
+              ? `provider short=${tokShort} long=${tokLong}; host history short=${hostShort} long=${hostLong} — ${ok ? 'host long > short ✓' : 'FAIL: host long should be greater'}`
+              : `short=${tokShort} long=${tokLong} — ${ok ? 'long > short ✓' : 'FAIL: long should be greater'}`,
           calls: totalApiCalls - before,
         };
       },
     },
   ];
 }
-
-function printReport(results: Array<{ group: string; name: string } & CaseResult>): boolean {
+function printReport(
+  results: Array<
+    {
+      group: string;
+      name: string;
+    } & CaseResult
+  >,
+): boolean {
   const byGroup = new Map<string, typeof results>();
   for (const r of results) {
     const g = byGroup.get(r.group) ?? [];
     g.push(r);
     byGroup.set(r.group, g);
   }
-
   const passed = results.filter((r) => r.passed).length;
   const failed = results.filter((r) => !r.passed).length;
-
   console.log(`\n${'═'.repeat(72)}`);
   console.log(`  RUNNER LIVE STRESS  provider=${PROVIDER_KIND}  api_calls=${totalApiCalls}`);
   console.log(`${'═'.repeat(72)}`);
   console.log(`  TOTAL ${results.length}  PASS ${passed}  FAIL ${failed}`);
   console.log(`${'═'.repeat(72)}`);
-
   for (const [group, cases] of byGroup) {
     const gPass = cases.filter((c) => c.passed).length;
     console.log(`\n  ── ${group} (${gPass}/${cases.length}) ──`);
@@ -1198,7 +1111,6 @@ function printReport(results: Array<{ group: string; name: string } & CaseResult
       if (r.warning) console.log(`      \x1b[33mwarn: ${r.warning}\x1b[0m`);
     }
   }
-
   console.log('');
   if (failed === 0) {
     console.log('\x1b[32mPASS: all runner-api stress cases held.\x1b[0m\n');
@@ -1207,37 +1119,32 @@ function printReport(results: Array<{ group: string; name: string } & CaseResult
   }
   return failed === 0;
 }
-
 const ALL_GROUPS = ['egress', 'compaction', 'tokens', 'integrity'];
-
 async function main(): Promise<void> {
   loadHostEnv();
-
   const activeGroups = GROUP_FILTER ?? ALL_GROUPS;
   const unknownGroups = activeGroups.filter((g) => !ALL_GROUPS.includes(g));
   if (unknownGroups.length > 0) {
     console.error(`Unknown group(s): ${unknownGroups.join(', ')}. Valid: ${ALL_GROUPS.join(', ')}`);
     Deno.exit(1);
   }
-
   registerAllProfiles();
-
   const allCases: Case[] = [
     ...egressCases(),
     ...compactionCases(),
     ...tokenCases(),
     ...integrityCases(),
   ].filter((c) => activeGroups.includes(c.group));
-
   console.log(
-    `\nRunning ${allCases.length} cases across groups [${activeGroups.join(
-      ', ',
-    )}] against ${PROVIDER_KIND}…\n`,
+    `\nRunning ${allCases.length} cases across groups [${activeGroups.join(', ')}] against ${PROVIDER_KIND}…\n`,
   );
-
   const enc = new TextEncoder();
-  const results: Array<{ group: string; name: string } & CaseResult> = [];
-
+  const results: Array<
+    {
+      group: string;
+      name: string;
+    } & CaseResult
+  > = [];
   for (const c of allCases) {
     await Deno.stdout.write(enc.encode(`  ${c.group}/${c.name}…`));
     let result: CaseResult;
@@ -1251,11 +1158,9 @@ async function main(): Promise<void> {
       enc.encode(result.passed ? ' \x1b[32mpass\x1b[0m\n' : ' \x1b[31mFAIL\x1b[0m\n'),
     );
   }
-
   const ok = printReport(results);
   Deno.exit(ok ? 0 : 1);
 }
-
 if (import.meta.main) {
   await main();
 }

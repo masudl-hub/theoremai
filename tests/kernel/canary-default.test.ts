@@ -1,7 +1,8 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { detects } from '../../src/guardrails/detectors.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
-import { getProfile, runTurn } from '../../src/kernel/default-scope.ts';
+import { getProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 

@@ -1,5 +1,5 @@
 /**
- * o200k is not every model's tokenizer, so text counts are an estimate for all families. Media is
+ * Text counts use a characters / 4 heuristic for all model families. Media is
  * counted only by a rule the family's billed usage was measured to follow; a family without one
  * reports media as `unknownMedia`, never a borrowed rate.
  *
@@ -12,8 +12,8 @@ import { historyMessageParts } from '../interaction-parts.ts';
 import type { Provider } from '../schema.ts';
 import type { InteractionPart, TurnHistoryMessage } from '../types.ts';
 
-/** The encoding the estimator counts text with. */
-export const TOKEN_TEXT_ENCODING = 'o200k_base';
+/** Text estimation method; retained under this name for API compatibility. */
+export const TOKEN_TEXT_ENCODING = 'chars/4';
 
 /** A media file to count: its MIME type and either inline base64 `data` or a `uri`. */
 export type MediaPayload = { mimeType: string; data: string } | { mimeType: string; uri: string };
@@ -33,9 +33,9 @@ export interface TokenCount {
   unknownMedia: number;
 }
 
-/** Loaded estimator. Text counting is synchronous; anything with media is not. */
+/** Text counting is synchronous; anything with media is not. */
 export interface TokenEstimator {
-  /** o200k token count of `text`. */
+  /** Approximate tokens: UTF-16 code units divided by four, rounded up. */
   text: (text: string) => number;
   /** Token count of one media payload, or `undefined` when unknown. */
   media: (
@@ -58,15 +58,11 @@ export function mediaTokenFamily(binding: {
   provider: Provider;
   apiId: string;
 }): MediaTokenFamily | undefined {
-  return PROVIDER_FACTS[binding.provider].mediaFamily?.(binding.apiId);
+  return PROVIDER_FACTS[binding.provider]?.mediaFamily?.(binding.apiId);
 }
 
-type EncodeFn = (text: string) => number[];
-
-let encodePromise: Promise<EncodeFn> | null = null;
-
-function buildEstimator(encode: EncodeFn): TokenEstimator {
-  const text = (value: string): number => (value ? encode(value).length : 0);
+function buildEstimator(): TokenEstimator {
+  const text = (value: string): number => Math.ceil(value.length / 4);
   const media: TokenEstimator['media'] = async (payload, family) =>
     family ? await family.media(payload, text) : undefined;
   const parts: TokenEstimator['parts'] = async (list, family) => {
@@ -97,12 +93,7 @@ function buildEstimator(encode: EncodeFn): TokenEstimator {
   return { text, media, parts, messages };
 }
 
-// why: The ranks import lazily, so hosts that never estimate never pay for them.
-/** Loads the token estimator; the `o200k_base` ranks are imported on the first call. */
-export async function loadTokenEstimator(): Promise<TokenEstimator> {
-  // why: A control token in text is counted as the text it is. The encoder's default throws on one.
-  encodePromise ??= import('gpt-tokenizer/encoding/o200k_base').then(
-    (m) => (value: string) => m.encode(value, { disallowedSpecial: new Set() }),
-  );
-  return buildEstimator(await encodePromise);
+/** Returns the heuristic estimator; async for compatibility with existing callers. */
+export function loadTokenEstimator(): Promise<TokenEstimator> {
+  return Promise.resolve(buildEstimator());
 }

@@ -1,6 +1,11 @@
 import type { TraceSink } from '../observability/trace-sink.ts';
 import type { RunDecisionOptions } from './engine/decision.ts';
 import type { RunSessionOptions } from './engine/session/mod.ts';
+import type {
+  ProviderDefinition,
+  ProviderHostOptions,
+  RegisteredProvider,
+} from './provider-contract.ts';
 import type { ProfileDefinition } from './registry/profiles.ts';
 import { defaultKernelScope as scope } from './scope.ts';
 import type { InvokeToolRequest, RegisteredTool, ToolDefinitionInput } from './tools/types.ts';
@@ -10,7 +15,6 @@ import type {
   DecisionRequest,
   DecisionResult,
   LiveSession,
-  ModelProvider,
   Profile,
   ProjectedProfile,
   SessionRequest,
@@ -97,10 +101,10 @@ function getStructured(id: string): StructuredSpec {
 /** Run one turn of a profile in the default scope, streaming its events. */
 function runTurn(
   req: TurnRequest,
-  provider: ModelProvider,
+  options: ProviderHostOptions = {},
   sinkOverride?: TraceSink,
 ): AsyncGenerator<TurnEvent> {
-  return scope.runTurn(req, provider, sinkOverride);
+  return scope.runTurn(req, options, sinkOverride);
 }
 
 /** Open a live session for a live profile in the default scope. */
@@ -115,10 +119,10 @@ function runSession(
 /** Compact a conversation history with the model, or `undefined` when there is nothing to compact. */
 function compactHistory(
   req: CompactHistoryRequest,
-  provider: ModelProvider,
+  options: ProviderHostOptions = {},
   sinkOverride?: TraceSink,
 ): Promise<CompactionResult | undefined> {
-  return scope.compactHistory(req, provider, sinkOverride);
+  return scope.compactHistory(req, options, sinkOverride);
 }
 
 /** Run a held tool call in the default scope, streaming the events of the turn it resumes. */
@@ -171,3 +175,27 @@ export {
   runSession,
   runTurn,
 };
+
+export function registerProvider<C, O, K, S>(
+  definition: ProviderDefinition<C, O, K, S>,
+): RegisteredProvider {
+  return scope.providers.register(definition);
+}
+export function registerProviders(definitions: ProviderDefinition[]): RegisteredProvider[] {
+  return scope.providers.registerMany(definitions);
+}
+export function getProvider(id: string): RegisteredProvider | undefined {
+  return scope.providers.get(id);
+}
+export function requireProvider(id: string): RegisteredProvider {
+  return scope.providers.require(id);
+}
+export function hasProvider(id: string): boolean {
+  return scope.providers.has(id);
+}
+export function listProviders(): RegisteredProvider[] {
+  return scope.providers.list();
+}
+export function resetProviders(): void {
+  scope.providers.reset();
+}

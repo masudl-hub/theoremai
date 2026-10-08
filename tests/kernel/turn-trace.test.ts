@@ -18,10 +18,9 @@ import {
 } from '../../src/observability/trace-span.ts';
 
 // Values are synthetic. One clock tick is one millisecond.
-const NANOS_PER_TICK = 1_000_000n;
+const NANOS_PER_TICK = 1000000n;
 const HTTP_QUOTA = 429;
 const HTTP_OK = 200;
-
 function tickingClock() {
   let tick = 0n;
   return {
@@ -31,13 +30,10 @@ function tickingClock() {
     },
   };
 }
-
 const binding: ModelBinding = {
-  protocol: 'geminiInteractions',
   provider: 'google',
   apiId: 'gemini-test-flash',
 } as ModelBinding;
-
 function request(over: Partial<ProviderCompleteRequest> = {}): ProviderCompleteRequest {
   return {
     model: 'flash',
@@ -52,16 +48,13 @@ function request(over: Partial<ProviderCompleteRequest> = {}): ProviderCompleteR
     ...over,
   };
 }
-
 function trace() {
   return startTrace('invoke_agent chat', { clock: tickingClock(), kind: 'INTERNAL' });
 }
-
 /** Opens each call span as a child of the turn root, as a turn does. */
 function under(tree: TraceTree): (name: string, options: SpanOptions) => SpanHandle {
   return (name, options) => tree.root.child(name, options);
 }
-
 function spanNamed(spans: TraceSpan[], name: string): TraceSpan {
   const span = spans.find((s) => s.name === name);
   if (!span) {
@@ -69,11 +62,9 @@ function spanNamed(spans: TraceSpan[], name: string): TraceSpan {
   }
   return span;
 }
-
 function attrs(span: TraceSpan): TraceAttributes {
   return span.attributes;
 }
-
 Deno.test('turn trace: a call records what the model read and wrote, before guardrails', () => {
   const tree = trace();
   const usage = startCallUsage('Be brief.', {
@@ -84,7 +75,7 @@ Deno.test('turn trace: a call records what the model read and wrote, before guar
     req: request(),
     usage,
     binding,
-    transport: 'interactions',
+    transport: 'turn',
     step: 0,
     attempt: 0,
   });
@@ -101,11 +92,11 @@ Deno.test('turn trace: a call records what the model read and wrote, before guar
     call.observe(event);
   }
   call.end({ tokens: { input: 10, output: 4, total: 14 }, stop: { kind: 'tool' } });
-  const span = spanNamed(tree.collect(), 'generate_content gemini-test-flash');
+  const span = spanNamed(tree.collect(), 'chat gemini-test-flash');
   const a = attrs(span);
   assertEquals(span.kind, 'CLIENT');
   assertEquals(span.status, { code: 'OK' });
-  assertEquals(a['gen_ai.provider.name'], 'gcp.gemini');
+  assertEquals(a['gen_ai.provider.name'], 'google');
   assertEquals(a['gen_ai.request.reasoning.level'], 'low');
   assertEquals(a['gen_ai.output.type'], 'text');
   assertEquals(a['gen_ai.input.messages'], [
@@ -129,12 +120,11 @@ Deno.test('turn trace: a call records what the model read and wrote, before guar
     },
   ]);
   assertEquals(a['gen_ai.response.id'], 'v1_a');
-  assertEquals(a['gen_ai.response.status'], 'requires_action');
+  assertEquals(a['gen_ai.response.finish_reasons'], ['requires_action']);
   assertEquals(a['theorem.stop.kind'], 'tool');
   assertEquals(a['gen_ai.usage.input_tokens'], 10);
   assertEquals(Object.hasOwn(a, 'theorem.input.sent_from'), false);
 });
-
 Deno.test('turn trace: a tool call is one part; its execution phases add none', () => {
   const fold = new OutputFold();
   const call = { callId: 'c1', name: 'fetch_sensor', arguments: { plant: 'fern' } };
@@ -159,7 +149,6 @@ Deno.test('turn trace: a tool call is one part; its execution phases add none', 
     { type: 'text', ...traceContent('Moist.') },
   ]);
 });
-
 Deno.test('turn trace: a continuation reads the stored interaction and marks where the wire starts', () => {
   const tree = trace();
   const first = startCallUsage('s', { history: [], input: [{ type: 'text', text: 'Hi' }] });
@@ -167,7 +156,7 @@ Deno.test('turn trace: a continuation reads the stored interaction and marks whe
     req: request(),
     usage: first,
     binding,
-    transport: 'interactions',
+    transport: 'turn',
     step: 0,
     attempt: 0,
   });
@@ -181,7 +170,7 @@ Deno.test('turn trace: a continuation reads the stored interaction and marks whe
     req: request({ previousInteractionId: 'v1_a' }),
     usage: second,
     binding,
-    transport: 'interactions',
+    transport: 'turn',
     step: 1,
     attempt: 0,
   });
@@ -199,14 +188,13 @@ Deno.test('turn trace: a continuation reads the stored interaction and marks whe
   assertEquals(attrs(span as TraceSpan)['theorem.input.sent_from'], 2);
   assertEquals(attrs(span as TraceSpan)['gen_ai.request.previous_response.id'], 'v1_a');
 });
-
 Deno.test('turn trace: each HTTP try is a POST span with its slot, body and backoff', () => {
   const tree = trace();
   const call = startCallTrace(under(tree), {
     req: request(),
     usage: startCallUsage('s', { history: [], input: [] }),
     binding,
-    transport: 'interactions',
+    transport: 'turn',
     step: 0,
     attempt: 0,
   });
@@ -237,7 +225,7 @@ Deno.test('turn trace: each HTTP try is a POST span with its slot, body and back
   assertEquals(attrs(ok)['theorem.key_slot'], 'spare');
   assertEquals(typeof attrs(ok)['theorem.retry.backoff_ms'], 'number');
   assertEquals(ok.status.code, 'OK');
-  const chat = spanNamed(spans, 'generate_content gemini-test-flash');
+  const chat = spanNamed(spans, 'chat gemini-test-flash');
   assertEquals(
     chat.events.map((e) => e.name),
     ['theorem.upstream.row'],
@@ -246,14 +234,13 @@ Deno.test('turn trace: each HTTP try is a POST span with its slot, body and back
   assertEquals(typeof attrs(chat)['gen_ai.response.time_to_first_chunk'], 'number');
   assertEquals(attrs(chat)['theorem.key_slot'], 'spare');
 });
-
 Deno.test('turn trace: a buffered body is not streaming, whatever the request asked', () => {
   const tree = trace();
   const call = startCallTrace(under(tree), {
     req: request({ stream: true }),
     usage: startCallUsage('s', { history: [], input: [] }),
     binding,
-    transport: 'openAiCompat',
+    transport: 'turn',
     step: 0,
     attempt: 0,
   });
@@ -271,14 +258,13 @@ Deno.test('turn trace: a buffered body is not streaming, whatever the request as
   // The buffered body is the reply's one chunk; the wait before it is still a wait.
   assertEquals(typeof attrs(chat)['gen_ai.response.time_to_first_chunk'], 'number');
 });
-
 Deno.test('turn trace: a provider error fails the call; a cancel leaves it unset with no finish', () => {
   const tree = trace();
   const failed = startCallTrace(under(tree), {
     req: request(),
     usage: startCallUsage('s', { history: [], input: [] }),
     binding,
-    transport: 'interactions',
+    transport: 'turn',
     step: 0,
     attempt: 0,
   });
@@ -290,13 +276,15 @@ Deno.test('turn trace: a provider error fails the call; a cancel leaves it unset
     req: request(),
     usage: startCallUsage('s', { history: [], input: [] }),
     binding,
-    transport: 'interactions',
+    transport: 'turn',
     step: 0,
     attempt: 1,
   });
   cancelled.observe({ type: 'text', text: 'Part' });
   cancelled.end({ stop: { kind: 'cancelled' } });
-  const calls = tree.collect().filter((s) => s.name.startsWith('generate_content'));
+  const calls = tree
+    .collect()
+    .filter((s) => s.name.startsWith('generate_content') || s.name.startsWith('chat '));
   const [bad, stopped] = calls as [TraceSpan, TraceSpan];
   assertEquals(bad.status, { code: 'ERROR', message: 'unavailable' });
   assertEquals(attrs(bad)['error.type'], 'unavailable');
@@ -311,14 +299,13 @@ Deno.test('turn trace: a provider error fails the call; a cancel leaves it unset
     { role: 'assistant', parts: [{ type: 'text', ...traceContent('Part') }] },
   ]);
 });
-
 Deno.test('turn trace: provider-run tool steps are server tool parts; citations are grounding', () => {
   const tree = trace();
   const call = startCallTrace(under(tree), {
     req: request(),
     usage: startCallUsage('s', { history: [], input: [] }),
     binding,
-    transport: 'interactions',
+    transport: 'turn',
     step: 0,
     attempt: 0,
   });
@@ -341,8 +328,12 @@ Deno.test('turn trace: provider-run tool steps are server tool parts; citations 
     sources: [{ type: 'web', title: 'a', uri: 'https://a.example' }],
   });
   call.end({ stop: { kind: 'completed' } });
-  const span = spanNamed(tree.collect(), 'generate_content gemini-test-flash');
-  const [message] = attrs(span)['gen_ai.output.messages'] as [{ parts: TraceAttributes[] }];
+  const span = spanNamed(tree.collect(), 'chat gemini-test-flash');
+  const [message] = attrs(span)['gen_ai.output.messages'] as [
+    {
+      parts: TraceAttributes[];
+    },
+  ];
   assertEquals(
     message.parts.map((p) => [p.type, p.id]),
     [
@@ -356,7 +347,6 @@ Deno.test('turn trace: provider-run tool steps are server tool parts; citations 
     ['theorem.grounding'],
   );
 });
-
 Deno.test('turn trace: usage names follow semconv where it has them, theorem elsewhere', () => {
   assertEquals(
     usageAttributes({

@@ -1,5 +1,4 @@
 import { assertEquals } from '@std/assert';
-import { encode } from 'gpt-tokenizer/encoding/o200k_base';
 import {
   loadTokenEstimator,
   type MediaPayload,
@@ -29,6 +28,22 @@ const GEMINI_3 = mediaTokenFamily({ provider: 'google', apiId: 'gemini-3-flash' 
 function inline(mimeType: string, bytes: Uint8Array): MediaPayload {
   return { mimeType, data: bytesToBase64(bytes) };
 }
+
+Deno.test('text estimates empty, short, Unicode and structured input', async () => {
+  const estimator = await loadTokenEstimator();
+  for (const [text, tokens] of [
+    ['', 0],
+    ['a', 1],
+    ['abcd', 1],
+    ['abcde', 2],
+    ['hello world', 3],
+    ['你好世界', 1],
+    ['🌱🌱🌱', 2],
+    ['{"q":"fern"}', 3],
+  ] as const) {
+    assertEquals(estimator.text(text), tokens, text);
+  }
+});
 
 Deno.test('a control token in text is counted as text, not refused', async () => {
   const estimator = await loadTokenEstimator();
@@ -202,7 +217,7 @@ Deno.test('gemini-3 text documents count as their UTF-8 text', async () => {
   ]) {
     assertEquals(
       await estimator.media(inline(mimeType, utf8(text)), GEMINI_3),
-      encode(text).length,
+      Math.ceil(text.length / 4),
       mimeType,
     );
   }
@@ -236,17 +251,17 @@ Deno.test('media without a family is unknown, never a borrowed rate', async () =
   );
 });
 
-Deno.test('parts and messages count text with o200k and report unknown media', async () => {
+Deno.test('parts and messages estimate text and report unknown media', async () => {
   const estimator = await loadTokenEstimator();
   const image = { type: 'image' as const, ...inline('image/png', pngBytes(1920, 1080)) };
   const video = { type: 'video' as const, ...inline('video/mp4', new Uint8Array(16)) };
   assertEquals(
     await estimator.parts([{ type: 'text', text: 'hello there' }, image, video], GEMINI_3),
-    { tokens: encode('hello there').length + 1100, unknownMedia: 1 },
+    { tokens: 3 + 1100, unknownMedia: 1 },
   );
   assertEquals(
     await estimator.parts([{ type: 'text', text: 'hello there' }, image, video], undefined),
-    { tokens: encode('hello there').length, unknownMedia: 2 },
+    { tokens: 3, unknownMedia: 2 },
   );
   assertEquals(
     await estimator.messages(
@@ -264,12 +279,7 @@ Deno.test('parts and messages count text with o200k and report unknown media', a
       GEMINI_3,
     ),
     {
-      tokens:
-        encode('look at this').length +
-        1100 +
-        encode('search').length +
-        encode('{"q":"fern"}').length +
-        encode('results').length,
+      tokens: 3 + 1100 + 2 + 3 + 2,
       unknownMedia: 0,
     },
   );
@@ -280,5 +290,5 @@ Deno.test('public barrel re-exports the token estimator', () => {
   assertEquals(publicLoadTokenEstimator, loadTokenEstimator);
   assertEquals(publicMediaTokenFamily, mediaTokenFamily);
   assertEquals(publicTextEncoding, TOKEN_TEXT_ENCODING);
-  assertEquals(TOKEN_TEXT_ENCODING, 'o200k_base');
+  assertEquals(TOKEN_TEXT_ENCODING, 'chars/4');
 });

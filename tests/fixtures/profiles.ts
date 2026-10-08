@@ -1,8 +1,6 @@
 import type { ModelBinding, ModelProfile, Provider } from '../../src/kernel/types.ts';
-
 /** Minimal typed profile for provider / probe tests (no casts). */
 export function stubProfile(opts: {
-  protocol: 'geminiInteractions' | 'openAi' | 'geminiLive';
   provider: Provider;
   role?: 'text' | 'speech' | 'image' | 'live';
   id?: string;
@@ -10,7 +8,6 @@ export function stubProfile(opts: {
   const role = opts.role ?? 'text';
   const id = opts.id ?? 'test-profile';
   const binding: ModelBinding = {
-    protocol: opts.protocol,
     provider: opts.provider,
     apiId: 'stub-model',
     efforts: { normal: 'minimal' },
@@ -19,7 +16,6 @@ export function stubProfile(opts: {
     quota: { perDay: 1 },
   } as const;
   const modelFields = { models: { stub: binding }, defaultModel: 'stub' };
-
   if (role === 'speech') {
     return {
       type: 'speech',

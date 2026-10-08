@@ -18,7 +18,7 @@ export interface LocalProviderConfig {
   fetch?: typeof globalThis.fetch;
 }
 
-/** What `createProvider` hands an adapter: the host's settings for it plus the one vault. */
+/** Internal codec settings resolved by a registered adapter. */
 export type OpenAiGatewayTransport = OpenAiGatewayConfig & { vault?: KeyVault };
 export type LocalTransport = LocalProviderConfig & { vault?: KeyVault };
 
@@ -55,12 +55,13 @@ export type LiveQueueItem =
  */
 export interface LiveConnection {
   readonly setup: Record<string, unknown>;
+  flush?(): Promise<void>;
   /** Text the model reads without it ending the user's turn. */
   sendContext(text: string): void;
   /** Text, audio or video from the user, as it arrives. */
   sendInput(input: InteractionPart): void;
   /** The result of a tool call the model made. */
-  sendToolResponse(callId: string, name: string, output: unknown): void;
+  sendToolResponse(callId: string, name: string, output: unknown, parts?: InteractionPart[]): void;
   batches(): AsyncGenerator<LiveQueueItem>;
   close(code?: number, reason?: string): void;
 }

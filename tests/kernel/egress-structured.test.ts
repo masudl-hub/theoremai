@@ -1,9 +1,10 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 // Regression: the egress gate projected only `text` events, so a profile with
 // `outputs.structured` had an empty string read and always passed.
 import '../fixtures/test-host.ts';
 import type { DetectAction, HostFind } from '../../src/guardrails/detectors.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
-import { registerProfile, registerStructured, runTurn } from '../../src/kernel/default-scope.ts';
+import { registerProfile, registerStructured } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';

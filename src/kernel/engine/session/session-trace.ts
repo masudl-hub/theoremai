@@ -244,6 +244,11 @@ class LiveTrace {
       this.keyFallback(row);
       return;
     }
+    if (row.direction === 'receive') {
+      const body = asRecord(row.body);
+      if (body) this.row(body);
+      return;
+    }
     const frame = asRecord(row.body);
     if (!frame) return;
     const body = withoutHandle(frame);
@@ -251,7 +256,7 @@ class LiveTrace {
       this.root.event('theorem.wire.request', { body: traceJson(body) });
       return;
     }
-    this.pendingInput.add(liveSentInput(frame));
+    this.pendingInput.add(liveSentInput(row));
     this.pendingFrames.push({ timeUnixNano: this.root.nowUnixNano(), body });
   };
 
@@ -471,7 +476,11 @@ class LiveTrace {
     if (event.type === 'tool' && event.tool.phase === undefined) {
       this.callParents.set(event.tool.callId, response.call.span.traceparent());
     }
-    if (event.type === 'done' && response.stop?.kind !== 'interrupted') {
+    if (
+      event.type === 'done' &&
+      response.stop?.kind !== 'interrupted' &&
+      !(event.stop.kind === 'completed' && response.stop?.kind === 'generation_complete')
+    ) {
       response.stop = event.stop;
     }
   }

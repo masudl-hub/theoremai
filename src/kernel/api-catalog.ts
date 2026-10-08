@@ -5,6 +5,10 @@ import type { TurnInput, TurnRequest } from './types.ts';
 
 /** The catalog of the fields a `runTurn` request takes, keyed by path like `PROFILE_FIELDS`. */
 export const REQUEST_FIELDS: Record<keyof TurnRequest | `input.${keyof TurnInput}`, FieldMeta> = {
+  providerState: {
+    type: 'ProviderCheckpoint',
+    doc: 'Native provider state saved alongside portable history.',
+  },
   profile: {
     type: 'string',
     doc: 'The id of the registered profile the turn runs.',
@@ -52,10 +56,6 @@ export const REQUEST_FIELDS: Record<keyof TurnRequest | `input.${keyof TurnInput
     type: 'number',
     doc: "Your count of the whole prompt's tokens, used by compaction that meters input before the call.",
   },
-  'input.sessionResumptionHandle': {
-    type: 'string',
-    doc: 'The handle a live session gave, to resume that session.',
-  },
   model: {
     type: 'string',
     doc: "The model id the turn picks from the profile's models; refused unless the profile sets allowModelSelect.",
@@ -90,16 +90,6 @@ export const REQUEST_FIELDS: Record<keyof TurnRequest | `input.${keyof TurnInput
   signal: {
     type: 'AbortSignal',
     doc: 'Stops the turn when it aborts, and cancels the provider call where the provider can.',
-  },
-  previousInteractionId: {
-    type: 'string',
-    doc: 'The id of the earlier turn, for a provider that keeps the conversation itself.',
-    unset: 'The host sends input.history',
-  },
-  store: {
-    type: 'boolean',
-    doc: 'Whether the provider keeps this turn for a later previousInteractionId.',
-    unset: 'The model binding decides',
   },
   sessionId: {
     type: 'string',
@@ -138,18 +128,6 @@ export const REQUEST_FIELDS: Record<keyof TurnRequest | `input.${keyof TurnInput
     type: 'TurnSpeech',
     doc: "This turn's voice, style and speed; each one given replaces the profile's speech field of that name. Refused on a profile that is not speech.",
     unset: "The profile's speech settings",
-  },
-  googleMapsLocation: {
-    type: '{ latitude: number; longitude: number }',
-    doc: 'Where the Google Maps built-in tool looks first; ignored when the model has no googleMaps.',
-  },
-  compactionProvider: {
-    type: 'ModelProvider',
-    doc: "Runs compaction before the call when the turn's own provider cannot.",
-  },
-  sessionResumptionHandle: {
-    type: 'string',
-    doc: 'The handle a live session gave, to resume that session.',
   },
   resolveHost: {
     type: 'ResolveHost',
@@ -191,9 +169,13 @@ export const API_EXPORTS = {
     kind: 'function',
     doc: 'Stores a place to write traces under an id, so that a profile can name it in observability.',
   },
-  createProvider: {
+  defineProvider: {
     kind: 'function',
-    doc: 'Binds a profile to its model and to your key vault; runTurn takes the result.',
+    doc: 'Validates a provider definition and supplies its typed model helper.',
+  },
+  registerProvider: {
+    kind: 'function',
+    doc: 'Registers a provider instance before profiles reference its ID.',
   },
   runTurn: {
     kind: 'function',

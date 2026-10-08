@@ -16,6 +16,7 @@ import type {
   WireFunctionTool,
 } from '../../../kernel/types.ts';
 import { historyToolIdentity } from '../../shared/tool-args.ts';
+import { applyReasoningReplay } from './reasoning-state.ts';
 
 /** The detail is the body's `error.message` (or raw text), so the upstream reason reaches traces. */
 async function httpErrorEvent(res: Response, label: string): Promise<ProducedError> {
@@ -148,6 +149,7 @@ function buildChatMessages(
       content: wireMessageContent(req.input),
     });
   }
+  applyReasoningReplay(messages, req.state);
   return messages;
 }
 

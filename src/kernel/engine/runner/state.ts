@@ -67,12 +67,7 @@ interface StepExecutionState {
   canaryScanned: WeakSet<object>;
   /** Last provider stop from a discarded provider `done` event. */
   lastStop?: TurnStop;
-  lastInteractionId?: string;
-  /** Tool results and stage injects pending for the next step's Interactions `continuation`. */
-  interactionsContinuation?: {
-    previousInteractionId: string;
-    messages: TurnHistoryMessage[];
-  };
+  providerState?: import('../../provider-contract.ts').ProviderCheckpoint;
   /** Usage of the last model call; a continuation's prompt estimate extends it. */
   lastCall?: CallUsage;
 }

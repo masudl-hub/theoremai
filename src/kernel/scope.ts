@@ -2,6 +2,8 @@ import type { TraceSink } from '../observability/trace-sink.ts';
 import { type RunDecisionOptions, runDecisionInRegistry } from './engine/decision.ts';
 import { compactHistoryInRegistry, runTurnInRegistry } from './engine/runner/mod.ts';
 import { type RunSessionOptions, runSessionInRegistry } from './engine/session/mod.ts';
+import type { ProviderHostOptions } from './provider-contract.ts';
+import { resolveRegisteredTurnProvider } from './provider-dispatch.ts';
 import { createKernelRegistry, type KernelRegistry } from './registry/kernel-registry.ts';
 import { projectProfileInRegistry, resolveTurnInRegistry } from './registry/resolve.ts';
 import { invokeTool } from './tools/invoke.ts';
@@ -12,7 +14,6 @@ import type {
   DecisionRequest,
   DecisionResult,
   LiveSession,
-  ModelProvider,
   ProjectedProfile,
   SessionRequest,
   TurnEvent,
@@ -23,7 +24,7 @@ import type {
 interface KernelScope extends KernelRegistry {
   runTurn(
     req: TurnRequest,
-    provider: ModelProvider,
+    options?: ProviderHostOptions,
     sinkOverride?: TraceSink,
   ): AsyncGenerator<TurnEvent>;
   runSession(
@@ -33,7 +34,7 @@ interface KernelScope extends KernelRegistry {
   ): Promise<LiveSession>;
   compactHistory(
     req: CompactHistoryRequest,
-    provider: ModelProvider,
+    options?: ProviderHostOptions,
     sinkOverride?: TraceSink,
   ): Promise<CompactionResult | undefined>;
   invokeTool(request: InvokeToolRequest, sinkOverride?: TraceSink): AsyncGenerator<TurnEvent>;
@@ -43,18 +44,40 @@ interface KernelScope extends KernelRegistry {
 }
 
 /** Isolated from every other scope: a host that registers per request gives each its own. */
+function selectedTurnProvider(
+  registry: KernelRegistry,
+  req: TurnRequest,
+  options: ProviderHostOptions,
+): import('./types.ts').ModelProvider {
+  try {
+    return resolveRegisteredTurnProvider(registry, req.profile, req.model, options, req);
+  } catch (error) {
+    return {
+      complete() {
+        throw error;
+      },
+    };
+  }
+}
+
 function createKernelScope(): KernelScope {
   const registry = createKernelRegistry();
   return {
+    providers: registry.providers,
     tools: registry.tools,
     profiles: registry.profiles,
     schemas: registry.schemas,
-    runTurn: (req, provider, sinkOverride) =>
-      runTurnInRegistry(registry, req, provider, sinkOverride),
+    runTurn: (req, options = {}, sinkOverride) =>
+      runTurnInRegistry(registry, req, selectedTurnProvider(registry, req, options), sinkOverride),
     runSession: (req, options, sinkOverride) =>
       runSessionInRegistry(registry, req, options, sinkOverride),
-    compactHistory: (req, provider, sinkOverride) =>
-      compactHistoryInRegistry(registry, req, provider, sinkOverride),
+    compactHistory: (req, options = {}, sinkOverride) =>
+      compactHistoryInRegistry(
+        registry,
+        req,
+        resolveRegisteredTurnProvider(registry, req.profile, req.model, options),
+        sinkOverride,
+      ),
     invokeTool: (request, sinkOverride) => invokeTool(registry, request, sinkOverride),
     resolveTurn: (req) => resolveTurnInRegistry(registry, req),
     projectProfile: (id) => projectProfileInRegistry(registry, id),

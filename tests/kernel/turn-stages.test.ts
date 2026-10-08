@@ -1,5 +1,6 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
-import { registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
+import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type {
@@ -179,7 +180,7 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
         yield { type: 'done', stop: { kind: 'tool' }, interactionId: 'ix-1' };
         return;
       }
-      continuation = req.continuation;
+      continuation = req.history?.slice(-2);
       yield { type: 'text', text: 'after tools' };
       yield { type: 'done', stop: { kind: 'completed' } };
     },

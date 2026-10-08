@@ -2,6 +2,10 @@ import type { ErrorKind } from '../../../guardrails/error.ts';
 import { TheoremError, throwIfAborted } from '../../../guardrails/error.ts';
 import { lexiconText } from '../../../guardrails/lexicon.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
+import {
+  nestedRegisteredProvider,
+  resolveRegisteredTurnProvider,
+} from '../../provider-dispatch.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import {
   type AgentCaller,
@@ -12,7 +16,6 @@ import {
 import type { AgentCallRequest, ToolFailure } from '../../tools/types.ts';
 import type {
   ModelBinding,
-  ModelId,
   ModelProvider,
   Profile,
   TurnEvent,
@@ -27,13 +30,6 @@ const NESTED_THROWS: ReadonlySet<ErrorKind> = new Set(['config', 'request', 'aut
 
 function turnError(events: readonly TurnEvent[]): TurnEventOf<'error'> | undefined {
   return events.find((e): e is TurnEventOf<'error'> => e.type === 'error');
-}
-
-/** A turn's provider runs another profile's turn only on the same provider and protocol. */
-function providerFits(own: ModelBinding | undefined, target: Profile, model?: ModelId): boolean {
-  if (!('defaultModel' in target)) return false;
-  const theirs = target.models[model ?? target.defaultModel];
-  return own?.provider === theirs?.provider && own?.protocol === theirs?.protocol;
 }
 
 /** Runs one turn of a profile under a parent span, sharing the parent's record and canaries. */
@@ -100,7 +96,11 @@ function createAgentCaller(args: {
         return settled('refused_by_host', 'declined', shaped.refuse);
       }
       const { provider: hostProvider, ...fields }: AgentCallRequest = shaped ?? {};
-      const provider = hostProvider ?? fittingProvider(args, profile, fields.model, tool.name);
+      const provider = hostProvider
+        ? resolveRegisteredTurnProvider(args.registry, profile.id, fields.model, hostProvider)
+        : args.provider
+          ? nestedRegisteredProvider(args.provider, profile.id, fields.model)
+          : resolveRegisteredTurnProvider(args.registry, profile.id, fields.model, {});
       if (!span) {
         throw new TheoremError('internal', `Agent tool "${tool.name}" ran without a span`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
@@ -125,19 +125,6 @@ function createAgentCaller(args: {
       return agentRunOf(events, tool.name, tool.profile, lexicon);
     },
   };
-}
-
-function fittingProvider(
-  args: { provider: ModelProvider | undefined; own: ModelBinding | undefined },
-  profile: Profile,
-  model: ModelId | undefined,
-  toolName: string,
-): ModelProvider {
-  if (args.provider && (!args.own || providerFits(args.own, profile, model))) return args.provider;
-  throw new TheoremError(
-    'config',
-    `Agent tool "${toolName}" runs '${profile.id}', which this turn's provider can't run; return a provider from onAgentCall`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  );
 }
 
 /** The agent's reply, or why there is none. Errors only the host can fix are thrown. */

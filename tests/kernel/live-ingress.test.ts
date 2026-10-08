@@ -15,7 +15,6 @@ const liveBase = {
   identity: { handle: 'live', system: 'hi' },
   models: {
     gemini31FlashLive: {
-      protocol: 'geminiLive' as const,
       provider: 'google' as const,
       apiId: 'gemini-3.1-flash-live-preview',
       summaries: false,
@@ -23,9 +22,7 @@ const liveBase = {
     },
   },
   tools: { allow: [] as string[] },
-  key: 'main' as const,
 };
-
 const liveProfile = defineProfile({
   ...liveBase,
   id: 'live_ingress',
@@ -33,25 +30,21 @@ const liveProfile = defineProfile({
     ingress: { audio: true, video: true, text: false },
   },
 });
-
 Deno.test('liveIngressChannelDefault enables audio and video, disables text', () => {
   assertEquals(liveIngressChannelDefault('audio'), true);
   assertEquals(liveIngressChannelDefault('video'), true);
   assertEquals(liveIngressChannelDefault('text'), false);
 });
-
 Deno.test('liveIngressEnabledFromSpec uses channel defaults when omitted', () => {
   assertEquals(liveIngressEnabledFromSpec(undefined, 'audio'), true);
   assertEquals(liveIngressEnabledFromSpec(undefined, 'video'), true);
   assertEquals(liveIngressEnabledFromSpec(undefined, 'text'), false);
 });
-
 Deno.test('liveIngressEnabled respects live.ingress toggles', () => {
   assertEquals(liveIngressEnabled(liveProfile, 'audio'), true);
   assertEquals(liveIngressEnabled(liveProfile, 'video'), true);
   assertEquals(liveIngressEnabled(liveProfile, 'text'), false);
 });
-
 Deno.test('hasAnyLiveIngress rejects all-disabled ingress', () => {
   const blocked: LiveProfile = {
     type: 'live',
@@ -69,7 +62,6 @@ Deno.test('hasAnyLiveIngress rejects all-disabled ingress', () => {
     'at least one live.ingress channel',
   );
 });
-
 Deno.test('defineProfile rejects live profiles with every ingress channel disabled', () => {
   assertThrows(
     () =>
@@ -82,7 +74,6 @@ Deno.test('defineProfile rejects live profiles with every ingress channel disabl
     'at least one live.ingress channel',
   );
 });
-
 Deno.test('assertLiveIngress throws when channel is disabled', () => {
   assertThrows(
     () => assertLiveIngress(liveProfile, 'text'),

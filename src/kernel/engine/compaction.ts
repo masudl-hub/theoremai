@@ -64,7 +64,7 @@ export async function resolveHistoryTokens(
 /**
  * `meter: 'input'` prefers this turn's last model call (`timing: 'after'`), else the host's
  * `input.inputTokens` from the previous turn (`timing: 'before'`); `undefined` (do not fire) when
- * neither is positive. It never loads the history tokenizer.
+ * neither is positive. It never estimates history.
  */
 export async function resolveCompactionTokens(args: {
   spec: CompactionSpec;

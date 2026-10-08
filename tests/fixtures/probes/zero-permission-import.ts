@@ -1,33 +1,20 @@
-// Spawned by tests/kernel/zero-permission-import.test.ts under `deno run` with every permission denied.
-import { createProvider, defineProfile } from '../../../mod.ts';
+import { createKernelScope, defineProfile, defineProvider, openAIChat } from '../../../mod.ts';
 
-const profile = defineProfile({
-  type: 'text',
-  id: 'zero-perm-bot',
-  identity: { handle: 'z', system: 'ping' },
-  tools: { allow: [] },
-  inputs: { text: true },
-  models: {
-    local: {
-      protocol: 'openAi',
-      provider: 'local',
-      apiId: 'local-model',
-      efforts: { normal: 'minimal' },
-      summaries: false,
-      maxOutputTokens: 128,
-      temperature: 1,
-      builtInTools: [],
-    },
-  },
-  defaultModel: 'local',
+const scope = createKernelScope();
+const provider = defineProvider({
+  id: 'local',
+  connection: { baseURL: 'http://127.0.0.1:9' },
+  adapter: openAIChat(),
 });
-
-const provider = createProvider(profile, {
-  local: { baseUrl: 'http://127.0.0.1:9' },
-});
-
-if (typeof provider.complete !== 'function') {
-  throw new Error('createProvider did not return a complete() provider');
-}
-
+scope.providers.register(provider);
+scope.profiles.register(
+  defineProfile({
+    id: 'zero-perm-bot',
+    type: 'text',
+    identity: { handle: 'z' },
+    tools: { allow: [] },
+    inputs: { text: true },
+    models: { default: provider.model('model') },
+  }),
+);
 console.log('ZERO_PERM_OK');

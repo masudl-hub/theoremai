@@ -1,52 +1,16 @@
 import '../../fixtures/test-host.ts';
-import type { LanguageModelUsage, TextStreamPart, ToolSet } from 'ai';
+import { assertEquals } from '@std/assert';
 import { resolveTurn } from '../../../src/kernel/default-scope.ts';
-import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import { providerBuiltins } from '../../../src/kernel/registry/provider-request.ts';
 import { defaultKernelScope } from '../../../src/kernel/scope.ts';
-import { toolCallArguments } from '../../../src/kernel/tools/events.ts';
 import type { ProviderCompleteRequest } from '../../../src/kernel/types.ts';
-import {
-  buildTools,
-  citationCandidates,
-  createAccumulator,
-  createOpenRouterProvider,
-  eventFromPart,
-  eventsFromMetadata,
-  finalEvents,
-  finishEvent,
-  metadataAnnotations,
-  metadataRecord,
-  nestedCitations,
-  primaryEventsFromPart,
-  providerMetadataEvents,
-  providerOptionsFor,
-  rawChoiceMessageEvents,
-  rawEvents,
-  rawThoughtEvent,
-  schemaForTool,
-  sourceEvent,
-  stringArray,
-  systemDelivery,
-  tokenEvent,
-  tokensFromUsage,
-  toolCallPartEvents,
-  trimApiKey,
-} from '../../../src/providers/openrouter/chat.ts';
-import { citedUris, eventsOf, firstOf, rawCallsOf, toolEventsOf } from '../../fixtures/events.ts';
+import { createOpenRouterProvider } from '../../../src/providers/openrouter/chat.ts';
+import { citedUris, eventsOf, firstOf } from '../../fixtures/events.ts';
 import { googleBuiltins } from '../../fixtures/provider-request.ts';
 import { testWireTool } from '../../fixtures/wire-tools.ts';
 
-/** Adversarial stream part for default-branch coverage only. */
-function adversarialPart(
-  type: string,
-  extra: Record<string, unknown> = {},
-): TextStreamPart<ToolSet> {
-  return { type, ...extra } as TextStreamPart<ToolSet>;
-}
-
 type R = Record<string, unknown>;
-function field(ev: unknown, ...keys: string[]): unknown {
+function _field(ev: unknown, ...keys: string[]): unknown {
   let cur: unknown = ev;
   for (const k of keys) {
     cur = (cur as R)?.[k];
@@ -63,7 +27,31 @@ function sseResponse(chunks: string[]): Response {
     start(controller) {
       const enc = new TextEncoder();
       for (const chunk of chunks) {
-        controller.enqueue(enc.encode(chunk));
+        const normalized = chunk.replace(/data: (.+)\n/g, (line, data: string) => {
+          if (data === '[DONE]') return line;
+          try {
+            const row = JSON.parse(data);
+            if (!row || typeof row !== 'object' || Array.isArray(row)) return line;
+            row.id ??= 'response-test';
+            row.created ??= 0;
+            row.model ??= 'test-model';
+            row.object ??= 'chat.completion.chunk';
+            if (row.choices)
+              row.choices = row.choices.map((choice: Record<string, unknown>) => ({
+                index: 0,
+                finish_reason: null,
+                delta: {},
+                ...choice,
+              }));
+            if (row.usage) {
+              row.usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, ...row.usage };
+            }
+            return `data: ${JSON.stringify(row)}\n`;
+          } catch {
+            return line;
+          }
+        });
+        controller.enqueue(enc.encode(normalized));
       }
       controller.close();
     },
@@ -344,6 +332,7 @@ Deno.test('createOpenRouterProvider handles missing API key, empty stream, think
           `data: ${chunkWithThinking}\n\n`,
           `data: ${chunkWithBadTool}\n\n`,
           `data: ${chunkWithStructured}\n\n`,
+          'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
           'data: [DONE]\n\n',
         ]),
       );
@@ -470,7 +459,14 @@ Deno.test('createOpenRouterProvider emits tool call events with id, name, and pa
   });
   const provider = createOpenRouterProvider({
     vault: { slot_a: 'test-key' },
-    fetch: () => Promise.resolve(sseResponse([`data: ${toolChunk}\n\n`, 'data: [DONE]\n\n'])),
+    fetch: () =>
+      Promise.resolve(
+        sseResponse([
+          `data: ${toolChunk}\n\n`,
+          'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ),
   });
 
   const req = createMockTurnRequest('pinned', 'weather');
@@ -1271,7 +1267,7 @@ Deno.test('createOpenRouterProvider cites nothing when citation array has only n
   );
 });
 
-Deno.test('createOpenRouterProvider handles SSE with non-object raw values gracefully', async () => {
+Deno.test('createOpenRouterProvider rejects non-object SSE payloads', async () => {
   const provider = createOpenRouterProvider({
     vault: { slot_a: 'test-key' },
     fetch: () =>
@@ -1286,7 +1282,7 @@ Deno.test('createOpenRouterProvider handles SSE with non-object raw values grace
 
   const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'raw')));
   assertEquals(
-    events.some((e) => e.type === 'text'),
+    events.some((e) => e.type === 'error' && e.errorKind === 'bad_response'),
     true,
   );
 });
@@ -1315,731 +1311,4 @@ Deno.test('createOpenRouterProvider does not duplicate token events on multiple 
 
   const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'dup')));
   assertEquals(eventsOf(events, 'tokens').length, 1);
-});
-
-Deno.test('trimApiKey returns trimmed key', () => {
-  assertEquals(trimApiKey('  key  '), 'key');
-  assertEquals(trimApiKey('key'), 'key');
-  assertEquals(trimApiKey(undefined), undefined);
-  assertEquals(trimApiKey(''), undefined);
-  assertEquals(trimApiKey('   '), undefined);
-});
-
-Deno.test('createAccumulator returns fresh state', () => {
-  const acc = createAccumulator();
-  assertEquals(acc.text, '');
-  assertEquals(acc.citedUris.size, 0);
-  assertEquals(acc.reportedAnnotations.size, 0);
-  assertEquals(acc.emittedTokens, false);
-  assertEquals(acc.errored, false);
-});
-
-Deno.test('schemaForTool returns parameters when present', () => {
-  const decl = {
-    type: 'function' as const,
-    name: 'fn',
-    description: 'fn',
-    parameters: { type: 'object', properties: { x: { type: 'string' } } },
-  };
-  assertEquals(schemaForTool(decl), decl.parameters);
-});
-
-Deno.test('schemaForTool returns default schema when no parameters', () => {
-  const decl = { name: 'fn' } as Parameters<typeof schemaForTool>[0];
-  assertEquals(schemaForTool(decl), {
-    type: 'object',
-    properties: {},
-    additionalProperties: true,
-  });
-});
-
-Deno.test('buildTools returns undefined for empty tools', () => {
-  assertEquals(buildTools(undefined), undefined);
-  assertEquals(buildTools([]), undefined);
-});
-
-Deno.test('buildTools creates tool set', () => {
-  const tools = buildTools([
-    {
-      type: 'function',
-      name: 'search',
-      description: 'Find things',
-      parameters: { type: 'object', properties: {} },
-    },
-  ]);
-  assertEquals(tools !== undefined, true);
-  assertEquals('search' in (tools as R), true);
-});
-
-function usage(counts: {
-  input?: number;
-  output?: number;
-  reasoning?: number;
-  cacheRead?: number;
-  cacheWrite?: number;
-}): LanguageModelUsage {
-  return {
-    inputTokens: counts.input,
-    inputTokenDetails: {
-      noCacheTokens: undefined,
-      cacheReadTokens: counts.cacheRead,
-      cacheWriteTokens: counts.cacheWrite,
-    },
-    outputTokens: counts.output,
-    outputTokenDetails: { textTokens: undefined, reasoningTokens: counts.reasoning },
-    totalTokens:
-      counts.input === undefined && counts.output === undefined
-        ? undefined
-        : (counts.input ?? 0) + (counts.output ?? 0),
-  };
-}
-
-Deno.test('tokensFromUsage returns undefined for all zeros and for no counts', () => {
-  assertEquals(tokensFromUsage(usage({ input: 0, output: 0 })), undefined);
-  assertEquals(tokensFromUsage(usage({})), undefined);
-});
-
-Deno.test('tokensFromUsage maps reported input and output', () => {
-  assertEquals(tokensFromUsage(usage({ input: 10, output: 5 })), {
-    input: 10,
-    output: 5,
-    total: 15,
-  });
-});
-
-Deno.test('tokensFromUsage marks an unreported side estimated', () => {
-  assertEquals(tokensFromUsage(usage({ output: 5 })), {
-    input: 0,
-    output: 5,
-    total: 5,
-    estimated: ['input'],
-  });
-  assertEquals(tokensFromUsage(usage({ input: 10 })), {
-    input: 10,
-    output: 0,
-    total: 10,
-    estimated: ['output'],
-  });
-});
-
-Deno.test('tokensFromUsage keeps reasoning as a share of output', () => {
-  assertEquals(tokensFromUsage(usage({ input: 10, output: 50, reasoning: 30 })), {
-    input: 10,
-    output: 50,
-    thinking: 30,
-    total: 60,
-  });
-});
-
-Deno.test('stringArray returns string arrays', () => {
-  assertEquals(stringArray(['a', 'b']), ['a', 'b']);
-  assertEquals(stringArray([]), undefined);
-  assertEquals(stringArray('not array'), undefined);
-  assertEquals(stringArray([1, 2]), undefined);
-  assertEquals(stringArray(['a', 1, 'b']), ['a', 'b']);
-});
-
-Deno.test('metadataRecord extracts nested record', () => {
-  assertEquals(metadataRecord({ key: { nested: true } }, 'key'), {
-    nested: true,
-  });
-  assertEquals(metadataRecord({ key: 'string' }, 'key'), undefined);
-  assertEquals(metadataRecord({}, 'missing'), undefined);
-});
-
-Deno.test('citationCandidates gathers all candidate locations', () => {
-  const raw = { citations: ['a'] };
-  const candidates = citationCandidates(raw);
-  assertEquals(candidates.length, 6);
-  assertEquals(candidates[0], ['a']);
-});
-
-Deno.test('nestedCitations finds top-level citations', () => {
-  assertEquals(nestedCitations({ citations: ['url1'] }), ['url1']);
-});
-
-Deno.test('nestedCitations finds openrouter.citations', () => {
-  assertEquals(nestedCitations({ openrouter: { citations: ['url2'] } }), ['url2']);
-});
-
-Deno.test('nestedCitations finds providerMetadata.citations', () => {
-  assertEquals(nestedCitations({ providerMetadata: { citations: ['url3'] } }), ['url3']);
-});
-
-Deno.test('nestedCitations finds openrouter.providerMetadata.citations', () => {
-  assertEquals(
-    nestedCitations({
-      openrouter: { providerMetadata: { citations: ['url4'] } },
-    }),
-    ['url4'],
-  );
-});
-
-Deno.test('nestedCitations finds provider_metadata.citations', () => {
-  assertEquals(nestedCitations({ provider_metadata: { citations: ['url5'] } }), ['url5']);
-});
-
-Deno.test('nestedCitations finds openrouter.provider_metadata.citations', () => {
-  assertEquals(
-    nestedCitations({
-      openrouter: { provider_metadata: { citations: ['url6'] } },
-    }),
-    ['url6'],
-  );
-});
-
-Deno.test('nestedCitations returns undefined when no citations', () => {
-  assertEquals(nestedCitations({}), undefined);
-});
-
-Deno.test('nestedCitations filters non-string citations', () => {
-  assertEquals(nestedCitations({ citations: [1, 2] }), undefined);
-});
-
-Deno.test('metadataAnnotations finds top-level annotations', () => {
-  assertEquals(metadataAnnotations({ annotations: [{ a: 1 }] }), [{ a: 1 }]);
-});
-
-Deno.test('metadataAnnotations finds openrouter.annotations', () => {
-  assertEquals(metadataAnnotations({ openrouter: { annotations: [{ b: 2 }] } }), [{ b: 2 }]);
-});
-
-Deno.test('metadataAnnotations returns undefined when none', () => {
-  assertEquals(metadataAnnotations({}), undefined);
-});
-
-Deno.test('metadataAnnotations ignores non-array annotations', () => {
-  assertEquals(metadataAnnotations({ annotations: 'not array' }), undefined);
-});
-
-Deno.test('eventsFromMetadata cites each URL once per call', () => {
-  const acc = createAccumulator();
-  assertEquals(eventsFromMetadata({ citations: ['url'] }, acc), [
-    { type: 'citation', sources: [{ title: 'url', uri: 'url', type: 'web' }] },
-  ]);
-  assertEquals(eventsFromMetadata({ citations: ['url'] }, acc), []);
-});
-
-Deno.test('eventsFromMetadata reads nothing from a non-record', () => {
-  const acc = createAccumulator();
-  assertEquals(eventsFromMetadata(null, acc), []);
-  assertEquals(eventsFromMetadata('string', acc), []);
-});
-
-Deno.test('eventsFromMetadata is empty without citations or annotations', () => {
-  assertEquals(eventsFromMetadata({}, createAccumulator()), []);
-});
-
-Deno.test('eventsFromMetadata cites url_citation annotations and reports others once', () => {
-  const acc = createAccumulator();
-  const file = { type: 'file', file: { name: 'a.pdf' } };
-  const metadata = {
-    annotations: [
-      { type: 'url_citation', url_citation: { url: 'https://a.com', title: 'A' } },
-      file,
-    ],
-  };
-  assertEquals(eventsFromMetadata(metadata, acc), [
-    { type: 'citation', sources: [{ title: 'A', uri: 'https://a.com', type: 'web' }] },
-    {
-      type: 'evidence',
-      evidence: {
-        provider: 'openrouter',
-        kind: 'provider_step',
-        step: 'annotations',
-        raw: { annotations: [file] },
-      },
-    },
-  ]);
-  assertEquals(eventsFromMetadata(metadata, acc), []);
-});
-
-Deno.test('toolCallArguments keeps object input', () => {
-  assertEquals(toolCallArguments({ a: 1 }), { a: 1 });
-});
-
-Deno.test('toolCallArguments reads no input as no arguments', () => {
-  assertEquals(toolCallArguments(undefined), {});
-});
-
-Deno.test('toolCallArguments wraps non-object input', () => {
-  assertEquals(toolCallArguments('str'), { value: 'str' });
-  assertEquals(toolCallArguments(42), { value: 42 });
-  assertEquals(toolCallArguments([1, 2]), { value: [1, 2] });
-});
-
-Deno.test('rawThoughtEvent extracts thinking from delta', () => {
-  const raw = { choices: [{ delta: { thinking: 'pondering...' } }] };
-  assertEquals(rawThoughtEvent(raw), { type: 'thought', text: 'pondering...' });
-});
-
-Deno.test('rawThoughtEvent returns undefined for non-string thinking', () => {
-  assertEquals(rawThoughtEvent({ choices: [{ delta: { thinking: 42 } }] }), undefined);
-});
-
-Deno.test('rawThoughtEvent returns undefined without choices', () => {
-  assertEquals(rawThoughtEvent({}), undefined);
-  assertEquals(rawThoughtEvent({ choices: 'not array' }), undefined);
-});
-
-Deno.test('rawChoiceMessageEvents cites from a buffered message', () => {
-  const raw = { choices: [{ message: { citations: ['url'] } }] };
-  assertEquals(rawChoiceMessageEvents(raw, createAccumulator()), [
-    { type: 'citation', sources: [{ title: 'url', uri: 'url', type: 'web' }] },
-  ]);
-});
-
-Deno.test('rawChoiceMessageEvents is empty without choices', () => {
-  assertEquals(rawChoiceMessageEvents({}, createAccumulator()), []);
-});
-
-Deno.test('rawChoiceMessageEvents skips non-object messages', () => {
-  assertEquals(
-    rawChoiceMessageEvents({ choices: [{ message: 'not object' }] }, createAccumulator()),
-    [],
-  );
-});
-
-Deno.test('rawEvents collects thought and citation', () => {
-  const acc = createAccumulator();
-  const raw = {
-    choices: [{ delta: { thinking: 'hmm' } }],
-    citations: ['url'],
-  };
-  const events = rawEvents(raw, acc);
-  assertEquals(events.length, 2);
-  assertEquals(events[0].type, 'thought');
-  assertEquals(events[1].type, 'citation');
-});
-
-Deno.test('rawEvents returns empty for non-record', () => {
-  const acc = createAccumulator();
-  assertEquals(rawEvents(null, acc), []);
-  assertEquals(rawEvents('string', acc), []);
-});
-
-Deno.test('toolCallPartEvents maps a tool call part to the raw call', () => {
-  const part = {
-    type: 'tool-call' as const,
-    toolName: 'search',
-    toolCallId: 'c1',
-    input: { q: 'x' },
-  };
-  assertEquals(toolCallPartEvents(part), [
-    { type: 'tool', tool: { name: 'search', callId: 'c1', arguments: { q: 'x' } } },
-  ]);
-});
-
-Deno.test('toolCallPartEvents fails a call the SDK could not parse, keeping what arrived', () => {
-  const events = toolCallPartEvents({
-    type: 'tool-call',
-    toolName: 'search',
-    toolCallId: 'c2',
-    input: '{not json',
-    dynamic: true,
-    invalid: true,
-    error: new Error('Invalid JSON'),
-  });
-  assertEquals(rawCallsOf(events), [{ name: 'search', callId: 'c2', arguments: {} }]);
-  assertEquals(
-    toolEventsOf(events, 'error').map((failed) => failed.failure),
-    [
-      {
-        code: 'malformed_arguments',
-        kind: 'bad_response',
-        message: 'Invalid JSON',
-        details: { raw: '{not json' },
-      },
-    ],
-  );
-});
-
-Deno.test('toolCallPartEvents fails non-object arguments like every transport', () => {
-  const events = toolCallPartEvents({
-    type: 'tool-call',
-    toolName: 'search',
-    toolCallId: 'c3',
-    input: ['x'],
-  });
-  assertEquals(rawCallsOf(events), [{ name: 'search', callId: 'c3', arguments: {} }]);
-  assertEquals(
-    toolEventsOf(events, 'error').map((failed) => failed.failure.code),
-    ['malformed_arguments'],
-  );
-});
-
-Deno.test('tokenEvent returns undefined for zero usage', () => {
-  const part = {
-    type: 'finish' as const,
-    totalUsage: usage({ input: 0, output: 0 }),
-  };
-  assertEquals(tokenEvent(part), undefined);
-});
-
-Deno.test('tokenEvent returns token event for non-zero usage', () => {
-  const part = {
-    type: 'finish' as const,
-    totalUsage: usage({ input: 10, output: 5 }),
-  };
-  const ev = tokenEvent(part);
-  assertEquals(ev?.type, 'tokens');
-  assertEquals(field(ev, 'tokens'), { input: 10, output: 5, total: 15 });
-});
-
-Deno.test('finishEvent suppresses duplicate token emission', () => {
-  const acc = createAccumulator();
-  const part = {
-    type: 'finish' as const,
-    totalUsage: usage({ input: 10, output: 5 }),
-  };
-  const first = finishEvent(part, acc);
-  assertEquals(first?.type, 'tokens');
-  assertEquals(acc.emittedTokens, true);
-  const second = finishEvent(part, acc);
-  assertEquals(second, undefined);
-});
-
-Deno.test('sourceEvent maps a URL source to a citation', () => {
-  const part = {
-    type: 'source' as const,
-    sourceType: 'url' as const,
-    id: 's1',
-    url: 'https://example.com',
-    title: 'Example',
-  };
-  assertEquals(sourceEvent(part, createAccumulator()), {
-    type: 'citation',
-    sources: [{ title: 'Example', uri: 'https://example.com', type: 'web' }],
-  });
-});
-
-Deno.test('sourceEvent uses url as title fallback', () => {
-  const part = {
-    type: 'source' as const,
-    sourceType: 'url' as const,
-    id: 's1',
-    url: 'https://example.com',
-  };
-  assertEquals(sourceEvent(part, createAccumulator()), {
-    type: 'citation',
-    sources: [{ title: 'https://example.com', uri: 'https://example.com', type: 'web' }],
-  });
-});
-
-Deno.test('sourceEvent maps a non-url source to a provider_step', () => {
-  const part = {
-    type: 'source' as const,
-    sourceType: 'document' as const,
-    id: 'd1',
-    mediaType: 'application/pdf',
-    title: 'Doc',
-  };
-  assertEquals(sourceEvent(part, createAccumulator()), {
-    type: 'evidence',
-    evidence: { provider: 'openrouter', kind: 'provider_step', step: 'source', raw: { ...part } },
-  });
-});
-
-Deno.test('primaryEventsFromPart maps text-delta', () => {
-  const acc = createAccumulator();
-  assertEquals(primaryEventsFromPart(adversarialPart('text-delta', { text: 'chunk' }), acc), [
-    { type: 'text', text: 'chunk' },
-  ]);
-  assertEquals(acc.text, 'chunk');
-});
-
-Deno.test('primaryEventsFromPart maps reasoning-delta', () => {
-  const acc = createAccumulator();
-  assertEquals(
-    primaryEventsFromPart(adversarialPart('reasoning-delta', { text: 'thinking' }), acc),
-    [{ type: 'thought', text: 'thinking' }],
-  );
-});
-
-Deno.test('primaryEventsFromPart maps error', () => {
-  const acc = createAccumulator();
-  const events = primaryEventsFromPart(adversarialPart('error', { error: 'boom' }), acc);
-  assertEquals(
-    events.map((e) => e.type),
-    ['error'],
-  );
-  assertEquals(acc.errored, true);
-});
-
-Deno.test('primaryEventsFromPart cites a source once', () => {
-  const acc = createAccumulator();
-  const source = adversarialPart('source', { sourceType: 'url', id: 's1', url: 'https://a.com' });
-  assertEquals(
-    primaryEventsFromPart(source, acc).map((e) => e.type),
-    ['citation'],
-  );
-  assertEquals(acc.citedUris.has('https://a.com'), true);
-  assertEquals(primaryEventsFromPart(source, acc), []);
-});
-
-Deno.test('primaryEventsFromPart is empty for unknown types', () => {
-  assertEquals(primaryEventsFromPart(adversarialPart('unknown-thing'), createAccumulator()), []);
-});
-
-Deno.test('eventFromPart falls through to providerMetadata', () => {
-  const acc = createAccumulator();
-  const part = adversarialPart('step-start', {
-    providerMetadata: { citations: ['url'] },
-  });
-  const events = eventFromPart(part, acc);
-  assertEquals(
-    events.map((e) => e.type),
-    ['citation'],
-  );
-});
-
-Deno.test('eventFromPart returns empty for no match', () => {
-  const acc = createAccumulator();
-  const part = adversarialPart('step-start');
-  const events = eventFromPart(part, acc);
-  assertEquals(events.length, 0);
-});
-
-Deno.test('finalEvents emits structured and done', () => {
-  const acc = createAccumulator();
-  acc.text = '{"answer":"yes"}';
-  const req = createMockTurnRequest('formatter', 'test');
-  const events = [...finalEvents(req, acc)];
-  const hasStructured = events.some((e) => e.type === 'structured');
-  const hasDone = events.some((e) => e.type === 'done');
-  assertEquals(hasDone, true);
-  if (req.structured) {
-    assertEquals(hasStructured, true);
-  }
-});
-
-Deno.test('finalEvents errors when structured text is not valid JSON', () => {
-  const acc = createAccumulator();
-  acc.text = 'not valid json';
-  const req = createMockTurnRequest('formatter', 'test');
-  const events = [...finalEvents(req, acc)];
-  assertEquals(events.length, 1);
-  const error = firstOf(events, 'error');
-  assertEquals(error?.errorKind, 'bad_response');
-  assertEquals(error?.errorInternal, 'structured output was not valid JSON');
-});
-
-Deno.test('finalEvents skips when errored', () => {
-  const acc = createAccumulator();
-  acc.errored = true;
-  acc.text = '{"answer":"yes"}';
-  const req = createMockTurnRequest('formatter', 'test');
-  const events = [...finalEvents(req, acc)];
-  assertEquals(events.length, 0);
-});
-
-Deno.test('finalEvents emits done only when no structured text', () => {
-  const acc = createAccumulator();
-  acc.text = '';
-  const req = createMockTurnRequest('pinned', 'test');
-  const events = [...finalEvents(req, acc)];
-  assertEquals(events.length, 1);
-  assertEquals(events[0].type, 'done');
-});
-
-Deno.test('rawEvents emits the response identity once, when a row first names it', () => {
-  const acc = createAccumulator();
-  const first = rawEvents({ id: 'gen-7', model: 'vendor/model-a', choices: [] }, acc);
-  assertEquals(first[0], { type: 'response', response: { id: 'gen-7', model: 'vendor/model-a' } });
-  assertEquals(rawEvents({ id: 'gen-7', model: 'vendor/model-a', choices: [] }, acc), []);
-  const req = createMockTurnRequest('pinned', 'test');
-  assertEquals(
-    [...finalEvents(req, acc)].map((e) => e.type),
-    ['done'],
-  );
-});
-
-Deno.test('providerOptionsFor returns undefined for no thinking no structured', () => {
-  const req = createMockTurnRequest('pinned', 'test');
-  req.thinking = undefined;
-  req.structured = null;
-  assertEquals(providerOptionsFor(req), undefined);
-});
-
-Deno.test('providerOptionsFor sends effort none', () => {
-  const req = createMockTurnRequest('pinned', 'test');
-  req.thinking = 'none';
-  req.structured = null;
-  assertEquals(field(providerOptionsFor(req), 'openrouter', 'reasoning'), { effort: 'none' });
-});
-
-Deno.test('providerOptionsFor includes reasoning effort', () => {
-  const req = createMockTurnRequest('pinned', 'test');
-  req.thinking = 'high';
-  req.structured = null;
-  const opts = providerOptionsFor(req);
-  assertEquals(field(opts, 'openrouter', 'reasoning'), { effort: 'high' });
-});
-
-Deno.test('providerOptionsFor includes automatic cacheControl and session_id', () => {
-  const req = createMockTurnRequest('pinned', 'test');
-  req.thinking = 'none';
-  req.structured = null;
-  req.cache = { mode: 'automatic', ttl: '5m' };
-  req.sessionId = 'sticky-1';
-  const opts = providerOptionsFor(req);
-  assertEquals(field(opts, 'openrouter', 'cacheControl'), {
-    type: 'ephemeral',
-    ttl: '5m',
-  });
-  assertEquals(field(opts, 'openrouter', 'session_id'), 'sticky-1');
-});
-
-Deno.test('providerOptionsFor omits cacheControl for system mode (message-level only)', () => {
-  const req = createMockTurnRequest('pinned', 'test');
-  req.thinking = 'none';
-  req.structured = null;
-  req.cache = { mode: 'system' };
-  const opts = providerOptionsFor(req);
-  assertEquals(field(opts, 'openrouter', 'cacheControl'), undefined);
-});
-
-Deno.test('systemDelivery uses instructions for automatic/default and XOR system message for system mode', () => {
-  const base = createMockTurnRequest('pinned', 'test');
-  base.system = 'Stable persona';
-  base.thinking = 'none';
-  base.structured = null;
-
-  const automatic = systemDelivery({
-    ...base,
-    cache: { mode: 'automatic', ttl: '1h' },
-  });
-  assertEquals(automatic.instructions, 'Stable persona');
-  assertEquals(automatic.systemMessage, undefined);
-
-  const systemMode = systemDelivery({
-    ...base,
-    cache: { mode: 'system', ttl: '5m' },
-  });
-  assertEquals(systemMode.instructions, undefined);
-  assertEquals(systemMode.systemMessage?.role, 'system');
-  assertEquals(field(systemMode.systemMessage, 'providerOptions', 'openrouter', 'cacheControl'), {
-    type: 'ephemeral',
-    ttl: '5m',
-  });
-  assertEquals(
-    (systemMode.systemMessage as { content?: string } | undefined)?.content,
-    'Stable persona',
-  );
-
-  const empty = systemDelivery({ ...base, system: '' });
-  assertEquals(empty.instructions, undefined);
-  assertEquals(empty.systemMessage, undefined);
-});
-
-Deno.test('tokensFromUsage maps AI SDK cache read/write details', () => {
-  assertEquals(tokensFromUsage(usage({ input: 100, output: 5, cacheRead: 80, cacheWrite: 20 })), {
-    input: 100,
-    output: 5,
-    cached: 80,
-    cacheWrite: 20,
-    total: 105,
-  });
-});
-
-Deno.test('rawEvents emits tokens with cached from usage', () => {
-  const acc = createAccumulator();
-  const events = rawEvents(
-    {
-      choices: [{ finish_reason: 'stop' }],
-      usage: {
-        prompt_tokens: 50,
-        completion_tokens: 2,
-        prompt_tokens_details: { cached_tokens: 40 },
-      },
-    },
-    acc,
-  );
-  const tokenEv = firstOf(events, 'tokens');
-  assertEquals(tokenEv?.tokens?.cached, 40);
-  assertEquals(acc.emittedTokens, true);
-});
-
-Deno.test('providerMetadataEvents is empty without providerMetadata', () => {
-  const part = adversarialPart('text-delta', { text: 'x' });
-  assertEquals(providerMetadataEvents(part, createAccumulator()), []);
-});
-
-Deno.test('providerMetadataEvents cites from providerMetadata', () => {
-  const part = adversarialPart('step-finish', { providerMetadata: { citations: ['url'] } });
-  assertEquals(
-    providerMetadataEvents(part, createAccumulator()).map((e) => e.type),
-    ['citation'],
-  );
-});
-
-Deno.test('a buffered OpenRouter turn asks for one reply and emits what a stream would', async () => {
-  const bodies: Record<string, unknown>[] = [];
-  const reply = {
-    id: 'gen-1',
-    model: 'google/gemini-3-flash',
-    choices: [
-      {
-        finish_reason: 'tool_calls',
-        message: {
-          role: 'assistant',
-          content: 'looking',
-          reasoning: 'need the record',
-          annotations: [
-            { type: 'url_citation', url_citation: { url: 'https://example.com/a', title: 'A' } },
-          ],
-          tool_calls: [
-            {
-              id: 'call_1',
-              type: 'function',
-              function: { name: 'lookup', arguments: '{"q":"record"}' },
-            },
-          ],
-        },
-      },
-    ],
-    usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8, cost: 0.001 },
-  };
-  const provider = createOpenRouterProvider({
-    vault: { slot_a: 'mock-auth-token' },
-    fetch: (_url, init) => {
-      bodies.push(JSON.parse(String(init?.body)));
-      return Promise.resolve(Response.json(reply));
-    },
-  });
-  const events = await Array.fromAsync(
-    provider.complete({
-      ...createMockTurnRequest('pinned', 'find it'),
-      stream: false,
-      structured: null,
-      wireTools: [
-        testWireTool('lookup', {
-          description: 'Look up a record',
-          parameters: { type: 'object', properties: { q: { type: 'string' } } },
-        }),
-      ],
-    }),
-  );
-  assertEquals(bodies.length, 1);
-  assertEquals(bodies[0]?.stream, undefined);
-  assertEquals(
-    eventsOf(events, 'text').map((e) => e.text),
-    ['looking'],
-  );
-  assertEquals(
-    eventsOf(events, 'thought').map((e) => e.text),
-    ['need the record'],
-  );
-  assertEquals(citedUris(events), ['https://example.com/a']);
-  assertEquals(firstOf(events, 'tool')?.tool, {
-    name: 'lookup',
-    callId: 'call_1',
-    arguments: { q: 'record' },
-  });
-  assertEquals(firstOf(events, 'tokens')?.tokens.cost, { usd: 0.001 });
-  assertEquals(firstOf(events, 'response')?.response, {
-    id: 'gen-1',
-    model: 'google/gemini-3-flash',
-  });
-  assertEquals(eventsOf(events, 'done').length, 1);
 });

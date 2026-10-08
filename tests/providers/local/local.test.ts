@@ -411,3 +411,47 @@ Deno.test('summaries off drops local thinking text, streamed or buffered', async
     );
   }
 });
+
+Deno.test('compatible chat encodes and normalizes structured output for streamed and buffered responses', async () => {
+  for (const stream of [true, false]) {
+    const provider = createLocalProvider({
+      baseUrl: 'https://deployment.test',
+      fetch(_input, init) {
+        const body = JSON.parse(String(init?.body));
+        assertEquals(body.response_format.type, 'json_schema');
+        assertEquals(body.response_format.json_schema.name, 'reply');
+        const choice = {
+          delta: { content: '{"answer":"yes"}' },
+          message: { content: '{"answer":"yes"}' },
+          finish_reason: 'stop',
+        };
+        return Promise.resolve(
+          stream
+            ? sseResponse([
+                `data: ${JSON.stringify({ choices: [choice] })}\n\n`,
+                'data: [DONE]\n\n',
+              ])
+            : Response.json({ choices: [choice] }),
+        );
+      },
+    });
+    const events = await Array.fromAsync(
+      provider.complete(
+        baseReq({
+          stream,
+          structured: {
+            id: 'reply',
+            jsonSchema: {
+              type: 'object',
+              properties: { answer: { type: 'string' } },
+              required: ['answer'],
+              additionalProperties: false,
+            },
+          },
+        }),
+      ),
+    );
+    assertEquals(firstOf(events, 'structured')?.structured, { answer: 'yes' });
+    assertEquals(events.at(-1)?.type, 'done');
+  }
+});

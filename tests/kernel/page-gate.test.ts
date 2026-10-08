@@ -1,8 +1,9 @@
+import { createTestKernelScope as createKernelScope } from '../fixtures/provider-scope.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import { createKernelScope, type KernelScope } from '../../src/kernel/scope.ts';
+import type { KernelScope } from '../../src/kernel/scope.ts';
 import { answerGatedCall } from '../../src/kernel/tools/gate-answer.ts';
 import type { PageAnswer } from '../../src/kernel/tools/types.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';

@@ -6,7 +6,8 @@ const HTTP_QUOTA = 429;
 
 /** The key in `slot`. One vault serves every provider; a slot holds whatever secret the host put there. */
 export function requireKey(vault: KeyVault | undefined, slot: KeySlot): string {
-  const key = vault?.[slot]?.trim();
+  const entry = vault?.[slot];
+  const key = typeof entry === 'string' ? entry.trim() : undefined;
   if (!key) {
     throw new TheoremError('auth', `the vault has no key in slot '${slot}'`);
   }
@@ -19,11 +20,28 @@ export function fallbackKey(
   vault: KeyVault | undefined,
   primary: string,
 ): { slot: KeySlot; key: string } | undefined {
-  const key = slot ? vault?.[slot]?.trim() : undefined;
+  const entry = slot ? vault?.[slot] : undefined;
+  const key = typeof entry === 'string' ? entry.trim() : undefined;
   if (!slot || !key || key === primary) {
     return undefined;
   }
   return { slot, key };
+}
+
+export async function resolveFallbackKey(
+  slot: KeySlot | undefined,
+  vault: KeyVault | undefined,
+  primary: string,
+  signal?: AbortSignal | null,
+): Promise<{ slot: KeySlot; key: string } | undefined> {
+  if (!slot) return undefined;
+  const entry = vault?.[slot];
+  const value =
+    typeof entry === 'function'
+      ? await entry({ providerId: '', apiId: '', keySlot: slot, signal: signal ?? undefined })
+      : entry;
+  const key = typeof value === 'string' ? value.trim() : undefined;
+  return key && key !== primary ? { slot, key } : undefined;
 }
 
 /**
@@ -39,16 +57,15 @@ export function bearerFetch(
   backoff: (send: typeof fetch) => typeof fetch = (tapped) => tapped,
 ): typeof fetch {
   const first = backoff(tapFetch(req.tapUpstream, send, req.keySlot));
-  const fallback = req.keySlot ? fallbackKey(req.fallbackKeySlot, vault, primary) : undefined;
-  if (!fallback) {
-    return first;
-  }
-  const second = backoff(tapFetch(req.tapUpstream, send, fallback.slot));
+  if (!req.fallbackKeySlot) return first;
   return async (url, init) => {
     const res = await first(url, init);
     if (res.status !== HTTP_QUOTA) {
       return res;
     }
+    const fallback = await resolveFallbackKey(req.fallbackKeySlot, vault, primary, init?.signal);
+    if (!fallback) return res;
+    const second = backoff(tapFetch(req.tapUpstream, send, fallback.slot));
     await res.body?.cancel();
     const headers = new Headers(init?.headers);
     headers.set('Authorization', `Bearer ${fallback.key}`);

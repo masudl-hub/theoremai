@@ -1,7 +1,8 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
-import { runTurn } from '../../src/kernel/default-scope.ts';
+
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { firstOf } from '../fixtures/events.ts';

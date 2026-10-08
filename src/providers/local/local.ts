@@ -12,10 +12,15 @@ import type {
   ProviderEvent,
   TurnResponse,
 } from '../../kernel/types.ts';
-import { buildChatMessages, wireTools } from '../openrouter/openai/compat.ts';
+import {
+  buildChatMessages,
+  resolveResponseFormat,
+  wireTools,
+} from '../openrouter/openai/compat.ts';
 import { openAiResponse, openAiUsageTokens } from '../openrouter/openai/usage.ts';
 import { foldResponse } from '../shared/response-identity.ts';
 import { parseSseStream } from '../shared/sse.ts';
+import { structuredEvent } from '../shared/structured-output.ts';
 import { toolCallEvents } from '../shared/tool-args.ts';
 import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
 import { bearerFetch, requireKey } from '../shared/vault.ts';
@@ -66,6 +71,7 @@ function buildBody(req: ProviderCompleteRequest): Record<string, unknown> {
   };
   if (body.stream) body.stream_options = { include_usage: true };
   if (req.thinking) body.reasoning_effort = req.thinking;
+  if (req.structured) body.response_format = resolveResponseFormat(req.structured);
   const tools = wireTools(req.wireTools);
   if (tools) body.tools = tools;
   return body;
@@ -95,12 +101,12 @@ function localFetch(
 }
 
 async function* streamComplete(
-  baseUrl: string,
+  endpoint: string,
   req: ProviderCompleteRequest,
   config: LocalTransport,
 ): AsyncGenerator<ProviderEvent> {
   const { send, headers } = localFetch(req, config);
-  const res = await send(`${baseUrl}/v1/chat/completions`, {
+  const res = await send(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(buildBody(req)),
@@ -154,9 +160,12 @@ function* bufferedOpenAiBody(
     );
   }
   const finish = choice?.finish_reason;
+  const stop = turnStopFromOpenAiFinishReason(typeof finish === 'string' ? finish : null);
+  if (req.structured && message?.content && stop.kind === 'completed')
+    yield structuredEvent(message.content);
   yield {
     type: 'done',
-    stop: turnStopFromOpenAiFinishReason(typeof finish === 'string' ? finish : null),
+    stop,
   };
 }
 
@@ -166,6 +175,7 @@ async function* streamOpenAiBody(
 ): AsyncGenerator<ProviderEvent> {
   const pending = new Map<number, PendingToolCall>();
   let finishReason: string | null | undefined;
+  let text = '';
   let response: TurnResponse | undefined;
   for await (const raw of parseSseStream(body)) {
     req.tapUpstream?.(raw);
@@ -176,6 +186,7 @@ async function* streamOpenAiBody(
     if (tokens) yield { type: 'tokens', tokens };
     const choice = firstOpenAiChoice(raw);
     if (!choice) continue;
+    if (choice.delta?.content) text += choice.delta.content;
     yield* thoughtEvents(choice.delta, req);
     yield* eventsFromChoiceDelta(choice.delta, pending);
     if (choice.finish_reason != null) {
@@ -184,10 +195,9 @@ async function* streamOpenAiBody(
     }
   }
   for (const event of flushPending(pending)) yield event;
-  yield {
-    type: 'done',
-    stop: turnStopFromOpenAiFinishReason(finishReason),
-  };
+  const stop = turnStopFromOpenAiFinishReason(finishReason);
+  if (req.structured && text && stop.kind === 'completed') yield structuredEvent(text);
+  yield { type: 'done', stop };
 }
 
 function firstOpenAiChoice(raw: Record<string, unknown>): OpenAiChoice | undefined {
@@ -238,19 +248,25 @@ function accumulateToolCalls(
   }
 }
 
-/** Creates a provider for a local OpenAI-compatible server, streaming chat completions from its `/v1/chat/completions`; a failure other than an abort is returned as an error event. */
-function createLocalProvider(config: LocalTransport): ModelProvider {
-  const baseUrl = resolveBaseUrl(config);
+/** A chat-completions codec at the endpoint selected by its adapter; aborts propagate and other failures become error events. */
+function chatProvider(endpoint: string, config: LocalTransport): ModelProvider {
   return {
     async *complete(req: ProviderCompleteRequest): AsyncGenerator<ProviderEvent> {
       try {
-        yield* streamComplete(baseUrl, req, config);
+        yield* streamComplete(endpoint, req, config);
       } catch (err) {
         if (isAbortError(err)) throw err;
         yield toErrorEvent(err);
       }
     },
   };
+}
+
+function createLocalProvider(config: LocalTransport): ModelProvider {
+  return chatProvider(`${resolveBaseUrl(config)}/v1/chat/completions`, config);
+}
+export function createCompatibleChatProvider(config: LocalTransport): ModelProvider {
+  return chatProvider(`${resolveBaseUrl(config)}/chat/completions`, config);
 }
 
 export { buildChatMessages as historyToWire, createLocalProvider, wireTools as toolsToWire };

@@ -1,3 +1,8 @@
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
+
+registerFixtureProviders(defaultKernelScope);
+
 import { TheoremError } from '../../src/guardrails/error.ts';
 import {
   clearProfiles,
@@ -12,37 +17,31 @@ import type { ModelBinding, TurnRequest } from '../../src/kernel/types.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 
 registerGooglePreset();
-
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, value: actual }, { label, value: expected });
 }
-
 type Loose = Record<string, unknown>;
-
 const GEMINI = {
-  protocol: 'geminiInteractions',
   provider: 'google',
   apiId: 'g',
-  persistViaInteractionId: true,
+  providerOptions: {
+    persistViaInteractionId: true,
+  },
 } as const;
-const SONAR = { protocol: 'openAi', provider: 'openrouter', apiId: 'x/y' } as const;
-
+const SONAR = { provider: 'openrouter', apiId: 'x/y' } as const;
 function define(id: string, over: Loose = {}): void {
   registerProfile({
     id,
     type: 'text',
     identity: { handle: id },
-    key: 'main',
     models: { m: { ...GEMINI } },
     tools: { allow: [] },
     inputs: { text: true },
     ...over,
   } as never);
 }
-
 const withModel = (over: Loose): Loose => ({ models: { m: { ...GEMINI, ...over } } });
-
 /** What resolving says, or the generation when it takes. */
 function resolved(request: TurnRequest) {
   try {
@@ -52,13 +51,11 @@ function resolved(request: TurnRequest) {
     return err.message;
   }
 }
-
 const turn = (id: string, extra: Partial<TurnRequest> = {}): TurnRequest => ({
   profile: id,
   input: { text: 'hi' },
   ...extra,
 });
-
 Deno.test('a turn may name a model only when the profile allows selection and declares it', () => {
   clearProfiles();
   define('fixed');
@@ -73,16 +70,43 @@ Deno.test('a turn may name a model only when the profile allows selection and de
     'not allowed',
   );
   check(resolved(turn('select', { model: 'zzz' })), "Unknown model 'zzz' for select", 'unknown');
-  check((resolved(turn('select', { model: 'b' })) as { model: string }).model, 'b', 'chosen');
-  check((resolved(turn('select')) as { model: string }).model, 'a', 'default');
   check(
-    (resolved(turn('select', { model: '' })) as { model: string }).model,
+    (
+      resolved(turn('select', { model: 'b' })) as {
+        model: string;
+      }
+    ).model,
+    'b',
+    'chosen',
+  );
+  check(
+    (
+      resolved(turn('select')) as {
+        model: string;
+      }
+    ).model,
+    'a',
+    'default',
+  );
+  check(
+    (
+      resolved(turn('select', { model: '' })) as {
+        model: string;
+      }
+    ).model,
     'a',
     'an empty request is none',
   );
-  check((resolved(turn('fixed')) as { apiId: string }).apiId, 'g', 'the sole model');
+  check(
+    (
+      resolved(turn('fixed')) as {
+        apiId: string;
+      }
+    ).apiId,
+    'g',
+    'the sole model',
+  );
 });
-
 Deno.test('an effort is chosen by alias when the model allows it, else the default alias', () => {
   clearProfiles();
   define('none');
@@ -93,8 +117,11 @@ Deno.test('an effort is chosen by alias when the model allows it, else the defau
   );
   define('locked', withModel({ efforts: { a: 'low', b: 'high' }, defaultEffort: 'b' }));
   const thinking = (id: string, effort?: string) =>
-    (resolved(turn(id, effort ? { effort } : {})) as { thinking: unknown }).thinking;
-
+    (
+      resolved(turn(id, effort ? { effort } : {})) as {
+        thinking: unknown;
+      }
+    ).thinking;
   check(thinking('none'), undefined, 'no efforts, none asked');
   check(
     resolved(turn('none', { effort: 'a' })),
@@ -116,18 +143,21 @@ Deno.test('an effort is chosen by alias when the model allows it, else the defau
   );
   check(thinking('locked'), 'high', 'the default alias when locked');
 });
-
 Deno.test('a summaries flag becomes a mode, and left unset stays unset', () => {
   clearProfiles();
   define('on', withModel({ summaries: true }));
   define('off', withModel({ summaries: false }));
   define('unset');
-  const summaries = (id: string) => (resolved(turn(id)) as { summaries: unknown }).summaries;
+  const summaries = (id: string) =>
+    (
+      resolved(turn(id)) as {
+        summaries: unknown;
+      }
+    ).summaries;
   check(summaries('on'), 'auto', 'true');
   check(summaries('off'), 'none', 'false');
   check(summaries('unset'), undefined, 'unset');
 });
-
 Deno.test('a structured output is picked by the slot value, else its fallback', () => {
   clearProfiles();
   registerStructured('resolve.happy', { jsonSchema: { type: 'object', title: 'happy' } });
@@ -162,58 +192,52 @@ Deno.test('a structured output is picked by the slot value, else its fallback', 
     'mapped sad',
   );
   check(
-    (structured('mapped', { mood: 'meh' }) as { id: string }).id,
+    (
+      structured('mapped', { mood: 'meh' }) as {
+        id: string;
+      }
+    ).id,
     'resolve.other',
     'a choice not mapped',
   );
-  check((structured('mapped') as { id: string }).id, 'resolve.other', 'no slots');
-  check((structured('mapped', {}) as { id: string }).id, 'resolve.other', 'slot left out');
-  check((structured('named') as { id: string }).id, 'resolve.sad', 'a named schema');
+  check(
+    (
+      structured('mapped') as {
+        id: string;
+      }
+    ).id,
+    'resolve.other',
+    'no slots',
+  );
+  check(
+    (
+      structured('mapped', {}) as {
+        id: string;
+      }
+    ).id,
+    'resolve.other',
+    'slot left out',
+  );
+  check(
+    (
+      structured('named') as {
+        id: string;
+      }
+    ).id,
+    'resolve.sad',
+    'a named schema',
+  );
   check(structured('plain'), null, 'none declared');
 });
-
-Deno.test('the transport follows the model, streaming follows the profile, and chains need interactions', () => {
+Deno.test('streaming follows the profile independently of its registered adapter', () => {
   clearProfiles();
   define('gem');
   define('router', { models: { m: { ...SONAR } } });
   define('buffered', { outputs: { streaming: { mode: 'buffered' } } });
-  define('streamed', { outputs: { streaming: { mode: 'stream' } } });
-  define('nochain', withModel({ persistViaInteractionId: false, store: true }));
-  const gen = (id: string, extra: Partial<TurnRequest> = {}) =>
-    resolved(turn(id, extra)) as unknown as Record<string, unknown>;
-  check(gen('gem').transport, 'interactions', 'gemini');
-  check(gen('router').transport, 'openAiCompat', 'openrouter');
-  check(gen('gem').stream, true, 'default streaming');
-  check(gen('streamed').stream, true, 'streamed');
-  check(gen('buffered').stream, false, 'buffered');
-  check(gen('gem').chains, true, 'chains on interactions');
-  check(gen('router').chains, false, 'no chains elsewhere');
-  check(gen('nochain').chains, false, 'persistence off');
-  check(
-    gen('gem', { previousInteractionId: 'i1' }).previousInteractionId,
-    'i1',
-    'the id rides when chaining',
-  );
-  check(
-    resolved(turn('nochain', { previousInteractionId: 'i1' })),
-    "Profile nochain model 'm': previousInteractionId needs a binding with persistViaInteractionId: true",
-    'refused when not chaining',
-  );
-  check(
-    resolved(turn('router', { previousInteractionId: 'i1' })),
-    "Profile router model 'm': previousInteractionId needs a binding with persistViaInteractionId: true",
-    'refused on openrouter',
-  );
-  check(gen('nochain').store, true, 'the binding store');
-  check(gen('nochain', { store: false }).store, false, 'the turn overrides it');
-  check(gen('gem').store, undefined, 'no store');
-  check(
-    resolved(turn('gem', { store: false })),
-    "Profile gem model 'm': store: false cannot apply to a binding with persistViaInteractionId: true — the provider chains only from a stored interaction",
-    'a chaining turn keeps storage on',
-  );
+  check(resolveTurn(turn('gem')).generation.stream, true, 'default');
+  check(resolveTurn(turn('router')).generation.stream, true, 'another provider');
+  check(resolveTurn(turn('buffered')).generation.stream, false, 'buffered');
 });
-
 Deno.test('a continue turn needs a counter inside the profile cap, and takes no text', () => {
   clearProfiles();
   const stop = { kind: 'length' } as never;
@@ -246,7 +270,6 @@ Deno.test('a continue turn needs a counter inside the profile cap, and takes no 
     'no continueFrom, no checks',
   );
 });
-
 Deno.test('image, speech and live profiles carry their own spec onto the generation', () => {
   clearProfiles();
   define('img', {
@@ -254,10 +277,11 @@ Deno.test('image, speech and live profiles carry their own spec onto the generat
     image: { aspectRatio: '1:1' },
     models: {
       m: {
-        protocol: 'geminiInteractions',
         provider: 'google',
         apiId: 'gi',
-        persistViaInteractionId: false,
+        providerOptions: {
+          persistViaInteractionId: false,
+        },
       },
     },
     outputs: { structured: null },
@@ -269,7 +293,6 @@ Deno.test('image, speech and live profiles carry their own spec onto the generat
   const plain = resolved(turn('img')) as unknown as Record<string, unknown>;
   check(plain.structured, null, 'no structured');
 });
-
 Deno.test('a projection carries the profile fields a host reads, and nulls what the type lacks', () => {
   clearProfiles();
   define('proj', { maxSteps: 3, outputs: { structured: null } });
@@ -278,7 +301,7 @@ Deno.test('a projection carries the profile fields a host reads, and nulls what 
   check(projected.type, 'text', 'type');
   check(projected.handle, 'proj', 'handle');
   check(projected.maxSteps, 3, 'maxSteps');
-  check(projected.key, 'main', 'key');
+  check(Object.hasOwn(projected, 'key'), false, 'credentials belong to bindings and providers');
   check(projected.defaultModel, 'm', 'defaultModel');
   check(projected.speech, null, 'no speech');
   check(projected.live, null, 'no live');
@@ -288,7 +311,6 @@ Deno.test('a projection carries the profile fields a host reads, and nulls what 
   define('bare');
   check(projectProfile('bare').outputs, null, 'no outputs');
 });
-
 Deno.test('mimeAllowed matches a wildcard by prefix and an exact rule by essence', () => {
   check(mimeAllowed(['image/*'], 'image/png'), true, 'wildcard');
   check(mimeAllowed(['image/*'], 'imagex/png'), false, 'prefix keeps its slash');
@@ -298,7 +320,6 @@ Deno.test('mimeAllowed matches a wildcard by prefix and an exact rule by essence
   check(mimeAllowed([], 'image/png'), false, 'nothing accepted');
   check(mimeAllowed(['image/*; x=y'], 'image/png'), true, 'rule parameters ignored');
 });
-
 Deno.test('a thinking level a model cannot take clamps to its default, then its first legal level', () => {
   const binding = (over: Partial<ModelBinding>): ModelBinding =>
     ({ ...GEMINI, ...over }) as ModelBinding;
@@ -321,7 +342,6 @@ Deno.test('a thinking level a model cannot take clamps to its default, then its 
     'an undeclared default: the first',
   );
 });
-
 Deno.test('a turn is capped at 20 model calls unless its profile says otherwise', () => {
   clearProfiles();
   define('capped');

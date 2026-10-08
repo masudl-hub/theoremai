@@ -1,3 +1,8 @@
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
+
+registerFixtureProviders(defaultKernelScope);
+
 import { wrapUserData } from '../../src/guardrails/canary.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import {
@@ -18,28 +23,24 @@ import type { Profile, TurnRequest } from '../../src/kernel/types.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 
 registerGooglePreset();
-
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, value: actual }, { label, value: expected });
 }
-
 type Loose = Record<string, unknown>;
-
 const GEMINI = {
-  protocol: 'geminiInteractions',
   provider: 'google',
   apiId: 'g',
-  persistViaInteractionId: false,
+  providerOptions: {
+    persistViaInteractionId: false,
+  },
 } as const;
 const LIMITS = { maxFiles: 5, maxBytes: 1000, maxTurnBytes: 2000 };
-
 function define(id: string, over: Loose = {}): void {
   registerProfile({
     id,
     type: 'text',
     identity: { handle: id },
-    key: 'main',
     models: { m: { ...GEMINI } },
     tools: { allow: [] },
     inputs: {
@@ -53,7 +54,6 @@ function define(id: string, over: Loose = {}): void {
     ...over,
   } as never);
 }
-
 function parts(request: TurnRequest) {
   try {
     return resolveTurn(request).generation.input as unknown as Loose[];
@@ -62,9 +62,7 @@ function parts(request: TurnRequest) {
     return err.message;
   }
 }
-
 const png = (name = 'a') => ({ mimeType: 'image/png', data: btoa(name) });
-
 Deno.test('text, attachments and voice become typed parts in that order, text wrapped as user data', () => {
   clearProfiles();
   define('chat');
@@ -91,7 +89,6 @@ Deno.test('text, attachments and voice become typed parts in that order, text wr
   );
   check(parts({ profile: 'chat', input: {} }), [], 'nothing');
 });
-
 Deno.test('image/jpg is sent as image/jpeg, a reference keeps its uri, and the MIME is reduced to its essence', () => {
   clearProfiles();
   define('chat');
@@ -125,7 +122,6 @@ Deno.test('image/jpg is sent as image/jpeg, a reference keeps its uri, and the M
     'a type the profile accepts but the kernel cannot classify',
   );
 });
-
 Deno.test('a profile that takes no text refuses it, and speech needs text and takes neither system nor media', () => {
   clearProfiles();
   define('mute', { inputs: { text: false, attachments: { accept: ['image/png'] }, ...LIMITS } });
@@ -139,7 +135,6 @@ Deno.test('a profile that takes no text refuses it, and speech needs text and ta
     'object',
     'media still fine',
   );
-
   define('voice', {
     type: 'speech',
     speech: { voice: 'Kore' },
@@ -183,7 +178,6 @@ Deno.test('a profile that takes no text refuses it, and speech needs text and ta
     'an empty list is no media',
   );
 });
-
 Deno.test('an image profile sends its pinned references first, and a continue sends no instruction', () => {
   clearProfiles();
   define('img', {
@@ -219,7 +213,6 @@ Deno.test('an image profile sends its pinned references first, and a continue se
     'a text continue sends the instruction',
   );
 });
-
 Deno.test('a repair becomes the prompt, even where the profile takes no user text', () => {
   clearProfiles();
   define('mute', { inputs: { text: false, ...LIMITS } });
@@ -239,7 +232,6 @@ Deno.test('a repair becomes the prompt, even where the profile takes no user tex
     'it carries the output and the rejection',
   );
 });
-
 Deno.test('a slot value must be one of its declared choices, and only declared slots may be set', () => {
   clearProfiles();
   define('slotted', { inputs: { text: true, slots: { mood: ['happy', 'sad'] } } });
@@ -265,7 +257,6 @@ Deno.test('a slot value must be one of its declared choices, and only declared s
     'a profile with no slots',
   );
 });
-
 Deno.test('image generation carries its pins and refuses a profile that declares two output formats', () => {
   clearProfiles();
   define('img', {
@@ -311,7 +302,6 @@ Deno.test('image generation carries its pins and refuses a profile that declares
     false,
     'includeText defaults off',
   );
-
   const said = (profile: Loose, structuredId: string | null) => {
     try {
       assertOutputMode(profile as unknown as Profile, structuredId);
@@ -338,7 +328,6 @@ Deno.test('image generation carries its pins and refuses a profile that declares
     'speech and structured',
   );
 });
-
 /** The kind and message a call throws as a TheoremError, or 'returned'. */
 function thrown(body: () => unknown): string {
   try {
@@ -348,7 +337,6 @@ function thrown(body: () => unknown): string {
   }
   return 'returned';
 }
-
 Deno.test("resolveInputParts refuses on its own what resolveTurn already screened, with each error's kind", () => {
   clearProfiles();
   define('chat', { inputs: { text: true, attachments: { accept: ['image/png'] }, ...LIMITS } });
@@ -402,7 +390,6 @@ Deno.test("resolveInputParts refuses on its own what resolveTurn already screene
     "slots are not this function's",
   );
 });
-
 Deno.test('slot, speech-role and image-pin refusals carry the request kind', () => {
   clearProfiles();
   define('slotted', { inputs: { text: true, slots: { mood: ['happy'] } } });

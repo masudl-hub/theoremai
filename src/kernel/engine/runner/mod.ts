@@ -26,6 +26,10 @@ import {
 } from '../../../observability/trace-span.ts';
 import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
 import { profileTypesForField } from '../../profile-scope.ts';
+import {
+  nestedRegisteredProvider,
+  resolveRegisteredTurnProvider,
+} from '../../provider-dispatch.ts';
 import { profileInputs, requireModelBinding } from '../../registry/catalog.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { resolveTurnInRegistry } from '../../registry/resolve.ts';
@@ -146,7 +150,10 @@ function runNestedTurn(args: {
   ctx.agentDepth = args.agentDepth;
   if (args.compacting) ctx.compacting = args.compacting;
   ctx.observability = resolveObservabilityPolicy(ctx.known?.observability);
-  return runTracedTurn(ctx, args.provider);
+  return runTracedTurn(
+    ctx,
+    nestedRegisteredProvider(args.provider, args.req.profile, args.req.model, args.req),
+  );
 }
 
 /**
@@ -425,6 +432,10 @@ async function* emitTurn(args: {
   const done = turnDoneOf(
     {
       stop: state.lastStop ?? { kind: 'completed' },
+      ...(state.providerState &&
+      (!state.lastStop || ['completed', 'tool', 'gate'].includes(state.lastStop.kind))
+        ? { providerState: state.providerState }
+        : {}),
       traceparent: state.trace.root.traceparent(),
       ...(tokens ? { tokens } : {}),
     },
@@ -725,7 +736,9 @@ function invokeAgentCaller(
   return createAgentCaller({
     registry,
     req: request,
-    provider: request.provider,
+    provider: request.provider
+      ? resolveRegisteredTurnProvider(registry, request.profile, undefined, request.provider)
+      : undefined,
     own: undefined,
     depth: 0,
     runNested: (nested) => runNestedTurn({ ...nested, registry, canaries }),
@@ -742,22 +755,11 @@ function compactorProvider(
   spec: CompactionSpec,
   provider: ModelProvider,
 ): ModelProvider {
-  if (ctx.req.compactionProvider) return ctx.req.compactionProvider;
-  if (spec.profile === undefined) return provider;
-  const compactor = ctx.registry.profiles.get(spec.profile) as ModelProfile;
-  const own = ctx.trace?.binding;
-  const theirs = compactor.models[compactor.defaultModel];
-  if (
-    profile.type !== 'text' ||
-    own?.provider !== theirs?.provider ||
-    own?.protocol !== theirs?.protocol
-  ) {
-    throw new TheoremError(
-      'config',
-      `Profile ${profile.id} compacts with '${spec.profile}', which this turn's provider cannot run; pass compactionProvider`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  return provider;
+  return nestedRegisteredProvider(
+    provider,
+    spec.profile ?? profile.id,
+    spec.profile ? undefined : ctx.req.model,
+  );
 }
 
 async function maybeCompactBefore(

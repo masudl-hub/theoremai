@@ -1,3 +1,8 @@
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { registerFixtureProviders } from './provider-scope.ts';
+
+registerFixtureProviders(defaultKernelScope);
+
 import type { ModelBinding, ModelId } from '../../src/kernel/types.ts';
 import {
   GOOGLE_IMAGE_ASPECT_RATIOS,
@@ -8,28 +13,24 @@ import {
 
 const KIB = 1024;
 const MIB = KIB * KIB;
-
 const CHAT_MEDIA_LIMITS = {
   maxFiles: 10,
   maxBytes: 8 * MIB,
   maxTurnBytes: 32 * MIB,
 } as const;
-
 const IMAGE_INPUT_MIMES = [...GOOGLE_IMAGE_INPUT_MIMES];
 const VOICE_INPUT_MIMES = [...GOOGLE_VOICE_INPUT_MIMES];
 const IMAGE_ASPECT_RATIOS = [...GOOGLE_IMAGE_ASPECT_RATIOS];
 const IMAGE_RESOLUTIONS = [...GOOGLE_IMAGE_RESOLUTIONS];
-
 const GEMINI_INTERACTIONS = {
-  protocol: 'geminiInteractions' as const,
   provider: 'google' as const,
-  persistViaInteractionId: true,
+  providerOptions: {
+    persistViaInteractionId: true,
+  },
 };
-
 function geminiBinding(spec: Omit<ModelBinding, 'protocol' | 'provider'>): ModelBinding {
-  return { ...GEMINI_INTERACTIONS, ...spec };
+  return { ...GEMINI_INTERACTIONS, keySlot: spec.keySlot ?? 'slot_a', ...spec };
 }
-
 const gemini35FlashLite = geminiBinding({
   apiId: 'gemini-3.5-flash-lite',
   efforts: { normal: 'minimal', low: 'low', medium: 'medium', high: 'high' },
@@ -40,7 +41,6 @@ const gemini35FlashLite = geminiBinding({
   temperature: 1,
   builtInTools: [],
 });
-
 const gemini31FlashLite = geminiBinding({
   apiId: 'gemini-3.1-flash-lite',
   efforts: { normal: 'minimal', low: 'low', medium: 'medium', high: 'high' },
@@ -51,18 +51,16 @@ const gemini31FlashLite = geminiBinding({
   temperature: 1,
   builtInTools: [],
 });
-
 const gemini31ProPreview = geminiBinding({
   apiId: 'gemini-3.1-pro-preview',
   efforts: { normal: 'low', medium: 'medium', high: 'high' },
   defaultEffort: 'normal',
   allowEffortSelect: true,
   summaries: true,
-  maxOutputTokens: 64_000,
+  maxOutputTokens: 64000,
   temperature: 1,
   builtInTools: [],
 });
-
 const gemini31FlashLiteImage = geminiBinding({
   apiId: 'gemini-3.1-flash-lite-image',
   efforts: { normal: 'minimal', high: 'high' },
@@ -72,9 +70,8 @@ const gemini31FlashLiteImage = geminiBinding({
   maxOutputTokens: 4096,
   temperature: 1,
   builtInTools: [],
-  key: 'slot_b',
+  keySlot: 'slot_b',
 });
-
 const gemini31FlashTts = geminiBinding({
   apiId: 'gemini-3.1-flash-tts-preview',
   efforts: { normal: 'minimal' },
@@ -83,9 +80,8 @@ const gemini31FlashTts = geminiBinding({
   temperature: 1,
   builtInTools: [],
 });
-
 const gemini31FlashLive: ModelBinding = {
-  protocol: 'geminiLive',
+  keySlot: 'slot_a',
   provider: 'google',
   apiId: 'gemini-3.1-flash-live-preview',
   summaries: false,
@@ -93,9 +89,8 @@ const gemini31FlashLive: ModelBinding = {
   temperature: 0,
   builtInTools: [],
 };
-
 const sonar: ModelBinding = {
-  protocol: 'openAi',
+  keySlot: 'slot_a',
   provider: 'openrouter',
   apiId: 'perplexity/sonar',
   efforts: { normal: 'low', high: 'high' },
@@ -106,7 +101,6 @@ const sonar: ModelBinding = {
   temperature: 1,
   builtInTools: [],
 };
-
 const HOST_BINDINGS = {
   gemini35FlashLite,
   gemini31FlashLite,
@@ -116,9 +110,7 @@ const HOST_BINDINGS = {
   gemini31FlashLive,
   sonar,
 } as const satisfies Record<string, ModelBinding>;
-
 type HostBindingId = keyof typeof HOST_BINDINGS;
-
 function modelBindings(...ids: HostBindingId[]): Record<ModelId, ModelBinding> {
   const models: Record<ModelId, ModelBinding> = {};
   for (const id of ids) {
@@ -126,15 +118,12 @@ function modelBindings(...ids: HostBindingId[]): Record<ModelId, ModelBinding> {
   }
   return models;
 }
-
 /** Gemini Interactions model fields for fixtures (protocol + provider live on each binding). */
 function geminiModels(...ids: HostBindingId[]): {
   models: Record<ModelId, ModelBinding>;
-  key: 'slot_a';
 } {
   return {
     models: modelBindings(...ids),
-    key: 'slot_a',
   };
 }
 

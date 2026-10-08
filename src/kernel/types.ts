@@ -1,4 +1,9 @@
 import type {
+  JsonObject,
+  ProviderCheckpoint,
+  ProviderContinuationPolicy,
+} from './provider-contract.ts';
+import type {
   CacheMode,
   CacheTtl,
   CompactionMeter,
@@ -196,54 +201,25 @@ export interface ProfileImageSpec {
   includeText?: boolean;
 }
 
-/** One model a profile can run: the protocol, provider and provider model id it calls, with its generation settings. */
+/** One model a profile can run: its registered provider and upstream model id it calls, with its generation settings. */
 export interface ModelBinding {
-  protocol: Protocol;
   provider: Provider;
   apiId: string;
-  /** Alias → thinking level. One entry = fixed; two+ may be selectable at turn time. */
+  keySlot?: KeySlot;
+  fallbackKeySlot?: KeySlot;
+  providerOptions?: JsonObject;
   efforts?: Record<string, ThinkingLevel>;
-  /** Effort alias when the turn omits `effort`. Defaults to the only key when there is one. */
   defaultEffort?: string;
-  /** Turn may pass `{ effort: "<alias>" }`. Requires two or more `efforts` keys. */
   allowEffortSelect?: boolean;
-  /** Emit thinking summaries on the stream. Omit → provider default. */
   summaries?: boolean;
-  /** Cap on output tokens. Omit → provider default. */
   maxOutputTokens?: number;
-  /** Sampling temperature. Omit → provider default. */
   temperature?: number;
   builtInTools?: BuiltinToolId[];
-  /** Overrides `profile.key` for this model. */
-  key?: KeySlot;
-  /** Overrides `profile.fallbackKey` for this model. */
-  fallbackKey?: KeySlot;
   compaction?: CompactionSpec;
-  /**
-   * OpenRouter prompt-cache policy. Omit → no opt-in `cache_control`.
-   * `defineProfile` accepts only when `provider` is `openrouter` (protocol `openAi`).
-   */
-  cache?: CacheSpec;
-  /** Gemini Interactions: whether the provider stores the interaction. Omit → provider default. */
-  store?: boolean;
-  /**
-   * Gemini Interactions: `true` chains each step and turn on Google's stored
-   * interaction (`previous_interaction_id`), so Google builds the context;
-   * `false` sends the history the host passes, plus this turn's steps, on every
-   * call — across turns the host builds that history. Required on every
-   * `geminiInteractions` binding; `true` needs `store` left on.
-   */
-  persistViaInteractionId?: boolean;
-  /**
-   * Local server that hosts the model (e.g. `ollama`, `vllm`, `llama.cpp`).
-   * Traces report it as `gen_ai.provider.name`; omit → the attribute is absent.
-   * `defineProfile` accepts only when `provider` is `local`.
-   */
-  server?: string;
 }
 
 /**
- * OpenRouter prompt-cache policy (`models.*.cache`).
+ * OpenRouter prompt-cache policy (`models.*.providerOptions.cache`).
  *
  * - `automatic` — top-level `cache_control`; breakpoint advances with the conversation.
  * - `system` — explicit breakpoint on the system instruction only.
@@ -513,6 +489,7 @@ import type { MediaTurnBehaviourSpec, ProfileTurnBehaviourSpec, TurnContinueFrom
 
 /** The model fields every model-running profile shares. */
 export interface ProfileModelFields {
+  providerContinuation?: ProviderContinuationPolicy;
   /** Host-named models. Each key is a selectable model id when `allowModelSelect` is set. */
   models: Record<ModelId, ModelBinding>;
   /** The model a turn runs when it names none; registration fills it with the only key when there is one. */
@@ -521,9 +498,6 @@ export interface ProfileModelFields {
   allowModelSelect?: boolean;
   /** Tool-loop ceiling. Omit = `DEFAULT_MAX_STEPS`; `1` = one-shot; `> 1` = hard cap. */
   maxSteps?: number;
-  key?: KeySlot;
-  /** Retried once when `key` is refused for quota. Off unless set. */
-  fallbackKey?: KeySlot;
 }
 
 /** What a profile accepts as input. */
@@ -588,15 +562,14 @@ export interface ProfileIdentity {
 
 /** The fields every profile type shares. */
 export interface ProfileCommon {
+  providerContinuation?: ProviderContinuationPolicy;
   id: ProfileId;
   identity: ProfileIdentity;
   models: Record<ModelId, ModelBinding>;
   defaultModel: ModelId;
   allowModelSelect?: boolean;
   maxSteps?: number;
-  key?: KeySlot;
-  /** Retried once when `key` is refused for quota. Off unless set. */
-  fallbackKey?: KeySlot;
+
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
@@ -614,9 +587,11 @@ export type DecisionJson =
   | { [key: string]: DecisionJson };
 
 /** A decision model binding follows the same protocol/provider/apiId spine as turn models. */
-export interface DecisionModelBinding extends Pick<ModelBinding, 'apiId' | 'key'> {
-  protocol: 'decision';
-  provider: 'typesafe' | 'openrouter';
+export interface DecisionModelBinding extends Pick<ModelBinding, 'apiId'> {
+  provider: string;
+  keySlot?: KeySlot;
+  providerOptions?: JsonObject;
+  fallbackKeySlot?: KeySlot;
   timeoutMs?: number;
 }
 
@@ -640,7 +615,6 @@ export interface DecisionProfile {
   identity: Pick<ProfileIdentity, 'handle'>;
   /** Exactly one model: a decision profile runs one model and never selects. */
   models: Record<ModelId, DecisionModelBinding>;
-  key?: KeySlot;
   inputs: DecisionInputsSpec;
   decision: { contract: DecisionContractId };
   guardrails?: DecisionGuardrailsSpec;
@@ -851,7 +825,6 @@ export interface TurnInput {
    * Ignored when `meter` is `'history'`.
    */
   inputTokens?: number;
-  sessionResumptionHandle?: string;
 }
 
 /** A turn request whose `input` is always present. */
@@ -872,6 +845,7 @@ export interface TurnTraceLink {
 
 /** A request to `runTurn`: the profile, the input and the host's hooks and keys. */
 export interface TurnRequest {
+  providerState?: ProviderCheckpoint;
   profile: ProfileId;
   projectId?: string;
   /**
@@ -879,16 +853,6 @@ export interface TurnRequest {
    * Not the same as `projectId` or Gemini `previousInteractionId`.
    */
   sessionId?: string;
-  /** Google Interactions server-side conversation state. Omit for stateless/manual history. */
-  previousInteractionId?: string;
-  /**
-   * Location bias for Interactions `google_maps` builtin.
-   * Wired as `tools: [{ type: "google_maps", latitude, longitude }]`.
-   * Ignored when `googleMaps` is not enabled for the selected model.
-   */
-  googleMapsLocation?: { latitude: number; longitude: number };
-  /** Optional Interactions storage override. Omit to let the selected model binding decide. */
-  store?: boolean;
   /** Selected model id when `profile.allowModelSelect` is true. */
   model?: ModelId;
   /** Selected effort alias when the binding has `allowEffortSelect`. */
@@ -935,9 +899,6 @@ export interface TurnRequest {
    */
   continuation?: number;
   input?: TurnInput;
-  /** Runs a `timing: 'before'` compactor the turn's provider cannot. */
-  compactionProvider?: ModelProvider;
-  sessionResumptionHandle?: string;
   /** Credentials for authenticated HTTP / MCP tools, read by auth slot when a tool needs one. */
   credentials?: ToolCredentialSource;
   /**
@@ -972,8 +933,6 @@ export interface ProjectedProfile extends ProfileModelFields {
 export interface ProviderGenerationConfig {
   model: ModelId;
   apiId: string;
-  previousInteractionId?: string;
-  store?: boolean;
   /**
    * Upstream stream vs batch, derived from `outputs.streaming.mode`.
    * `true` = SSE (THEOREM default when mode is omitted); `false` = buffered.
@@ -984,35 +943,19 @@ export interface ProviderGenerationConfig {
   maxOutputTokens?: number;
   temperature?: number;
   builtins: BuiltinToolId[];
-  googleMapsLocation?: { latitude: number; longitude: number };
-  /** OpenRouter only. */
-  cache?: CacheSpec;
   /** Forwarded as OpenRouter `session_id`. */
   sessionId?: string;
 }
 
 /** The transport a provider adapter speaks. */
-export type ProviderTransport = 'interactions' | 'geminiLive' | 'openAiCompat';
+export type ProviderTransport = 'turn' | 'live';
 
 /** A generation config after the profile and request are resolved, with its transport. */
 export interface ResolvedGeneration extends ProviderGenerationConfig {
   transport: ProviderTransport;
-  /**
-   * Whether the turn's steps chain on the stored interaction: a tool result or
-   * stage inject rides `continuation` after `previousInteractionId`. Only an
-   * Interactions binding chains, and never one with `persistViaInteractionId:
-   * false` — its steps each send the host's history plus the turn's steps so far.
-   */
-  chains: boolean;
   tools: TurnToolSnapshot;
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
-  /**
-   * Interactions-only: messages sent after `previousInteractionId` (tool
-   * results, stage injects) instead of history + user parts. The model reads
-   * the stored interaction plus these.
-   */
-  continuation?: TurnHistoryMessage[];
   /** Tool-loop ceiling: the profile's `maxSteps`, or `DEFAULT_MAX_STEPS`. */
   maxSteps?: number;
   structured: ResolvedStructured | null;
@@ -1032,7 +975,6 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
    * Live session binds this one, minted for it.
    */
   canary: string;
-  sessionResumptionHandle?: string;
   /** Snapshotted synchronously before any async work; the runner binds the canary on top. */
   resolvedSystem: readonly SystemPiece[];
   /** `TurnRequest.host`, carried to tool contexts only. Never sent to providers or traces. */
@@ -1046,9 +988,15 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
  */
 export interface ProviderCompleteRequest
   extends Omit<ProviderGenerationConfig, 'summaries' | 'builtins'> {
+  previousInteractionId?: string;
+  store?: boolean;
+  cache?: CacheSpec;
+  googleMapsLocation?: { latitude: number; longitude: number };
   /** The turn's builtins with their wire names; adapters read no registry. */
   builtins: ProviderBuiltin[];
   summaries?: SummaryMode;
+  providerState?: ProviderCheckpoint;
+  state?: unknown;
   system: string;
   input: InteractionPart[];
   history?: TurnHistoryMessage[];
@@ -1079,6 +1027,7 @@ export interface ModelProvider {
  * Profile must be `type: 'live'`.
  */
 export interface SessionRequest {
+  providerState?: ProviderCheckpoint;
   profile: ProfileId;
   /** Host-built system prompt merged with profile identity.system. */
   system?: SystemPrompt;
@@ -1087,7 +1036,6 @@ export interface SessionRequest {
   path?: string;
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
-  sessionResumptionHandle?: string;
   /** The value chosen for each of the profile's `inputs.slots`. */
   slots?: Record<string, string>;
   /** What the page and the host tell the agent as the call opens; `sendContext` replaces it later. */

@@ -1,18 +1,7 @@
-import { createOpenRouter, type OpenRouterChatSettings } from '@openrouter/ai-sdk-provider';
-import {
-  AISDKError,
-  APICallError,
-  generateText,
-  jsonSchema,
-  type LanguageModelUsage,
-  type ModelMessage,
-  RetryError,
-  StreamProviderError,
-  streamText,
-  type TextStreamPart,
-  type ToolSet,
-  tool,
-} from 'ai';
+import { OpenRouter } from '@openrouter/sdk';
+import { HTTPClient } from '@openrouter/sdk/lib/http.js';
+import type { ChatRequest } from '@openrouter/sdk/models/chatrequest.js';
+import { ChatRequest$outboundSchema } from '@openrouter/sdk/models/chatrequest.js';
 import {
   isAbortError,
   kindOfHttpStatus,
@@ -20,7 +9,6 @@ import {
   toErrorEvent,
 } from '../../guardrails/error.ts';
 import { asRecord } from '../../kernel/engine/record.ts';
-import { reportedTokens, usageCount } from '../../kernel/engine/usage.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type {
   ModelProvider,
@@ -29,27 +17,23 @@ import type {
   Source,
   TurnEventOf,
   TurnResponse,
-  TurnTokens,
-  WireFunctionTool,
 } from '../../kernel/types.ts';
 import { builtinWire } from '../shared/builtin-wire.ts';
 import { foldResponse } from '../shared/response-identity.ts';
+import { readSseChunks } from '../shared/sse.ts';
 import { structuredEvent } from '../shared/structured-output.ts';
-import { malformedToolCall, toolCallEvents } from '../shared/tool-args.ts';
-import { networkError } from '../shared/upstream-tap.ts';
-import { bearerFetch } from '../shared/vault.ts';
+import { historyToolArguments, toolCallEvents } from '../shared/tool-args.ts';
+import { networkFetch } from '../shared/upstream-tap.ts';
 import type { OpenAiGatewayTransport } from '../types.ts';
 import { cacheControlJson } from './cache-control.ts';
-import { openAiGatewayHeaders, resolveResponseFormat } from './openai/compat.ts';
-import { buildAiSdkMessages } from './openai/sdk-messages.ts';
+import { buildChatMessages, resolveResponseFormat } from './openai/compat.ts';
 import { openAiResponse, openAiUsageTokens } from './openai/usage.ts';
 import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
+import { openRouterFetch } from './transport.ts';
 
-export interface StreamAccumulator {
+interface StreamAccumulator {
   text: string;
-  /** URIs this call has cited: a source cites once, whichever channel names it first. */
   citedUris: Set<string>;
-  /** Other annotations reported, by their JSON: raw rows and the SDK's metadata repeat them. */
   reportedAnnotations: Set<string>;
   emittedTokens: boolean;
   errored: boolean;
@@ -57,31 +41,7 @@ export interface StreamAccumulator {
   nativeFinishReason?: string | null;
   response?: TurnResponse;
 }
-
-interface OpenRouterStreamContext {
-  openrouter: ReturnType<typeof createOpenRouter>;
-  modelName: string;
-}
-
-export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | {
-      [key: string]: JsonValue;
-    };
-export type ProviderOptions = Record<string, { [key: string]: JsonValue }>;
-
-export function trimApiKey(explicitKey?: string): string | undefined {
-  if (explicitKey?.trim()) {
-    return explicitKey.trim();
-  }
-  return undefined;
-}
-
-export function createAccumulator(): StreamAccumulator {
+function createAccumulator(): StreamAccumulator {
   return {
     text: '',
     citedUris: new Set(),
@@ -90,9 +50,6 @@ export function createAccumulator(): StreamAccumulator {
     errored: false,
   };
 }
-
-export type SourcePart = Extract<TextStreamPart<ToolSet>, { type: 'source' }>;
-
 function webSource(uri: string, title?: string | null): Source {
   return { title: title || uri, uri, type: 'web' };
 }
@@ -110,66 +67,7 @@ function citationEvent(
   return fresh.length > 0 ? { type: 'citation', sources: fresh } : undefined;
 }
 
-export function sourceEvent(part: SourcePart, acc: StreamAccumulator): ProviderEvent | undefined {
-  if (part.sourceType === 'url') {
-    return citationEvent([webSource(part.url, part.title)], acc);
-  }
-  return {
-    type: 'evidence',
-    evidence: { provider: 'openrouter', kind: 'provider_step', step: 'source', raw: { ...part } },
-  };
-}
-
-export function schemaForTool(decl: WireFunctionTool): Record<string, unknown> {
-  return decl.parameters ?? { type: 'object', properties: {}, additionalProperties: true };
-}
-
-export function buildTools(wireTools?: WireFunctionTool[]): ToolSet | undefined {
-  if (!wireTools || wireTools.length === 0) {
-    return undefined;
-  }
-  const tools: ToolSet = {};
-  for (const decl of wireTools) {
-    tools[decl.name] = tool({
-      description: decl.description,
-      inputSchema: jsonSchema(schemaForTool(decl)),
-    });
-  }
-  return tools;
-}
-
-/** `web` wires as `web_search_options`; every other builtin is a plugin. */
-function openRouterSettings(req: ProviderCompleteRequest): OpenRouterChatSettings | undefined {
-  let webSearch = false;
-  const plugins: Array<{ id: string }> = [];
-  for (const builtin of req.builtins) {
-    const pluginId = builtinWire(builtin, 'openRouter');
-    if (pluginId === 'web') webSearch = true;
-    else plugins.push({ id: pluginId });
-  }
-  if (plugins.length === 0 && !webSearch) {
-    return undefined;
-  }
-  const settings: OpenRouterChatSettings = {};
-  if (plugins.length > 0) {
-    settings.plugins = plugins as OpenRouterChatSettings['plugins'];
-  }
-  if (webSearch) settings.web_search_options = {};
-  return settings;
-}
-
-/** Only when the raw stream carried no `usage` row; `rawEvents` reads that one first, with cost. */
-export function tokensFromUsage(usage: LanguageModelUsage): TurnTokens | undefined {
-  return reportedTokens({
-    input: usageCount(usage.inputTokens),
-    output: usageCount(usage.outputTokens),
-    thinking: usageCount(usage.outputTokenDetails?.reasoningTokens),
-    cached: usageCount(usage.inputTokenDetails?.cacheReadTokens),
-    cacheWrite: usageCount(usage.inputTokenDetails?.cacheWriteTokens),
-  });
-}
-
-export function stringArray(value: unknown): string[] | undefined {
+function stringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
   }
@@ -177,14 +75,14 @@ export function stringArray(value: unknown): string[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
-export function metadataRecord(
+function metadataRecord(
   raw: Record<string, unknown>,
   key: string,
 ): Record<string, unknown> | undefined {
   return asRecord(raw[key]);
 }
 
-export function citationCandidates(raw: Record<string, unknown>): unknown[] {
+function citationCandidates(raw: Record<string, unknown>): unknown[] {
   const openrouter = metadataRecord(raw, 'openrouter') ?? {};
   return [
     raw.citations,
@@ -196,7 +94,7 @@ export function citationCandidates(raw: Record<string, unknown>): unknown[] {
   ];
 }
 
-export function nestedCitations(raw: Record<string, unknown>): string[] | undefined {
+function nestedCitations(raw: Record<string, unknown>): string[] | undefined {
   for (const candidate of citationCandidates(raw)) {
     const citations = stringArray(candidate);
     if (citations) {
@@ -206,7 +104,7 @@ export function nestedCitations(raw: Record<string, unknown>): string[] | undefi
   return undefined;
 }
 
-export function metadataAnnotations(raw: Record<string, unknown>): unknown[] | undefined {
+function metadataAnnotations(raw: Record<string, unknown>): unknown[] | undefined {
   const openrouter = metadataRecord(raw, 'openrouter');
   if (Array.isArray(raw.annotations)) {
     return raw.annotations;
@@ -227,7 +125,7 @@ function annotationSource(annotation: unknown): Source | undefined {
 }
 
 /** Each citation or annotation reports once per call, however many rows repeat it. */
-export function eventsFromMetadata(metadata: unknown, acc: StreamAccumulator): ProviderEvent[] {
+function eventsFromMetadata(metadata: unknown, acc: StreamAccumulator): ProviderEvent[] {
   const raw = asRecord(metadata);
   if (!raw) {
     return [];
@@ -265,7 +163,7 @@ export function eventsFromMetadata(metadata: unknown, acc: StreamAccumulator): P
   return events;
 }
 
-export function rawThoughtEvent(raw: Record<string, unknown>): ProviderEvent | undefined {
+function rawThoughtEvent(raw: Record<string, unknown>): ProviderEvent | undefined {
   const choices = raw.choices;
   if (!Array.isArray(choices)) {
     return undefined;
@@ -279,7 +177,7 @@ export function rawThoughtEvent(raw: Record<string, unknown>): ProviderEvent | u
   return undefined;
 }
 
-export function rawChoiceMessageEvents(
+function rawChoiceMessageEvents(
   raw: Record<string, unknown>,
   acc: StreamAccumulator,
 ): ProviderEvent[] {
@@ -287,7 +185,7 @@ export function rawChoiceMessageEvents(
   return choices.flatMap((choice) => eventsFromMetadata(asRecord(choice)?.message, acc));
 }
 
-export function rawEvents(raw: unknown, acc: StreamAccumulator): ProviderEvent[] {
+function rawEvents(raw: unknown, acc: StreamAccumulator): ProviderEvent[] {
   const record = asRecord(raw);
   if (!record) {
     return [];
@@ -312,318 +210,279 @@ export function rawEvents(raw: unknown, acc: StreamAccumulator): ProviderEvent[]
     const row = asRecord(choice);
     if (!row) continue;
     if (typeof row.finish_reason === 'string' || row.finish_reason === null) {
-      acc.finishReason = row.finish_reason;
+      if (row.finish_reason) acc.finishReason = row.finish_reason;
     }
     if (typeof row.native_finish_reason === 'string' || row.native_finish_reason === null) {
-      acc.nativeFinishReason = row.native_finish_reason;
+      if (row.native_finish_reason) acc.nativeFinishReason = row.native_finish_reason;
     }
   }
   return events;
 }
 
-export type ToolCallPart = Extract<TextStreamPart<ToolSet>, { type: 'tool-call' }>;
-
-/** A call the SDK could not parse or match is the call with no arguments, then its failure. */
-export function toolCallPartEvents(part: ToolCallPart): ProviderEvent[] {
-  if (part.invalid) {
-    const message = part.error instanceof Error ? part.error.message : 'tool call was not valid';
-    return malformedToolCall({ name: part.toolName, callId: part.toolCallId }, message, part.input);
+function wireRequest(req: ProviderCompleteRequest): Record<string, unknown> {
+  const messages = buildChatMessages(req);
+  if (req.cache?.mode === 'system' && messages[0]?.role === 'system') {
+    messages[0].content = [
+      { type: 'text', text: req.system, cache_control: cacheControlJson(req.cache) },
+    ];
   }
-  return toolCallEvents({ id: part.toolCallId, name: part.toolName }, part.input);
-}
-
-export function tokenEvent(part: { totalUsage: LanguageModelUsage }): ProviderEvent | undefined {
-  const tokens = tokensFromUsage(part.totalUsage);
-  return tokens ? { type: 'tokens', tokens } : undefined;
-}
-
-export function providerMetadataEvents(
-  part: TextStreamPart<ToolSet>,
-  acc: StreamAccumulator,
-): ProviderEvent[] {
-  return 'providerMetadata' in part ? eventsFromMetadata(part.providerMetadata, acc) : [];
-}
-
-export function eventFromPart(
-  part: TextStreamPart<ToolSet>,
-  acc: StreamAccumulator,
-): ProviderEvent[] {
-  return [...primaryEventsFromPart(part, acc), ...providerMetadataEvents(part, acc)];
-}
-
-export function primaryEventsFromPart(
-  part: TextStreamPart<ToolSet>,
-  acc: StreamAccumulator,
-): ProviderEvent[] {
-  switch (part.type) {
-    case 'text-delta':
-      acc.text += part.text;
-      return [{ type: 'text', text: part.text }];
-    case 'reasoning-delta':
-      return [{ type: 'thought', text: part.text }];
-    case 'tool-call':
-      return toolCallPartEvents(part);
-    case 'source': {
-      const event = sourceEvent(part, acc);
-      return event ? [event] : [];
-    }
-    case 'finish': {
-      const event = finishEvent(part, acc);
-      return event ? [event] : [];
-    }
-    case 'error':
-      acc.errored = true;
-      return [toErrorEvent(streamPartError(part.error))];
-    default:
-      return [];
+  const plugins: Array<{ id: string }> = [];
+  let web = false;
+  for (const builtin of req.builtins) {
+    const id = builtinWire(builtin, 'openRouter');
+    if (id === 'web') web = true;
+    else plugins.push({ id });
   }
-}
-
-export function finishEvent(
-  part: { finishReason?: string | null; totalUsage?: LanguageModelUsage },
-  acc: StreamAccumulator,
-): ProviderEvent | undefined {
-  if (part.finishReason != null) {
-    acc.finishReason = String(part.finishReason);
-  }
-  if (acc.emittedTokens) {
-    return undefined;
-  }
-  if (!part.totalUsage) {
-    return undefined;
-  }
-  const event = tokenEvent({ totalUsage: part.totalUsage });
-  if (event) {
-    acc.emittedTokens = true;
-  }
-  return event;
-}
-
-export function* finalEvents(
-  req: ProviderCompleteRequest,
-  acc: StreamAccumulator,
-): Generator<ProviderEvent> {
-  if (acc.errored) {
-    return;
-  }
-  if (req.structured && acc.text) {
-    const event = structuredEvent(acc.text);
-    yield event;
-    if (event.type === 'error') return;
-  }
-  yield {
-    type: 'done',
-    stop: turnStopFromOpenAiFinishReason(acc.finishReason, acc.nativeFinishReason),
-  };
-}
-
-function createStreamContext(
-  req: ProviderCompleteRequest,
-  config: OpenAiGatewayTransport,
-  apiKey: string,
-): OpenRouterStreamContext {
-  const openrouter = createOpenRouter({
-    apiKey,
-    baseURL: config.baseUrl,
-    headers: openAiGatewayHeaders(config),
-    // why: The AI SDK retries internally; tapping its fetch tapes every try.
-    fetch: bearerFetch(req, config.fetch ?? fetch, config.vault, apiKey),
-    compatibility: 'strict',
-  });
-  return {
-    openrouter,
-    modelName: req.apiId,
-  };
-}
-
-/** System via instructions XOR a cache-marked system message — never both. */
-export function systemDelivery(req: ProviderCompleteRequest): {
-  instructions?: string;
-  systemMessage?: ModelMessage;
-} {
-  if (!req.system) {
-    return {};
-  }
-  if (req.cache?.mode === 'system') {
-    return {
-      systemMessage: {
-        role: 'system',
-        content: req.system,
-        providerOptions: {
-          openrouter: { cacheControl: cacheControlJson(req.cache) },
-        },
-      } as ModelMessage,
-    };
-  }
-  return { instructions: req.system };
-}
-
-function streamTextOptions(
-  req: ProviderCompleteRequest,
-  context: OpenRouterStreamContext,
-): Parameters<typeof streamText>[0] {
-  const delivery = systemDelivery(req);
-  const messages = buildAiSdkMessages(req);
-  if (delivery.systemMessage) {
-    messages.unshift(delivery.systemMessage);
-  }
-  return {
-    model: context.openrouter.chat(context.modelName, openRouterSettings(req)),
-    instructions: delivery.instructions,
+  const wire = {
+    model: req.apiId,
     messages,
-    allowSystemInMessages: true,
+    stream: req.stream !== false,
+    stream_options: req.stream === false ? undefined : { include_usage: true },
     temperature: req.temperature,
-    maxOutputTokens: req.maxOutputTokens,
-    tools: buildTools(req.wireTools),
-    providerOptions: providerOptionsFor(req),
-    include: { rawChunks: true },
-    abortSignal: req.signal,
-    onError: () => undefined,
+    max_tokens: req.maxOutputTokens,
+    tools: req.wireTools?.map((t) => ({
+      type: 'function',
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters ?? { type: 'object', properties: {}, additionalProperties: true },
+      },
+    })),
+    reasoning: req.thinking ? { effort: req.thinking } : undefined,
+    response_format: resolveResponseFormat(req.structured),
+    provider: { require_parameters: true },
+    cache_control: req.cache?.mode === 'automatic' ? cacheControlJson(req.cache) : undefined,
+    session_id: req.sessionId,
+    plugins: plugins.length ? plugins : undefined,
+    web_search_options: web ? {} : undefined,
   };
+  return wire;
 }
 
-function shouldEmitProviderEvent(req: ProviderCompleteRequest, event: ProviderEvent): boolean {
-  return event.type !== 'thought' || req.summaries !== 'none';
-}
-
-async function* yieldAiSdkStream(
-  req: ProviderCompleteRequest,
-  acc: StreamAccumulator,
-  context: OpenRouterStreamContext,
-): AsyncGenerator<ProviderEvent> {
-  const result = streamText(streamTextOptions(req, context));
-  for await (const part of result.stream) {
-    if (part.type === 'raw') {
-      req.tapUpstream?.(asRecord(part.rawValue) ?? { rawValue: part.rawValue });
-      for (const event of rawEvents(part.rawValue, acc)) {
-        if (shouldEmitProviderEvent(req, event)) {
-          yield event;
-        }
-      }
-      continue;
-    }
-    for (const event of eventFromPart(part, acc)) {
-      if (shouldEmitProviderEvent(req, event)) {
-        yield event;
-      }
-    }
-  }
-}
-
-async function* yieldAiSdkBuffered(
-  req: ProviderCompleteRequest,
-  acc: StreamAccumulator,
-  context: OpenRouterStreamContext,
-): AsyncGenerator<ProviderEvent> {
-  const { include: _, onError: __, ...options } = streamTextOptions(req, context);
-  const result = await generateText({ ...options, include: { responseBody: true } });
-  const body = asRecord(result.response.body);
-  if (body) {
-    req.tapUpstream?.(body);
-    yield* rawEvents(body, acc).filter((event) => shouldEmitProviderEvent(req, event));
-  }
-  for (const part of result.content) {
-    const events =
-      part.type === 'text'
-        ? [{ type: 'text', text: part.text } as const]
-        : part.type === 'reasoning'
-          ? [{ type: 'thought', text: part.text } as const]
-          : part.type === 'tool-call' || part.type === 'source'
-            ? primaryEventsFromPart(part as TextStreamPart<ToolSet>, acc)
-            : [];
-    if (part.type === 'text') acc.text += part.text;
-    yield* events.filter((event) => shouldEmitProviderEvent(req, event));
-  }
-  yield* eventsFromMetadata(result.providerMetadata, acc).filter((event) =>
-    shouldEmitProviderEvent(req, event),
+function sdkFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sdkFields);
+  const record = asRecord(value);
+  if (!record) return value;
+  return Object.fromEntries(
+    Object.entries(record).map(([key, item]) => [
+      key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase()),
+      key === 'parameters' || key === 'schema' ? item : sdkFields(item),
+    ]),
   );
-  const tokens = finishEvent(result, acc);
-  if (tokens) yield tokens;
+}
+function chatRequest(req: ProviderCompleteRequest): ChatRequest {
+  const wire = wireRequest(req);
+  const messages = wire.messages as Array<Record<string, unknown>>;
+  wire.messages = messages.map(
+    ({ reasoning_details: _details, reasoning: _reasoning, ...message }) => message,
+  );
+  const input = sdkFields(wire) as ChatRequest;
+  ChatRequest$outboundSchema.parse(input);
+  return input;
+}
+
+function mergeToolDeltas(
+  delta: Record<string, unknown>,
+  pending: Map<number, { id?: string; name: string; args: string }>,
+): void {
+  if (Array.isArray(delta.tool_calls)) {
+    for (const [i, value] of delta.tool_calls.entries()) {
+      const call = asRecord(value);
+      const fn = asRecord(call?.function);
+      const index = typeof call?.index === 'number' ? call.index : i;
+      const current = pending.get(index) ?? { name: '', args: '' };
+      if (typeof call?.id === 'string') current.id = call.id;
+      if (typeof fn?.name === 'string') current.name += fn.name;
+      if (typeof fn?.arguments === 'string') current.args += fn.arguments;
+      pending.set(index, current);
+    }
+  }
+}
+
+function decodeRow(
+  raw: Record<string, unknown>,
+  acc: StreamAccumulator,
+  pending: Map<number, { id?: string; name: string; args: string }>,
+  buffered: boolean,
+): ProviderEvent[] {
+  const error = asRecord(raw.error);
+  if (error) {
+    acc.errored = true;
+    return [
+      toErrorEvent(
+        new TheoremError(
+          typeof error.code === 'number' ? kindOfHttpStatus(error.code) : 'unavailable',
+          String(error.message ?? 'Provider stream failed'),
+        ),
+      ),
+    ];
+  }
+  const events = rawEvents(raw, acc);
+  const choices = Array.isArray(raw.choices) ? raw.choices : [];
+  for (const item of choices) {
+    const choice = asRecord(item);
+    const delta = asRecord(buffered ? choice?.message : choice?.delta);
+    if (!delta) continue;
+    if (typeof delta.content === 'string' && delta.content.length > 0) {
+      acc.text += delta.content;
+      events.push({ type: 'text', text: delta.content });
+    }
+    const reasoning = delta.reasoning ?? delta.reasoning_content;
+    if (typeof reasoning === 'string') events.push({ type: 'thought', text: reasoning });
+    mergeToolDeltas(delta, pending);
+  }
+  return events;
+}
+
+async function sdkRequestBody(
+  request: Request,
+  req: ProviderCompleteRequest,
+): Promise<Record<string, unknown>> {
+  // why: Preserve service extensions not yet represented by the generated SDK schema.
+  const body = asRecord(await request.json());
+  if (!body) throw new TheoremError('bad_response', 'SDK request body is not an object');
+  const extensions = wireRequest(req);
+  const originals = extensions.messages as Array<Record<string, unknown>>;
+  if (Array.isArray(body.messages))
+    for (const [index, message] of body.messages.entries()) {
+      if (originals[index]?.name !== undefined) message.name = originals[index].name;
+      if (originals[index]?.reasoning_details !== undefined)
+        message.reasoning_details = originals[index].reasoning_details;
+      if (originals[index]?.reasoning !== undefined) message.reasoning = originals[index].reasoning;
+    }
+  if (extensions.web_search_options) body.web_search_options = extensions.web_search_options;
+  return body;
+}
+
+function normalizeSdkError(error: unknown): TheoremError {
+  const status = asRecord(error)?.statusCode;
+  let underlying: unknown = error;
+  for (let depth = 0; depth < 8 && underlying instanceof Error && underlying.cause; depth++) {
+    if (underlying instanceof TheoremError) break;
+    underlying = underlying.cause;
+  }
+  return underlying instanceof TheoremError
+    ? underlying
+    : typeof status === 'number'
+      ? new TheoremError(kindOfHttpStatus(status), 'Provider request failed')
+      : new TheoremError(
+          underlying instanceof TypeError ? 'network' : 'bad_response',
+          'Provider response failed',
+        );
+}
+
+async function drainSdkStream(
+  parsed: unknown,
+  onReader: (reader: ReadableStreamDefaultReader<unknown> | undefined) => void,
+): Promise<unknown> {
+  try {
+    if (parsed instanceof ReadableStream) {
+      const reader = parsed.getReader();
+      onReader(reader);
+      try {
+        while (!(await reader.read()).done) {
+          // why: Drain SDK validation while the raw branch preserves native fields.
+        }
+      } finally {
+        reader.releaseLock();
+        onReader(undefined);
+      }
+    }
+
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
+function sdkResponseRow(value: unknown): Record<string, unknown> {
+  const row = asRecord(value);
+  if (!row) throw new TheoremError('bad_response', 'Invalid provider payload');
+  if (row.eventType === 'sse_done') return row;
+  if (row.eventType === 'sse_unparsed' || (!Array.isArray(row.choices) && !row.error))
+    throw new TheoremError('bad_response', 'Invalid provider payload');
+  return row;
 }
 
 async function* streamOpenRouter(
   req: ProviderCompleteRequest,
   config: OpenAiGatewayTransport,
 ): AsyncGenerator<ProviderEvent> {
-  let apiKey: string;
-  try {
-    apiKey = resolveOpenAiGatewayApiKey(config, req.keySlot);
-  } catch (err) {
-    yield toErrorEvent(err);
-    return;
-  }
-
   const acc = createAccumulator();
-  const context = createStreamContext(req, config, apiKey);
+  let rawResponse: Response | undefined;
+  let sdkReader: ReadableStreamDefaultReader<unknown> | undefined;
   try {
-    yield* req.stream === false
-      ? yieldAiSdkBuffered(req, acc, context)
-      : yieldAiSdkStream(req, acc, context);
-    yield* finalEvents(req, acc);
-  } catch (err) {
-    if (isAbortError(err)) {
-      throw err;
+    const key = resolveOpenAiGatewayApiKey(config, req.keySlot);
+    const send = networkFetch(openRouterFetch(req, config, key));
+    const client = new OpenRouter({
+      apiKey: key,
+      serverURL: config.baseUrl ?? 'https://openrouter.ai/api/v1',
+      httpReferer: config.siteUrl,
+      appTitle: config.siteName,
+      retryConfig: { strategy: 'none' },
+      debugLogger: { group() {}, groupEnd() {}, log() {} },
+      httpClient: new HTTPClient({
+        fetcher: async (input, init) => {
+          const request = new Request(input, init);
+          if (config.siteName) request.headers.set('X-Title', config.siteName);
+          const body = await sdkRequestBody(request, req);
+          const response = await send(request.url, {
+            method: request.method,
+            headers: request.headers,
+            signal: request.signal,
+            body: JSON.stringify(body),
+          });
+          // why: The SDK strips unknown metadata; the raw branch preserves citations and native state.
+          rawResponse = response.clone();
+          return response;
+        },
+      }),
+    });
+    const parsed = await client.chat.send(
+      { chatRequest: chatRequest(req) },
+      { signal: req.signal },
+    );
+    const validation = drainSdkStream(parsed, (reader) => {
+      sdkReader = reader;
+    });
+    const raw = rawResponse;
+    if (!raw?.body) throw new TheoremError('bad_response', 'Provider returned no response body');
+    const pending = new Map<number, { id?: string; name: string; args: string }>();
+    const rows = req.stream === false ? [await raw.json()] : readSseChunks(raw.body);
+    for await (const value of rows) {
+      const row = sdkResponseRow(value);
+      if (row.eventType === 'sse_done') break;
+      req.tapUpstream?.(row);
+      for (const event of decodeRow(row, acc, pending, req.stream === false)) {
+        if (event.type !== 'thought' || req.summaries !== 'none') yield event;
+      }
+      if (acc.errored) break;
     }
-    yield toErrorEvent(sdkError(err));
+    const invalid = await validation;
+    if (invalid) throw invalid;
+    if (acc.errored) return;
+    const stop = turnStopFromOpenAiFinishReason(acc.finishReason, acc.nativeFinishReason);
+    if (stop.kind === 'tool')
+      for (const call of pending.values()) {
+        if (!call.id || !call.name)
+          throw new TheoremError('bad_response', 'Incomplete tool identity');
+        historyToolArguments(call.args);
+        yield* toolCallEvents(call, call.args);
+      }
+    if (req.structured && acc.text) {
+      const event = structuredEvent(acc.text);
+      yield event;
+      if (event.type === 'error') return;
+    }
+    yield { type: 'done', stop };
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    const normalized = normalizeSdkError(error);
+    yield toErrorEvent(normalized);
+  } finally {
+    await Promise.allSettled([sdkReader?.cancel(), rawResponse?.body?.cancel()]);
   }
 }
-
-/**
- * An HTTP status wins; a call with no response could not reach OpenRouter; a
- * mid-stream error without a status is OpenRouter's own; any other SDK error is
- * a reply the SDK could not read.
- */
-function sdkError(err: unknown): unknown {
-  if (RetryError.isInstance(err)) {
-    return sdkError(err.lastError);
-  }
-  if (!AISDKError.isInstance(err)) {
-    return err;
-  }
-  const status = asRecord(err)?.statusCode;
-  const kind =
-    typeof status === 'number'
-      ? kindOfHttpStatus(status)
-      : APICallError.isInstance(err)
-        ? 'network'
-        : StreamProviderError.isInstance(err)
-          ? 'unavailable'
-          : 'bad_response';
-  return new TheoremError(kind, err.message, { cause: err });
-}
-
-/** A body that breaks mid-read arrives as a plain error, not an SDK one. */
-function streamPartError(error: unknown): unknown {
-  return AISDKError.isInstance(error) || RetryError.isInstance(error)
-    ? sdkError(error)
-    : networkError(error);
-}
-
-export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOptions | undefined {
-  const openrouter: Record<string, JsonValue> = {};
-  if (req.thinking) {
-    openrouter.reasoning = { effort: req.thinking };
-  }
-  const responseFormat = resolveResponseFormat(req.structured) as
-    | Record<string, JsonValue>
-    | undefined;
-  if (responseFormat) {
-    openrouter.response_format = responseFormat;
-    // why: Route only to endpoints that honour the schema; one that ignores it answers in prose.
-    openrouter.provider = { require_parameters: true };
-  }
-  if (req.cache?.mode === 'automatic') {
-    openrouter.cacheControl = cacheControlJson(req.cache);
-  }
-  if (req.sessionId) {
-    openrouter.session_id = req.sessionId;
-  }
-  if (Object.keys(openrouter).length === 0) return undefined;
-  return { openrouter } as ProviderOptions;
-}
-
 export function createOpenRouterProvider(config: OpenAiGatewayTransport = {}): ModelProvider {
-  return {
-    complete: (req: ProviderCompleteRequest) => streamOpenRouter(req, config),
-  };
+  return { complete: (req) => streamOpenRouter(req, config) };
 }

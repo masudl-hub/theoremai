@@ -69,7 +69,7 @@ count was estimated: `✓ STATUS: PASSED (took 2.31s, 1234 tokens, includes esti
 `TestRunResult.tokens` carries the full sum.
 Both `test` and `run` print Google `code_execution_*` (and other) `evidence`
 events when a host-supplied provider yields them — hosts still must pass an
-explicit `ModelProvider` (the CLI never reads API keys).
+explicit `ProviderHostOptions` and registered providers (the CLI never reads API keys).
 
 ### Diagnostics flags (`run`, `test`)
 
@@ -87,8 +87,8 @@ agents test --profile my.agent --lite --trace --trace-dir /var/log/theorem
 
 | Module | Role |
 | --- | --- |
-| `matrix/synthesizer.ts` | Builds the requests `test` sends |
-| `matrix/fixtures.ts` | Synthetic media: PNG, PDF, WAV (generated), CSV, plain text; `getFixtureForMime` picks by MIME |
+| `src/cli/matrix/synthesizer.ts` | Builds the requests `test` sends |
+| `src/cli/matrix/fixtures.ts` | Synthetic media: PNG, PDF, WAV (generated), CSV, plain text; `getFixtureForMime` picks by MIME |
 
 `test --matrix` sends two requests per profile (`synthesizeMatrixCombos`);
 plain `test` sends one (`buildCustomTurnRequest`): Stress, or Lite with

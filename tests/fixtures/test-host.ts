@@ -1,3 +1,34 @@
+import { registerProvider } from '../../src/kernel/default-scope.ts';
+import { defineProvider } from '../../src/kernel/provider-contract.ts';
+import {
+  googleAdapter,
+  openAIChat,
+  openRouterAdapter,
+  typesafeAdapter,
+} from '../../src/providers/adapters.ts';
+
+registerProvider(
+  defineProvider({ id: 'google', connection: {}, keySlot: 'slot_a', adapter: googleAdapter() }),
+);
+registerProvider(
+  defineProvider({
+    id: 'openrouter',
+    connection: {},
+    keySlot: 'slot_a',
+    adapter: openRouterAdapter(),
+  }),
+);
+registerProvider(
+  defineProvider({ id: 'typesafe', connection: {}, keySlot: 'slot_a', adapter: typesafeAdapter() }),
+);
+registerProvider(
+  defineProvider({
+    id: 'local',
+    connection: { baseURL: 'http://localhost:11434' },
+    adapter: openAIChat(),
+  }),
+);
+
 import { registerProfile, registerStructured } from '../../src/kernel/default-scope.ts';
 import type { ProfileDefinition } from '../../src/kernel/registry/profiles.ts';
 import { registerHarnessTools } from '../../src/kernel/tools/mod.ts';
@@ -16,20 +47,17 @@ import { registerTestTools } from './test-tools.ts';
 registerGooglePreset();
 registerHarnessTools();
 registerTestTools();
-
 const CHAT_ATTACH = [...IMAGE_INPUT_MIMES, 'application/pdf', 'text/csv', 'text/plain'];
 const FORMATTER_ATTACH = [...IMAGE_INPUT_MIMES, 'application/pdf', 'text/plain'];
-const LONG_FLASH = 40_000;
+const LONG_FLASH = 40000;
 const PIN_QUOTA = 4;
 const CHAT_QUOTA = 10;
 const FORMATTER_QUOTA = 20;
-
 const MESSAGE_SCHEMA = {
   type: 'object',
   properties: { message: { type: 'string' }, body: { type: 'string' } },
   required: ['message'],
 };
-
 registerStructured('chatTurn', { jsonSchema: MESSAGE_SCHEMA });
 registerStructured('htmlTurn', {
   jsonSchema: {
@@ -72,7 +100,6 @@ registerStructured('optionalCodeTurn', {
     required: ['message'],
   },
 });
-
 const chat: ProfileDefinition = {
   type: 'text',
   id: 'chat',
@@ -81,7 +108,6 @@ const chat: ProfileDefinition = {
     gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite,
   },
   maxSteps: 1,
-  key: 'slot_a',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -94,7 +120,6 @@ const chat: ProfileDefinition = {
     quota: { perDay: CHAT_QUOTA },
   },
 };
-
 const pinned: ProfileDefinition = {
   type: 'text',
   id: 'pinned',
@@ -107,7 +132,6 @@ const pinned: ProfileDefinition = {
     },
   },
   maxSteps: 1,
-  key: 'slot_a',
   tools: { allow: [] },
   inputs: { text: true },
   outputs: { structured: 'chatTurn' },
@@ -115,7 +139,6 @@ const pinned: ProfileDefinition = {
     quota: { perDay: PIN_QUOTA },
   },
 };
-
 const selector: ProfileDefinition = {
   type: 'text',
   id: 'selector',
@@ -139,7 +162,6 @@ const selector: ProfileDefinition = {
   defaultModel: 'gemini35FlashLite',
   allowModelSelect: true,
   maxSteps: 1,
-  key: 'slot_b',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -152,7 +174,6 @@ const selector: ProfileDefinition = {
     quota: { perDay: CHAT_QUOTA },
   },
 };
-
 const formatter: ProfileDefinition = {
   type: 'text',
   id: 'formatter',
@@ -164,7 +185,6 @@ const formatter: ProfileDefinition = {
     },
   },
   maxSteps: 1,
-  key: 'slot_c',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -179,7 +199,6 @@ const formatter: ProfileDefinition = {
     quota: { perDay: FORMATTER_QUOTA },
   },
 };
-
 const image: ProfileDefinition = {
   type: 'image',
   id: 'image',
@@ -202,7 +221,6 @@ const image: ProfileDefinition = {
     quota: { perDay: PIN_QUOTA },
   },
 };
-
 const speech: ProfileDefinition = {
   type: 'speech',
   id: 'speech',
@@ -214,11 +232,20 @@ const speech: ProfileDefinition = {
     quota: { perDay: PIN_QUOTA },
   },
 };
-
 registerProfile(chat);
 registerProfile(pinned);
-registerProfile(selector);
-registerProfile(formatter);
+registerProfile({
+  ...selector,
+  models: Object.fromEntries(
+    Object.entries(selector.models).map(([id, model]) => [id, { ...model, keySlot: 'slot_b' }]),
+  ),
+});
+registerProfile({
+  ...formatter,
+  models: Object.fromEntries(
+    Object.entries(formatter.models).map(([id, model]) => [id, { ...model, keySlot: 'slot_c' }]),
+  ),
+});
 registerProfile(image);
 registerProfile(speech);
 

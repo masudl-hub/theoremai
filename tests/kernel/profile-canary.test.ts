@@ -1,9 +1,11 @@
+import { createTestKernelScope as createKernelScope } from '../fixtures/provider-scope.ts';
+import { runScopedTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import { createKernelScope, type KernelScope } from '../../src/kernel/scope.ts';
+import type { KernelScope } from '../../src/kernel/scope.ts';
 import type {
   ModelProvider,
   Profile,
@@ -89,7 +91,8 @@ async function run(
   over: { text?: string; history?: TurnHistoryMessage[]; system?: string } = {},
 ): Promise<TurnEvent[]> {
   return await Array.fromAsync(
-    scope.runTurn(
+    runScopedTurn(
+      scope,
       {
         profile: PROFILE,
         input: { text: over.text ?? 'hi', ...(over.history ? { history: over.history } : {}) },

@@ -1,5 +1,6 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
-import { registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
+import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertRejects, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnInput } from '../../src/kernel/types.ts';
@@ -15,7 +16,6 @@ registerProfile(
     identity: { handle: 'slots', system: 'Reply in {language}. Keep {braces} as written.' },
   }),
 );
-
 /** The system text the model was sent for one turn. */
 async function systemFor(input: TurnInput): Promise<string> {
   let system = '';
@@ -29,12 +29,10 @@ async function systemFor(input: TurnInput): Promise<string> {
   await Array.fromAsync(runTurn({ profile: 'slot_prompt', input }, provider));
   return system;
 }
-
 Deno.test('a {slot} in identity.system becomes the value the turn chose', async () => {
   const system = await systemFor({ text: 'hi', slots: { language: 'fr' } });
   assertEquals(system.startsWith('Reply in fr. Keep {braces} as written.'), true);
 });
-
 Deno.test('a prompt that uses a slot the turn left unfilled is refused', async () => {
   await assertRejects(
     () => systemFor({ text: 'hi' }),
@@ -42,13 +40,12 @@ Deno.test('a prompt that uses a slot the turn left unfilled is refused', async (
     "identity.system uses slot 'language', and the request chose no value for it",
   );
 });
-
 Deno.test('a live profile takes slots and context, and no other inputs', () => {
   const live = {
     type: 'live' as const,
     id: 'slot_live',
     identity: { handle: 'live', system: 'Reply in {language}.' },
-    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'main' } },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'main' } },
     live: { voice: 'Aoede' },
     tools: { allow: [] },
   };

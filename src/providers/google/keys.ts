@@ -1,7 +1,7 @@
 import type { KeySlot, KeyVault, ProviderCompleteRequest } from '../../kernel/types.ts';
 import { retryTransient, type Wait } from '../shared/retry.ts';
 import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
-import { fallbackKey, requireKey } from '../shared/vault.ts';
+import { requireKey, resolveFallbackKey } from '../shared/vault.ts';
 
 /** A host's Gemini settings; keys come from the one vault. */
 interface GeminiOptions {
@@ -58,8 +58,10 @@ export async function fetchGemini(
   const primary = requireKey(transport.vault, slot);
   const first = { href, init, transport, tap };
   let last = await fetchWithBackoff({ ...first, apiKey: primary, slot });
-  const fallback = fallbackKey(fallbackSlot, transport.vault, primary);
-  if (last.status === HTTP_QUOTA && fallback) {
+  if (last.status === HTTP_QUOTA && fallbackSlot) {
+    const fallback = await resolveFallbackKey(fallbackSlot, transport.vault, primary, init.signal);
+    if (!fallback) return last;
+    await last.body?.cancel();
     last = await fetchWithBackoff({ ...first, apiKey: fallback.key, slot: fallback.slot });
   }
   return last;

@@ -31,9 +31,7 @@ import { toolEventsOf } from '../fixtures/events.ts';
 
 const RESOLVE = () => Promise.resolve(['93.184.216.34']);
 const TOKEN = 'xb-token-sentinel';
-
 const allowed: string[] = [];
-
 function makeProfile(): Profile {
   return {
     id: 'xb-profile',
@@ -41,7 +39,6 @@ function makeProfile(): Profile {
     identity: { handle: 'test-agent' },
     models: {
       'test-model': {
-        protocol: 'geminiInteractions',
         provider: 'google',
         apiId: 'test-model-id',
         efforts: { normal: 'minimal' },
@@ -55,7 +52,6 @@ function makeProfile(): Profile {
     outputs: {},
   };
 }
-
 function canonical(value: unknown): string {
   return JSON.stringify(value, (_key, v) =>
     v && typeof v === 'object' && !Array.isArray(v)
@@ -63,7 +59,6 @@ function canonical(value: unknown): string {
       : v,
   );
 }
-
 function check(actual: unknown, expected: unknown, label: string): void {
   try {
     assertEquals(canonical(actual), canonical(expected));
@@ -71,7 +66,6 @@ function check(actual: unknown, expected: unknown, label: string): void {
     throw new Error(`${label}: ${(err as Error).message}`);
   }
 }
-
 function registerFn(
   name: string,
   over: Partial<FunctionToolDef> = {},
@@ -95,7 +89,6 @@ function registerFn(
   registerTool(def);
   return def;
 }
-
 function registerHttp(name: string, over: Partial<HttpToolDef> = {}): void {
   allowed.push(name);
   registerTool({
@@ -114,9 +107,10 @@ function registerHttp(name: string, over: Partial<HttpToolDef> = {}): void {
     ...over,
   } as HttpToolDef);
 }
-
-type Drained = { events: TurnEvent[]; settlement: ToolExecuteSettlement };
-
+type Drained = {
+  events: TurnEvent[];
+  settlement: ToolExecuteSettlement;
+};
 async function drain(
   name: string,
   over: Partial<Omit<RegisteredToolCall, 'name'>> = {},
@@ -137,7 +131,6 @@ async function drain(
     events.push(next.value);
   }
 }
-
 async function thrown(run: () => Promise<unknown>): Promise<unknown> {
   try {
     await run();
@@ -146,12 +139,10 @@ async function thrown(run: () => Promise<unknown>): Promise<unknown> {
   }
   return undefined;
 }
-
 function bare(settlement: ToolExecuteSettlement) {
   const { modelResult: _modelResult, ...rest } = settlement;
   return rest;
 }
-
 function shapeFailure(settlement: ToolExecuteSettlement) {
   const { failure, ...rest } = bare(settlement);
   return {
@@ -159,18 +150,15 @@ function shapeFailure(settlement: ToolExecuteSettlement) {
     failure: failure && { code: failure.code, kind: failure.kind, message: failure.message },
   };
 }
-
 function stagesWith(...handlers: StageHandler[]) {
   return { handlers, profile: makeProfile(), step: 1, history: () => [], injectAllowed: false };
 }
-
 function gateEvents(events: TurnEvent[]) {
   return {
     stage: events.filter((e) => e.type === 'stage' && e.stage === 'pre_tool' && e.gate),
     tool: toolEventsOf(events, 'gate'),
   };
 }
-
 async function withFetch<T>(fetchFn: typeof fetch, body: () => Promise<T>): Promise<T> {
   const original = globalThis.fetch;
   globalThis.fetch = fetchFn;
@@ -180,9 +168,11 @@ async function withFetch<T>(fetchFn: typeof fetch, body: () => Promise<T>): Prom
     globalThis.fetch = original;
   }
 }
-
 function answering(status: number, text: string, headers: Record<string, string> = {}) {
-  const sent: { url: string; authorization: string | null }[] = [];
+  const sent: {
+    url: string;
+    authorization: string | null;
+  }[] = [];
   const fetchFn: typeof fetch = (input, init) => {
     sent.push({
       url: input.toString(),
@@ -192,17 +182,14 @@ function answering(status: number, text: string, headers: Record<string, string>
   };
   return { fetchFn, sent };
 }
-
 function credentials(slots: Record<string, ToolCredential>): ToolCredentialSource {
   return memoryCredentialSource(slots);
 }
-
 const BEARER = { sheets: { type: 'bearer', token: TOKEN } } satisfies Record<
   string,
   ToolCredential
 >;
 const SHEET_URL = 'https://sheets.example.com/v4/s/1';
-
 function registerSheet(
   name: string,
   auth: Omit<ToolAuthConfig, 'service' | 'slot'> = { type: 'bearer' },
@@ -221,7 +208,6 @@ function registerSheet(
   } as Partial<FunctionToolDef>);
   return seen;
 }
-
 Deno.test('a call the host or user refuses settles denied on every path, and a failed re-parse does not', async () => {
   registerFn('xb_denied_resume', { permission: 'always_confirm' });
   const resumed = await drain('xb_denied_resume', { ctx: { resume: { granted: false } } });
@@ -238,7 +224,6 @@ Deno.test('a call the host or user refuses settles denied on every path, and a f
     },
     'resume declined',
   );
-
   registerFn('xb_denied_host');
   const host = await drain('xb_denied_host', {
     stages: stagesWith((ctx) =>
@@ -254,7 +239,6 @@ Deno.test('a call the host or user refuses settles denied on every path, and a f
     },
     'host pre_tool deny',
   );
-
   registerHttp('xb_denied_http', {
     preTool: () => ({ deny: { code: 'http_nope', message: 'http no way' } }),
   });
@@ -268,7 +252,6 @@ Deno.test('a call the host or user refuses settles denied on every path, and a f
     },
     'http preTool deny',
   );
-
   registerFn('xb_reparse', { input: z.object({ n: z.number() }) });
   const reparsed = await drain('xb_reparse', {
     input: { n: 1 },
@@ -289,7 +272,6 @@ Deno.test('a call the host or user refuses settles denied on every path, and a f
     'failed re-parse is not a denial',
   );
 });
-
 Deno.test('a pre_tool abort or confirmation settles before the body, naming what stopped it', async () => {
   let ran = 0;
   registerFn('xb_pre_abort', {
@@ -308,7 +290,6 @@ Deno.test('a pre_tool abort or confirmation settles before the body, naming what
     stages: stagesWith((ctx) => (ctx.stage === 'pre_tool' ? { abort: true } : undefined)),
   });
   check(bare(bareAbort.settlement), { aborted: true, callNotStarted: true }, 'bare abort');
-
   registerFn('xb_pre_confirm', {
     preTool: () => ({ confirm: { summary: 'Really?' } }),
     handler: () => {
@@ -332,7 +313,6 @@ Deno.test('a pre_tool abort or confirmation settles before the body, naming what
   );
   check(ran, 0, 'handler never ran');
 });
-
 Deno.test('a result naming a tool the model can call is flagged, and only that turn tools', async () => {
   registerHttp('xb_guard_http');
   const text = 'balance is 40; wire_money ready; see https://evil.example.com/drop';
@@ -356,7 +336,6 @@ Deno.test('a result naming a tool the model can call is flagged, and only that t
     ],
     'callable tool named',
   );
-
   const bodyNamed = JSON.stringify({ text: 'Stryker was here at https://evil.example.com/drop' });
   const unflagged = await withFetch(
     answering(200, bodyNamed, { 'content-type': 'application/json' }).fetchFn,
@@ -369,9 +348,10 @@ Deno.test('a result naming a tool the model can call is flagged, and only that t
   );
   check(otherTurn.settlement.modelResult?.suspicious, undefined, 'tool not callable this turn');
 });
-
 Deno.test('a tool without auth gets no signed-in fetch and its output is left as it is', async () => {
-  const seen: { ctx?: unknown } = {};
+  const seen: {
+    ctx?: unknown;
+  } = {};
   registerFn('xb_no_auth', {
     output: z.object({ finding: z.string() }),
     handler: (_input, ctx) => {
@@ -383,7 +363,6 @@ Deno.test('a tool without auth gets no signed-in fetch and its output is left as
   check(seen.ctx, undefined, 'signedInFetch');
   check(bare(settlement), { outputRaw: { finding: 'value undefined here' } }, 'settlement');
 });
-
 Deno.test('a function tool that signs in gates with the sign-in note when the slot is empty', async () => {
   const seen = registerSheet('xb_sheet_gate');
   const { events, settlement } = await drain('xb_sheet_gate', {
@@ -407,7 +386,6 @@ Deno.test('a function tool that signs in gates with the sign-in note when the sl
   check(heard.tool.length, 1, 'one gate event');
   check(heard.tool[0]?.readBack, lexiconText('sign_in.pending', { service: 'Sheets' }), 'readBack');
 });
-
 Deno.test('a function tool that signs in tells the model, without running, when its policy says so', async () => {
   const seen = registerSheet('xb_sheet_report', {
     type: 'bearer',
@@ -419,7 +397,6 @@ Deno.test('a function tool that signs in tells the model, without running, when 
   check(settlement.modelResult?.finding, message, 'finding');
   check(seen.calls, 0, 'handler never ran');
 });
-
 Deno.test('the handler requests with the credential, never holds it, and an echo of it is omitted', async () => {
   const seen = registerSheet('xb_sheet_ok');
   const { fetchFn, sent } = answering(200, `you sent ${TOKEN}`);
@@ -431,7 +408,6 @@ Deno.test('the handler requests with the credential, never holds it, and an echo
   check(bare(settlement), { outputRaw: { body: 'you sent [omitted - credential]' } }, 'settlement');
   check(JSON.stringify(settlement.modelResult).includes(TOKEN), false, 'model never reads it');
 });
-
 Deno.test('a handler failure never carries the credential either', async () => {
   registerFn('xb_sheet_leak', {
     auth: { slot: 'sheets', service: 'Sheets', type: 'bearer' },
@@ -454,7 +430,6 @@ Deno.test('a handler failure never carries the credential either', async () => {
     'failure',
   );
 });
-
 Deno.test('an OAuth token is sent only to the resource it was issued for', async () => {
   const oauth = (resource: string) => ({
     sheets: {
@@ -464,7 +439,7 @@ Deno.test('an OAuth token is sent only to the resource it was issued for', async
       accessToken: TOKEN,
       tokenEndpoint: 'https://auth.example.com/token',
       clientId: 'client',
-      expiresAt: Date.now() + 3_600_000,
+      expiresAt: Date.now() + 3600000,
     },
   });
   registerSheet('xb_sheet_oauth', { type: 'oauth2' }, 'https://elsewhere.example.com/x');
@@ -476,7 +451,6 @@ Deno.test('an OAuth token is sent only to the resource it was issued for', async
   );
   check(mismatch.sent.length, 0, 'nothing sent');
   check(refused.settlement.failure?.code, 'handler_error', 'refused by the handler path');
-
   registerSheet('xb_sheet_oauth_ok', { type: 'oauth2' });
   const match = answering(200, 'ok');
   const sent = await withFetch(match.fetchFn, () =>
@@ -487,7 +461,6 @@ Deno.test('an OAuth token is sent only to the resource it was issued for', async
   check(match.sent.length, 1, 'sent to its own resource');
   check(bare(sent.settlement), { outputRaw: { body: 'ok' } }, 'settlement');
 });
-
 Deno.test('a credential the service refuses gates a new sign-in, and a refusal that asks for none fails', async () => {
   const seen = registerSheet('xb_sheet_refused');
   const { fetchFn } = answering(401, 'refused', {
@@ -501,7 +474,6 @@ Deno.test('a credential the service refuses gates a new sign-in, and a refusal t
   check(settlement.callNotStarted, true, 'callNotStarted');
   check(settlement.failure, undefined, 'not a failure');
   check(gateEvents(events).tool.length, 1, 'one gate event');
-
   registerFn('xb_sheet_odd_refusal', {
     auth: { slot: 'sheets', service: 'Sheets', type: 'bearer' },
     handler: () => {
@@ -520,7 +492,6 @@ Deno.test('a credential the service refuses gates a new sign-in, and a refusal t
     },
     'refusal without a sign-in request',
   );
-
   registerFn('xb_plain_refusal', {
     handler: () => {
       throw new CredentialRefusedError({ status: 401, challenge: null });
@@ -539,7 +510,6 @@ Deno.test('a credential the service refuses gates a new sign-in, and a refusal t
     'no sign-in, no refusal handling',
   );
 });
-
 Deno.test('only a signed-in tool turns a blocked error into a network block', async () => {
   const blockedHandler = () => {
     throw new TheoremError('blocked', 'nope');
@@ -559,7 +529,6 @@ Deno.test('only a signed-in tool turns a blocked error into a network block', as
     ['network'],
     'network guardrail reported',
   );
-
   registerFn('xb_blocked_plain', { handler: blockedHandler });
   const unsigned = await drain('xb_blocked_plain');
   check(
@@ -568,7 +537,6 @@ Deno.test('only a signed-in tool turns a blocked error into a network block', as
     'not signed in',
   );
   check(unsigned.events.filter((e) => e.type === 'guardrail').length, 0, 'no guardrail event');
-
   registerFn('xb_boom_auth', {
     auth: { slot: 'sheets', service: 'Sheets', type: 'bearer' },
     handler: () => {
@@ -587,7 +555,6 @@ Deno.test('only a signed-in tool turns a blocked error into a network block', as
     'no guardrail for a plain error',
   );
 });
-
 Deno.test('a signed-in request that ran is timed on the call span', async () => {
   registerSheet('xb_sheet_span');
   const tree = startTrace('root');
@@ -610,7 +577,6 @@ Deno.test('a signed-in request that ran is timed on the call span', async () => 
     'one allowed network_request check',
   );
 });
-
 Deno.test('a handler that returns nothing, or the wrong shape, fails with its own message', async () => {
   registerFn('xb_nothing', { handler: (() => undefined) as never });
   const nothing = await drain('xb_nothing');
@@ -624,16 +590,18 @@ Deno.test('a handler that returns nothing, or the wrong shape, fails with its ow
     'no output',
   );
   check(nothing.settlement.callNotStarted, undefined, 'the body ran');
-
   registerFn('xb_wrong_shape', { handler: (() => ({ finding: 1 })) as never });
   const wrong = await drain('xb_wrong_shape');
   check(wrong.settlement.failure?.message, lexiconText('tool.output_invalid'), 'wrong shape');
   check(wrong.settlement.failure?.details !== undefined, true, 'with details');
 });
-
 Deno.test('an input that fails its schema settles before anything else, naming the call', async () => {
   registerFn('xb_bad_input', { input: z.object({ n: z.number() }) });
-  const post: { tool?: string; callId?: string; callNotStarted?: boolean }[] = [];
+  const post: {
+    tool?: string;
+    callId?: string;
+    callNotStarted?: boolean;
+  }[] = [];
   const { settlement } = await drain('xb_bad_input', {
     input: { n: 'x' },
     callId: 'call_bad',
@@ -662,7 +630,6 @@ Deno.test('an input that fails its schema settles before anything else, naming t
     'post_tool saw it',
   );
 });
-
 Deno.test('a tool that needs confirmation gates with the permission, without running', async () => {
   let ran = 0;
   registerFn('xb_confirm_perm', {
@@ -691,7 +658,6 @@ Deno.test('a tool that needs confirmation gates with the permission, without run
   check([heard.stage.length, heard.tool.length], [1, 1], 'gate announced once');
   check(heard.tool[0]?.readBack, undefined, 'no readBack for a permission gate');
 });
-
 Deno.test('an abort stops the call before sign-in and before the handler', async () => {
   const early = new AbortController();
   let preTool = 0;
@@ -708,7 +674,6 @@ Deno.test('an abort stops the call before sign-in and before the handler', async
   const first = await thrown(() => drain('xb_abort_early', { ctx: { signal: early.signal } }));
   check((first as Error)?.name, 'AbortError', 'aborted');
   check(preTool, 0, 'preTool never ran');
-
   const late = new AbortController();
   let ran = 0;
   registerFn('xb_abort_late', {
@@ -725,7 +690,6 @@ Deno.test('an abort stops the call before sign-in and before the handler', async
   check((second as Error)?.name, 'AbortError', 'aborted after the pre-body stages');
   check(ran, 0, 'handler never ran');
 });
-
 Deno.test('a failed handler tells post_tool the tool, call and input it failed on', async () => {
   registerFn('xb_post_fail', {
     input: z.object({ n: z.number() }),
@@ -765,7 +729,6 @@ Deno.test('a failed handler tells post_tool the tool, call and input it failed o
   );
   check(settlement.callNotStarted, undefined, 'the body ran');
 });
-
 Deno.test('a call to a tool that is not registered or a builtin settles as an early failure', async () => {
   const unknown = await drain('xb_nobody');
   const failure = {
@@ -779,7 +742,6 @@ Deno.test('a call to a tool that is not registered or a builtin settles as an ea
     'unknown',
   );
 });
-
 Deno.test('a builtin the kernel is asked to run settles with the reason, and an abort still wins', async () => {
   const profile = makeProfile();
   const base = { name: 'googleSearch', callId: 'b1' };
@@ -835,13 +797,11 @@ Deno.test('a builtin the kernel is asked to run settles with the reason, and an 
     [onFailure],
     'error event',
   );
-
   const controller = new AbortController();
   controller.abort();
   const error = await thrown(() => run(['googleSearch'], controller.signal));
   check((error as Error)?.name, 'AbortError', 'aborted');
 });
-
 Deno.test('a tool is refused when the profile leaves it out or the turn did not gate it', async () => {
   registerFn('xb_unlisted', {}, false);
   const refused = await drain('xb_unlisted');
@@ -857,7 +817,6 @@ Deno.test('a tool is refused when the profile leaves it out or the turn did not 
     },
     'not allowed',
   );
-
   registerFn('xb_ungated');
   const snapshot: TurnToolSnapshot = {
     builtins: [],
@@ -880,7 +839,6 @@ Deno.test('a tool is refused when the profile leaves it out or the turn did not 
     'not gated',
   );
 });
-
 Deno.test('a resumed T0 call needs no load, while any other unloaded tool is refused', async () => {
   registerFn('xb_t0_resume', { permission: 'always_confirm' });
   const snapshot = (name: string): TurnToolSnapshot => ({
@@ -895,7 +853,6 @@ Deno.test('a resumed T0 call needs no load, while any other unloaded tool is ref
     ctx: { resume: { granted: true } },
   });
   check(bare(resumed.settlement), { outputRaw: { finding: 'ok' } }, 'resumed T0 runs');
-
   const fresh = await drain('xb_t0_resume', { snapshot: snapshot('xb_t0_resume') });
   check(
     shapeFailure(fresh.settlement),
@@ -909,7 +866,6 @@ Deno.test('a resumed T0 call needs no load, while any other unloaded tool is ref
     },
     'a fresh unloaded T0 call',
   );
-
   registerFn('xb_t2_resume', { loadTier: 'T2' });
   const t2 = await drain('xb_t2_resume', {
     snapshot: snapshot('xb_t2_resume'),
@@ -928,7 +884,6 @@ Deno.test('a resumed T0 call needs no load, while any other unloaded tool is ref
     'a resumed T2 call is still unloaded',
   );
 });
-
 Deno.test('a remote body settles by its outcome: a result, a failure, an abort or a gate', async () => {
   registerHttp('xb_http_ok');
   const post: unknown[] = [];
@@ -951,17 +906,14 @@ Deno.test('a remote body settles by its outcome: a result, a failure, an abort o
     [['xb_http_ok', 'call_http', { text: 'hello' }]],
     'complete',
   );
-
   const failed = await withFetch(answering(500, 'down').fetchFn, () => drain('xb_http_ok'));
   check(failed.settlement.failure?.code, 'http_500', 'failure code');
   check(failed.settlement.callNotStarted, undefined, 'the request went out');
   check('outputRaw' in failed.settlement, false, 'no output');
-
   const aborted = await drain('xb_http_ok', {
     stages: stagesWith((ctx) => (ctx.stage === 'pre_tool' ? { abort: true } : undefined)),
   });
   check(bare(aborted.settlement), { aborted: true, callNotStarted: true }, 'aborted');
-
   const post2: unknown[] = [];
   registerHttp('xb_http_pre_deny', {
     preTool: () => ({ deny: { code: 'no', message: 'denied' } }),
@@ -975,7 +927,6 @@ Deno.test('a remote body settles by its outcome: a result, a failure, an abort o
     }),
   });
   check(post2, [['xb_http_pre_deny', 'call_deny', {}, true]], 'post_tool saw the denial');
-
   registerHttp('xb_http_perm', { permission: 'always_confirm' });
   const perm = await drain('xb_http_perm');
   check(
@@ -997,7 +948,6 @@ Deno.test('a remote body settles by its outcome: a result, a failure, an abort o
     [1, 1],
     'permission gate announced once',
   );
-
   registerHttp('xb_http_confirm', { preTool: () => ({ confirm: { summary: 'Sure?' } }) });
   const confirm = await drain('xb_http_confirm');
   check(
@@ -1020,7 +970,6 @@ Deno.test('a remote body settles by its outcome: a result, a failure, an abort o
     'confirmation announced once',
   );
 });
-
 Deno.test('a remote tool that signs in gates with the sign-in note', async () => {
   registerHttp('xb_http_auth', { auth: { slot: 'sheets', service: 'Sheets', type: 'bearer' } });
   const { events, settlement } = await drain('xb_http_auth', {
@@ -1036,13 +985,11 @@ Deno.test('a remote tool that signs in gates with the sign-in note', async () =>
   const heard = gateEvents(events);
   check([heard.stage.length, heard.tool.length], [1, 1], 'announced once');
 });
-
 Deno.test('a signed-in request is timed on the call span even when the call then fails on it', async () => {
   const networkChecks = (tree: ReturnType<typeof startTrace>) =>
     (tree.collect()[1]?.events ?? [])
       .filter((e) => e.name === 'theorem.guardrail' && e.attributes.check === 'network_request')
       .map((e) => e.attributes.action);
-
   registerSheet('xb_sheet_span_refused');
   const refusedTree = startTrace('root');
   const refused = answering(401, 'refused', { 'WWW-Authenticate': 'Bearer error="invalid_token"' });
@@ -1054,7 +1001,6 @@ Deno.test('a signed-in request is timed on the call span even when the call then
     }),
   );
   check(networkChecks(refusedTree), ['allow'], 'refused credential');
-
   registerSheet('xb_sheet_span_blocked');
   const blockedTree = startTrace('root');
   const blocked = answering(200, 'never sent');

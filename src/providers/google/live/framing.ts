@@ -281,7 +281,7 @@ export function buildGeminiLiveRealtimeInput(input: InteractionPart): Record<str
   return { realtimeInput: part.type === 'audio' ? { audio: media } : { video: media } };
 }
 
-export function liveFunctionResponsePayload(output: unknown): Record<string, unknown> {
+function liveFunctionResponsePayload(output: unknown): Record<string, unknown> {
   const error = asRecord(output)?.error;
   if (typeof error === 'string') {
     return { error };
@@ -293,19 +293,23 @@ export function buildGeminiLiveToolResponse(
   id: string,
   name: string,
   output: unknown,
+  parts?: InteractionPart[],
 ): Record<string, unknown> {
-  return buildGeminiLiveToolResponses([{ id, name, output }]);
+  return buildGeminiLiveToolResponses([{ id, name, output, parts }]);
 }
 
 export function buildGeminiLiveToolResponses(
-  responses: Array<{ id: string; name: string; output: unknown }>,
+  responses: Array<{ id: string; name: string; output: unknown; parts?: InteractionPart[] }>,
 ): Record<string, unknown> {
   return {
     toolResponse: {
-      functionResponses: responses.map(({ id, name, output }) => ({
+      functionResponses: responses.map(({ id, name, output, parts }) => ({
         id,
         name,
         response: liveFunctionResponsePayload(output),
+        ...(parts?.length
+          ? { parts: parts.filter((part) => part.type !== 'text').map(contentPart) }
+          : {}),
       })),
     },
   };

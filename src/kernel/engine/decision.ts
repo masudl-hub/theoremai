@@ -1,16 +1,13 @@
-import {
-  type ErrorKind,
-  kindOfHttpStatus,
-  TheoremError,
-  throwIfAborted,
-} from '../../guardrails/error.ts';
+import { type ErrorKind, TheoremError, throwIfAborted } from '../../guardrails/error.ts';
+import { lexiconText } from '../../guardrails/lexicon.ts';
 import type { DecisionDisclosureVerdict } from '../../guardrails/types.ts';
 import { resolveTraceWriter } from '../../observability/policy.ts';
 import { writeSpans } from '../../observability/trace.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
 import { type SpanHandle, startTrace, traceJson } from '../../observability/trace-span.ts';
-import { PROVIDER_FACTS } from '../../presets/facts.ts';
-import { decisionUsage } from '../../providers/decision/usage.ts';
+import type { ProviderHostOptions } from '../provider-contract.ts';
+import { validateProviderModel } from '../provider-contract.ts';
+import { createProviderOperations, withProviderAbort } from '../provider-runtime.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import { soleModelId } from '../registry/sole-model.ts';
 import type {
@@ -20,24 +17,12 @@ import type {
   DecisionQuestion,
   DecisionRequest,
   DecisionResult,
-  KeyVault,
   ModelId,
 } from '../types.ts';
 import { isRecord } from '../util/record.ts';
 import { endThrownSpan } from './turn-trace.ts';
 
 /** Where the provider takes decision requests, as its preset states. */
-function decisionsUrl(provider: DecisionProfile['models'][string]['provider']): string {
-  const url = PROVIDER_FACTS[provider].decisionsUrl;
-  if (!url) {
-    throw new TheoremError(
-      'config',
-      `provider '${provider}' takes no decision requests`, // lexicon-exempt: developer contract error
-    );
-  }
-  return url;
-}
-
 const DECISION_ERROR_KINDS = {
   invalid_request: 'request',
   authentication: 'auth',
@@ -62,12 +47,8 @@ export class DecisionError extends TheoremError {
   }
 }
 
-/** Options for running a decision: the key vault, a fetch, an endpoint and a trace sink that replaces the profile's. */
-export interface RunDecisionOptions {
-  /** The host's keys by slot; the profile's `key` (or its model's) names the slot. */
-  vault?: KeyVault;
-  fetch?: typeof globalThis.fetch;
-  endpoint?: string;
+/** Options for running a decision: the key vault, transport utilities and a trace sink that replaces the profile's. */
+export interface RunDecisionOptions extends ProviderHostOptions {
   /** Replaces the profile's `observability.writeTo`; an explicit sink always records, unsampled. */
   sink?: TraceSink;
 }
@@ -307,20 +288,6 @@ function isDecisionEntry(value: unknown): boolean {
   return true;
 }
 
-function errorForStatus(status: number): DecisionError {
-  if (status === 400 || status === 409 || status === 413 || status === 422)
-    return new DecisionError('invalid_request', 'Provider rejected the decision request', status); // lexicon-exempt: upstream contract error
-  if (status === 401)
-    return new DecisionError('authentication', 'Decision provider authentication failed', status); // lexicon-exempt: upstream contract error
-  if (status === 402 || status === 403)
-    return new DecisionError('permission', 'Decision provider refused the request', status); // lexicon-exempt: upstream contract error
-  if (status === 429)
-    return new DecisionError('rate_limited', 'Decision provider rate limited the request', status); // lexicon-exempt: upstream contract error
-  if (kindOfHttpStatus(status) === 'timeout')
-    return new DecisionError('timeout', 'Decision provider request timed out', status); // lexicon-exempt: upstream contract error
-  return new DecisionError('unavailable', 'Decision provider is unavailable', status); // lexicon-exempt: upstream contract error
-}
-
 async function enforceDisclosure(
   profile: DecisionProfile,
   model: string,
@@ -337,89 +304,6 @@ async function enforceDisclosure(
   if (verdict?.action === 'block') {
     throw new DecisionError('disclosure_blocked', 'Decision disclosure was blocked'); // lexicon-exempt: developer contract error
   }
-}
-
-function requireApiKey(
-  profile: DecisionProfile,
-  binding: DecisionProfile['models'][string],
-  options: RunDecisionOptions,
-): string {
-  const keySlot = binding.key ?? profile.key;
-  const apiKey = keySlot ? options.vault?.[keySlot]?.trim() : undefined;
-  if (!apiKey)
-    throw new DecisionError('authentication', `the vault has no key in slot '${keySlot}'`); // lexicon-exempt: developer contract error
-  return apiKey;
-}
-
-async function sendDecisionRequest(args: {
-  request: DecisionRequest;
-  apiId: string;
-  provider: DecisionProfile['models'][string]['provider'];
-  apiKey: string;
-  options: RunDecisionOptions;
-  signal: AbortSignal;
-}): Promise<Response> {
-  try {
-    const response = await (args.options.fetch ?? globalThis.fetch)(
-      args.options.endpoint ?? decisionsUrl(args.provider),
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${args.apiKey}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({
-          model: args.apiId,
-          state: args.request.state,
-          questions: args.request.questions,
-        }),
-        signal: args.signal,
-      },
-    );
-    if (!response.ok) throw errorForStatus(response.status);
-    return response;
-  } catch (error) {
-    if (error instanceof DecisionError) throw error;
-    if (args.request.signal?.aborted)
-      throw new DecisionError('cancelled', 'Decision request was cancelled'); // lexicon-exempt: developer contract error
-    if (args.signal.aborted) throw new DecisionError('timeout', 'Decision request timed out'); // lexicon-exempt: developer contract error
-    throw new DecisionError('network', 'Decision provider network request failed'); // lexicon-exempt: upstream contract error
-  }
-}
-
-async function resultFromResponse(
-  response: Response,
-  questions: DecisionRequest['questions'],
-  binding: DecisionProfile['models'][string],
-  signal: AbortSignal,
-  requestSignal?: AbortSignal,
-): Promise<DecisionResult> {
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch (error) {
-    if (requestSignal?.aborted)
-      throw new DecisionError('cancelled', 'Decision request was cancelled'); // lexicon-exempt: developer contract error
-    if (signal.aborted) throw new DecisionError('timeout', 'Decision request timed out'); // lexicon-exempt: developer contract error
-    if (!(error instanceof SyntaxError))
-      throw new DecisionError('network', 'Decision response body could not be read'); // lexicon-exempt: upstream contract error
-    throw new DecisionError('malformed_response', 'Decision provider returned non-JSON output'); // lexicon-exempt: upstream contract error
-  }
-  if (
-    !isRecord(body) ||
-    typeof body.model !== 'string' ||
-    !body.model.trim() ||
-    !isRecord(body.answers)
-  ) {
-    throw new DecisionError('malformed_response', 'Decision response has an invalid shape'); // lexicon-exempt: upstream contract error
-  }
-  const usage = decisionUsage(body.usage, binding, body.model);
-  return {
-    model: body.model,
-    answers: validateAnswers(body.answers, questions),
-    ...(usage ? { usage } : {}),
-  };
 }
 
 function decisionSpanAttributes(
@@ -456,16 +340,66 @@ function recordResult(root: SpanHandle, result: DecisionResult): void {
   });
 }
 
+function decisionProviderError(error: unknown): DecisionError {
+  if (error instanceof DecisionError) return error;
+  const kind =
+    error instanceof TheoremError
+      ? error.kind
+      : error instanceof TypeError
+        ? 'network'
+        : 'bad_response';
+  const codes: Partial<Record<ErrorKind, keyof typeof DECISION_ERROR_KINDS>> = {
+    auth: 'authentication',
+    rate_limit: 'rate_limited',
+    network: 'network',
+    unavailable: 'unavailable',
+    timeout: 'timeout',
+    cancelled: 'cancelled',
+    request: 'invalid_request',
+    unsupported: 'invalid_request',
+  };
+  const code =
+    kind === 'auth' && isRecord(error) && error.status === 403
+      ? 'permission'
+      : (codes[kind] ?? 'malformed_response');
+  return new DecisionError(
+    code,
+    lexiconText('provider.decision_failed'),
+    isRecord(error) && typeof error.status === 'number' ? error.status : undefined,
+  );
+}
+
 async function decide(
+  registry: KernelRegistry,
   profile: DecisionProfile,
   [modelId, binding]: [ModelId, DecisionProfile['models'][string]],
   request: DecisionRequest,
   options: RunDecisionOptions,
 ): Promise<DecisionResult> {
   throwIfAborted(request.signal);
+  const selected = registry.providers.require(binding.provider);
+  const provider = {
+    ...selected,
+    connection: structuredClone(selected.connection),
+    adapter: { ...selected.adapter },
+  };
+  binding = { ...binding, providerOptions: structuredClone(binding.providerOptions ?? {}) };
   await enforceDisclosure(profile, modelId, binding.provider, request);
   throwIfAborted(request.signal);
-  const apiKey = requireApiKey(profile, binding, options);
+  validateProviderModel(provider, binding, 'decision');
+  provider.adapter.validateRequest(
+    {
+      apiId: binding.apiId,
+      state: request.state,
+      questions: request.questions,
+      signal: request.signal,
+    },
+    {
+      apiId: binding.apiId,
+      connection: provider.connection,
+      providerOptions: binding.providerOptions ?? {},
+    },
+  );
   const controller = new AbortController();
   const timeout = binding.timeoutMs
     ? setTimeout(() => controller.abort(), binding.timeoutMs)
@@ -473,21 +407,34 @@ async function decide(
   const abort = () => controller.abort();
   request.signal?.addEventListener('abort', abort, { once: true });
   try {
-    const response = await sendDecisionRequest({
-      request,
-      apiId: binding.apiId,
-      provider: binding.provider,
-      apiKey,
-      options,
+    const operations = await createProviderOperations(provider, binding, options, {
       signal: controller.signal,
     });
-    return await resultFromResponse(
-      response,
-      request.questions,
-      binding,
-      controller.signal,
-      request.signal,
-    );
+    const operation = operations.decide;
+    if (typeof operation !== 'function')
+      throw new DecisionError('invalid_request', lexiconText('provider.decision_unavailable'));
+    const payload = {
+      apiId: binding.apiId,
+      state: request.state,
+      questions: request.questions,
+      signal: controller.signal,
+    };
+    provider.adapter.validateRequest(payload, {
+      apiId: binding.apiId,
+      connection: provider.connection,
+      providerOptions: binding.providerOptions ?? {},
+    });
+    const result = await withProviderAbort(() => operation(payload), controller.signal);
+    if (typeof result.model !== 'string' || !result.model.trim())
+      throw new DecisionError('malformed_response', lexiconText('provider.decision_model_missing'));
+    return { ...result, answers: validateAnswers(result.answers, request.questions) };
+  } catch (error) {
+    if (controller.signal.aborted)
+      throw new DecisionError(
+        request.signal?.aborted ? 'cancelled' : 'timeout',
+        lexiconText('provider.decision_ended'),
+      );
+    throw decisionProviderError(error);
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
     request.signal?.removeEventListener('abort', abort);
@@ -518,7 +465,7 @@ export async function runDecisionInRegistry(
     guardrails: profile.guardrails,
   });
   try {
-    const result = await decide(profile, model, request, options);
+    const result = await decide(registry, profile, model, request, options);
     recordResult(tree.root, result);
     tree.root.end({ code: 'OK' });
     return result;

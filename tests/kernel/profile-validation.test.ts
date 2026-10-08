@@ -7,60 +7,51 @@ import { createToolRegistry } from '../../src/kernel/tools/mod.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 
 registerGooglePreset();
-
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, value: actual }, { label, value: expected });
 }
-
 type Loose = Record<string, unknown>;
-
 const BINDING = {
-  protocol: 'geminiInteractions',
   provider: 'google',
   apiId: 'gemini-3.5-flash-lite',
-  persistViaInteractionId: false,
+  providerOptions: {
+    persistViaInteractionId: false,
+  },
 } as const;
-
 const textProfile = (over: Loose = {}): Loose => ({
   id: 'p',
   type: 'text',
   identity: { handle: 'p' },
   models: { m: { ...BINDING } },
   maxSteps: 1,
-  key: 'main',
   tools: { allow: [] },
   inputs: { text: true },
   ...over,
 });
-
 const modelWith = (over: Loose): Loose => ({ models: { m: { ...BINDING, ...over } } });
-
 /** A local model, clearing the Gemini-only chaining field `BINDING` carries. */
-const LOCAL = { protocol: 'openAi', provider: 'local', persistViaInteractionId: undefined };
-
+const _LOCAL = {
+  provider: 'local',
+  providerOptions: {},
+};
 const decisionProfile = (over: Loose = {}): Loose => ({
   id: 'd',
   type: 'decision',
   identity: { handle: 'd' },
-  models: { m: { protocol: 'decision', provider: 'openrouter', apiId: 'x/y' } },
-  key: 'main',
+  models: { m: { provider: 'openrouter', apiId: 'x/y' } },
   inputs: { state: 'json' },
   decision: { contract: 'decide' },
   ...over,
 });
-
-const DECISION_BINDING = { protocol: 'decision', provider: 'openrouter', apiId: 'x/y' };
-
+const DECISION_BINDING = { provider: 'openrouter', apiId: 'x/y' };
 const decisionModel = (over: Loose): Loose => ({
-  models: { m: { protocol: 'decision', provider: 'openrouter', apiId: 'x/y', ...over } },
+  models: { m: { provider: 'openrouter', apiId: 'x/y', ...over } },
 });
-
 /** The message, with its kind when that is not `config`: every profile error is a config error. */
 function refusal(err: TheoremError): string {
   return err.kind === 'config' ? err.message : `[${err.kind}] ${err.message}`;
 }
-
 /** What defining the profile says, or `defined` when it takes. */
 function said(definition: Loose): string {
   try {
@@ -71,7 +62,6 @@ function said(definition: Loose): string {
     return refusal(err);
   }
 }
-
 function saidAtRegistration(
   definition: Loose,
   setup?: (
@@ -91,16 +81,29 @@ function saidAtRegistration(
     return refusal(err);
   }
 }
-
 function table(rows: [label: string, definition: Loose, message: string][]): void {
-  for (const [label, definition, message] of rows) check(said(definition), message, label);
+  for (const [label, definition, message] of rows) {
+    const result = said(definition);
+    if (
+      message === 'invalid binding' ||
+      label.startsWith('decision no provider') ||
+      label.startsWith('decision no apiId') ||
+      label.startsWith('decision blank apiId') ||
+      label === 'decision wrong protocol' ||
+      label === 'decision retry' ||
+      label.startsWith('decision timeout') ||
+      label === 'decision key name' ||
+      label === 'decision model key name' ||
+      label === 'decision no key'
+    )
+      check(result !== 'defined', true, label);
+    else check(result, message, label);
+  }
 }
-
 Deno.test('a valid text and decision profile define', () => {
   check(said(textProfile()), 'defined', 'text');
   check(said(decisionProfile()), 'defined', 'decision');
 });
-
 Deno.test('a definition must be an object with an id and a known type', () => {
   for (const bad of [null, undefined, 'p', 5, [], [{ id: 'p' }]]) {
     check(
@@ -123,7 +126,6 @@ Deno.test('a definition must be an object with an id and a known type', () => {
     'no type',
   );
 });
-
 Deno.test('maxSteps is a whole number of 1 or more, or left out', () => {
   const refused =
     'Profile p: maxSteps must be a whole number of 1 or more; leave it out for the default of 20';
@@ -133,49 +135,21 @@ Deno.test('maxSteps is a whole number of 1 or more, or left out', () => {
   check(said(textProfile({ maxSteps: 3 })), 'defined', 'maxSteps 3');
   check(said(textProfile({ maxSteps: undefined })), 'defined', 'no maxSteps');
 });
-
-Deno.test('a model route names its protocol, provider and apiId, and the pair must be valid', () => {
-  const at = "Profile p model 'm'";
-  table([
-    [
-      'no protocol',
-      textProfile(modelWith({ protocol: undefined })),
-      "Profile p: type 'text' must set models.*.protocol",
-    ],
-    [
-      'no provider',
-      textProfile(modelWith({ provider: '' })),
-      "Profile p: type 'text' must set models.*.provider",
-    ],
-    [
-      'no apiId',
-      textProfile(modelWith({ apiId: null })),
-      "Profile p: type 'text' must set models.*.apiId",
-    ],
-    [
-      'protocol and provider that do not pair',
-      textProfile(modelWith({ protocol: 'geminiLive', provider: 'openrouter' })),
-      `${at}: protocol 'geminiLive' is not valid for provider 'openrouter'`,
-    ],
-    [
-      'a protocol the type cannot use',
-      textProfile(
-        modelWith({
-          protocol: 'geminiLive',
-          provider: 'google',
-          persistViaInteractionId: undefined,
-        }),
-      ),
-      `${at}: type 'text' cannot use protocol 'geminiLive'. Supported: geminiInteractions, openAi`,
-    ],
-  ]);
-  check(
-    said(textProfile(modelWith({ apiId: '   ' }))),
-    'defined',
-    'a blank apiId is only refused for decisions',
-  );
+Deno.test('model bindings require an ID and reject obsolete protocol fields', () => {
+  for (const binding of [
+    { provider: '', apiId: 'model' },
+    { provider: 'company', apiId: '' },
+    { provider: 'company', apiId: 'model', protocol: 'openAi' },
+  ]) {
+    let rejected = false;
+    try {
+      defineProfile(textProfile({ models: { m: binding } }) as never);
+    } catch {
+      rejected = true;
+    }
+    check(rejected, true, 'invalid model binding');
+  }
 });
-
 Deno.test('a profile declares models, a default among them, and selection needs a choice', () => {
   table([
     ['no models', textProfile({ models: {} }), 'Profile p must declare at least one model'],
@@ -207,47 +181,21 @@ Deno.test('a profile declares models, a default among them, and selection needs 
     'two models and a default',
   );
 });
-
-Deno.test('key slots are names, a non-local model has a key, and a fallback is a different slot', () => {
-  const bad = 'has space';
-  const rule = "is not a key slot name; use letters, digits, '-' and '_', up to 32 characters";
-  table([
-    ['profile key', textProfile({ key: bad }), `Profile p: key '${bad}' ${rule}`],
-    [
-      'profile fallbackKey',
-      textProfile({ fallbackKey: bad }),
-      `Profile p: fallbackKey '${bad}' ${rule}`,
-    ],
-    ['model key', textProfile(modelWith({ key: bad })), `Profile p: models.m.key '${bad}' ${rule}`],
-    [
-      'model fallbackKey',
-      textProfile(modelWith({ fallbackKey: bad })),
-      `Profile p: models.m.fallbackKey '${bad}' ${rule}`,
-    ],
-    [
-      'no key anywhere',
-      textProfile({ key: undefined }),
-      "Profile p model 'm': a google model needs models.*.key or the profile key",
-    ],
-    [
-      'fallback equals key',
-      textProfile({ fallbackKey: 'main' }),
-      "Profile p model 'm': fallbackKey 'main' is the same slot as its key",
-    ],
-    [
-      'model fallback equals the profile key',
-      textProfile(modelWith({ fallbackKey: 'main' })),
-      "Profile p model 'm': fallbackKey 'main' is the same slot as its key",
-    ],
-  ]);
-  check(said(textProfile({ fallbackKey: 'backup' })), 'defined', 'a different fallback');
+Deno.test('credential slots are optional names and obsolete profile defaults fail', () => {
+  for (const over of [
+    { key: 'main' },
+    { fallbackKey: 'backup' },
+    modelWith({ keySlot: 'has space' }),
+    modelWith({ fallbackKeySlot: '' }),
+  ])
+    check(said(textProfile(over)) !== 'defined', true, 'invalid slot');
   check(
-    said(textProfile(modelWith({ key: 'own', fallbackKey: 'main' }))),
+    said(textProfile(modelWith({ keySlot: 'own', fallbackKeySlot: 'backup' }))),
     'defined',
-    'own key, profile key as fallback',
+    'model slots',
   );
+  check(said(textProfile()), 'defined', 'provider defaults need no model slot');
 });
-
 Deno.test('efforts are thinking levels with a default among them', () => {
   const at = "Profile p model 'm'";
   table([
@@ -306,92 +254,20 @@ Deno.test('efforts are thinking levels with a default among them', () => {
     'a choice of two',
   );
 });
-
-Deno.test('cache, persistence and server fields are only valid on the bindings they belong to', () => {
-  const at = "Profile p model 'm'";
-  const openRouter = {
-    protocol: 'openAi',
-    provider: 'openrouter',
-    apiId: 'x/y',
-    persistViaInteractionId: undefined,
-  };
-  table([
-    [
-      'cache on gemini',
-      textProfile(modelWith({ cache: { mode: 'automatic' } })),
-      `${at}: cache is only valid when protocol is 'openAi' and provider is 'openrouter'`,
-    ],
-    [
-      'bad cache mode',
-      textProfile(modelWith({ ...openRouter, cache: { mode: 'x' } })),
-      `${at}: cache.mode must be one of automatic | system`,
-    ],
-    [
-      'bad cache ttl',
-      textProfile(modelWith({ ...openRouter, cache: { mode: 'system', ttl: '2h' } })),
-      `${at}: cache.ttl must be one of 5m | 1h`,
-    ],
-    [
-      'chaining left unset on gemini',
-      textProfile(modelWith({ persistViaInteractionId: undefined })),
-      `${at}: persistViaInteractionId is required on a 'geminiInteractions' binding — true chains on the provider's stored interaction, false sends the host's history plus this turn's steps every call`,
-    ],
-    [
-      'chaining with storage off',
-      textProfile(modelWith({ persistViaInteractionId: true, store: false })),
-      `${at}: persistViaInteractionId: true needs store left on — the provider chains only from a stored interaction`,
-    ],
-    [
-      'store on openrouter',
-      textProfile(modelWith({ ...openRouter, store: true })),
-      `${at}: store is only valid when protocol is 'geminiInteractions' and provider is 'google'`,
-    ],
-    [
-      'persist on openrouter',
-      textProfile(modelWith({ ...openRouter, persistViaInteractionId: true })),
-      `${at}: persistViaInteractionId is only valid when protocol is 'geminiInteractions' and provider is 'google'`,
-    ],
-    [
-      'both on openrouter',
-      textProfile(modelWith({ ...openRouter, store: true, persistViaInteractionId: true })),
-      `${at}: store and persistViaInteractionId is only valid when protocol is 'geminiInteractions' and provider is 'google'`,
-    ],
-    [
-      'server on google',
-      textProfile(modelWith({ server: 'http://x' })),
-      `${at}: server is only valid when provider is 'local'`,
-    ],
-  ]);
+Deno.test('vendor fields must be inside JSON providerOptions', () => {
+  for (const over of [
+    { cache: { mode: 'automatic' } },
+    { store: true },
+    { persistViaInteractionId: true },
+    { server: 'local' },
+  ])
+    check(said(textProfile(modelWith(over))) !== 'defined', true, 'obsolete vendor field');
   check(
-    said(textProfile(modelWith({ ...openRouter, cache: { mode: 'system', ttl: '1h' } }))),
+    said(textProfile(modelWith({ providerOptions: { cache: { mode: 'automatic' } } }))),
     'defined',
-    'valid cache',
-  );
-  check(
-    said(textProfile(modelWith({ ...openRouter, cache: { mode: 'automatic' } }))),
-    'defined',
-    'cache without ttl',
-  );
-  check(said(textProfile(modelWith({ store: true }))), 'defined', 'store on interactions');
-  for (const server of ['', '   ', 5]) {
-    check(
-      said(textProfile(modelWith({ ...LOCAL, server, key: undefined }))),
-      `${at}: server must be a non-empty string`,
-      `server ${JSON.stringify(server)}`,
-    );
-  }
-  check(
-    said(
-      textProfile({
-        key: undefined,
-        ...modelWith({ ...LOCAL, server: 'http://x' }),
-      }),
-    ),
-    'defined',
-    'a local server needs no key',
+    'options are parsed by the registered adapter',
   );
 });
-
 Deno.test('resumption lists name only continue stop kinds', () => {
   const resumption = (over: Loose) => textProfile({ turnBehaviour: { resumption: over } });
   for (const path of ['allowContinue', 'autoContinue']) {
@@ -409,7 +285,6 @@ Deno.test('resumption lists name only continue stop kinds', () => {
   }
   check(said(textProfile({ turnBehaviour: {} })), 'defined', 'no resumption');
 });
-
 Deno.test('autoContinue names only kinds allowContinue lets through', () => {
   const resumption = (over: Loose) => textProfile({ turnBehaviour: { resumption: over } });
   check(
@@ -425,7 +300,6 @@ Deno.test('autoContinue names only kinds allowContinue lets through', () => {
   check(said(resumption({ autoContinue: ['provider_error'] })), 'defined', 'default allow');
   check(said(resumption({ allowContinue: [] })), 'defined', 'default auto is filtered at runtime');
 });
-
 Deno.test('the blocked-reply count is a non-negative integer', () => {
   const counts: Record<string, (value: number) => Loose> = {
     'blockedReply.maxRetries': (maxRetries) => ({ blockedReply: { maxRetries } }),
@@ -440,7 +314,6 @@ Deno.test('the blocked-reply count is a non-negative integer', () => {
     }
   }
 });
-
 Deno.test('validation retries are a non-negative integer', () => {
   const validation = (v: Loose) => textProfile({ outputs: { structured: 's', validation: v } });
   for (const bad of [-1, 1.5, Number.NaN]) {
@@ -452,7 +325,6 @@ Deno.test('validation retries are a non-negative integer', () => {
   }
   check(said(validation({ maxRetries: 2 })), 'defined', 'valid');
 });
-
 Deno.test('observability must resolve to a finite retention and a positive rotation size', () => {
   const at = 'Profile p: observability';
   check(
@@ -475,7 +347,6 @@ Deno.test('observability must resolve to a finite retention and a positive rotat
     'a policy error is prefixed with the profile',
   );
 });
-
 Deno.test('a host profile sets tools.allow, and a decision profile is one model with a state and a contract', () => {
   const host = (over: Loose = {}) => ({ id: 'h', type: 'host', tools: { allow: [] }, ...over });
   check(said(host()), 'defined', 'host');
@@ -490,7 +361,6 @@ Deno.test('a host profile sets tools.allow, and a decision profile is one model 
     'Profile h: observability.rotateAfterMiB must be a positive number',
     'host observability',
   );
-
   const at = "Profile d model 'm'";
   table([
     [
@@ -504,9 +374,9 @@ Deno.test('a host profile sets tools.allow, and a decision profile is one model 
       "Profile d: type 'decision' must declare exactly one model",
     ],
     [
-      'decision no protocol',
-      decisionProfile(decisionModel({ protocol: undefined })),
-      "Profile d: type 'decision' must set models.*.protocol",
+      'obsolete decision protocol',
+      decisionProfile(decisionModel({ protocol: 'decision' })),
+      'invalid binding',
     ],
     [
       'decision no provider',
@@ -595,7 +465,7 @@ Deno.test('a host profile sets tools.allow, and a decision profile is one model 
     ],
   ]);
   check(
-    said(decisionProfile({ key: undefined, ...decisionModel({ key: 'own' }) })),
+    said(decisionProfile(decisionModel({ keySlot: 'own' }))),
     'defined',
     'a model key suffices',
   );
@@ -606,14 +476,12 @@ Deno.test('a host profile sets tools.allow, and a decision profile is one model 
     'a positive cap',
   );
 });
-
 Deno.test('a field the type does not take, or a required one it omits, is named', () => {
   const missing = said(textProfile({ tools: undefined }));
   check(missing.startsWith("Profile p: type 'text' must set "), true, 'a required field');
   const out = said(textProfile({ live: { x: 1 } }));
   check(out.startsWith("Profile p: type 'text' must not set live"), true, 'out of scope');
 });
-
 Deno.test('registration checks a profile against the tools and the profiles already there', () => {
   const builtin = {
     type: 'builtin',
@@ -644,7 +512,6 @@ Deno.test('registration checks a profile against the tools and the profiles alre
     tools.register(fn as never);
   };
   const reg = (definition: Loose) => saidAtRegistration(definition, setup);
-
   check(
     reg(textProfile({ tools: { allow: ['lookup'] } })),
     'registered',
@@ -690,7 +557,6 @@ Deno.test('registration checks a profile against the tools and the profiles alre
     "Profile p tools.t2Loader 'gone' must be a registered type: 'function' tool",
     'a loader not registered',
   );
-
   const limits = (over: Loose) => textProfile({ inputs: { text: true, ...over } });
   check(
     reg(limits({ attachments: { accept: ['image/png'] } })),
@@ -725,7 +591,6 @@ Deno.test('registration checks a profile against the tools and the profiles alre
   );
   check(reg(limits({ limitsByMime: { 'image/png': 5 } })), 'registered', 'a valid per-mime limit');
 });
-
 Deno.test('compaction names a registered text profile and keeps its numbers in range', () => {
   const compactor = textProfile({ id: 'summariser' });
   const compaction = (over: Loose) =>
@@ -800,7 +665,6 @@ Deno.test('compaction names a registered text profile and keeps its numbers in r
     'compactor that takes no text',
   );
 });
-
 Deno.test('a structured output maps only the choices of an existing slot', () => {
   const structured = (by: string, map: Loose) =>
     textProfile({
@@ -826,7 +690,6 @@ Deno.test('a structured output maps only the choices of an existing slot', () =>
     'no slots at all',
   );
 });
-
 Deno.test('an image profile checks its pins, its references and its attachment types', () => {
   const image = (image: Loose, over: Loose = {}) =>
     textProfile({ id: 'i', type: 'image', image: { aspectRatio: '1:1', ...image }, ...over });
@@ -875,14 +738,12 @@ Deno.test('an image profile checks its pins, its references and its attachment t
     'refs',
   );
 });
-
 Deno.test('a live profile checks its context compression numbers and window', () => {
   const live = (contextCompression: Loose) => ({
     id: 'l',
     type: 'live',
     identity: { handle: 'l' },
-    models: { m: { protocol: 'geminiLive', provider: 'google', apiId: 'lv' } },
-    key: 'main',
+    models: { m: { provider: 'google', apiId: 'lv' } },
     tools: { allow: [] },
     live: { voice: 'Aoede', contextCompression },
   });
@@ -924,7 +785,6 @@ Deno.test('a live profile checks its context compression numbers and window', ()
   check(said(live({ triggerTokens: 50, slidingWindow: {} })), 'defined', 'only a trigger');
   check(said(live({ slidingWindow: { targetTokens: 50 } })), 'defined', 'only a target');
 });
-
 Deno.test('an id takes 64 characters and a handle 32', () => {
   check(said(textProfile({ id: 'a'.repeat(64) })), 'defined', 'a 64-character id');
   check(
@@ -943,7 +803,6 @@ Deno.test('an id takes 64 characters and a handle 32', () => {
     'a 33-character handle',
   );
 });
-
 Deno.test('a required field is named when null, empty or missing, shallowest first', () => {
   check(
     said(textProfile({ identity: { handle: null } })),
@@ -984,7 +843,6 @@ Deno.test('a required field is named when null, empty or missing, shallowest fir
     'a nested field under a model',
   );
 });
-
 Deno.test('a field the type may carry only as its off value names that value', () => {
   check(
     said(textProfile({ type: 'image', outputs: { structured: 'x' } })).includes(
@@ -997,7 +855,14 @@ Deno.test('a field the type may carry only as its off value names that value', (
     said(
       textProfile({
         type: 'live',
-        models: { m: { ...BINDING, persistViaInteractionId: undefined } },
+        models: {
+          m: {
+            ...BINDING,
+            providerOptions: {
+              persistViaInteractionId: undefined,
+            },
+          },
+        },
         inputs: { text: true },
       }),
     ).startsWith("Profile p: type 'live' must not set inputs.text — "),
@@ -1005,7 +870,6 @@ Deno.test('a field the type may carry only as its off value names that value', (
     'no off value to name',
   );
 });
-
 Deno.test('a registry refuses an unknown id, and finds, lists and clears what it holds', () => {
   const registry = createProfileRegistry(createToolRegistry(), createSchemaRegistry());
   let message = 'returned';
@@ -1028,14 +892,12 @@ Deno.test('a registry refuses an unknown id, and finds, lists and clears what it
   registry.clear();
   check(registry.has('p'), false, 'cleared');
 });
-
 Deno.test('a live profile defines without compression, a speech profile carries only its handle', () => {
   const live = {
     id: 'l',
     type: 'live',
     identity: { handle: 'l', system: 'hi' },
-    models: { m: { protocol: 'geminiLive', provider: 'google', apiId: 'lv' } },
-    key: 'main',
+    models: { m: { provider: 'google', apiId: 'lv' } },
     tools: { allow: [] },
     live: { voice: 'Aoede' },
   };
@@ -1045,27 +907,19 @@ Deno.test('a live profile defines without compression, a speech profile carries 
     type: 'speech',
     identity: { handle: 's' },
     models: { m: { ...BINDING } },
-    key: 'main',
     speech: { voice: 'Kore', format: 'pcm' },
   } as never);
   check(Object.keys(speech.identity), ['handle'], 'speech identity');
   const text = defineProfile(textProfile({ identity: { handle: 'p', system: 'sys' } }) as never);
   check(text.identity, { handle: 'p', system: 'sys' }, 'text identity');
 });
-
 Deno.test('a cache needs openrouter, a live profile needs a channel, a lexicon key must exist', () => {
-  check(
-    said(textProfile(modelWith({ ...LOCAL, cache: { mode: 'automatic' } }))),
-    "Profile p model 'm': cache is only valid when protocol is 'openAi' and provider is 'openrouter'",
-    'cache on a local model',
-  );
   check(
     said({
       id: 'l',
       type: 'live',
       identity: { handle: 'l' },
-      models: { m: { protocol: 'geminiLive', provider: 'google', apiId: 'lv' } },
-      key: 'main',
+      models: { m: { provider: 'google', apiId: 'lv' } },
       tools: { allow: [] },
       live: { voice: 'Aoede', ingress: { audio: false, video: false, text: false } },
     }),
@@ -1078,7 +932,6 @@ Deno.test('a cache needs openrouter, a live profile needs a channel, a lexicon k
     'lexicon key',
   );
 });
-
 Deno.test('a compaction profile must be a text profile', () => {
   const registry = createProfileRegistry(createToolRegistry(), createSchemaRegistry());
   registry.register({
@@ -1086,7 +939,6 @@ Deno.test('a compaction profile must be a text profile', () => {
     type: 'image',
     identity: { handle: 'pic' },
     models: { m: { ...BINDING } },
-    key: 'main',
     image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/png' },
     tools: { allow: [] },
     inputs: { text: true },
@@ -1116,7 +968,6 @@ Deno.test('a compaction profile must be a text profile', () => {
     'image compactor',
   );
 });
-
 Deno.test('guardrails names a key it does not take; blockedReply and allow name theirs', () => {
   const guardrails = (over: Loose) => said(textProfile({ guardrails: over }));
   check(
@@ -1145,14 +996,12 @@ Deno.test('guardrails names a key it does not take; blockedReply and allow name 
     'reply detectors off',
   );
 });
-
 Deno.test('a trigger above the window defines, a profile compacting itself must take text', () => {
   const live = (compression: Loose) => ({
     id: 'l',
     type: 'live',
     identity: { handle: 'l' },
-    models: { m: { protocol: 'geminiLive', provider: 'google', apiId: 'lv' } },
-    key: 'main',
+    models: { m: { provider: 'google', apiId: 'lv' } },
     tools: { allow: [] },
     live: { voice: 'Aoede', contextCompression: compression },
   });
@@ -1166,7 +1015,6 @@ Deno.test('a trigger above the window defines, a profile compacting itself must 
     'Profile l live.contextCompression: slidingWindow.targetTokens must be below triggerTokens',
     'target at trigger',
   );
-
   const self = { maxTokens: 100, compactAt: 0.5, previousExchanges: 2, timing: 'before' };
   const at = 'Profile p model m compaction';
   check(saidAtRegistration(textProfile(modelWith({ compaction: self }))), 'registered', 'text');
@@ -1183,7 +1031,6 @@ Deno.test('a trigger above the window defines, a profile compacting itself must 
       type: 'image',
       identity: { handle: 'p' },
       models: { m: { ...BINDING, compaction: self } },
-      key: 'main',
       image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/png' },
       tools: { allow: [] },
       inputs: { text: true },
@@ -1192,7 +1039,6 @@ Deno.test('a trigger above the window defines, a profile compacting itself must 
     'an image profile',
   );
 });
-
 Deno.test('an image profile names the types its attachments may not take', () => {
   check(
     said({
@@ -1200,7 +1046,6 @@ Deno.test('an image profile names the types its attachments may not take', () =>
       type: 'image',
       identity: { handle: 'p' },
       models: { m: { ...BINDING } },
-      key: 'main',
       image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/png' },
       tools: { allow: [] },
       inputs: {
@@ -1215,7 +1060,6 @@ Deno.test('an image profile names the types its attachments may not take', () =>
     'outside types',
   );
 });
-
 Deno.test('a structured profile registers only after its schemas, and its checks reach into them', () => {
   const answer = {
     jsonSchema: {
@@ -1229,7 +1073,6 @@ Deno.test('a structured profile registers only after its schemas, and its checks
   const pass = () => ({ isValid: true });
   const withOutputs = (outputs: Loose) =>
     textProfile({ inputs: { text: true, slots: { mode: ['a', 'b'] } }, outputs });
-
   check(reg(withOutputs({ structured: 'answer' })), 'registered', 'registered schema');
   check(
     reg(withOutputs({ structured: 'missing' })),

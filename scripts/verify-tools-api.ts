@@ -15,9 +15,9 @@ import type {
   TurnEvent,
   TurnRequest,
 } from '../src/kernel/types.ts';
-import { createProvider } from '../src/providers/create-provider.ts';
 import { failureOf, gateOf, lastTool, outputOf, toolPhases } from '../tests/fixtures/events.ts';
 import { geminiModels, HOST_BINDINGS } from '../tests/fixtures/models.ts';
+import { scriptProviderOptions, scriptTurnOptions } from './provider-options.ts';
 import '../tests/fixtures/test-host.ts';
 import { toolCallsOf } from '../src/interface/tool-calls.ts';
 import { registerHarnessTools } from '../src/kernel/tools/harness.ts';
@@ -250,10 +250,13 @@ async function runInvoke(req: InvokeToolRequest): Promise<CaseResult> {
   }
 }
 
-async function runLive(req: TurnRequest, provider: ModelProvider): Promise<CaseResult> {
+async function runLive(
+  req: TurnRequest,
+  provider: ModelProvider | import('../mod.ts').ProviderHostOptions,
+): Promise<CaseResult> {
   const start = Date.now();
   try {
-    const events = await collect(runTurn(req, provider));
+    const events = await collect(runTurn(req, scriptTurnOptions(req.profile, provider)));
     const errEv = events.find((e) => e.type === 'error');
     const publicMsg = errEv?.error;
     const internal = errEv?.errorInternal;
@@ -313,8 +316,8 @@ function stopKind(events: TurnEvent[]): string | undefined {
   return events.findLast((e) => e.type === 'done')?.stop?.kind;
 }
 
-function createGeminiProvider(): ModelProvider {
-  return createProvider(getProfile(LIVE_PROFILE), { vault: hostVault() });
+function createGeminiProvider(): import('../mod.ts').ProviderHostOptions {
+  return scriptProviderOptions(getProfile(LIVE_PROFILE), { vault: hostVault() });
 }
 
 function buildInvokeCases(): Case[] {
@@ -712,7 +715,7 @@ function buildStubRunCases(): Case[] {
 
 // Real Gemini integration smoke: model obedience varies.
 
-function buildLiveCases(provider: ModelProvider): Case[] {
+function buildLiveCases(provider: import('../mod.ts').ProviderHostOptions): Case[] {
   const lp = LIVE_PROFILE;
 
   const mustCall = (tool: string, args: Record<string, unknown>, text: string): TurnRequest => ({

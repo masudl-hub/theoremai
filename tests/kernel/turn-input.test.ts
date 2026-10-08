@@ -1,7 +1,8 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
-import { registerProfile, registerTool, runTurn } from '../../src/kernel/default-scope.ts';
+import { registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type {

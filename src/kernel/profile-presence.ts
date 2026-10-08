@@ -1,18 +1,14 @@
 // why: Leaf module: `schema.ts` reads it at load time. `defineProfile` enforces the requirements;
 // this records them for display.
-
 /** lexicon-exempt-file: authoring field-meta presence notes — not runtime user or model copy (P2) */
-
 export interface ProfileFieldPresence {
   /** The profile must set the field: always (`true`), or only in the case named. */
   required?: true | string;
   /** What leaving the field out does, as a short phrase a blank control can show. */
   unset?: string;
 }
-
 /** The most model calls a turn makes when its profile sets no `maxSteps`. */
 export const DEFAULT_MAX_STEPS = 20;
-
 /** Presence for profile paths, keyed like `PROFILE_FIELDS` (`models.*` matches every binding). */
 export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresence>> = {
   id: { required: true },
@@ -31,10 +27,12 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   defaultModel: { required: 'when more than one model is declared', unset: 'The only model' },
   allowModelSelect: { unset: 'Off' },
   maxSteps: { unset: `${DEFAULT_MAX_STEPS} model calls` },
-  key: { required: 'when a hosted model has no key of its own', unset: 'No key slot' },
-  fallbackKey: { unset: 'No fallback' },
-  'models.*.protocol': { required: true },
   'models.*.provider': { required: true },
+  'models.*.providerOptions': { unset: 'Adapter defaults' },
+  'models.*.keySlot': { unset: 'Provider primary slot' },
+  'models.*.fallbackKeySlot': { unset: 'Provider fallback slot, when configured' },
+  providerContinuation: { unset: 'Rebuild from portable history' },
+  'providerContinuation.onMismatch': { unset: 'rebuild' },
   'models.*.apiId': { required: true },
   'models.*.builtInTools': { unset: 'None' },
   'models.*.maxOutputTokens': { unset: 'Provider default' },
@@ -46,8 +44,6 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
     unset: 'The only effort',
   },
   'models.*.allowEffortSelect': { unset: 'Off' },
-  'models.*.key': { unset: "The profile's key; none for a local model" },
-  'models.*.fallbackKey': { unset: "The profile's fallback key; none for a local model" },
   'models.*.timeoutMs': { unset: 'No timeout' },
   'models.*.compaction': { unset: 'Off' },
   'models.*.compaction.maxTokens': { required: true },
@@ -57,11 +53,6 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'models.*.compaction.trigger': { unset: 'compactAt of maxTokens' },
   'models.*.compaction.timing': { required: true },
   'models.*.compaction.meter': { unset: 'history' },
-  'models.*.cache': { unset: 'Off' },
-  'models.*.cache.mode': { required: true },
-  'models.*.cache.ttl': { unset: 'Provider default' },
-  'models.*.store': { unset: 'Provider default' },
-  'models.*.persistViaInteractionId': { required: 'when the protocol is geminiInteractions' },
   inputs: { required: 'on every type that takes it but live', unset: 'No slots or context' },
   'inputs.text': { unset: 'Accepted' },
   'inputs.attachments.accept': { unset: 'No attachments' },

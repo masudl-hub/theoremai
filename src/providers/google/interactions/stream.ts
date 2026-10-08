@@ -302,13 +302,17 @@ async function* parseInteractionsSse(
     return;
   }
   const fold = newStreamFold();
+  let terminal: Extract<ProviderEvent, { type: 'done' }> | undefined;
   for await (const row of readSseChunks(response.body)) {
     req.tapUpstream?.(row);
     if (row.eventType === 'sse_done') {
       break;
     }
     const events = foldPayload(row, fold);
-    yield* events;
+    for (const event of events) {
+      if (event.type === 'done') terminal = event;
+      else yield event;
+    }
     if (events.some((ev) => ev.type === 'error')) {
       yield* openStepEvents(fold);
       return;
@@ -318,9 +322,7 @@ async function* parseInteractionsSse(
   yield* finalizeStructured(req, fold);
   const missing = missingMediaError(req, fold);
   if (missing) yield missing;
-  if (!fold.sawDone) {
-    yield { type: 'done', stop: { kind: 'stream_incomplete' } };
-  }
+  yield terminal ?? { type: 'done', stop: { kind: 'stream_incomplete' } };
 }
 
 async function postInteractions(
@@ -364,10 +366,12 @@ async function* fetchInteractionsOnce(
   }
   req.tapUpstream?.(parsed);
   const fold = newStreamFold();
-  yield* foldBody(parsed, fold);
+  const events = foldBody(parsed, fold);
+  yield* events.filter((event) => event.type !== 'done');
   yield* finalizeStructured(req, fold);
   const missing = missingMediaError(req, fold);
   if (missing) yield missing;
+  yield* events.filter((event) => event.type === 'done');
 }
 
 async function* streamInteractions(

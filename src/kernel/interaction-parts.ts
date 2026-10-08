@@ -25,3 +25,18 @@ export function historyMessageParts(msg: TurnHistoryMessage): InteractionPart[] 
   const parts = msg.parts ?? [];
   return msg.content ? [{ type: 'text', text: msg.content }, ...parts] : [...parts];
 }
+
+export function historyToolCalls(
+  calls: readonly import('./turn-events.ts').ToolCallRequest[],
+): TurnHistoryMessage {
+  const tool_calls: NonNullable<TurnHistoryMessage['tool_calls']> = [];
+  for (const call of calls) {
+    tool_calls.push({
+      id: call.callId,
+      type: 'function',
+      function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+      ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}),
+    });
+  }
+  return { role: 'assistant', tool_calls };
+}

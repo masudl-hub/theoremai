@@ -171,7 +171,7 @@ const graph = {
         {
           path: 'src/kernel/registry/vault.ts',
           reason: 'Key slot resolution feeds every adapter',
-          sections: ['Key vault (provider-neutral)', 'createProvider'],
+          sections: ['Key vault (provider-neutral)', 'Registered providers'],
         },
       ],
       validates: [
@@ -187,7 +187,7 @@ const graph = {
         'tests/providers/openrouter/chat.test.ts',
         'tests/providers/openrouter/speech.test.ts',
         'tests/providers/openrouter/openai/compat.test.ts',
-        'tests/providers/openrouter/openai/sdk-messages.test.ts',
+        'tests/providers/extensions.test.ts',
         'tests/providers/openrouter/openai/usage.test.ts',
         'tests/providers/shared/pcm.test.ts',
         'tests/providers/shared/sse.test.ts',
@@ -198,7 +198,7 @@ const graph = {
         'Export',
         'Ownership',
         'Package boundary',
-        'createProvider',
+        'Registered providers',
         'OpenRouter',
         'Google Interactions',
         'Google Live',
@@ -209,8 +209,8 @@ const graph = {
       ],
       section_triggers: [
         {
-          paths: ['src/providers/create-provider.ts'],
-          sections: ['createProvider', 'Package boundary'],
+          paths: ['src/providers/adapters.ts'],
+          sections: ['Registered providers', 'Package boundary'],
         },
         {
           paths: [

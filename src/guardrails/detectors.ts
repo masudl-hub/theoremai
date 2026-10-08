@@ -238,6 +238,8 @@ type BoundaryActions = Readonly<Partial<Record<Boundary, DetectAction>>>;
  */
 interface DetectorDeclaration extends DetectMeta {
   group: DetectorGroup;
+  /** Its name in a list under its group's name, where the group says the rest. */
+  short?: string;
   defaults: Readonly<Partial<Record<Boundary, DetectAction>>>;
   /** What its setting's `allow` lists, when it takes one: addresses, or names. */
   allow?: 'urls' | 'names';
@@ -325,6 +327,7 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
   },
   tool_instructions: {
     label: 'Tool instructions',
+    short: 'From tools',
     doc: 'Tool output that instructs the agent. A match raises taint. Default Flag.',
     group: 'manipulation',
     defaults: returned('flag', 'ignore'),
@@ -350,6 +353,7 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
   },
   ungiven_images: {
     label: 'Ungiven images',
+    short: 'Images',
     doc: 'An image at an address not given. Loads with no click.',
     group: 'addresses',
     defaults: shown('block', 'redact'),
@@ -357,6 +361,7 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
   },
   ungiven_links: {
     label: 'Ungiven links',
+    short: 'Links',
     doc: 'A link to an address not given. Default Ignore: replies cite known pages.',
     group: 'addresses',
     defaults: shown('ignore', 'ignore'),

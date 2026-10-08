@@ -1173,7 +1173,7 @@ export type LiveExecuteToolResult = {
 };
 
 /**
- * Open Gemini Live session returned by `runSession`. It streams events until
+ * Open live session returned by `runSession`. It streams events until
  * `close()` and exposes realtime media ingress and staged tool execution.
  */
 export interface LiveSession {

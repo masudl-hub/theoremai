@@ -353,7 +353,7 @@ true satisfies Equals<z.infer<typeof providerEvidence>, ProviderEvidence>;
 
 /** A session the provider ended after warning it would. */
 export interface SessionEnded {
-  /** The provider warned first (Gemini `goAway`). */
+  /** The provider warned first. */
   cause: 'go_away';
   code: number;
   /** Milliseconds from the last warning to the close; compare with `timeLeftMs`. */

@@ -17,6 +17,7 @@ for image and speech-adjacent profile fields.
 | --- | --- |
 | `src/presets/google.ts` | Google builtins + vocabularies |
 | `src/presets/google/speech-voices.ts` | `GOOGLE_SPEECH_VOICES` list and `GoogleSpeechVoice` type |
+| `src/presets/google/media-tokens.ts` | How Gemini 3 bills media; the rule the kernel's token estimator asks for |
 
 ## Builtins
 

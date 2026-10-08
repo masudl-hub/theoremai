@@ -491,7 +491,11 @@ const graph = {
     'presets-google': {
       export: './presets/google',
       doc: 'docs/contracts/presets-google.md',
-      owns: ['src/presets/google.ts', 'src/presets/google-limits.ts'],
+      owns: [
+        'src/presets/google.ts',
+        'src/presets/google-limits.ts',
+        'src/presets/google/media-tokens.ts',
+      ],
       watches: [
         {
           path: 'src/presets/google/speech-voices.ts',

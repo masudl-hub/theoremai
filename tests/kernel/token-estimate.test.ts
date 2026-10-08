@@ -23,6 +23,9 @@ import {
   webpBytes,
 } from '../fixtures/media-bytes.ts';
 
+/** The family of a Gemini 3 text model. */
+const GEMINI_3 = mediaTokenFamily({ provider: 'google', apiId: 'gemini-3-flash' });
+
 function inline(mimeType: string, bytes: Uint8Array): MediaPayload {
   return { mimeType, data: bytesToBase64(bytes) };
 }
@@ -41,11 +44,11 @@ Deno.test('mediaTokenFamily resolves Gemini 3 text models, direct or via OpenRou
     'gemini-3.8-flash',
     'gemini-3-pro',
   ]) {
-    assertEquals(mediaTokenFamily({ provider: 'google', apiId }), 'gemini-3', apiId);
+    assertEquals(mediaTokenFamily({ provider: 'google', apiId })?.name, 'gemini-3', apiId);
   }
   assertEquals(
     mediaTokenFamily({ provider: 'openrouter', apiId: 'google/gemini-3-flash-preview' }),
-    'gemini-3',
+    GEMINI_3,
   );
 });
 
@@ -79,17 +82,14 @@ Deno.test('gemini-3 images: patch grid inside the 1120 budget, matching live cou
   ];
   for (const [w, h, tokens] of live) {
     assertEquals(
-      await estimator.media(inline('image/png', pngBytes(w, h)), 'gemini-3'),
+      await estimator.media(inline('image/png', pngBytes(w, h)), GEMINI_3),
       tokens,
       `${w}x${h}`,
     );
   }
+  assertEquals(await estimator.media(inline('image/jpeg', jpegBytes(1920, 1080)), GEMINI_3), 1100);
   assertEquals(
-    await estimator.media(inline('image/jpeg', jpegBytes(1920, 1080)), 'gemini-3'),
-    1100,
-  );
-  assertEquals(
-    await estimator.media(inline('image/webp', webpBytes('VP8X', 1000, 250)), 'gemini-3'),
+    await estimator.media(inline('image/webp', webpBytes('VP8X', 1000, 250)), GEMINI_3),
     1056,
   );
 });
@@ -97,7 +97,7 @@ Deno.test('gemini-3 images: patch grid inside the 1120 budget, matching live cou
 Deno.test('gemini-3 audio: 25 tokens per decoded second', async () => {
   const estimator = await loadTokenEstimator();
   const count = (mimeType: string, bytes: Uint8Array) =>
-    estimator.media(inline(mimeType, bytes), 'gemini-3');
+    estimator.media(inline(mimeType, bytes), GEMINI_3);
   assertEquals(await count('audio/wav', wavBytes(5)), 125);
   assertEquals(await count('audio/x-wav', wavBytes(10)), 250);
   assertEquals(await count('audio/wav', wavBytes(2.2)), 56);
@@ -108,7 +108,7 @@ Deno.test('gemini-3 audio: 25 tokens per decoded second', async () => {
 Deno.test('gemini-3 raw PCM: bare audio/pcm is 16 kHz mono; L16 states rate and channels', async () => {
   const estimator = await loadTokenEstimator();
   const count = (mimeType: string, bytes: Uint8Array) =>
-    estimator.media(inline(mimeType, bytes), 'gemini-3');
+    estimator.media(inline(mimeType, bytes), GEMINI_3);
   assertEquals(await count('audio/pcm', pcmBytes(2, 16_000)), 50);
   assertEquals(await count('audio/L16; rate=24000; channels=2', pcmBytes(1.01, 24_000, 2)), 26);
   // Refused by Gemini, or converted with text tokens no rule reproduces.
@@ -123,7 +123,7 @@ Deno.test('gemini-3 raw PCM: bare audio/pcm is 16 kHz mono; L16 states rate and 
 Deno.test('gemini-3 video: a patch grid per rounded second plus the audio under it', async () => {
   const estimator = await loadTokenEstimator();
   const count = (mimeType: string, bytes: Uint8Array) =>
-    estimator.media(inline(mimeType, bytes), 'gemini-3');
+    estimator.media(inline(mimeType, bytes), GEMINI_3);
   const hd = { frames: 10, delta: 12_288, width: 1920, height: 1080 };
   assertEquals(await count('video/mp4', mp4Bytes({ video: hd })), 660);
   // 130 decoded AAC frames at 48 kHz: 2.77 s → 70.
@@ -173,24 +173,18 @@ Deno.test('gemini-3 video unknowns: no frames, unreadable audio, unread containe
     inline('video/mp4', new Uint8Array(64)),
   ];
   for (const payload of unknown) {
-    assertEquals(await estimator.media(payload, 'gemini-3'), undefined, payload.mimeType);
+    assertEquals(await estimator.media(payload, GEMINI_3), undefined, payload.mimeType);
   }
 });
 
 Deno.test('gemini-3 PDF: 520 tokens per page', async () => {
   const estimator = await loadTokenEstimator();
-  assertEquals(
-    await estimator.media(inline('application/pdf', await pdfBytes(1)), 'gemini-3'),
-    520,
-  );
-  assertEquals(
-    await estimator.media(inline('application/pdf', await pdfBytes(3)), 'gemini-3'),
-    1560,
-  );
+  assertEquals(await estimator.media(inline('application/pdf', await pdfBytes(1)), GEMINI_3), 520);
+  assertEquals(await estimator.media(inline('application/pdf', await pdfBytes(3)), GEMINI_3), 1560);
   assertEquals(
     await estimator.media(
       inline('application/pdf', await pdfBytes(2, { layout: 'objectStream' })),
-      'gemini-3',
+      GEMINI_3,
     ),
     1040,
   );
@@ -207,7 +201,7 @@ Deno.test('gemini-3 text documents count as their UTF-8 text', async () => {
     ['text/csv', 'plant,water\nfern,weekly\n'],
   ]) {
     assertEquals(
-      await estimator.media(inline(mimeType, utf8(text)), 'gemini-3'),
+      await estimator.media(inline(mimeType, utf8(text)), GEMINI_3),
       encode(text).length,
       mimeType,
     );
@@ -225,7 +219,7 @@ Deno.test('gemini-3 unknowns: converted documents, unreadable bytes, file refere
     { mimeType: 'image/png', uri: 'https://example.com/files/abc' },
   ];
   for (const payload of unknown) {
-    assertEquals(await estimator.media(payload, 'gemini-3'), undefined, payload.mimeType);
+    assertEquals(await estimator.media(payload, GEMINI_3), undefined, payload.mimeType);
   }
 });
 
@@ -247,7 +241,7 @@ Deno.test('parts and messages count text with o200k and report unknown media', a
   const image = { type: 'image' as const, ...inline('image/png', pngBytes(1920, 1080)) };
   const video = { type: 'video' as const, ...inline('video/mp4', new Uint8Array(16)) };
   assertEquals(
-    await estimator.parts([{ type: 'text', text: 'hello there' }, image, video], 'gemini-3'),
+    await estimator.parts([{ type: 'text', text: 'hello there' }, image, video], GEMINI_3),
     { tokens: encode('hello there').length + 1100, unknownMedia: 1 },
   );
   assertEquals(
@@ -267,7 +261,7 @@ Deno.test('parts and messages count text with o200k and report unknown media', a
         },
         { role: 'tool', tool_call_id: 'c1', name: 'search', content: 'results' },
       ],
-      'gemini-3',
+      GEMINI_3,
     ),
     {
       tokens:

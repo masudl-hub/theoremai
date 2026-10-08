@@ -5,6 +5,7 @@
  * @module
  */
 
+import type { MediaTokenFamily } from '../kernel/engine/token-estimate.ts';
 import type { Protocol, Provider } from '../kernel/schema.ts';
 import { GOOGLE_FACTS } from './google-limits.ts';
 import { LOCAL_FACTS } from './local.ts';
@@ -25,6 +26,8 @@ interface ProviderFacts {
   traceName?: string;
   /** Where its decisions are asked for; absent when it serves none. */
   decisionsUrl?: string;
+  /** The media family of one of its model ids, for estimating tokens; absent when none is measured. */
+  mediaFamily?: (apiId: string) => MediaTokenFamily | undefined;
 }
 
 const PROVIDER_FACTS: Record<Provider, ProviderFacts> = {

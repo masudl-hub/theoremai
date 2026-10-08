@@ -21,6 +21,7 @@ import {
   shouldCompact,
   splitForCompaction,
 } from '../../src/kernel/engine/compaction.ts';
+import { mediaTokenFamily } from '../../src/kernel/engine/token-estimate.ts';
 import {
   compactionMeter as publicCompactionMeter,
   compactionNeeded as publicCompactionNeeded,
@@ -48,7 +49,7 @@ import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 /** Media family of the fixture speaker model (`gemini-3.5-flash-lite`). */
-const FAMILY = 'gemini-3' as const;
+const FAMILY = mediaTokenFamily({ provider: 'google', apiId: 'gemini-3.5-flash-lite' });
 /** Live `countTokens` for a 1920×1080 image on Gemini 3 (22/09/2026). */
 const HD_IMAGE_TOKENS = 1100;
 

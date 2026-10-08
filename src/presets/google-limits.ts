@@ -1,5 +1,6 @@
 import { TheoremError } from '../guardrails/theorem-error.ts';
 import type { ProviderFacts } from './facts.ts';
+import { googleMediaFamily } from './google/media-tokens.ts';
 
 /** The thinking levels Gemini's `thinkingLevel` takes; OpenRouter models take them all. */
 const GOOGLE_THINKING_LEVELS = ['minimal', 'low', 'medium', 'high'] as const;
@@ -34,6 +35,7 @@ const GOOGLE_FACTS: ProviderFacts = {
   takesServer: false,
   storesOn: 'geminiInteractions',
   traceName: 'gcp.gemini',
+  mediaFamily: googleMediaFamily,
 };
 
 export type { GoogleThinkingLevel };

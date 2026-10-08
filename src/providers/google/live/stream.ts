@@ -2,6 +2,7 @@ import { type ErrorKind, TheoremError } from '../../../guardrails/error.ts';
 import { asRecord } from '../../../kernel/engine/record.ts';
 import type { ProviderCompleteRequest, ProviderEvent } from '../../../kernel/types.ts';
 import { findLast } from '../../../kernel/util/find-last.ts';
+import type { LiveQueueItem, LiveTurnPhase } from '../../types.ts';
 import { readGeminiApiError } from '../api-error.ts';
 import {
   buildGeminiLiveClientContent,
@@ -52,8 +53,6 @@ function closeError(code: number, reason: string, during: 'setup' | 'session'): 
   );
 }
 
-export type LiveTurnPhase = 'streaming' | 'complete' | 'abort';
-
 /** Received frames travel on the queue, not as tap rows. */
 const LIVE_SEND_ROW = 'ws_send';
 
@@ -64,25 +63,6 @@ export function sendLiveFrame(
 ): void {
   tap?.({ eventType: LIVE_SEND_ROW, body: payload });
   ws.send(JSON.stringify(payload));
-}
-
-/** `row` is the parsed frame, so the kernel records it beside the events it produced. */
-export type SessionQueueItem =
-  | {
-      type: 'batch';
-      events: ProviderEvent[];
-      turnPhase: LiveTurnPhase;
-      row: Record<string, unknown>;
-    }
-  | { type: 'row'; row: Record<string, unknown> }
-  | { type: 'error'; error: Error; row?: Record<string, unknown> }
-  /** `error` is set when the close was not normal; `goAway` when the provider warned first. */
-  | { type: 'closed'; code: number; reason: string; error?: TheoremError; goAway?: GoAwayClose };
-
-export interface GoAwayClose {
-  timeLeftMs?: number;
-  /** Milliseconds from the last `goAway` to the close. */
-  closedAfterMs: number;
 }
 
 function goAwayIn(events: readonly ProviderEvent[]): { timeLeftMs?: number } | undefined {
@@ -202,19 +182,19 @@ export function sendInitialPayloads(ws: LiveSocketSender, req: ProviderCompleteR
 }
 
 export interface LiveQueue {
-  push: (item: SessionQueueItem) => void;
-  next: () => Promise<SessionQueueItem | undefined>;
+  push: (item: LiveQueueItem) => void;
+  next: () => Promise<LiveQueueItem | undefined>;
   close: () => void;
   isClosed: () => boolean;
 }
 
 export function createLiveQueue(): LiveQueue {
-  const queue: SessionQueueItem[] = [];
+  const queue: LiveQueueItem[] = [];
   let notify: (() => void) | null = null;
   let closed = false;
 
   return {
-    push(item: SessionQueueItem) {
+    push(item: LiveQueueItem) {
       queue.push(item);
       if (notify) {
         const fn = notify;
@@ -222,7 +202,7 @@ export function createLiveQueue(): LiveQueue {
         fn();
       }
     },
-    async next(): Promise<SessionQueueItem | undefined> {
+    async next(): Promise<LiveQueueItem | undefined> {
       while (queue.length === 0) {
         if (closed) return undefined;
         await new Promise<void>((resolve) => {

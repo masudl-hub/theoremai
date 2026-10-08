@@ -37,15 +37,12 @@ import { recordTaint } from '../../../guardrails/tool-result.ts';
 import type { TurnTaint } from '../../../guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
 import type { TraceSink } from '../../../observability/trace-sink.ts';
-import type { GeminiOptions } from '../../../providers/google/keys.ts';
 import {
-  buildGeminiLiveContext,
-  buildGeminiLiveRealtimeInput,
-  buildGeminiLiveToolResponse,
-  liveFunctionResponsePayload,
-} from '../../../providers/google/live/framing.ts';
-import { openGoogleLiveSession } from '../../../providers/google/live/session.ts';
-import type { GoAwayClose, SessionQueueItem } from '../../../providers/google/live/stream.ts';
+  type LiveProviderOptions,
+  liveToolReadBack,
+  openLiveSession,
+} from '../../../providers/live.ts';
+import type { LiveConnection, LiveGoAway, LiveQueueItem } from '../../../providers/types.ts';
 import { memoryCredentialSource, type ToolCredentialSource } from '../../auth/credential-source.ts';
 import { assertTurnContext } from '../../registry/ingress.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
@@ -112,11 +109,11 @@ import { type LiveCloser, type LiveTrace, startLiveTrace } from './session-trace
 
 export type { LiveSession, SessionRequest };
 
-/** Options for opening a live session: the key vault, Gemini settings, a WebSocket opener, how long a gated call waits for its decision, and the sign-in gate policy. */
+/** Options for opening a live session: the key vault, a provider's own settings, a WebSocket opener, how long a gated call waits for its decision, and the sign-in gate policy. */
 export interface RunSessionOptions {
   /** The host's keys by slot; the session uses the slots its profile names. */
   vault: KeyVault;
-  gemini?: GeminiOptions;
+  gemini?: LiveProviderOptions['gemini'];
   /** Override socket open (Cloudflare fetch-upgrade, tests). Default: `new WebSocket(url)`. */
   openWebSocket?: (url: string) => Promise<WebSocket>;
   /**
@@ -165,8 +162,8 @@ function isSettledPhase(tool: ToolPhaseEvent): tool is SettledPhase {
  * close text is `errorInternal`, which `forClient` strips.
  */
 function sessionEndedEvent(
-  closed: Extract<SessionQueueItem, { type: 'closed' }>,
-  goAway: GoAwayClose,
+  closed: Extract<LiveQueueItem, { type: 'closed' }>,
+  goAway: LiveGoAway,
   lexicon: LexiconOverrides | undefined,
 ): TurnEvent {
   const internal = closed.error ? describeError(closed.error) : closed.reason;
@@ -362,9 +359,7 @@ function liveToolOutput(s: ToolExecuteSettlement): string | undefined {
 /** What the model reads back from a Live call: the `functionResponse.response` sent. */
 function liveReadBack(s: ToolExecuteSettlement): { text: string } | undefined {
   const output = liveToolOutput(s);
-  return output === undefined
-    ? undefined
-    : { text: JSON.stringify(liveFunctionResponsePayload(output)) };
+  return output === undefined ? undefined : { text: liveToolReadBack(output) };
 }
 
 /**
@@ -419,7 +414,7 @@ function buildLiveSession(args: {
   tools: ToolRegistry;
   profile: LiveProfile;
   canary: string;
-  connection: Awaited<ReturnType<typeof openGoogleLiveSession>>;
+  connection: LiveConnection;
   gate: LiveOutboundGateSession;
   /** Every URL the model has been given this session (`GuardrailContext.givenUrls`). */
   givenUrls: GivenUrlSets;
@@ -470,7 +465,7 @@ function buildLiveSession(args: {
   let closed = false;
   let withholdClose = false;
   const pendingHostEvents: TurnEvent[] = [];
-  /** Wakes the host's stream when the session queues an event while Gemini is silent. */
+  /** Wakes the host's stream when the session queues an event while the model is silent. */
   let wakeHost: (() => void) | undefined;
   const includeMatch = resolveObservabilityPolicy(profile.observability).include
     .guardrailMatchPreview;
@@ -552,14 +547,15 @@ function buildLiveSession(args: {
     }
   };
 
-  const sendJson = (payload: Record<string, unknown>) => {
+  const sendInput = (input: InteractionPart) => {
     assertOpen();
-    connection.send(payload);
+    connection.sendInput(input);
   };
 
   const answerModel = (callId: string, held: HeldCall, readBack: string) => {
     recordToolSettle({ name: held.name, callId, arguments: held.arguments }, readBack);
-    sendJson(buildGeminiLiveToolResponse(callId, held.name, readBack));
+    assertOpen();
+    connection.sendToolResponse(callId, held.name, readBack);
   };
 
   const settleHeld = (callId: string, held: HeldCall, readBack: string) => {
@@ -689,7 +685,8 @@ function buildLiveSession(args: {
     for (const text of prepared.texts) {
       addSeenUrls(givenUrls.request, text);
       addGivenDestinations(destinations, text);
-      sendJson(buildGeminiLiveContext(text));
+      assertOpen();
+      connection.sendContext(text);
     }
   };
 
@@ -697,7 +694,7 @@ function buildLiveSession(args: {
     const safe = readLiveText(text);
     if (safe === undefined) return;
     recordUserText(safe);
-    sendJson(buildGeminiLiveRealtimeInput({ type: 'text', text: safe }));
+    sendInput({ type: 'text', text: safe });
   };
 
   /**
@@ -739,7 +736,7 @@ function buildLiveSession(args: {
   /** A stage's `abort` ends the open cycle: a cancelled `done`, then `post_turn`. */
   const cancelCycle = async (abort: true | { reason?: string }) => {
     const stop = stageAbortStop(abort);
-    // why: Idle first, so a boundary Gemini sends meanwhile does not end the cycle again.
+    // why: Idle first, so a boundary the provider sends meanwhile does not end the cycle again.
     cycle = 'idle';
     enqueuePending({ type: 'done', stop, interrupted: true });
     await runCycleStage('post_turn', { stop });
@@ -966,7 +963,7 @@ function buildLiveSession(args: {
   };
 
   const deliverBatch = async function* (
-    item: Extract<SessionQueueItem, { type: 'batch' }>,
+    item: Extract<LiveQueueItem, { type: 'batch' }>,
   ): AsyncGenerator<TurnEvent> {
     holdCalls(item.events);
     // why: Usage is held per response and emitted once, reported or estimated, by `settle`.
@@ -1013,7 +1010,7 @@ function buildLiveSession(args: {
     let thrown: unknown;
     const provider = connection.batches();
     // why: The batch being awaited; it stays pending across wakes, so no frame is read twice.
-    let nextBatch: Promise<IteratorResult<SessionQueueItem>> | undefined;
+    let nextBatch: Promise<IteratorResult<LiveQueueItem>> | undefined;
     try {
       while (true) {
         nextBatch ??= provider.next();
@@ -1081,13 +1078,7 @@ function buildLiveSession(args: {
         assertLiveIngress(profile, 'audio');
         const opened = await openCycleIfNeeded();
         if (opened.aborted) return;
-        sendJson(
-          buildGeminiLiveRealtimeInput({
-            type: 'audio',
-            mimeType: audio.mimeType,
-            data: audio.data,
-          }),
-        );
+        sendInput({ type: 'audio', mimeType: audio.mimeType, data: audio.data });
       });
     },
     sendVideo(video: { data: string; mimeType: string }): Promise<void> {
@@ -1095,13 +1086,7 @@ function buildLiveSession(args: {
         assertLiveIngress(profile, 'video');
         const opened = await openCycleIfNeeded();
         if (opened.aborted) return;
-        sendJson(
-          buildGeminiLiveRealtimeInput({
-            type: 'video',
-            mimeType: video.mimeType,
-            data: video.data,
-          }),
-        );
+        sendInput({ type: 'video', mimeType: video.mimeType, data: video.data });
       });
     },
     sendText(text: string): Promise<void> {
@@ -1230,7 +1215,7 @@ function buildLiveSession(args: {
       if (!args.openInitialCycle && !opening) return;
       const opened = await openCycleIfNeeded();
       if (opening && !opened.aborted) {
-        sendJson(buildGeminiLiveRealtimeInput({ type: 'text', text: opening }));
+        sendInput({ type: 'text', text: opening });
       }
     });
   }
@@ -1314,11 +1299,7 @@ async function openTracedSession(
     givenUrls,
     ownToolsOf(registry.tools, profile),
   );
-  const connection = await openGoogleLiveSession(
-    completeReq,
-    { ...options.gemini, vault: options.vault },
-    options.openWebSocket,
-  );
+  const connection = await openLiveSession(completeReq, options, options.openWebSocket);
   trace.setup(connection.setup);
 
   return buildLiveSession({

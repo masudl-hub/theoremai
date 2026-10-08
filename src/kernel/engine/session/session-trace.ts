@@ -12,9 +12,8 @@ import {
   traceJson,
 } from '../../../observability/trace-span.ts';
 import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
-import { liveFrameInput } from '../../../providers/google/live/framing.ts';
-import { LIVE_FALLBACK_ROW } from '../../../providers/google/live/session.ts';
-import type { SessionQueueItem } from '../../../providers/google/live/stream.ts';
+import { liveSentInput } from '../../../providers/live.ts';
+import { LIVE_FALLBACK_ROW, type LiveQueueItem } from '../../../providers/types.ts';
 import type { ProviderEvent, TurnEventOf } from '../../turn-events.ts';
 import type {
   InteractionPart,
@@ -252,7 +251,7 @@ class LiveTrace {
       this.root.event('theorem.wire.request', { body: traceJson(body) });
       return;
     }
-    this.pendingInput.add(liveFrameInput(frame));
+    this.pendingInput.add(liveSentInput(frame));
     this.pendingFrames.push({ timeUnixNano: this.root.nowUnixNano(), body });
   };
 
@@ -276,7 +275,7 @@ class LiveTrace {
   }
 
   /** One received queue item, before guardrails. */
-  receive(item: SessionQueueItem): void {
+  receive(item: LiveQueueItem): void {
     switch (item.type) {
       case 'batch':
         for (const event of item.events) this.route(event);
@@ -344,7 +343,7 @@ class LiveTrace {
     code: number,
     reason: string,
     initiator: LiveCloser,
-    provider?: Extract<SessionQueueItem, { type: 'closed' }>,
+    provider?: Extract<LiveQueueItem, { type: 'closed' }>,
   ): void {
     if (this.socketHasClosed) return;
     this.socketHasClosed = true;

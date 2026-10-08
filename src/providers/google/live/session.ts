@@ -1,24 +1,26 @@
 import { describeError, isAbortError, TheoremError } from '../../../guardrails/error.ts';
-import type { ProviderCompleteRequest } from '../../../kernel/types.ts';
+import type { InteractionPart, ProviderCompleteRequest } from '../../../kernel/types.ts';
 import { fallbackKey, requireKey } from '../../shared/vault.ts';
+import { LIVE_FALLBACK_ROW, type LiveConnection, type LiveQueueItem } from '../../types.ts';
 import type { GeminiTransport } from '../keys.ts';
-import { buildGeminiLiveWebSocketUrl } from './framing.ts';
+import {
+  buildGeminiLiveContext,
+  buildGeminiLiveRealtimeInput,
+  buildGeminiLiveToolResponse,
+  buildGeminiLiveWebSocketUrl,
+} from './framing.ts';
 import {
   attachLiveSessionHandlers,
   createLiveQueue,
   type LiveQueue,
   performLiveSetup,
-  type SessionQueueItem,
   sendInitialPayloads,
   sendLiveFrame,
 } from './stream.ts';
 
-/** An open Google Live socket: the setup the session was opened with, `send` for payloads, `batches` for the provider events it receives, and `close`. */
-export interface GoogleLiveConnection {
-  readonly setup: Record<string, unknown>;
+/** An open Google Live socket: a {@linkcode LiveConnection}, with `send` for a frame built by hand. */
+export interface GoogleLiveConnection extends LiveConnection {
   send(payload: Record<string, unknown>): void;
-  batches(): AsyncGenerator<SessionQueueItem>;
-  close(code?: number, reason?: string): void;
 }
 
 /** Opens the WebSocket for a Live session at a URL. */
@@ -54,9 +56,6 @@ function attachAbort(ws: WebSocket, liveQueue: LiveQueue, signal?: AbortSignal):
   signal.addEventListener('abort', onAbort, { once: true });
   return () => signal.removeEventListener('abort', onAbort);
 }
-
-/** Tape row: setup on the pinned key was refused for quota, so the session opens on the fallback slot. */
-export const LIVE_FALLBACK_ROW = 'ws_fallback';
 
 interface OpenedSocket {
   ws: WebSocket;
@@ -153,14 +152,25 @@ export async function openGoogleLiveSession(
   attachLiveSessionHandlers(ws, liveQueue);
   sendInitialPayloads(ws, req);
 
+  const send = (payload: Record<string, unknown>) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      sendLiveFrame(ws, payload, req.tapUpstream);
+    }
+  };
+
   return {
     setup,
-    send(payload: Record<string, unknown>) {
-      if (ws.readyState === WebSocket.OPEN) {
-        sendLiveFrame(ws, payload, req.tapUpstream);
-      }
+    send,
+    sendContext(text: string) {
+      send(buildGeminiLiveContext(text));
     },
-    async *batches(): AsyncGenerator<SessionQueueItem> {
+    sendInput(input: InteractionPart) {
+      send(buildGeminiLiveRealtimeInput(input));
+    },
+    sendToolResponse(callId: string, name: string, output: unknown) {
+      send(buildGeminiLiveToolResponse(callId, name, output));
+    },
+    async *batches(): AsyncGenerator<LiveQueueItem> {
       try {
         while (true) {
           const item = await liveQueue.next();

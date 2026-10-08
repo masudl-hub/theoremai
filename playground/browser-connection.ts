@@ -200,14 +200,14 @@ export function playgroundKeySlots(profile: {
   type?: string;
   key?: string;
   fallbackKey?: string;
-  models?: Record<string, { key?: string; fallbackKey?: string }>;
+  models?: Record<string, { keySlot?: string; fallbackKeySlot?: string }>;
 }): string[] {
   return [
     ...new Set(
       [
         profile.key,
         profile.fallbackKey,
-        ...Object.values(profile.models ?? {}).flatMap((model) => [model.key, model.fallbackKey]),
+        ...Object.values(profile.models ?? {}).flatMap((model) => [model.keySlot, model.fallbackKeySlot]),
       ].filter((slot): slot is string => Boolean(slot)),
     ),
   ];

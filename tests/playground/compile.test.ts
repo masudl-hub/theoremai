@@ -1,3 +1,8 @@
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
+
+registerFixtureProviders(defaultKernelScope);
+
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
 import { isKeySlotName, registerProfile } from '../../mod.ts';
 import {
@@ -50,7 +55,6 @@ Deno.test('renaming a binding preserves the selected default and leaves other bi
   assertEquals(other.models.defaultModel, 'primary');
   assert(compilePlayground(other).ok);
 });
-
 Deno.test('removing the default binding clears the default and turns model select off', () => {
   const draft = createExampleDraft();
   const first = draft.modelBindings[0];
@@ -63,7 +67,6 @@ Deno.test('removing the default binding clears the default and turns model selec
   assertEquals(removed.models.allowModelSelect, draft.modelBindings.length > 2);
   assertEquals(removeModelBinding(draft, 'missing'), draft);
 });
-
 /** A turn draft's compile; decision and host drafts have their own tests. */
 function compiled(draft: PlaygroundDraft) {
   const result = compilePlayground(draft);
@@ -73,12 +76,10 @@ function compiled(draft: PlaygroundDraft) {
     throw new Error('expected a turn profile');
   return { ...result, profile };
 }
-
 function issueNodes(result: PlaygroundCompileResult): string[] {
   if (result.ok) throw new Error('expected issues');
   return result.issues.map((issue) => issue.nodeId);
 }
-
 Deno.test('the example draft compiles to the travel concierge', () => {
   const result = compiled(createExampleDraft());
   const { profile } = result;
@@ -91,7 +92,6 @@ Deno.test('the example draft compiles to the travel concierge', () => {
   assertEquals(profile.guardrails?.blockedReply, { onBlock: 'refuse' });
   assertEquals(profile.observability?.writeTo, 'playground');
 });
-
 Deno.test('what a URL detector allows compiles to what differs from the defaults, where it reads', () => {
   const draft = createExampleDraft();
   type GuardrailsOf = PlaygroundDraft['guardrails'];
@@ -129,7 +129,6 @@ Deno.test('what a URL detector allows compiles to what differs from the defaults
     [{ hosts: ['cdn.acme.io'], fromTools: false }, undefined],
   );
 });
-
 Deno.test('a blank allowed host is reported at its detector', () => {
   const draft = createExampleDraft();
   const { guardrails } = draft;
@@ -149,13 +148,11 @@ Deno.test('a blank allowed host is reported at its detector', () => {
     [{ nodeId: 'guardrails', field: 'allow.ungiven_links.hosts', index: 1 }],
   );
 });
-
 Deno.test('a blank draft reports its identity issues', () => {
   const nodes = issueNodes(compilePlayground(createBlankDraft()));
   assert(nodes.length > 0);
   assert(nodes.every((node) => node === 'identity'));
 });
-
 Deno.test('a binding issue is keyed to its binding node', () => {
   const draft = createExampleDraft();
   const open = draft.modelBindings[2];
@@ -167,7 +164,6 @@ Deno.test('a binding issue is keyed to its binding node', () => {
   assert(!result.ok);
   assertEquals(result.issues[0].field, 'apiId');
 });
-
 Deno.test('an id over 64 characters and a handle over 32 are issues', () => {
   const draft = createExampleDraft();
   const result = compilePlayground({
@@ -183,7 +179,6 @@ Deno.test('an id over 64 characters and a handle over 32 are issues', () => {
     ],
   );
 });
-
 Deno.test('a model with several efforts and no default is an issue on its default effort', () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;
@@ -197,7 +192,6 @@ Deno.test('a model with several efforts and no default is an issue on its defaul
     [{ nodeId: modelBindingNodeId(fast.key), field: 'defaultEffort' }],
   );
 });
-
 Deno.test('a thinking level the protocol does not take is an issue on that effort', () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;
@@ -214,7 +208,6 @@ Deno.test('a thinking level the protocol does not take is an issue on that effor
     [{ nodeId: modelBindingNodeId(fast.key), field: 'efforts', index: 1 }],
   );
 });
-
 Deno.test('an issue names the draft field at fault, and the list entry when there is one', () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;
@@ -241,7 +234,6 @@ Deno.test('an issue names the draft field at fault, and the list entry when ther
     ],
   );
 });
-
 Deno.test('attachments or voice need every input limit, each an issue on its field', () => {
   const draft = createExampleDraft();
   const result = compilePlayground({
@@ -269,7 +261,6 @@ Deno.test('attachments or voice need every input limit, each an issue on its fie
     },
   });
 });
-
 Deno.test('summaries compile on, off, or left to the provider', () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;
@@ -281,7 +272,6 @@ Deno.test('summaries compile on, off, or left to the provider', () => {
   assertEquals(summaries(false), false);
   assertEquals(summaries(null), undefined);
 });
-
 Deno.test('a Gemini Interactions binding always compiles its chaining, and storage only when set', () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;
@@ -290,13 +280,15 @@ Deno.test('a Gemini Interactions binding always compiles its chaining, and stora
       fast.modelId
     ];
   const unset = model({});
-  assertEquals(unset.persistViaInteractionId, false);
-  assertEquals(unset.store, undefined);
+  assertEquals(unset.providerOptions?.persistViaInteractionId, false);
+  assertEquals(unset.providerOptions?.store, undefined);
   const chained = model({ store: true, persistViaInteractionId: true });
-  assertEquals([chained.store, chained.persistViaInteractionId], [true, true]);
-  assertEquals(model({ store: false }).store, false);
+  assertEquals(
+    [chained.providerOptions?.store, chained.providerOptions?.persistViaInteractionId],
+    [true, true],
+  );
+  assertEquals(model({ store: false }).providerOptions?.store, false);
 });
-
 Deno.test('chaining with storage off is an issue on its binding', () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;
@@ -307,14 +299,13 @@ Deno.test('chaining with storage off is an issue on its binding', () => {
   assertEquals(issueNodes(result), [modelBindingNodeId(fast.key)]);
   assert(!result.ok && result.issues[0].field === 'persistViaInteractionId');
 });
-
 Deno.test('chaining and storage compile only on Gemini Interactions', () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;
   const routed = {
     ...fast,
-    protocol: 'openAi' as const,
     provider: 'openrouter' as const,
+    protocol: 'openAi' as const,
     apiId: OPENROUTER_PLAYGROUND_API_ID,
     store: true,
     persistViaInteractionId: true,
@@ -322,16 +313,17 @@ Deno.test('chaining and storage compile only on Gemini Interactions', () => {
   const model = compiled({ ...draft, modelBindings: [routed, ...rest] }).profile.models[
     fast.modelId
   ];
-  assertEquals([model.store, model.persistViaInteractionId], [undefined, undefined]);
+  assertEquals(
+    [model.providerOptions?.store, model.providerOptions?.persistViaInteractionId],
+    [undefined, undefined],
+  );
 });
-
 Deno.test('a duplicate tool name is keyed to the second tool', () => {
   const draft = createExampleDraft();
   const copy = defaultToolSpec({ toolName: draft.toolSpecs[0].toolName });
   const result = compilePlayground({ ...draft, toolSpecs: [...draft.toolSpecs, copy] });
   assertEquals(issueNodes(result), [toolSpecNodeId(copy.key)]);
 });
-
 Deno.test('setProfileType to live swaps bindings and hides facets live lacks', () => {
   const live = setProfileType(createExampleDraft(), 'live');
   assertEquals(live.modelBindings.length, 1);
@@ -344,7 +336,6 @@ Deno.test('setProfileType to live swaps bindings and hides facets live lacks', (
   assertEquals(profile.type, 'live');
   assertEquals(draftFacets(setProfileType(live, 'text')).includes('outputs'), true);
 });
-
 Deno.test('live compression compiles to a sliding window, blanks left to the provider', () => {
   const live = setProfileType(createExampleDraft(), 'live');
   const on = { ...live.live, contextCompression: true };
@@ -353,15 +344,14 @@ Deno.test('live compression compiles to a sliding window, blanks left to the pro
   assertEquals(bare.live.contextCompression, { slidingWindow: {} });
   const set = compiled({
     ...live,
-    live: { ...on, compressionTriggerTokens: 52_000, compressionTargetTokens: 26_000 },
+    live: { ...on, compressionTriggerTokens: 52000, compressionTargetTokens: 26000 },
   }).profile;
   assert(set.type === 'live');
   assertEquals(set.live.contextCompression, {
-    triggerTokens: 52_000,
-    slidingWindow: { targetTokens: 26_000 },
+    triggerTokens: 52000,
+    slidingWindow: { targetTokens: 26000 },
   });
 });
-
 Deno.test('a compression target at or above the trigger is keyed to the target', () => {
   const live = setProfileType(createExampleDraft(), 'live');
   const result = compilePlayground({
@@ -369,8 +359,8 @@ Deno.test('a compression target at or above the trigger is keyed to the target',
     live: {
       ...live.live,
       contextCompression: true,
-      compressionTriggerTokens: 50_000,
-      compressionTargetTokens: 50_000,
+      compressionTriggerTokens: 50000,
+      compressionTargetTokens: 50000,
     },
   });
   assert(!result.ok);
@@ -379,7 +369,6 @@ Deno.test('a compression target at or above the trigger is keyed to the target',
     ['compressionTargetTokens'],
   );
 });
-
 Deno.test("compression stays within the free key's Live input tokens", () => {
   const live = setProfileType(createExampleDraft(), 'live');
   const over = GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS + 1;
@@ -399,21 +388,18 @@ Deno.test("compression stays within the free key's Live input tokens", () => {
   assertEquals(fields(over, null), ['compressionTriggerTokens']);
   assertEquals(fields(null, GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS), ['compressionTargetTokens']);
 });
-
 Deno.test('draftAllows reads the kernel field scope for the draft type', () => {
   const example = createExampleDraft();
   assertEquals(draftAllows(example, 'turnBehaviour.allowSteering'), true);
   assertEquals(draftAllows(setProfileType(example, 'image'), 'turnBehaviour.allowSteering'), false);
   assertEquals(draftAllows(setProfileType(example, 'live'), 'turnBehaviour.resumption'), false);
 });
-
 Deno.test('setProfileType keeps what the author typed for the way back', () => {
   const example = createExampleDraft();
   const back = setProfileType(setProfileType(example, 'image'), 'text');
   assertEquals(back.identity.system, example.identity.system);
   assertEquals(back.toolSpecs, example.toolSpecs);
 });
-
 Deno.test('setProfileType swaps models made for another type for the new default', () => {
   const image = setProfileType(createExampleDraft(), 'image');
   assertEquals(
@@ -431,14 +417,12 @@ Deno.test('setProfileType swaps models made for another type for the new default
     [GEMINI_PLAYGROUND_DEFAULT_API_ID],
   );
 });
-
 Deno.test('setProfileType keeps a binding on a model the playground does not list', () => {
   const draft = createExampleDraft();
   const unlisted = { ...draft.modelBindings[0], apiId: 'gemini-unlisted' };
   const image = setProfileType({ ...draft, modelBindings: [unlisted] }, 'image');
   assertEquals(image.modelBindings, [unlisted]);
 });
-
 Deno.test('a speech profile compiles without a system prompt or canary', () => {
   const draft = includeFacet(setProfileType(createExampleDraft(), 'speech'), 'guardrails');
   const { profile } = compiled({
@@ -449,7 +433,6 @@ Deno.test('a speech profile compiles without a system prompt or canary', () => {
   assert(!('system' in (profile.identity ?? {})));
   assertEquals(profile.lexicon?.['canary.bind_note'], undefined);
 });
-
 Deno.test('a draft compiles only the fields its type takes in the schema', () => {
   const image = includeFacet(setProfileType(createExampleDraft(), 'image'), 'turnBehaviour');
   const { profile } = compiled({
@@ -464,13 +447,11 @@ Deno.test('a draft compiles only the fields its type takes in the schema', () =>
   assertEquals(profile.type, 'image');
   assertEquals(profile.turnBehaviour, { resumption: { allowContinue: [], autoContinue: [] } });
   assertEquals(profile.lexicon, undefined);
-
   const live = setProfileType(image, 'live');
   const liveProfile = compiled({ ...live, tools: { t2Loader: 'not_checked' } }).profile;
   assert(liveProfile.type === 'live');
   assertEquals(Object.keys(liveProfile.tools), ['allow']);
 });
-
 Deno.test('continuing set to Never compiles to an empty allow list, not the kernel default', () => {
   const text = includeFacet(createExampleDraft(), 'turnBehaviour');
   const never = compiled({
@@ -491,7 +472,6 @@ Deno.test('continuing set to Never compiles to an empty allow list, not the kern
     resumption: { allowContinue: ['length'], autoContinue: ['length'] },
   });
 });
-
 Deno.test('the continue instruction and canary bind note compile into the profile lexicon', () => {
   const text = includeFacet(includeFacet(createExampleDraft(), 'turnBehaviour'), 'guardrails');
   const draft = {
@@ -524,7 +504,6 @@ Deno.test('the continue instruction and canary bind note compile into the profil
   });
   assertEquals(off.profile.lexicon, undefined);
 });
-
 Deno.test('Wording compiles into the profile lexicon; lines edited beside their setting come from there', () => {
   const draft = {
     ...createExampleDraft(),
@@ -537,7 +516,6 @@ Deno.test('Wording compiles into the profile lexicon; lines edited beside their 
   assertEquals(compiled(draft).profile.lexicon, { 'error.rate_limit': 'Busy, try again soon.' });
   assertEquals(compiled(excludeFacet(draft, 'wording')).profile.lexicon, undefined);
 });
-
 Deno.test('the refusal line beside On block compiles into the profile lexicon', () => {
   const draft = includeFacet(createExampleDraft(), 'guardrails');
   draft.guardrails = {
@@ -547,7 +525,6 @@ Deno.test('the refusal line beside On block compiles into the profile lexicon', 
   };
   assertEquals(compiled(draft).profile.lexicon?.['egress.refusal'], 'I cannot share that.');
 });
-
 Deno.test('a blank detector of the builder says what it needs in plain words', () => {
   const draft = includeFacet(createExampleDraft(), 'guardrails');
   draft.guardrails = { ...draft.guardrails, own: [newOwnDetector()] };
@@ -571,7 +548,6 @@ Deno.test('a blank detector of the builder says what it needs in plain words', (
     ],
   );
 });
-
 Deno.test('a pattern that does not compile is named by its place in the list', () => {
   const draft = includeFacet(createExampleDraft(), 'guardrails');
   const own = {
@@ -587,7 +563,6 @@ Deno.test('a pattern that does not compile is named by its place in the list', (
   assertStringIncludes(messages[0], 'Pattern 1: does not compile');
   assertStringIncludes(messages[1], 'A key is a namespace, a dot and a name');
 });
-
 Deno.test('a canary bind note without {canary} is an issue on the guardrails node', () => {
   const text = includeFacet(createExampleDraft(), 'guardrails');
   const result = compilePlayground({
@@ -596,7 +571,6 @@ Deno.test('a canary bind note without {canary} is an issue on the guardrails nod
   });
   assertEquals(issueNodes(result), ['guardrails']);
 });
-
 Deno.test('includeFacet only adds facets the type allows', () => {
   const live = setProfileType(createBlankDraft(), 'live');
   assertEquals(includeFacet(live, 'outputs'), live);
@@ -604,7 +578,6 @@ Deno.test('includeFacet only adds facets the type allows', () => {
   assertEquals(withGuardrails.included, ['observability', 'wording', 'guardrails']);
   assertEquals(excludeFacet(withGuardrails, 'guardrails').included, ['observability', 'wording']);
 });
-
 Deno.test('new bindings and tools get unused names', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
   const second = newModelBinding(draft);
@@ -612,7 +585,6 @@ Deno.test('new bindings and tools get unused names', () => {
   const first = newToolSpec(draft);
   assert(newToolSpec({ ...draft, toolSpecs: [first] }).toolName !== first.toolName);
 });
-
 Deno.test('the tree nests bindings and tools under their facets', () => {
   const draft = createExampleDraft();
   const tree = playgroundTree(draft);
@@ -636,7 +608,6 @@ Deno.test('the tree nests bindings and tools under their facets', () => {
     ['fast', 'smart', 'open'],
   );
 });
-
 Deno.test('playgroundNodeRef resolves only nodes the draft has', () => {
   const draft = createExampleDraft();
   const key = draft.modelBindings[0].key;
@@ -645,7 +616,6 @@ Deno.test('playgroundNodeRef resolves only nodes the draft has', () => {
   assertEquals(playgroundNodeRef(draft, 'outputs'), { facet: 'outputs' });
   assertEquals(playgroundNodeRef(excludeFacet(draft, 'outputs'), 'outputs'), undefined);
 });
-
 Deno.test('playgroundSource writes a module that registers the profile', () => {
   const source = playgroundSource(compiled(createExampleDraft()));
   assertStringIncludes(source, "import { z } from 'zod';");
@@ -654,7 +624,6 @@ Deno.test('playgroundSource writes a module that registers the profile', () => {
   assertStringIncludes(source, "name: 'geocode_city',");
   assertStringIncludes(source, 'registerProfile(profile);');
 });
-
 Deno.test('playgroundSource writes structured output and function stubs', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
   const source = playgroundSource(
@@ -674,7 +643,6 @@ Deno.test('playgroundSource writes structured output and function stubs', () => 
   assertStringIncludes(source, "registerStructured('answer', {");
   assertStringIncludes(source, 'handler: () => Promise.resolve(');
 });
-
 Deno.test('playgroundSource starts every tool at the left margin', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
   const toolSpecs = ['first', 'second', 'third'].map((toolName) => ({
@@ -691,7 +659,6 @@ Deno.test('playgroundSource starts every tool at the left margin', () => {
   assertEquals(source.match(/^registerTool\(/gm)?.length, 3);
   assert(!/^ +registerTool\(/m.test(source));
 });
-
 Deno.test('playgroundSource writes a text of several lines one line to a line', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
   const source = playgroundSource(
@@ -711,7 +678,6 @@ Deno.test('playgroundSource writes a text of several lines one line to a line', 
   );
   assert(!source.includes('desk.\\n'));
 });
-
 Deno.test('playgroundSource writes a tool that answers with bare text as z.string()', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
   const source = playgroundSource(
@@ -723,7 +689,6 @@ Deno.test('playgroundSource writes a tool that answers with bare text as z.strin
   );
   assertStringIncludes(source, 'output: z.string(),');
 });
-
 Deno.test('a new text profile starts on the playground Gemini model', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
   assertEquals(draft.modelBindings[0].apiId, GEMINI_PLAYGROUND_DEFAULT_API_ID);
@@ -731,23 +696,20 @@ Deno.test('a new text profile starts on the playground Gemini model', () => {
   assertEquals(draft.included, ['observability', 'wording']);
   assertEquals(draft.observability.writeTo, 'playground');
 });
-
 Deno.test('a new image profile starts on the playground Gemini image model', () => {
   const draft = setProfileType(createBlankDraft(), 'image');
   assertEquals(draft.modelBindings[0].provider, 'google');
   assertEquals(draft.modelBindings[0].apiId, GEMINI_PLAYGROUND_IMAGE_DEFAULT_API_ID);
   assert(isKeySlotName(draft.models.key));
 });
-
 Deno.test('modelBindingViolation holds the playground to its free-tier keys', () => {
   const gemini = setProfileType(createBlankDraft(), 'text').modelBindings[0];
   assertEquals(modelBindingViolation(gemini), null);
   assertEquals(modelBindingViolation({ ...gemini, apiId: 'gemini-3-pro' })?.field, 'apiId');
-  const openRouter = { ...gemini, protocol: 'openAi' as const, provider: 'openrouter' as const };
+  const openRouter = { ...gemini, provider: 'openrouter' as const, protocol: 'openAi' as const };
   assertEquals(modelBindingViolation({ ...openRouter, apiId: 'openai/gpt-5' })?.field, 'apiId');
   assertEquals(modelBindingViolation({ ...openRouter, apiId: OPENROUTER_PLAYGROUND_API_ID }), null);
 });
-
 Deno.test('zodFromJsonSchema keeps required fields and passes extras', () => {
   const schema = zodFromJsonSchema({
     type: 'object',
@@ -757,7 +719,6 @@ Deno.test('zodFromJsonSchema keeps required fields and passes extras', () => {
   assert(!schema.safeParse({ tags: [] }).success);
   assertEquals(schema.parse({ name: 'a', extra: 1 }), { name: 'a', extra: 1 });
 });
-
 Deno.test('zodFromJsonSchema keeps a text answer as text and a nullable field nullable', () => {
   assertEquals(zodFromJsonSchema({ type: 'string' }).parse('docs'), 'docs');
   const schema = zodFromJsonSchema({
@@ -768,14 +729,12 @@ Deno.test('zodFromJsonSchema keeps a text answer as text and a nullable field nu
   assertEquals(schema.parse({ content: null }), { content: null });
   assert(!schema.safeParse({ content: 1 }).success);
 });
-
 Deno.test('quoteSource writes a string that evaluates back to itself, script-safe', () => {
   const text = `it's "quoted" \\ </script> \u2028\u2029 done`;
   const quoted = quoteSource(text);
   assertEquals(new Function(`return ${quoted};`)(), text);
   assertEquals(/[<>\u2028\u2029]/.test(quoted), false);
 });
-
 Deno.test('detect compiles to the actions the draft changes, at the boundaries the profile has', () => {
   const draft = includeFacet(createExampleDraft(), 'guardrails');
   const detect = structuredClone(createBlankDraft().guardrails.detect);
@@ -796,7 +755,6 @@ Deno.test('detect compiles to the actions the draft changes, at the boundaries t
     injection: { at: { tool_output_http: 'flag' } },
   });
 });
-
 Deno.test('a host draft compiles to its tools, with no model or identity', () => {
   const host = setProfileType(createExampleDraft(), 'host');
   const result = compilePlayground(host);
@@ -808,14 +766,12 @@ Deno.test('a host draft compiles to its tools, with no model or identity', () =>
   assertEquals(result.customTools.length, host.toolSpecs.length);
   assert(profile.type === 'host' && profile.tools?.allow?.includes('get_weather'));
 });
-
 Deno.test('a host draft switches back to text with its tools', () => {
   const text = setProfileType(setProfileType(createExampleDraft(), 'host'), 'text');
   const { profile } = compiled(text);
   assertEquals(profile.type, 'text');
   assert(profile.type === 'text' && profile.tools?.allow?.includes('get_weather'));
 });
-
 Deno.test('a header that looks like a credential is refused; Auth holds secrets', () => {
   const draft = createExampleDraft();
   const geocode = draft.toolSpecs.find((tool) => tool.toolName === 'geocode_city');
@@ -835,7 +791,6 @@ Deno.test('a header that looks like a credential is refused; Auth holds secrets'
   }
   assert(withHeaders({ 'User-Agent': 'demo', Accept: 'application/json' }).ok);
 });
-
 Deno.test('a tool compiles its activity labels, each placeholder checked against its schemas', () => {
   const draft = createExampleDraft();
   const geocode = draft.toolSpecs.find((tool) => tool.toolName === 'geocode_city');
@@ -891,7 +846,6 @@ Deno.test('a tool compiles its activity labels, each placeholder checked against
   assert(withLabels('Finding {{name}}', 'Found {results.length}, first {results.-1.name|none}').ok);
   assertEquals(issue(`Finding ${'x'.repeat(121)}`, 'Found it').field, 'activity');
 });
-
 Deno.test('a tool request label reads only the call input', () => {
   const draft = createExampleDraft();
   const withRequest = (request: string) =>
@@ -917,7 +871,6 @@ Deno.test('a tool request label reads only the call input', () => {
     },
   );
 });
-
 Deno.test('an activity label follows nullable, union and referenced schemas', () => {
   const draft = createExampleDraft();
   const geocode = draft.toolSpecs.find((tool) => tool.toolName === 'geocode_city');
@@ -942,7 +895,6 @@ Deno.test('an activity label follows nullable, union and referenced schemas', ()
   assert(!flag.ok);
   assertEquals(flag.issues[0].message, '{ok} is true or false; a label shows text or a number.');
 });
-
 Deno.test('an image draft pins references and output settings, and reports what it cannot send', () => {
   const draft = setProfileType(createExampleDraft(), 'image');
   const pinned = compiled({
@@ -966,7 +918,6 @@ Deno.test('an image draft pins references and output settings, and reports what 
       { mimeType: 'image/jpeg', uri: 'https://example.com/b.JPG?v=1' },
     ],
   });
-
   const refused = compilePlayground({
     ...draft,
     image: {
@@ -992,7 +943,6 @@ Deno.test('an image draft pins references and output settings, and reports what 
     ],
   );
 });
-
 Deno.test('instructions by role, slots and limits by type compile from their JSON fields', () => {
   const draft = createExampleDraft();
   const { profile } = compiled({
@@ -1008,7 +958,6 @@ Deno.test('instructions by role, slots and limits by type compile from their JSO
   assertEquals(profile.identity.systemByRole, { support: 'Answer as support.' });
   assertEquals(profile.inputs?.limitsByMime, { 'application/pdf': 2000000 });
   assertEquals(profile.inputs?.slots, { language: ['en', 'fr'] });
-
   const bad = compilePlayground({
     ...draft,
     identity: { ...draft.identity, systemByRoleJson: '{"support":1}' },
@@ -1021,7 +970,6 @@ Deno.test('instructions by role, slots and limits by type compile from their JSO
     'systemByRoleJson',
   ]);
 });
-
 Deno.test('context compiles for a chat agent and a call, and needs its limit', () => {
   const draft = createExampleDraft();
   const inputs = { ...draft.inputs, contextFrom: ['client' as const], contextMaxChars: 2000 };
@@ -1031,7 +979,6 @@ Deno.test('context compiles for a chat agent and a call, and needs its limit', (
   const call = compiled({ ...setProfileType(draft, 'live'), inputs }).profile;
   assert(call.type === 'live');
   assertEquals(call.inputs, { context: { from: ['client'], maxChars: 2000 } });
-
   const bad = compilePlayground({ ...draft, inputs: { ...inputs, contextMaxChars: null } });
   assert(!bad.ok);
   assertEquals(
@@ -1039,7 +986,6 @@ Deno.test('context compiles for a chat agent and a call, and needs its limit', (
     ['contextMaxChars'],
   );
 });
-
 Deno.test('a call’s greeting and resume prompt compile, and the resume prompt needs resumption', () => {
   const live = setProfileType(createExampleDraft(), 'live');
   const set = {
@@ -1053,7 +999,6 @@ Deno.test('a call’s greeting and resume prompt compile, and the resume prompt 
   assert(profile.type === 'live');
   assertEquals(profile.live.greeting, 'Greet the visitor.');
   assertEquals(profile.live.resumed, { prompt: 'Say you are back.', afterMs: 5000 });
-
   const off = compilePlayground({ ...live, live: { ...set, sessionResumption: false } });
   assert(!off.ok);
   assertEquals(
@@ -1067,7 +1012,6 @@ Deno.test('a call’s greeting and resume prompt compile, and the resume prompt 
     ['resumedAfterMs'],
   );
 });
-
 Deno.test('the system prompt compiles its {private: sections to parts', () => {
   const draft = createExampleDraft();
   const withSystem = (system: string) =>
@@ -1076,14 +1020,12 @@ Deno.test('the system prompt compiles its {private: sections to parts', () => {
     assert(result.ok && result.profile.type === 'text');
     return result.profile.identity.system;
   };
-
   assertEquals(system(withSystem(' Be brief. ')), 'Be brief.');
   assertEquals(system(withSystem(' ')), undefined);
   assertEquals(system(withSystem('Say "hi". {private: Code 7731.}')), [
     'Say "hi". ',
     { private: 'Code 7731.' },
   ]);
-
   const kept = compilePlayground({
     ...draft,
     identity: { ...draft.identity, system: [{ text: 'x', private: true }] as never },
@@ -1093,7 +1035,6 @@ Deno.test('the system prompt compiles its {private: sections to parts', () => {
     kept.issues.map((issue) => issue.message),
     ['The system prompt must be text.'],
   );
-
   const bad = withSystem('Say "hi". {private: Code 7731.');
   assert(!bad.ok);
   assertEquals(
@@ -1107,7 +1048,6 @@ Deno.test('the system prompt compiles its {private: sections to parts', () => {
     ],
   );
 });
-
 Deno.test('instructions by role take {private: sections or parts', () => {
   const draft = createExampleDraft();
   const { profile } = compiled({
@@ -1135,7 +1075,6 @@ Deno.test('instructions by role take {private: sections or parts', () => {
     );
   }
 });
-
 Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () => {
   const draft = createExampleDraft();
   const withCache = (index: number) =>
@@ -1144,8 +1083,8 @@ Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () =
       cacheTtl: '1h',
     });
   const { profile } = compiled(withCache(2));
-  assertEquals(profile.models.open.cache, { mode: 'system', ttl: '1h' });
-  assertEquals(profile.models.fast.cache, undefined);
+  assertEquals(profile.models.open.providerOptions?.cache, { mode: 'system', ttl: '1h' });
+  assertEquals(profile.models.fast.providerOptions?.cache, undefined);
   const refused = compilePlayground(withCache(0));
   assert(!refused.ok);
   assertEquals(
@@ -1153,7 +1092,6 @@ Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () =
     ['cacheMode'],
   );
 });
-
 Deno.test('compaction compiles as the agent compacting itself, and registers', () => {
   // No tools, so the profile registers without them.
   const plain = { ...createExampleDraft(), toolSpecs: [], tools: { t2Loader: '' } };
@@ -1164,7 +1102,7 @@ Deno.test('compaction compiles as the agent compacting itself, and registers', (
   });
   const { profile } = compiled(draft);
   assertEquals(profile.models.fast.compaction, {
-    maxTokens: 32_000,
+    maxTokens: 32000,
     compactAt: 0.75,
     previousExchanges: 4,
     timing: 'before',
@@ -1173,7 +1111,6 @@ Deno.test('compaction compiles as the agent compacting itself, and registers', (
   registerProfile({ ...profile, id: 'playground.compaction.self' });
   assertEquals(compiled(plain).profile.models.fast.compaction, undefined);
 });
-
 Deno.test('compaction reports a missing budget, a bad start and a bad keep on their fields', () => {
   const draft = createExampleDraft();
   const bad = compilePlayground(
@@ -1191,15 +1128,13 @@ Deno.test('compaction reports a missing budget, a bad start and a bad keep on th
     'compactMaxTokens',
   ]);
 });
-
 Deno.test('a local server name compiles only on a local model', () => {
   const draft = createExampleDraft();
   const { profile } = compiled(
     updateModelBinding(draft, draft.modelBindings[2].key, { server: 'ollama' }),
   );
-  assertEquals(profile.models.open.server, undefined);
+  assertEquals(profile.models.open.providerOptions?.server, undefined);
 });
-
 Deno.test('a prompt leak action, schemes, taint and trace resource compile when set', () => {
   const draft = createExampleDraft();
   const promptLeak = (detect: unknown) =>
@@ -1229,12 +1164,10 @@ Deno.test('a prompt leak action, schemes, taint and trace resource compile when 
     remoteDestination: 'confirm',
   });
   assertEquals(profile.observability?.resource, { 'service.name': 'concierge' });
-
   const plain = compiled(draft).profile;
   assertEquals(promptLeak(plain.guardrails?.detect), undefined);
   assertEquals(plain.guardrails?.taint, undefined);
   assertEquals(plain.observability?.resource, undefined);
-
   const bad = compilePlayground({
     ...draft,
     observability: { ...draft.observability, resourceJson: '[1]' },

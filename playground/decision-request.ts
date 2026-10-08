@@ -39,10 +39,11 @@ export const playgroundDecisionRequestSchema = z.object({
     models: z.record(
       name,
       z.object({
-        protocol: z.literal('decision'),
         provider: z.enum(['typesafe', 'openrouter']),
         apiId: id,
-        key: slot.optional(),
+        keySlot: slot.optional(),
+        fallbackKeySlot: slot.optional(),
+        providerOptions: z.record(z.string(), z.json()).default({}),
         timeoutMs: z.number().int().min(1).max(PLAYGROUND_DECISION_TIMEOUT_MS).default(
           PLAYGROUND_DECISION_TIMEOUT_MS,
         ),
@@ -53,7 +54,6 @@ export const playgroundDecisionRequestSchema = z.object({
       maxStateBytes: z.number().int().min(1).max(PLAYGROUND_DECISION_MAX_STATE_BYTES),
     }),
     decision: z.object({ contract: id }),
-    key: slot.optional(),
     observability: z.record(z.string(), z.unknown()).optional(),
     lexicon: z.record(z.string(), z.unknown()).optional(),
   }),

@@ -13,7 +13,7 @@ import {
   uncompiled,
 } from './compile.ts';
 import type { PlaygroundConnectionMode } from './policy.ts';
-import { type PlaygroundDependency, registerDefined } from './runtime-scope.ts';
+import { type PlaygroundDependency, registerDefined, registerRuntimeProviders } from './runtime-scope.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 import {
   type AgentDraft,
@@ -210,6 +210,7 @@ function kernelIssue(
   compiled: readonly { key: string; agent: CompiledPlayground }[],
 ): PlaygroundIssue | undefined {
   const scope = createKernelScope();
+  registerRuntimeProviders(scope);
   for (const { key, agent } of compiled) {
     try {
       registerDefined(

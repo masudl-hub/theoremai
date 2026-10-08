@@ -39,8 +39,8 @@ function literal(value: unknown, depth: number): string {
   if (value !== null && typeof value === 'object') {
     const entries = Object.entries(value).filter(([, item]) => item !== undefined);
     if (!entries.length) return '{}';
-    const lines = entries.map(([key, item]) =>
-      `${pad}${keySource(key)}: ${literal(item, depth + 1)},`
+    const lines = entries.map(
+      ([key, item]) => `${pad}${keySource(key)}: ${literal(item, depth + 1)},`,
     );
     return `{\n${lines.join('\n')}\n${close}}`;
   }
@@ -56,7 +56,10 @@ const COMPILE_IMPORT = `import { compileDetect } from '@theoremjs/agents/guardra
  * `detect` is wrapped in `compileDetect`, which compiles them as the host starts; `compiles`
  * says the module needs its import.
  */
-function profileSource(profile: CompiledPlayground['profile']): { code: string; compiles: boolean } {
+function profileSource(profile: CompiledPlayground['profile']): {
+  code: string;
+  compiles: boolean;
+} {
   const { guardrails } = profile;
   const detect = guardrails && 'detect' in guardrails ? guardrails.detect : undefined;
   if (typeof detect !== 'object' || !listsPatterns(detect)) {
@@ -89,11 +92,45 @@ function toolSource(tool: ToolRegistration, indent = 0): string {
   return call({ ...functionFields, ...zod, handler });
 }
 
+function providerRegistrations(profiles: readonly CompiledPlayground['profile'][]) {
+  const ids = new Set(
+    profiles.flatMap((profile) =>
+      profile.type === 'host'
+        ? []
+        : Object.values(profile.models).map((binding) => binding.provider),
+    ),
+  );
+  const imports = new Set<string>();
+  const code: string[] = [];
+  for (const id of ids) {
+    const factory =
+      id === 'google'
+        ? 'googleAdapter'
+        : id === 'openrouter'
+          ? 'openRouterAdapter'
+          : id === 'typesafe'
+            ? 'typesafeAdapter'
+            : id === 'local'
+              ? 'openAIChat'
+              : undefined;
+    if (!factory) continue;
+    imports.add('registerProvider');
+    imports.add(factory);
+    const connection = id === 'local' ? "{ baseURL: 'http://localhost:11434/v1' }" : '{}';
+    code.push(
+      `registerProvider({ id: ${quoteSource(id)}, connection: ${connection}, adapter: ${factory}() });\n`,
+    );
+  }
+  return { imports: [...imports], code };
+}
+
 export function playgroundSource(compiled: CompiledPlayground): string {
   const { profile, customTools, structured } = compiled;
+  const providers = providerRegistrations([profile]);
   const imports = [
     'defineProfile',
     'registerProfile',
+    ...providers.imports,
     ...(structured ? ['registerStructured'] : []),
     ...(customTools.length ? ['registerTool'] : []),
   ];
@@ -102,11 +139,11 @@ export function playgroundSource(compiled: CompiledPlayground): string {
     [
       ...(customTools.length ? [`import { z } from 'zod';`] : []),
       ...(defined.compiles ? [COMPILE_IMPORT] : []),
-      `import {\n${
-        [...(compiled.questions ? ['type DecisionQuestion'] : []), ...imports]
-          .map((name) => `  ${name},`).join('\n')
-      }\n} from '@theoremjs/agents';\n`,
+      `import {\n${[...(compiled.questions ? ['type DecisionQuestion'] : []), ...imports]
+        .map((name) => `  ${name},`)
+        .join('\n')}\n} from '@theoremjs/agents';\n`,
     ].join('\n'),
+    ...providers.code,
     ...customTools.map((tool) => toolSource(tool)),
     ...(structured
       ? [`registerStructured(${quoteSource(structured.id)}, ${literal(structured.spec, 0)});\n`]
@@ -114,10 +151,11 @@ export function playgroundSource(compiled: CompiledPlayground): string {
     `const profile = ${defined.code};\n\nregisterProfile(profile);\n`,
     ...(compiled.questions
       ? [
-        `/** What every decision asks about the state, by id. */\nconst questions = ${
-          literal(compiled.questions, 0)
-        } satisfies Record<string, DecisionQuestion>;\n`,
-      ]
+          `/** What every decision asks about the state, by id. */\nconst questions = ${literal(
+            compiled.questions,
+            0,
+          )} satisfies Record<string, DecisionQuestion>;\n`,
+        ]
       : []),
   ];
   return blocks.join('\n');
@@ -142,9 +180,9 @@ export function importSpecifier(path: string): string {
 /** A camelCase identifier for an agent id, unique among `taken`. */
 function agentIdentifier(agentId: string, taken: Set<string>): string {
   const words = agentId.split(/[^A-Za-z0-9]+/).filter(Boolean);
-  const joined = words.map((word, index) =>
-    index ? word[0].toUpperCase() + word.slice(1) : word.toLowerCase()
-  ).join('');
+  const joined = words
+    .map((word, index) => (index ? word[0].toUpperCase() + word.slice(1) : word.toLowerCase()))
+    .join('');
   const base = /^[A-Za-z_$]/.test(joined) ? joined : `agent${joined}`;
   let name = base;
   for (let n = 2; taken.has(name); n++) name = `${base}${n}`;
@@ -163,18 +201,20 @@ function agentModule(compiled: CompiledPlayground): string {
     }`,
     ...(structured
       ? [
-        `/** The reply's shape: \`theorem.ts\` registers it before the profile. */\nexport const structured = ${
-          literal(structured, 0)
-        };\n`,
-      ]
+          `/** The reply's shape: \`theorem.ts\` registers it before the profile. */\nexport const structured = ${literal(
+            structured,
+            0,
+          )};\n`,
+        ]
       : []),
     `export const profile = ${defined.code};\n`,
     ...(questions
       ? [
-        `/** What every decision asks about the state, by id. */\nexport const questions = ${
-          literal(questions, 0)
-        } satisfies Record<string, DecisionQuestion>;\n`,
-      ]
+          `/** What every decision asks about the state, by id. */\nexport const questions = ${literal(
+            questions,
+            0,
+          )} satisfies Record<string, DecisionQuestion>;\n`,
+        ]
       : []),
   ];
   return blocks.join('\n');
@@ -184,9 +224,9 @@ function agentModule(compiled: CompiledPlayground): string {
 function libraryModule(tools: readonly ToolRegistration[]): string {
   return [
     `import { z } from 'zod';\nimport { registerTool } from '@theoremjs/agents';\n`,
-    `/** Registers the tools the agents share. \`theorem.ts\` calls it before any agent. */\nexport function registerToolLibrary(): void {\n${
-      tools.map((tool) => toolSource(tool, 1)).join('\n')
-    }}\n`,
+    `/** Registers the tools the agents share. \`theorem.ts\` calls it before any agent. */\nexport function registerToolLibrary(): void {\n${tools
+      .map((tool) => toolSource(tool, 1))
+      .join('\n')}}\n`,
   ].join('\n');
 }
 
@@ -201,14 +241,21 @@ export function workspaceSource(compiled: CompiledWorkspace): SourceFile[] {
   for (const tool of compiled.agents.flatMap((agent) => agent.customTools)) {
     if (tool.type !== 'agent' && !library.has(tool.name)) library.set(tool.name, tool);
   }
-  const taken = new Set(['registerProfile', 'registerStructured', 'registerTool', 'registerToolLibrary']);
+  const taken = new Set([
+    'registerProfile',
+    'registerStructured',
+    'registerTool',
+    'registerToolLibrary',
+  ]);
   const agents = compiled.agents.map((agent) => ({
     agent,
     path: agentModulePath(agent.agentId),
     name: agentIdentifier(agent.agentId, taken),
   }));
   const structured = agents.some(({ agent }) => agent.structured);
-  const agentTools = agents.some(({ agent }) => agent.customTools.some((tool) => tool.type === 'agent'));
+  const agentTools = agents.some(({ agent }) =>
+    agent.customTools.some((tool) => tool.type === 'agent'),
+  );
   const registered = new Set<string>();
   const steps = agents.map(({ agent, name }) => {
     const lines: string[] = [];
@@ -223,6 +270,7 @@ export function workspaceSource(compiled: CompiledWorkspace): SourceFile[] {
     lines.push(`registerProfile(${name}.profile);\n`);
     return lines.join('\n');
   });
+  const providers = providerRegistrations(agents.map(({ agent }) => agent.profile));
   const theorem = [
     [
       '/**',
@@ -230,17 +278,19 @@ export function workspaceSource(compiled: CompiledWorkspace): SourceFile[] {
       ' * route that runs an agent. Each agent comes after the agents it names, and',
       ' * each agent tool after the agent it runs.',
       ' */',
-      `import {\n${
-        [
-          'registerProfile',
-          ...(structured ? ['registerStructured'] : []),
-          ...(agentTools ? ['registerTool'] : []),
-        ].map((each) => `  ${each},`).join('\n')
-      }\n} from '@theoremjs/agents';`,
+      `import {\n${[
+        'registerProfile',
+        ...providers.imports,
+        ...(structured ? ['registerStructured'] : []),
+        ...(agentTools ? ['registerTool'] : []),
+      ]
+        .map((each) => `  ${each},`)
+        .join('\n')}\n} from '@theoremjs/agents';`,
       ...(library.size ? [`import { registerToolLibrary } from './tools';`] : []),
       ...agents.map(({ path, name }) => `import * as ${name} from '${importSpecifier(path)}';`),
       '',
     ].join('\n'),
+    ...providers.code,
     ...(library.size ? ['registerToolLibrary();\n'] : []),
     ...steps,
   ];

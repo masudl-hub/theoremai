@@ -308,12 +308,15 @@ Deno.test('the hosted decision request keeps the key slots the draft chose', () 
   assert(compiled.ok);
   const { profile, questions } = compiled;
   const parsed = playgroundDecisionRequestSchema.parse({ profile, questions, state: 'test' });
-  assertEquals(parsed.profile.key, 'house');
-  assertEquals(Object.values(parsed.profile.models)[0].key, 'openrouter');
+  assertEquals('key' in parsed.profile, false);
+  assertEquals(Object.values(parsed.profile.models)[0].keySlot, 'openrouter');
   defineProfile(parsed.profile as typeof profile);
   assert(
     !playgroundDecisionRequestSchema.safeParse({
-      profile: { ...profile, key: 'not a slot' },
+      profile: {
+        ...profile,
+        models: { decision: { provider: 'openrouter', apiId: 'test', keySlot: 'not a slot' } },
+      },
       questions,
       state: 'test',
     }).success,

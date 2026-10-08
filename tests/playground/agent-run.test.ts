@@ -20,7 +20,6 @@ function must<T>(value: T | undefined): T {
   assert(value !== undefined);
   return value;
 }
-
 /** The concierge, with a tool that asks a helper agent on another provider. */
 function conciergeRun() {
   const blank = setProfileType(createBlankDraft(), 'text');
@@ -52,7 +51,6 @@ function conciergeRun() {
   assert(compiled.ok, JSON.stringify(!compiled.ok && compiled.issues));
   return must(workspaceRunAgent(compiled, 'travel.concierge'));
 }
-
 /** The concierge asks the helper once, then says what came back; the helper answers. */
 function providers(asked: string[]): PlaygroundRuntime['provider'] {
   return (profile: Profile): ModelProvider => {
@@ -80,7 +78,6 @@ function providers(asked: string[]): PlaygroundRuntime['provider'] {
     };
   };
 }
-
 async function run(runtime: PlaygroundRuntime): Promise<TurnEvent[]> {
   const events: TurnEvent[] = [];
   for await (const line of streamPlaygroundTurn({
@@ -93,13 +90,11 @@ async function run(runtime: PlaygroundRuntime): Promise<TurnEvent[]> {
   }
   return events;
 }
-
 function toolPhase(events: TurnEvent[], phase: string) {
   return events.find(
     (event) => event.type === 'tool' && 'phase' in event.tool && event.tool.phase === phase,
   );
 }
-
 Deno.test('a called agent runs on a provider of its own', async () => {
   const asked: string[] = [];
   const events = await run({ mode: 'byok', provider: providers(asked) });
@@ -108,7 +103,6 @@ Deno.test('a called agent runs on a provider of its own', async () => {
   assert(complete.type === 'tool' && 'output' in complete.tool);
   assertEquals(complete.tool.output, { text: 'From the helper.' });
 });
-
 Deno.test('the runtime can refuse an agent call before it runs', async () => {
   const asked: string[] = [];
   const events = await run({

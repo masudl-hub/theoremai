@@ -228,3 +228,16 @@ Deno.test('context and a tool the page answers read back', () => {
   assertEquals(Object.keys(pageTools), [first.toolName]);
   assertEquals(pageTools[first.toolName]?.({}, { callId: 'call-1' }), { output: { ok: true } });
 });
+
+Deno.test('saved-state mismatch policy survives a Playground source round trip', () => {
+  const draft = createExampleDraft();
+  draft.models.providerStateMismatch = 'error';
+  const compiled = compilePlayground(draft);
+  assert(compiled.ok);
+  assert(compiled.profile.type === 'text');
+  assertEquals(compiled.profile.providerContinuation, { onMismatch: 'error' });
+  const read = readPlaygroundSource(playgroundSource(compiled), createExampleDraft());
+  assert(read.ok);
+  assertEquals(read.draft.models.providerStateMismatch, 'error');
+  roundTrip(draft);
+});

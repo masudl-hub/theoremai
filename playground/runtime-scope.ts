@@ -4,7 +4,6 @@
  */
 import {
   createKernelScope,
-  createProvider,
   defineProfile,
   type KernelScope,
   type Profile,
@@ -15,7 +14,24 @@ import { listsPatterns } from '../src/guardrails/host-patterns.ts';
 import type { ResolveHost } from '../src/guardrails/network.ts';
 import type { TaintGate } from '../src/guardrails/types.ts';
 import type { AgentCall, AgentCallHook, ModelProvider } from '../src/kernel/types.ts';
-import type { CreateProviderOptions } from '../src/providers/create-provider.ts';
+import {
+  z,
+  defineProvider,
+  googleAdapter,
+  openRouterAdapter,
+  openAIChat,
+  typesafeAdapter,
+} from '../mod.ts';
+import type { ProviderHostOptions } from '../src/kernel/provider-contract.ts';
+import { translateProviderEvent } from '../src/providers/adapters.ts';
+export interface PlaygroundProviderOptions extends ProviderHostOptions {
+  gemini?: {
+    fetch?: typeof fetch;
+    wait?: (ms: number, signal?: AbortSignal | null) => Promise<void>;
+  };
+  openAiGateway?: { baseUrl?: string; siteUrl?: string; siteName?: string; fetch?: typeof fetch };
+  local?: { baseUrl: string; fetch?: typeof fetch };
+}
 import { PLAYGROUND_KEY_SLOT_CAP, playgroundKeySlots } from './browser-connection.ts';
 import { modelBindingViolation } from './policy.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
@@ -23,25 +39,122 @@ import { registerPlaygroundTools } from './tools.ts';
 
 export interface PlaygroundRuntime {
   mode: 'demo' | 'byok' | 'local';
-  providers?: CreateProviderOptions;
+  providers?: PlaygroundProviderOptions;
+  hostOptions?: (profile: Profile, model?: string) => ProviderHostOptions;
   provider?: (profile: Profile, model?: string) => ModelProvider;
   resolveHost?: ResolveHost;
   remoteTools?: boolean;
   /** Before each agent tool call runs its agent: return `refuse` to stop it. */
-  onAgentCall?: (
-    call: AgentCall,
-  ) => { refuse: string } | void | Promise<{ refuse: string } | void>;
+  onAgentCall?: (call: AgentCall) => { refuse: string } | void | Promise<{ refuse: string } | void>;
 }
 
 /** The provider a profile's turn runs on: the runtime's own, or one from its vault. */
 export function runtimeProvider(
   runtime: PlaygroundRuntime,
+  scope: KernelScope,
   profile: Profile,
   model?: string,
-): ModelProvider {
-  return (
-    runtime.provider?.(profile, model) ??
-    createProvider(profile, runtime.providers ?? {}, model)
+): ProviderHostOptions {
+  const mock = runtime.provider?.(profile, model);
+  if (mock && profile.type !== 'host') {
+    const selected =
+      model ?? ('defaultModel' in profile ? profile.defaultModel : Object.keys(profile.models)[0]);
+    const binding = profile.models[selected];
+    const id = `demo:${profile.id}`;
+    scope.providers.register(
+      defineProvider({
+        id,
+        connection: {},
+        adapter: {
+          apiVersion: 1,
+          id: 'playground-script',
+          connectionSchema: z.strictObject({}),
+          optionsSchema: z.record(z.string(), z.json()),
+          credentialSchema: z.string(),
+          capabilities: () => ({
+            profileTypes: ['text', 'image', 'speech'],
+            features: {
+              streaming: 'supported',
+              clientTools: 'supported',
+              parallelTools: 'supported',
+              structuredOutput: 'supported',
+              thinking: 'supported',
+              summaries: 'supported',
+              storedContinuation: 'unsupported',
+            },
+            inputKinds: ['text', 'image', 'audio', 'video', 'document'],
+            outputKinds: ['text', 'image', 'audio'],
+            builtins: ['googleSearch', 'googleMaps', 'urlContext', 'codeExecution'],
+          }),
+          validateRequest() {},
+          create(): Promise<import('../src/kernel/provider-contract.ts').ProviderOperations> {
+            return Promise.resolve().then(() => {
+              return {
+                async *complete(request) {
+                  let done = false;
+                  for await (const event of mock.complete(request)) {
+                    const converted = translateProviderEvent(event);
+                    if (converted) {
+                      if (converted.type === 'done') done = true;
+                      yield converted;
+                    }
+                  }
+                  if (!done) yield { type: 'done', stop: { kind: 'completed' } };
+                },
+              };
+            });
+          },
+        },
+      }),
+    );
+    scope.profiles.register({
+      ...profile,
+      models: { ...profile.models, [selected]: { ...binding, provider: id } },
+    } as Profile);
+  }
+  const options = runtime.providers ?? {};
+  const host = runtime.hostOptions?.(profile, model) ?? {};
+  return {
+    ...host,
+    vault: host.vault ?? options.vault,
+    fetch:
+      host.fetch ??
+      options.fetch ??
+      options.gemini?.fetch ??
+      options.openAiGateway?.fetch ??
+      options.local?.fetch,
+    wait: host.wait ?? options.wait ?? options.gemini?.wait,
+  };
+}
+export function registerRuntimeProviders(scope: KernelScope, runtime?: PlaygroundRuntime) {
+  const options = runtime?.providers;
+  scope.providers.register(
+    defineProvider({ id: 'google', connection: {}, adapter: googleAdapter() }),
+  );
+  scope.providers.register(
+    defineProvider({
+      id: 'openrouter',
+      connection: Object.fromEntries(
+        Object.entries({
+          baseURL: options?.openAiGateway?.baseUrl,
+          siteUrl: options?.openAiGateway?.siteUrl,
+          siteName: options?.openAiGateway?.siteName,
+        }).filter(([, value]) => value !== undefined),
+      ),
+      adapter: openRouterAdapter(),
+    }),
+  );
+  scope.providers.register(
+    defineProvider({ id: 'typesafe', connection: {}, adapter: typesafeAdapter() }),
+  );
+  scope.providers.register(
+    defineProvider({
+      id: 'local',
+      connection: {
+        baseURL: `${(options?.local?.baseUrl ?? 'http://localhost:11434').replace(/\/$/, '')}/v1`,
+      },
+      adapter: openAIChat(),
+    }),
   );
 }
 
@@ -54,7 +167,7 @@ export function agentCallHook(scope: KernelScope, runtime: PlaygroundRuntime): A
   return async (call) => {
     const refused = await runtime.onAgentCall?.(call);
     if (refused) return refused;
-    return { provider: runtimeProvider(runtime, scope.profiles.get(call.profile)) };
+    return { provider: runtimeProvider(runtime, scope, scope.profiles.get(call.profile)) };
   };
 }
 
@@ -177,6 +290,14 @@ async function registerDraft(
       const violation = modelBindingViolation(
         {
           ...binding,
+          protocol:
+            defined.type === 'decision'
+              ? 'decision'
+              : binding.provider === 'google'
+                ? defined.type === 'live'
+                  ? 'geminiLive'
+                  : 'geminiInteractions'
+                : 'openAi',
           builtInTools: 'builtInTools' in binding ? (binding.builtInTools ?? []) : [],
         },
         runtime.mode,
@@ -222,6 +343,7 @@ export async function playgroundScope(
   dependencies: readonly PlaygroundDependency[] = [],
 ): Promise<{ scope: KernelScope; profile: Profile }> {
   const scope = createKernelScope();
+  registerRuntimeProviders(scope, runtime);
   for (const dependency of dependencies) {
     await registerDraft(
       scope,
@@ -247,6 +369,7 @@ export async function writtenScope(drafts: readonly PlaygroundDependency[]): Pro
   profile: Profile | undefined;
 }> {
   const scope = createKernelScope();
+  registerRuntimeProviders(scope);
   let profile: Profile | undefined;
   for (const draft of drafts) {
     profile = registerDefined(

@@ -30,7 +30,6 @@ function provider(events: ProviderEvent[]): ModelProvider {
     },
   };
 }
-
 Deno.test('browser and HTTP playground transports preserve turn events and traces', async () => {
   const compiled = payload();
   const runtime = {
@@ -71,7 +70,6 @@ Deno.test('browser and HTTP playground transports preserve turn events and trace
   assertEquals(browser.traces?.records().length, http.traces?.records().length);
   assert((browser.traces?.records().length ?? 0) > 0);
 });
-
 Deno.test('browser failures reject with the same public error as HTTP', async () => {
   const compiled = payload();
   const runtime = {
@@ -89,19 +87,25 @@ Deno.test('browser failures reject with the same public error as HTTP', async ()
   const failure = await assertRejects(() =>
     browser.turn({ input: { text: 'Hello' } }, (event) => emitted.push(event)),
   );
-  assertEquals((failure as { kind?: string }).kind, 'auth');
+  assertEquals(
+    (
+      failure as {
+        kind?: string;
+      }
+    ).kind,
+    'auth',
+  );
   assertEquals(
     emitted.some((event) => event.type === 'error'),
     false,
   );
   assert((browser.traces?.records().length ?? 0) > 0);
 });
-
 Deno.test('named primary and fallback slots include model overrides and isolate vaults', () => {
   const slots = playgroundKeySlots({
     key: 'primary',
     fallbackKey: 'backup',
-    models: { fast: { key: 'fast-key', fallbackKey: 'backup' } },
+    models: { fast: { keySlot: 'fast-key', fallbackKeySlot: 'backup' } },
   });
   assertEquals(slots, ['primary', 'backup', 'fast-key']);
   assertEquals(
@@ -116,11 +120,15 @@ Deno.test('named primary and fallback slots include model overrides and isolate 
   draft.modelBindings[0].fallbackKeySlot = 'fast-backup';
   const compiled = compilePlayground(draft, 'byok');
   assert(compiled.ok && compiled.profile.type === 'text');
-  assertEquals(compiled.profile.fallbackKey, 'backup');
-  assertEquals(compiled.profile.models.fast.key, 'fast-key');
-  assertEquals(compiled.profile.models.fast.fallbackKey, 'fast-backup');
+  assertEquals(
+    compiled.profile.models[
+      compiled.profile.defaultModel ?? Object.keys(compiled.profile.models)[0]
+    ].fallbackKeySlot,
+    'backup',
+  );
+  assertEquals(compiled.profile.models.fast.keySlot, 'fast-key');
+  assertEquals(compiled.profile.models.fast.fallbackKeySlot, 'fast-backup');
 });
-
 Deno.test('a pasted key shows its service from the published prefix, and nothing else', () => {
   assertEquals(keyKind(` ${TEST_GOOGLE_KEY}`), 'google');
   assertEquals(keyKind(TEST_OPENROUTER_KEY), 'openrouter');
@@ -128,7 +136,6 @@ Deno.test('a pasted key shows its service from the published prefix, and nothing
   assertEquals(keyKind(''), undefined);
   assertEquals(keyKind(undefined), undefined);
 });
-
 Deno.test('local connections refuse remote URLs and redirects, and add no auth of their own', async () => {
   for (const baseUrl of [
     'https://example.com',
@@ -158,7 +165,6 @@ Deno.test('local connections refuse remote URLs and redirects, and add no auth o
     globalThis.fetch = originalFetch;
   }
 });
-
 Deno.test('browser cancellation reaches the provider without contacting a site endpoint', async () => {
   const controller = new AbortController();
   let providerSignal: AbortSignal | undefined;
@@ -182,7 +188,6 @@ Deno.test('browser cancellation reaches the provider without contacting a site e
   assert(events.some((event) => event.type === 'done' && event.stop?.kind === 'cancelled'));
   assertEquals(providerSignal?.aborted, true);
 });
-
 Deno.test('local browser runs block HTTP tools unless explicitly enabled', async () => {
   const { createBrowserPlaygroundHostTransport } = await import('../../playground/browser.ts');
   const compiled = {
@@ -217,7 +222,6 @@ Deno.test('local browser runs block HTTP tools unless explicitly enabled', async
   );
   assert(events.some((event) => event.type === 'tool' && event.tool.phase === 'error'));
 });
-
 Deno.test('browser host gates settle through the same replay path as HTTP', async () => {
   const { createBrowserPlaygroundHostTransport } = await import('../../playground/browser.ts');
   const { createPlaygroundHostTransport } = await import('../../playground/transport.ts');
@@ -276,7 +280,6 @@ Deno.test('browser host gates settle through the same replay path as HTTP', asyn
     assertEquals(complete.tool.output, { ok: true });
   }
 });
-
 Deno.test('model discovery uses the inference endpoint and returns the server model names', async () => {
   const { listLocalPlaygroundModels } = await import('../../playground/browser.ts');
   const originalFetch = globalThis.fetch;
@@ -299,11 +302,13 @@ Deno.test('model discovery uses the inference endpoint and returns the server mo
     globalThis.fetch = originalFetch;
   }
 });
-
 Deno.test('provider model lists keep the profile type and never put the key in the URL', async () => {
   const { listProviderModels } = await import('../../playground/browser.ts');
   const originalFetch = globalThis.fetch;
-  const seen: { url: string; headers: Headers }[] = [];
+  const seen: {
+    url: string;
+    headers: Headers;
+  }[] = [];
   globalThis.fetch = (input, init) => {
     const url = String(input);
     seen.push({ url, headers: new Headers(init?.headers) });

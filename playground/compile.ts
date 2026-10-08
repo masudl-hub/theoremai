@@ -1,3 +1,4 @@
+import { jsonObjectSchema } from '../mod.ts';
 import {
   type DecisionEntry,
   type DecisionQuestion,
@@ -63,10 +64,7 @@ import type {
   SystemPrompt,
 } from '../src/kernel/types.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
-import {
-  GOOGLE_SPEECH_FORMATS,
-  GOOGLE_THINKING_LEVELS,
-} from '../src/presets/google.ts';
+import { GOOGLE_SPEECH_FORMATS, GOOGLE_THINKING_LEVELS } from '../src/presets/google.ts';
 import { PLAYGROUND_KEY_SLOT_CAP } from './browser-connection.ts';
 import type {
   DecisionDraft,
@@ -240,7 +238,10 @@ function compileEfforts(
   binding: ModelBindingDraft,
   nodeId: string,
   report: Report,
-): { efforts: Record<string, ModelBindingDraft['efforts'][number]['level']>; defaultEffort: string } {
+): {
+  efforts: Record<string, ModelBindingDraft['efforts'][number]['level']>;
+  defaultEffort: string;
+} {
   const efforts: Record<string, ModelBindingDraft['efforts'][number]['level']> = {};
   binding.efforts.forEach(({ alias, level }, index) => {
     const name = alias.trim();
@@ -248,7 +249,10 @@ function compileEfforts(
     else if (name in efforts) {
       report(nodeId, `Effort alias '${name}' is used twice.`, 'efforts', index);
     } else efforts[name] = level;
-    if (binding.protocol !== 'openAi' && !(GOOGLE_THINKING_LEVELS as readonly string[]).includes(level)) {
+    if (
+      binding.protocol !== 'openAi' &&
+      !(GOOGLE_THINKING_LEVELS as readonly string[]).includes(level)
+    ) {
       report(
         nodeId,
         `${binding.protocol} doesn't take the ${level} thinking level.`,
@@ -294,11 +298,10 @@ function compileBinding(
   const server = binding.provider === 'local' ? binding.server?.trim() : undefined;
 
   return {
-    protocol: binding.protocol,
     provider: binding.provider,
     apiId,
-    ...(binding.keySlot ? { key: binding.keySlot } : {}),
-    ...(binding.fallbackKeySlot ? { fallbackKey: binding.fallbackKeySlot } : {}),
+    ...(binding.keySlot ? { keySlot: binding.keySlot } : {}),
+    ...(binding.fallbackKeySlot ? { fallbackKeySlot: binding.fallbackKeySlot } : {}),
     ...(effortCount ? { efforts } : {}),
     ...(defaultEffort ? { defaultEffort } : {}),
     ...(binding.allowEffortSelect ? { allowEffortSelect: true } : {}),
@@ -306,15 +309,17 @@ function compileBinding(
     ...(binding.maxOutputTokens !== null ? { maxOutputTokens: binding.maxOutputTokens } : {}),
     ...(binding.temperature !== null ? { temperature: binding.temperature } : {}),
     ...(binding.builtInTools.length ? { builtInTools: [...binding.builtInTools] } : {}),
-    ...(cache ? { cache } : {}),
+    providerOptions: jsonObjectSchema.parse({
+      ...(cache ? { cache } : {}),
+      ...(server ? { server } : {}),
+      ...(onGoogleInteractions(binding)
+        ? {
+            ...(binding.store !== null ? { store: binding.store } : {}),
+            persistViaInteractionId: binding.persistViaInteractionId,
+          }
+        : {}),
+    }),
     ...(compaction ? { compaction } : {}),
-    ...(server ? { server } : {}),
-    ...(onGoogleInteractions(binding)
-      ? {
-          ...(binding.store !== null ? { store: binding.store } : {}),
-          persistViaInteractionId: binding.persistViaInteractionId,
-        }
-      : {}),
   };
 }
 
@@ -323,7 +328,7 @@ function compileCache(
   binding: ModelBindingDraft,
   nodeId: string,
   report: Report,
-): ModelBinding['cache'] {
+): import('../src/kernel/types.ts').CacheSpec | undefined {
   if (!binding.cacheMode) return undefined;
   if (binding.provider !== 'openrouter' || binding.protocol !== 'openAi') {
     report(nodeId, 'Prompt caching runs only on OpenRouter with openAi.', 'cacheMode');
@@ -365,7 +370,11 @@ function compileCompaction(
   const compactWith = binding.compactWith ?? '';
   const profile = compactWith ? agentIdOf(compactWith) : undefined;
   if (compactWith && !profile) {
-    report(nodeId, 'The agent that summarised is gone. Pick another, or this agent.', 'compactWith');
+    report(
+      nodeId,
+      'The agent that summarised is gone. Pick another, or this agent.',
+      'compactWith',
+    );
   }
   return {
     maxTokens: maxTokens ?? 0,
@@ -388,12 +397,21 @@ function compileModels(
   agentIdOf: AgentIdOf,
 ): Pick<
   ProfileDefinitionBase,
-  'models' | 'defaultModel' | 'allowModelSelect' | 'maxSteps' | 'key' | 'fallbackKey'
+  'models' | 'defaultModel' | 'allowModelSelect' | 'maxSteps' | 'providerContinuation'
 > {
   const { models: policy, modelBindings } = draft;
   const models: Record<string, ModelBinding> = {};
   for (const binding of modelBindings) {
-    const compiled = compileBinding(binding, type, report, agentIdOf);
+    const compiled = compileBinding(
+      {
+        ...binding,
+        keySlot: binding.keySlot || policy.key || undefined,
+        fallbackKeySlot: binding.fallbackKeySlot || policy.fallbackKey || undefined,
+      },
+      type,
+      report,
+      agentIdOf,
+    );
     const modelId = binding.modelId.trim();
     const nodeId = modelBindingNodeId(binding.key);
     if (!modelId) report(nodeId, 'Model id is required.', 'modelId');
@@ -422,10 +440,11 @@ function compileModels(
   return {
     models,
     ...(defaultModel ? { defaultModel } : {}),
+    ...(policy.providerStateMismatch === 'error'
+      ? { providerContinuation: { onMismatch: 'error' as const } }
+      : {}),
     ...(policy.allowModelSelect ? { allowModelSelect: true } : {}),
     ...(policy.maxSteps !== null ? { maxSteps: policy.maxSteps } : {}),
-    ...(policy.key ? { key: policy.key } : {}),
-    ...(policy.fallbackKey ? { fallbackKey: policy.fallbackKey } : {}),
   };
 }
 
@@ -447,7 +466,7 @@ function parseRecord<T>(
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   const entries = Object.entries(parsed);
   if (!entries.every(([, value]) => isValue(value))) return null;
-  return entries.length ? Object.fromEntries(entries) as Record<string, T> : undefined;
+  return entries.length ? (Object.fromEntries(entries) as Record<string, T>) : undefined;
 }
 
 const isString = (value: unknown): value is string => typeof value === 'string';
@@ -892,9 +911,7 @@ function compileOutputs(
     checkWhole(report, 'outputs', 'maxRetries', 'Validation max retries', outputs.maxRetries, 0);
   }
   const validation =
-    validationEnabled && outputs.maxRetries !== null
-      ? { maxRetries: outputs.maxRetries }
-      : {};
+    validationEnabled && outputs.maxRetries !== null ? { maxRetries: outputs.maxRetries } : {};
   const streaming = {
     ...(outputs.streamMode ? { mode: outputs.streamMode } : {}),
     ...(outputs.streamThoughts ? {} : { streamThoughts: false }),
@@ -981,7 +998,12 @@ function compileLexicon(
       'egress.default_repair_guidance',
       guardrails.egressRepairGuidance.trim(),
     ]);
-    entries.push(['guardrails', 'egressRefusal', 'egress.refusal', guardrails.egressRefusal.trim()]);
+    entries.push([
+      'guardrails',
+      'egressRefusal',
+      'egress.refusal',
+      guardrails.egressRefusal.trim(),
+    ]);
   }
   if (facets.has('wording')) {
     for (const [key, template] of Object.entries(draft.wording) as [LexiconKey, string][]) {
@@ -1426,7 +1448,8 @@ function compileSpeech(
   if (format) {
     const refused = draft.modelBindings.find(
       (binding) =>
-        binding.protocol !== 'openAi' && !(GOOGLE_SPEECH_FORMATS as readonly string[]).includes(format),
+        binding.protocol !== 'openAi' &&
+        !(GOOGLE_SPEECH_FORMATS as readonly string[]).includes(format),
     );
     if (refused) {
       report(
@@ -1585,8 +1608,7 @@ function withoutPath(
   if (!rest.length || child === null || typeof child !== 'object') {
     return others;
   }
-  return { ...others, [head]: withoutPath(child as Record<string, unknown>, rest),
-  };
+  return { ...others, [head]: withoutPath(child as Record<string, unknown>, rest) };
 }
 
 /** Drop what the type may not set (`PROFILE_FIELD_SCOPE`); the draft keeps it across type changes. */
@@ -1693,12 +1715,8 @@ function compileProfileOptions(
   };
 }
 
-function compileDecision(
-  draft: PlaygroundDraft,
-  report: Report,
-): Omit<CompiledPlayground, 'agentId'> {
+function checkDecisionIdentity(draft: PlaygroundDraft, report: Report): string {
   const { decision } = draft;
-  const facets = new Set<string>(draftFacets(draft));
   const contract = decision.contract.trim();
   if (!contract) report('decision', 'Contract is required.', 'contract');
   else if (contract.length > PLAYGROUND_DECISION_MAX_ID_CHARS) {
@@ -1722,6 +1740,17 @@ function compileDecision(
       'handle',
     );
   }
+
+  return contract;
+}
+
+function compileDecision(
+  draft: PlaygroundDraft,
+  report: Report,
+): Omit<CompiledPlayground, 'agentId'> {
+  const { decision } = draft;
+  const facets = new Set<string>(draftFacets(draft));
+  const contract = checkDecisionIdentity(draft, report);
   if (draft.modelBindings.length !== 1) {
     report('models', 'A decision needs exactly one model binding.');
   }
@@ -1777,10 +1806,12 @@ function compileDecision(
     models: binding
       ? {
           [binding.modelId.trim()]: {
-            protocol: 'decision',
             provider: binding.provider === 'openrouter' ? 'openrouter' : 'typesafe',
             apiId: binding.apiId.trim(),
-            ...(binding.keySlot ? { key: binding.keySlot } : {}),
+            ...(binding.keySlot || draft.models.key
+              ? { keySlot: binding.keySlot || draft.models.key }
+              : {}),
+            ...(binding.fallbackKeySlot ? { fallbackKeySlot: binding.fallbackKeySlot } : {}),
             timeoutMs: binding.timeoutMs ?? PLAYGROUND_DECISION_TIMEOUT_MS,
           },
         }
@@ -1790,7 +1821,6 @@ function compileDecision(
       maxStateBytes: decision.maxStateBytes ?? PLAYGROUND_DECISION_MAX_STATE_BYTES,
     },
     decision: { contract },
-    ...(draft.models.key ? { key: draft.models.key } : {}),
     ...compileProfileOptions(draft, facets, report),
   };
   return { profile, customTools: [], questions };

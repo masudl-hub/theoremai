@@ -79,7 +79,7 @@ class BrowserLiveSocket implements LiveSocket {
           metadata: traces.metadata,
           signal: runtime.signal,
         },
-        { vault: runtime.providers.vault, gemini: runtime.providers.gemini },
+        { vault: runtime.providers.vault, fetch: runtime.providers.fetch ?? runtime.providers.gemini?.fetch, wait: runtime.providers.wait ?? runtime.providers.gemini?.wait, openWebSocket: runtime.providers.openWebSocket },
       );
       this.closeSession = () => session.close('client disconnected');
       if (this.readyState !== 1) {

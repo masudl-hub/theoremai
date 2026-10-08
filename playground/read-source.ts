@@ -6,16 +6,9 @@
  * error at that spot, and the draft is left alone.
  */
 
-import {
-  type LexiconKey,
-  liveIngressChannelDefault,
-} from '../mod.ts';
+import { type LexiconKey, liveIngressChannelDefault } from '../mod.ts';
 import { BOUNDARIES, type Boundary, recordOf } from '../src/guardrails/boundaries.ts';
-import {
-  type DetectAction,
-  DETECTORS,
-  type Detector,
-} from '../src/guardrails/detectors.ts';
+import { type DetectAction, DETECTORS, type Detector } from '../src/guardrails/detectors.ts';
 import { PROFILE_GRAPH } from '../src/kernel/profile-graph.ts';
 import { CONTEXT_SENDERS, type ContextSender, type ProfileType } from '../src/kernel/schema.ts';
 import {
@@ -34,10 +27,7 @@ import {
   type PlaygroundProfileType,
   type ToolSpecDraft,
 } from './draft.ts';
-import {
-  PLAYGROUND_DECISION_MAX_STATE_BYTES,
-  PLAYGROUND_DECISION_TIMEOUT_MS,
-} from './policy.ts';
+import { PLAYGROUND_DECISION_MAX_STATE_BYTES, PLAYGROUND_DECISION_TIMEOUT_MS } from './policy.ts';
 import { stubOutputFromSchema } from './stub.ts';
 import { PLAYGROUND_TOOL_TYPE_MESSAGE, PLAYGROUND_TOOL_TYPES } from './types.ts';
 
@@ -57,12 +47,12 @@ export interface PlaygroundSourceSpan {
 
 export type PlaygroundSourceRead =
   | {
-    ok: true;
-    draft: PlaygroundDraft;
-    spans: PlaygroundSourceSpan[];
-    /** Every `registerTool` in the file, including one `tools.allow` leaves out. */
-    registered: ToolSpecDraft[];
-  }
+      ok: true;
+      draft: PlaygroundDraft;
+      spans: PlaygroundSourceSpan[];
+      /** Every `registerTool` in the file, including one `tools.allow` leaves out. */
+      registered: ToolSpecDraft[];
+    }
   | { ok: false; errors: PlaygroundSourceError[] };
 
 /** `agentId` is the id an agent tool or a compactor names; the workspace knows its key. */
@@ -281,7 +271,11 @@ function skipImport(src: Src): void {
   if (src.peek() === ';') src.bump();
 }
 
-function parseObject(src: Src, path: string, spans: PlaygroundSourceSpan[]): Record<string, unknown> {
+function parseObject(
+  src: Src,
+  path: string,
+  spans: PlaygroundSourceSpan[],
+): Record<string, unknown> {
   src.expect('{');
   const out: Record<string, unknown> = {};
   while (!src.eat('}')) {
@@ -412,7 +406,12 @@ function namedCall(
   }
   if (callee === 'registerTool') return registerToolCall(args, src, spans);
   if (callee === 'registerStructured') return { kind: 'registerStructured', args };
-  if (callee === 'registerProfile') return { kind: 'registerProfile' };
+  if (callee === 'registerProfile' || callee === 'registerProvider') return { kind: callee };
+  if (
+    ['googleAdapter', 'openRouterAdapter', 'typesafeAdapter', 'openAIChat'].includes(callee) &&
+    args.length === 0
+  )
+    return { kind: 'adapter', id: callee };
   return src.fail(`'${callee}' isn't part of this file.`);
 }
 
@@ -773,11 +772,20 @@ function applyLexicon(draft: PlaygroundDraft, lexicon: unknown): void {
   draft.wording = wording;
 }
 
+function bindingProtocol(
+  type: PlaygroundProfileType | '',
+  provider: unknown,
+): ModelBindingDraft['protocol'] {
+  if (type === 'decision') return 'decision';
+  if (provider !== 'google') return 'openAi';
+  return type === 'live' ? 'geminiLive' : 'geminiInteractions';
+}
 function bindingOf(
   modelId: string,
   spec: unknown,
   current: ModelBindingDraft | undefined,
   agentKeyOf: AgentKeyOf,
+  type: PlaygroundProfileType | '',
 ): ModelBindingDraft {
   const base = current ?? defaultModelBinding({ modelId });
   if (!isRecord(spec)) return { ...base, modelId };
@@ -787,18 +795,18 @@ function bindingOf(
         level: level as ModelBindingDraft['efforts'][number]['level'],
       }))
     : [];
-  const cache = isRecord(spec.cache) ? spec.cache : undefined;
+  const options = record(spec.providerOptions) ?? {};
+  const cache = isRecord(options.cache) ? options.cache : undefined;
   const compaction = isRecord(spec.compaction) ? spec.compaction : undefined;
   const compactWith = text(compaction?.profile);
   const timeout = whole(spec.timeoutMs);
   return {
     ...base,
     modelId,
-    protocol: text(spec.protocol, base.protocol) as ModelBindingDraft['protocol'],
+    protocol: bindingProtocol(type, spec.provider),
     provider: text(spec.provider, base.provider) as ModelBindingDraft['provider'],
     apiId: text(spec.apiId),
-    timeoutMs:
-      timeout === PLAYGROUND_DECISION_TIMEOUT_MS || timeout === null ? null : timeout,
+    timeoutMs: timeout === PLAYGROUND_DECISION_TIMEOUT_MS || timeout === null ? null : timeout,
     efforts,
     defaultEffort: text(spec.defaultEffort),
     allowEffortSelect: spec.allowEffortSelect === true,
@@ -808,13 +816,13 @@ function bindingOf(
     builtInTools: Array.isArray(spec.builtInTools)
       ? spec.builtInTools.filter((tool): tool is string => typeof tool === 'string')
       : [],
-    store: typeof spec.store === 'boolean' ? spec.store : null,
-    persistViaInteractionId: spec.persistViaInteractionId === true,
-    keySlot: text(spec.key),
-    fallbackKeySlot: text(spec.fallbackKey),
+    store: typeof options.store === 'boolean' ? options.store : null,
+    persistViaInteractionId: options.persistViaInteractionId === true,
+    keySlot: text(spec.keySlot),
+    fallbackKeySlot: text(spec.fallbackKeySlot),
     cacheMode: text(cache?.mode) as ModelBindingDraft['cacheMode'],
     cacheTtl: text(cache?.ttl) as ModelBindingDraft['cacheTtl'],
-    server: text(spec.server),
+    server: text(options.server),
     compactTiming: text(compaction?.timing) as ModelBindingDraft['compactTiming'],
     compactMaxTokens: whole(compaction?.maxTokens),
     compactAt: typeof compaction?.compactAt === 'number' ? compaction.compactAt : undefined,
@@ -897,7 +905,10 @@ function toolOf(
   };
 }
 
-function questionsOf(spec: Record<string, unknown>, current: DecisionQuestionDraft[]): DecisionQuestionDraft[] {
+function questionsOf(
+  spec: Record<string, unknown>,
+  current: DecisionQuestionDraft[],
+): DecisionQuestionDraft[] {
   const byId = new Map(current.map((question) => [question.id, question]));
   return Object.entries(spec).map(([id, value]) => {
     const previous = byId.get(id);
@@ -946,7 +957,10 @@ function referencesOf(value: unknown): ImageReferenceDraft[] {
   return references;
 }
 
-function includedOf(type: PlaygroundProfileType | '', profile: Record<string, unknown>): PlaygroundDraft['included'] {
+function includedOf(
+  type: PlaygroundProfileType | '',
+  profile: Record<string, unknown>,
+): PlaygroundDraft['included'] {
   if (!type) return createBlankDraft().included;
   return PROFILE_GRAPH.filter((facet) => {
     if (!facet.optional || facet.role === 'branch') return false;
@@ -1000,7 +1014,8 @@ function allowTools(
     if (typeof name !== 'string' || name.trim() === '') {
       throw new ReadFail('tools.allow names tools.', at.line, at.column);
     }
-    if (seen.has(name)) throw new ReadFail(`'${name}' is listed twice in tools.allow.`, at.line, at.column);
+    if (seen.has(name))
+      throw new ReadFail(`'${name}' is listed twice in tools.allow.`, at.line, at.column);
     seen.add(name);
     const tool = byName.get(name);
     if (!tool) {
@@ -1034,6 +1049,10 @@ function identityOf(
 
 function modelsOf(profile: Record<string, unknown>): PlaygroundDraft['models'] {
   return {
+    ...(isRecord(profile.providerContinuation) &&
+    profile.providerContinuation.onMismatch === 'error'
+      ? { providerStateMismatch: 'error' as const }
+      : {}),
     defaultModel: text(profile.defaultModel),
     allowModelSelect: profile.allowModelSelect === true,
     maxSteps: whole(profile.maxSteps),
@@ -1100,8 +1119,7 @@ function observabilityOf(spec: Record<string, unknown>): PlaygroundDraft['observ
   const blank = createBlankDraft().observability;
   return {
     ...blank,
-    writeTo:
-      spec.writeTo === false || spec.writeTo === 'playground' ? spec.writeTo : blank.writeTo,
+    writeTo: spec.writeTo === false || spec.writeTo === 'playground' ? spec.writeTo : blank.writeTo,
     sampleRate: typeof spec.sampleRate === 'number' ? spec.sampleRate : blank.sampleRate,
     include: { ...blank.include, ...record(spec.include) },
     scrub: { ...blank.scrub, ...record(spec.scrub) },
@@ -1199,7 +1217,11 @@ function profileTypeOf(profile: Record<string, unknown>): PlaygroundProfileType 
   return type as PlaygroundProfileType | '';
 }
 
-function draftFrom(parsed: ParsedModule, current: PlaygroundDraft, agentKeyOf: AgentKeyOf): {
+function draftFrom(
+  parsed: ParsedModule,
+  current: PlaygroundDraft,
+  agentKeyOf: AgentKeyOf,
+): {
   draft: PlaygroundDraft;
   registered: ToolSpecDraft[];
 } {
@@ -1216,13 +1238,12 @@ function draftFrom(parsed: ParsedModule, current: PlaygroundDraft, agentKeyOf: A
     included: includedOf(type, profile),
     models: modelsOf(profile),
     modelBindings: Object.entries(record(profile.models) ?? {}).map(([modelId, spec]) =>
-      bindingOf(modelId, spec, byModelId.get(modelId), agentKeyOf),
+      bindingOf(modelId, spec, byModelId.get(modelId), agentKeyOf, type),
     ),
     tools: { t2Loader: text(tools.t2Loader) },
     toolSpecs: [],
     inputs: inputs && type !== 'decision' ? inputsOf(inputs) : current.inputs,
-    outputs:
-      outputs || parsed.structured ? outputsOf(outputs, parsed.structured) : current.outputs,
+    outputs: outputs || parsed.structured ? outputsOf(outputs, parsed.structured) : current.outputs,
     turnBehaviour: section(profile.turnBehaviour, turnOf, current.turnBehaviour),
     guardrails: section(profile.guardrails, guardrailsOf, current.guardrails),
     observability: section(profile.observability, observabilityOf, current.observability),
@@ -1265,7 +1286,10 @@ export function readPlaygroundSource(
     return { ok: true, draft, spans: parsed.spans, registered };
   } catch (error) {
     if (error instanceof ReadFail) {
-      return { ok: false, errors: [{ message: error.message, line: error.line, column: error.column }] };
+      return {
+        ok: false,
+        errors: [{ message: error.message, line: error.line, column: error.column }],
+      };
     }
     throw error;
   }

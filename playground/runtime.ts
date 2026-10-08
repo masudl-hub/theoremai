@@ -75,7 +75,7 @@ export async function* streamPlaygroundTurn(args: {
   structured?: StructuredRegistration;
   /** The turn as the browser sent it; its context is read as the client's. */
   input: TheoremTurnInput;
-  previousInteractionId?: string;
+  providerState?: import('../mod.ts').ProviderCheckpoint;
   sessionPermissions?: string[];
   model?: string;
   effort?: string;
@@ -116,7 +116,7 @@ export async function* streamPlaygroundTurn(args: {
     ),
   }));
 
-  const provider = runtimeProvider(args.runtime, profile, args.model);
+  const provider = runtimeProvider(args.runtime, scope, profile, args.model);
   // Random and picked here, so only the run's own browser can steer it.
   const inbox = globalThis.crypto.randomUUID();
   await args.steer.open(inbox);
@@ -136,7 +136,7 @@ export async function* streamPlaygroundTurn(args: {
           profile: profile.id,
           metadata,
           input,
-          previousInteractionId: args.previousInteractionId,
+          providerState: args.providerState,
           sessionPermissions: args.sessionPermissions,
           resolveHost: args.runtime.resolveHost,
           signal: args.signal,

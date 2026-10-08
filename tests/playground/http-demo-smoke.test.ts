@@ -14,7 +14,7 @@ const profile: Profile = {
   type: 'text',
   identity: { handle: 'concierge' },
   models: {
-    default: { protocol: 'openAi', provider: 'openrouter', apiId: 'test' },
+    default: { provider: 'openrouter', apiId: 'test' },
   },
   defaultModel: 'default',
   tools: { allow: [] },
@@ -26,9 +26,7 @@ const profile: Profile = {
     },
   },
 };
-
 const SAMPLE_INPUT = DEMO_HTTP_SAMPLE_INPUT;
-
 function registerDemoHttpTools(): string[] {
   resetTools();
   const names: string[] = [];
@@ -63,7 +61,6 @@ function registerDemoHttpTools(): string[] {
   }
   return names;
 }
-
 Deno.test({
   name: 'travel concierge HTTP tools execute against live APIs',
   ignore: Deno.env.get('CI') === 'true' || Deno.env.get('GITHUB_ACTIONS') === 'true',
@@ -71,12 +68,10 @@ Deno.test({
     const names = registerDemoHttpTools();
     profile.tools.allow = names;
     const failures: string[] = [];
-
     for (const name of names) {
       const input = SAMPLE_INPUT[name] ?? {};
       let ok = false;
       let detail = 'no events';
-
       for (let attempt = 0; attempt < 2 && !ok; attempt++) {
         if (attempt > 0) {
           await new Promise((r) => setTimeout(r, 1000));
@@ -107,7 +102,6 @@ Deno.test({
         await new Promise((r) => setTimeout(r, 1100));
       }
     }
-
     if (failures.length) {
       throw new Error(`HTTP demo tool failures:\n${failures.join('\n')}`);
     }

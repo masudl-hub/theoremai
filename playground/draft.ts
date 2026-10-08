@@ -76,6 +76,7 @@ export interface IdentityDraft {
 }
 
 export interface ModelsDraft {
+  providerStateMismatch?: 'rebuild' | 'error';
   defaultModel: string;
   allowModelSelect: boolean;
   /** `null` omits it: the kernel's default cap applies. */
@@ -456,7 +457,9 @@ export function agentToolTarget(
   agentId: string,
 ): Partial<ToolSpecDraft> {
   const isStub = !tool.description.trim() || tool.description === STUB_TOOL_DESCRIPTION;
-  return isStub && agentId ? { agentKey, description: `Asks ${agentId} and returns its answer.` } : { agentKey };
+  return isStub && agentId
+    ? { agentKey, description: `Asks ${agentId} and returns its answer.` }
+    : { agentKey };
 }
 
 /** A pattern to fill in. */
@@ -585,7 +588,17 @@ export function newDecisionQuestion(
 /** The rows a question of `type` starts with: two options, two levels, or none. */
 export function newCriteria(type: DecisionQuestionType): DecisionCriterionDraft[] {
   if (type === 'noul') return [];
-  return criteria(type === 'choice' ? [['yes', ''], ['no', '']] : [['', ''], ['', '']]);
+  return criteria(
+    type === 'choice'
+      ? [
+          ['yes', ''],
+          ['no', ''],
+        ]
+      : [
+          ['', ''],
+          ['', ''],
+        ],
+  );
 }
 
 /**
@@ -681,8 +694,10 @@ const DECISION_HIDDEN_FACETS: ReadonlySet<ProfileGraphFacetId> = new Set([
 ]);
 
 function facetFits(facet: (typeof PROFILE_GRAPH)[number], type: PlaygroundProfileType): boolean {
-  return facet.profileTypes.includes(type) &&
-    !(type === 'decision' && DECISION_HIDDEN_FACETS.has(facet.id));
+  return (
+    facet.profileTypes.includes(type) &&
+    !(type === 'decision' && DECISION_HIDDEN_FACETS.has(facet.id))
+  );
 }
 
 /** Required facets for the type plus the included optional ones, in catalog order. */
@@ -731,7 +746,7 @@ function imageInputs(inputs: InputsDraft): InputsDraft {
   return {
     ...inputs,
     attachmentsAccept: inputs.attachmentsAccept.filter((rule) =>
-      mimeAllowed(IMAGE_ATTACHMENT_ACCEPT_MIMES, rule)
+      mimeAllowed(IMAGE_ATTACHMENT_ACCEPT_MIMES, rule),
     ),
     voiceAccept: [],
   };
@@ -747,11 +762,12 @@ export function updateModelBinding(
   if (!binding) return draft;
   return {
     ...draft,
-    models: change.modelId !== undefined && draft.models.defaultModel === binding.modelId
-      ? { ...draft.models, defaultModel: change.modelId }
-      : draft.models,
+    models:
+      change.modelId !== undefined && draft.models.defaultModel === binding.modelId
+        ? { ...draft.models, defaultModel: change.modelId }
+        : draft.models,
     modelBindings: draft.modelBindings.map((candidate) =>
-      candidate.key === bindingKey ? { ...candidate, ...change } : candidate
+      candidate.key === bindingKey ? { ...candidate, ...change } : candidate,
     ),
   };
 }
@@ -790,7 +806,11 @@ export function newToolSpec(draft: PlaygroundDraft): ToolSpecDraft {
 }
 
 /** `first` if nothing has taken it, else the first `nth(2)`, `nth(3)`, … that is free. */
-export function freeName(first: string, taken: Iterable<string>, nth: (n: number) => string): string {
+export function freeName(
+  first: string,
+  taken: Iterable<string>,
+  nth: (n: number) => string,
+): string {
   const used = new Set(taken);
   let name = first;
   for (let n = 2; used.has(name); n++) name = nth(n);
@@ -810,8 +830,9 @@ export function setProfileType(
   if (type === 'host') {
     return { ...draft, identity: { ...draft.identity, profileType: type } };
   }
-  const kept = draft.modelBindings.filter((binding) =>
-    isValidProfileProtocol(type, binding.protocol) && !servesOtherProfileType(type, binding)
+  const kept = draft.modelBindings.filter(
+    (binding) =>
+      isValidProfileProtocol(type, binding.protocol) && !servesOtherProfileType(type, binding),
   );
   const retyped: PlaygroundDraft = {
     ...draft,
@@ -820,7 +841,8 @@ export function setProfileType(
   };
   const modelBindings = kept.length ? kept : [newModelBinding(retyped)];
   const modelIds = new Set(modelBindings.map((binding) => binding.modelId));
-  const needsKey = !draft.models.key &&
+  const needsKey =
+    !draft.models.key &&
     modelBindings.some((binding) => !binding.keySlot && binding.provider !== 'local');
   return {
     ...retyped,

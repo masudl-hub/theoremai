@@ -120,6 +120,11 @@ has two ways in:
   the profiles that use it. The builder opens it and edits it once, with the
   same rows the profile editor has.
 
+Masud (9 Oct): "something to consider is a visual map to show how
+constants, profiles, tools, etc are connected". Not designed. The studio
+already reads what the map needs: for each constant, the profiles, tools and
+other constants that read it.
+
 A tool is already like this. A profile names its tools. Each tool is defined
 once, and the studio shows it once, with the profiles that allow it.
 
@@ -401,13 +406,23 @@ Open questions:
 are not in the files, and a button, Review and save.
 
 - The review shows each changed line of each file, before and after.
-- Save writes a value only where the file sets it as a plain value in the
+- Save writes a value where the file sets it as a plain value in the
   `defineProfile` or `registerTool` call. It keeps the file's indentation and
   quotes. A setting put back to its default is taken out.
-- Save writes every change or none. If one change is set by a constant, by
-  code, or by a tool's schema, the review names it and its `file:line`, and
-  Save is off. This keeps the third promise of 5.1: the files hold what was
-  tested. Not agreed with Masud.
+- Save follows a constant (9 Oct). When one profile or tool is all that reads
+  the constant, Save changes the value where the constant is set, in its own
+  file, through any number of names and imports (D20).
+- A constant that something else reads too is not written yet. The review
+  names the constant, its `file:line`, and the profiles, tools or other code
+  that share it. Editing it once for all of them is the list of shared
+  settings (D18), which is next.
+- Save writes every change or none. If one change is set by a shared
+  constant, by code, or by a tool's schema, Save is off. This keeps the third
+  promise of 5.1: the files hold what was tested. Claude asked Masud on 9 Oct
+  whether Save should write what it can instead. His answer: the question
+  should not come up for constants, because the studio walks the project,
+  offers its constants, and builds a library of them. So all-or-none stays as
+  Claude's default for what is left: code and a tool's schema.
 - After the write the studio type-checks the setup file (Deno only), loads
   the project again, and compares it with what the builder tested. If any of
   the three fails, it puts the files back and says which.
@@ -417,8 +432,8 @@ are not in the files, and a button, Review and save.
 - The studio writes only files inside the project folder that the setup file
   imports. It does not run git.
 
-Not built: editing a constant, with the profiles that share it. Adding or
-removing a profile or a tool. A read-only row that opens the code, by origin.
+Not built: the list of shared settings, where a constant that several
+profiles read is edited once. Adding or removing a profile or a tool. A read-only row that opens the code, by origin.
 The project's formatter after the write. Markdown instruction files. A
 type-check for a project that is not Deno.
 

@@ -117,15 +117,138 @@ export function followed(project: ProjectSource, at: Located, depth = 0): Locate
     return followed(project, { node: held.initializer, source: owner.source }, depth + 1);
   }
   if (!ts.isIdentifier(node)) return { node, source: at.source };
-  const declared = constant(at.source, node.text);
-  if (declared) return followed(project, { node: declared, source: at.source }, depth + 1);
-  const from = importOf(at.source, node.text);
-  if (!from) return { node, source: at.source };
-  const file = importedFile(at.source.fileName, from.specifier, (path) => project.files.has(path), project.root);
-  const source = file ? project.files.get(file) : undefined;
-  const exported = source && constant(source, from.name);
-  if (!source || !exported) return { node, source: at.source };
-  return followed(project, { node: exported, source }, depth + 1);
+  const binding = bindingOf(project, at.source, node.text);
+  if (!binding) return { node, source: at.source };
+  return followed(project, { node: binding.initializer, source: binding.source }, depth + 1);
+}
+
+/** A top-level `const` of the project: its name where it is declared, its file, and what it is set to. */
+export interface Binding {
+  name: string;
+  source: ts.SourceFile;
+  initializer: ts.Expression;
+}
+
+/** The file of the project a relative import in `source` names. */
+function sourceOf(project: ProjectSource, source: ts.SourceFile, specifier: string): ts.SourceFile | undefined {
+  const file = importedFile(source.fileName, specifier, (path) => project.files.has(path), project.root);
+  return file ? project.files.get(file) : undefined;
+}
+
+/** The constant a name in `source` stands for: one declared there, or one a relative import brings in. */
+export function bindingOf(project: ProjectSource, source: ts.SourceFile, name: string): Binding | undefined {
+  const declared = constant(source, name);
+  if (declared) return { name, source, initializer: declared };
+  const from = importOf(source, name);
+  const origin = from && sourceOf(project, source, from.specifier);
+  const exported = origin && from && constant(origin, from.name);
+  return origin && from && exported ? { name: from.name, source: origin, initializer: exported } : undefined;
+}
+
+/** The constant whose value holds `at`: the top-level `const` it is written inside. */
+export function holderOf(at: Located): Binding | undefined {
+  for (const statement of at.source.statements) {
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
+    for (const { name, initializer } of statement.declarationList.declarations) {
+      if (!initializer || !ts.isIdentifier(name)) continue;
+      if (initializer.pos <= at.node.pos && at.node.end <= initializer.end) {
+        return { name: name.text, source: at.source, initializer };
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Whether an identifier reads a value: not a declaration's name, a property's name, an import, or a type. */
+function isRead(node: ts.Identifier): boolean {
+  const { parent } = node;
+  if (ts.isShorthandPropertyAssignment(parent)) return true;
+  if (ts.isPropertyAccessExpression(parent)) return parent.expression === node;
+  if (ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent) || ts.isTypeNode(parent)) return false;
+  return (parent as { name?: ts.Node }).name !== node;
+}
+
+/** The name `source` knows a constant by: its own, or the one an import gives it. */
+function localName(project: ProjectSource, source: ts.SourceFile, binding: Binding): string | undefined {
+  if (source === binding.source) return binding.name;
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    const element = bindings.elements.find((each) => (each.propertyName ?? each.name).text === binding.name);
+    if (element && sourceOf(project, source, statement.moduleSpecifier.text) === binding.source) return element.name.text;
+  }
+  return undefined;
+}
+
+/** Each place the project's code reads a constant. */
+function readsOf(project: ProjectSource, binding: Binding): Located[] {
+  const reads: Located[] = [];
+  for (const source of project.files.values()) {
+    const name = localName(project, source, binding);
+    if (name === undefined) continue;
+    const visit = (node: ts.Node) => {
+      if (ts.isIdentifier(node) && node.text === name && isRead(node)) reads.push({ node, source });
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return reads;
+}
+
+/** Who a constant's value reaches: the profiles and tools, and whether other code reads it too. */
+export interface ConstantUsers {
+  profiles: Set<string>;
+  tools: Set<string>;
+  /** Code that is not a profile, a tool or another constant reads it. */
+  code: boolean;
+}
+
+/** Whether `node` is part of the value `value` writes out, not something a function or a call inside it reads. */
+function isWrittenIn(node: ts.Node, value: ts.Expression): boolean {
+  for (let at = node.parent; at !== value.parent; at = at.parent) {
+    const data = ts.isObjectLiteralExpression(at) || ts.isArrayLiteralExpression(at) ||
+      ts.isPropertyAssignment(at) || ts.isShorthandPropertyAssignment(at) || ts.isSpreadAssignment(at) ||
+      ts.isSpreadElement(at) || ts.isPropertyAccessExpression(at) || ts.isParenthesizedExpression(at) ||
+      ts.isAsExpression(at) || ts.isSatisfiesExpression(at) || ts.isNonNullExpression(at);
+    if (!data) return false;
+  }
+  return true;
+}
+
+function targetOf(targets: Map<string, SourceTarget[]>, at: Located): string | undefined {
+  for (const [name, held] of targets) {
+    const inside = held.some(({ source, options }) =>
+      source === at.source && options.pos <= at.node.pos && at.node.end <= options.end
+    );
+    if (inside) return name;
+  }
+  return undefined;
+}
+
+/**
+ * Follows a constant to everything it sets: a profile or tool that reads it, and through a
+ * constant that reads it, whatever reads that one.
+ */
+export function usersOf(project: ProjectSource, binding: Binding): ConstantUsers {
+  const users: ConstantUsers = { profiles: new Set(), tools: new Set(), code: false };
+  const seen = new Set<ts.Expression>();
+  const follow = (each: Binding) => {
+    if (seen.has(each.initializer)) return;
+    seen.add(each.initializer);
+    for (const read of readsOf(project, each)) {
+      const profile = targetOf(project.profiles, read);
+      const tool = profile === undefined ? targetOf(project.tools, read) : undefined;
+      const held = profile === undefined && tool === undefined ? holderOf(read) : undefined;
+      const holder = held && isWrittenIn(read.node, held.initializer) ? held : undefined;
+      if (profile !== undefined) users.profiles.add(profile);
+      else if (tool !== undefined) users.tools.add(tool);
+      else if (holder) follow(holder);
+      else users.code = true;
+    }
+  };
+  follow(binding);
+  return users;
 }
 
 /** The initializer of the one top-level `const name = ...` in a file. */

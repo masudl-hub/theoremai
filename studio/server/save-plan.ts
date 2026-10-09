@@ -1,8 +1,10 @@
 /**
  * What Save writes: each changed value of a profile or a tool, found in the
  * builder's file and rewritten there. A value written in the call is changed in
- * place. A value that comes from a constant or from code is not written; the
- * plan says where it is set.
+ * place. A value from a constant that only this profile or tool reads is changed
+ * where the constant is set. A value from a constant that something else reads
+ * too, or from code, is not written; the plan says where it is set and who
+ * shares it.
  *
  * @module
  */
@@ -12,10 +14,13 @@ import { type SourceStyle, valueSource } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
 import {
   followed,
+  holderOf,
+  type Located,
   type ProjectSource,
   propertyName,
   type SourceTarget,
   unwrapped,
+  usersOf,
 } from './project-source.ts';
 import type { DiffHunk, SaveChange, SaveStatus } from './save-wire.ts';
 
@@ -138,7 +143,13 @@ class Planner {
 
   constructor(private readonly project: ProjectSource, private readonly subject: SaveSubject) {}
 
-  private note(status: SaveStatus, path: string[], at?: { source: ts.SourceFile; node: ts.Node }, name?: string) {
+  private note(
+    status: SaveStatus,
+    path: string[],
+    at?: { source: ts.SourceFile; node: ts.Node },
+    name?: string,
+    shared: Pick<SaveChange, 'sharedWith' | 'readByCode'> = {},
+  ) {
     this.changes.push({
       kind: this.subject.kind,
       of: this.subject.of,
@@ -151,7 +162,33 @@ class Planner {
         }
         : {}),
       ...(name ? { name } : {}),
+      ...shared,
     });
+  }
+
+  /**
+   * A value a name stands for. When this profile or tool is all the constant sets, the change is
+   * made where the constant is; otherwise the plan names the constant and who shares it.
+   */
+  private named(at: Located, name: string, before: unknown, after: unknown, path: string[]) {
+    const origin = followed(this.project, at);
+    const holder = origin.node === unwrapped(at.node) ? undefined : holderOf(origin);
+    if (!holder) {
+      this.note('constant', path, origin, name);
+      return;
+    }
+    const users = usersOf(this.project, holder);
+    const { kind, of } = this.subject;
+    users[kind === 'profile' ? 'profiles' : 'tools'].delete(of);
+    const sharedWith = [...users.profiles, ...users.tools];
+    if (sharedWith.length || users.code) {
+      this.note('constant', path, origin, name, {
+        ...(sharedWith.length ? { sharedWith } : {}),
+        ...(users.code ? { readByCode: true } : {}),
+      });
+      return;
+    }
+    this.walk(origin.node, origin.source, before, after, path);
   }
 
   private edit(source: ts.SourceFile, start: number, end: number, text: string) {
@@ -203,8 +240,7 @@ class Planner {
       return;
     }
     if (ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)) {
-      const origin = followed(this.project, { node, source });
-      this.note('constant', path, origin, node.getText(source));
+      this.named({ node, source }, node.getText(source), before, after, path);
       return;
     }
     this.note('code', path, { source, node });
@@ -234,7 +270,7 @@ class Planner {
       if (properties.slice(index + 1).some(ts.isSpreadAssignment)) {
         this.note('code', here, { source, node: held });
       } else if (ts.isShorthandPropertyAssignment(held)) {
-        this.note('constant', here, followed(this.project, { node: held.name, source }), key);
+        this.named({ node: held.name, source }, key, before[key], after[key], here);
       } else if (!ts.isPropertyAssignment(held)) {
         this.note('code', here, { source, node: held });
       } else if (after[key] === undefined) {

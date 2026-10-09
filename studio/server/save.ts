@@ -10,7 +10,7 @@
 import { compileWorkspace } from '../compile-workspace.ts';
 import type { CompiledStudio } from '../compile.ts';
 import type { ToolRegistration } from '../registrations.ts';
-import { type StudioWorkspace } from '../workspace.ts';
+import type { StudioWorkspace } from '../workspace.ts';
 import { canonical, type SaveSubject } from './save-plan.ts';
 import type { SaveChange } from './save-wire.ts';
 

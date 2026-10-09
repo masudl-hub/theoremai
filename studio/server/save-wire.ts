@@ -10,7 +10,7 @@ import type { StudioWorkspace } from '../workspace.ts';
 /**
  * What happens to one changed value.
  * - `written`: Save rewrites it in the file.
- * - `constant`: a named constant holds it.
+ * - `constant`: a named constant holds it, and something else reads that constant too.
  * - `code`: code computes it, or the file sets it in a way the studio cannot follow.
  * - `changed`: the file no longer holds the value the studio opened.
  * - `unfound`: no place in the project's files sets it.
@@ -30,6 +30,10 @@ export interface SaveChange {
   line?: number;
   /** The constant that holds it. */
   name?: string;
+  /** The other profiles and tools that read the constant, by id and name. */
+  sharedWith?: string[];
+  /** Code that is not a profile or a tool reads the constant too. */
+  readByCode?: boolean;
 }
 
 /** A run of changed lines in one file, with the lines around it. */

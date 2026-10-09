@@ -120,41 +120,106 @@ Deno.test('a setting put back to its default is taken out with its comma', () =>
   assertEquals(text, INLINE.replace('  maxSteps: 8,\n', ''));
 });
 
-Deno.test('a constant is not written: the plan names it and the file that holds it', () => {
-  const files = {
-    'setup.ts': `import { defineProfile } from '@theoremjs/agents';
-import { DESK_ID, LIMITS } from './shared.ts';
+const SHARED = `export const DESK_ID = 'desk';
+export const LIMITS = {
+  blockedReply: 'refuse',
+};
+const INNER = ['a'];
+export const NESTED = { canaries: INNER };
+`;
+const USES = `import { defineProfile } from '@theoremjs/agents';
+import { DESK_ID, LIMITS as RULES, NESTED } from './shared.ts';
 const STEPS = 8;
-defineProfile({ type: 'text', id: DESK_ID, maxSteps: STEPS, guardrails: LIMITS, system: build() });
-`,
-    'shared.ts': `export const DESK_ID = 'desk';\nexport const LIMITS = {\n  blockedReply: 'refuse',\n};\n`,
+defineProfile({ type: 'text', id: DESK_ID, maxSteps: STEPS, guardrails: RULES, nested: NESTED, system: build() });
+`;
+const USED = {
+  type: 'text',
+  id: 'desk',
+  maxSteps: 8,
+  guardrails: { blockedReply: 'refuse' },
+  nested: { canaries: ['a'] },
+  system: 'a',
+};
+const RESET = {
+  ...USED,
+  maxSteps: 9,
+  guardrails: { blockedReply: 'ask' },
+  nested: { canaries: ['b'] },
+};
+
+Deno.test('a constant only this profile reads is changed where it is set, in its own file', () => {
+  const files = { 'setup.ts': USES, 'shared.ts': SHARED };
+  const { plan, text } = saved(files, USED, { ...RESET, system: 'b' });
+  assertEquals(
+    plan.changes.map(({ setting, status, file, line }) => [setting, status, file, line]),
+    [
+      ['maxSteps', 'written', '/project/setup.ts', 3],
+      ['guardrails.blockedReply', 'written', '/project/shared.ts', 3],
+      ['nested.canaries.0', 'written', '/project/shared.ts', 5],
+      ['system', 'code', '/project/setup.ts', 4],
+    ],
+  );
+  assertEquals(text, USES.replace('STEPS = 8', 'STEPS = 9'));
+  const shared = plan.edits.filter((edit) => edit.file === '/project/shared.ts');
+  assertEquals(
+    applyEdits(SHARED, shared),
+    SHARED.replace("'refuse'", "'ask'").replace("['a']", "['b']"),
+  );
+});
+
+Deno.test('a constant something else reads too is not written: the plan names it and who shares it', () => {
+  const second = `import { defineProfile, registerTool } from '@theoremjs/agents';
+import { LIMITS, NESTED } from './shared.ts';
+import './setup.ts';
+defineProfile({ type: 'text', id: 'shop', guardrails: LIMITS });
+registerTool({ name: 'list', limits: { ...LIMITS } });
+export const copy = () => NESTED.canaries.length;
+`;
+  const files = {
+    'setup.ts': `${USES}import './second.ts';\n`,
+    'shared.ts': SHARED,
+    'second.ts': second,
   };
-  const before = {
-    type: 'text',
-    id: 'desk',
-    maxSteps: 8,
-    guardrails: { blockedReply: 'refuse' },
-    system: 'a',
+  const { plan } = saved(files, USED, RESET);
+  assertEquals(
+    plan.edits.map((edit) => [edit.file, edit.text]),
+    [['/project/setup.ts', '9']],
+  );
+  assertEquals(
+    plan.changes
+      .slice(1)
+      .map(({ setting, status, name, file, line, sharedWith, readByCode }) => [
+        setting,
+        status,
+        name,
+        file,
+        line,
+        sharedWith,
+        readByCode,
+      ]),
+    [
+      ['guardrails', 'constant', 'RULES', '/project/shared.ts', 2, ['shop', 'list'], undefined],
+      ['nested', 'constant', 'NESTED', '/project/shared.ts', 6, undefined, true],
+    ],
+  );
+});
+
+Deno.test('a name the project does not set is named and left alone', () => {
+  const files = {
+    'setup.ts': `import { STEPS } from 'some-package';\nexport const make = (limits) => defineProfile({ id: 'desk', maxSteps: STEPS, guardrails: limits });\n`,
   };
+  const before = { id: 'desk', maxSteps: 8, guardrails: { blockedReply: 'refuse' } };
   const { plan } = saved(files, before, {
-    ...before,
+    id: 'desk',
     maxSteps: 9,
     guardrails: { blockedReply: 'ask' },
-    system: 'b',
   });
   assertEquals(plan.edits, []);
   assertEquals(
-    plan.changes.map(({ setting, status, name, file, line }) => [
-      setting,
-      status,
-      name,
-      file,
-      line,
-    ]),
+    plan.changes.map(({ setting, status, name }) => [setting, status, name]),
     [
-      ['maxSteps', 'constant', 'STEPS', '/project/setup.ts', 3],
-      ['guardrails', 'constant', 'LIMITS', '/project/shared.ts', 2],
-      ['system', 'code', undefined, '/project/setup.ts', 4],
+      ['maxSteps', 'constant', 'STEPS'],
+      ['guardrails', 'constant', 'limits'],
     ],
   );
 });
@@ -283,4 +348,46 @@ Deno.test('a profile or tool the studio added or removed is named, not written',
     ['garden-desk', 'new'],
     ['other', 'removed'],
   ]);
+});
+
+Deno.test('Save rewrites complete literal values and joined text without evaluating expressions', () => {
+  for (const [expression, value] of [
+    ['-3', -3],
+    ['true', true],
+    ['false', false],
+    ['null', null],
+    ['[1, "two", null]', [1, 'two', null]],
+    ['{ nested: [true, -2] }', { nested: [true, -2] }],
+    ['["one", "two"].join("\\n")', 'one\ntwo'],
+  ] as const) {
+    const source = `defineProfile({ id: 'desk', value: ${expression} });`;
+    const result = saved(
+      { 'setup.ts': source },
+      { id: 'desk', value },
+      { id: 'desk', value: 'replacement' },
+    );
+    assertEquals(result.statuses, ['value: written'], expression);
+    assertEquals(result.text.includes("value: 'replacement'"), true, expression);
+  }
+  for (const expression of [
+    '[...values]',
+    '{ ...values }',
+    '{ shorthand }',
+    '{ method() {} }',
+    '{ [computed]: 1 }',
+    '[unknown].join("-")',
+    '[1].join("-")',
+    '["one"].join(unknown)',
+    'readValue()',
+    '1 + 2',
+  ]) {
+    const source = `defineProfile({ id: 'desk', value: ${expression} });`;
+    const result = saved(
+      { 'setup.ts': source },
+      { id: 'desk', value: 'before' },
+      { id: 'desk', value: 'replacement' },
+    );
+    assertEquals(result.statuses, ['value: code'], expression);
+    assertEquals(result.text, source, expression);
+  }
 });

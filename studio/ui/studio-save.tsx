@@ -58,11 +58,17 @@ function place(change: SaveChange): string {
 	return change.line ? `${change.file}:${String(change.line)}` : change.file;
 }
 
+/** Who else reads the constant a change comes from, as the end of a sentence. */
+function sharers(change: SaveChange): string {
+	const others = [...(change.sharedWith ?? []), ...(change.readByCode ? ['other code'] : [])];
+	return others.length ? `, which ${others.join(', ')} ${others.length > 1 ? 'use' : 'uses'} too` : '';
+}
+
 /** Why one change is not written, and what the builder does about it. */
 function reason(change: SaveChange): string {
 	switch (change.status) {
 		case 'constant':
-			return `Set by ${change.name ?? 'a constant'} in ${place(change)}. Change it there.`;
+			return `Set by ${change.name ?? 'a constant'} in ${place(change)}${sharers(change)}. Change it there.`;
 		case 'code':
 			return `Set in code at ${place(change)}. Change it there.`;
 		case 'changed':

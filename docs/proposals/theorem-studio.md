@@ -580,8 +580,17 @@ Masud chose one name: studio everywhere. The paths above are the old ones.
   stops working; there is no redirect.
 - A new tab opened from a project runs the project's code, not the draft's
   stand-in tools.
-- Still to do: move the screen itself from the website into `studio/`, so
-  the website and the local command show one copy.
+- The screen is in `studio/ui/`: the editor, inspector, runner and the page
+  itself (`studio-screen.tsx`). The website's `/studio` route is a thin
+  page that renders `StudioScreen` and passes a `StudioHost`
+  (`studio-host.ts`): the kernel version, the zip function, the code view,
+  and th30's surface and report. `openStudio` works out what a tab opens on.
+- Still to do: the code view (Monaco and its type sources), the run page
+  and the screen's CSS are still the website's. They move next, and then
+  the studio runs from the package with one command.
+- The moved files have no tests here yet. Four of the website's tests cover
+  them and move with the code view; until then `studio/ui/**` has its own
+  CRAP ceiling in `.fallowrc.jsonc`.
 
 ### 5.7 Fit and finish
 

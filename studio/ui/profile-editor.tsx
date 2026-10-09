@@ -238,15 +238,15 @@ import {
 	useState,
 	useSyncExternalStore,
 } from 'react';
-import { CONTEXT_PLACEHOLDER, contextErrorOf, draftSlots, usePageValues } from './lib/studio-page';
+import { CONTEXT_PLACEHOLDER, contextErrorOf, draftSlots, usePageValues } from './lib/studio-page.ts';
 import {
 	setToolCredential,
 	subscribeToolCredentials,
 	toolCredential,
-} from './lib/tool-credentials';
-import { type ProbeResult, runToolProbe } from './lib/tool-probe';
-import { IconGemini, IconGoogle, IconOpenAi, IconOpenRouter } from './brand-icons';
-import { DetectorTester } from './guardrail-tester';
+} from './lib/tool-credentials.ts';
+import { type ProbeResult, runToolProbe } from './lib/tool-probe.ts';
+import { IconGemini, IconGoogle, IconOpenAi, IconOpenRouter } from './brand-icons.tsx';
+import { DetectorTester } from './guardrail-tester.tsx';
 import {
 	type Choice,
 	ChoiceRow,
@@ -262,7 +262,7 @@ import {
 	SwitchRow,
 	TextAreaRow,
 	TextRow,
-} from './inspector';
+} from './inspector.tsx';
 import {
 	ConnectionMode,
 	ISSUE_ROW_ATTRIBUTE,
@@ -273,10 +273,10 @@ import {
 	useFieldStatus,
 	type WorkspaceAgent,
 	WorkspaceContext,
-} from './inspector-context';
-import { IconMcp } from './mcp-icon';
-import { slotDescription, useProviderModels } from './studio-connection';
-import { IconTheorem } from './theorem-mark';
+} from './inspector-context.ts';
+import { IconMcp } from './mcp-icon.tsx';
+import { slotDescription, useProviderModels } from './studio-connection.tsx';
+import { IconTheorem } from './theorem-mark.tsx';
 
 export type SetDraft = Dispatch<SetStateAction<StudioDraft>>;
 

@@ -21,7 +21,7 @@ import {
 	type StoredWorkspace,
 	session,
 	WORKSPACE_KEY,
-} from './studio-session';
+} from './studio-session.ts';
 
 const WRITE_MS = 300;
 const CHANGES_SIZE = 50;

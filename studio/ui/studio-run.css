@@ -72,3 +72,8 @@
 		translate: 100% 0;
 	}
 }
+
+/* In the shell, the run page is clipped to the panel's corners. */
+[role="main"]:has(.run-page) {
+	overflow: hidden;
+}

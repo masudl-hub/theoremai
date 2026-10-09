@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ const HOST_PACKAGES = [
 	'react',
 	'react-dom',
 	'@astryxdesign/core',
+	'@fontsource/figtree',
 	'@tabler/icons-react',
 	'monaco-editor',
 	'fflate',
@@ -23,7 +24,7 @@ const CACHE_VERSION = 1;
 
 /**
  * What a Vite build needs to show the studio screen (`@theoremjs/studio/ui`). `hostRoot` is the
- * app that shows it; its `node_modules` holds React, the design library, Monaco and zod.
+ * app that shows it; its install holds React, the design library, Monaco and zod.
  *
  * - The screen's packages resolve to the host's install, so there is one copy of each.
  * - `virtual:studio-codicons/*` is Monaco's icon sheets.
@@ -35,7 +36,7 @@ const CACHE_VERSION = 1;
  */
 export function studioVite({ hostRoot }) {
 	const virtual = '\0virtual:studio-type-sources';
-	const codicons = path.join(hostRoot, 'node_modules/monaco-editor/esm/vs/base/browser/ui/codicons/codicon');
+	const codicons = path.join(hostPackage(hostRoot, 'monaco-editor'), 'esm/vs/base/browser/ui/codicons/codicon');
 	return {
 		name: 'theorem-studio',
 		config() {
@@ -48,7 +49,7 @@ export function studioVite({ hostRoot }) {
 		load(source) {
 			if (source !== virtual) return;
 			const files = loadDeclarations(hostRoot);
-			addTree(files, path.join(hostRoot, 'node_modules/zod'), 'file:///node_modules/zod', '.d.ts');
+			addTree(files, hostPackage(hostRoot, 'zod'), 'file:///node_modules/zod', '.d.ts');
 			const reached = reachableDeclarations(files);
 			return `export const typeSources = ${JSON.stringify(reached)};\n`;
 		},
@@ -170,6 +171,18 @@ function rewriteTypeSpecifiers(contents) {
 		/((?:from|import)\s*\(?\s*['"])(\.{1,2}\/[^'"]+?)\.ts(['"])/g,
 		'$1$2.js$3',
 	);
+}
+
+/** A package's folder as the host resolves it: in its own `node_modules`, or the nearest one above. */
+function hostPackage(hostRoot, name) {
+	let dir = hostRoot;
+	for (;;) {
+		const found = path.join(dir, 'node_modules', name);
+		if (existsSync(found)) return found;
+		const up = path.dirname(dir);
+		if (up === dir) throw new Error(`studio: ${name} is not installed for ${hostRoot}`);
+		dir = up;
+	}
 }
 
 /** The host's TypeScript: the compiler its own build uses. */

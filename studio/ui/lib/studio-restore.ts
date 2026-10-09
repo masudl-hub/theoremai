@@ -18,7 +18,7 @@ import {
 	type StoredWorkspace,
 	session,
 	WORKSPACE_KEY,
-} from './studio-session';
+} from './studio-session.ts';
 
 const V1_DRAFT_KEY = 'theorem.studio.v1';
 const V1_CHAT_KEY = 'theorem.studio.v1.chat';

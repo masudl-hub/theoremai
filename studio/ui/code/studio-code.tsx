@@ -84,7 +84,7 @@ export function StudioCode({ text, hold, issues, onApply }: StudioCodeProps) {
 			paintMarkers(session.current, issuesRef.current);
 		};
 		void (async () => {
-			const monaco = await import('./studio-monaco');
+			const monaco = await import('./studio-monaco.ts');
 			// Colour only, until the visitor types. The typechecker is a compiler in
 			// a worker, so it stays out of this import.
 			await import('monaco-editor/languages/definitions/typescript/register');
@@ -144,7 +144,7 @@ export function StudioCode({ text, hold, issues, onApply }: StudioCodeProps) {
 				const mine = typeToken;
 				const isStale = () => life.disposed || mine !== typeToken;
 				typeStarting = true;
-				void import('./studio-type-checker')
+				void import('./studio-type-checker.ts')
 					.then(({ openTypeChecker }) => {
 						if (isStale()) return;
 						const checker = openTypeChecker(monaco, editor, () => {

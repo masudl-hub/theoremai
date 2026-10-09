@@ -1,5 +1,6 @@
 import { clearStaleStudioRuns, createExampleDraft, type StudioDraft, workspaceFromDraft } from '../../mod.ts';
 import type { StudioOpened } from '../studio-host.ts';
+import { openProject, type ProjectSession } from './studio-project.ts';
 import { restoreStudio } from './studio-restore.ts';
 
 /**
@@ -28,5 +29,20 @@ export function openStudio(seed?: { draft: StudioDraft; question: string | undef
 		question: undefined,
 		displaced: undefined,
 		discarded: kept.kind === 'discarded',
+	};
+}
+
+/**
+ * What the studio opens on when a local server holds a project: the project's workspace. Nothing
+ * of it is kept in the tab. Throws when no server answers.
+ */
+export async function openStudioProject(): Promise<StudioOpened & { project: ProjectSession }> {
+	const { project, workspace } = await openProject();
+	return {
+		start: { workspace, revision: 0, transient: true },
+		question: undefined,
+		displaced: undefined,
+		discarded: false,
+		project,
 	};
 }

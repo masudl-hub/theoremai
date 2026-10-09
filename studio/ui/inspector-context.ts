@@ -40,7 +40,7 @@ export const ListBadges = createContext(1);
 /** Execution policy selected by the studio; credentials stay outside editor state. */
 export const ConnectionMode = createContext<StudioConnectionMode>('demo');
 
-import type { StudioConnectionState } from './studio-connection';
+import type { StudioConnectionState } from './studio-connection.tsx';
 export const LocalConnection = createContext<Pick<
 	StudioConnectionState,
 	| 'localModels'

@@ -1,5 +1,5 @@
 import type * as Monaco from 'monaco-editor';
-import type { editor, languages, MarkerSeverity, Uri } from './studio-monaco';
+import type { editor, languages, MarkerSeverity, Uri } from './studio-monaco.ts';
 
 export type MonacoApi = {
 	editor: typeof editor;

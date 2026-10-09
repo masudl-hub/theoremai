@@ -4,7 +4,7 @@
  */
 import { type StudioRunPayload, studioPageTools } from '../../mod.ts';
 import { useCallback, useSyncExternalStore } from 'react';
-import { isRecord, session } from './studio-session';
+import { isRecord, session } from './studio-session.ts';
 
 const PAGE_PREFIX = 'theorem.studio.v2.page:';
 

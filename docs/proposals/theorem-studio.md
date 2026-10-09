@@ -595,9 +595,25 @@ Masud chose one name: studio everywhere. The paths above are the old ones.
   its CSS beside it. `openStudioRun` works out what a run tab opens on.
   The website's `/studio/run` route sends a tab with no agent back to the
   studio and renders the screen.
-- Still to do: the studio runs from the package with one command.
-- The moved files have no tests here yet. Four of the website's tests cover
-  them and move with the code view; until then `studio/ui/**` has its own
+- The studio runs from the package with one command:
+  `node studio/start.mjs <setup-module>`. It starts the project's server
+  and the page at `http://127.0.0.1:4984/studio/`, and stops both together.
+  This closes "Two processes" above.
+- The studio is opt-in. Nothing of it installs with the kernel or the React
+  package. `npm install --prefix studio` is the one install; the start and
+  test commands check for it and print that line when it is missing. The
+  old page-only install in `studio/app/` is gone.
+- The shell is in the package too, so the studio looks the same on its own
+  as on the website: the theme (`studio/ui/studio-theme.ts`, built to
+  `studio/ui/built/`; the website's theme extends it), the rail and the
+  popup bounds (`studio/ui/studio-shell.tsx`), the rail's links
+  (`studio/ui/studio-nav.ts`), Figtree (`studio/ui/figtree.css`) and the
+  popover motion (`studio/ui/motion.css`).
+- On its own the rail has no th30, and every page but the studio opens on
+  the website (`THEOREM_SITE`): the mark and Docs.
+- The studio's tests are `studio/tests/`, run by `npm --prefix studio test`
+  with the theme check. They are opt-in like the install, so the default
+  coverage run does not see the screen and `studio/ui/**` keeps its own
   CRAP ceiling in `.fallowrc.jsonc`.
 
 ### 5.7 Fit and finish

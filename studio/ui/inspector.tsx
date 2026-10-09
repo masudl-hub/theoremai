@@ -23,8 +23,8 @@ import { IconArrowBackUp } from '@tabler/icons-react';
 import { fieldMeta } from '../../mod.ts';
 import { STUDIO_PROFILE_TYPES } from '../mod.ts';
 import { type ReactNode, useContext } from 'react';
-import { tabFills } from './lib/tab-fills';
-import { ISSUE_ROW_ATTRIBUTE, ListBadges, useFieldStatus } from './inspector-context';
+import { tabFills } from './lib/tab-fills.ts';
+import { ISSUE_ROW_ATTRIBUTE, ListBadges, useFieldStatus } from './inspector-context.ts';
 
 /**
  * Inspector building blocks: captioned sections of label-and-control rows, after Astryx's

@@ -11,7 +11,7 @@ import {
 	type StudioBrowserRuntime,
 } from '../browser.ts';
 import { useMemo } from 'react';
-import { noting } from './lib/studio-activity';
+import { noting } from './lib/studio-activity.ts';
 
 /** The same decision runner in the builder preview and the standalone run tab. */
 export function StudioDecision({

@@ -4,7 +4,7 @@
  */
 import type { TheoremChat } from '../../../react/src/ui/index.ts';
 import type { ComponentProps } from 'react';
-import { CHAT_PREFIX, session } from './studio-session';
+import { CHAT_PREFIX, session } from './studio-session.ts';
 
 /** A chat conversation as TheoremChat reports and resumes it: the transcript and the model's memory. */
 export type ChatSnapshot = NonNullable<ComponentProps<typeof TheoremChat>['initialChat']>;

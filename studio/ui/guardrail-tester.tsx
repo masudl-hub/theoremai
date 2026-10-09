@@ -50,7 +50,7 @@ import {
 	sectionNote,
 } from '../mod.ts';
 import { createContext, type ReactNode, useContext, useState } from 'react';
-import { InspectorSection } from './inspector';
+import { InspectorSection } from './inspector.tsx';
 
 const BOUNDARY_ICONS: Record<ProbeBoundary, typeof IconUser> = {
 	user: IconUser,

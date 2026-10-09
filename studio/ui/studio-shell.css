@@ -1,0 +1,28 @@
+/*
+ * A panel scrolls in Astryx's ScrollableArea. Its content box is at least as
+ * tall as the scrollport, so a short body leaves an empty stretch under the
+ * rows. Nothing in a panel needs that minimum. The :not(#) chain is how
+ * Astryx locks the minimum; the class has to match it to let the box size to
+ * the rows.
+ */
+.theorem-panel-scroll [data-scroll-content]:not(#\#):not(#\#):not(#\#):not(#\#) {
+	min-height: auto;
+}
+
+/* The rail is inline at md and up. Only when it yields to the drawer
+   should the page take the same start inset as top and right. */
+@media (width < 768px) {
+	[role="main"] {
+		margin-inline-start: var(--spacing-4);
+		width: calc(100% - 2 * var(--spacing-4));
+	}
+}
+
+/* Popups sit in the top layer, above the rail and the screen's edge. Insetting them to the shell's
+   page (see ShellBounds) makes it the box they flip, shift and centre in. Anchored popups only: the
+   toast viewport spans the screen on purpose. */
+[popover][style*="position-anchor"]:popover-open,
+dialog:modal {
+	inset: var(--shell-top, 0px) var(--shell-right, 0px) var(--shell-bottom, 0px)
+		var(--shell-left, 0px);
+}

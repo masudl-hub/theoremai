@@ -1,0 +1,66 @@
+/*
+ * Every popover layer (tooltips, menus, selects, popovers) fades in and out. Astryx shows and hides
+ * them without motion, and its theme API can't declare the entry: fading in from `display: none`
+ * needs @starting-style, which only a stylesheet can hold. Leaving, the layer holds its display and
+ * top-layer place (allow-discrete) until it has faded.
+ */
+[popover] {
+	transition:
+		opacity var(--duration-fast) var(--ease-standard),
+		display var(--duration-fast) allow-discrete,
+		overlay var(--duration-fast) allow-discrete;
+}
+
+[popover]:not(:popover-open) {
+	opacity: 0;
+}
+
+@starting-style {
+	[popover]:popover-open {
+		opacity: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	[popover] {
+		transition: none;
+	}
+}
+
+/*
+ * A trace row, a decision's answer, or a piece of a host result eases in as it
+ * mounts, each a step after the last, the way a test's rows arrive one by one.
+ * The delay is set on the item. Reduced motion shows them at once.
+ */
+.theorem-arrive {
+	min-width: 0;
+	animation: theorem-arrive var(--duration-medium) var(--ease-standard) both;
+}
+
+@keyframes theorem-arrive {
+	from {
+		opacity: 0;
+		translate: 0 0.5rem;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.theorem-arrive {
+		animation: none;
+	}
+}
+
+/*
+ * Text with no place to break (a field path in an issue, an address, a key) wraps inside its box
+ * rather than spilling over what sits beside it. A status message under a field breaks anywhere,
+ * since its box is only as wide as the field.
+ */
+body {
+	overflow-wrap: break-word;
+}
+
+.astryx-field-status,
+.astryx-banner {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}

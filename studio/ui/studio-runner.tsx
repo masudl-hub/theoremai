@@ -23,10 +23,10 @@ import {
 	type StudioBrowserRuntime,
 } from '../browser.ts';
 import { type ComponentProps, useMemo, useRef, useState } from 'react';
-import { noting } from './lib/studio-activity';
-import { STUDIO_LABELS } from './lib/studio-labels';
-import { type ProjectSession, projectProfileEndpoint, useProject } from './lib/studio-project';
-import { StudioDecision } from './studio-decision';
+import { noting } from './lib/studio-activity.ts';
+import { STUDIO_LABELS } from './lib/studio-labels.ts';
+import { type ProjectSession, projectProfileEndpoint, useProject } from './lib/studio-project.ts';
+import { StudioDecision } from './studio-decision.tsx';
 
 export interface StudioRunnerProps {
 	payload: StudioRunPayload;

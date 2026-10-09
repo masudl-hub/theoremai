@@ -33,8 +33,8 @@ import {
 	studioVault,
 } from '../browser.ts';
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from 'react';
-import { IconGemini, IconOpenRouter } from './brand-icons';
-import { InspectorSection } from './inspector';
+import { IconGemini, IconOpenRouter } from './brand-icons.tsx';
+import { InspectorSection } from './inspector.tsx';
 
 type BrowserKeyVault = Readonly<Record<string, string | undefined>>;
 const withoutSlot = (vault: BrowserKeyVault, slot: string): BrowserKeyVault =>

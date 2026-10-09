@@ -450,7 +450,27 @@ Shared.
 - Any other shared constant is listed and marked "edited in your code": one
   smaller than a section, one a tool reads, or one other code reads.
 
-Not built: editing those in the studio. Adding or removing a profile or a tool. A read-only row that opens the code, by origin.
+Built (D12): a setting the files set in code is shown, greyed, and takes no
+edit. This is a call, a template, a spread, a constant other code reads, or
+a tool's schemas and handler. Under it is one line that says what sets it
+and where (`Set in code · stepsFor(PLAN) · setup.ts:34`), with "Open".
+
+- Open starts the builder's editor on that line: the one `--editor` names,
+  else `$VISUAL` or `$EDITOR` when it opens a window, else `code`. When no
+  editor starts, the studio says so and offers the path to copy. It opens
+  only files the project's setup reads.
+- When one place sets a whole section (`inputs: deskInputs()`), the line is
+  said once, over the section, and every row in it is locked. A spread
+  (`...BASE_GUARDRAILS`) is said once too, and locks only the rows the files
+  do not write after it.
+- A row is locked exactly where Save would refuse the change, so the studio
+  never lets the builder make an edit it cannot write.
+- A profile or tool the files define twice, or that no file defines, is
+  locked whole and says why.
+- The places are read again after a Save or an undo, and when the builder
+  comes back to the page from their editor.
+
+Not built: editing those in the studio. Adding or removing a profile or a tool.
 The project's formatter after the write. Markdown instruction files. A
 type-check for a project that is not Deno.
 

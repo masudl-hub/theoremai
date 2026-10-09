@@ -1,6 +1,7 @@
 import type { InputStatus } from '@astryxdesign/core/Field';
 import { FieldStatus } from '@astryxdesign/core/FieldStatus';
 import { HoverCard } from '@astryxdesign/core/HoverCard';
+import { Button } from '@astryxdesign/core/Button';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
@@ -21,10 +22,17 @@ import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconArrowBackUp } from '@tabler/icons-react';
 import { fieldMeta } from '../../mod.ts';
-import { STUDIO_PROFILE_TYPES } from '../mod.ts';
+import { originLabel, originPlace, STUDIO_PROFILE_TYPES } from '../mod.ts';
+import type { SettingOrigin } from '../server/save-wire.ts';
 import { type ReactNode, useContext } from 'react';
 import { tabFills } from './lib/tab-fills.ts';
-import { ISSUE_ROW_ATTRIBUTE, ListBadges, useFieldStatus } from './inspector-context.ts';
+import {
+	ISSUE_ROW_ATTRIBUTE,
+	ListBadges,
+	SaidOrigin,
+	useFieldStatus,
+	useRowOrigin,
+} from './inspector-context.ts';
 
 /**
  * Inspector building blocks: captioned sections of label-and-control rows, after Astryx's
@@ -49,6 +57,40 @@ function presence(path: string, isRequired?: boolean) {
 }
 
 /**
+ * Controls the project's files set in code: they show their value and take no edit. A disabled
+ * fieldset turns off every control inside it, whatever kind it is.
+ */
+export function SetInCode({ children }: { children: ReactNode }) {
+	return (
+		<fieldset disabled className="inspector-set-in-code">
+			{children}
+		</fieldset>
+	);
+}
+
+/**
+ * Under a value the files set in code: what sets it and where, and the way to that line in the
+ * builder's editor. The place is text, so it can be copied when no editor opens.
+ */
+export function OriginLine({ origin, onOpen }: { origin: SettingOrigin; onOpen: () => void }) {
+	const place = originPlace(origin);
+	return (
+		<HStack gap={2} vAlign="center">
+			<StackItem size="fill">
+				<Text type="supporting" color="secondary">
+					{place ? `${originLabel(origin)} · ${place}` : originLabel(origin)}
+				</Text>
+			</StackItem>
+			{place && (
+				<StackItem size="static">
+					<Button label="Open" variant="ghost" size="sm" onClick={onOpen} />
+				</StackItem>
+			)}
+		</HStack>
+	);
+}
+
+/**
  * A captioned group of rows. The panel stays at zero padding and each section carries the gutter.
  * Transparent, so the panel's own surface shows through. The title shows the catalog entry of the
  * field the section edits (`path`) on hover, as a row's label does. Under it, `note`: only what
@@ -70,6 +112,9 @@ export function InspectorSection({
 			{title}
 		</Text>
 	);
+	// A section whose own field the files set in code says so once, and its rows take no edit.
+	const found = useRowOrigin(path);
+	const says = found && !found.said ? found : undefined;
 	return (
 		<Section variant="transparent" padding={3}>
 			<VStack gap={3}>
@@ -83,7 +128,16 @@ export function InspectorSection({
 					)}
 					{note && <Text type="supporting">{note}</Text>}
 				</VStack>
-				{children}
+				{says ? (
+					<SaidOrigin value={says.origin}>
+						<OriginLine origin={says.origin} onOpen={says.open} />
+						<SetInCode>
+							<VStack gap={3}>{children}</VStack>
+						</SetInCode>
+					</SaidOrigin>
+				) : (
+					children
+				)}
 			</VStack>
 		</Section>
 	);
@@ -211,25 +265,37 @@ export function InspectorRow({
 	hasNote?: boolean;
 	children: ReactNode;
 }) {
+	// A value the files set in code shows, takes no edit, and says where it is set. A row inside a
+	// section or a node that already said so only takes no edit.
+	const found = useRowOrigin(path);
+	const set = found && !found.said ? found : undefined;
+	const tall = hasNote || set !== undefined;
+	const row = (
+		<HStack gap={1} vAlign={hasNote ? 'start' : 'center'}>
+			{children}
+		</HStack>
+	);
+	const controls = found ? <SetInCode>{row}</SetInCode> : row;
 	return (
 		<HStack
 			gap={2}
-			vAlign={hasNote ? 'start' : 'center'}
+			vAlign={tall ? 'start' : 'center'}
 			{...{ [ISSUE_ROW_ATTRIBUTE]: hasIssue || undefined }}
 		>
 			<StackItem size="static">
-				<HStack
-					width={LABEL_COLUMN}
-					minHeight={hasNote ? CONTROL_HEIGHT : undefined}
-					vAlign="center"
-				>
+				<HStack width={LABEL_COLUMN} minHeight={tall ? CONTROL_HEIGHT : undefined} vAlign="center">
 					<RowLabel label={label} path={path} isRequired={isRequired} />
 				</HStack>
 			</StackItem>
 			<StackItem size="fill">
-				<HStack gap={1} vAlign={hasNote ? 'start' : 'center'}>
-					{children}
-				</HStack>
+				{set ? (
+					<VStack gap={1}>
+						{controls}
+						<OriginLine origin={set.origin} onOpen={set.open} />
+					</VStack>
+				) : (
+					controls
+				)}
 			</StackItem>
 		</HStack>
 	);

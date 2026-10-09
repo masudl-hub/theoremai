@@ -258,6 +258,7 @@ import {
 	NumberRow,
 	type Segment,
 	SegmentedRow,
+	SetInCode,
 	SliderRow,
 	SwitchRow,
 	TextAreaRow,
@@ -270,6 +271,7 @@ import {
 	ListBadges,
 	LocalConnection,
 	NodeIssues,
+	RowOrigins,
 	useFieldStatus,
 	type WorkspaceAgent,
 	WorkspaceContext,
@@ -6411,6 +6413,9 @@ export function ProfileEditor({
 	if (!ref) return null;
 	const nodeIssues = issues.filter((issue) => issue.nodeId === selectedId);
 	const banners = nodeIssues.filter((issue) => issue.field === undefined);
+	// One place in the project's files sets the whole node: the page says so over it, and no row takes an edit.
+	const setInCode = useContext(RowOrigins)?.scope.section !== undefined;
+	const editor = facetEditor(ref, draft, setDraft, onSelect);
 	return (
 		<NodeIssues value={nodeIssues}>
 			<VStack>
@@ -6423,7 +6428,7 @@ export function ProfileEditor({
 						</VStack>
 					</Section>
 				)}
-				{facetEditor(ref, draft, setDraft, onSelect)}
+				{setInCode ? <SetInCode>{editor}</SetInCode> : editor}
 			</VStack>
 		</NodeIssues>
 	);

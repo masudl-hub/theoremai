@@ -2,7 +2,7 @@
  * Starts the studio's local server for one project.
  *
  *   deno run -A studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174]
- *     [--deno-config <deno.json>]
+ *     [--deno-config <deno.json>] [--editor <command>]
  *
  * The setup module is the project's: its default export registers the project's
  * tools, profiles and providers; an optional `host` export gives tool handlers
@@ -13,13 +13,16 @@
  * page's requests on to it. Save is here: it writes the builder's edits into the
  * project's files, checks them, and starts the project again from disk. It writes
  * only files the project's setup imports, inside the folder the command ran in,
- * and it never runs git.
+ * and it never runs git. Open starts the builder's editor on a line of one of
+ * those files: the editor `--editor` names, else `$VISUAL` or `$EDITOR` when it
+ * opens in a window, else VS Code.
  *
  * @module
  */
 
 import { resolve } from 'node:path';
 import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } from './handler.ts';
+import { answerOpen, chosenEditor, type EditorHost } from './open-editor.ts';
 import { PROJECT_READY } from './project.ts';
 import { isInside } from './project-source.ts';
 import { answerSave, createSaveSession } from './save-session.ts';
@@ -32,7 +35,7 @@ function flag(name: string, fallback: string): string {
 const setupPath = Deno.args.find((arg, i) => !arg.startsWith('--') && !Deno.args[i - 1]?.startsWith('--'));
 if (!setupPath) {
   console.error(
-    'usage: studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174] [--deno-config deno.json]',
+    'usage: studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174] [--deno-config deno.json] [--editor code]',
   );
   Deno.exit(2);
 }
@@ -181,16 +184,37 @@ async function forward(request: Request): Promise<Response> {
 }
 
 const SAVE = `${STUDIO_BASE}/save`;
+const OPEN = `${STUDIO_BASE}/open`;
 
-/** The project as the page opens it: what it registered, and the settings its files say its profiles share. */
+/** Starts a command on its own, without a shell. False when the machine has no such command. */
+function start(command: string, args: string[]): boolean {
+  try {
+    new Deno.Command(command, { args, cwd: root, stdin: 'null', stdout: 'null', stderr: 'null' }).spawn().unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const editor: EditorHost = {
+  editor: chosenEditor(flag('editor', ''), [Deno.env.get('VISUAL'), Deno.env.get('EDITOR')]),
+  place: (file) => session.place(file),
+  start,
+};
+
+/**
+ * The project as the page opens it: what it registered, the settings its files say its profiles
+ * share, and the ones they set in code.
+ */
 function opened(request: Request): StudioDescription | undefined {
   if (request.method !== 'GET' || new URL(request.url).pathname !== STUDIO_BASE) return undefined;
-  return { ...session.project().description, shared: session.shared() };
+  return { ...session.project().description, shared: session.shared(), origins: session.origins() };
 }
 
 Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
   if (isForeign(request, gate)) return json(403, {}, {});
-  const answer = opened(request) ?? (await answerSave(session, SAVE, request));
+  const answer = opened(request) ?? (await answerSave(session, SAVE, request)) ??
+    (await answerOpen(editor, OPEN, request));
   if (!answer) return forward(request);
   const cors = corsHeaders(request, pageOrigins);
   return 'workspace' in answer ? json(200, answer, cors) : json(answer.status, answer.body, cors);

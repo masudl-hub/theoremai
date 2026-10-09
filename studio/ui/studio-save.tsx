@@ -160,11 +160,14 @@ export function ProjectSave({
 	project,
 	workspace,
 	update,
+	onFilesChanged,
 	blocked,
 }: {
 	project: ProjectSession;
 	workspace: StudioWorkspace;
 	update: Update;
+	/** Called once a Save or an undo has changed the project's files. */
+	onFilesChanged: () => void;
 	/** Why Save cannot start: the editor has issues. */
 	blocked: string | undefined;
 }) {
@@ -195,6 +198,7 @@ export function ProjectSave({
 				}
 				// The edits stay in the studio, unsaved again.
 				update((current) => ({ ...current, starts }));
+				onFilesChanged();
 				toast({ body: `Put ${answer.written.join(', ')} back.` });
 			});
 	};
@@ -210,6 +214,7 @@ export function ProjectSave({
 				}
 				const { starts } = workspace;
 				update(() => startedHere(workspace));
+				onFilesChanged();
 				setStep({ at: 'closed' });
 				const dismiss = toast({
 					body: `Saved to ${answer.written.join(', ')}.`,

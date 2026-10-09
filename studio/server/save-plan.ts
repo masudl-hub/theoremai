@@ -13,9 +13,8 @@ import ts from 'typescript';
 import { type SourceStyle, valueSource } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
 import {
-  followed,
-  holderOf,
   type Located,
+  namedValue,
   type ProjectSource,
   propertyName,
   type SourceTarget,
@@ -45,7 +44,7 @@ export interface SavePlan {
   edits: SourceEdit[];
 }
 
-const NOT_PLAIN = Symbol('not plain');
+export const NOT_PLAIN = Symbol('not plain');
 
 type Json = Record<string, unknown>;
 
@@ -69,7 +68,7 @@ function same(a: unknown, b: unknown): boolean {
 }
 
 /** The value an expression writes out in full, or `NOT_PLAIN` when it names or computes anything. */
-function plain(expression: ts.Expression): unknown {
+export function plain(expression: ts.Expression): unknown {
   const node = unwrapped(expression);
   if (ts.isStringLiteralLike(node)) return node.text;
   if (ts.isNumericLiteral(node)) return Number(node.text);
@@ -218,8 +217,7 @@ class Planner {
    * knows whether each of them makes it (`settle`). A constant that other code reads is not written.
    */
   private named(at: Located, name: string, before: unknown, after: unknown, path: string[]) {
-    const origin = followed(this.project, at);
-    const holder = origin.node === unwrapped(at.node) ? undefined : holderOf(origin);
+    const { origin, holder } = namedValue(this.project, at);
     if (!holder) {
       this.note('constant', path, origin, name);
       return;

@@ -30,6 +30,50 @@ export interface SharedSetting {
 }
 
 /**
+ * A setting the project's files do not write out as a plain value, so the studio shows it and
+ * does not change it.
+ * - `code`: code computes it: a call, a name the studio cannot follow, a method.
+ * - `constant`: a named constant holds it, and code that is not a profile or a tool reads the constant too.
+ * - `spread`: the object spreads another into itself, so the studio writes only the keys in `written`.
+ * - `twice`: the files define the profile or tool more than once.
+ * - `unfound`: no place in the project's files defines the profile or tool.
+ */
+export interface SettingOrigin {
+  /** The keys that lead to the setting: `['models', 'fast', 'apiId']`. Empty for the whole profile or tool. */
+  path: string[];
+  kind: 'code' | 'constant' | 'spread' | 'twice' | 'unfound';
+  /** What the file says there, on one line: `bonsaiInputs()`. */
+  text?: string;
+  /** Where it says it: the path and the one-based line. */
+  file?: string;
+  line?: number;
+  /** For a `spread`: the keys written after it, which the studio still writes. */
+  written?: string[];
+}
+
+/** Each profile's and tool's settings that are set in code, by profile id and tool name. */
+export interface ProjectOrigins {
+  profiles: Record<string, SettingOrigin[]>;
+  tools: Record<string, SettingOrigin[]>;
+}
+
+/** What the page asks to see in the builder's editor: a project file, from the project's folder. */
+export interface OpenRequest {
+  file: string;
+  line?: number;
+}
+
+/**
+ * Whether the builder's editor was started on the line.
+ * - `file`: the project's setup does not read that file.
+ * - `editor`: the studio does not know how to start the editor on a line.
+ * - `failed`: the editor did not start.
+ */
+export type OpenAnswer =
+  | { ok: true; editor: string }
+  | { ok: false; reason: 'file' | 'editor' | 'failed'; editor?: string; place?: string };
+
+/**
  * What happens to one changed value.
  * - `written`: Save rewrites it in the file.
  * - `constant`: a named constant holds it, and something else that reads the constant does not make this change.

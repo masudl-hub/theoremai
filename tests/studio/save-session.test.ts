@@ -5,6 +5,7 @@ import {
   answerSave,
   createSaveSession,
   isSaveRequest,
+  pageOrigins,
   type SaveHost,
 } from '../../studio/server/save-session.ts';
 import type { SaveDone, SaveRefusal, SaveReview } from '../../studio/server/save-wire.ts';
@@ -179,6 +180,43 @@ Deno.test('a change Save cannot write turns Save off, and a workspace it cannot 
   assertEquals(((await session.save({ workspace: broken })) as SaveRefusal).reason, 'issues');
   assertEquals(isSaveRequest({ workspace }), true);
   assertEquals([isSaveRequest(null), isSaveRequest({ workspace: { agents: [] } })], [false, false]);
+});
+
+Deno.test('the page reads what the files set in code, with each file from the project, and what no file defines', () => {
+  const { session } = project();
+  const { tools, profiles } = session.origins();
+  assertEquals(profiles, {});
+  assertEquals(
+    tools.remove_plant?.map(({ path, kind, file }) => [path.join('.'), kind, file]),
+    [
+      ['handler', 'code', 'example.ts'],
+      ['outputSchema', 'code', 'example.ts'],
+      ['inputSchema', 'code', 'example.ts'],
+    ],
+  );
+  assertEquals(
+    [session.place('example.ts'), session.place('../mod.ts'), session.place('missing.ts')],
+    [SETUP, undefined, undefined],
+  );
+
+  const names = { profiles: ['garden-desk', 'made-in-a-loop'], tools: ['remove_plant'] };
+  const defined = { profiles: new Map([['garden-desk', []]]), tools: new Map() };
+  const found = {
+    profiles: {
+      'garden-desk': [{ path: ['inputs'], kind: 'code' as const, file: `${ROOT}/a.ts`, line: 2 }],
+    },
+    tools: {},
+  };
+  assertEquals(
+    pageOrigins(found, names, defined, (file) => file.replace(`${ROOT}/`, '')),
+    {
+      profiles: {
+        'garden-desk': [{ path: ['inputs'], kind: 'code', file: 'a.ts', line: 2 }],
+        'made-in-a-loop': [{ path: [], kind: 'unfound' }],
+      },
+      tools: { remove_plant: [{ path: [], kind: 'unfound' }] },
+    },
+  );
 });
 
 Deno.test('Save answers its own two addresses, and leaves every other request alone', async () => {

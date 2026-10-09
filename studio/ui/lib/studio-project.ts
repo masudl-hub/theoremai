@@ -4,7 +4,15 @@
  * own code.
  */
 import type { StudioWorkspace } from '../../mod.ts';
-import type { SaveDone, SaveRefusal, SaveReview, SharedSetting } from '../../server/save-wire.ts';
+import type {
+	OpenAnswer,
+	OpenRequest,
+	ProjectOrigins,
+	SaveDone,
+	SaveRefusal,
+	SaveReview,
+	SharedSetting,
+} from '../../server/save-wire.ts';
 import { createContext, useContext } from 'react';
 
 /** Where the local server listens. Only this machine reaches it. */
@@ -18,7 +26,11 @@ export interface ProjectSession {
 	problems: { profile: string; message: string }[];
 	/** The settings several profiles share, as the project's files set them. */
 	shared: SharedSetting[];
+	/** The settings the project's files set in code, by profile id and tool name. */
+	origins: ProjectOrigins;
 }
+
+const NO_ORIGINS: ProjectOrigins = { profiles: {}, tools: {} };
 
 /** Set while the page has a project open; `null` on the website's own page. */
 export const ProjectContext = createContext<ProjectSession | null>(null);
@@ -29,7 +41,7 @@ export function useProject(): ProjectSession | null {
 
 /** The session for a project already open: the run page names it in its address. */
 export function projectSession(name: string): ProjectSession {
-	return { endpoint: PROJECT_ENDPOINT, name, problems: [], shared: [] };
+	return { endpoint: PROJECT_ENDPOINT, name, problems: [], shared: [], origins: NO_ORIGINS };
 }
 
 /** Where the local server runs the profile with this id. */
@@ -37,8 +49,8 @@ export function projectProfileEndpoint(project: ProjectSession, profileId: strin
 	return `${project.endpoint}/profiles/${encodeURIComponent(profileId)}`;
 }
 
-async function save<T>(project: ProjectSession, path: string, body: unknown): Promise<T> {
-	const response = await fetch(`${project.endpoint}/save${path}`, {
+async function post<T>(project: ProjectSession, path: string, body: unknown): Promise<T> {
+	const response = await fetch(`${project.endpoint}${path}`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify(body),
@@ -52,7 +64,7 @@ export function reviewSave(
 	project: ProjectSession,
 	workspace: StudioWorkspace,
 ): Promise<SaveReview | SaveRefusal> {
-	return save(project, '', { workspace });
+	return post(project, '/save', { workspace });
 }
 
 /** Writes the changes of a review the builder read. The server checks the project and reloads it. */
@@ -61,12 +73,37 @@ export function writeSave(
 	workspace: StudioWorkspace,
 	stamp: string,
 ): Promise<SaveDone | SaveRefusal> {
-	return save(project, '', { workspace, stamp });
+	return post(project, '/save', { workspace, stamp });
 }
 
 /** Puts the files of the last Save back. */
 export function undoSave(project: ProjectSession): Promise<SaveDone | SaveRefusal> {
-	return save(project, '/undo', {});
+	return post(project, '/save/undo', {});
+}
+
+/** Shows a line of one of the project's files in the builder's editor. */
+export function openInEditor(project: ProjectSession, place: OpenRequest): Promise<OpenAnswer> {
+	return post(project, '/open', place);
+}
+
+/** What the local server says the project is now. */
+interface Opened {
+	project: string;
+	workspace: StudioWorkspace;
+	problems: ProjectSession['problems'];
+	shared?: SharedSetting[];
+	origins?: ProjectOrigins;
+}
+
+async function describe(): Promise<Opened> {
+	const response = await fetch(PROJECT_ENDPOINT);
+	if (!response.ok) throw new Error(`The studio server answered ${String(response.status)}.`);
+	return response.json();
+}
+
+/** The settings the project's files set in code, as the files are now: a Save moves their lines. */
+export async function readOrigins(): Promise<ProjectOrigins> {
+	return (await describe()).origins ?? NO_ORIGINS;
 }
 
 /** The project the local server has open. Throws when no server answers. */
@@ -74,20 +111,14 @@ export async function openProject(): Promise<{
 	project: ProjectSession;
 	workspace: StudioWorkspace;
 }> {
-	const response = await fetch(PROJECT_ENDPOINT);
-	if (!response.ok) throw new Error(`The studio server answered ${String(response.status)}.`);
-	const opened: {
-		project: string;
-		workspace: StudioWorkspace;
-		problems: ProjectSession['problems'];
-		shared?: SharedSetting[];
-	} = await response.json();
+	const opened = await describe();
 	return {
 		project: {
 			endpoint: PROJECT_ENDPOINT,
 			name: opened.project,
 			problems: opened.problems,
 			shared: opened.shared ?? [],
+			origins: opened.origins ?? NO_ORIGINS,
 		},
 		workspace: opened.workspace,
 	};

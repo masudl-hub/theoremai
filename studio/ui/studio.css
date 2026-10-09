@@ -81,6 +81,23 @@
 	min-width: 0;
 }
 
+/*
+ * Controls the project's files set in code: the fieldset is the lock, with no box of its own, and
+ * it greys what it holds. A lock inside a lock greys once.
+ */
+.inspector-set-in-code {
+	border: 0;
+	margin: 0;
+	min-inline-size: 0;
+	opacity: 0.6;
+	padding: 0;
+	pointer-events: none;
+}
+
+.inspector-set-in-code .inspector-set-in-code {
+	opacity: 1;
+}
+
 /* An optional section the draft leaves out: in the tree, a step quieter than the rest. */
 .studio-tree-off {
 	color: var(--color-text-secondary);

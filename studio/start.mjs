@@ -1,10 +1,12 @@
 /**
  * Opens the studio on a project, with one command:
  *
- *   node studio/start.mjs <setup-module>
+ *   node studio/start.mjs <setup-module> [--editor <command>]
  *
  * It starts the project's local server (`server/serve.ts`, under Deno, with the project's own
  * permissions) and the studio's page, and stops both together. Only this machine reaches either.
+ * `--editor` names the editor the studio opens a line of the project's files in; without it the
+ * studio uses `$VISUAL` or `$EDITOR` when that opens a window, and `code` otherwise.
  * The studio is opt-in, so this checks for its install and never installs it.
  */
 import './installed.mjs';
@@ -16,9 +18,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const PAGE_PORT = 4984;
 const PAGE = `http://127.0.0.1:${PAGE_PORT}`;
 
-const [setup] = process.argv.slice(2);
-if (!setup || setup.startsWith('--')) {
-	console.error('usage: node studio/start.mjs <setup-module>');
+const [setup, ...rest] = process.argv.slice(2);
+const editorAt = rest.indexOf('--editor');
+const editor = editorAt < 0 ? undefined : rest[editorAt + 1];
+if (!setup || setup.startsWith('--') || (editorAt >= 0 && !editor) || rest.length > (editor ? 2 : 0)) {
+	console.error('usage: node studio/start.mjs <setup-module> [--editor <command>]');
 	process.exit(2);
 }
 
@@ -37,6 +41,7 @@ const server = spawn(
 		`${PAGE},http://localhost:${PAGE_PORT}`,
 		'--deno-config',
 		path.join(here, '../deno.json'),
+		...(editor ? ['--editor', editor] : []),
 	],
 	{ cwd: from, stdio: ['ignore', 'ignore', 'inherit'] },
 );

@@ -107,7 +107,7 @@ function calleeName(call: ts.CallExpression): string | undefined {
  * Follows a name to the expression it stands for: a `const` in the same file, or one a relative
  * import brings in. Anything else (a parameter, a `let`, a package's export) stays as it is.
  */
-export function followed(project: ProjectSource, at: Located, depth = 0): Located {
+function followed(project: ProjectSource, at: Located, depth = 0): Located {
   const node = unwrapped(at.node);
   if (depth > 8) return { node, source: at.source };
   if (ts.isPropertyAccessExpression(node)) {
@@ -147,7 +147,7 @@ function bindingOf(project: ProjectSource, source: ts.SourceFile, name: string):
 }
 
 /** The constant whose value holds `at`: the top-level `const` it is written inside. */
-export function holderOf(at: Located): Binding | undefined {
+function holderOf(at: Located): Binding | undefined {
   for (const statement of at.source.statements) {
     if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
     for (const { name, initializer } of statement.declarationList.declarations) {
@@ -158,6 +158,15 @@ export function holderOf(at: Located): Binding | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * Where a name's value is written, and the constant that holds it. No holder when the name could
+ * not be followed to a constant: an argument, a call, a module the project does not own.
+ */
+export function namedValue(project: ProjectSource, at: Located): { origin: Located; holder?: Binding } {
+  const origin = followed(project, at);
+  return { origin, holder: origin.node === unwrapped(at.node) ? undefined : holderOf(origin) };
 }
 
 /** Whether an identifier reads a value: not a declaration's name, a property's name, an import, or a type. */

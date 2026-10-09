@@ -1,5 +1,6 @@
 import type { InputStatus } from '@astryxdesign/core/Field';
-import type { StudioConnectionMode, StudioIssue } from '../mod.ts';
+import { type NodeOrigins, rowOrigin, type StudioConnectionMode, type StudioIssue } from '../mod.ts';
+import type { SettingOrigin } from '../server/save-wire.ts';
 import { createContext, useContext } from 'react';
 
 // Kept out of inspector.tsx: a hot reload re-runs that module and would orphan these contexts.
@@ -19,6 +20,39 @@ export function useFieldStatus(): (field?: string, index?: number) => InputStatu
 			.filter((issue) => issue.field === field && issue.index === index)
 			.map((issue) => issue.message);
 		return messages.length ? { type: 'error', message: messages.join(' ') } : undefined;
+	};
+}
+
+/**
+ * The open node's settings that the project's files set in code, and how to see one in the
+ * builder's editor. `null` when no project is open, or the files do not hold the node.
+ */
+export const RowOrigins = createContext<{
+	scope: NodeOrigins;
+	open: (origin: SettingOrigin) => void;
+} | null>(null);
+
+/** The origin a section around a row has already named, so the row does not name it again. */
+export const SaidOrigin = createContext<SettingOrigin | undefined>(undefined);
+
+/**
+ * The origin of the row or section at a catalog path, when the files set it in code: the studio
+ * shows its value and does not change it. `said` when the editor already says so over the row:
+ * once for the whole node, or on the section the row is in.
+ */
+export function useRowOrigin(path: string | undefined):
+	| { origin: SettingOrigin; said: boolean; open: () => void }
+	| undefined {
+	const held = useContext(RowOrigins);
+	const above = useContext(SaidOrigin);
+	const origin = held && path !== undefined ? rowOrigin(held.scope, path) : undefined;
+	if (!held || !origin) return undefined;
+	return {
+		origin,
+		said: origin === held.scope.section || origin === held.scope.partly || origin === above,
+		open: () => {
+			held.open(origin);
+		},
 	};
 }
 

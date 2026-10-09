@@ -6,12 +6,22 @@
  * @module
  */
 
-import { relative } from 'node:path';
+import { relative, resolve } from 'node:path';
 import type { StudioWorkspace } from '../workspace.ts';
-import { readProjectSource, sharedSettings } from './project-source.ts';
+import { sourceOrigins } from './origins.ts';
+import { type ProjectSource, readProjectSource, sharedSettings } from './project-source.ts';
 import { applyEdits, diffHunks, planSave, type SourceEdit } from './save-plan.ts';
-import { projectDiffers, projectNames, saveSubjects } from './save.ts';
-import type { SaveChange, SaveDone, SaveRefusal, SaveRequest, SaveReview, SharedSetting } from './save-wire.ts';
+import { type ProjectNames, projectDiffers, projectNames, saveSubjects } from './save.ts';
+import type {
+  ProjectOrigins,
+  SaveChange,
+  SaveDone,
+  SaveRefusal,
+  SaveRequest,
+  SaveReview,
+  SettingOrigin,
+  SharedSetting,
+} from './save-wire.ts';
 
 /** What Save needs from the machine. `Loaded` is one load of the project. */
 export interface SaveHost<Loaded> {
@@ -36,6 +46,10 @@ export interface SaveSession<Loaded> {
   project(): Loaded;
   /** The project's shared settings as its files hold them now, each file from the project's folder. */
   shared(): SharedSetting[];
+  /** The settings the project's files set in code, each file from the project's folder. */
+  origins(): ProjectOrigins;
+  /** The absolute path of a file named from the project's folder, when the project's setup reads it. */
+  place(file: string): string | undefined;
   /** The review when the request has no stamp; the write when it has the review's. */
   save(request: SaveRequest): Promise<SaveReview | SaveDone | SaveRefusal>;
   /** Puts the last Save's files back, when they still hold what it wrote. */
@@ -77,6 +91,31 @@ export async function answerSave<Loaded>(
   if (path !== base) return undefined;
   const body: unknown = await request.json().catch(() => null);
   return isSaveRequest(body) ? { status: 200, body: await session.save(body) } : { status: 400, body: {} };
+}
+
+/**
+ * A project's origins as the page reads them: each file from the project's folder, and each
+ * profile and tool the project registers that no file defines marked as one the studio cannot find.
+ */
+export function pageOrigins(
+  found: ProjectOrigins,
+  names: ProjectNames,
+  source: Pick<ProjectSource, 'profiles' | 'tools'>,
+  inRoot: (file: string) => string,
+): ProjectOrigins {
+  const read = (origins: Record<string, SettingOrigin[]>, registered: readonly string[], defined: Map<string, unknown>) => {
+    const placed = Object.entries(origins).map(([name, held]): [string, SettingOrigin[]] => [
+      name,
+      held.map((origin) => (origin.file ? { ...origin, file: inRoot(origin.file) } : origin)),
+    ]);
+    const unfound = registered.filter((name) => !defined.has(name))
+      .map((name): [string, SettingOrigin[]] => [name, [{ path: [], kind: 'unfound' }]]);
+    return Object.fromEntries([...placed, ...unfound]);
+  };
+  return {
+    profiles: read(found.profiles, names.profiles, source.profiles),
+    tools: read(found.tools, names.tools, source.tools),
+  };
 }
 
 /** Starts Save for a project that `first` loaded. */
@@ -188,11 +227,19 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     return next;
   };
 
+  const source = () => readProjectSource(host.setupFile, root, host.read);
+
   return {
     project: () => project,
-    shared: () =>
-      sharedSettings(readProjectSource(host.setupFile, root, host.read))
-        .map((setting) => ({ ...setting, file: inRoot(setting.file) })),
+    shared: () => sharedSettings(source()).map((setting) => ({ ...setting, file: inRoot(setting.file) })),
+    origins: () => {
+      const read = source();
+      return pageOrigins(sourceOrigins(read), projectNames(host.opened(project)), read, inRoot);
+    },
+    place: (file) => {
+      const path = resolve(root, file);
+      return source().files.has(path) ? path : undefined;
+    },
     save: (request) => inTurn(() => save(request)),
     undo: () => inTurn(undo),
   };

@@ -81,6 +81,10 @@ import {
 	removeLibraryTool,
 	resetAgent,
 	resetLibraryTool,
+	nodeOrigins,
+	openOutcome,
+	originLabel,
+	originPlace,
 	type StudioDraft,
 	type StudioIssue,
 	type StudioNodeRef,
@@ -108,6 +112,7 @@ import {
 	workspaceRunAgent,
 	workspaceTree,
 } from '../mod.ts';
+import type { OpenAnswer, SettingOrigin } from '../server/save-wire.ts';
 import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
 import { GuardrailTester, ProbedAgent } from './guardrail-tester.tsx';
 import './studio.css';
@@ -117,6 +122,7 @@ import {
 	LeavePage,
 	ListBadges,
 	LocalConnection,
+	RowOrigins,
 	WorkspaceContext,
 } from './inspector-context.ts';
 import { exportFiles, exportText, llmBrief } from './lib/export-agent.ts';
@@ -132,8 +138,10 @@ import {
 	usePageValues,
 } from './lib/studio-page.ts';
 import {
+	openInEditor,
 	ProjectContext,
 	type ProjectSession,
+	readOrigins,
 	useProject,
 } from './lib/studio-project.ts';
 import type { RestoredStudio } from './lib/studio-session.ts';
@@ -1332,7 +1340,68 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 			flush();
 		};
 	}, [store]);
-	return { store, workspace, draft, focus: store.getFocus(), setDraft, update, shared };
+	const { origins, refreshOrigins } = useProjectOrigins(project);
+	return {
+		store,
+		workspace,
+		draft,
+		focus: store.getFocus(),
+		setDraft,
+		update,
+		shared,
+		origins,
+		refreshOrigins,
+	};
+}
+
+/**
+ * The settings the project's files set in code. They are read again when the files may have
+ * moved: after a Save or an undo, and when the builder comes back to the page from their editor.
+ */
+function useProjectOrigins(project: ProjectSession | undefined) {
+	const [origins, setOrigins] = useState(project?.origins);
+	const refreshOrigins = useCallback(() => {
+		// A server that does not answer leaves the last reading.
+		if (project) readOrigins().then(setOrigins, () => undefined);
+	}, [project]);
+	useEffect(() => {
+		globalThis.addEventListener('focus', refreshOrigins);
+		return () => {
+			globalThis.removeEventListener('focus', refreshOrigins);
+		};
+	}, [refreshOrigins]);
+	return { origins, refreshOrigins };
+}
+
+/** Shows an origin's line in the builder's editor, and says where it is when no editor opens. */
+function useOpenOrigin(project: ProjectSession | null) {
+	const toast = useToast();
+	return useCallback(
+		(origin: SettingOrigin) => {
+			const place = originPlace(origin);
+			if (!project || !origin.file || !place) return;
+			openInEditor(project, { file: origin.file, line: origin.line })
+				.catch((): OpenAnswer => ({ ok: false, reason: 'failed' }))
+				.then((answer) => {
+					const path = answer.ok ? undefined : answer.place;
+					toast({
+						type: answer.ok ? undefined : 'error',
+						body: openOutcome(answer, place),
+						endContent: path && (
+							<Button
+								label="Copy path"
+								variant="ghost"
+								size="sm"
+								onClick={() => {
+									void navigator.clipboard.writeText(path);
+								}}
+							/>
+						),
+					});
+				});
+		},
+		[project, toast],
+	);
 }
 
 /** Keys are the workspace's: every agent's slots, so a called agent's key is asked for too. */
@@ -2463,6 +2532,33 @@ function SharedLine({ entry, onOpen }: { entry: SharedEntry; onOpen: (() => void
 	);
 }
 
+/** Over a node one place in the project's files sets whole: what sets it, where, and the way there. */
+function OriginBanner({
+	origin,
+	partly,
+	onOpen,
+}: {
+	origin: SettingOrigin;
+	/** The origin sets only the rows the files do not write themselves. */
+	partly: boolean;
+	onOpen: () => void;
+}) {
+	const place = originPlace(origin);
+	const shown = partly
+		? 'The studio shows the values it sets, greyed, and does not change them.'
+		: 'The studio shows these values and does not change them.';
+	return (
+		<Section variant="transparent" padding={3}>
+			<Banner
+				status="info"
+				title={originLabel(origin)}
+				description={place ? `${place}. ${shown}` : shown}
+				endContent={place && <Button label="Open" variant="ghost" size="sm" onClick={onOpen} />}
+			/>
+		</Section>
+	);
+}
+
 /** The editor column: its toolbar over the Keys panel, the open node's editor, or its code. */
 function EditorColumn({
 	heading,
@@ -2495,6 +2591,13 @@ function EditorColumn({
 	const { shown, leavePage } = useLeftIssues(compile.editorIssues, selected, revealed);
 	const reset = useReset(state);
 	const project = useProject();
+	const openOrigin = useOpenOrigin(project);
+	const rowOrigins = useMemo(() => {
+		const scope = state.origins && nodeOrigins(state.workspace, state.origins, selected);
+		return scope ? { scope, open: openOrigin } : null;
+	}, [state.origins, state.workspace, selected, openOrigin]);
+	const whole = rowOrigins?.scope.section;
+	const said = view.keysOpen ? undefined : (whole ?? rowOrigins?.scope.partly);
 	return (
 		<VStack height="100%">
 			<EditorToolbar
@@ -2515,11 +2618,22 @@ function EditorColumn({
 					project={project}
 					workspace={state.workspace}
 					update={state.update}
+					onFilesChanged={state.refreshOrigins}
 					blocked={compile.blocked || undefined}
 				/>
 			)}
 			{shared && <SharedLine entry={shared} onOpen={sharedList} />}
+			{said && (
+				<OriginBanner
+					origin={said}
+					partly={!whole}
+					onOpen={() => {
+						openOrigin(said);
+					}}
+				/>
+			)}
 			<StackItem size="fill">
+				<RowOrigins value={rowOrigins}>
 				<LeavePage value={leavePage}>
 					<EditorColumnBody
 						state={state}
@@ -2533,6 +2647,7 @@ function EditorColumn({
 						editorRef={editorRef}
 					/>
 				</LeavePage>
+				</RowOrigins>
 			</StackItem>
 		</VStack>
 	);

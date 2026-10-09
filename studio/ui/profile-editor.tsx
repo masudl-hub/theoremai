@@ -225,6 +225,7 @@ import {
 	takesContinueInstruction,
 	toolSpecNodeId,
 	updateModelBinding,
+	writeAsk,
 } from '../mod.ts';
 import type { ListedProfileType } from '../browser.ts';
 import {
@@ -265,6 +266,7 @@ import {
 	TextRow,
 } from './inspector.tsx';
 import {
+	ConfirmWrite,
 	ConnectionMode,
 	ISSUE_ROW_ATTRIBUTE,
 	LeavePage,
@@ -272,6 +274,7 @@ import {
 	LocalConnection,
 	NodeIssues,
 	RowOrigins,
+	StudioAsks,
 	useFieldStatus,
 	type WorkspaceAgent,
 	WorkspaceContext,
@@ -4865,7 +4868,11 @@ function ToolTest({ tool }: { tool: ToolSpecDraft }) {
 		setResult(undefined);
 	}
 
+	const confirmWrite = useContext(ConfirmWrite);
 	const run = async () => {
+		// A tool that writes runs only once the builder read the input and said so.
+		const ask = writeAsk(tool, sampleInput);
+		if (ask && !(await confirmWrite(ask))) return;
 		setPending(true);
 		try {
 			setResult(await runToolProbe(tool, sampleInput, credential));
@@ -5396,8 +5403,16 @@ function PolicySection({
 	tool: ToolSpecDraft;
 	set: SetTool;
 }) {
+	const asks = useContext(StudioAsks).includes(tool.toolName);
 	return (
-		<InspectorSection title="Policy">
+		<InspectorSection
+			title="Policy"
+			note={
+				asks
+					? 'In the studio this tool asks before every run, because it writes. Your application runs it as Permission says.'
+					: undefined
+			}
+		>
 			<SegmentedRow
 				label="Access"
 				path="access"

@@ -13,7 +13,7 @@
  * @module
  */
 
-import { listProfiles, listTools, type Profile, type ProviderHostOptions } from '../../mod.ts';
+import { listProfiles, listTools, type Profile, type ProviderHostOptions, registerTool } from '../../mod.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { readStudioSource } from '../read-source.ts';
 import type { ToolRegistration } from '../registrations.ts';
@@ -44,6 +44,11 @@ export type StudioDescription = {
   shared?: SharedSetting[];
   /** The settings the project's files set in code, which the studio shows and does not change. */
   origins?: ProjectOrigins;
+  /**
+   * The tools that ask the builder before each run here and would not in the application: each
+   * one writes, and its own setting lets it run unasked.
+   */
+  asks: string[];
 };
 
 export type StudioHandlerOptions = {
@@ -145,7 +150,19 @@ function describeStudio(project: string): StudioDescription {
       ...(first ? { selected: agentNodeId(first.key), chatWith: first.key } : {}),
     },
     problems,
+    asks: [],
   };
+}
+
+/**
+ * Makes every registered tool that writes ask the builder before each run, whatever its own
+ * setting: a run in the studio is the project's real code, on whatever it reaches. The tools it
+ * changed, by name. The project's files are not touched, and the editor shows what they say.
+ */
+function askBeforeWrites(): string[] {
+  const unasked = listTools().filter((tool) => tool.access !== 'read-only' && tool.permission !== 'always_confirm');
+  for (const tool of unasked) registerTool({ ...tool, permission: 'always_confirm' });
+  return unasked.map((tool) => tool.name);
 }
 
 export function json(status: number, body: unknown, headers: HeadersInit): Response {
@@ -218,7 +235,9 @@ export function createStudioHandler(
 ): (request: Request) => Promise<Response> {
   const base = (options.base ?? STUDIO_BASE).replace(/\/$/, '');
   const corsFor = (request: Request) => corsHeaders(request, options.pageOrigins);
+  // The page reads the tools as the files set them, then they are made to ask.
   const description = describeStudio(options.project);
+  description.asks = askBeforeWrites();
   const served = profileHandlers(options, description.problems);
   const prefix = `${base}/profiles/`;
 

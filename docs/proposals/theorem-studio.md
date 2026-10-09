@@ -470,6 +470,19 @@ and where (`Set in code · stepsFor(PLAN) · setup.ts:34`), with "Open".
 - The places are read again after a Save or an undo, and when the builder
   comes back to the page from their editor.
 
+Built (D8): in the studio, every tool that writes asks the builder before
+each run, whatever its own Permission says. A tool that only reads runs
+unasked.
+
+- In the chat and the console, the run stops on the same card the
+  application shows for a tool that asks: the input, with Deny and Approve.
+- The editor's Test of a web tool that writes, and the assistant's test of
+  one, stop on a dialog first: the request it sends, the input, Cancel and
+  Run.
+- The files are not changed, and the editor still shows the Permission they
+  set. The tool's Policy section says the studio asks, and that the
+  application runs it as Permission says.
+
 Not built: editing those in the studio. Adding or removing a profile or a tool.
 The project's formatter after the write. Markdown instruction files. A
 type-check for a project that is not Deno.
@@ -639,8 +652,6 @@ Not done:
 - The chat path is wired but untried: the example has no model profile.
 - Bonsai has not been opened.
 - A profile the page's own compile refuses shows no preview.
-- D8 for a tool whose own setting does not ask. Today a tool asks only when
-  the tool itself says so.
 - Two processes: the site's dev server and the studio server.
 - The thrown-away page's files (`react/src/studio/`, `studio/vite.config.ts`,
   `studio/package.json`) are still in the tree, unused.

@@ -107,10 +107,12 @@ import {
 	toolSpecKeyOf,
 	toolSpecNodeId,
 	type WorkspaceCompileResult,
+	type WriteAsk,
 	withAgentDraft,
 	workspaceNodeRef,
 	workspaceRunAgent,
 	workspaceTree,
+	writeAsk,
 } from '../mod.ts';
 import type { OpenAnswer, SettingOrigin } from '../server/save-wire.ts';
 import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
@@ -121,8 +123,10 @@ import {
 	ISSUE_ROW_ATTRIBUTE,
 	LeavePage,
 	ListBadges,
+	ConfirmWrite,
 	LocalConnection,
 	RowOrigins,
+	StudioAsks,
 	WorkspaceContext,
 } from './inspector-context.ts';
 import { exportFiles, exportText, llmBrief } from './lib/export-agent.ts';
@@ -141,12 +145,13 @@ import {
 	openInEditor,
 	ProjectContext,
 	type ProjectSession,
-	readOrigins,
+	readFiles,
 	useProject,
 } from './lib/studio-project.ts';
 import type { RestoredStudio } from './lib/studio-session.ts';
 import { createStudioStore, type StudioStore } from './lib/studio-store.ts';
 import { toolCredential } from './lib/tool-credentials.ts';
+import { useConfirmWrite } from './confirm-write.tsx';
 import { runToolProbe } from './lib/tool-probe.ts';
 import {
 	addToolSpec,
@@ -1026,6 +1031,8 @@ function screenReport(
 	};
 }
 
+const NO_ASKS: readonly string[] = [];
+
 /** What th30's surface reaches on the page beyond the store; read through a ref so it is always the latest. */
 type SurfacePage = {
 	mode: ReturnType<typeof useStudioConnection>['mode'];
@@ -1035,6 +1042,7 @@ type SurfacePage = {
 	setKeysOpen: (open: boolean) => void;
 	setConversation: Dispatch<SetStateAction<number>>;
 	project: ProjectSession | null;
+	confirmWrite: (ask: WriteAsk) => Promise<boolean>;
 };
 
 /**
@@ -1099,11 +1107,16 @@ function keyAndToolMembers(
 			}
 		},
 		toolCredential,
-		testTool: (key, input) => {
+		testTool: async (key, input) => {
 			const tool = store.getDraft().toolSpecs.find((candidate) => candidate.key === key);
-			if (!tool) return Promise.resolve({ ok: false, error: 'No such tool.' });
-			const sample = input ?? sampleToolInput(tool.toolName, tool.inputJson) ?? {};
-			return runToolProbe(tool, JSON.stringify(sample), toolCredential(key));
+			if (!tool) return { ok: false, error: 'No such tool.' };
+			const sample = JSON.stringify(input ?? sampleToolInput(tool.toolName, tool.inputJson) ?? {});
+			// A tool that writes runs only once the builder read the input and said so.
+			const ask = writeAsk(tool, sample);
+			if (ask && !(await page.current.confirmWrite(ask))) {
+				return { ok: false, error: 'The builder chose not to run it.' };
+			}
+			return runToolProbe(tool, sample, toolCredential(key));
 		},
 	};
 }
@@ -1340,7 +1353,7 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 			flush();
 		};
 	}, [store]);
-	const { origins, refreshOrigins } = useProjectOrigins(project);
+	const { origins, asks, refreshOrigins } = useProjectFiles(project);
 	return {
 		store,
 		workspace,
@@ -1350,19 +1363,21 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 		update,
 		shared,
 		origins,
+		asks,
 		refreshOrigins,
 	};
 }
 
 /**
- * The settings the project's files set in code. They are read again when the files may have
- * moved: after a Save or an undo, and when the builder comes back to the page from their editor.
+ * The settings the project's files set in code, and the tools the studio makes ask. They are read
+ * again when the files may have moved: after a Save or an undo, and when the builder comes back
+ * to the page from their editor.
  */
-function useProjectOrigins(project: ProjectSession | undefined) {
-	const [origins, setOrigins] = useState(project?.origins);
+function useProjectFiles(project: ProjectSession | undefined) {
+	const [files, setFiles] = useState(project && { origins: project.origins, asks: project.asks });
 	const refreshOrigins = useCallback(() => {
 		// A server that does not answer leaves the last reading.
-		if (project) readOrigins().then(setOrigins, () => undefined);
+		if (project) readFiles().then(setFiles, () => undefined);
 	}, [project]);
 	useEffect(() => {
 		globalThis.addEventListener('focus', refreshOrigins);
@@ -1370,7 +1385,7 @@ function useProjectOrigins(project: ProjectSession | undefined) {
 			globalThis.removeEventListener('focus', refreshOrigins);
 		};
 	}, [refreshOrigins]);
-	return { origins, refreshOrigins };
+	return { origins: files?.origins, asks: files?.asks ?? NO_ASKS, refreshOrigins };
 }
 
 /** Shows an origin's line in the builder's editor, and says where it is when no editor opens. */
@@ -2315,7 +2330,9 @@ function useStudioPage(opened: StudioOpened) {
 	const run = useConversationRun(connection.mode, workspace.chatWith, opened.question);
 	useArrivalToast(opened, store);
 	const { replaceWorkspace, copy } = usePageActions(store, view, run.setConversation);
+	const asking = useConfirmWrite();
 	const chatRef = useStudioSurface(store, {
+		confirmWrite: asking.confirm,
 		mode: connection.mode,
 		connection,
 		replaceWorkspace,
@@ -2344,6 +2361,7 @@ function useStudioPage(opened: StudioOpened) {
 		copy,
 		chatRef,
 		title,
+		asking,
 	};
 }
 
@@ -2355,7 +2373,7 @@ function useStudioPage(opened: StudioOpened) {
 function Studio({ opened }: { opened: StudioOpened }) {
 	const page = useStudioPage(opened);
 	const { state, connection, view, frame, selected, editing, issueReveal, compile } = page;
-	const { sheet, setSheet, run, copy, chatRef, title } = page;
+	const { sheet, setSheet, run, copy, chatRef, title, asking } = page;
 	const { store, draft } = state;
 	const tree = useWorkspaceTree(state, view, selected, setSheet);
 	const chatAgents = useChatAgents(state.workspace.agents);
@@ -2367,51 +2385,56 @@ function Studio({ opened }: { opened: StudioOpened }) {
 
 	return (
 		<ProjectContext.Provider value={opened.project ?? null}>
-			<Layout
-				ref={frame.layoutCallbackRef}
-				className={frameClass(sheet)}
-				padding={0}
-				start={
-					<SidePanel
-						frame={frame}
-						tree={tree}
-						draft={draft}
-						onAddAgent={addAgentFrom}
-						setSheet={setSheet}
-					>
-						<EditorColumn
-							heading={
-								view.keysOpen
-									? 'Keys'
-									: headingOf(tree.list, editing, title, sharedAt(state.shared, selected))
-							}
-							sharedList={tree.list === 'shared' ? undefined : showShared}
-							state={state}
-							connection={connection}
-							view={view}
-							compile={compile}
-							selected={selected}
-							editing={editing}
-							frame={frame}
-							issueReveal={issueReveal}
-							setSheet={setSheet}
-						/>
-					</SidePanel>
-				}
-				content={
-					<PreviewPane
-						store={store}
-						chatAgents={chatAgents}
-						chatWith={state.workspace.chatWith}
-						compile={compile}
-						run={run}
-						connection={connection}
-						chatRef={chatRef}
-						copy={copy}
-						setSheet={setSheet}
+			<ConfirmWrite value={asking.confirm}>
+				<StudioAsks value={state.asks}>
+					{asking.dialog}
+					<Layout
+						ref={frame.layoutCallbackRef}
+						className={frameClass(sheet)}
+						padding={0}
+						start={
+							<SidePanel
+								frame={frame}
+								tree={tree}
+								draft={draft}
+								onAddAgent={addAgentFrom}
+								setSheet={setSheet}
+							>
+								<EditorColumn
+									heading={
+										view.keysOpen
+											? 'Keys'
+											: headingOf(tree.list, editing, title, sharedAt(state.shared, selected))
+									}
+									sharedList={tree.list === 'shared' ? undefined : showShared}
+									state={state}
+									connection={connection}
+									view={view}
+									compile={compile}
+									selected={selected}
+									editing={editing}
+									frame={frame}
+									issueReveal={issueReveal}
+									setSheet={setSheet}
+								/>
+							</SidePanel>
+						}
+						content={
+							<PreviewPane
+								store={store}
+								chatAgents={chatAgents}
+								chatWith={state.workspace.chatWith}
+								compile={compile}
+								run={run}
+								connection={connection}
+								chatRef={chatRef}
+								copy={copy}
+								setSheet={setSheet}
+							/>
+						}
 					/>
-				}
-			/>
+				</StudioAsks>
+			</ConfirmWrite>
 		</ProjectContext.Provider>
 	);
 }

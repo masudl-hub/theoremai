@@ -1,5 +1,11 @@
 import type { InputStatus } from '@astryxdesign/core/Field';
-import { type NodeOrigins, rowOrigin, type StudioConnectionMode, type StudioIssue } from '../mod.ts';
+import {
+	type NodeOrigins,
+	rowOrigin,
+	type StudioConnectionMode,
+	type StudioIssue,
+	type WriteAsk,
+} from '../mod.ts';
 import type { SettingOrigin } from '../server/save-wire.ts';
 import { createContext, useContext } from 'react';
 
@@ -31,6 +37,17 @@ export const RowOrigins = createContext<{
 	scope: NodeOrigins;
 	open: (origin: SettingOrigin) => void;
 } | null>(null);
+
+/**
+ * Asks the builder before a real run of a tool that writes, and answers whether to run it. Where
+ * no page mounts the question, the run is refused.
+ */
+export const ConfirmWrite = createContext<(ask: WriteAsk) => Promise<boolean>>(() =>
+	Promise.resolve(false),
+);
+
+/** The project's tools that ask before each run in the studio and would not in the application. */
+export const StudioAsks = createContext<readonly string[]>([]);
 
 /** The origin a section around a row has already named, so the row does not name it again. */
 export const SaidOrigin = createContext<SettingOrigin | undefined>(undefined);

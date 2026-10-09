@@ -28,6 +28,8 @@ export interface ProjectSession {
 	shared: SharedSetting[];
 	/** The settings the project's files set in code, by profile id and tool name. */
 	origins: ProjectOrigins;
+	/** The tools that ask before each run here and would not in the application, by name. */
+	asks: string[];
 }
 
 const NO_ORIGINS: ProjectOrigins = { profiles: {}, tools: {} };
@@ -41,7 +43,14 @@ export function useProject(): ProjectSession | null {
 
 /** The session for a project already open: the run page names it in its address. */
 export function projectSession(name: string): ProjectSession {
-	return { endpoint: PROJECT_ENDPOINT, name, problems: [], shared: [], origins: NO_ORIGINS };
+	return {
+		endpoint: PROJECT_ENDPOINT,
+		name,
+		problems: [],
+		shared: [],
+		origins: NO_ORIGINS,
+		asks: [],
+	};
 }
 
 /** Where the local server runs the profile with this id. */
@@ -93,6 +102,7 @@ interface Opened {
 	problems: ProjectSession['problems'];
 	shared?: SharedSetting[];
 	origins?: ProjectOrigins;
+	asks?: string[];
 }
 
 async function describe(): Promise<Opened> {
@@ -101,9 +111,13 @@ async function describe(): Promise<Opened> {
 	return response.json();
 }
 
-/** The settings the project's files set in code, as the files are now: a Save moves their lines. */
-export async function readOrigins(): Promise<ProjectOrigins> {
-	return (await describe()).origins ?? NO_ORIGINS;
+/**
+ * What the project's files say now that the page does not hold as edits: the settings they set in
+ * code, whose lines a Save moves, and the tools the studio makes ask.
+ */
+export async function readFiles(): Promise<Pick<ProjectSession, 'origins' | 'asks'>> {
+	const { origins = NO_ORIGINS, asks = [] } = await describe();
+	return { origins, asks };
 }
 
 /** The project the local server has open. Throws when no server answers. */
@@ -119,6 +133,7 @@ export async function openProject(): Promise<{
 			problems: opened.problems,
 			shared: opened.shared ?? [],
 			origins: opened.origins ?? NO_ORIGINS,
+			asks: opened.asks ?? [],
 		},
 		workspace: opened.workspace,
 	};

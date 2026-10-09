@@ -166,7 +166,7 @@ import {
 	useStudioConnection,
 } from './studio-connection.tsx';
 import { StudioRunner } from './studio-runner.tsx';
-import { ProjectSave } from './studio-save.tsx';
+import { ProjectProblems, ProjectSave } from './studio-save.tsx';
 import {
 	type CSSProperties,
 	type Dispatch,
@@ -2176,6 +2176,7 @@ function PreviewBody({
 	connection,
 	chatRef,
 	chatWith,
+	profileId,
 	traceOpen,
 	testing,
 }: {
@@ -2184,13 +2185,28 @@ function PreviewBody({
 	connection: StudioConnectionState;
 	chatRef: RefObject<TheoremChatHandle | null>;
 	chatWith: string;
+	/** The id of the agent to chat with, as a project names it. */
+	profileId: string | undefined;
 	traceOpen: boolean;
 	testing: boolean;
 }) {
 	const { payload, traced, tested } = compile;
+	/** Why the project's server does not run this profile: its files say, not the editor. */
+	const unserved = useProject()?.problems.find((problem) => problem.profile === profileId);
 	const pageInputs = useMemo(() => (payload ? pageInputsOf(payload) : null), [payload]);
 	const [pageValues] = usePageValues(chatWith);
 	const sent = useMemo(() => sentPageValues(pageInputs, pageValues), [pageInputs, pageValues]);
+	if (unserved) {
+		return (
+			<VStack height="100%" vAlign="center" padding={4}>
+				<EmptyState
+					icon={<Icon icon={IconAlertTriangle} />}
+					title={`${unserved.profile} does not run here yet`}
+					description={unserved.message}
+				/>
+			</VStack>
+		);
+	}
 	if (!payload) {
 		return (
 			<VStack height="100%" vAlign="center" padding={4}>
@@ -2296,6 +2312,7 @@ const PreviewPane = memo(function PreviewPane({
 						connection={connection}
 						chatRef={chatRef}
 						chatWith={chatWith}
+						profileId={chatAgents.find((agent) => agent.value === chatWith)?.label}
 						traceOpen={traceOpen}
 						testing={testing}
 					/>
@@ -2647,6 +2664,7 @@ function EditorColumn({
 					blocked={compile.blocked || undefined}
 				/>
 			)}
+			{project && <ProjectProblems project={project} />}
 			{shared && <SharedLine entry={shared} onOpen={sharedList} />}
 			{said && (
 				<OriginBanner

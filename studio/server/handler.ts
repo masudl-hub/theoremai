@@ -13,7 +13,15 @@
  * @module
  */
 
-import { getProvider, listProfiles, listTools, type Profile, type ProviderHostOptions, registerTool } from '../../mod.ts';
+import {
+  type DecisionQuestion,
+  getProvider,
+  listProfiles,
+  listTools,
+  type Profile,
+  type ProviderHostOptions,
+  registerTool,
+} from '../../mod.ts';
 import { type StudioAsks, studioAsks } from '../asks.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { readStudioSource } from '../read-source.ts';
@@ -27,7 +35,11 @@ import {
   type StudioWorkspace,
   workspaceFromDraft,
 } from '../workspace.ts';
-import { createTheoremHandler, createTheoremHostHandler } from '../../react/src/server/mod.ts';
+import {
+  createTheoremDecisionHandler,
+  createTheoremHandler,
+  createTheoremHostHandler,
+} from '../../react/src/server/mod.ts';
 
 /** One builder on one machine: every request is the same session, so a gate's answer finds its call. */
 const STUDIO_SESSION = 'theorem-studio-local';
@@ -60,9 +72,14 @@ export type StudioHandlerOptions = {
   host?: (request: Request) => unknown;
   /** How the project's registered providers find their keys. Default: as the project registered them. */
   provider?: ProviderHostOptions;
+  /** What each decision profile asks, by the profile's id: the questions the application passes when it decides. */
+  questions?: ProjectQuestions;
   /** Where the handler is mounted. Default `/api/studio`. */
   base?: string;
 };
+
+/** A project's decision questions: for each decision profile's id, its questions by their ids. */
+export type ProjectQuestions = Record<string, Record<string, DecisionQuestion>>;
 
 type Serve = (request: Request) => Promise<Response>;
 
@@ -80,7 +97,7 @@ type ProfileRead =
   | { ok: false; message: string };
 
 /** The key slots a provider or a model names. */
-export type ProviderSlots = { keySlot?: string; fallbackKeySlot?: string };
+type ProviderSlots = { keySlot?: string; fallbackKeySlot?: string };
 
 /**
  * A profile with the key slots the kernel runs its models with: a model that names no slot uses
@@ -88,7 +105,9 @@ export type ProviderSlots = { keySlot?: string; fallbackKeySlot?: string };
  */
 export function withProviderSlots<P extends object>(
   profile: P,
-  providerOf: (id: string) => ProviderSlots | undefined = getProvider,
+  providerOf: (
+    id: string,
+  ) => Pick<NonNullable<ReturnType<typeof getProvider>>, 'keySlot' | 'fallbackKeySlot'> | undefined = getProvider,
 ): P {
   const held = (profile as { models?: Record<string, ProviderSlots & { provider?: string }> }).models;
   if (!held || typeof held !== 'object') return profile;
@@ -103,9 +122,14 @@ export function withProviderSlots<P extends object>(
 }
 
 /** One registered profile as the draft the editor shows, read from the source the studio prints for it. */
-function readProfile(profile: Profile, tools: readonly ToolRegistration[]): ProfileRead {
+function readProfile(
+  profile: Profile,
+  tools: readonly ToolRegistration[],
+  questions: Record<string, DecisionQuestion> | undefined,
+): ProfileRead {
   try {
     const source = studioSource({
+      ...(questions ? { questions } : {}),
       agentId: profile.id,
       profile: withProviderSlots(profile) as Parameters<typeof studioSource>[0]['profile'],
       customTools: [...tools],
@@ -125,13 +149,20 @@ function unlisted(workspace: StudioWorkspace, registered: ToolSpecDraft[]): Tool
 }
 
 /** The registered profiles and tools, as the workspace the studio opens. */
-function describeStudio(project: string): StudioDescription {
+function describeStudio(project: string, questions: ProjectQuestions): StudioDescription {
   const tools = registeredTools();
   const problems: StudioProblem[] = [];
   let workspace: StudioWorkspace | undefined;
   let library: ToolSpecDraft[] = [];
   for (const profile of listProfiles()) {
-    const read = readProfile(profile, tools);
+    const asked = questions[profile.id];
+    // A decision the studio cannot ask is left out, with why: a draft with no questions would not compile.
+    const fault = profile.type === 'decision' ? questionsFault(profile.id, asked) : undefined;
+    if (fault) {
+      problems.push({ profile: profile.id, message: fault });
+      continue;
+    }
+    const read = readProfile(profile, tools, asked);
     if (!read.ok) {
       problems.push({ profile: profile.id, message: read.message });
       continue;
@@ -212,6 +243,52 @@ export function corsHeaders(request: Request, pageOrigins: readonly string[]): R
   };
 }
 
+/** Why a decision profile is not run: the setup file does not name its questions. */
+export function noQuestions(profileId: string): string {
+  return `The studio does not know what ${profileId} asks. Export the questions your application passes it from the setup file: export const questions = { '${profileId}': { ... } }.`;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** What each kind of question needs of its criteria, and what is wrong when it lacks it. */
+const CRITERIA = new Map<unknown, { fits: (criteria: unknown) => boolean; fault: string }>([
+  ['choice', {
+    fits: (criteria) => isRecord(criteria) && Object.keys(criteria).length > 0,
+    fault: 'needs criteria: an object of the labels it picks from',
+  }],
+  ['score', {
+    fits: (criteria) => Array.isArray(criteria) && criteria.length > 0,
+    fault: 'needs criteria: a list, lowest score first',
+  }],
+  ['noul', {
+    fits: (criteria) => criteria === undefined || isRecord(criteria),
+    fault: 'has criteria that are not an object',
+  }],
+]);
+
+/** What is wrong with one question as the setup wrote it, or nothing. */
+function questionFault(question: unknown): string | undefined {
+  if (!isRecord(question)) return 'is not a question';
+  const kind = CRITERIA.get(question.type);
+  if (!kind) return "needs a type: 'choice', 'noul' or 'score'";
+  if (question.instructions === undefined) return 'needs instructions';
+  return kind.fits(question.criteria) ? undefined : kind.fault;
+}
+
+/**
+ * Why a decision profile's questions cannot be asked, or nothing. A setup file is not always
+ * type-checked, so the studio reads what it exports before it trusts it.
+ */
+export function questionsFault(profileId: string, questions: unknown): string | undefined {
+  if (!isRecord(questions) || !Object.keys(questions).length) return noQuestions(profileId);
+  for (const [id, question] of Object.entries(questions)) {
+    const fault = questionFault(question);
+    if (fault) return `The question '${id}' the setup file exports for ${profileId} ${fault}.`;
+  }
+  return undefined;
+}
+
 /** Each registered profile's own handler, by id; a profile that cannot be served is a problem. */
 function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[]): Map<string, Serve> {
   const served = new Map<string, Serve>();
@@ -219,9 +296,21 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
     session: () => STUDIO_SESSION,
     ...(options.host ? { host: options.host } : {}),
   };
+  /** A decision is asked the project's questions. The profile does not hold them, so the setup names them. */
+  const decision = (profile: Profile & { type: 'decision' }): Serve | undefined => {
+    const questions = options.questions?.[profile.id];
+    // The description already says why a decision with no questions to ask is left out.
+    if (!questions || questionsFault(profile.id, questions)) return undefined;
+    const { vault, fetch } = options.provider ?? {};
+    return createTheoremDecisionHandler({ profile, questions, vault, fetch });
+  };
   for (const profile of listProfiles()) {
-    if (profile.type === 'decision') continue;
     try {
+      if (profile.type === 'decision') {
+        const serve = decision(profile);
+        if (serve) served.set(profile.id, serve);
+        continue;
+      }
       served.set(
         profile.id,
         profile.type === 'host'
@@ -248,7 +337,7 @@ export function createStudioHandler(
   const base = (options.base ?? STUDIO_BASE).replace(/\/$/, '');
   const corsFor = (request: Request) => corsHeaders(request, options.pageOrigins);
   // The page reads the tools as the files set them, then they are made to ask.
-  const description = describeStudio(options.project);
+  const description = describeStudio(options.project, options.questions ?? {});
   description.asks = askBeforeWrites();
   const served = profileHandlers(options, description.problems);
   const prefix = `${base}/profiles/`;

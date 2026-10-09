@@ -121,11 +121,42 @@ function originsOf(project: ProjectSource, kind: 'profile' | 'tool', targets: re
   return reader.found;
 }
 
+/** The setup module's `export const questions`, when it writes one. */
+function questionsExport(source: ts.SourceFile): ts.VariableDeclaration | undefined {
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+    const found = statement.declarationList.declarations.find((declaration) =>
+      ts.isIdentifier(declaration.name) && declaration.name.text === 'questions'
+    );
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * Where a decision profile's questions are set: the setup module's `questions` export, at the
+ * profile's own key when it writes one. A profile does not hold its questions, so the studio
+ * shows them and Save does not write them. No place when the setup exports them another way.
+ */
+function questionsOrigin(project: ProjectSource, profileId: string): SettingOrigin {
+  const origin: SettingOrigin = { path: ['decision', 'questions'], kind: 'code', text: 'export const questions' };
+  const source = project.files.get(project.entry);
+  const held = source && questionsExport(source);
+  if (!source || !held) return origin;
+  const value = held.initializer && unwrapped(held.initializer);
+  const own = value && ts.isObjectLiteralExpression(value)
+    ? value.properties.findLast((property) => propertyName(property) === profileId)
+    : undefined;
+  return { ...origin, file: source.fileName, line: lineOf(own ?? held, source) };
+}
+
 /**
  * The settings the project's files set in code, for each profile and tool the files define. A
- * profile or tool with none is left out.
+ * profile or tool with none is left out. `decisions` names the decision profiles the studio
+ * shows: each one's questions are set in the setup module.
  */
-export function sourceOrigins(project: ProjectSource): ProjectOrigins {
+export function sourceOrigins(project: ProjectSource, decisions: readonly string[] = []): ProjectOrigins {
   const read = (kind: 'profile' | 'tool', targets: Map<string, SourceTarget[]>) => {
     const origins: Record<string, SettingOrigin[]> = {};
     for (const [name, held] of targets) {
@@ -134,5 +165,7 @@ export function sourceOrigins(project: ProjectSource): ProjectOrigins {
     }
     return origins;
   };
-  return { profiles: read('profile', project.profiles), tools: read('tool', project.tools) };
+  const profiles = read('profile', project.profiles);
+  for (const id of decisions) profiles[id] = [...(profiles[id] ?? []), questionsOrigin(project, id)];
+  return { profiles, tools: read('tool', project.tools) };
 }

@@ -16,12 +16,14 @@ import { basename, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { defaultKernelScope, type ProviderHostOptions } from '../../mod.ts';
 import { type ProjectEdits, registerEdits } from './edits.ts';
-import { createStudioHandler } from './handler.ts';
+import { createStudioHandler, type ProjectQuestions } from './handler.ts';
 
 type SetupModule = {
   default?: () => unknown | Promise<unknown>;
   host?: (request: Request) => unknown;
   provider?: ProviderHostOptions;
+  /** What each decision profile asks, by the profile's id. */
+  questions?: ProjectQuestions;
 };
 
 /** The line this prints once it listens. `serve.ts` waits for it. */
@@ -44,6 +46,7 @@ if (import.meta.main) {
     listenHost: `127.0.0.1:${port}`,
     ...(setup.host ? { host: setup.host } : {}),
     ...(setup.provider ? { provider: setup.provider } : {}),
+    ...(setup.questions ? { questions: setup.questions } : {}),
   });
   Deno.serve({ hostname: '127.0.0.1', port, onListen: () => console.log(PROJECT_READY) }, handler);
 }

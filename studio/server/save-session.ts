@@ -248,7 +248,10 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     shared: () => sharedSettings(source()).map((setting) => ({ ...setting, file: inRoot(setting.file) })),
     origins: () => {
       const read = source();
-      return pageOrigins(sourceOrigins(read), projectNames(host.opened(project)), read, inRoot);
+      const opened = host.opened(project);
+      const decisions = opened.agents.filter((agent) => agent.identity.profileType === 'decision')
+        .map((agent) => agent.identity.agentId);
+      return pageOrigins(sourceOrigins(read, decisions), projectNames(opened), read, inRoot);
     },
     place: (file) => {
       const path = resolve(root, file);

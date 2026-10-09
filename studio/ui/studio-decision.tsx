@@ -13,6 +13,12 @@ import {
 import { useMemo } from 'react';
 import { noting } from './lib/studio-activity.ts';
 
+/** The state a decision's form starts with: an example its model can be asked about. */
+export function decisionSeed(profile: StudioRunPayload['profile']) {
+	const model = profile.type === 'decision' ? Object.values(profile.models)[0] : undefined;
+	return model?.apiId.startsWith('respan/') ? EXAMPLE_SPAN_DECISION_STATE : EXAMPLE_DECISION_STATE;
+}
+
 /** The same decision runner in the builder preview and the standalone run tab. */
 export function StudioDecision({
 	payload,
@@ -44,14 +50,10 @@ export function StudioDecision({
 			: createStudioDecisionTransport(payload, { traces });
 		return onActivity ? noting(made, onActivity) : made;
 	}, [payload, runtime, traces, onActivity]);
-	const model =
-		payload.profile.type === 'decision' ? Object.values(payload.profile.models)[0] : undefined;
 	return (
 		<TheoremDecision
 			transport={transport}
-			defaultState={
-				model?.apiId.startsWith('respan/') ? EXAMPLE_SPAN_DECISION_STATE : EXAMPLE_DECISION_STATE
-			}
+			defaultState={decisionSeed(payload.profile)}
 			trace={trace}
 			flush={flush}
 			columns={columns}

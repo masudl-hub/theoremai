@@ -533,6 +533,29 @@ answer. Edits that take a profile away cannot run before they are saved,
 and the edited side says so. A tool taken away does run: no agent on the
 edited side allows it. Unsaved edits are lost when the page is loaded again.
 
+Built (Masud, 9 Oct: "5a"): a decision profile in a project runs in the
+studio. It shows the form for its state and the verdict for each question,
+the same view the website has.
+
+- A decision profile does not hold its questions. The application passes
+  them when it asks. So the setup file names them:
+  `export const questions = { '<profile id>': { ... } }`, the same questions
+  the application passes.
+- Decide runs the project's own profile with those questions, through
+  `createTheoremDecisionHandler`.
+- A decision with no questions in the setup file is left out, and a line
+  above the editor names it and shows the export to add. The same line names
+  any other profile the studio cannot run. The other profiles still run.
+- A question the setup file wrote wrongly is named with what it lacks,
+  before anything runs.
+- The questions are shown and not changed. Each says it is set in code, with
+  the file and line, and opens it.
+
+Not built for a decision: Save does not write the questions, so the studio
+does not edit them. There is no saved and edited side by side: Decide runs
+the files, and an edit to the profile runs after Save. Live profiles in a
+project.
+
 Not built: editing those in the studio. Removing a profile or a tool: the
 review names it and Save does not write it. Changing a tool's schema once it
 is in a file: it reads as set in code, like every tool the project has.

@@ -258,6 +258,7 @@ import {
 	ListRow,
 	NamesRow,
 	NumberRow,
+	OriginLine,
 	type Segment,
 	SegmentedRow,
 	SetInCode,
@@ -276,7 +277,9 @@ import {
 	NodeIssues,
 	ProjectAsks,
 	RowOrigins,
+	SaidOrigin,
 	useFieldStatus,
+	useRowOrigin,
 	type WorkspaceAgent,
 	WorkspaceContext,
 } from './inspector-context.ts';
@@ -6301,13 +6304,10 @@ function DecisionEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
 			decision: { ...current.decision, questions: change(current.decision.questions) },
 		}));
 	};
-	return (
+	// A project's files hold the questions outside the profile: the studio shows them and says where.
+	const inFiles = useRowOrigin('decision.questions');
+	const rows = (
 		<>
-			<DecisionContractSection decision={decision} set={set} />
-			<DecisionStateSection decision={decision} set={set} />
-			<InspectorSection title="Questions" note={sectionNote('decision.questions')}>
-				{listStatus && <Banner status="error" title={listStatus.message} />}
-			</InspectorSection>
 			{decision.questions.map((question, index) => (
 				<DecisionQuestionEditor
 					key={question.key}
@@ -6332,6 +6332,25 @@ function DecisionEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
 				/>
 			))}
 			<AddQuestionSection count={decision.questions.length} setDraft={setDraft} />
+		</>
+	);
+	return (
+		<>
+			<DecisionContractSection decision={decision} set={set} />
+			<DecisionStateSection decision={decision} set={set} />
+			<InspectorSection title="Questions" note={sectionNote('decision.questions')}>
+				{inFiles && !inFiles.said && (
+					<OriginLine origin={inFiles.origin} onOpen={inFiles.open} />
+				)}
+				{listStatus && <Banner status="error" title={listStatus.message} />}
+			</InspectorSection>
+			{inFiles ? (
+				<SaidOrigin value={inFiles.origin}>
+					<SetInCode>{rows}</SetInCode>
+				</SaidOrigin>
+			) : (
+				rows
+			)}
 		</>
 	);
 }

@@ -401,3 +401,35 @@ Deno.test('an Open the builder asked for says what happened, and how to name an 
     ],
   );
 });
+
+Deno.test("a decision's questions are set where the setup module exports them", () => {
+  const source = project({
+    'setup.ts': `import { defineProfile } from '@theoremjs/agents';
+export const questions = {
+  other: {},
+  desk: { next: { type: 'noul', instructions: 'How sure?' } },
+};
+defineProfile({ type: 'decision', id: 'desk' });
+`,
+  });
+  assertEquals(sourceOrigins(source, ['desk']).profiles.desk, [
+    {
+      path: ['decision', 'questions'],
+      kind: 'code',
+      text: 'export const questions',
+      file: `${ROOT}/setup.ts`,
+      line: 4,
+    },
+  ]);
+  assertEquals(sourceOrigins(source).profiles.desk, undefined);
+});
+
+Deno.test('questions the setup module exports another way are set in code, with no place', () => {
+  const source = project({
+    'setup.ts': `import { questions } from './asked.ts';\nexport { questions };\n`,
+    'asked.ts': 'export const questions = {};\n',
+  });
+  assertEquals(sourceOrigins(source, ['desk']).profiles.desk, [
+    { path: ['decision', 'questions'], kind: 'code', text: 'export const questions' },
+  ]);
+});

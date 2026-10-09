@@ -1,11 +1,12 @@
 import { EmptyState } from '@astryxdesign/core/EmptyState';
 import {
+	createDecisionTransport,
 	createHostTransport,
 	createTraceFeed,
 	type TraceFeed,
 } from '../../react/src/client/index.ts';
 import { LiveRunner } from '../../react/src/live.ts';
-import { TheoremChat, TheoremHost } from '../../react/src/ui/index.ts';
+import { TheoremChat, TheoremDecision, TheoremHost } from '../../react/src/ui/index.ts';
 import {
 	createStudioHostTransport,
 	createStudioTransport,
@@ -27,7 +28,7 @@ import { noting } from './lib/studio-activity.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
 import { type ProjectSession, projectProfileEndpoint, useProject } from './lib/studio-project.ts';
 import { ProjectChat } from './studio-compare.tsx';
-import { StudioDecision } from './studio-decision.tsx';
+import { decisionSeed, StudioDecision } from './studio-decision.tsx';
 
 export interface StudioRunnerProps {
 	payload: StudioRunPayload;
@@ -181,7 +182,22 @@ function ProjectRun({
 		() => (type === 'host' ? noting(createHostTransport({ endpoint }), note) : null),
 		[type, endpoint, note],
 	);
+	const decision = useMemo(
+		() => (type === 'decision' ? noting(createDecisionTransport({ endpoint }), note) : null),
+		[type, endpoint, note],
+	);
 	const isChat = type !== 'host' && type !== 'decision' && type !== 'live';
+	if (decision)
+		return (
+			<TheoremDecision
+				transport={decision}
+				defaultState={decisionSeed(payload.profile)}
+				trace={trace}
+				flush={flush}
+				columns={columns}
+				className={className}
+			/>
+		);
 	if (host)
 		return (
 			<TheoremHost

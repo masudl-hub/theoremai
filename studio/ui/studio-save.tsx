@@ -162,6 +162,46 @@ function RefusalBody({ refusal }: { refusal: SaveRefusal }) {
 }
 
 /**
+ * The profiles a project registers that the studio cannot run, each with why. Nothing while
+ * there are none.
+ */
+export function ProjectProblems({ project }: { project: ProjectSession }) {
+	const { problems } = project;
+	const [first] = problems;
+	if (!first) return null;
+	if (problems.length === 1) {
+		return (
+			<Section variant="transparent" padding={3}>
+				<Banner
+					status="warning"
+					title={`The studio cannot run ${first.profile}.`}
+					description={first.message}
+				/>
+			</Section>
+		);
+	}
+	return (
+		<Section variant="transparent" padding={3}>
+			<Banner
+				status="warning"
+				title={`The studio cannot run ${String(problems.length)} of ${project.name}'s profiles.`}
+			>
+				<VStack gap={3}>
+					{problems.map((problem) => (
+						<VStack key={problem.profile} gap={1}>
+							<Text weight="semibold">{problem.profile}</Text>
+							<Text type="supporting" color="secondary">
+								{problem.message}
+							</Text>
+						</VStack>
+					))}
+				</VStack>
+			</Banner>
+		</Section>
+	);
+}
+
+/**
  * Save for a project open in the studio: a line that says there are edits the files do not hold,
  * and a review of the lines that change before anything is written.
  */

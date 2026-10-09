@@ -191,8 +191,8 @@ function ProjectRun({
 	if (!isChat && !project.profiles.includes(payload.agentId))
 		return (
 			<EmptyState
-				title={`${payload.agentId} is not in your files yet`}
-				description={`A ${type} profile runs from ${project.name}'s files. Save it to run it here.`}
+				title="Not in your files yet"
+				description={`${payload.agentId} is a ${type} profile, and those run from ${project.name}'s files. Save it to run it here.`}
 			/>
 		);
 	if (decision)

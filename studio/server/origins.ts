@@ -125,7 +125,7 @@ function originsOf(project: ProjectSource, kind: 'profile' | 'tool', targets: re
 /**
  * Where a decision profile's questions are set: the setup module's `questions` export, at the
  * profile's own key when it writes one. A profile does not hold its questions, so the studio
- * shows them and Save does not write them. No place when the setup exports them another way.
+ * shows them and does not change them. No place when the setup exports them another way.
  */
 function questionsOrigin(project: ProjectSource, profileId: string): SettingOrigin {
   const origin: SettingOrigin = { path: ['decision', 'questions'], kind: 'code', text: 'export const questions' };

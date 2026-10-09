@@ -175,6 +175,15 @@ function settle(shared: readonly SharedChange[], plan: SavePlan) {
   }
 }
 
+/** One change as the planner notes it: its status, the setting's path, where it is set, and by what. */
+type ChangeNote = [
+  status: SaveStatus,
+  path: string[],
+  at?: { source: ts.SourceFile; node: ts.Node },
+  name?: string,
+  shared?: Pick<SaveChange, 'sharedWith' | 'readByCode'>,
+];
+
 class Planner {
   readonly changes: SaveChange[] = [];
   readonly edits: SourceEdit[] = [];
@@ -182,23 +191,11 @@ class Planner {
 
   constructor(private readonly project: ProjectSource, private readonly subject: SaveSubject) {}
 
-  private note(
-    status: SaveStatus,
-    path: string[],
-    at?: { source: ts.SourceFile; node: ts.Node },
-    name?: string,
-    shared: Pick<SaveChange, 'sharedWith' | 'readByCode'> = {},
-  ) {
-    this.changes.push(this.change(status, path, at, name, shared));
+  private note(...change: ChangeNote) {
+    this.changes.push(this.change(...change));
   }
 
-  private change(
-    status: SaveStatus,
-    path: string[],
-    at?: { source: ts.SourceFile; node: ts.Node },
-    name?: string,
-    shared: Pick<SaveChange, 'sharedWith' | 'readByCode'> = {},
-  ): SaveChange {
+  private change(...[status, path, at, name, shared = {}]: ChangeNote): SaveChange {
     return {
       kind: this.subject.kind,
       of: this.subject.of,

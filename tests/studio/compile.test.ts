@@ -678,7 +678,7 @@ Deno.test('studioSource writes a text of several lines one line to a line', () =
   );
   assert(!source.includes('desk.\\n'));
 });
-Deno.test('studioSource writes a tool that answers with bare text as z.string()', () => {
+Deno.test('studioSource writes a tool that answers with bare text as that schema', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
   const source = studioSource(
     compiled({
@@ -687,7 +687,7 @@ Deno.test('studioSource writes a tool that answers with bare text as z.string()'
       toolSpecs: [{ ...newToolSpec(draft), outputJson: '{ "type": "string" }' }],
     }),
   );
-  assertStringIncludes(source, 'output: z.string(),');
+  assertStringIncludes(source, "output: z.fromJSONSchema({\n    type: 'string',\n  }),");
 });
 Deno.test('a new text profile starts on the studio Gemini model', () => {
   const draft = setProfileType(createBlankDraft(), 'text');

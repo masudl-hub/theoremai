@@ -121,40 +121,6 @@ export function keySource(key: string): string {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : quoteSource(key);
 }
 
-function zodExprFromProp(prop: JsonSchema, depth: number): string {
-  switch (schemaKind(prop)) {
-    case 'string':
-      return 'z.string()';
-    case 'number':
-      return 'z.number()';
-    case 'boolean':
-      return 'z.boolean()';
-    case 'array': {
-      const items = arrayItems(prop);
-      return `z.array(${items ? zodExprFromProp(items, depth) : 'z.unknown()'})`;
-    }
-    case 'object':
-      return zodExprFromJsonSchema(prop, depth);
-    case 'unknown':
-      return 'z.unknown()';
-  }
-}
-
-/** `depth` is the indent level the expression starts at. */
-export function zodExprFromJsonSchema(schema: JsonSchema, depth = 0): string {
-  // A tool can answer with a bare list, text or number, not only a record.
-  if (schema.type !== undefined && schema.type !== 'object') return zodExprFromProp(schema, depth);
-  const { props, required } = schemaFields(schema);
-  const entries = Object.entries(props);
-  if (!entries.length) return 'z.looseObject({})';
-  const pad = '  '.repeat(depth + 1);
-  const lines = entries.map(([key, prop]) => {
-    const expr = zodExprFromProp(prop, depth + 1);
-    return `${pad}${keySource(key)}: ${required.has(key) ? expr : `${expr}.optional()`},`;
-  });
-  return `z.looseObject({\n${lines.join('\n')}\n${'  '.repeat(depth)}})`;
-}
-
 /** `label` names the schema in the error. */
 export function parseJsonSchema(
   raw: string,

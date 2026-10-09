@@ -45,6 +45,7 @@ function project(over: Partial<SaveHost<StudioWorkspace>> = {}) {
       setupFile: SETUP,
       read: (path) => files.get(path),
       write: (path, text) => void files.set(path, text),
+      remove: (path) => void files.delete(path),
       typeChecks: () => Promise.resolve({ ok: true, output: '' }),
       load: () => Promise.resolve(state.loads),
       stop: (loaded) => Promise.resolve(void stopped.push(loaded)),
@@ -147,9 +148,8 @@ Deno.test('an undo whose load fails writes the save again', async () => {
   assertEquals(text().includes(ALLOWED), true);
 });
 
-Deno.test('a change Save cannot write turns Save off, and a workspace it cannot read is refused', async () => {
-  const { session, text } = project();
-  const workspace = edited();
+/** The example with a second agent beside the first: the same settings under another id. */
+function withSecond(workspace: StudioWorkspace): StudioWorkspace {
   const [agent] = workspace.agents;
   if (!agent) throw new Error('The example changed.');
   const second = {
@@ -157,18 +157,113 @@ Deno.test('a change Save cannot write turns Save off, and a workspace it cannot 
     key: 'second',
     identity: { ...agent.identity, agentId: 'second-desk' },
   };
-  const added = { ...workspace, agents: [agent, second] };
-  const review = await reviewed(session, added);
+  return { ...workspace, agents: [agent, second] };
+}
+
+const SECOND = SETUP.replace('example.ts', 'second-desk.ts');
+
+Deno.test('an agent added in the studio is a new file beside the others, registered in the setup file', async () => {
+  const { session, files, text, state } = project();
+  const workspace = withSecond(opened.workspace);
+  const review = await reviewed(session, workspace);
   assertEquals(
-    review.changes.map(({ of, status }) => [of, status]),
+    review.changes.map(({ of, status, file }) => [of, status, file]),
+    [['second-desk', 'written', 'second-desk.ts']],
+  );
+  assertEquals(review.writable, true);
+  assertEquals(
+    review.files.map(({ file, created, hunks }) => [
+      file,
+      created,
+      hunks.flatMap((hunk) => hunk.added),
+    ]),
     [
-      ['second-desk', 'new'],
-      ['garden-desk', 'written'],
+      [
+        'second-desk.ts',
+        true,
+        [
+          "import { defineProfile } from '../../mod.ts';",
+          '',
+          'export const profile = defineProfile({',
+          "  type: 'host',",
+          "  id: 'second-desk',",
+          '  tools: {',
+          "    allow: ['list_plants', 'log_watering'],",
+          '  },',
+          '});',
+        ],
+      ],
+      [
+        'example.ts',
+        undefined,
+        [
+          "import * as secondDesk from './second-desk.ts';",
+          '  registerProfile(secondDesk.profile);',
+        ],
+      ],
     ],
+  );
+  assertEquals([text(), files.has(SECOND)], [TEXT, false]);
+
+  state.loads = startedHere(workspace);
+  assertEquals(await session.save({ workspace, stamp: review.stamp }), {
+    ok: true,
+    written: ['second-desk.ts', 'example.ts'],
+  });
+  assertEquals(
+    files.get(SECOND)?.startsWith("import { defineProfile } from '../../mod.ts';\n"),
+    true,
+  );
+  assertEquals(text().includes('  registerProfile(secondDesk.profile);\n}'), true);
+
+  state.loads = opened.workspace;
+  assertEquals(await session.undo(), { ok: true, written: ['second-desk.ts', 'example.ts'] });
+  assertEquals([text(), files.has(SECOND)], [TEXT, false]);
+});
+
+Deno.test('a new agent whose file is already there is not written over', async () => {
+  const { session, files } = project();
+  files.set(SECOND, '// mine\n');
+  const review = await reviewed(session, withSecond(opened.workspace));
+  assertEquals(
+    review.changes.map(({ status, file }) => [status, file]),
+    [['taken', 'second-desk.ts']],
+  );
+  assertEquals([review.writable, review.files, files.get(SECOND)], [false, [], '// mine\n']);
+});
+
+Deno.test('a new file that fails a proof is taken away again', async () => {
+  const { session, files, text } = project();
+  const workspace = withSecond(opened.workspace);
+  const { stamp } = await reviewed(session, workspace);
+  // The load is the project as it opened, without the new agent.
+  assertEquals(await session.save({ workspace, stamp }), {
+    ok: false,
+    reason: 'differs',
+    detail: ['second-desk'],
+  });
+  assertEquals([text(), files.has(SECOND)], [TEXT, false]);
+});
+
+Deno.test('a change Save cannot write turns Save off, and a workspace it cannot read is refused', async () => {
+  const { session, text } = project();
+  const workspace = edited();
+  const [agent] = workspace.agents;
+  if (!agent) throw new Error('The example changed.');
+  const removed = {
+    ...workspace,
+    toolSpecs: workspace.toolSpecs.filter((tool) => tool.toolName !== 'list_plants'),
+  };
+  const review = await reviewed(session, removed);
+  assertEquals(
+    review.changes
+      .filter(({ status }) => status !== 'written')
+      .map(({ of, status }) => [of, status]),
+    [['list_plants', 'removed']],
   );
   assertEquals(review.writable, false);
   assertEquals(
-    ((await session.save({ workspace: added, stamp: review.stamp })) as SaveRefusal).reason,
+    ((await session.save({ workspace: removed, stamp: review.stamp })) as SaveRefusal).reason,
     'unwritable',
   );
   assertEquals(text(), TEXT);

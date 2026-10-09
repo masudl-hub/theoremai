@@ -21,7 +21,9 @@ export interface SourceTarget {
 export interface ProjectSource {
   /** The folder the studio may write in. */
   root: string;
-  /** Each file read, by absolute path. */
+  /** The setup module, where reading starts. */
+  entry: string;
+  /** Each file read, by absolute path, the setup module first. */
   files: Map<string, ts.SourceFile>;
   /** The `defineProfile` calls, by profile id. An id written twice has two. */
   profiles: Map<string, SourceTarget[]>;
@@ -96,7 +98,7 @@ function specifiers(source: ts.SourceFile): string[] {
 }
 
 /** What a call is named: `defineProfile(...)` and `theorem.defineProfile(...)` are both `defineProfile`. */
-function calleeName(call: ts.CallExpression): string | undefined {
+export function calleeName(call: ts.CallExpression): string | undefined {
   const callee = call.expression;
   if (ts.isIdentifier(callee)) return callee.text;
   if (ts.isPropertyAccessExpression(callee)) return callee.name.text;
@@ -349,7 +351,7 @@ function constant(source: ts.SourceFile, name: string): ts.Expression | undefine
 }
 
 /** Where a file imports `name` from, and what it is called there. */
-function importOf(source: ts.SourceFile, name: string): { specifier: string; name: string } | undefined {
+export function importOf(source: ts.SourceFile, name: string): { specifier: string; name: string } | undefined {
   for (const statement of source.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
     const bindings = statement.importClause?.namedBindings;
@@ -372,8 +374,8 @@ function textOf(project: ProjectSource, target: SourceTarget, key: string): stri
 
 /** Reads the project from `entry`, the setup module. `read` returns a file's text, or undefined. */
 export function readProjectSource(entry: string, root: string, read: ReadFile): ProjectSource {
-  const project: ProjectSource = { root, files: new Map(), profiles: new Map(), tools: new Map() };
-  const queue = [resolve(entry)];
+  const project: ProjectSource = { root, entry: resolve(entry), files: new Map(), profiles: new Map(), tools: new Map() };
+  const queue = [project.entry];
   for (let path = queue.shift(); path !== undefined; path = queue.shift()) {
     if (project.files.has(path)) continue;
     const text = read(path);

@@ -79,8 +79,12 @@ function reason(change: SaveChange): string {
 			return `Set in code at ${place(change)}. Change it there.`;
 		case 'changed':
 			return `${place(change)} changed after the studio opened it. Reload the studio.`;
-		case 'new':
-			return `Added in the studio. Save does not add a ${change.kind} to your files yet.`;
+		case 'unused':
+			return 'No agent allows this tool yet. Allow it on an agent, or remove it.';
+		case 'taken':
+			return `A file is already at ${place(change)}. Rename the ${change.kind}, or move that file.`;
+		case 'setup':
+			return `The studio cannot tell where ${place(change)} would register a new ${change.kind}. Add it in your code.`;
 		case 'removed':
 			return `Removed in the studio. Save does not remove a ${change.kind} from your files yet.`;
 		default:
@@ -89,7 +93,7 @@ function reason(change: SaveChange): string {
 }
 
 /** One run of changed lines: the lines taken out marked `-`, the lines put in marked `+`. */
-function HunkBlock({ file, hunk }: { file: string; hunk: DiffHunk }) {
+function HunkBlock({ file, hunk, isNew }: { file: string; hunk: DiffHunk; isNew: boolean }) {
 	const lines = [
 		...hunk.lead.map((line) => `  ${line}`),
 		...hunk.removed.map((line) => `- ${line}`),
@@ -101,7 +105,7 @@ function HunkBlock({ file, hunk }: { file: string; hunk: DiffHunk }) {
 		<CodeBlock
 			code={lines.join('\n')}
 			language="diff"
-			title={`${file}:${String(hunk.line)}`}
+			title={isNew ? `New file · ${file}` : `${file}:${String(hunk.line)}`}
 			size="sm"
 			hasCopyButton={false}
 			highlightLines={hunk.added.map((_, index) => firstAdded + index)}
@@ -134,7 +138,12 @@ function ReviewBody({ review }: { review: SaveReview }) {
 			))}
 			{review.files.flatMap((file: SaveFile) =>
 				file.hunks.map((hunk) => (
-					<HunkBlock key={`${file.file}:${String(hunk.line)}`} file={file.file} hunk={hunk} />
+					<HunkBlock
+						key={`${file.file}:${String(hunk.line)}`}
+						file={file.file}
+						hunk={hunk}
+						isNew={file.created === true}
+					/>
 				)),
 			)}
 		</VStack>

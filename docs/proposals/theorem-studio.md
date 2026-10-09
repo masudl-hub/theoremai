@@ -487,7 +487,29 @@ unasked.
   set. The tool's Policy section says the studio asks, and that the
   application runs it as Permission says.
 
-Not built: editing those in the studio. Adding or removing a profile or a tool.
+Built (Masud, 9 Oct: "3a"): Save writes a profile or a tool the builder
+added in the studio.
+
+- Each new one is a new file next to the project's other profile and tool
+  files, named after it. The review shows the whole file, titled "New file".
+- The setup file gains two lines for it, not one: the import, and the line
+  that registers it. The kernel needs a tool registered before the profile
+  that allows it, and an agent before the tool that calls it, so the second
+  line has to sit in the right place. The review shows both.
+- A new tool's file holds its input and output as the JSON Schema the
+  builder wrote, read by zod (`z.fromJSONSchema`). Hand-written zod lost
+  the schema's choices, formats, limits and notes, so the file was not what
+  was tested. Get code prints tools the same way now.
+- A new function tool's handler returns the studio's sample answer, and the
+  file says so. The real handler is the builder's to write.
+- Undo takes the new files away and puts the setup file back.
+- Save refuses, and says why, when a file is already at the new one's path,
+  when it cannot tell where the setup file would register it, and when no
+  agent allows a new tool.
+
+Not built: editing those in the studio. Removing a profile or a tool: the
+review names it and Save does not write it. Changing a tool's schema once it
+is in a file: it reads as set in code, like every tool the project has.
 The project's formatter after the write. Markdown instruction files. A
 type-check for a project that is not Deno.
 

@@ -1,7 +1,7 @@
 /**
  * The inverse of `studioSource`: the file it prints, read back into the draft
  * the form stores. Plain values come back as themselves. The printer's own
- * wrappers (`z.looseObject`, a canned `handler`, `compileDetect`, `.join('\\n')`)
+ * wrappers (`z.fromJSONSchema`, a canned `handler`, `compileDetect`, `.join('\\n')`)
  * come back through the same shapes that printer writes. Anything else is an
  * error at that spot, and the draft is left alone.
  */
@@ -68,11 +68,6 @@ class ReadFail extends Error {
   ) {
     super(message);
   }
-}
-
-/** A Zod field the printer marked `.optional()`. */
-class OptionalField {
-  constructor(readonly schema: Record<string, unknown>) {}
 }
 
 class Src {
@@ -313,34 +308,10 @@ function parseArray(src: Src, path: string, spans: StudioSourceSpan[]): unknown[
 }
 
 function zodSchema(head: string, args: unknown[], src: Src): Record<string, unknown> {
-  if (head === 'z.string') return { type: 'string' };
-  if (head === 'z.number') return { type: 'number' };
-  if (head === 'z.boolean') return { type: 'boolean' };
-  if (head === 'z.unknown') return {};
-  if (head === 'z.array') {
-    const item = args[0] instanceof OptionalField ? args[0].schema : args[0];
-    if (!isRecord(item)) src.fail('z.array() needs a schema.');
-    return { type: 'array', items: item };
-  }
-  if (head === 'z.looseObject' || head === 'z.object') {
-    const fields = args[0];
-    if (!isRecord(fields)) src.fail(`${head}() needs an object.`);
-    const properties: Record<string, unknown> = {};
-    const required: string[] = [];
-    for (const [key, value] of Object.entries(fields)) {
-      if (value instanceof OptionalField) properties[key] = value.schema;
-      else if (isRecord(value)) {
-        properties[key] = value;
-        required.push(key);
-      } else src.fail(`'${key}' is not a schema.`);
-    }
-    return {
-      type: 'object',
-      properties,
-      ...(required.length ? { required } : {}),
-    };
-  }
-  src.fail(`'${head}' isn't a schema this file prints.`);
+  const [schema] = args;
+  if (head !== 'z.fromJSONSchema') src.fail(`'${head}' isn't a schema this file prints.`);
+  if (!isRecord(schema)) src.fail('z.fromJSONSchema() needs a schema.');
+  return schema;
 }
 
 interface Member {
@@ -364,10 +335,6 @@ function memberHead(value: Member): string | undefined {
     return parent ? `${parent}.${value.name}` : undefined;
   }
   return undefined;
-}
-
-function schemaOf(value: unknown): unknown {
-  return value instanceof OptionalField ? value.schema : value;
 }
 
 function objectArg(args: unknown[], src: Src, message: string): Record<string, unknown> {
@@ -415,12 +382,6 @@ function namedCall(
   return src.fail(`'${callee}' isn't part of this file.`);
 }
 
-function nullableSchema(schema: Record<string, unknown>): Record<string, unknown> {
-  const type = schema.type;
-  const types = Array.isArray(type) ? type : type === undefined ? [] : [type];
-  return { ...schema, type: [...types, 'null'] };
-}
-
 function joinedLines(parts: unknown[], sep: unknown, src: Src): string {
   if (typeof sep !== 'string' || parts.some((part) => typeof part !== 'string')) {
     src.fail('.join() here joins lines of one string.');
@@ -429,15 +390,6 @@ function joinedLines(parts: unknown[], sep: unknown, src: Src): string {
 }
 
 function memberCall(callee: Member, args: unknown[], src: Src): unknown {
-  const schema = schemaOf(callee.object);
-  if (callee.name === 'optional') {
-    if (!isRecord(schema)) src.fail('.optional() follows a schema.');
-    return new OptionalField(schema);
-  }
-  if (callee.name === 'nullable') {
-    if (!isRecord(schema)) src.fail('.nullable() follows a schema.');
-    return nullableSchema(schema);
-  }
   if (callee.name === 'join' && Array.isArray(callee.object)) {
     return joinedLines(callee.object, args[0], src);
   }
@@ -608,10 +560,8 @@ function sameValue(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-function schemaText(value: unknown): string {
-  const schema = value instanceof OptionalField ? value.schema : value;
-  if (!isRecord(schema)) return JSON.stringify(schema);
-  return JSON.stringify(schema, null, 2);
+function schemaText(schema: unknown): string {
+  return isRecord(schema) ? JSON.stringify(schema, null, 2) : JSON.stringify(schema);
 }
 
 function patternsOf(value: unknown): PatternDraft[] {
@@ -834,7 +784,7 @@ function bindingOf(
 
 /** The canned reply a function tool returns, when the file wrote its own. */
 function stubOf(type: string, spec: Record<string, unknown>): string | undefined {
-  const schema = schemaOf(spec.output);
+  const schema = spec.output;
   if (type !== 'function' || !isRecord(spec.handler) || !isRecord(schema)) return undefined;
   if (sameValue(spec.handler, stubOutputFromSchema(schema))) return undefined;
   return jsonText(spec.handler);

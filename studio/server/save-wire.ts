@@ -80,9 +80,21 @@ export type OpenAnswer =
  * - `code`: code computes it, or the file sets it in a way the studio cannot follow.
  * - `changed`: the file no longer holds the value the studio opened.
  * - `unfound`: no place in the project's files sets it.
- * - `new`, `removed`: a profile or tool the studio added or took away.
+ * - `unused`: a tool the studio added that no agent allows, so it was never run.
+ * - `taken`: the file a new profile or tool would be written to is already there.
+ * - `setup`: the studio cannot tell how the project's setup registers things, so it cannot add one.
+ * - `removed`: a profile or tool the studio took away.
  */
-export type SaveStatus = 'written' | 'constant' | 'code' | 'changed' | 'unfound' | 'new' | 'removed';
+export type SaveStatus =
+  | 'written'
+  | 'constant'
+  | 'code'
+  | 'changed'
+  | 'unfound'
+  | 'unused'
+  | 'taken'
+  | 'setup'
+  | 'removed';
 
 export interface SaveChange {
   kind: 'profile' | 'tool';
@@ -123,6 +135,8 @@ export interface SaveRequest {
 export interface SaveFile {
   file: string;
   hunks: DiffHunk[];
+  /** Save creates the file: its one hunk is the whole of it. */
+  created?: true;
 }
 
 /** The review before a write: every change, where it lands, and whether Save can write them all. */

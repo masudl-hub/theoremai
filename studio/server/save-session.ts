@@ -10,6 +10,7 @@ import { relative, resolve } from 'node:path';
 import type { StudioWorkspace } from '../workspace.ts';
 import { sourceOrigins } from './origins.ts';
 import { type ProjectSource, readProjectSource, sharedSettings } from './project-source.ts';
+import { planNew } from './save-new.ts';
 import { applyEdits, diffHunks, planSave, type SourceEdit } from './save-plan.ts';
 import { type ProjectNames, projectDiffers, projectNames, saveSubjects } from './save.ts';
 import type {
@@ -31,7 +32,10 @@ export interface SaveHost<Loaded> {
   setupFile: string;
   /** A project file's text, or undefined when it is missing or leads outside the project. */
   read(path: string): string | undefined;
+  /** Writes a file, with the folders that lead to it. */
   write(path: string, text: string): void;
+  /** Takes away a file Save created. */
+  remove(path: string): void;
   /** Whether the project type-checks as it is on disk, and what the checker printed. */
   typeChecks(): Promise<{ ok: boolean; output: string }>;
   /** Loads the project from disk. Throws what it printed when it does not start. */
@@ -56,8 +60,8 @@ export interface SaveSession<Loaded> {
   undo(): Promise<SaveDone | SaveRefusal>;
 }
 
-/** A file Save changes: its text now and its text after. */
-type FileChange = { before: string; after: string };
+/** A file Save changes: its text now and its text after. `created` when Save makes the file. */
+type FileChange = { before: string; after: string; created: boolean };
 type Files = Map<string, FileChange>;
 
 const refusal = (reason: SaveRefusal['reason'], detail: string[] = []): SaveRefusal => ({ ok: false, reason, detail });
@@ -141,22 +145,29 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     if (!subjects.ok) return refusal('issues', subjects.issues);
     const source = readProjectSource(host.setupFile, root, host.read);
     const plan = planSave(source, subjects.subjects);
+    const added = planNew(source, subjects.added, (path) => host.read(path) !== undefined);
     const files: Files = new Map();
     const view: SaveReview['files'] = [];
-    for (const [file, edits] of Map.groupBy(plan.edits, (edit: SourceEdit) => edit.file)) {
-      const before = source.files.get(file)?.text ?? '';
-      files.set(file, { before, after: applyEdits(before, edits) });
-      view.push({ file: inRoot(file), hunks: diffHunks(before, edits) });
+    const edits = [...plan.edits, ...added.edits];
+    for (const [file, held] of Map.groupBy(edits, (edit: SourceEdit) => edit.file)) {
+      const opened = source.files.get(file);
+      const before = opened?.text ?? '';
+      files.set(file, { before, after: applyEdits(before, held), created: !opened });
+      view.push({ file: inRoot(file), hunks: diffHunks(before, held), ...(opened ? {} : { created: true }) });
     }
-    const changes = [...subjects.changes, ...plan.changes].map((change: SaveChange) =>
+    const changes = [...subjects.changes, ...plan.changes, ...added.changes].map((change: SaveChange) =>
       change.file ? { ...change, file: inRoot(change.file) } : change
     );
     const writable = files.size > 0 && changes.every((change) => change.status === 'written');
     return { files, view: { ok: true, changes, files: view, stamp: await stampOf([...files]), writable } };
   };
 
-  const put = (files: Files, side: keyof FileChange) => {
-    for (const [file, change] of files) host.write(file, change[side]);
+  /** Writes each file as it was or as Save makes it. A file Save created is taken away, not emptied. */
+  const put = (files: Files, side: 'before' | 'after') => {
+    for (const [file, change] of files) {
+      if (change.created && side === 'before') host.remove(file);
+      else host.write(file, change[side]);
+    }
   };
 
   /** Loads the project from disk and answers with it from now on. */

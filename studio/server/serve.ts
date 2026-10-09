@@ -20,7 +20,7 @@
  * @module
  */
 
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } from './handler.ts';
 import { answerOpen, chosenEditor, type EditorHost } from './open-editor.ts';
 import { PROJECT_READY } from './project.ts';
@@ -157,7 +157,11 @@ const session = createSaveSession<Loaded>(
     root,
     setupFile,
     read: readInside,
-    write: (path, text) => Deno.writeTextFileSync(path, text),
+    write: (path, text) => {
+      Deno.mkdirSync(dirname(path), { recursive: true });
+      Deno.writeTextFileSync(path, text);
+    },
+    remove: (path) => Deno.removeSync(path),
     typeChecks,
     load: loadProject,
     stop,

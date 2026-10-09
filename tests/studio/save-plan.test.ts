@@ -1,4 +1,7 @@
 import { assertEquals, assertThrows } from '@std/assert';
+import { z } from 'zod';
+import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
+import { defaultToolSpec } from '../../studio/draft.ts';
 import registerExample from '../../studio/server/example.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import {
@@ -13,7 +16,7 @@ import {
   planSave,
   type SaveSubject,
 } from '../../studio/server/save-plan.ts';
-import { setToolAllowed } from '../../studio/workspace.ts';
+import { setToolAllowed, startedHere } from '../../studio/workspace.ts';
 
 const ROOT = '/project';
 
@@ -435,7 +438,49 @@ Deno.test('allowing a tool in the studio is one changed line in the project', ()
   assertEquals(projectDiffers(edited, edited), []);
 });
 
-Deno.test('a profile or tool the studio added or removed is named, not written', () => {
+Deno.test('a tool the studio added is compared as the kernel reads its schema', () => {
+  const { workspace } = opened;
+  const input = {
+    type: 'object',
+    properties: {
+      bed: { type: 'string', enum: ['north', 'south'], description: 'Which bed to count.' },
+      since: { type: 'string', format: 'date' },
+      limit: { type: 'integer', minimum: 1, maximum: 50, default: 10 },
+    },
+    required: ['bed'],
+    additionalProperties: false,
+  };
+  const added = defaultToolSpec({
+    toolName: 'count_plants',
+    description: 'Counts the plants in a bed.',
+    inputJson: JSON.stringify(input, null, 2),
+  });
+  const [agent] = workspace.agents;
+  if (!agent) throw new Error('The example changed.');
+  const allowed = (held: typeof workspace) => setToolAllowed(held, agent.key, added.key, true);
+  const tested = allowed({ ...workspace, toolSpecs: [...workspace.toolSpecs, added] });
+  // The files as they load after Save: the kernel reads the schema back from the new tool's file.
+  const read = (schema: unknown, side: 'input' | 'output') =>
+    JSON.stringify(jsonSchemaFromZod(z.fromJSONSchema(schema as never), side));
+  const loadedAs = (schema: unknown) => {
+    const tool = {
+      ...added,
+      inputJson: read(schema, 'input'),
+      outputJson: read(JSON.parse(added.outputJson), 'output'),
+    };
+    return allowed({ ...workspace, toolSpecs: [...workspace.toolSpecs, tool] });
+  };
+  assertEquals(projectDiffers(loadedAs(input), tested), []);
+  // After that Save the page still holds the schema as the builder wrote it, and saves again.
+  assertEquals(projectDiffers(loadedAs(input), startedHere(tested)), []);
+
+  // A file that lost a limit the builder tested is not what was tested.
+  const { maximum: _, ...unbounded } = input.properties.limit;
+  const looser = { ...input, properties: { ...input.properties, limit: unbounded } };
+  assertEquals(projectDiffers(loadedAs(looser), tested), ['count_plants']);
+});
+
+Deno.test('a profile the studio added is one to write, and one it removed is named, not written', () => {
   const { workspace } = opened;
   const [agent] = workspace.agents;
   if (!agent) throw new Error('The example changed.');
@@ -443,10 +488,13 @@ Deno.test('a profile or tool the studio added or removed is named, not written',
     profiles: ['other'],
     tools: projectNames(workspace).tools,
   });
-  assertEquals(subjects.ok && subjects.changes.map(({ of, status }) => [of, status]), [
-    ['garden-desk', 'new'],
-    ['other', 'removed'],
-  ]);
+  assertEquals(
+    subjects.ok && [
+      subjects.added.profiles,
+      subjects.changes.map(({ of, status }) => [of, status]),
+    ],
+    [['garden-desk'], [['other', 'removed']]],
+  );
 });
 
 Deno.test('Save rewrites complete literal values and joined text without evaluating expressions', () => {

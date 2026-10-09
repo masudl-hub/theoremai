@@ -139,7 +139,6 @@ export {
   DEFAULT_TOOL_OUTPUT_SCHEMA,
   parseJsonSchema,
   sampleFromJsonSchema,
-  zodExprFromJsonSchema,
   zodFromJsonSchema,
 } from './tool-schema.ts';
 export {

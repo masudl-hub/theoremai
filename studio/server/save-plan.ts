@@ -109,14 +109,14 @@ export function plain(expression: ts.Expression): unknown {
 }
 
 /** The whitespace a line starts with. */
-function indentAt(source: ts.SourceFile, position: number): string {
+export function indentAt(source: ts.SourceFile, position: number): string {
   const { line } = source.getLineAndCharacterOfPosition(position);
   const start = source.getPositionOfLineAndCharacter(line, 0);
   return /^[ \t]*/.exec(source.text.slice(start))?.[0] ?? '';
 }
 
 /** One level of a file's indentation: a tab, or its narrowest run of spaces. */
-function indentUnit(source: ts.SourceFile): string {
+export function indentUnit(source: ts.SourceFile): string {
   let narrowest = 0;
   for (const line of source.text.split('\n')) {
     if (line.startsWith('\t')) return '\t';

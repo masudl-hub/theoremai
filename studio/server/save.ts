@@ -7,8 +7,11 @@
  * @module
  */
 
+import { z } from 'zod';
+import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
 import type { CompiledStudio } from '../compile.ts';
+import type { NewSubjects } from './save-new.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import type { StudioWorkspace } from '../workspace.ts';
 import { canonical, type SaveSubject } from './save-plan.ts';
@@ -21,10 +24,12 @@ export interface ProjectNames {
 }
 
 export type SaveSubjects =
-  | { ok: true; subjects: SaveSubject[]; changes: SaveChange[] }
+  | { ok: true; subjects: SaveSubject[]; added: NewSubjects; changes: SaveChange[] }
   | { ok: false; issues: string[] };
 
 interface Compiled {
+  /** Each agent after the agents it names. */
+  agents: CompiledStudio[];
   profiles: Map<string, CompiledStudio['profile']>;
   tools: Map<string, ToolRegistration>;
 }
@@ -34,7 +39,8 @@ function compiled(workspace: StudioWorkspace): Compiled | string[] {
   if (!result.ok) return result.issues.map((issue) => issue.message);
   const tools = new Map<string, ToolRegistration>();
   for (const agent of result.agents) for (const tool of agent.customTools) tools.set(tool.name, tool);
-  return { profiles: new Map(result.agents.map((agent) => [agent.agentId, agent.profile])), tools };
+  const profiles = new Map(result.agents.map((agent) => [agent.agentId, agent.profile]));
+  return { agents: result.agents, profiles, tools };
 }
 
 /** The names of the project's profiles and tools, from the workspace it opened as. */
@@ -54,8 +60,9 @@ function atStart(workspace: StudioWorkspace, names: ProjectNames): StudioWorkspa
 }
 
 /**
- * The profiles and tools that changed, each before and after. `changes` holds what Save cannot
- * write at all: a profile or tool the studio added or removed.
+ * The profiles and tools that changed, each before and after, and the ones the studio added.
+ * `changes` holds what Save cannot write at all: a profile or tool the studio removed, and a tool
+ * it added that no agent allows.
  */
 export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): SaveSubjects {
   const before = compiled(atStart(workspace, names));
@@ -67,6 +74,7 @@ export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): S
 
   const subjects: SaveSubject[] = [];
   const changes: SaveChange[] = [];
+  const added = { profiles: [] as string[], tools: [] as ToolRegistration[] };
   const seen = { profile: new Set<string>(), tool: new Set<string>() };
   const add = (
     kind: 'profile' | 'tool',
@@ -76,7 +84,11 @@ export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): S
     edited: boolean,
   ) => {
     if (started === undefined || !known.includes(started)) {
-      changes.push({ kind, of: now, setting: '', status: 'new' });
+      const tool = kind === 'tool' ? after.tools.get(now) : undefined;
+      if (kind === 'profile') added.profiles.push(now);
+      else if (tool) added.tools.push(tool);
+      // A tool no agent allows is not compiled, so no run tested it and there is nothing to write.
+      else changes.push({ kind, of: now, setting: '', status: 'unused' });
       return;
     }
     seen[kind].add(started);
@@ -104,7 +116,22 @@ export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): S
   for (const name of names.tools) {
     if (!seen.tool.has(name)) changes.push({ kind: 'tool', of: name, setting: '', status: 'removed' });
   }
-  return { ok: true, subjects, changes };
+  return { ok: true, subjects, added: { agents: after.agents, ...added }, changes };
+}
+
+/** A tool with its schemas as the kernel reads them from the file Save writes: zod's reading of the same JSON. */
+function asKernelReads(tool: ToolRegistration): ToolRegistration {
+  if (tool.type === 'agent') return tool;
+  try {
+    return {
+      ...tool,
+      inputSchema: jsonSchemaFromZod(z.fromJSONSchema(tool.inputSchema), 'input'),
+      outputSchema: jsonSchemaFromZod(z.fromJSONSchema(tool.outputSchema), 'output'),
+    };
+  } catch {
+    // A schema zod cannot read does not load either: the tool is left to differ.
+    return tool;
+  }
 }
 
 /**
@@ -117,12 +144,15 @@ export function projectDiffers(loaded: StudioWorkspace, tested: StudioWorkspace)
   if (Array.isArray(now)) return now;
   if (Array.isArray(wanted)) return wanted;
   const differs: string[] = [];
-  const compare = (a: Map<string, unknown>, b: Map<string, unknown>) => {
-    for (const name of new Set([...a.keys(), ...b.keys()])) {
-      if (canonical(a.get(name)) !== canonical(b.get(name))) differs.push(name);
-    }
-  };
-  compare(now.profiles, wanted.profiles);
-  compare(now.tools, wanted.tools);
+  const same = (a: unknown, b: unknown) => canonical(a) === canonical(b);
+  for (const id of new Set([...now.profiles.keys(), ...wanted.profiles.keys()])) {
+    if (!same(now.profiles.get(id), wanted.profiles.get(id))) differs.push(id);
+  }
+  // A file holds a tool's schema as the page does, or as the kernel reads the page's: a tool the
+  // studio wrote loads as zod's reading of the JSON the builder tested.
+  for (const name of new Set([...now.tools.keys(), ...wanted.tools.keys()])) {
+    const [loads, tool] = [now.tools.get(name), wanted.tools.get(name)];
+    if (!same(loads, tool) && !(tool && same(loads, asKernelReads(tool)))) differs.push(name);
+  }
   return differs;
 }

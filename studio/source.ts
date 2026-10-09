@@ -8,7 +8,7 @@ import type { CompiledStudio } from './compile.ts';
 import type { CompiledWorkspace } from './compile-workspace.ts';
 import type { ToolRegistration } from './registrations.ts';
 import { stubOutputFromSchema } from './stub.ts';
-import { keySource, quoteSource, zodExprFromJsonSchema } from './tool-schema.ts';
+import { keySource, quoteSource } from './tool-schema.ts';
 
 /** Source text written as-is into the module. */
 class Expr {
@@ -74,7 +74,10 @@ function literal(value: unknown, depth: number, style: SourceStyle = STUDIO_STYL
   throw new Error(`Studio source cannot write a ${typeof value} value.`);
 }
 
-const COMPILE_IMPORT = `import { compileDetect } from '@theoremjs/agents/guardrails/compile';`;
+/** The package an exported module imports the kernel from. */
+export const AGENTS_PACKAGE = '@theoremjs/agents';
+
+const COMPILE_IMPORT = `import { compileDetect } from '${AGENTS_PACKAGE}/guardrails/compile';`;
 
 /**
  * The profile's `defineProfile` call. A detector's own patterns need their compiled table, so
@@ -104,10 +107,10 @@ function toolSource(tool: ToolRegistration, indent = 0): string {
   const { inputSchema, outputSchema, ...fields } = tool;
   // The kernel fixes an agent tool's schemas.
   if (fields.type === 'agent') return call(fields);
-  const zod = {
-    input: new Expr(zodExprFromJsonSchema(inputSchema, indent + 1)),
-    output: new Expr(zodExprFromJsonSchema(outputSchema, indent + 1)),
-  };
+  // The schema as it is, read by zod: hand-written zod would keep its shape and lose the rest.
+  const read = (schema: Record<string, unknown>) =>
+    new Expr(`z.fromJSONSchema(${literal(schema, indent + 1)})`);
+  const zod = { input: read(inputSchema), output: read(outputSchema) };
   if (fields.type !== 'function') return call({ ...fields, ...zod });
   const { stubResponse, ...functionFields } = fields;
   // The page answers the call, so the tool has no handler; the stub is the studio's stand-in.
@@ -203,7 +206,7 @@ export function importSpecifier(path: string): string {
 }
 
 /** A camelCase identifier for an agent id, unique among `taken`. */
-function agentIdentifier(agentId: string, taken: Set<string>): string {
+export function agentIdentifier(agentId: string, taken: Set<string>): string {
   const words = agentId.split(/[^A-Za-z0-9]+/).filter(Boolean);
   const joined = words
     .map((word, index) => (index ? word[0].toUpperCase() + word.slice(1) : word.toLowerCase()))
@@ -215,18 +218,21 @@ function agentIdentifier(agentId: string, taken: Set<string>): string {
   return name;
 }
 
-/** An agent's module: its profile, and its structured reply and questions when it has them. Registers nothing. */
-function agentModule(compiled: CompiledStudio): string {
+/**
+ * An agent's module: its profile, and its structured reply and questions when it has them.
+ * Registers nothing. `from` is where the module imports the kernel from.
+ */
+export function agentModule(compiled: CompiledStudio, from = AGENTS_PACKAGE): string {
   const { profile, structured, questions } = compiled;
   const imports = [...(questions ? ['type DecisionQuestion'] : []), 'defineProfile'];
   const defined = profileSource(profile);
   const blocks = [
-    `import { ${imports.join(', ')} } from '@theoremjs/agents';\n${
+    `import { ${imports.join(', ')} } from ${quoteSource(from)};\n${
       defined.compiles ? `${COMPILE_IMPORT}\n` : ''
     }`,
     ...(structured
       ? [
-          `/** The reply's shape: \`theorem.ts\` registers it before the profile. */\nexport const structured = ${literal(
+          `/** The reply's shape, registered before the profile. */\nexport const structured = ${literal(
             structured,
             0,
           )};\n`,
@@ -243,6 +249,35 @@ function agentModule(compiled: CompiledStudio): string {
       : []),
   ];
   return blocks.join('\n');
+}
+
+/**
+ * One tool's module: a function that registers it, for the setup to call where the tool belongs
+ * in its order. `from` is where the module imports the kernel and `z` from.
+ */
+export function toolModule(
+  tool: ToolRegistration,
+  register: string,
+  from: { agents: string; zod: string },
+): string {
+  const zod = tool.type === 'agent' ? undefined : from.zod;
+  const imports = zod === from.agents
+    ? `import { registerTool, z } from ${quoteSource(from.agents)};\n`
+    : `${zod ? `import { z } from ${quoteSource(zod)};\n` : ''}import { registerTool } from ${
+      quoteSource(from.agents)
+    };\n`;
+  const order = tool.type === 'agent'
+    ? 'Call it after the agent it runs is registered, and before any agent that allows it.'
+    : 'Call it before any agent that allows it is registered.';
+  // A function tool made in the studio answers with its sample until its handler is written.
+  const stands = tool.type === 'function' && tool.answeredBy !== 'page';
+  const note = stands ? `${order}\n * Its handler returns the studio's sample answer: write the real one here.` : order;
+  return [
+    imports,
+    `/**${stands ? '\n *' : ''} Registers \`${tool.name}\`. ${note}${stands ? '\n' : ''} */\nexport function ${register}(): void {\n${
+      toolSource(tool, 1)
+    }}\n`,
+  ].join('\n');
 }
 
 /** The library's function, HTTP and MCP tools, each once; agent tools wait for their agents. */

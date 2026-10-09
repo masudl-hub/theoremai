@@ -405,3 +405,73 @@ Deno.test('what has no safe place is named and nothing is planned for it', () =>
   ]);
   assertEquals(planned({ 'setup.ts': INLINE }, added([])), { written: {}, statuses: [] });
 });
+
+/** A decision as the studio compiles it: the profile, and the questions it is asked. */
+function decision(id: string): CompiledStudio {
+  return {
+    agentId: id,
+    profile: { type: 'decision', id, models: [{ provider: 'typesafe', model: 'jev' }] },
+    customTools: [],
+    questions: { urgent: { type: 'noul', instructions: 'Is it urgent?' } },
+  };
+}
+
+Deno.test('a new decision is a file, and the setup names the questions it is asked', () => {
+  const added = (...ids: string[]) => ({ agents: ids.map(decision), profiles: ids, tools: [] });
+  const setup = (text: string, ...ids: string[]) => planned({ 'setup.ts': text }, added(...ids));
+
+  // The setup exports no questions yet: the export goes at the end, outside what registers.
+  const first = setup(INLINE, 'night-check');
+  assertEquals(first.statuses, [['night-check', 'written', 'night-check.ts']]);
+  assertEquals(first.written['night-check.ts'].includes('export const questions = {'), true);
+  assertEquals(
+    first.written['setup.ts'],
+    `import { defineProfile, registerProfile, registerTool, z } from '@theoremjs/agents';
+import * as nightCheck from './night-check';
+
+export default function register() {
+  ${LIST}
+  registerProfile(${DESK});
+  registerProfile(nightCheck.profile);
+}
+
+/** What each decision profile is asked, by profile id. The studio reads it. */
+export const questions = {
+  'night-check': nightCheck.questions,
+};
+`,
+  );
+
+  // It exports some: each new decision is one more entry, written as the others are.
+  const tail = (held: string) =>
+    setup(`${INLINE}\nexport const questions = ${held};\n`, 'a', 'b').written['setup.ts'].split(
+      'export const questions = ',
+    )[1];
+  assertEquals(
+    tail('{\n  desk: { urgent: URGENT },\n}'),
+    '{\n  desk: { urgent: URGENT },\n  a: a.questions,\n  b: b.questions,\n};\n',
+  );
+  assertEquals(tail('{ desk: ASKED }'), '{ desk: ASKED, a: a.questions, b: b.questions };\n');
+  assertEquals(tail('{} satisfies Asked'), '{ a: a.questions, b: b.questions } satisfies Asked;\n');
+});
+
+Deno.test('a new decision is not written when the setup cannot name its questions', () => {
+  const added = { agents: [decision('a')], profiles: ['a'], tools: [] };
+  const refused = { written: {}, statuses: [['a', 'setup', 'setup.ts']] };
+  // The questions are made by code, or exported another way: a line there is not the studio's to write.
+  assertEquals(
+    planned({ 'setup.ts': `${INLINE}\nexport const questions = asked();\n` }, added),
+    refused,
+  );
+  assertEquals(
+    planned({ 'setup.ts': `${INLINE}\nconst questions = {};\nexport { questions };\n` }, added),
+    refused,
+  );
+  // Another file registers the profiles: the studio reads the questions from the setup it opens.
+  assertEquals(planned(SPLIT, added, 'setup.ts').statuses, [['a', 'written', 'agents/a.ts']]);
+  const elsewhere = {
+    'setup.ts': "import './register';\n",
+    'register.ts': `import { defineProfile, registerProfile } from '@theoremjs/agents';\nregisterProfile(${DESK});\n`,
+  };
+  assertEquals(planned(elsewhere, added), refused);
+});

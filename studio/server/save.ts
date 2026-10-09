@@ -31,6 +31,8 @@ interface Compiled {
   /** Each agent after the agents it names. */
   agents: CompiledStudio[];
   profiles: Map<string, CompiledStudio['profile']>;
+  /** What each decision profile is asked, by profile id. */
+  asked: Map<string, CompiledStudio['questions']>;
   tools: Map<string, ToolRegistration>;
 }
 
@@ -40,7 +42,8 @@ function compiled(workspace: StudioWorkspace): Compiled | string[] {
   const tools = new Map<string, ToolRegistration>();
   for (const agent of result.agents) for (const tool of agent.customTools) tools.set(tool.name, tool);
   const profiles = new Map(result.agents.map((agent) => [agent.agentId, agent.profile]));
-  return { agents: result.agents, profiles, tools };
+  const asked = new Map(result.agents.map((agent) => [agent.agentId, agent.questions]));
+  return { agents: result.agents, profiles, asked, tools };
 }
 
 /** The names of the project's profiles and tools, from the workspace it opened as. */
@@ -146,7 +149,9 @@ export function projectDiffers(loaded: StudioWorkspace, tested: StudioWorkspace)
   const differs: string[] = [];
   const same = (a: unknown, b: unknown) => canonical(a) === canonical(b);
   for (const id of new Set([...now.profiles.keys(), ...wanted.profiles.keys()])) {
-    if (!same(now.profiles.get(id), wanted.profiles.get(id))) differs.push(id);
+    // A decision is its profile and what it is asked: the files must hold both as tested.
+    const held = same(now.profiles.get(id), wanted.profiles.get(id)) && same(now.asked.get(id), wanted.asked.get(id));
+    if (!held) differs.push(id);
   }
   // A file holds a tool's schema as the page does, or as the kernel reads the page's: a tool the
   // studio wrote loads as zod's reading of the JSON the builder tested.

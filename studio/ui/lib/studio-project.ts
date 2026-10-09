@@ -132,13 +132,26 @@ async function describe(): Promise<Opened> {
 	return response.json();
 }
 
+/** What a project's files say, which a Save or an edit in the builder's editor changes. */
+export type ProjectFiles = Pick<ProjectSession, 'profiles' | 'problems' | 'origins' | 'asks'>;
+
+/** What the files say, of a project as the server describes it. */
+function filesOf(opened: Opened): ProjectFiles {
+	return {
+		profiles: opened.workspace.agents.map((agent) => agent.identity.agentId),
+		problems: opened.problems,
+		origins: opened.origins ?? NO_ORIGINS,
+		asks: opened.asks ?? NO_ASKS,
+	};
+}
+
 /**
- * What the project's files say now that the page does not hold as edits: the settings they set in
- * code, whose lines a Save moves, and the tools the studio makes ask.
+ * What the project's files say now that the page does not hold as edits: the profiles they hold
+ * and the ones the studio cannot run, the settings they set in code, whose lines a Save moves,
+ * and the tools the studio makes ask.
  */
-export async function readFiles(): Promise<Pick<ProjectSession, 'origins' | 'asks'>> {
-	const { origins = NO_ORIGINS, asks = NO_ASKS } = await describe();
-	return { origins, asks };
+export async function readFiles(): Promise<ProjectFiles> {
+	return filesOf(await describe());
 }
 
 /** The project the local server has open. Throws when no server answers. */
@@ -151,11 +164,8 @@ export async function openProject(): Promise<{
 		project: {
 			endpoint: PROJECT_ENDPOINT,
 			name: opened.project,
-			profiles: opened.workspace.agents.map((agent) => agent.identity.agentId),
-			problems: opened.problems,
 			shared: opened.shared ?? [],
-			origins: opened.origins ?? NO_ORIGINS,
-			asks: opened.asks ?? NO_ASKS,
+			...filesOf(opened),
 		},
 		workspace: opened.workspace,
 	};

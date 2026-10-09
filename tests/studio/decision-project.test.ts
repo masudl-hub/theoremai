@@ -5,12 +5,16 @@ registerFixtureProviders(defaultKernelScope);
 
 import { assertEquals } from '@std/assert';
 import { type DecisionQuestion, registerProfile } from '../../mod.ts';
+import { compileWorkspace } from '../../studio/compile-workspace.ts';
+import { createDecisionExampleDraft } from '../../studio/example.ts';
 import {
   createStudioHandler,
   noQuestions,
   questionsFault,
   type StudioDescription,
 } from '../../studio/server/handler.ts';
+import { projectDiffers } from '../../studio/server/save.ts';
+import { workspaceFromDraft } from '../../studio/workspace.ts';
 
 const HOST = '127.0.0.1:4983';
 const BASE = `http://${HOST}/api/studio`;
@@ -132,4 +136,29 @@ Deno.test('questions a setup file wrote wrongly are named, not run', () => {
     questionsFault('desk', { next: { type: 'pick', instructions: 'Which?' } }),
     "The question 'next' the setup file exports for desk needs a type: 'choice', 'noul' or 'score'.",
   );
+});
+
+Deno.test('a decision made in the studio loads from its files as what was tested', async () => {
+  const tested = workspaceFromDraft(createDecisionExampleDraft());
+  const compiled = compileWorkspace(tested);
+  if (!compiled.ok) throw new Error(compiled.issues.map((issue) => issue.message).join(' '));
+  const [made] = compiled.agents;
+  // What Save writes: the profile registered, and its questions under its id in the setup's export.
+  registerProfile(made.profile);
+  const saved = (asks: Record<string, DecisionQuestion>) =>
+    createStudioHandler({
+      project: 'decisions',
+      pageOrigins: [],
+      listenHost: HOST,
+      questions: { [made.agentId]: asks },
+    })(new Request(BASE, { headers: { host: HOST } })).then(
+      (response) => response.json() as Promise<StudioDescription>,
+    );
+  const others = ['triage-desk', 'unasked-desk'];
+  const differs = async (asks: Record<string, DecisionQuestion>) =>
+    projectDiffers((await saved(asks)).workspace, tested).filter((id) => !others.includes(id));
+
+  assertEquals(await differs(made.questions ?? {}), []);
+  // Files that ask something else are not what was tested.
+  assertEquals(await differs(questions), [made.agentId]);
 });

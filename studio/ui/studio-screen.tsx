@@ -145,6 +145,7 @@ import {
 	NO_ASKS,
 	openInEditor,
 	ProjectContext,
+	type ProjectFiles,
 	type ProjectSession,
 	readFiles,
 	useProject,
@@ -1352,7 +1353,7 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 			flush();
 		};
 	}, [store]);
-	const { origins, asks, refreshOrigins } = useProjectFiles(project);
+	const { files, refreshOrigins } = useProjectFiles(project);
 	return {
 		store,
 		workspace,
@@ -1361,22 +1362,30 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 		setDraft,
 		update,
 		shared,
-		origins,
-		asks,
+		origins: files?.origins,
+		asks: files?.asks,
+		files,
 		refreshOrigins,
 	};
 }
 
 /**
- * The settings the project's files set in code, and the tools the studio makes ask. They are read
- * again when the files may have moved: after a Save or an undo, and when the builder comes back
- * to the page from their editor.
+ * What the project's files say: the profiles they hold, the settings they set in code, and the
+ * tools the studio makes ask. They are read again when the files may have moved: after a Save or
+ * an undo, and when the builder comes back to the page from their editor.
  */
 function useProjectFiles(project: ProjectSession | undefined) {
-	const [files, setFiles] = useState(project && { origins: project.origins, asks: project.asks });
+	const [files, setFiles] = useState<ProjectFiles | undefined>(project);
 	const refreshOrigins = useCallback(() => {
 		// A server that does not answer leaves the last reading.
-		if (project) readFiles().then(setFiles, () => undefined);
+		if (!project) return;
+		readFiles().then(
+			// Files that say what they said keep the reading, so nothing that runs on it starts again.
+			(read) => {
+				setFiles((held) => (JSON.stringify(held) === JSON.stringify(read) ? held : read));
+			},
+			() => undefined,
+		);
 	}, [project]);
 	useEffect(() => {
 		globalThis.addEventListener('focus', refreshOrigins);
@@ -1384,7 +1393,7 @@ function useProjectFiles(project: ProjectSession | undefined) {
 			globalThis.removeEventListener('focus', refreshOrigins);
 		};
 	}, [refreshOrigins]);
-	return { origins: files?.origins, asks: files?.asks, refreshOrigins };
+	return { files, refreshOrigins };
 }
 
 /** Shows an origin's line in the builder's editor, and says where it is when no editor opens. */
@@ -2402,8 +2411,14 @@ function Studio({ opened }: { opened: StudioOpened }) {
 		setList('shared');
 	}, [setList]);
 
+	// The project as its files are now: a Save changes which profiles they hold.
+	const project = useMemo(
+		() => (opened.project ? { ...opened.project, ...state.files } : null),
+		[opened.project, state.files],
+	);
+
 	return (
-		<ProjectContext.Provider value={opened.project ?? null}>
+		<ProjectContext.Provider value={project}>
 			<ConfirmWrite value={asking.confirm}>
 				<ProjectAsks value={state.asks ?? NO_ASKS}>
 					{asking.dialog}

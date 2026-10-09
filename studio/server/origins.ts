@@ -12,6 +12,7 @@ import {
   namedValue,
   type ProjectSource,
   propertyName,
+  questionsExport,
   type SourceTarget,
   unwrapped,
   usersOf,
@@ -119,19 +120,6 @@ function originsOf(project: ProjectSource, kind: 'profile' | 'tool', targets: re
   const reader = new Reader(project, kind);
   reader.walk(target.options, target.source, []);
   return reader.found;
-}
-
-/** The setup module's `export const questions`, when it writes one. */
-function questionsExport(source: ts.SourceFile): ts.VariableDeclaration | undefined {
-  for (const statement of source.statements) {
-    if (!ts.isVariableStatement(statement)) continue;
-    if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
-    const found = statement.declarationList.declarations.find((declaration) =>
-      ts.isIdentifier(declaration.name) && declaration.name.text === 'questions'
-    );
-    if (found) return found;
-  }
-  return undefined;
 }
 
 /**

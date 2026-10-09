@@ -222,7 +222,13 @@ export function ProjectSave({
 }) {
 	const toast = useToast();
 	const [step, setStep] = useState<SaveStep>({ at: 'closed' });
-	const clean = useMemo(() => atStart(workspace), [workspace]);
+	// An agent added here is at its own start, and still one the files do not hold.
+	const clean = useMemo(
+		() =>
+			atStart(workspace) &&
+			workspace.agents.every((agent) => project.profiles.includes(agent.identity.agentId)),
+		[workspace, project.profiles],
+	);
 
 	const open = () => {
 		setStep({ at: 'reading' });

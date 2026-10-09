@@ -13,7 +13,16 @@ import { dirname, relative, resolve } from 'node:path';
 import type { CompiledStudio } from '../compile.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import { AGENTS_PACKAGE, agentIdentifier, agentModule, toolModule } from '../source.ts';
-import { calleeName, importOf, isInside, namedValue, type ProjectSource, unwrapped } from './project-source.ts';
+import { keySource } from '../tool-schema.ts';
+import {
+  calleeName,
+  importOf,
+  isInside,
+  namedValue,
+  type ProjectSource,
+  questionsExport,
+  unwrapped,
+} from './project-source.ts';
 import { indentAt, indentUnit, type SavePlan, type SourceEdit } from './save-plan.ts';
 import type { SaveChange } from './save-wire.ts';
 
@@ -152,6 +161,8 @@ class Setup {
   private readonly imported = new Set<string>();
   /** The lines that go after everything the setup registers, in order. */
   private readonly tail: string[] = [];
+  /** The questions of each new decision, as the entries the setup's `questions` export gains. */
+  private readonly asked: string[] = [];
 
   constructor(private readonly project: ProjectSource, private readonly source: ts.SourceFile) {
     this.found = registrations(source);
@@ -163,6 +174,45 @@ class Setup {
     return this.found.every(({ statement: { parent } }) =>
       ts.isSourceFile(parent) || (ts.isBlock(parent) && ts.isFunctionLike(parent.parent))
     );
+  }
+
+  /** The object the setup's `questions` export writes out, when it has the export and writes it so. */
+  private get questions(): ts.ObjectLiteralExpression | undefined {
+    const value = questionsExport(this.source)?.initializer;
+    const held = value && unwrapped(value);
+    return held && ts.isObjectLiteralExpression(held) ? held : undefined;
+  }
+
+  /**
+   * Whether the setup can name a new decision's questions. The studio reads them from the module
+   * it opens, so that is the file that must hold them: as an object it writes out, or not yet.
+   */
+  get asks(): boolean {
+    if (this.file !== this.project.entry) return false;
+    return this.questions !== undefined || !namesIn(this.source).has('questions');
+  }
+
+  /** Names the questions a new decision profile is asked: `expression`, under the profile's id. */
+  ask(profile: string, expression: string) {
+    this.asked.push(`${keySource(profile)}: ${expression}`);
+  }
+
+  /** The new decisions' questions: more entries of the `questions` export, or the export itself at the end. */
+  private placeAsked() {
+    const held = this.questions;
+    if (!held) {
+      const { text } = this.source;
+      const unit = indentUnit(this.source);
+      const entries = this.asked.map((entry) => `${unit}${entry},\n`).join('');
+      const gap = text && !text.endsWith('\n') ? '\n\n' : '\n';
+      const note = '/** What each decision profile is asked, by profile id. The studio reads it. */';
+      return this.insert(text.length, `${gap}${note}\nexport const questions = {\n${entries}};\n`);
+    }
+    const last = held.properties.at(-1);
+    if (!last) return this.insert(held.getStart(this.source) + 1, ` ${this.asked.join(', ')} `);
+    const indent = indentAt(this.source, last.getStart(this.source));
+    const between = held.getText(this.source).includes('\n') ? `,\n${indent}` : ', ';
+    this.insert(last.end, this.asked.map((entry) => `${between}${entry}`).join(''));
   }
 
   private insert(position: number, text: string) {
@@ -241,6 +291,7 @@ class Setup {
   /** Every line placed, as edits to the setup. */
   finish(): SourceEdit[] {
     if (this.tail.length) this.placeTail();
+    if (this.asked.length) this.placeAsked();
     return this.edits;
   }
 }
@@ -395,6 +446,26 @@ class NewPlan {
     return calls;
   }
 
+  /** A new agent's file and the line that imports it. False when it cannot be written. */
+  private profile(agent: CompiledStudio, name: string): boolean {
+    // A decision is asked the questions the setup names, so one the setup cannot name is not written.
+    if (agent.questions && !this.setup.asks) {
+      this.refuse('profile', agent.agentId, 'setup', this.ground.project.entry);
+      return false;
+    }
+    const { agents } = this.ground;
+    return this.create(
+      'profile',
+      agent.agentId,
+      (file) => {
+        const code = agentModule(agent, this.from(file).agents);
+        // The compiled patterns come from a path of the package, which only its own name reaches.
+        return code.includes('compileDetect(') && agents.specifier !== AGENTS_PACKAGE ? undefined : code;
+      },
+      (specifier) => `import * as ${name} from '${specifier}';`,
+    );
+  }
+
   /** A new agent's file and its lines in the setup, after any new agent it calls. */
   private agent(agent: CompiledStudio, calls: Calls) {
     if (this.placed.has(agent.agentId)) return;
@@ -409,16 +480,7 @@ class NewPlan {
       if (ran) this.agent(ran, calls);
     }
     const name = agentIdentifier(agent.agentId, this.taken);
-    const made = this.create(
-      'profile',
-      agent.agentId,
-      (file) => {
-        const code = agentModule(agent, this.from(file).agents);
-        // The compiled patterns come from a path of the package, which only its own name reaches.
-        return code.includes('compileDetect(') && agents.specifier !== AGENTS_PACKAGE ? undefined : code;
-      },
-      (specifier) => `import * as ${name} from '${specifier}';`,
-    );
+    const made = this.profile(agent, name);
     const follows = held(calls.trail, agent.agentId);
     // An agent that goes before one the project has cannot wait for a tool of its own: that tool has no place.
     if (!made || (before && waits.length)) {
@@ -427,6 +489,7 @@ class NewPlan {
     }
     const kernel = carried(agents.specifier, agents.file, source.fileName);
     const lines = waits.flatMap((registration) => this.tool(registration));
+    if (agent.questions) this.setup.ask(agent.agentId, `${name}.questions`);
     if (agent.structured) {
       this.setup.needs('registerStructured', kernel);
       lines.push(`registerStructured(${name}.structured.id, ${name}.structured.spec);`);

@@ -187,6 +187,14 @@ function ProjectRun({
 		[type, endpoint, note],
 	);
 	const isChat = type !== 'host' && type !== 'decision' && type !== 'live';
+	// Only a chat answers with edits the files do not hold. Every other run is the files' own.
+	if (!isChat && !project.profiles.includes(payload.agentId))
+		return (
+			<EmptyState
+				title={`${payload.agentId} is not in your files yet`}
+				description={`A ${type} profile runs from ${project.name}'s files. Save it to run it here.`}
+			/>
+		);
 	if (decision)
 		return (
 			<TheoremDecision

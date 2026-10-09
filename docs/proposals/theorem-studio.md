@@ -551,10 +551,18 @@ the same view the website has.
 - The questions are shown and not changed. Each says it is set in code, with
   the file and line, and opens it.
 
-Not built for a decision: Save does not write the questions, so the studio
-does not edit them. There is no saved and edited side by side: Decide runs
-the files, and an edit to the profile runs after Save. Live profiles in a
-project.
+- A decision added in the studio is saved like any new agent. Save writes
+  its file with the profile and its questions, and names those questions in
+  the setup file's `questions`, adding that export when the file has none.
+  Until it is saved, the preview says it is not in the files yet, and the
+  line above the editor offers Save.
+- When the setup file's `questions` is not a plain object in that file, the
+  review says the decision cannot be placed and Save does not write it.
+
+Not built for a decision: changing the questions of a decision the project
+already has. They stay set in code. There is no saved and edited side by
+side: Decide runs the files, and an edit to the profile runs after Save.
+Live profiles in a project.
 
 Not built: editing those in the studio. Removing a profile or a tool: the
 review names it and Save does not write it. Changing a tool's schema once it

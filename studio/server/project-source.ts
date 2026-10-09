@@ -63,6 +63,19 @@ function importedFile(from: string, specifier: string, exists: (path: string) =>
   return undefined;
 }
 
+/** The setup module's `export const questions`, when it writes one. */
+export function questionsExport(source: ts.SourceFile): ts.VariableDeclaration | undefined {
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+    const found = statement.declarationList.declarations.find((declaration) =>
+      ts.isIdentifier(declaration.name) && declaration.name.text === 'questions'
+    );
+    if (found) return found;
+  }
+  return undefined;
+}
+
 /** `expression` without the wrappers that do not change its value. */
 export function unwrapped(expression: ts.Expression): ts.Expression {
   let node = expression;

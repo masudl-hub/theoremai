@@ -13,7 +13,7 @@
  * @module
  */
 
-import { listProfiles, listTools, type Profile, type ProviderHostOptions, registerTool } from '../../mod.ts';
+import { getProvider, listProfiles, listTools, type Profile, type ProviderHostOptions, registerTool } from '../../mod.ts';
 import { type StudioAsks, studioAsks } from '../asks.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { readStudioSource } from '../read-source.ts';
@@ -79,12 +79,34 @@ type ProfileRead =
   | { ok: true; draft: StudioDraft; registered: ToolSpecDraft[] }
   | { ok: false; message: string };
 
+type ProviderSlots = { keySlot?: string; fallbackKeySlot?: string };
+
+/**
+ * A profile with the key slots the kernel runs its models with: a model that names no slot uses
+ * the one its provider was registered with.
+ */
+export function withProviderSlots<P extends object>(
+  profile: P,
+  providerOf: (id: string) => ProviderSlots | undefined = getProvider,
+): P {
+  const held = (profile as { models?: Record<string, ProviderSlots & { provider?: string }> }).models;
+  if (!held || typeof held !== 'object') return profile;
+  const models = Object.entries(held)
+    .map(([name, model]) => {
+      const provider = model.provider ? providerOf(model.provider) : undefined;
+      const keySlot = model.keySlot ?? provider?.keySlot;
+      const fallbackKeySlot = model.fallbackKeySlot ?? provider?.fallbackKeySlot;
+      return [name, { ...model, ...(keySlot ? { keySlot } : {}), ...(fallbackKeySlot ? { fallbackKeySlot } : {}) }];
+    });
+  return { ...profile, models: Object.fromEntries(models) };
+}
+
 /** One registered profile as the draft the editor shows, read from the source the studio prints for it. */
 function readProfile(profile: Profile, tools: readonly ToolRegistration[]): ProfileRead {
   try {
     const source = studioSource({
       agentId: profile.id,
-      profile: profile as Parameters<typeof studioSource>[0]['profile'],
+      profile: withProviderSlots(profile) as Parameters<typeof studioSource>[0]['profile'],
       customTools: [...tools],
     });
     const read = readStudioSource(source, createBlankDraft());

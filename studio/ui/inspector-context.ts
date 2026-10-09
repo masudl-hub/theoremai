@@ -3,6 +3,7 @@ import {
 	type NodeOrigins,
 	rowOrigin,
 	type StudioConnectionMode,
+	type StudioAsks,
 	type StudioIssue,
 	type WriteAsk,
 } from '../mod.ts';
@@ -46,8 +47,8 @@ export const ConfirmWrite = createContext<(ask: WriteAsk) => Promise<boolean>>((
 	Promise.resolve(false),
 );
 
-/** The project's tools that ask before each run in the studio and would not in the application. */
-export const StudioAsks = createContext<readonly string[]>([]);
+/** The project's tools that write: the ones the studio makes ask, and the ones it cannot. */
+export const ProjectAsks = createContext<StudioAsks>({ asked: [], inside: [] });
 
 /** The origin a section around a row has already named, so the row does not name it again. */
 export const SaidOrigin = createContext<SettingOrigin | undefined>(undefined);

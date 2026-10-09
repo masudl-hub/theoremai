@@ -10,7 +10,7 @@ import {
 } from '../../mod.ts';
 import { createHostTransport } from '../../react/src/client/host-transport.ts';
 import type { TurnEventSink } from '../../react/src/client/transport.ts';
-import { writeAsk, writeAskLine } from '../../studio/asks.ts';
+import { studioAsks, writeAsk, writeAskLine } from '../../studio/asks.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
@@ -88,10 +88,45 @@ Deno.test('the page reads each tool as the files set it, and which ones the stud
     [set('asks_write'), set('asks_remove'), set('asks_already')],
     ['auto', 'session_consent', 'always_confirm'],
   );
-  assertEquals(
-    asks.filter((name) => name.startsWith('asks_')),
-    ['asks_write', 'asks_remove'],
+  assertEquals(asks, { asked: ['asks_write', 'asks_remove'], inside: [] });
+});
+
+Deno.test('a tool a called agent runs is left as it is, and the call to that agent asks', () => {
+  const tool = (name: string, access: string, permission = 'auto', profile?: string) => ({
+    name,
+    type: profile ? 'agent' : 'function',
+    access,
+    permission,
+    ...(profile ? { profile } : {}),
+  });
+  const allow: Record<string, string[]> = {
+    writer: ['inner_write', 'inner_read'],
+    reader: ['inner_read'],
+    lead: ['ask_writer'],
+    loop: ['ask_loop'],
+  };
+  const asks = studioAsks(
+    [
+      tool('outer_write', 'read-write'),
+      tool('outer_asks', 'destructive', 'always_confirm'),
+      tool('outer_read', 'read-only'),
+      tool('inner_write', 'read-write'),
+      tool('inner_read', 'read-only'),
+      // An agent that reaches a write asks, though the tool itself only reads.
+      tool('ask_writer', 'read-only', 'auto', 'writer'),
+      tool('ask_reader', 'read-only', 'auto', 'reader'),
+      // The agent whose agent writes: the outermost call is the one that asks.
+      tool('ask_lead', 'read-only', 'auto', 'lead'),
+      tool('ask_loop', 'read-only', 'auto', 'loop'),
+      tool('ask_gone', 'read-only', 'auto', 'unregistered'),
+      { name: 'search', type: 'builtin', access: 'read-write', permission: 'auto' },
+    ],
+    (profile) => allow[profile] ?? [],
   );
+  assertEquals(asks, {
+    asked: ['outer_write', 'ask_lead'],
+    inside: ['inner_write', 'ask_writer'],
+  });
 });
 
 Deno.test('a tool that reads runs unasked', async () => {

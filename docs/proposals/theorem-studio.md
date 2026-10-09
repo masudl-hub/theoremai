@@ -479,6 +479,10 @@ unasked.
 - The editor's Test of a web tool that writes, and the assistant's test of
   one, stop on a dialog first: the request it sends, the input, Cancel and
   Run.
+- A tool that a called agent runs cannot ask: a question inside a called
+  agent has no one to answer it. The call to that agent asks instead, and
+  the tool's Policy section says so. A profile that runs such a tool itself
+  runs it unasked.
 - The files are not changed, and the editor still shows the Permission they
   set. The tool's Policy section says the studio asks, and that the
   application runs it as Permission says.

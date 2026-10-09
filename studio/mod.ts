@@ -195,7 +195,7 @@ export {
   sharedLinks,
   sharedNodeId,
 } from './shared-settings.ts';
-export { type WriteAsk, writeAsk, writeAskLine } from './asks.ts';
+export { type StudioAsks, type WriteAsk, writeAsk, writeAskLine } from './asks.ts';
 export {
   type NodeOrigins,
   nodeOrigins,

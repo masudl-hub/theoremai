@@ -66,6 +66,7 @@ export function useConfirmWrite(): {
 						/>
 						<Button
 							label="Run"
+							variant={open.ask.access === 'destructive' ? 'destructive' : 'primary'}
 							onClick={() => {
 								answer(true);
 							}}

@@ -3,7 +3,7 @@
  * the page the project's registered profiles and tools as a workspace, and runs each profile's
  * own code.
  */
-import type { StudioWorkspace } from '../../mod.ts';
+import type { StudioAsks, StudioWorkspace } from '../../mod.ts';
 import type {
 	OpenAnswer,
 	OpenRequest,
@@ -28,10 +28,11 @@ export interface ProjectSession {
 	shared: SharedSetting[];
 	/** The settings the project's files set in code, by profile id and tool name. */
 	origins: ProjectOrigins;
-	/** The tools that ask before each run here and would not in the application, by name. */
-	asks: string[];
+	/** The tools that write: the ones the studio makes ask, and the ones it cannot. */
+	asks: StudioAsks;
 }
 
+export const NO_ASKS: StudioAsks = { asked: [], inside: [] };
 const NO_ORIGINS: ProjectOrigins = { profiles: {}, tools: {} };
 
 /** Set while the page has a project open; `null` on the website's own page. */
@@ -49,7 +50,7 @@ export function projectSession(name: string): ProjectSession {
 		problems: [],
 		shared: [],
 		origins: NO_ORIGINS,
-		asks: [],
+		asks: NO_ASKS,
 	};
 }
 
@@ -102,7 +103,7 @@ interface Opened {
 	problems: ProjectSession['problems'];
 	shared?: SharedSetting[];
 	origins?: ProjectOrigins;
-	asks?: string[];
+	asks?: StudioAsks;
 }
 
 async function describe(): Promise<Opened> {
@@ -116,7 +117,7 @@ async function describe(): Promise<Opened> {
  * code, whose lines a Save moves, and the tools the studio makes ask.
  */
 export async function readFiles(): Promise<Pick<ProjectSession, 'origins' | 'asks'>> {
-	const { origins = NO_ORIGINS, asks = [] } = await describe();
+	const { origins = NO_ORIGINS, asks = NO_ASKS } = await describe();
 	return { origins, asks };
 }
 
@@ -133,7 +134,7 @@ export async function openProject(): Promise<{
 			problems: opened.problems,
 			shared: opened.shared ?? [],
 			origins: opened.origins ?? NO_ORIGINS,
-			asks: opened.asks ?? [],
+			asks: opened.asks ?? NO_ASKS,
 		},
 		workspace: opened.workspace,
 	};

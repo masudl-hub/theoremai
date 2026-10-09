@@ -211,6 +211,7 @@ import {
 	STUDIO_DECISION_TIMEOUT_MS,
 	STUDIO_TAINT_NOTE,
 	STUDIO_TRACE_DESTINATION,
+	type StudioAsks,
 	type StudioDraft,
 	type StudioIssue,
 	type StudioProfileType,
@@ -273,8 +274,8 @@ import {
 	ListBadges,
 	LocalConnection,
 	NodeIssues,
+	ProjectAsks,
 	RowOrigins,
-	StudioAsks,
 	useFieldStatus,
 	type WorkspaceAgent,
 	WorkspaceContext,
@@ -5393,6 +5394,15 @@ function AuthSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 	);
 }
 
+/** What the studio does about a tool that writes, when that is not what Permission says. */
+function studioAskNote(asks: StudioAsks, tool: string): string | undefined {
+	if (asks.asked.includes(tool))
+		return 'In the studio this tool asks before every run, because it writes. Your application runs it as Permission says.';
+	if (asks.inside.includes(tool))
+		return 'This tool writes, and the studio cannot make it ask: a called agent runs it, and a question inside a called agent has no one to answer it. The call to that agent asks instead.';
+	return undefined;
+}
+
 /** Who may call the tool, whether it asks first, when it loads and on which paths. */
 function PolicySection({
 	draft,
@@ -5403,16 +5413,9 @@ function PolicySection({
 	tool: ToolSpecDraft;
 	set: SetTool;
 }) {
-	const asks = useContext(StudioAsks).includes(tool.toolName);
+	const note = studioAskNote(useContext(ProjectAsks), tool.toolName);
 	return (
-		<InspectorSection
-			title="Policy"
-			note={
-				asks
-					? 'In the studio this tool asks before every run, because it writes. Your application runs it as Permission says.'
-					: undefined
-			}
-		>
+		<InspectorSection title="Policy" note={note}>
 			<SegmentedRow
 				label="Access"
 				path="access"

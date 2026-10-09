@@ -125,8 +125,8 @@ import {
 	ListBadges,
 	ConfirmWrite,
 	LocalConnection,
+	ProjectAsks,
 	RowOrigins,
-	StudioAsks,
 	WorkspaceContext,
 } from './inspector-context.ts';
 import { exportFiles, exportText, llmBrief } from './lib/export-agent.ts';
@@ -142,6 +142,7 @@ import {
 	usePageValues,
 } from './lib/studio-page.ts';
 import {
+	NO_ASKS,
 	openInEditor,
 	ProjectContext,
 	type ProjectSession,
@@ -1031,8 +1032,6 @@ function screenReport(
 	};
 }
 
-const NO_ASKS: readonly string[] = [];
-
 /** What th30's surface reaches on the page beyond the store; read through a ref so it is always the latest. */
 type SurfacePage = {
 	mode: ReturnType<typeof useStudioConnection>['mode'];
@@ -1385,7 +1384,7 @@ function useProjectFiles(project: ProjectSession | undefined) {
 			globalThis.removeEventListener('focus', refreshOrigins);
 		};
 	}, [refreshOrigins]);
-	return { origins: files?.origins, asks: files?.asks ?? NO_ASKS, refreshOrigins };
+	return { origins: files?.origins, asks: files?.asks, refreshOrigins };
 }
 
 /** Shows an origin's line in the builder's editor, and says where it is when no editor opens. */
@@ -2386,7 +2385,7 @@ function Studio({ opened }: { opened: StudioOpened }) {
 	return (
 		<ProjectContext.Provider value={opened.project ?? null}>
 			<ConfirmWrite value={asking.confirm}>
-				<StudioAsks value={state.asks}>
+				<ProjectAsks value={state.asks ?? NO_ASKS}>
 					{asking.dialog}
 					<Layout
 						ref={frame.layoutCallbackRef}
@@ -2433,7 +2432,7 @@ function Studio({ opened }: { opened: StudioOpened }) {
 							/>
 						}
 					/>
-				</StudioAsks>
+				</ProjectAsks>
 			</ConfirmWrite>
 		</ProjectContext.Provider>
 	);

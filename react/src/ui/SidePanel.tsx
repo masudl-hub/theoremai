@@ -290,7 +290,7 @@ export function PaneLayout({
     return (
       <PanelScroll label={label}>
         {lead}
-        {detail ?? overview}
+        {detail || overview}
       </PanelScroll>
     );
   }

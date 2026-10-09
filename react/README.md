@@ -161,6 +161,7 @@ The profile, the keys and the system prompt stay on the server. The browser rece
 | `initialChat`, `onChatChange` | Save and restore a conversation. See below. |
 | `initialText` | The text that the composer starts with. The user can send it or change it. The component reads it once, when it mounts. |
 | `chatRef` | Sends a message from your code. See below. |
+| `composer` | `false` leaves the composer out. The chat is the transcript alone, and your own control sends through `chatRef`. Default: `true`. |
 
 ### Save and restore a conversation
 
@@ -185,6 +186,7 @@ To restore the conversation, pass the saved value as `initialChat`. The componen
 ### Send a message from your code
 
 `chatRef` gives you `send(text)`. It sends the text as the user. When the reply is complete, it returns the blocks that the turn added. It returns `null` if the chat cannot accept a message now. This happens while a reply streams or waits for a gate.
+`chatRef` also gives you `stop()`. It stops the reply that streams, as the composer's stop button does.
 
 ```tsx
 const chat = useRef<TheoremChatHandle>(null);

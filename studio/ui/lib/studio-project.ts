@@ -5,6 +5,7 @@
  */
 import type { StudioAsks, StudioWorkspace } from '../../mod.ts';
 import type {
+	EditedAnswer,
 	OpenAnswer,
 	OpenRequest,
 	ProjectOrigins,
@@ -22,6 +23,8 @@ export interface ProjectSession {
 	endpoint: string;
 	/** The project's name. */
 	name: string;
+	/** The ids of the profiles the files held when the page opened them. */
+	profiles: string[];
 	/** The profiles the page could not show or run, and why. */
 	problems: { profile: string; message: string }[];
 	/** The settings several profiles share, as the project's files set them. */
@@ -47,6 +50,7 @@ export function projectSession(name: string): ProjectSession {
 	return {
 		endpoint: PROJECT_ENDPOINT,
 		name,
+		profiles: [],
 		problems: [],
 		shared: [],
 		origins: NO_ORIGINS,
@@ -91,6 +95,22 @@ export function undoSave(project: ProjectSession): Promise<SaveDone | SaveRefusa
 	return post(project, '/save/undo', {});
 }
 
+/**
+ * Starts the load that runs this workspace's edits over the project's files, when it is not the
+ * one running. Writes nothing.
+ */
+export function openEdited(
+	project: ProjectSession,
+	workspace: StudioWorkspace,
+): Promise<EditedAnswer> {
+	return post(project, '/edited', { workspace });
+}
+
+/** Where the local server runs the profile with this id as the builder's edits make it. */
+export function editedProfileEndpoint(project: ProjectSession, profileId: string): string {
+	return `${project.endpoint}/edited/profiles/${encodeURIComponent(profileId)}`;
+}
+
 /** Shows a line of one of the project's files in the builder's editor. */
 export function openInEditor(project: ProjectSession, place: OpenRequest): Promise<OpenAnswer> {
 	return post(project, '/open', place);
@@ -131,6 +151,7 @@ export async function openProject(): Promise<{
 		project: {
 			endpoint: PROJECT_ENDPOINT,
 			name: opened.project,
+			profiles: opened.workspace.agents.map((agent) => agent.identity.agentId),
 			problems: opened.problems,
 			shared: opened.shared ?? [],
 			origins: opened.origins ?? NO_ORIGINS,

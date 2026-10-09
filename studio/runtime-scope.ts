@@ -262,7 +262,7 @@ function runtimeProfileDefinition(
  * a browser sent is never trusted, since compiling is what refuses a pattern that could hang on
  * hostile text. The compiler loads only for a draft that has patterns.
  */
-async function withCompiledPatterns<D extends ProfileDefinition>(def: D): Promise<D> {
+export async function withCompiledPatterns<D extends ProfileDefinition>(def: D): Promise<D> {
   const { guardrails } = def;
   if (!guardrails || !('detect' in guardrails)) return def;
   const { detect } = guardrails;

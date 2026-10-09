@@ -5,9 +5,18 @@ import { GOOGLE_BUILTIN_TOOLS } from '../src/presets/google.ts';
 import { studioDemoHandler } from './demo-handlers.ts';
 import type { ToolRegistration } from './registrations.ts';
 import { stubOutputFromSchema } from './stub.ts';
-import { zodFromJsonSchema } from './tool-schema.ts';
+import type { ZodType } from 'zod';
+import { type JsonSchema, zodFromJsonSchema } from './tool-schema.ts';
 
-function registerCustomTool(tools: ToolRegistry, tool: ToolRegistration): void {
+/**
+ * Registers one studio tool. `read` makes a tool's zod schema from its JSON Schema: the studio's
+ * own lenient reading unless the caller needs the one a saved file loads with.
+ */
+export function registerCustomTool(
+  tools: ToolRegistry,
+  tool: ToolRegistration,
+  read: (schema: JsonSchema) => ZodType = zodFromJsonSchema,
+): void {
   const base = {
     name: tool.name,
     description: tool.description,
@@ -29,8 +38,8 @@ function registerCustomTool(tools: ToolRegistry, tool: ToolRegistration): void {
   }
   const shared = {
     ...base,
-    input: zodFromJsonSchema(tool.inputSchema),
-    output: zodFromJsonSchema(tool.outputSchema),
+    input: read(tool.inputSchema),
+    output: read(tool.outputSchema),
   };
   if (tool.type === 'http') {
     tools.register({

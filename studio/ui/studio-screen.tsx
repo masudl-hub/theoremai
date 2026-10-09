@@ -1507,6 +1507,8 @@ function useWorkspaceCompile(
 		return {
 			compiled,
 			payload,
+			/** The workspace the payload was compiled from: the edits the preview runs. */
+			tested: lastGood?.workspace,
 			traced: isTraced(payload),
 			source,
 			probed,
@@ -1517,7 +1519,7 @@ function useWorkspaceCompile(
 			issues,
 			blocked: issues && `Fix ${issues} first`,
 		};
-	}, [compiled, compile.workspace, payload, source, probed, focus, chatWith]);
+	}, [compiled, compile.workspace, lastGood, payload, source, probed, focus, chatWith]);
 }
 
 type WorkspaceCompile = ReturnType<typeof useWorkspaceCompile>;
@@ -2185,7 +2187,7 @@ function PreviewBody({
 	traceOpen: boolean;
 	testing: boolean;
 }) {
-	const { payload, traced } = compile;
+	const { payload, traced, tested } = compile;
 	const pageInputs = useMemo(() => (payload ? pageInputsOf(payload) : null), [payload]);
 	const [pageValues] = usePageValues(chatWith);
 	const sent = useMemo(() => sentPageValues(pageInputs, pageValues), [pageInputs, pageValues]);
@@ -2227,6 +2229,7 @@ function PreviewBody({
 						chatRef={chatRef}
 						slots={sent.slots}
 						context={sent.context}
+						tested={tested}
 					/>
 				</StackItem>
 			</VStack>

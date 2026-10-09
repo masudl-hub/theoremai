@@ -4,14 +4,18 @@
  * starts it again after a Save, because a module that is loaded is not read
  * from disk a second time.
  *
- *   deno run -A studio/server/project.ts <setup-module> --port <port> --page <origins>
+ *   deno run -A studio/server/project.ts <setup-module> --port <port> --page <origins> [--edits]
+ *
+ * With `--edits` it reads the builder's unsaved edits from its input and lays them over what the
+ * setup registered, before it serves: the load that answers as the project would after a Save.
  *
  * @module
  */
 
 import { basename, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { ProviderHostOptions } from '../../mod.ts';
+import { defaultKernelScope, type ProviderHostOptions } from '../../mod.ts';
+import { type ProjectEdits, registerEdits } from './edits.ts';
 import { createStudioHandler } from './handler.ts';
 
 type SetupModule = {
@@ -29,6 +33,10 @@ if (import.meta.main) {
   const port = Number(flag('port'));
   const setup: SetupModule = await import(pathToFileURL(resolve(setupPath)).href);
   await setup.default?.();
+  if (flags.includes('--edits')) {
+    const edits: ProjectEdits = await new Response(Deno.stdin.readable).json();
+    await registerEdits(defaultKernelScope, edits);
+  }
 
   const handler = createStudioHandler({
     project: basename(Deno.cwd()),

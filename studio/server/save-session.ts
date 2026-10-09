@@ -64,16 +64,19 @@ export interface SaveSession<Loaded> {
 type FileChange = { before: string; after: string; created: boolean };
 type Files = Map<string, FileChange>;
 
-const refusal = (reason: SaveRefusal['reason'], detail: string[] = []): SaveRefusal => ({ ok: false, reason, detail });
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+/** Why nothing was done, with what to show for it. */
+export const refusal = (reason: SaveRefusal['reason'], detail: string[] = []): SaveRefusal => ({ ok: false, reason, detail });
+/** What a thrown value says. */
+export const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-async function stampOf(value: unknown): Promise<string> {
+/** A name for a value that changes when the value does. */
+export async function stampOf(value: unknown): Promise<string> {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
   return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-/** Whether a body is a Save request: a workspace with its starts. */
+/** Whether a body is a Save request, or one for the edited load: a workspace with its starts. */
 export function isSaveRequest(body: unknown): body is SaveRequest {
   const workspace = (body as SaveRequest | null)?.workspace;
   return Array.isArray(workspace?.agents) && Array.isArray(workspace.toolSpecs) &&

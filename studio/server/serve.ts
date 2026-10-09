@@ -22,10 +22,12 @@
 
 import { dirname, resolve } from 'node:path';
 import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } from './handler.ts';
+import { createEditedSession } from './edited-session.ts';
+import type { ProjectEdits } from './edits.ts';
 import { answerOpen, chosenEditor, type EditorHost } from './open-editor.ts';
 import { PROJECT_READY } from './project.ts';
 import { isInside } from './project-source.ts';
-import { answerSave, createSaveSession } from './save-session.ts';
+import { answerSave, createSaveSession, isSaveRequest } from './save-session.ts';
 
 function flag(name: string, fallback: string): string {
   const at = Deno.args.indexOf(`--${name}`);
@@ -72,8 +74,11 @@ async function drain(stream: ReadableStream<Uint8Array>, each: (text: string) =>
   for await (const chunk of stream) each(decoder.decode(chunk, { stream: true }));
 }
 
-/** Loads the project from disk in a new process. Throws what it printed when it does not start. */
-async function loadProject(): Promise<Loaded> {
+/**
+ * Loads the project from disk in a new process, with the builder's unsaved `edits` laid over it
+ * when there are some. Throws what it printed when it does not start.
+ */
+async function loadProject(edits?: ProjectEdits): Promise<Loaded> {
   const childPort = freePort();
   const process = new Deno.Command(Deno.execPath(), {
     args: [
@@ -86,12 +91,18 @@ async function loadProject(): Promise<Loaded> {
       String(childPort),
       '--page',
       pageOrigins.join(','),
+      ...(edits ? ['--edits'] : []),
     ],
     cwd: root,
-    stdin: 'null',
+    stdin: edits ? 'piped' : 'null',
     stdout: 'piped',
     stderr: 'piped',
   }).spawn();
+  if (edits) {
+    const input = process.stdin.getWriter();
+    await input.write(new TextEncoder().encode(JSON.stringify(edits)));
+    await input.close();
+  }
   let printed = '';
   const errors = drain(process.stderr, (text) => {
     printed = (printed + text).slice(-4000);
@@ -152,6 +163,12 @@ try {
   console.error(error instanceof Error ? error.message : error);
   Deno.exit(1);
 }
+/** The load that runs the builder's unsaved edits, while the page compares it with the files. */
+const edited = createEditedSession<Loaded>({
+  load: loadProject,
+  stop,
+  opened: (loaded) => loaded.description.workspace,
+});
 const session = createSaveSession<Loaded>(
   {
     root,
@@ -163,21 +180,25 @@ const session = createSaveSession<Loaded>(
     },
     remove: (path) => Deno.removeSync(path),
     typeChecks,
-    load: loadProject,
+    // The files changed: the edited load lies over files that are gone.
+    load: async () => {
+      await edited.close();
+      return loadProject();
+    },
     stop,
     opened: (loaded) => loaded.description.workspace,
   },
   first,
 );
 
-/** Passes a request on to the loaded project, and its answer back as it streams. */
-async function forward(request: Request): Promise<Response> {
+/** Passes a request on to a load of the project, and its answer back as it streams. */
+async function forward(request: Request, loaded = session.project(), path?: string): Promise<Response> {
   const url = new URL(request.url);
   const headers = new Headers(request.headers);
   headers.delete('host');
   const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
   try {
-    return await fetch(`${session.project().origin}${url.pathname}${url.search}`, {
+    return await fetch(`${loaded.origin}${path ?? url.pathname}${url.search}`, {
       method: request.method,
       headers,
       body,
@@ -189,6 +210,27 @@ async function forward(request: Request): Promise<Response> {
 
 const SAVE = `${STUDIO_BASE}/save`;
 const OPEN = `${STUDIO_BASE}/open`;
+const EDITED = `${STUDIO_BASE}/edited`;
+
+/**
+ * The edited load: a POST of the workspace at `EDITED` starts it, and every path under it is the
+ * same path of the project, answered by that load. Undefined when the request is not for it.
+ */
+async function answerEdited(request: Request): Promise<Response | undefined> {
+  const { pathname } = new URL(request.url);
+  const cors = corsHeaders(request, pageOrigins);
+  if (pathname === EDITED && request.method === 'POST') {
+    const body: unknown = await request.json().catch(() => null);
+    if (!isSaveRequest(body)) return json(400, {}, cors);
+    return json(200, await edited.open(body.workspace, session.project()), cors);
+  }
+  if (!pathname.startsWith(`${EDITED}/`)) return undefined;
+  const loaded = edited.running();
+  // No load holds the edits: the page asks for one again. A preflight is still answered, so the
+  // page reads that and not a blocked request.
+  if (!loaded) return request.method === 'OPTIONS' ? new Response(null, { status: 204, headers: cors }) : json(409, {}, cors);
+  return forward(request, loaded, STUDIO_BASE + pathname.slice(EDITED.length));
+}
 
 /** Starts a command on its own, without a shell. False when the machine has no such command. */
 function start(command: string, args: string[]): boolean {
@@ -219,17 +261,19 @@ Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
   if (isForeign(request, gate)) return json(403, {}, {});
   const answer = opened(request) ?? (await answerSave(session, SAVE, request)) ??
     (await answerOpen(editor, OPEN, request));
-  if (!answer) return forward(request);
+  if (!answer) return (await answerEdited(request)) ?? forward(request);
   const cors = corsHeaders(request, pageOrigins);
   return 'workspace' in answer ? json(200, answer, cors) : json(answer.status, answer.body, cors);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   Deno.addSignalListener(signal, () => {
-    try {
-      session.project().process.kill();
-    } catch {
-      // It had already ended.
+    for (const loaded of [session.project(), edited.running()]) {
+      try {
+        loaded?.process.kill();
+      } catch {
+        // It had already ended.
+      }
     }
     Deno.exit(0);
   });

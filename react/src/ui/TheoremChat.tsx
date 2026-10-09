@@ -115,6 +115,11 @@ export type TheoremChatProps = {
   onChatChange?: (snapshot: ChatSnapshot) => void;
   /** Lets the host send a message as the composer would; see {@link TheoremChatHandle}. */
   chatRef?: Ref<TheoremChatHandle>;
+  /**
+   * `false` leaves the composer out: the chat is the transcript alone, and your own control sends
+   * through `chatRef`. Gates are still answered in the transcript. Default `true`.
+   */
+  composer?: boolean;
 };
 
 /** What a host can do to a mounted {@link TheoremChat}. */
@@ -124,6 +129,8 @@ export type TheoremChatHandle = {
    * `null` when the chat can't take a message now (a reply is streaming, or waits on a gate).
    */
   send: (text: string) => Promise<SentTurn | null>;
+  /** Stops the reply that is streaming, as the composer's stop button does. */
+  stop: () => void;
 };
 
 /**
@@ -275,6 +282,7 @@ function ChatBody({
   initialText,
   onChatChange,
   chatRef,
+  composer: hasComposer = true,
   slots,
   context,
   pageTools,
@@ -292,8 +300,11 @@ function ChatBody({
     pageTools,
     onTurnEvent,
   });
-  const sendText = chat.sendText;
-  useImperativeHandle(chatRef, () => ({ send: sendText }), [sendText]);
+  const { sendText, handleStop } = chat;
+  useImperativeHandle(chatRef, () => ({ send: sendText, stop: handleStop }), [
+    sendText,
+    handleStop,
+  ]);
   const blocks = useMemo(
     () => [...chat.blocks, ...chat.streamBlocks],
     [chat.blocks, chat.streamBlocks],
@@ -305,8 +316,11 @@ function ChatBody({
   const inspector = useTraceInspector(iface, transport.traces, trace);
   const header = <SidePanelHeader>{inspector.toggle}</SidePanelHeader>;
 
-  const composer = (
+  // why: the composer says when a turn failed. Without one, the chat says it where the composer was.
+  const composer = hasComposer ? (
     <ChatComposerForChat chat={chat} iface={iface} placeholder={placeholder} inputRef={inputRef} />
+  ) : (
+    chat.failure && <Banner status="error" title={chat.failure.error} />
   );
 
   // why: paddingInline={3} matches the dock's inset so the
@@ -334,9 +348,11 @@ function ChatBody({
                     </VStack>
                   )}
                 </ChatColumn>
-                <ChatColumn ref={composerRef} maxWidth={maxWidth}>
-                  {composer}
-                </ChatColumn>
+                {composer && (
+                  <ChatColumn ref={composerRef} maxWidth={maxWidth}>
+                    {composer}
+                  </ChatColumn>
+                )}
               </VStack>
             </LayoutContent>
           }
@@ -361,11 +377,13 @@ function ChatBody({
                 density={density}
                 scrollRef={scrollRef}
                 composer={
-                  <VStack paddingBlockEnd={3}>
-                    <ChatColumn ref={composerRef} maxWidth={maxWidth}>
-                      {composer}
-                    </ChatColumn>
-                  </VStack>
+                  composer && (
+                    <VStack paddingBlockEnd={3}>
+                      <ChatColumn ref={composerRef} maxWidth={maxWidth}>
+                        {composer}
+                      </ChatColumn>
+                    </VStack>
+                  )
                 }
               >
                 <ChatColumn maxWidth={maxWidth}>

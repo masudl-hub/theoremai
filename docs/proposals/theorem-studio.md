@@ -507,6 +507,32 @@ added in the studio.
   when it cannot tell where the setup file would register it, and when no
   agent allows a new tool.
 
+Built (Masud, 9 Oct: "4a"): while the studio holds edits the files do not,
+one message is answered twice, side by side.
+
+- The left side is "Saved (your files)". The right side is "Edited
+  (studio)". One box under both sends the message to both, and Stop stops
+  both.
+- The edited side is the project itself, started a second time with the
+  edits laid over what its setup registers. Its tools are the project's own
+  handlers, so the two answers differ only by the edits.
+- The edited side starts again when the edits change. It keeps the
+  conversation so far. The first time, it starts from what the saved side
+  has said.
+- A tool that writes asks on each side, as above. The box waits until both
+  sides have their answer.
+- When the edits cannot run, the edited side says why: the editor has
+  issues, or the project did not start with them. The saved side still
+  shows what was said.
+- An agent the files do not hold yet has one side only, the edited one.
+- After a Save there is one side again, with its own box.
+
+Not built for the comparison: files in the shared box, it sends text only.
+A new function tool on the edited side answers with the studio's sample
+answer. Edits that take a profile or a tool away cannot run before they are
+saved, and the edited side says so. Unsaved edits are lost when the page is
+loaded again.
+
 Not built: editing those in the studio. Removing a profile or a tool: the
 review names it and Save does not write it. Changing a tool's schema once it
 is in a file: it reads as set in code, like every tool the project has.

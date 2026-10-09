@@ -157,6 +157,14 @@ export interface SaveDone {
 }
 
 /**
+ * The load that runs the builder's unsaved edits is up, and which edits it holds: `stamp` changes
+ * when they do. A refusal says why there is none: the edits have `issues`, the project did not
+ * `load` with them, or it loaded as something that `differs` from them. Either way, `saved` is the
+ * ids of the profiles the files hold: the ones the files' own load can run beside it.
+ */
+export type EditedAnswer = ({ ok: true; stamp: string } | SaveRefusal) & { saved: string[] };
+
+/**
  * Why nothing was written, or why a write was taken back.
  * - `issues`: the workspace does not compile.
  * - `stale`: the files changed after the review was read.

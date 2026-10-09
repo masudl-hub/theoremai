@@ -1,7 +1,6 @@
 import { EmptyState } from '@astryxdesign/core/EmptyState';
 import {
 	createHostTransport,
-	createHttpTransport,
 	createTraceFeed,
 	type TraceFeed,
 } from '../../react/src/client/index.ts';
@@ -12,6 +11,7 @@ import {
 	createStudioTransport,
 	type StudioConnectionMode,
 	type StudioRunPayload,
+	type StudioWorkspace,
 	studioInterface,
 	studioLiveConnection,
 	studioPageTools,
@@ -26,6 +26,7 @@ import { type ComponentProps, useMemo, useRef, useState } from 'react';
 import { noting } from './lib/studio-activity.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
 import { type ProjectSession, projectProfileEndpoint, useProject } from './lib/studio-project.ts';
+import { ProjectChat } from './studio-compare.tsx';
 import { StudioDecision } from './studio-decision.tsx';
 
 export interface StudioRunnerProps {
@@ -50,6 +51,11 @@ export interface StudioRunnerProps {
 	slots?: ChatProps['slots'];
 	/** What the page tells the agent. */
 	context?: ChatProps['context'];
+	/**
+	 * The workspace the payload was compiled from, when the page edits one. A project's chat then
+	 * answers twice while it holds edits the files do not: as the files, and as the edits.
+	 */
+	tested?: StudioWorkspace;
 }
 
 /**
@@ -73,6 +79,7 @@ export function StudioRunner({
 	chatRef,
 	slots,
 	context,
+	tested,
 }: StudioRunnerProps) {
 	const [traces] = useState(createTraceFeed);
 	const activity = useRef(onActivity);
@@ -92,6 +99,7 @@ export function StudioRunner({
 				chatRef={chatRef}
 				slots={slots}
 				context={context}
+				tested={tested}
 			/>
 		);
 	if (mode !== 'demo' && !runtime)
@@ -165,6 +173,7 @@ function ProjectRun({
 	chatRef,
 	slots,
 	context,
+	tested,
 }: Omit<RunProps, 'runtime' | 'traces'> & { project: ProjectSession }) {
 	const { type } = payload.profile;
 	const endpoint = projectProfileEndpoint(project, payload.agentId);
@@ -172,13 +181,7 @@ function ProjectRun({
 		() => (type === 'host' ? noting(createHostTransport({ endpoint }), note) : null),
 		[type, endpoint, note],
 	);
-	const turn = useMemo(
-		() =>
-			type === 'host' || type === 'decision' || type === 'live'
-				? null
-				: noting(createHttpTransport({ endpoint }), note),
-		[type, endpoint, note],
-	);
+	const isChat = type !== 'host' && type !== 'decision' && type !== 'live';
 	if (host)
 		return (
 			<TheoremHost
@@ -191,12 +194,13 @@ function ProjectRun({
 				className={className}
 			/>
 		);
-	if (turn)
+	if (isChat)
 		return (
-			<TheoremChat
-				detectCodeLanguage
-				labels={STUDIO_LABELS}
-				transport={turn}
+			<ProjectChat
+				project={project}
+				profileId={payload.agentId}
+				tested={tested}
+				note={note}
 				trace={trace}
 				className={className}
 				chatRef={chatRef}

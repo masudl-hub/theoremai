@@ -3,6 +3,7 @@ import { defaultModelBinding } from '../../studio/draft.ts';
 import { createExampleDraft } from '../../studio/example.ts';
 import {
   nodeOrigins,
+  openOutcome,
   originAt,
   originLabel,
   originPlace,
@@ -374,5 +375,29 @@ Deno.test('an origin reads as what set the value and where', () => {
       originPlace,
     ),
     ['setup.ts:3', 'setup.ts', undefined],
+  );
+});
+
+Deno.test('an Open the builder asked for says what happened, and how to name an editor when none started', () => {
+  const how =
+    'Start the studio with --editor and the command of an editor that opens a window: code, cursor, zed.';
+  const said = (answer: Parameters<typeof openOutcome>[0]) => openOutcome(answer, 'setup.ts:4');
+  assertEquals(
+    [
+      said({ ok: true, editor: 'code' }),
+      said({ ok: false, reason: 'file' }),
+      said({ ok: false, reason: 'editor', editor: 'vim' }),
+      said({ ok: false, reason: 'editor', editor: '' }),
+      said({ ok: false, reason: 'failed', editor: 'code' }),
+      said({ ok: false, reason: 'failed' }),
+    ],
+    [
+      'Opened setup.ts:4 in code.',
+      'setup.ts:4 is not a file your setup reads now. Reload the studio.',
+      `The studio cannot start vim on a line. ${how}`,
+      `The studio cannot start that editor on a line. ${how}`,
+      `code did not start. ${how}`,
+      `Your editor did not start. ${how}`,
+    ],
   );
 });

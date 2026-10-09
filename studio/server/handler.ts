@@ -79,7 +79,8 @@ type ProfileRead =
   | { ok: true; draft: StudioDraft; registered: ToolSpecDraft[] }
   | { ok: false; message: string };
 
-type ProviderSlots = { keySlot?: string; fallbackKeySlot?: string };
+/** The key slots a provider or a model names. */
+export type ProviderSlots = { keySlot?: string; fallbackKeySlot?: string };
 
 /**
  * A profile with the key slots the kernel runs its models with: a model that names no slot uses

@@ -1,7 +1,7 @@
 import { assertEquals } from '@std/assert';
-import { withProviderSlots } from '../../studio/server/handler.ts';
+import { type ProviderSlots, withProviderSlots } from '../../studio/server/handler.ts';
 
-const providers: Record<string, { keySlot?: string; fallbackKeySlot?: string }> = {
+const providers: Record<string, ProviderSlots> = {
   openrouter: { keySlot: 'team', fallbackKeySlot: 'spare' },
   local: {},
 };

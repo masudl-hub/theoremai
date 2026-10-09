@@ -160,7 +160,9 @@ import {
 	useState,
 	useSyncExternalStore,
 } from 'react';
+import { StudioCode } from './code/studio-code.tsx';
 import { STUDIO_EXAMPLES } from './lib/studio-examples.ts';
+import { zipFiles } from './lib/zip.ts';
 import {
 	type CodeApply,
 	type StudioHost,
@@ -771,8 +773,8 @@ function openInNewTab(payload: StudioRunPayload, project: ProjectSession | null)
 }
 
 /** The workspace's files as a .zip, named for the agent being chatted with. */
-function downloadExport(zip: StudioHost['zip'], files: Parameters<StudioHost['zip']>[0], agentId: string) {
-	download(`${agentId}.zip`, new Blob([zip(files)], { type: 'application/zip' }));
+function downloadExport(files: Parameters<typeof zipFiles>[0], agentId: string) {
+	download(`${agentId}.zip`, new Blob([zipFiles(files)], { type: 'application/zip' }));
 }
 
 /** Downloads `blob` as `filename`. */
@@ -933,7 +935,6 @@ type SurfacePage = {
 	setKeysOpen: (open: boolean) => void;
 	setConversation: Dispatch<SetStateAction<number>>;
 	project: ProjectSession | null;
-	zip: StudioHost['zip'];
 };
 
 /**
@@ -1045,7 +1046,7 @@ function runMembers(
 			const agent = result.ok ? compiledAgent(result, workspace, workspace.chatWith) : undefined;
 			if (!result.ok || !agent) return Promise.resolve(false);
 			if (format === 'zip') {
-				downloadExport(page.current.zip, exportFiles(result, agent), agent.agentId);
+				downloadExport(exportFiles(result, agent), agent.agentId);
 			} else if (format === 'copy') {
 				page.current.copy(exportText(exportFiles(result, agent)), 'the files');
 			} else {
@@ -1152,7 +1153,6 @@ function ExportMenu({
 	blocked,
 	copy,
 }: Omit<Parameters<typeof ExportActions>[0], 'chattedId' | 'connection'>) {
-	const { zip } = useStudioHost();
 	return (
 		<DropdownMenu
 			button={{
@@ -1177,7 +1177,7 @@ function ExportMenu({
 					icon: <Icon icon={IconFileZip} size="sm" />,
 					onClick: () => {
 						if (compiled && chatted) {
-							downloadExport(zip, exportFiles(compiled, chatted), chatted.agentId);
+							downloadExport(exportFiles(compiled, chatted), chatted.agentId);
 						}
 					},
 				},
@@ -1841,7 +1841,6 @@ function CodeBody({
 	issues: StudioIssue[];
 	state: StudioWorkspaceState;
 }) {
-	const { Code } = useStudioHost();
 	const seen = useRef(source);
 	if (source) seen.current = source;
 	const apply = useCallback(
@@ -1875,7 +1874,7 @@ function CodeBody({
 	}
 	return (
 		<div className="fill">
-			<Code
+			<StudioCode
 				text={source ?? seen.current}
 				hold={source == null}
 				issues={issues}
@@ -2136,7 +2135,7 @@ function useScreenReport(onReport: StudioHost['onReport'], { agent, type, issues
 /** Everything the page holds: the workspace, its connection, the editor's view, the compile and the run. */
 /** What the page opens on: the studio's own loader data, or an open project's. */
 function useStudioPage(opened: StudioOpened) {
-	const { zip, onReport } = useStudioHost();
+	const { onReport } = useStudioHost();
 	const state = useStudioWorkspace(opened.start);
 	const { store, workspace, draft, focus } = state;
 	const connection = useWorkspaceConnection(workspace);
@@ -2160,7 +2159,6 @@ function useStudioPage(opened: StudioOpened) {
 		setKeysOpen: view.setKeysOpen,
 		setConversation: run.setConversation,
 		project: opened.project ?? null,
-		zip,
 	});
 	const title =
 		toolSpecKeyOf(editing) === undefined

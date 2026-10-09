@@ -9,10 +9,13 @@
     "./runtime": "./runtime.ts",
     "./browser": "./browser.ts",
     "./surface": "./surface.ts",
-    "./ui/*": "./ui/*"
+    "./ui/*": "./ui/*",
+    "./vite": "./vite.mjs"
   },
   "dependencies": {
-    "@tabler/icons-react": "^3.46.0"
+    "@tabler/icons-react": "^3.46.0",
+    "fflate": "^0.8.2",
+    "monaco-editor": "^0.57.0"
   },
   "peerDependencies": {
     "@astryxdesign/core": "0.6.5",

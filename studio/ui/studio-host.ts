@@ -2,7 +2,7 @@
  * What the page that shows the studio gives it: the pieces that belong to the host's build rather
  * than to the screen.
  */
-import { type ComponentType, createContext, useContext } from 'react';
+import { createContext, useContext } from 'react';
 import type { StudioSourceError, StudioSourceSpan, StudioWorkspace } from '../mod.ts';
 import type { studioSurface } from '../surface.ts';
 import type { ProjectSession } from './lib/studio-project.ts';
@@ -56,10 +56,6 @@ export interface StudioReport {
 export interface StudioHost {
 	/** The `@theoremjs/agents` version the studio runs, shown under its title. */
 	kernelVersion: string;
-	/** The files as one .zip. */
-	zip: (files: readonly { path: string; code: string }[]) => Uint8Array<ArrayBuffer>;
-	/** The code view's editor. */
-	Code: ComponentType<StudioCodeProps>;
 	/** Mounts the screen's surface while the screen is open; returns the unmount. */
 	mountSurface?: (surface: ReturnType<typeof studioSurface>) => () => void;
 	/** Called as what is on screen changes, and with null when the screen closes. */

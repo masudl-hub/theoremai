@@ -30,6 +30,8 @@
     "studio/server/example.ts",
     // The studio screen, published as `@theoremjs/studio/ui/*`; the website imports its files.
     "studio/ui/**/*.{ts,tsx}",
+    // What a Vite build needs to show the screen, published as `@theoremjs/studio/vite`.
+    "studio/vite.mjs",
     "react/src/studio/main.tsx"
   ],
   // @astryxdesign/cli is used only as the `astryx` binary in react's theme scripts; whether fallow
@@ -43,6 +45,8 @@
     "@astryxdesign/core"
   ],
   // docs-truth loads the ownership graph via dynamic import (graph.mjs → _map.mjs).
+  // Vite's worker suffix on a package the host installs; the kernel repo has no Monaco.
+  "ignoreUnresolvedImports": ["monaco-editor/editor/editor.worker?worker"],
   "dynamicallyLoaded": ["docs/_map.mjs"],
   "ignorePatterns": [
     "node_modules/**",
@@ -64,7 +68,12 @@
     "coverage": "coverage/coverage-final.json",
     "thresholdOverrides": [
       {
-        "files": ["studio/ui/**"],
+        "files": ["studio/ui/code/studio-code.tsx"],
+        "maxUnitSize": 210,
+        "reason": "The code view mounts Monaco in one effect: the editor, its worker and its listeners share that scope. Moved from the website as it was."
+      },
+      {
+        "files": ["studio/ui/**", "studio/vite.mjs"],
         "maxCrap": 307,
         "reason": "The studio screen moved here from the website with no coverage: its tests still run there and move with the page. Just above the current worst (facetEditor), so nothing new may exceed it."
       }

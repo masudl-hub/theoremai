@@ -475,7 +475,7 @@ each run, whatever its own Permission says. A tool that only reads runs
 unasked.
 
 - In the chat and the console, the run stops on the same card the
-  application shows for a tool that asks: the input, with Deny and Approve.
+  application shows for a tool that asks: the input, with Reject and Approve.
 - The editor's Test of a web tool that writes, and the assistant's test of
   one, stop on a dialog first: the request it sends, the input, Cancel and
   Run.

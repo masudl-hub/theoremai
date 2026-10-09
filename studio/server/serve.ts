@@ -18,14 +18,11 @@
  * @module
  */
 
-import { relative, resolve } from 'node:path';
-import type { StudioWorkspace } from '../workspace.ts';
+import { resolve } from 'node:path';
 import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } from './handler.ts';
 import { PROJECT_READY } from './project.ts';
-import { isInside, readProjectSource } from './project-source.ts';
-import { applyEdits, diffHunks, planSave, type SourceEdit } from './save-plan.ts';
-import { projectDiffers, projectNames, saveSubjects } from './save.ts';
-import type { SaveDone, SaveRefusal, SaveRequest, SaveReview } from './save-wire.ts';
+import { isInside } from './project-source.ts';
+import { createSaveSession, isSaveRequest } from './save-session.ts';
 
 function flag(name: string, fallback: string): string {
   const at = Deno.args.indexOf(`--${name}`);
@@ -145,135 +142,26 @@ function readInside(path: string): string | undefined {
   }
 }
 
-async function stampOf(value: unknown): Promise<string> {
-  const bytes = new TextEncoder().encode(JSON.stringify(value));
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-  return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-const refusal = (reason: SaveRefusal['reason'], detail: string[] = []): SaveRefusal => ({ ok: false, reason, detail });
-
-/** A file Save changes: its text now and its text after. */
-type FileChange = { before: string; after: string };
-
-let project: Loaded;
+let first: Loaded;
 try {
-  project = await loadProject();
+  first = await loadProject();
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
   Deno.exit(1);
 }
-/** The last Save's files, until another Save or an undo. */
-let lastSave: Map<string, FileChange> | undefined;
-
-/** The review of a workspace's changes, with the files they would write. */
-async function review(
-  workspace: StudioWorkspace,
-): Promise<{ view: SaveReview; files: Map<string, FileChange> } | SaveRefusal> {
-  let subjects: ReturnType<typeof saveSubjects>;
-  try {
-    subjects = saveSubjects(workspace, projectNames(project.description.workspace));
-  } catch (error) {
-    return refusal('issues', [error instanceof Error ? error.message : String(error)]);
-  }
-  if (!subjects.ok) return refusal('issues', subjects.issues);
-  const source = readProjectSource(setupFile, root, readInside);
-  const plan = planSave(source, subjects.subjects);
-  const edits = Map.groupBy(plan.edits, (edit: SourceEdit) => edit.file);
-  const files = new Map<string, FileChange>();
-  const view: SaveReview['files'] = [];
-  for (const [file, fileEdits] of edits) {
-    const before = source.files.get(file)?.text ?? '';
-    files.set(file, { before, after: applyEdits(before, fileEdits) });
-    view.push({ file: relative(root, file), hunks: diffHunks(before, fileEdits) });
-  }
-  const changes = [...subjects.changes, ...plan.changes].map((change) => ({
-    ...change,
-    ...(change.file ? { file: relative(root, change.file) } : {}),
-  }));
-  return {
-    files,
-    view: {
-      ok: true,
-      changes,
-      files: view,
-      stamp: await stampOf([...files]),
-      writable: files.size > 0 && changes.every((change) => change.status === 'written'),
-    },
-  };
-}
-
-function write(files: Map<string, FileChange>, side: 'before' | 'after'): void {
-  for (const [file, change] of files) Deno.writeTextFileSync(file, change[side]);
-}
-
-/** Writes the reviewed changes, then proves them: the project type-checks, loads, and is what was tested. */
-async function save(request: SaveRequest): Promise<SaveReview | SaveDone | SaveRefusal> {
-  const reviewed = await review(request.workspace);
-  if ('reason' in reviewed || request.stamp === undefined) return 'reason' in reviewed ? reviewed : reviewed.view;
-  const { files, view } = reviewed;
-  if (view.stamp !== request.stamp) return refusal('stale');
-  if (!view.writable) return refusal('unwritable');
-  const written = [...files.keys()].map((file) => relative(root, file));
-  write(files, 'after');
-  const back = (reason: SaveRefusal['reason'], detail: string[]) => {
-    write(files, 'before');
-    return refusal(reason, detail);
-  };
-  const check = await typeChecks();
-  if (!check.ok) return back('check', [check.output]);
-  let next: Loaded;
-  try {
-    next = await loadProject();
-  } catch (error) {
-    return back('load', [error instanceof Error ? error.message : String(error)]);
-  }
-  const differs = projectDiffers(next.description.workspace, request.workspace);
-  if (differs.length) {
-    await stop(next);
-    return back('differs', differs);
-  }
-  const old = project;
-  project = next;
-  await stop(old);
-  lastSave = files;
-  return { ok: true, written };
-}
-
-/** Puts the last Save's files back, when they still hold what it wrote. */
-async function undo(): Promise<SaveDone | SaveRefusal> {
-  if (!lastSave) return refusal('nothing');
-  const files = lastSave;
-  const moved = [...files].filter(([file, change]) => readInside(file) !== change.after);
-  if (moved.length) return refusal('stale', moved.map(([file]) => relative(root, file)));
-  write(files, 'before');
-  let next: Loaded;
-  try {
-    next = await loadProject();
-  } catch (error) {
-    write(files, 'after');
-    return refusal('load', [error instanceof Error ? error.message : String(error)]);
-  }
-  const old = project;
-  project = next;
-  await stop(old);
-  lastSave = undefined;
-  return { ok: true, written: [...files.keys()].map((file) => relative(root, file)) };
-}
-
-/** One write at a time: a second waits for the first. */
-let writing: Promise<unknown> = Promise.resolve();
-function inTurn<T>(work: () => Promise<T>): Promise<T> {
-  const next = writing.then(work, work);
-  writing = next.catch(() => {});
-  return next;
-}
-
-function isSaveRequest(body: unknown): body is SaveRequest {
-  const workspace = (body as SaveRequest | null)?.workspace;
-  return Array.isArray(workspace?.agents) && Array.isArray(workspace.toolSpecs) &&
-    typeof workspace.starts?.agents === 'object' && typeof workspace.starts.tools === 'object';
-}
+const session = createSaveSession<Loaded>(
+  {
+    root,
+    setupFile,
+    read: readInside,
+    write: (path, text) => Deno.writeTextFileSync(path, text),
+    typeChecks,
+    load: loadProject,
+    stop,
+    opened: (loaded) => loaded.description.workspace,
+  },
+  first,
+);
 
 /** Passes a request on to the loaded project, and its answer back as it streams. */
 async function forward(request: Request): Promise<Response> {
@@ -282,7 +170,7 @@ async function forward(request: Request): Promise<Response> {
   headers.delete('host');
   const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
   try {
-    return await fetch(`${project.origin}${url.pathname}${url.search}`, {
+    return await fetch(`${session.project().origin}${url.pathname}${url.search}`, {
       method: request.method,
       headers,
       body,
@@ -299,16 +187,16 @@ Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
   const path = new URL(request.url).pathname;
   if (request.method !== 'POST' || (path !== SAVE && path !== `${SAVE}/undo`)) return forward(request);
   const cors = corsHeaders(request, pageOrigins);
-  if (path === `${SAVE}/undo`) return json(200, await inTurn(undo), cors);
+  if (path === `${SAVE}/undo`) return json(200, await session.undo(), cors);
   const body: unknown = await request.json().catch(() => null);
   if (!isSaveRequest(body)) return json(400, {}, cors);
-  return json(200, await inTurn(() => save(body)), cors);
+  return json(200, await session.save(body), cors);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   Deno.addSignalListener(signal, () => {
     try {
-      project.process.kill();
+      session.project().process.kill();
     } catch {
       // It had already ended.
     }

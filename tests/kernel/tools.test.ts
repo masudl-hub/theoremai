@@ -924,6 +924,18 @@ Deno.test('failure codes surface on invokeTool path', async () => {
     input: { value: 'not-a-number' },
   });
   assertEquals(failureOf(lastTool(invalidInput, 'stub_tool'))?.code, 'invalid_input');
+  assertEquals(failureOf(lastTool(invalidInput, 'stub_tool'))?.details, {
+    formErrors: [],
+    fieldErrors: { value: ['Invalid input: expected number, received string'] },
+  });
+  // One refusal a call, and the model reads the same reason the host does.
+  const refusals = invalidInput.flatMap((event) =>
+    event.type === 'tool' && 'phase' in event.tool && event.tool.phase === 'error'
+      ? [event.tool]
+      : [],
+  );
+  assertEquals(refusals.length, 1);
+  assertEquals(refusals[0]?.readBack?.includes('expected number, received string'), true);
   const notAllowed = await invokeRegisteredTool({
     profile: 'pinned',
     name: 'denied_tool',

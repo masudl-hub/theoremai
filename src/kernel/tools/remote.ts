@@ -417,17 +417,7 @@ async function* remoteParseAndPermit(
 > {
   const started = yield* startToolExecution(tool, rawInput, ctx, base);
   if (!started.ok) {
-    return {
-      ok: false,
-      outcome: failureOutcome(
-        {
-          code: 'invalid_input',
-          kind: 'bad_response',
-          message: lexiconText('tool.input_invalid', {}, ctx.profile.lexicon),
-        },
-        true,
-      ),
-    };
+    return { ok: false, outcome: failureOutcome(started.failure, true) };
   }
   const permissionGate = checkPermission(
     tool.name,

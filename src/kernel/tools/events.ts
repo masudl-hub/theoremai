@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import { throwIfAborted } from '../../guardrails/error.ts';
+import { lexiconText } from '../../guardrails/lexicon.ts';
 import { assertSafeUrl } from '../../guardrails/network.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { NETWORK_RULES } from '../../guardrails/rules.ts';
@@ -112,13 +113,13 @@ export function* sourceEvents(
   if (cited.length > 0) yield { type: 'citation', sources: cited, callId: base.callId };
 }
 
-/** `{ ok: false }` comes after the failure event is emitted, so callers only bail. */
+/** The `running` event, then the parsed input or the failure the caller settles the call with. */
 export function* startToolExecution<T>(
   tool: { input: z.ZodType<T>; labels?: ToolLabels },
   rawInput: unknown,
   ctx: ToolContext,
   base: ToolCallBase,
-): Generator<TurnEvent, { ok: true; data: T } | { ok: false }> {
+): Generator<TurnEvent, { ok: true; data: T } | { ok: false; failure: ToolFailure }> {
   const edited = ctx.resume?.edited;
   const activity = fillActivityLabel(tool.labels?.activity, { input: rawInput });
   yield toolEvent(base, {
@@ -129,13 +130,15 @@ export function* startToolExecution<T>(
   throwIfAborted(ctx.signal);
   const parsed = tool.input.safeParse(rawInput);
   if (!parsed.success) {
-    yield failureEvent(base, {
-      code: 'invalid_input',
-      kind: 'bad_response',
-      message: 'Tool input validation failed', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      details: parsed.error.flatten(),
-    });
-    return { ok: false };
+    return {
+      ok: false,
+      failure: {
+        code: 'invalid_input',
+        kind: 'bad_response',
+        message: lexiconText('tool.input_invalid', {}, ctx.profile.lexicon),
+        details: parsed.error.flatten(),
+      },
+    };
   }
   return { ok: true, data: parsed.data };
 }

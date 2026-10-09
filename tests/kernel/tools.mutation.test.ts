@@ -1,5 +1,6 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
+import { lexiconText } from '../../src/guardrails/lexicon.ts';
 import { getProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { AWAITING_USER_INPUT_STATUS } from '../../src/kernel/schema.ts';
@@ -377,7 +378,7 @@ Deno.test('tools mutation helpers reject invalid promotion and preserve state at
 });
 Deno.test('tools mutation coverage asserts low-level execution event payloads', async () => {
   const input = z.object({ value: z.number() });
-  const context = asValue<ToolContext>({ signal: undefined });
+  const context = asValue<ToolContext>({ signal: undefined, profile: {} });
   const valid = startToolExecution({ input }, { value: 2 }, context, base) as Generator;
   const { at, ...running } = asValue<{
     tool: {
@@ -389,17 +390,18 @@ Deno.test('tools mutation coverage asserts low-level execution event payloads', 
   assertEquals(valid.next().value, { ok: true, data: { value: 2 } });
   const invalid = startToolExecution({ input }, { value: 'bad' }, context, base) as Generator;
   invalid.next();
-  assertEquals(
-    asValue<{
-      tool: {
-        failure: {
-          code: string;
-        };
-      };
-    }>(invalid.next().value).tool.failure.code,
-    'invalid_input',
-  );
-  assertEquals(invalid.next().value, { ok: false });
+  assertEquals(invalid.next().value, {
+    ok: false,
+    failure: {
+      code: 'invalid_input',
+      kind: 'bad_response',
+      message: lexiconText('tool.input_invalid'),
+      details: {
+        formErrors: [],
+        fieldErrors: { value: ['Invalid input: expected number, received string'] },
+      },
+    },
+  });
   const builtinCtx = asValue<ToolContext>({ profile: {} });
   const builtin = executeBuiltin(
     { name: 'googleSearch' },

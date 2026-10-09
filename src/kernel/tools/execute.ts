@@ -643,17 +643,11 @@ export async function* executeFunction(
   const callId = base.callId;
   const parsed = yield* startToolExecution(tool, rawInput, ctx, base);
   if (!parsed.ok) {
-    return yield* settleToolFailure(
-      guard,
-      base,
-      {
-        code: 'invalid_input',
-        kind: 'bad_response',
-        message: lexiconText('tool.input_invalid', {}, ctx.profile.lexicon),
-      },
-      stages,
-      { toolName: tool.name, callId, callNotStarted: true },
-    );
+    return yield* settleToolFailure(guard, base, parsed.failure, stages, {
+      toolName: tool.name,
+      callId,
+      callNotStarted: true,
+    });
   }
   let input: unknown = parsed.data;
 

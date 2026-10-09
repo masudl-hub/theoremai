@@ -62,6 +62,23 @@ export function isSaveRequest(body: unknown): body is SaveRequest {
     typeof workspace.starts?.agents === 'object' && typeof workspace.starts.tools === 'object';
 }
 
+/**
+ * What Save answers a request with, as a status and a body: the review or the write at `base`, and
+ * the undo at `base/undo`. Undefined when the request is not Save's.
+ */
+export async function answerSave<Loaded>(
+  session: Pick<SaveSession<Loaded>, 'save' | 'undo'>,
+  base: string,
+  request: Request,
+): Promise<{ status: number; body: unknown } | undefined> {
+  if (request.method !== 'POST') return undefined;
+  const path = new URL(request.url).pathname;
+  if (path === `${base}/undo`) return { status: 200, body: await session.undo() };
+  if (path !== base) return undefined;
+  const body: unknown = await request.json().catch(() => null);
+  return isSaveRequest(body) ? { status: 200, body: await session.save(body) } : { status: 400, body: {} };
+}
+
 /** Starts Save for a project that `first` loaded. */
 export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded): SaveSession<Loaded> {
   const { root } = host;

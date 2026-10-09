@@ -2,6 +2,7 @@ import { assertEquals } from '@std/assert';
 import registerExample from '../../studio/server/example.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import {
+  answerSave,
   createSaveSession,
   isSaveRequest,
   type SaveHost,
@@ -178,4 +179,35 @@ Deno.test('a change Save cannot write turns Save off, and a workspace it cannot 
   assertEquals(((await session.save({ workspace: broken })) as SaveRefusal).reason, 'issues');
   assertEquals(isSaveRequest({ workspace }), true);
   assertEquals([isSaveRequest(null), isSaveRequest({ workspace: { agents: [] } })], [false, false]);
+});
+
+Deno.test('Save answers its own two addresses, and leaves every other request alone', async () => {
+  const { session, state } = project();
+  const workspace = edited();
+  const at = (path: string, method: string, body?: unknown) =>
+    answerSave(
+      session,
+      '/api/studio/save',
+      new Request(`http://127.0.0.1:4983${path}`, {
+        method,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      }),
+    );
+  assertEquals(await at('/api/studio/save', 'GET'), undefined);
+  assertEquals(await at('/api/studio/run', 'POST', {}), undefined);
+  assertEquals(await at('/api/studio/save', 'POST', { workspace: 1 }), { status: 400, body: {} });
+  assertEquals(await at('/api/studio/save', 'POST'), { status: 400, body: {} });
+
+  const review = (await at('/api/studio/save', 'POST', { workspace }))?.body as SaveReview;
+  assertEquals([review.ok, review.writable], [true, true]);
+  state.loads = startedHere(workspace);
+  assertEquals(await at('/api/studio/save', 'POST', { workspace, stamp: review.stamp }), {
+    status: 200,
+    body: { ok: true, written: ['example.ts'] },
+  });
+  state.loads = opened.workspace;
+  assertEquals(await at('/api/studio/save/undo', 'POST'), {
+    status: 200,
+    body: { ok: true, written: ['example.ts'] },
+  });
 });

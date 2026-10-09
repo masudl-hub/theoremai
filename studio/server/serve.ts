@@ -22,7 +22,7 @@ import { resolve } from 'node:path';
 import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } from './handler.ts';
 import { PROJECT_READY } from './project.ts';
 import { isInside } from './project-source.ts';
-import { createSaveSession, isSaveRequest } from './save-session.ts';
+import { answerSave, createSaveSession } from './save-session.ts';
 
 function flag(name: string, fallback: string): string {
   const at = Deno.args.indexOf(`--${name}`);
@@ -182,20 +182,18 @@ async function forward(request: Request): Promise<Response> {
 
 const SAVE = `${STUDIO_BASE}/save`;
 
+/** The project as the page opens it: what it registered, and the settings its files say its profiles share. */
+function opened(request: Request): StudioDescription | undefined {
+  if (request.method !== 'GET' || new URL(request.url).pathname !== STUDIO_BASE) return undefined;
+  return { ...session.project().description, shared: session.shared() };
+}
+
 Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
   if (isForeign(request, gate)) return json(403, {}, {});
-  const path = new URL(request.url).pathname;
-  if (request.method === 'GET' && path === STUDIO_BASE) {
-    // The project describes what it registered; its files say which settings its profiles share.
-    const opened: StudioDescription = { ...session.project().description, shared: session.shared() };
-    return json(200, opened, corsHeaders(request, pageOrigins));
-  }
-  if (request.method !== 'POST' || (path !== SAVE && path !== `${SAVE}/undo`)) return forward(request);
+  const answer = opened(request) ?? (await answerSave(session, SAVE, request));
+  if (!answer) return forward(request);
   const cors = corsHeaders(request, pageOrigins);
-  if (path === `${SAVE}/undo`) return json(200, await session.undo(), cors);
-  const body: unknown = await request.json().catch(() => null);
-  if (!isSaveRequest(body)) return json(400, {}, cors);
-  return json(200, await session.save(body), cors);
+  return 'workspace' in answer ? json(200, answer, cors) : json(answer.status, answer.body, cors);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

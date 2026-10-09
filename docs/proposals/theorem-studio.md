@@ -439,7 +439,7 @@ are not in the files, and a button, Review and save.
 profiles or tools share a constant has a third list beside Agents and Tools:
 Shared.
 
-- Each entry shows a readable name (`DESK_TOOLS` reads "Desk tools"), the
+- Each entry shows a readable name (`STANDARD_GUARDRAILS` reads "Standard guardrails"), the
   constant's real name and `file:line`, and the profiles and tools that use
   it.
 - A constant that is a whole section of every profile that uses it (its

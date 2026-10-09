@@ -249,7 +249,8 @@ export function ProjectSave({
 		<Section variant="transparent" padding={3}>
 			<Banner
 				status="info"
-				title={`Your edits are not in ${project.name}'s files yet. Runs use the files.`}
+				title={`Your edits are not in ${project.name}'s files yet.`}
+				description="A chat answers twice: from your files, and with your edits. Every other run uses the files."
 				endContent={
 					<Button
 						label={blocked ?? 'Review and save'}

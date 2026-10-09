@@ -1,4 +1,5 @@
 import type { SVGProps } from 'react';
+import './theorem-mark.css';
 
 /**
  * Geometry of `public/favicon.svg`: the tile's 24×24 mark, translated by the

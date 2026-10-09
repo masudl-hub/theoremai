@@ -104,6 +104,7 @@ import {
 } from '../mod.ts';
 import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
 import { GuardrailTester, ProbedAgent } from './guardrail-tester.tsx';
+import './studio.css';
 import {
 	ConnectionMode,
 	ISSUE_ROW_ATTRIBUTE,

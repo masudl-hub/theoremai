@@ -1,0 +1,184 @@
+/*
+ * The studio screen's own rules: the tree, the phone sheets and the few layout classes its editors
+ * use. Every look comes from Astryx and its theme tokens, which the host loads.
+ */
+
+/* A box that takes all the room its parent gives: the screen and the code view. */
+.fill {
+	height: 100%;
+	width: 100%;
+}
+
+/* The guardrail examples scroll sideways with no bar under them. */
+.scrollbar-none {
+	scrollbar-width: none;
+}
+
+/* A criterion's label keeps a fixed share of its row, so the texts beside them line up. */
+.criterion-label {
+	flex: 0 0 38%;
+	min-width: 0;
+}
+
+/*
+ * A studio tree row's add or remove button shows on hover or keyboard focus, fading in,
+ * so the tree reads as names at rest. Without hover (touch), it always shows.
+ */
+.studio-tree-row {
+	position: relative;
+}
+
+/* Out of the row's flow, so it neither heightens the row nor narrows the label at rest. */
+.studio-tree-action {
+	position: absolute;
+	inset-inline-end: var(--spacing-1);
+	top: 50%;
+	translate: 0 -50%;
+	display: inline-flex;
+	opacity: 0;
+	transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.studio-tree-row:hover .studio-tree-action,
+.studio-tree-row:has(:focus-visible) .studio-tree-action {
+	opacity: 1;
+}
+
+@media (hover: none) {
+	.studio-tree-action {
+		opacity: 1;
+	}
+}
+
+/*
+ * The button sits over the label's end rather than beside it, so it never widens the row; the
+ * label fades out beneath it instead of being pushed along.
+ */
+@media (hover: none) {
+	.studio-tree-row > button:not([data-tree-toggle]) {
+		mask-image: linear-gradient(to left, transparent var(--spacing-6), #000 var(--spacing-10));
+	}
+}
+
+.studio-tree-row:is(:hover, :has(:focus-visible)) > button:not([data-tree-toggle]) {
+	mask-image: linear-gradient(to left, transparent var(--spacing-6), #000 var(--spacing-10));
+}
+
+/* A row with two buttons fades a button's width further in. */
+.studio-tree-row:has(.studio-tree-action > :nth-child(2)):is(:hover, :has(:focus-visible))
+> button:not([data-tree-toggle]) {
+	mask-image: linear-gradient(
+		to left,
+		transparent calc(var(--spacing-6) + var(--spacing-8)),
+		#000 calc(var(--spacing-10) + var(--spacing-8))
+	);
+}
+
+/* A list row's badges stay on one line: past the field's width they end in an ellipsis beside the
+   count, rather than wrapping the count out of the field. */
+.inspector-list span:has(> .astryx-badge) {
+	flex-wrap: nowrap;
+	min-width: 0;
+}
+
+/* An optional section the draft leaves out: in the tree, a step quieter than the rest. */
+.studio-tree-off {
+	color: var(--color-text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.studio-tree-action {
+		transition: none;
+	}
+}
+
+/*
+ * The studio on a phone, the way the docs reader works: the editor fills the screen, the tree
+ * opens over it from Sections, and the preview opens over it from Preview, with Back to return. The
+ * draft lives only on this page, so the preview is a sheet here rather than another page.
+ */
+.studio-phone {
+	display: none;
+}
+
+/* The frame's class in each selector outranks Astryx's own one-class rules, including the panel's
+   resized width, without !important. */
+@media (width < 768px) {
+	.studio-phone {
+		display: contents;
+	}
+
+	.studio-frame {
+		position: relative;
+	}
+
+	.studio-frame .studio-side {
+		width: 100%;
+		max-width: none;
+		flex: 1 1 auto;
+	}
+
+	.studio-frame .studio-side-handle,
+	.studio-frame .studio-tree,
+	.studio-frame .studio-preview {
+		display: none;
+	}
+
+	.studio-frame.studio-tree-open .studio-tree,
+	.studio-frame.studio-preview-open .studio-preview {
+		display: flex;
+		position: absolute;
+		inset: 0;
+		z-index: 2;
+		width: 100%;
+	}
+
+	/* The tree covers the editor inside the raised panel; the preview covers the page. */
+	.studio-frame.studio-tree-open .studio-tree {
+		background: var(--color-background-surface);
+	}
+
+	.studio-frame.studio-preview-open .studio-preview {
+		background: var(--color-background-body);
+	}
+
+	.studio-frame.studio-tree-open .studio-tree > * {
+		width: 100%;
+	}
+}
+
+/*
+ * The guardrails editor swaps its list of detectors for one detector's page, and back. Each side
+ * fades in as it mounts, so the swap reads as a move rather than a jump.
+ */
+.detector-view {
+	animation: detector-view-enter var(--duration-fast) var(--ease-standard);
+}
+
+@keyframes detector-view-enter {
+	from {
+		opacity: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.detector-view {
+		animation: none;
+	}
+}
+
+/*
+ * A row's own action, shown while the row is hovered or holds focus. Where nothing hovers (touch),
+ * it always shows.
+ */
+@media (hover: hover) {
+	.row-reveal {
+		opacity: 0;
+		transition: opacity var(--duration-fast) var(--ease-standard);
+	}
+
+	.astryx-list-item:hover .row-reveal,
+	.astryx-list-item:focus-within .row-reveal {
+		opacity: 1;
+	}
+}

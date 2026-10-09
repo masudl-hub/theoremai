@@ -1,0 +1,84 @@
+/* Pen timing. Strokes overlap so the second crosses the first; the dot lands after both settle.
+   Dash geometry stays on the SVG attributes (pathLength units). Do not set
+   stroke-dasharray or stroke-dashoffset here: CSS lengths are pixels and the
+   round caps show up as dots. */
+.theorem-mark {
+	--mark-delay: 40ms;
+	--mark-draw: 700ms;
+	--mark-draw-late: 640ms;
+	--mark-stagger: 220ms;
+	--mark-dot-at: 820ms;
+	--mark-dot-in: 240ms;
+	display: block;
+	width: 72px;
+	height: 72px;
+}
+
+.theorem-mark-stroke {
+	animation-name: theorem-mark-draw;
+	animation-duration: var(--mark-draw);
+	animation-timing-function: cubic-bezier(0.45, 0.02, 0.15, 1);
+	animation-delay: var(--mark-delay);
+	animation-fill-mode: forwards;
+}
+
+.theorem-mark-stroke-late {
+	animation-duration: var(--mark-draw-late);
+	animation-delay: calc(var(--mark-delay) + var(--mark-stagger));
+}
+
+.theorem-mark-dot {
+	transform-box: fill-box;
+	transform-origin: center;
+	transform: scale(0);
+	animation: theorem-mark-dot-in var(--mark-dot-in) cubic-bezier(0.16, 1, 0.3, 1)
+		calc(var(--mark-delay) + var(--mark-dot-at)) forwards;
+}
+
+@keyframes theorem-mark-draw {
+	/* Stay invisible while the dash is only a round cap, then show the line. */
+	0% {
+		opacity: 0;
+		stroke-dashoffset: 1;
+	}
+
+	12% {
+		opacity: 1;
+		stroke-dashoffset: 0.82;
+	}
+
+	100% {
+		opacity: 1;
+		stroke-dashoffset: 0;
+	}
+}
+
+@keyframes theorem-mark-dot-in {
+	from {
+		opacity: 0;
+		transform: scale(0);
+	}
+
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.theorem-mark-stroke,
+	.theorem-mark-dot {
+		animation: none;
+		transition: none;
+	}
+
+	.theorem-mark-stroke {
+		stroke-dashoffset: 0;
+		opacity: 1;
+	}
+
+	.theorem-mark-dot {
+		opacity: 1;
+		transform: none;
+	}
+}

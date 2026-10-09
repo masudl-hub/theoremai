@@ -45,9 +45,9 @@ export function studioVite({ hostRoot }) {
 			if (source === 'virtual:studio-type-sources') return virtual;
 			if (source.startsWith(CODICONS)) return path.join(codicons, source.slice(CODICONS.length));
 		},
-		async load(source) {
+		load(source) {
 			if (source !== virtual) return;
-			const files = await loadDeclarations(hostRoot);
+			const files = loadDeclarations(hostRoot);
 			addTree(files, path.join(hostRoot, 'node_modules/zod'), 'file:///node_modules/zod', '.d.ts');
 			const reached = reachableDeclarations(files);
 			return `export const typeSources = ${JSON.stringify(reached)};\n`;
@@ -55,7 +55,7 @@ export function studioVite({ hostRoot }) {
 	};
 }
 
-async function loadDeclarations(hostRoot) {
+function loadDeclarations(hostRoot) {
 	const cacheFile = path.join(hostRoot, 'node_modules/.vite/studio-declarations.json');
 	const stamp = sourceStamp();
 	const cached = readCache(cacheFile);

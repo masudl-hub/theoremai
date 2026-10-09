@@ -591,8 +591,11 @@ Masud chose one name: studio everywhere. The paths above are the old ones.
 - The screen's CSS is `studio/ui/studio.css` and the mark's is
   `studio/ui/theorem-mark.css`; each is imported by the file that uses it.
   Both read Astryx's theme tokens, which the host loads.
-- Still to do: the run page is still the website's. It moves next, and
-  then the studio runs from the package with one command.
+- The run page is `StudioRunScreen` in `studio/ui/studio-run.tsx`, with
+  its CSS beside it. `openStudioRun` works out what a run tab opens on.
+  The website's `/studio/run` route sends a tab with no agent back to the
+  studio and renders the screen.
+- Still to do: the studio runs from the package with one command.
 - The moved files have no tests here yet. Four of the website's tests cover
   them and move with the code view; until then `studio/ui/**` has its own
   CRAP ceiling in `.fallowrc.jsonc`.

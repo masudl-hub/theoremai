@@ -44,7 +44,7 @@ export interface StudioRailProps {
 	packages: PackageLinks;
 	/**
 	 * The website's address, given when the studio runs away from it. The studio is then this
-	 * page, and every other page opens on the website.
+	 * page, and every other page opens on the website: the pages in a new tab, so the studio stays open.
 	 */
 	site?: string;
 	/** What sits at the foot of the rail. */
@@ -71,6 +71,7 @@ export function StudioRail({ theme, pathname, packages, site, footerIcons }: Stu
 							label={label}
 							href={at(href)}
 							icon={PAGE_ICONS[label]}
+							as={site !== undefined && href !== '/studio' ? NewTabLink : undefined}
 							isSelected={pathname === href || pathname.startsWith(`${href}/`)}
 							data-home-nav-anchor={href}
 						/>

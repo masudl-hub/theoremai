@@ -610,7 +610,7 @@ Masud chose one name: studio everywhere. The paths above are the old ones.
   (`studio/ui/studio-nav.ts`), Figtree (`studio/ui/figtree.css`) and the
   popover motion (`studio/ui/motion.css`).
 - On its own the rail has no th30, and every page but the studio opens on
-  the website (`THEOREM_SITE`): the mark and Docs.
+  the website (`THEOREM_SITE`): the mark, and Docs in a new tab.
 - The studio's tests are `studio/tests/`, run by `npm --prefix studio test`
   with the theme check. They are opt-in like the install, so the default
   coverage run does not see the screen and `studio/ui/**` keeps its own

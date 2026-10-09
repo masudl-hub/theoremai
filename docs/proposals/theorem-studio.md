@@ -529,9 +529,9 @@ one message is answered twice, side by side.
 
 Not built for the comparison: files in the shared box, it sends text only.
 A new function tool on the edited side answers with the studio's sample
-answer. Edits that take a profile or a tool away cannot run before they are
-saved, and the edited side says so. Unsaved edits are lost when the page is
-loaded again.
+answer. Edits that take a profile away cannot run before they are saved,
+and the edited side says so. A tool taken away does run: no agent on the
+edited side allows it. Unsaved edits are lost when the page is loaded again.
 
 Not built: editing those in the studio. Removing a profile or a tool: the
 review names it and Save does not write it. Changing a tool's schema once it

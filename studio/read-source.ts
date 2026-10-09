@@ -309,7 +309,9 @@ function parseArray(src: Src, path: string, spans: StudioSourceSpan[]): unknown[
 
 function zodSchema(head: string, args: unknown[], src: Src): Record<string, unknown> {
   const [schema] = args;
-  if (head !== 'z.fromJSONSchema') src.fail(`'${head}' isn't a schema this file prints.`);
+  if (head !== 'z.fromJSONSchema') {
+    src.fail(`The studio reads a schema as JSON Schema: z.fromJSONSchema({ ... }), not '${head}'.`);
+  }
   if (!isRecord(schema)) src.fail('z.fromJSONSchema() needs a schema.');
   return schema;
 }

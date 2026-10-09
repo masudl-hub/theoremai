@@ -75,17 +75,6 @@ function registeredTools(): ToolRegistration[] {
   });
 }
 
-/** The tool with the project's own schemas: the printer's zod keeps a schema's shape, not its notes. */
-function withOwnSchemas(spec: ToolSpecDraft, tools: readonly ToolRegistration[]): ToolSpecDraft {
-  const own = tools.find((tool) => tool.name === spec.toolName);
-  if (!own || !('inputSchema' in own)) return spec;
-  return {
-    ...spec,
-    inputJson: JSON.stringify(own.inputSchema, null, 2),
-    outputJson: JSON.stringify(own.outputSchema, null, 2),
-  };
-}
-
 type ProfileRead =
   | { ok: true; draft: StudioDraft; registered: ToolSpecDraft[] }
   | { ok: false; message: string };
@@ -100,12 +89,7 @@ function readProfile(profile: Profile, tools: readonly ToolRegistration[]): Prof
     });
     const read = readStudioSource(source, createBlankDraft());
     if (!read.ok) return { ok: false, message: read.errors.map((error) => error.message).join(' ') };
-    const own = (spec: ToolSpecDraft) => withOwnSchemas(spec, tools);
-    return {
-      ok: true,
-      draft: { ...read.draft, toolSpecs: read.draft.toolSpecs.map(own) },
-      registered: read.registered.map(own),
-    };
+    return { ok: true, draft: read.draft, registered: read.registered };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }

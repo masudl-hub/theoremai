@@ -185,6 +185,11 @@ const SAVE = `${STUDIO_BASE}/save`;
 Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
   if (isForeign(request, gate)) return json(403, {}, {});
   const path = new URL(request.url).pathname;
+  if (request.method === 'GET' && path === STUDIO_BASE) {
+    // The project describes what it registered; its files say which settings its profiles share.
+    const opened: StudioDescription = { ...session.project().description, shared: session.shared() };
+    return json(200, opened, corsHeaders(request, pageOrigins));
+  }
   if (request.method !== 'POST' || (path !== SAVE && path !== `${SAVE}/undo`)) return forward(request);
   const cors = corsHeaders(request, pageOrigins);
   if (path === `${SAVE}/undo`) return json(200, await session.undo(), cors);

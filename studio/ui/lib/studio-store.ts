@@ -9,11 +9,13 @@ import {
 	agentNodeId,
 	createBlankDraft,
 	libraryDraft,
+	type SharedLink,
 	STUDIO_WORKSPACE_VERSION,
 	type StudioDraft,
 	type StudioWorkspace,
 	type ToolSpecDraft,
 	withLibraryDraft,
+	withSharedCarried,
 } from '../../mod.ts';
 import {
 	isRecord,
@@ -111,6 +113,8 @@ function agentOf(workspace: StudioWorkspace, id: string): string | undefined {
 /** The store's mutable state, shared by the helpers below. */
 interface StoreState {
 	workspace: StudioWorkspace;
+	/** The settings several agents hold as one value: a change to one is made on each. */
+	links: readonly SharedLink[];
 	revision: number;
 	focus: string;
 	changes: DraftChange[];
@@ -182,8 +186,9 @@ function updateWorkspace(
 	next: StudioWorkspace | ((current: StudioWorkspace) => StudioWorkspace),
 	by: DraftAuthor,
 ): StudioWorkspace {
-	const value = typeof next === 'function' ? next(state.workspace) : next;
-	if (value === state.workspace) return state.workspace;
+	const made = typeof next === 'function' ? next(state.workspace) : next;
+	if (made === state.workspace) return state.workspace;
+	const value = state.links.length ? withSharedCarried(state.workspace, made, state.links) : made;
 	const before = draftOf(state);
 	const agentsBefore = state.workspace.agents.map((agent) => agent.key).join();
 	state.workspace = value;
@@ -238,9 +243,10 @@ export type StudioStore = ReturnType<typeof createStudioStore>;
  * agent at a time, the focused one: `getDraft` and `updateDraft` read and write its draft, with
  * the whole tool library as its tools.
  */
-export function createStudioStore(initial: RestoredStudio) {
+export function createStudioStore(initial: RestoredStudio, links: readonly SharedLink[] = []) {
 	const state: StoreState = {
 		workspace: initial.workspace,
+		links,
 		revision: initial.revision,
 		focus: agentOf(initial.workspace, initial.workspace.selected) ?? initial.workspace.chatWith,
 		changes: [],

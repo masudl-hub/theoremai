@@ -1,16 +1,38 @@
 /**
- * What the page and the studio's server say to each other about Save. Types
- * only: the page imports this without the server's code.
+ * What the page and the studio's server say to each other about the project's
+ * files: its shared settings, and Save. Types only: the page imports this
+ * without the server's code.
  *
  * @module
  */
 
 import type { StudioWorkspace } from '../workspace.ts';
 
+/** A constant that more than one profile or tool reads: one value, set in one place. */
+export interface SharedSetting {
+  /** The constant's name where it is declared. */
+  name: string;
+  /** The name as words: `STANDARD_GUARDRAILS` is "Standard guardrails". */
+  label: string;
+  /** Where it is declared: the path and the one-based line. */
+  file: string;
+  line: number;
+  /**
+   * The profile key it fills, when every profile reads it as the whole of that key and nothing
+   * else reads it. The studio edits these; any other is changed in the builder's editor.
+   */
+  key?: string;
+  /** The profiles it reaches, by id, and the tools, by name. */
+  profiles: string[];
+  tools: string[];
+  /** Code that is not a profile or a tool reads it too. */
+  readByCode: boolean;
+}
+
 /**
  * What happens to one changed value.
  * - `written`: Save rewrites it in the file.
- * - `constant`: a named constant holds it, and something else reads that constant too.
+ * - `constant`: a named constant holds it, and something else that reads the constant does not make this change.
  * - `code`: code computes it, or the file sets it in a way the studio cannot follow.
  * - `changed`: the file no longer holds the value the studio opened.
  * - `unfound`: no place in the project's files sets it.
@@ -30,7 +52,7 @@ export interface SaveChange {
   line?: number;
   /** The constant that holds it. */
   name?: string;
-  /** The other profiles and tools that read the constant, by id and name. */
+  /** The other profiles and tools that read the constant, by id and name. Save writes it when each makes the same change. */
   sharedWith?: string[];
   /** Code that is not a profile or a tool reads the constant too. */
   readByCode?: boolean;

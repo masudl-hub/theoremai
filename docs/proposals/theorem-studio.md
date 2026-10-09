@@ -412,10 +412,13 @@ are not in the files, and a button, Review and save.
 - Save follows a constant (9 Oct). When one profile or tool is all that reads
   the constant, Save changes the value where the constant is set, in its own
   file, through any number of names and imports (D20).
-- A constant that something else reads too is not written yet. The review
-  names the constant, its `file:line`, and the profiles, tools or other code
-  that share it. Editing it once for all of them is the list of shared
-  settings (D18), which is next.
+- A constant that several profiles or tools read is written once (9 Oct),
+  when every one of them holds the same change. The studio makes that so: an
+  edit to a shared setting in one profile shows in the others at once. If
+  they differ, the review names the constant, its `file:line`, and the ones
+  that do not hold the change.
+- A constant that other code reads too is not written. The review names it
+  and its `file:line`.
 - Save writes every change or none. If one change is set by a shared
   constant, by code, or by a tool's schema, Save is off. This keeps the third
   promise of 5.1: the files hold what was tested. Claude asked Masud on 9 Oct
@@ -432,8 +435,22 @@ are not in the files, and a button, Review and save.
 - The studio writes only files inside the project folder that the setup file
   imports. It does not run git.
 
-Not built: the list of shared settings, where a constant that several
-profiles read is edited once. Adding or removing a profile or a tool. A read-only row that opens the code, by origin.
+**The list of shared settings, built on 9 Oct (D18).** A project whose
+profiles or tools share a constant has a third list beside Agents and Tools:
+Shared.
+
+- Each entry shows a readable name (`DESK_TOOLS` reads "Desk tools"), the
+  constant's real name and `file:line`, and the profiles and tools that use
+  it.
+- A constant that is a whole section of every profile that uses it (its
+  tools, its guardrails, its models) is edited in the studio. Opening it
+  shows that section, with a line above it: the name, how many other
+  profiles use it, and where it is declared. The same line shows when the
+  builder reaches the section from the list of profiles, with "Open".
+- Any other shared constant is listed and marked "edited in your code": one
+  smaller than a section, one a tool reads, or one other code reads.
+
+Not built: editing those in the studio. Adding or removing a profile or a tool. A read-only row that opens the code, by origin.
 The project's formatter after the write. Markdown instruction files. A
 type-check for a project that is not Deno.
 

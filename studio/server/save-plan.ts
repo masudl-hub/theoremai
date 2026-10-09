@@ -1,10 +1,10 @@
 /**
  * What Save writes: each changed value of a profile or a tool, found in the
  * builder's file and rewritten there. A value written in the call is changed in
- * place. A value from a constant that only this profile or tool reads is changed
- * where the constant is set. A value from a constant that something else reads
- * too, or from code, is not written; the plan says where it is set and who
- * shares it.
+ * place. A value from a constant is changed where the constant is set, when
+ * every profile and tool that reads the constant makes the same change. A value
+ * from a constant that someone leaves as it was, or that other code reads, or
+ * from code, is not written; the plan says where it is set and who shares it.
  *
  * @module
  */
@@ -137,9 +137,48 @@ function quoteLike(existing: ts.Expression | undefined, source: ts.SourceFile) {
   };
 }
 
+const subjectId = (kind: SaveSubject['kind'], of: string) => `${kind}:${of}`;
+
+/** One profile's or tool's change inside a constant that others read too. */
+interface SharedChange {
+  /** The constant, by the value it is set to. */
+  holder: ts.Expression;
+  /** Who makes the change, and everyone the constant reaches. */
+  by: string;
+  everyone: string[];
+  /** What the change writes and notes when it is made. */
+  edits: SourceEdit[];
+  changes: SaveChange[];
+  /** What the plan says instead when someone the constant reaches does not make it. */
+  refused: SaveChange;
+}
+
+const editsText = (edits: readonly SourceEdit[]) =>
+  canonical([...edits].sort((a, b) => a.start - b.start || a.end - b.end));
+
+/**
+ * Decides each shared constant: its change is written, once, when everyone it reaches makes the
+ * same one. Otherwise each change to it is refused, so no profile runs on a value it did not test.
+ */
+function settle(shared: readonly SharedChange[], plan: SavePlan) {
+  for (const group of Map.groupBy(shared, (each) => each.holder).values()) {
+    const [first] = group;
+    if (!first) continue;
+    const made = new Set(group.map((each) => each.by));
+    const agreed = first.everyone.every((user) => made.has(user)) &&
+      group.every((each) => editsText(each.edits) === editsText(first.edits));
+    for (const each of group) plan.changes.push(...(agreed ? each.changes : [each.refused]));
+    if (!agreed) continue;
+    for (const edit of first.edits) {
+      if (!plan.edits.some((other) => canonical(other) === canonical(edit))) plan.edits.push(edit);
+    }
+  }
+}
+
 class Planner {
   readonly changes: SaveChange[] = [];
   readonly edits: SourceEdit[] = [];
+  readonly shared: SharedChange[] = [];
 
   constructor(private readonly project: ProjectSource, private readonly subject: SaveSubject) {}
 
@@ -150,7 +189,17 @@ class Planner {
     name?: string,
     shared: Pick<SaveChange, 'sharedWith' | 'readByCode'> = {},
   ) {
-    this.changes.push({
+    this.changes.push(this.change(status, path, at, name, shared));
+  }
+
+  private change(
+    status: SaveStatus,
+    path: string[],
+    at?: { source: ts.SourceFile; node: ts.Node },
+    name?: string,
+    shared: Pick<SaveChange, 'sharedWith' | 'readByCode'> = {},
+  ): SaveChange {
+    return {
       kind: this.subject.kind,
       of: this.subject.of,
       setting: path.join('.'),
@@ -163,12 +212,13 @@ class Planner {
         : {}),
       ...(name ? { name } : {}),
       ...shared,
-    });
+    };
   }
 
   /**
    * A value a name stands for. When this profile or tool is all the constant sets, the change is
-   * made where the constant is; otherwise the plan names the constant and who shares it.
+   * made where the constant is. When others read it too, the change is kept apart until the plan
+   * knows whether each of them makes it (`settle`). A constant that other code reads is not written.
    */
   private named(at: Located, name: string, before: unknown, after: unknown, path: string[]) {
     const origin = followed(this.project, at);
@@ -178,17 +228,30 @@ class Planner {
       return;
     }
     const users = usersOf(this.project, holder);
+    const everyone = [...users.profiles].map((id) => subjectId('profile', id))
+      .concat([...users.tools].map((tool) => subjectId('tool', tool)));
     const { kind, of } = this.subject;
     users[kind === 'profile' ? 'profiles' : 'tools'].delete(of);
     const sharedWith = [...users.profiles, ...users.tools];
-    if (sharedWith.length || users.code) {
-      this.note('constant', path, origin, name, {
-        ...(sharedWith.length ? { sharedWith } : {}),
-        ...(users.code ? { readByCode: true } : {}),
-      });
+    const refused = this.change('constant', path, origin, holder.name, {
+      ...(sharedWith.length ? { sharedWith } : {}),
+      ...(users.code ? { readByCode: true } : {}),
+    });
+    if (users.code) {
+      this.changes.push(refused);
       return;
     }
+    const from = { edits: this.edits.length, changes: this.changes.length };
     this.walk(origin.node, origin.source, before, after, path);
+    if (!sharedWith.length) return;
+    this.shared.push({
+      holder: holder.initializer,
+      by: subjectId(kind, of),
+      everyone,
+      edits: this.edits.splice(from.edits),
+      changes: this.changes.splice(from.changes),
+      refused,
+    });
   }
 
   private edit(source: ts.SourceFile, start: number, end: number, text: string) {
@@ -328,6 +391,7 @@ class Planner {
 /** Finds each subject's call in the project and plans its changes. */
 export function planSave(project: ProjectSource, subjects: readonly SaveSubject[]): SavePlan {
   const plan: SavePlan = { changes: [], edits: [] };
+  const shared: SharedChange[] = [];
   for (const subject of subjects) {
     if (same(subject.before, subject.after)) continue;
     const targets = (subject.kind === 'profile' ? project.profiles : project.tools).get(subject.of) ?? [];
@@ -347,7 +411,9 @@ export function planSave(project: ProjectSource, subjects: readonly SaveSubject[
     planner.target(target);
     plan.changes.push(...planner.changes);
     plan.edits.push(...planner.edits);
+    shared.push(...planner.shared);
   }
+  settle(shared, plan);
   return plan;
 }
 

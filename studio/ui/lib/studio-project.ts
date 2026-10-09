@@ -4,7 +4,7 @@
  * own code.
  */
 import type { StudioWorkspace } from '../../mod.ts';
-import type { SaveDone, SaveRefusal, SaveReview } from '../../server/save-wire.ts';
+import type { SaveDone, SaveRefusal, SaveReview, SharedSetting } from '../../server/save-wire.ts';
 import { createContext, useContext } from 'react';
 
 /** Where the local server listens. Only this machine reaches it. */
@@ -16,6 +16,8 @@ export interface ProjectSession {
 	name: string;
 	/** The profiles the page could not show or run, and why. */
 	problems: { profile: string; message: string }[];
+	/** The settings several profiles share, as the project's files set them. */
+	shared: SharedSetting[];
 }
 
 /** Set while the page has a project open; `null` on the website's own page. */
@@ -27,7 +29,7 @@ export function useProject(): ProjectSession | null {
 
 /** The session for a project already open: the run page names it in its address. */
 export function projectSession(name: string): ProjectSession {
-	return { endpoint: PROJECT_ENDPOINT, name, problems: [] };
+	return { endpoint: PROJECT_ENDPOINT, name, problems: [], shared: [] };
 }
 
 /** Where the local server runs the profile with this id. */
@@ -78,9 +80,15 @@ export async function openProject(): Promise<{
 		project: string;
 		workspace: StudioWorkspace;
 		problems: ProjectSession['problems'];
+		shared?: SharedSetting[];
 	} = await response.json();
 	return {
-		project: { endpoint: PROJECT_ENDPOINT, name: opened.project, problems: opened.problems },
+		project: {
+			endpoint: PROJECT_ENDPOINT,
+			name: opened.project,
+			problems: opened.problems,
+			shared: opened.shared ?? [],
+		},
 		workspace: opened.workspace,
 	};
 }

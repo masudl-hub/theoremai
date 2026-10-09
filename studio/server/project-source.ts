@@ -9,6 +9,7 @@
 
 import ts from 'typescript';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import type { SharedSetting } from './save-wire.ts';
 
 /** One call the studio can write to: its options object, in its file. */
 export interface SourceTarget {
@@ -136,7 +137,7 @@ function sourceOf(project: ProjectSource, source: ts.SourceFile, specifier: stri
 }
 
 /** The constant a name in `source` stands for: one declared there, or one a relative import brings in. */
-export function bindingOf(project: ProjectSource, source: ts.SourceFile, name: string): Binding | undefined {
+function bindingOf(project: ProjectSource, source: ts.SourceFile, name: string): Binding | undefined {
   const declared = constant(source, name);
   if (declared) return { name, source, initializer: declared };
   const from = importOf(source, name);
@@ -216,10 +217,12 @@ function isWrittenIn(node: ts.Node, value: ts.Expression): boolean {
   return true;
 }
 
+/** The profile or tool whose options write `at` out as a value. A read inside a handler is code. */
 function targetOf(targets: Map<string, SourceTarget[]>, at: Located): string | undefined {
   for (const [name, held] of targets) {
     const inside = held.some(({ source, options }) =>
-      source === at.source && options.pos <= at.node.pos && at.node.end <= options.end
+      source === at.source && options.pos <= at.node.pos && at.node.end <= options.end &&
+      isWrittenIn(at.node, options)
     );
     if (inside) return name;
   }
@@ -249,6 +252,76 @@ export function usersOf(project: ProjectSource, binding: Binding): ConstantUsers
   };
   follow(binding);
   return users;
+}
+
+/** Each top-level `const` of a file that is set to a value, not a function. */
+function constantsOf(source: ts.SourceFile): Binding[] {
+  const found: Binding[] = [];
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
+    for (const { name, initializer } of statement.declarationList.declarations) {
+      if (!initializer || !ts.isIdentifier(name)) continue;
+      const value = unwrapped(initializer);
+      if (ts.isArrowFunction(value) || ts.isFunctionExpression(value)) continue;
+      found.push({ name: name.text, source, initializer });
+    }
+  }
+  return found;
+}
+
+/** `STANDARD_GUARDRAILS` and `standardGuardrails` as "Standard guardrails". */
+export function readableName(name: string): string {
+  const words = name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(/[\s_]+/).filter(Boolean)
+    .map((word) => word.toLowerCase());
+  const text = words.join(' ');
+  return text ? text[0]?.toUpperCase() + text.slice(1) : name;
+}
+
+/**
+ * The profile key a constant fills: set when every read of it is the whole value of that one key,
+ * written in a profile's own options. A constant read any other way has none.
+ */
+function wholeKey(project: ProjectSource, binding: Binding): string | undefined {
+  const keys = new Set<string | undefined>();
+  for (const read of readsOf(project, binding)) {
+    let value: ts.Node = read.node;
+    while (
+      ts.isParenthesizedExpression(value.parent) || ts.isAsExpression(value.parent) ||
+      ts.isSatisfiesExpression(value.parent)
+    ) value = value.parent;
+    const held = value.parent;
+    const whole = ts.isShorthandPropertyAssignment(held) || (ts.isPropertyAssignment(held) && held.initializer === value);
+    const own = whole && [...project.profiles.values()].flat().some((target) => target.options === held.parent);
+    keys.add(own ? propertyName(held as ts.ObjectLiteralElementLike) : undefined);
+  }
+  const [key] = keys;
+  return keys.size === 1 ? key : undefined;
+}
+
+/**
+ * The project's shared settings: each constant that more than one profile or tool reads, with
+ * who reads it. One that a single profile reads is a part of that profile, and is not listed.
+ */
+export function sharedSettings(project: ProjectSource): SharedSetting[] {
+  const shared: SharedSetting[] = [];
+  for (const source of project.files.values()) {
+    for (const binding of constantsOf(source)) {
+      const users = usersOf(project, binding);
+      if (users.profiles.size + users.tools.size < 2) continue;
+      const key = users.code || users.tools.size ? undefined : wholeKey(project, binding);
+      shared.push({
+        name: binding.name,
+        label: readableName(binding.name),
+        file: source.fileName,
+        line: source.getLineAndCharacterOfPosition(binding.initializer.parent.getStart(source)).line + 1,
+        ...(key === undefined ? {} : { key }),
+        profiles: [...users.profiles],
+        tools: [...users.tools],
+        readByCode: users.code,
+      });
+    }
+  }
+  return shared;
 }
 
 /** The initializer of the one top-level `const name = ...` in a file. */

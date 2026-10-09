@@ -8,10 +8,10 @@
 
 import { relative } from 'node:path';
 import type { StudioWorkspace } from '../workspace.ts';
-import { readProjectSource } from './project-source.ts';
+import { readProjectSource, sharedSettings } from './project-source.ts';
 import { applyEdits, diffHunks, planSave, type SourceEdit } from './save-plan.ts';
 import { projectDiffers, projectNames, saveSubjects } from './save.ts';
-import type { SaveChange, SaveDone, SaveRefusal, SaveRequest, SaveReview } from './save-wire.ts';
+import type { SaveChange, SaveDone, SaveRefusal, SaveRequest, SaveReview, SharedSetting } from './save-wire.ts';
 
 /** What Save needs from the machine. `Loaded` is one load of the project. */
 export interface SaveHost<Loaded> {
@@ -34,6 +34,8 @@ export interface SaveHost<Loaded> {
 /** Save for one project, and the load of it that answers requests now. */
 export interface SaveSession<Loaded> {
   project(): Loaded;
+  /** The project's shared settings as its files hold them now, each file from the project's folder. */
+  shared(): SharedSetting[];
   /** The review when the request has no stamp; the write when it has the review's. */
   save(request: SaveRequest): Promise<SaveReview | SaveDone | SaveRefusal>;
   /** Puts the last Save's files back, when they still hold what it wrote. */
@@ -171,6 +173,9 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
 
   return {
     project: () => project,
+    shared: () =>
+      sharedSettings(readProjectSource(host.setupFile, root, host.read))
+        .map((setting) => ({ ...setting, file: inRoot(setting.file) })),
     save: (request) => inTurn(() => save(request)),
     undo: () => inTurn(undo),
   };

@@ -18,6 +18,7 @@ import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft
 import { readStudioSource } from '../read-source.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import { studioSource } from '../source.ts';
+import type { SharedSetting } from './save-wire.ts';
 import {
   addAgent,
   agentNodeId,
@@ -39,6 +40,8 @@ export type StudioDescription = {
   /** The project as the studio holds one: an agent per profile, and the tools they share. */
   workspace: StudioWorkspace;
   problems: StudioProblem[];
+  /** The settings several profiles share. The studio command reads them from the project's files. */
+  shared?: SharedSetting[];
 };
 
 export type StudioHandlerOptions = {

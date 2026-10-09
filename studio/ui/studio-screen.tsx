@@ -1,3 +1,4 @@
+import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
 import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
 import { EmptyState } from '@astryxdesign/core/EmptyState';
@@ -85,7 +86,12 @@ import {
 	type StudioNodeRef,
 	type StudioRunPayload,
 	type StudioTreeNode,
+	type SharedEntry,
 	type StudioWorkspace,
+	sharedAt,
+	sharedEntries,
+	sharedLinks,
+	sharedNodeId,
 	sampleToolInput,
 	saveStudioRunPayload,
 	scopedNodeId,
@@ -95,6 +101,7 @@ import {
 	studioSource,
 	studioTree,
 	toolSpecKeyOf,
+	toolSpecNodeId,
 	type WorkspaceCompileResult,
 	withAgentDraft,
 	workspaceNodeRef,
@@ -298,8 +305,9 @@ interface WorkspaceTreeState {
 	workspace: StudioWorkspace;
 	focus: string;
 	selectedId: string;
-	/** The list the sidebar shows, agents or tools. */
+	/** The list the sidebar shows: agents, tools, or the settings the project's profiles share. */
 	list: WorkspaceList;
+	shared: readonly SharedEntry[];
 	setList: (next: WorkspaceList) => void;
 	onSelect: (id: string) => void;
 	update: (change: (workspace: StudioWorkspace) => StudioWorkspace) => void;
@@ -362,8 +370,76 @@ function toolItems({ workspace, selectedId, onSelect, update }: WorkspaceTreeSta
 	});
 }
 
+/** Where a shared setting is declared: its real name and its file. */
+function declaredAt({ setting }: SharedEntry): string {
+	return `${setting.name} · ${setting.file}:${String(setting.line)}`;
+}
+
+/**
+ * The settings the project's profiles share, each over the profiles and tools that use it. A row
+ * opens the setting on that profile; one the studio does not edit says so, and opens the profile.
+ */
+function sharedItems({ workspace, shared, selectedId, onSelect }: WorkspaceTreeState) {
+	const open = sharedAt(shared, selectedId);
+	return shared.map((entry): TreeListItemData => {
+		const { setting, facet, agents } = entry;
+		const id = `shared:${setting.file}:${setting.name}`;
+		const users = agents.flatMap((key): TreeListItemData[] => {
+			const agent = workspace.agents.find((each) => each.key === key);
+			if (!agent) return [];
+			const node = sharedNodeId(entry, key);
+			const isUnder = selectedId === node || selectedId.startsWith(`${agentNodeId(key)}/`);
+			return [
+				{
+					id: `${id}:${key}`,
+					label: agent.identity.agentId || 'New agent',
+					startContent: (
+						<Icon
+							icon={PROFILE_TYPE_ICON[agent.identity.profileType || 'text']}
+							size="sm"
+							color="secondary"
+						/>
+					),
+					isSelected: open === entry && isUnder,
+					onClick: () => {
+						onSelect(node);
+					},
+				},
+			];
+		});
+		const tools = setting.tools.flatMap((name): TreeListItemData[] => {
+			const tool = workspace.toolSpecs.find((spec) => spec.toolName === name);
+			if (!tool) return [];
+			return [
+				{
+					id: `${id}:tool:${tool.key}`,
+					label: name,
+					startContent: <Icon icon={toolTypeIcon(tool.toolType)} size="sm" color="secondary" />,
+					onClick: () => {
+						onSelect(toolSpecNodeId(tool.key));
+					},
+				},
+			];
+		});
+		return {
+			id,
+			label: setting.label,
+			description: facet ? declaredAt(entry) : `${declaredAt(entry)} · edited in your code`,
+			startContent: (
+				<Icon
+					icon={facet ? FACET_ICON[facet as keyof typeof FACET_ICON] : IconCode}
+					size="sm"
+					color="secondary"
+				/>
+			),
+			isExpanded: true,
+			children: [...users, ...tools],
+		};
+	});
+}
+
 /** Which of the workspace's lists the sidebar shows. */
-type WorkspaceList = 'agents' | 'tools';
+type WorkspaceList = 'agents' | 'tools' | 'shared';
 
 /**
  * Which list shows, following the selection, and the tool search. The open row stays in view: a
@@ -391,24 +467,29 @@ function useWorkspaceList(selectedId: string, listRef: RefObject<HTMLDivElement 
  * Following the selection, it switches when the open row changes between an agent and a tool.
  */
 function useListShown(selectedId: string) {
-	const listOf = (id: string): WorkspaceList =>
-		toolSpecKeyOf(id) === undefined ? 'agents' : 'tools';
-	const [list, setList] = useState(() => listOf(selectedId));
+	const isTool = toolSpecKeyOf(selectedId) !== undefined;
+	const [list, setList] = useState<WorkspaceList>(isTool ? 'tools' : 'agents');
 	const [shownFor, setShownFor] = useState(selectedId);
 	if (shownFor !== selectedId) {
 		setShownFor(selectedId);
-		setList(listOf(selectedId));
+		// The shared list opens its settings on an agent, so an agent's row keeps it shown.
+		setList((current) => (isTool ? 'tools' : current === 'tools' ? 'agents' : current));
 	}
 	return { list, setList };
 }
 
-/** The toggle between the agents and the tool library, each with its count. */
+/**
+ * The toggle between the agents and the tool library, each with its count. A project whose
+ * profiles share settings has a third: those settings.
+ */
 function WorkspaceListToggle({
 	workspace,
+	shared,
 	list,
 	onChange,
 }: {
 	workspace: StudioWorkspace;
+	shared: number;
 	list: WorkspaceList;
 	onChange: (next: WorkspaceList) => void;
 }) {
@@ -419,11 +500,12 @@ function WorkspaceListToggle({
 			layout="fill"
 			value={list}
 			onChange={(next) => {
-				onChange(next === 'tools' ? 'tools' : 'agents');
+				onChange(next === 'tools' || next === 'shared' ? next : 'agents');
 			}}
 		>
 			<SegmentedControlItem value="agents" label={`Agents ${String(workspace.agents.length)}`} />
 			<SegmentedControlItem value="tools" label={`Tools ${String(workspace.toolSpecs.length)}`} />
+			{shared > 0 && <SegmentedControlItem value="shared" label={`Shared ${String(shared)}`} />}
 		</SegmentedControl>
 	);
 }
@@ -574,6 +656,8 @@ function WorkspaceListBody({
 		<ScrollableArea ref={listRef} label="Workspace" height="100%">
 			{list === 'agents' ? (
 				<TreeList density="compact" aria-label="Agents" items={agentItems(tree)} />
+			) : list === 'shared' ? (
+				<TreeList density="compact" aria-label="Shared settings" items={sharedItems(tree)} />
 			) : tools.length > 0 ? (
 				<TreeList density="compact" aria-label="Tools" items={tools} />
 			) : (
@@ -609,6 +693,7 @@ function WorkspaceTreeLists({
 		<VStack gap={2} height="100%">
 			<WorkspaceListToggle
 				workspace={tree.workspace}
+				shared={tree.shared.length}
 				list={list}
 				onChange={(next) => {
 					setList(next);
@@ -717,7 +802,13 @@ function editorTitle(draft: StudioDraft, id: string): string | undefined {
 }
 
 /** The editor's heading: Tools with the tools list and no tool open; else the open node's title. */
-function headingOf(list: WorkspaceList, editing: string, title: string | undefined) {
+function headingOf(
+	list: WorkspaceList,
+	editing: string,
+	title: string | undefined,
+	shared: SharedEntry | undefined,
+) {
+	if (list === 'shared' && shared) return shared.setting.label;
 	return list === 'tools' && toolSpecKeyOf(editing) === undefined
 		? profileGraphFacet('tools')?.label
 		: title;
@@ -1210,10 +1301,13 @@ function ExportMenu({
 }
 
 /** The workspace's store, kept in this tab's sessionStorage, and the open agent's draft from it. */
-function useStudioWorkspace(start: RestoredStudio) {
+function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | undefined) {
+	// The settings the project's profiles share, on the agents it opened as: a change to one is
+	// made on each of them.
+	const [shared] = useState(() => sharedEntries(start.workspace, project?.shared ?? []));
 	// th30's tools read the store synchronously. The editor works on the open agent's draft, with the
 	// whole tool library.
-	const [store] = useState(() => createStudioStore(start));
+	const [store] = useState(() => createStudioStore(start, sharedLinks(shared)));
 	const workspace = useSyncExternalStore(store.subscribe, store.getWorkspace, store.getWorkspace);
 	const draft = useSyncExternalStore(store.subscribe, store.getDraft, store.getDraft);
 	const setDraft = useCallback(
@@ -1238,7 +1332,7 @@ function useStudioWorkspace(start: RestoredStudio) {
 			flush();
 		};
 	}, [store]);
-	return { store, workspace, draft, focus: store.getFocus(), setDraft, update };
+	return { store, workspace, draft, focus: store.getFocus(), setDraft, update, shared };
 }
 
 /** Keys are the workspace's: every agent's slots, so a called agent's key is asked for too. */
@@ -2137,7 +2231,7 @@ function useScreenReport(onReport: StudioHost['onReport'], { agent, type, issues
 /** What the page opens on: the studio's own loader data, or an open project's. */
 function useStudioPage(opened: StudioOpened) {
 	const { onReport } = useStudioHost();
-	const state = useStudioWorkspace(opened.start);
+	const state = useStudioWorkspace(opened.start, opened.project);
 	const { store, workspace, draft, focus } = state;
 	const connection = useWorkspaceConnection(workspace);
 	const view = useEditorView(store);
@@ -2197,6 +2291,10 @@ function Studio({ opened }: { opened: StudioOpened }) {
 	const tree = useWorkspaceTree(state, view, selected, setSheet);
 	const chatAgents = useChatAgents(state.workspace.agents);
 	const addAgentFrom = useAddAgent(store, state.update, view.open);
+	const { setList } = tree;
+	const showShared = useCallback(() => {
+		setList('shared');
+	}, [setList]);
 
 	return (
 		<ProjectContext.Provider value={opened.project ?? null}>
@@ -2213,7 +2311,12 @@ function Studio({ opened }: { opened: StudioOpened }) {
 						setSheet={setSheet}
 					>
 						<EditorColumn
-							heading={view.keysOpen ? 'Keys' : headingOf(tree.list, editing, title)}
+							heading={
+								view.keysOpen
+									? 'Keys'
+									: headingOf(tree.list, editing, title, sharedAt(state.shared, selected))
+							}
+							sharedList={tree.list === 'shared' ? undefined : showShared}
 							state={state}
 							connection={connection}
 							view={view}
@@ -2266,7 +2369,7 @@ function useWorkspaceTree(
 	selected: string,
 	setSheet: (sheet: Sheet) => void,
 ): WorkspaceTreeState {
-	const { workspace, focus, update, setDraft } = state;
+	const { workspace, focus, update, setDraft, shared } = state;
 	const { open } = view;
 	const selectedId = view.keysOpen ? '' : selected;
 	const { list, setList } = useListShown(selectedId);
@@ -2276,6 +2379,7 @@ function useWorkspaceTree(
 			focus,
 			selectedId,
 			list,
+			shared,
 			setList,
 			onSelect: (id) => {
 				open(id);
@@ -2284,7 +2388,7 @@ function useWorkspaceTree(
 			update,
 			setDraft,
 		}),
-		[workspace, focus, selectedId, list, setList, open, setSheet, update, setDraft],
+		[workspace, focus, selectedId, list, shared, setList, open, setSheet, update, setDraft],
 	);
 }
 
@@ -2341,9 +2445,28 @@ function SidePanel({
 	);
 }
 
+/**
+ * Over a section that is a shared setting: its name, where the project declares it, and how many
+ * other profiles change with it.
+ */
+function SharedLine({ entry, onOpen }: { entry: SharedEntry; onOpen: (() => void) | undefined }) {
+	const others = entry.agents.length - 1;
+	return (
+		<Section variant="transparent" padding={3}>
+			<Banner
+				status="info"
+				title={`${entry.setting.label} · used by ${String(others)} other ${others === 1 ? 'profile' : 'profiles'}`}
+				description={`${declaredAt(entry)}. A change here changes every profile that uses it.`}
+				endContent={onOpen && <Button label="Open" variant="ghost" size="sm" onClick={onOpen} />}
+			/>
+		</Section>
+	);
+}
+
 /** The editor column: its toolbar over the Keys panel, the open node's editor, or its code. */
 function EditorColumn({
 	heading,
+	sharedList,
 	state,
 	connection,
 	view,
@@ -2355,6 +2478,8 @@ function EditorColumn({
 	setSheet,
 }: {
 	heading: string | undefined;
+	/** Shows the list of shared settings; unset while it shows. */
+	sharedList: (() => void) | undefined;
 	state: StudioWorkspaceState;
 	connection: StudioConnectionState;
 	view: EditorViewState;
@@ -2366,6 +2491,7 @@ function EditorColumn({
 	setSheet: (sheet: Sheet) => void;
 }) {
 	const { editorRef, reveal, revealed } = issueReveal;
+	const shared = view.keysOpen ? undefined : sharedAt(state.shared, selected);
 	const { shown, leavePage } = useLeftIssues(compile.editorIssues, selected, revealed);
 	const reset = useReset(state);
 	const project = useProject();
@@ -2392,6 +2518,7 @@ function EditorColumn({
 					blocked={compile.blocked || undefined}
 				/>
 			)}
+			{shared && <SharedLine entry={shared} onOpen={sharedList} />}
 			<StackItem size="fill">
 				<LeavePage value={leavePage}>
 					<EditorColumnBody

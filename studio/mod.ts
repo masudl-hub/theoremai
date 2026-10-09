@@ -185,7 +185,16 @@ export {
   type WorkspaceStarts,
   type WorkspaceTree,
   workspaceTree,
+  type SharedLink,
+  withSharedCarried,
 } from './workspace.ts';
+export {
+  type SharedEntry,
+  sharedAt,
+  sharedEntries,
+  sharedLinks,
+  sharedNodeId,
+} from './shared-settings.ts';
 
 export {
   DEMO_ALLOWED_HOSTS,

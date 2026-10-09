@@ -1,7 +1,11 @@
 import { assertEquals, assertThrows } from '@std/assert';
 import registerExample from '../../studio/server/example.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
-import { readProjectSource } from '../../studio/server/project-source.ts';
+import {
+  readableName,
+  readProjectSource,
+  sharedSettings,
+} from '../../studio/server/project-source.ts';
 import { projectDiffers, projectNames, saveSubjects } from '../../studio/server/save.ts';
 import {
   applyEdits,
@@ -198,9 +202,104 @@ export const copy = () => NESTED.canaries.length;
         readByCode,
       ]),
     [
-      ['guardrails', 'constant', 'RULES', '/project/shared.ts', 2, ['shop', 'list'], undefined],
       ['nested', 'constant', 'NESTED', '/project/shared.ts', 6, undefined, true],
+      // Named as it is declared, not by the name this file imports it under.
+      ['guardrails', 'constant', 'LIMITS', '/project/shared.ts', 2, ['shop', 'list'], undefined],
     ],
+  );
+});
+
+const PAIR = `import { defineProfile } from '@theoremjs/agents';
+import { STANDARD_GUARDRAILS, tone } from './shared.ts';
+defineProfile({ type: 'text', id: 'desk', guardrails: STANDARD_GUARDRAILS, system: tone });
+defineProfile({ type: 'text', id: 'shop', guardrails: STANDARD_GUARDRAILS as never, lexicon: { tone } });
+`;
+const PAIR_SHARED = `export const STANDARD_GUARDRAILS = {
+  blockedReply: 'refuse',
+};
+export const tone = 'Be brief.';
+export const pick = () => 1;
+`;
+const PAIR_FILES = { 'setup.ts': PAIR, 'shared.ts': PAIR_SHARED };
+const guarded = (of: string, blockedReply: string): SaveSubject => ({
+  kind: 'profile',
+  of,
+  before: { id: of, guardrails: { blockedReply: 'refuse' } },
+  after: { id: of, guardrails: { blockedReply } },
+});
+
+Deno.test('a shared constant is written once when every profile that reads it makes the same change', () => {
+  const plan = planSave(project(PAIR_FILES), [guarded('desk', 'ask'), guarded('shop', 'ask')]);
+  assertEquals(
+    plan.changes.map(({ of, setting, status }) => [of, setting, status]),
+    [
+      ['desk', 'guardrails.blockedReply', 'written'],
+      ['shop', 'guardrails.blockedReply', 'written'],
+    ],
+  );
+  assertEquals(plan.edits.length, 1);
+  assertEquals(applyEdits(PAIR_SHARED, plan.edits), PAIR_SHARED.replace("'refuse'", "'ask'"));
+});
+
+Deno.test('a shared constant is left alone when a profile that reads it does not make the change, or makes another', () => {
+  for (const subjects of [
+    [guarded('desk', 'ask')],
+    [guarded('desk', 'ask'), guarded('shop', 'repair')],
+  ]) {
+    const plan = planSave(project(PAIR_FILES), subjects);
+    assertEquals(plan.edits, []);
+    assertEquals(
+      plan.changes.map(({ of, status, name, sharedWith }) => [of, status, name, sharedWith]),
+      subjects.map(({ of }) => [
+        of,
+        'constant',
+        'STANDARD_GUARDRAILS',
+        [of === 'desk' ? 'shop' : 'desk'],
+      ]),
+    );
+  }
+});
+
+Deno.test('the shared settings are the constants more than one profile or tool reads, with the key each fills', () => {
+  const tools = `import { registerTool } from '@theoremjs/agents';
+import { STANDARD_GUARDRAILS } from './shared.ts';
+registerTool({ name: 'list', limits: STANDARD_GUARDRAILS });
+`;
+  assertEquals(sharedSettings(project(PAIR_FILES)), [
+    {
+      name: 'STANDARD_GUARDRAILS',
+      label: 'Standard guardrails',
+      file: '/project/shared.ts',
+      line: 1,
+      key: 'guardrails',
+      profiles: ['desk', 'shop'],
+      tools: [],
+      readByCode: false,
+    },
+    // Read under two keys, one of them inside a value: listed, and changed in the editor.
+    {
+      name: 'tone',
+      label: 'Tone',
+      file: '/project/shared.ts',
+      line: 4,
+      profiles: ['desk', 'shop'],
+      tools: [],
+      readByCode: false,
+    },
+  ]);
+  const withTool = sharedSettings(
+    project({ ...PAIR_FILES, 'setup.ts': `${PAIR}import './tools.ts';\n`, 'tools.ts': tools }),
+  );
+  assertEquals(
+    withTool.map(({ name, key, tools: used }) => [name, key, used]),
+    [
+      ['STANDARD_GUARDRAILS', undefined, ['list']],
+      ['tone', undefined, []],
+    ],
+  );
+  assertEquals(
+    [readableName('standardGuardrails'), readableName('HTTP_LIMITS_V2')],
+    ['Standard guardrails', 'Http limits v2'],
   );
 });
 

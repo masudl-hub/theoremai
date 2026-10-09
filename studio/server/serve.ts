@@ -2,25 +2,30 @@
  * Starts the studio's local server for one project.
  *
  *   deno run -A studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174]
+ *     [--deno-config <deno.json>]
  *
  * The setup module is the project's: its default export registers the project's
  * tools, profiles and providers; an optional `host` export gives tool handlers
  * their application context (the test user), and an optional `provider` export
  * says where the providers find their keys. Only this machine can reach the server.
  *
+ * The project loads in a process of its own (`project.ts`), and this passes the
+ * page's requests on to it. Save is here: it writes the builder's edits into the
+ * project's files, checks them, and starts the project again from disk. It writes
+ * only files the project's setup imports, inside the folder the command ran in,
+ * and it never runs git.
+ *
  * @module
  */
 
-import { basename, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import type { ProviderHostOptions } from '../../mod.ts';
-import { createStudioHandler } from './handler.ts';
-
-type SetupModule = {
-  default?: () => unknown | Promise<unknown>;
-  host?: (request: Request) => unknown;
-  provider?: ProviderHostOptions;
-};
+import { relative, resolve } from 'node:path';
+import type { StudioWorkspace } from '../workspace.ts';
+import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } from './handler.ts';
+import { PROJECT_READY } from './project.ts';
+import { isInside, readProjectSource } from './project-source.ts';
+import { applyEdits, diffHunks, planSave, type SourceEdit } from './save-plan.ts';
+import { projectDiffers, projectNames, saveSubjects } from './save.ts';
+import type { SaveDone, SaveRefusal, SaveRequest, SaveReview } from './save-wire.ts';
 
 function flag(name: string, fallback: string): string {
   const at = Deno.args.indexOf(`--${name}`);
@@ -29,23 +34,285 @@ function flag(name: string, fallback: string): string {
 
 const setupPath = Deno.args.find((arg, i) => !arg.startsWith('--') && !Deno.args[i - 1]?.startsWith('--'));
 if (!setupPath) {
-  console.error('usage: studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174]');
+  console.error(
+    'usage: studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174] [--deno-config deno.json]',
+  );
   Deno.exit(2);
 }
 
 const port = Number(flag('port', '4983'));
 /** The site's dev server, under either name a browser gives this machine. */
 const pageOrigins = flag('page', 'http://localhost:5174,http://127.0.0.1:5174').split(',');
-const setup: SetupModule = await import(pathToFileURL(resolve(setupPath)).href);
-await setup.default?.();
+const gate = { listenHost: `127.0.0.1:${port}`, pageOrigins };
+/** The folder Save may write in: where the command ran. */
+const root = Deno.realPathSync(Deno.cwd());
+const setupFile = Deno.realPathSync(resolve(setupPath));
+/** The project's Deno config, when the command names one: the project loads and type-checks under it. */
+const denoConfig = flag('deno-config', '');
+const configArgs = denoConfig ? ['--config', denoConfig] : [];
 
-const handler = createStudioHandler({
-  project: basename(Deno.cwd()),
-  pageOrigins,
-  listenHost: `127.0.0.1:${port}`,
-  ...(setup.host ? { host: setup.host } : {}),
-  ...(setup.provider ? { provider: setup.provider } : {}),
+/** The project, loaded: its process, where it listens, and what it opened as. */
+interface Loaded {
+  process: Deno.ChildProcess;
+  origin: string;
+  description: StudioDescription;
+}
+
+/** A port nothing listens on. */
+function freePort(): number {
+  const listener = Deno.listen({ hostname: '127.0.0.1', port: 0 });
+  const { port: free } = listener.addr as Deno.NetAddr;
+  listener.close();
+  return free;
+}
+
+/** Reads a stream to its end, a decoded chunk at a time. */
+async function drain(stream: ReadableStream<Uint8Array>, each: (text: string) => void): Promise<void> {
+  const decoder = new TextDecoder();
+  for await (const chunk of stream) each(decoder.decode(chunk, { stream: true }));
+}
+
+/** Loads the project from disk in a new process. Throws what it printed when it does not start. */
+async function loadProject(): Promise<Loaded> {
+  const childPort = freePort();
+  const process = new Deno.Command(Deno.execPath(), {
+    args: [
+      'run',
+      ...configArgs,
+      '-A',
+      import.meta.resolve('./project.ts'),
+      setupFile,
+      '--port',
+      String(childPort),
+      '--page',
+      pageOrigins.join(','),
+    ],
+    cwd: root,
+    stdin: 'null',
+    stdout: 'piped',
+    stderr: 'piped',
+  }).spawn();
+  let printed = '';
+  const errors = drain(process.stderr, (text) => {
+    printed = (printed + text).slice(-4000);
+    Deno.stderr.writeSync(new TextEncoder().encode(text));
+  });
+  let ready: () => void = () => {};
+  const listening = new Promise<boolean>((settle) => {
+    let out = '';
+    ready = () => settle(true);
+    drain(process.stdout, (text) => {
+      out = (out + text).slice(-200);
+      if (out.includes(PROJECT_READY)) ready();
+    }).then(() => settle(false));
+  });
+  if (!(await listening)) {
+    await Promise.all([process.status, errors]);
+    throw new Error(printed.trim() || 'The project did not start.');
+  }
+  const origin = `http://127.0.0.1:${childPort}`;
+  const description: StudioDescription = await (await fetch(origin + STUDIO_BASE)).json();
+  return { process, origin, description };
+}
+
+async function stop(loaded: Loaded): Promise<void> {
+  try {
+    loaded.process.kill();
+  } catch {
+    // It had already ended.
+  }
+  await loaded.process.status;
+}
+
+/** Whether the project type-checks as it is on disk, and what the checker printed. */
+async function typeChecks(): Promise<{ ok: boolean; output: string }> {
+  const { success, stderr, stdout } = await new Deno.Command(Deno.execPath(), {
+    args: ['check', ...configArgs, setupFile],
+    cwd: root,
+    env: { NO_COLOR: '1' },
+    stdin: 'null',
+  }).output();
+  const decoder = new TextDecoder();
+  return { ok: success, output: (decoder.decode(stderr) + decoder.decode(stdout)).trim().slice(-4000) };
+}
+
+/** A project file's text, or undefined when it is missing or leads outside the project. */
+function readInside(path: string): string | undefined {
+  try {
+    return isInside(root, Deno.realPathSync(path)) ? Deno.readTextFileSync(path) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function stampOf(value: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+const refusal = (reason: SaveRefusal['reason'], detail: string[] = []): SaveRefusal => ({ ok: false, reason, detail });
+
+/** A file Save changes: its text now and its text after. */
+type FileChange = { before: string; after: string };
+
+let project: Loaded;
+try {
+  project = await loadProject();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  Deno.exit(1);
+}
+/** The last Save's files, until another Save or an undo. */
+let lastSave: Map<string, FileChange> | undefined;
+
+/** The review of a workspace's changes, with the files they would write. */
+async function review(
+  workspace: StudioWorkspace,
+): Promise<{ view: SaveReview; files: Map<string, FileChange> } | SaveRefusal> {
+  let subjects: ReturnType<typeof saveSubjects>;
+  try {
+    subjects = saveSubjects(workspace, projectNames(project.description.workspace));
+  } catch (error) {
+    return refusal('issues', [error instanceof Error ? error.message : String(error)]);
+  }
+  if (!subjects.ok) return refusal('issues', subjects.issues);
+  const source = readProjectSource(setupFile, root, readInside);
+  const plan = planSave(source, subjects.subjects);
+  const edits = Map.groupBy(plan.edits, (edit: SourceEdit) => edit.file);
+  const files = new Map<string, FileChange>();
+  const view: SaveReview['files'] = [];
+  for (const [file, fileEdits] of edits) {
+    const before = source.files.get(file)?.text ?? '';
+    files.set(file, { before, after: applyEdits(before, fileEdits) });
+    view.push({ file: relative(root, file), hunks: diffHunks(before, fileEdits) });
+  }
+  const changes = [...subjects.changes, ...plan.changes].map((change) => ({
+    ...change,
+    ...(change.file ? { file: relative(root, change.file) } : {}),
+  }));
+  return {
+    files,
+    view: {
+      ok: true,
+      changes,
+      files: view,
+      stamp: await stampOf([...files]),
+      writable: files.size > 0 && changes.every((change) => change.status === 'written'),
+    },
+  };
+}
+
+function write(files: Map<string, FileChange>, side: 'before' | 'after'): void {
+  for (const [file, change] of files) Deno.writeTextFileSync(file, change[side]);
+}
+
+/** Writes the reviewed changes, then proves them: the project type-checks, loads, and is what was tested. */
+async function save(request: SaveRequest): Promise<SaveReview | SaveDone | SaveRefusal> {
+  const reviewed = await review(request.workspace);
+  if ('reason' in reviewed || request.stamp === undefined) return 'reason' in reviewed ? reviewed : reviewed.view;
+  const { files, view } = reviewed;
+  if (view.stamp !== request.stamp) return refusal('stale');
+  if (!view.writable) return refusal('unwritable');
+  const written = [...files.keys()].map((file) => relative(root, file));
+  write(files, 'after');
+  const back = (reason: SaveRefusal['reason'], detail: string[]) => {
+    write(files, 'before');
+    return refusal(reason, detail);
+  };
+  const check = await typeChecks();
+  if (!check.ok) return back('check', [check.output]);
+  let next: Loaded;
+  try {
+    next = await loadProject();
+  } catch (error) {
+    return back('load', [error instanceof Error ? error.message : String(error)]);
+  }
+  const differs = projectDiffers(next.description.workspace, request.workspace);
+  if (differs.length) {
+    await stop(next);
+    return back('differs', differs);
+  }
+  const old = project;
+  project = next;
+  await stop(old);
+  lastSave = files;
+  return { ok: true, written };
+}
+
+/** Puts the last Save's files back, when they still hold what it wrote. */
+async function undo(): Promise<SaveDone | SaveRefusal> {
+  if (!lastSave) return refusal('nothing');
+  const files = lastSave;
+  const moved = [...files].filter(([file, change]) => readInside(file) !== change.after);
+  if (moved.length) return refusal('stale', moved.map(([file]) => relative(root, file)));
+  write(files, 'before');
+  let next: Loaded;
+  try {
+    next = await loadProject();
+  } catch (error) {
+    write(files, 'after');
+    return refusal('load', [error instanceof Error ? error.message : String(error)]);
+  }
+  const old = project;
+  project = next;
+  await stop(old);
+  lastSave = undefined;
+  return { ok: true, written: [...files.keys()].map((file) => relative(root, file)) };
+}
+
+/** One write at a time: a second waits for the first. */
+let writing: Promise<unknown> = Promise.resolve();
+function inTurn<T>(work: () => Promise<T>): Promise<T> {
+  const next = writing.then(work, work);
+  writing = next.catch(() => {});
+  return next;
+}
+
+function isSaveRequest(body: unknown): body is SaveRequest {
+  const workspace = (body as SaveRequest | null)?.workspace;
+  return Array.isArray(workspace?.agents) && Array.isArray(workspace.toolSpecs) &&
+    typeof workspace.starts?.agents === 'object' && typeof workspace.starts.tools === 'object';
+}
+
+/** Passes a request on to the loaded project, and its answer back as it streams. */
+async function forward(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const headers = new Headers(request.headers);
+  headers.delete('host');
+  const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
+  try {
+    return await fetch(`${project.origin}${url.pathname}${url.search}`, {
+      method: request.method,
+      headers,
+      body,
+    });
+  } catch {
+    return json(502, {}, corsHeaders(request, pageOrigins));
+  }
+}
+
+const SAVE = `${STUDIO_BASE}/save`;
+
+Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
+  if (isForeign(request, gate)) return json(403, {}, {});
+  const path = new URL(request.url).pathname;
+  if (request.method !== 'POST' || (path !== SAVE && path !== `${SAVE}/undo`)) return forward(request);
+  const cors = corsHeaders(request, pageOrigins);
+  if (path === `${SAVE}/undo`) return json(200, await inTurn(undo), cors);
+  const body: unknown = await request.json().catch(() => null);
+  if (!isSaveRequest(body)) return json(400, {}, cors);
+  return json(200, await inTurn(() => save(body)), cors);
 });
 
-Deno.serve({ hostname: '127.0.0.1', port }, handler);
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  Deno.addSignalListener(signal, () => {
+    try {
+      project.process.kill();
+    } catch {
+      // It had already ended.
+    }
+    Deno.exit(0);
+  });
+}
 console.log(`Theorem Studio: open ${pageOrigins[0]}/studio (server on http://127.0.0.1:${port})`);

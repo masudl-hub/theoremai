@@ -397,6 +397,31 @@ Open questions:
 
 ### 5.2 Save
 
+**Built on 8 Oct, the first slice.** The studio shows a line when its edits
+are not in the files, and a button, Review and save.
+
+- The review shows each changed line of each file, before and after.
+- Save writes a value only where the file sets it as a plain value in the
+  `defineProfile` or `registerTool` call. It keeps the file's indentation and
+  quotes. A setting put back to its default is taken out.
+- Save writes every change or none. If one change is set by a constant, by
+  code, or by a tool's schema, the review names it and its `file:line`, and
+  Save is off. This keeps the third promise of 5.1: the files hold what was
+  tested. Not agreed with Masud.
+- After the write the studio type-checks the setup file (Deno only), loads
+  the project again, and compares it with what the builder tested. If any of
+  the three fails, it puts the files back and says which.
+- If a file changed after the review, Save refuses and asks for a new review.
+- Undo puts the files back. It refuses if they changed since the save. The
+  edits stay in the studio, unsaved.
+- The studio writes only files inside the project folder that the setup file
+  imports. It does not run git.
+
+Not built: editing a constant, with the profiles that share it. Adding or
+removing a profile or a tool. A read-only row that opens the code, by origin.
+The project's formatter after the write. Markdown instruction files. A
+type-check for a project that is not Deno.
+
 - How often can a setting in Bonsai be traced to one exact place in the
   source? See the count below.
 - What does the row do when it cannot be traced? Candidate: the row is

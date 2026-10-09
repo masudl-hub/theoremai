@@ -27,6 +27,8 @@
     "react/src/ui/icons.ts",
     // Theorem Studio: the local server, the example project it opens, and the page.
     "studio/server/serve.ts",
+    // One load of the project: serve.ts runs it as a child, and again after a Save.
+    "studio/server/project.ts",
     "studio/server/example.ts",
     // The studio screen, published as `@theoremjs/studio/ui/*`; the website imports its files.
     "studio/ui/**/*.{ts,tsx}",

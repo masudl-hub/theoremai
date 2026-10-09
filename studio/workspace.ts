@@ -357,6 +357,25 @@ export function removeLibraryTool(workspace: StudioWorkspace, toolKey: string): 
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
+/** Whether every agent and tool is as it started, and no tool was added or removed. */
+export function atStart(workspace: StudioWorkspace): boolean {
+  const { agents, tools } = workspace.starts;
+  return workspace.agents.every((agent) => same(agent, agents[agent.key])) &&
+    workspace.toolSpecs.every((tool) => same(tool, tools[tool.key])) &&
+    Object.keys(tools).length === workspace.toolSpecs.length;
+}
+
+/** Makes what the workspace holds now its start: after a Save, the project's files hold it. */
+export function startedHere(workspace: StudioWorkspace): StudioWorkspace {
+  return {
+    ...workspace,
+    starts: {
+      agents: Object.fromEntries(workspace.agents.map((agent) => [agent.key, agent])),
+      tools: Object.fromEntries(workspace.toolSpecs.map((tool) => [tool.key, tool])),
+    },
+  };
+}
+
 /**
  * Puts one agent back to its start: its own settings and the tools it allowed. The tools keep
  * their edits, since other agents share them; one that left the library comes back as it started.

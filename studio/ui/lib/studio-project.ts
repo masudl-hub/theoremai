@@ -4,6 +4,7 @@
  * own code.
  */
 import type { StudioWorkspace } from '../../mod.ts';
+import type { SaveDone, SaveRefusal, SaveReview } from '../../server/save-wire.ts';
 import { createContext, useContext } from 'react';
 
 /** Where the local server listens. Only this machine reaches it. */
@@ -32,6 +33,38 @@ export function projectSession(name: string): ProjectSession {
 /** Where the local server runs the profile with this id. */
 export function projectProfileEndpoint(project: ProjectSession, profileId: string): string {
 	return `${project.endpoint}/profiles/${encodeURIComponent(profileId)}`;
+}
+
+async function save<T>(project: ProjectSession, path: string, body: unknown): Promise<T> {
+	const response = await fetch(`${project.endpoint}/save${path}`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(body),
+	});
+	if (!response.ok) throw new Error(`The studio server answered ${String(response.status)}.`);
+	return response.json();
+}
+
+/** What Save would write for this workspace: each change, and the lines of each file. Writes nothing. */
+export function reviewSave(
+	project: ProjectSession,
+	workspace: StudioWorkspace,
+): Promise<SaveReview | SaveRefusal> {
+	return save(project, '', { workspace });
+}
+
+/** Writes the changes of a review the builder read. The server checks the project and reloads it. */
+export function writeSave(
+	project: ProjectSession,
+	workspace: StudioWorkspace,
+	stamp: string,
+): Promise<SaveDone | SaveRefusal> {
+	return save(project, '', { workspace, stamp });
+}
+
+/** Puts the files of the last Save back. */
+export function undoSave(project: ProjectSession): Promise<SaveDone | SaveRefusal> {
+	return save(project, '/undo', {});
 }
 
 /** The project the local server has open. Throws when no server answers. */

@@ -1,4 +1,3 @@
-import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
 import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
 import { EmptyState } from '@astryxdesign/core/EmptyState';
@@ -146,6 +145,7 @@ import {
 	useStudioConnection,
 } from './studio-connection.tsx';
 import { StudioRunner } from './studio-runner.tsx';
+import { ProjectSave } from './studio-save.tsx';
 import {
 	type CSSProperties,
 	type Dispatch,
@@ -2385,12 +2385,12 @@ function EditorColumn({
 				setSheet={setSheet}
 			/>
 			{project && (
-				<Section variant="transparent" padding={3}>
-					<Banner
-						status="info"
-						title={`Edits here are not written to ${project.name} yet. Runs use its own code.`}
-					/>
-				</Section>
+				<ProjectSave
+					project={project}
+					workspace={state.workspace}
+					update={state.update}
+					blocked={compile.blocked || undefined}
+				/>
 			)}
 			<StackItem size="fill">
 				<LeavePage value={leavePage}>

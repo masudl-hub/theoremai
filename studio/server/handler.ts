@@ -6,8 +6,9 @@
  * the open profile at `<base>/profiles/<id>`, so a run is the project's own
  * code, not the page's draft.
  *
- * First slice (docs/proposals/theorem-studio.md, section 4.4). It reads and
- * runs; it writes nothing to the project.
+ * It reads and runs. Writing an edit back to the project is the server's
+ * (`serve.ts`), which starts this in a process of its own and starts it again
+ * after a Save, so a run is always the code on disk.
  *
  * @module
  */
@@ -142,7 +143,7 @@ function describeStudio(project: string): StudioDescription {
   };
 }
 
-function json(status: number, body: unknown, headers: HeadersInit): Response {
+export function json(status: number, body: unknown, headers: HeadersInit): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8', ...headers },
@@ -155,10 +156,26 @@ function json(status: number, body: unknown, headers: HeadersInit): Response {
  * origin check stops its requests, and the host check stops a name it pointed at
  * this machine.
  */
-function isForeign(request: Request, options: StudioHandlerOptions): boolean {
+export function isForeign(
+  request: Request,
+  options: Pick<StudioHandlerOptions, 'listenHost' | 'pageOrigins'>,
+): boolean {
   if (request.headers.get('host') !== options.listenHost) return true;
   const origin = request.headers.get('origin');
   return origin !== null && !options.pageOrigins.includes(origin);
+}
+
+/** Where the server is mounted unless the host says otherwise. */
+export const STUDIO_BASE = '/api/studio';
+
+/** The page's own origin, echoed: a request from any other was refused before this. */
+export function corsHeaders(request: Request, pageOrigins: readonly string[]): Record<string, string> {
+  return {
+    'access-control-allow-origin': request.headers.get('origin') ?? pageOrigins[0] ?? '',
+    'access-control-allow-headers': 'content-type',
+    'access-control-allow-methods': 'GET, POST, OPTIONS',
+    vary: 'origin',
+  };
 }
 
 /** Each registered profile's own handler, by id; a profile that cannot be served is a problem. */
@@ -194,14 +211,8 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
 export function createStudioHandler(
   options: StudioHandlerOptions,
 ): (request: Request) => Promise<Response> {
-  const base = (options.base ?? '/api/studio').replace(/\/$/, '');
-  /** The page's own origin, echoed: a request from any other was refused before this. */
-  const corsFor = (request: Request): Record<string, string> => ({
-    'access-control-allow-origin': request.headers.get('origin') ?? options.pageOrigins[0] ?? '',
-    'access-control-allow-headers': 'content-type',
-    'access-control-allow-methods': 'GET, POST, OPTIONS',
-    vary: 'origin',
-  });
+  const base = (options.base ?? STUDIO_BASE).replace(/\/$/, '');
+  const corsFor = (request: Request) => corsHeaders(request, options.pageOrigins);
   const description = describeStudio(options.project);
   const served = profileHandlers(options, description.problems);
   const prefix = `${base}/profiles/`;

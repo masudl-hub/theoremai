@@ -18,19 +18,44 @@ class Expr {
 /** Arrays of primitives shorter than this stay on one line. */
 const INLINE_ARRAY_WIDTH = 60;
 
-function literal(value: unknown, depth: number): string {
+/** How a value is laid out: the studio's own files, or a file of the builder's. */
+export interface SourceStyle {
+  /** One level of indentation. */
+  unit: string;
+  /** The indentation of the line the value starts on. */
+  base: string;
+  /** Text of several lines as a template literal, not as lines joined. */
+  template: boolean;
+  /** Text of one line as source. Default: the studio's, which escapes what could close a script tag. */
+  quote?: (text: string) => string;
+}
+
+const STUDIO_STYLE: SourceStyle = { unit: '  ', base: '', template: false };
+
+/** `text` as a template literal, each line as it is. */
+function templateSource(text: string): string {
+  return `\`${text.replaceAll('\\', '\\\\').replaceAll('`', '\\`').replaceAll('${', '\\${')}\``;
+}
+
+/** A plain value as source, in `style`. */
+export function valueSource(value: unknown, style: SourceStyle): string {
+  return literal(value, 0, style);
+}
+
+function literal(value: unknown, depth: number, style: SourceStyle = STUDIO_STYLE): string {
   if (value instanceof Expr) return value.code;
-  const pad = '  '.repeat(depth + 1);
-  const close = '  '.repeat(depth);
+  const pad = style.base + style.unit.repeat(depth + 1);
+  const close = style.base + style.unit.repeat(depth);
   if (typeof value === 'string') {
-    if (!value.includes('\n')) return quoteSource(value);
+    if (!value.includes('\n')) return (style.quote ?? quoteSource)(value);
+    if (style.template) return templateSource(value);
     // One line of the text on each line of the source.
     const lines = value.split('\n').map((line) => `${pad}${quoteSource(line)},`);
     return `[\n${lines.join('\n')}\n${close}].join('\\n')`;
   }
   if (Array.isArray(value)) {
     if (!value.length) return '[]';
-    const items = value.map((item) => literal(item, depth + 1));
+    const items = value.map((item) => literal(item, depth + 1, style));
     const inline = `[${items.join(', ')}]`;
     const primitive = value.every((item) => item === null || typeof item !== 'object');
     if (primitive && inline.length <= INLINE_ARRAY_WIDTH) return inline;
@@ -40,7 +65,7 @@ function literal(value: unknown, depth: number): string {
     const entries = Object.entries(value).filter(([, item]) => item !== undefined);
     if (!entries.length) return '{}';
     const lines = entries.map(
-      ([key, item]) => `${pad}${keySource(key)}: ${literal(item, depth + 1)},`,
+      ([key, item]) => `${pad}${keySource(key)}: ${literal(item, depth + 1, style)},`,
     );
     return `{\n${lines.join('\n')}\n${close}}`;
   }

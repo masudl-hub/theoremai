@@ -35,6 +35,8 @@ const server = spawn(
 		path.resolve(from, setup),
 		'--page',
 		`${PAGE},http://localhost:${PAGE_PORT}`,
+		'--deno-config',
+		path.join(here, '../deno.json'),
 	],
 	{ cwd: from, stdio: ['ignore', 'ignore', 'inherit'] },
 );

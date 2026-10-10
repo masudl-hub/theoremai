@@ -13,9 +13,6 @@ const EASE = 'cubic-bezier(0.45, 0.02, 0.15, 1)';
 /** What fades around the move: the preview and the panel's handle. */
 const PARTS = '.studio-preview, .studio-side-handle';
 
-/** The width the editor keeps while the map is open beside it. */
-const VIEW_WIDTH = '--studio-view-width';
-
 /** A phone's panel already takes the frame, and reduced motion moves nothing. */
 export function panelCanMove(): boolean {
 	return globalThis.matchMedia('(min-width: 768px)').matches && !prefersReducedMotion();
@@ -35,15 +32,8 @@ function ended(animations: Animation[], ms: number): Promise<unknown> {
 export async function movePanel(widens: boolean, swap: () => void): Promise<void> {
 	const frame = document.querySelector<HTMLElement>('.studio-frame');
 	const surface = frame?.querySelector<HTMLElement>('[data-shell-frame]');
-	// The editor is held at the width it has now, so nothing under the moving edge shifts.
-	const view = frame?.querySelector<HTMLElement>('.studio-view');
-	if (widens && frame && view) frame.style.setProperty(VIEW_WIDTH, `${String(view.offsetWidth)}px`);
-	const swapped = () => {
-		swap();
-		if (!widens) frame?.style.removeProperty(VIEW_WIDTH);
-	};
 	if (!frame || !surface || !panelCanMove()) {
-		swapped();
+		swap();
 		return;
 	}
 	const parts = () => [...frame.querySelectorAll<HTMLElement>(PARTS)];
@@ -65,7 +55,7 @@ export async function movePanel(widens: boolean, swap: () => void): Promise<void
 			{ clipPath: [cut(narrow), whole] },
 			{ duration: MOVE_MS, easing: EASE, fill: 'both' },
 		);
-		swapped();
+		swap();
 		await ended([move], MOVE_MS);
 		move.cancel();
 	} else {
@@ -77,10 +67,10 @@ export async function movePanel(widens: boolean, swap: () => void): Promise<void
 				{ duration: MOVE_MS, easing: EASE, fill: 'both' },
 			);
 			await ended([move], MOVE_MS);
-			swapped();
+			swap();
 			move.cancel();
 		} else {
-			swapped();
+			swap();
 		}
 	}
 

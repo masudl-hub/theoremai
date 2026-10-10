@@ -166,8 +166,9 @@
 
 /*
  * The map opens beside the editor, in the room the preview gives up: the panel widens over the
- * preview, which goes with its handle, and the tree and the editor keep the widths they had. The
- * frame's class outranks the panel's resized width.
+ * preview, which goes with its handle, and the tree and the editor keep the widths they had. A
+ * handle between the editor and the map resizes the editor as the panel's did. The frame's class
+ * outranks the panel's resized width.
  */
 .studio-map-pane {
 	min-width: 0;
@@ -195,6 +196,10 @@
 
 /* On a phone the map covers the editor inside the raised panel, the way the tree does. */
 @media (width < 768px) {
+	.studio-frame .studio-map-handle {
+		display: none;
+	}
+
 	.studio-frame .studio-map-pane {
 		position: absolute;
 		inset: 0;

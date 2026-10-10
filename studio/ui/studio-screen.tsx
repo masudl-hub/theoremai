@@ -1498,6 +1498,10 @@ function useStudioFrame() {
 		containerRef: layoutRef,
 		autoSaveId: 'studio.panel',
 	});
+	// The editor's own width, for while the map is open beside it: the panel's, less the tree.
+	useLayoutEffect(() => {
+		layoutRef.current?.style.setProperty('--studio-view-width', `${String(sidePanel.size - TREE_WIDTH)}px`);
+	}, [sidePanel.size]);
 	// The profile tree's branches mount and unmount; ease them both ways.
 	const sidebarRef = useRef<HTMLDivElement>(null);
 	useDisclosureMotion(sidebarRef);
@@ -2821,9 +2825,19 @@ function SidePanel({
 							{children}
 						</StackItem>
 						{map && (
-							<StackItem size="fill" className="studio-map-pane">
-								{map}
-							</StackItem>
+							<>
+								{/* The panel's own handle went with the preview; this one resizes the editor the same way. */}
+								<ResizeHandle
+									className="studio-map-handle"
+									direction="horizontal"
+									isAlwaysVisible={false}
+									resizable={frame.sidePanel.props}
+									label="Resize editor"
+								/>
+								<StackItem size="fill" className="studio-map-pane">
+									{map}
+								</StackItem>
+							</>
 						)}
 					</HStack>
 				</Section>

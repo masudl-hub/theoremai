@@ -262,8 +262,7 @@ export function sharedAsk(reach: SharedReach, workspace: StudioWorkspace): { tit
       .filter((id): id is string => Boolean(id));
   const [ids, left] = [idsOf(reach.agents), idsOf(reach.left)];
   const place = `${reach.name ? `${reach.name} · ` : ''}${reach.file}:${String(reach.line)}`;
-  const others = ids.length + left.length;
-  if (!others) {
+  if (!ids.length && !left.length) {
     return {
       title: 'Change it everywhere this profile uses it?',
       line: `${place} sets this once, and this profile uses it in more than one place. Each of them changes.`,
@@ -278,8 +277,9 @@ export function sharedAsk(reach: SharedReach, workspace: StudioWorkspace): { tit
       `issues and ${left.length === 1 ? 'stays as it is' : 'stay as they are'}. ` +
       'Fix them, then set this there too: Save writes it once every profile agrees.'
     : '';
-  return {
-    title: `Change it for ${String(others)} other ${others === 1 ? 'profile' : 'profiles'}?`,
-    line: `${place} sets this once.${changes}${waits}`,
-  };
+  // The title says what agreeing does: a profile that is left as it is does not count.
+  const title = ids.length
+    ? `Change it for ${String(ids.length)} other ${ids.length === 1 ? 'profile' : 'profiles'}?`
+    : 'Change it for this profile only?';
+  return { title, line: `${place} sets this once.${changes}${waits}` };
 }

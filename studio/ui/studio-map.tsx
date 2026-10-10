@@ -1,19 +1,20 @@
 /**
- * The map: the workspace's shared settings, models, agents and tools in columns, with a line for
- * everything that joins two of them. It changes nothing; a node opens what it stands for.
+ * The map: each profile as a card of its sections, with the providers, models, shared settings and
+ * tools that feed it beside it and a line from each to the section it feeds. It changes nothing; a
+ * node or a section opens what it stands for.
  */
 
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
 import { Text } from '@astryxdesign/core/Text';
-import { IconCode } from '@tabler/icons-react';
+import { IconCloud, IconCode } from '@tabler/icons-react';
 import { type CSSProperties, useMemo, useState } from 'react';
 import {
+	type MapLink,
 	type MapNode,
 	type MapSizes,
 	mapLayout,
 	mapLinkWords,
-	mapNeighbours,
 	type SharedEntry,
 	type StudioWorkspace,
 	workspaceMap,
@@ -22,9 +23,10 @@ import { FACET_ICON } from './lib/facet-icons.ts';
 import { PROFILE_TYPE_ICON, toolTypeIcon } from './profile-editor.tsx';
 import './studio-map.css';
 
-/** A node holds its icon, its name and two lines of its note. */
+/** A node holds its icon, its name and a line of its note, as a card's head does; a row, a section. */
 const MAP_SIZES: MapSizes = {
-	node: { width: 240, height: 96 },
+	node: { width: 240, height: 64 },
+	card: { head: 64, row: 32, foot: 8 },
 	columnGap: 112,
 	rowGap: 12,
 	heading: 28,
@@ -38,10 +40,15 @@ function nodeIcon({ kind, type }: MapNode): IconType {
 	}
 	if (kind === 'tool') return toolTypeIcon(type ?? '');
 	if (kind === 'model') return FACET_ICON.modelBinding;
+	if (kind === 'provider') return IconCloud;
 	if (kind === 'shared' && type && Object.hasOwn(FACET_ICON, type)) {
 		return FACET_ICON[type as keyof typeof FACET_ICON];
 	}
 	return kind === 'agent' ? PROFILE_TYPE_ICON.text : IconCode;
+}
+
+function rowIcon(type: string): IconType {
+	return Object.hasOwn(FACET_ICON, type) ? FACET_ICON[type as keyof typeof FACET_ICON] : IconCode;
 }
 
 /** Whether `selected`, the open node, is `node` or a section under it. */
@@ -64,10 +71,36 @@ export function StudioMap({
 }) {
 	const map = useMemo(() => workspaceMap(workspace, shared), [workspace, shared]);
 	const layout = useMemo(() => mapLayout(map, MAP_SIZES), [map]);
-	// The node under the pointer or holding focus: it and what it is joined to stay lit.
-	const [lit, setLit] = useState<string>();
-	const near = useMemo(() => (lit === undefined ? undefined : mapNeighbours(map, lit)), [map, lit]);
 	const nodes = map.columns.flat().flatMap((group) => group.nodes);
+	// The node or section under the pointer or holding focus: its lines, and what they reach, stay lit.
+	const [lit, setLit] = useState<string>();
+	const [on, onLines] = useMemo(() => {
+		const ids = new Set<string>();
+		const lines = new Set<MapLink>();
+		if (lit === undefined) return [ids, lines];
+		ids.add(lit);
+		for (const { link, from, to } of layout.lines) {
+			if (![link.from, link.to, from, to].includes(lit)) continue;
+			lines.add(link);
+			for (const id of [link.from, link.to, from, to]) ids.add(id);
+		}
+		return [ids, lines];
+	}, [layout, lit]);
+	/** What lights `id` while the pointer or focus is on it. */
+	const lights = (id: string) => ({
+		onPointerEnter: () => {
+			setLit(id);
+		},
+		onPointerLeave: () => {
+			setLit(undefined);
+		},
+		onFocus: () => {
+			setLit(id);
+		},
+		onBlur: () => {
+			setLit(undefined);
+		},
+	});
 
 	return (
 		<ScrollableArea
@@ -99,7 +132,7 @@ export function StudioMap({
 							key={`${link.kind}:${link.from}:${link.to}`}
 							d={d}
 							data-kind={link.kind}
-							data-on={lit === link.from || lit === link.to ? '' : undefined}
+							data-on={onLines.has(link) ? '' : undefined}
 						/>
 					))}
 				</svg>
@@ -113,46 +146,93 @@ export function StudioMap({
 				{nodes.map((node) => {
 					const place = layout.nodes[node.id];
 					if (!place) return null;
-					const { opens } = node;
-					return (
-						<button
-							key={node.id}
-							type="button"
-							className="studio-map-node"
-							style={{ left: place.x, top: place.y, ...MAP_SIZES.node }}
-							title={node.note || undefined}
-							aria-description={mapLinkWords(map, node.id) || undefined}
-							aria-current={isOpen(node, selected) ? 'true' : undefined}
-							data-on={near?.has(node.id) ? '' : undefined}
-							disabled={opens === undefined}
-							onClick={() => {
-								if (opens !== undefined) onOpen(opens);
-							}}
-							onPointerEnter={() => {
-								setLit(node.id);
-							}}
-							onPointerLeave={() => {
-								setLit(undefined);
-							}}
-							onFocus={() => {
-								setLit(node.id);
-							}}
-							onBlur={() => {
-								setLit(undefined);
-							}}
-						>
+					const { opens, rows = [] } = node;
+					const isLit = on.has(node.id) || rows.some((row) => on.has(row.id));
+					const head = (
+						<>
 							<Icon icon={nodeIcon(node)} size="sm" color="secondary" />
 							<span className="studio-map-words">
 								<Text weight="semibold" maxLines={1}>
 									{node.label}
 								</Text>
 								{node.note && (
-									<Text type="supporting" color="secondary" maxLines={2}>
+									<Text type="supporting" color="secondary" maxLines={1}>
 										{node.note}
 									</Text>
 								)}
 							</span>
-						</button>
+						</>
+					);
+					const button = {
+						type: 'button' as const,
+						title: node.note || undefined,
+						'aria-description': mapLinkWords(map, node.id) || undefined,
+						disabled: opens === undefined,
+						onClick: () => {
+							if (opens !== undefined) onOpen(opens);
+						},
+						...lights(node.id),
+					};
+					if (rows.length === 0) {
+						return (
+							<button
+								key={node.id}
+								{...button}
+								className="studio-map-node"
+								style={{ left: place.x, top: place.y, ...MAP_SIZES.node }}
+								aria-current={isOpen(node, selected) ? 'true' : undefined}
+								data-on={isLit ? '' : undefined}
+							>
+								{head}
+							</button>
+						);
+					}
+					return (
+						<div
+							key={node.id}
+							className="studio-map-card"
+							style={{
+								left: place.x,
+								top: place.y,
+								width: MAP_SIZES.node.width,
+								height: place.height,
+							}}
+							data-open={isOpen(node, selected) ? '' : undefined}
+							data-on={isLit ? '' : undefined}
+						>
+							<button
+								{...button}
+								className="studio-map-head"
+								style={{ height: MAP_SIZES.card.head }}
+								aria-current={selected === node.id ? 'true' : undefined}
+							>
+								{head}
+							</button>
+							{rows.map((row) => (
+								<button
+									key={row.id}
+									type="button"
+									className="studio-map-row"
+									style={{ height: MAP_SIZES.card.row }}
+									aria-current={selected === row.id ? 'true' : undefined}
+									data-on={on.has(row.id) ? '' : undefined}
+									onClick={() => {
+										onOpen(row.opens);
+									}}
+									{...lights(row.id)}
+								>
+									<Icon icon={rowIcon(row.type)} size="sm" color="secondary" />
+									<Text maxLines={1}>{row.label}</Text>
+									{row.note && (
+										<span className="studio-map-row-note">
+											<Text type="supporting" color="secondary" maxLines={1}>
+												{row.note}
+											</Text>
+										</span>
+									)}
+								</button>
+							))}
+						</div>
 					);
 				})}
 			</div>

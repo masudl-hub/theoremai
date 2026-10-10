@@ -19,7 +19,7 @@ import {
 const blank = createBlankDraft();
 const named = (agentId: string) => ({
   ...blank,
-  identity: { ...blank.identity, agentId },
+  identity: { ...blank.identity, agentId, profileType: 'text' as const },
   modelBindings: [defaultModelBinding({ key: `${agentId}-model`, modelId: 'small-model' })],
 });
 const tool = (key: string, over: Partial<ToolSpecDraft> = {}): ToolSpecDraft => ({
@@ -52,6 +52,7 @@ function opened(): StudioWorkspace {
 
 const SIZES = {
   node: { width: 200, height: 60 },
+  card: { head: 40, row: 20, foot: 10 },
   columnGap: 100,
   rowGap: 10,
   heading: 30,
@@ -59,22 +60,34 @@ const SIZES = {
   padding: 20,
 };
 
-Deno.test('the map holds every agent, tool and model, joined as the workspace joins them', () => {
+Deno.test('the map holds every profile, tool, model and provider, joined as the workspace joins them', () => {
   const workspace = opened();
   const [desk, shop] = workspace.agents.map((agent) => agentNodeId(agent.key));
   const map = workspaceMap(workspace);
 
   assertEquals(
     map.columns.map((column) => column.map((group) => group.label)),
-    [['Models'], ['Agents'], ['Tools']],
+    [['Providers'], ['Models'], ['Profiles'], ['Tools']],
   );
-  const [models, agents, tools] = map.columns.map((column) =>
+  const [providers, models, agents, tools] = map.columns.map((column) =>
     column.flatMap((group) => group.nodes),
   );
   assertEquals(
     agents?.map((node) => node.label),
     ['desk', 'shop'],
   );
+  // A profile is a card of its sections, as the tree lists them; each opens its own.
+  assertEquals(
+    agents?.[0]?.rows?.map((row) => [row.label, row.note]),
+    [
+      ['Models', 'small-model'],
+      ['Tools', '2'],
+      ['Inputs', ''],
+      ['Observability', ''],
+      ['Wording', ''],
+    ],
+  );
+  assertEquals(agents?.[0]?.rows?.[1]?.opens, agentNodeId(workspace.agents[0]?.key ?? '', 'tools'));
   // Tools follow the agents that allow them; one no agent allows goes last.
   assertEquals(
     tools?.map((node) => node.label),
@@ -90,12 +103,23 @@ Deno.test('the map holds every agent, tool and model, joined as the workspace jo
     agentNodeId(workspace.agents[0]?.key ?? '', modelBindingNodeId(binding?.key ?? '')),
   );
   const model = models?.[0]?.id ?? '';
+  const section = (index: number, facet: string) =>
+    agentNodeId(workspace.agents[index]?.key ?? '', facet);
+  // The model feeds each profile's Models section, and its provider feeds it.
   assertEquals(
     map.links.filter((link) => link.kind === 'runs'),
     [
-      { from: model, to: desk, kind: 'runs' },
-      { from: model, to: shop, kind: 'runs' },
+      { from: model, to: section(0, 'models'), kind: 'runs' },
+      { from: model, to: section(1, 'models'), kind: 'runs' },
     ],
+  );
+  assertEquals(
+    providers?.map((node) => [node.label, node.opens]),
+    [[binding?.provider, undefined]],
+  );
+  assertEquals(
+    map.links.filter((link) => link.kind === 'serves'),
+    [{ from: providers?.[0]?.id ?? '', to: model, kind: 'serves' }],
   );
   assertEquals(
     map.links.filter((link) => link.kind === 'asks'),
@@ -104,9 +128,9 @@ Deno.test('the map holds every agent, tool and model, joined as the workspace jo
   assertEquals(
     map.links.filter((link) => link.kind === 'allows').map((link) => [link.from, link.to]),
     [
-      [desk, toolSpecNodeId('find')],
-      [desk, toolSpecNodeId('ask_shop')],
-      [shop, toolSpecNodeId('price')],
+      [section(0, 'tools'), toolSpecNodeId('find')],
+      [section(0, 'tools'), toolSpecNodeId('ask_shop')],
+      [section(1, 'tools'), toolSpecNodeId('price')],
     ],
   );
 
@@ -115,6 +139,7 @@ Deno.test('the map holds every agent, tool and model, joined as the workspace jo
     new Set([shop, model, toolSpecNodeId('price'), toolSpecNodeId('ask_shop')]),
   );
   assertEquals(mapNeighbours(map, toolSpecNodeId('spare')), new Set([toolSpecNodeId('spare')]));
+  assertEquals(mapNeighbours(map, model), new Set([model, providers?.[0]?.id, desk, shop]));
   assertEquals(
     mapLinkWords(map, shop ?? ''),
     `Runs on ${models?.[0]?.label ?? ''}. Allows price. Asked by ask_shop.`,
@@ -131,6 +156,7 @@ Deno.test('the map shows a shared setting over what it sets, and an agent that w
     agents: [
       {
         ...desk,
+        included: [...desk.included, 'guardrails'],
         modelBindings: desk.modelBindings.map((binding) => ({ ...binding, compactWith: shop.key })),
       },
       shop,
@@ -150,10 +176,10 @@ Deno.test('the map shows a shared setting over what it sets, and an agent that w
   const id = 'shared:setup.ts:STANDARD_GUARDRAILS';
 
   assertEquals(
-    map.columns[0]?.map((group) => group.label),
+    map.columns[1]?.map((group) => group.label),
     ['Shared settings', 'Models'],
   );
-  assertEquals(map.columns[0]?.[0]?.nodes, [
+  assertEquals(map.columns[1]?.[0]?.nodes, [
     {
       id,
       kind: 'shared',
@@ -165,11 +191,12 @@ Deno.test('the map shows a shared setting over what it sets, and an agent that w
   ]);
   assertEquals(
     map.links.filter((link) => link.kind === 'sets').map((link) => link.to),
-    [agentNodeId(desk.key), agentNodeId(shop.key), toolSpecNodeId('price')],
+    // On the section it sets where the profile has it, else on the profile.
+    [agentNodeId(desk.key, 'guardrails'), agentNodeId(shop.key), toolSpecNodeId('price')],
   );
   assertEquals(
     map.links.filter((link) => link.kind === 'summarised'),
-    [{ from: agentNodeId(desk.key), to: agentNodeId(shop.key), kind: 'summarised' }],
+    [{ from: agentNodeId(desk.key, 'models'), to: agentNodeId(shop.key), kind: 'summarised' }],
   );
   assertEquals(mapLinkWords(map, id), 'Sets desk, shop, price.');
 });
@@ -180,28 +207,33 @@ Deno.test('the map is laid out in columns, with a line from the side of each nod
   const map = workspaceMap(workspace);
   const layout = mapLayout(map, SIZES);
 
-  // Three columns of 200 with 100 between, 20 around; the tools column is the tallest: four nodes.
-  assertEquals(layout.width, 20 + 200 + 100 + 200 + 100 + 200 + 20);
-  assertEquals(layout.height, 20 + 30 + 4 * 60 + 3 * 10 + 20);
+  // Four columns of 200 with 100 between, 20 around. A profile's card is its head, five sections
+  // and its foot, so the profiles column is the tallest: two cards of 150.
+  assertEquals(layout.width, 20 + 4 * 200 + 3 * 100 + 20);
+  assertEquals(layout.height, 20 + 30 + 2 * 150 + 10 + 20);
   assertEquals(layout.headings, [
-    { label: 'Models', x: 20, y: 20 },
-    { label: 'Agents', x: 320, y: 20 },
-    { label: 'Tools', x: 620, y: 20 },
+    { label: 'Providers', x: 20, y: 20 },
+    { label: 'Models', x: 320, y: 20 },
+    { label: 'Profiles', x: 620, y: 20 },
+    { label: 'Tools', x: 920, y: 20 },
   ]);
-  assertEquals(layout.nodes[desk ?? ''], { x: 320, y: 50 });
-  assertEquals(layout.nodes[shop ?? ''], { x: 320, y: 120 });
-  assertEquals(layout.nodes[toolSpecNodeId('find')], { x: 620, y: 50 });
+  assertEquals(layout.nodes[desk ?? ''], { x: 620, y: 50, height: 150 });
+  assertEquals(layout.nodes[shop ?? ''], { x: 620, y: 210, height: 150 });
+  assertEquals(layout.nodes[toolSpecNodeId('find')], { x: 920, y: 50, height: 60 });
 
   const line = (from: string | undefined, to: string | undefined) =>
     layout.lines.find(({ link }) => link.from === from && link.to === to)?.d;
-  // Left to right: out of the agent's right side, into the tool's left.
-  assertEquals(line(desk, toolSpecNodeId('find')), 'M 520 80 C 570 80, 570 80, 620 80');
-  // Right to left: out of the tool's left side, into the agent's right.
-  assertEquals(line(toolSpecNodeId('ask_shop'), shop), 'M 620 150 C 570 150, 570 150, 520 150');
+  const tools = agentNodeId(workspace.agents[0]?.key ?? '', 'tools');
+  // Left to right: out of the card's right side, level with its Tools section, into the tool's left.
+  assertEquals(line(tools, toolSpecNodeId('find')), 'M 820 120 C 870 120, 870 80, 920 80');
+  // Right to left: out of the tool's left side, into the card's right, level with its head.
+  assertEquals(line(toolSpecNodeId('ask_shop'), shop), 'M 920 150 C 870 150, 870 230, 820 230');
+  // Each line names the nodes it joins, whichever section it lands on.
+  assertEquals(layout.lines.find(({ link }) => link.from === tools)?.from, desk);
   assertEquals(layout.lines.length, map.links.length);
 });
 
-Deno.test('a line between two agents bows out to the right of their column', () => {
+Deno.test('a line between two profiles bows out to the right of their column', () => {
   const start = opened();
   const [desk, shop] = start.agents;
   if (!desk || !shop) throw new Error('two agents');
@@ -218,6 +250,6 @@ Deno.test('a line between two agents bows out to the right of their column', () 
   const layout = mapLayout(workspaceMap(workspace), SIZES);
   assertEquals(
     layout.lines.find(({ link }) => link.kind === 'summarised')?.d,
-    'M 520 80 C 570 80, 570 150, 520 150',
+    'M 820 100 C 870 100, 870 230, 820 230',
   );
 });

@@ -1,7 +1,8 @@
 /*
  * The map: the showcase's field of dots, panned both ways. The scrollport is the query box, so the
  * field is at least the panel and only larger when the columns need the room. The lines are one
- * drawing under the nodes; the nodes are buttons placed over it. Every colour, radius and timing
+ * drawing under the nodes; the nodes are buttons placed over it, and a profile is a card of them:
+ * its head, then a row for each section. Every colour, radius and timing
  * is an Astryx theme token. The shell's own motion brings the map in.
  */
 .studio-map-scroll {
@@ -48,34 +49,82 @@
 	position: absolute;
 }
 
-.studio-map-node {
+.studio-map-node,
+.studio-map-card {
 	position: absolute;
 	box-sizing: border-box;
-	display: flex;
-	align-items: flex-start;
-	gap: var(--spacing-2);
-	padding: var(--spacing-3);
 	overflow: hidden;
 	border: 1px solid var(--color-border);
 	border-radius: var(--radius-element);
 	background: var(--color-background-card);
-	color: var(--color-text-primary);
-	font: inherit;
-	text-align: start;
-	cursor: pointer;
 	transition:
 		border-color var(--duration-fast) var(--ease-standard),
 		box-shadow var(--duration-fast) var(--ease-standard),
 		opacity var(--duration-fast) var(--ease-standard);
 }
 
-/* A shared setting nothing here uses opens nothing. */
+.studio-map-card {
+	display: flex;
+	flex-direction: column;
+}
+
+.studio-map-node,
+.studio-map-head,
+.studio-map-row {
+	box-sizing: border-box;
+	display: flex;
+	gap: var(--spacing-2);
+	color: var(--color-text-primary);
+	font: inherit;
+	text-align: start;
+	cursor: pointer;
+}
+
+.studio-map-node,
+.studio-map-head {
+	align-items: flex-start;
+	padding: var(--spacing-3);
+}
+
+.studio-map-head,
+.studio-map-row {
+	flex: none;
+	width: 100%;
+	border: 0;
+	background: none;
+}
+
+.studio-map-row {
+	align-items: center;
+	padding: 0 var(--spacing-3);
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.studio-map-row-note {
+	min-width: 0;
+	max-width: 55%;
+	margin-inline-start: auto;
+}
+
+/* The section under the pointer, and each one a lit line ends on. */
+.studio-map-row:is(:hover, :focus-visible, [data-on]),
+.studio-map-head:is(:hover, :focus-visible) {
+	background: var(--color-background-surface);
+}
+
+/* A provider, and a shared setting nothing here uses, open nothing. */
 .studio-map-node:disabled {
 	cursor: default;
 }
 
-.studio-map-node > :first-child {
+.studio-map-node > :first-child,
+.studio-map-head > :first-child,
+.studio-map-row > :first-child {
 	flex: none;
+}
+
+.studio-map-node > :first-child,
+.studio-map-head > :first-child {
 	margin-block-start: var(--spacing-1);
 }
 
@@ -85,7 +134,8 @@
 	min-width: 0;
 }
 
-.studio-map-node:is(:hover, :focus-visible):not(:disabled) {
+.studio-map-node:is(:hover, :focus-visible):not(:disabled),
+.studio-map-card:is(:hover, :focus-within) {
 	border-color: var(--color-border-emphasized);
 	box-shadow: var(--shadow-low);
 }
@@ -95,13 +145,23 @@
 	outline-offset: 2px;
 }
 
-/* The agent or tool open in the editor. */
-.studio-map-node[aria-current] {
+.studio-map-card :is(.studio-map-head, .studio-map-row):focus-visible {
+	outline: 2px solid var(--color-accent);
+	outline-offset: -2px;
+}
+
+/* The profile or tool open in the editor, and the section of it that is open. */
+.studio-map-node[aria-current],
+.studio-map-card[data-open] {
 	border-color: var(--color-accent);
 }
 
+.studio-map-row[aria-current] {
+	background: var(--color-background-surface);
+}
+
 /* While one node is lit, it and what it is joined to stay; the rest step back. */
-.studio-map[data-lit] .studio-map-node:not([data-on]) {
+.studio-map[data-lit] :is(.studio-map-node, .studio-map-card):not([data-on]) {
 	opacity: 0.45;
 }
 
@@ -115,6 +175,8 @@
 
 @media (prefers-reduced-motion: reduce) {
 	.studio-map-node,
+	.studio-map-card,
+	.studio-map-row,
 	.studio-map-lines path {
 		transition: none;
 	}

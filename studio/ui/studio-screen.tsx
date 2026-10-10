@@ -39,6 +39,7 @@ import {
 	IconRotateClockwise,
 	IconSearch,
 	IconShieldSearch,
+	IconSitemap,
 	IconSparkles,
 	IconTool,
 	IconX,
@@ -172,6 +173,7 @@ import {
 	StudioKeys,
 	useStudioConnection,
 } from './studio-connection.tsx';
+import { StudioMap } from './studio-map.tsx';
 import { StudioRunner } from './studio-runner.tsx';
 import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
 import {
@@ -956,9 +958,14 @@ function isTraced(payload: StudioRunPayload | null): boolean {
 	return studioInterface(payload).observability?.record === true;
 }
 
-/** The frame's class; on a phone it names the sheet open over the editor. */
-function frameClass(sheet: 'tree' | 'preview' | null): string {
-	return sheet ? `studio-frame studio-${sheet}-open` : 'studio-frame';
+/**
+ * The frame's class; on a phone it names the sheet open over the editor. While the map is open the
+ * panel takes the whole frame, over the preview.
+ */
+function frameClass(sheet: 'tree' | 'preview' | null, map: boolean): string {
+	return ['studio-frame', sheet && `studio-${sheet}-open`, map && 'studio-map-open']
+		.filter(Boolean)
+		.join(' ');
 }
 
 /** Two badges per list row at the panel's default width or wider; one once it is narrowed. */
@@ -983,10 +990,16 @@ function useLastGood(compile: Compile) {
 	return good ?? lastGood;
 }
 
-/** The editor/code button, by the view it leaves. */
+/** The editor/code button, by the view it leaves; the map leaves for the editor. */
 const VIEW_TOGGLE = {
 	editor: { label: 'Code', icon: IconCode, tooltip: 'Edit as TypeScript', next: 'code' },
 	code: {
+		label: 'Editor',
+		icon: IconAdjustmentsHorizontal,
+		tooltip: 'Edit as a form',
+		next: 'editor',
+	},
+	map: {
 		label: 'Editor',
 		icon: IconAdjustmentsHorizontal,
 		tooltip: 'Edit as a form',
@@ -1691,7 +1704,7 @@ function offerEditsBack(
 /** Which view stands in the editor column, and opening a node there. */
 function useEditorView(store: StudioStore) {
 	const [keysOpen, setKeysOpen] = useState(false);
-	const [editorView, setEditorView] = useState<'editor' | 'code'>('editor');
+	const [editorView, setEditorView] = useState<'editor' | 'code' | 'map'>('editor');
 	/** Opens a node from the tree or the editor, closing whatever stood over it. */
 	const open = useCallback(
 		(id: string) => {
@@ -1902,6 +1915,24 @@ function IssueToken({
 
 /** Replaces the workspace with one blank agent or one of the examples. */
 
+/** Opens the map in place of the editor, or goes back to the editor; either way Keys closes. */
+function MapButton({ view }: { view: EditorViewState }) {
+	const isOpen = view.editorView === 'map' && !view.keysOpen;
+	return (
+		<IconButton
+			label="Map"
+			variant="ghost"
+			icon={<Icon icon={IconSitemap} size="sm" />}
+			aria-pressed={isOpen}
+			tooltip="See how your agents, tools, models and shared settings connect"
+			onClick={() => {
+				view.setKeysOpen(false);
+				view.setEditorView(isOpen ? 'editor' : 'map');
+			}}
+		/>
+	);
+}
+
 /** Switches the editor between the form and the code, closing Keys. */
 function ViewToggleButton({ view }: { view: EditorViewState }) {
 	const viewToggle = VIEW_TOGGLE[view.editorView];
@@ -2090,6 +2121,7 @@ function EditorToolbar({
 						},
 					]}
 				/>
+				<MapButton view={view} />
 				<ViewToggleButton view={view} />
 				<SheetButton label="Preview" icon={IconPlayerPlay} sheet="preview" setSheet={setSheet} />
 			</HStack>
@@ -2574,7 +2606,7 @@ function Studio({ opened }: { opened: StudioOpened }) {
 					<SaveScope project={project} state={state} blocked={Boolean(compile.blocked)}>
 					<Layout
 						ref={frame.layoutCallbackRef}
-						className={frameClass(sheet)}
+						className={frameClass(sheet, view.editorView === 'map' && !view.keysOpen)}
 						padding={0}
 						start={
 							<SidePanel
@@ -2588,7 +2620,9 @@ function Studio({ opened }: { opened: StudioOpened }) {
 									heading={
 										view.keysOpen
 											? 'Keys'
-											: headingOf(tree.list, editing, title, sharedAt(state.shared, selected))
+											: view.editorView === 'map'
+												? 'Map'
+												: headingOf(tree.list, editing, title, sharedAt(state.shared, selected))
 									}
 									sharedList={tree.list === 'shared' ? undefined : showShared}
 									state={state}
@@ -2823,7 +2857,9 @@ function EditorColumn({
 	setSheet: (sheet: Sheet) => void;
 }) {
 	const { editorRef, reveal, revealed } = issueReveal;
-	const shared = view.keysOpen ? undefined : sharedAt(state.shared, selected);
+	// Keys and the map stand over the open node, so neither says what sets it.
+	const over = view.keysOpen || view.editorView === 'map';
+	const shared = over ? undefined : sharedAt(state.shared, selected);
 	const { shown, leavePage } = useLeftIssues(compile.editorIssues, selected, revealed);
 	const reset = useReset(state);
 	const project = useProject();
@@ -2833,7 +2869,7 @@ function EditorColumn({
 		return scope ? { scope, open: openOrigin } : null;
 	}, [state.origins, state.workspace, selected, openOrigin]);
 	const whole = rowOrigins?.scope.section;
-	const said = view.keysOpen ? undefined : (whole ?? rowOrigins?.scope.partly);
+	const said = over ? undefined : (whole ?? rowOrigins?.scope.partly);
 	return (
 		<VStack height="100%">
 			<EditorToolbar
@@ -2882,7 +2918,7 @@ function EditorColumn({
 	);
 }
 
-/** Under the editor's header: the Keys panel, the open node's editor, or its code. */
+/** Under the editor's header: the Keys panel, the map, the open node's editor, or its code. */
 function EditorColumnBody({
 	state,
 	connection,
@@ -2906,6 +2942,16 @@ function EditorColumnBody({
 	editorRef: RefObject<HTMLDivElement | null>;
 }) {
 	if (view.keysOpen) return <KeysBody connection={connection} state={state} />;
+	if (view.editorView === 'map') {
+		return (
+			<StudioMap
+				workspace={state.workspace}
+				shared={state.shared}
+				selected={selected}
+				onOpen={view.open}
+			/>
+		);
+	}
 	if (view.editorView === 'code') {
 		return (
 			<CodeBody

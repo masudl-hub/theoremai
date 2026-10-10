@@ -199,6 +199,21 @@ export {
   sharedLinks,
   sharedNodeId,
 } from './shared-settings.ts';
+export {
+  type MapGroup,
+  type MapLayout,
+  mapLayout,
+  type MapLink,
+  type MapLinkKind,
+  mapLinkWords,
+  mapNeighbours,
+  type MapNode,
+  type MapNodeKind,
+  type MapPlace,
+  type MapSizes,
+  type WorkspaceMap,
+  workspaceMap,
+} from './map.ts';
 export { type StudioAsks, type WriteAsk, writeAsk, writeAskLine } from './asks.ts';
 export {
   type NodeOrigins,

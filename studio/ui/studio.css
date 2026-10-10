@@ -165,6 +165,23 @@
 }
 
 /*
+ * The map takes the whole frame: the panel widens over the preview, which goes with its handle,
+ * and the tree stays beside the map. On a phone the panel already does. The frame's class outranks the panel's resized width.
+ */
+@media (width >= 768px) {
+	.studio-frame.studio-map-open .studio-side {
+		width: 100%;
+		max-width: none;
+		flex: 1 1 auto;
+	}
+
+	.studio-frame.studio-map-open .studio-side-handle,
+	.studio-frame.studio-map-open .studio-preview {
+		display: none;
+	}
+}
+
+/*
  * The guardrails editor swaps its list of detectors for one detector's page, and back. Each side
  * fades in as it mounts, so the swap reads as a move rather than a jump.
  */

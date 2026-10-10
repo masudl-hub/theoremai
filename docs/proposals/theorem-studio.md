@@ -562,7 +562,15 @@ the same view the website has.
 Not built for a decision: changing the questions of a decision the project
 already has. They stay set in code. There is no saved and edited side by
 side: Decide runs the files, and an edit to the profile runs after Save.
-Live profiles in a project.
+
+Built: a live profile in a project runs in the studio. Start voice call
+opens the project's own session, with the keys the project's providers find,
+through the studio's local server. Like a decision, the call runs the files:
+an edit runs after Save, and a live profile added in the studio says it is
+not in the files yet. A call that cannot open says why, in the profile's
+wording. When the profile records traces, the call's trace shows in the
+studio as each response completes. A call made in the studio is a test, so
+its records go to the page and not to the store the profile writes to.
 
 Not built: editing those in the studio. Removing a profile or a tool: the
 review names it and Save does not write it. Changing a tool's schema once it

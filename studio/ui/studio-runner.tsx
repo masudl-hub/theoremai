@@ -233,9 +233,41 @@ function ProjectRun({
 			/>
 		);
 	return (
-		<EmptyState
-			title="Not run here yet"
-			description={`The studio shows a ${type} profile but does not run one yet.`}
+		<ProjectCall
+			payload={payload}
+			endpoint={endpoint}
+			note={note}
+			trace={trace}
+			slots={slots}
+			context={context}
+		/>
+	);
+}
+/** A project's live profile: the call runs in the project, through the studio's local server. */
+function ProjectCall({
+	payload,
+	endpoint,
+	note,
+	trace,
+	slots,
+	context,
+}: Pick<RunProps, 'payload' | 'note' | 'trace' | 'slots' | 'context'> & { endpoint: string }) {
+	const iface = useMemo(() => studioInterface(payload), [payload]);
+	/** The studio's page answers each page tool with the tool's stub. */
+	const pageTools = useMemo(() => studioPageTools(payload), [payload]);
+	if (iface.type !== 'live') return null;
+	return (
+		<LiveRunner
+			labels={STUDIO_LABELS}
+			iface={iface}
+			connection={() => {
+				note();
+				return { createSocket: () => new WebSocket(endpoint.replace(/^http/, 'ws')) };
+			}}
+			trace={trace}
+			slots={slots}
+			context={context}
+			pageTools={pageTools}
 		/>
 	);
 }

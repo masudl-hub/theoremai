@@ -194,6 +194,9 @@ const session = createSaveSession<Loaded>(
 /** Passes a request on to a load of the project, and its answer back as it streams. */
 async function forward(request: Request, loaded = session.project(), path?: string): Promise<Response> {
   const url = new URL(request.url);
+  if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+    return forwardSocket(request, `${loaded.origin}${path ?? url.pathname}${url.search}`);
+  }
   const headers = new Headers(request.headers);
   headers.delete('host');
   const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
@@ -206,6 +209,35 @@ async function forward(request: Request, loaded = session.project(), path?: stri
   } catch {
     return json(502, {}, corsHeaders(request, pageOrigins));
   }
+}
+
+/**
+ * Joins the page's socket to the same path of the project: a voice call. What the page sends
+ * before the project's side opens is held, because a call opens with the page's first message.
+ */
+function forwardSocket(request: Request, to: string): Response {
+  const { socket: page, response } = Deno.upgradeWebSocket(request);
+  const project = new WebSocket(to.replace(/^http/, 'ws'));
+  page.binaryType = 'arraybuffer';
+  project.binaryType = 'arraybuffer';
+  const held: (string | ArrayBuffer)[] = [];
+  const shut = (other: WebSocket) => () => {
+    if (other.readyState === WebSocket.OPEN || other.readyState === WebSocket.CONNECTING) other.close();
+  };
+  page.addEventListener('message', (event) => {
+    if (project.readyState === WebSocket.OPEN) project.send(event.data);
+    else held.push(event.data);
+  });
+  project.addEventListener('open', () => {
+    for (const data of held.splice(0)) project.send(data);
+  });
+  project.addEventListener('message', (event) => {
+    if (page.readyState === WebSocket.OPEN) page.send(event.data);
+  });
+  page.addEventListener('close', shut(project));
+  project.addEventListener('close', shut(page));
+  project.addEventListener('error', shut(page));
+  return response;
 }
 
 const SAVE = `${STUDIO_BASE}/save`;

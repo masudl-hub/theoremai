@@ -47,6 +47,7 @@ if (import.meta.main) {
     ...(setup.host ? { host: setup.host } : {}),
     ...(setup.provider ? { provider: setup.provider } : {}),
     ...(setup.questions ? { questions: setup.questions } : {}),
+    upgrade: (request) => Deno.upgradeWebSocket(request),
   });
   Deno.serve({ hostname: '127.0.0.1', port, onListen: () => console.log(PROJECT_READY) }, handler);
 }

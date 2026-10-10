@@ -27,6 +27,7 @@ import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft
 import { readStudioSource } from '../read-source.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import { studioSource } from '../source.ts';
+import { createStudioLiveHandler, type StudioUpgrade } from './live.ts';
 import type { ProjectOrigins, SharedSetting } from './save-wire.ts';
 import {
   addAgent,
@@ -74,6 +75,8 @@ export type StudioHandlerOptions = {
   provider?: ProviderHostOptions;
   /** What each decision profile asks, by the profile's id: the questions the application passes when it decides. */
   questions?: ProjectQuestions;
+  /** How the server takes a socket, which a voice call needs. Without it a live profile is not run. */
+  upgrade?: StudioUpgrade;
   /** Where the handler is mounted. Default `/api/studio`. */
   base?: string;
 };
@@ -289,6 +292,9 @@ export function questionsFault(profileId: string, questions: unknown): string | 
   return undefined;
 }
 
+/** Why a live profile is not run: a voice call needs a socket, and the server was given no way to take one. */
+const NO_SOCKET = 'A live profile runs over a socket, and this server was not given a way to take one (`upgrade`).';
+
 /** Each registered profile's own handler, by id; a profile that cannot be served is a problem. */
 function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[]): Map<string, Serve> {
   const served = new Map<string, Serve>();
@@ -309,6 +315,12 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
       if (profile.type === 'decision') {
         const serve = decision(profile);
         if (serve) served.set(profile.id, serve);
+        continue;
+      }
+      if (profile.type === 'live') {
+        if (options.upgrade) {
+          served.set(profile.id, createStudioLiveHandler(profile, options.provider ?? {}, options.upgrade));
+        } else problems.push({ profile: profile.id, message: NO_SOCKET });
         continue;
       }
       served.set(
@@ -348,6 +360,8 @@ export function createStudioHandler(
     const serve = served.get(id);
     if (!serve) return json(404, {}, cors);
     const response = await serve(request);
+    // A socket's answer goes back as it is: it is not a response the page reads.
+    if (response.status === 101) return response;
     const headers = new Headers(response.headers);
     for (const [key, value] of Object.entries(cors)) headers.set(key, value);
     return new Response(response.body, { status: response.status, headers });

@@ -1,6 +1,7 @@
 import {
 	createDecisionTransport,
 	createHostTransport,
+	createHttpTransport,
 	createTraceFeed,
 	type TraceFeed,
 } from '../../react/src/client/index.ts';
@@ -12,6 +13,7 @@ import {
 	TheoremHost,
 } from '../../react/src/ui/index.ts';
 import {
+	compileWorkspace,
 	createStudioHostTransport,
 	createStudioTransport,
 	type StudioConnectionMode,
@@ -20,6 +22,7 @@ import {
 	studioInterface,
 	studioLiveConnection,
 	studioPageTools,
+	workspaceRunAgent,
 } from '../mod.ts';
 import {
 	browserStudioLiveConnection,
@@ -28,7 +31,10 @@ import {
 	type StudioBrowserRuntime,
 } from '../browser.ts';
 import { Button } from '@astryxdesign/core/Button';
+import { Divider } from '@astryxdesign/core/Divider';
+import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
+import { StackItem } from '@astryxdesign/core/Stack';
 import { Token } from '@astryxdesign/core/Token';
 import { IconKey } from '@tabler/icons-react';
 import { type ComponentProps, useMemo, useRef, useState } from 'react';
@@ -41,9 +47,16 @@ import {
 	useProject,
 } from './lib/studio-project.ts';
 import { tracedTransport } from './lib/project-traces.ts';
-import { EditedSide, ProjectChat, unsavedEdits, useEditedLoad } from './studio-compare.tsx';
+import {
+	EditedSide,
+	ProjectChat,
+	SavedSide,
+	unsavedEdits,
+	useEditedLoad,
+	useSavedHidden,
+} from './studio-compare.tsx';
 import { decisionSeed, StudioDecision } from './studio-decision.tsx';
-import { useProjectSave } from './studio-save.tsx';
+import { clearRemoves, useProjectSave } from './studio-save.tsx';
 
 export interface StudioRunnerProps {
 	payload: StudioRunPayload;
@@ -171,8 +184,11 @@ export function StudioRunner({
 	);
 }
 
-/** The two ways out of a run that waits on a Save: write the edits, or drop them. */
-function UnsavedActions({ agentId }: { agentId: string }) {
+/**
+ * The two ways out of a run that waits on a Save: write the edits, or drop them. Dropping an
+ * agent the files never held removes it.
+ */
+function UnsavedActions({ agentId, isNew }: { agentId: string; isNew: boolean }) {
 	const save = useProjectSave();
 	if (!save) return null;
 	return (
@@ -184,7 +200,7 @@ function UnsavedActions({ agentId }: { agentId: string }) {
 				onClick={save.review}
 			/>
 			<Button
-				label="Clear changes"
+				label={isNew ? 'Remove agent' : 'Clear changes'}
 				variant="ghost"
 				size="sm"
 				onClick={() => {
@@ -200,57 +216,98 @@ type RunProps = Omit<Parameters<typeof StudioRunner>[0], 'mode' | 'onActivity'> 
 	traces: TraceFeed;
 	note: () => void;
 };
+/** The types that are not a conversation: a chat cannot sit beside one of these. */
+const NOT_A_CHAT = new Set(['decision', 'host', 'live']);
+const isChat = (payload: StudioRunPayload) => !NOT_A_CHAT.has(payload.profile.type);
+
 /**
- * A project's profile, run by the studio's local server: the project's own tools and models.
- * While the builder has edits the files do not hold, the run is the files with those edits laid
- * over them. A chat then answers twice, side by side with the files' own.
+ * The agent as the files hold it, compiled from where the workspace started: an edit may have
+ * renamed it or made it another type. Undefined for an agent the files do not hold.
  */
-function ProjectRun({
-	project,
+function savedPayload(
+	edits: StudioWorkspace,
+	payload: StudioRunPayload,
+	profiles: readonly string[],
+): StudioRunPayload | undefined {
+	const inFiles = (agent: { identity: { agentId: string } }) =>
+		profiles.includes(agent.identity.agentId.trim());
+	const key = edits.agents.find((agent) => agent.identity.agentId.trim() === payload.agentId)?.key;
+	const start = key === undefined ? undefined : edits.starts.agents[key];
+	if (!start || !inFiles(start)) return undefined;
+	const agents = Object.values(edits.starts.agents).filter(inFiles);
+	const here = new Set(agents.map((agent) => agent.key));
+	// A tool that ran an agent the edits removed has no agent here to run.
+	const toolSpecs = Object.values(edits.starts.tools).filter(
+		(tool) => tool.toolType !== 'agent' || here.has(tool.agentKey ?? ''),
+	);
+	const held = new Set(toolSpecs.map((tool) => tool.key));
+	const files: StudioWorkspace = {
+		...edits,
+		agents: agents.map((agent) => ({
+			...agent,
+			tools: { ...agent.tools, allow: agent.tools.allow.filter((toolKey) => held.has(toolKey)) },
+		})),
+		toolSpecs,
+	};
+	const compiled = compileWorkspace(files, payload.connectionMode);
+	const run = compiled.ok ? workspaceRunAgent(compiled, start.identity.agentId.trim()) : undefined;
+	if (!run) return undefined;
+	const { agentId, profile, customTools, structured, questions, dependencies } = run;
+	return { ...payload, agentId, profile, customTools, structured, questions, dependencies };
+}
+
+type SideProps = Pick<
+	RunProps,
+	| 'payload'
+	| 'traces'
+	| 'note'
+	| 'trace'
+	| 'className'
+	| 'flush'
+	| 'columns'
+	| 'chatRef'
+	| 'slots'
+	| 'context'
+> & {
+	/** Where this side's profile answers: the files' own, or the load of the edits. */
+	endpoint: string;
+};
+
+/** One profile on one endpoint, as its type runs: a chat, a decision, a tool console or a call. */
+function SideRun({
 	payload,
+	endpoint,
 	traces,
+	note,
 	trace,
 	className,
 	flush,
 	columns,
-	note,
 	chatRef,
 	slots,
 	context,
-	tested,
-}: Omit<RunProps, 'runtime'> & { project: ProjectSession }) {
+}: SideProps) {
 	const { type } = payload.profile;
-	const isChat = type !== 'host' && type !== 'decision' && type !== 'live';
-	const edits = useMemo(
-		() => unsavedEdits(tested, project.profiles),
-		[tested, project.profiles],
+	const chats = isChat(payload);
+	const chat = useMemo(
+		() => (chats ? noting(tracedTransport(createHttpTransport, endpoint, traces), note) : null),
+		[chats, endpoint, traces, note],
 	);
-	// A chat asks for its own load, and holds it while a reply streams.
-	const { answer, pending } = useEditedLoad(project, isChat ? undefined : edits, false);
-	const stamp = answer?.ok ? answer.stamp : undefined;
-	const endpoint = edits
-		? editedProfileEndpoint(project, payload.agentId)
-		: projectProfileEndpoint(project, payload.agentId);
-	// A new load of the edits is a new run: its transport is made again with the load's stamp.
 	const host = useMemo(
 		() =>
 			type === 'host' ? noting(tracedTransport(createHostTransport, endpoint, traces), note) : null,
-		// biome-ignore lint/correctness/useExhaustiveDependencies: the stamp names the load the endpoint reaches
-		[type, endpoint, stamp, traces, note],
+		[type, endpoint, traces, note],
 	);
 	const decision = useMemo(
 		() => (type === 'decision' ? noting(createDecisionTransport({ endpoint }), note) : null),
-		// biome-ignore lint/correctness/useExhaustiveDependencies: the stamp names the load the endpoint reaches
-		[type, endpoint, stamp, note],
+		[type, endpoint, note],
 	);
-	if (isChat)
+	if (chat)
 		return (
-			<ProjectChat
-				project={project}
-				profileId={payload.agentId}
-				tested={tested}
-				note={note}
-				traces={traces}
+			<TheoremChat
+				detectCodeLanguage
+				labels={STUDIO_LABELS}
+				transport={chat}
 				trace={trace}
 				className={className}
 				chatRef={chatRef}
@@ -258,30 +315,31 @@ function ProjectRun({
 				context={context}
 			/>
 		);
-	const run = decision ? (
-		<TheoremDecision
-			key={stamp}
-			transport={decision}
-			defaultState={decisionSeed(payload.profile)}
-			trace={trace}
-			flush={flush}
-			columns={columns}
-			className={className}
-		/>
-	) : host ? (
-		<TheoremHost
-			key={stamp}
-			detectCodeLanguage
-			labels={STUDIO_LABELS}
-			transport={host}
-			trace={trace}
-			flush={flush}
-			columns={columns}
-			className={className}
-		/>
-	) : (
+	if (decision)
+		return (
+			<TheoremDecision
+				transport={decision}
+				defaultState={decisionSeed(payload.profile)}
+				trace={trace}
+				flush={flush}
+				columns={columns}
+				className={className}
+			/>
+		);
+	if (host)
+		return (
+			<TheoremHost
+				detectCodeLanguage
+				labels={STUDIO_LABELS}
+				transport={host}
+				trace={trace}
+				flush={flush}
+				columns={columns}
+				className={className}
+			/>
+		);
+	return (
 		<ProjectCall
-			key={stamp}
 			payload={payload}
 			endpoint={endpoint}
 			note={note}
@@ -290,17 +348,108 @@ function ProjectRun({
 			context={context}
 		/>
 	);
-	if (!edits) return run;
+}
+
+/**
+ * A project's profile with edits the files do not hold, where either side is not a chat: the
+ * files' run and the edits' run side by side, each its own. The files' side can be put away.
+ */
+function ProjectSides({
+	project,
+	payload,
+	saved,
+	edits,
+	traces,
+	chatRef,
+	...shared
+}: Omit<RunProps, 'runtime' | 'tested'> & {
+	project: ProjectSession;
+	saved: StudioRunPayload | undefined;
+	edits: StudioWorkspace;
+}) {
+	const { answer, pending } = useEditedLoad(project, edits, false);
+	const stamp = answer?.ok ? answer.stamp : undefined;
 	const refused = answer && !answer.ok && !pending ? answer : undefined;
+	const isSavedHidden = useSavedHidden();
+	// The edited side's own feed, so its traces are not the files' side's.
+	const [editedTraces] = useState(createTraceFeed);
 	return (
-		<EditedSide
-			refused={refused}
-			isLoading={stamp === undefined && !refused}
-			actions={<UnsavedActions agentId={payload.agentId} />}
-		>
-			{stamp !== undefined && !refused && run}
-		</EditedSide>
+		<HStack height="100%">
+			{saved && !isSavedHidden && (
+				<StackItem key="saved" size="fill">
+					<SavedSide>
+						<SideRun
+							{...shared}
+							payload={saved}
+							endpoint={projectProfileEndpoint(project, saved.agentId)}
+							traces={traces}
+						/>
+					</SavedSide>
+				</StackItem>
+			)}
+			{saved && !isSavedHidden && <Divider orientation="vertical" />}
+			<StackItem key="edited" size="fill">
+				<EditedSide
+					refused={refused}
+					isLoading={stamp === undefined && !refused}
+					hasSaved={saved !== undefined}
+					actions={
+						<UnsavedActions
+							agentId={payload.agentId}
+							isNew={clearRemoves(edits, payload.agentId, project.profiles)}
+						/>
+					}
+				>
+					{stamp !== undefined && !refused && (
+						// A new load of the edits is a new run.
+						<SideRun
+							{...shared}
+							key={stamp}
+							payload={payload}
+							endpoint={editedProfileEndpoint(project, payload.agentId)}
+							traces={editedTraces}
+							chatRef={chatRef}
+						/>
+					)}
+				</EditedSide>
+			</StackItem>
+		</HStack>
 	);
+}
+
+/**
+ * A project's profile, run by the studio's local server: the project's own tools and models.
+ * While the builder has edits the files do not hold, it runs twice, side by side: as the files,
+ * and as the files with the edits laid over them. Two chats share one message.
+ */
+function ProjectRun({ project, tested, ...run }: Omit<RunProps, 'runtime'> & { project: ProjectSession }) {
+	const { payload } = run;
+	const edits = useMemo(
+		() => unsavedEdits(tested, project.profiles),
+		[tested, project.profiles],
+	);
+	const saved = useMemo(
+		() => (edits ? savedPayload(edits, payload, project.profiles) : undefined),
+		[edits, payload, project.profiles],
+	);
+	if (isChat(payload) && (!saved || isChat(saved)))
+		return (
+			<ProjectChat
+				project={project}
+				profileId={payload.agentId}
+				tested={tested}
+				note={run.note}
+				traces={run.traces}
+				trace={run.trace}
+				className={run.className}
+				chatRef={run.chatRef}
+				slots={run.slots}
+				context={run.context}
+			/>
+		);
+	if (!edits)
+		return <SideRun {...run} endpoint={projectProfileEndpoint(project, payload.agentId)} />;
+	return <ProjectSides {...run} project={project} saved={saved} edits={edits} />;
 }
 /** A project's live profile: the call runs in the project, through the studio's local server. */
 function ProjectCall({

@@ -304,12 +304,32 @@ export function useProjectSave(): ProjectSaveActions | null {
 	return useContext(ProjectSaveContext);
 }
 
+/**
+ * Whether clearing a profile removes it: it was added here, the files do not hold it, and it has
+ * no changes of its own left to drop.
+ */
+export function clearRemoves(
+	workspace: StudioWorkspace,
+	agentId: string,
+	profiles: readonly string[],
+): boolean {
+	const agent = workspace.agents.find((each) => each.identity.agentId === agentId);
+	const start = agent && workspace.starts.agents[agent.key];
+	if (!agent || !start || profiles.includes(start.identity.agentId)) return false;
+	return resetAgent(workspace, agent.key) === workspace;
+}
+
 /** One profile as the files hold it: back to its start, or gone when it was added here. */
-function clearProfile(workspace: StudioWorkspace, agentId: string): StudioWorkspace {
+function clearProfile(
+	workspace: StudioWorkspace,
+	agentId: string,
+	profiles: readonly string[],
+): StudioWorkspace {
 	const agent = workspace.agents.find((each) => each.identity.agentId === agentId);
 	if (!agent) return workspace;
-	const back = resetAgent(workspace, agent.key);
-	return back === workspace ? removeAgent(workspace, agent.key) : back;
+	return clearRemoves(workspace, agentId, profiles)
+		? removeAgent(workspace, agent.key)
+		: resetAgent(workspace, agent.key);
 }
 
 /**
@@ -365,7 +385,7 @@ export function ProjectSave({
 	}, []);
 	const clear = useCallback(
 		(agentId: string) => {
-			update((current) => clearProfile(current, agentId));
+			update((current) => clearProfile(current, agentId, held.current.project.profiles));
 		},
 		[update],
 	);

@@ -2,6 +2,8 @@ import { Button } from '@astryxdesign/core/Button';
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Divider } from '@astryxdesign/core/Divider';
 import { HStack } from '@astryxdesign/core/HStack';
+import { Icon } from '@astryxdesign/core/Icon';
+import { IconButton } from '@astryxdesign/core/IconButton';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
@@ -17,6 +19,7 @@ import {
 	TheoremChat,
 	type TheoremChatHandle,
 } from '../../react/src/ui/index.ts';
+import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from '@tabler/icons-react';
 import { atStart, type StudioWorkspace } from '../mod.ts';
 import type { EditedAnswer, SaveRefusal } from '../server/save-wire.ts';
 import {
@@ -29,6 +32,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	useSyncExternalStore,
 } from 'react';
 import { tracedTransport } from './lib/project-traces.ts';
 import { noting } from './lib/studio-activity.ts';
@@ -146,19 +150,85 @@ function usePair() {
 	);
 }
 
+/** Whether the files' side is put away, for every comparison in this tab. */
+const savedSide = { isHidden: false, listeners: new Set<() => void>() };
+
+function setSavedHidden(isHidden: boolean): void {
+	savedSide.isHidden = isHidden;
+	for (const listener of savedSide.listeners) listener();
+}
+
+function watchSavedSide(listener: () => void) {
+	savedSide.listeners.add(listener);
+	return () => {
+		savedSide.listeners.delete(listener);
+	};
+}
+
+/** Whether the builder put the files' side away: the edits then run alone. */
+export function useSavedHidden(): boolean {
+	return useSyncExternalStore(
+		watchSavedSide,
+		() => savedSide.isHidden,
+		() => false,
+	);
+}
+
 /** One side of the comparison: what it runs, over its conversation. */
-function Pane({ title, children }: { title: string | undefined; children: ReactNode }) {
+function Pane({
+	title,
+	endContent,
+	children,
+}: {
+	title: string | undefined;
+	/** The side's own controls, at the end of its title row. */
+	endContent?: ReactNode;
+	children: ReactNode;
+}) {
 	return (
 		<VStack height="100%">
 			{title && (
-				<HStack paddingInline={3} paddingBlock={2}>
+				<HStack paddingInline={3} paddingBlock={2} gap={2} vAlign="center" justify="between">
 					<Text type="supporting" weight="semibold" color="secondary">
 						{title}
 					</Text>
+					{endContent}
 				</HStack>
 			)}
 			<StackItem size="fill">{children}</StackItem>
 		</VStack>
+	);
+}
+
+/**
+ * The files' side: its run, and while the edits sit beside it, its title and the way to put it
+ * away.
+ */
+export function SavedSide({
+	isCompared = true,
+	children,
+}: {
+	isCompared?: boolean;
+	children: ReactNode;
+}) {
+	return (
+		<Pane
+			title={isCompared ? 'Saved (your files)' : undefined}
+			endContent={
+				<IconButton
+					label="Hide saved"
+					variant="ghost"
+					size="sm"
+					icon={<Icon icon={IconLayoutSidebarLeftCollapse} size="sm" />}
+					tooltip="Hide saved: run your edits alone"
+					onClick={() => {
+						setSavedHidden(true);
+					}}
+				/>
+			}
+		>
+			{children}
+		</Pane>
 	);
 }
 
@@ -304,17 +374,38 @@ export function unsavedEdits(
 export function EditedSide({
 	refused,
 	isLoading,
+	hasSaved,
 	actions,
 	children,
 }: {
 	refused: SaveRefusal | undefined;
 	isLoading: boolean;
+	/** The files hold this agent too, so their side can come back beside this one. */
+	hasSaved: boolean;
 	/** The ways out when the edits cannot run. */
 	actions?: ReactNode;
 	children: ReactNode;
 }) {
+	const isSavedHidden = useSavedHidden();
 	return (
-		<Pane title="Edited (studio)">
+		<Pane
+			title="Edited (studio)"
+			endContent={
+				hasSaved &&
+				isSavedHidden && (
+					<IconButton
+						label="Show saved"
+						variant="ghost"
+						size="sm"
+						icon={<Icon icon={IconLayoutSidebarLeftExpand} size="sm" />}
+						tooltip="Show saved: run your files beside your edits"
+						onClick={() => {
+							setSavedHidden(false);
+						}}
+					/>
+				)
+			}
+		>
 			{refused && <NotRunning refusal={refused} actions={actions} />}
 			{children}
 			{isLoading && <PaneLoading label="Loading your edits" />}
@@ -397,8 +488,11 @@ function useChatHandle(
 export function ProjectChat(props: ProjectChatProps) {
 	const { profileId, trace, className, chatRef, slots, context } = props;
 	const view = useComparison(props);
-	const { pair, isBusy, isShared, transports, refused, isReady } = view;
-	const only = isShared ? undefined : view.inFiles ? 'saved' : 'edited';
+	const { pair, isBusy, transports, refused, isReady } = view;
+	const isSavedHidden = useSavedHidden();
+	const showsSaved = view.inFiles && !(view.isEditing && isSavedHidden);
+	const isShared = view.isShared && showsSaved;
+	const only = isShared ? undefined : showsSaved ? 'saved' : 'edited';
 	const sendBoth = useChatHandle(chatRef, pair, only, !isBusy && isReady);
 	const common = {
 		detectCodeLanguage: true,
@@ -413,22 +507,28 @@ export function ProjectChat(props: ProjectChatProps) {
 		<VStack height="100%">
 			<StackItem size="fill">
 				<HStack height="100%">
-					{view.inFiles && (
+					{showsSaved && (
 						<StackItem key="saved" size="fill">
-							<Pane title={view.isEditing ? 'Saved (your files)' : undefined}>
+							<SavedSide isCompared={view.isEditing}>
 								<TheoremChat
 									{...common}
 									transport={transports.saved}
+									// A side that comes back starts from what it had said.
+									initialChat={view.snapshots.current.saved}
 									onChatChange={view.onRest.saved}
 									chatRef={pair.refs.saved}
 								/>
-							</Pane>
+							</SavedSide>
 						</StackItem>
 					)}
 					{isShared && <Divider orientation="vertical" />}
 					{view.isEditing && (
 						<StackItem key="edited" size="fill">
-							<EditedSide refused={refused} isLoading={!transports.edited && !refused}>
+							<EditedSide
+								refused={refused}
+								isLoading={!transports.edited && !refused}
+								hasSaved={view.inFiles}
+							>
 								{transports.edited && (
 									<TheoremChat
 										{...common}

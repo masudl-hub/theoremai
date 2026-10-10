@@ -27,6 +27,7 @@ import { type ComponentProps, useMemo, useRef, useState } from 'react';
 import { noting } from './lib/studio-activity.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
 import { type ProjectSession, projectProfileEndpoint, useProject } from './lib/studio-project.ts';
+import { tracedTransport } from './lib/project-traces.ts';
 import { ProjectChat } from './studio-compare.tsx';
 import { decisionSeed, StudioDecision } from './studio-decision.tsx';
 
@@ -92,6 +93,7 @@ export function StudioRunner({
 			<ProjectRun
 				project={project}
 				payload={payload}
+				traces={traces}
 				trace={trace}
 				className={className}
 				flush={flush}
@@ -166,6 +168,7 @@ type RunProps = Omit<Parameters<typeof StudioRunner>[0], 'mode' | 'onActivity'> 
 function ProjectRun({
 	project,
 	payload,
+	traces,
 	trace,
 	className,
 	flush,
@@ -175,12 +178,13 @@ function ProjectRun({
 	slots,
 	context,
 	tested,
-}: Omit<RunProps, 'runtime' | 'traces'> & { project: ProjectSession }) {
+}: Omit<RunProps, 'runtime'> & { project: ProjectSession }) {
 	const { type } = payload.profile;
 	const endpoint = projectProfileEndpoint(project, payload.agentId);
 	const host = useMemo(
-		() => (type === 'host' ? noting(createHostTransport({ endpoint }), note) : null),
-		[type, endpoint, note],
+		() =>
+			type === 'host' ? noting(tracedTransport(createHostTransport, endpoint, traces), note) : null,
+		[type, endpoint, traces, note],
 	);
 	const decision = useMemo(
 		() => (type === 'decision' ? noting(createDecisionTransport({ endpoint }), note) : null),
@@ -225,6 +229,7 @@ function ProjectRun({
 				profileId={payload.agentId}
 				tested={tested}
 				note={note}
+				traces={traces}
 				trace={trace}
 				className={className}
 				chatRef={chatRef}

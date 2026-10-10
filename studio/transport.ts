@@ -86,7 +86,8 @@ export type StudioSteerLine = { type: 'steer_inbox'; inbox: string };
 
 type StudioLine = TurnEvent | StudioTraceLine | StudioSteerLine;
 
-const studioTraceLine = z.object({ type: z.literal('trace'), record: traceRecordSchema });
+/** A trace record's line on a run's stream, as the page reads it. */
+export const studioTraceLine = z.object({ type: z.literal('trace'), record: traceRecordSchema });
 true satisfies Equals<z.infer<typeof studioTraceLine>, StudioTraceLine>;
 const studioSteerLine = z.object({ type: z.literal('steer_inbox'), inbox: z.string().min(1) });
 true satisfies Equals<z.infer<typeof studioSteerLine>, StudioSteerLine>;

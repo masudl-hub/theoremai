@@ -7,7 +7,11 @@ import { Spinner } from '@astryxdesign/core/Spinner';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
-import { createHttpTransport } from '../../react/src/client/index.ts';
+import {
+	createHttpTransport,
+	createTraceFeed,
+	type TraceFeed,
+} from '../../react/src/client/index.ts';
 import {
 	ChatComposerBar,
 	TheoremChat,
@@ -26,6 +30,7 @@ import {
 	useRef,
 	useState,
 } from 'react';
+import { tracedTransport } from './lib/project-traces.ts';
 import { noting } from './lib/studio-activity.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
 import {
@@ -211,6 +216,8 @@ export interface ProjectChatProps {
 	/** The workspace the preview runs, edits and all. Without one, the files alone are run. */
 	tested: StudioWorkspace | undefined;
 	note: () => void;
+	/** Where the files' side keeps its runs' traces. */
+	traces: TraceFeed;
 	trace?: boolean;
 	className?: string;
 	chatRef?: Ref<TheoremChatHandle>;
@@ -254,18 +261,23 @@ function useTransports(
 	project: ProjectSession,
 	ids: { saved: string; edited: string },
 	stamp: string | undefined,
-	note: () => void,
+	{ note, traces }: Pick<ProjectChatProps, 'note' | 'traces'>,
 ) {
 	const saved = useMemo(
 		() =>
-			noting(createHttpTransport({ endpoint: projectProfileEndpoint(project, ids.saved) }), note),
-		[project, ids.saved, note],
+			noting(
+				tracedTransport(createHttpTransport, projectProfileEndpoint(project, ids.saved), traces),
+				note,
+			),
+		[project, ids.saved, traces, note],
 	);
+	// One feed for the edited side, so a new load keeps the traces of the turns it starts from.
+	const [editedTraces] = useState(createTraceFeed);
 	const edited = useMemo(() => {
 		if (stamp === undefined) return null;
 		const endpoint = editedProfileEndpoint(project, ids.edited);
-		return noting(createHttpTransport({ endpoint }), note);
-	}, [project, ids.edited, stamp, note]);
+		return noting(tracedTransport(createHttpTransport, endpoint, editedTraces), note);
+	}, [project, ids.edited, stamp, editedTraces, note]);
 	return { saved, edited };
 }
 
@@ -293,7 +305,7 @@ function EditedSide({
 }
 
 /** What the comparison shows now: which sides there are, and what each one runs. */
-function useComparison({ project, profileId, tested, note }: ProjectChatProps) {
+function useComparison({ project, profileId, tested, note, traces }: ProjectChatProps) {
 	const edits = useMemo(() => (tested && !atStart(tested) ? tested : undefined), [tested]);
 	const pair = usePair();
 	const isBusy = pair.busy.length > 0;
@@ -306,7 +318,7 @@ function useComparison({ project, profileId, tested, note }: ProjectChatProps) {
 	const inFiles = !isEditing || (answer?.saved ?? project.profiles).includes(ids.saved);
 	const { snapshots, onRest } = useSnapshots(isEditing, pair.rested);
 	const stamp = answer?.ok ? answer.stamp : undefined;
-	const transports = useTransports(project, ids, stamp, note);
+	const transports = useTransports(project, ids, stamp, { note, traces });
 	return {
 		pair,
 		isBusy,

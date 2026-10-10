@@ -572,6 +572,13 @@ wording. When the profile records traces, the call's trace shows in the
 studio as each response completes. A call made in the studio is a test, so
 its records go to the page and not to the store the profile writes to.
 
+Built: a project's chat and tool console show their trace in the studio, as a
+draft's do in the playground. When the profile records traces, each run's
+trace reaches the trace panel as the run ends, on the saved side and on the
+edited side. A run that fails still shows its trace. These runs are tests
+too, so their records go to the page and not to the profile's store. A
+decision shows no trace, as in the playground.
+
 Not built: editing those in the studio. Removing a profile or a tool: the
 review names it and Save does not write it. Changing a tool's schema once it
 is in a file: it reads as set in code, like every tool the project has.

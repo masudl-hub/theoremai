@@ -28,6 +28,7 @@ import { readStudioSource } from '../read-source.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import { studioSource } from '../source.ts';
 import { createStudioLiveHandler, type StudioUpgrade } from './live.ts';
+import { tracedToPage, withRunTraces } from './run-traces.ts';
 import type { ProjectOrigins, SharedSetting } from './save-wire.ts';
 import {
   addAgent,
@@ -323,11 +324,14 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
         } else problems.push({ profile: profile.id, message: NO_SOCKET });
         continue;
       }
+      // The page shows a run's trace, so the profile is served writing its records to the run.
       served.set(
         profile.id,
-        profile.type === 'host'
-          ? createTheoremHostHandler({ profile, ...shared })
-          : createTheoremHandler({ profile, provider: options.provider ?? {}, ...shared }),
+        withRunTraces(
+          profile.type === 'host'
+            ? createTheoremHostHandler({ profile: tracedToPage(profile), ...shared })
+            : createTheoremHandler({ profile: tracedToPage(profile), provider: options.provider ?? {}, ...shared }),
+        ),
       );
     } catch (error) {
       problems.push({

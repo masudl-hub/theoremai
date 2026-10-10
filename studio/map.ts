@@ -28,7 +28,7 @@ export interface MapNode {
   label: string;
   /** Under the label: a tool's description, a model's provider and id, where a setting is declared. */
   note: string;
-  /** The workspace node that opens it; unset for a provider, and for a shared setting nothing here uses. */
+  /** The workspace node that opens it; unset for a shared setting nothing here uses. */
   opens?: string;
   /** An agent's profile type, a tool's type, or the section a shared setting fills. */
   type?: string;
@@ -60,12 +60,18 @@ export interface MapGroup {
 }
 
 export interface WorkspaceMap {
-  /** Left to right: providers, what profiles are set with, the profiles, the tools. A column holds only groups with nodes. */
+  /**
+   * Left to right: providers, what profiles are set with, the profiles, the tools. A column holds
+   * only groups with nodes.
+   */
   columns: MapGroup[][];
   links: MapLink[];
 }
 
-/** `nodes` in the order of what each is joined to in the column beside it (`rows`), so the lines cross less; unjoined ones go last. */
+/**
+ * `nodes` in the order of what each is joined to in the column beside it (`rows`), so the lines
+ * cross less; unjoined ones go last.
+ */
 function byRows(nodes: MapNode[], links: readonly MapLink[], rows: ReadonlyMap<string, number>): MapNode[] {
   const rank = (node: MapNode) => {
     const joined = links
@@ -129,7 +135,14 @@ export function workspaceMap(workspace: StudioWorkspace, shared: readonly Shared
       const id = `model:${binding.provider}:${binding.apiId}:${binding.modelId}`;
       const provider = `provider:${binding.provider}`;
       if (!providers.has(provider)) {
-        providers.set(provider, { id: provider, kind: 'provider', label: binding.provider, note: '' });
+        // A provider is chosen on a model: it opens the first one it serves.
+        providers.set(provider, {
+          id: provider,
+          kind: 'provider',
+          label: binding.provider,
+          note: '',
+          opens: agentNodeId(agent.key, modelBindingNodeId(binding.key)),
+        });
       }
       if (!models.has(id)) {
         models.set(id, {
@@ -143,7 +156,8 @@ export function workspaceMap(workspace: StudioWorkspace, shared: readonly Shared
       }
       if (!links.some((link) => link.from === id && link.to === to)) links.push({ from: id, to, kind: 'runs' });
       const writer = binding.compactWith ? agentIds.get(binding.compactWith) : undefined;
-      if (writer && writer !== agentNodeId(agent.key) && !links.some((link) => link.kind === 'summarised' && link.from === to)) {
+      const summarised = links.some((link) => link.kind === 'summarised' && link.from === to);
+      if (writer && writer !== agentNodeId(agent.key) && !summarised) {
         links.push({ from: to, to: writer, kind: 'summarised' });
       }
     }
@@ -188,7 +202,11 @@ export function workspaceMap(workspace: StudioWorkspace, shared: readonly Shared
   });
 
   // Each agent and its sections by the agent's place; then each model by its own, for the providers.
-  const rows = new Map(agents.flatMap((agent, row) => [agent.id, ...(agent.rows ?? []).map((each) => each.id)].map((id) => [id, row])));
+  const rows = new Map(
+    agents.flatMap((agent, row) =>
+      [agent.id, ...(agent.rows ?? []).map((each) => each.id)].map((id) => [id, row] as const),
+    ),
+  );
   const ordered = byRows([...models.values()], links, rows);
   const modelRows = new Map(ordered.map((model, row) => [model.id, row]));
   const groups = (...all: MapGroup[]) => all.filter((group) => group.nodes.length > 0);
@@ -247,8 +265,12 @@ export function mapLinkWords(map: WorkspaceMap, id: string): string {
 
 /** The sizes a map is laid out with, in pixels. */
 export interface MapSizes {
+  /** A node whose note runs to two lines: a tool, a shared setting. */
   node: { width: number; height: number };
-  /** A node with sections: its head, each section's row, and the room under the last. */
+  /**
+   * A node with sections: its head, each section's row, and the room under the last. A node with a
+   * one-line note is a head alone.
+   */
   card: { head: number; row: number; foot: number };
   /** Between columns, and between a column's nodes. */
   columnGap: number;
@@ -265,6 +287,16 @@ export interface MapPlace {
   y: number;
 }
 
+/** A link's line as an SVG path from `link.from` to `link.to`, the nodes it joins, and its arrowhead. */
+export interface MapLine {
+  link: MapLink;
+  from: string;
+  to: string;
+  d: string;
+  /** Where the line arrives, and the way it is heading there: 1 to the right, -1 to the left. */
+  tip: MapPlace & { heading: 1 | -1 };
+}
+
 export interface MapLayout {
   width: number;
   height: number;
@@ -272,22 +304,32 @@ export interface MapLayout {
   nodes: Record<string, MapPlace & { height: number }>;
   /** Each group's heading: its top left corner. */
   headings: (MapPlace & { label: string })[];
-  /** Each link's line as an SVG path from `link.from` to `link.to`, and the nodes it joins. */
-  lines: { link: MapLink; from: string; to: string; d: string }[];
+  lines: MapLine[];
+}
+
+/** How many lines of its note a node shows: a tool's description and a shared setting's source run to two. */
+export function mapNoteLines(node: MapNode): 1 | 2 {
+  return node.kind === 'tool' || node.kind === 'shared' ? 2 : 1;
 }
 
 /**
  * Where everything on the map goes: the columns side by side from the top, each group under its
- * heading. A line leaves the side of a node that faces the other, level with the section it joins
- * or else with the node's head; between two nodes of one column it bows out to the right.
+ * heading, except a node in `moved`, which goes where it was put. A line leaves the side of a node
+ * that faces the other, level with the section it joins or else with the node's head; between two
+ * nodes one above the other it bows out to the right.
  */
-export function mapLayout(map: WorkspaceMap, sizes: MapSizes): MapLayout {
+export function mapLayout(
+  map: WorkspaceMap,
+  sizes: MapSizes,
+  moved: Readonly<Record<string, MapPlace>> = {},
+): MapLayout {
   const { node, card, columnGap, rowGap, heading, groupGap, padding } = sizes;
   const nodes: MapLayout['nodes'] = {};
   const headings: MapLayout['headings'] = [];
   /** Where a line meets each node or section: the node's left edge and the height it joins at. */
   const ports = new Map<string, MapPlace>();
-  let bottom = padding;
+  let right = 0;
+  let bottom = 0;
   map.columns.forEach((column, index) => {
     const x = padding + index * (node.width + columnGap);
     let y = padding;
@@ -297,37 +339,48 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes): MapLayout {
       y += heading;
       for (const each of group.nodes) {
         const rows = each.rows ?? [];
-        const head = rows.length > 0 ? card.head : node.height;
-        const height = rows.length > 0 ? card.head + rows.length * card.row + card.foot : node.height;
-        nodes[each.id] = { x, y, height };
-        ports.set(each.id, { x, y: y + head / 2 });
-        rows.forEach((row, line) => ports.set(row.id, { x, y: y + card.head + line * card.row + card.row / 2 }));
+        const head = rows.length > 0 || mapNoteLines(each) === 1 ? card.head : node.height;
+        const height = rows.length > 0 ? card.head + rows.length * card.row + card.foot : head;
+        const put = Object.hasOwn(moved, each.id) ? moved[each.id] : undefined;
+        const place = put ? { x: Math.max(put.x, 0), y: Math.max(put.y, 0) } : { x, y };
+        nodes[each.id] = { ...place, height };
+        ports.set(each.id, { x: place.x, y: place.y + head / 2 });
+        rows.forEach((row, line) =>
+          ports.set(row.id, { x: place.x, y: place.y + card.head + line * card.row + card.row / 2 }),
+        );
+        right = Math.max(right, place.x + node.width);
+        bottom = Math.max(bottom, place.y + height);
+        // A moved node leaves its place in the column open, so the rest hold still.
         y += height + rowGap;
       }
       y -= rowGap;
     });
-    bottom = Math.max(bottom, y);
   });
 
-  const lines = mapLinkEnds(map).flatMap(({ link, from, to }) => {
+  const lines = mapLinkEnds(map).flatMap(({ link, from, to }): MapLine[] => {
     const a = ports.get(link.from);
     const b = ports.get(link.to);
     if (!a || !b) return [];
-    if (a.x === b.x) {
-      const x = a.x + node.width;
-      const bow = x + columnGap / 2;
-      return [{ link, from, to, d: `M ${x} ${a.y} C ${bow} ${a.y}, ${bow} ${b.y}, ${x} ${b.y}` }];
+    // One above the other: out of each one's right side, round the further of the two.
+    if (Math.abs(a.x - b.x) < node.width) {
+      const ax = a.x + node.width;
+      const bx = b.x + node.width;
+      const bow = Math.max(ax, bx) + columnGap / 2;
+      const d = `M ${ax} ${a.y} C ${bow} ${a.y}, ${bow} ${b.y}, ${bx} ${b.y}`;
+      return [{ link, from, to, d, tip: { x: bx, y: b.y, heading: -1 } }];
     }
-    const ax = a.x < b.x ? a.x + node.width : a.x;
-    const bx = a.x < b.x ? b.x : b.x + node.width;
+    const ahead = a.x < b.x;
+    const ax = ahead ? a.x + node.width : a.x;
+    const bx = ahead ? b.x : b.x + node.width;
     const mid = (ax + bx) / 2;
-    return [{ link, from, to, d: `M ${ax} ${a.y} C ${mid} ${a.y}, ${mid} ${b.y}, ${bx} ${b.y}` }];
+    const d = `M ${ax} ${a.y} C ${mid} ${a.y}, ${mid} ${b.y}, ${bx} ${b.y}`;
+    return [{ link, from, to, d, tip: { x: bx, y: b.y, heading: ahead ? 1 : -1 } }];
   });
 
   const columns = Math.max(map.columns.length, 1);
   return {
-    width: padding * 2 + columns * node.width + (columns - 1) * columnGap,
-    height: bottom + padding,
+    width: Math.max(padding + columns * node.width + (columns - 1) * columnGap, right) + padding,
+    height: Math.max(bottom, padding) + padding,
     nodes,
     headings,
     lines,

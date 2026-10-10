@@ -3,10 +3,23 @@
  * field is at least the panel and only larger when the columns need the room. The lines are one
  * drawing under the nodes; the nodes are buttons placed over it, and a profile is a card of them:
  * its head, then a row for each section. Every colour, radius and timing
- * is an Astryx theme token. The shell's own motion brings the map in.
+ * is an Astryx theme token. The panel's own motion brings the map in.
  */
+.studio-map-frame {
+	position: relative;
+	height: 100%;
+	min-height: 0;
+}
+
 .studio-map-scroll {
 	container-type: size;
+}
+
+/* Over the field's corner, and only while a node is out of its place. */
+.studio-map-tidy {
+	position: absolute;
+	inset-block-start: var(--spacing-3);
+	inset-inline-end: var(--spacing-3);
 }
 
 .studio-map {
@@ -16,6 +29,12 @@
 	background-color: var(--color-background-surface);
 	background-image: radial-gradient(circle, var(--color-border) 1px, transparent 1px);
 	background-size: var(--spacing-6) var(--spacing-6);
+	cursor: grab;
+	user-select: none;
+}
+
+.studio-map[data-panning] {
+	cursor: grabbing;
 }
 
 @supports (width: 1cqw) {
@@ -31,22 +50,28 @@
 	pointer-events: none;
 }
 
-.studio-map-lines path {
+.studio-map-line {
 	fill: none;
 	stroke: var(--color-border-emphasized);
 	stroke-width: 1.5;
-	transition:
-		stroke var(--duration-fast) var(--ease-standard),
-		opacity var(--duration-fast) var(--ease-standard);
 }
 
-/* A tool asking an agent and an agent summarised by another run against the columns: dashed. */
-.studio-map-lines path:is([data-kind='asks'], [data-kind='summarised']) {
+.studio-map-tip {
+	fill: var(--color-border-emphasized);
+}
+
+.studio-map-lines g {
+	transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+/* A tool asking a profile and a profile summarised by another run against the columns: dashed. */
+.studio-map-lines g:is([data-kind='asks'], [data-kind='summarised']) .studio-map-line {
 	stroke-dasharray: 4 4;
 }
 
 .studio-map-heading {
 	position: absolute;
+	pointer-events: none;
 }
 
 .studio-map-node,
@@ -160,24 +185,50 @@
 	background: var(--color-background-surface);
 }
 
-/* While one node is lit, it and what it is joined to stay; the rest step back. */
-.studio-map[data-lit] :is(.studio-map-node, .studio-map-card):not([data-on]) {
+/* The node being dragged rides over the rest, under the pointer and without easing. */
+:is(.studio-map-node, .studio-map-card)[data-dragging] {
+	z-index: 1;
+	box-shadow: var(--shadow-low);
+	transition: none;
+}
+
+:is(.studio-map-node, .studio-map-card)[data-dragging],
+.studio-map-card[data-dragging] :is(.studio-map-head, .studio-map-row) {
+	cursor: grabbing;
+}
+
+/* While one node is lit, it and what it is joined to stay; the rest step back. What a node holds
+   fades, not the node, so no line shows through it. */
+.studio-map-node > *,
+.studio-map-card > * {
+	transition:
+		opacity var(--duration-fast) var(--ease-standard),
+		background-color var(--duration-fast) var(--ease-standard);
+}
+
+.studio-map[data-lit] :is(.studio-map-node, .studio-map-card):not([data-on]) > * {
 	opacity: 0.45;
 }
 
-.studio-map[data-lit] .studio-map-lines path:not([data-on]) {
+.studio-map[data-lit] .studio-map-lines g:not([data-on]) {
 	opacity: 0.25;
 }
 
-.studio-map-lines path[data-on] {
+.studio-map-lines g[data-on] .studio-map-line {
 	stroke: var(--color-accent);
+}
+
+.studio-map-lines g[data-on] .studio-map-tip {
+	fill: var(--color-accent);
 }
 
 @media (prefers-reduced-motion: reduce) {
 	.studio-map-node,
 	.studio-map-card,
+	.studio-map-node > *,
+	.studio-map-card > *,
 	.studio-map-row,
-	.studio-map-lines path {
+	.studio-map-lines g {
 		transition: none;
 	}
 }

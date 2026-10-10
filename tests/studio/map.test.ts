@@ -115,7 +115,8 @@ Deno.test('the map holds every profile, tool, model and provider, joined as the 
   );
   assertEquals(
     providers?.map((node) => [node.label, node.opens]),
-    [[binding?.provider, undefined]],
+    // A provider opens the first model it serves.
+    [[binding?.provider, models?.[0]?.opens]],
   );
   assertEquals(
     map.links.filter((link) => link.kind === 'serves'),
@@ -228,6 +229,13 @@ Deno.test('the map is laid out in columns, with a line from the side of each nod
   assertEquals(line(tools, toolSpecNodeId('find')), 'M 820 120 C 870 120, 870 80, 920 80');
   // Right to left: out of the tool's left side, into the card's right, level with its head.
   assertEquals(line(toolSpecNodeId('ask_shop'), shop), 'M 920 150 C 870 150, 870 230, 820 230');
+  // The arrowhead sits where the line arrives, heading the way the line does.
+  const tip = (from: string | undefined, to: string | undefined) =>
+    layout.lines.find(({ link }) => link.from === from && link.to === to)?.tip;
+  assertEquals(tip(tools, toolSpecNodeId('find')), { x: 920, y: 80, heading: 1 });
+  assertEquals(tip(toolSpecNodeId('ask_shop'), shop), { x: 820, y: 230, heading: -1 });
+  // A model's note is one line, so it is as tall as a card's head; a tool's runs to two.
+  assertEquals(layout.nodes[map.columns[1]?.[0]?.nodes[0]?.id ?? '']?.height, 40);
   // Each line names the nodes it joins, whichever section it lands on.
   assertEquals(layout.lines.find(({ link }) => link.from === tools)?.from, desk);
   assertEquals(layout.lines.length, map.links.length);
@@ -252,4 +260,38 @@ Deno.test('a line between two profiles bows out to the right of their column', (
     layout.lines.find(({ link }) => link.kind === 'summarised')?.d,
     'M 820 100 C 870 100, 870 230, 820 230',
   );
+});
+
+Deno.test('a node that was moved goes where it was put, and its lines and the map follow it', () => {
+  const workspace = opened();
+  const [desk] = workspace.agents.map((agent) => agentNodeId(agent.key));
+  const map = workspaceMap(workspace);
+  const find = toolSpecNodeId('find');
+  const tools = agentNodeId(workspace.agents[0]?.key ?? '', 'tools');
+  const still = mapLayout(map, SIZES);
+
+  // Put to the left of its profile: the line leaves the card's left side and arrives heading left.
+  const left = mapLayout(map, SIZES, { [find]: { x: 320, y: 300 } });
+  assertEquals(left.nodes[find], { x: 320, y: 300, height: 60 });
+  const line = left.lines.find(({ link }) => link.from === tools && link.to === find);
+  assertEquals(line?.d, 'M 620 120 C 570 120, 570 330, 520 330');
+  assertEquals(line?.tip, { x: 520, y: 330, heading: -1 });
+  // Everything else holds still.
+  assertEquals(left.nodes[desk ?? ''], still.nodes[desk ?? '']);
+  assertEquals(left.nodes[toolSpecNodeId('ask_shop')], still.nodes[toolSpecNodeId('ask_shop')]);
+
+  // Put under its profile: the line bows round to the right. Put far out: the map grows to hold it.
+  const under = mapLayout(map, SIZES, { [find]: { x: 640, y: 500 } });
+  assertEquals(
+    under.lines.find(({ link }) => link.to === find)?.d,
+    'M 820 120 C 890 120, 890 530, 840 530',
+  );
+  const far = mapLayout(map, SIZES, { [find]: { x: 2000, y: 900 }, gone: { x: 5000, y: 5000 } });
+  assertEquals([far.width, far.height], [2000 + 200 + 20, 900 + 60 + 20]);
+  // Never off the top or the left.
+  assertEquals(mapLayout(map, SIZES, { [find]: { x: -40, y: -40 } }).nodes[find], {
+    x: 0,
+    y: 0,
+    height: 60,
+  });
 });

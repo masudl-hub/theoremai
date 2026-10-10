@@ -3,10 +3,13 @@ import { Button } from '@astryxdesign/core/Button';
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Dialog, DialogHeader } from '@astryxdesign/core/Dialog';
 import { HStack } from '@astryxdesign/core/HStack';
+import { Popover } from '@astryxdesign/core/Popover';
 import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
 import { Section } from '@astryxdesign/core/Section';
+import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { useToast } from '@astryxdesign/core/Toast';
+import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
 import { useMemo, useState } from 'react';
 import { atStart, type StudioWorkspace, startedHere } from '../mod.ts';
@@ -18,6 +21,9 @@ import type {
 	SaveReview,
 } from '../server/save-wire.ts';
 import { type ProjectSession, reviewSave, undoSave, writeSave } from './lib/studio-project.ts';
+
+/** Wide enough for a reason's sentence to read in a few lines. */
+const POPOVER_WIDTH = 320;
 
 export type Update = (change: (current: StudioWorkspace) => StudioWorkspace) => void;
 
@@ -164,50 +170,44 @@ function RefusalBody({ refusal }: { refusal: SaveRefusal }) {
 }
 
 /**
- * The profiles a project registers that the studio cannot run, each with why. Nothing while
- * there are none.
+ * The profiles a project registers that the studio cannot run: a count that opens each one's
+ * reason. Nothing while there are none.
  */
-export function ProjectProblems({ project }: { project: ProjectSession }) {
+function ProjectProblems({ project }: { project: ProjectSession }) {
 	const { problems } = project;
-	const [first] = problems;
-	if (!first) return null;
-	if (problems.length === 1) {
-		return (
-			<Section variant="transparent" padding={3}>
-				<Banner
-					status="warning"
-					title={`The studio cannot run ${first.profile}.`}
-					description={first.message}
-				/>
-			</Section>
-		);
-	}
+	if (!problems.length) return null;
 	return (
-		<Section variant="transparent" padding={3}>
-			<Banner
-				status="warning"
-				title={`The studio cannot run ${String(problems.length)} of ${project.name}'s profiles.`}
-			>
+		<Popover
+			label="Profiles the studio cannot run"
+			width={POPOVER_WIDTH}
+			padding={3}
+			content={
 				<VStack gap={3}>
 					{problems.map((problem) => (
 						<VStack key={problem.profile} gap={1}>
-							<Text weight="semibold">{problem.profile}</Text>
+							<Text weight="semibold">{`The studio cannot run ${problem.profile}.`}</Text>
 							<Text type="supporting" color="secondary">
 								{problem.message}
 							</Text>
 						</VStack>
 					))}
 				</VStack>
-			</Banner>
-		</Section>
+			}
+		>
+			<Token
+				label={problems.length === 1 ? '1 alert' : `${String(problems.length)} alerts`}
+				color="orange"
+			/>
+		</Popover>
 	);
 }
 
 /**
- * Save for a project open in the studio: a line that says there are edits the files do not hold,
- * and a review of the lines that change before anything is written.
+ * A project's line over the editor: Save while the studio holds edits the files do not, with a
+ * review of the lines that change before anything is written, and what the studio cannot run.
+ * Nothing while there is neither.
  */
-export function ProjectSave({
+export function ProjectLine({
 	project,
 	workspace,
 	update,
@@ -293,24 +293,24 @@ export function ProjectSave({
 			});
 	};
 
-	if (clean && step.at === 'closed') return null;
+	const saved = clean && step.at === 'closed';
+	if (saved && !project.problems.length) return null;
 	const writing = step.at === 'review' && step.writing;
 	return (
-		<Section variant="transparent" padding={3}>
-			<Banner
-				status="info"
-				title={`Your edits are not in ${project.name}'s files yet.`}
-				description="A chat answers twice: from your files, and with your edits. Every other run uses the files."
-				endContent={
-					<Button
-						label={blocked ?? 'Review and save'}
-						size="sm"
-						isDisabled={Boolean(blocked)}
-						isLoading={step.at === 'reading'}
-						onClick={open}
-					/>
-				}
-			/>
+		<Section variant="transparent" paddingInline={3} paddingBlock={2} dividers={['bottom']}>
+			<HStack gap={2} vAlign="center">
+				<StackItem size="fill">
+					{!saved && (
+						<Token
+							label={blocked ?? 'Review and save'}
+							color="blue"
+							description={`Your edits are not in ${project.name}'s files yet`}
+							onClick={blocked || step.at === 'reading' ? undefined : open}
+						/>
+					)}
+				</StackItem>
+				<ProjectProblems project={project} />
+			</HStack>
 			<Dialog
 				isOpen={step.at === 'review' || step.at === 'refused'}
 				purpose={writing ? 'required' : 'form'}

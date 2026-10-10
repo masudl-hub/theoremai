@@ -166,7 +166,7 @@ import {
 	useStudioConnection,
 } from './studio-connection.tsx';
 import { StudioRunner } from './studio-runner.tsx';
-import { ProjectProblems, ProjectSave } from './studio-save.tsx';
+import { ProjectLine } from './studio-save.tsx';
 import {
 	type CSSProperties,
 	type Dispatch,
@@ -2660,7 +2660,7 @@ function EditorColumn({
 				setSheet={setSheet}
 			/>
 			{project && (
-				<ProjectSave
+				<ProjectLine
 					project={project}
 					workspace={state.workspace}
 					update={state.update}
@@ -2668,7 +2668,6 @@ function EditorColumn({
 					blocked={compile.blocked || undefined}
 				/>
 			)}
-			{project && <ProjectProblems project={project} />}
 			{shared && <SharedLine entry={shared} onOpen={sharedList} />}
 			{said && (
 				<OriginBanner

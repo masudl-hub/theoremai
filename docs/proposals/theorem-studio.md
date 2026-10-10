@@ -419,6 +419,15 @@ are not in the files, and a button, Review and save.
   that do not hold the change.
 - A constant that other code reads too is not written. The review names it
   and its `file:line`.
+- Save follows what a value is built from (10 Oct): a function of the project
+  that only returns a value, an object spread from a constant, a key named by
+  a constant, a list that is a copy of one list, and a provider's `.model()`
+  call. What a function returns is one value for every caller, so it is
+  written like a shared constant. An argument is written at the call, and is
+  that profile's alone.
+- A function that makes the `defineProfile` call defines one profile for each
+  call of it, when each call names the id (10 Oct). The call's options are
+  shared by those profiles. Each one's arguments are its own.
 - Save writes every change or none. If one change is set by a shared
   constant, by code, or by a tool's schema, Save is off. This keeps the third
   promise of 5.1: the files hold what was tested. Claude asked Masud on 9 Oct

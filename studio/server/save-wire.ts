@@ -51,10 +51,31 @@ export interface SettingOrigin {
   written?: string[];
 }
 
+/**
+ * Where the files write one setting's value. Two settings with the same `site` are one value in
+ * the files: a constant several profiles read, what a function they all call returns, the call a
+ * function makes for each of them.
+ */
+export interface SettingSite {
+  /** The keys that lead to the setting. Empty for the whole profile or tool. */
+  path: string[];
+  /** The place, as a number the project gives it for this read. */
+  site: number;
+  /** Another setting has the same site. False for a value a profile sets apart inside a shared one. */
+  shared: boolean;
+  /** The constant or function that holds the place. */
+  name?: string;
+  /** Where it is: the path and the one-based line. */
+  file: string;
+  line: number;
+}
+
 /** Each profile's and tool's settings that are set in code, by profile id and tool name. */
 export interface ProjectOrigins {
   profiles: Record<string, SettingOrigin[]>;
   tools: Record<string, SettingOrigin[]>;
+  /** Where each shared value is written, by profile id and tool name. Only those that share one are listed. */
+  sites?: { profiles: Record<string, SettingSite[]>; tools: Record<string, SettingSite[]> };
 }
 
 /** What the page asks to see in the builder's editor: a project file, from the project's folder. */

@@ -22,6 +22,7 @@ import type {
   SaveRequest,
   SaveReview,
   SettingOrigin,
+  SettingSite,
   SharedSetting,
 } from './save-wire.ts';
 
@@ -135,9 +136,14 @@ export function pageOrigins(
       .map((name): [string, SettingOrigin[]] => [name, [{ path: [], kind: 'unfound' }]]);
     return Object.fromEntries([...placed, ...unfound]);
   };
+  const placed = (sites: Record<string, SettingSite[]>) =>
+    Object.fromEntries(
+      Object.entries(sites).map(([name, held]) => [name, held.map((site) => ({ ...site, file: inRoot(site.file) }))]),
+    );
   return {
     profiles: read(found.profiles, names.profiles, source.profiles),
     tools: read(found.tools, names.tools, source.tools),
+    ...(found.sites ? { sites: { profiles: placed(found.sites.profiles), tools: placed(found.sites.tools) } } : {}),
   };
 }
 

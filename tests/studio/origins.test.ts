@@ -69,7 +69,7 @@ registerTool({
 
 const SHARED = `export const READ = 'read-only';
 export const MODELS = { slow: { provider: 'openAi', apiId: 'gpt-slow', timeoutMs: seconds(30) } };
-export const BASE_GUARDRAILS = { network: { allowedHosts: ['example.com'] } };
+export const BASE_GUARDRAILS = baseGuardrails();
 export const LIMITS = { perDay: 50 };
 console.log(LIMITS);
 `;
@@ -77,7 +77,7 @@ console.log(LIMITS);
 const FILES = {
   'setup.ts': SETUP,
   'shared.ts': SHARED,
-  'inputs.ts': 'export const deskInputs = () => ({});\n',
+  'inputs.ts': 'export function deskInputs() {\n  const held = {};\n  return held;\n}\n',
 };
 
 Deno.test('each setting the files set in code is read once, at the key that holds it, with its place', () => {

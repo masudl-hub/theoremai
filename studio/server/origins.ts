@@ -8,17 +8,22 @@
 
 import ts from 'typescript';
 import {
+  followed,
+  holderOf,
+  isInCall,
+  isInTarget,
   type Located,
-  namedValue,
+  type ObjectShape,
   type ProjectSource,
   propertyName,
   questionsExport,
+  shapeOf,
   type SourceTarget,
   unwrapped,
   usersOf,
 } from './project-source.ts';
 import { NOT_PLAIN, plain } from './save-plan.ts';
-import type { ProjectOrigins, SettingOrigin } from './save-wire.ts';
+import type { ProjectOrigins, SettingOrigin, SettingSite } from './save-wire.ts';
 
 /** The most of an expression a row shows. */
 const TEXT_LENGTH = 48;
@@ -39,10 +44,24 @@ const TOOL_SCHEMAS: Record<string, string> = { input: 'inputSchema', output: 'ou
 /** Something a file writes, in that file. */
 type Place = { node: ts.Node; source: ts.SourceFile };
 
+/** A setting, and the one place in the files that writes its value. */
+interface Written {
+  path: string[];
+  at: Place;
+  /** The constant or function that holds the place, when one does. */
+  name?: string;
+}
+
 class Reader {
   readonly found: SettingOrigin[] = [];
+  /** Where each value the walk followed a name to is written, the whole target first. */
+  readonly written: Written[] = [];
 
-  constructor(private readonly project: ProjectSource, private readonly kind: 'profile' | 'tool') {}
+  constructor(
+    private readonly project: ProjectSource,
+    private readonly kind: 'profile' | 'tool',
+    private readonly target: SourceTarget,
+  ) {}
 
   private note(kind: SettingOrigin['kind'], path: string[], at: Place, more: Pick<SettingOrigin, 'text' | 'written'> = {}) {
     this.found.push({
@@ -55,71 +74,100 @@ class Reader {
     });
   }
 
-  walk(expression: ts.Expression, source: ts.SourceFile, path: string[]) {
-    const node = unwrapped(expression);
+  /** The whole target. */
+  read() {
+    const { options, source, env } = this.target;
+    this.written.push({ path: [], at: { node: options, source } });
+    this.walk({ node: options, source, env }, []);
+  }
+
+  /** What holds `at`: the target's own options, a constant or a function, or nothing the studio follows. */
+  private regionOf(at: Located): ts.Node | undefined {
+    if (isInTarget(this.target, at)) return this.target.options;
+    return isInCall(this.target, at) ? this.target.call?.node : holderOf(at)?.initializer;
+  }
+
+  private walk(at: Located, path: string[]) {
+    const node = unwrapped(at.node);
     if (plain(node) !== NOT_PLAIN) return;
-    if (ts.isObjectLiteralExpression(node)) {
-      this.object(node, source, path);
+    const here = { ...at, node };
+    const shape = shapeOf(this.project, here);
+    if (shape) {
+      this.object(shape, here, path);
       return;
     }
     const whole = ts.isArrayLiteralExpression(node) &&
       !node.elements.some((element) => ts.isSpreadElement(element) || ts.isOmittedExpression(element));
     if (whole) {
-      node.elements.forEach((element, index) => this.walk(element, source, [...path, String(index)]));
+      node.elements.forEach((element, index) => this.walk({ ...at, node: element }, [...path, String(index)]));
       return;
     }
-    if (ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)) this.named({ node, source }, path);
-    else this.note('code', path, { node, source });
+    this.named(here, path);
   }
 
-  /** A value a name stands for: read where the constant is, unless other code reads the constant too. */
+  /** A value the files reach by a name, a call or a key: read where it is written. */
   private named(at: Located, path: string[]) {
-    const { origin, holder } = namedValue(this.project, at);
-    if (!holder) this.note('code', path, at);
+    const origin = followed(this.project, at);
+    if (origin.node === at.node && origin.source === at.source) this.note('code', path, at);
+    else this.enter(origin, path, at);
+  }
+
+  /**
+   * A value written somewhere other than where the walk is. In the target's own call it is the
+   * target's. In a constant or a function it is read there, unless other code reads that too.
+   */
+  private enter(origin: Located, path: string[], from: Place) {
+    if (isInTarget(this.target, origin) || isInCall(this.target, origin)) {
+      this.written.push({ path, at: origin });
+      this.walk(origin, path);
+      return;
+    }
+    const holder = holderOf(origin);
+    if (!holder) this.note('code', path, from);
     else if (usersOf(this.project, holder).code) {
       this.note('constant', path, { node: holder.initializer.parent, source: holder.source }, { text: holder.name });
+    } else {
+      this.written.push({ path, at: origin, name: holder.name });
+      this.walk(origin, path);
     }
-    else this.walk(origin.node, origin.source, path);
   }
 
-  private object(node: ts.ObjectLiteralExpression, source: ts.SourceFile, path: string[]) {
-    const properties = [...node.properties];
-    /** A spread, or a key the file computes: what the object holds past it is not written here. */
-    const isOpen = (property: ts.ObjectLiteralElementLike) => propertyName(property) === undefined;
-    const lastOpen = properties.findLastIndex(isOpen);
-    const written: string[] = [];
-    const seen = new Set<string>();
-    for (let index = properties.length - 1; index >= 0; index -= 1) {
-      const property = properties[index] as ts.ObjectLiteralElementLike;
-      const name = propertyName(property);
-      // The last one of a name is the one that counts.
-      if (name === undefined || seen.has(name)) continue;
-      seen.add(name);
-      const schema = this.kind === 'tool' && path.length === 0 ? TOOL_SCHEMAS[name] : undefined;
-      const here = [...path, schema ?? name];
-      if (schema) this.note('code', here, { node: property, source });
-      else if (index < lastOpen) this.note('code', here, { node: properties[lastOpen] as ts.Node, source });
-      else if (ts.isShorthandPropertyAssignment(property)) this.named({ node: property.name, source }, here);
-      else if (!ts.isPropertyAssignment(property)) this.note('code', here, { node: property, source });
-      else this.walk(property.initializer, source, here);
-      if (index > lastOpen) written.push(name);
+  private object(shape: ObjectShape, at: Located, path: string[]) {
+    const { open } = shape;
+    const region = this.regionOf(at);
+    // The last one of a name is the one that counts.
+    for (const entry of [...shape.entries.values()].reverse()) {
+      const schema = this.kind === 'tool' && path.length === 0 ? TOOL_SCHEMAS[entry.key] : undefined;
+      const here = [...path, schema ?? entry.key];
+      const place = entry.property ? { node: entry.property, source: entry.source } : at;
+      if (schema) this.note('code', here, place);
+      // A spread, or a key the file computes: what the object holds past it is not written here.
+      else if (open && !open.after.has(entry.key)) this.note('code', here, open);
+      else if (!entry.value) this.note('code', here, place);
+      else if (entry.property && ts.isShorthandPropertyAssignment(entry.property)) this.named(entry.value, here);
+      else if (this.regionOf(entry.value) === region) this.walk(entry.value, here);
+      else this.enter(entry.value, here, place);
     }
-    if (lastOpen >= 0) {
-      this.note('spread', path, { node: properties[lastOpen] as ts.Node, source }, { written: written.reverse() });
-    }
+    if (open) this.note('spread', path, open, { written: [...open.after] });
   }
 }
 
-function originsOf(project: ProjectSource, kind: 'profile' | 'tool', targets: readonly SourceTarget[]): SettingOrigin[] {
+interface Read {
+  origins: SettingOrigin[];
+  written: Written[];
+}
+
+function originsOf(project: ProjectSource, kind: 'profile' | 'tool', targets: readonly SourceTarget[]): Read {
   const [target] = targets;
-  if (!target) return [];
+  if (!target) return { origins: [], written: [] };
   if (targets.length > 1) {
     // Written twice: the studio cannot tell which one runs.
-    return [{ path: [], kind: 'twice', file: target.file, line: lineOf(target.options, target.source) }];
+    const twice: SettingOrigin = { path: [], kind: 'twice', file: target.file, line: lineOf(target.options, target.source) };
+    return { origins: [twice], written: [] };
   }
-  const reader = new Reader(project, kind);
-  reader.walk(target.options, target.source, []);
-  return reader.found;
+  const reader = new Reader(project, kind, target);
+  reader.read();
+  return { origins: reader.found, written: reader.written };
 }
 
 /**
@@ -145,15 +193,43 @@ function questionsOrigin(project: ProjectSource, profileId: string): SettingOrig
  * shows: each one's questions are set in the setup module.
  */
 export function sourceOrigins(project: ProjectSource, decisions: readonly string[] = []): ProjectOrigins {
+  const places = new Map<ts.Node, { site: number; held: number }>();
   const read = (kind: 'profile' | 'tool', targets: Map<string, SourceTarget[]>) => {
     const origins: Record<string, SettingOrigin[]> = {};
+    const written: Record<string, Written[]> = {};
     for (const [name, held] of targets) {
       const found = originsOf(project, kind, held);
-      if (found.length) origins[name] = found;
+      if (found.origins.length) origins[name] = found.origins;
+      written[name] = found.written;
+      for (const { at } of found.written) {
+        const place = places.get(at.node) ?? { site: places.size + 1, held: 0 };
+        places.set(at.node, { ...place, held: place.held + 1 });
+      }
     }
-    return origins;
+    return { origins, written };
   };
-  const profiles = read('profile', project.profiles);
-  for (const id of decisions) profiles[id] = [...(profiles[id] ?? []), questionsOrigin(project, id)];
-  return { profiles, tools: read('tool', project.tools) };
+  const [profiles, tools] = [read('profile', project.profiles), read('tool', project.tools)];
+  for (const id of decisions) profiles.origins[id] = [...(profiles.origins[id] ?? []), questionsOrigin(project, id)];
+  /** The places more than one setting reads, and under each of them the ones a setting has to itself. */
+  const sites = (written: Record<string, Written[]>) => {
+    const sites: Record<string, SettingSite[]> = {};
+    for (const [name, held] of Object.entries(written)) {
+      const shared = held.filter(({ at }) => (places.get(at.node)?.held ?? 0) > 1);
+      const under = (path: string[]) => shared.some((each) => each.path.every((key, index) => path[index] === key));
+      const kept = held.filter((each) => shared.includes(each) || under(each.path));
+      if (!shared.length) continue;
+      sites[name] = kept.map(({ path, at, name: holder }): SettingSite => ({
+        path,
+        site: places.get(at.node)?.site ?? 0,
+        shared: shared.some((each) => each.at.node === at.node),
+        ...(holder ? { name: holder } : {}),
+        file: at.source.fileName,
+        line: lineOf(at.node, at.source),
+      }));
+    }
+    return sites;
+  };
+  const held = { profiles: sites(profiles.written), tools: sites(tools.written) };
+  const some = Object.keys(held.profiles).length + Object.keys(held.tools).length > 0;
+  return { profiles: profiles.origins, tools: tools.origins, ...(some ? { sites: held } : {}) };
 }

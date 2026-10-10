@@ -14,10 +14,15 @@ import { type SourceStyle, valueSource } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
 import { canonical } from './canonical.ts';
 import {
+  followed,
+  holderOf,
+  isInCall,
+  isInTarget,
   type Located,
-  namedValue,
+  type ObjectShape,
   type ProjectSource,
   propertyName,
+  shapeOf,
   type SourceTarget,
   unwrapped,
   usersOf,
@@ -128,26 +133,26 @@ function quoteLike(existing: ts.Expression | undefined, source: ts.SourceFile) {
 
 const subjectId = (kind: SaveSubject['kind'], of: string) => `${kind}:${of}`;
 
-/** One profile's or tool's change inside a constant that others read too. */
+/** One profile's or tool's changes inside a value that others read too: a constant, what a function returns. */
 interface SharedChange {
-  /** The constant, by the value it is set to. */
-  holder: ts.Expression;
-  /** Who makes the change, and everyone the constant reaches. */
+  /** The shared value, by where it is written. */
+  holder: ts.Node;
+  /** Who makes the changes, and everyone the value reaches. */
   by: string;
   everyone: string[];
-  /** What the change writes and notes when it is made. */
+  /** What the changes write and note when they are made. */
   edits: SourceEdit[];
   changes: SaveChange[];
-  /** What the plan says instead when someone the constant reaches does not make it. */
-  refused: SaveChange;
+  /** What the plan says instead when someone the value reaches does not make them. */
+  refused: SaveChange[];
 }
 
 const editsText = (edits: readonly SourceEdit[]) =>
   canonical([...edits].sort((a, b) => a.start - b.start || a.end - b.end));
 
 /**
- * Decides each shared constant: its change is written, once, when everyone it reaches makes the
- * same one. Otherwise each change to it is refused, so no profile runs on a value it did not test.
+ * Decides each shared value: its changes are written, once, when everyone it reaches makes the
+ * same ones. Otherwise each change to it is refused, so no profile runs on a value it did not test.
  */
 function settle(shared: readonly SharedChange[], plan: SavePlan) {
   for (const group of Map.groupBy(shared, (each) => each.holder).values()) {
@@ -156,7 +161,7 @@ function settle(shared: readonly SharedChange[], plan: SavePlan) {
     const made = new Set(group.map((each) => each.by));
     const agreed = first.everyone.every((user) => made.has(user)) &&
       group.every((each) => editsText(each.edits) === editsText(first.edits));
-    for (const each of group) plan.changes.push(...(agreed ? each.changes : [each.refused]));
+    for (const each of group) plan.changes.push(...(agreed ? each.changes : each.refused));
     if (!agreed) continue;
     for (const edit of first.edits) {
       if (!plan.edits.some((other) => canonical(other) === canonical(edit))) plan.edits.push(edit);
@@ -164,24 +169,64 @@ function settle(shared: readonly SharedChange[], plan: SavePlan) {
   }
 }
 
+/** Something a file writes, in that file. */
+type Place = { source: ts.SourceFile; node: ts.Node };
+
 /** One change as the planner notes it: its status, the setting's path, where it is set, and by what. */
 type ChangeNote = [
   status: SaveStatus,
   path: string[],
-  at?: { source: ts.SourceFile; node: ts.Node },
+  at?: Place,
   name?: string,
   shared?: Pick<SaveChange, 'sharedWith' | 'readByCode'>,
 ];
 
-class Planner {
-  readonly changes: SaveChange[] = [];
-  readonly edits: SourceEdit[] = [];
-  readonly shared: SharedChange[] = [];
+/** What the planner writes in one place: the subject's own call, or a value others read too. */
+interface Frame {
+  /** The shared value, by where it is written. Unset when the place is the subject's alone. */
+  holder?: ts.Node;
+  /** Everyone the value reaches, and the others among them by id or name. */
+  everyone: string[];
+  sharedWith: string[];
+  edits: SourceEdit[];
+  changes: SaveChange[];
+  refused: SaveChange[];
+}
 
-  constructor(private readonly project: ProjectSource, private readonly subject: SaveSubject) {}
+class Planner {
+  readonly shared: SharedChange[] = [];
+  /** The subject's own call. Other profiles share it when a function makes the call for each. */
+  private readonly root: Frame;
+  /** What the subject alone writes: its own call, the arguments a function is called with for it. */
+  private readonly own: Frame = { everyone: [], sharedWith: [], edits: [], changes: [], refused: [] };
+  /** Each shared value the plan writes in, by where it is written. */
+  private readonly frames = new Map<ts.Node, Frame>();
+  private frame: Frame;
+
+  constructor(
+    private readonly project: ProjectSource,
+    private readonly subject: SaveSubject,
+    private readonly target: SourceTarget,
+    peers: readonly string[],
+  ) {
+    const everyone = [subject.of, ...peers].map((name) => subjectId(subject.kind, name));
+    this.root = peers.length
+      ? { holder: target.options, everyone, sharedWith: [...peers], edits: [], changes: [], refused: [] }
+      : this.own;
+    this.frame = this.root;
+  }
+
+  /** What the subject alone writes. */
+  get changes(): SaveChange[] {
+    return this.own.changes;
+  }
+
+  get edits(): SourceEdit[] {
+    return this.own.edits;
+  }
 
   private note(...change: ChangeNote) {
-    this.changes.push(this.change(...change));
+    this.frame.changes.push(this.change(...change));
   }
 
   private change(...[status, path, at, name, shared = {}]: ChangeNote): SaveChange {
@@ -201,48 +246,70 @@ class Planner {
     };
   }
 
+  /** What holds `at`: the subject's own call, a constant or a function, or nothing the studio follows. */
+  private regionOf(at: Located): ts.Node | undefined {
+    if (isInTarget(this.target, at)) return this.target.options;
+    return isInCall(this.target, at) ? this.target.call?.node : holderOf(at)?.initializer;
+  }
+
   /**
-   * A value a name stands for. When this profile or tool is all the constant sets, the change is
-   * made where the constant is. When others read it too, the change is kept apart until the plan
-   * knows whether each of them makes it (`settle`). A constant that other code reads is not written.
+   * Where a change to `origin` is written. In the subject's own call, or in a constant it alone
+   * reads, the change is the subject's. In a value others read too it is kept apart until the plan
+   * knows whether each of them makes it (`settle`). A value other code reads is not written.
    */
-  private named(at: Located, name: string, before: unknown, after: unknown, path: string[]) {
-    const { origin, holder } = namedValue(this.project, at);
+  private frameAt(origin: Located, name: string, path: string[]): Frame | undefined {
+    if (isInTarget(this.target, origin)) return this.root;
+    if (isInCall(this.target, origin)) return this.own;
+    const holder = holderOf(origin);
     if (!holder) {
       this.note('constant', path, origin, name);
-      return;
+      return undefined;
     }
     const users = usersOf(this.project, holder);
     const everyone = [...users.profiles].map((id) => subjectId('profile', id))
       .concat([...users.tools].map((tool) => subjectId('tool', tool)));
     const { kind, of } = this.subject;
-    users[kind === 'profile' ? 'profiles' : 'tools'].delete(of);
-    const sharedWith = [...users.profiles, ...users.tools];
+    const sharedWith = [...users.profiles].filter((id) => kind !== 'profile' || id !== of)
+      .concat([...users.tools].filter((tool) => kind !== 'tool' || tool !== of));
     const refused = this.change('constant', path, origin, holder.name, {
       ...(sharedWith.length ? { sharedWith } : {}),
       ...(users.code ? { readByCode: true } : {}),
     });
     if (users.code) {
-      this.changes.push(refused);
-      return;
+      this.frame.changes.push(refused);
+      return undefined;
     }
-    const from = { edits: this.edits.length, changes: this.changes.length };
-    this.walk(origin.node, origin.source, before, after, path);
-    if (!sharedWith.length) return;
-    this.shared.push({
-      holder: holder.initializer,
-      by: subjectId(kind, of),
-      everyone,
-      edits: this.edits.splice(from.edits),
-      changes: this.changes.splice(from.changes),
-      refused,
-    });
+    if (!sharedWith.length) return this.own;
+    const frame = this.frames.get(holder.initializer) ??
+      { holder: holder.initializer, everyone, sharedWith, edits: [], changes: [], refused: [] };
+    this.frames.set(holder.initializer, frame);
+    frame.refused.push(refused);
+    return frame;
+  }
+
+  /** A value written somewhere other than where the walk is: changed there. */
+  private enter(origin: Located, name: string, before: unknown, after: unknown, path: string[]) {
+    const frame = this.frameAt(origin, name, path);
+    if (!frame) return;
+    const outer = this.frame;
+    this.frame = frame;
+    this.walk(origin, before, after, path);
+    this.frame = outer;
+  }
+
+  /** A value a name, a key or a call stands for. One the studio cannot follow is not written. */
+  private named(at: Located, name: string, before: unknown, after: unknown, path: string[]) {
+    const origin = followed(this.project, at);
+    const stayed = origin.node === unwrapped(at.node) && origin.source === at.source;
+    const named = ts.isIdentifier(origin.node) || ts.isPropertyAccessExpression(origin.node);
+    if (stayed) this.note(named ? 'constant' : 'code', path, origin, named ? name : undefined);
+    else this.enter(origin, name, before, after, path);
   }
 
   private edit(source: ts.SourceFile, start: number, end: number, text: string) {
     const edit = { file: source.fileName, start, end, text };
-    const held = this.edits.some((other) => canonical(other) === canonical(edit));
-    if (!held) this.edits.push(edit);
+    const held = this.frame.edits.some((other) => canonical(other) === canonical(edit));
+    if (!held) this.frame.edits.push(edit);
   }
 
   private style(source: ts.SourceFile, position: number, existing?: ts.Expression): SourceStyle {
@@ -254,16 +321,35 @@ class Planner {
     };
   }
 
-  /** The whole of one target. */
-  target(target: SourceTarget) {
-    this.walk(target.options, target.source, this.subject.before, this.subject.after, []);
+  /** The whole of the subject's call, and then what each shared value it wrote in holds. */
+  plan() {
+    const { options, source, env } = this.target;
+    this.walk({ node: options, source, env }, this.subject.before, this.subject.after, []);
+    const by = subjectId(this.subject.kind, this.subject.of);
+    const { root } = this;
+    if (root.holder && (root.changes.length || root.edits.length)) {
+      // A function makes this call for others too: what Save would write here, it writes for each.
+      const name = holderOf({ node: options, source })?.name;
+      const refused = root.changes.map((change): SaveChange =>
+        change.status === 'written'
+          ? { ...change, status: 'constant', ...(name ? { name } : {}), sharedWith: root.sharedWith }
+          : change
+      );
+      this.shared.push({ ...root, holder: root.holder, by, refused });
+    }
+    for (const frame of this.frames.values()) {
+      if (frame.holder && (frame.changes.length || frame.edits.length)) this.shared.push({ ...frame, holder: frame.holder, by });
+    }
   }
 
-  private walk(expression: ts.Expression, source: ts.SourceFile, before: unknown, after: unknown, path: string[]) {
+  private walk(at: Located, before: unknown, after: unknown, path: string[]) {
     if (same(before, after)) return;
-    const node = unwrapped(expression);
-    if (ts.isObjectLiteralExpression(node) && isRecord(before) && isRecord(after)) {
-      this.object(node, source, before, after, path);
+    const node = unwrapped(at.node);
+    const here: Located = { ...at, node };
+    const { source } = at;
+    const shape = isRecord(before) && isRecord(after) ? shapeOf(this.project, here) : undefined;
+    if (shape && isRecord(before) && isRecord(after)) {
+      this.object(shape, here, before, after, path);
       return;
     }
     if (
@@ -272,7 +358,7 @@ class Planner {
       !node.elements.some((element) => ts.isSpreadElement(element) || ts.isOmittedExpression(element))
     ) {
       node.elements.forEach((element, index) => {
-        this.walk(element, source, before[index], after[index], [...path, String(index)]);
+        this.walk({ ...at, node: element }, before[index], after[index], [...path, String(index)]);
       });
       return;
     }
@@ -287,16 +373,16 @@ class Planner {
       this.note('written', path, { source, node });
       return;
     }
-    if (ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)) {
-      this.named({ node, source }, node.getText(source), before, after, path);
-      return;
-    }
-    this.note('code', path, { source, node });
+    this.named(here, node.getText(source), before, after, path);
   }
 
-  private object(node: ts.ObjectLiteralExpression, source: ts.SourceFile, before: Json, after: Json, path: string[]) {
-    const properties = [...node.properties];
-    const spread = properties.some(ts.isSpreadAssignment);
+  private object(shape: ObjectShape, at: Located, before: Json, after: Json, path: string[]) {
+    const { open, own } = shape;
+    const region = this.regionOf(at);
+    const place = (key: string): Place => {
+      const entry = shape.entries.get(key);
+      return entry?.property ? { source: entry.source, node: entry.property } : at;
+    };
     const inserts: Array<[string, unknown]> = [];
     const removed: ts.ObjectLiteralElementLike[] = [];
     for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
@@ -304,40 +390,41 @@ class Planner {
       const here = [...path, key];
       // A tool's schemas are its Zod objects in code: the studio shows them and does not write them.
       if (this.subject.kind === 'tool' && path.length === 0 && (key === 'inputSchema' || key === 'outputSchema')) {
-        const written = properties.find((property) => propertyName(property) === key.replace('Schema', ''));
-        this.note('code', here, { source, node: written ?? node });
+        this.note('code', here, shape.entries.has(key.replace('Schema', '')) ? place(key.replace('Schema', '')) : at);
         continue;
       }
-      const index = properties.findLastIndex((property) => propertyName(property) === key);
-      const held = properties[index];
-      if (!held) {
-        if (spread) this.note('code', here, { source, node });
-        else if (after[key] === undefined) this.note('unfound', here, { source, node });
+      const entry = shape.entries.get(key);
+      if (!entry) {
+        // Past a spread the studio could not follow, the object may hold the key already.
+        if (open || !own) this.note('code', here, at);
+        else if (after[key] === undefined) this.note('unfound', here, at);
         else inserts.push([key, after[key]]);
         continue;
       }
-      if (properties.slice(index + 1).some(ts.isSpreadAssignment)) {
-        this.note('code', here, { source, node: held });
-      } else if (ts.isShorthandPropertyAssignment(held)) {
-        this.named({ node: held.name, source }, key, before[key], after[key], here);
-      } else if (!ts.isPropertyAssignment(held)) {
-        this.note('code', here, { source, node: held });
-      } else if (after[key] === undefined) {
-        removed.push(held);
-        this.note('written', here, { source, node: held });
-      } else {
-        this.walk(held.initializer, source, before[key], after[key], here);
-      }
+      const { property, value } = entry;
+      if (open && !open.after.has(key)) this.note('code', here, place(key));
+      else if (!value) this.note('code', here, place(key));
+      else if (property && ts.isShorthandPropertyAssignment(property)) this.named(value, key, before[key], after[key], here);
+      else if (after[key] === undefined) {
+        // A key another object spreads in is not this one's to take out.
+        if (!property || !own || property.parent !== own.node) this.note('code', here, place(key));
+        else {
+          removed.push(property);
+          this.note('written', here, place(key));
+        }
+      } else if (this.regionOf(value) === region) this.walk(value, before[key], after[key], here);
+      else this.enter(value, key, before[key], after[key], here);
     }
-    if (inserts.length && removed.length === properties.length) {
+    if (!own) return;
+    if (inserts.length && removed.length === own.node.properties.length) {
       // Every property goes and others come: the object is written whole, as an empty one is.
-      for (const [key] of inserts) this.note('written', [...path, key], { source, node });
-      const start = node.getStart(source);
-      this.edit(source, start, node.end, valueSource(Object.fromEntries(inserts), this.style(source, start)));
+      for (const [key] of inserts) this.note('written', [...path, key], own);
+      const start = own.node.getStart(own.source);
+      this.edit(own.source, start, own.node.end, valueSource(Object.fromEntries(inserts), this.style(own.source, start)));
       return;
     }
-    for (const held of removed) this.remove(held, source);
-    if (inserts.length) this.insert(node, source, inserts, path);
+    for (const held of removed) this.remove(held, own.source);
+    if (inserts.length) this.insert(own.node, own.source, inserts, path);
   }
 
   /** Takes a property out, with its comma. */
@@ -388,7 +475,8 @@ export function planSave(project: ProjectSource, subjects: readonly SaveSubject[
   const shared: SharedChange[] = [];
   for (const subject of subjects) {
     if (same(subject.before, subject.after)) continue;
-    const targets = (subject.kind === 'profile' ? project.profiles : project.tools).get(subject.of) ?? [];
+    const defined = subject.kind === 'profile' ? project.profiles : project.tools;
+    const targets = defined.get(subject.of) ?? [];
     const whole = { kind: subject.kind, of: subject.of, setting: '' };
     const [target] = targets;
     if (!target) {
@@ -401,8 +489,12 @@ export function planSave(project: ProjectSource, subjects: readonly SaveSubject[
       plan.changes.push({ ...whole, status: 'code', file: target.file, line });
       continue;
     }
-    const planner = new Planner(project, subject);
-    planner.target(target);
+    // The others a function makes this same call for.
+    const peers = [...defined].filter(([name, held]) =>
+      name !== subject.of && held.some((other) => other.options === target.options)
+    ).map(([name]) => name);
+    const planner = new Planner(project, subject, target, peers);
+    planner.plan();
     plan.changes.push(...planner.changes);
     plan.edits.push(...planner.edits);
     shared.push(...planner.shared);

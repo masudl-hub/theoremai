@@ -16,6 +16,18 @@ export interface SourceTarget {
   file: string;
   source: ts.SourceFile;
   options: ts.ObjectLiteralExpression;
+  /** Set when a function of the project makes the call: what its parameters stand for, for this profile. */
+  env?: Env;
+  /** That function's call for this profile. What its arguments write is this profile's alone. */
+  call?: { node: ts.CallExpression; source: ts.SourceFile };
+}
+
+/** What a function's parameters stand for in one call of it. */
+export interface Env {
+  /** Each parameter's argument, where the call writes it. Undefined when the call gives none. */
+  bound: ReadonlyMap<string, Located | undefined>;
+  /** How many calls deep this one is. */
+  depth: number;
 }
 
 export interface ProjectSource {
@@ -35,6 +47,8 @@ export interface ProjectSource {
 export interface Located {
   node: ts.Expression;
   source: ts.SourceFile;
+  /** Set inside a function the studio followed a call into. */
+  env?: Env;
 }
 
 export type ReadFile = (path: string) => string | undefined;
@@ -118,24 +132,283 @@ export function calleeName(call: ts.CallExpression): string | undefined {
   return undefined;
 }
 
-/**
- * Follows a name to the expression it stands for: a `const` in the same file, or one a relative
- * import brings in. Anything else (a parameter, a `let`, a package's export) stays as it is.
- */
-function followed(project: ProjectSource, at: Located, depth = 0): Located {
-  const node = unwrapped(at.node);
-  if (depth > 8) return { node, source: at.source };
-  if (ts.isPropertyAccessExpression(node)) {
-    const owner = followed(project, { node: node.expression, source: at.source }, depth + 1);
-    if (!ts.isObjectLiteralExpression(owner.node)) return { node, source: at.source };
-    const held = owner.node.properties.find((property) => propertyName(property) === node.name.text);
-    if (!held || !ts.isPropertyAssignment(held)) return { node, source: at.source };
-    return followed(project, { node: held.initializer, source: owner.source }, depth + 1);
+/** How far a name is followed, through constants and calls. */
+const MAX_DEPTH = 8;
+
+/** A value the files leave out: a key an object does not write, a parameter a call gives no argument. */
+const MISSING = Symbol('missing');
+
+/** A function of the project that only returns a value. */
+interface ProjectFunction {
+  name: string;
+  source: ts.SourceFile;
+  parameters: readonly string[];
+  /** A parameter's own default, by its place. */
+  defaults: readonly (ts.Expression | undefined)[];
+  /** What it returns. */
+  value: ts.Expression;
+}
+
+/** What a function returns, when returning it is all the function does. */
+function returned(fn: ts.FunctionLikeDeclaration): ts.Expression | undefined {
+  const { body } = fn;
+  const plainCall = !fn.asteriskToken && !fn.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword);
+  if (!body || !plainCall) return undefined;
+  if (!ts.isBlock(body)) return body;
+  const [only] = body.statements;
+  return body.statements.length === 1 && only && ts.isReturnStatement(only) ? only.expression : undefined;
+}
+
+/** `fn` as a function the studio follows: plain parameters, and one value returned. */
+function followable(name: string, source: ts.SourceFile, fn: ts.FunctionLikeDeclaration): ProjectFunction | undefined {
+  const value = returned(fn);
+  if (!value || fn.parameters.some((parameter) => !ts.isIdentifier(parameter.name) || parameter.dotDotDotToken)) {
+    return undefined;
   }
-  if (!ts.isIdentifier(node)) return { node, source: at.source };
-  const binding = bindingOf(project, at.source, node.text);
-  if (!binding) return { node, source: at.source };
-  return followed(project, { node: binding.initializer, source: binding.source }, depth + 1);
+  return {
+    name,
+    source,
+    parameters: fn.parameters.map((parameter) => (parameter.name as ts.Identifier).text),
+    defaults: fn.parameters.map((parameter) => parameter.initializer),
+    value,
+  };
+}
+
+/** Each top-level function of a file: a declaration, or a `const` set to one. */
+function functionsOf(source: ts.SourceFile): Array<{ name: string; fn: ts.FunctionLikeDeclaration }> {
+  const found: Array<{ name: string; fn: ts.FunctionLikeDeclaration }> = [];
+  for (const statement of source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name) found.push({ name: statement.name.text, fn: statement });
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
+    for (const { name, initializer } of statement.declarationList.declarations) {
+      const value = initializer && unwrapped(initializer);
+      if (value && ts.isIdentifier(name) && (ts.isArrowFunction(value) || ts.isFunctionExpression(value))) {
+        found.push({ name: name.text, fn: value });
+      }
+    }
+  }
+  return found;
+}
+
+/** The function a name in `source` calls: one declared there, or one a relative import brings in. */
+function functionOf(project: ProjectSource, source: ts.SourceFile, name: string): ProjectFunction | undefined {
+  const declared = (file: ts.SourceFile, called: string) => {
+    const held = functionsOf(file).filter((each) => each.name === called);
+    return held.length === 1 && held[0] ? followable(called, file, held[0].fn) : undefined;
+  };
+  const here = declared(source, name);
+  if (here) return here;
+  const from = importOf(source, name);
+  const origin = from && sourceOf(project, source, from.specifier);
+  return origin && from ? declared(origin, from.name) : undefined;
+}
+
+/** What a call of a project function returns, with its parameters standing for the call's arguments. */
+function calledValue(project: ProjectSource, call: ts.CallExpression, at: Located): Located | undefined {
+  const callee = call.expression;
+  if (!ts.isIdentifier(callee) || at.env?.bound.has(callee.text)) return undefined;
+  const depth = (at.env?.depth ?? 0) + 1;
+  const fn = depth > MAX_DEPTH ? undefined : functionOf(project, at.source, callee.text);
+  if (!fn || call.arguments.some(ts.isSpreadElement)) return undefined;
+  const bound = new Map<string, Located | undefined>();
+  fn.parameters.forEach((name, index) => {
+    const argument = call.arguments[index];
+    const preset = fn.defaults[index];
+    if (argument) bound.set(name, { node: argument, source: at.source, env: at.env });
+    else bound.set(name, preset ? { node: preset, source: fn.source } : undefined);
+  });
+  return { node: fn.value, source: fn.source, env: { bound, depth } };
+}
+
+/** A provider's `model(apiId, settings)`: it returns the settings with the provider's id and the API id. */
+export function isModelCall(node: ts.Node): node is ts.CallExpression {
+  return ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
+    node.expression.name.text === 'model' && (node.arguments.length === 1 || node.arguments.length === 2) &&
+    !node.arguments.some(ts.isSpreadElement);
+}
+
+/** What a call stands for, when the studio reads through it: `defineProfile`'s options, a project function's value. */
+function seenThrough(project: ProjectSource, call: ts.CallExpression, at: Located): Located | undefined {
+  const [first] = call.arguments;
+  if (calleeName(call) === 'defineProfile' && call.arguments.length === 1 && first && !ts.isSpreadElement(first)) {
+    return { node: first, source: at.source, env: at.env };
+  }
+  return calledValue(project, call, at);
+}
+
+/** One key of an object, as the files write it. */
+export interface ShapeEntry {
+  key: string;
+  /** What the key is set to. Undefined when the files write it as a method, or cannot say. */
+  value?: Located;
+  /** The property that writes it. Undefined for what a call's own arguments set. */
+  property?: ts.ObjectLiteralElementLike;
+  /** The file that writes it. */
+  source: ts.SourceFile;
+}
+
+/** An object as the files write it out: its own keys, and those of each object it spreads in. */
+export interface ObjectShape {
+  /** Each key by name, in the order written. The last one written of a name is the one held. */
+  entries: Map<string, ShapeEntry>;
+  /** A spread or a computed key the studio could not follow. Only the keys written `after` it are sure. */
+  open?: { node: ts.Node; source: ts.SourceFile; after: Set<string> };
+  /** The literal a new key is written in. */
+  own?: { node: ts.ObjectLiteralExpression; source: ts.SourceFile };
+}
+
+/** The name a property is written under: a plain one, or a computed one that names a constant's text. */
+function keyOf(project: ProjectSource, property: ts.ObjectLiteralElementLike, at: Located, depth: number): string | undefined {
+  const plainName = propertyName(property);
+  if (plainName !== undefined || !property.name || !ts.isComputedPropertyName(property.name)) return plainName;
+  const held = step(project, { node: property.name.expression, source: at.source, env: at.env }, depth + 1);
+  if (held === MISSING) return undefined;
+  return ts.isStringLiteralLike(held.node) || ts.isNumericLiteral(held.node) ? held.node.text : undefined;
+}
+
+/** Where a provider's id is written: the `id` of the `defineProvider` call the name stands for. */
+function providerId(project: ProjectSource, at: Located, depth: number): Located | undefined {
+  const held = step(project, at, depth + 1);
+  if (held === MISSING || !ts.isCallExpression(held.node) || calleeName(held.node) !== 'defineProvider') return undefined;
+  const [options] = held.node.arguments;
+  const id = options && ts.isObjectLiteralExpression(options)
+    ? options.properties.findLast((property) => propertyName(property) === 'id')
+    : undefined;
+  return id && ts.isPropertyAssignment(id) ? { node: id.initializer, source: held.source, env: held.env } : undefined;
+}
+
+/**
+ * The object an expression writes out: an object literal, or a provider's `model()` call. Each
+ * spread is followed to the object it names. Undefined for anything else.
+ */
+export function shapeOf(project: ProjectSource, at: Located, depth = 0): ObjectShape | undefined {
+  const node = unwrapped(at.node);
+  if (depth > MAX_DEPTH || !(ts.isObjectLiteralExpression(node) || isModelCall(node))) return undefined;
+  const shape: ObjectShape = { entries: new Map() };
+  const inside = (inner: ts.Expression): Located => ({ node: inner, source: at.source, env: at.env });
+  const put = (entry: ShapeEntry) => {
+    shape.entries.delete(entry.key);
+    shape.entries.set(entry.key, entry);
+    shape.open?.after.add(entry.key);
+  };
+  const spread = (from: ts.Expression, written: ts.Node) => {
+    const inner = step(project, inside(from), depth + 1);
+    // A spread of nothing adds nothing.
+    if (inner === MISSING) return;
+    const held = shapeOf(project, inner, depth + 1);
+    if (!held) {
+      shape.open = { node: written, source: at.source, after: new Set() };
+      return;
+    }
+    const sure = held.open?.after;
+    if (held.open) shape.open = { ...held.open, after: new Set() };
+    for (const entry of held.entries.values()) {
+      shape.entries.delete(entry.key);
+      shape.entries.set(entry.key, entry);
+      if (!sure || sure.has(entry.key)) shape.open?.after.add(entry.key);
+    }
+  };
+  if (ts.isObjectLiteralExpression(node)) {
+    shape.own = { node, source: at.source };
+    for (const property of node.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        spread(property.expression, property);
+        continue;
+      }
+      const key = keyOf(project, property, at, depth);
+      if (key === undefined) {
+        shape.open = { node: property, source: at.source, after: new Set() };
+        continue;
+      }
+      const value = ts.isPropertyAssignment(property)
+        ? property.initializer
+        : ts.isShorthandPropertyAssignment(property)
+        ? property.name
+        : undefined;
+      put({ key, property, source: at.source, ...(value ? { value: inside(value) } : {}) });
+    }
+    return shape;
+  }
+  const [apiId, settings] = node.arguments;
+  if (settings) {
+    spread(settings, settings);
+    const direct = unwrapped(settings);
+    if (ts.isObjectLiteralExpression(direct)) shape.own = { node: direct, source: at.source };
+  }
+  const provider = providerId(project, inside((node.expression as ts.PropertyAccessExpression).expression), depth);
+  put({ key: 'provider', source: at.source, ...(provider ? { value: provider } : {}) });
+  if (apiId) put({ key: 'apiId', source: at.source, value: inside(apiId) });
+  return shape;
+}
+
+/** Whether an expression writes a value that is surely there: not `undefined`, not `null`. */
+function isWritten(node: ts.Expression): boolean {
+  return ts.isStringLiteralLike(node) || ts.isNumericLiteral(node) || ts.isObjectLiteralExpression(node) ||
+    ts.isArrayLiteralExpression(node) || node.kind === ts.SyntaxKind.TrueKeyword ||
+    node.kind === ts.SyntaxKind.FalseKeyword || isModelCall(node);
+}
+
+/** One expression followed as far as the files say what it is, or `MISSING` when they say it is not there. */
+function step(project: ProjectSource, at: Located, depth: number): Located | typeof MISSING {
+  const node = unwrapped(at.node);
+  const here: Located = { ...at, node };
+  if (depth > MAX_DEPTH) return here;
+  const inside = (inner: ts.Expression): Located => ({ node: inner, source: at.source, env: at.env });
+  if (ts.isPropertyAccessExpression(node)) {
+    const owner = step(project, inside(node.expression), depth + 1);
+    const shape = owner === MISSING ? undefined : shapeOf(project, owner, depth + 1);
+    if (!shape) return here;
+    const held = shape.entries.get(node.name.text);
+    if (shape.open && !(held && shape.open.after.has(held.key))) return here;
+    if (!held) return MISSING;
+    return held.value ? step(project, held.value, depth + 1) : here;
+  }
+  if (ts.isIdentifier(node)) {
+    if (at.env?.bound.has(node.text)) {
+      const argument = at.env.bound.get(node.text);
+      return argument ? step(project, argument, depth + 1) : MISSING;
+    }
+    const binding = bindingOf(project, at.source, node.text);
+    return binding ? step(project, { node: binding.initializer, source: binding.source }, depth + 1) : here;
+  }
+  if (ts.isCallExpression(node)) {
+    const seen = seenThrough(project, node, at);
+    return seen ? step(project, seen, depth + 1) : here;
+  }
+  if (ts.isConditionalExpression(node)) {
+    // A condition the files write out as true or false picks its side.
+    const when = step(project, inside(node.condition), depth + 1);
+    const truth = when === MISSING
+      ? false
+      : when.node.kind === ts.SyntaxKind.TrueKeyword
+      ? true
+      : when.node.kind === ts.SyntaxKind.FalseKeyword
+      ? false
+      : undefined;
+    return truth === undefined ? here : step(project, inside(truth ? node.whenTrue : node.whenFalse), depth + 1);
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+    const left = step(project, inside(node.left), depth + 1);
+    if (left === MISSING) return step(project, inside(node.right), depth + 1);
+    return isWritten(left.node) ? left : here;
+  }
+  const [only] = ts.isArrayLiteralExpression(node) ? node.elements : [];
+  if (ts.isArrayLiteralExpression(node) && node.elements.length === 1 && only && ts.isSpreadElement(only)) {
+    // A copy of one list is that list.
+    const copied = step(project, inside(only.expression), depth + 1);
+    return copied !== MISSING && ts.isArrayLiteralExpression(copied.node) ? copied : here;
+  }
+  return here;
+}
+
+/**
+ * Follows an expression to what it stands for: a `const` in the same file or one a relative
+ * import brings in, a key of an object, an argument of a call, what a project function returns.
+ * Anything else (a `let`, a package's export, code that computes) stays as it is.
+ */
+export function followed(project: ProjectSource, at: Located): Located {
+  const held = step(project, at, 0);
+  return held === MISSING ? { ...at, node: unwrapped(at.node) } : held;
 }
 
 /** A top-level `const` of the project: its name where it is declared, its file, and what it is set to. */
@@ -143,6 +416,8 @@ export interface Binding {
   name: string;
   source: ts.SourceFile;
   initializer: ts.Expression;
+  /** Set for a function: `initializer` is what it returns. */
+  returns?: true;
 }
 
 /** The file of the project a relative import in `source` names. */
@@ -161,15 +436,22 @@ function bindingOf(project: ProjectSource, source: ts.SourceFile, name: string):
   return origin && from && exported ? { name: from.name, source: origin, initializer: exported } : undefined;
 }
 
-/** The constant whose value holds `at`: the top-level `const` it is written inside. */
-function holderOf(at: Located): Binding | undefined {
+/**
+ * The constant whose value holds `at`: the top-level `const` it is written inside. A function that
+ * only returns a value holds what it returns, as a constant does.
+ */
+export function holderOf(at: Located): Binding | undefined {
+  const holds = (value: ts.Node) => value.pos <= at.node.pos && at.node.end <= value.end;
+  for (const { name, fn } of functionsOf(at.source)) {
+    if (!holds(fn)) continue;
+    const value = returned(fn);
+    return value && holds(value) ? { name, source: at.source, initializer: value, returns: true } : undefined;
+  }
   for (const statement of at.source.statements) {
     if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
     for (const { name, initializer } of statement.declarationList.declarations) {
       if (!initializer || !ts.isIdentifier(name)) continue;
-      if (initializer.pos <= at.node.pos && at.node.end <= initializer.end) {
-        return { name: name.text, source: at.source, initializer };
-      }
+      if (holds(initializer)) return { name: name.text, source: at.source, initializer };
     }
   }
   return undefined;
@@ -181,7 +463,7 @@ function holderOf(at: Located): Binding | undefined {
  */
 export function namedValue(project: ProjectSource, at: Located): { origin: Located; holder?: Binding } {
   const origin = followed(project, at);
-  return { origin, holder: origin.node === unwrapped(at.node) ? undefined : holderOf(origin) };
+  return { origin, holder: origin.node === unwrapped(at.node) && origin.source === at.source ? undefined : holderOf(origin) };
 }
 
 /** Whether an identifier reads a value: not a declaration's name, a property's name, an import, or a type. */
@@ -229,9 +511,23 @@ export interface ConstantUsers {
   code: boolean;
 }
 
+/** Whether a call writes `child` out: an argument of a call the studio reads through, or the project function called. */
+function passes(project: ProjectSource, call: ts.CallExpression, child: ts.Node): boolean {
+  const callee = call.expression;
+  const ours = ts.isIdentifier(callee) && functionOf(project, call.getSourceFile(), callee.text) !== undefined;
+  if (child === callee) return ours;
+  if (!call.arguments.some((argument) => argument === child)) return false;
+  return ours || isModelCall(call) || calleeName(call) === 'defineProfile';
+}
+
 /** Whether `node` is part of the value `value` writes out, not something a function or a call inside it reads. */
-function isWrittenIn(node: ts.Node, value: ts.Expression): boolean {
-  for (let at = node.parent; at !== value.parent; at = at.parent) {
+function isWrittenIn(project: ProjectSource, node: ts.Node, value: ts.Expression): boolean {
+  let child = node;
+  for (let at = node.parent; at !== value.parent; child = at, at = at.parent) {
+    if (ts.isCallExpression(at)) {
+      if (!passes(project, at, child)) return false;
+      continue;
+    }
     const data = ts.isObjectLiteralExpression(at) || ts.isArrayLiteralExpression(at) ||
       ts.isPropertyAssignment(at) || ts.isShorthandPropertyAssignment(at) || ts.isSpreadAssignment(at) ||
       ts.isSpreadElement(at) || ts.isPropertyAccessExpression(at) || ts.isParenthesizedExpression(at) ||
@@ -241,40 +537,58 @@ function isWrittenIn(node: ts.Node, value: ts.Expression): boolean {
   return true;
 }
 
-/** The profile or tool whose options write `at` out as a value. A read inside a handler is code. */
-function targetOf(targets: Map<string, SourceTarget[]>, at: Located): string | undefined {
-  for (const [name, held] of targets) {
-    const inside = held.some(({ source, options }) =>
-      source === at.source && options.pos <= at.node.pos && at.node.end <= options.end &&
-      isWrittenIn(at.node, options)
-    );
-    if (inside) return name;
-  }
-  return undefined;
+/** Whether `at` is written inside a call's options. */
+export function isInTarget(target: SourceTarget, at: Located): boolean {
+  return target.source === at.source && target.options.pos <= at.node.pos && at.node.end <= target.options.end;
 }
+
+/** Whether `at` is written in the arguments of the call that makes `target`: the target's alone. */
+export function isInCall(target: SourceTarget, at: Located): boolean {
+  const { call } = target;
+  return !!call && call.source === at.source && call.node.pos <= at.node.pos && at.node.end <= call.node.end;
+}
+
+/** Each profile or tool whose options write `at` out as a value. A read inside a handler is code. */
+function targetsOf(project: ProjectSource, targets: Map<string, SourceTarget[]>, at: Located): string[] {
+  const names: string[] = [];
+  for (const [name, held] of targets) {
+    if (held.some((target) => isInTarget(target, at) && isWrittenIn(project, at.node, target.options))) names.push(name);
+  }
+  return names;
+}
+
+const USERS = new WeakMap<ProjectSource, Map<ts.Expression, ConstantUsers>>();
 
 /**
  * Follows a constant to everything it sets: a profile or tool that reads it, and through a
- * constant that reads it, whatever reads that one.
+ * constant that reads it, whatever reads that one. The answer is the project's: do not change it.
  */
 export function usersOf(project: ProjectSource, binding: Binding): ConstantUsers {
+  const known = USERS.get(project) ?? new Map<ts.Expression, ConstantUsers>();
+  USERS.set(project, known);
+  const cached = known.get(binding.initializer);
+  if (cached) return cached;
   const users: ConstantUsers = { profiles: new Set(), tools: new Set(), code: false };
   const seen = new Set<ts.Expression>();
   const follow = (each: Binding) => {
     if (seen.has(each.initializer)) return;
     seen.add(each.initializer);
-    for (const read of readsOf(project, each)) {
-      const profile = targetOf(project.profiles, read);
-      const tool = profile === undefined ? targetOf(project.tools, read) : undefined;
-      const held = profile === undefined && tool === undefined ? holderOf(read) : undefined;
-      const holder = held && isWrittenIn(read.node, held.initializer) ? held : undefined;
-      if (profile !== undefined) users.profiles.add(profile);
-      else if (tool !== undefined) users.tools.add(tool);
-      else if (holder) follow(holder);
-      else users.code = true;
+    const reads = readsOf(project, each);
+    // A function nothing here calls is there for code the studio does not read.
+    if (each.returns && !reads.length) users.code = true;
+    for (const read of reads) {
+      const profiles = targetsOf(project, project.profiles, read);
+      const tools = profiles.length ? [] : targetsOf(project, project.tools, read);
+      const held = profiles.length || tools.length ? undefined : holderOf(read);
+      const holder = held && isWrittenIn(project, read.node, held.initializer) ? held : undefined;
+      for (const profile of profiles) users.profiles.add(profile);
+      for (const tool of tools) users.tools.add(tool);
+      if (holder) follow(holder);
+      else if (!profiles.length && !tools.length) users.code = true;
     }
   };
   follow(binding);
+  known.set(binding.initializer, users);
   return users;
 }
 
@@ -381,8 +695,29 @@ export function importOf(source: ts.SourceFile, name: string): { specifier: stri
 function textOf(project: ProjectSource, target: SourceTarget, key: string): string | undefined {
   const held = target.options.properties.find((property) => propertyName(property) === key);
   if (!held || !ts.isPropertyAssignment(held)) return undefined;
-  const { node } = followed(project, { node: held.initializer, source: target.source });
+  const { node } = followed(project, { node: held.initializer, source: target.source, env: target.env });
   return ts.isStringLiteralLike(node) ? node.text : undefined;
+}
+
+/**
+ * The names a function gives the call it makes, one for each place the project calls the function.
+ * None unless every one of those calls says the name: the studio does not write what it cannot name.
+ */
+function madeBy(project: ProjectSource, target: SourceTarget, key: string): Array<[string, SourceTarget]> {
+  const maker = holderOf({ node: target.options, source: target.source });
+  const fn = maker && functionOf(project, target.source, maker.name);
+  if (!maker || !fn || fn.value !== maker.initializer) return [];
+  const named: Array<[string, SourceTarget]> = [];
+  for (const read of readsOf(project, maker)) {
+    const call = read.node.parent;
+    const value = ts.isCallExpression(call) && call.expression === read.node ? calledValue(project, call, read) : undefined;
+    if (!value?.env || !ts.isCallExpression(call)) return [];
+    const made: SourceTarget = { ...target, env: value.env, call: { node: call, source: read.source } };
+    const name = textOf(project, made, key);
+    if (name === undefined) return [];
+    named.push([name, made]);
+  }
+  return named;
 }
 
 /** Reads the project from `entry`, the setup module. `read` returns a file's text, or undefined. */
@@ -417,9 +752,15 @@ export function readProjectSource(entry: string, root: string, read: ReadFile): 
     visit(source);
   }
   // Every file is read before a name is followed, so a constant from another file is found.
+  const made: typeof calls = [];
   for (const { into, key, target } of calls) {
     const named = textOf(project, target, key);
     if (named !== undefined) into.set(named, [...(into.get(named) ?? []), target]);
+    else made.push({ into, key, target });
+  }
+  // A function that makes the call names it by a parameter: each call of the function is one.
+  for (const { into, key, target } of made) {
+    for (const [named, each] of madeBy(project, target, key)) into.set(named, [...(into.get(named) ?? []), each]);
   }
   return project;
 }

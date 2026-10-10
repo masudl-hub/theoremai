@@ -177,22 +177,29 @@ export function useSavedHidden(): boolean {
 /** One side of the comparison: what it runs, over its conversation. */
 function Pane({
 	title,
-	endContent,
+	startContent,
 	children,
 }: {
 	title: string | undefined;
-	/** The side's own controls, at the end of its title row. */
-	endContent?: ReactNode;
+	/** The side's own control, before its title: the same place on either side. */
+	startContent?: ReactNode;
 	children: ReactNode;
 }) {
 	return (
 		<VStack height="100%">
 			{title && (
-				<HStack paddingInline={3} paddingBlock={2} gap={2} vAlign="center" justify="between">
+				<HStack
+					paddingInline={3}
+					paddingBlock={2}
+					gap={1}
+					vAlign="center"
+					// As tall with the control as without, so the two titles sit on one line.
+					style={{ minHeight: '2.75rem' }}
+				>
+					{startContent}
 					<Text type="supporting" weight="semibold" color="secondary">
 						{title}
 					</Text>
-					{endContent}
 				</HStack>
 			)}
 			<StackItem size="fill">{children}</StackItem>
@@ -214,7 +221,7 @@ export function SavedSide({
 	return (
 		<Pane
 			title={isCompared ? 'Saved (your files)' : undefined}
-			endContent={
+			startContent={
 				<IconButton
 					label="Hide saved"
 					variant="ghost"
@@ -390,7 +397,7 @@ export function EditedSide({
 	return (
 		<Pane
 			title="Edited (studio)"
-			endContent={
+			startContent={
 				hasSaved &&
 				isSavedHidden && (
 					<IconButton

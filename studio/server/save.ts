@@ -164,10 +164,16 @@ export function projectDiffers(loaded: StudioWorkspace, tested: StudioWorkspace)
     if (!held) differs.push(id);
   }
   // A file holds a tool's schema as the page does, or as the kernel reads the page's: a tool the
-  // studio wrote loads as zod's reading of the JSON the builder tested.
+  // studio wrote loads as zod's reading of the JSON the builder tested. A schema Save changed in
+  // its Zod holds both, part by part, so the two are the same once zod has read each.
   for (const name of new Set([...now.tools.keys(), ...wanted.tools.keys()])) {
     const [loads, tool] = [now.tools.get(name), wanted.tools.get(name)];
-    if (!same(loads, tool) && !(tool && same(loads, asKernelReads(tool)))) differs.push(name);
+    if (same(loads, tool) || !tool || !loads) {
+      if (!same(loads, tool)) differs.push(name);
+      continue;
+    }
+    const read = asKernelReads(tool);
+    if (!same(loads, read) && !same(asKernelReads(loads), read)) differs.push(name);
   }
   return differs;
 }

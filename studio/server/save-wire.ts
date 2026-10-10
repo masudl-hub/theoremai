@@ -18,8 +18,8 @@ export interface SharedSetting {
   file: string;
   line: number;
   /**
-   * The profile key it fills, when every profile reads it as the whole of that key and nothing
-   * else reads it. The studio edits these; any other is changed in the builder's editor.
+   * The profile key it fills, when every profile reads it as the whole of that key and no tool
+   * reads it. The studio opens these at that key; any other is edited where a profile or tool shows it.
    */
   key?: string;
   /** The profiles it reaches, by id, and the tools, by name. */
@@ -33,7 +33,7 @@ export interface SharedSetting {
  * A setting the project's files do not write out as a plain value, so the studio shows it and
  * does not change it.
  * - `code`: code computes it: a call, a name the studio cannot follow, a method.
- * - `constant`: a named constant holds it, and code that is not a profile or a tool reads the constant too.
+ * - `constant`: a named constant holds an id (the profile's, a provider's), and code that is not a profile or a tool reads the constant too.
  * - `spread`: the object spreads another into itself, so the studio writes only the keys in `written`.
  * - `twice`: the files define the profile or tool more than once.
  * - `unfound`: no place in the project's files defines the profile or tool.
@@ -68,13 +68,21 @@ export interface SettingSite {
   /** Where it is: the path and the one-based line. */
   file: string;
   line: number;
+  /** Set when code that is not a profile or a tool reads the place too: each line that reads it. */
+  readBy?: SourcePlace[];
+}
+
+/** A line of one of the project's files. */
+export interface SourcePlace {
+  file: string;
+  line: number;
 }
 
 /** Each profile's and tool's settings that are set in code, by profile id and tool name. */
 export interface ProjectOrigins {
   profiles: Record<string, SettingOrigin[]>;
   tools: Record<string, SettingOrigin[]>;
-  /** Where each shared value is written, by profile id and tool name. Only those that share one are listed. */
+  /** Where each value others read too is written, by profile id and tool name. Only those that hold one are listed. */
   sites?: { profiles: Record<string, SettingSite[]>; tools: Record<string, SettingSite[]> };
 }
 

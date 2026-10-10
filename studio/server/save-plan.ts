@@ -2,9 +2,11 @@
  * What Save writes: each changed value of a profile or a tool, found in the
  * builder's file and rewritten there. A value written in the call is changed in
  * place. A value from a constant is changed where the constant is set, when
- * every profile and tool that reads the constant makes the same change. A value
- * from a constant that someone leaves as it was, or that other code reads, or
- * from code, is not written; the plan says where it is set and who shares it.
+ * every profile and tool that reads the constant makes the same change, and the
+ * plan says when other code reads the constant too. A value from a constant that
+ * someone leaves as it was, or from code, is not written; the plan says where it
+ * is set and who shares it. A tool's schema is changed in the Zod that writes it,
+ * one part at a time (`zod-edit.ts`).
  *
  * @module
  */
@@ -16,6 +18,7 @@ import { canonical } from './canonical.ts';
 import {
   followed,
   holderOf,
+  isHeldId,
   isInCall,
   isInTarget,
   type Located,
@@ -28,6 +31,17 @@ import {
   usersOf,
 } from './project-source.ts';
 import type { DiffHunk, SaveChange, SaveStatus } from './save-wire.ts';
+import {
+  isWrittenOut,
+  methodCall,
+  methodSpan,
+  readZod,
+  type SchemaSide,
+  unread,
+  zodName,
+  zodObject,
+  zodSource,
+} from './zod-edit.ts';
 
 /** A profile or tool that changed: its values before and after, as the studio compiles them. */
 export interface SaveSubject {
@@ -131,6 +145,35 @@ function quoteLike(existing: ts.Expression | undefined, source: ts.SourceFile) {
   };
 }
 
+/** A tool's schemas, by the key its file writes each under. */
+const TOOL_SCHEMAS: Record<string, { key: string; side: SchemaSide }> = {
+  inputSchema: { key: 'input', side: 'input' },
+  outputSchema: { key: 'output', side: 'output' },
+};
+
+/** The methods that say whether an object takes fields it does not name. */
+const OPEN_METHODS = new Set(['strict', 'passthrough', 'loose']);
+
+/** A new field's schema, written as Zod where a plain value would be. */
+class ZodField {
+  constructor(readonly write: (style: SourceStyle) => string) {}
+}
+
+/** A value as source: a new field as its Zod, anything else as it is. */
+function written(value: unknown, style: SourceStyle): string {
+  return value instanceof ZodField ? value.write(style) : valueSource(value, style);
+}
+
+/** An object's fields written out, one to a line, for an object that held none. */
+function objectSource(entries: ReadonlyArray<[string, unknown]>, style: SourceStyle): string {
+  const inner = { ...style, base: style.base + style.unit };
+  const lines = entries.map(([key, value]) => `${inner.base}${keySource(key)}: ${written(value, inner)},`);
+  return `{\n${lines.join('\n')}\n${style.base}}`;
+}
+
+const names = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((each): each is string => typeof each === 'string') : [];
+
 const subjectId = (kind: SaveSubject['kind'], of: string) => `${kind}:${of}`;
 
 /** One profile's or tool's changes inside a value that others read too: a constant, what a function returns. */
@@ -188,6 +231,8 @@ interface Frame {
   /** Everyone the value reaches, and the others among them by id or name. */
   everyone: string[];
   sharedWith: string[];
+  /** Code that is not a profile or a tool reads the value too. */
+  readByCode?: boolean;
   edits: SourceEdit[];
   changes: SaveChange[];
   refused: SaveChange[];
@@ -242,6 +287,8 @@ class Planner {
         }
         : {}),
       ...(name ? { name } : {}),
+      // What is written in a value other code reads says so.
+      ...(status === 'written' && this.frame.readByCode ? { readByCode: true } : {}),
       ...shared,
     };
   }
@@ -255,7 +302,8 @@ class Planner {
   /**
    * Where a change to `origin` is written. In the subject's own call, or in a constant it alone
    * reads, the change is the subject's. In a value others read too it is kept apart until the plan
-   * knows whether each of them makes it (`settle`). A value other code reads is not written.
+   * knows whether each of them makes it (`settle`). A value other code reads is written as any
+   * other, and each change to it says so. An id other code knows something by is not written.
    */
   private frameAt(origin: Located, name: string, path: string[]): Frame | undefined {
     if (isInTarget(this.target, origin)) return this.root;
@@ -275,13 +323,21 @@ class Planner {
       ...(sharedWith.length ? { sharedWith } : {}),
       ...(users.code ? { readByCode: true } : {}),
     });
-    if (users.code) {
+    if (users.code && isHeldId(kind, path, origin)) {
       this.frame.changes.push(refused);
       return undefined;
     }
-    if (!sharedWith.length) return this.own;
-    const frame = this.frames.get(holder.initializer) ??
-      { holder: holder.initializer, everyone, sharedWith, edits: [], changes: [], refused: [] };
+    if (!sharedWith.length && !users.code) return this.own;
+    const frame = this.frames.get(holder.initializer) ?? {
+      holder: holder.initializer,
+      // Read by this one and by code: the change is this one's to make.
+      everyone: sharedWith.length ? everyone : [subjectId(kind, of)],
+      sharedWith,
+      readByCode: users.code,
+      edits: [],
+      changes: [],
+      refused: [],
+    };
     this.frames.set(holder.initializer, frame);
     frame.refused.push(refused);
     return frame;
@@ -388,9 +444,13 @@ class Planner {
     for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
       if (same(before[key], after[key])) continue;
       const here = [...path, key];
-      // A tool's schemas are its Zod objects in code: the studio shows them and does not write them.
-      if (this.subject.kind === 'tool' && path.length === 0 && (key === 'inputSchema' || key === 'outputSchema')) {
-        this.note('code', here, shape.entries.has(key.replace('Schema', '')) ? place(key.replace('Schema', '')) : at);
+      const schema = this.subject.kind === 'tool' && path.length === 0 ? TOOL_SCHEMAS[key] : undefined;
+      if (schema) {
+        // A tool's schema is Zod in its file: each part that changed is changed there.
+        const held = shape.entries.get(schema.key);
+        if (!held) this.note('code', here, at);
+        else if (!held.value || (open && !open.after.has(schema.key))) this.note('code', here, place(schema.key));
+        else this.zod(held.value, before[key], after[key], here, schema.side);
         continue;
       }
       const entry = shape.entries.get(key);
@@ -427,6 +487,221 @@ class Planner {
     if (inserts.length) this.insert(own.node, own.source, inserts, path);
   }
 
+  /** Runs `write` where `at` is written: in the subject's own call, or in the constant that holds it. */
+  private within(at: Located, path: string[], write: () => void) {
+    const frame = this.frameAt(at, at.node.getText(at.source), path);
+    if (!frame) return;
+    const outer = this.frame;
+    this.frame = frame;
+    write();
+    this.frame = outer;
+  }
+
+  /**
+   * A schema, in the Zod that writes it. A description, the values of an enum, whether a field
+   * can be left out, and a field added or taken away are each changed where they are written,
+   * through any constant that holds them. Any other change writes the schema again whole, when
+   * it is written out where it stands in Zod the studio writes itself. What is left is for code.
+   */
+  private zod(
+    at: Located,
+    before: unknown,
+    after: unknown,
+    path: string[],
+    side: SchemaSide,
+    left: { was: boolean; now: boolean; path: string[] } = { was: false, now: false, path },
+  ) {
+    if (same(before, after) && left.was === left.now) return;
+    const site: Located = { ...at, node: unwrapped(at.node) };
+    const where: Place = { source: site.source, node: site.node };
+    const read = readZod(this.project, site);
+    if (!read || !isRecord(before) || !isRecord(after)) {
+      this.note('code', path, where);
+      return;
+    }
+    const stopped = unread(read);
+    if (stopped) {
+      this.note('code', path, { source: stopped.source, node: stopped.call });
+      return;
+    }
+    const { base } = read;
+    const inside = (node: ts.Expression): Located => ({ node, source: base.source, ...(base.env ? { env: base.env } : {}) });
+    const [first] = base.call.arguments;
+    const part = first && !ts.isSpreadElement(first) ? inside(first) : undefined;
+    const list = part && base.name === 'union' ? unwrapped(part.node) : undefined;
+    const members = list && ts.isArrayLiteralExpression(list) && !list.elements.some(ts.isSpreadElement) ? list.elements : undefined;
+    const object = zodObject(this.project, read);
+    const reads = new Set(['description']);
+    if (object) reads.add('properties').add('required');
+    // Whether an object takes fields it does not name is the `z.` call it starts from.
+    const more = after.additionalProperties;
+    const kind = !object
+      ? undefined
+      : more === true || (isRecord(more) && Object.keys(more).length === 0)
+      ? 'looseObject'
+      : more === false
+      ? (side === 'input' ? 'strictObject' : 'object')
+      : more === undefined && side === 'input'
+      ? 'object'
+      : undefined;
+    if (kind) reads.add('additionalProperties');
+    if (part && base.name === 'enum' && Array.isArray(before.enum) && Array.isArray(after.enum)) reads.add('enum');
+    if (part && base.name === 'array' && isRecord(before.items) && isRecord(after.items)) reads.add('items');
+    const [olds, news] = [before.anyOf, after.anyOf];
+    if (
+      members && Array.isArray(olds) && Array.isArray(news) && olds.length === news.length &&
+      members.length === news.length
+    ) reads.add('anyOf');
+    const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((key) => !same(before[key], after[key]));
+    if (changed.some((key) => !reads.has(key))) {
+      this.rewritten(site, after, left.now, path, side);
+      return;
+    }
+
+    // What is added to the schema goes after it, where it is used.
+    let added = '';
+    const notes: string[][] = [];
+    const [was, now] = [before.description, after.description];
+    if (!same(was, now)) {
+      const here = [...path, 'description'];
+      const describe = methodCall(read, 'describe');
+      const [text] = describe?.call.arguments ?? [];
+      if (now !== undefined && typeof now !== 'string') this.note('code', here, where);
+      else if (was === undefined && now !== undefined) {
+        added += `.describe(${valueSource(now, this.style(site.source, site.node.getStart(site.source)))})`;
+        notes.push(here);
+      } else if (!describe || !text || ts.isSpreadElement(text)) this.note('code', here, where);
+      else {
+        const call: Located = { node: describe.call, source: describe.source, ...(describe.env ? { env: describe.env } : {}) };
+        this.within(call, here, () => {
+          if (now !== undefined) {
+            this.walk({ ...call, node: text }, was, now, here);
+            return;
+          }
+          const { start, end } = methodSpan(describe);
+          this.edit(describe.source, start, end, '');
+          this.note('written', here, { source: describe.source, node: describe.call });
+        });
+      }
+    }
+    if (left.was && !left.now) {
+      const optional = methodCall(read, 'optional');
+      if (!optional) this.note('code', left.path, where);
+      else {
+        this.within({ node: optional.call, source: optional.source }, left.path, () => {
+          const { start, end } = methodSpan(optional);
+          this.edit(optional.source, start, end, '');
+          this.note('written', left.path, { source: optional.source, node: optional.call });
+        });
+      }
+    } else if (!left.was && left.now) {
+      added += '.optional()';
+      notes.push(left.path);
+    }
+    // One edit holds all that is added; each setting it adds is its own change.
+    notes.forEach((here, index) => {
+      this.within(site, here, () => {
+        if (index === 0) this.edit(site.source, site.node.end, site.node.end, added);
+        this.note('written', here, where);
+      });
+    });
+
+    if (kind && !same(before.additionalProperties, more)) {
+      const here = [...path, 'additionalProperties'];
+      // A method that says it is taken away, and the call says it instead.
+      for (const call of read.chain.filter((each) => OPEN_METHODS.has(each.name))) {
+        this.within({ node: call.call, source: call.source }, here, () => {
+          const { start, end } = methodSpan(call);
+          this.edit(call.source, start, end, '');
+        });
+      }
+      this.within(inside(base.call), here, () => {
+        const name = (base.call.expression as ts.PropertyAccessExpression).name;
+        if (name.text !== kind) this.edit(base.source, name.getStart(base.source), name.end, kind);
+        this.note('written', here, { source: base.source, node: base.call });
+      });
+    }
+    if (part && reads.has('enum') && !same(before.enum, after.enum)) {
+      const here = [...path, 'enum'];
+      this.within(inside(base.call), here, () => this.walk(part, before.enum, after.enum, here));
+    }
+    if (part && reads.has('items')) this.zod(part, before.items, after.items, [...path, 'items'], side);
+    if (members && reads.has('anyOf') && Array.isArray(olds) && Array.isArray(news)) {
+      members.forEach((member, index) => {
+        this.zod(inside(member), olds[index], news[index], [...path, 'anyOf', String(index)], side);
+      });
+    }
+    if (!object) return;
+
+    const [fields, held] = [isRecord(before.properties) ? before.properties : {}, isRecord(after.properties) ? after.properties : {}];
+    const [needed, needs] = [names(before.required), names(after.required)];
+    const own: Located = { node: object.own.node, source: object.own.source };
+    const inserts: Array<[string, unknown]> = [];
+    const removed: ts.ObjectLiteralElementLike[] = [];
+    for (const key of new Set([...Object.keys(fields), ...Object.keys(held)])) {
+      const here = [...path, 'properties', key];
+      const entry = object.entries.get(key);
+      const optional = { was: !needed.includes(key), now: !needs.includes(key), path: [...path, 'required', key] };
+      if (key in fields && key in held) {
+        if (entry?.value) this.zod(entry.value, fields[key], held[key], here, side, optional);
+        else if (!same(fields[key], held[key]) || optional.was !== optional.now) this.note('code', here, own);
+      } else if (key in held) {
+        const name = zodName(object.own.source);
+        // The field is written as Zod once here, to know that it can be.
+        if (!name || zodSource(held[key], optional.now, side, name) === undefined) this.note('code', here, own);
+        else {
+          const write = (style: SourceStyle) => zodSource(held[key], optional.now, side, name, style) ?? '';
+          inserts.push([key, new ZodField(write)]);
+        }
+      } else {
+        const property = entry?.property;
+        if (!entry || !property || !ts.isObjectLiteralExpression(property.parent)) this.note('code', here, own);
+        else if (property.parent === object.own.node) removed.push(property);
+        else {
+          this.within({ node: property.parent, source: entry.source }, here, () => {
+            this.remove(property, entry.source);
+            this.note('written', here, { source: entry.source, node: property });
+          });
+        }
+      }
+    }
+    if (!inserts.length && !removed.length) return;
+    const inFields = [...path, 'properties'];
+    this.within(own, inFields, () => {
+      const { node, source } = object.own;
+      for (const property of removed) {
+        this.note('written', [...inFields, propertyName(property) ?? ''], { source, node: property });
+      }
+      if (inserts.length && removed.length === node.properties.length) {
+        // Every field goes and others come: the object is written whole.
+        for (const [key] of inserts) this.note('written', [...inFields, key], own);
+        const start = node.getStart(source);
+        this.edit(source, start, node.end, objectSource(inserts, this.style(source, start)));
+        return;
+      }
+      for (const property of removed) this.remove(property, source);
+      if (inserts.length) this.insert(node, source, inserts, inFields);
+    });
+  }
+
+  /** A schema written again whole, from its JSON Schema, where it stands. */
+  private rewritten(site: Located, after: Json, optional: boolean, path: string[], side: SchemaSide) {
+    const where: Place = { source: site.source, node: site.node };
+    const name = zodName(site.source);
+    const start = site.node.getStart(site.source);
+    const text = name && isWrittenOut(this.project, site)
+      ? zodSource(after, optional, side, name, this.style(site.source, start))
+      : undefined;
+    if (text === undefined) {
+      this.note('code', path, where);
+      return;
+    }
+    this.within(site, path, () => {
+      this.edit(site.source, start, site.node.end, text);
+      this.note('written', path, where);
+    });
+  }
+
   /** Takes a property out, with its comma. */
   private remove(property: ts.ObjectLiteralElementLike, source: ts.SourceFile) {
     const { text } = source;
@@ -444,8 +719,7 @@ class Planner {
     const last = node.properties.at(-1);
     const start = node.getStart(source);
     if (!last) {
-      const style = this.style(source, start);
-      this.edit(source, start, node.end, valueSource(Object.fromEntries(entries), style));
+      this.edit(source, start, node.end, objectSource(entries, this.style(source, start)));
       return;
     }
     const trailing = node.properties.hasTrailingComma;
@@ -456,16 +730,16 @@ class Planner {
       // On lines of their own, before the closing brace, so a comment after the last one stays with it.
       const base = indentAt(source, last.getStart(source));
       const style = { ...this.style(source, start), base };
-      const lines = entries.map(([key, value]) => `${base}${keySource(key)}: ${valueSource(value, style)},\n`);
+      const lines = entries.map(([key, value]) => `${base}${keySource(key)}: ${written(value, style)},\n`);
       if (!trailing) this.edit(source, last.end, last.end, ',');
       const at = source.getPositionOfLineAndCharacter(braceLine, 0);
       this.edit(source, at, at, lines.join(''));
       return;
     }
     const style = this.style(source, start);
-    const written = entries.map(([key, value]) => `${keySource(key)}: ${valueSource(value, style)}`).join(', ');
-    if (trailing) this.edit(source, node.properties.end, node.properties.end, ` ${written},`);
-    else this.edit(source, last.end, last.end, `, ${written}`);
+    const fields = entries.map(([key, value]) => `${keySource(key)}: ${written(value, style)}`).join(', ');
+    if (trailing) this.edit(source, node.properties.end, node.properties.end, ` ${fields},`);
+    else this.edit(source, last.end, last.end, `, ${fields}`);
   }
 }
 

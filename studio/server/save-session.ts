@@ -138,7 +138,14 @@ export function pageOrigins(
   };
   const placed = (sites: Record<string, SettingSite[]>) =>
     Object.fromEntries(
-      Object.entries(sites).map(([name, held]) => [name, held.map((site) => ({ ...site, file: inRoot(site.file) }))]),
+      Object.entries(sites).map(([name, held]) => [
+        name,
+        held.map((site): SettingSite => ({
+          ...site,
+          file: inRoot(site.file),
+          ...(site.readBy ? { readBy: site.readBy.map((each) => ({ ...each, file: inRoot(each.file) })) } : {}),
+        })),
+      ]),
     );
   return {
     profiles: read(found.profiles, names.profiles, source.profiles),

@@ -90,13 +90,19 @@ function place(change: SaveChange): string {
 /** Why a change inside a constant is not written: who else reads the constant, and the way through. */
 function constantReason(change: SaveChange): string {
 	const name = change.name ?? 'a constant';
-	if (change.readByCode || !change.sharedWith?.length) {
-		const also = change.readByCode ? ', which other code reads too' : '';
-		return `Set by ${name} in ${place(change)}${also}. Change it there.`;
-	}
+	const also = change.readByCode ? ' Other code reads it too.' : '';
+	if (!change.sharedWith?.length) return `Set by ${name} in ${place(change)}. Change it there.${also}`;
 	const others = change.sharedWith.join(', ');
 	const hold = change.sharedWith.length > 1 ? 'do' : 'does';
-	return `${name} in ${place(change)} is shared with ${others}, which ${hold} not hold this change. Make it on each, or change it there.`;
+	return `${name} in ${place(change)} is shared with ${others}, which ${hold} not hold this change. Make it on each, or change it there.${also}`;
+}
+
+/** The values Save writes that other code reads too, each once: `resultSchema in result.ts:3`. */
+function readElsewhere(changes: readonly SaveChange[]): string[] {
+	const held = changes
+		.filter((change) => change.status === 'written' && change.readByCode)
+		.map((change) => `${change.name ? `${change.name} in ` : ''}${place(change)}`);
+	return [...new Set(held)];
 }
 
 /** Why one change is not written, and what the builder does about it. */
@@ -207,6 +213,7 @@ function ReviewBody({ review, view }: { review: SaveReview; view: ReviewView }) 
 	const [picked, setPicked] = useState<string>();
 	const { files } = review;
 	const blocked = review.changes.filter((change) => change.status !== 'written');
+	const elsewhere = readElsewhere(review.changes);
 	const shown = files.find((file) => file.file === picked) ?? files[0];
 	// One file reads the same either way.
 	const byFile = view === 'file' && files.length > 1;
@@ -216,6 +223,13 @@ function ReviewBody({ review, view }: { review: SaveReview; view: ReviewView }) 
 				<Text color="secondary">Nothing here changes what your files set.</Text>
 			)}
 			<BlockedChanges changes={blocked} />
+			{elsewhere.length > 0 && (
+				<Banner
+					status="info"
+					title="Other code in your project reads what this changes."
+					description={`${elsewhere.join(', ')}. That code runs on the new value once you save.`}
+				/>
+			)}
 			{byFile
 				? shown && (
 						<VStack gap={2}>

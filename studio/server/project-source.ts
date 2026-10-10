@@ -509,13 +509,45 @@ export interface ConstantUsers {
   tools: Set<string>;
   /** Code that is not a profile, a tool or another constant reads it. */
   code: boolean;
+  /** Each place that code reads it. None for a function nothing the studio reads calls. */
+  readBy: Located[];
 }
 
-/** Whether a call writes `child` out: an argument of a call the studio reads through, or the project function called. */
+/**
+ * The methods of a schema that return the schema again, changed: `LIMITS.optional()` and
+ * `RESULT.extend({ … })` still write `LIMITS` and `RESULT` out.
+ */
+const SCHEMA_METHODS = new Set([
+  'describe',
+  'meta',
+  'optional',
+  'nullable',
+  'nullish',
+  'default',
+  'array',
+  'extend',
+  'partial',
+  'required',
+  'pick',
+  'omit',
+  'strict',
+  'passthrough',
+  'loose',
+  'catchall',
+  'refine',
+  'superRefine',
+  'check',
+  'brand',
+  'readonly',
+  'or',
+  'and',
+]);
+
+/** Whether a call writes `child` out: an argument of a call the studio reads through, the project function called, or a schema a method is called on. */
 function passes(project: ProjectSource, call: ts.CallExpression, child: ts.Node): boolean {
   const callee = call.expression;
   const ours = ts.isIdentifier(callee) && functionOf(project, call.getSourceFile(), callee.text) !== undefined;
-  if (child === callee) return ours;
+  if (child === callee) return ours || (ts.isPropertyAccessExpression(callee) && SCHEMA_METHODS.has(callee.name.text));
   if (!call.arguments.some((argument) => argument === child)) return false;
   return ours || isModelCall(call) || calleeName(call) === 'defineProfile';
 }
@@ -535,6 +567,18 @@ function isWrittenIn(project: ProjectSource, node: ts.Node, value: ts.Expression
     if (!data) return false;
   }
   return true;
+}
+
+/**
+ * Whether a value other code reads is a name that code knows something by: a profile's id, or the
+ * id a provider is defined with. The studio does not rename those.
+ */
+export function isHeldId(kind: 'profile' | 'tool', path: readonly string[], at: Located): boolean {
+  if (kind === 'profile' && path.length === 1 && path[0] === 'id') return true;
+  const property = at.node.parent;
+  const call = property.parent.parent;
+  return ts.isPropertyAssignment(property) && propertyName(property) === 'id' &&
+    ts.isCallExpression(call) && calleeName(call) === 'defineProvider';
 }
 
 /** Whether `at` is written inside a call's options. */
@@ -568,7 +612,7 @@ export function usersOf(project: ProjectSource, binding: Binding): ConstantUsers
   USERS.set(project, known);
   const cached = known.get(binding.initializer);
   if (cached) return cached;
-  const users: ConstantUsers = { profiles: new Set(), tools: new Set(), code: false };
+  const users: ConstantUsers = { profiles: new Set(), tools: new Set(), code: false, readBy: [] };
   const seen = new Set<ts.Expression>();
   const follow = (each: Binding) => {
     if (seen.has(each.initializer)) return;
@@ -584,7 +628,10 @@ export function usersOf(project: ProjectSource, binding: Binding): ConstantUsers
       for (const profile of profiles) users.profiles.add(profile);
       for (const tool of tools) users.tools.add(tool);
       if (holder) follow(holder);
-      else if (!profiles.length && !tools.length) users.code = true;
+      else if (!profiles.length && !tools.length) {
+        users.code = true;
+        users.readBy.push(read);
+      }
     }
   };
   follow(binding);
@@ -646,7 +693,7 @@ export function sharedSettings(project: ProjectSource): SharedSetting[] {
     for (const binding of constantsOf(source)) {
       const users = usersOf(project, binding);
       if (users.profiles.size + users.tools.size < 2) continue;
-      const key = users.code || users.tools.size ? undefined : wholeKey(project, binding);
+      const key = users.tools.size ? undefined : wholeKey(project, binding);
       shared.push({
         name: binding.name,
         label: readableName(binding.name),

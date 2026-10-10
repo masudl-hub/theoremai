@@ -417,8 +417,29 @@ are not in the files, and a button, Review and save.
   edit to a shared setting in one profile shows in the others at once. If
   they differ, the review names the constant, its `file:line`, and the ones
   that do not hold the change.
-- A constant that other code reads too is not written. The review names it
-  and its `file:line`.
+- A constant that other code reads too is written like any other (10 Oct,
+  Masud). The dialog that asks before a shared change names the lines of
+  code that read it, and the review says other code reads what Save changes.
+  One exception: an id or a name that other code knows a profile or a tool
+  by is not written.
+- Save writes a tool's input and output schemas in the Zod that sets them
+  (10 Oct, Masud). It follows a schema through constants, imports,
+  `.extend()` and a helper that returns its argument.
+  - Changed where it is written: a description, the values of an enum,
+    whether a field can be left out (`.optional()`), a field added or taken
+    away, and whether an object takes other fields (`z.object`,
+    `z.strictObject`, `z.looseObject`).
+  - A field whose kind or limits change is written again whole, when it is
+    written out in plain Zod with no names in it.
+  - A schema that several tools share follows the rule for a shared constant:
+    the studio makes the change on each tool, and Save writes it once.
+  - Left for code, and named in the review with its `file:line`: a part that
+    uses `.transform()`, `.pick()`, `.omit()`, `.default()` or another call
+    the studio does not read through; a schema that is not Zod; a tool with
+    no `input` or `output` key; a field added to a shared schema that one
+    tool extends.
+  - After the write the studio loads the files and compares each tool with
+    what the builder tested. If they differ, the files are put back.
 - Save follows what a value is built from (10 Oct): a function of the project
   that only returns a value, an object spread from a constant, a key named by
   a constant, a list that is a copy of one list, and a provider's `.model()`
@@ -480,11 +501,11 @@ Shared.
   profiles use it, and where it is declared. The same line shows when the
   builder reaches the section from the list of profiles, with "Open".
 - Any other shared constant is listed and marked "edited in your code": one
-  smaller than a section, one a tool reads, or one other code reads.
+  smaller than a section, or one a tool reads.
 
 Built (D12): a setting the files set in code is shown, greyed, and takes no
-edit. This is a call, a template, a spread, a constant other code reads, or
-a tool's schemas and handler. Under it is one line that says what sets it
+edit. This is a call, a template, a spread, a tool's handler, or a tool's
+schema that is not Zod the studio follows. Under it is one line that says what sets it
 and where (`Set in code · stepsFor(PLAN) · setup.ts:34`), with "Open".
 
 - Open starts the builder's editor on that line: the one `--editor` names,
@@ -668,9 +689,7 @@ as a removed file. The same three proofs run, and undo puts every line and
 file back. When the files register it in a way the studio cannot follow, the
 review names the place and Save does not write.
 
-Not built: editing those in the studio. Changing a tool's schema once it
-is in a file: it reads as set in code, like every tool the project has.
-The project's formatter after the write. Markdown instruction files. A
+Not built: editing those in the studio. The project's formatter after the write. Markdown instruction files. A
 type-check for a project that is not Deno.
 
 - How often can a setting in Bonsai be traced to one exact place in the

@@ -174,7 +174,7 @@ Deno.test('a constant only this profile reads is changed where it is set, in its
   );
 });
 
-Deno.test('a constant something else reads too is not written: the plan names it and who shares it', () => {
+Deno.test('a constant other code reads too is written, and says so; one a profile shares waits for that profile', () => {
   const second = `import { defineProfile, registerTool } from '@theoremjs/agents';
 import { LIMITS, NESTED } from './shared.ts';
 import './setup.ts';
@@ -190,7 +190,10 @@ export const copy = () => NESTED.canaries.length;
   const { plan } = saved(files, USED, RESET);
   assertEquals(
     plan.edits.map((edit) => [edit.file, edit.text]),
-    [['/project/setup.ts', '9']],
+    [
+      ['/project/setup.ts', '9'],
+      ['/project/shared.ts', "'b'"],
+    ],
   );
   assertEquals(
     plan.changes
@@ -205,9 +208,9 @@ export const copy = () => NESTED.canaries.length;
         readByCode,
       ]),
     [
-      ['nested', 'constant', 'NESTED', '/project/shared.ts', 6, undefined, true],
       // Named as it is declared, not by the name this file imports it under.
       ['guardrails', 'constant', 'LIMITS', '/project/shared.ts', 2, ['shop', 'list'], undefined],
+      ['nested.canaries.0', 'written', undefined, '/project/shared.ts', 5, undefined, true],
     ],
   );
 });

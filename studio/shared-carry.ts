@@ -1,20 +1,24 @@
 /**
- * A change to a value the project's files write once, made on every agent
- * that shares it. The files hold one value, so the workspace does too.
+ * A change to a value the project's files write once, made on every agent or
+ * tool that shares it. The files hold one value, so the workspace does too.
+ * The same stop names the other code that reads the value, when some does.
  *
  * @module
  */
 
 import { agentToolInputSchema, compileStudio } from './compile.ts';
-import { draftKey, type ModelBindingDraft } from './draft.ts';
-import type { SettingSite } from './server/save-wire.ts';
+import { draftKey, type ModelBindingDraft, type ToolSpecDraft } from './draft.ts';
+import type { SettingSite, SourcePlace } from './server/save-wire.ts';
 import { type AgentDraft, agentDraft, type StudioWorkspace } from './workspace.ts';
 
-/** Where each profile's shared values are written, by the profile's id in the files. */
+/** Where each profile's or tool's shared values are written, by the id or name the files know it by. */
 export type SharedSites = Record<string, readonly SettingSite[]>;
 
 /** Each agent as it last compiled, by key: its draft then, and the profile that draft compiles to. */
 export type SharedSnapshot = Map<string, { draft: AgentDraft; profile: unknown }>;
+
+/** Each tool as it last compiled, by key: its draft then, and what that draft registers. */
+export type ToolSnapshot = Map<string, { draft: ToolSpecDraft; tool: unknown }>;
 
 /** What a change to a shared value reached. */
 export interface SharedReach {
@@ -33,6 +37,10 @@ export interface SharedReach {
    * once they hold it too.
    */
   left: string[];
+  /** Set for a tool's value: the other tools the change was made on, and the ones left as they are, by key. */
+  amongTools?: { made: string[]; left: string[] };
+  /** Set when other code reads the value too: each line that reads it. None when the studio cannot name one. */
+  readBy?: SourcePlace[];
 }
 
 /** A change to tools of the library that other agents allow too: a tool is one thing for all of them. */
@@ -49,7 +57,9 @@ export interface SharedCarry {
   workspace: StudioWorkspace;
   /** What the next change is read against. */
   snapshot: SharedSnapshot;
-  /** Set when the change was made somewhere other than where the builder made it. */
+  /** The same for the tools, when the project's tools share values. */
+  tools?: ToolSnapshot;
+  /** Set when the change reaches past where the builder made it: other agents or tools, or other code. */
   reach?: SharedReach;
 }
 
@@ -65,6 +75,19 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  * models the studio's keys may call is a rule for a run, and does not change a profile's shape.
  */
 function profileOf(workspace: StudioWorkspace, key: string): unknown {
+  const result = compiledOf(workspace, key);
+  return result?.ok ? result.profile : undefined;
+}
+
+type Compiled = ReturnType<typeof compileStudio>;
+
+/** A workspace does not change, so each of its agents compiles once. */
+const COMPILED = new WeakMap<StudioWorkspace, Map<string, Compiled | undefined>>();
+
+function compiledOf(workspace: StudioWorkspace, key: string): Compiled | undefined {
+  const known = COMPILED.get(workspace) ?? new Map<string, Compiled | undefined>();
+  COMPILED.set(workspace, known);
+  if (known.has(key)) return known.get(key);
   const draft = agentDraft(workspace, key);
   const idOf = (other: string) => workspace.agents.find((agent) => agent.key === other)?.identity.agentId.trim();
   const inputOf = (other: string) => {
@@ -72,7 +95,8 @@ function profileOf(workspace: StudioWorkspace, key: string): unknown {
     return called && agentToolInputSchema(called);
   };
   const result = draft && compileStudio(draft, 'byok', idOf, inputOf);
-  return result?.ok ? result.profile : undefined;
+  known.set(key, result);
+  return result;
 }
 
 /**
@@ -184,11 +208,14 @@ export function withSharedCarry(good: SharedSnapshot, made: StudioWorkspace, sit
 
   const owed = new Map<string, Owed | null>();
   const left = new Set<string>();
+  /** Each place a change is written that other code reads too, and the agent it was made in. */
+  const read: Array<{ site: SettingSite; from: string }> = [];
   for (const agent of made.agents) {
     const [before, after] = [good.get(agent.key)?.profile, now.get(agent.key)];
     if (before === undefined || after === undefined) continue;
     for (const path of changedPaths(before, after)) {
       const site = writerOf(sitesOf(agent.key), path);
+      if (site?.readBy) read.push({ site, from: agent.key });
       if (!site?.shared) continue;
       const rest = path.slice(site.path.length);
       const value = valueAt(after, path);
@@ -212,7 +239,12 @@ export function withSharedCarry(good: SharedSnapshot, made: StudioWorkspace, sit
   }
   const all = [...owed.values()].filter((each): each is Owed => each !== null);
   const [first] = all;
-  if (!first) return { workspace: made, snapshot: plain() };
+  if (!first) {
+    const [code] = read;
+    if (!code) return { workspace: made, snapshot: plain() };
+    // Nothing else holds the value, but other code reads it.
+    return { workspace: made, snapshot: plain(), reach: { ...placeOf(read.map((each) => each.site)), from: code.from, agents: [], left: [] } };
+  }
 
   const drafts = new Map(edited);
   for (const each of all) {
@@ -244,13 +276,192 @@ export function withSharedCarry(good: SharedSnapshot, made: StudioWorkspace, sit
     workspace,
     snapshot,
     reach: {
-      sites: [...new Set(done.map((each) => each.site.site))],
-      ...(first.site.name ? { name: first.site.name } : {}),
-      file: first.site.file,
-      line: first.site.line,
+      ...placeOf([...done.map((each) => each.site), ...read.map((each) => each.site)]),
       from: first.from,
       agents: [...kept.keys()].filter((key) => key !== first.from),
       left: [...left].filter((key) => key !== first.from),
+    },
+  };
+}
+
+/** What a reach says of the places a change is written: each one, where the first is, and the code that reads them. */
+function placeOf(sites: readonly SettingSite[]): Pick<SharedReach, 'sites' | 'name' | 'file' | 'line' | 'readBy'> {
+  const [first] = sites;
+  const lines = new Map(
+    sites.flatMap((site) => site.readBy ?? []).map((each) => [`${each.file}:${String(each.line)}`, each]),
+  );
+  return {
+    sites: [...new Set(sites.map((site) => site.site))],
+    ...(first?.name ? { name: first.name } : {}),
+    file: first?.file ?? '',
+    line: first?.line ?? 0,
+    ...(sites.some((site) => site.readBy) ? { readBy: [...lines.values()] } : {}),
+  };
+}
+
+/** Each tool an agent that compiles allows, by key, as that agent registers it. */
+function toolsOf(workspace: StudioWorkspace): Map<string, unknown> {
+  const byName = new Map<string, unknown>();
+  for (const agent of workspace.agents) {
+    const result = compiledOf(workspace, agent.key);
+    if (result?.ok) for (const tool of result.customTools) byName.set(tool.name, tool);
+  }
+  const held = new Map<string, unknown>();
+  for (const tool of workspace.toolSpecs) {
+    const registered = byName.get(tool.toolName.trim());
+    if (registered !== undefined) held.set(tool.key, registered);
+  }
+  return held;
+}
+
+/**
+ * Each tool of `workspace` as it registers now. One that does not compile keeps what `before`
+ * holds for it, so a change made while it did not is still read once it does.
+ */
+export function toolSnapshot(workspace: StudioWorkspace, before?: ToolSnapshot): ToolSnapshot {
+  const now = toolsOf(workspace);
+  const snapshot: ToolSnapshot = new Map();
+  for (const draft of workspace.toolSpecs) {
+    const tool = now.get(draft.key);
+    const held = tool === undefined ? before?.get(draft.key) : { draft, tool };
+    if (held) snapshot.set(draft.key, held);
+  }
+  return snapshot;
+}
+
+/** A tool's schema as the draft holds it, by the key the tool is registered with. */
+const SCHEMA_FIELDS: Record<string, 'inputJson' | 'outputJson'> = { inputSchema: 'inputJson', outputSchema: 'outputJson' };
+
+/** `value` with `to` at `path`. Nothing at the path takes the key away. */
+function putAt(value: unknown, path: Path, to: unknown): unknown {
+  const [key, ...rest] = path;
+  if (key === undefined) return to;
+  if (Array.isArray(value)) return value.map((each, index) => (String(index) === key ? putAt(each, rest, to) : each));
+  const next: Record<string, unknown> = { ...(isRecord(value) ? value : {}) };
+  const inner = putAt(next[key], rest, to);
+  if (inner === undefined) delete next[key];
+  else next[key] = inner;
+  return next;
+}
+
+/** `tool` with what `owed` names changed as the edited tool changed it. Undefined when its schema does not read. */
+function toolWithOwed(tool: ToolSpecDraft, owed: Owed, was: ToolSpecDraft, now: ToolSpecDraft): ToolSpecDraft | undefined {
+  const [head, ...rest] = owed.path;
+  const schema = SCHEMA_FIELDS[head ?? ''];
+  if (schema) {
+    try {
+      return { ...tool, [schema]: JSON.stringify(putAt(JSON.parse(tool[schema]), rest, owed.value), null, 2) };
+    } catch {
+      return undefined;
+    }
+  }
+  const next = { ...tool } as Record<string, unknown>;
+  for (const field of Object.keys(now) as (keyof ToolSpecDraft)[]) {
+    if (field === 'key' || field === 'toolName' || field === 'inputJson' || field === 'outputJson') continue;
+    next[field] = carried(was[field], now[field], tool[field]);
+  }
+  return next as unknown as ToolSpecDraft;
+}
+
+/**
+ * `made`, with each change since `good` to a value tools share made on every tool that shares it:
+ * a schema several tools take, a list they all name. A change is carried only when the tool then
+ * registers with that value there and nothing else new: otherwise the tool is left as it is, and
+ * Save names it. A tool no agent allows is not registered here, so it is not read.
+ */
+export function withToolCarry(
+  good: ToolSnapshot,
+  made: StudioWorkspace,
+  sites: SharedSites,
+): { workspace: StudioWorkspace; snapshot: ToolSnapshot; reach?: SharedReach } {
+  const now = toolsOf(made);
+  const sitesOf = (key: string) => sites[made.starts.tools[key]?.toolName ?? ''] ?? [];
+  const edited = new Map(made.toolSpecs.map((tool) => [tool.key, tool]));
+  const plain = () => toolSnapshot(made, good);
+
+  const owed = new Map<string, Owed | null>();
+  const read: Array<{ site: SettingSite; from: string }> = [];
+  for (const tool of made.toolSpecs) {
+    const [before, after] = [good.get(tool.key)?.tool, now.get(tool.key)];
+    if (before === undefined || after === undefined) continue;
+    for (const path of changedPaths(before, after)) {
+      const site = writerOf(sitesOf(tool.key), path);
+      if (site?.readBy) read.push({ site, from: tool.key });
+      if (!site?.shared) continue;
+      const rest = path.slice(site.path.length);
+      const value = valueAt(after, path);
+      for (const other of made.toolSpecs) {
+        for (const place of sitesOf(other.key)) {
+          if (place.site !== site.site) continue;
+          const target = [...place.path, ...rest];
+          // What the other sets apart inside the shared value is its own.
+          if (writerOf(sitesOf(other.key), target)?.site !== site.site) continue;
+          const held = now.get(other.key);
+          if (held !== undefined && same(valueAt(held, target), value)) continue;
+          const id = text([other.key, target]);
+          const mine = { key: other.key, path: target, from: tool.key, fromPath: path, value, site };
+          const known = owed.get(id);
+          // Two tools changed one value two ways: neither is carried.
+          if (known === undefined) owed.set(id, mine);
+          else if (known && !same(known.value, value)) owed.set(id, null);
+        }
+      }
+    }
+  }
+  const all = [...owed.values()].filter((each): each is Owed => each !== null);
+  const [first] = all;
+  if (!first) {
+    const [code] = read;
+    if (!code) return { workspace: made, snapshot: plain() };
+    const amongTools = { made: [], left: [] };
+    return {
+      workspace: made,
+      snapshot: plain(),
+      reach: { ...placeOf(read.map((each) => each.site)), from: code.from, agents: [], left: [], amongTools },
+    };
+  }
+
+  const drafts = new Map(edited);
+  const left = new Set<string>();
+  for (const each of all) {
+    const [old, held, tool] = [good.get(each.from)?.draft, edited.get(each.from), drafts.get(each.key)];
+    const next = old && held && tool && now.get(each.key) !== undefined ? toolWithOwed(tool, each, old, held) : undefined;
+    if (next) drafts.set(each.key, next);
+    else left.add(each.key);
+  }
+  const next = { ...made, toolSpecs: made.toolSpecs.map((tool) => drafts.get(tool.key) ?? tool) };
+
+  // Each tool has to hold what it is owed, and nothing else new.
+  const after = toolsOf(next);
+  const kept = new Map<string, unknown>();
+  for (const key of new Set(all.map((each) => each.key))) {
+    if (left.has(key)) continue;
+    const mine = all.filter((each) => each.key === key);
+    const [before, held] = [now.get(key), after.get(key)];
+    const holds = before !== undefined && held !== undefined &&
+      same(changedPaths(before, held).map(text).sort(), mine.map((each) => text(each.path)).sort()) &&
+      mine.every((each) => same(valueAt(held, each.path), each.value));
+    if (holds) kept.set(key, held);
+    else left.add(key);
+  }
+  const toolSpecs = made.toolSpecs.map((tool) => (kept.has(tool.key) ? drafts.get(tool.key) ?? tool : tool));
+  const workspace = kept.size ? { ...made, toolSpecs } : made;
+  const snapshot = plain();
+  for (const tool of toolSpecs) {
+    if (kept.has(tool.key)) snapshot.set(tool.key, { draft: tool, tool: kept.get(tool.key) });
+  }
+  return {
+    workspace,
+    snapshot,
+    reach: {
+      ...placeOf([...all.map((each) => each.site), ...read.map((each) => each.site)]),
+      from: first.from,
+      agents: [],
+      left: [],
+      amongTools: {
+        made: [...kept.keys()].filter((key) => key !== first.from),
+        left: [...left].filter((key) => key !== first.from),
+      },
     },
   };
 }
@@ -297,12 +508,26 @@ export function sharedAsk(
         `and will change with ${one ? 'it' : 'them'}.`,
     };
   }
-  const [ids, left] = [idsOf(reach.agents), idsOf(reach.left)];
+  const toolNames = (keys: readonly string[]) =>
+    keys.map((key) => workspace.toolSpecs.find((tool) => tool.key === key)?.toolName.trim())
+      .filter((name): name is string => Boolean(name));
+  const among = reach.amongTools;
+  const [ids, left] = among ? [toolNames(among.made), toolNames(among.left)] : [idsOf(reach.agents), idsOf(reach.left)];
+  const [one, many] = among ? ['tool', 'tools'] : ['profile', 'profiles'];
   const place = `${reach.name ? `${reach.name} · ` : ''}${reach.file}:${String(reach.line)}`;
+  // The other code that reads it, by line when the studio can name one.
+  const lines = reach.readBy?.map((each) => `${each.file}:${String(each.line)}`) ?? [];
+  const code = reach.readBy ? ` Other code in your project reads it too${lines.length ? ` (${listed(lines)})` : ''}.` : '';
   if (!ids.length && !left.length) {
+    if (reach.readBy) {
+      return {
+        title: 'Change it for your other code too?',
+        line: `${place} sets this once.${code} That code runs on the new value once you save.`,
+      };
+    }
     return {
-      title: 'Change it everywhere this profile uses it?',
-      line: `${place} sets this once, and this profile uses it in more than one place. Each of them changes.`,
+      title: `Change it everywhere this ${one} uses it?`,
+      line: `${place} sets this once, and this ${one} uses it in more than one place. Each of them changes.`,
     };
   }
   const changes = ids.length
@@ -312,11 +537,16 @@ export function sharedAsk(
   const waits = left.length
     ? ` ${listed(left)} ${left.length === 1 ? 'uses' : 'use'} it too, but ${left.length === 1 ? 'has' : 'have'} ` +
       `issues and ${left.length === 1 ? 'stays as it is' : 'stay as they are'}. ` +
-      'Fix them, then set this there too: Save writes it once every profile agrees.'
+      `Fix them, then set this there too: Save writes it once every ${one} agrees.`
     : '';
-  // The title says what agreeing does: a profile that is left as it is does not count.
+  // The title says what agreeing does: one that is left as it is does not count.
   const title = ids.length
-    ? `Change it for ${String(ids.length)} other ${ids.length === 1 ? 'profile' : 'profiles'}?`
-    : 'Change it for this profile only?';
-  return { title, line: `${place} sets this once.${changes}${waits}` };
+    ? `Change it for ${String(ids.length)} other ${ids.length === 1 ? one : many}?`
+    : `Change it for this ${one} only?`;
+  return { title, line: `${place} sets this once.${changes}${waits}${code}` };
+}
+
+/** Whether agreeing to a change makes it on others too: other agents, other tools. */
+export function reachesOthers(reach: SharedReach | ToolReach): boolean {
+  return reach.agents.length > 0 || ('amongTools' in reach && (reach.amongTools?.made.length ?? 0) > 0);
 }

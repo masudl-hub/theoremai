@@ -84,7 +84,6 @@ Deno.test('each setting the files set in code is read once, at the key that hold
   assertEquals(read(FILES), [
     'outputs.streaming | code | ...extra | setup.ts:18',
     'outputs | spread | ...extra | setup.ts:18 | validation',
-    'guardrails.quota | constant | LIMITS | shared.ts:4',
     'guardrails | spread | ...BASE_GUARDRAILS | setup.ts:17 | quota,blockedReply',
     'tools.allow.2 | code | pick() | setup.ts:16',
     'models.slow.timeoutMs | code | seconds(30) | shared.ts:2',
@@ -95,11 +94,27 @@ Deno.test('each setting the files set in code is read once, at the key that hold
   ]);
 });
 
-Deno.test('a tool sets its schemas and its handler in code', () => {
-  assertEquals(read(FILES, 'tools', 'list'), [
-    'handler | code | () => [] | setup.ts:26',
-    'inputSchema | code | input: z.object({}) | setup.ts:25',
-  ]);
+Deno.test('a constant other code reads too is open, and its place names each line that reads it', () => {
+  const sites = sourceOrigins(project(FILES)).sites?.profiles.desk ?? [];
+  assertEquals(sites.find((site) => site.name === 'LIMITS'), {
+    path: ['guardrails', 'quota'],
+    site: 2,
+    shared: false,
+    name: 'LIMITS',
+    file: '/project/shared.ts',
+    line: 4,
+    readBy: [{ file: '/project/shared.ts', line: 5 }],
+  });
+  const held = `import { defineProfile } from '@theoremjs/agents';
+const DESK = 'desk';
+defineProfile({ type: 'text', id: DESK });
+export const open = () => find(DESK);
+`;
+  assertEquals(read({ 'setup.ts': held }), ['id | constant | DESK | setup.ts:2']);
+});
+
+Deno.test('a tool sets its handler in code; its schema in Zod is open', () => {
+  assertEquals(read(FILES, 'tools', 'list'), ['handler | code | () => [] | setup.ts:26']);
 });
 
 Deno.test('a profile the files define twice is one origin, and a plain one has none', () => {
@@ -168,7 +183,7 @@ Deno.test('Save refuses a change wherever the reader finds an origin, and writes
     [
       'guardrails.quota.perDay',
       { ...before, guardrails: { ...before.guardrails, quota: { perDay: 9 } } },
-      'guardrails.quota: constant',
+      'guardrails.quota.perDay: written',
     ],
     [
       'guardrails.blockedReply',

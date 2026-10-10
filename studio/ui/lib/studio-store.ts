@@ -19,9 +19,12 @@ import {
 	STUDIO_WORKSPACE_VERSION,
 	type StudioDraft,
 	type StudioWorkspace,
+	type ToolSnapshot,
 	type ToolSpecDraft,
+	toolSnapshot,
 	withLibraryDraft,
 	withSharedCarry,
+	withToolCarry,
 } from '../../mod.ts';
 import {
 	isRecord,
@@ -127,6 +130,9 @@ interface StoreState {
 	sites: SharedSites | undefined;
 	/** Each agent as it last compiled: what a change to a shared value is read against. */
 	good: SharedSnapshot | undefined;
+	/** The same for the project's tools: where the files write what tools share, and each tool as it last compiled. */
+	toolSites: SharedSites | undefined;
+	goodTools: ToolSnapshot | undefined;
 	/** A change to a shared value, held until the builder says to make it. */
 	pending: { carry: SharedCarry; reach: SharedReach | ToolReach; by: DraftAuthor } | undefined;
 	/** The shared places and tools the builder said to change, while the same node stays open. */
@@ -198,11 +204,27 @@ function draftOf(state: StoreState): StudioDraft {
 	return view.draft;
 }
 
-/** `made`, with a change to a value the files write once made on every agent that shares it. */
+/** `made`, with a change to a value the files write once made on every agent or tool that shares it. */
 function sharedCarry(state: StoreState, made: StudioWorkspace): SharedCarry {
-	if (!state.sites) return { workspace: made, snapshot: NO_SNAPSHOT };
-	state.good ??= sharedSnapshot(state.workspace);
-	return withSharedCarry(state.good, made, state.sites);
+	let carry: SharedCarry = { workspace: made, snapshot: NO_SNAPSHOT };
+	if (state.sites) {
+		state.good ??= sharedSnapshot(state.workspace);
+		carry = withSharedCarry(state.good, made, state.sites);
+	}
+	if (!state.toolSites) return carry;
+	state.goodTools ??= toolSnapshot(state.workspace);
+	const tools = withToolCarry(state.goodTools, carry.workspace, state.toolSites);
+	// One question covers both: agreeing to it agrees to each place.
+	const reach =
+		carry.reach && tools.reach
+			? { ...carry.reach, sites: [...carry.reach.sites, ...tools.reach.sites] }
+			: (carry.reach ?? tools.reach);
+	return {
+		workspace: tools.workspace,
+		snapshot: carry.snapshot,
+		tools: tools.snapshot,
+		...(reach ? { reach } : {}),
+	};
 }
 
 /** Whether the builder said not to be asked again, for this tab. */
@@ -245,6 +267,7 @@ function updateWorkspace(
 function commitWorkspace(state: StoreState, carry: SharedCarry, by: DraftAuthor): StudioWorkspace {
 	state.pending = undefined;
 	if (state.sites) state.good = carry.snapshot;
+	if (state.toolSites) state.goodTools = carry.tools;
 	const before = draftOf(state);
 	const agentsBefore = state.workspace.agents.map((agent) => agent.key).join();
 	state.workspace = carry.workspace;
@@ -300,11 +323,13 @@ export type StudioStore = ReturnType<typeof createStudioStore>;
  * agent at a time, the focused one: `getDraft` and `updateDraft` read and write its draft, with
  * the whole tool library as its tools.
  */
-export function createStudioStore(initial: RestoredStudio, sites?: SharedSites) {
+export function createStudioStore(initial: RestoredStudio, sites?: SharedSites, toolSites?: SharedSites) {
 	const state: StoreState = {
 		workspace: initial.workspace,
 		sites,
 		good: undefined,
+		toolSites,
+		goodTools: undefined,
 		pending: undefined,
 		agreed: new Set(),
 		revision: initial.revision,
@@ -359,9 +384,11 @@ export function createStudioStore(initial: RestoredStudio, sites?: SharedSites) 
 		/** The reading of the project's files the starts stand on. */
 		standsOn: () => state.files,
 		/** Says where the files write each shared value now: after they are read again. */
-		setSites: (next: SharedSites | undefined) => {
+		setSites: (next: SharedSites | undefined, tools?: SharedSites) => {
 			state.sites = next;
 			state.good = undefined;
+			state.toolSites = tools;
+			state.goodTools = undefined;
 		},
 		/** What a held change to a shared value reaches. Undefined when none is held. */
 		getPending: (): SharedReach | ToolReach | undefined => state.pending?.reach,

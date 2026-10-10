@@ -202,10 +202,14 @@ export {
   type ToolReach,
   type SharedSites,
   type SharedSnapshot,
+  type ToolSnapshot,
+  reachesOthers,
   sharedAsk,
   toolReach,
   sharedSnapshot,
+  toolSnapshot,
   withSharedCarry,
+  withToolCarry,
 } from './shared-carry.ts';
 export { type DiffLine, lineDiff } from './line-diff.ts';
 export {

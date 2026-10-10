@@ -1389,7 +1389,9 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 	const [shared] = useState(() => sharedEntries(start.workspace, project?.shared ?? []));
 	// th30's tools read the store synchronously. The editor works on the open agent's draft, with the
 	// whole tool library.
-	const [store] = useState(() => createStudioStore(start, project?.origins.sites?.profiles));
+	const [store] = useState(() =>
+		createStudioStore(start, project?.origins.sites?.profiles, project?.origins.sites?.tools),
+	);
 	const workspace = useSyncExternalStore(store.subscribe, store.getWorkspace, store.getWorkspace);
 	const draft = useSyncExternalStore(store.subscribe, store.getDraft, store.getDraft);
 	const setDraft = useCallback(
@@ -1417,9 +1419,9 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 	const { files, refreshOrigins, filesChanged, conflict, settle, showConflict, watchFiles } =
 		useProjectFiles(project, store);
 	// Where the files write each shared value, as they were last read.
-	const sites = files?.origins.sites?.profiles;
+	const sites = files?.origins.sites;
 	useEffect(() => {
-		store.setSites(sites);
+		store.setSites(sites?.profiles, sites?.tools);
 	}, [store, sites]);
 	return {
 		store,

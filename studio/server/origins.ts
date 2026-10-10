@@ -1,7 +1,10 @@
 /**
  * Which of a project's settings its files set in code. The studio shows those
- * and does not change them, and says where each one is. It reads the same way
- * Save plans a change (`save-plan.ts`), so what a row says is what Save would do.
+ * and does not change them, and says where each one is. It also says where each
+ * value others read too is written, so a change to one is asked about first. It
+ * reads the same way Save plans a change (`save-plan.ts`), so what a row says is
+ * what Save would do. A tool's schema is open when it reads as Zod: Save changes
+ * it there, and says in its review which part, if any, is left for code.
  *
  * @module
  */
@@ -10,6 +13,7 @@ import ts from 'typescript';
 import {
   followed,
   holderOf,
+  isHeldId,
   isInCall,
   isInTarget,
   type Located,
@@ -23,7 +27,8 @@ import {
   usersOf,
 } from './project-source.ts';
 import { NOT_PLAIN, plain } from './save-plan.ts';
-import type { ProjectOrigins, SettingOrigin, SettingSite } from './save-wire.ts';
+import type { ProjectOrigins, SettingOrigin, SettingSite, SourcePlace } from './save-wire.ts';
+import { readZod, type ZodRead, zodObject } from './zod-edit.ts';
 
 /** The most of an expression a row shows. */
 const TEXT_LENGTH = 48;
@@ -38,7 +43,7 @@ function lineOf(node: ts.Node, source: ts.SourceFile): number {
   return source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
 }
 
-/** A tool's schemas are its `input` and `output` in the file, and Zod objects there. */
+/** A tool's schemas are its `input` and `output` in the file, written in Zod there. */
 const TOOL_SCHEMAS: Record<string, string> = { input: 'inputSchema', output: 'outputSchema' };
 
 /** Something a file writes, in that file. */
@@ -50,7 +55,10 @@ interface Written {
   at: Place;
   /** The constant or function that holds the place, when one does. */
   name?: string;
+  /** Each line of other code that reads that constant too. */
+  readBy?: SourcePlace[];
 }
+
 
 class Reader {
   readonly found: SettingOrigin[] = [];
@@ -116,7 +124,8 @@ class Reader {
 
   /**
    * A value written somewhere other than where the walk is. In the target's own call it is the
-   * target's. In a constant or a function it is read there, unless other code reads that too.
+   * target's. In a constant or a function it is read there, with each line of other code that
+   * reads it too.
    */
   private enter(origin: Located, path: string[], from: Place) {
     if (isInTarget(this.target, origin) || isInCall(this.target, origin)) {
@@ -126,10 +135,14 @@ class Reader {
     }
     const holder = holderOf(origin);
     if (!holder) this.note('code', path, from);
-    else if (usersOf(this.project, holder).code) {
-      this.note('constant', path, { node: holder.initializer.parent, source: holder.source }, { text: holder.name });
-    } else {
-      this.written.push({ path, at: origin, name: holder.name });
+    else {
+      const users = usersOf(this.project, holder);
+      if (users.code && isHeldId(this.kind, path, origin)) {
+        this.note('constant', path, { node: holder.initializer.parent, source: holder.source }, { text: holder.name });
+        return;
+      }
+      const readBy = users.readBy.map((read): SourcePlace => ({ file: read.source.fileName, line: lineOf(read.node, read.source) }));
+      this.written.push({ path, at: origin, name: holder.name, ...(users.code ? { readBy } : {}) });
       this.walk(origin, path);
     }
   }
@@ -142,8 +155,10 @@ class Reader {
       const schema = this.kind === 'tool' && path.length === 0 ? TOOL_SCHEMAS[entry.key] : undefined;
       const here = [...path, schema ?? entry.key];
       const place = entry.property ? { node: entry.property, source: entry.source } : at;
-      if (schema) this.note('code', here, place);
-      // A spread, or a key the file computes: what the object holds past it is not written here.
+      if (schema) {
+        if (entry.value && !(open && !open.after.has(entry.key))) this.schema(entry.value, here, place);
+        else this.note('code', here, place);
+      } // A spread, or a key the file computes: what the object holds past it is not written here.
       else if (open && !open.after.has(entry.key)) this.note('code', here, open);
       else if (!entry.value) this.note('code', here, place);
       else if (entry.property && ts.isShorthandPropertyAssignment(entry.property)) this.named(entry.value, here);
@@ -151,6 +166,56 @@ class Reader {
       else this.enter(entry.value, here, place);
     }
     if (open) this.note('spread', path, open, { written: [...open.after] });
+  }
+
+  /** A tool's schema. One that does not read as Zod is code's to change. */
+  private schema(at: Located, path: string[], place: Place) {
+    const read = readZod(this.project, at);
+    if (read) this.zod(read, path, this.target.options);
+    else this.note('code', path, place);
+  }
+
+  /**
+   * Each constant a schema is written in, at the part of the schema it writes: the schema several
+   * tools take, a field's schema a constant holds. The place is the part's own `z.` call, so two
+   * tools that reach one call hold one value. `within` is what holds the schema around this one:
+   * the target's own call, or a constant.
+   */
+  private zod(read: ZodRead, path: string[], within: ts.Node) {
+    /** Notes `node` at `at` when another constant than `outer` holds it, and says which one does. */
+    const reach = (node: ts.Node, source: ts.SourceFile, at: string[], outer: ts.Node): ts.Node => {
+      const place = { node: node as ts.Expression, source };
+      if (isInTarget(this.target, place)) return this.target.options;
+      if (this.target.call && isInCall(this.target, place)) return this.target.call.node;
+      const holder = holderOf(place);
+      if (!holder || holder.initializer === outer) return outer;
+      const users = usersOf(this.project, holder);
+      const readBy = users.readBy.map((each): SourcePlace => ({ file: each.source.fileName, line: lineOf(each.node, each.source) }));
+      this.written.push({ path: at, at: { node, source }, name: holder.name, ...(users.code ? { readBy } : {}) });
+      return holder.initializer;
+    };
+    const { base } = read;
+    const around = reach(base.call, base.source, path, within);
+    const inside = (node: ts.Expression, at: string[]) => {
+      const part = readZod(this.project, { node, source: base.source, ...(base.env ? { env: base.env } : {}) });
+      if (part) this.zod(part, at, around);
+    };
+    const [first] = base.call.arguments;
+    const list = first && base.name === 'union' ? unwrapped(first) : undefined;
+    if (first && base.name === 'array' && !ts.isSpreadElement(first)) inside(first, [...path, 'items']);
+    if (list && ts.isArrayLiteralExpression(list)) {
+      list.elements.forEach((member, index) => {
+        if (!ts.isSpreadElement(member)) inside(member, [...path, 'anyOf', String(index)]);
+      });
+    }
+    const object = zodObject(this.project, read);
+    if (!object) return;
+    for (const entry of object.entries.values()) {
+      const part = entry.value && readZod(this.project, entry.value);
+      if (part) this.zod(part, [...path, 'properties', entry.key], around);
+    }
+    // Which fields an extended object needs is its own to say.
+    if (object.extended) reach(object.own.node, object.own.source, [...path, 'required'], around);
   }
 }
 
@@ -212,21 +277,23 @@ export function sourceOrigins(project: ProjectSource, decisions: readonly string
   };
   const [profiles, tools] = [read('profile', project.profiles), read('tool', project.tools)];
   for (const id of decisions) profiles.origins[id] = [...(profiles.origins[id] ?? []), questionsOrigin(project, id)];
-  /** The places more than one setting reads, and under each of them the ones a setting has to itself. */
+  /** The places something else reads too, and under each of them the ones a setting has to itself. */
   const sites = (written: Record<string, Written[]>) => {
     const sites: Record<string, SettingSite[]> = {};
     for (const [name, held] of Object.entries(written)) {
       const shared = held.filter(({ at }) => (places.get(at.node)?.held ?? 0) > 1);
-      const under = (path: string[]) => shared.some((each) => each.path.every((key, index) => path[index] === key));
-      const kept = held.filter((each) => shared.includes(each) || under(each.path));
-      if (!shared.length) continue;
-      sites[name] = kept.map(({ path, at, name: holder }): SettingSite => ({
+      const reached = held.filter((each) => shared.includes(each) || each.readBy);
+      const under = (path: string[]) => reached.some((each) => each.path.every((key, index) => path[index] === key));
+      const kept = held.filter((each) => under(each.path));
+      if (!reached.length) continue;
+      sites[name] = kept.map(({ path, at, name: holder, readBy }): SettingSite => ({
         path,
         site: places.get(at.node)?.site ?? 0,
         shared: shared.some((each) => each.at.node === at.node),
         ...(holder ? { name: holder } : {}),
         file: at.source.fileName,
         line: lineOf(at.node, at.source),
+        ...(readBy ? { readBy } : {}),
       }));
     }
     return sites;

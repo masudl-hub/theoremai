@@ -19,7 +19,7 @@ Spec: `tmp/specs/tool-system.md` (working design notes — not published docs)
 | `askUser` catalog builtin | `ask_user` harness tool (`registerHarnessTools`) |
 | Per-turn `loadTier` / `permissionTier` on declarations | `loadTier` / `permission` on each registered tool |
 | Per-turn `dynamicToolLoader` (T2 schemas) | `tools.t2Loader` + `{ loaded }` |
-| Per-turn T1 conditional wiring | `profile.tools.t1Policy` |
+| Per-turn conditional wiring at turn start | `profile.tools.t1Policy` |
 | `TurnRequest.toolLoader` | `profile.tools.t1Policy` |
 | Hand-authored JSON Schema on turns | Zod `input` / `output` at registration |
 | `CATALOG.tools` monolith | `registerTool`, `getTool`, `listTools` |
@@ -32,7 +32,7 @@ Spec: `tmp/specs/tool-system.md` (working design notes — not published docs)
 
 ```ts
 import { z } from 'zod';
-import { registerTool, registerHarnessTools } from '@theoremai/agents';
+import { registerTool, registerHarnessTools } from '@theoremjs/agents';
 
 registerHarnessTools(); // ask_user, etc.
 
@@ -63,11 +63,11 @@ tools: {
 // models.*.builtInTools: ['googleSearch']
 ```
 
-Set **`loadTier`** on each registered tool (`T0` / `T1` / `T2`).
+Set **`loadTier`** on each registered tool: `T0` (every turn) or `T2` (on demand).
 
 ### 3. Turn — no per-tool gate
 
-Eligibility is allow / `builtInTools`. Visibility is `loadTier` (+ `tools.t1Policy` for T1, `tools.t2Loader` for T2).
+Eligibility is allow / `builtInTools`. Visibility is `loadTier`: a `T2` tool is picked at turn start by `tools.t1Policy` or loaded mid-turn by `tools.t2Loader`.
 
 ```ts
 runTurn({
@@ -96,7 +96,7 @@ invokeTool({
 `resume.granted === true` skips permission / confirm / `preTool` re-ask. `resume.granted === false`
 settles as deny (failure + `post_tool`, live upstream tool response) without running the body.
 `resume.value` is **not** used for gates or `ask_user` (awaiting answers are a new user turn).
-It does **not** bypass T1/T2 load checks — ensure `tools.t1Policy` / `promoted` cover
+It does **not** bypass T2 load checks — ensure `tools.t1Policy` / `promoted` cover
 resume when needed. T0 gated calls may resume without rebuilding the snapshot. Direct
 invoke requires the tool on `tools.allow`.
 
@@ -135,7 +135,7 @@ Do **not** use `continueFrom` for tool gates — use `invokeTool`.
 | Old `ToolEnvelope` | New stream |
 | --- | --- |
 | `status: 'ok'` | `tool.phase: 'complete'` |
-| `status: 'pause'` (confirm / permission / auth) | `tool.phase: 'gate'` (+ `gate.kind`); resume via `invokeTool` / `executeTool` with `resume.granted: true` (allow) or `false` (deny settle) |
+| `status: 'pause'` (confirm / permission / auth) | `tool.phase: 'gate'` (+ `gate.kind`); resume via `invokeTool` with `resume.granted: true` (allow) or `false` (deny settle); on live, `executeTool({ callId, decision })` |
 | `status: 'pause'` (interactive / ask_user) | `tool.phase: 'complete'` with awaiting / `awaiting_user_input` — not a gate |
 | `status: 'error'` | `tool.phase: 'error'` (+ `failure.code`) |
 

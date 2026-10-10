@@ -1,66 +1,51 @@
-import type { ToolGate, ToolPermission } from '../../../src/kernel/mod.ts';
+import type { ToolGate } from '@theoremjs/agents/kernel';
+import { sessionPermissionsAfterApproval } from '@theoremjs/agents/kernel';
 
 export type ToolDecisionAction = 'allow' | 'deny';
 
 export type ToolGateResolution =
-	| { action: ToolDecisionAction }
-	/** Signed in: `secret` is a key the user typed; after an OAuth callback there is none. */
-	| { action: 'auth'; secret?: string };
+  | { action: ToolDecisionAction }
+  /** Signed in: `secret` is a key the user typed; after an OAuth callback there is none. */
+  | { action: 'auth'; secret?: string }
+  /** The page answered a `page` gate: no person decides it. */
+  | { action: 'page'; page: PagePart };
 
-export type InvokeToolResumeInput = {
-	value?: unknown;
-	granted?: boolean;
-};
+/** What the page sends for a call it was asked to answer: its output, or that nothing here answers the tool. */
+export type PagePart = { output: unknown } | { unanswered: true };
+
+/** An answer on its way to the gate on `callId`; the gate shows it until the answer settles or fails. */
+export type AnsweringGate = { callId: string; action: PersonGateResolution['action'] };
+
+/** An answer a person gives: every resolution but the page's own. */
+export type PersonGateResolution = Exclude<ToolGateResolution, { action: 'page' }>;
 
 /**
- * Session permissions after the user approves a gated call. The registrant's tier decides:
- * a `session_consent` approval lasts the session; any other gate is approved for this call only.
+ * What the browser sends for the user's answer to a gate. The host settles a
+ * refusal; an approval carries the permissions the session holds after it,
+ * by the rule the host applies (`sessionPermissionsAfterApproval`).
  */
-export function sessionPermissionsAfterApproval(
-	sessionPermissions: readonly string[],
-	toolName: string,
-	permission?: ToolPermission,
-): string[] {
-	if (permission !== 'session_consent' || sessionPermissions.includes(toolName)) {
-		return [...sessionPermissions];
-	}
-	return [...sessionPermissions, toolName];
-}
-
-/** Gate resume always uses `granted: true` (ask_user answers are a new user turn). */
-export function buildInvokeToolResume(_gateKind?: ToolGate['kind']): InvokeToolResumeInput {
-	return { granted: true };
-}
-
 export type GatedToolContinue =
-	| { kind: 'denied' }
-	| { kind: 'auth'; secret?: string }
-	| {
-			kind: 'continue';
-			resume: InvokeToolResumeInput;
-			sessionPermissions: string[];
-	  };
+  | { decision: 'deny' }
+  | { decision: 'approve'; secret?: string; page?: PagePart; sessionPermissions: string[] };
 
 export function continueGatedToolInvocation(args: {
-	toolName: string;
-	gate: Pick<ToolGate, 'kind' | 'permission'>;
-	sessionPermissions: readonly string[];
-	resolution: ToolGateResolution;
+  toolName: string;
+  gate: Pick<ToolGate, 'permission'>;
+  sessionPermissions: readonly string[];
+  resolution: ToolGateResolution;
 }): GatedToolContinue {
-	if (args.resolution.action === 'deny') {
-		return { kind: 'denied' };
-	}
-	if (args.resolution.action === 'auth') {
-		return { kind: 'auth', secret: args.resolution.secret };
-	}
-
-	return {
-		kind: 'continue',
-		sessionPermissions: sessionPermissionsAfterApproval(
-			args.sessionPermissions,
-			args.toolName,
-			args.gate.permission,
-		),
-		resume: buildInvokeToolResume(args.gate.kind),
-	};
+  if (args.resolution.action === 'deny') return { decision: 'deny' };
+  const { resolution } = args;
+  return {
+    decision: 'approve',
+    ...(resolution.action === 'auth' && resolution.secret !== undefined
+      ? { secret: resolution.secret }
+      : {}),
+    ...(resolution.action === 'page' ? { page: resolution.page } : {}),
+    sessionPermissions: sessionPermissionsAfterApproval(
+      args.sessionPermissions,
+      args.toolName,
+      args.gate.permission,
+    ),
+  };
 }

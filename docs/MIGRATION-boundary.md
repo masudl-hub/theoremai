@@ -2,19 +2,49 @@
 
 Breaking cut. No deprecation aliases.
 
-## Removed: playground entrypoint
+## Removed: studio entrypoint
 
-Demo fixtures moved to the **repo-private** package `@theoremai/playground`
-(`playground/` in the repo). It is never published.
+Demo fixtures moved to the **repo-private** package `@theoremjs/studio`
+(`studio/` in the repo). It is never published.
 
 ```diff
-- import { demoToolSpecs } from '@theoremai/playground';
-+ import { demoToolSpecs } from '@theoremai/playground';
+- import { demoToolSpecs } from '@theoremjs/studio';
++ import { demoToolSpecs } from '@theoremjs/studio';
 ```
 
-Hosts link it with `"@theoremai/playground": "file:../theoremai/playground"`.
-`PLAYGROUND_AUTH_TYPES` / `PlaygroundAuthType` remain on `@theoremai/agents/schema`
+Hosts link it with `"@theoremjs/studio": "file:../theoremai/studio"`.
+`STUDIO_AUTH_TYPES` / `StudioAuthType` remain on `@theoremjs/agents/schema`
 (authoring vocabulary, not demo product).
+
+## Changed: one vault, slots are yours to name
+
+`KEY_SLOTS`, `OVERFLOW_KEY_SLOTS` and `OverflowKeySlot` are removed, and `paid`
+means nothing. A slot is any name you pick (`KEY_SLOT_NAME`); a vault holds as
+many as you fill. The host passes one `vault` for every provider, and a slot
+holds whatever secret you put there.
+
+| Before | After |
+| --- | --- |
+| `createProvider(p, { gemini: { vault }, openAiGateway: { vault } })` | `createProvider(p, { vault })`; `gemini` takes only `fetch` / `wait` (`GeminiOptions`, was `GeminiTransport`) |
+| `runSession(req, { gemini: { vault } })` | `runSession(req, { vault })` |
+| `runDecision` / decision handler `keyVault` | `vault` |
+| `openAiGateway.apiKey` | A vault slot named on the model (`models.*.key`) or the profile (`key`); `openAiGateway` keeps only `baseUrl`, `siteUrl`, `siteName`, `fetch`, `voice` |
+| Decision `apiKey` (`runDecision`, `createTheoremDecisionHandler`, eval `judgeDecision`) | `vault`; the slot the decision profile names reads it |
+| A model with no slot used the flat key | Every non-local model must name a slot: `defineProfile` refuses a `google`, `openrouter` or decision model with neither `models.*.key` nor the profile's `key` |
+| Local models took no key | A local model that names a slot sends that key as a bearer token |
+| A quota refusal retried on the vault's `paid` key by itself | Retries once only on the slot the profile names in `fallbackKey` (or `models.*.fallbackKey`), for every provider |
+| `googleSearch` switched a model to `paid` (`forcePaidKey`) | No tool picks a key; pin the slot on the model with `key` |
+| `theorem.key_slot` options labelled Key A/B/C and Paid key | The slot's own name |
+
+```diff
+- createProvider(profile, { gemini: { vault: { slotA, slotB, slotC, paid } } })
++ createProvider(profile, { vault: { main, spare } })
+  defineProfile({
+-   key: 'slotA',
++   key: 'main',
++   fallbackKey: 'spare',
+  })
+```
 
 ## Removed: `quotaMessage`
 
@@ -51,31 +81,30 @@ process-wide with `overrideLexicon({ … })`; the profile wins.
 
 ## Composer labels are semantic keys
 
-The repo-private `src/interface/` layer emits `ComposerPrimaryAction` /
+The headless interface (`@theoremjs/agents/interface`) emits `ComposerPrimaryAction` /
 `ComposerMenuAction` keys only (`send` / `stop` / `queue` / …). English labels
-live in the React package's default UI (`@theoremai/react/ui`), as
-`@theorem.composer.menu.*` lines in `THEOREM_UI_CATALOG`. Neither surface is
-published for now.
+live in the React package's default UI (`@theoremjs/react/ui`), as
+`@theorem.composer.menu.*` lines in `THEOREM_UI_CATALOG`.
 
 ## React: headless hooks, failures, and default wording
 
 The headless React layer (`client/`, `hooks/`, `components/`, `server/`) holds
 no English. It reports kinds, codes, and states; the profile's lexicon words
-failures; the default UI (`@theoremai/react/ui`) words its own chrome, and a
+failures; the default UI (`@theoremjs/react/ui`) words its own chrome, and a
 builder with their own UI owns every line.
 
 | Was | Now |
 | --- | --- |
 | `useTheoremChat` → `error`, `errorInternal`; `useTheoremInterface` → `error` | `failure: ClientFailure \| null` (`{ error, errorKind, errorInternal? }`); `error` is the profile lexicon's wording |
-| Composer drop notices (`attachmentsDroppedMessage`, `imagesDroppedMessage`) | `issues: AttachmentValidationIssue[]` (`too_many_files`); word each with `attachmentIssueText(issue, iface.lexicon)` from `@theoremai/agents` |
-| `attachmentIssueText` from `@theoremai/react` | `attachmentIssueText` from `@theoremai/agents` (kernel) |
+| Composer drop notices (`attachmentsDroppedMessage`, `imagesDroppedMessage`) | `issues: AttachmentValidationIssue[]` (`too_many_files`); word each with `attachmentIssueText(issue, iface.lexicon)` from `@theoremjs/agents` |
+| `attachmentIssueText` from `@theoremjs/react` | `attachmentIssueText` from `@theoremjs/agents` (kernel) |
 | `liveStateLabel` (client) | `liveState(args)` → `LiveState` key; the default wording is `@theorem.live.state.*` in `ui/labels` |
 | Live runner `error`, `stateLabel` | `failure`, `liveState`, `activeTool` |
 | Composer voice `voiceError` | `failure: VoiceFailure` (`code`: `unsupported` / `permission` / `unavailable` / `failed` / `empty` / `too_many_files`) |
 | `workStatusLabel`, drawer `label`, hint `message` / `actionLabel` | `workStatus` → `{ phase, elapsedMs? }`, drawer `parts`, hint `id`; wording in `ui/labels` (`@theorem.transcript.work*`, `@theorem.composer.drawer.*`, `@theorem.composer.hint.*`) |
 | `voiceLabelFromMime`, `voiceFormatLabel` | `voiceFormatFromMime` → format or `undefined`; the default UI words it with `@theorem.voice_note.name` / `.unnamed` |
 | Default UI chrome constants (`COMPOSER_PRIMARY_LABELS`, `COMPOSER_MENU_ACTION_LABELS`, `COMPOSER_HINT_LABELS`, `VOICE_NOTE_LABEL`, …) | `THEOREM_UI_CATALOG` (`@theorem.*` Astryx i18n keys); replace any line, and Astryx's own `@astryx.*` lines, with the `labels` prop on `TheoremChat` / `LiveRunner` |
-| Playground transports' `failureLabel` option | Removed; failures carry their kind |
+| Studio transports' `failureLabel` option | Removed; failures carry their kind |
 | `TheoremStreamError(message, …)` | `TheoremStreamError(kind, publicMessage?, internalMessage?)` |
 | Handler stream `{ type: 'error', error }` | `{ type: 'error', error, errorKind }`, as on every error reply |
 | A Live close whose reason names a quota (setup refused with 1011, "You exceeded your current quota") → `unavailable`; the Live open never tried `paid` | `rate_limit`; a setup refused for quota on a free slot reopens once on the vault's distinct `paid` key, as HTTP 429 does (trace: `theorem.session { kind: "key_overflow" }`) |

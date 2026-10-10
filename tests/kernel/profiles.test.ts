@@ -1,31 +1,38 @@
 import { assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { runSession } from '../../src/kernel/engine/session/mod.ts';
 import {
   clearProfiles,
-  defineProfile,
   getProfile,
   hasProfile,
   listProfiles,
+  projectProfile,
   registerProfile,
   registerProfiles,
-} from '../../src/kernel/registry/profiles.ts';
-import {
-  isModelProfile,
-  projectProfile,
-  requireModelProfile,
+  registerTool,
   resolveTurn,
-} from '../../src/kernel/registry/resolve.ts';
-import { registerTool } from '../../src/kernel/tools/mod.ts';
+  runSession,
+} from '../../src/kernel/default-scope.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { isModelProfile, requireModelProfile } from '../../src/kernel/registry/resolve.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { resolveTurnTools } from '../../src/kernel/tools/resolve.ts';
 import type { ModelProvider } from '../../src/kernel/types.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { googleEfforts, registerGooglePreset } from '../../src/presets/google.ts';
 import { geminiModels, HOST_BINDINGS, modelBindings } from '../fixtures/models.ts';
+import { createTestKernelScope } from '../fixtures/provider-scope.ts';
+import { runTurn } from '../fixtures/registered-runner.ts';
 
 registerGooglePreset();
-
+Deno.test('googleEfforts passes the levels Gemini takes and refuses the rest when the binding is built', () => {
+  const efforts = { quick: 'low', deep: 'high' } as const;
+  assertEquals(googleEfforts(efforts), efforts);
+  assertThrows(
+    () => googleEfforts({ big: 'xhigh' } as unknown as Record<'big', 'high'>),
+    TheoremError,
+    "does not take 'xhigh'",
+  );
+});
 Deno.test('defineProfile preserves explicit typed fields without defaults', () => {
   const profile = defineProfile({
     id: 'host_profile',
@@ -39,32 +46,66 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
       },
     },
     maxSteps: 1,
-    key: 'slotA',
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: null },
-    guardrails: { canary: true, sanitizeInput: true },
     observability: { writeTo: false, sampleRate: 0.5 },
   });
-
   assertEquals(profile.id, 'host_profile');
   assertEquals(profile.type, 'text');
-  assertEquals(profile.models.gemini35FlashLite.protocol, 'geminiInteractions');
+  assertEquals(Object.hasOwn(profile.models.gemini35FlashLite, 'protocol'), false);
   assertEquals(profile.observability?.writeTo, false);
   assertEquals(profile.observability?.sampleRate, 0.5);
   assertEquals(profile.models.gemini35FlashLite.provider, 'google');
   assertEquals(profile.maxSteps, 1);
-  assertEquals(profile.key, 'slotA');
+  assertEquals(profile.models.gemini35FlashLite.keySlot, 'slot_a');
   assertEquals(profile.identity.handle, 'host_profile');
   if (profile.type !== 'text') throw new Error('Expected text profile');
   assertEquals(profile.tools.allow, []);
   assertEquals(profile.inputs.text, true);
   assertEquals(profile.outputs?.structured, null);
-  assertEquals(profile.guardrails?.canary, true);
   assertEquals(profile.observability?.writeTo, false);
   assertEquals(profile.observability?.sampleRate, 0.5);
 });
-
+Deno.test('defineProfile takes any thinking level of the vocabulary on Gemini, and refuses an unknown one', () => {
+  const define = (level: string) =>
+    defineProfile({
+      id: 'gemini_effort',
+      type: 'text',
+      identity: { handle: 'gemini_effort' },
+      models: {
+        gemini35FlashLite: {
+          ...HOST_BINDINGS.gemini35FlashLite,
+          efforts: { normal: 'low', odd: level as 'max' },
+        },
+      },
+      tools: { allow: [] },
+      inputs: { text: true },
+    });
+  define('max');
+  assertThrows(
+    () => define('extreme'),
+    TheoremError,
+    "effort 'odd': 'extreme' is not a thinking level",
+  );
+});
+Deno.test('defineProfile takes every thinking level on OpenRouter', () => {
+  const profile = defineProfile({
+    id: 'openrouter_effort',
+    type: 'text',
+    identity: { handle: 'openrouter_effort' },
+    models: {
+      sonar: {
+        ...HOST_BINDINGS.sonar,
+        efforts: { off: 'none', most: 'max' },
+        defaultEffort: 'off',
+      },
+    },
+    tools: { allow: [] },
+    inputs: { text: true },
+  });
+  assertEquals(profile.models.sonar.efforts, { off: 'none', most: 'max' });
+});
 Deno.test('defineProfile rejects observability.sampleRate outside 0–1', () => {
   assertThrows(
     () =>
@@ -73,7 +114,6 @@ Deno.test('defineProfile rejects observability.sampleRate outside 0–1', () => 
         type: 'text',
         identity: { handle: 'bad_obs' },
         models: modelBindings('gemini35FlashLite'),
-        key: 'slotA',
         tools: { allow: [] },
         inputs: { text: true },
         observability: { writeTo: false, sampleRate: 2 },
@@ -82,9 +122,61 @@ Deno.test('defineProfile rejects observability.sampleRate outside 0–1', () => 
     'sampleRate',
   );
 });
-
-Deno.test('defineProfile rejects a non-integer or negative egress count', () => {
-  for (const egress of [{ holdback: -1 }, { holdback: 1.5 }, { maxRetries: -2 }]) {
+Deno.test('defineProfile refuses a guardrails key it does not know, and checks allow lists and blockedReply', () => {
+  const profile = (guardrails: Record<string, unknown>) => () =>
+    defineProfile({
+      id: 'egress_checks',
+      type: 'text',
+      identity: { handle: 'egress_checks' },
+      models: modelBindings('gemini35FlashLite'),
+      tools: { allow: [] },
+      inputs: { text: true },
+      guardrails: guardrails as never,
+    });
+  assertThrows(
+    profile({ egress: { enforce: () => ({ action: 'allow' }) } }),
+    TheoremError,
+    'guardrails.egress is not a setting; it takes quota, detect, blockedReply, network, taint',
+  );
+  assertThrows(
+    profile({ detect: { ungiven_images: { allow: { imageHosts: [] } } } }),
+    TheoremError,
+    'guardrails.detect.ungiven_images.allow.imageHosts is not a setting of allow',
+  );
+  assertThrows(
+    profile({ detect: { ungiven_links: { allow: { hosts: ['https://docs.acme.io'] } } } }),
+    TheoremError,
+    'guardrails.detect.ungiven_links.allow.hosts lists',
+  );
+  assertThrows(
+    profile({ detect: { marker_leak: { allow: { hosts: [] } } } }),
+    TheoremError,
+    'is a setting of ungiven_images, ungiven_links and tool_leak only',
+  );
+  assertThrows(
+    profile({ blockedReply: { retries: 2 } }),
+    TheoremError,
+    'guardrails.blockedReply.retries is not a setting; it takes onBlock and maxRetries',
+  );
+  assertThrows(
+    profile({ blockedReply: { onBlock: 'refuse_to_user' } }),
+    TheoremError,
+    'guardrails.blockedReply.onBlock must be one of retry, refuse',
+  );
+  profile({ detect: { marker_leak: 'ignore', ungiven_images: 'ignore' } })();
+  profile({
+    detect: {
+      marker_leak: 'ignore',
+      ungiven_links: { action: 'block', allow: { hosts: ['docs.acme.io'] } },
+    },
+    blockedReply: { onBlock: 'refuse', maxRetries: 0 },
+  })();
+});
+Deno.test('defineProfile rejects a non-integer or negative blockedReply.maxRetries', () => {
+  for (const guardrails of [
+    { blockedReply: { maxRetries: -2 } },
+    { blockedReply: { maxRetries: 1.5 } },
+  ]) {
     assertThrows(
       () =>
         defineProfile({
@@ -92,40 +184,26 @@ Deno.test('defineProfile rejects a non-integer or negative egress count', () => 
           type: 'text',
           identity: { handle: 'bad_egress' },
           models: modelBindings('gemini35FlashLite'),
-          key: 'slotA',
           tools: { allow: [] },
           inputs: { text: true },
-          guardrails: { egress: { enforce: () => ({ action: 'allow' }), ...egress } },
+          guardrails,
         }),
       TheoremError,
       'must be a non-negative integer',
     );
   }
 });
-
-Deno.test('defineProfile rejects illegal protocol/provider pairs', () => {
-  assertThrows(
-    () =>
-      defineProfile({
-        id: 'bad_pair',
-        type: 'text',
-        identity: { handle: 'bad_pair' },
-        models: {
-          gemini35FlashLite: {
-            ...modelBindings('gemini35FlashLite').gemini35FlashLite,
-            protocol: 'openAi',
-            provider: 'google',
-          },
-        },
-        key: 'slotA',
-        tools: { allow: [] },
-        inputs: { text: true },
-      }),
-    Error,
-    "protocol 'openAi' is not valid for provider 'google'",
-  );
+Deno.test('defineProfile accepts an external provider ID as plain data', () => {
+  const profile = defineProfile({
+    id: 'external',
+    type: 'text',
+    tools: { allow: [] },
+    inputs: { text: true },
+    identity: { handle: 'External' },
+    models: { default: { provider: 'company-custom', apiId: 'deployment' } },
+  });
+  assertEquals(profile.models.default.provider, 'company-custom');
 });
-
 Deno.test('defineProfile keeps omitted optional fields omitted', () => {
   const profile = defineProfile({
     id: 'bare_host_profile',
@@ -135,7 +213,6 @@ Deno.test('defineProfile keeps omitted optional fields omitted', () => {
     tools: { allow: [] },
     inputs: { text: true },
   });
-
   assertEquals(profile.models.gemini35FlashLite.defaultEffort, 'normal');
   if (profile.type !== 'text') throw new Error('Expected text profile');
   assertEquals(profile.tools.allow, []);
@@ -143,7 +220,6 @@ Deno.test('defineProfile keeps omitted optional fields omitted', () => {
   assertEquals(profile.outputs, undefined);
   assertEquals(profile.guardrails, undefined);
 });
-
 Deno.test('registerProfile accepts explicit typed profile definitions', () => {
   registerProfile({
     id: 'minimal_host_bot',
@@ -153,7 +229,6 @@ Deno.test('registerProfile accepts explicit typed profile definitions', () => {
     tools: { allow: [] },
     inputs: { text: true },
   });
-
   const profile = getProfile('minimal_host_bot');
   assertEquals(profile.type, 'text');
   if (profile.type !== 'text') throw new Error('Expected text profile');
@@ -163,7 +238,6 @@ Deno.test('registerProfile accepts explicit typed profile definitions', () => {
   assertEquals(profile.outputs, undefined);
   assertEquals(profile.guardrails, undefined);
 });
-
 Deno.test('registerProfile and getProfile manage runtime profile lifecycle', () => {
   const profile = defineProfile({
     id: 'custom_bot',
@@ -174,7 +248,6 @@ Deno.test('registerProfile and getProfile manage runtime profile lifecycle', () 
     inputs: { text: true },
     guardrails: { quota: { perDay: 50 } },
   });
-
   registerProfile(profile);
   assertEquals(hasProfile('custom_bot'), true);
   assertEquals(getProfile('custom_bot').id, 'custom_bot');
@@ -183,7 +256,6 @@ Deno.test('registerProfile and getProfile manage runtime profile lifecycle', () 
     true,
   );
 });
-
 Deno.test('registerProfiles handles batch registration', () => {
   const p1 = defineProfile({
     id: 'bot_alpha',
@@ -203,12 +275,10 @@ Deno.test('registerProfiles handles batch registration', () => {
     inputs: { text: true },
     guardrails: { quota: { perDay: 20 } },
   });
-
   registerProfiles([p1, p2]);
   assertEquals(hasProfile('bot_alpha'), true);
   assertEquals(hasProfile('bot_beta'), true);
 });
-
 Deno.test('registerProfile validates media limits if attachments are enabled', () => {
   const invalidProfile = defineProfile({
     id: 'invalid_media_bot',
@@ -219,7 +289,6 @@ Deno.test('registerProfile validates media limits if attachments are enabled', (
     inputs: { text: true, attachments: { accept: ['image/png'] } },
     guardrails: { quota: { perDay: 10 } },
   });
-
   assertThrows(
     () => {
       registerProfile(invalidProfile);
@@ -228,7 +297,32 @@ Deno.test('registerProfile validates media limits if attachments are enabled', (
     'must set maxFiles, maxBytes, and maxTurnBytes',
   );
 });
-
+Deno.test('registerProfile takes only positive whole media limits', () => {
+  const cases = [
+    [{ maxFiles: 0, maxBytes: 1024, maxTurnBytes: 4096 }, 'inputs.maxFiles'],
+    [{ maxFiles: 2, maxBytes: 1.5, maxTurnBytes: 4096 }, 'inputs.maxBytes'],
+    [{ maxFiles: 2, maxBytes: 1024, maxTurnBytes: -1 }, 'inputs.maxTurnBytes'],
+    [
+      { maxFiles: 2, maxBytes: 1024, maxTurnBytes: 4096, limitsByMime: { 'image/*': 0 } },
+      "inputs.limitsByMime['image/*']",
+    ],
+  ] as const;
+  for (const [limits, name] of cases) {
+    const profile = defineProfile({
+      id: 'media_limit_bot',
+      type: 'text',
+      identity: { handle: 'media_limit_bot' },
+      ...geminiModels('gemini35FlashLite'),
+      tools: { allow: [] },
+      inputs: { text: true, attachments: { accept: ['image/png'] }, ...limits },
+    });
+    assertThrows(
+      () => registerProfile(profile),
+      TheoremError,
+      `${name} must be a positive integer`,
+    );
+  }
+});
 Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles', () => {
   const liveBase = {
     id: 'live_shape_bot',
@@ -238,7 +332,6 @@ Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles'
     live: { voice: 'Aoede' },
     tools: { allow: [] },
   };
-
   assertThrows(
     () =>
       defineProfile({
@@ -248,7 +341,6 @@ Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles'
     Error,
     "type 'live' must not set inputs",
   );
-
   assertThrows(
     () =>
       defineProfile({
@@ -258,7 +350,6 @@ Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles'
     Error,
     "type 'live' must not set outputs",
   );
-
   assertThrows(
     () =>
       registerProfile(
@@ -270,7 +361,6 @@ Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles'
     Error,
     "type 'live' must not set tools.t2Loader",
   );
-
   assertThrows(
     () =>
       registerProfile(
@@ -283,16 +373,15 @@ Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles'
     "type 'live' must not set tools.t1Policy",
   );
 });
-
-Deno.test("registerProfile accepts T1/T2 tools on type 'live' and wires all of them", () => {
+Deno.test("registerProfile accepts T2 tools on type 'live' and wires all of them", () => {
   registerTool({
     type: 'function',
     name: 'live_t1_probe',
-    description: 'T1 tool wired at live setup',
+    description: 'T2 tool wired at live setup',
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     input: z.object({}),
     output: z.object({ finding: z.string() }),
@@ -324,7 +413,6 @@ Deno.test("registerProfile accepts T1/T2 tools on type 'live' and wires all of t
     output: z.object({ finding: z.string() }),
     handler: () => ({ finding: 'ok' }),
   });
-
   registerProfile(
     defineProfile({
       id: 'live_tier_bot',
@@ -335,9 +423,13 @@ Deno.test("registerProfile accepts T1/T2 tools on type 'live' and wires all of t
       tools: { allow: ['live_t0_probe', 'live_t1_probe', 'live_t2_probe'] },
     }),
   );
-
   const profile = getProfile('live_tier_bot');
-  const snapshot = resolveTurnTools(profile, { profile: profile.id }, 'gemini31FlashLive');
+  const snapshot = resolveTurnTools(
+    defaultKernelScope.tools,
+    profile,
+    { profile: profile.id },
+    'gemini31FlashLive',
+  );
   const allow = ['live_t0_probe', 'live_t1_probe', 'live_t2_probe'];
   assertEquals(snapshot.gated, allow);
   assertEquals(snapshot.visible, allow);
@@ -347,16 +439,15 @@ Deno.test("registerProfile accepts T1/T2 tools on type 'live' and wires all of t
     allow,
   );
 });
-
 Deno.test('live snapshot turns on every gated builtin regardless of loadTier', () => {
   registerTool({
     type: 'builtin',
     name: 'live_builtin_t1',
-    description: 'T1 builtin',
+    description: 'T2 builtin',
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     wire: { live: 'live_builtin_t1' },
   });
@@ -376,11 +467,15 @@ Deno.test('live snapshot turns on every gated builtin regardless of loadTier', (
     }),
   );
   const profile = getProfile('live_builtin_bot');
-  const snapshot = resolveTurnTools(profile, { profile: profile.id }, 'gemini31FlashLive');
+  const snapshot = resolveTurnTools(
+    defaultKernelScope.tools,
+    profile,
+    { profile: profile.id },
+    'gemini31FlashLive',
+  );
   assertEquals(snapshot.gated, ['live_builtin_t1']);
   assertEquals(snapshot.builtins, ['live_builtin_t1']);
 });
-
 Deno.test("registerProfile accepts a 'host' profile with only tools, guardrails, observability", () => {
   registerTool({
     type: 'function',
@@ -399,20 +494,24 @@ Deno.test("registerProfile accepts a 'host' profile with only tools, guardrails,
     type: 'host',
     id: 'host_ceiling',
     tools: { allow: ['host_probe'] },
-    guardrails: { sanitizeInput: true },
+    guardrails: { detect: { injection: 'flag' } },
     observability: { writeTo: false },
   });
   const profile = getProfile('host_ceiling');
   assertEquals(profile.type, 'host');
   if (profile.type !== 'host') throw new Error('Expected host profile');
   assertEquals(profile.tools.allow, ['host_probe']);
-  assertEquals(profile.guardrails?.sanitizeInput, true);
+  assertEquals(profile.guardrails?.detect, { injection: 'flag' });
   assertEquals(profile.observability?.writeTo, false);
   assertEquals('models' in profile, false);
   assertEquals('identity' in profile, false);
-
   // No tiers, no path gating: gated = visible = executable = allow; no builtins.
-  const snapshot = resolveTurnTools(profile, { profile: profile.id }, undefined);
+  const snapshot = resolveTurnTools(
+    defaultKernelScope.tools,
+    profile,
+    { profile: profile.id },
+    undefined,
+  );
   assertEquals(snapshot.gated, ['host_probe']);
   assertEquals(snapshot.visible, ['host_probe']);
   assertEquals(snapshot.executable, ['host_probe']);
@@ -422,33 +521,27 @@ Deno.test("registerProfile accepts a 'host' profile with only tools, guardrails,
     ['host_probe'],
   );
 });
-
 Deno.test('host profile accepts only the guardrails that fire on the invokeTool path', () => {
   registerProfile({
     type: 'host',
     id: 'host_guardrails_live',
     tools: { allow: [] },
     guardrails: {
-      sanitizeInput: false,
-      redactSensitive: true,
+      detect: { injection: 'ignore' },
       network: { allowPrivateNetworks: true, allowedHosts: ['example.test'] },
-      taint: { afterRemoteRead: 'write' },
     },
   });
   const profile = getProfile('host_guardrails_live');
   if (profile.type !== 'host') throw new Error('Expected host profile');
-  assertEquals(profile.guardrails?.sanitizeInput, false);
-  assertEquals(profile.guardrails?.redactSensitive, true);
+  assertEquals(profile.guardrails?.detect, { injection: 'ignore' });
   assertEquals(profile.guardrails?.network?.allowedHosts, ['example.test']);
-  assertEquals(profile.guardrails?.taint?.afterRemoteRead, 'write');
 });
-
 Deno.test('host profile rejects guardrails that only a model turn can run', () => {
   const base = { type: 'host' as const, id: 'host_guardrails_bad', tools: { allow: [] } };
   const cases: Array<[string, Record<string, unknown>]> = [
     ['quota', { quota: { perDay: 10 } }],
-    ['canary', { canary: true }],
-    ['egress', { egress: { enforce: () => ({ blocked: false }) } }],
+    ['blockedReply', { blockedReply: { onBlock: 'refuse' } }],
+    ['taint', { taint: { afterRemoteRead: 'write' } }],
   ];
   for (const [field, guardrails] of cases) {
     assertThrows(
@@ -458,7 +551,6 @@ Deno.test('host profile rejects guardrails that only a model turn can run', () =
     );
   }
 });
-
 Deno.test('host profile rejects models, identity, inputs, outputs, turnBehaviour, key, maxSteps', () => {
   const base = { type: 'host' as const, id: 'host_bad', tools: { allow: [] } };
   const cases: Array<[string, Record<string, unknown>]> = [
@@ -467,14 +559,14 @@ Deno.test('host profile rejects models, identity, inputs, outputs, turnBehaviour
     ['inputs', { inputs: { text: true } }],
     ['outputs', { outputs: {} }],
     ['turnBehaviour', { turnBehaviour: {} }],
-    ['key', { key: 'slotA' }],
+    ['key', { key: 'main' }],
     ['maxSteps', { maxSteps: 1 }],
   ];
   for (const [field, extra] of cases) {
     assertThrows(
       () => registerProfile({ ...base, ...extra } as Parameters<typeof registerProfile>[0]),
       Error,
-      `type 'host' must not set ${field}`,
+      field === 'key' ? 'provider configuration belongs' : `type 'host' must not set ${field}`,
     );
   }
   assertThrows(
@@ -492,7 +584,6 @@ Deno.test('host profile rejects models, identity, inputs, outputs, turnBehaviour
     "type 'host' never runs a model",
   );
 });
-
 Deno.test("resolveTurn, runTurn, runSession and projectProfile refuse a 'host' profile", async () => {
   registerProfile({ type: 'host', id: 'host_refusals', tools: { allow: [] } });
   assertThrows(() => resolveTurn({ profile: 'host_refusals' }), TheoremError, "type 'host'");
@@ -512,16 +603,11 @@ Deno.test("resolveTurn, runTurn, runSession and projectProfile refuse a 'host' p
     "type 'host'",
   );
   await assertRejects(
-    () =>
-      runSession(
-        { profile: 'host_refusals' },
-        { gemini: { vault: { slotA: 'k', slotB: undefined, slotC: undefined, paid: undefined } } },
-      ),
+    () => runSession({ profile: 'host_refusals' }, { vault: { main: 'k' } }),
     TheoremError,
     "type 'host'",
   );
 });
-
 Deno.test("isModelProfile and requireModelProfile refuse 'host' and 'decision' profiles", () => {
   registerProfile({ type: 'host', id: 'model_gate_host', tools: { allow: [] } });
   registerProfile(
@@ -529,7 +615,9 @@ Deno.test("isModelProfile and requireModelProfile refuse 'host' and 'decision' p
       type: 'decision',
       id: 'model_gate_decision',
       identity: { handle: 'Decision' },
-      models: { jev: { apiId: 'jev-latest', timeoutMs: 1000 } },
+      models: {
+        jev: { provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+      },
       inputs: { state: 'json', maxStateBytes: 1000 },
       decision: { contract: 'test.v1' },
     }),
@@ -559,7 +647,37 @@ Deno.test("isModelProfile and requireModelProfile refuse 'host' and 'decision' p
     "type 'decision' runs through runDecision",
   );
 });
-
+Deno.test('a slot-mapped structured output reads a declared slot and maps its choices', () => {
+  const base = {
+    type: 'text' as const,
+    id: 'slot_mapped',
+    identity: { handle: 'Slot mapped' },
+    ...geminiModels('gemini35FlashLite'),
+    tools: { allow: [] as string[] },
+  };
+  const structured = { by: 'language', map: { html: 'htmlTurn' }, fallback: 'htmlTurn' };
+  assertThrows(
+    () => defineProfile({ ...base, inputs: { text: true }, outputs: { structured } }),
+    TheoremError,
+    "outputs.structured.by 'language' is not a slot in inputs.slots",
+  );
+  assertThrows(
+    () =>
+      defineProfile({
+        ...base,
+        inputs: { text: true, slots: { language: ['tsx'] } },
+        outputs: { structured },
+      }),
+    TheoremError,
+    "outputs.structured.map maps html, not a choice of slot 'language'",
+  );
+  const ok = defineProfile({
+    ...base,
+    inputs: { text: true, slots: { language: ['html', 'tsx'] } },
+    outputs: { structured },
+  });
+  assertEquals(ok.type === 'text' && ok.outputs?.structured, structured);
+});
 Deno.test('getProfile throws for unknown profile', () => {
   assertThrows(
     () => {
@@ -569,7 +687,6 @@ Deno.test('getProfile throws for unknown profile', () => {
     "Unknown profile 'non_existent_profile'",
   );
 });
-
 Deno.test('clearProfiles empties the process-local registry', () => {
   const prior = listProfiles();
   registerProfile({
@@ -588,7 +705,6 @@ Deno.test('clearProfiles empties the process-local registry', () => {
   }
   assertEquals(hasProfile('temp_clear_bot'), false);
 });
-
 Deno.test('defineProfile accepts openrouter cache and rejects cache on google', () => {
   const ok = defineProfile({
     id: 'cache_or_bot',
@@ -597,35 +713,38 @@ Deno.test('defineProfile accepts openrouter cache and rejects cache on google', 
     models: {
       sonar: {
         ...HOST_BINDINGS.sonar,
-        cache: { mode: 'automatic', ttl: '1h' },
+        providerOptions: {
+          cache: { mode: 'automatic', ttl: '1h' },
+        },
       },
     },
     tools: { allow: [] },
     inputs: { text: true },
   });
-  assertEquals(ok.models.sonar.cache, { mode: 'automatic', ttl: '1h' });
-
+  assertEquals(ok.models.sonar.providerOptions?.cache, { mode: 'automatic', ttl: '1h' });
   assertThrows(
     () =>
-      defineProfile({
-        id: 'cache_google_bot',
-        type: 'text',
-        identity: { handle: 'cache_google_bot' },
-        models: {
-          gemini35FlashLite: {
-            ...HOST_BINDINGS.gemini35FlashLite,
-            cache: { mode: 'automatic' },
+      createTestKernelScope().profiles.register(
+        defineProfile({
+          id: 'cache_google_bot',
+          type: 'text',
+          identity: { handle: 'cache_google_bot' },
+          models: {
+            gemini35FlashLite: {
+              ...HOST_BINDINGS.gemini35FlashLite,
+              providerOptions: {
+                cache: { mode: 'automatic' },
+              },
+            },
           },
-        },
-        key: 'slotA',
-        tools: { allow: [] },
-        inputs: { text: true },
-      }),
+          tools: { allow: [] },
+          inputs: { text: true },
+        }),
+      ),
     Error,
-    'cache is only valid when protocol is',
+    'Unrecognized key',
   );
 });
-
 Deno.test('defineProfile accepts Interactions store/persist and rejects them on openrouter', () => {
   const ok = defineProfile({
     id: 'store_google_bot',
@@ -634,118 +753,150 @@ Deno.test('defineProfile accepts Interactions store/persist and rejects them on 
     models: {
       gemini35FlashLite: {
         ...HOST_BINDINGS.gemini35FlashLite,
-        store: true,
-        persistViaInteractionId: true,
+        providerOptions: {
+          store: true,
+          persistViaInteractionId: true,
+        },
       },
     },
-    key: 'slotA',
     tools: { allow: [] },
     inputs: { text: true },
   });
-  assertEquals(ok.models.gemini35FlashLite.store, true);
-  assertEquals(ok.models.gemini35FlashLite.persistViaInteractionId, true);
-
+  assertEquals(ok.models.gemini35FlashLite.providerOptions?.store, true);
+  assertEquals(ok.models.gemini35FlashLite.providerOptions?.persistViaInteractionId, true);
   assertThrows(
     () =>
-      defineProfile({
-        id: 'store_or_bot',
-        type: 'text',
-        identity: { handle: 'store_or_bot' },
-        models: {
-          sonar: {
-            ...HOST_BINDINGS.sonar,
-            store: true,
+      createTestKernelScope().profiles.register(
+        defineProfile({
+          id: 'store_or_bot',
+          type: 'text',
+          identity: { handle: 'store_or_bot' },
+          models: {
+            sonar: {
+              ...HOST_BINDINGS.sonar,
+              providerOptions: {
+                store: true,
+              },
+            },
           },
-        },
-        tools: { allow: [] },
-        inputs: { text: true },
-      }),
+          tools: { allow: [] },
+          inputs: { text: true },
+        }),
+      ),
     Error,
-    'store is only valid when protocol is',
+    'Unrecognized key',
   );
 });
-
 Deno.test('defineProfile accepts server on local bindings and rejects it elsewhere', () => {
-  const localBinding = { protocol: 'openAi', provider: 'local', apiId: 'qwen3:8b' } as const;
+  const localBinding = { provider: 'local', apiId: 'qwen3:8b' } as const;
   const ok = defineProfile({
     id: 'server_local_bot',
     type: 'text',
     identity: { handle: 'server_local_bot' },
-    models: { qwen: { ...localBinding, server: 'ollama' } },
+    models: {
+      qwen: {
+        ...localBinding,
+        providerOptions: {
+          server: 'ollama',
+        },
+      },
+    },
     tools: { allow: [] },
     inputs: { text: true },
   });
-  assertEquals(ok.models.qwen.server, 'ollama');
-
+  assertEquals(ok.models.qwen.providerOptions?.server, 'ollama');
   assertThrows(
     () =>
-      defineProfile({
-        id: 'server_or_bot',
-        type: 'text',
-        identity: { handle: 'server_or_bot' },
-        models: { sonar: { ...HOST_BINDINGS.sonar, server: 'ollama' } },
-        tools: { allow: [] },
-        inputs: { text: true },
-      }),
+      createTestKernelScope().profiles.register(
+        defineProfile({
+          id: 'server_or_bot',
+          type: 'text',
+          identity: { handle: 'server_or_bot' },
+          models: {
+            sonar: {
+              ...HOST_BINDINGS.sonar,
+              providerOptions: {
+                server: 'ollama',
+              },
+            },
+          },
+          tools: { allow: [] },
+          inputs: { text: true },
+        }),
+      ),
     Error,
-    "server is only valid when provider is 'local'",
+    'Unrecognized key',
   );
-
   assertThrows(
     () =>
-      defineProfile({
-        id: 'server_blank_bot',
-        type: 'text',
-        identity: { handle: 'server_blank_bot' },
-        models: { qwen: { ...localBinding, server: '  ' } },
-        tools: { allow: [] },
-        inputs: { text: true },
-      }),
+      createTestKernelScope().profiles.register(
+        defineProfile({
+          id: 'server_blank_bot',
+          type: 'text',
+          identity: { handle: 'server_blank_bot' },
+          models: {
+            qwen: {
+              ...localBinding,
+              providerOptions: {
+                server: '  ',
+              },
+            },
+          },
+          tools: { allow: [] },
+          inputs: { text: true },
+        }),
+      ),
     Error,
-    'server must be a non-empty string',
+    'Too small',
   );
 });
-
 Deno.test('defineProfile rejects invalid cache.mode and cache.ttl', () => {
   assertThrows(
     () =>
-      defineProfile({
-        id: 'cache_bad_mode',
-        type: 'text',
-        identity: { handle: 'cache_bad_mode' },
-        models: {
-          sonar: {
-            ...HOST_BINDINGS.sonar,
-            cache: { mode: 'nope' as 'automatic' },
+      createTestKernelScope().profiles.register(
+        defineProfile({
+          id: 'cache_bad_mode',
+          type: 'text',
+          identity: { handle: 'cache_bad_mode' },
+          models: {
+            sonar: {
+              ...HOST_BINDINGS.sonar,
+              providerOptions: {
+                cache: { mode: 'nope' as 'automatic' },
+              },
+            },
           },
-        },
-        tools: { allow: [] },
-        inputs: { text: true },
-      }),
+          tools: { allow: [] },
+          inputs: { text: true },
+        }),
+      ),
     Error,
-    'cache.mode must be one of',
+    'Invalid option',
   );
   assertThrows(
     () =>
-      defineProfile({
-        id: 'cache_bad_ttl',
-        type: 'text',
-        identity: { handle: 'cache_bad_ttl' },
-        models: {
-          sonar: {
-            ...HOST_BINDINGS.sonar,
-            cache: { mode: 'automatic', ttl: '2h' as '1h' },
+      createTestKernelScope().profiles.register(
+        defineProfile({
+          id: 'cache_bad_ttl',
+          type: 'text',
+          identity: { handle: 'cache_bad_ttl' },
+          models: {
+            sonar: {
+              ...HOST_BINDINGS.sonar,
+              providerOptions: {
+                cache: { mode: 'automatic', ttl: '2h' as '1h' },
+              },
+            },
           },
-        },
-        tools: { allow: [] },
-        inputs: { text: true },
-      }),
+          tools: { allow: [] },
+          inputs: { text: true },
+        }),
+      ),
     Error,
-    'cache.ttl must be one of',
+    'Invalid option',
   );
 });
-
-Deno.test('resolveTurn projects cache and sessionId onto generation', () => {
+Deno.test('resolveTurn leaves cache in provider options and projects sessionId', () => {
   registerProfile({
     id: 'cache_resolve_bot',
     type: 'text',
@@ -753,7 +904,9 @@ Deno.test('resolveTurn projects cache and sessionId onto generation', () => {
     models: {
       sonar: {
         ...HOST_BINDINGS.sonar,
-        cache: { mode: 'system', ttl: '5m' },
+        providerOptions: {
+          cache: { mode: 'system', ttl: '5m' },
+        },
       },
     },
     tools: { allow: [] },
@@ -764,6 +917,9 @@ Deno.test('resolveTurn projects cache and sessionId onto generation', () => {
     sessionId: 'sess-1',
     input: { text: 'hi' },
   });
-  assertEquals(generation.cache, { mode: 'system', ttl: '5m' });
+  assertEquals('cache' in generation, false);
+  const cached = getProfile('cache_resolve_bot');
+  if (cached.type !== 'text') throw new Error('Expected text');
+  assertEquals(cached.models.sonar.providerOptions?.cache, { mode: 'system', ttl: '5m' });
   assertEquals(generation.sessionId, 'sess-1');
 });

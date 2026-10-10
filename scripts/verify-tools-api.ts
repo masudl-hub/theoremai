@@ -1,37 +1,29 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
 
-/**
- * Adversarial tool-system pressure test — kernel invoke matrix + real Gemini
- * Interactions turns (text runner). Not Gemini Live (`type: 'live'`).
- *
- * Keys: vault slots from THEOREM_VAULT_* (see scripts/host-env.ts).
- *
- * Usage:
- *   deno task verify:tools-api
- *   ... --invoke-only     # skip provider API (deterministic kernel path)
- *   ... --api-only        # skip invoke matrix
- *   ... --limit 5         # cap API cases (debug)
- */
-
 import { z } from 'zod';
-import { runTurn } from '../src/kernel/engine/runner.ts';
-import { defineProfile, getProfile, registerProfile } from '../src/kernel/registry/profiles.ts';
-import { invokeTool, registerTool } from '../src/kernel/tools/mod.ts';
+import {
+  getProfile,
+  invokeTool,
+  registerProfile,
+  registerTool,
+  runTurn,
+} from '../src/kernel/default-scope.ts';
+import { defineProfile } from '../src/kernel/registry/profiles.ts';
 import type {
   InvokeToolRequest,
   ModelProvider,
   TurnEvent,
   TurnRequest,
 } from '../src/kernel/types.ts';
-import { createProvider } from '../src/providers/create-provider.ts';
+import { failureOf, gateOf, lastTool, outputOf, toolPhases } from '../tests/fixtures/events.ts';
 import { geminiModels, HOST_BINDINGS } from '../tests/fixtures/models.ts';
+import { scriptProviderOptions, scriptTurnOptions } from './provider-options.ts';
 import '../tests/fixtures/test-host.ts';
+import { toolCallsOf } from '../src/interface/tool-calls.ts';
 import { registerHarnessTools } from '../src/kernel/tools/harness.ts';
+import { extractLoadedIds } from '../src/kernel/tools/resolve.ts';
+import { isRecord } from '../src/kernel/util/record.ts';
 import { hostVault, loadHostEnv } from './host-env.ts';
-
-// ---------------------------------------------------------------------------
-// Env
-// ---------------------------------------------------------------------------
 
 function valueAfterFlag(flag: string): string | undefined {
   const idx = Deno.args.indexOf(flag);
@@ -44,10 +36,6 @@ function hasFlag(flag: string): boolean {
 }
 
 loadHostEnv();
-
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
 
 const INVOKE_PROFILE = '__tools_pressure_invoke__';
 const LIVE_PROFILE = '__tools_pressure_live__';
@@ -97,11 +85,11 @@ function registerPressureProfiles(): void {
   registerTool({
     type: 'function',
     name: 'pressure_t1_tool',
-    description: 'T1 tool selected only via t1Policy',
+    description: 'T2 tool the t1Policy selects',
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     input: z.object({ q: z.string() }),
     output: z.object({ finding: z.string() }),
@@ -227,10 +215,6 @@ function registerPressureProfiles(): void {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 interface CaseResult {
   events: TurnEvent[];
   error?: string;
@@ -266,10 +250,13 @@ async function runInvoke(req: InvokeToolRequest): Promise<CaseResult> {
   }
 }
 
-async function runLive(req: TurnRequest, provider: ModelProvider): Promise<CaseResult> {
+async function runLive(
+  req: TurnRequest,
+  provider: ModelProvider | import('../mod.ts').ProviderHostOptions,
+): Promise<CaseResult> {
   const start = Date.now();
   try {
-    const events = await collect(runTurn(req, provider));
+    const events = await collect(runTurn(req, scriptTurnOptions(req.profile, provider)));
     const errEv = events.find((e) => e.type === 'error');
     const publicMsg = errEv?.error;
     const internal = errEv?.errorInternal;
@@ -290,10 +277,9 @@ async function runLive(req: TurnRequest, provider: ModelProvider): Promise<CaseR
 function summarizeEvents(events: TurnEvent[]): string {
   const parts: string[] = [];
   for (const e of events) {
-    if (e.type === 'tool' && e.tool) {
-      parts.push(
-        `tool:${e.tool.name}/${e.tool.phase ?? '?'}${e.tool.failure ? `(${e.tool.failure.code})` : ''}`,
-      );
+    if (e.type === 'tool') {
+      const failure = e.tool.phase === 'error' ? `(${e.tool.failure.code})` : '';
+      parts.push(`tool:${e.tool.name}/${e.tool.phase ?? 'call'}${failure}`);
     } else if (e.type === 'done') {
       parts.push(`done:${e.stop?.kind ?? '?'}`);
     } else if (e.type === 'error') {
@@ -305,48 +291,34 @@ function summarizeEvents(events: TurnEvent[]): string {
   return parts.join(' → ');
 }
 
-/** Dump args + Zod/failure details for every tool event that ended in error/pause. */
+/** Dump args + Zod/failure details for every call that ended in error or a gate. */
 function dumpToolFailures(events: TurnEvent[]): void {
-  for (const e of events) {
-    if (e.type !== 'tool' || !e.tool) continue;
-    const t = e.tool;
-    if (t.phase !== 'error' && t.phase !== 'gate') continue;
-    const args = t.arguments === undefined ? '<absent>' : JSON.stringify(t.arguments);
-    console.log(`      tool[${t.name || '(empty)'}] phase=${t.phase} args=${args}`);
-    if (t.failure) {
-      console.log(
-        `        failure: ${t.failure.code} — ${t.failure.message}${
-          t.failure.details !== undefined ? ` details=${JSON.stringify(t.failure.details)}` : ''
-        }`,
-      );
+  for (const call of toolCallsOf(events)) {
+    const { state } = call;
+    if (state?.phase !== 'error' && state?.phase !== 'gate') continue;
+    console.log(
+      `      tool[${call.name || '(empty)'}] phase=${state.phase} args=${JSON.stringify(call.arguments)}`,
+    );
+    if (state.phase === 'gate') {
+      console.log(`        gate: ${state.gate.kind}`);
+      continue;
     }
-    if (t.gate) {
-      console.log(`        gate: ${t.gate.kind}`);
-    }
+    const { failure } = state;
+    console.log(
+      `        failure: ${failure.code} — ${failure.message}${
+        failure.details !== undefined ? ` details=${JSON.stringify(failure.details)}` : ''
+      }`,
+    );
   }
-}
-
-function lastTool(events: TurnEvent[], name: string) {
-  return events.findLast((e) => e.type === 'tool' && e.tool?.name === name)?.tool;
-}
-
-function toolPhases(events: TurnEvent[], name: string): string[] {
-  return events
-    .filter((e) => e.type === 'tool' && e.tool?.name === name && e.tool.phase)
-    .flatMap((e) => (e.tool?.phase ? [e.tool.phase] : []));
 }
 
 function stopKind(events: TurnEvent[]): string | undefined {
   return events.findLast((e) => e.type === 'done')?.stop?.kind;
 }
 
-function createGeminiProvider(): ModelProvider {
-  return createProvider(getProfile(LIVE_PROFILE), { gemini: { vault: hostVault() } });
+function createGeminiProvider(): import('../mod.ts').ProviderHostOptions {
+  return scriptProviderOptions(getProfile(LIVE_PROFILE), { vault: hostVault() });
 }
-
-// ---------------------------------------------------------------------------
-// Invoke matrix (deterministic, adversarial)
-// ---------------------------------------------------------------------------
 
 function buildInvokeCases(): Case[] {
   const p = INVOKE_PROFILE;
@@ -366,31 +338,31 @@ function buildInvokeCases(): Case[] {
   });
 
   add('invoke/unknown tool', { profile: p, name: 'totally_fake_tool', input: {} }, (r) => {
-    if (lastTool(r.events, 'totally_fake_tool')?.failure?.code !== 'unknown_tool') {
+    if (failureOf(lastTool(r.events, 'totally_fake_tool'))?.code !== 'unknown_tool') {
       return 'expected unknown_tool';
     }
   });
 
   add('invoke/not_allowed', { profile: 'chat', name: 'stub_tool', input: {} }, (r) => {
-    if (lastTool(r.events, 'stub_tool')?.failure?.code !== 'not_allowed') {
+    if (failureOf(lastTool(r.events, 'stub_tool'))?.code !== 'not_allowed') {
       return 'expected not_allowed on chat profile';
     }
   });
 
   add('invoke/invalid_input', { profile: p, name: 'ping_tool', input: { step: 'nope' } }, (r) => {
-    if (lastTool(r.events, 'ping_tool')?.failure?.code !== 'invalid_input') {
+    if (failureOf(lastTool(r.events, 'ping_tool'))?.code !== 'invalid_input') {
       return 'expected invalid_input';
     }
   });
 
   add('invoke/handler_error', { profile: p, name: 'crashing_tool', input: { id: '1' } }, (r) => {
-    if (lastTool(r.events, 'crashing_tool')?.failure?.code !== 'handler_error') {
+    if (failureOf(lastTool(r.events, 'crashing_tool'))?.code !== 'handler_error') {
       return 'expected handler_error';
     }
   });
 
   add('invoke/not_authorized denied', { profile: p, name: 'denied_tool', input: {} }, (r) => {
-    if (lastTool(r.events, 'denied_tool')?.failure?.code !== 'not_authorized') {
+    if (failureOf(lastTool(r.events, 'denied_tool'))?.code !== 'not_authorized') {
       return 'expected not_authorized';
     }
   });
@@ -423,7 +395,7 @@ function buildInvokeCases(): Case[] {
   );
 
   add('invoke/preTool gate', { profile: p, name: 'preflight_confirm_tool', input: {} }, (r) => {
-    if (lastTool(r.events, 'preflight_confirm_tool')?.gate?.kind !== 'confirmation') {
+    if (gateOf(lastTool(r.events, 'preflight_confirm_tool'))?.kind !== 'confirmation') {
       return 'expected confirmation gate';
     }
   });
@@ -464,7 +436,7 @@ function buildInvokeCases(): Case[] {
     'invoke/T2 not_loaded',
     { profile: T2_PROFILE, name: 'record_lookup', input: { q: 'x' } },
     (r) => {
-      if (lastTool(r.events, 'record_lookup')?.failure?.code !== 'not_loaded') {
+      if (failureOf(lastTool(r.events, 'record_lookup'))?.code !== 'not_loaded') {
         return 'expected not_loaded for T2 without promotion';
       }
     },
@@ -479,7 +451,7 @@ function buildInvokeCases(): Case[] {
       promoted: ['stub_tool'],
     },
     (r) => {
-      if (lastTool(r.events, 'stub_tool')?.failure?.code !== 'invalid_output') {
+      if (failureOf(lastTool(r.events, 'stub_tool'))?.code !== 'invalid_output') {
         return 'expected invalid_output on bad promotion';
       }
     },
@@ -489,8 +461,8 @@ function buildInvokeCases(): Case[] {
     'invoke/T2 loader + promoted chain',
     { profile: T2_PROFILE, name: 'load_tools', input: { names: ['record_lookup'] } },
     (r) => {
-      const out = lastTool(r.events, 'load_tools')?.output as { loaded?: string[] } | undefined;
-      if (!out?.loaded?.includes('record_lookup')) return 'load_tools did not return record_lookup';
+      const loaded = extractLoadedIds(outputOf(lastTool(r.events, 'load_tools')));
+      if (!loaded?.includes('record_lookup')) return 'load_tools did not return record_lookup';
     },
   );
 
@@ -509,7 +481,7 @@ function buildInvokeCases(): Case[] {
   );
 
   add(
-    'invoke/T1 via t1Policy profile',
+    'invoke/T2 via t1Policy profile',
     {
       profile: T1_PROFILE,
       name: 'pressure_t1_tool',
@@ -517,7 +489,7 @@ function buildInvokeCases(): Case[] {
     },
     (r) => {
       if (lastTool(r.events, 'pressure_t1_tool')?.phase !== 'complete')
-        return 'T1 tool should complete';
+        return 'the policy-selected tool should complete';
     },
   );
 
@@ -536,11 +508,12 @@ function buildInvokeCases(): Case[] {
       input: { kind: 'text', prompt: 'Say hi' },
     },
     (r) => {
-      const out = lastTool(r.events, 'ask_user')?.output as { status?: string } | undefined;
+      const out = outputOf(lastTool(r.events, 'ask_user'));
       if (lastTool(r.events, 'ask_user')?.phase !== 'complete') {
         return 'ask_user should complete without resume';
       }
-      if (out?.status !== 'awaiting_user_input') return 'ask_user should await user input';
+      if (!isRecord(out) || out.status !== 'awaiting_user_input')
+        return 'ask_user should await user input';
       if (stopKind(r.events) !== 'completed') return 'expected completed stop';
     },
   );
@@ -554,7 +527,7 @@ function buildInvokeCases(): Case[] {
       path: 'cli',
     },
     (r) => {
-      if (lastTool(r.events, 'web_only_tool')?.failure?.code !== 'not_gated') {
+      if (failureOf(lastTool(r.events, 'web_only_tool'))?.code !== 'not_gated') {
         return 'expected not_gated on cli path';
       }
     },
@@ -600,7 +573,7 @@ function sequentialToolProvider(
       call++;
       yield {
         type: 'tool',
-        tool: { name: spec.name, arguments: spec.arguments, id: `stub_${call}` },
+        tool: { name: spec.name, arguments: spec.arguments, callId: `stub_${call}` },
       };
       yield {
         type: 'tokens',
@@ -615,10 +588,6 @@ function singleToolProvider(name: string, args: Record<string, unknown>): ModelP
   return sequentialToolProvider([{ name, arguments: args }]);
 }
 
-// ---------------------------------------------------------------------------
-// runTurn stub matrix (deterministic adversarial — full pipeline)
-// ---------------------------------------------------------------------------
-
 function buildStubRunCases(): Case[] {
   const p = STUB_RUN_PROFILE;
   const stub = (name: string, args: Record<string, unknown>) =>
@@ -631,7 +600,7 @@ function buildStubRunCases(): Case[] {
       run: () => stub('crashing_tool', { id: 'boom' }),
       check: (r) => {
         const t = lastTool(r.events, 'crashing_tool');
-        if (t?.failure?.code !== 'handler_error') return `got ${t?.failure?.code}`;
+        if (failureOf(t)?.code !== 'handler_error') return `got ${failureOf(t)?.code}`;
       },
     },
     {
@@ -639,7 +608,7 @@ function buildStubRunCases(): Case[] {
       lane: 'stub',
       run: () => stub('denied_tool', {}),
       check: (r) => {
-        if (lastTool(r.events, 'denied_tool')?.failure?.code !== 'not_authorized') {
+        if (failureOf(lastTool(r.events, 'denied_tool'))?.code !== 'not_authorized') {
           return 'expected not_authorized';
         }
       },
@@ -650,7 +619,7 @@ function buildStubRunCases(): Case[] {
       run: () => stub('load_tools', { names: ['stub_tool'] }),
       check: (r) => {
         const t = lastTool(r.events, 'load_tools');
-        if (t?.failure?.code !== 'invalid_output') return `got ${t?.failure?.code}`;
+        if (failureOf(t)?.code !== 'invalid_output') return `got ${failureOf(t)?.code}`;
       },
     },
     {
@@ -683,7 +652,7 @@ function buildStubRunCases(): Case[] {
         ),
       check: (r) => {
         const n = r.events.filter(
-          (e) => e.type === 'tool' && e.tool?.name === 'ping_tool' && e.tool.phase === 'complete',
+          (e) => e.type === 'tool' && e.tool.name === 'ping_tool' && e.tool.phase === 'complete',
         ).length;
         if (n < 3) return `expected 3 ping completes, got ${n}`;
       },
@@ -697,7 +666,7 @@ function buildStubRunCases(): Case[] {
           singleToolProvider('web_only_tool', {}),
         ),
       check: (r) => {
-        if (lastTool(r.events, 'web_only_tool')?.failure?.code !== 'not_gated') {
+        if (failureOf(lastTool(r.events, 'web_only_tool'))?.code !== 'not_gated') {
           return 'expected not_gated';
         }
       },
@@ -707,7 +676,7 @@ function buildStubRunCases(): Case[] {
       lane: 'stub',
       run: () => stub('ping_tool', { step: 'bad' }),
       check: (r) => {
-        if (lastTool(r.events, 'ping_tool')?.failure?.code !== 'invalid_input') {
+        if (failureOf(lastTool(r.events, 'ping_tool'))?.code !== 'invalid_input') {
           return 'expected invalid_input';
         }
       },
@@ -717,7 +686,7 @@ function buildStubRunCases(): Case[] {
       lane: 'stub',
       run: () => stub('summon_dragon', { power: 9000 }),
       check: (r) => {
-        if (lastTool(r.events, 'summon_dragon')?.failure?.code !== 'unknown_tool') {
+        if (failureOf(lastTool(r.events, 'summon_dragon'))?.code !== 'unknown_tool') {
           return 'expected unknown_tool';
         }
       },
@@ -732,23 +701,21 @@ function buildStubRunCases(): Case[] {
       },
     },
     {
-      name: 'stub-run/T1 policy visible + callable',
+      name: 'stub-run/policy-selected T2 visible + callable',
       lane: 'stub',
       run: () => stub('pressure_t1_tool', { q: 'stub' }),
       check: (r) => {
         if (lastTool(r.events, 'pressure_t1_tool')?.phase !== 'complete') {
-          return 'T1 tool should complete under t1Policy';
+          return 'the policy-selected tool should complete under t1Policy';
         }
       },
     },
   ];
 }
 
-// ---------------------------------------------------------------------------
-// Live matrix (real Gemini — integration smoke; model obedience varies)
-// ---------------------------------------------------------------------------
+// Real Gemini integration smoke: model obedience varies.
 
-function buildLiveCases(provider: ModelProvider): Case[] {
+function buildLiveCases(provider: import('../mod.ts').ProviderHostOptions): Case[] {
   const lp = LIVE_PROFILE;
 
   const mustCall = (tool: string, args: Record<string, unknown>, text: string): TurnRequest => ({
@@ -775,7 +742,7 @@ function buildLiveCases(provider: ModelProvider): Case[] {
       run: () => runLive(mustCall('denied_tool', {}, 'MANDATORY auth denial test.'), provider),
       check: (r) => {
         const t = lastTool(r.events, 'denied_tool');
-        if (t?.failure?.code !== 'not_authorized') return 'expected not_authorized';
+        if (failureOf(t)?.code !== 'not_authorized') return 'expected not_authorized';
       },
     },
     {
@@ -814,10 +781,6 @@ function buildLiveCases(provider: ModelProvider): Case[] {
     },
   ];
 }
-
-// ---------------------------------------------------------------------------
-// Runner
-// ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
   registerPressureProfiles();

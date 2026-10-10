@@ -5,11 +5,8 @@ import type { TurnEvent } from '../../src/kernel/types.ts';
  * The outbound gate releases text as it clears, so one model chunk can reach
  * the client as more than one event.
  */
-export function replyText(events: TurnEvent[]): string {
-  return events
-    .filter((event) => event.type === 'text')
-    .map((event) => event.text ?? '')
-    .join('');
+export function replyText(events: readonly TurnEvent[]): string {
+  return events.flatMap((event) => (event.type === 'text' ? [event.text] : [])).join('');
 }
 
 /** Event types in order, with each run of `text` events counted once. */

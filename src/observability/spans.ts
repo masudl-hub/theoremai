@@ -1,19 +1,50 @@
 const OMIT_INJECTION = '[omitted - injection]';
 const OMIT_SENSITIVE = '[omitted -sensitive]';
+const OMIT_CANARY = '[omitted - canary]';
+const OMIT_PROMPT = '[omitted - instructions]';
+const OMIT_IMAGE = '[omitted - image]';
+const OMIT_LINK = '[omitted - link]';
+const OMIT_TOOL = '[omitted - tool]';
+const OMIT_DIRECTIVE = '[omitted - directive]';
 
-type RedactKind = 'injection' | 'sensitive';
+/** A match of a detector of the host's own: it says nothing of what was there. */
+const OMIT_HOST = '[omitted]';
+
+type RedactKind =
+  | 'injection'
+  | 'sensitive'
+  | 'canary'
+  | 'prompt'
+  | 'image'
+  | 'link'
+  | 'tool'
+  | 'directive'
+  | 'host';
+
+const OMIT: Readonly<Record<RedactKind, string>> = {
+  injection: OMIT_INJECTION,
+  sensitive: OMIT_SENSITIVE,
+  canary: OMIT_CANARY,
+  prompt: OMIT_PROMPT,
+  image: OMIT_IMAGE,
+  link: OMIT_LINK,
+  tool: OMIT_TOOL,
+  directive: OMIT_DIRECTIVE,
+  host: OMIT_HOST,
+};
 
 interface RedactSpan {
   start: number;
   end: number;
   kind: RedactKind;
+  /** The name of the host's pattern that matched; unset for a match of Theorem's own. */
+  name?: string;
+  /** What about the match makes it one, for a detector that finds more than one thing. */
+  signal?: string;
 }
 
 function tokenFor(kind: RedactKind): string {
-  if (kind === 'injection') {
-    return OMIT_INJECTION;
-  }
-  return OMIT_SENSITIVE;
+  return OMIT[kind];
 }
 
 function blobAt(match: RegExpMatchArray): { blob: string; index: number } | undefined {
@@ -67,4 +98,12 @@ function spansFromPatterns(text: string, patterns: RegExp[], kind: RedactKind): 
 }
 
 export type { RedactKind, RedactSpan };
-export { applySpans, blobAt, OMIT_INJECTION, OMIT_SENSITIVE, spansFromPatterns };
+export {
+  applySpans,
+  blobAt,
+  mergeSpans,
+  OMIT_CANARY,
+  OMIT_INJECTION,
+  OMIT_SENSITIVE,
+  spansFromPatterns,
+};

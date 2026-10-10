@@ -1,45 +1,32 @@
-/**
- * Shared helpers for building OpenAI-compatible chat completion payloads.
- *
- * Used by local.ts (raw fetch), openrouter/image.ts (image payload), and
- * openrouter/chat.ts (headers + response format). Message bodies for the AI SDK
- * path are built by `openai/sdk-messages.ts`.
- * Single source of truth for message wire format, tool declarations,
- * structured response format, and gateway headers.
- *
- * @module
- */
-
-import { kindOfHttpStatus, TheoremError, toErrorEvent } from '../../../guardrails/error.ts';
+import {
+  kindOfHttpStatus,
+  type ProducedError,
+  TheoremError,
+  toErrorEvent,
+} from '../../../guardrails/error.ts';
 import { asRecord } from '../../../kernel/engine/record.ts';
 import { historyMessageParts, isMediaRefPart } from '../../../kernel/interaction-parts.ts';
-import { getStructured } from '../../../kernel/registry/schemas.ts';
 import type {
   InteractionMediaPart,
   InteractionMediaRefPart,
   InteractionPart,
   ProviderCompleteRequest,
-  StructuredSchemaId,
-  TurnEvent,
+  ResolvedStructured,
   TurnHistoryMessage,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
 import { historyToolIdentity } from '../../shared/tool-args.ts';
+import { applyReasoningReplay } from './reasoning-state.ts';
 
-// ── gateway http errors ─────────────────────────────
-
-/**
- * A non-OK gateway response as an error event. The internal detail carries the
- * body's `error.message` (or its raw text), so the upstream reason reaches traces.
- */
-async function httpErrorEvent(res: Response, label: string): Promise<TurnEvent> {
+/** The detail is the body's `error.message` (or raw text), so the upstream reason reaches traces. */
+async function httpErrorEvent(res: Response, label: string): Promise<ProducedError> {
   const text = (await res.text()).trim();
   let detail = text;
   try {
     const message = asRecord(asRecord(JSON.parse(text))?.error)?.message;
     if (typeof message === 'string' && message) detail = message;
   } catch {
-    // Not JSON: the raw body is the detail.
+    // why: Not JSON: the raw body is the detail.
   }
   const head = `${label} HTTP ${String(res.status)}`;
   return toErrorEvent(
@@ -47,15 +34,10 @@ async function httpErrorEvent(res: Response, label: string): Promise<TurnEvent> 
   );
 }
 
-// ── gateway header config ───────────────────────────
-
-/** Subset of provider config used for OpenAI-gateway HTTP headers. */
 interface GatewayHeaderConfig {
   siteUrl?: string;
   siteName?: string;
 }
-
-// ── content wire format ─────────────────────────────
 
 function rejectMediaRef(
   part: InteractionPart,
@@ -79,11 +61,7 @@ function wireAudioPart(part: InteractionMediaPart): Record<string, unknown> {
   };
 }
 
-/**
- * Map InteractionPart[] to OpenAI-compat message content.
- * Text-only inputs are joined as a plain string; mixed inputs produce a
- * content-part array (text, image_url, input_audio, file).
- */
+/** Text-only input collapses to one string; mixed input is a content-part array. */
 export function wireMessageContent(parts: InteractionPart[]): unknown {
   const isAllText = parts.every((p) => p.type === 'text');
   if (isAllText) {
@@ -111,7 +89,6 @@ export function wireMessageContent(parts: InteractionPart[]): unknown {
     if (part.type === 'audio') {
       return wireAudioPart(part);
     }
-    // video + document — file part (OpenAI-compat / OpenRouter)
     return {
       type: 'file',
       file: {
@@ -122,15 +99,8 @@ export function wireMessageContent(parts: InteractionPart[]): unknown {
   });
 }
 
-// ── history message wire format ─────────────────────
-
-/**
- * Map a single TurnHistoryMessage to an OpenAI-compat wire message.
- * Tool messages carry `tool_call_id` / `name` only where history has them.
- * Assistant tool_calls are mapped to strip non-standard fields.
- */
+/** Assistant `tool_calls` are rebuilt to strip non-standard fields. */
 function wireHistoryMessage(msg: TurnHistoryMessage): Record<string, unknown> {
-  // Text-only messages collapse to one string (see wireMessageContent).
   const content = wireMessageContent(historyMessageParts(msg));
   if (msg.role === 'tool') {
     return {
@@ -158,15 +128,7 @@ function wireHistoryMessage(msg: TurnHistoryMessage): Record<string, unknown> {
   return wired;
 }
 
-// ── full message array builder ──────────────────────
-
-/**
- * Build the complete `messages` array for an OpenAI chat completion request.
- * Assembles: system → history → user input.
- *
- * Set `includeSystem: false` when the caller passes system text separately
- * (e.g. AI SDK `instructions`).
- */
+/** `includeSystem: false` when the caller passes system text separately (AI SDK `instructions`). */
 function buildChatMessages(
   req: ProviderCompleteRequest,
   options?: { includeSystem?: boolean },
@@ -187,15 +149,10 @@ function buildChatMessages(
       content: wireMessageContent(req.input),
     });
   }
+  applyReasoningReplay(messages, req.state);
   return messages;
 }
 
-// ── tool declarations ───────────────────────────────
-
-/**
- * Map wire function tools to OpenAI-compat function tool format.
- * Returns undefined when there are no tools.
- */
 function wireTools(wireTools?: WireFunctionTool[]): Record<string, unknown>[] | undefined {
   if (!wireTools || wireTools.length === 0) {
     return undefined;
@@ -210,11 +167,13 @@ function wireTools(wireTools?: WireFunctionTool[]): Record<string, unknown>[] | 
   }));
 }
 
-// ── structured response format ──────────────────────
+/** OpenAI takes a schema name of at most 64 of `[A-Za-z0-9_-]` and refuses the call otherwise. */
+function schemaName(id: string): string {
+  return id.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
+}
 
-/** Resolve a StructuredSchemaId to an OpenAI `response_format` object; undefined without one. */
 function resolveResponseFormat(
-  structured: StructuredSchemaId | null,
+  structured: ResolvedStructured | null,
 ): Record<string, unknown> | undefined {
   if (!structured) {
     return undefined;
@@ -222,19 +181,13 @@ function resolveResponseFormat(
   return {
     type: 'json_schema',
     json_schema: {
-      name: String(structured),
+      name: schemaName(structured.id),
       strict: true,
-      schema: getStructured(structured).jsonSchema,
+      schema: structured.jsonSchema,
     },
   };
 }
 
-// ── gateway headers ─────────────────────────────────
-
-/**
- * Build optional HTTP-Referer / X-Title headers for OpenAI-compat gateways.
- * Used by OpenRouter (chat + speech) and local providers.
- */
 function openAiGatewayHeaders(config: GatewayHeaderConfig): Record<string, string> | undefined {
   const headers: Record<string, string> = {};
   if (config.siteUrl) {
@@ -245,8 +198,6 @@ function openAiGatewayHeaders(config: GatewayHeaderConfig): Record<string, strin
   }
   return Object.keys(headers).length > 0 ? headers : undefined;
 }
-
-// ── exports ─────────────────────────────────────────
 
 export type { GatewayHeaderConfig };
 export {

@@ -1,48 +1,37 @@
-/**
- * Local provider adapter for OpenAI-compatible endpoints (Ollama, llama.cpp,
- * vLLM, LM Studio, etc.).
- *
- * Streams SSE from `/v1/chat/completions`, accumulates tool calls, and yields
- * normalized `TurnEvent` objects. No external SDK dependency — raw fetch + SSE.
- *
- * Wire-format message building delegates to the shared `openai/compat` module.
- * SSE parsing delegates to the shared `parseSseStream` from `sse.ts`.
- *
- * Hosts pass `baseUrl` explicitly. THEOREM does not read `OLLAMA_HOST` or other
- * environment variables (see docs/contracts/providers.md).
- *
- * @module
- */
-
 import {
   isAbortError,
   kindOfHttpStatus,
   TheoremError,
   toErrorEvent,
 } from '../../guardrails/error.ts';
+import { asRecord } from '../../kernel/engine/record.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type {
   ModelProvider,
   ProviderCompleteRequest,
-  TurnEvent,
+  ProviderEvent,
   TurnResponse,
 } from '../../kernel/types.ts';
-import { buildChatMessages, wireTools } from '../openrouter/openai/compat.ts';
+import {
+  buildChatMessages,
+  resolveResponseFormat,
+  wireTools,
+} from '../openrouter/openai/compat.ts';
 import { openAiResponse, openAiUsageTokens } from '../openrouter/openai/usage.ts';
 import { foldResponse } from '../shared/response-identity.ts';
 import { parseSseStream } from '../shared/sse.ts';
-import { parseToolArgumentsObject } from '../shared/tool-args.ts';
+import { structuredEvent } from '../shared/structured-output.ts';
+import { toolCallEvents } from '../shared/tool-args.ts';
 import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
-import type { LocalProviderConfig } from '../types.ts';
-
-/** Default OpenAI-compat base when the host omits `baseUrl` (Ollama's default port). */
-export const DEFAULT_LOCAL_BASE_URL = 'http://127.0.0.1:11434';
-
-// ── wire types ──────────────────────────────────────
+import { bearerFetch, requireKey } from '../shared/vault.ts';
+import type { LocalTransport } from '../types.ts';
 
 interface OpenAiDelta {
   role?: string;
   content?: string | null;
+  /** Thinking text: `reasoning_content` on llama.cpp, vLLM and LM Studio, `reasoning` on Ollama. */
+  reasoning_content?: string | null;
+  reasoning?: string | null;
   tool_calls?: Array<{
     index: number;
     id?: string;
@@ -58,79 +47,71 @@ interface OpenAiChoice {
 
 export type PendingToolCall = { id: string; name: string; args: string };
 
-// ── request mapping ─────────────────────────────────
-
 function normalizeBaseUrl(baseUrl: string): string {
   let end = baseUrl.length;
   while (end > 0 && baseUrl.charCodeAt(end - 1) === 47) end -= 1;
   return baseUrl.slice(0, end);
 }
 
-export function resolveBaseUrl(config?: LocalProviderConfig): string {
-  return normalizeBaseUrl(config?.baseUrl?.trim() || DEFAULT_LOCAL_BASE_URL);
+export function resolveBaseUrl(config: LocalTransport): string {
+  const baseUrl = config.baseUrl.trim();
+  if (!baseUrl) {
+    throw new TheoremError('config', 'Local provider requires baseUrl'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  return normalizeBaseUrl(baseUrl);
 }
 
 function buildBody(req: ProviderCompleteRequest): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: req.apiId,
     messages: buildChatMessages(req),
-    stream: true,
-    stream_options: { include_usage: true },
+    stream: req.stream !== false,
     temperature: req.temperature,
     max_tokens: req.maxOutputTokens,
   };
+  if (body.stream) body.stream_options = { include_usage: true };
+  if (req.thinking) body.reasoning_effort = req.thinking;
+  if (req.structured) body.response_format = resolveResponseFormat(req.structured);
   const tools = wireTools(req.wireTools);
   if (tools) body.tools = tools;
   return body;
 }
 
-// ── stream → TurnEvent ──────────────────────────────
-
-export function flushPending(pending: Map<number, PendingToolCall>): TurnEvent[] {
-  const events: TurnEvent[] = [];
-  for (const [, tc] of pending) {
-    const parsed = parseToolArgumentsObject(tc.args);
-    if (!parsed.ok) {
-      events.push({
-        type: 'tool',
-        tool: {
-          name: tc.name,
-          arguments: {},
-          id: tc.id,
-          phase: 'error',
-          failure: {
-            code: 'malformed_arguments',
-            kind: 'bad_response',
-            message: parsed.error,
-            details: { raw: parsed.raw },
-          },
-        },
-      });
-      continue;
-    }
-    events.push({
-      type: 'tool',
-      tool: { name: tc.name, arguments: parsed.value, id: tc.id },
-    });
-  }
+export function flushPending(pending: Map<number, PendingToolCall>): ProviderEvent[] {
+  const events = [...pending.values()].flatMap((tc) => toolCallEvents(tc, tc.args));
   pending.clear();
   return events;
 }
 
-async function* streamComplete(
-  baseUrl: string,
+/** A local server takes no key unless the model names a slot; then the key goes as a bearer token. */
+function localFetch(
   req: ProviderCompleteRequest,
-  fetchFn: typeof globalThis.fetch,
-): AsyncGenerator<TurnEvent> {
-  const res = await tapFetch(req.tapUpstream, networkFetch(fetchFn))(
-    `${baseUrl}/v1/chat/completions`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildBody(req)),
-      signal: req.signal,
-    },
-  );
+  config: LocalTransport,
+): {
+  send: typeof fetch;
+  headers: Record<string, string>;
+} {
+  const fetchFn = networkFetch(config.fetch ?? globalThis.fetch);
+  if (!req.keySlot) return { send: tapFetch(req.tapUpstream, fetchFn), headers: {} };
+  const key = requireKey(config.vault, req.keySlot);
+  return {
+    send: bearerFetch(req, fetchFn, config.vault, key),
+    headers: { Authorization: `Bearer ${key}` },
+  };
+}
+
+async function* streamComplete(
+  endpoint: string,
+  req: ProviderCompleteRequest,
+  config: LocalTransport,
+): AsyncGenerator<ProviderEvent> {
+  const { send, headers } = localFetch(req, config);
+  const res = await send(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(buildBody(req)),
+    signal: req.signal,
+  });
   if (!res.ok) {
     const text = await res.text();
     yield toErrorEvent(
@@ -138,22 +119,66 @@ async function* streamComplete(
     );
     return;
   }
+  if (req.stream === false) {
+    yield* bufferedOpenAiBody(await res.json(), req);
+    return;
+  }
   if (!res.body) {
     yield toErrorEvent(new TheoremError('bad_response', 'empty response body'));
     return;
   }
-  yield* streamOpenAiBody(res.body, req.tapUpstream);
+  yield* streamOpenAiBody(res.body, req);
+}
+
+/** The thinking text of one delta or message; none when the profile turned summaries off. */
+function* thoughtEvents(
+  delta: OpenAiDelta | undefined,
+  req: ProviderCompleteRequest,
+): Generator<ProviderEvent> {
+  if (req.summaries === 'none') return;
+  const text = delta?.reasoning_content || delta?.reasoning;
+  if (text) yield { type: 'thought', text };
+}
+
+function* bufferedOpenAiBody(
+  raw: Record<string, unknown>,
+  req: ProviderCompleteRequest,
+): Generator<ProviderEvent> {
+  req.tapUpstream?.(raw);
+  const identity = foldResponse(undefined, openAiResponse(raw));
+  if (identity.event) yield identity.event;
+  const tokens = openAiUsageTokens(raw.usage);
+  if (tokens) yield { type: 'tokens', tokens };
+  const choice = Array.isArray(raw.choices) ? asRecord(raw.choices[0]) : undefined;
+  const message = asRecord(choice?.message) as OpenAiDelta | undefined;
+  yield* thoughtEvents(message, req);
+  if (message?.content) yield { type: 'text', text: message.content };
+  for (const [index, call] of (message?.tool_calls ?? []).entries()) {
+    yield* toolCallEvents(
+      { id: call.id ?? `call_${index}`, name: call.function?.name ?? '' },
+      call.function?.arguments ?? '',
+    );
+  }
+  const finish = choice?.finish_reason;
+  const stop = turnStopFromOpenAiFinishReason(typeof finish === 'string' ? finish : null);
+  if (req.structured && message?.content && stop.kind === 'completed')
+    yield structuredEvent(message.content);
+  yield {
+    type: 'done',
+    stop,
+  };
 }
 
 async function* streamOpenAiBody(
   body: ReadableStream<Uint8Array>,
-  tap: ProviderCompleteRequest['tapUpstream'],
-): AsyncGenerator<TurnEvent> {
+  req: ProviderCompleteRequest,
+): AsyncGenerator<ProviderEvent> {
   const pending = new Map<number, PendingToolCall>();
   let finishReason: string | null | undefined;
+  let text = '';
   let response: TurnResponse | undefined;
   for await (const raw of parseSseStream(body)) {
-    tap?.(raw);
+    req.tapUpstream?.(raw);
     const identity = foldResponse(response, openAiResponse(raw));
     response = identity.known;
     if (identity.event) yield identity.event;
@@ -161,6 +186,8 @@ async function* streamOpenAiBody(
     if (tokens) yield { type: 'tokens', tokens };
     const choice = firstOpenAiChoice(raw);
     if (!choice) continue;
+    if (choice.delta?.content) text += choice.delta.content;
+    yield* thoughtEvents(choice.delta, req);
     yield* eventsFromChoiceDelta(choice.delta, pending);
     if (choice.finish_reason != null) {
       finishReason = choice.finish_reason;
@@ -168,10 +195,9 @@ async function* streamOpenAiBody(
     }
   }
   for (const event of flushPending(pending)) yield event;
-  yield {
-    type: 'done',
-    stop: turnStopFromOpenAiFinishReason(finishReason),
-  };
+  const stop = turnStopFromOpenAiFinishReason(finishReason);
+  if (req.structured && text && stop.kind === 'completed') yield structuredEvent(text);
+  yield { type: 'done', stop };
 }
 
 function firstOpenAiChoice(raw: Record<string, unknown>): OpenAiChoice | undefined {
@@ -197,7 +223,7 @@ function firstOpenAiChoice(raw: Record<string, unknown>): OpenAiChoice | undefin
 function* eventsFromChoiceDelta(
   delta: OpenAiDelta | undefined,
   pending: Map<number, PendingToolCall>,
-): Generator<TurnEvent> {
+): Generator<ProviderEvent> {
   if (!delta) return;
   if (delta.content) yield { type: 'text', text: delta.content };
   accumulateToolCalls(delta.tool_calls, pending);
@@ -222,22 +248,25 @@ function accumulateToolCalls(
   }
 }
 
-// ── public factory ──────────────────────────────────
-
-/** Create a `ModelProvider` for a local OpenAI-compatible server (Ollama, llama.cpp, vLLM, LM Studio). */
-function createLocalProvider(config?: LocalProviderConfig): ModelProvider {
-  const baseUrl = resolveBaseUrl(config);
-  const fetchFn = config?.fetch ?? globalThis.fetch;
+/** A chat-completions codec at the endpoint selected by its adapter; aborts propagate and other failures become error events. */
+function chatProvider(endpoint: string, config: LocalTransport): ModelProvider {
   return {
-    async *complete(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
+    async *complete(req: ProviderCompleteRequest): AsyncGenerator<ProviderEvent> {
       try {
-        yield* streamComplete(baseUrl, req, fetchFn);
+        yield* streamComplete(endpoint, req, config);
       } catch (err) {
         if (isAbortError(err)) throw err;
         yield toErrorEvent(err);
       }
     },
   };
+}
+
+function createLocalProvider(config: LocalTransport): ModelProvider {
+  return chatProvider(`${resolveBaseUrl(config)}/v1/chat/completions`, config);
+}
+export function createCompatibleChatProvider(config: LocalTransport): ModelProvider {
+  return chatProvider(`${resolveBaseUrl(config)}/chat/completions`, config);
 }
 
 export { buildChatMessages as historyToWire, createLocalProvider, wireTools as toolsToWire };

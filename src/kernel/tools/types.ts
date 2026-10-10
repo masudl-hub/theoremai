@@ -1,40 +1,65 @@
-/**
- * Tool registry types — single catalog, shared execution.
- *
- * Closed unions (`TOOL_*`) live in `../schema.ts`. This module owns the
- * structural contracts built on those unions.
- *
- * @module
- */
-
 import type { z } from 'zod';
+import type { TurnDestinations } from '../../guardrails/destinations.ts';
 import type { ResolveHost } from '../../guardrails/network.ts';
-import type { ErrorKind } from '../../guardrails/theorem-error.ts';
 import type { GuardrailHit, Provenance, TurnTaint } from '../../guardrails/types.ts';
-import type { OAuthEndpoints, ToolCredential } from '../auth/types.ts';
+import type { ToolCredentialSource } from '../auth/credential-source.ts';
+import type { OAuthEndpoints } from '../auth/types.ts';
 import type {
   AuthUnauthenticatedPolicy,
   HttpMethod,
   ToolAccess,
   ToolAuthType,
-  ToolGateKind,
   ToolLoadTier,
   ToolPermission,
+  ToolResumeCause,
 } from '../schema.ts';
-import type { InteractionPart, Profile, ToolId, TurnInput, TurnTraceLink } from '../types.ts';
+import type {
+  Source,
+  ToolCallEdit,
+  ToolCallEvent,
+  ToolCallRequest,
+  ToolFailure,
+  ToolGate,
+  ToolPhaseEvent,
+  ToolTraceStep,
+  ToolWarning,
+  TurnToolSnapshot,
+  WireFunctionTool,
+} from '../turn-events.ts';
+import type {
+  InteractionPart,
+  ModelId,
+  Profile,
+  ProfileId,
+  ToolId,
+  TurnInput,
+  TurnRequest,
+  TurnTraceLink,
+} from '../types.ts';
+import type { UncheckedOutput } from './unchecked-output.ts';
 
 export type {
   AuthUnauthenticatedPolicy,
   HttpMethod,
   ToolAccess,
   ToolAuthType,
-  ToolGateKind,
+  ToolCallEdit,
+  ToolCallEvent,
+  ToolCallRequest,
+  ToolFailure,
+  ToolGate,
   ToolPermission,
+  ToolPhaseEvent,
+  ToolTraceStep,
+  ToolWarning,
+  TurnToolSnapshot,
+  WireFunctionTool,
 };
 
 export interface ToolLabels {
   activity?: string;
   activityPast?: string;
+  request?: string;
   hiddenFromSettings?: boolean;
 }
 
@@ -50,6 +75,7 @@ export interface ToolBase {
 }
 
 export interface BuiltinWire {
+  [adapterId: string]: string | undefined;
   interactions?: string;
   openRouter?: string;
   live?: string;
@@ -59,31 +85,37 @@ export interface BuiltinToolDef extends ToolBase {
   type: 'builtin';
   wire: BuiltinWire;
   conflictsWith?: string[];
-  /** When enabled, select the paid Vault key slot unless model.spec.key overrides. */
-  forcePaidKey?: boolean;
 }
 
-export interface InteractiveRender {
-  kind: string;
-  prompt: string;
-  options?: string[];
-  [key: string]: unknown;
-}
-
+/** How a held tool call resumes: approved, refused or retried after sign-in. */
 export interface InvokeToolResume {
   /**
-   * Legacy interactive value — unused for gates / ask_user answers.
-   * @deprecated Prefer a new user turn for ask_user answers.
-   */
-  value?: unknown;
-  /**
-   * Gate resume:
-   * - `true` — skip confirm / permission / `preTool` re-ask and run the body
-   * - `false` — settle as deny (synthetic failure + `post_tool`, no body)
-   * - omit — first attempt (or auth credential retry without grant)
+   * `true` skips the confirm / permission / `preTool` re-ask (an `edited` call runs `preTool` in full);
+   * `false` settles as a refusal with no body; omitted is a first attempt or an auth retry.
    */
   granted?: boolean;
+  /**
+   * For `granted: false`: `declined` (default) fails as `declined`; `abandoned` and `expired`
+   * as `cancelled`.
+   */
+  cause?: ToolResumeCause;
+  /**
+   * The gate answered was a sign-in. Granted, the model reads `sign_in.done` before the call's
+   * result; refused, the `sign_in.*` note for its cause. Both name the tool's `auth.service`.
+   */
+  signIn?: boolean;
+  /** The user edited the arguments before approving; `from` is the model's proposed input. */
+  edited?: { from: Record<string, unknown> };
 }
+
+/**
+ * What the page did for a call to a tool it answers: its `output`, `timedOut` when the relay
+ * stopped waiting for it, or `unanswered` when the page has nothing that answers the tool.
+ */
+export type PageAnswer =
+  | { output: unknown; timedOut?: undefined; unanswered?: undefined }
+  | { timedOut: true; unanswered?: undefined }
+  | { unanswered: true; timedOut?: undefined };
 
 export interface ToolContext {
   profile: Profile;
@@ -91,76 +123,30 @@ export interface ToolContext {
   sessionPermissions?: string[];
   path?: string;
   signal?: AbortSignal;
-  /** Turn-scoped facts: the step index and what this turn has already ingested. */
-  turn?: { step: number; taint?: TurnTaint };
+  turn?: { step: number; taint?: TurnTaint; destinations?: TurnDestinations };
   resume?: InvokeToolResume;
-  credentials?: Record<string, ToolCredential>;
-  /** The host's name resolver for remote tools and their OAuth refreshes. */
+  credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;
   /** Opaque application context from `TurnRequest.host` / `InvokeToolRequest.host`; the kernel never reads it. */
   host?: unknown;
+  /** The page's answer to this call, for a tool with `answeredBy: 'page'`. */
+  page?: PageAnswer;
   /** W3C `traceparent` of this call's `execute_tool` span; parent a tool's own outbound spans on it. */
   traceparent?: string;
+  /** Set for a function tool with `auth` once its credential resolved: requests carrying it. */
+  signedInFetch?: SignedInFetch;
 }
 
-/** A tool step that did not produce a result. */
-export interface ToolFailure {
-  /** What went wrong, for the builder. Stable per failure site; a host `post_tool` deny sets its own. */
-  code: string;
-  /** What kind of failure it is; the user's wording (`error.<kind>`) follows from it. */
-  kind: ErrorKind;
-  /** What the model reads in the tool result. */
-  message: string;
-  /** User-safe wording, added where the event reaches the host. Never sent to the model. */
-  error?: string;
-  details?: unknown;
-}
-
-export interface ToolPause {
-  kind: 'interactive' | 'confirmation' | 'permission' | 'auth';
-  tool: string;
-  render?: InteractiveRender;
-  summary?: string;
-  input: unknown;
-  permission?: ToolPermission;
-  /** Auth challenge metadata when kind is 'auth' */
-  authChallenge?: {
-    slot: string;
-    authType: ToolAuthType;
-    message: string;
-    authorizationUrl?: string;
-    state?: string;
-    issuer?: string;
-    resource?: string;
-    requiredScopes?: string[];
-  };
-}
+/** A request body is text; the method defaults to GET. */
+export type SignedInRequest = { method?: string; headers?: Record<string, string>; body?: string };
 
 /**
- * Confirm-to-run / permission / auth gate (stages contract).
- * Not ask_user / awaiting — those complete the tool. Replaces ToolPause for gates.
+ * A guarded fetch that carries the call's credential to the URL's own origin and
+ * nowhere else (not across a redirect, not to a host the OAuth token was not issued
+ * for). A response that refuses the credential (401, or 403 `insufficient_scope`)
+ * throws; the kernel turns it into a new sign-in or `sign_in.out_of_scope`.
  */
-export interface ToolGate {
-  kind: ToolGateKind;
-  tool: string;
-  permission?: ToolPermission;
-  summary?: string;
-  authChallenge?: NonNullable<ToolPause['authChallenge']>;
-}
-
-export interface ToolWarning {
-  code: string;
-  message: string;
-  severity?: 'info' | 'warning' | 'error';
-}
-
-export interface ToolTraceStep {
-  name: string;
-  kind: string;
-  status: string;
-  inputs?: Record<string, unknown>;
-  outputs?: Record<string, unknown>;
-}
+export type SignedInFetch = (url: string | URL, request?: SignedInRequest) => Promise<Response>;
 
 export type ToolStreamEvent<TOut = unknown> =
   | { kind: 'progress'; data: unknown }
@@ -169,7 +155,10 @@ export type ToolStreamEvent<TOut = unknown> =
   | { kind: 'warning'; warning: ToolWarning }
   | { kind: 'complete'; output: TOut };
 
-export type SyncToolHandler<TIn, TOut> = (input: TIn, ctx: ToolContext) => TOut | Promise<TOut>;
+export type SyncToolHandler<TIn, TOut> = (
+  input: TIn,
+  ctx: ToolContext,
+) => TOut | UncheckedOutput | Promise<TOut | UncheckedOutput>;
 export type StreamToolHandler<TIn, TOut> = (
   input: TIn,
   ctx: ToolContext,
@@ -178,20 +167,13 @@ export type StreamToolHandler<TIn, TOut> = (
 export type ToolHandler<TIn, TOut> = SyncToolHandler<TIn, TOut> | StreamToolHandler<TIn, TOut>;
 
 /**
- * Host lifecycle hooks and JSON schemas shared by every kernel-executed tool.
- *
- * Only members that depend on `TIn` live here. `input` and `output` stay declared
- * on each concrete tool so `TOut` is still inferred from `output` rather than from
- * a handler's return type — moving them here silently breaks inference for stream
- * handlers. Builtins are provider-native and do not extend this.
+ * `input` and `output` stay on each concrete tool so `TOut` is inferred from `output`, not
+ * the handler's return type; moving them here silently breaks inference for stream handlers.
  */
 export interface ToolHostHooks<TIn = unknown> {
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
-  /**
-   * Tool-local `pre_tool` registrant (`docs/contracts/stages.md`).
-   * Runs before host `onStage` for `pre_tool`. May return deny / confirm / mutate.
-   */
+  /** Runs before the host's `pre_tool` `onStage`. */
   preTool?: (
     input: TIn,
     ctx: ToolContext,
@@ -202,36 +184,60 @@ export interface ToolHostHooks<TIn = unknown> {
   exposeToModel?: boolean;
 }
 
+export interface ToolOutputHooks<TOut = unknown> {
+  /** A source that fails `sourceSchema`, or a throw, is a `sources_invalid` warning and is not cited. */
+  sources?: (output: TOut) => Source[];
+}
+
 export interface FunctionToolDef<TIn = unknown, TOut = unknown>
   extends ToolBase,
-    ToolHostHooks<TIn> {
+    ToolHostHooks<TIn>,
+    ToolOutputHooks<TOut> {
   type: 'function';
   input: z.ZodType<TIn>;
   output: z.ZodType<TOut>;
-  handler: ToolHandler<TIn, TOut>;
+  /** Returns `output`'s type, or `uncheckedOutput(value)` for a value it cannot type. */
+  handler: ToolHandler<TIn, NoInfer<TOut>>;
+  /**
+   * `'page'`: the page the person is on answers the call, and the kernel supplies the handler.
+   * `output` checks what the page sent.
+   */
+  answeredBy?: 'page';
+  /**
+   * The service the handler acts on for the person. The kernel resolves the slot
+   * before the handler runs (gating, refreshing, or telling the model as the policy
+   * says) and hands the handler `ctx.signedInFetch`; the handler never sees the credential.
+   */
+  auth?: ToolAuthConfig;
 }
 
-export interface HttpToolAuthConfig {
+/** How a tool that acts for the person signs in to the service; http, mcp and function tools share it. */
+export interface ToolAuthConfig {
   slot: string;
   type: ToolAuthType;
-  headerName?: string; // defaults to 'Authorization'
-  headerPrefix?: string; // defaults to 'Bearer '
-  onUnauthenticated?: AuthUnauthenticatedPolicy; // defaults to 'pause'
-  /** Pre-resolved AS endpoints and the resource, named on the auth gate for the host's flow */
+  /** The service the person signs in to, as they know it (e.g. "GitHub"); never blank. */
+  service: string;
+  headerName?: string;
+  headerPrefix?: string;
+  onUnauthenticated?: AuthUnauthenticatedPolicy;
+  /** Named on the auth gate for the host's OAuth flow. */
   preResolved?: Partial<OAuthEndpoints & { resource: string }>;
   scopes?: string[];
   clientId?: string;
   redirectUri?: string;
 }
 
-export interface HttpToolDef<TIn = unknown, TOut = unknown> extends ToolBase, ToolHostHooks<TIn> {
+export interface HttpToolDef<TIn = unknown, TOut = unknown>
+  extends ToolBase,
+    ToolHostHooks<TIn>,
+    ToolOutputHooks<TOut> {
   type: 'http';
   input: z.ZodType<TIn>;
   output: z.ZodType<TOut>;
-  endpoint: string; // URL template, e.g. "https://api.example.com/items/{id}"
+  endpoint: string;
   method: HttpMethod;
   headers?: Record<string, string>;
-  auth?: HttpToolAuthConfig;
+  auth?: ToolAuthConfig;
   mapping?: {
     pathParams?: string[];
     queryParams?: string[];
@@ -239,29 +245,113 @@ export interface HttpToolDef<TIn = unknown, TOut = unknown> extends ToolBase, To
   };
 }
 
-export interface McpToolDef<TIn = unknown, TOut = unknown> extends ToolBase, ToolHostHooks<TIn> {
+export interface McpToolDef<TIn = unknown, TOut = unknown>
+  extends ToolBase,
+    ToolHostHooks<TIn>,
+    ToolOutputHooks<TOut> {
   type: 'mcp';
   input: z.ZodType<TIn>;
   output: z.ZodType<TOut>;
-  serverUrl: string; // HTTP MCP server endpoint URL
-  mcpToolName: string; // Name of the tool on the remote MCP server
+  serverUrl: string;
+  mcpToolName: string;
   headers?: Record<string, string>;
-  auth?: HttpToolAuthConfig;
+  auth?: ToolAuthConfig;
 }
 
-/** Normalized tool definition held by the process-local registry. */
+/** What the calling model sends an agent tool. */
+export interface AgentToolInput {
+  text: string;
+}
+
+/** What an agent tool returns: the called agent's reply. Media rides as `parts`. */
+export interface AgentToolOutput {
+  text: string;
+  structured?: unknown;
+  parts?: InteractionPart[];
+}
+
+/**
+ * A tool whose call runs one turn of another registered agent. That agent is a
+ * standalone profile; the tool is how another agent's model calls it. What the
+ * call carries beyond the model's text is the host's choice (`onAgentCall`).
+ */
+export interface AgentToolDef extends ToolBase {
+  type: 'agent';
+  /** A text, image or speech profile, registered before this tool. Nothing it can call may gate. */
+  profile: ProfileId;
+  /** Calls to this tool in one turn of its caller. Omit: only `maxSteps` bounds them. */
+  maxCallsPerTurn?: number;
+  preTool?: ToolHostHooks<AgentToolInput>['preTool'];
+  exposeToModel?: boolean;
+}
+
+export interface RegisteredAgentTool extends AgentToolDef, ToolHostHooks<AgentToolInput> {
+  input: z.ZodType<AgentToolInput>;
+  output: z.ZodType<AgentToolOutput>;
+}
+
+/** An agent tool call, as the host's `onAgentCall` sees it before the agent runs. */
+export interface AgentCall {
+  /** The agent tool's name. */
+  tool: string;
+  callId: string;
+  /** The agent the tool runs. */
+  profile: ProfileId;
+  input: AgentToolInput;
+  /** The agent whose model made the call. */
+  caller: ProfileId;
+  /** 1 for a call from the host's own turn; one more for each agent tool it came through. */
+  depth: number;
+  /** The outermost request's `metadata`. */
+  metadata?: Record<string, unknown>;
+  signal?: AbortSignal;
+}
+
+/**
+ * What the host sets on the called agent's turn. The kernel fixes its profile,
+ * signal, trace parent and hook. `provider` runs the turn; omit it to use the
+ * caller's, which works only when both are on the same provider and protocol.
+ */
+export interface AgentCallRequest
+  extends Partial<
+    Pick<TurnRequest, 'input' | 'effort' | 'metadata' | 'onStage' | 'conversationId'>
+  > {
+  model?: ModelId;
+  provider?: import('../provider-contract.ts').ProviderHostOptions;
+}
+
+/** Return nothing to run the agent on the model's text alone; `refuse` is read back to the model. */
+export type AgentCallHook = (
+  call: AgentCall,
+) =>
+  | AgentCallRequest
+  | { refuse: string }
+  | undefined
+  | Promise<AgentCallRequest | { refuse: string } | undefined>;
+
+/** A tool in a registry: builtin, function, HTTP, MCP or agent. */
 export type RegisteredTool<TIn = unknown, TOut = unknown> =
   | BuiltinToolDef
   | FunctionToolDef<TIn, TOut>
   | HttpToolDef<TIn, TOut>
-  | McpToolDef<TIn, TOut>;
+  | McpToolDef<TIn, TOut>
+  | RegisteredAgentTool;
+
+/** A function tool as registered: it has a `handler`, or the page answers it. */
+export type FunctionToolInput<TIn = unknown, TOut = unknown> = Omit<
+  FunctionToolDef<TIn, TOut>,
+  'inputSchema' | 'outputSchema' | 'handler' | 'answeredBy'
+> & {
+  input: z.ZodType<TIn>;
+  output: z.ZodType<TOut>;
+} & (
+    | { handler: ToolHandler<TIn, NoInfer<TOut>>; answeredBy?: 'page' }
+    | { answeredBy: 'page'; handler?: undefined }
+  );
 
 export type ToolDefinitionInput<TIn = unknown, TOut = unknown> =
   | BuiltinToolDef
-  | (Omit<FunctionToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
-      input: z.ZodType<TIn>;
-      output: z.ZodType<TOut>;
-    })
+  | FunctionToolInput<TIn, TOut>
   | (Omit<HttpToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
       input: z.ZodType<TIn>;
       output: z.ZodType<TOut>;
@@ -269,36 +359,15 @@ export type ToolDefinitionInput<TIn = unknown, TOut = unknown> =
   | (Omit<McpToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
       input: z.ZodType<TIn>;
       output: z.ZodType<TOut>;
-    });
-
-/** Provider-facing function declaration derived from a registered tool. */
-export interface WireFunctionTool {
-  type: 'function';
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-}
-
-/** Immutable tool visibility and provider-wire snapshot resolved for one turn. */
-export interface TurnToolSnapshot {
-  builtins: ToolId[];
-  /** Tool ids eligible this turn (custom: allow + path; builtin: model builtInTools + path). */
-  gated: ToolId[];
-  /** Schemas sent to the provider (respects loadTier + t2Loader promotion). */
-  visible: ToolId[];
-  /** Kernel-executable tools: eligible, visible, and loaded (excludes builtins). */
-  executable: ToolId[];
-  path?: string;
-  sessionPermissions?: string[];
-  wire: WireFunctionTool[];
-}
+    })
+  | AgentToolDef;
 
 export interface PromoteLoadedResult {
   promoted: ToolId[];
   failure?: ToolFailure;
 }
 
-/** Context for profile T1 tool selection via `profile.tools.t1Policy`. */
+/** What a tool's loader is told: the profile, the input and the path. */
 export interface ToolLoadContext {
   profile: Profile;
   input?: TurnInput;
@@ -310,97 +379,73 @@ export interface ToolLoadContext {
   host?: unknown;
 }
 
-/** Profile-owned T1 selection — which eligible T1 tools to wire at turn start. */
+/** Picks which allowed T2 tools to load at turn start. */
 export type ToolPolicy = (ctx: ToolLoadContext) => ToolId[] | Promise<ToolId[]>;
 
-/** Host request to execute one registered tool outside the model turn loop. */
+/** A request to run a held tool call outside a turn. */
 export interface InvokeToolRequest {
   profile: string;
   name: string;
+  /**
+   * The model call this invoke resumes; its events join the call its turn already announced.
+   * Absent for the host's own call, which gets a fresh id and is announced first.
+   */
+  callId?: string;
   input: unknown;
-  /** Turn input context for `profile.tools.t1Policy` selection (same as `TurnRequest.input`). */
+  /** Input for `profile.tools.t1Policy` selection. */
   turnInput?: TurnInput;
-  /**
-   * T2 tools already promoted for this invoke (e.g. restored from pause metadata).
-   * Host must have run tools.t2Loader (or equivalent) before listing ids here.
-   */
+  /** T2 tools already promoted, e.g. restored from pause metadata; the host must have run the loader. */
   promoted?: ToolId[];
-  /** Selected model id — same as `TurnRequest.model` (builtins resolve from that model). */
+  /** Builtins resolve from this model. */
   model?: string;
-  /**
-   * Optional turn snapshot from a gated turn. Cloned before use so concurrent host
-   * invokes do not share mutable visibility state.
-   */
+  /** Cloned before use so concurrent invokes do not share mutable visibility state. */
   snapshot?: TurnToolSnapshot;
   resume?: InvokeToolResume;
   sessionPermissions?: string[];
-  /** Host credentials for authenticated HTTP / MCP tools keyed by auth slot. */
-  credentials?: Record<string, ToolCredential>;
-  /** Resolver for remote tool host names (see `TurnRequest.resolveHost`). */
+  credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;
   path?: string;
   signal?: AbortSignal;
-  /** Opaque application context handed to the tool as `ctx.host`; the kernel never reads it. */
+  /** Handed to the tool as `ctx.host`; the kernel never reads it. */
   host?: unknown;
-  /** W3C `traceparent` of the host span this invoke runs under (see `TurnRequest.traceparent`). */
+  /** The page's answer, when this invoke answers a `page` gate. */
+  page?: PageAnswer;
+  /** W3C `traceparent` of the host span this invoke runs under. */
   traceparent?: string;
-  /** Host conversation id, recorded as `gen_ai.conversation.id`. */
+  /** Recorded as `gen_ai.conversation.id`. */
   conversationId?: string;
-  /** Host-owned metadata preserved on this invoke's trace record; the kernel does not interpret it. */
+  /** Preserved on the trace record; the kernel does not interpret it. */
   metadata?: Record<string, unknown>;
-  /** Earlier turns this invoke follows from, e.g. the paused turn it resumes. */
   links?: TurnTraceLink[];
-  /**
-   * Optional stage handler for this invoke — `pre_tool` / `post_tool` only
-   * (`docs/contracts/stages.md`).
-   */
+  /** Receives `pre_tool` / `post_tool` only. */
   onStage?: import('../stages.ts').StageHandler;
+  /** Runs an agent tool's turn; an agent tool needs it, or `onAgentCall` returning one. */
+  provider?: import('../provider-contract.ts').ProviderHostOptions;
+  /** As `TurnRequest.onAgentCall`, for an agent tool this invoke runs. */
+  onAgentCall?: AgentCallHook;
 }
 
-/** Profile policy that selects and configures tools available to model turns. */
+/** The tools a profile may use and how they load. */
 export interface ProfileToolsSpec {
-  /** Custom function tools this profile may run. Builtins live on models.*.builtInTools. */
+  /** Custom tools only; builtins live on `models.*.builtInTools`. */
   allow: ToolId[];
-  /**
-   * Optional T1 policy — returns which eligible T1 tools to wire at turn start.
-   * Tools must already be on `allow` (custom) or `builtInTools` (builtin) and `loadTier: 'T1'`.
-   * Not supported on `type: 'live'` (Gemini Live wires declarations once at session setup).
-   */
+  /** Returns ids already allowed with `loadTier: 'T2'` to load at turn start. Not supported on `type: 'live'`. */
   t1Policy?: ToolPolicy;
-  /**
-   * Optional designated function tool id for T2 promotion.
-   * Must be in `allow`. When that tool completes with `{ loaded: string[] }`, those T2 ids are promoted.
-   * Not supported on `type: 'live'`.
-   */
+  /** Must be in `allow`; completing with `{ loaded: string[] }` promotes those T2 ids. Not on `type: 'live'`. */
   t2Loader?: ToolId;
 }
 
-/**
- * Live session tools — Gemini Live (and similar) fix function declarations at setup.
- *
- * Shape excludes `t1Policy` / `t2Loader`. Every id in `allow` (and each model's
- * `builtInTools`) is wired at session setup regardless of `loadTier` —
- * declarations cannot be added mid-session, so on live every allowed tool is
- * effectively T0.
- */
+/** Live declarations cannot be added mid-session, so every allowed tool is wired at setup as if T0. */
 export interface LiveProfileToolsSpec {
-  /** Custom tools wired once at session setup (every load tier). */
   allow: ToolId[];
 }
 
-/**
- * Host profile tools — the explicit ceiling for host-driven `invokeTool` calls.
- * Every id in `allow` is executable with no visibility tiers and no path gating.
- */
+/** Every id in `allow` is invokable with no visibility tiers and no path gating. */
 export interface HostProfileToolsSpec {
-  /** Custom function tools the host may invoke. */
   allow: ToolId[];
 }
 
-/**
- * What a tool body produced, before settlement projects, guards, and runs
- * `post_tool`. Every transport returns this; one settlement consumes it.
- */
+/** Every transport returns this; one settlement projects, guards and runs `post_tool`. */
 export type ToolBodyOutcome =
   | { kind: 'ok'; outputRaw: unknown; modelResult: ModelToolResult }
   | { kind: 'gated'; gate: ToolGate }
@@ -408,7 +453,6 @@ export type ToolBodyOutcome =
   | {
       kind: 'failed';
       failure: ToolFailure;
-      /** True when the body never ran. */
       callNotStarted: boolean;
       /** The host refused the call (`deny`), rather than it failing. */
       denied?: true;
@@ -418,60 +462,14 @@ export interface ModelToolResult {
   finding: string;
   /** Lean JSON for model reasoning — must not carry media bytes. */
   data?: unknown;
-  /**
-   * Multimodal tool-result parts (text / image / audio / video / document).
-   * Adapters wire these with the same fidelity as user input parts.
-   */
+  /** Adapters wire these with the same fidelity as user input parts. */
   parts?: InteractionPart[];
   /**
-   * Model-facing text, already fenced and redacted at the tool boundary.
-   *
-   * Set by `executeRegisteredTool`, which knows the tool's origin and the
-   * profile's policy. `formatToolResult` prefers it; when it is absent — a host
-   * formatting a recorded result outside the execution path — that function
-   * guards the composed text itself under full detection.
+   * Already fenced and redacted by `executeRegisteredTool`. When absent (a recorded result
+   * formatted outside execution), `formatToolResult` guards the text itself under full detection.
    */
   modelText?: string;
-  /** Where these bytes came from. Set alongside `modelText`. */
   provenance?: Provenance;
   /** Directive signals found in the content; raises the turn's taint. */
   suspicious?: GuardrailHit[];
-}
-
-export type ToolCallPhase =
-  | 'running'
-  | 'progress'
-  | 'trace'
-  | 'artifact'
-  | 'warning'
-  | 'complete'
-  /**
-   * @deprecated Shipping interactive/confirm pause. Target: `gate` for
-   * confirm/permission/auth; awaiting is `complete` + awaiting payload.
-   */
-  | 'pause'
-  /** pre_tool confirm / permission / auth — body did not run. */
-  | 'gate'
-  | 'error'
-  /** Provider cancelled an in-flight tool call (e.g. live barge-in). */
-  | 'cancel';
-
-/** Provider or kernel tool-call event emitted during a turn. */
-export interface ToolCallEvent {
-  name: string;
-  /** Provider-native id or kernel-assigned call id. */
-  callId?: string;
-  arguments?: Record<string, unknown>;
-  /** Absent on raw provider tool-call events; set by kernel execution. */
-  phase?: ToolCallPhase;
-  data?: unknown;
-  step?: ToolTraceStep;
-  artifact?: unknown;
-  warning?: ToolWarning;
-  output?: unknown;
-  /** @deprecated Target: `gate` for confirm/permission/auth. */
-  pause?: ToolPause;
-  /** pre_tool gate — body did not run. */
-  gate?: ToolGate;
-  failure?: ToolFailure;
 }

@@ -1,52 +1,16 @@
 import '../../fixtures/test-host.ts';
-import type { LanguageModelUsage, TextStreamPart, ToolSet } from 'ai';
-import { assertEquals } from '../../../src/kernel/engine/assert.ts';
-import { resolveTurn } from '../../../src/kernel/registry/resolve.ts';
-import { registerTool } from '../../../src/kernel/tools/mod.ts';
-import type { ProviderCompleteRequest, TurnEvent } from '../../../src/kernel/types.ts';
-import {
-  buildTools,
-  citationCandidates,
-  createAccumulator,
-  createOpenRouterProvider,
-  eventFromPart,
-  evidenceFromMetadata,
-  finalEvents,
-  finishEvent,
-  metadataAnnotations,
-  metadataRecord,
-  nestedCitations,
-  primaryEventFromPart,
-  providerMetadataEvent,
-  providerOptionsFor,
-  rawChoiceMessageEvidence,
-  rawEvents,
-  rawRecord,
-  rawThoughtEvent,
-  schemaForTool,
-  sourceEvent,
-  stringArray,
-  systemDelivery,
-  tokenEvent,
-  tokensFromUsage,
-  toolArguments,
-  toolCallEvent,
-  toolResultData,
-  toolResultEvent,
-  trimApiKey,
-} from '../../../src/providers/openrouter/chat.ts';
+import { assertEquals } from '@std/assert';
+import { resolveTurn } from '../../../src/kernel/default-scope.ts';
+import { providerBuiltins } from '../../../src/kernel/registry/provider-request.ts';
+import { defaultKernelScope } from '../../../src/kernel/scope.ts';
+import type { ProviderCompleteRequest } from '../../../src/kernel/types.ts';
+import { createOpenRouterProvider } from '../../../src/providers/openrouter/chat.ts';
+import { citedUris, eventsOf, firstOf } from '../../fixtures/events.ts';
+import { googleBuiltins } from '../../fixtures/provider-request.ts';
 import { testWireTool } from '../../fixtures/wire-tools.ts';
 
-/** Adversarial stream part for default-branch coverage only. */
-function adversarialPart(
-  type: string,
-  extra: Record<string, unknown> = {},
-): TextStreamPart<ToolSet> {
-  return { type, ...extra } as TextStreamPart<ToolSet>;
-}
-
 type R = Record<string, unknown>;
-function field(ev: unknown, ...keys: string[]): unknown {
+function _field(ev: unknown, ...keys: string[]): unknown {
   let cur: unknown = ev;
   for (const k of keys) {
     cur = (cur as R)?.[k];
@@ -58,20 +22,36 @@ const EXPECTED_INPUT_TOKENS = 25;
 const EXPECTED_OUTPUT_TOKENS = 40;
 const EXPECTED_TOTAL_TOKENS = 65;
 
-async function collect(iter: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const ev of iter) {
-    out.push(ev);
-  }
-  return out;
-}
-
 function sseResponse(chunks: string[]): Response {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const enc = new TextEncoder();
       for (const chunk of chunks) {
-        controller.enqueue(enc.encode(chunk));
+        const normalized = chunk.replace(/data: (.+)\n/g, (line, data: string) => {
+          if (data === '[DONE]') return line;
+          try {
+            const row = JSON.parse(data);
+            if (!row || typeof row !== 'object' || Array.isArray(row)) return line;
+            row.id ??= 'response-test';
+            row.created ??= 0;
+            row.model ??= 'test-model';
+            row.object ??= 'chat.completion.chunk';
+            if (row.choices)
+              row.choices = row.choices.map((choice: Record<string, unknown>) => ({
+                index: 0,
+                finish_reason: null,
+                delta: {},
+                ...choice,
+              }));
+            if (row.usage) {
+              row.usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, ...row.usage };
+            }
+            return `data: ${JSON.stringify(row)}\n`;
+          } catch {
+            return line;
+          }
+        });
+        controller.enqueue(enc.encode(normalized));
       }
       controller.close();
     },
@@ -91,11 +71,12 @@ function createMockTurnRequest(profile: string, text: string): ProviderCompleteR
     summaries: undefined,
     maxOutputTokens: generation.maxOutputTokens,
     temperature: generation.temperature,
-    builtins: generation.builtins,
+    builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
     system: 'Host system prompt',
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
+    keySlot: 'slot_a',
   };
 }
 
@@ -149,7 +130,7 @@ Deno.test('createOpenRouterProvider streams reasoning, text, tools, tokens, and 
   let capturedBody: Record<string, unknown> | undefined;
 
   const provider = createOpenRouterProvider({
-    apiKey: 'mock-auth-token',
+    vault: { slot_a: 'mock-auth-token' },
     fetch: (url, init) => {
       fetchCalledWith = String(url);
       capturedBody = JSON.parse(String(init?.body));
@@ -188,7 +169,7 @@ Deno.test('createOpenRouterProvider streams reasoning, text, tools, tokens, and 
       },
     }),
   ];
-  const events = await collect(provider.complete(req));
+  const events = await Array.fromAsync(provider.complete(req));
 
   assertEquals(fetchCalledWith, 'https://openrouter.ai/api/v1/chat/completions');
 
@@ -213,29 +194,31 @@ Deno.test('createOpenRouterProvider streams reasoning, text, tools, tokens, and 
     .join('');
   assertEquals(text, 'hello world.');
 
-  const toolEvents = events.filter((e) => e.type === 'tool');
+  const toolEvents = eventsOf(events, 'tool');
   assertEquals(toolEvents.length, 1);
-  assertEquals(toolEvents[0]?.tool?.name, 'lookup');
-  assertEquals(toolEvents[0]?.tool?.arguments, { q: 'record' });
+  assertEquals(toolEvents[0]?.tool.name, 'lookup');
+  assertEquals(toolEvents[0]?.tool.phase === undefined && toolEvents[0].tool.arguments, {
+    q: 'record',
+  });
 
-  const tokenEvents = events.filter((e) => e.type === 'tokens');
+  const tokenEvents = eventsOf(events, 'tokens');
   assertEquals(tokenEvents.length, 1);
   assertEquals(tokenEvents[0]?.tokens?.input, EXPECTED_INPUT_TOKENS);
   assertEquals(tokenEvents[0]?.tokens?.output, EXPECTED_OUTPUT_TOKENS);
   assertEquals(tokenEvents[0]?.tokens?.total, EXPECTED_TOTAL_TOKENS);
-  assertEquals(events.filter((e) => e.type === 'done').length, 1);
+  assertEquals(eventsOf(events, 'done').length, 1);
 });
 
 Deno.test('createOpenRouterProvider suppresses thought events when summaries are disabled', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'mock-auth-token',
+    vault: { slot_a: 'mock-auth-token' },
     fetch: () => Promise.resolve(sseResponse(mockStreamChunks())),
   });
 
   const req = createMockTurnRequest('pinned', 'How often to water?');
   req.structured = null;
   req.summaries = 'none';
-  const events = await collect(provider.complete(req));
+  const events = await Array.fromAsync(provider.complete(req));
 
   assertEquals(
     events.some((event) => event.type === 'thought'),
@@ -248,7 +231,7 @@ Deno.test('createOpenRouterProvider suppresses thought events when summaries are
       .join(''),
     'hello world.',
   );
-  assertEquals(events.filter((event) => event.type === 'done').length, 1);
+  assertEquals(eventsOf(events, 'done').length, 1);
 });
 
 Deno.test('createOpenRouterProvider preserves citation evidence from provider payloads', async () => {
@@ -258,15 +241,12 @@ Deno.test('createOpenRouterProvider preserves citation evidence from provider pa
     choices: [{ delta: { content: 'cited answer' } }],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'mock-auth-token',
+    vault: { slot_a: 'mock-auth-token' },
     fetch: () => Promise.resolve(sseResponse([`data: ${evidencePayload}\n\n`, 'data: [DONE]\n\n'])),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'cite')));
-  const evidenceEvents = events.filter((event) => event.type === 'evidence');
-  assertEquals(evidenceEvents.length, 1);
-  assertEquals(evidenceEvents[0]?.evidence?.provider, 'openrouter');
-  assertEquals(evidenceEvents[0]?.evidence?.citations, ['https://example.com/source']);
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'cite')));
+  assertEquals(citedUris(events), ['https://example.com/source']);
   assertEquals(
     events.some((event) => event.type === 'text' && event.text === 'cited answer'),
     true,
@@ -285,37 +265,35 @@ Deno.test('createOpenRouterProvider preserves evidence from final choice message
     ],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'mock-auth-token',
+    vault: { slot_a: 'mock-auth-token' },
     fetch: () =>
       Promise.resolve(sseResponse([`data: ${finalMessagePayload}\n\n`, 'data: [DONE]\n\n'])),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'cite final')));
-  const evidence = events.find((event) => event.type === 'evidence')?.evidence;
-  assertEquals(evidence?.provider, 'openrouter');
-  assertEquals(evidence?.citations, ['https://example.com/final']);
-  assertEquals(events.filter((event) => event.type === 'evidence').length, 1);
+  const events = await Array.fromAsync(
+    provider.complete(createMockTurnRequest('pinned', 'cite final')),
+  );
+  assertEquals(citedUris(events), ['https://example.com/final']);
 });
 
 Deno.test('createOpenRouterProvider handles missing API key, empty stream, thinking delta, site headers, and invalid tool args', async () => {
-  // 1. Missing API key
-  const noKeyProvider = createOpenRouterProvider({ apiKey: '' });
-  const noKeyEvents = await collect(noKeyProvider.complete(createMockTurnRequest('pinned', 'x')));
+  const noKeyProvider = createOpenRouterProvider({ vault: { slot_a: '' } });
+  const noKeyEvents = await Array.fromAsync(
+    noKeyProvider.complete(createMockTurnRequest('pinned', 'x')),
+  );
   assertEquals(noKeyEvents.length, 1);
   assertEquals(noKeyEvents[0]?.type, 'error');
 
-  // 2. Empty stream
   const emptyStreamProvider = createOpenRouterProvider({
-    apiKey: 'mock-key',
+    vault: { slot_a: 'mock-key' },
     fetch: () => Promise.resolve(new Response(null, { status: 200 })),
   });
-  const emptyStreamEvents = await collect(
+  const emptyStreamEvents = await Array.fromAsync(
     emptyStreamProvider.complete(createMockTurnRequest('pinned', 'x')),
   );
   assertEquals(emptyStreamEvents.length, 1);
   assertEquals(emptyStreamEvents[0]?.type, 'error');
 
-  // 3. Thinking delta, site headers, structured parsing, unparseable tool args
   let capturedHeaders: Headers | undefined;
   const chunkWithThinking = JSON.stringify({
     choices: [{ delta: { thinking: 'deep thought' } }],
@@ -344,7 +322,7 @@ Deno.test('createOpenRouterProvider handles missing API key, empty stream, think
   });
 
   const fullStreamProvider = createOpenRouterProvider({
-    apiKey: 'mock-key',
+    vault: { slot_a: 'mock-key' },
     siteUrl: 'https://theorem.dev',
     siteName: 'Theorem',
     fetch: (_url, init) => {
@@ -354,6 +332,7 @@ Deno.test('createOpenRouterProvider handles missing API key, empty stream, think
           `data: ${chunkWithThinking}\n\n`,
           `data: ${chunkWithBadTool}\n\n`,
           `data: ${chunkWithStructured}\n\n`,
+          'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
           'data: [DONE]\n\n',
         ]),
       );
@@ -371,14 +350,14 @@ Deno.test('createOpenRouterProvider handles missing API key, empty stream, think
       },
     }),
   ];
-  const fullEvents = await collect(fullStreamProvider.complete(structuredReq));
+  const fullEvents = await Array.fromAsync(fullStreamProvider.complete(structuredReq));
   assertEquals(capturedHeaders?.get('HTTP-Referer'), 'https://theorem.dev');
   assertEquals(capturedHeaders?.get('X-Title'), 'Theorem');
 
-  const thoughtEv = fullEvents.find((e) => e.type === 'thought');
+  const thoughtEv = firstOf(fullEvents, 'thought');
   assertEquals(thoughtEv?.text, 'deep thought');
 
-  const toolEv = fullEvents.find((e) => e.type === 'tool');
+  const toolEv = firstOf(fullEvents, 'tool');
   assertEquals(toolEv, undefined);
   assertEquals(
     fullEvents.some((e) => e.type === 'error'),
@@ -389,7 +368,7 @@ Deno.test('createOpenRouterProvider handles missing API key, empty stream, think
 Deno.test('createOpenRouterProvider sends response_format for structured requests via SDK', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -404,7 +383,7 @@ Deno.test('createOpenRouterProvider sends response_format for structured request
   });
 
   const req = createMockTurnRequest('formatter', 'Design hero card');
-  const events = await collect(provider.complete(req));
+  const events = await Array.fromAsync(provider.complete(req));
   assertEquals(
     events.some((e) => e.type === 'text'),
     true,
@@ -420,7 +399,7 @@ Deno.test('createOpenRouterProvider sends response_format for structured request
 Deno.test('createOpenRouterProvider passes web_search_options for googleSearch builtin', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -433,8 +412,8 @@ Deno.test('createOpenRouterProvider passes web_search_options for googleSearch b
   });
 
   const req = createMockTurnRequest('pinned', 'search the web');
-  req.builtins = ['googleSearch'];
-  const events = await collect(provider.complete(req));
+  req.builtins = googleBuiltins('googleSearch');
+  const events = await Array.fromAsync(provider.complete(req));
   assertEquals(
     events.some((e) => e.type === 'text'),
     true,
@@ -444,20 +423,9 @@ Deno.test('createOpenRouterProvider passes web_search_options for googleSearch b
 });
 
 Deno.test('createOpenRouterProvider errors on a builtin with no OpenRouter wire, without calling upstream', async () => {
-  registerTool({
-    type: 'builtin',
-    name: 'liveOnly',
-    description: 'Live-only builtin',
-    category: 'web',
-    access: 'read-only',
-    paths: ['*'],
-    loadTier: 'T0',
-    permission: 'auto',
-    wire: { live: 'liveOnly' },
-  });
   let called = false;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => {
       called = true;
       return Promise.resolve(sseResponse(['data: [DONE]\n\n']));
@@ -465,9 +433,9 @@ Deno.test('createOpenRouterProvider errors on a builtin with no OpenRouter wire,
   });
 
   const req = createMockTurnRequest('pinned', 'find a nursery');
-  req.builtins = ['liveOnly'];
-  const events = await collect(provider.complete(req));
-  const error = events.find((e) => e.type === 'error');
+  req.builtins = [{ id: 'liveOnly', wire: { live: 'liveOnly' } }];
+  const events = await Array.fromAsync(provider.complete(req));
+  const error = firstOf(events, 'error');
   assertEquals(error?.errorInternal?.includes("Builtin 'liveOnly' has no wire.openRouter"), true);
   assertEquals(called, false);
 });
@@ -490,8 +458,15 @@ Deno.test('createOpenRouterProvider emits tool call events with id, name, and pa
     ],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
-    fetch: () => Promise.resolve(sseResponse([`data: ${toolChunk}\n\n`, 'data: [DONE]\n\n'])),
+    vault: { slot_a: 'test-key' },
+    fetch: () =>
+      Promise.resolve(
+        sseResponse([
+          `data: ${toolChunk}\n\n`,
+          'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ),
   });
 
   const req = createMockTurnRequest('pinned', 'weather');
@@ -501,11 +476,12 @@ Deno.test('createOpenRouterProvider emits tool call events with id, name, and pa
       parameters: { type: 'object', properties: { city: { type: 'string' } } },
     }),
   ];
-  const events = await collect(provider.complete(req));
-  const toolEv = events.find((e) => e.type === 'tool');
-  assertEquals(toolEv?.tool?.name, 'get_weather');
-  assertEquals(toolEv?.tool?.id, 'call_abc');
-  assertEquals(toolEv?.tool?.arguments, { city: 'NYC' });
+  const events = await Array.fromAsync(provider.complete(req));
+  assertEquals(firstOf(events, 'tool')?.tool, {
+    name: 'get_weather',
+    callId: 'call_abc',
+    arguments: { city: 'NYC' },
+  });
 });
 
 Deno.test('createOpenRouterProvider extracts evidence from openrouter.provider_metadata.citations', async () => {
@@ -516,14 +492,14 @@ Deno.test('createOpenRouterProvider extracts evidence from openrouter.provider_m
     },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'cite deep')));
-  const evidence = events.find((e) => e.type === 'evidence')?.evidence;
-  assertEquals(evidence?.provider, 'openrouter');
-  assertEquals(evidence?.citations, ['https://example.com/deep']);
+  const events = await Array.fromAsync(
+    provider.complete(createMockTurnRequest('pinned', 'cite deep')),
+  );
+  assertEquals(citedUris(events), ['https://example.com/deep']);
 });
 
 Deno.test('createOpenRouterProvider extracts evidence annotations from SSE chunk', async () => {
@@ -532,22 +508,21 @@ Deno.test('createOpenRouterProvider extracts evidence annotations from SSE chunk
     annotations: [
       {
         type: 'url_citation',
-        url: 'https://example.com/ann',
-        title: 'Ann',
+        url_citation: { url: 'https://example.com/ann', title: 'Ann' },
       },
     ],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'annotate')));
-  const evidence = events.find((e) => e.type === 'evidence')?.evidence;
-  assertEquals(evidence?.provider, 'openrouter');
-  assertEquals(evidence?.annotations?.length, 1);
-  assertEquals(typeof evidence?.raw, 'object');
-  assertEquals(evidence?.raw !== null, true);
+  const events = await Array.fromAsync(
+    provider.complete(createMockTurnRequest('pinned', 'annotate')),
+  );
+  assertEquals(eventsOf(events, 'citation'), [
+    { type: 'citation', sources: [{ title: 'Ann', uri: 'https://example.com/ann', type: 'web' }] },
+  ]);
 });
 
 Deno.test('createOpenRouterProvider extracts citations from nested openrouter.citations path', async () => {
@@ -558,19 +533,18 @@ Deno.test('createOpenRouterProvider extracts citations from nested openrouter.ci
     },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'cite')));
-  const evidence = events.find((e) => e.type === 'evidence')?.evidence;
-  assertEquals(evidence?.citations, ['https://example.com/openrouter-direct']);
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'cite')));
+  assertEquals(citedUris(events), ['https://example.com/openrouter-direct']);
 });
 
 Deno.test('createOpenRouterProvider maps openRouterSettings for non-web plugins', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -584,39 +558,54 @@ Deno.test('createOpenRouterProvider maps openRouterSettings for non-web plugins'
 
   const req = createMockTurnRequest('pinned', 'test');
   req.builtins = [];
-  await collect(provider.complete(req));
+  await Array.fromAsync(provider.complete(req));
   assertEquals(capturedBody?.web_search_options, undefined);
 });
 
 Deno.test('createOpenRouterProvider missing key is an auth error', async () => {
-  const provider = createOpenRouterProvider({ apiKey: '   ' });
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'x')));
+  const provider = createOpenRouterProvider({ vault: { slot_a: '   ' } });
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'x')));
   assertEquals(events.length, 1);
-  assertEquals(events[0]?.type, 'error');
-  assertEquals(events[0]?.errorKind, 'auth');
+  assertEquals(firstOf(events, 'error')?.errorKind, 'auth');
+});
+
+Deno.test('createOpenRouterProvider without a key slot is an auth error and never calls out', async () => {
+  let called = false;
+  const provider = createOpenRouterProvider({
+    vault: { slot_a: 'test-key' },
+    fetch: () => {
+      called = true;
+      return Promise.resolve(new Response('unreachable', { status: 500 }));
+    },
+  });
+  const req = createMockTurnRequest('pinned', 'x');
+  delete req.keySlot;
+  const events = await Array.fromAsync(provider.complete(req));
+  assertEquals(events.length, 1);
+  assertEquals(firstOf(events, 'error')?.errorKind, 'auth');
+  assertEquals(called, false);
 });
 
 Deno.test('createOpenRouterProvider yields error on HTTP non-200', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(new Response('Forbidden', { status: 403 })),
   });
 
   const req = createMockTurnRequest('pinned', 'x');
-  const events = await collect(provider.complete(req));
+  const events = await Array.fromAsync(provider.complete(req));
   assertEquals(events.length, 1);
-  assertEquals(events[0]?.type, 'error');
-  assertEquals(events[0]?.errorKind, 'auth');
+  assertEquals(firstOf(events, 'error')?.errorKind, 'auth');
 });
 
 Deno.test('createOpenRouterProvider reports an unreachable OpenRouter as a network error', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.reject(new TypeError('connection reset')),
   });
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'x')));
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'x')));
   assertEquals(
-    events.filter((e) => e.type === 'error').map((e) => e.errorKind),
+    eventsOf(events, 'error').map((e) => e.errorKind),
     ['network'],
   );
 });
@@ -628,7 +617,7 @@ Deno.test('createOpenRouterProvider takes a mid-stream error kind from its code'
     ['provider_down', 'unavailable'],
   ] as const) {
     const provider = createOpenRouterProvider({
-      apiKey: 'test-key',
+      vault: { slot_a: 'test-key' },
       fetch: () =>
         Promise.resolve(
           sseResponse([
@@ -638,8 +627,8 @@ Deno.test('createOpenRouterProvider takes a mid-stream error kind from its code'
           ]),
         ),
     });
-    const events = await collect(provider.complete(createMockTurnRequest('pinned', 'x')));
-    const error = events.find((e) => e.type === 'error');
+    const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'x')));
+    const error = firstOf(events, 'error');
     assertEquals(error?.errorKind, kind);
     assertEquals(error?.errorInternal?.includes('upstream went away'), true);
   }
@@ -656,30 +645,30 @@ Deno.test('createOpenRouterProvider reports a body that breaks mid-read as a net
     },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(new Response(body, { headers: { 'Content-Type': 'text/event-stream' } })),
   });
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'x')));
-  assertEquals(events.find((e) => e.type === 'error')?.errorKind, 'network');
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'x')));
+  assertEquals(firstOf(events, 'error')?.errorKind, 'network');
 });
 
 Deno.test('createOpenRouterProvider reports an unreadable stream chunk as a bad response', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([`data: ${JSON.stringify({ nonsense: true })}\n\n`, 'data: [DONE]\n\n']),
       ),
   });
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'x')));
-  assertEquals(events.find((e) => e.type === 'error')?.errorKind, 'bad_response');
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'x')));
+  assertEquals(firstOf(events, 'error')?.errorKind, 'bad_response');
 });
 
 Deno.test('createOpenRouterProvider wires tool result history', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -707,7 +696,7 @@ Deno.test('createOpenRouterProvider wires tool result history', async () => {
     { role: 'assistant', parts: [{ type: 'text', text: 'summary' }] },
     { role: 'user', content: 'follow-up' },
   ];
-  await collect(provider.complete(req));
+  await Array.fromAsync(provider.complete(req));
 
   const messages = capturedBody?.messages as Array<Record<string, unknown>>;
   const toolMsgs = messages.filter((m) => m.role === 'tool');
@@ -717,7 +706,7 @@ Deno.test('createOpenRouterProvider wires tool result history', async () => {
 Deno.test('createOpenRouterProvider sends nothing for a tool result without its call id', async () => {
   let sent = false;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => {
       sent = true;
       return Promise.resolve(sseResponse(['data: [DONE]\n\n']));
@@ -726,7 +715,7 @@ Deno.test('createOpenRouterProvider sends nothing for a tool result without its 
 
   const req = createMockTurnRequest('pinned', 'test');
   req.history = [{ role: 'tool', content: 'orphan result' }];
-  const events = await collect(provider.complete(req));
+  const events = await Array.fromAsync(provider.complete(req));
 
   assertEquals(sent, false);
   assertEquals(events.at(-1)?.type, 'error');
@@ -734,7 +723,7 @@ Deno.test('createOpenRouterProvider sends nothing for a tool result without its 
 
 Deno.test('createOpenRouterProvider emits structured event for valid JSON output', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -747,8 +736,8 @@ Deno.test('createOpenRouterProvider emits structured event for valid JSON output
   });
 
   const req = createMockTurnRequest('formatter', 'Design hero card');
-  const events = await collect(provider.complete(req));
-  const structuredEv = events.find((e) => e.type === 'structured');
+  const events = await Array.fromAsync(provider.complete(req));
+  const structuredEv = firstOf(events, 'structured');
   assertEquals((structuredEv?.structured as Record<string, unknown>)?.answer, '42');
   assertEquals(
     events.some((e) => e.type === 'done'),
@@ -758,7 +747,7 @@ Deno.test('createOpenRouterProvider emits structured event for valid JSON output
 
 Deno.test('createOpenRouterProvider errors when structured output is invalid JSON', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -771,12 +760,12 @@ Deno.test('createOpenRouterProvider errors when structured output is invalid JSO
   });
 
   const req = createMockTurnRequest('formatter', 'Design hero card');
-  const events = await collect(provider.complete(req));
+  const events = await Array.fromAsync(provider.complete(req));
   assertEquals(
     events.some((e) => e.type === 'structured'),
     false,
   );
-  const errorEv = events.find((e) => e.type === 'error');
+  const errorEv = firstOf(events, 'error');
   assertEquals(errorEv?.errorKind, 'bad_response');
   assertEquals(errorEv?.errorInternal, 'structured output was not valid JSON');
   assertEquals(
@@ -785,26 +774,29 @@ Deno.test('createOpenRouterProvider errors when structured output is invalid JSO
   );
 });
 
-Deno.test('createOpenRouterProvider deduplicates evidence across stream', async () => {
+Deno.test('createOpenRouterProvider cites each URL once across the stream', async () => {
+  const cite = (url: string) => ({ type: 'url_citation', url_citation: { url } });
   const chunk1 = JSON.stringify({
     choices: [{ delta: { content: 'first' } }],
-    annotations: [{ type: 'url_citation', url: 'https://a.com' }],
+    annotations: [cite('https://a.com')],
   });
   const chunk2 = JSON.stringify({
     choices: [{ delta: { content: 'second' } }],
-    annotations: [{ type: 'url_citation', url: 'https://b.com' }],
+    annotations: [cite('https://a.com'), cite('https://b.com')],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([`data: ${chunk1}\n\n`, `data: ${chunk2}\n\n`, 'data: [DONE]\n\n']),
       ),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'cite')));
-  const evidenceEvents = events.filter((e) => e.type === 'evidence');
-  assertEquals(evidenceEvents.length, 1);
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'cite')));
+  assertEquals(
+    eventsOf(events, 'citation').map((e) => e.sources.map((source) => source.uri)),
+    [['https://a.com'], ['https://b.com']],
+  );
 });
 
 Deno.test('createOpenRouterProvider emits token counts from finish event', async () => {
@@ -813,7 +805,7 @@ Deno.test('createOpenRouterProvider emits token counts from finish event', async
     usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -824,8 +816,8 @@ Deno.test('createOpenRouterProvider emits token counts from finish event', async
       ),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'count')));
-  const tokenEv = events.find((e) => e.type === 'tokens');
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'count')));
+  const tokenEv = firstOf(events, 'tokens');
   assertEquals(tokenEv?.tokens?.input, 10);
   assertEquals(tokenEv?.tokens?.output, 20);
   assertEquals(tokenEv?.tokens?.total, 30);
@@ -837,7 +829,7 @@ Deno.test('createOpenRouterProvider omits token event when usage is all zeros', 
     usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -848,8 +840,8 @@ Deno.test('createOpenRouterProvider omits token event when usage is all zeros', 
       ),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'count')));
-  assertEquals(events.filter((e) => e.type === 'tokens').length, 0);
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'count')));
+  assertEquals(eventsOf(events, 'tokens').length, 0);
 });
 
 Deno.test('createOpenRouterProvider emits tokens when only input tokens are nonzero', async () => {
@@ -858,7 +850,7 @@ Deno.test('createOpenRouterProvider emits tokens when only input tokens are nonz
     usage: { prompt_tokens: 5, completion_tokens: 0, total_tokens: 5 },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -869,8 +861,8 @@ Deno.test('createOpenRouterProvider emits tokens when only input tokens are nonz
       ),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'tok')));
-  const tokenEv = events.find((e) => e.type === 'tokens');
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'tok')));
+  const tokenEv = firstOf(events, 'tokens');
   assertEquals(tokenEv?.tokens?.input, 5);
   assertEquals(tokenEv?.tokens?.output, 0);
   assertEquals(tokenEv?.tokens?.total, 5);
@@ -882,7 +874,7 @@ Deno.test('createOpenRouterProvider emits tokens when only output tokens are non
     usage: { prompt_tokens: 0, completion_tokens: 7, total_tokens: 7 },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -893,8 +885,8 @@ Deno.test('createOpenRouterProvider emits tokens when only output tokens are non
       ),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'tok')));
-  const tokenEv = events.find((e) => e.type === 'tokens');
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'tok')));
+  const tokenEv = firstOf(events, 'tokens');
   assertEquals(tokenEv?.tokens?.input, 0);
   assertEquals(tokenEv?.tokens?.output, 7);
   assertEquals(tokenEv?.tokens?.total, 7);
@@ -903,7 +895,7 @@ Deno.test('createOpenRouterProvider emits tokens when only output tokens are non
 Deno.test('createOpenRouterProvider handles empty history and empty input gracefully', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -917,7 +909,7 @@ Deno.test('createOpenRouterProvider handles empty history and empty input gracef
 
   const req = createMockTurnRequest('pinned', 'test');
   req.history = [];
-  await collect(provider.complete(req));
+  await Array.fromAsync(provider.complete(req));
   const messages = capturedBody?.messages as Array<Record<string, unknown>>;
   const userMsgs = messages.filter((m) => m.role === 'user');
   assertEquals(userMsgs.length >= 1, true);
@@ -926,7 +918,7 @@ Deno.test('createOpenRouterProvider handles empty history and empty input gracef
 Deno.test('createOpenRouterProvider maps history assistant with empty tool_calls as content', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -943,7 +935,7 @@ Deno.test('createOpenRouterProvider maps history assistant with empty tool_calls
     { role: 'assistant', tool_calls: [], content: 'just text' },
     { role: 'user', content: 'ok' },
   ];
-  await collect(provider.complete(req));
+  await Array.fromAsync(provider.complete(req));
   const messages = capturedBody?.messages as Array<Record<string, unknown>>;
   const assistantMsgs = messages.filter((m) => m.role === 'assistant');
   assertEquals(assistantMsgs.length >= 1, true);
@@ -956,13 +948,12 @@ Deno.test('createOpenRouterProvider extracts citations from providerMetadata.cit
     providerMetadata: { citations: ['https://example.com/pm'] },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'cite')));
-  const evidence = events.find((e) => e.type === 'evidence')?.evidence;
-  assertEquals(evidence?.citations, ['https://example.com/pm']);
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'cite')));
+  assertEquals(citedUris(events), ['https://example.com/pm']);
 });
 
 Deno.test('createOpenRouterProvider extracts choice message providerMetadata evidence', async () => {
@@ -977,33 +968,35 @@ Deno.test('createOpenRouterProvider extracts choice message providerMetadata evi
     ],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'cite')));
-  const evidence = events.find((e) => e.type === 'evidence')?.evidence;
-  assertEquals(evidence?.citations, ['https://example.com/choice-pm']);
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'cite')));
+  assertEquals(citedUris(events), ['https://example.com/choice-pm']);
 });
 
-Deno.test('createOpenRouterProvider does not emit evidence when no citations or annotations', async () => {
+Deno.test('createOpenRouterProvider emits no citation or evidence when no citations or annotations', async () => {
   const chunk = JSON.stringify({
     choices: [{ delta: { content: 'plain text' } }],
     openrouter: { some_field: 'value' },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'plain')));
-  assertEquals(events.filter((e) => e.type === 'evidence').length, 0);
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'plain')));
+  assertEquals(
+    events.filter((e) => e.type === 'evidence' || e.type === 'citation'),
+    [],
+  );
 });
 
 Deno.test('createOpenRouterProvider wires reasoning effort to provider options', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -1017,29 +1010,25 @@ Deno.test('createOpenRouterProvider wires reasoning effort to provider options',
 
   const req = createMockTurnRequest('pinned', 'think hard');
   req.thinking = 'high';
-  await collect(provider.complete(req));
+  await Array.fromAsync(provider.complete(req));
 
-  const providerOptions = capturedBody?.providerOptions as Record<string, unknown> | undefined;
-  if (providerOptions) {
-    const or = providerOptions.openrouter as Record<string, unknown>;
-    assertEquals((or?.reasoning as Record<string, unknown>)?.effort, 'high');
-  }
+  assertEquals(capturedBody?.reasoning, { effort: 'high' });
 });
 
 Deno.test('createOpenRouterProvider does not emit done after error', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => {
       throw new Error('network failure');
     },
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'fail')));
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'fail')));
   assertEquals(
     events.some((e) => e.type === 'error'),
     true,
   );
-  assertEquals(events.filter((e) => e.type === 'done').length, 0);
+  assertEquals(eventsOf(events, 'done').length, 0);
 });
 
 Deno.test('createOpenRouterProvider handles openrouter.providerMetadata.citations path', async () => {
@@ -1050,13 +1039,12 @@ Deno.test('createOpenRouterProvider handles openrouter.providerMetadata.citation
     },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'cite')));
-  const evidence = events.find((e) => e.type === 'evidence')?.evidence;
-  assertEquals(evidence?.citations, ['https://example.com/or-pm']);
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'cite')));
+  assertEquals(citedUris(events), ['https://example.com/or-pm']);
 });
 
 Deno.test('createOpenRouterProvider extracts openrouter.annotations evidence', async () => {
@@ -1066,20 +1054,18 @@ Deno.test('createOpenRouterProvider extracts openrouter.annotations evidence', a
       annotations: [
         {
           type: 'url_citation',
-          url: 'https://example.com/or-ann',
+          url_citation: { url: 'https://example.com/or-ann' },
         },
       ],
     },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'ann')));
-  const evidence = events.find((e) => e.type === 'evidence')?.evidence;
-  assertEquals(evidence?.provider, 'openrouter');
-  assertEquals(evidence?.annotations?.length, 1);
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'ann')));
+  assertEquals(citedUris(events), ['https://example.com/or-ann']);
 });
 
 Deno.test('createOpenRouterProvider passes reasoning delta as thought events', async () => {
@@ -1090,15 +1076,15 @@ Deno.test('createOpenRouterProvider passes reasoning delta as thought events', a
     choices: [{ delta: { content: 'result' } }],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([`data: ${thinkChunk}\n\n`, `data: ${textChunk}\n\n`, 'data: [DONE]\n\n']),
       ),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'think')));
-  const thoughts = events.filter((e) => e.type === 'thought');
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'think')));
+  const thoughts = eventsOf(events, 'thought');
   assertEquals(thoughts.length >= 1, true);
   assertEquals(
     thoughts.some((t) => t.text === 'step 1'),
@@ -1109,7 +1095,7 @@ Deno.test('createOpenRouterProvider passes reasoning delta as thought events', a
 Deno.test('createOpenRouterProvider wires only siteUrl header without siteName', async () => {
   let capturedHeaders: Headers | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     siteUrl: 'https://only-url.dev',
     fetch: (_url, init) => {
       capturedHeaders = new Headers(init?.headers as Record<string, string>);
@@ -1122,7 +1108,7 @@ Deno.test('createOpenRouterProvider wires only siteUrl header without siteName',
     },
   });
 
-  await collect(provider.complete(createMockTurnRequest('pinned', 'x')));
+  await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'x')));
   assertEquals(capturedHeaders?.get('HTTP-Referer'), 'https://only-url.dev');
   assertEquals(capturedHeaders?.get('X-Title'), null);
 });
@@ -1130,7 +1116,7 @@ Deno.test('createOpenRouterProvider wires only siteUrl header without siteName',
 Deno.test('createOpenRouterProvider wires only siteName header without siteUrl', async () => {
   let capturedHeaders: Headers | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     siteName: 'OnlyName',
     fetch: (_url, init) => {
       capturedHeaders = new Headers(init?.headers as Record<string, string>);
@@ -1143,15 +1129,15 @@ Deno.test('createOpenRouterProvider wires only siteName header without siteUrl',
     },
   });
 
-  await collect(provider.complete(createMockTurnRequest('pinned', 'x')));
+  await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'x')));
   assertEquals(capturedHeaders?.get('HTTP-Referer'), null);
   assertEquals(capturedHeaders?.get('X-Title'), 'OnlyName');
 });
 
-Deno.test('createOpenRouterProvider does not include providerOptions when thinking is none and no structured', async () => {
+Deno.test('createOpenRouterProvider sends effort none, which turns reasoning off', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -1166,13 +1152,13 @@ Deno.test('createOpenRouterProvider does not include providerOptions when thinki
   const req = createMockTurnRequest('pinned', 'simple');
   req.thinking = 'none';
   req.structured = null;
-  await collect(provider.complete(req));
-  assertEquals(capturedBody?.providerOptions, undefined);
+  await Array.fromAsync(provider.complete(req));
+  assertEquals(capturedBody?.reasoning, { effort: 'none' });
 });
 
 Deno.test('createOpenRouterProvider emits text from content delta and accumulates for structured', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -1183,7 +1169,7 @@ Deno.test('createOpenRouterProvider emits text from content delta and accumulate
       ),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'multi')));
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'multi')));
   const text = events
     .filter((e) => e.type === 'text')
     .map((e) => e.text)
@@ -1191,9 +1177,9 @@ Deno.test('createOpenRouterProvider emits text from content delta and accumulate
   assertEquals(text, 'part1part2');
 });
 
-Deno.test('createOpenRouterProvider treats empty/whitespace-only apiKey as missing', async () => {
-  const provider = createOpenRouterProvider({ apiKey: '' });
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'x')));
+Deno.test('createOpenRouterProvider treats an empty or whitespace-only vault key as missing', async () => {
+  const provider = createOpenRouterProvider({ vault: { slot_a: '' } });
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'x')));
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
 });
@@ -1201,7 +1187,7 @@ Deno.test('createOpenRouterProvider treats empty/whitespace-only apiKey as missi
 Deno.test('createOpenRouterProvider wires tools with additionalProperties schema', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -1215,7 +1201,7 @@ Deno.test('createOpenRouterProvider wires tools with additionalProperties schema
 
   const req = createMockTurnRequest('pinned', 'test');
   req.wireTools = [testWireTool('flexible')];
-  await collect(provider.complete(req));
+  await Array.fromAsync(provider.complete(req));
   assertEquals(capturedBody?.tools !== undefined, true);
 });
 
@@ -1225,14 +1211,12 @@ Deno.test('createOpenRouterProvider extracts top-level citations from SSE chunk'
     citations: ['https://example.com/top-level'],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'cite')));
-  const evidence = events.find((e) => e.type === 'evidence')?.evidence;
-  assertEquals(evidence?.provider, 'openrouter');
-  assertEquals(evidence?.citations, ['https://example.com/top-level']);
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'cite')));
+  assertEquals(citedUris(events), ['https://example.com/top-level']);
 });
 
 Deno.test('createOpenRouterProvider ignores non-string items in citation arrays', async () => {
@@ -1241,46 +1225,51 @@ Deno.test('createOpenRouterProvider ignores non-string items in citation arrays'
     citations: [42, 'https://example.com/valid', null, true],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'cite')));
-  const evidence = events.find((e) => e.type === 'evidence')?.evidence;
-  assertEquals(evidence?.citations, ['https://example.com/valid']);
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'cite')));
+  assertEquals(citedUris(events), ['https://example.com/valid']);
 });
 
-Deno.test('createOpenRouterProvider skips evidence for non-array citation values', async () => {
+Deno.test('createOpenRouterProvider cites nothing for non-array citation values', async () => {
   const chunk = JSON.stringify({
     choices: [{ delta: { content: 'str' } }],
     citations: 'not-an-array',
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'cite')));
-  assertEquals(events.filter((e) => e.type === 'evidence').length, 0);
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'cite')));
+  assertEquals(
+    events.filter((e) => e.type === 'evidence' || e.type === 'citation'),
+    [],
+  );
 });
 
-Deno.test('createOpenRouterProvider skips evidence when citation array has only non-strings', async () => {
+Deno.test('createOpenRouterProvider cites nothing when citation array has only non-strings', async () => {
   const chunk = JSON.stringify({
     choices: [{ delta: { content: 'nums' } }],
     citations: [1, 2, 3],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'cite')));
-  assertEquals(events.filter((e) => e.type === 'evidence').length, 0);
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'cite')));
+  assertEquals(
+    events.filter((e) => e.type === 'evidence' || e.type === 'citation'),
+    [],
+  );
 });
 
-Deno.test('createOpenRouterProvider handles SSE with non-object raw values gracefully', async () => {
+Deno.test('createOpenRouterProvider rejects non-object SSE payloads', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -1291,9 +1280,9 @@ Deno.test('createOpenRouterProvider handles SSE with non-object raw values grace
       ),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'raw')));
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'raw')));
   assertEquals(
-    events.some((e) => e.type === 'text'),
+    events.some((e) => e.type === 'error' && e.errorKind === 'bad_response'),
     true,
   );
 });
@@ -1308,7 +1297,7 @@ Deno.test('createOpenRouterProvider does not duplicate token events on multiple 
     usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -1320,635 +1309,6 @@ Deno.test('createOpenRouterProvider does not duplicate token events on multiple 
       ),
   });
 
-  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'dup')));
-  assertEquals(events.filter((e) => e.type === 'tokens').length, 1);
-});
-
-// ─── Direct unit tests for internal functions ───
-
-Deno.test('trimApiKey returns trimmed key', () => {
-  assertEquals(trimApiKey('  key  '), 'key');
-  assertEquals(trimApiKey('key'), 'key');
-  assertEquals(trimApiKey(undefined), undefined);
-  assertEquals(trimApiKey(''), undefined);
-  assertEquals(trimApiKey('   '), undefined);
-});
-
-Deno.test('createAccumulator returns fresh state', () => {
-  const acc = createAccumulator();
-  assertEquals(acc.text, '');
-  assertEquals(acc.evidenceSeen, false);
-  assertEquals(acc.emittedTokens, false);
-  assertEquals(acc.errored, false);
-});
-
-Deno.test('schemaForTool returns parameters when present', () => {
-  const decl = {
-    type: 'function' as const,
-    name: 'fn',
-    description: 'fn',
-    parameters: { type: 'object', properties: { x: { type: 'string' } } },
-  };
-  assertEquals(schemaForTool(decl), decl.parameters);
-});
-
-Deno.test('schemaForTool returns default schema when no parameters', () => {
-  const decl = { name: 'fn' } as Parameters<typeof schemaForTool>[0];
-  assertEquals(schemaForTool(decl), {
-    type: 'object',
-    properties: {},
-    additionalProperties: true,
-  });
-});
-
-Deno.test('buildTools returns undefined for empty tools', () => {
-  assertEquals(buildTools(undefined), undefined);
-  assertEquals(buildTools([]), undefined);
-});
-
-Deno.test('buildTools creates tool set', () => {
-  const tools = buildTools([
-    {
-      type: 'function',
-      name: 'search',
-      description: 'Find things',
-      parameters: { type: 'object', properties: {} },
-    },
-  ]);
-  assertEquals(tools !== undefined, true);
-  assertEquals('search' in (tools as R), true);
-});
-
-function usage(counts: {
-  input?: number;
-  output?: number;
-  reasoning?: number;
-  cacheRead?: number;
-  cacheWrite?: number;
-}): LanguageModelUsage {
-  return {
-    inputTokens: counts.input,
-    inputTokenDetails: {
-      noCacheTokens: undefined,
-      cacheReadTokens: counts.cacheRead,
-      cacheWriteTokens: counts.cacheWrite,
-    },
-    outputTokens: counts.output,
-    outputTokenDetails: { textTokens: undefined, reasoningTokens: counts.reasoning },
-    totalTokens:
-      counts.input === undefined && counts.output === undefined
-        ? undefined
-        : (counts.input ?? 0) + (counts.output ?? 0),
-  };
-}
-
-Deno.test('tokensFromUsage returns undefined for all zeros and for no counts', () => {
-  assertEquals(tokensFromUsage(usage({ input: 0, output: 0 })), undefined);
-  assertEquals(tokensFromUsage(usage({})), undefined);
-});
-
-Deno.test('tokensFromUsage maps reported input and output', () => {
-  assertEquals(tokensFromUsage(usage({ input: 10, output: 5 })), {
-    input: 10,
-    output: 5,
-    total: 15,
-  });
-});
-
-Deno.test('tokensFromUsage marks an unreported side estimated', () => {
-  assertEquals(tokensFromUsage(usage({ output: 5 })), {
-    input: 0,
-    output: 5,
-    total: 5,
-    estimated: ['input'],
-  });
-  assertEquals(tokensFromUsage(usage({ input: 10 })), {
-    input: 10,
-    output: 0,
-    total: 10,
-    estimated: ['output'],
-  });
-});
-
-Deno.test('tokensFromUsage keeps reasoning as a share of output', () => {
-  assertEquals(tokensFromUsage(usage({ input: 10, output: 50, reasoning: 30 })), {
-    input: 10,
-    output: 50,
-    thinking: 30,
-    total: 60,
-  });
-});
-
-Deno.test('rawRecord returns record for objects', () => {
-  assertEquals(rawRecord({ a: 1 }), { a: 1 });
-  assertEquals(rawRecord(null), undefined);
-  assertEquals(rawRecord(undefined), undefined);
-  assertEquals(rawRecord([1, 2]), undefined);
-  assertEquals(rawRecord('string'), undefined);
-  assertEquals(rawRecord(42), undefined);
-});
-
-Deno.test('stringArray returns string arrays', () => {
-  assertEquals(stringArray(['a', 'b']), ['a', 'b']);
-  assertEquals(stringArray([]), undefined);
-  assertEquals(stringArray('not array'), undefined);
-  assertEquals(stringArray([1, 2]), undefined);
-  assertEquals(stringArray(['a', 1, 'b']), ['a', 'b']);
-});
-
-Deno.test('metadataRecord extracts nested record', () => {
-  assertEquals(metadataRecord({ key: { nested: true } }, 'key'), {
-    nested: true,
-  });
-  assertEquals(metadataRecord({ key: 'string' }, 'key'), undefined);
-  assertEquals(metadataRecord({}, 'missing'), undefined);
-});
-
-Deno.test('citationCandidates gathers all candidate locations', () => {
-  const raw = { citations: ['a'] };
-  const candidates = citationCandidates(raw);
-  assertEquals(candidates.length, 6);
-  assertEquals(candidates[0], ['a']);
-});
-
-Deno.test('nestedCitations finds top-level citations', () => {
-  assertEquals(nestedCitations({ citations: ['url1'] }), ['url1']);
-});
-
-Deno.test('nestedCitations finds openrouter.citations', () => {
-  assertEquals(nestedCitations({ openrouter: { citations: ['url2'] } }), ['url2']);
-});
-
-Deno.test('nestedCitations finds providerMetadata.citations', () => {
-  assertEquals(nestedCitations({ providerMetadata: { citations: ['url3'] } }), ['url3']);
-});
-
-Deno.test('nestedCitations finds openrouter.providerMetadata.citations', () => {
-  assertEquals(
-    nestedCitations({
-      openrouter: { providerMetadata: { citations: ['url4'] } },
-    }),
-    ['url4'],
-  );
-});
-
-Deno.test('nestedCitations finds provider_metadata.citations', () => {
-  assertEquals(nestedCitations({ provider_metadata: { citations: ['url5'] } }), ['url5']);
-});
-
-Deno.test('nestedCitations finds openrouter.provider_metadata.citations', () => {
-  assertEquals(
-    nestedCitations({
-      openrouter: { provider_metadata: { citations: ['url6'] } },
-    }),
-    ['url6'],
-  );
-});
-
-Deno.test('nestedCitations returns undefined when no citations', () => {
-  assertEquals(nestedCitations({}), undefined);
-});
-
-Deno.test('nestedCitations filters non-string citations', () => {
-  assertEquals(nestedCitations({ citations: [1, 2] }), undefined);
-});
-
-Deno.test('metadataAnnotations finds top-level annotations', () => {
-  assertEquals(metadataAnnotations({ annotations: [{ a: 1 }] }), [{ a: 1 }]);
-});
-
-Deno.test('metadataAnnotations finds openrouter.annotations', () => {
-  assertEquals(metadataAnnotations({ openrouter: { annotations: [{ b: 2 }] } }), [{ b: 2 }]);
-});
-
-Deno.test('metadataAnnotations returns undefined when none', () => {
-  assertEquals(metadataAnnotations({}), undefined);
-});
-
-Deno.test('metadataAnnotations ignores non-array annotations', () => {
-  assertEquals(metadataAnnotations({ annotations: 'not array' }), undefined);
-});
-
-Deno.test('evidenceFromMetadata builds evidence event', () => {
-  const acc = createAccumulator();
-  const ev = evidenceFromMetadata({ citations: ['url'] }, acc);
-  assertEquals(ev?.type, 'evidence');
-  assertEquals(field(ev, 'evidence', 'citations'), ['url']);
-  assertEquals(acc.evidenceSeen, true);
-});
-
-Deno.test('evidenceFromMetadata returns undefined when already seen', () => {
-  const acc = createAccumulator();
-  acc.evidenceSeen = true;
-  assertEquals(evidenceFromMetadata({ citations: ['url'] }, acc), undefined);
-});
-
-Deno.test('evidenceFromMetadata returns undefined for non-record', () => {
-  const acc = createAccumulator();
-  assertEquals(evidenceFromMetadata(null, acc), undefined);
-  assertEquals(evidenceFromMetadata('string', acc), undefined);
-});
-
-Deno.test('evidenceFromMetadata returns undefined when no citations or annotations', () => {
-  const acc = createAccumulator();
-  assertEquals(evidenceFromMetadata({}, acc), undefined);
-});
-
-Deno.test('toolArguments normalizes object input', () => {
-  assertEquals(toolArguments({ a: 1 }), { a: 1 });
-});
-
-Deno.test('toolArguments returns undefined for undefined', () => {
-  assertEquals(toolArguments(undefined), undefined);
-});
-
-Deno.test('toolArguments wraps non-object input', () => {
-  assertEquals(toolArguments('str'), { value: 'str' });
-  assertEquals(toolArguments(42), { value: 42 });
-  assertEquals(toolArguments([1, 2]), { value: [1, 2] });
-});
-
-Deno.test('toolResultData returns record for objects', () => {
-  assertEquals(toolResultData({ ok: true }), { ok: true });
-  assertEquals(toolResultData('str'), undefined);
-  assertEquals(toolResultData(null), undefined);
-});
-
-Deno.test('rawThoughtEvent extracts thinking from delta', () => {
-  const raw = { choices: [{ delta: { thinking: 'pondering...' } }] };
-  assertEquals(rawThoughtEvent(raw), { type: 'thought', text: 'pondering...' });
-});
-
-Deno.test('rawThoughtEvent returns undefined for non-string thinking', () => {
-  assertEquals(rawThoughtEvent({ choices: [{ delta: { thinking: 42 } }] }), undefined);
-});
-
-Deno.test('rawThoughtEvent returns undefined without choices', () => {
-  assertEquals(rawThoughtEvent({}), undefined);
-  assertEquals(rawThoughtEvent({ choices: 'not array' }), undefined);
-});
-
-Deno.test('rawChoiceMessageEvidence extracts from message', () => {
-  const acc = createAccumulator();
-  const raw = {
-    choices: [{ message: { citations: ['url'] } }],
-  };
-  const ev = rawChoiceMessageEvidence(raw, acc);
-  assertEquals(ev?.type, 'evidence');
-});
-
-Deno.test('rawChoiceMessageEvidence returns undefined without choices', () => {
-  const acc = createAccumulator();
-  assertEquals(rawChoiceMessageEvidence({}, acc), undefined);
-});
-
-Deno.test('rawChoiceMessageEvidence skips non-object messages', () => {
-  const acc = createAccumulator();
-  assertEquals(rawChoiceMessageEvidence({ choices: [{ message: 'not object' }] }, acc), undefined);
-});
-
-Deno.test('rawEvents collects thought and evidence', () => {
-  const acc = createAccumulator();
-  const raw = {
-    choices: [{ delta: { thinking: 'hmm' } }],
-    citations: ['url'],
-  };
-  const events = rawEvents(raw, acc);
-  assertEquals(events.length, 2);
-  assertEquals(events[0].type, 'thought');
-  assertEquals(events[1].type, 'evidence');
-});
-
-Deno.test('rawEvents returns empty for non-record', () => {
-  const acc = createAccumulator();
-  assertEquals(rawEvents(null, acc), []);
-  assertEquals(rawEvents('string', acc), []);
-});
-
-Deno.test('toolCallEvent maps tool call part', () => {
-  const part = {
-    type: 'tool-call' as const,
-    toolName: 'search',
-    toolCallId: 'c1',
-    input: { q: 'x' },
-  };
-  const ev = toolCallEvent(part);
-  assertEquals(ev.type, 'tool');
-  assertEquals(field(ev, 'tool', 'name'), 'search');
-  assertEquals(field(ev, 'tool', 'arguments'), { q: 'x' });
-  assertEquals(field(ev, 'tool', 'id'), 'c1');
-});
-
-Deno.test('toolResultEvent maps tool result part', () => {
-  const part = {
-    type: 'tool-result' as const,
-    toolName: 'search',
-    toolCallId: 'c1',
-    input: { q: 'x' },
-    output: { answer: 'found' },
-  };
-  const ev = toolResultEvent(part);
-  assertEquals(ev.type, 'tool');
-  assertEquals(field(ev, 'tool', 'phase'), 'complete');
-  assertEquals(field(ev, 'tool', 'output'), { answer: 'found' });
-});
-
-Deno.test('toolResultEvent includes string output on complete phase', () => {
-  const part = {
-    type: 'tool-result' as const,
-    toolName: 'fn',
-    toolCallId: 'c1',
-    input: undefined,
-    output: 'text result',
-  };
-  const ev = toolResultEvent(part);
-  assertEquals(field(ev, 'tool', 'phase'), 'complete');
-  assertEquals(field(ev, 'tool', 'output'), 'text result');
-});
-
-Deno.test('tokenEvent returns undefined for zero usage', () => {
-  const part = {
-    type: 'finish' as const,
-    totalUsage: usage({ input: 0, output: 0 }),
-  };
-  assertEquals(tokenEvent(part), undefined);
-});
-
-Deno.test('tokenEvent returns token event for non-zero usage', () => {
-  const part = {
-    type: 'finish' as const,
-    totalUsage: usage({ input: 10, output: 5 }),
-  };
-  const ev = tokenEvent(part);
-  assertEquals(ev?.type, 'tokens');
-  assertEquals(field(ev, 'tokens'), { input: 10, output: 5, total: 15 });
-});
-
-Deno.test('finishEvent suppresses duplicate token emission', () => {
-  const acc = createAccumulator();
-  const part = {
-    type: 'finish' as const,
-    totalUsage: usage({ input: 10, output: 5 }),
-  };
-  const first = finishEvent(part, acc);
-  assertEquals(first?.type, 'tokens');
-  assertEquals(acc.emittedTokens, true);
-  const second = finishEvent(part, acc);
-  assertEquals(second, undefined);
-});
-
-Deno.test('sourceEvent maps URL source to evidence', () => {
-  const part = {
-    type: 'source' as const,
-    sourceType: 'url' as const,
-    url: 'https://example.com',
-    title: 'Example',
-  };
-  const ev = sourceEvent(part);
-  assertEquals(ev.type, 'evidence');
-  assertEquals(field(ev, 'evidence', 'citations'), ['https://example.com']);
-  const sources = field(ev, 'evidence', 'sources') as R[];
-  assertEquals(sources[0].title, 'Example');
-  assertEquals(sources[0].uri, 'https://example.com');
-  assertEquals(sources[0].type, 'web');
-});
-
-Deno.test('sourceEvent uses url as title fallback', () => {
-  const part = {
-    type: 'source' as const,
-    sourceType: 'url' as const,
-    url: 'https://example.com',
-  };
-  const ev = sourceEvent(part);
-  const sources = field(ev, 'evidence', 'sources') as R[];
-  assertEquals(sources[0].title, 'https://example.com');
-});
-
-Deno.test('sourceEvent maps non-url source to raw evidence', () => {
-  const part = { type: 'source' as const, sourceType: 'other' };
-  const ev = sourceEvent(part);
-  assertEquals(ev.type, 'evidence');
-  assertEquals(field(ev, 'evidence', 'citations'), undefined);
-});
-
-Deno.test('primaryEventFromPart maps text-delta', () => {
-  const acc = createAccumulator();
-  const ev = primaryEventFromPart(adversarialPart('text-delta', { text: 'chunk' }), acc);
-  assertEquals(ev?.type, 'text');
-  assertEquals(field(ev, 'text'), 'chunk');
-  assertEquals(acc.text, 'chunk');
-});
-
-Deno.test('primaryEventFromPart maps reasoning-delta', () => {
-  const acc = createAccumulator();
-  const ev = primaryEventFromPart(adversarialPart('reasoning-delta', { text: 'thinking' }), acc);
-  assertEquals(ev?.type, 'thought');
-  assertEquals(field(ev, 'text'), 'thinking');
-});
-
-Deno.test('primaryEventFromPart maps error', () => {
-  const acc = createAccumulator();
-  const ev = primaryEventFromPart(adversarialPart('error', { error: 'boom' }), acc);
-  assertEquals(ev?.type, 'error');
-  assertEquals(acc.errored, true);
-});
-
-Deno.test('primaryEventFromPart skips duplicate source events', () => {
-  const acc = createAccumulator();
-  const source = adversarialPart('source', {
-    sourceType: 'url',
-    url: 'https://a.com',
-  });
-  const first = primaryEventFromPart(source, acc);
-  assertEquals(first?.type, 'evidence');
-  assertEquals(acc.evidenceSeen, true);
-  const second = primaryEventFromPart(source, acc);
-  assertEquals(second, undefined);
-});
-
-Deno.test('primaryEventFromPart returns undefined for unknown types', () => {
-  const acc = createAccumulator();
-  assertEquals(primaryEventFromPart(adversarialPart('unknown-thing'), acc), undefined);
-});
-
-Deno.test('eventFromPart falls through to providerMetadata', () => {
-  const acc = createAccumulator();
-  const part = adversarialPart('step-start', {
-    providerMetadata: { citations: ['url'] },
-  });
-  const events = eventFromPart(part, acc);
-  assertEquals(events.length, 1);
-  assertEquals(events[0].type, 'evidence');
-});
-
-Deno.test('eventFromPart returns empty for no match', () => {
-  const acc = createAccumulator();
-  const part = adversarialPart('step-start');
-  const events = eventFromPart(part, acc);
-  assertEquals(events.length, 0);
-});
-
-Deno.test('finalEvents emits structured and done', () => {
-  const acc = createAccumulator();
-  acc.text = '{"answer":"yes"}';
-  const req = createMockTurnRequest('formatter', 'test');
-  const events = [...finalEvents(req, acc)];
-  const hasStructured = events.some((e) => e.type === 'structured');
-  const hasDone = events.some((e) => e.type === 'done');
-  assertEquals(hasDone, true);
-  if (req.structured) {
-    assertEquals(hasStructured, true);
-  }
-});
-
-Deno.test('finalEvents errors when structured text is not valid JSON', () => {
-  const acc = createAccumulator();
-  acc.text = 'not valid json';
-  const req = createMockTurnRequest('formatter', 'test');
-  const events = [...finalEvents(req, acc)];
-  assertEquals(events.length, 1);
-  assertEquals(events[0]?.type, 'error');
-  assertEquals(events[0]?.errorKind, 'bad_response');
-  assertEquals(events[0]?.errorInternal, 'structured output was not valid JSON');
-});
-
-Deno.test('finalEvents skips when errored', () => {
-  const acc = createAccumulator();
-  acc.errored = true;
-  acc.text = '{"answer":"yes"}';
-  const req = createMockTurnRequest('formatter', 'test');
-  const events = [...finalEvents(req, acc)];
-  assertEquals(events.length, 0);
-});
-
-Deno.test('finalEvents emits done only when no structured text', () => {
-  const acc = createAccumulator();
-  acc.text = '';
-  const req = createMockTurnRequest('pinned', 'test');
-  const events = [...finalEvents(req, acc)];
-  assertEquals(events.length, 1);
-  assertEquals(events[0].type, 'done');
-});
-
-Deno.test('rawEvents emits the response identity once, when a row first names it', () => {
-  const acc = createAccumulator();
-  const first = rawEvents({ id: 'gen-7', model: 'vendor/model-a', choices: [] }, acc);
-  assertEquals(first[0], { type: 'response', response: { id: 'gen-7', model: 'vendor/model-a' } });
-  assertEquals(rawEvents({ id: 'gen-7', model: 'vendor/model-a', choices: [] }, acc), []);
-  const req = createMockTurnRequest('pinned', 'test');
-  const [done] = [...finalEvents(req, acc)];
-  assertEquals(done?.response, undefined);
-});
-
-Deno.test('providerOptionsFor returns undefined for no thinking no structured', () => {
-  const req = createMockTurnRequest('pinned', 'test');
-  req.thinking = 'none';
-  req.structured = null;
-  assertEquals(providerOptionsFor(req), undefined);
-});
-
-Deno.test('providerOptionsFor includes reasoning effort', () => {
-  const req = createMockTurnRequest('pinned', 'test');
-  req.thinking = 'high';
-  req.structured = null;
-  const opts = providerOptionsFor(req);
-  assertEquals(field(opts, 'openrouter', 'reasoning'), { effort: 'high' });
-});
-
-Deno.test('providerOptionsFor includes automatic cacheControl and session_id', () => {
-  const req = createMockTurnRequest('pinned', 'test');
-  req.thinking = 'none';
-  req.structured = null;
-  req.cache = { mode: 'automatic', ttl: '5m' };
-  req.sessionId = 'sticky-1';
-  const opts = providerOptionsFor(req);
-  assertEquals(field(opts, 'openrouter', 'cacheControl'), {
-    type: 'ephemeral',
-    ttl: '5m',
-  });
-  assertEquals(field(opts, 'openrouter', 'session_id'), 'sticky-1');
-});
-
-Deno.test('providerOptionsFor omits cacheControl for system mode (message-level only)', () => {
-  const req = createMockTurnRequest('pinned', 'test');
-  req.thinking = 'none';
-  req.structured = null;
-  req.cache = { mode: 'system' };
-  const opts = providerOptionsFor(req);
-  assertEquals(field(opts, 'openrouter', 'cacheControl'), undefined);
-});
-
-Deno.test('systemDelivery uses instructions for automatic/default and XOR system message for system mode', () => {
-  const base = createMockTurnRequest('pinned', 'test');
-  base.system = 'Stable persona';
-  base.thinking = 'none';
-  base.structured = null;
-
-  const automatic = systemDelivery({
-    ...base,
-    cache: { mode: 'automatic', ttl: '1h' },
-  });
-  assertEquals(automatic.instructions, 'Stable persona');
-  assertEquals(automatic.systemMessage, undefined);
-
-  const systemMode = systemDelivery({
-    ...base,
-    cache: { mode: 'system', ttl: '5m' },
-  });
-  assertEquals(systemMode.instructions, undefined);
-  assertEquals(systemMode.systemMessage?.role, 'system');
-  assertEquals(field(systemMode.systemMessage, 'providerOptions', 'openrouter', 'cacheControl'), {
-    type: 'ephemeral',
-    ttl: '5m',
-  });
-  assertEquals(
-    (systemMode.systemMessage as { content?: string } | undefined)?.content,
-    'Stable persona',
-  );
-
-  const empty = systemDelivery({ ...base, system: '' });
-  assertEquals(empty.instructions, undefined);
-  assertEquals(empty.systemMessage, undefined);
-});
-
-Deno.test('tokensFromUsage maps AI SDK cache read/write details', () => {
-  assertEquals(tokensFromUsage(usage({ input: 100, output: 5, cacheRead: 80, cacheWrite: 20 })), {
-    input: 100,
-    output: 5,
-    cached: 80,
-    cacheWrite: 20,
-    total: 105,
-  });
-});
-
-Deno.test('rawEvents emits tokens with cached from usage', () => {
-  const acc = createAccumulator();
-  const events = rawEvents(
-    {
-      choices: [{ finish_reason: 'stop' }],
-      usage: {
-        prompt_tokens: 50,
-        completion_tokens: 2,
-        prompt_tokens_details: { cached_tokens: 40 },
-      },
-    },
-    acc,
-  );
-  const tokenEv = events.find((e) => e.type === 'tokens');
-  assertEquals(tokenEv?.tokens?.cached, 40);
-  assertEquals(acc.emittedTokens, true);
-});
-
-Deno.test('providerMetadataEvent returns undefined without providerMetadata', () => {
-  const acc = createAccumulator();
-  assertEquals(providerMetadataEvent(adversarialPart('text-delta', { text: 'x' }), acc), undefined);
-});
-
-Deno.test('providerMetadataEvent extracts evidence', () => {
-  const acc = createAccumulator();
-  const part = adversarialPart('step-finish', {
-    providerMetadata: { citations: ['url'] },
-  });
-  const ev = providerMetadataEvent(part, acc);
-  assertEquals(ev?.type, 'evidence');
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'dup')));
+  assertEquals(eventsOf(events, 'tokens').length, 1);
 });

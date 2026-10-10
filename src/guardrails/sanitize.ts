@@ -1,144 +1,112 @@
-/**
- * Request sanitization utilities for THEOREM.
- *
- * @module
- */
-
 import { sanitizeTurnBlobs } from '../kernel/registry/attachments.ts';
-import { getProfile } from '../kernel/registry/profiles.ts';
-import type { NormalizedTurnRequest, TurnEvent, TurnRequest } from '../kernel/types.ts';
-import { applySpans } from '../observability/spans.ts';
-import { guardrailFromHits } from './events.ts';
-import { hitFromSpan } from './hits.ts';
-import { injectionSpans } from './injection.ts';
-import { type DetectionOptions, detectionForTrust, resolveGuardrailPolicy } from './policy.ts';
-import { sensitiveSpans } from './sensitive.ts';
-import type { GuardrailHit, GuardrailStage, TrustLevel } from './types.ts';
+import { CONTEXT_SENDERS, type ContextSender } from '../kernel/schema.ts';
+import { mapSystemPrompt } from '../kernel/system-parts.ts';
+import type {
+  NormalizedTurnRequest,
+  Profile,
+  TurnContext,
+  TurnEvent,
+  TurnHistoryMessage,
+  TurnRepairRequest,
+  TurnRequest,
+} from '../kernel/types.ts';
+import { type Boundary, recordOf } from './boundaries.ts';
+import { type BoundaryReader, boundaryReader, detectEvent } from './detect-at.ts';
+import { guardrailTurnEvent } from './events.ts';
+import { resolveGuardrailPolicy } from './policy.ts';
+import { TheoremError } from './theorem-error.ts';
+import type { GuardrailEvent, TrustLevel } from './types.ts';
 
-/**
- * Detect and redact injection / sensitive spans. Returns hits for observability
- * (rule + offsets + optional exact `match` for debugging).
- */
-function detectText(
-  text: string,
-  options?: Partial<DetectionOptions>,
-): { text: string; hits: GuardrailHit[] } {
-  const sanitizeInput = options?.sanitizeInput ?? true;
-  const redactSensitive = options?.redactSensitive ?? true;
-  if (!sanitizeInput && !redactSensitive) {
-    return { text, hits: [] };
-  }
-  const spans = [
-    ...(sanitizeInput ? injectionSpans(text) : []),
-    ...(redactSensitive ? sensitiveSpans(text) : []),
-  ];
-  const hits: GuardrailHit[] = spans.map((span) =>
-    hitFromSpan(
-      text,
-      span,
-      span.kind === 'injection' ? 'sanitize.injection' : 'sanitize.sensitive',
-      'high',
-    ),
-  );
-  return { text: applySpans(text, spans), hits };
-}
-
-/** Sanitize one text value using prompt-injection and sensitive-data detectors. */
-function sanitizeText(text: string, options?: Partial<DetectionOptions>): string {
-  return detectText(text, options).text;
-}
-
-/** Redact only sensitive data (credentials, PII) — skip injection patterns. */
-function redactSensitiveOnly(text: string): string {
-  return detectText(text, { sanitizeInput: false, redactSensitive: true }).text;
-}
-
-function appendHits(into: GuardrailHit[], hits: GuardrailHit[]): void {
-  for (const hit of hits) {
-    into.push(hit);
-  }
-}
+/** The boundaries one turn request crosses, in the order their events are reported. */
+const REQUEST_BOUNDARIES = [
+  'user',
+  'slots',
+  'repair',
+  'attachment',
+  'voice',
+  'history',
+  'system',
+] as const satisfies readonly Boundary[];
 
 function sanitizeSlots(
   slots: Record<string, string> | undefined,
-  options: DetectionOptions,
-  hits: GuardrailHit[],
+  reader: BoundaryReader,
 ): Record<string, string> | undefined {
   if (!slots) {
     return slots;
   }
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(slots)) {
-    const detected = detectText(value, options);
-    appendHits(hits, detected.hits);
-    out[key] = detected.text;
+  return Object.fromEntries(Object.entries(slots).map(([key, value]) => [key, reader.read(value)]));
+}
+
+/** The browser's context is the visitor's to change; the host's is built by its own code, like turn system text. */
+const CONTEXT_TRUST: Readonly<Record<ContextSender, TrustLevel>> = {
+  client: 'untrusted',
+  server: 'assembled',
+};
+
+/** A context package as the model reads it: text as written, anything else as JSON. */
+function contextText(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+/** Each sender's package read at the `context` boundary, with what was found there. */
+function sanitizeContext(
+  context: TurnContext | undefined,
+  readerFor: () => BoundaryReader,
+): { context: TurnContext | undefined; events: GuardrailEvent[]; blocked: boolean } {
+  const events: GuardrailEvent[] = [];
+  let blocked = false;
+  if (!context) return { context, events, blocked };
+  const read: TurnContext = {};
+  for (const sender of CONTEXT_SENDERS) {
+    const value = context[sender];
+    if (value === undefined) continue;
+    const reader = readerFor();
+    read[sender] = reader.read(contextText(value));
+    const found = reader.found();
+    const event = detectEvent('context', found);
+    if (event) events.push({ ...event, trust: CONTEXT_TRUST[sender] });
+    blocked ||= found.action === 'block';
   }
-  return out;
+  return { context: read, events, blocked };
 }
 
 const PROJECT_ID_OK = /^[A-Za-z0-9._-]+$/;
 
-/** Trims and validates a project identifier, returning undefined for invalid input. */
+/** The project id trimmed, or `undefined` when it is empty or has illegal characters. */
 function sanitizeProjectId(id: string | undefined): string | undefined {
   const trimmed = id?.trim();
   return trimmed && PROJECT_ID_OK.test(trimmed) ? trimmed : undefined;
 }
 
 function sanitizeRepair(
-  repair: import('../kernel/types.ts').TurnRepairRequest | undefined,
-  options: DetectionOptions,
-  hits: GuardrailHit[],
-): import('../kernel/types.ts').TurnRepairRequest | undefined {
+  repair: TurnRepairRequest | undefined,
+  reader: BoundaryReader,
+): TurnRepairRequest | undefined {
   if (!repair) {
     return repair;
   }
-  const previous = detectText(repair.previousOutput, options);
-  const rejection = detectText(repair.rejection, options);
-  appendHits(hits, previous.hits);
-  appendHits(hits, rejection.hits);
-  let guidance = repair.guidance;
-  if (guidance) {
-    const detected = detectText(guidance, options);
-    appendHits(hits, detected.hits);
-    guidance = detected.text;
-  }
+  const guidance = repair.guidance ? reader.read(repair.guidance) : undefined;
   return {
-    previousOutput: previous.text,
-    rejection: rejection.text,
+    previousOutput: reader.read(repair.previousOutput),
+    rejection: reader.read(repair.rejection),
     ...(guidance ? { guidance } : {}),
   };
 }
 
 /**
- * Sanitize the text of each history message; tool calls, ids, and metadata pass
- * through untouched.
- *
  * Exported because every path that injects messages into a turn needs it — turn
  * history, and host steer injects mid-turn. A second copy would drift.
  */
 function sanitizeHistory(
-  history: import('../kernel/types.ts').TurnHistoryMessage[],
-  options: DetectionOptions,
-  hits: GuardrailHit[] = [],
-): import('../kernel/types.ts').TurnHistoryMessage[] {
+  history: TurnHistoryMessage[],
+  reader: BoundaryReader,
+): TurnHistoryMessage[] {
   return history.map((m) => {
-    let content = m.content;
-    if (content !== undefined) {
-      const detected = detectText(content, options);
-      appendHits(hits, detected.hits);
-      content = detected.text;
-    }
-    let parts = m.parts;
-    if (parts) {
-      parts = parts.map((p) => {
-        if (p.type !== 'text') {
-          return p;
-        }
-        const detected = detectText(p.text, options);
-        appendHits(hits, detected.hits);
-        return { ...p, text: detected.text };
-      });
-    }
+    const content = m.content === undefined ? undefined : reader.read(m.content);
+    const parts = m.parts?.map((p) =>
+      p.type === 'text' ? { ...p, text: reader.read(p.text) } : p,
+    );
     return {
       role: m.role,
       ...(content !== undefined ? { content } : {}),
@@ -151,80 +119,57 @@ function sanitizeHistory(
   });
 }
 
-/**
- * Detection switches for one profile at one trust level.
- *
- * Falls back to full detection when the profile is not registered yet, so an
- * unknown id never silently disables guardrails.
- */
-function detectionForProfile(profileId: string, trust: TrustLevel): DetectionOptions {
-  let spec: import('./types.ts').ProfileGuardrailsSpec | undefined;
-  try {
-    spec = getProfile(profileId)?.guardrails;
-  } catch {
-    // If profile not registered yet, default to full guardrails.
-  }
-  return detectionForTrust(resolveGuardrailPolicy(spec), trust);
+/** The error a turn ends on when a detector set to `block` matched at `boundary`. */
+function requestRefused(boundary: Boundary): TheoremError {
+  // lexicon-exempt: developer contract / internal diagnostic — the user's wording is `detect.blocked`
+  return new TheoremError('input', `guardrails.detect blocked the request at ${boundary}`, {
+    copy: { key: 'detect.blocked' },
+  });
 }
 
-function pushStageEvent(
-  events: TurnEvent[],
-  stage: GuardrailStage,
-  trust: TrustLevel,
-  hits: GuardrailHit[],
-): void {
-  const event = guardrailFromHits(stage, trust, hits, 'redact');
-  if (event) {
-    events.push(event);
-  }
+/** A turn request read at each boundary it crosses. */
+interface SanitizedTurnRequest {
+  request: NormalizedTurnRequest;
+  /** One guardrail event for each boundary where something matched. */
+  events: TurnEvent[];
+  /** Set when a match blocks: the request does not reach the model, and the turn ends on this. */
+  refusal?: TheoremError;
 }
 
 /**
- * Sanitize user-controlled text fields; leave attachments/voice untouched.
- *
- * Returns `{ type: 'guardrail' }` events for stages that redacted something.
- * Clean surfaces emit nothing.
- *
  * `req.system` is host-assembled per turn — it interpolates retrieval and user
- * data, so it is treated as `assembled`, not trusted. `identity.system` never
- * reaches this path and stays verbatim.
+ * data, so it is read at its own boundary. `identity.system` never reaches this
+ * path and stays verbatim.
  */
-function sanitizeTurnRequestText(
-  req: TurnRequest,
-  profileId: string,
-): { request: NormalizedTurnRequest; events: TurnEvent[] } {
-  const untrusted = detectionForProfile(profileId, 'untrusted');
-  const assembled = detectionForProfile(profileId, 'assembled');
+function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): SanitizedTurnRequest {
+  const { detect } = resolveGuardrailPolicy(profile.guardrails);
+  const at = recordOf(REQUEST_BOUNDARIES, (boundary) => boundaryReader(boundary, detect));
   const input = req.input ?? {};
+
+  const text = input.text === undefined ? undefined : at.user.read(input.text);
+  const system =
+    req.system === undefined
+      ? undefined
+      : mapSystemPrompt(req.system, 'TurnRequest.system', (part) => at.system.read(part));
+  const slots = sanitizeSlots(input.slots, at.slots);
+  const told = sanitizeContext(input.context, () => boundaryReader('context', detect));
+  const repair = sanitizeRepair(input.repair, at.repair);
+  const history = input.history ? sanitizeHistory(input.history, at.history) : undefined;
+  const { attachments, voice } =
+    input.attachments?.length || input.voice?.length
+      ? sanitizeTurnBlobs(profile, input.attachments, input.voice, at)
+      : input;
+
   const events: TurnEvent[] = [];
-  const inputHits: GuardrailHit[] = [];
-  const historyHits: GuardrailHit[] = [];
-  const systemHits: GuardrailHit[] = [];
-
-  const { text: rawText } = input;
-  let text = rawText;
-  if (rawText !== undefined) {
-    const detected = detectText(rawText, untrusted);
-    appendHits(inputHits, detected.hits);
-    text = detected.text;
+  let refusal: TheoremError | undefined;
+  for (const boundary of REQUEST_BOUNDARIES) {
+    const found = at[boundary].found();
+    const event = detectEvent(boundary, found);
+    if (event) events.push(guardrailTurnEvent(event));
+    if (found.action === 'block') refusal ??= requestRefused(boundary);
   }
-
-  let system = req.system;
-  if (system !== undefined) {
-    const detected = detectText(system, assembled);
-    appendHits(systemHits, detected.hits);
-    system = detected.text;
-  }
-
-  const slots = sanitizeSlots(input.slots, untrusted, inputHits);
-  const repair = sanitizeRepair(input.repair, untrusted, inputHits);
-  const history = input.history
-    ? sanitizeHistory(input.history, untrusted, historyHits)
-    : undefined;
-
-  pushStageEvent(events, 'input', 'untrusted', inputHits);
-  pushStageEvent(events, 'history', 'untrusted', historyHits);
-  pushStageEvent(events, 'system', 'assembled', systemHits);
+  events.push(...told.events.map(guardrailTurnEvent));
+  if (told.blocked) refusal ??= requestRefused('context');
 
   return {
     request: {
@@ -235,53 +180,32 @@ function sanitizeTurnRequestText(
         ...input,
         text,
         slots,
+        ...(told.context ? { context: told.context } : {}),
         repair,
         history,
-      },
-    },
-    events,
-  };
-}
-
-/** Sanitize all user-controlled text and blobs in a turn request. */
-function sanitizeTurnRequest(req: TurnRequest): NormalizedTurnRequest {
-  return sanitizeTurnRequestWithEvents(req).request;
-}
-
-/**
- * Sanitize a turn request and return guardrail events for any redactionsactions spans.
- * Attachments/voice are validated but do not emit content-span events.
- */
-function sanitizeTurnRequestWithEvents(req: TurnRequest): {
-  request: NormalizedTurnRequest;
-  events: TurnEvent[];
-} {
-  const { request: textSafe, events } = sanitizeTurnRequestText(req, req.profile);
-  const input = textSafe.input ?? {};
-  const { attachments, voice } =
-    input.attachments?.length || input.voice?.length
-      ? sanitizeTurnBlobs(getProfile(req.profile), input.attachments, input.voice)
-      : input;
-  return {
-    request: {
-      ...textSafe,
-      input: {
-        ...input,
         attachments,
         voice,
       },
     },
     events,
+    ...(refusal ? { refusal } : {}),
   };
 }
 
+/** The turn request with its input cleaned under the profile's guardrails. Throws when a match blocks it. */
+function sanitizeTurnRequest(req: TurnRequest, profile: Profile): NormalizedTurnRequest {
+  const { request, refusal } = sanitizeTurnRequestWithEvents(req, profile);
+  if (refusal) throw refusal;
+  return request;
+}
+
+export type { SanitizedTurnRequest };
 export {
-  detectionForProfile,
-  detectText,
-  redactSensitiveOnly,
+  contextText,
+  requestRefused,
+  sanitizeContext,
   sanitizeHistory,
   sanitizeProjectId,
-  sanitizeText,
   sanitizeTurnRequest,
   sanitizeTurnRequestWithEvents,
 };

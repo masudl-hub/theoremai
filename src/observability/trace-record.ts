@@ -1,32 +1,13 @@
-/**
- * Trace record v3 — spans shaped like OTLP/JSON plus the content they reference.
- *
- * Spans hold content as in-memory markers (`trace-span.ts`). Building a record
- * resolves every marker once, under the profile's scrub and include policy:
- *
- * - `$content` text is scrubbed, hashed, and stored in `content` by hash.
- * - `$bytes` media is hashed over its raw bytes; bytes are never stored. Text
- *   that is not base64 is hashed as text and marked `invalid_base64`.
- * - `$json` rows and wire bodies have media hashed, canaries removed, text
- *   scrubbed, and every string equal to a recorded text replaced by that
- *   text's reference; the JSON is stored by hash and referenced as
- *   `json_sha256`, so a reader knows to parse it.
- *
- * A reference says how to read it: `{ content_sha256 }` names text in
- * `content`, `{ json_sha256 }` names JSON in `content`, and a blob's
- * `content_sha256` (absent from `content`) names bytes that were never stored.
- * `inlineContent` rebuilds any value from its references.
- *
- * Include flags drop whole attribute families or events here, in one place,
- * so a missing field reads as "not recorded" and the root says which policy
- * applied (`theorem.record.include`, `theorem.record.scrub`).
- *
- * @module
- */
+// why: Include flags drop whole attribute families or events here, in one place, so a missing field
+// reads as "not recorded" and the root says which policy applied (`theorem.record.include`).
 
-import { redactSensitiveOnly, sanitizeText } from '../guardrails/sanitize.ts';
+import { type StoredSides, storedHostSpans, storedSpans } from '../guardrails/detect-at.ts';
+import type { Detector, ResolvedDetect } from '../guardrails/detectors.ts';
+import { SENSITIVE_GROUPS } from '../guardrails/sensitive.ts';
 import { sha256, sha256Base64 } from '../kernel/engine/hash.ts';
 import { removeCanaries, tapeUpstream } from '../providers/shared/upstream-tape.ts';
+import { applySpans } from './spans.ts';
+import { TRACE_VERSION, type TraceRecord } from './trace-schema.ts';
 import {
   isTraceBytes,
   isTraceContent,
@@ -38,34 +19,18 @@ import {
 } from './trace-span.ts';
 import type {
   ResolvedObservabilityPolicy,
+  ResolvedScrubSwitch,
   ResolvedTraceInclude,
   ResolvedTraceScrub,
 } from './types.ts';
 
-const TRACE_VERSION = 3;
 /** Pinned OpenTelemetry GenAI semantic conventions the attribute names follow. */
 const TRACE_SCHEMA_URL =
   'https://github.com/open-telemetry/semantic-conventions-genai/tree/8ffdf56';
 
-/** One trace record: a turn, a host-invoked tool, or a Live session root or response. */
-interface TraceRecord {
-  v: typeof TRACE_VERSION;
-  schemaUrl: string;
-  /** Host-supplied process attributes (`observability.resource`), e.g. `service.name`. */
-  resource: TraceAttributes;
-  /** Host-owned metadata from the request, passed through untouched. */
-  metadata?: Record<string, unknown>;
-  /** Root first, then in start order. */
-  spans: TraceSpan[];
-  /** sha256 hex → exact scrubbed text; every hash the spans reference. */
-  content: Record<string, string>;
-}
-
-/** Reference keys: stored text, and stored JSON a reader parses. */
 const TEXT_REF = 'content_sha256';
 const JSON_REF = 'json_sha256';
 
-/** Attribute and event families each include flag governs. */
 const USAGE_PREFIXES = ['gen_ai.usage.', 'theorem.usage.'];
 const EVENT_INCLUDE: Record<string, keyof ResolvedTraceInclude> = {
   'theorem.upstream.row': 'upstreamLog',
@@ -77,21 +42,27 @@ const RAW_ATTRIBUTE = 'raw';
 /** Guardrail hits keep the matched text only under `guardrailMatchPreview`. */
 const MATCH_ATTRIBUTE = 'match';
 
-function scrubStoredText(text: string, scrub: ResolvedTraceScrub): string {
-  if (scrub.sensitive && scrub.injection) {
-    return sanitizeText(text);
-  }
-  if (scrub.sensitive) {
-    return redactSensitiveOnly(text);
-  }
-  if (scrub.injection) {
-    return sanitizeText(text, { sanitizeInput: true, redactSensitive: false });
-  }
-  return text;
+/** The detectors `scrub.injection` cleans a record with. */
+const INSTRUCTION_DETECTORS: readonly Detector[] = ['injection', 'tool_instructions'];
+
+/** Whether a switch cleans with one side's patterns, when it names its sides. */
+function sideOn(on: ResolvedScrubSwitch, side: keyof Exclude<StoredSides, true>): boolean {
+  return on === true || (on !== false && on[side]);
+}
+
+function scrubStoredText(text: string, { scrub, detect }: Resolver): string {
+  const { sensitive, injection } = scrub;
+  return applySpans(text, [
+    ...(sensitive ? storedSpans(text, SENSITIVE_GROUPS, sensitive, detect) : []),
+    ...(sideOn(sensitive, 'host') ? storedHostSpans(text, detect) : []),
+    ...(injection ? storedSpans(text, INSTRUCTION_DETECTORS, injection, detect) : []),
+  ]);
 }
 
 interface Resolver {
   scrub: ResolvedTraceScrub;
+  /** The profile's detectors, for the patterns a host gave them. */
+  detect: ResolvedDetect | undefined;
   /** Canaries to remove; empty when `scrub.canary` is off. */
   canaries: readonly string[];
   content: Record<string, string>;
@@ -117,13 +88,13 @@ async function resolveContent(
   resolver: Resolver,
 ): Promise<TraceAttributeValue> {
   if (isTraceContent(value)) {
-    const text = removeCanaries(scrubStoredText(value.$content, resolver.scrub), resolver.canaries);
+    const text = removeCanaries(scrubStoredText(value.$content, resolver), resolver.canaries);
     return { ...markerRest(value, '$content'), [TEXT_REF]: await storeText(text, resolver) };
   }
   if (isTraceBytes(value)) {
     const rest = markerRest(value, '$bytes');
     const digest = await sha256Base64(value.$bytes);
-    // Not base64: hash the text as given and say so, rather than lose the record.
+    // why: Not base64: hash the text as given and say so, rather than lose the record.
     return digest
       ? { ...rest, content_sha256: digest.hash, bytes: digest.bytes }
       : { ...rest, invalid_base64: true, text_sha256: await sha256(value.$bytes) };
@@ -134,7 +105,6 @@ async function resolveContent(
   return await mapNested(value, (nested) => resolveContent(nested, resolver));
 }
 
-/** Rewrite every string inside `value` (arrays and objects, recursively). */
 function mapStrings(value: unknown, rewrite: (text: string) => unknown): unknown {
   if (typeof value === 'string') {
     return rewrite(value);
@@ -153,7 +123,7 @@ function mapStrings(value: unknown, rewrite: (text: string) => unknown): unknown
 /** Scrub a row's strings, then reference any string pass 1 already stored. */
 function internRow(row: unknown, resolver: Resolver): unknown {
   return mapStrings(row, (text) => {
-    const scrubbed = scrubStoredText(text, resolver.scrub);
+    const scrubbed = scrubStoredText(text, resolver);
     const hash = resolver.known.get(scrubbed);
     return hash ? { [TEXT_REF]: hash } : scrubbed;
   });
@@ -266,24 +236,19 @@ function enabledKeys(flags: ResolvedTraceInclude | ResolvedTraceScrub): string[]
   return Object.entries(flags).flatMap(([key, on]) => (on ? [key] : []));
 }
 
-/**
- * Build one record from collected spans (`TraceTree.collect()`), root first.
- * The root gains the policy it was written under.
- */
+/** `spans` is `TraceTree.collect()` output, root first. The root gains the policy it ran under. */
 async function buildRecord(args: {
   spans: TraceSpan[];
   policy: ResolvedObservabilityPolicy;
-  /**
-   * Every canary bound in this record (the turn's and any nested turn's);
-   * removed from stored text when `scrub.canary` is on.
-   */
+  /** Every canary bound in this record, the turn's and any nested turn's. */
   canaries?: readonly string[];
   metadata?: Record<string, unknown>;
 }): Promise<TraceRecord> {
   const { policy } = args;
   const resolver: Resolver = {
     scrub: policy.scrub,
-    canaries: policy.scrub.canary ? (args.canaries ?? []) : [],
+    detect: policy.detect,
+    canaries: sideOn(policy.scrub.canary, 'theorem') ? (args.canaries ?? []) : [],
     content: {},
     known: new Map(),
   };
@@ -312,10 +277,7 @@ async function buildRecord(args: {
   };
 }
 
-/**
- * The stored text a `{ content_sha256 }` or `{ json_sha256 }` reference names;
- * `undefined` for any other value, and for a blob, whose bytes were never stored.
- */
+/** `undefined` for a non-reference, and for a blob, whose bytes were never stored. */
 function contentOf(
   record: TraceRecord,
   value: TraceAttributeValue | undefined,
@@ -328,13 +290,9 @@ function contentOf(
 }
 
 /**
- * `value` with every stored reference replaced by what it names, recursively:
- *
- * - `{ content_sha256 }` alone becomes its text; beside other keys (a message
- *   part) it becomes `content`, the semconv name for a part's text.
- * - `{ json_sha256 }` alone becomes its parsed JSON; beside other keys its
- *   object is merged under them. References inside it are rebuilt too.
- * - A reference whose hash is not in `content` (a blob's bytes) is kept as is.
+ * Replaces every stored reference by what it names. `{ content_sha256 }` beside other keys (a
+ * message part) becomes `content`; `{ json_sha256 }` beside other keys is merged under them. A
+ * reference whose hash is not in `content` (a blob's bytes) is kept as is.
  */
 function inlineContent(record: TraceRecord, value: unknown): unknown {
   if (Array.isArray(value)) {

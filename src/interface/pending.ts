@@ -1,23 +1,15 @@
-/**
- * Composer pending messages — stash / queue / steer (headless).
- *
- * Ownership: interface layer. Delivery:
- * - `steer` → host `TurnRequest.onStage` inject at stage boundaries (same run)
- * - `queue` → new user turn after the agent run fully ends (not on tool pause)
- * - `stash` → never auto-sent; user must promote
- *
- * `send_now` (abort + send) is an immediate action, not a pending kind.
- *
- * @module
- */
+// invariant: `steer` injects at `onStage` boundaries of the same run; `queue` sends after the run fully ends
+// (not on tool pause); `stash` never auto-sends. `send_now` is an action, not a pending kind.
 
+import type { TurnEvent } from '../kernel/types.ts';
 import type { UserTurnDraft } from './types.ts';
 
-/** Pending kinds — ordered for display: steers, then queues, then stashes. */
+/** Display order: steers, then queues, then stashes. */
 export const COMPOSER_PENDING_KINDS = ['steer', 'queue', 'stash'] as const;
+/** One of {@linkcode COMPOSER_PENDING_KINDS}. */
 export type ComposerPendingKind = (typeof COMPOSER_PENDING_KINDS)[number];
 
-/** One user-authored item waiting to send, steer, or stay stashed. */
+/** A message the user has set aside while a turn runs. */
 export interface ComposerPendingMessage {
   id: string;
   kind: ComposerPendingKind;
@@ -26,6 +18,7 @@ export interface ComposerPendingMessage {
   updatedAt: number;
 }
 
+/** What `createComposerPendingMessage` takes: the kind and the draft. */
 export type CreateComposerPendingMessageArgs = {
   kind: ComposerPendingKind;
   draft: UserTurnDraft;
@@ -39,7 +32,7 @@ function createPendingId(): string {
     : `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** True when the draft would submit as a user turn. */
+/** True when the draft holds text, an attachment or voice. */
 function userDraftHasPayload(draft: UserTurnDraft): boolean {
   return Boolean(
     draft.text?.trim() ||
@@ -57,7 +50,7 @@ function composerPendingPreview(message: ComposerPendingMessage): string {
   return '';
 }
 
-/** Create a pending message; rejects empty drafts. */
+/** Throws on an empty draft. */
 function createComposerPendingMessage(
   args: CreateComposerPendingMessageArgs,
 ): ComposerPendingMessage {
@@ -74,6 +67,7 @@ function createComposerPendingMessage(
   };
 }
 
+/** A copy of the draft that shares nothing with the original. */
 function cloneUserTurnDraft(draft: UserTurnDraft): UserTurnDraft {
   return {
     ...(draft.text !== undefined ? { text: draft.text } : {}),
@@ -82,7 +76,7 @@ function cloneUserTurnDraft(draft: UserTurnDraft): UserTurnDraft {
   };
 }
 
-/** Display / delivery order: steer → queue → stash (FIFO within kind). */
+/** Steer, then queue, then stash; FIFO within a kind. */
 function orderComposerPendingMessages(
   messages: readonly ComposerPendingMessage[],
 ): ComposerPendingMessage[] {
@@ -93,10 +87,7 @@ function orderComposerPendingMessages(
   ];
 }
 
-/**
- * When a run ends, undelivered steers become queues at the front of the queue
- * list (before existing queues). Stashes unchanged.
- */
+/** When a run ends, undelivered steers become queues ahead of the existing ones. */
 function convertSteersToFrontQueued(
   messages: readonly ComposerPendingMessage[],
   now: number = Date.now(),
@@ -113,7 +104,20 @@ function convertSteersToFrontQueued(
   return [...steers, ...queues, ...stashes];
 }
 
-/** Remove by id; no-op if missing. */
+/**
+ * Drops the steers a turn event reports as landed in the conversation. A steer
+ * it never names stays pending, so the run's end requeues it.
+ */
+function removeLandedSteers(
+  messages: readonly ComposerPendingMessage[],
+  event: TurnEvent,
+): ComposerPendingMessage[] {
+  if (event.type !== 'stage' || !event.injected?.length) return [...messages];
+  const landed = new Set(event.injected.map((steer) => steer.id));
+  return messages.filter((m) => !(m.kind === 'steer' && landed.has(m.id)));
+}
+
+/** The messages without the one with this id. */
 function removeComposerPendingMessage(
   messages: readonly ComposerPendingMessage[],
   id: string,
@@ -121,7 +125,7 @@ function removeComposerPendingMessage(
   return messages.filter((m) => m.id !== id);
 }
 
-/** Replace draft (and bump updatedAt) for an existing pending id. */
+/** The messages with this id's draft replaced; throws when the new draft is empty. */
 function updateComposerPendingDraft(
   messages: readonly ComposerPendingMessage[],
   id: string,
@@ -142,10 +146,7 @@ function updateComposerPendingDraft(
   );
 }
 
-/**
- * Reorder within the same kind only. Cross-kind moves are rejected (no silent
- * convert). Returns a new ordered list.
- */
+/** The messages with this id moved one place up or down among those of its kind. */
 function moveComposerPendingWithinKind(
   messages: readonly ComposerPendingMessage[],
   id: string,
@@ -176,10 +177,7 @@ function moveComposerPendingWithinKind(
   return [...byKind.steer, ...byKind.queue, ...byKind.stash];
 }
 
-/**
- * Take the next pending steer (FIFO). Returns `{ message, remaining }`.
- * One steer per safe boundary — host should call once per `onStage` inject site.
- */
+/** One steer per safe boundary: call once per `onStage` inject site. */
 function consumeNextComposerSteer(messages: readonly ComposerPendingMessage[]): {
   message: ComposerPendingMessage | null;
   remaining: ComposerPendingMessage[];
@@ -192,10 +190,7 @@ function consumeNextComposerSteer(messages: readonly ComposerPendingMessage[]): 
   };
 }
 
-/**
- * Take the next queued message (FIFO). Stashes and steers are left alone.
- * Call only after the agent run has fully ended (not on tool pause).
- */
+/** Call only after the agent run has fully ended, not on a tool pause. */
 function consumeNextComposerQueue(messages: readonly ComposerPendingMessage[]): {
   message: ComposerPendingMessage | null;
   remaining: ComposerPendingMessage[];
@@ -208,10 +203,7 @@ function consumeNextComposerQueue(messages: readonly ComposerPendingMessage[]): 
   };
 }
 
-/**
- * Promote a stash (or any pending) to another kind in place.
- * Used when the user explicitly converts stash → queue/steer.
- */
+/** The messages with this id changed to another kind. */
 function promoteComposerPendingKind(
   messages: readonly ComposerPendingMessage[],
   id: string,
@@ -241,6 +233,7 @@ export {
   orderComposerPendingMessages,
   promoteComposerPendingKind,
   removeComposerPendingMessage,
+  removeLandedSteers,
   updateComposerPendingDraft,
   userDraftHasPayload,
 };

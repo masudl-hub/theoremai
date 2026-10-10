@@ -16,7 +16,6 @@ function ancestorScope(path: string) {
   return parent ? profileFieldScope(parent) : undefined;
 }
 
-/** `{ a: { b: value } }` for `a.b`; `*` becomes a binding key. */
 /** A scoped path with every `*` segment named `probe`. */
 function concretePath(path: string): string {
   return path
@@ -51,6 +50,19 @@ Deno.test('unscoped fields inherit their nearest scoped ancestor', () => {
   assertEquals(profileTypesForField('observability'), ALL_PROFILE_TYPES);
 });
 
+Deno.test('decision inputs are catalogued apart from turn inputs', () => {
+  assertEquals(fieldMeta('inputs.state')?.profileTypes, ['decision']);
+  assertEquals(fieldMeta('inputs.state')?.required, true);
+  assertEquals(fieldMeta('inputs.maxStateBytes')?.profileTypes, ['decision']);
+  assertEquals(fieldMeta('inputs.maxStateBytes')?.unset, 'No cap');
+  for (const path of ['inputs.text', 'inputs.attachments.accept']) {
+    assertEquals(fieldMeta(path)?.profileTypes, ['text', 'image'], path);
+  }
+  for (const path of ['inputs.slots.*', 'inputs.context.from']) {
+    assertEquals(fieldMeta(path)?.profileTypes, ['text', 'image', 'live'], path);
+  }
+});
+
 Deno.test("a scoped field's types are a subset of its ancestor's", () => {
   for (const path of Object.keys(PROFILE_FIELD_SCOPE)) {
     const parent = ancestorScope(path);
@@ -76,19 +88,4 @@ Deno.test('defineProfile rejects each scoped field on a type outside its scope',
       );
     }
   }
-});
-
-Deno.test("a scope's off value passes on types outside it", () => {
-  const canary = PROFILE_FIELD_SCOPE['guardrails.canary'];
-  assertEquals(canary.offValue, false);
-  assertThrows(
-    () =>
-      defineProfile({
-        id: 'scope_probe',
-        type: 'host',
-        guardrails: { canary: false },
-      } as never),
-    TheoremError,
-    'tools.allow',
-  );
 });

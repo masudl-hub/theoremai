@@ -1,7 +1,7 @@
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { loadedModules, runImportProbe, stdoutBeforeMarker } from '../fixtures/run-import-probe.ts';
 
-Deno.test('createProvider subprocess does not load adapters until complete', async () => {
+Deno.test('Provider factory subprocess does not load adapters until complete', async () => {
   const result = await runImportProbe('./probes/create-provider-load.ts');
   if (result.code !== 0) {
     throw new Error(result.stderr || `probe exited ${result.code}`);
@@ -13,7 +13,7 @@ Deno.test('createProvider subprocess does not load adapters until complete', asy
   assertEquals(beforeComplete, []);
 
   const afterComplete = loadedModules(result.stdout);
-  assertEquals(afterComplete.includes('local-adapter'), true);
+  assertEquals(result.stdout.includes('LOCAL_TEXT'), true);
   assertEquals(afterComplete.includes('openrouter-chat'), false);
   assertEquals(afterComplete.includes('google-interactions-adapter'), false);
   assertEquals(afterComplete.includes('openrouter-speech'), false);

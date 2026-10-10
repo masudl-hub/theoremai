@@ -1,10 +1,3 @@
-/**
- * PDF page count from the page tree. FlateDecode object streams are inflated
- * to reach a compressed page tree; page content is never parsed.
- *
- * @module
- */
-
 const PDF_PAGES_TYPE = /\/Type\s*\/Pages(?![A-Za-z])/g;
 const PDF_COUNT = /\/Count\s+(\d+)/;
 const PDF_PARENT = /\/Parent(?![A-Za-z])/;
@@ -112,10 +105,8 @@ async function objectStreamRoots(text: string, bytes: Uint8Array): Promise<PageT
 }
 
 /**
- * Page count of a PDF: the `/Count` of the last page-tree root in file order,
- * so an incremental update that rewrites the page tree wins over the original.
- * Roots stored in compressed object streams are read too. `undefined` when no
- * root can be read (not a PDF, encrypted object streams, damaged file).
+ * The last page-tree root in file order wins, so an incremental update that rewrites the page tree
+ * beats the original. `undefined` when no root can be read (encrypted object streams, damage).
  */
 export async function pdfPageCount(bytes: Uint8Array): Promise<number | undefined> {
   const text = latin1(bytes);

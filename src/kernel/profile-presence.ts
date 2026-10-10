@@ -1,38 +1,38 @@
-/**
- * Whether a profile must set each field, and what leaving it out does — for
- * authoring UIs, which mark the fields a profile can't omit and show what a
- * blank one means. `PROFILE_FIELDS` exposes it on each field's `FieldMeta`.
- *
- * `defineProfile` enforces the requirements; this records them for display. A
- * path with no entry says nothing either way.
- *
- * Leaf module: `schema.ts` reads it at load time.
- *
- * @module
- */
-
+// why: Leaf module: `schema.ts` reads it at load time. `defineProfile` enforces the requirements;
+// this records them for display.
 /** lexicon-exempt-file: authoring field-meta presence notes — not runtime user or model copy (P2) */
-
 export interface ProfileFieldPresence {
   /** The profile must set the field: always (`true`), or only in the case named. */
   required?: true | string;
   /** What leaving the field out does, as a short phrase a blank control can show. */
   unset?: string;
 }
-
+/** The most model calls a turn makes when its profile sets no `maxSteps`. */
+export const DEFAULT_MAX_STEPS = 20;
 /** Presence for profile paths, keyed like `PROFILE_FIELDS` (`models.*` matches every binding). */
 export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresence>> = {
   id: { required: true },
   type: { required: true },
+  identity: { required: true },
   'identity.handle': { required: true },
-  'identity.system': { unset: 'No system instruction' },
+  'identity.system': { unset: "Only the kernel's notes" },
+  tools: { required: true },
+  'tools.allow': { required: true },
+  image: { required: true },
+  speech: { required: true },
+  live: { required: true },
+  decision: { required: true },
+  'decision.contract': { required: true },
   models: { required: true },
   defaultModel: { required: 'when more than one model is declared', unset: 'The only model' },
   allowModelSelect: { unset: 'Off' },
-  maxSteps: { unset: 'Unbounded' },
-  key: { required: 'when a Google model has no key of its own', unset: 'No key slot' },
-  'models.*.protocol': { required: true },
+  maxSteps: { unset: `${DEFAULT_MAX_STEPS} model calls` },
   'models.*.provider': { required: true },
+  'models.*.providerOptions': { unset: 'Adapter defaults' },
+  'models.*.keySlot': { unset: 'Provider primary slot' },
+  'models.*.fallbackKeySlot': { unset: 'Provider fallback slot, when configured' },
+  providerContinuation: { unset: 'Rebuild from portable history' },
+  'providerContinuation.onMismatch': { unset: 'rebuild' },
   'models.*.apiId': { required: true },
   'models.*.builtInTools': { unset: 'None' },
   'models.*.maxOutputTokens': { unset: 'Provider default' },
@@ -44,18 +44,83 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
     unset: 'The only effort',
   },
   'models.*.allowEffortSelect': { unset: 'Off' },
+  'models.*.timeoutMs': { unset: 'No timeout' },
+  'models.*.compaction': { unset: 'Off' },
+  'models.*.compaction.maxTokens': { required: true },
+  'models.*.compaction.compactAt': { required: true },
+  'models.*.compaction.previousExchanges': { required: true },
+  'models.*.compaction.profile': { unset: 'The agent itself, on a text profile' },
+  'models.*.compaction.trigger': { unset: 'compactAt of maxTokens' },
+  'models.*.compaction.timing': { required: true },
+  'models.*.compaction.meter': { unset: 'history' },
+  inputs: { required: 'on every type that takes it but live', unset: 'No slots or context' },
   'inputs.text': { unset: 'Accepted' },
   'inputs.attachments.accept': { unset: 'No attachments' },
   'inputs.voice.accept': { unset: 'No voice' },
   'inputs.maxFiles': { required: 'when attachments or voice is set' },
   'inputs.maxBytes': { required: 'when attachments or voice is set' },
   'inputs.maxTurnBytes': { required: 'when attachments or voice is set' },
+  'inputs.state': { required: true },
+  'inputs.maxStateBytes': { unset: 'No cap' },
+  'inputs.limitsByMime': { unset: 'maxBytes for every type' },
+  'inputs.slots': { unset: 'No slots' },
+  'inputs.context': { unset: 'No context' },
+  'inputs.context.from': { required: true },
+  'inputs.context.maxChars': { required: true },
+  'outputs.structured': { unset: 'Free text' },
+  'outputs.validation.maxRetries': { unset: '0' },
+  'outputs.streaming.mode': { unset: 'sse' },
+  'outputs.streaming.streamThoughts': { unset: 'On' },
+  'turnBehaviour.resumption.allowContinue': { unset: 'All three' },
+  'turnBehaviour.resumption.autoContinue': { unset: 'length and stream_incomplete' },
+  'turnBehaviour.resumption.maxContinues': { unset: 'No cap' },
+  'turnBehaviour.allowSteering': { unset: 'On' },
+  'guardrails.quota': { unset: 'No limit' },
+  'guardrails.detect': { unset: 'Redacts what goes to the model' },
+  'guardrails.blockedReply': { unset: 'One rewrite' },
+  'guardrails.blockedReply.onBlock': { unset: 'retry' },
+  'guardrails.blockedReply.maxRetries': { unset: '1' },
+  'guardrails.network.allowPrivateNetworks': { unset: 'Off' },
+  'guardrails.network.allowedHosts': { unset: 'None' },
+  'guardrails.network.allowedSchemes': {
+    unset: 'https, plus http when allowPrivateNetworks is on',
+  },
+  'guardrails.taint.afterRemoteRead': { unset: 'off' },
+  'guardrails.taint.remoteDestination': { unset: 'off' },
+  'guardrails.disclosure': { unset: 'No check' },
+  'observability.writeTo': { unset: 'No traces, unless runTurn is given a sink' },
+  'observability.sampleRate': { unset: '1' },
+  'observability.include.upstreamLog': { unset: 'On' },
+  'observability.include.outboundWire': {
+    unset: 'Off; on when the profile has no observability block',
+  },
+  'observability.include.evidenceRaw': {
+    unset: 'Off; on when the profile has no observability block',
+  },
+  'observability.include.usage': { unset: 'On' },
+  'observability.include.guardrailDecisions': { unset: 'On' },
+  'observability.include.guardrailMatchPreview': { unset: 'Off' },
+  'observability.resource': { unset: 'None' },
+  'observability.scrub.sensitive': { unset: 'On' },
+  'observability.scrub.injection': { unset: 'On' },
+  'observability.scrub.canary': { unset: 'On' },
+  'observability.retainForDays': { unset: '14' },
+  'observability.rotateAfterMiB': { unset: '32' },
+  'observability.onWriteError': { unset: 'Errors are dropped' },
   'image.aspectRatio': { unset: 'Provider default' },
-  'image.size': { unset: 'Provider default' },
+  'image.resolution': { unset: 'Provider default' },
   'image.mimeType': { unset: 'Provider default' },
+  'image.quality': { unset: 'Provider default' },
+  'image.background': { unset: 'Provider default' },
+  'image.n': { unset: 'Provider default' },
+  'image.seed': { unset: 'Provider default' },
+  'image.outputCompression': { unset: 'Provider default' },
+  'image.references': { unset: 'None' },
   'image.includeText': { unset: 'Off' },
-  'speech.voice': { unset: 'Provider default' },
-  'speech.format': { unset: 'pcm' },
+  'speech.voice': { unset: "The turn's speech.voice, else the provider default" },
+  'speech.style': { unset: "The turn's speech.style, else no direction" },
+  'speech.speed': { unset: "The turn's speech.speed, else the voice's own pace" },
+  'speech.format': { unset: 'Provider default' },
   'live.ingress.audio': { unset: 'On' },
   'live.ingress.video': { unset: 'On' },
   'live.ingress.text': { unset: 'Off' },
@@ -66,11 +131,16 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'live.vad.prefixPaddingMs': { unset: 'Provider default' },
   'live.vad.silenceDurationMs': { unset: 'Provider default' },
   'live.sessionResumption': { unset: 'Off' },
+  'live.greeting': { unset: 'The agent waits for the visitor' },
+  'live.resumed': { unset: 'A resumed call is silent' },
+  'live.resumed.prompt': { required: true },
+  'live.resumed.afterMs': { unset: '3000' },
   'live.contextCompression': { unset: 'Off' },
   'live.contextCompression.triggerTokens': { unset: 'Provider default' },
   'live.contextCompression.slidingWindow': { required: true },
   'live.contextCompression.slidingWindow.targetTokens': { unset: 'Provider default' },
-  'live.proactiveAudio': { unset: 'Off' },
   'live.transcription.input': { unset: 'Off' },
-  'live.transcription.output': { unset: 'Off' },
+  'live.transcription.output': {
+    unset: 'Off; on with a detector at live_reply',
+  },
 };

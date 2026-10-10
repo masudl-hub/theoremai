@@ -1,21 +1,7 @@
-/**
- * Guardrail evaluation — measured detector quality, not asserted.
- *
- * Every detector in this facet is a pattern matcher, and pattern matchers fail on
- * content nobody thought to write down. The point of this module is to make that
- * failure visible against corpora the authors did not choose, rather than against
- * hand-picked examples that flatter whatever was just built.
- *
- * Repo-only: excluded from the published package, run through `scripts/guardrails-eval.ts`.
- *
- * @command `deno task guardrails:eval`
- * @module
- */
-
 /** lexicon-exempt-file: evaluation runner — not runtime user or model copy (P2) */
 import { injectionSpans } from '../injection.ts';
 import { sensitiveSpans } from '../sensitive.ts';
-import { directiveHits } from '../tool-directives.ts';
+import { directives } from '../tool-directives.ts';
 import { type CorpusSample, createCorpusCache, SOURCES } from './corpus.ts';
 import { type DetectorScore, type EvalDetector, formatScores, scoreAll } from './score.ts';
 
@@ -23,8 +9,6 @@ import { type DetectorScore, type EvalDetector, formatScores, scoreAll } from '.
 const EVAL_TOOLS = ['send_email', 'send_money', 'read_inbox', 'get_channel_messages'];
 
 /**
- * The detectors under evaluation, with what they do when they fire.
- *
  * `action` is not decoration: it sets how much a false positive costs. A `redact`
  * silently rewrites a user's message, a `block` withholds a whole turn, and an
  * `annotate` only adds a caution the model may disregard. The first two have to
@@ -51,13 +35,13 @@ const DETECTORS: readonly EvalDetector[] = [
   {
     id: 'sensitive.spans',
     action: 'redact',
-    // `pii-spans` is the one corpus that labels what this detector hunts.
+    // why: `pii-spans` is the one corpus that labels what this detector hunts.
     accountableFor: ['pii-spans'],
     fires: (text) => sensitiveSpans(text).length > 0,
   },
   {
     id: 'tool-directives',
-    // Indirect injection inside tool output. The prompt corpora are user-text
+    // why: Indirect injection inside tool output. The prompt corpora are user-text
     // shaped; the agent-app attacks are the closest available match.
     action: 'annotate',
     accountableFor: [
@@ -66,7 +50,7 @@ const DETECTORS: readonly EvalDetector[] = [
       'llmail-adaptive',
       'llmail-evaded-defense',
     ],
-    fires: (text) => directiveHits(text, EVAL_TOOLS).length > 0,
+    fires: (text) => directives(text, EVAL_TOOLS).length > 0,
   },
 ];
 
@@ -79,16 +63,14 @@ export interface EvalOptions {
 
 export interface EvalReport {
   scores: DetectorScore[];
-  /** Attribution for every corpus actually loaded. */
   sources: {
     id: string;
-    licence: string;
+    license: string;
     attribution: string;
     samples: number;
     /** Rows available upstream, so partial sampling is visible. */
     upstreamRows?: number;
   }[];
-  /** Corpora that could not be loaded, and why. */
   skipped: { id: string; reason: string }[];
 }
 
@@ -128,7 +110,7 @@ async function loadEvalSource(
     samples,
     meta: {
       id: source.id,
-      licence: source.licence,
+      license: source.license,
       attribution: source.attribution,
       samples: samples.length,
       ...(source.upstreamRows !== undefined ? { upstreamRows: source.upstreamRows } : {}),
@@ -136,7 +118,6 @@ async function loadEvalSource(
   };
 }
 
-/** Fetch the corpora and score every detector against each source separately. */
 async function runGuardrailEval(options: EvalOptions = {}): Promise<EvalReport> {
   const cache = createCorpusCache(options.cacheDir ?? '.guardrail-corpus');
   const bySource = new Map<string, CorpusSample[]>();
@@ -156,14 +137,14 @@ async function runGuardrailEval(options: EvalOptions = {}): Promise<EvalReport> 
   return { scores: scoreAll(DETECTORS, bySource), sources, skipped };
 }
 
-/** Human-readable report, including the attribution the licences require. */
+/** Includes the attribution the corpus licenses require. */
 function formatReport(report: EvalReport): string {
   const header = report.sources
     .map((s) => {
-      // Say plainly when a figure rests on a slice of a much larger corpus.
+      // why: Say plainly when a figure rests on a slice of a much larger corpus.
       const of =
         s.upstreamRows !== undefined && s.samples < s.upstreamRows ? ` of ${s.upstreamRows}` : '';
-      return `  ${s.id.padEnd(24)} ${String(s.samples).padStart(6)}${of.padEnd(12)} samples  ${s.licence}  ${s.attribution}`;
+      return `  ${s.id.padEnd(24)} ${String(s.samples).padStart(6)}${of.padEnd(12)} samples  ${s.license}  ${s.attribution}`;
     })
     .join('\n');
   const skipped =

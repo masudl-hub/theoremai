@@ -1,12 +1,11 @@
-/**
- * A call's response identity reaches its trace span even when the call fails
- * or a guardrail cuts it, and never reaches the host's event stream.
- */
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
+
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
+import { turnEventSchema } from '../../src/kernel/turn-events.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
+import { firstOf } from '../fixtures/events.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 const IDENTITY = { id: 'gen-1', model: 'vendor/model-a' };
@@ -36,18 +35,18 @@ Deno.test('a call cut by a canary leak still records which model served it', asy
   const provider: ModelProvider = {
     async *complete(req: ProviderCompleteRequest) {
       await Promise.resolve();
-      const canary = /This turn's canary is (\S+)\./.exec(req.system ?? '')?.[1] ?? '';
+      const canary = /Your canary token is (\S+)\./.exec(req.system ?? '')?.[1] ?? '';
       yield { type: 'response', response: IDENTITY };
       yield { type: 'text', text: `leaking ${canary}` };
       yield { type: 'text', text: 'never reached' };
     },
   };
   const { events, id, model } = await traced(provider);
-  assertEquals(events.find((e) => e.type === 'error')?.errorInternal, 'canary leaked');
   assertEquals(
-    events.some((e) => e.type === 'response'),
-    false,
+    firstOf(events, 'error')?.errorInternal,
+    'Turn withheld: egress disclosure violation',
   );
+  assertEquals(turnEventSchema.array().safeParse(events).success, true);
   assertEquals([id, model], [IDENTITY.id, IDENTITY.model]);
 });
 
@@ -57,14 +56,11 @@ Deno.test('a call that fails after the wire named it still records which model s
       await Promise.resolve();
       yield { type: 'response', response: IDENTITY };
       yield { type: 'text', text: 'not json' };
-      yield { type: 'error', error: 'structured output was not valid JSON' };
+      yield { type: 'error', errorKind: 'internal', error: 'structured output was not valid JSON' };
     },
   };
   const { events, id, model } = await traced(provider);
-  assertEquals(
-    events.some((e) => e.type === 'response'),
-    false,
-  );
+  assertEquals(turnEventSchema.array().safeParse(events).success, true);
   assertEquals([id, model], [IDENTITY.id, IDENTITY.model]);
 });
 

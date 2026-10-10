@@ -1,12 +1,3 @@
-/**
- * Schema-driven structured-output validation.
- *
- * Required vs optional comes only from the JSON Schema. Host field validators
- * run for required paths and for optional paths that are present.
- *
- * @module
- */
-
 import { TheoremError } from '../../../guardrails/error.ts';
 import type { ProfileValidator, ValidationResult } from '../../types.ts';
 
@@ -131,8 +122,8 @@ async function walkObject(
 }
 
 /**
- * Collect schema presence failures and host field-validator failures.
- * Throws when the root schema is not an object schema.
+ * Required vs optional comes only from the JSON Schema; host field validators run for required
+ * paths and for optional paths that are present. Throws when the root is not an object schema.
  */
 async function collectValidationFailures(
   jsonSchema: Record<string, unknown>,
@@ -155,9 +146,29 @@ async function collectValidationFailures(
   return failures;
 }
 
+/**
+ * Whether a validator keyed by `path` can run against `jsonSchema`: each segment is a
+ * property or required key of an object schema, as `collectValidationFailures` walks it.
+ */
+function schemaReaches(jsonSchema: Record<string, unknown>, path: string): boolean {
+  let schema: unknown = jsonSchema;
+  for (const key of path.split('.')) {
+    const object = asObjectSchema(schema);
+    if (!object) {
+      return false;
+    }
+    const props = propertySchemas(object);
+    if (!Object.hasOwn(props, key) && !requiredKeys(object).includes(key)) {
+      return false;
+    }
+    schema = props[key];
+  }
+  return true;
+}
+
 function formatValidationFailures(failures: ValidationFailure[]): string {
   return failures.map((f) => f.error).join('; ');
 }
 
 export type { ValidationFailure };
-export { collectValidationFailures, formatValidationFailures, isAbsent };
+export { collectValidationFailures, formatValidationFailures, isAbsent, schemaReaches };

@@ -1,8 +1,6 @@
 import type { ModelBinding, ModelProfile, Provider } from '../../src/kernel/types.ts';
-
 /** Minimal typed profile for provider / probe tests (no casts). */
 export function stubProfile(opts: {
-  protocol: 'geminiInteractions' | 'openAi' | 'geminiLive';
   provider: Provider;
   role?: 'text' | 'speech' | 'image' | 'live';
   id?: string;
@@ -10,19 +8,14 @@ export function stubProfile(opts: {
   const role = opts.role ?? 'text';
   const id = opts.id ?? 'test-profile';
   const binding: ModelBinding = {
-    protocol: opts.protocol,
     provider: opts.provider,
     apiId: 'stub-model',
     efforts: { normal: 'minimal' },
   };
   const guardrails = {
-    canary: true,
-    sanitizeInput: true,
-    redactSensitive: true,
     quota: { perDay: 1 },
   } as const;
   const modelFields = { models: { stub: binding }, defaultModel: 'stub' };
-
   if (role === 'speech') {
     return {
       type: 'speech',
@@ -30,7 +23,7 @@ export function stubProfile(opts: {
       identity: { handle: id },
       ...modelFields,
       speech: { voice: 'Kore', format: 'pcm' },
-      guardrails: { ...guardrails, canary: false },
+      guardrails,
     };
   }
   if (role === 'image') {
@@ -39,7 +32,7 @@ export function stubProfile(opts: {
       id,
       identity: { handle: id },
       ...modelFields,
-      image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/png' },
+      image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/png' },
       tools: { allow: [] },
       inputs: { text: true },
       guardrails,

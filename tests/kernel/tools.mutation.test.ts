@@ -1,15 +1,14 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
+import { lexiconText } from '../../src/guardrails/lexicon.ts';
+import { getProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { getProfile } from '../../src/kernel/registry/profiles.ts';
 import { AWAITING_USER_INPUT_STATUS } from '../../src/kernel/schema.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import {
   checkPermission,
   executeBuiltin,
   executeFunction,
-  extractLoadedIds,
-  formatToolFailureForModel,
-  formatToolResult,
   isGateResumeGranted,
   isResumeContinuation,
   notLoadedMessage,
@@ -18,19 +17,20 @@ import {
   startToolExecution,
   yieldHandlerSideEvent,
 } from '../../src/kernel/tools/execute.ts';
-import { registerTool } from '../../src/kernel/tools/registry.ts';
+import { formatToolFailureForModel, formatToolResult } from '../../src/kernel/tools/model-text.ts';
 import {
   applyBuiltinMutualExclusions,
   buildWire,
   cloneTurnToolSnapshot,
   expandT1Policy,
+  extractLoadedIds,
   initialBuiltins,
   initialVisible,
   pathMatches,
   promoteBuiltin,
   promoteLoadedTools,
   promoteTool,
-  promotionFailure,
+  promotionTarget,
   resolveAllowedCustomToolIds,
   resolveModelBuiltinIds,
   wireForTool,
@@ -43,57 +43,73 @@ import type {
 } from '../../src/kernel/tools/types.ts';
 import type { ModelProfile, Profile, TurnRequest } from '../../src/kernel/types.ts';
 
+/** The refusal a promotion would fail with, or undefined when the tool may be promoted. */
+function refusal(...args: Parameters<typeof promotionTarget>) {
+  const target = promotionTarget(...args);
+  return 'failure' in target ? target.failure : undefined;
+}
 type ToolPhaseEvent = {
   tool: {
     phase: string;
     data?: unknown;
-    step?: { name: string };
-    artifact?: { id: string };
-    warning?: { code: string };
-    failure?: { code: string; kind: string; message: string };
-    gate?: { kind: string };
+    step?: {
+      name: string;
+    };
+    artifact?: {
+      id: string;
+    };
+    warning?: {
+      code: string;
+    };
+    failure?: {
+      code: string;
+      kind: string;
+      message: string;
+    };
+    gate?: {
+      kind: string;
+    };
     output?: unknown;
-    pause?: { kind: string };
+    pause?: {
+      kind: string;
+    };
   };
 };
-type NamedWire = { name: string };
-type PromoteResult = { promoted: string[] };
-type FailureInfo = { message?: string; code?: string };
-
+type NamedWire = {
+  name: string;
+};
+type PromoteResult = {
+  promoted: string[];
+};
+type FailureInfo = {
+  message?: string;
+  code?: string;
+};
 function asValue<T>(value: unknown): T {
   return value as T;
 }
-
 function asIter<T>(value: unknown): T[] {
   return [...(value as Iterable<T>)];
 }
-
 function toolEventAt(events: unknown[], index: number): ToolPhaseEvent {
   return asValue<ToolPhaseEvent>(events[index]);
 }
-
 const base = { name: 'probe', callId: 'c1', arguments: {} };
-
 Deno.test('tools mutation helpers classify resume, pauses, and permissions precisely', () => {
   assertEquals(isResumeContinuation(undefined), false);
   assertEquals(isResumeContinuation({}), false);
   assertEquals(isResumeContinuation({ granted: true }), true);
-  assertEquals(isResumeContinuation({ value: 0 }), true);
   // granted: false is still a resume continuation (a denial), not "no resume".
-  assertEquals(isResumeContinuation({ value: undefined, granted: false }), true);
-
+  assertEquals(isResumeContinuation({ granted: false }), true);
   assertEquals(isGateResumeGranted(undefined), false);
   assertEquals(isGateResumeGranted({}), false);
-  assertEquals(isGateResumeGranted({ value: true }), false);
   assertEquals(isGateResumeGranted({ granted: true }), true);
-  assertEquals(isGateResumeGranted({ granted: false, value: 1 }), false);
-
+  assertEquals(isGateResumeGranted({ granted: false }), false);
   assertEquals(permissionGranted('probe', undefined), false);
   assertEquals(permissionGranted('probe', []), false);
   assertEquals(permissionGranted('probe', ['probe']), true);
   assertEquals(permissionGranted('probe', ['*']), true);
   assertEquals(permissionGranted('probe', ['other']), false);
-
   assertEquals(checkPermission('probe', 'auto'), null);
   assertEquals(checkPermission('probe', 'always_confirm', ['probe']), {
     kind: 'permission',
@@ -103,13 +119,16 @@ Deno.test('tools mutation helpers classify resume, pauses, and permissions preci
   assertEquals(checkPermission('probe', 'always_confirm', undefined, { granted: true }), null);
   assertEquals(checkPermission('probe', 'session_consent', ['probe']), null);
   assertEquals(
-    asValue<{ kind?: string } | null | undefined>(
-      checkPermission('probe', 'session_consent', undefined),
-    )?.kind,
+    asValue<
+      | {
+          kind?: string;
+        }
+      | null
+      | undefined
+    >(checkPermission('probe', 'session_consent', undefined))?.kind,
     'permission',
   );
 });
-
 Deno.test('tools mutation helpers preserve side-event payloads', () => {
   const sideEvents = [
     { kind: 'progress' as const, data: { n: 1 } },
@@ -129,7 +148,6 @@ Deno.test('tools mutation helpers preserve side-event payloads', () => {
   assertEquals(events[2]?.tool.artifact?.id, 'a');
   assertEquals(events[3]?.tool.warning?.code, 'w');
 });
-
 Deno.test('tools mutation helpers project and format model results exactly', () => {
   const visible = { exposeToModel: true } as FunctionToolDef;
   const hidden = { exposeToModel: false } as FunctionToolDef;
@@ -181,16 +199,11 @@ Deno.test('tools mutation helpers project and format model results exactly', () 
     data: { details: { field: 'x' } },
   });
 });
-
 Deno.test('tools mutation helpers validate loaded ids and sanitize nested input', async () => {
   const { lexiconText } = await import('../../src/guardrails/lexicon.ts');
   assertEquals(
     notLoadedMessage(asValue<FunctionToolDef>({ name: 'probe', loadTier: 'T0' })),
     lexiconText('tool.not_visible', { tool: 'probe' }),
-  );
-  assertEquals(
-    notLoadedMessage(asValue<FunctionToolDef>({ name: 'one', loadTier: 'T1' })),
-    lexiconText('tool.not_wired_t1', { tool: 'one' }),
   );
   assertEquals(
     notLoadedMessage(asValue<FunctionToolDef>({ name: 'two', loadTier: 'T2' })),
@@ -208,22 +221,23 @@ Deno.test('tools mutation helpers validate loaded ids and sanitize nested input'
   assertEquals(plainToolInput([null, 2, { x: 'y' }]), [null, 2, { x: 'y' }]);
   assertEquals(plainToolInput('x'), 'x');
 });
-
 Deno.test('tools mutation helpers filter paths, wire tools, and clone snapshots', () => {
   assertEquals(pathMatches(['*'], undefined), true);
   assertEquals(pathMatches(['web'], undefined), false);
   assertEquals(pathMatches(['web'], 'web'), true);
   assertEquals(pathMatches(['web'], 'cli'), false);
   const chat = getProfile('chat');
-  assertEquals(initialVisible(chat, ['stub_tool', 'record_lookup']), ['stub_tool']);
-  assertEquals(initialBuiltins(chat, ['googleSearch']), ['googleSearch']);
+  assertEquals(initialVisible(defaultKernelScope.tools, chat, ['stub_tool', 'record_lookup']), [
+    'stub_tool',
+  ]);
+  assertEquals(initialBuiltins(defaultKernelScope.tools, chat, ['googleSearch']), ['googleSearch']);
   const host = asValue<Profile>({ type: 'host' });
-  assertEquals(initialVisible(host, ['stub_tool', 'record_lookup']), [
+  assertEquals(initialVisible(defaultKernelScope.tools, host, ['stub_tool', 'record_lookup']), [
     'stub_tool',
     'record_lookup',
   ]);
   const live = asValue<Profile>({ type: 'live' });
-  assertEquals(initialVisible(live, ['stub_tool', 'record_lookup']), [
+  assertEquals(initialVisible(defaultKernelScope.tools, live, ['stub_tool', 'record_lookup']), [
     'stub_tool',
     'record_lookup',
   ]);
@@ -242,14 +256,14 @@ Deno.test('tools mutation helpers filter paths, wire tools, and clone snapshots'
   assertEquals(snapshot.visible, ['stub_tool']);
   assertEquals(snapshot.sessionPermissions, ['x']);
 });
-
 Deno.test('tools mutation coverage exercises resolver filtering and builtin promotion', () => {
-  assertEquals(applyBuiltinMutualExclusions(['googleSearch', 'googleMaps']), [
-    'googleSearch',
-    'googleMaps',
-  ]);
+  assertEquals(
+    applyBuiltinMutualExclusions(defaultKernelScope.tools, ['googleSearch', 'googleMaps']),
+    ['googleSearch', 'googleMaps'],
+  );
   assertEquals(
     resolveAllowedCustomToolIds(
+      defaultKernelScope.tools,
       asValue<Profile>({
         type: 'text',
         tools: { allow: ['stub_tool', 'record_lookup', 'googleSearch', 'missing'] },
@@ -260,10 +274,10 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
   );
   assertEquals(
     resolveModelBuiltinIds(
+      defaultKernelScope.tools,
       asValue<ModelProfile>({
         models: {
           m: {
-            protocol: 'geminiInteractions',
             provider: 'google',
             apiId: 'm',
             efforts: { normal: 'minimal' },
@@ -278,22 +292,25 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
   );
   assertEquals(
     resolveModelBuiltinIds(
+      defaultKernelScope.tools,
       asValue<ModelProfile>({ models: {} }),
       asValue<TurnRequest>({ path: 'web' }),
       'missing',
     ),
     [],
   );
-  assertEquals(asValue<NamedWire>(wireForTool('stub_tool')).name, 'stub_tool');
-  assertEquals(wireForTool('googleSearch'), undefined);
-  assertEquals(wireForTool('missing'), undefined);
   assertEquals(
-    asValue<NamedWire[]>(buildWire(['stub_tool', 'googleSearch', 'missing'])).map(
-      (wire) => wire.name,
-    ),
+    asValue<NamedWire>(wireForTool(defaultKernelScope.tools, 'stub_tool')).name,
+    'stub_tool',
+  );
+  assertEquals(wireForTool(defaultKernelScope.tools, 'googleSearch'), undefined);
+  assertEquals(wireForTool(defaultKernelScope.tools, 'missing'), undefined);
+  assertEquals(
+    asValue<NamedWire[]>(
+      buildWire(defaultKernelScope.tools, ['stub_tool', 'googleSearch', 'missing']),
+    ).map((wire) => wire.name),
     ['stub_tool'],
   );
-
   const state: TurnToolSnapshot = {
     builtins: ['googleSearch'],
     gated: ['googleSearch', 'googleMaps'],
@@ -301,14 +318,15 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
     executable: [],
     wire: [],
   };
-  promoteBuiltin(state, 'googleSearch');
-  promoteBuiltin(state, 'googleMaps');
+  promoteBuiltin(defaultKernelScope.tools, state, 'googleSearch');
+  promoteBuiltin(defaultKernelScope.tools, state, 'googleMaps');
   assertEquals(state.builtins, ['googleSearch', 'googleMaps']);
-  promoteBuiltin(state, 'stub_tool');
+  promoteBuiltin(defaultKernelScope.tools, state, 'stub_tool');
   assertEquals(state.builtins, ['googleSearch', 'googleMaps']);
   assertEquals(
     asValue<FailureInfo | undefined>(
-      promotionFailure(
+      refusal(
+        defaultKernelScope.tools,
         'stub_tool',
         asValue<Profile>({ type: 'text', tools: { allow: ['stub_tool'] } }),
       ),
@@ -317,19 +335,23 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
   );
   assertEquals(
     asValue<FailureInfo | undefined>(
-      promotionFailure('missing', asValue<Profile>({ type: 'text', tools: { allow: [] } })),
+      refusal(
+        defaultKernelScope.tools,
+        'missing',
+        asValue<Profile>({ type: 'text', tools: { allow: [] } }),
+      ),
     )?.code,
     'invalid_output',
   );
   assertEquals(
-    promotionFailure(
+    refusal(
+      defaultKernelScope.tools,
       'record_lookup',
       asValue<Profile>({ type: 'text', tools: { allow: ['record_lookup'] } }),
     ),
     undefined,
   );
 });
-
 Deno.test('tools mutation helpers reject invalid promotion and preserve state atomically', () => {
   const profile = { type: 'text', tools: { allow: ['record_lookup'] } } as Profile;
   const state: TurnToolSnapshot = {
@@ -341,31 +363,45 @@ Deno.test('tools mutation helpers reject invalid promotion and preserve state at
     wire: [],
   };
   for (const id of ['__proto__', 'constructor', 'prototype', 'missing', 'stub_tool']) {
-    const result = asValue<PromoteResult>(promoteLoadedTools(state, [id], profile));
+    const result = asValue<PromoteResult>(
+      promoteLoadedTools(defaultKernelScope.tools, state, [id], profile),
+    );
     assertEquals(result.promoted, []);
     assertEquals(state.visible, []);
   }
-  const result = asValue<PromoteResult>(promoteLoadedTools(state, ['record_lookup'], profile));
+  const result = asValue<PromoteResult>(
+    promoteLoadedTools(defaultKernelScope.tools, state, ['record_lookup'], profile),
+  );
   assertEquals(result.promoted, ['record_lookup']);
   assertEquals(state.visible, ['record_lookup']);
   assertEquals(state.executable, ['record_lookup']);
 });
-
 Deno.test('tools mutation coverage asserts low-level execution event payloads', async () => {
   const input = z.object({ value: z.number() });
-  const context = asValue<ToolContext>({ signal: undefined });
+  const context = asValue<ToolContext>({ signal: undefined, profile: {} });
   const valid = startToolExecution({ input }, { value: 2 }, context, base) as Generator;
-  assertEquals(valid.next().value, { type: 'tool', tool: { ...base, phase: 'running' } });
+  const { at, ...running } = asValue<{
+    tool: {
+      at: unknown;
+    };
+  }>(valid.next().value).tool;
+  assertEquals(running, { phase: 'running', name: 'probe', callId: 'c1' });
+  assertEquals(typeof at, 'number');
   assertEquals(valid.next().value, { ok: true, data: { value: 2 } });
-
   const invalid = startToolExecution({ input }, { value: 'bad' }, context, base) as Generator;
   invalid.next();
-  assertEquals(
-    asValue<{ tool: { failure: { code: string } } }>(invalid.next().value).tool.failure.code,
-    'invalid_input',
-  );
-  assertEquals(invalid.next().value, { ok: false });
-
+  assertEquals(invalid.next().value, {
+    ok: false,
+    failure: {
+      code: 'invalid_input',
+      kind: 'bad_response',
+      message: lexiconText('tool.input_invalid'),
+      details: {
+        formErrors: [],
+        fieldErrors: { value: ['Invalid input: expected number, received string'] },
+      },
+    },
+  });
   const builtinCtx = asValue<ToolContext>({ profile: {} });
   const builtin = executeBuiltin(
     { name: 'googleSearch' },
@@ -392,7 +428,6 @@ Deno.test('tools mutation coverage asserts low-level execution event payloads', 
   assertEquals(missingFailure.code, 'not_loaded');
   assertEquals(missingFailure.kind, 'request');
 });
-
 Deno.test('tools mutation coverage exercises resolver duplicate and conflict transitions', () => {
   registerTool({
     type: 'builtin',
@@ -401,7 +436,7 @@ Deno.test('tools mutation coverage exercises resolver duplicate and conflict tra
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     wire: {},
     conflictsWith: ['conflict_two'],
@@ -413,13 +448,15 @@ Deno.test('tools mutation coverage exercises resolver duplicate and conflict tra
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     wire: {},
     conflictsWith: ['conflict_one'],
   });
-  assertEquals(applyBuiltinMutualExclusions(['conflict_one', 'conflict_two']), []);
-
+  assertEquals(
+    applyBuiltinMutualExclusions(defaultKernelScope.tools, ['conflict_one', 'conflict_two']),
+    [],
+  );
   const state: TurnToolSnapshot = {
     builtins: ['conflict_one'],
     gated: ['stub_tool'],
@@ -427,21 +464,20 @@ Deno.test('tools mutation coverage exercises resolver duplicate and conflict tra
     executable: ['stub_tool'],
     wire: [{ type: 'function', name: 'stub_tool', description: 'old', parameters: { a: 1 } }],
   };
-  promoteTool(state, 'stub_tool');
+  promoteTool(defaultKernelScope.tools, state, 'stub_tool');
   assertEquals(state.visible, ['stub_tool']);
   assertEquals(state.wire.length, 1);
-  promoteTool(state, 'record_lookup');
+  promoteTool(defaultKernelScope.tools, state, 'record_lookup');
   assertEquals(state.visible, ['stub_tool', 'record_lookup']);
   assertEquals(
     state.wire.map((wire) => wire.name),
     ['stub_tool', 'record_lookup'],
   );
-  promoteBuiltin(state, 'conflict_two');
+  promoteBuiltin(defaultKernelScope.tools, state, 'conflict_two');
   assertEquals(state.builtins, ['conflict_two']);
-  promoteBuiltin(state, 'conflict_two');
+  promoteBuiltin(defaultKernelScope.tools, state, 'conflict_two');
   assertEquals(state.builtins, ['conflict_two']);
 });
-
 Deno.test('tools mutation coverage exercises policy and function execution transitions', async () => {
   const state = {
     builtins: [],
@@ -452,6 +488,7 @@ Deno.test('tools mutation coverage exercises policy and function execution trans
     wire: [],
   } as TurnToolSnapshot;
   await expandT1Policy(
+    defaultKernelScope.tools,
     state,
     asValue<Profile>({
       type: 'text',
@@ -460,9 +497,11 @@ Deno.test('tools mutation coverage exercises policy and function execution trans
     }),
     asValue<TurnRequest>({ path: 'web', input: { text: 'x' } }),
   );
+  // record_lookup is T2: the policy loads it at turn start.
   assertEquals(state.visible, ['record_lookup']);
   assertEquals(state.executable, ['record_lookup']);
   await expandT1Policy(
+    defaultKernelScope.tools,
     state,
     asValue<Profile>({
       type: 'text',
@@ -471,7 +510,6 @@ Deno.test('tools mutation coverage exercises policy and function execution trans
     }),
     asValue<TurnRequest>({ path: 'web' }),
   );
-
   const makeTool = (overrides: Record<string, unknown> = {}): FunctionToolDef =>
     asValue<FunctionToolDef>({
       type: 'function',
@@ -494,12 +532,17 @@ Deno.test('tools mutation coverage exercises policy and function execution trans
     callId: 'c',
   });
   const run = async (tool: FunctionToolDef, input: unknown, context: ToolContext = ctx) => {
-    const gen = executeFunction(tool, input, context, base) as AsyncGenerator;
+    const gen = executeFunction(
+      defaultKernelScope.tools,
+      tool,
+      input,
+      context,
+      base,
+    ) as AsyncGenerator;
     const events: unknown[] = [];
     for await (const event of gen) events.push(event);
     return events;
   };
-
   const denied = await run(
     makeTool({
       preTool: () => ({ deny: { code: 'not_authorized', message: 'denied' } }),
@@ -566,7 +609,11 @@ Deno.test('tools mutation coverage exercises policy and function execution trans
   );
   assertEquals(awaitingComplete.tool?.phase, 'complete');
   assertEquals(
-    (awaitingComplete.tool?.output as { status?: string })?.status,
+    (
+      awaitingComplete.tool?.output as {
+        status?: string;
+      }
+    )?.status,
     AWAITING_USER_INPUT_STATUS,
   );
   const noOutput = await run(makeTool({ handler: () => undefined }), { value: 1 });

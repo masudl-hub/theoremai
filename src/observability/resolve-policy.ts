@@ -1,18 +1,14 @@
-/**
- * Observability policy resolution — profile switches become resolved defaults.
- *
- * Pure: no sinks, no file system. `policy.ts` builds the writer on top of this
- * so type consumers of the kernel never pull the JSONL sink into their graph.
- *
- * @module
- */
+// why: Pure, with no sinks or file system, so kernel type consumers never pull the JSONL sink into their
+// graph.
 
 import { TheoremError } from '../guardrails/error.ts';
 import type {
   ProfileObservabilitySpec,
   ResolvedObservabilityPolicy,
+  ResolvedScrubSwitch,
   ResolvedTraceInclude,
   ResolvedTraceScrub,
+  ScrubSwitch,
 } from './types.ts';
 
 /** Default record retention in days; `<= 0` keeps records forever. */
@@ -21,7 +17,7 @@ const DEFAULT_RETAIN_DAYS = 14;
 const DEFAULT_ROTATE_MIB = 32;
 
 function resolveInclude(spec: ProfileObservabilitySpec | undefined): ResolvedTraceInclude {
-  // No authored block records only through an explicit capture sink (tests,
+  // why: No authored block records only through an explicit capture sink (tests,
   // `runTurn(..., sink)`), which keeps wire and raw evidence. Authored blocks
   // default those two off.
   const authored = spec !== undefined;
@@ -35,11 +31,17 @@ function resolveInclude(spec: ProfileObservabilitySpec | undefined): ResolvedTra
   };
 }
 
+function resolveSwitch(spec: ScrubSwitch | undefined): ResolvedScrubSwitch {
+  if (spec === undefined || typeof spec === 'boolean') return spec ?? true;
+  const sides = { theorem: spec.theorem ?? true, host: spec.host ?? true };
+  return (sides.theorem || sides.host) && sides;
+}
+
 function resolveScrub(spec: ProfileObservabilitySpec | undefined): ResolvedTraceScrub {
   return {
-    sensitive: spec?.scrub?.sensitive ?? true,
-    injection: spec?.scrub?.injection ?? true,
-    canary: spec?.scrub?.canary ?? true,
+    sensitive: resolveSwitch(spec?.scrub?.sensitive),
+    injection: resolveSwitch(spec?.scrub?.injection),
+    canary: resolveSwitch(spec?.scrub?.canary),
   };
 }
 
@@ -56,12 +58,7 @@ function clampSampleRate(value: number | undefined): number {
   return value;
 }
 
-/**
- * Apply defaults to a profile's observability block.
- *
- * Omitted block → record false (noop). Explicit `writeTo: false` → record false.
- * A writeTo target with sampleRate 0 still resolves record false at write time.
- */
+/** An omitted block or `writeTo: false` resolves `record: false`; `sampleRate` applies at write. */
 function resolveObservabilityPolicy(
   spec: ProfileObservabilitySpec | undefined,
 ): ResolvedObservabilityPolicy {

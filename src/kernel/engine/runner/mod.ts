@@ -1,16 +1,17 @@
-/**
- * Deterministic turn runner for THEOREM.
- *
- * `runTurn` resolves a profile, sanitizes input, binds canary boundaries,
- * streams provider events, executes allowed tools, applies validation and
- * egress repair loops, writes traces, and emits one terminal `done` event.
- *
- * @module
- */
-
-import { bindCanary } from '../../../guardrails/canary.ts';
-import { isAbortError, throwIfAborted, withPublicWording } from '../../../guardrails/error.ts';
+import {
+  canaryNote,
+  contextNote,
+  profileCanary,
+  userDataNote,
+} from '../../../guardrails/canary.ts';
+import {
+  isAbortError,
+  TheoremError,
+  throwIfAborted,
+  withPublicWording,
+} from '../../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
+import { lexiconText } from '../../../guardrails/lexicon.ts';
 import { sanitizeTurnRequestWithEvents } from '../../../guardrails/sanitize.ts';
 import { resolveTraceWriter } from '../../../observability/policy.ts';
 import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
@@ -24,31 +25,61 @@ import {
   traceContent,
 } from '../../../observability/trace-span.ts';
 import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
-import { getProfile, profileLexicon, profileObservability } from '../../registry/profiles.ts';
-import { resolveTurn } from '../../registry/resolve.ts';
+import { profileTypesForField } from '../../profile-scope.ts';
+import {
+  nestedRegisteredProvider,
+  resolveRegisteredTurnProvider,
+} from '../../provider-dispatch.ts';
+import { profileInputs, requireModelBinding } from '../../registry/catalog.ts';
+import type { KernelRegistry } from '../../registry/kernel-registry.ts';
+import { resolveTurnInRegistry } from '../../registry/resolve.ts';
+import { type BoundSystem, bindSystem } from '../../system-parts.ts';
+import type { AgentCaller } from '../../tools/agent.ts';
 import { cloneTurnToolSnapshot, expandT1Policy } from '../../tools/resolve.ts';
+import type { InvokeToolRequest } from '../../tools/types.ts';
+import { turnDoneOf } from '../../turn-events.ts';
 import type {
+  CompactHistoryRequest,
+  CompactionResult,
   CompactionSignal,
   CompactionSpec,
+  ModelBinding,
+  ModelId,
   ModelProfile,
   ModelProvider,
   Profile,
+  ProfileId,
   ResolvedGeneration,
   TurnEvent,
+  TurnEventOf,
   TurnHistoryMessage,
   TurnRequest,
   TurnTokens,
+  TurnToolSnapshot,
 } from '../../types.ts';
+import { findLast } from '../../util/find-last.ts';
 import {
   type CompactionTokens,
+  type CompactorRun,
   compactionMeter,
+  compactionResult,
+  compactorHistory,
   resolveCompactionTokens,
   shouldCompact,
   splitForCompaction,
 } from '../compaction.ts';
 import { type MediaTokenFamily, mediaTokenFamily } from '../token-estimate.ts';
-import { endTurnSpan, guardrailAttributes, OutputFold, turnSpanOptions } from '../turn-trace.ts';
+import {
+  endThrownSpan,
+  endTurnSpan,
+  guardrailAttributes,
+  guardrailCheckAttributes,
+  OutputFold,
+  turnSpanOptions,
+} from '../turn-trace.ts';
+import { sumEventTokens, sumTurnTokens } from '../usage.ts';
 import { runAttemptsWithValidation } from './gates.ts';
+import { createAgentCaller, NESTED_THROWS, turnError } from './nested.ts';
 import { applyTurnStage } from './stages.ts';
 import { openTurnState, type StepExecutionState, type TurnTraceState } from './state.ts';
 import { shouldSkipStreamEvent } from './stream.ts';
@@ -60,12 +91,18 @@ function projectForObs(
   return projectGuardrailTurnEvent(event, policy?.include.guardrailMatchPreview ?? false);
 }
 
+const MS_PER_S = 1000;
+
 /**
  * Record an event as delivered to the host; every yield to the host passes
  * through here, so it is where an error gets the user's wording.
  */
 function deliver(ctx: TraceCtx, event: TurnEvent): TurnEvent {
-  const out = withPublicWording(event, profileLexicon(ctx.req.profile));
+  const out = withPublicWording(event, ctx.known?.lexicon);
+  if (out.type === 'text' && !ctx.shownText) {
+    ctx.shownText = true;
+    ctx.root.set({ 'theorem.turn.time_to_first_text': ctx.root.msSinceStart() / MS_PER_S });
+  }
   ctx.seen.push(out);
   ctx.delivered.add(out, ctx.root.nowUnixNano());
   return out;
@@ -85,73 +122,125 @@ function getCompactionSpec(profile: ModelProfile, modelId: string): CompactionSp
   return profile.models[modelId]?.compaction;
 }
 
-/** Fold one history message to a compaction transcript line (media → markers). */
-function compactionTranscriptLine(m: TurnHistoryMessage): string {
-  const text = m.content ?? '';
-  const mediaMarkers =
-    m.parts
-      ?.filter((p) => p.type !== 'text')
-      .map((p) => `[${p.type}]`)
-      .join('') ?? '';
-  const fromTextParts =
-    !text && m.parts
-      ? m.parts
-          .filter((p) => p.type === 'text')
-          .map((p) => p.text)
-          .join('')
-      : '';
-  const content = `${text || fromTextParts}${mediaMarkers}`;
-  return `[${m.role}]: ${content}`;
+/** A turn's tools when it offers none: an agent summarising its own history. */
+function noTools(): TurnToolSnapshot {
+  return { builtins: [], gated: [], visible: [], executable: [], wire: [] };
 }
 
 /**
- * Run the compaction profile as a turn nested under `parent`: its spans join
- * the parent's record and it writes none of its own.
+ * Run `req` as a turn under `parent`: its spans join that record, it writes
+ * none of its own, and it shares the record's canaries. A compactor's turn and
+ * an agent tool's call both run here.
  */
-async function runCompactionTurn(
-  toCompact: TurnHistoryMessage[],
-  spec: CompactionSpec,
-  provider: ModelProvider,
-  parent: SpanHandle,
-  canaries: string[],
-  signal?: AbortSignal,
-): Promise<TurnHistoryMessage> {
-  const compactText = toCompact.map(compactionTranscriptLine).join('\n');
-  const req: TurnRequest = { profile: spec.profile, input: { text: compactText }, signal };
+function runNestedTurn(args: {
+  registry: KernelRegistry;
+  req: TurnRequest;
+  provider: ModelProvider;
+  parent: SpanHandle;
+  canaries: string[];
+  agentDepth: number;
+  compacting?: TraceCtx['compacting'];
+}): AsyncGenerator<TurnEvent> {
   const ctx = newTraceCtx(
-    req,
-    parent.child(`invoke_agent ${req.profile}`, turnSpanOptions(req)),
-    canaries,
+    args.registry,
+    args.req,
+    args.parent.child(`invoke_agent ${args.req.profile}`, turnSpanOptions(args.req)),
+    args.canaries,
   );
-  ctx.compacting = true;
-  ctx.observability = resolveObservabilityPolicy(profileObservability(req.profile));
+  ctx.agentDepth = args.agentDepth;
+  if (args.compacting) ctx.compacting = args.compacting;
+  ctx.observability = resolveObservabilityPolicy(ctx.known?.observability);
+  return runTracedTurn(
+    ctx,
+    nestedRegisteredProvider(args.provider, args.req.profile, args.req.model, args.req),
+  );
+}
 
-  const events: TurnEvent[] = [];
-  for await (const event of runTracedTurn(ctx, provider)) {
-    events.push(event);
-  }
-
-  const structured = events.find((e) => e.type === 'structured')?.structured;
-  const text = structured
-    ? JSON.stringify(structured)
-    : events
-        .filter((e) => e.type === 'text')
-        .map((e) => e.text ?? '')
-        .join('');
-
-  return {
-    role: 'assistant',
-    content: text,
-    metadata: { compactionSummary: true },
+/**
+ * Run the compaction profile as a turn under `span`: its spans join that
+ * record and it writes none of its own. Anything short of a completed,
+ * non-empty summary is a failure; the host's abort and `NESTED_THROWS`
+ * errors are thrown. With no `spec.profile` the owner compacts itself, on the
+ * model it is compacting for and with no tools.
+ */
+async function runCompactor(args: {
+  registry: KernelRegistry;
+  owner: ProfileId;
+  model: ModelId;
+  toCompact: TurnHistoryMessage[];
+  spec: CompactionSpec;
+  provider: ModelProvider;
+  parent: SpanHandle;
+  canaries: string[];
+  signal?: AbortSignal;
+}): Promise<CompactorRun> {
+  const self = args.spec.profile === undefined;
+  const compactorId = args.spec.profile ?? args.owner;
+  const compactor = args.registry.profiles.get(compactorId) as ModelProfile;
+  const { history, droppedMedia } = compactorHistory(args.toCompact, compactor);
+  if (history.length === 0) return { droppedMedia, failure: { unreadable: true } };
+  const req: TurnRequest = {
+    profile: compactorId,
+    // why: The turn already passed model selection; its default needs no naming.
+    ...(self && args.model !== compactor.defaultModel ? { model: args.model } : {}),
+    input: { text: lexiconText('compaction.request', {}, compactor.lexicon), history },
+    signal: args.signal,
   };
+  const events: TurnEvent[] = [];
+  try {
+    for await (const event of runNestedTurn({
+      registry: args.registry,
+      req,
+      provider: args.provider,
+      parent: args.parent,
+      canaries: args.canaries,
+      agentDepth: 0,
+      compacting: self ? 'self' : 'other',
+    })) {
+      events.push(event);
+    }
+  } catch (err) {
+    throwIfAborted(args.signal);
+    const error = err instanceof TheoremError ? err.kind : 'internal';
+    if (NESTED_THROWS.has(error)) throw err;
+    return { droppedMedia, failure: { error } };
+  }
+  throwIfAborted(args.signal);
+
+  const tokens = sumEventTokens(events);
+  const usage = tokens ? { tokens } : {};
+  const stop = findLast(events, (e): e is TurnEventOf<'done'> => e.type === 'done')?.stop.kind;
+  const reported = turnError(events);
+  if (reported && NESTED_THROWS.has(reported.errorKind)) {
+    throw new TheoremError(
+      reported.errorKind,
+      `Compactor '${compactorId}' failed: ${reported.errorInternal ?? reported.error}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  const error = reported?.errorKind;
+  if (stop !== 'completed' || error) {
+    return {
+      droppedMedia,
+      failure: { ...(stop ? { stop } : {}), ...(error ? { error } : {}) },
+      ...usage,
+    };
+  }
+  const structured = findLast(
+    events,
+    (e): e is TurnEventOf<'structured'> => e.type === 'structured',
+  )?.structured;
+  const summary =
+    structured === undefined
+      ? events.flatMap((e) => (e.type === 'text' ? [e.text] : [])).join('')
+      : JSON.stringify(structured);
+  if (!summary.trim()) {
+    return { droppedMedia, failure: { stop, empty: true }, ...usage };
+  }
+  return { summary, droppedMedia, ...usage };
 }
 
 function lastTokensFromEvents(events: TurnEvent[]): TurnTokens | undefined {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const tokens = events[i]?.tokens;
-    if (tokens) return tokens;
-  }
-  return undefined;
+  return findLast(events, (e): e is TurnEventOf<'tokens'> => e.type === 'tokens')?.tokens;
 }
 
 /**
@@ -174,17 +263,37 @@ function compactionDecision(
   };
 }
 
+/** A compaction that ran, as `theorem.compaction` attributes beside its decision. */
+function compactionOutcome(
+  result: Omit<CompactionResult, 'toCompact'>,
+  messagesBefore: number,
+): TraceAttributes {
+  return {
+    outcome: result.outcome,
+    messages_before: messagesBefore,
+    messages_after: result.history.length,
+    dropped_media: result.droppedMedia,
+    ...(result.failure?.stop ? { failure_stop: result.failure.stop } : {}),
+    ...(result.failure?.error ? { failure_error: result.failure.error } : {}),
+    ...(result.failure?.empty ? { failure_empty: true } : {}),
+    ...(result.failure?.unreadable ? { failure_unreadable: true } : {}),
+    ...(result.summary === undefined ? {} : { summary: traceContent(result.summary) }),
+  };
+}
+
 async function compactHistoryBeforeTurn(args: {
+  registry: KernelRegistry;
+  owner: ProfileId;
+  model: ModelId;
   spec: CompactionSpec;
   family: MediaTokenFamily | undefined;
   history: TurnHistoryMessage[];
   input: TurnRequest['input'];
   provider: ModelProvider;
-  compactionProvider?: ModelProvider;
   parent: SpanHandle;
   canaries: string[];
   signal?: AbortSignal;
-}): Promise<TurnHistoryMessage[]> {
+}): Promise<TurnEventOf<'compaction'> | undefined> {
   const decision = await resolveCompactionTokens({
     spec: args.spec,
     input: args.input,
@@ -192,46 +301,49 @@ async function compactHistoryBeforeTurn(args: {
   });
   const needed = decision !== undefined && (await shouldCompact(decision, args.spec));
   const attributes = compactionDecision(args.spec, decision, needed);
-  if (!needed) {
+  if (!(needed && decision)) {
     args.parent.event('theorem.compaction', attributes);
-    return args.history;
+    return undefined;
   }
-  const { toCompact, toRetain } = await splitForCompaction(args.history, args.spec, args.family);
-  if (toCompact.length === 0) {
-    args.parent.event('theorem.compaction', { ...attributes, compacted: false });
-    return args.history;
+  const split = await splitForCompaction(args.history, args.spec, args.family);
+  if (split.toCompact.length === 0) {
+    args.parent.event('theorem.compaction', attributes);
+    return undefined;
   }
-  const summaryMessage = await runCompactionTurn(
-    toCompact,
+  const run = await runCompactor({ ...args, toCompact: split.toCompact });
+  const { toCompact: _compacted, ...result } = compactionResult(
+    split,
+    run,
+    decision.tokens,
     args.spec,
-    args.compactionProvider ?? args.provider,
-    args.parent,
-    args.canaries,
-    args.signal,
   );
-  const compacted = [summaryMessage, ...toRetain];
   args.parent.event('theorem.compaction', {
     ...attributes,
-    compacted: true,
-    messages_before: args.history.length,
-    messages_after: compacted.length,
-    summary: traceContent(summaryMessage.content ?? ''),
+    ...compactionOutcome(result, args.history.length),
   });
-  return compacted;
+  return {
+    type: 'compaction',
+    timing: 'before',
+    meter: decision.meter,
+    tokensBefore: decision.tokens,
+    unknownMedia: decision.unknownMedia,
+    messagesBefore: args.history.length,
+    messagesAfter: result.history.length,
+    ...result,
+  };
 }
 
 async function attachAfterCompaction(
-  event: TurnEvent,
+  event: TurnEventOf<'done'>,
   args: {
     spec: CompactionSpec;
     family: MediaTokenFamily | undefined;
     history: TurnHistoryMessage[];
     input: TurnRequest['input'];
     seen: TurnEvent[];
-    /** The turn's root, where the decision is recorded. */
     span: SpanHandle;
   },
-): Promise<TurnEvent> {
+): Promise<TurnEventOf<'done'>> {
   if (args.history.length === 0) return event;
   const prompt = lastTokensFromEvents(args.seen);
   const decision = await resolveCompactionTokens({
@@ -258,23 +370,27 @@ async function attachAfterCompaction(
 }
 
 async function* emitTurn(args: {
+  registry: KernelRegistry;
   safe: TurnRequest;
   profile: Profile;
   generation: ResolvedGeneration;
-  system: string;
+  system: BoundSystem;
   provider: ModelProvider;
   trace: TurnTraceState;
   mediaFamily: MediaTokenFamily | undefined;
+  agents: AgentCaller | undefined;
   /** Filled when the turn opens, so `post_turn` (after compaction-after, or after an abort) reuses it. */
   outState: { state?: StepExecutionState };
 }): AsyncGenerator<TurnEvent> {
   const { safe, profile, generation, system, provider } = args;
 
   const state = openTurnState({
+    tools: args.registry.tools,
     profile,
     generation,
     trace: args.trace,
     mediaFamily: args.mediaFamily,
+    ...(args.agents ? { agents: args.agents } : {}),
   });
   args.outState.state = state;
 
@@ -312,18 +428,19 @@ async function* emitTurn(args: {
 
   yield* runAttemptsWithValidation(safe, profile, generation, system, provider, state);
 
-  const stop = state.lastStop ?? { kind: 'completed' };
-  const done: TurnEvent = {
-    type: 'done',
-    stop,
-    traceparent: state.trace.root.traceparent(),
-    ...(stop.kind === 'tool' && state.toolSnapshot
-      ? { tools: cloneTurnToolSnapshot(state.toolSnapshot) }
-      : {}),
-    ...(stop.kind === 'gate' && state.toolSnapshot
-      ? { tools: cloneTurnToolSnapshot(state.toolSnapshot) }
-      : {}),
-  };
+  const tokens = sumTurnTokens(state.allEmittedEvents);
+  const done = turnDoneOf(
+    {
+      stop: state.lastStop ?? { kind: 'completed' },
+      ...(state.providerState &&
+      (!state.lastStop || ['completed', 'tool', 'gate'].includes(state.lastStop.kind))
+        ? { providerState: state.providerState }
+        : {}),
+      traceparent: state.trace.root.traceparent(),
+      ...(tokens ? { tokens } : {}),
+    },
+    cloneTurnToolSnapshot(generation.tools),
+  );
   state.allEmittedEvents.push(done);
   yield done;
 }
@@ -337,6 +454,7 @@ async function* streamTurnEvents(
 ): AsyncGenerator<TurnEvent> {
   if (!ctx.safe || ctx.system === undefined || !ctx.trace) return;
   for await (const event of emitTurn({
+    registry: ctx.registry,
     safe: ctx.safe,
     profile,
     generation: gen,
@@ -344,6 +462,7 @@ async function* streamTurnEvents(
     provider,
     trace: ctx.trace,
     mediaFamily: ctx.mediaFamily,
+    agents: ctx.agents,
     outState: ctx,
   })) {
     const attached = await maybeAttachAfter(event, ctx, gen, compactionSpec);
@@ -351,7 +470,7 @@ async function* streamTurnEvents(
     if (!shouldSkipStreamEvent(out, profile)) yield deliver(ctx, out);
 
     if (out.type === 'done' && ctx.state) {
-      // Skip duplicate post_turn when pre_turn abort already emitted it inside emitTurn.
+      // why: Skip duplicate post_turn when pre_turn abort already emitted it inside emitTurn.
       const alreadyPost = ctx.state.allEmittedEvents.some(
         (e) => e.type === 'stage' && e.stage === 'post_turn',
       );
@@ -375,45 +494,60 @@ async function* streamTurnEvents(
 }
 
 type TraceCtx = {
+  /** The scope the turn runs in; its nested compaction turn runs there too. */
+  registry: KernelRegistry;
   req: TurnRequest;
-  /** Every event the host received. */
+  /**
+   * The request's profile when the scope has it. An unknown profile fails in
+   * `resolveTurnInRegistry`; until then its wording and observability are the standard ones.
+   */
+  known: Profile | undefined;
   seen: TurnEvent[];
-  /** The same events as output parts. */
+  /** Set once the host has been given reply text. */
+  shownText?: boolean;
   delivered: OutputFold;
-  /** This turn's `invoke_agent` span. */
   root: SpanHandle;
   /** Step-state trace handle, once the turn's model binding is known. */
   trace?: TurnTraceState;
-  /** True for the compaction profile's own nested turn, which never compacts. */
-  compacting: boolean;
-  /** Compaction ran before this turn's first call. */
-  compacted: boolean;
+  /**
+   * Set on the compaction profile's own nested turn, which never compacts:
+   * `self` when the agent summarises its own history, and then offers no tools.
+   */
+  compacting: false | 'self' | 'other';
+  /** How many agent tool calls deep this turn runs: 0 for the host's own turn. */
+  agentDepth: number;
   canary: string;
   /** Every canary bound in this record; a nested turn shares its parent's list. */
   canaries: string[];
-  system?: string;
+  system?: BoundSystem;
   generation?: ResolvedGeneration;
   mediaFamily?: MediaTokenFamily;
   safe?: TurnRequest;
   observability?: ResolvedObservabilityPolicy;
-  /** The turn's step state once `emitTurn` opened it. */
   state?: StepExecutionState;
+  agents?: AgentCaller;
 };
 
-function newTraceCtx(req: TurnRequest, root: SpanHandle, canaries: string[] = []): TraceCtx {
+function newTraceCtx(
+  registry: KernelRegistry,
+  req: TurnRequest,
+  root: SpanHandle,
+  canaries: string[],
+): TraceCtx {
   return {
+    registry,
     req,
+    known: registry.profiles.find(req.profile),
     seen: [],
     delivered: new OutputFold(),
     root,
     compacting: false,
-    compacted: false,
+    agentDepth: 0,
     canary: '',
     canaries,
   };
 }
 
-/** Close the turn's span from what the host saw and what the step state counted. */
 function endTurn(ctx: TraceCtx, thrown?: unknown): void {
   const calls = ctx.trace?.calls ?? 0;
   endTurnSpan(ctx.root, {
@@ -421,7 +555,6 @@ function endTurn(ctx: TraceCtx, thrown?: unknown): void {
     delivered: ctx.delivered,
     attempts: calls > 0 ? (ctx.trace?.attempt ?? 0) + 1 : 0,
     calls,
-    compacted: ctx.compacted,
     ...(thrown === undefined ? {} : { thrown }),
   });
 }
@@ -443,25 +576,25 @@ async function* runTracedTurn(ctx: TraceCtx, provider: ModelProvider): AsyncGene
 }
 
 /**
- * Execute one host turn against a provider adapter and write its trace record.
- *
- * The record is written however the turn ends, including when the host stops
- * reading early; spans still open then close as `ERROR` / `unclosed`.
+ * The trace record is written however the turn ends, including when the host stops reading early;
+ * spans still open then close as `ERROR` / `unclosed`.
  */
-async function* runTurn(
+async function* runTurnInRegistry(
+  registry: KernelRegistry,
   req: TurnRequest,
   provider: ModelProvider,
   sinkOverride?: TraceSink,
 ): AsyncGenerator<TurnEvent> {
-  const { sink, policy } = resolveTraceWriter({
-    override: sinkOverride,
-    observability: profileObservability(req.profile),
-  });
   const tree = startTrace(`invoke_agent ${req.profile}`, {
     ...turnSpanOptions(req),
     ...(req.traceparent ? { traceparent: req.traceparent } : {}),
   });
-  const ctx = newTraceCtx(req, tree.root);
+  const ctx = newTraceCtx(registry, req, tree.root, []);
+  const { sink, policy } = resolveTraceWriter({
+    override: sinkOverride,
+    observability: ctx.known?.observability,
+    guardrails: ctx.known?.guardrails,
+  });
   ctx.observability = policy;
   try {
     yield* runTracedTurn(ctx, provider);
@@ -479,10 +612,7 @@ async function* runTurn(
   }
 }
 
-/**
- * Slice 1: host AbortSignal ends with cancelled `done` + `post_turn`, not a bare throw.
- * Skip when a terminal `done` already reached the host stream.
- */
+/** A host abort ends with a cancelled `done` + `post_turn`, not a bare throw. */
 async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnEvent> {
   if (ctx.seen.some((e) => e.type === 'done')) return;
   const stop = { kind: 'cancelled' as const };
@@ -490,14 +620,15 @@ async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnE
   const outDone = projectForObs(done, ctx.observability);
   yield deliver(ctx, outDone);
 
-  const profile = getProfile(ctx.req.profile);
+  const profile = ctx.known;
   const gen = ctx.generation;
-  if (!(gen && ctx.safe && ctx.trace)) return;
+  if (!(profile && gen && ctx.safe && ctx.trace)) return;
 
-  // The turn's own state when it got that far, so post_turn sees the history the model saw.
+  // why: The turn's own state when it got that far, so post_turn sees the history the model saw.
   const state =
     ctx.state ??
     openTurnState({
+      tools: ctx.registry.tools,
       profile,
       generation: gen,
       trace: ctx.trace,
@@ -519,52 +650,143 @@ async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnE
 }
 
 async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenerator<TurnEvent> {
-  const sanitized = sanitizeTurnRequestWithEvents(ctx.req);
+  const checkStart = performance.now();
+  const sanitized = sanitizeTurnRequestWithEvents(
+    ctx.req,
+    ctx.registry.profiles.get(ctx.req.profile),
+  );
+  const checkMs = performance.now() - checkStart;
   ctx.safe = sanitized.request;
+  const hits = sanitized.events.filter((event) => event.type === 'guardrail');
+  // why: The check's time rides on its last decision, or on a pass when it found nothing.
+  if (hits.length === 0) {
+    ctx.root.event(
+      'theorem.guardrail',
+      guardrailCheckAttributes('input', checkMs, undefined, { stage: 'input', trust: 'untrusted' }),
+    );
+  }
   for (const event of sanitized.events) {
-    if (event.guardrail) ctx.root.event('theorem.guardrail', guardrailAttributes(event.guardrail));
+    if (event.type === 'guardrail') {
+      ctx.root.event(
+        'theorem.guardrail',
+        event === hits.at(-1)
+          ? guardrailCheckAttributes('input', checkMs, event.guardrail, event.guardrail)
+          : guardrailAttributes(event.guardrail),
+      );
+    }
     yield deliver(ctx, projectForObs(event, ctx.observability));
   }
-  const { profile, generation: gen } = resolveTurn(ctx.safe);
-  await expandT1Policy(gen.tools, profile, ctx.safe);
+  if (sanitized.refusal) throw sanitized.refusal;
+  const { profile, generation: gen } = resolveTurnInRegistry(ctx.registry, ctx.safe);
+  await expandT1Policy(ctx.registry.tools, gen.tools, profile, ctx.safe);
+  if (ctx.compacting === 'self') gen.tools = noTools();
   gen.builtins = gen.tools.builtins;
+  if (gen.canary) gen.canary = await profileCanary(profile.id, gen.resolvedSystem);
   ctx.generation = gen;
   ctx.canary = gen.canary;
   ctx.canaries.push(gen.canary);
   const binding = profile.models[gen.model];
   ctx.mediaFamily = binding ? mediaTokenFamily(binding) : undefined;
   ctx.trace = { root: ctx.root, attempt: 0, calls: 0, binding };
+  if (!ctx.compacting) ctx.agents = agentCallerFor(ctx, provider, binding);
 
   throwIfAborted(ctx.safe.signal);
 
   const compactionSpec = ctx.compacting ? undefined : getCompactionSpec(profile, gen.model);
-  await maybeCompactBefore(ctx, gen, compactionSpec, provider);
+  const compaction = await maybeCompactBefore(ctx, profile, gen, compactionSpec, provider);
+  if (compaction) yield deliver(ctx, projectForObs(compaction, ctx.observability));
 
-  ctx.system = bindCanary(gen.resolvedSystem, ctx.canary, profile.lexicon);
+  ctx.system = bindSystem(gen.resolvedSystem, [
+    canaryNote(ctx.canary, profile.lexicon),
+    profileTypesForField('identity.system').includes(profile.type)
+      ? userDataNote(profile.lexicon)
+      : '',
+    profileInputs(profile)?.context ? contextNote(profile.lexicon) : '',
+  ]);
 
   yield* streamTurnEvents(ctx, profile, gen, provider, compactionSpec);
 }
 
+/** The turn's agent tool calls: each runs nested under its tool's span, in this record. */
+function agentCallerFor(
+  ctx: TraceCtx,
+  provider: ModelProvider,
+  own: ModelBinding | undefined,
+): AgentCaller {
+  return createAgentCaller({
+    registry: ctx.registry,
+    req: ctx.safe ?? ctx.req,
+    provider,
+    own,
+    depth: ctx.agentDepth,
+    runNested: (nested) =>
+      runNestedTurn({ ...nested, registry: ctx.registry, canaries: ctx.canaries }),
+  });
+}
+
+/**
+ * A host's own call's agent tools: the host's provider, or the one `onAgentCall`
+ * returns, runs each. Its nested turns bind their canaries into `canaries`.
+ */
+function invokeAgentCaller(
+  registry: KernelRegistry,
+  request: InvokeToolRequest,
+  canaries: string[],
+): AgentCaller {
+  return createAgentCaller({
+    registry,
+    req: request,
+    provider: request.provider
+      ? resolveRegisteredTurnProvider(registry, request.profile, undefined, request.provider)
+      : undefined,
+    own: undefined,
+    depth: 0,
+    runNested: (nested) => runNestedTurn({ ...nested, registry, canaries }),
+  });
+}
+
+/**
+ * The turn's provider runs the compactor only when it is the one the compactor
+ * would get: a text profile on the same protocol and provider.
+ */
+function compactorProvider(
+  ctx: TraceCtx,
+  profile: ModelProfile,
+  spec: CompactionSpec,
+  provider: ModelProvider,
+): ModelProvider {
+  return nestedRegisteredProvider(
+    provider,
+    spec.profile ?? profile.id,
+    spec.profile ? undefined : ctx.req.model,
+  );
+}
+
 async function maybeCompactBefore(
   ctx: TraceCtx,
+  profile: ModelProfile,
   gen: ResolvedGeneration,
   compactionSpec: CompactionSpec | undefined,
   provider: ModelProvider,
-): Promise<void> {
-  if (!(compactionSpec?.timing === 'before' && gen.history?.length && ctx.safe)) return;
-  const before = gen.history;
-  gen.history = await compactHistoryBeforeTurn({
+): Promise<TurnEventOf<'compaction'> | undefined> {
+  if (!(compactionSpec?.timing === 'before' && ctx.safe)) return undefined;
+  const compactor = compactorProvider(ctx, profile, compactionSpec, provider);
+  if (!gen.history?.length) return undefined;
+  const compaction = await compactHistoryBeforeTurn({
+    registry: ctx.registry,
+    owner: profile.id,
+    model: gen.model,
     spec: compactionSpec,
     family: ctx.mediaFamily,
     history: gen.history,
     input: ctx.safe.input,
-    provider,
-    compactionProvider: ctx.req.compactionProvider,
+    provider: compactor,
     parent: ctx.root,
     canaries: ctx.canaries,
     signal: ctx.safe.signal,
   });
-  ctx.compacted = gen.history !== before;
+  if (compaction) gen.history = compaction.history;
+  return compaction;
 }
 
 async function maybeAttachAfter(
@@ -586,4 +808,84 @@ async function maybeAttachAfter(
   });
 }
 
-export { compactionTranscriptLine, runTurn };
+/**
+ * `timing: 'after'`: run the compactor on the history `done.compaction` carried,
+ * with the same split, failure rules and trace as `before`. `provider` runs the
+ * compactor. `undefined` when the split leaves nothing to compact.
+ */
+async function compactHistoryInRegistry(
+  registry: KernelRegistry,
+  req: CompactHistoryRequest,
+  provider: ModelProvider,
+  sinkOverride?: TraceSink,
+): Promise<CompactionResult | undefined> {
+  const profile = registry.profiles.get(req.profile) as ModelProfile;
+  const model = req.model ?? profile.defaultModel;
+  const binding = requireModelBinding(profile, model);
+  const spec = binding.compaction;
+  if (!spec) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id} model '${model}' has no compaction`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  const family = mediaTokenFamily(binding);
+  const split = await splitForCompaction(req.history, spec, family);
+  if (split.toCompact.length === 0) return undefined;
+
+  const turnReq: TurnRequest = {
+    profile: req.profile,
+    input: {},
+    ...(req.conversationId ? { conversationId: req.conversationId } : {}),
+  };
+  const tree = startTrace(`invoke_agent ${req.profile}`, {
+    ...turnSpanOptions(turnReq),
+    ...(req.traceparent ? { traceparent: req.traceparent } : {}),
+  });
+  const { sink, policy } = resolveTraceWriter({
+    override: sinkOverride,
+    observability: profile.observability,
+    guardrails: profile.guardrails,
+  });
+  const canaries: string[] = [];
+  try {
+    const run = await runCompactor({
+      registry,
+      owner: profile.id,
+      model,
+      toCompact: split.toCompact,
+      spec,
+      provider,
+      parent: tree.root,
+      canaries,
+      ...(req.signal ? { signal: req.signal } : {}),
+    });
+    const result = compactionResult(split, run, req.tokens, spec);
+    tree.root.event('theorem.compaction', {
+      timing: spec.timing,
+      meter: compactionMeter(spec),
+      budget: spec.maxTokens,
+      threshold: spec.compactAt,
+      tokens_before: req.tokens,
+      ...compactionOutcome(result, req.history.length),
+    });
+    tree.root.end();
+    return result;
+  } catch (err) {
+    endThrownSpan(tree.root, err);
+    throw err;
+  } finally {
+    await writeTrace(
+      sink,
+      buildRecord({
+        spans: tree.collect(),
+        policy,
+        canaries,
+        ...(req.metadata ? { metadata: req.metadata } : {}),
+      }),
+      policy,
+    );
+  }
+}
+
+export { compactHistoryInRegistry, invokeAgentCaller, runTurnInRegistry };

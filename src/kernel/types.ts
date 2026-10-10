@@ -1,26 +1,23 @@
-/**
- * Shared type contracts for THEOREM profiles, turns, provider adapters, tools,
- * guardrails, and stream events.
- *
- * Import from `@theoremai/agents/kernel` or `jsr:@theoremai/agents/kernel` when a host app needs types without
- * importing provider implementations.
- *
- * @module
- */
-
+import type {
+  JsonObject,
+  ProviderCheckpoint,
+  ProviderContinuationPolicy,
+} from './provider-contract.ts';
 import type {
   CacheMode,
   CacheTtl,
   CompactionMeter,
+  CompactionOutcome,
   CompactionTiming,
+  ContextSender,
   ContinueStopKind,
   FieldMeta,
   KeySlot,
   KeyVault,
   LiveActivityHandling,
-  LiveSpeechSensitivity,
+  LiveEndSensitivity,
+  LiveStartSensitivity,
   MediaInputKind,
-  OverflowKeySlot,
   ProfileType,
   ProfileTypeProtocol,
   Protocol,
@@ -33,13 +30,22 @@ import type {
   TurnStage,
   TurnStopKind,
 } from './schema.ts';
-import type { StageApplyWarning, StageHandler } from './stages.ts';
+import type { StageHandler } from './stages.ts';
+import type { GateDecision } from './tools/gate-answer.ts';
 import type {
+  AgentCall,
+  AgentCallHook,
+  AgentCallRequest,
+  AgentToolDef,
+  AgentToolInput,
+  AgentToolOutput,
+  BuiltinWire,
   HostProfileToolsSpec,
   InvokeToolRequest,
   InvokeToolResume,
   LiveProfileToolsSpec,
   ModelToolResult,
+  PageAnswer,
   ProfileToolsSpec,
   RegisteredTool,
   ToolCallEvent,
@@ -50,196 +56,170 @@ import type {
   TurnToolSnapshot,
   WireFunctionTool,
 } from './tools/types.ts';
+import type {
+  CallDone,
+  CompactionFailure,
+  CompactionResult,
+  CompactionSignal,
+  DoneFields,
+  GroundingEvent,
+  InteractionMediaPart,
+  InteractionMediaRefPart,
+  InteractionPart,
+  InteractionTextPart,
+  ProviderEvent,
+  ProviderEvidence,
+  SessionEnded,
+  SessionEvent,
+  SessionEventKind,
+  SessionEventOf,
+  Source,
+  TurnCost,
+  TurnEvent,
+  TurnEventOf,
+  TurnEventType,
+  TurnGroundingCount,
+  TurnHistoryMessage,
+  TurnResponse,
+  TurnTokenSide,
+  TurnTokens,
+} from './turn-events.ts';
 
 export type {
+  AgentCall,
+  AgentCallHook,
+  AgentCallRequest,
+  AgentToolDef,
+  AgentToolInput,
+  AgentToolOutput,
   CacheMode,
   CacheTtl,
+  CallDone,
+  CompactionFailure,
   CompactionMeter,
+  CompactionOutcome,
+  CompactionResult,
+  CompactionSignal,
   CompactionTiming,
   ContinueStopKind,
+  DoneFields,
   FieldMeta,
+  GroundingEvent,
   HostProfileToolsSpec,
+  InteractionMediaPart,
+  InteractionMediaRefPart,
+  InteractionPart,
+  InteractionTextPart,
   InvokeToolRequest,
+  InvokeToolResume,
   KeySlot,
   KeyVault,
   LiveActivityHandling,
+  LiveEndSensitivity,
   LiveProfileToolsSpec,
-  LiveSpeechSensitivity,
+  LiveStartSensitivity,
   MediaInputKind,
-  OverflowKeySlot,
   ProfileToolsSpec,
   ProfileType,
   ProfileTypeProtocol,
   Protocol,
   Provider,
+  ProviderEvent,
+  ProviderEvidence,
   RegisteredTool,
+  SessionEnded,
+  SessionEvent,
+  SessionEventKind,
+  SessionEventOf,
+  Source,
   SpeechAudioFormat,
   StreamMode,
   SummaryMode,
   ThinkingLevel,
   ToolCallEvent,
+  ToolFailure,
   ToolGate,
   ToolLoadContext,
   ToolLoadTier,
   ToolPolicy,
+  TurnCost,
+  TurnEvent,
+  TurnEventOf,
+  TurnEventType,
+  TurnGroundingCount,
+  TurnHistoryMessage,
+  TurnResponse,
   TurnStage,
   TurnStopKind,
+  TurnTokenSide,
+  TurnTokens,
   TurnToolSnapshot,
   WireFunctionTool,
 };
 
-/** Any host-declared model id. */
+/** A host-chosen key naming one model binding in a profile's `models`. */
 export type ModelId = string;
 
-/** Provider-projected builtin tool id (registered by presets/adapters). */
+/** The id of a provider-side tool such as web search. */
 export type BuiltinToolId = string;
-/** Any tool id accepted by profile allowlists and per-turn gates. */
+/** The id a profile lists in `tools.allow` and the model calls a tool by. */
 export type ToolId = string;
 
-/** Id of a host-registered structured output schema. */
+/** The id of a registered structured-output schema. */
 export type StructuredSchemaId = string;
 
-/** Host-owned profile identifier. */
+/** A structured-output schema resolved to its JSON Schema. */
+export interface ResolvedStructured {
+  id: StructuredSchemaId;
+  jsonSchema: Record<string, unknown>;
+}
+
+/** A provider-side tool and the wire shape it is sent as. */
+export interface ProviderBuiltin {
+  id: BuiltinToolId;
+  wire: BuiltinWire;
+}
+
+/** The id a profile is registered and run under. */
 export type ProfileId = string;
 
-/** Message role accepted by provider history mappers. */
+/** The roles a history message can carry. */
 export type ChatRole = 'system' | 'user' | 'assistant';
 
-/**
- * Image-role output pins owned by the host profile.
- * The image model itself lives in `profile.models`.
- * Aspect/size/mime values are host strings (presets/apps own the vocabularies).
- */
+/** Host strings (presets own the vocabularies); an unpinned value is the provider default. */
 export interface ProfileImageSpec {
-  /** Optional output aspect ratio pin (provider default when omitted). */
   aspectRatio?: string;
-  /** Optional output size / resolution pin (provider default when omitted). */
-  size?: string;
-  /** Output MIME for generated images. */
+  resolution?: string;
   mimeType?: string;
-  /**
-   * When true, request interleaved assistant text alongside generated images
-   * (Google: `response_format` array with text + image entries).
-   */
+  quality?: string;
+  background?: string;
+  n?: number;
+  seed?: number;
+  outputCompression?: number;
+  references?: Array<TurnBlob | TurnMediaRef>;
+  /** Also request interleaved text with the images (Google: text + image `response_format`). */
   includeText?: boolean;
 }
 
-/** Public event types emitted by `runTurn` and provider adapters. */
-export type TurnEventType =
-  | 'thought'
-  | 'text'
-  | 'tool'
-  | 'structured'
-  | 'media'
-  | 'grounding'
-  | 'evidence'
-  | 'tokens'
-  /** Provider → runner only: the response's identity, recorded on the call's trace; `runTurn` never yields it. */
-  | 'response'
-  | 'session'
-  | 'guardrail'
-  | 'stage'
-  | 'done'
-  | 'error';
-
-/**
- * Live session control signals (provider-neutral).
- *
- * - `turn_complete` — one spoken response ended; the server may still be working.
- * - `working` — server is reasoning or awaiting async tool results; more output may follow.
- * - `idle` — server finished all processing; conversational cycle boundary.
- * - `ended` — the provider ended the session after warning it would
- *   (`closing_soon`); the last event of the session, not a failure.
- */
-export type SessionEventKind =
-  | 'closing_soon'
-  | 'ended'
-  | 'waiting_for_input'
-  | 'turn_complete'
-  | 'working'
-  | 'idle';
-
-/** Provider-neutral control signal emitted by a live session. */
-export interface SessionEvent {
-  kind: SessionEventKind;
-  /**
-   * Parsed drain window when the provider supplied a duration; omit when unknown.
-   * On `ended`, the window the last warning gave.
-   */
-  timeLeftMs?: number;
-  /** On `ended`: how and when the provider closed the session. */
-  ended?: SessionEnded;
-  /** On `ended`: what the user reads — the profile's `live.session_ended` wording. */
-  message?: string;
-}
-
-/**
- * A session the provider ended after warning it would. The raw close reason
- * travels as the event's `errorInternal`, for the builder only.
- */
-export interface SessionEnded {
-  /** The provider warned first (Gemini `goAway`). */
-  cause: 'go_away';
-  /** The provider's WebSocket close code. */
-  code: number;
-  /** Milliseconds from the last warning to the close; compare with `timeLeftMs`. */
-  closedAfterMs: number;
-  /** What the close code means as a failure, when it is not a normal close (1000). */
-  errorKind?: ErrorKind;
-}
-
-/** Host-named model binding — wire routing and generation knobs for one profile model. */
+/** One model a profile can run: its registered provider and upstream model id it calls, with its generation settings. */
 export interface ModelBinding {
-  protocol: Protocol;
   provider: Provider;
-  /** Provider wire model id for the configured provider. */
   apiId: string;
-  /** Alias → thinking level. One entry = fixed; two+ may be selectable at turn time. */
+  keySlot?: KeySlot;
+  fallbackKeySlot?: KeySlot;
+  providerOptions?: JsonObject;
   efforts?: Record<string, ThinkingLevel>;
-  /** Effort alias when the turn omits `effort`. Defaults to the only key when there is one. */
   defaultEffort?: string;
-  /** Turn may pass `{ effort: "<alias>" }`. Requires two or more `efforts` keys. */
   allowEffortSelect?: boolean;
-  /** Emit thinking summaries on the stream. Omit → provider default. */
   summaries?: boolean;
-  /** Cap on output tokens. Omit → provider default. */
   maxOutputTokens?: number;
-  /** Sampling temperature. Omit → provider default. */
   temperature?: number;
-  /**
-   * Provider-native builtins this model supports.
-   * Omit or `[]` when none. Opt in per turn with `tools[id]: true`.
-   */
   builtInTools?: BuiltinToolId[];
-  /**
-   * Optional vault slot for this model. When set, overrides `profile.key`.
-   * Host-owned — e.g. pin image models to `paid`.
-   */
-  key?: KeySlot;
-  /** Optional compaction policy for this model's context window (chat profiles). */
   compaction?: CompactionSpec;
-  /**
-   * OpenRouter prompt-cache policy. Omit → no opt-in `cache_control`.
-   * `defineProfile` accepts only when `provider` is `openrouter` (protocol `openAi`).
-   */
-  cache?: CacheSpec;
-  /** Gemini Interactions: whether the provider stores the interaction. Omit → provider default. */
-  store?: boolean;
-  /**
-   * Gemini Interactions: prefer server-side thread via `previous_interaction_id`
-   * instead of client-owned history. Omit → host/turn decides.
-   */
-  persistViaInteractionId?: boolean;
-  /**
-   * Local server that hosts the model (e.g. `ollama`, `vllm`, `llama.cpp`).
-   * Traces report it as `gen_ai.provider.name`; omit → the attribute is absent.
-   * `defineProfile` accepts only when `provider` is `local`.
-   */
-  server?: string;
 }
 
 /**
- * OpenRouter prompt-cache policy (`models.*.cache`).
+ * OpenRouter prompt-cache policy (`models.*.providerOptions.cache`).
  *
  * - `automatic` — top-level `cache_control`; breakpoint advances with the conversation.
  * - `system` — explicit breakpoint on the system instruction only.
@@ -250,36 +230,17 @@ export interface CacheSpec {
   ttl?: CacheTtl;
 }
 
-/**
- * Context supplied to a custom compaction trigger.
- *
- * Includes the resolved token count and the spec values so the trigger can
- * incorporate the token-based threshold as a fallback alongside other signals
- * (e.g. available system RAM).
- */
+/** What a compaction trigger sees when it decides whether to compact. */
 export interface CompactionTriggerContext {
-  /** Resolved token count for the configured meter. */
   tokens: number;
-  /** `CompactionSpec.maxTokens` — the token ceiling for this profile. */
   maxTokens: number;
-  /** `CompactionSpec.compactAt` — the fraction at which the default check fires. */
   compactAt: number;
-  /** Which meter produced `tokens`. */
   meter: CompactionMeter;
   /** Media parts not counted in `tokens` — no verified rule for this model. */
   unknownMedia: number;
 }
 
-/**
- * Compaction policy for a model.
- *
- * `previousExchanges` accepts three value ranges:
- * - `≥ 1` (integer) — keep that many recent exchanges (user message + all
- *   messages until the next user message).
- * - `(0, 1)` — fraction of `maxTokens`; the retained tail's estimated history
- *   tokens must fit within this budget.
- * - `0` — compact everything; no tail is retained.
- */
+/** When history compacts and how: the meter, the token budget and the compactor. */
 export interface CompactionSpec {
   /**
    * Token budget compared by the trigger (`compactAt * maxTokens`).
@@ -289,12 +250,15 @@ export interface CompactionSpec {
   /** Fraction of `maxTokens` at which compaction fires. Must be in (0, 1). */
   compactAt: number;
   /**
-   * How many recent exchanges to preserve verbatim.
-   * `≥ 1` = exchange count, `(0, 1)` = fraction of `maxTokens`, `0` = compact all.
+   * Recent exchanges kept verbatim (an exchange is a user message and everything up to the
+   * next one). `≥ 1` = exchange count, `(0, 1)` = fraction of `maxTokens`, `0` = compact all.
    */
   previousExchanges: number;
-  /** Profile id of the compaction agent. Must be registered before the owning profile. */
-  profile: ProfileId;
+  /**
+   * Profile id of the compaction agent. Must be registered before the owning profile.
+   * Omit it and the agent compacts its own history: the same instructions and model, no tools.
+   */
+  profile?: ProfileId;
   /**
    * When compaction runs relative to the primary turn.
    * - `'before'`: kernel compacts synchronously before the turn; user pays latency on this turn.
@@ -307,23 +271,31 @@ export interface CompactionSpec {
    * subtracting a known baseline in `maxTokens` / `compactAt`).
    */
   meter?: CompactionMeter;
-  /**
-   * Optional custom trigger. When present, replaces the default token-threshold
-   * check (`tokens > compactAt * maxTokens`). The trigger receives full context
-   * so it can incorporate the token-based logic as a fallback alongside other
-   * signals such as available system RAM.
-   *
-   * Both sync and async returns are accepted.
-   */
+  /** Replaces the default `tokens > compactAt * maxTokens` check. */
   trigger?: (ctx: CompactionTriggerContext) => boolean | Promise<boolean>;
 }
 
-/** Host-registered structured output: the JSON Schema the model is held to on the wire. */
+/** `compactHistory` input, for `timing: 'after'`: the host passes back what `done.compaction` carried. */
+export interface CompactHistoryRequest {
+  /** The profile whose model binding carries the `compaction` spec. */
+  profile: ProfileId;
+  /** That binding; defaults to the profile's `defaultModel`. */
+  model?: ModelId;
+  history: TurnHistoryMessage[];
+  /** `done.compaction.tokens`: a failed compactor drops `toCompact` only when this is over `maxTokens`. */
+  tokens: number;
+  signal?: AbortSignal;
+  traceparent?: string;
+  conversationId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** A structured-output schema given inline. */
 export interface StructuredSpec {
   jsonSchema: Record<string, unknown>;
 }
 
-/** Per-turn file, byte, and MIME-specific input limits. */
+/** Caps on the files a turn may attach. */
 export interface MediaLimits {
   maxFiles: number;
   maxBytes: number;
@@ -331,13 +303,14 @@ export interface MediaLimits {
   limitsByMime?: Record<string, number>;
 }
 
-/** Input media declaration used by attachment and voice sanitizers. */
+/** The input kinds a profile accepts, with their limits. */
 export interface MimeInputs extends Partial<MediaLimits> {
   text?: boolean;
   attachments?: { accept: string[] };
   voice?: { accept: string[] };
 }
 
+/** Why an attachment was refused. */
 export type AttachmentValidationCode =
   | 'mime_not_allowed'
   | 'too_many_files'
@@ -366,14 +339,14 @@ export interface AttachmentValidationIssue {
   fileName?: string;
 }
 
-/** Structured schema selector driven by an input slot. */
+/** Picks the structured-output schema by the value of a turn slot, with a fallback. */
 export interface StructuredBySlot {
   by: string;
   map: Record<string, string>;
   fallback: string;
 }
 
-/** Result returned by a profile output validator. */
+/** What a host validator returns for a candidate output. */
 export interface ValidationResult {
   isValid: boolean;
   error?: string;
@@ -381,13 +354,13 @@ export interface ValidationResult {
   data?: Record<string, unknown>;
 }
 
-/** Host-owned validator for structured output candidates. */
+/** A host function that checks one structured-output field. */
 export type ProfileValidator = (
   candidate: unknown,
   slots?: Record<string, string>,
 ) => ValidationResult | Promise<ValidationResult>;
 
-/** Profile output validation and deterministic repair configuration. */
+/** Host validators a profile runs on its structured output. */
 export interface ProfileValidationSpec {
   /**
    * Host domain validators keyed by dotted paths into structured output
@@ -398,26 +371,25 @@ export interface ProfileValidationSpec {
   maxRetries?: number;
 }
 
-/**
- * Speech-role output pins owned by the host profile.
- * The speech model itself lives in `profile.models`.
- * Declared top-level under `speech` so `voice` here is the TTS voice id,
- * not ingress audio (`inputs.voice`).
- */
+/** `voice` is the TTS voice id, not ingress audio (`inputs.voice`). */
 export interface ProfileSpeechSpec {
   voice?: string;
-  /**
-   * Output container. `pcm` (default) → WAV media on both transports.
-   * `mp3` requires `protocol: 'openAi'` speech; rejected on Interactions.
-   */
+  /** How the script is delivered, in plain words: pace, mood, accent. Never read aloud. */
+  style?: string;
+  /** The speaking rate; 1 is the voice's own pace. */
+  speed?: number;
+  /** A provider that cannot make the format refuses the turn. */
   format?: SpeechAudioFormat;
 }
 
-/** Voice activity detection & barge-in configuration for live bidirectional streaming. */
+/** What one speech turn sets for itself; each field given replaces the profile's `speech` field of that name. */
+export type TurnSpeech = Pick<ProfileSpeechSpec, 'voice' | 'style' | 'speed'>;
+
+/** Voice activity detection settings for a live session. */
 export interface LiveVadSpec {
   activityHandling?: LiveActivityHandling;
-  startSensitivity?: LiveSpeechSensitivity;
-  endSensitivity?: LiveSpeechSensitivity;
+  startSensitivity?: LiveStartSensitivity;
+  endSensitivity?: LiveEndSensitivity;
   prefixPaddingMs?: number;
   silenceDurationMs?: number;
 }
@@ -438,7 +410,7 @@ export interface LiveContextCompressionSpec {
   slidingWindow: LiveSlidingWindowSpec;
 }
 
-/** Sliding-window compression: the context is cut from the start, down to a target. */
+/** Sliding-window context compression for a live session. */
 export interface LiveSlidingWindowSpec {
   /**
    * Tokens to keep after compressing. A whole number above 0, below
@@ -447,7 +419,7 @@ export interface LiveSlidingWindowSpec {
   targetTokens?: number;
 }
 
-/** Audio transcription toggles for live sessions. */
+/** Which sides of a live session are transcribed. */
 export interface LiveTranscriptionSpec {
   input?: boolean;
   output?: boolean;
@@ -467,34 +439,30 @@ export interface LiveIngressSpec {
   text?: boolean;
 }
 
-/**
- * Output pins for a live-role profile (bidirectional WebSocket audio/video session).
- * The live model itself lives in `profile.models`.
- */
+/** The prompt a resumed call opens with, and how long away earns it. */
+export interface LiveResumedSpec {
+  prompt: string;
+  /** The shortest time away, in milliseconds, the agent remarks on. Omit → `DEFAULT_RESUMED_AFTER_MS`. */
+  afterMs?: number;
+}
+
+/** The settings only a live profile has: ingress, voice, detection, windowing, transcription and resumption. */
 export interface ProfileLiveSpec {
-  /** Realtime ingress modality toggles (mic, camera frames, typed text). */
   ingress?: LiveIngressSpec;
-  /** Output TTS voice name (e.g. 'Puck', 'Aoede', 'Charon'). */
   voice?: string;
-  /** Voice activity detection & barge-in configuration. */
   vad?: LiveVadSpec;
-  /** Whether session resumption updates and reconnection handles are enabled. */
   sessionResumption?: boolean;
+  /** A prompt the session sends itself when a call opens new, so the agent speaks first. Omit → the agent waits. */
+  greeting?: string;
+  /** What the agent is prompted with when a call resumes after the caller was away. Omit → a resumed call is silent. */
+  resumed?: LiveResumedSpec;
   /** Context window compression. Omit → none: the provider ends the session at its limit. */
   contextCompression?: LiveContextCompressionSpec;
-  /** Proactivity: allow model to stay silent or ignore irrelevant input. */
-  proactiveAudio?: boolean;
-  /** Real-time input/output audio transcriptions. */
   transcription?: LiveTranscriptionSpec;
 }
 
-/** Stream delivery controls enforced by the kernel. */
+/** How a profile's reply streams. */
 export interface ProfileStreamingSpec {
-  /**
-   * Profile-only source of truth for upstream stream vs batch.
-   * `sse` → stream; `buffered` → non-SSE where the transport supports it.
-   * Omit → THEOREM defaults to SSE (`ResolvedGeneration.stream === true`).
-   */
   mode?: StreamMode;
   /** When false, filter `thought` events from the turn stream. */
   streamThoughts?: boolean;
@@ -510,39 +478,29 @@ export type {
 
 import type { LexiconOverrides } from '../guardrails/lexicon.ts';
 import type { ResolveHost } from '../guardrails/network.ts';
-import type { ErrorCopy, ErrorKind } from '../guardrails/theorem-error.ts';
 import type {
   DecisionGuardrailsSpec,
-  GuardrailEvent,
   HostGuardrailsSpec,
   ProfileGuardrailsSpec,
 } from '../guardrails/types.ts';
 import type { ProfileObservabilitySpec } from '../observability/types.ts';
-import type { ToolCredential } from './auth/types.ts';
-import type {
-  MediaTurnBehaviourSpec,
-  ProfileTurnBehaviourSpec,
-  TurnContinueFrom,
-  TurnStop,
-} from './stop.ts';
+import type { ToolCredentialSource } from './auth/credential-source.ts';
+import type { MediaTurnBehaviourSpec, ProfileTurnBehaviourSpec, TurnContinueFrom } from './stop.ts';
 
-/** Model routing fields shared by every profile type. */
+/** The model fields every model-running profile shares. */
 export interface ProfileModelFields {
+  providerContinuation?: ProviderContinuationPolicy;
   /** Host-named models. Each key is a selectable model id when `allowModelSelect` is set. */
   models: Record<ModelId, ModelBinding>;
   /** The model a turn runs when it names none; registration fills it with the only key when there is one. */
   defaultModel: ModelId;
   /** Turn may pass `{ model: "<id>" }`. Requires two or more `models` keys. */
   allowModelSelect?: boolean;
-  /**
-   * Tool-loop ceiling. `<= 0` = unbounded; `1` = one-shot; `> 1` = hard cap.
-   * Omit → unbounded (no THEOREM invent of `1`).
-   */
+  /** Tool-loop ceiling. Omit = `DEFAULT_MAX_STEPS`; `1` = one-shot; `> 1` = hard cap. */
   maxSteps?: number;
-  key?: OverflowKeySlot;
 }
 
-/** Text, attachment, voice, slot, and size rules for a profile. */
+/** What a profile accepts as input. */
 export interface ProfileInputsSpec {
   text?: boolean;
   attachments?: { accept: string[] };
@@ -552,31 +510,66 @@ export interface ProfileInputsSpec {
   maxTurnBytes?: number;
   limitsByMime?: Record<string, number>;
   slots?: Record<string, string[]>;
+  context?: ProfileContextSpec;
 }
 
-/** Chat-shaped output schema, validation, and stream filters. */
+/** What a live profile declares beside its ingress channels. */
+export type LiveInputsSpec = Pick<ProfileInputsSpec, 'slots' | 'context'>;
+
+/** Who may send a turn its context, and how much. */
+export interface ProfileContextSpec {
+  from: ContextSender[];
+  maxChars: number;
+}
+
+/** The context each sender gives a turn: any JSON, or text. */
+export type TurnContext = Partial<Record<ContextSender, unknown>>;
+
+/** What a profile returns: its structured schema, validation and streaming. */
 export interface ProfileOutputsSpec {
   structured?: StructuredSchemaId | StructuredBySlot | null;
   validation?: ProfileValidationSpec;
   streaming?: ProfileStreamingSpec;
 }
 
-/** Shared identity block for every profile type. */
-export interface ProfileIdentity {
-  handle: string;
-  system?: string;
-  systemByRole?: Record<string, string>;
+/** Text a reply may not repeat when the rest of its prompt is marked shareable. */
+export interface PrivateSystemPart {
+  private: string;
 }
 
-/** Fields shared by every typed profile. */
+/** One part of a system prompt: plain text or a part kept out of traces. */
+export type SystemPart = string | PrivateSystemPart;
+
+/**
+ * A system prompt: a string, or parts sent concatenated as written. A string,
+ * or parts none of which is `{ private }`, is private throughout; once one
+ * part is `{ private }`, the plain strings beside it are shareable.
+ */
+export type SystemPrompt = string | readonly SystemPart[];
+
+/** A stretch of the system prompt as sent, and whether a reply may repeat it. */
+export interface SystemPiece {
+  text: string;
+  private: boolean;
+}
+
+/** A profile's handle and system prompt. */
+export interface ProfileIdentity {
+  handle: string;
+  system?: SystemPrompt;
+  systemByRole?: Record<string, SystemPrompt>;
+}
+
+/** The fields every profile type shares. */
 export interface ProfileCommon {
+  providerContinuation?: ProviderContinuationPolicy;
   id: ProfileId;
   identity: ProfileIdentity;
   models: Record<ModelId, ModelBinding>;
   defaultModel: ModelId;
   allowModelSelect?: boolean;
   maxSteps?: number;
-  key?: OverflowKeySlot;
+
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
@@ -584,7 +577,7 @@ export interface ProfileCommon {
   lexicon?: LexiconOverrides;
 }
 
-/** JSON value accepted as native decision state. Media is a host concern. */
+/** Any JSON value; the state a decision reads. */
 export type DecisionJson =
   | null
   | string
@@ -593,30 +586,35 @@ export type DecisionJson =
   | DecisionJson[]
   | { [key: string]: DecisionJson };
 
-/** Native TypeSafe Jev binding; deliberately has no chat protocol/provider pair. */
-export interface DecisionModelBinding {
-  apiId: string;
-  key?: KeySlot;
+/** A decision model binding follows the same protocol/provider/apiId spine as turn models. */
+export interface DecisionModelBinding extends Pick<ModelBinding, 'apiId'> {
+  provider: string;
+  keySlot?: KeySlot;
+  providerOptions?: JsonObject;
+  fallbackKeySlot?: KeySlot;
   timeoutMs?: number;
-  retry?: { maxRetries?: number };
 }
 
+/** What a decision profile accepts: JSON state up to a byte cap. */
 export interface DecisionInputsSpec {
   state: 'json';
   maxStateBytes?: number;
 }
 
-/** A host-owned decision contract identifier. */
+/**
+ * A host-owned id for the decision a profile makes. The trace records it as
+ * `theorem.decision.contract`; it is not sent to the provider and does not constrain
+ * the questions a call asks.
+ */
 export type DecisionContractId = string;
 
-/** Native Jev profile. It cannot be passed to chat or live execution doors. */
+/** Decision profile. It cannot be passed to chat or live execution doors. */
 export interface DecisionProfile {
   type: 'decision';
   id: ProfileId;
   identity: Pick<ProfileIdentity, 'handle'>;
   /** Exactly one model: a decision profile runs one model and never selects. */
   models: Record<ModelId, DecisionModelBinding>;
-  key?: KeySlot;
   inputs: DecisionInputsSpec;
   decision: { contract: DecisionContractId };
   guardrails?: DecisionGuardrailsSpec;
@@ -625,40 +623,53 @@ export interface DecisionProfile {
   lexicon?: LexiconOverrides;
 }
 
-/** Jev's text-or-structured instruction entries. Null is rejected locally. */
+/** Text or nested text instruction entries. Non-text leaves are rejected locally. */
 export type DecisionEntry = string | DecisionEntry[] | { [key: string]: DecisionEntry };
 
+/** A question answered by picking one of the named criteria. */
 export interface DecisionChoiceQuestion {
   type: 'choice';
   instructions: DecisionEntry;
   criteria: Record<string, DecisionEntry>;
 }
 
+/** A question answered with a single number, optionally with named criteria. */
 export interface DecisionNoulQuestion {
   type: 'noul';
   instructions: DecisionEntry;
   criteria?: Record<string, DecisionEntry>;
 }
 
+/** A question answered by scoring against an ordered list of criteria. */
 export interface DecisionScoreQuestion {
   type: 'score';
   instructions: DecisionEntry;
   criteria: readonly DecisionEntry[];
 }
 
+/** One question a decision answers. */
 export type DecisionQuestion =
   | DecisionChoiceQuestion
   | DecisionNoulQuestion
   | DecisionScoreQuestion;
 
+/** A request to `runDecision`: the profile, the state to judge and the questions to answer. */
 export interface DecisionRequest {
   profile: ProfileId;
   state: Exclude<DecisionJson, null>;
   questions: Record<string, DecisionQuestion>;
   signal?: AbortSignal;
+  /** Host-owned metadata preserved on the decision's trace record; the kernel does not interpret it. */
   metadata?: Record<string, unknown>;
+  /**
+   * W3C `traceparent` of the host span this decision runs under. The `decide`
+   * root joins that trace as its child; without it the decision starts a new
+   * trace. A malformed value throws.
+   */
+  traceparent?: string;
 }
 
+/** The model's answer to one decision question. */
 export type DecisionAnswer =
   | { type: 'choice'; choice: string; confidence: number; probabilities: Record<string, number> }
   | { type: 'noul'; noul: number }
@@ -666,22 +677,23 @@ export type DecisionAnswer =
       type: 'score';
       score: number;
       confidence: number;
-      legend: Record<string, number>;
+      legend: Record<string, string>;
       probabilities: Record<string, number>;
     };
 
+/** What `runDecision` returns: the model and an answer for each question. */
 export interface DecisionResult {
   model: string;
   answers: Record<string, DecisionAnswer>;
-  usage?: { inputTokens: number; outputTokens: number };
+  /** Provider-reported tokens and cost, or a provider adapter's known model tariff. */
+  usage?: { inputTokens: number; outputTokens: number; costUsd?: number };
 }
 
-/** Text / structured turn engine with optional tool execution. */
+/** A profile that runs text turns. */
 export interface TextProfile extends ProfileCommon {
   type: 'text';
   tools: ProfileToolsSpec;
   inputs: ProfileInputsSpec;
-  /** Resume + mid-turn steering policy. */
   turnBehaviour?: ProfileTurnBehaviourSpec;
 }
 
@@ -692,7 +704,7 @@ export interface TextProfile extends ProfileCommon {
  */
 export type ImageInputsSpec = Omit<ProfileInputsSpec, 'voice'>;
 
-/** Image-generation primary role. */
+/** A profile that generates images. */
 export interface ImageProfile extends ProfileCommon {
   type: 'image';
   image: ProfileImageSpec;
@@ -702,45 +714,31 @@ export interface ImageProfile extends ProfileCommon {
 }
 
 /**
- * Speech guardrails: no canary. A speech turn has no system channel to bind a
- * token into (Gemini TTS rejects developer instructions) and yields audio, not
- * text a canary scan could read.
+ * Unary TTS — text-in locked by type; no tools / inputs block. The input text is the transcript;
+ * there is no system prompt, so no canary is planted and nothing of the profile's own can leak.
  */
-export type SpeechGuardrailsSpec = Omit<ProfileGuardrailsSpec, 'canary'> & { canary?: false };
-
-/** Unary TTS — text-in locked by type; no tools / inputs block. The input text is the transcript; there is no system prompt. */
-export interface SpeechProfile extends Omit<ProfileCommon, 'identity' | 'guardrails'> {
+export interface SpeechProfile extends Omit<ProfileCommon, 'identity'> {
   type: 'speech';
   identity: Pick<ProfileIdentity, 'handle'>;
-  /** Registration always stores `canary: false`. */
-  guardrails: SpeechGuardrailsSpec & { canary: false };
   speech: ProfileSpeechSpec;
   turnBehaviour?: MediaTurnBehaviourSpec;
 }
 
-/** Bidirectional live session. */
+/** A profile that holds a live audio session. */
 export interface LiveProfile extends Omit<ProfileCommon, 'outputs'> {
   type: 'live';
   live: ProfileLiveSpec;
+  inputs?: LiveInputsSpec;
   tools: LiveProfileToolsSpec;
-  /**
-   * Stage inject gate only (`allowSteering`). Resumption is `live.sessionResumption`,
-   * not `turnBehaviour.resumption` (`docs/contracts/stages.md`).
-   */
+  /** Stage inject gate only; live resumption is `live.sessionResumption`. */
   turnBehaviour?: Pick<ProfileTurnBehaviourSpec, 'allowSteering'>;
 }
 
 /**
- * Host-driven tool execution ceiling — never runs a model.
- *
- * `invokeTool` under a `host` profile executes any tool in `tools.allow` with no
- * visibility or loading tiers and no path gating. No `models`, `identity`,
- * `inputs`, `outputs`, `turnBehaviour`, `key`, or `maxSteps`. `resolveTurn`,
- * `runTurn`, and `runSession` refuse it.
- *
- * `guardrails` is narrowed to {@link HostGuardrailsSpec}: only the guards that
- * fire on the `invokeTool` path. Quota, canary, and egress guard a model turn,
- * so `defineProfile` refuses them here rather than accepting inert config.
+ * Host-driven tool execution; never runs a model. `invokeTool` runs any tool in
+ * `tools.allow` with no visibility, loading tiers or path gating. `guardrails` holds only
+ * the guards that fire on `invokeTool`: quota, canary and egress guard a model turn, so
+ * `defineProfile` refuses them rather than accept inert config.
  */
 export interface HostProfile {
   type: 'host';
@@ -752,7 +750,7 @@ export interface HostProfile {
   lexicon?: LexiconOverrides;
 }
 
-/** Complete host-owned agent contract consumed by the kernel. */
+/** Any profile, discriminated by `type`. */
 export type Profile =
   | TextProfile
   | ImageProfile
@@ -764,50 +762,22 @@ export type Profile =
 /** Profiles that run a model turn — every type except `host` and `decision` (which runs through `runDecision`). */
 export type ModelProfile = Exclude<Profile, HostProfile | DecisionProfile>;
 
-/** Text part sent to provider adapters after input normalization. */
-export interface InteractionTextPart {
-  type: 'text';
-  text: string;
-}
-
-/** Inline media part sent to provider adapters after MIME validation. */
-export interface InteractionMediaPart {
-  type: MediaInputKind;
-  mimeType: string;
-  data: string;
-}
-
-/**
- * Media part carried by reference (e.g. a Gemini Files `files/<id>` uri).
- * The host owns the upload and cleanup; THEOREM only carries the reference.
- * Wired by the Google Interactions adapter; other adapters reject it.
- */
-export interface InteractionMediaRefPart {
-  type: MediaInputKind;
-  mimeType: string;
-  uri: string;
-}
-
-/** Any provider input part accepted by THEOREM's provider contract. */
-export type InteractionPart = InteractionTextPart | InteractionMediaPart | InteractionMediaRefPart;
-
-/** Native image response request passed to image-capable providers. */
+/** The image a profile asks the model to return. */
 export interface ImageResponseFormat {
   type: 'image';
-  /** Omitted when the profile does not pin MIME; providers use their default. */
   mimeType?: string;
-  /** Omitted when the profile does not pin aspect; providers use their default. */
   aspectRatio?: string;
-  /**
-   * Authoring / kernel name; adapters map to provider wire keys (e.g. Google `imageSize`).
-   * Omitted when the profile does not pin size; providers use their default.
-   */
-  size?: string;
-  /** Request assistant text alongside generated images when the provider supports it. */
+  /** Adapters map it to the provider wire key (Google `imageSize`, OpenRouter `resolution`). */
+  resolution?: string;
+  quality?: string;
+  background?: string;
+  n?: number;
+  seed?: number;
+  outputCompression?: number;
   includeText: boolean;
 }
 
-/** Base64-encoded blob supplied by a host turn request. */
+/** A file sent inline with a turn. */
 export interface TurnBlob {
   mimeType: string;
   data: string;
@@ -826,34 +796,20 @@ export interface TurnMediaRef {
   name?: string;
 }
 
-/** Provider-neutral history message preserving text, parts, tools, and metadata. */
-export interface TurnHistoryMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content?: string;
-  parts?: InteractionPart[];
-  tool_calls?: Array<{
-    id: string;
-    type: 'function';
-    function: { name: string; arguments: string };
-    thoughtSignature?: string;
-  }>;
-  tool_call_id?: string;
-  name?: string;
-  metadata?: Record<string, unknown>;
-}
-
-/** Generic repair request used for validation and egress retry turns. */
+/** A rejected output and the guidance to retry it with. */
 export interface TurnRepairRequest {
   previousOutput: string;
   rejection: string;
   guidance?: string;
 }
 
-/** User, media, history, and repair payload for a turn. */
+/** What the user sent for a turn: text, slots, attachments, voice and history. */
 export interface TurnInput {
   text?: string;
   role?: string;
   slots?: Record<string, string>;
+  /** What the page or the host wants the model to know, by sender; the profile's `inputs.context` allows it. */
+  context?: TurnContext;
   attachments?: Array<TurnBlob | TurnMediaRef>;
   voice?: TurnBlob[];
   history?: TurnHistoryMessage[];
@@ -869,11 +825,9 @@ export interface TurnInput {
    * Ignored when `meter` is `'history'`.
    */
   inputTokens?: number;
-  /** Optional session resumption handle for continuing live WebSocket sessions. */
-  sessionResumptionHandle?: string;
 }
 
-/** Host request after kernel ingress normalization. */
+/** A turn request whose `input` is always present. */
 export type NormalizedTurnRequest = TurnRequest & { input: TurnInput };
 
 /**
@@ -889,33 +843,24 @@ export interface TurnTraceLink {
   stop?: TurnStopKind;
 }
 
-/** Host request for a single deterministic agent turn. */
+/** A request to `runTurn`: the profile, the input and the host's hooks and keys. */
 export interface TurnRequest {
+  providerState?: ProviderCheckpoint;
   profile: ProfileId;
-  /** Caller project id when one exists. Omitted on some HTTP hosts. */
   projectId?: string;
   /**
    * Sticky routing / cache session key for OpenRouter (`session_id`).
    * Not the same as `projectId` or Gemini `previousInteractionId`.
    */
   sessionId?: string;
-  /** Google Interactions server-side conversation state. Omit for stateless/manual history. */
-  previousInteractionId?: string;
-  /**
-   * Location bias for Interactions `google_maps` builtin.
-   * Wired as `tools: [{ type: "google_maps", latitude, longitude }]`.
-   * Ignored when `googleMaps` is not enabled for the selected model.
-   */
-  googleMapsLocation?: { latitude: number; longitude: number };
-  /** Optional Interactions storage override. Omit to let the selected model binding decide. */
-  store?: boolean;
   /** Selected model id when `profile.allowModelSelect` is true. */
   model?: ModelId;
   /** Selected effort alias when the binding has `allowEffortSelect`. */
   effort?: string;
   /** Host-provided dynamic system prompt combined with profile persona */
-  system?: string;
-  /** Session permissions granted for this conversation turn */
+  system?: SystemPrompt;
+  /** This turn's voice, style and speed, over `profile.speech`. Speech profiles only. */
+  speech?: TurnSpeech;
   sessionPermissions?: string[];
   /** Host channel/path for catalog `paths` filtering. */
   path?: string;
@@ -929,7 +874,6 @@ export interface TurnRequest {
   traceparent?: string;
   /** Host conversation id, recorded as `gen_ai.conversation.id`. */
   conversationId?: string;
-  /** Earlier turns this one resumes, continues or retries. */
   links?: TurnTraceLink[];
   /**
    * Opaque application context handed to tool `handler` / `preTool` and
@@ -955,29 +899,24 @@ export interface TurnRequest {
    */
   continuation?: number;
   input?: TurnInput;
-  /** Provider for the compaction profile when `timing: 'before'`. Falls back to the turn provider. */
-  compactionProvider?: ModelProvider;
-  /** Optional session resumption handle for continuing live WebSocket sessions. */
-  sessionResumptionHandle?: string;
-  /**
-   * Host credentials for authenticated HTTP / MCP tools keyed by auth slot. A refreshed
-   * OAuth credential replaces its slot in this record; persist it when the turn emits
-   * `auth_token_refreshed` for that slot.
-   */
-  credentials?: Record<string, ToolCredential>;
+  /** Credentials for authenticated HTTP / MCP tools, read by auth slot when a tool needs one. */
+  credentials?: ToolCredentialSource;
   /**
    * Resolves remote tool and OAuth host names before each request; a name that
    * resolves to a private address is refused (see `fetchGuarded`).
    */
   resolveHost?: ResolveHost;
-  /**
-   * Turn-stage handler (`docs/contracts/stages.md`).
-   * Text `runTurn` emits stages and applies returned affordances.
-   */
+  /** Text `runTurn` emits stages and applies the returned affordances. */
   onStage?: StageHandler;
+  /**
+   * Runs before each agent tool call in this turn, and in the turns those
+   * calls run. Shape the called agent's request (history, model, provider) or
+   * refuse the call. Omit it: the agent runs on the model's text alone.
+   */
+  onAgentCall?: AgentCallHook;
 }
 
-/** Safe profile projection suitable for UI or host inspection (model profiles only). */
+/** A profile projected for a client, with its secrets and server-only fields removed. */
 export interface ProjectedProfile extends ProfileModelFields {
   id: string;
   type: ModelProfile['type'];
@@ -990,13 +929,10 @@ export interface ProjectedProfile extends ProfileModelFields {
   live?: ProfileLiveSpec | null;
 }
 
-/** Provider selection and generation knobs shared before and after resolution. */
+/** The generation settings a provider call is made with. */
 export interface ProviderGenerationConfig {
   model: ModelId;
-  /** Provider wire model id taken from the profile model spec. */
   apiId: string;
-  previousInteractionId?: string;
-  store?: boolean;
   /**
    * Upstream stream vs batch, derived from `outputs.streaming.mode`.
    * `true` = SSE (THEOREM default when mode is omitted); `false` = buffered.
@@ -1007,347 +943,83 @@ export interface ProviderGenerationConfig {
   maxOutputTokens?: number;
   temperature?: number;
   builtins: BuiltinToolId[];
-  /**
-   * Location bias for Interactions `google_maps`.
-   * Copied from `TurnRequest.googleMapsLocation` when present.
-   */
-  googleMapsLocation?: { latitude: number; longitude: number };
-  /**
-   * OpenRouter prompt-cache policy from the selected model binding.
-   * Omitted for non-openrouter bindings.
-   */
-  cache?: CacheSpec;
-  /**
-   * OpenRouter sticky session id from `TurnRequest.sessionId`.
-   * Forwarded as request `session_id` when present.
-   */
+  /** Forwarded as OpenRouter `session_id`. */
   sessionId?: string;
 }
 
-/** Resolved provider transport derived once in `resolveTurn`. */
-export type ProviderTransport = 'interactions' | 'geminiLive' | 'openAiCompat';
+/** The transport a provider adapter speaks. */
+export type ProviderTransport = 'turn' | 'live';
 
-/** Fully-resolved provider request state created from a `TurnRequest`. */
+/** A generation config after the profile and request are resolved, with its transport. */
 export interface ResolvedGeneration extends ProviderGenerationConfig {
-  /** Resolved transport — `'interactions'` for Google Gemini Interactions, `'geminiLive'` for Gemini Live WebSocket, `'openAiCompat'` otherwise. */
   transport: ProviderTransport;
-  /** Mutable tool visibility and wire snapshot for this turn. */
   tools: TurnToolSnapshot;
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
-  /**
-   * Interactions-only: messages sent after `previousInteractionId` (tool
-   * results, stage injects) instead of history + user parts. The model reads
-   * the stored interaction plus these.
-   */
-  continuation?: TurnHistoryMessage[];
-  /**
-   * Tool-loop ceiling. `undefined` or `<= 0` = unbounded.
-   * Taken from `profile.maxSteps` with no THEOREM invent.
-   */
+  /** Tool-loop ceiling: the profile's `maxSteps`, or `DEFAULT_MAX_STEPS`. */
   maxSteps?: number;
-  structured: StructuredSchemaId | null;
+  structured: ResolvedStructured | null;
   image: ImageResponseFormat | null;
   speech?: ProfileSpeechSpec;
   live?: ProfileLiveSpec;
   input: InteractionPart[];
   /**
-   * Vault key slot for credentialed transports (Google required; OpenRouter when
-   * the profile pins `key` or a builtin forces `paid`). Never sent on the wire.
+   * Vault key slot; every model but a local one without a key names one. Never sent on the wire.
    */
   keySlot?: KeySlot;
-  canary: string;
-  /** Optional session resumption handle for continuing live WebSocket sessions. */
-  sessionResumptionHandle?: string;
+  /** The slot a quota refusal on `keySlot` retries on once, when the profile names one. */
+  fallbackKeySlot?: KeySlot;
   /**
-   * Merged profile + turn system prompt, snapshotted synchronously in `resolveTurn`
-   * before any async work. Runner applies canary bind on top of this string.
+   * The canary bound into the system prompt; empty with the canary off. A turn
+   * binds the profile's (`profileCanary`), the same for the same prompt; a
+   * Live session binds this one, minted for it.
    */
-  resolvedSystem: string;
+  canary: string;
+  /** Snapshotted synchronously before any async work; the runner binds the canary on top. */
+  resolvedSystem: readonly SystemPiece[];
   /** `TurnRequest.host`, carried to tool contexts only. Never sent to providers or traces. */
   host?: unknown;
 }
 
-/** Money a provider reported for one model call. */
-export interface TurnCost {
-  /** What the provider charged, in US dollars. */
-  usd: number;
-  /** What the upstream model vendor charged the provider, when reported (OpenRouter). */
-  upstreamUsd?: number;
-  /**
-   * Set on a sum (`sumTokens`) when some summed calls reported a cost and
-   * others did not: `usd` covers only the calls that did.
-   */
-  partial?: true;
-}
-
-/** A side of `TurnTokens` the provider did not report. */
-export type TurnTokenSide = 'input' | 'output';
-
 /**
- * Token accounting for one model call, one `tokens` event per call.
- *
- * Meanings follow the OpenTelemetry GenAI conventions on every provider:
- * `input` counts everything the model read (cached prompt and provider
- * tool-use tokens included), `output` everything it wrote (reasoning
- * included), and `total` is `input + output`.
+ * `previousInteractionId`, `store`, `stream`, `summaries` and `continuation` are
+ * Google Interactions-only and absent otherwise. `keySlot` is required for every
+ * provider but local; it is never sent on the wire.
  */
-export interface TurnTokens {
-  input: number;
-  output: number;
-  /** Reasoning share of `output`. */
-  thinking?: number;
-  /** Provider tool-use share of `input` (Google code execution / URL context results). */
-  toolUse?: number;
-  /** Share of `input` read from provider cache (cache hit). */
-  cached?: number;
-  /** Share of `input` written into provider cache. */
-  cacheWrite?: number;
-  total: number;
-  /** Provider-reported cost. Absent when the provider reports none. */
-  cost?: TurnCost;
-  /**
-   * Sides the provider did not report. The runner replaces each with the one
-   * token estimator's count before the event reaches the host. Absent = both
-   * sides provider-reported.
-   */
-  estimated?: TurnTokenSide[];
-  /**
-   * Media parts left out of an estimated side because no verified rule counts
-   * them, per side. Absent when every part was counted.
-   */
-  unknownMedia?: Partial<Record<TurnTokenSide, number>>;
-  /**
-   * Provider-reported shares of each side by modality (`text`, `image`,
-   * `audio`, …, lower-case). Providers list only some modalities, so the
-   * shares need not add up to the side. Absent = not reported.
-   */
-  byModality?: Partial<Record<TurnTokenSide, Record<string, number>>>;
-  /** Provider-side grounding tool use, as the provider reported it. Absent = not reported. */
-  grounding?: TurnGroundingCount[];
-}
-
-/** A provider response's identity, as the wire sent it. Live sends neither field. */
-export interface TurnResponse {
-  /** Provider response id (OpenAI-compatible `id`, Interactions `id`). */
-  id?: string;
-  /** Model that served the call, as the provider names it. */
-  model?: string;
-}
-
-/** One grounding tool's use in a call (Interactions `grounding_tool_count`). */
-export interface TurnGroundingCount {
-  /** Provider's tool name, e.g. `google_search`. */
-  type: string;
-  count: number;
-  /** Search queries the tool ran. Absent = not reported. */
-  searchQueryCount?: number;
-}
-
-/** Normalized citation or place source surfaced from a provider. */
-export interface GroundingSource {
-  title: string;
-  uri: string;
-  type: 'maps' | 'web';
-  /** Google Place id when the source is a Maps place / place_citation. */
-  placeId?: string;
-}
-
-/** Google grounding metadata normalized into a stream event. */
-export interface GroundingEvent {
-  metadata?: Record<string, unknown>;
-  chunks?: unknown[];
-  searchHtml?: string;
-  sources: GroundingSource[];
-}
-
-/** Provider evidence such as OpenRouter citations or Google server-side tool steps. */
-export interface ProviderEvidenceEvent {
-  provider: 'openrouter' | 'google' | string;
-  raw?: Record<string, unknown>;
-  citations?: string[];
-  annotations?: unknown[];
-  sources?: GroundingSource[];
-  /**
-   * Discriminant for evidence payloads.
-   * Live ASR uses `input_transcription` / `output_transcription`; Live
-   * `voiceActivity` uses `voice_activity`; resumption uses
-   * `session_resumption`; code execution uses `code_execution_call` /
-   * `code_execution_result` (Live sends only results).
-   */
-  kind?:
-    | 'code_execution_call'
-    | 'code_execution_result'
-    | 'input_transcription'
-    | 'output_transcription'
-    | 'session_resumption'
-    | 'voice_activity'
-    | string;
-  /** Generated Python (or other) source from `code_execution_call.arguments.code`. */
-  code?: string;
-  /** Language of `code` when the API supplies it (typically `python`). */
-  language?: string;
-  /** Stdout / sandbox output from `code_execution_result.result`. */
-  result?: string;
-  /** `true` when the sandbox reported an execution error. */
-  isError?: boolean;
-  /** Step id (`code_execution_call.id`). */
-  id?: string;
-  /** Links a result to its call (`code_execution_result.call_id`). */
-  callId?: string;
-  /** Live ASR: partial/interim chunk (vs final transcription delta). */
-  interim?: boolean;
-  /** Live session resumption: whether the handle may be used to resume. */
-  resumable?: boolean;
-  /**
-   * The provider started this step and never finished it (the stream ended
-   * first). `raw` holds what arrived. A partial tool call is evidence only and
-   * never runs.
-   */
-  partial?: boolean;
-}
-
-/** Compaction signal emitted in the `done` event when `timing: 'after'`. */
-export interface CompactionSignal {
-  needed: boolean;
-  /** Which meter produced `tokens`. */
-  meter: CompactionMeter;
-  /** Token count used for the compaction decision. */
-  tokens: number;
-  /** Media parts not counted in `tokens` — no verified rule for this model. */
-  unknownMedia: number;
-  /**
-   * Full-prompt input tokens of this turn's last model call, when one
-   * completed. Always observability; also the decision value when
-   * `meter: 'input'`.
-   */
-  promptTokens?: number;
-  /** True when `promptTokens` is the token estimator's count — the provider reported none. */
-  promptTokensEstimated?: boolean;
-  history: TurnHistoryMessage[];
-}
-
-/** Public event yielded by providers and by `runTurn`. */
-export interface TurnEvent {
-  type: TurnEventType;
-  text?: string;
-  tool?: ToolCallEvent & {
-    /** Provider-native tool call id when present. */
-    id?: string;
-    arguments?: Record<string, unknown>;
-  };
-  structured?: unknown;
-  media?: { mimeType: string; data: string };
-  grounding?: GroundingEvent;
-  evidence?: ProviderEvidenceEvent;
-  session?: SessionEvent;
-  /** Guardrail decision for this turn — rule identity and offsets, never content. */
-  guardrail?: GuardrailEvent;
-  tokens?: TurnTokens;
-  interactionId?: string;
-  /** Session resumption handle updated during live sessions. */
-  sessionResumptionHandle?: string;
-  /** True when a user utterance interrupted an in-flight live model response (barge-in). */
-  interrupted?: boolean;
-  /** Public-safe failure text for hosts to show users: the wording for `errorKind`. */
-  error?: string;
-  /** What kind of failure an `error` event is — for the builder, in code. */
-  errorKind?: ErrorKind;
-  /**
-   * The lexicon key and parameters behind `error` when the failure has wording
-   * more specific than its kind's; a list when it found several problems.
-   */
-  errorCopy?: ErrorCopy | readonly ErrorCopy[];
-  /**
-   * Raw diagnostic detail for traces/logs, on an `error` event, an ended
-   * session's close, or a refused OAuth refresh (`auth_token_refresh_failed`);
-   * never surface to end users (`forClient` strips it).
-   */
-  errorInternal?: string;
-  /** Compaction signal for `timing: 'after'` profiles. Present only on `done` events. */
-  compaction?: CompactionSignal;
-  /** Why the turn ended. Present on terminal `done` events when known. */
-  stop?: TurnStop;
-  /**
-   * On the terminal `done`: the turn's root span as a W3C `traceparent`. Pass
-   * it in a later request's `links` to connect the two records.
-   */
-  traceparent?: string;
-  /**
-   * On a provider's `response` event: the identity the wire named so far,
-   * emitted as soon as it is named and again when it grows or changes.
-   */
-  response?: TurnResponse;
-  /**
-   * Turn tool visibility snapshot when `stop.kind === 'tool'`.
-   * Hosts pass this to `invokeTool({ snapshot })` so T1/T2 resume matches the gated turn.
-   */
-  tools?: TurnToolSnapshot;
-  /** Turn-stage name when `type === 'stage'` (`docs/contracts/stages.md`). */
-  stage?: TurnStage;
-  /** Tool call id on `stage` / related tool-stage events. */
-  callId?: string;
-  /** Tool name on `stage` events (`pre_tool` / `post_tool`). Not `tool` (ToolCallEvent). */
-  toolName?: string;
-  /** True when a tool completed with awaiting_user_input (on stage/tool events). */
-  awaiting?: boolean;
-  /** pre_tool gate payload when `tool.phase === 'gate'` or stage carries a gate. */
-  gate?: ToolGate;
-  /** True when pre_tool settled without running the body. */
-  callNotStarted?: boolean;
-  /**
-   * Host-visible stage affordance warnings (`docs/contracts/stages.md`).
-   * Emitted after `onStage` when invalid/rejected fields were dropped.
-   */
-  stageWarnings?: StageApplyWarning[];
-}
-
-/**
- * Provider-neutral request object sent from the kernel to a model adapter.
- *
- * Several fields are **Google Interactions-only** and omitted otherwise:
- * `previousInteractionId`, `store`, `stream`, `summaries`,
- * `continuation`.
- * Adapters must tolerate their absence. `keySlot` is shared by Google and
- * OpenRouter vault resolution (required for Google; optional for OpenRouter).
- */
-export interface ProviderCompleteRequest extends Omit<ProviderGenerationConfig, 'summaries'> {
-  /**
-   * Interactions-only: thinking-summary behavior.
-   * Omitted (undefined) for non-Google providers.
-   */
+export interface ProviderCompleteRequest
+  extends Omit<ProviderGenerationConfig, 'summaries' | 'builtins'> {
+  previousInteractionId?: string;
+  store?: boolean;
+  cache?: CacheSpec;
+  googleMapsLocation?: { latitude: number; longitude: number };
+  /** The turn's builtins with their wire names; adapters read no registry. */
+  builtins: ProviderBuiltin[];
   summaries?: SummaryMode;
+  providerState?: ProviderCheckpoint;
+  state?: unknown;
   system: string;
   input: InteractionPart[];
   history?: TurnHistoryMessage[];
-  /**
-   * Interactions-only: messages sent after `previousInteractionId` (tool
-   * results, stage injects) instead of history + user parts; the adapter maps
-   * them like history. Omitted for non-Google providers.
-   */
+  /** Sent after `previousInteractionId` instead of history + user parts; mapped like history. */
   continuation?: TurnHistoryMessage[];
-  /** Function tool wire declarations derived from the turn tool snapshot. */
   wireTools?: WireFunctionTool[];
-  structured: StructuredSchemaId | null;
+  structured: ResolvedStructured | null;
   image: ImageResponseFormat | null;
   speech?: ProfileSpeechSpec;
   live?: ProfileLiveSpec;
-  /** Optional session resumption handle for continuing live WebSocket sessions. */
   sessionResumptionHandle?: string;
-  /**
-   * Vault key slot. Required for Google; set for OpenRouter when the profile
-   * pins `model.key` or a builtin forces `paid`. Never sent on the wire.
-   */
   keySlot?: KeySlot;
+  /** The slot a quota refusal on `keySlot` retries on once. Never sent on the wire. */
+  fallbackKeySlot?: KeySlot;
   /** Scrubbed SSE / HTTP rows for traces. */
   tapUpstream?: (row: Record<string, unknown>) => void;
   /** Host abort signal — adapters should pass this into fetch / SDK calls. */
   signal?: AbortSignal;
 }
 
-/** Minimal adapter contract every model provider must implement. */
+/** A provider adapter: one `complete` call that streams the model's events. */
 export interface ModelProvider {
-  complete: (req: ProviderCompleteRequest) => AsyncIterable<TurnEvent>;
+  complete: (req: ProviderCompleteRequest) => AsyncIterable<ProviderEvent>;
 }
 
 /**
@@ -1355,16 +1027,22 @@ export interface ModelProvider {
  * Profile must be `type: 'live'`.
  */
 export interface SessionRequest {
+  providerState?: ProviderCheckpoint;
   profile: ProfileId;
   /** Host-built system prompt merged with profile identity.system. */
-  system?: string;
+  system?: SystemPrompt;
   /** Override `profile.live.voice` for this session. */
   voice?: string;
   path?: string;
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
-  sessionResumptionHandle?: string;
-  /** Optional realtime parts sent immediately after setup. */
+  /** The value chosen for each of the profile's `inputs.slots`. */
+  slots?: Record<string, string>;
+  /** What the page and the host tell the agent as the call opens; `sendContext` replaces it later. */
+  context?: TurnContext;
+  /** How long the caller was away before this resume, in milliseconds. The session keeps no clock across calls. */
+  awayMs?: number;
+  /** Optional realtime parts sent immediately after setup. A call that sends them gets no `live.greeting`. */
   input?: InteractionPart[];
   /**
    * Registry-resolved tool snapshot from the process that owns the tool registry
@@ -1385,18 +1063,14 @@ export interface SessionRequest {
   traceparent?: string;
   /** Host conversation id, recorded as `gen_ai.conversation.id`. */
   conversationId?: string;
-  /** Earlier sessions or turns this one resumes or continues. */
   links?: TurnTraceLink[];
-  /**
-   * Session-lifetime stage handler (`docs/contracts/stages.md`). Immutable for
-   * the session; no `setOnStage`.
-   */
+  /** Immutable for the session; there is no `setOnStage`. */
   onStage?: StageHandler;
   /**
-   * Default credentials for `executeTool` (per-call args override). A refreshed OAuth
-   * credential replaces its slot in the record the call used.
+   * Default credentials for `executeTool` (per-call args override). Without one, the
+   * session keeps keys typed at its sign-in gates in memory.
    */
-  credentials?: Record<string, ToolCredential>;
+  credentials?: ToolCredentialSource;
   /**
    * Resolves remote tool and OAuth host names before each request; a name that
    * resolves to a private address is refused (see `fetchGuarded`).
@@ -1407,19 +1081,37 @@ export interface SessionRequest {
 }
 
 /**
- * Long-lived live session returned by `runSession`.
- * `done` events mark conversational turn boundaries; the session stays open until `close()`.
+ * Run a call the model made in this session, by its id: once, with the
+ * model's input. `decision` answers a call waiting on a gate, and only such a
+ * call; `input` is the user's edit, and only with `approve` on a gated call.
  */
 export type LiveExecuteToolArgs = {
-  name: string;
   callId: string;
+  decision?: GateDecision;
   input?: unknown;
-  resume?: InvokeToolResume;
-  credentials?: Record<string, ToolCredential>;
+  /**
+   * The key the user typed at a sign-in gate, only with `approve` on that
+   * gate: the session sets it as the credential for the gate's slot
+   * (`credentialFromTypedSecret`) in the source the call runs with.
+   */
+  secret?: string;
+  credentials?: ToolCredentialSource;
   host?: unknown;
+  /** The page's answer, for a call to a tool with `answeredBy: 'page'`. */
+  page?: PageAnswer;
 };
 
-/** Outcome of executing a registry tool through an open live session. */
+/**
+ * Settle a call the model made in this session whose body ran in the process
+ * that owns the tool registry: `events` are that process's `invokeTool`
+ * events for `callId`, which ran with the model's input.
+ */
+export type LiveAnswerToolCallArgs = {
+  callId: string;
+  events: readonly TurnEvent[];
+};
+
+/** What running a tool call during a live session returns. */
 export type LiveExecuteToolResult = {
   outputRaw?: unknown;
   outputModel?: ModelToolResult;
@@ -1429,7 +1121,7 @@ export type LiveExecuteToolResult = {
 };
 
 /**
- * Open Gemini Live session returned by `runSession`. It streams events until
+ * Open live session returned by `runSession`. It streams events until
  * `close()` and exposes realtime media ingress and staged tool execution.
  */
 export interface LiveSession {
@@ -1442,11 +1134,25 @@ export interface LiveSession {
   sendVideo(args: { data: string; mimeType: string }): Promise<void>;
   sendText(text: string): Promise<void>;
   /**
-   * Registry tool execute with stages. Pumps `stage`/`tool` into `events()`.
-   * Gate → returns `gated` without upstream tool response; resume with `granted`.
+   * What the page or the host tells the model to know, by sender: it opens no turn and
+   * draws no reply. Checked against `inputs.context` and read at the `context` boundary;
+   * the model sees it from its next turn on.
+   */
+  sendContext(context: TurnContext): Promise<void>;
+  /**
+   * Run a call the model made through the registry, with stages; its events
+   * join `events()`. A gate returns `gated` and answers the model nothing yet;
+   * the call waits `gateTtlMs` for its `decision`. An unknown, settled,
+   * running or expired call is a `request` error and runs nothing.
    */
   executeTool(args: LiveExecuteToolArgs): Promise<LiveExecuteToolResult>;
-  sendToolResponse(id: string, name: string, output: unknown): void;
-  sendToolResponses(responses: Array<{ id: string; name: string; output: unknown }>): void;
+  /**
+   * Settle a call whose body ran in the registry-owning process: its events
+   * join `events()` and the model reads its `readBack`. A run that ends on a
+   * gate leaves the call open; a released sign-in (`signInGate: 'answer'`)
+   * takes its outcome until `gateTtlMs`. An unknown, settled, running or
+   * expired call, or events that settle nothing for it, is a `request` error.
+   */
+  answerToolCall(args: LiveAnswerToolCallArgs): LiveExecuteToolResult;
   close(reason?: string): Promise<void>;
 }

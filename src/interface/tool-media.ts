@@ -1,10 +1,4 @@
-/**
- * Promote http(s) media URLs found in completed tool output into transcript media blocks.
- *
- * @module
- */
-
-/** Guessed media kind + MIME from a URL path extension. */
+/** A media file a tool's output points to: its URL, MIME type and, when the output carried one, a smaller preview URL. */
 export type PromotedToolMedia = {
   url: string;
   mimeType: string;
@@ -40,7 +34,7 @@ function mimeForPathname(pathname: string): string | undefined {
   return EXT_MIME[ext];
 }
 
-/** Return a promoted media descriptor when `raw` is an http(s) media URL. */
+/** Reads an http(s) URL string as promoted media, with the MIME type taken from its file extension; returns undefined for an empty or invalid string, another scheme, or an extension it does not know. */
 export function promotedMediaFromUrlString(raw: string): PromotedToolMedia | undefined {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return undefined;
@@ -67,7 +61,7 @@ const MEDIAWIKI_THUMB = /^(.*)\/thumb(\/.+\/([^/]+))\/(\d+)px-\3(?:\.[a-z0-9]+)?
 function mediaAsset(url: string): { key: string; width: number } {
   const parsed = new URL(url);
   const site = parsed.hostname.split('.').slice(-2).join('.');
-  // Tracking parameters never change the file; other query parameters may.
+  // why: Tracking parameters never change the file; other query parameters may.
   for (const name of [...parsed.searchParams.keys()]) {
     if (name.startsWith('utm_')) parsed.searchParams.delete(name);
   }
@@ -79,11 +73,7 @@ function mediaAsset(url: string): { key: string; width: number } {
   };
 }
 
-/**
- * Depth-first walk of tool output collecting unique http(s) image/video/audio URLs.
- * Order follows first encounter in JSON tree order. One file at several sizes
- * is promoted once: `url` is its largest copy, `previewUrl` its smallest.
- */
+/** One file at several sizes is promoted once: `url` its largest copy, `previewUrl` its smallest. */
 export function collectPromotedMediaFromToolOutput(output: unknown): PromotedToolMedia[] {
   const seen = new Map<string, { index: number; largest: number; smallest: number }>();
   const out: PromotedToolMedia[] = [];

@@ -1,32 +1,22 @@
-/**
- * Host turn session state for multi-turn runs and tool gate / awaiting.
- *
- * @module
- */
-
-import { withPublicWording } from '../guardrails/error.ts';
-import { type LexiconOverrides, lexiconText } from '../guardrails/lexicon.ts';
-import type { ToolAuthType } from '../kernel/schema.ts';
 import { isAwaitingUserInput } from '../kernel/stages.ts';
+import type { ToolGateAuth } from '../kernel/tools/gate-answer.ts';
 import type { ToolGate, TurnToolSnapshot } from '../kernel/tools/types.ts';
 import type { ModelId, ToolId, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
 import { findLast } from '../kernel/util/find-last.ts';
-import {
-  appendAssistantEventsToHistory,
-  appendToolDenialToHistory,
-  historyFromTranscriptBlocks,
-} from './history.ts';
+import { historyFromTranscriptBlocks } from './history.ts';
+import { toolCallsOf } from './tool-calls.ts';
 import { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';
 import type { TranscriptBlock, UserTurnDraft } from './types.ts';
 
-/** The credential a sign-in gate waits for: its slot and kind. */
-export type ToolGateAuth = { slot: string; authType: ToolAuthType };
+export type { ToolGateAuth };
 
+/** A tool call held at a gate: the tool, its call id and arguments. */
 export type GatedToolContext = {
   name: string;
-  input: unknown;
-  callId?: string;
-  arguments?: Record<string, unknown>;
+  callId: string;
+  arguments: Record<string, unknown>;
+  /** The call's `ToolCallRequest.thoughtSignature`, for recording the call in history. */
+  thoughtSignature?: string;
   gateKind: ToolGate['kind'];
   permission?: ToolGate['permission'];
   summary?: string;
@@ -34,20 +24,20 @@ export type GatedToolContext = {
   auth?: ToolGateAuth;
 };
 
+/** A tool call that paused the turn to ask the user: the tool, its call id and arguments. */
 export type AwaitingToolContext = {
   name: string;
-  callId?: string;
-  arguments?: Record<string, unknown>;
+  callId: string;
+  arguments: Record<string, unknown>;
   kind: string;
   prompt: string;
   options?: string[];
 };
 
-/** Client-side conversation state for composer turn runs. */
+/** The state a client keeps between turns: portable history, native checkpoint and permissions. */
 export type InterfaceTurnSession = {
   history: TurnHistoryMessage[];
-  /** Google Interactions id for server-side continuity; cleared on branch. */
-  previousInteractionId?: string;
+  providerState?: import('../kernel/provider-contract.ts').ProviderCheckpoint;
   sessionPermissions: string[];
   /** Last turn `tokens.input` for compaction meter `timing: 'before'`. */
   inputTokens?: number;
@@ -71,6 +61,7 @@ export type InterfaceTurnSession = {
   selectedEffort?: string;
 };
 
+/** A session with no history and no permissions. */
 function emptyInterfaceTurnSession(): InterfaceTurnSession {
   return {
     history: [],
@@ -83,73 +74,82 @@ function emptyInterfaceTurnSession(): InterfaceTurnSession {
   };
 }
 
-function gatedToolFromEvents(events: readonly TurnEvent[]): GatedToolContext | null {
-  const done = findLast(events, (event) => event.type === 'done');
-  if (done?.stop?.kind !== 'gate' && done?.stop?.kind !== 'tool') {
-    return null;
-  }
-  const gateEvent = findLast(
-    events,
-    (event) => event.type === 'tool' && event.tool?.phase === 'gate' && !!event.tool.gate,
+/**
+ * Every call still waiting on its gate, in the order the model made them. One
+ * step can leave several: a gate holds only its own call.
+ */
+function gatedToolsFromEvents(events: readonly TurnEvent[]): GatedToolContext[] {
+  const paused = events.some(
+    (event) => event.type === 'done' && (event.stop.kind === 'gate' || event.stop.kind === 'tool'),
   );
-  const tool = gateEvent?.tool;
-  if (tool?.gate) {
-    return {
-      name: tool.name,
-      input: tool.arguments ?? {},
-      callId: tool.callId ?? tool.id,
-      arguments: tool.arguments,
-      gateKind: tool.gate.kind,
-      permission: tool.gate.permission,
-      summary: tool.gate.summary,
-      ...(tool.gate.authChallenge
-        ? {
-            auth: {
-              slot: tool.gate.authChallenge.slot,
-              authType: tool.gate.authChallenge.authType,
-            },
-          }
-        : {}),
-    };
-  }
-  return null;
+  if (!paused) return [];
+  return toolCallsOf(events).flatMap((call) => {
+    if (call.state?.phase !== 'gate') return [];
+    const { gate } = call.state;
+    return [
+      {
+        name: call.name,
+        callId: call.callId,
+        arguments: call.arguments,
+        ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}),
+        gateKind: gate.kind,
+        permission: gate.permission,
+        summary: gate.summary,
+        ...(gate.kind === 'auth'
+          ? {
+              auth: {
+                slot: gate.authChallenge.slot,
+                authType: gate.authChallenge.authType,
+                service: gate.authChallenge.service,
+              },
+            }
+          : {}),
+      },
+    ];
+  });
 }
 
+/** The gate the user answers next: the first call still waiting. */
+function gatedToolFromEvents(events: readonly TurnEvent[]): GatedToolContext | null {
+  return gatedToolsFromEvents(events)[0] ?? null;
+}
+
+/** The tool call a turn paused on to ask the user, or `null`. */
 function awaitingFromEvents(events: readonly TurnEvent[]): AwaitingToolContext | null {
-  const complete = findLast(
-    events,
-    (event) => event.type === 'tool' && event.tool?.phase === 'complete',
-  );
-  const output = complete?.tool?.output;
+  const call = findLast(toolCallsOf(events), (c) => c.state?.phase === 'complete');
+  if (call?.state?.phase !== 'complete') return null;
+  const { output } = call.state;
   if (!isAwaitingUserInput(output)) return null;
   return {
-    name: complete?.tool?.name ?? '',
-    callId: complete?.tool?.callId,
-    arguments: complete?.tool?.arguments,
+    name: call.name,
+    callId: call.callId,
+    arguments: call.arguments,
     kind: output.kind,
     prompt: output.prompt,
     options: output.options,
   };
 }
 
+/** The session after the turn events are applied to it. */
 function applyTurnEventsToSession(
   session: InterfaceTurnSession,
   events: readonly TurnEvent[],
 ): InterfaceTurnSession {
-  let previousInteractionId = session.previousInteractionId;
+  let providerState = session.providerState;
   let inputTokens = session.inputTokens;
   let historyTokens = session.historyTokens;
   let toolSnapshot = session.toolSnapshot;
   let promotedToolIds = session.promotedToolIds;
 
   for (const event of events) {
-    if (event.interactionId) {
-      previousInteractionId = event.interactionId;
-    }
-    if (event.tokens?.input) {
+    if (event.type === 'provider_checkpoint') providerState = event.providerState;
+    if (event.type === 'done' && event.providerState) providerState = event.providerState;
+    if (event.type === 'provider_warning') providerState = undefined;
+    // why: A call's own input size, not the turn's sum (`done.tokens`).
+    if (event.type === 'tokens' && event.tokens.input) {
       inputTokens = event.tokens.input;
     }
-    if (event.compaction?.tokens !== undefined) {
+    if (event.type === 'done' && event.compaction?.tokens !== undefined) {
       historyTokens = event.compaction.tokens;
     }
   }
@@ -166,7 +166,7 @@ function applyTurnEventsToSession(
   const gated = gatedToolFromEvents(events);
   return {
     ...session,
-    previousInteractionId,
+    providerState,
     inputTokens,
     historyTokens,
     gatedTool: gated,
@@ -176,20 +176,14 @@ function applyTurnEventsToSession(
   };
 }
 
-/**
- * Truncate session after transcript branch.
- *
- * Rebuilds `history` from visible blocks and drops `previousInteractionId` so the
- * next turn uses manual history rather than a stale Interactions handle.
- */
+/** Drops native provider state so the next turn sends the rebuilt history, not a stale handle. */
 function branchInterfaceTurnSession(
   session: InterfaceTurnSession,
   blocks: readonly TranscriptBlock[],
-  lexicon: LexiconOverrides | undefined,
 ): InterfaceTurnSession {
   return {
     ...emptyInterfaceTurnSession(),
-    history: historyFromTranscriptBlocks(blocks, lexicon),
+    history: historyFromTranscriptBlocks(blocks),
     sessionPermissions: [...session.sessionPermissions],
     inputTokens: session.inputTokens,
     historyTokens: session.historyTokens,
@@ -198,88 +192,11 @@ function branchInterfaceTurnSession(
   };
 }
 
-function markGatedToolCancelled(
-  events: readonly TurnEvent[],
-  gated: GatedToolContext,
-  lexicon: LexiconOverrides | undefined,
-): TurnEvent[] {
-  return events.map((event): TurnEvent => {
-    if (event.type !== 'tool') return event;
-    if (event.tool?.phase !== 'gate') return event;
-    return withPublicWording(
-      {
-        type: 'tool',
-        tool: {
-          name: gated.name,
-          callId: gated.callId ?? event.tool.callId,
-          arguments: gated.arguments ?? event.tool.arguments,
-          phase: 'error',
-          failure: {
-            code: 'cancelled',
-            kind: 'cancelled',
-            message: lexiconText('session.abandon_gated', { tool: gated.name }, lexicon),
-          },
-        },
-      },
-      lexicon,
-    );
-  });
-}
-
-/**
- * Abandon a tool gate without continuing the agent turn.
- *
- * Records the cancelled tool in history, finalizes any streamed assistant text,
- * and clears gate state. Used by send-now while gated (leave the wait, then
- * start a new user turn).
- */
-function abandonGatedToolSession(
-  session: InterfaceTurnSession,
-  lexicon: LexiconOverrides | undefined,
-): {
-  session: InterfaceTurnSession;
-  finalizedEvents: TurnEvent[];
-} {
-  const gated = session.gatedTool;
-  if (!gated) {
-    return { session, finalizedEvents: [...session.assistantEvents] };
-  }
-
-  const finalizedEvents = markGatedToolCancelled(session.assistantEvents, gated, lexicon);
-  const history = appendToolDenialToHistory(
-    appendAssistantEventsToHistory(session.history, finalizedEvents, lexicon),
-    {
-      name: gated.name,
-      callId: gated.callId,
-      arguments: gated.arguments,
-      failure: {
-        code: 'cancelled',
-        message: lexiconText('session.abandon_gated', { tool: gated.name }, lexicon),
-      },
-    },
-    lexicon,
-  );
-
-  return {
-    finalizedEvents,
-    session: {
-      ...session,
-      history,
-      gatedTool: null,
-      awaitingTool: null,
-      assistantEvents: [],
-      pendingUserDraft: null,
-      toolSnapshot: undefined,
-      promotedToolIds: [],
-    },
-  };
-}
-
 export {
-  abandonGatedToolSession,
   applyTurnEventsToSession,
   awaitingFromEvents,
   branchInterfaceTurnSession,
   emptyInterfaceTurnSession,
   gatedToolFromEvents,
+  gatedToolsFromEvents,
 };

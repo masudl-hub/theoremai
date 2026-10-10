@@ -1,9 +1,9 @@
-import { runTurn } from '../../kernel/engine/runner.ts';
+import { getProfile, listProfiles, runTurn } from '../../kernel/default-scope.ts';
 import { sumTokens } from '../../kernel/engine/usage.ts';
-import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
+import type { ProviderHostOptions } from '../../kernel/provider-contract.ts';
 import { isModelProfile, requireModelProfile } from '../../kernel/registry/resolve.ts';
 import { profileToolAllow } from '../../kernel/tools/resolve.ts';
-import type { ModelProfile, ModelProvider, TurnRequest, TurnTokens } from '../../kernel/types.ts';
+import type { ModelProfile, TurnRequest, TurnTokens } from '../../kernel/types.ts';
 import { createCliTraceCapture, printTestEvent, printTraceRecord } from '../event-log.ts';
 import {
   buildCustomTurnRequest,
@@ -83,7 +83,7 @@ function printTestResult(
 export async function executeSingleTest(
   req: TurnRequest,
   testName: string,
-  provider?: ModelProvider,
+  provider?: ProviderHostOptions,
   cliOptions: CliTestOptions = {},
 ): Promise<TestRunResult> {
   const start = Date.now();
@@ -99,7 +99,7 @@ export async function executeSingleTest(
   try {
     if (!provider) {
       throw new Error(
-        'Theorem CLI does not create providers or read keys. Pass an explicit ModelProvider from the host app.',
+        'Theorem CLI does not create providers or read keys. Pass an explicit ProviderHostOptions from the host app.',
       );
     }
     const traceCapture = cliOptions.trace ? createCliTraceCapture(cliOptions.traceDir) : undefined;
@@ -133,7 +133,7 @@ function resolveTargetProfiles(
   all: boolean | undefined,
 ): ModelProfile[] | null {
   if (all) {
-    // Host and decision profiles run no model turn, so they have no turn matrix.
+    // why: Host and decision profiles run no model turn, so they have no turn matrix.
     return listProfiles().filter(isModelProfile);
   }
   if (profileId) {
@@ -152,7 +152,7 @@ function resolveTargetProfiles(
 
 async function runProfileMatrix(
   profile: ModelProfile,
-  provider?: ModelProvider,
+  provider?: ProviderHostOptions,
   cliOptions: CliTestOptions = {},
 ): Promise<TestRunResult[]> {
   const results: TestRunResult[] = [];
@@ -172,7 +172,7 @@ async function runProfileMatrix(
 async function runProfileSingle(
   profile: ModelProfile,
   options: MatrixOptions,
-  provider?: ModelProvider,
+  provider?: ProviderHostOptions,
   cliOptions: CliTestOptions = {},
 ): Promise<TestRunResult> {
   const req = buildCustomTurnRequest(profile, options);
@@ -202,7 +202,7 @@ export async function testProfileCommand(
   options: MatrixOptions & {
     all?: boolean;
     matrix?: boolean;
-    provider?: ModelProvider;
+    provider?: ProviderHostOptions;
     verbose?: boolean;
     trace?: boolean;
     traceDir?: string;

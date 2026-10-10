@@ -1,0 +1,19 @@
+---
+description: The invariant every guardrail decision is made against
+alwaysApply: true
+---
+
+# Guardrail invariant
+
+**Nothing a guarded profile produces reaches the host, or leaves through a tool, until a deterministic kernel check has read it. The check never changes what the model does and is never silently skipped. The only cost accepted is holdback, kept as small as the check allows.**
+
+Decide guardrail questions against it instead of asking the user:
+
+- Guardrails on means holdback is accepted; minimise it, never skip the check to avoid it.
+- Deterministic verdicts, independent of chunking; no model in the hard path.
+- Never change model behaviour to make a check possible (no text-first speech, no prompting tricks).
+- Fail closed on what cannot be read.
+- Never block functionality; where a channel cannot be held (provider-side built-in tools), detect from the provider's report and surface it.
+- Tightening a guarantee may break a package contract: flag it in docs and the commit.
+
+Full text and known exceptions: `docs/contracts/guardrails.md#invariant`.

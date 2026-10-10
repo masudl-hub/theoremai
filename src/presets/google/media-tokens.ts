@@ -1,0 +1,181 @@
+/**
+ * How Gemini bills media, as measured: the rule the token estimator counts a Gemini 3 model's
+ * files by.
+ *
+ * Gemini 3 (`gemini-3*` flash / pro text models, direct or via OpenRouter).
+ * Measured 22/09/2026 against the usage Gemini bills — Interactions `usage`
+ * and `generateContent` `usageMetadata` agree exactly — on gemini-3.8-flash
+ * at the default media resolution (THEOREM never sets `media_resolution`).
+ * `countTokens` is not the oracle: it reports 560 per PDF page and 32 tokens
+ * per audio second, and neither is what is billed.
+ * - image: a patch grid inside a 1120-token budget that keeps the aspect
+ *   ratio — `⌊√(1120·w/h)⌋ × ⌊√(1120·h/w)⌋` (1024×1024 → 1089, 1920×1080 →
+ *   1100, 4032×3024 HEIC → 1064). Needs the pixel size from the image header.
+ * - audio: `⌈seconds × 25⌉`, seconds being decoded samples ÷ rate
+ *   (`audioSeconds`): 2.2 s → 56, 0.5 s → 13. Sample rate, channels and
+ *   silence do not matter. Raw PCM: bare `audio/pcm` is 16 kHz mono 16-bit;
+ *   `audio/L16` needs both `rate` and `channels`. `audio/pcm` with parameters,
+ *   `audio/alaw`, and `audio/mulaw` are refused by Interactions — unknown.
+ *   Mono `audio/L16` is unknown: Gemini converts it first and adds text tokens
+ *   no rule reproduces (about 31–33, plus 2 per second, plus 1 audio token
+ *   away from 16 kHz).
+ * - video: `frames × ⌊√(70·w/h)⌋ × ⌊√(70·h/w)⌋ + ⌈min(audio, frames) × 25⌉`,
+ *   `frames` = the video track's seconds rounded half up (66 per frame at
+ *   16:9, 63 at 4:3; fps, codec and container do not matter). Under half a
+ *   second rounds to no frames, which Gemini refuses — unknown. MP4 / MOV /
+ *   3GP and WebM only (`videoInfo`); other containers are unknown.
+ * - PDF: 520 tokens per page. Text on the page adds nothing.
+ * - text documents (plain, Markdown, CSV, JSON, HTML, CSS, XML, RTF,
+ *   JavaScript, Python) as their UTF-8 text. `text/md` and
+ *   `application/x-python` are unknown: Gemini converts them first, adding
+ *   about 30 text tokens no rule reproduces.
+ * - Provider file references (`uri`): unknown — the bytes are not here.
+ *
+ * Known gap: ADTS AAC. Gemini estimates its length from the bitrate; the
+ * decoded length here runs 2–3 tokens over at 10 s.
+ *
+ * Not yet checked against billed usage: video in WebM / MOV / 3GP, anamorphic
+ * video, and Gemini 3 models other than gemini-3.8-flash. The full probe and
+ * open decisions: https://github.com/masudl-hub/theoremai/issues/18
+ *
+ * @module
+ */
+
+import { audioSeconds } from '../../kernel/engine/media-probe/audio.ts';
+import { imageSize } from '../../kernel/engine/media-probe/image.ts';
+import { pdfPageCount } from '../../kernel/engine/media-probe/pdf.ts';
+import { videoInfo } from '../../kernel/engine/media-probe/video.ts';
+import type { MediaPayload, MediaTokenFamily } from '../../kernel/engine/token-estimate.ts';
+import { MEDIA_INPUT_KINDS } from '../../kernel/schema.ts';
+import { base64ToBytes } from '../../kernel/util/base64.ts';
+import { mimeEssence } from '../../kernel/util/mime.ts';
+
+const GEMINI_3_TEXT_MODEL = /^gemini-3(?:\.\d+)?-(?:flash|pro)(?:-lite)?(?:-preview)?$/;
+const GEMINI_3_IMAGE_BUDGET = 1120;
+const GEMINI_3_VIDEO_FRAME_BUDGET = 70;
+const GEMINI_3_AUDIO_PER_SECOND = 25;
+const GEMINI_3_PDF_PER_PAGE = 520;
+/** Bare `audio/pcm`: 16-bit mono at 16 kHz. */
+const PCM_DEFAULT_RATE = 16_000;
+const PCM_BYTES_PER_SAMPLE = 2;
+/** Document types Gemini reads as their own text. */
+const GEMINI_3_TEXT_DOCUMENTS = new Set([
+  'text/plain',
+  'text/csv',
+  'text/markdown',
+  'text/html',
+  'text/css',
+  'text/xml',
+  'text/rtf',
+  'text/javascript',
+  'application/x-javascript',
+  'text/x-python',
+  'application/json',
+]);
+
+function mimeParam(mimeType: string, name: string): number | undefined {
+  for (const piece of mimeType.split(';').slice(1)) {
+    const [key, value] = piece.split('=').map((s) => s.trim().toLowerCase());
+    if (key === name) {
+      const n = Number(value);
+      return Number.isInteger(n) && n > 0 ? n : undefined;
+    }
+  }
+  return undefined;
+}
+
+function hasParams(mimeType: string): boolean {
+  return mimeType.includes(';');
+}
+
+/** Seconds of raw 16-bit PCM, or `undefined` when Gemini refuses how it is declared. */
+function pcmSeconds(mimeType: string, bytes: Uint8Array): number | undefined {
+  const essence = mimeEssence(mimeType);
+  let rate: number | undefined;
+  let channels: number | undefined;
+  if (essence === 'audio/pcm') {
+    if (hasParams(mimeType)) return undefined;
+    rate = PCM_DEFAULT_RATE;
+    channels = 1;
+  } else {
+    rate = mimeParam(mimeType, 'rate');
+    channels = mimeParam(mimeType, 'channels');
+    // why: Mono L16 is converted before it is counted.
+    if (channels === 1) return undefined;
+  }
+  if (!rate || !channels) return undefined;
+  return Math.floor(bytes.length / (PCM_BYTES_PER_SAMPLE * channels)) / rate;
+}
+
+function gemini3Audio(mimeType: string, bytes: Uint8Array): number | undefined {
+  const essence = mimeEssence(mimeType);
+  const seconds =
+    essence === 'audio/pcm' || essence === 'audio/l16'
+      ? pcmSeconds(mimeType, bytes)
+      : essence === 'audio/alaw' || essence === 'audio/mulaw'
+        ? undefined
+        : audioSeconds(bytes);
+  return seconds === undefined ? undefined : Math.ceil(seconds * GEMINI_3_AUDIO_PER_SECOND);
+}
+
+function patchGrid(budget: number, w: number, h: number): number {
+  return Math.floor(Math.sqrt((budget * w) / h)) * Math.floor(Math.sqrt((budget * h) / w));
+}
+
+function gemini3Video(bytes: Uint8Array): number | undefined {
+  const info = videoInfo(bytes);
+  if (!info || info.audioSeconds === undefined) return undefined;
+  const frames = Math.floor(info.seconds + 0.5);
+  if (frames === 0) return undefined;
+  return (
+    frames * patchGrid(GEMINI_3_VIDEO_FRAME_BUDGET, info.width, info.height) +
+    Math.ceil(Math.min(info.audioSeconds, frames) * GEMINI_3_AUDIO_PER_SECOND)
+  );
+}
+
+function utf8(bytes: Uint8Array): string | undefined {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    // why: Not UTF-8: what Gemini reads from it is unknown.
+    return undefined;
+  }
+}
+
+async function gemini3Media(
+  payload: MediaPayload,
+  text: (value: string) => number,
+): Promise<number | undefined> {
+  if (!('data' in payload)) return undefined;
+  const essence = mimeEssence(payload.mimeType);
+  const bytes = base64ToBytes(payload.data);
+  switch (MEDIA_INPUT_KINDS[essence]) {
+    case 'image': {
+      const size = imageSize(bytes);
+      return size ? patchGrid(GEMINI_3_IMAGE_BUDGET, size.width, size.height) : undefined;
+    }
+    case 'audio':
+      return gemini3Audio(payload.mimeType, bytes);
+    case 'video':
+      return gemini3Video(bytes);
+    case 'document': {
+      if (essence === 'application/pdf') {
+        const pages = await pdfPageCount(bytes);
+        return pages === undefined ? undefined : pages * GEMINI_3_PDF_PER_PAGE;
+      }
+      if (!GEMINI_3_TEXT_DOCUMENTS.has(essence)) return undefined;
+      const decoded = utf8(bytes);
+      return decoded === undefined ? undefined : text(decoded);
+    }
+  }
+  return undefined;
+}
+
+const GEMINI_3: MediaTokenFamily = { name: 'gemini-3', media: gemini3Media };
+
+/** The media family of a Gemini model id, or `undefined` when no measured rule covers it. */
+function googleMediaFamily(modelId: string): MediaTokenFamily | undefined {
+  return GEMINI_3_TEXT_MODEL.test(modelId) ? GEMINI_3 : undefined;
+}
+
+export { googleMediaFamily };

@@ -1,6 +1,11 @@
-import type { TurnTaint } from '../../../guardrails/types.ts';
+import { type TurnDestinations, turnDestinations } from '../../../guardrails/destinations.ts';
+import { type GivenUrlSets, givenUrlSets } from '../../../guardrails/egress-urls.ts';
+import type { OwnTools } from '../../../guardrails/tool-leak.ts';
+import type { GuardrailHit, TurnTaint } from '../../../guardrails/types.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
-import type { TurnToolSnapshot } from '../../tools/types.ts';
+import type { AgentCaller } from '../../tools/agent.ts';
+import { ownToolsOf } from '../../tools/project.ts';
+import type { ToolRegistry } from '../../tools/registry.ts';
 import type {
   InteractionPart,
   ModelBinding,
@@ -14,19 +19,20 @@ import type {
 import type { MediaTokenFamily } from '../token-estimate.ts';
 import type { CallUsage } from './usage.ts';
 
-/** Where this turn's spans go. */
 interface TurnTraceState {
   /** The turn's `invoke_agent` span; model calls and tools open under it. */
   root: SpanHandle;
   /** Validation / egress attempt the next model call belongs to (0-based). */
   attempt: number;
-  /** Model calls made so far. */
   calls: number;
-  /** The turn's model binding, for `gen_ai.provider.name`. */
   binding: ModelBinding | undefined;
 }
 
 interface StepExecutionState {
+  /** The turn's scope's tools: calls and provider builtins are looked up here. */
+  tools: ToolRegistry;
+  /** Runs the turn's agent tools; absent where none can run (a compactor's own turn). */
+  agents?: AgentCaller;
   trace: TurnTraceState;
   currentHistory: TurnHistoryMessage[];
   stepCount: number;
@@ -35,34 +41,33 @@ interface StepExecutionState {
   allEmittedEvents: TurnEvent[];
   attemptEvents: TurnEvent[];
   /**
-   * True when progressive yield withheld user-visible events during this attempt.
-   *
-   * The attempt gate needs it: if the mid-stream window tripped but the final
-   * verdict on the whole text passes, nothing was streamed, so the buffered
-   * text must be released rather than silently dropped.
+   * If the mid-stream window tripped but the final verdict on the whole text passes, nothing was
+   * streamed, so the attempt gate must release the buffered text rather than drop it.
    */
   withheldVisible?: boolean;
-  /**
-   * Untrusted remote content this turn has already read.
-   *
-   * Accumulates across tool calls so a later call can be judged against what the
-   * turn has ingested, not just its own arguments.
-   */
+  /** The reply text the stream's gate released this attempt, as it released it. */
+  released: string;
+  /** The canary opening the last provider call ended on, read in front of the next call's reply. */
+  canaryCarry?: string;
+  /** What the last provider call's thoughts ended on, read in front of the next call's thoughts. */
+  thoughtCarry?: string;
+  /** System-prompt leaks withheld under a host policy; they pin the end-of-attempt verdict to block. */
+  promptLeaks?: GuardrailHit[];
+  /** Untrusted content read so far, so a later tool call is judged against all the turn ingested. */
   taint?: TurnTaint;
+  /** The destinations the turn has read, by who wrote them, so a tool call's own are judged against them. */
+  destinations: TurnDestinations;
+  /** Every URL the model has been given this turn (`GuardrailContext.givenUrls`). */
+  givenUrls: GivenUrlSets;
+  /** The names of the profile's tools and of their parameters (`GuardrailContext.ownTools`). */
+  ownTools?: OwnTools;
+  /** Set once the model is given the canary this turn (`GuardrailContext.canaryGiven`). */
+  canaryGiven: boolean;
+  /** What the canary scan already read this turn (`requestGivesCanary`). */
+  canaryScanned: WeakSet<object>;
   /** Last provider stop from a discarded provider `done` event. */
   lastStop?: TurnStop;
-  /** Tool snapshot at tool pause — emitted on terminal `done` when `stop.kind === 'tool'`. */
-  toolSnapshot?: TurnToolSnapshot;
-  /** Latest Google Interactions id observed on the current provider stream. */
-  lastInteractionId?: string;
-  /**
-   * Pending Interactions continuation for the next provider step: tool results
-   * and stage injects, sent as `continuation`.
-   */
-  interactionsContinuation?: {
-    previousInteractionId: string;
-    messages: TurnHistoryMessage[];
-  };
+  providerState?: import('../../provider-contract.ts').ProviderCheckpoint;
   /** Usage of the last model call; a continuation's prompt estimate extends it. */
   lastCall?: CallUsage;
 }
@@ -97,20 +102,31 @@ function appendUserInput(state: StepExecutionState, parts: readonly InteractionP
  * theirs stays put.
  */
 function openTurnState(args: {
+  tools: ToolRegistry;
   profile: Profile;
   generation: ResolvedGeneration;
   trace: TurnTraceState;
   mediaFamily: MediaTokenFamily | undefined;
   allEmittedEvents?: TurnEvent[];
+  agents?: AgentCaller;
 }): StepExecutionState {
   const { profile, generation } = args;
+  const ownTools = ownToolsOf(args.tools, profile);
   const state: StepExecutionState = {
+    tools: args.tools,
     trace: args.trace,
     currentHistory: [...(generation.history ?? [])],
     stepCount: 0,
     mediaFamily: args.mediaFamily,
     allEmittedEvents: args.allEmittedEvents ?? [],
     attemptEvents: [],
+    released: '',
+    givenUrls: givenUrlSets(),
+    destinations: turnDestinations(),
+    canaryGiven: false,
+    canaryScanned: new WeakSet(),
+    ...(ownTools ? { ownTools } : {}),
+    ...(args.agents ? { agents: args.agents } : {}),
   };
   if (profile.type === 'text') {
     appendUserInput(state, generation.input);

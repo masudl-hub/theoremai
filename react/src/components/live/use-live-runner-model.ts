@@ -1,12 +1,19 @@
+import { liveIngressEnabledFromSpec } from '@theoremjs/agents';
+import type { LiveProfileInterface } from '@theoremjs/agents/interface';
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { liveIngressEnabledFromSpec } from '../../../../mod.ts';
-import type { LiveProfileInterface } from '../../../../src/interface/mod.ts';
-import type { LiveCaptionState, LiveCaptionTurn } from '../../client/live/live-captions';
-import { liveState } from '../../client/live/live-state';
-import { createTraceFeed } from '../../client/trace-feed';
-import { useLiveRunnerControls } from './use-live-runner-controls';
-import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui';
-import { useLiveSessionClient } from './use-live-session-client';
+import {
+  type LiveCaptionState,
+  type LiveCaptionTurn,
+  stashLiveCaptionCall,
+} from '../../client/live/live-captions.ts';
+import type { LiveCallOptions } from '../../client/live/live-page-tool.ts';
+import { liveState } from '../../client/live/live-state.ts';
+import type { LiveConnection } from '../../client/live-client.ts';
+import { createTraceFeed } from '../../client/trace-feed.ts';
+import { usePageToolWarnings } from '../../hooks/use-page-tool-warnings.ts';
+import { useLiveRunnerControls } from './use-live-runner-controls.ts';
+import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui.ts';
+import { useLiveSessionClient } from './use-live-session-client.ts';
 
 type LiveControls = ReturnType<typeof useLiveRunnerControls>;
 
@@ -16,199 +23,213 @@ type LiveControls = ReturnType<typeof useLiveRunnerControls>;
  * restart is a new conversation; earlier calls' captions stay, above a divider.
  */
 function useLiveCallLifecycle(
-	controls: LiveControls,
-	captionsRef: MutableRefObject<LiveCaptionState>,
-	sessionActive: boolean,
-	videoAvailable: boolean,
+  controls: LiveControls,
+  captionsRef: MutableRefObject<LiveCaptionState>,
+  sessionActive: boolean,
+  videoAvailable: boolean,
 ) {
-	const [callStarted, setCallStarted] = useState(false);
-	const [ended, setEnded] = useState(false);
-	const videoOnConnectRef = useRef(false);
+  const [callStarted, setCallStarted] = useState(false);
+  const [ended, setEnded] = useState(false);
+  const videoOnConnectRef = useRef(false);
 
-	const startCall = useCallback(
-		(options: { video: boolean }) => {
-			videoOnConnectRef.current = options.video && videoAvailable;
-			setCallStarted(true);
-			setEnded(false);
-			void controls.startSession();
-		},
-		[controls, videoAvailable],
-	);
+  const startCall = useCallback(
+    (options: { video: boolean }) => {
+      videoOnConnectRef.current = options.video && videoAvailable;
+      setCallStarted(true);
+      setEnded(false);
+      void controls.startSession();
+    },
+    [controls, videoAvailable],
+  );
 
-	// Camera capture needs a live session, so a video call turns it on once connected.
-	useEffect(() => {
-		if (!sessionActive || !videoOnConnectRef.current) return;
-		videoOnConnectRef.current = false;
-		void controls.handleToggleVideo();
-	}, [controls, sessionActive]);
+  // why: Camera capture needs a live session, so a video call turns it on once connected.
+  useEffect(() => {
+    if (!sessionActive || !videoOnConnectRef.current) return;
+    videoOnConnectRef.current = false;
+    void controls.handleToggleVideo();
+  }, [controls, sessionActive]);
 
-	const handleEnd = useCallback(() => {
-		videoOnConnectRef.current = false;
-		controls.teardownSession();
-		setEnded(true);
-	}, [controls]);
+  const handleEnd = useCallback(() => {
+    videoOnConnectRef.current = false;
+    controls.teardownSession();
+    setEnded(true);
+  }, [controls]);
 
-	const [pastCalls, setPastCalls] = useState<LiveCaptionTurn[][]>([]);
+  const [pastCalls, setPastCalls] = useState<LiveCaptionTurn[][]>([]);
 
-	const handleRestart = useCallback(async () => {
-		const previous = captionsRef.current.turns;
-		if (previous.length > 0) setPastCalls((calls) => [...calls, previous]);
-		setEnded(false);
-		await controls.handleRestart();
-	}, [controls, captionsRef]);
+  const handleRestart = useCallback(async () => {
+    const previous = captionsRef.current.turns;
+    setPastCalls((calls) => stashLiveCaptionCall(calls, previous));
+    setEnded(false);
+    await controls.handleRestart();
+  }, [controls, captionsRef]);
 
-	const teardownSessionRef = useRef(controls.teardownSession);
-	teardownSessionRef.current = controls.teardownSession;
+  const teardownSessionRef = useRef(controls.teardownSession);
+  teardownSessionRef.current = controls.teardownSession;
 
-	useEffect(() => {
-		return () => {
-			teardownSessionRef.current();
-		};
-	}, []);
+  useEffect(() => {
+    return () => {
+      teardownSessionRef.current();
+    };
+  }, []);
 
-	return { callStarted, ended, pastCalls, startCall, handleEnd, handleRestart };
+  return { callStarted, ended, pastCalls, startCall, handleEnd, handleRestart };
 }
 
 /**
  * Owns LiveRunner state, session client, and stage callbacks.
- * `registerProfile` resolves the live profile id the relay should open — hosts
- * with a fixed profile return it directly; the playground registers its draft.
+ * `connection` resolves what the call opens: a host with a fixed profile returns
+ * its id; the studio returns its draft as the relay's open message. `options`
+ * are the host's part in the call: its slots, the page's context, and its page tools.
  */
 export function useLiveRunnerModel(
-	iface: LiveProfileInterface,
-	registerProfile: () => Promise<string>,
+  iface: LiveProfileInterface,
+  connection: () => LiveConnection | Promise<LiveConnection>,
+  options: LiveCallOptions = {},
 ) {
-	const ui = useLiveRunnerUiState(iface.lexicon);
-	const gate = useLiveRunnerGate({
-		setCaptions: ui.setCaptions,
-		setActiveTool: ui.setActiveTool,
-		reportFailure: ui.reportFailure,
-	});
-	const registerProfileRef = useRef(registerProfile);
-	registerProfileRef.current = registerProfile;
+  const ui = useLiveRunnerUiState(iface.lexicon);
+  const gate = useLiveRunnerGate({
+    setCaptions: ui.setCaptions,
+    setActiveTool: ui.setActiveTool,
+    reportFailure: ui.reportFailure,
+  });
+  const connectionRef = useRef(connection);
+  connectionRef.current = connection;
 
-	const voiceAvailable = liveIngressEnabledFromSpec(iface.live.ingress, 'audio');
-	const videoAvailable = liveIngressEnabledFromSpec(iface.live.ingress, 'video');
-	const textAvailable = liveIngressEnabledFromSpec(iface.live.ingress, 'text');
+  const voiceAvailable = liveIngressEnabledFromSpec(iface.live.ingress, 'audio');
+  const videoAvailable = liveIngressEnabledFromSpec(iface.live.ingress, 'video');
+  const textAvailable = liveIngressEnabledFromSpec(iface.live.ingress, 'text');
 
-	const state = useMemo(
-		() =>
-			liveState({
-				status: ui.status,
-				connectPhase: ui.connectPhase,
-				toolName: ui.activeTool,
-				isMuted: ui.isMuted,
-				voiceEnabled: voiceAvailable,
-			}),
-		[ui.activeTool, ui.connectPhase, ui.isMuted, ui.status, voiceAvailable],
-	);
+  const state = useMemo(
+    () =>
+      liveState({
+        status: ui.status,
+        connectPhase: ui.connectPhase,
+        toolName: ui.activeTool,
+        isMuted: ui.isMuted,
+        voiceEnabled: voiceAvailable,
+      }),
+    [ui.activeTool, ui.connectPhase, ui.isMuted, ui.status, voiceAvailable],
+  );
 
-	// One feed per runner: every session it opens adds its records.
-	const traces = useMemo(createTraceFeed, []);
-	const { clientRef, ensureClient, clearClient } = useLiveSessionClient({
-		voiceAvailable,
-		traces,
-		handleLiveTurnEvent: gate.handleLiveTurnEvent,
-		waitForGateDecision: gate.waitForGateDecision,
-		captionsRef: ui.captionsRef,
-		gatePromptRef: gate.gatePromptRef,
-		isMutedRef: ui.isMutedRef,
-		sessionPermissionsRef: ui.sessionPermissionsRef,
-		videoCaptureRef: ui.videoCaptureRef,
-		setConnectPhase: ui.setConnectPhase,
-		setStatus: ui.setStatus,
-		setSessionActive: ui.setSessionActive,
-		lexicon: iface.lexicon,
-		reportFailure: ui.reportFailure,
-		clearFailure: ui.clearFailure,
-		reportSessionEnded: ui.reportSessionEnded,
-		clearSessionEnded: ui.clearSessionEnded,
-		setCaptions: ui.setCaptions,
-		setInputLevel: ui.setInputLevel,
-		setOutputLevel: ui.setOutputLevel,
-		setActiveTool: ui.setActiveTool,
-		setSessionPermissions: ui.setSessionPermissions,
-		setVideoPreview: ui.setVideoPreview,
-		setVideoFacingMode: ui.setVideoFacingMode,
-		setIsVideoOn: ui.setIsVideoOn,
-	});
+  // why: One feed per runner: every session it opens adds its records.
+  const traces = useMemo(createTraceFeed, []);
+  const { clientRef, ensureClient, clearClient } = useLiveSessionClient({
+    slots: options.slots,
+    context: options.context,
+    pageTools: options.pageTools,
+    voiceAvailable,
+    traces,
+    handleLiveTurnEvent: gate.handleLiveTurnEvent,
+    waitForGateDecision: gate.waitForGateDecision,
+    gatePromptRef: gate.gatePromptRef,
+    isMutedRef: ui.isMutedRef,
+    sessionPermissionsRef: ui.sessionPermissionsRef,
+    videoCaptureRef: ui.videoCaptureRef,
+    setConnectPhase: ui.setConnectPhase,
+    setStatus: ui.setStatus,
+    setSessionActive: ui.setSessionActive,
+    reportFailure: ui.reportFailure,
+    clearFailure: ui.clearFailure,
+    reportSessionEnded: ui.reportSessionEnded,
+    clearSessionEnded: ui.clearSessionEnded,
+    setCaptions: ui.setCaptions,
+    setInputLevel: ui.setInputLevel,
+    setOutputLevel: ui.setOutputLevel,
+    setActiveTool: ui.setActiveTool,
+    setSessionPermissions: ui.setSessionPermissions,
+    setVideoPreview: ui.setVideoPreview,
+    setVideoFacingMode: ui.setVideoFacingMode,
+    setIsVideoOn: ui.setIsVideoOn,
+  });
 
-	const controls = useLiveRunnerControls({
-		clientRef,
-		videoCaptureRef: ui.videoCaptureRef,
-		captionsRef: ui.captionsRef,
-		registerProfileRef,
-		statusRef: ui.statusRef,
-		isMutedRef: ui.isMutedRef,
-		sessionPermissionsRef: ui.sessionPermissionsRef,
-		ensureClient,
-		clearClient,
-		cancelGateDecision: gate.cancelGateDecision,
-		stopVideo: ui.stopVideo,
-		resetCaptions: ui.resetCaptions,
-		sessionActive: ui.sessionActive,
-		textAvailable,
-		videoAvailable,
-		voiceAvailable,
-		isVideoOn: ui.isVideoOn,
-		textDraft: ui.textDraft,
-		setTextDraft: ui.setTextDraft,
-		setCaptions: ui.setCaptions,
-		reportFailure: ui.reportFailure,
-		clearFailure: ui.clearFailure,
-		setIsMuted: ui.setIsMuted,
-		setSessionActive: ui.setSessionActive,
-		setSessionPermissions: ui.setSessionPermissions,
-		setStatus: ui.setStatus,
-		setConnectPhase: ui.setConnectPhase,
-		setInputLevel: ui.setInputLevel,
-		setOutputLevel: ui.setOutputLevel,
-		setVideoPreview: ui.setVideoPreview,
-		setVideoFacingMode: ui.setVideoFacingMode,
-		setIsVideoOn: ui.setIsVideoOn,
-	});
+  const controls = useLiveRunnerControls({
+    clientRef,
+    videoCaptureRef: ui.videoCaptureRef,
+    connectionRef,
+    statusRef: ui.statusRef,
+    isMutedRef: ui.isMutedRef,
+    sessionPermissionsRef: ui.sessionPermissionsRef,
+    ensureClient,
+    clearClient,
+    cancelGateDecision: gate.cancelGateDecision,
+    stopVideo: ui.stopVideo,
+    resetCaptions: ui.resetCaptions,
+    sessionActive: ui.sessionActive,
+    textAvailable,
+    videoAvailable,
+    voiceAvailable,
+    isVideoOn: ui.isVideoOn,
+    textDraft: ui.textDraft,
+    setTextDraft: ui.setTextDraft,
+    setCaptions: ui.setCaptions,
+    reportFailure: ui.reportFailure,
+    clearFailure: ui.clearFailure,
+    setIsMuted: ui.setIsMuted,
+    setSessionActive: ui.setSessionActive,
+    setSessionPermissions: ui.setSessionPermissions,
+    setStatus: ui.setStatus,
+    setConnectPhase: ui.setConnectPhase,
+    setInputLevel: ui.setInputLevel,
+    setOutputLevel: ui.setOutputLevel,
+    setVideoPreview: ui.setVideoPreview,
+    setVideoFacingMode: ui.setVideoFacingMode,
+    setIsVideoOn: ui.setIsVideoOn,
+  });
 
-	const { callStarted, ended, pastCalls, startCall, handleEnd, handleRestart } = useLiveCallLifecycle(
-		controls,
-		ui.captionsRef,
-		ui.sessionActive,
-		videoAvailable,
-	);
+  const { callStarted, ended, pastCalls, startCall, handleEnd, handleRestart } =
+    useLiveCallLifecycle(controls, ui.captionsRef, ui.sessionActive, videoAvailable);
 
-	return {
-		handle: iface.identity.handle,
-		traces,
-		callStarted,
-		pastCalls,
-		captions: ui.captions,
-		failure: ui.failure,
-		sessionEnded: ui.sessionEnded,
-		inputLevel: ui.inputLevel,
-		isMuted: ui.isMuted,
-		isVideoOn: ui.isVideoOn,
-		outputLevel: ui.outputLevel,
-		sessionActive: ui.sessionActive,
-		liveState: state,
-		activeTool: ui.activeTool,
-		status: ui.status,
-		textAvailable,
-		textDraft: ui.textDraft,
-		toolActive: ui.activeTool !== null || gate.gatePrompt !== null,
-		videoAvailable,
-		videoFacingMode: ui.videoFacingMode,
-		videoPreview: ui.videoPreview,
-		voiceAvailable,
-		// Also after ending (or failing) before the first connect, so the call can't get stuck.
-		canRestart: !ui.sessionActive && ui.status !== 'connecting' && (ui.everConnected || ended || ui.failure !== null),
-		gatePrompt: gate.gatePrompt,
-		setTextDraft: ui.setTextDraft,
-		handleEnd,
-		startCall,
-		handleRestart,
-		handleSendText: controls.handleSendText,
-		handleToggleMic: controls.handleToggleMic,
-		handleFlipCamera: controls.handleFlipCamera,
-		handleToggleVideo: controls.handleToggleVideo,
-		resolveGateDecision: gate.resolveGateDecision,
-	};
+  // why: The page's context is compared by value, so a host may build it inline on each render.
+  const contextJson = JSON.stringify(options.context);
+  useEffect(() => {
+    clientRef.current?.setContext(contextJson === undefined ? undefined : JSON.parse(contextJson));
+  }, [clientRef, contextJson]);
+
+  // why: Slots are compared by value too; a changed value takes an open call up again with it.
+  const slotsJson = JSON.stringify(options.slots);
+  useEffect(() => {
+    clientRef.current?.setSlots(slotsJson === undefined ? undefined : JSON.parse(slotsJson));
+  }, [clientRef, slotsJson]);
+
+  usePageToolWarnings(iface.tools.page, options.pageTools);
+
+  return {
+    handle: iface.identity.handle,
+    traces,
+    callStarted,
+    pastCalls,
+    captions: ui.captions,
+    failure: ui.failure,
+    sessionEnded: ui.sessionEnded,
+    levelsRef: ui.levelsRef,
+    isMuted: ui.isMuted,
+    isVideoOn: ui.isVideoOn,
+    sessionActive: ui.sessionActive,
+    liveState: state,
+    activeTool: ui.activeTool,
+    status: ui.status,
+    textAvailable,
+    textDraft: ui.textDraft,
+    toolActive: ui.activeTool !== null || gate.gatePrompt !== null,
+    videoAvailable,
+    videoFacingMode: ui.videoFacingMode,
+    videoPreview: ui.videoPreview,
+    voiceAvailable,
+    // why: Also after ending (or failing) before the first connect, so the call can't get stuck.
+    canRestart:
+      !ui.sessionActive &&
+      ui.status !== 'connecting' &&
+      (ui.everConnected || ended || ui.failure !== null),
+    gatePrompt: gate.gatePrompt,
+    setTextDraft: ui.setTextDraft,
+    handleEnd,
+    startCall,
+    handleRestart,
+    handleSendText: controls.handleSendText,
+    handleToggleMic: controls.handleToggleMic,
+    handleFlipCamera: controls.handleFlipCamera,
+    handleToggleVideo: controls.handleToggleVideo,
+    resolveGateDecision: gate.resolveGateDecision,
+  };
 }

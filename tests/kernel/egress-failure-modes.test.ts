@@ -1,21 +1,19 @@
-/**
- * Failure modes of the egress gate: nothing is dropped without a signal, a policy
- * that throws fails closed instead of killing the turn, and a refusal shows the
- * lexicon's `egress.refusal`, never text the policy wrote.
- */
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
+import { HOST_FIND_HOLD, type HostFind } from '../../src/guardrails/detectors.ts';
 import { type LexiconOverrides, lexiconDefault } from '../../src/guardrails/lexicon.ts';
-import type { EgressEnforcer, Verdict } from '../../src/guardrails/types.ts';
+import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import { eventsOf, finalStop } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
+/** A profile with one detector of the host's own, which blocks a reply where `find` matches. */
 function profile(
   id: string,
-  enforce: EgressEnforcer,
-  onBlock: 'refuse_to_user' | 'reject_to_agent' = 'refuse_to_user',
+  find: HostFind,
+  onBlock: 'refuse' | 'retry' = 'refuse',
   maxRetries = 0,
   lexicon?: LexiconOverrides,
 ): void {
@@ -31,17 +29,26 @@ function profile(
       outputs: {},
       guardrails: {
         quota: { perDay: 50 },
-        egress: { onBlock, maxRetries, enforce },
+        blockedReply: { onBlock, maxRetries },
+        detect: { 'test.own': { label: 'Test', at: { reply: 'block' }, find } },
       },
       ...(lexicon ? { lexicon } : {}),
     }),
   );
 }
 
-function says(text: string): ModelProvider {
+/** A `find` that matches all of any text. */
+const findAll: HostFind = (text) => (text ? [{ start: 0, end: text.length }] : []);
+
+/** A `find` that matches all of a text `matches` is true of. */
+function findWhere(matches: (text: string) => boolean): HostFind {
+  return (text) => (matches(text) ? [{ start: 0, end: text.length }] : []);
+}
+
+function says(...chunks: string[]): ModelProvider {
   return {
     async *complete() {
-      yield { type: 'text', text };
+      for (const text of chunks) yield { type: 'text', text };
     },
   };
 }
@@ -54,47 +61,30 @@ async function collect(id: string, provider: ModelProvider): Promise<TurnEvent[]
   return events;
 }
 
-const texts = (events: TurnEvent[]): string[] =>
-  events.filter((e) => e.type === 'text').map((e) => e.text ?? '');
+const texts = (events: TurnEvent[]): string[] => eventsOf(events, 'text').map((e) => e.text ?? '');
 
 const EGRESS_FILTERED = { kind: 'filtered', native: 'egress' };
-const stopOf = (events: TurnEvent[]) => events.findLast((e) => e.type === 'done')?.stop;
-
-// ── nothing is dropped silently ──────────────────────────────────────────────
 
 /**
- * Regression: a policy that blocked on a mid-stream window but passed on the full
- * text left the turn with no output and no error — progressive yield had withheld
- * the text, and the attempt gate assumed it had already streamed.
+ * Regression: a reply that matched on a mid-stream window but not as a whole left the turn with
+ * no output and no error: the stream had withheld the text, and the attempt gate assumed it had
+ * already streamed.
  */
 Deno.test('a mid-stream block followed by a passing final verdict releases the text', async () => {
-  let call = 0;
-  profile('fm_inconsistent', (): Verdict => {
-    // First call is the mid-stream window; the second sees the whole attempt.
-    return call++ === 0
-      ? {
-          action: 'block',
-          hits: [{ rule: 'partial', severity: 'low' }],
-          rejection: 'partial',
-        }
-      : { action: 'allow' };
-  });
+  // The opening alone is a match; the reply it grows into is not.
+  profile(
+    'fm_inconsistent',
+    findWhere((text) => !text.includes('answer')),
+  );
+  // Longer than a reply holds for a `find`, so some of it comes up for release as it streams.
+  const opening = 'x'.repeat(HOST_FIND_HOLD + 40);
 
-  const events = await collect('fm_inconsistent', says('the complete safe answer'));
-  assertEquals(texts(events).join(''), 'the complete safe answer');
+  const events = await collect('fm_inconsistent', says(opening, ' the complete safe answer'));
+  assertEquals(texts(events).join(''), `${opening} the complete safe answer`);
 });
 
-Deno.test('a policy blocking consistently still withholds', async () => {
-  profile(
-    'fm_consistent_block',
-    (): Verdict => ({
-      action: 'block',
-      hits: [{ rule: 'always', severity: 'high' }],
-      rejection: 'always blocked',
-    }),
-    'reject_to_agent',
-    1,
-  );
+Deno.test('a detector blocking consistently still withholds', async () => {
+  profile('fm_consistent_block', findAll, 'retry', 1);
 
   const events = await collect('fm_consistent_block', says('leaky output'));
   assertEquals(
@@ -105,12 +95,10 @@ Deno.test('a policy blocking consistently still withholds', async () => {
     events.some((e) => e.type === 'error'),
     true,
   );
-  assertEquals(stopOf(events), EGRESS_FILTERED);
+  assertEquals(finalStop(events), EGRESS_FILTERED);
 });
 
-// ── a policy that throws ─────────────────────────────────────────────────────
-
-Deno.test('a policy that throws fails closed instead of killing the turn', async () => {
+Deno.test('a find that throws fails closed instead of killing the turn', async () => {
   profile('fm_throws', () => {
     throw new Error('classifier unreachable');
   });
@@ -119,17 +107,17 @@ Deno.test('a policy that throws fails closed instead of killing the turn', async
   assertEquals(texts(events), [lexiconDefault('egress.refusal')]);
 });
 
-Deno.test('a policy that throws can still be repaired against', async () => {
+Deno.test('a find that throws can still be repaired against', async () => {
   let call = 0;
   profile(
     'fm_throws_repair',
-    (): Verdict => {
+    () => {
       if (call++ < 2) {
-        throw new Error('transient policy failure');
+        throw new Error('transient failure');
       }
-      return { action: 'allow' };
+      return [];
     },
-    'reject_to_agent',
+    'retry',
     3,
   );
 
@@ -137,17 +125,8 @@ Deno.test('a policy that throws can still be repaired against', async () => {
   assertEquals(texts(events).join(''), 'answer');
 });
 
-// ── refusal copy ─────────────────────────────────────────────────────────────
-
-Deno.test('refuse_to_user shows the lexicon refusal, never policy text', async () => {
-  profile(
-    'fm_default_copy',
-    (): Verdict => ({
-      action: 'block',
-      hits: [{ rule: 'leak', severity: 'high' }],
-      rejection: 'blocked',
-    }),
-  );
+Deno.test('onBlock refuse shows the lexicon refusal', async () => {
+  profile('fm_default_copy', findAll);
 
   const events = await collect('fm_default_copy', says('leaky'));
   assertEquals(texts(events), [lexiconDefault('egress.refusal')]);
@@ -155,38 +134,21 @@ Deno.test('refuse_to_user shows the lexicon refusal, never policy text', async (
     events.some((e) => e.type === 'error'),
     false,
   );
-  assertEquals(stopOf(events), EGRESS_FILTERED);
+  assertEquals(finalStop(events), EGRESS_FILTERED);
 });
 
-Deno.test('refuse_to_user shows the profile lexicon refusal', async () => {
-  profile(
-    'fm_profile_copy',
-    (): Verdict => ({
-      action: 'block',
-      hits: [{ rule: 'leak', severity: 'high' }],
-      rejection: 'blocked',
-    }),
-    'refuse_to_user',
-    0,
-    { 'egress.refusal': 'I cannot share that.' },
-  );
+Deno.test('onBlock refuse shows the profile lexicon refusal', async () => {
+  profile('fm_profile_copy', findAll, 'refuse', 0, { 'egress.refusal': 'I cannot share that.' });
 
   const events = await collect('fm_profile_copy', says('leaky'));
   assertEquals(texts(events), ['I cannot share that.']);
-  assertEquals(stopOf(events), EGRESS_FILTERED);
+  assertEquals(finalStop(events), EGRESS_FILTERED);
 });
 
-Deno.test('final egress inspects reply text, not thoughts', async () => {
+Deno.test('a detector that reads the reply reads its text, not its thoughts', async () => {
   profile(
     'fm_thought_leak',
-    ({ text }): Verdict =>
-      text.includes('secret-thought')
-        ? {
-            action: 'block',
-            hits: [{ rule: 'thought_leak', severity: 'high' }],
-            rejection: 'thought leaked',
-          }
-        : { action: 'allow' },
+    findWhere((text) => text.includes('secret-thought')),
   );
 
   const provider: ModelProvider = {
@@ -198,17 +160,18 @@ Deno.test('final egress inspects reply text, not thoughts', async () => {
 
   const events = await collect('fm_thought_leak', provider);
   assertEquals(texts(events), ['safe visible text']);
+  // The thought guard, on by default, releases a thought in pieces.
   assertEquals(
-    events.filter((e) => e.type === 'thought').map((e) => e.text),
-    ['secret-thought'],
+    eventsOf(events, 'thought')
+      .map((e) => e.text ?? '')
+      .join(''),
+    'secret-thought',
   );
 });
 
-// ── what streams live is delivered once ──────────────────────────────────────
-
 /** Regression: media streamed live was yielded again when the attempt passed. */
 Deno.test('a passing attempt delivers streamed media once', async () => {
-  profile('fm_media_once', (): Verdict => ({ action: 'allow' }));
+  profile('fm_media_once', () => []);
   const media: TurnEvent = { type: 'media', media: { mimeType: 'image/png', data: 'AAAA' } };
   const provider: ModelProvider = {
     async *complete() {
@@ -217,21 +180,14 @@ Deno.test('a passing attempt delivers streamed media once', async () => {
     },
   };
   const events = await collect('fm_media_once', provider);
-  assertEquals(events.filter((e) => e.type === 'media').length, 1);
+  assertEquals(eventsOf(events, 'media').length, 1);
   assertEquals(texts(events), ['here it is']);
 });
 
-Deno.test('thoughts keep streaming after a mid-stream block withholds the reply', async () => {
+Deno.test('thoughts keep streaming after a block withholds the reply', async () => {
   profile(
     'fm_thought_after_block',
-    ({ text }): Verdict =>
-      text.includes('leak')
-        ? {
-            action: 'block',
-            hits: [{ rule: 'leak', severity: 'high' }],
-            rejection: 'leak',
-          }
-        : { action: 'allow' },
+    findWhere((text) => text.includes('leak')),
   );
   const provider: ModelProvider = {
     async *complete() {
@@ -241,7 +197,7 @@ Deno.test('thoughts keep streaming after a mid-stream block withholds the reply'
   };
   const events = await collect('fm_thought_after_block', provider);
   assertEquals(
-    events.filter((e) => e.type === 'thought').map((e) => e.text),
+    eventsOf(events, 'thought').map((e) => e.text),
     ['still thinking'],
   );
   assertEquals(texts(events), [lexiconDefault('egress.refusal')]);

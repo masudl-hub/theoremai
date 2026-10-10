@@ -1,15 +1,8 @@
-/**
- * Shared Gemini Live WebSocket transport helpers.
- *
- * Used by `openGoogleLiveSession` / `runSession`. No ModelProvider.complete() path —
- * live is session-scoped, not turn-scoped.
- *
- * @module
- */
-
 import { type ErrorKind, TheoremError } from '../../../guardrails/error.ts';
-import type { ProviderCompleteRequest, TurnEvent } from '../../../kernel/types.ts';
+import { asRecord } from '../../../kernel/engine/record.ts';
+import type { ProviderCompleteRequest, ProviderEvent } from '../../../kernel/types.ts';
 import { findLast } from '../../../kernel/util/find-last.ts';
+import type { LiveQueueItem, LiveTurnPhase } from '../../types.ts';
 import { readGeminiApiError } from '../api-error.ts';
 import {
   buildGeminiLiveClientContent,
@@ -23,7 +16,7 @@ import {
 
 const SETUP_TIMEOUT_MS = 20_000;
 
-/** The kind of a provider close, by WebSocket close code (RFC 6455 §7.4.1); any other code is `unavailable`. */
+/** RFC 6455 §7.4.1 close codes; any other code is `unavailable`. */
 const CLOSE_KINDS: Readonly<Record<number, ErrorKind>> = {
   1006: 'network',
   1007: 'unsupported',
@@ -32,30 +25,37 @@ const CLOSE_KINDS: Readonly<Record<number, ErrorKind>> = {
   1013: 'unavailable',
 };
 
-/** A normal close once the session is open. */
 const NORMAL_CLOSE = 1000;
 
 /**
- * Google refuses an over-quota Live key with a close whose reason says so
- * ("You exceeded your current quota, …"); the code alone (1011) reads as
- * `unavailable`. The reason is the only signal the close carries.
+ * Google refuses an over-quota Live key with code 1011 (`unavailable`) and a reason
+ * ("You exceeded your current quota, …"); the reason is the only quota signal.
  */
 const QUOTA_CLOSE_RE = /\bquota\b/i;
 
-/** The failure a provider close reports: a quota refusal by its reason, else by its close code. */
+/**
+ * A bad key closes setup with 1007 ("API key not valid. …"), which by code
+ * reads as `unsupported`; like quota, the reason is the only signal.
+ */
+const AUTH_CLOSE_RE = /\bAPI key (?:not valid|expired)\b/i;
+
+/** The kind a close's reason names, if any. */
+function closeReasonKind(reason: string): ErrorKind | undefined {
+  if (QUOTA_CLOSE_RE.test(reason)) return 'rate_limit';
+  if (AUTH_CLOSE_RE.test(reason)) return 'auth';
+  return undefined;
+}
+
 function closeError(code: number, reason: string, during: 'setup' | 'session'): TheoremError {
   return new TheoremError(
-    QUOTA_CLOSE_RE.test(reason) ? 'rate_limit' : (CLOSE_KINDS[code] ?? 'unavailable'),
+    closeReasonKind(reason) ?? CLOSE_KINDS[code] ?? 'unavailable',
     `Gemini Live WebSocket closed during ${during} (${code}: ${reason})`,
   );
 }
 
-export type LiveTurnPhase = 'streaming' | 'complete' | 'abort';
-
-/** Tap row for a frame sent upstream. Received frames travel on the queue instead. */
+/** Received frames travel on the queue, not as tap rows. */
 const LIVE_SEND_ROW = 'ws_send';
 
-/** Send one frame, tapping it first. */
 export function sendLiveFrame(
   ws: LiveSocketSender,
   payload: Record<string, unknown>,
@@ -65,33 +65,15 @@ export function sendLiveFrame(
   ws.send(JSON.stringify(payload));
 }
 
-/**
- * One received frame, in arrival order: its normalized events (`batch`), or
- * the frame alone when it folds to nothing (`row`). `row` is the parsed frame,
- * so the kernel records it beside the events it produced.
- */
-export type SessionQueueItem =
-  | { type: 'batch'; events: TurnEvent[]; turnPhase: LiveTurnPhase; row: Record<string, unknown> }
-  | { type: 'row'; row: Record<string, unknown> }
-  | { type: 'error'; error: Error; row?: Record<string, unknown> }
-  /**
-   * The provider closed the socket; `error` names the failure when the close
-   * was not normal. `goAway` is set when the provider warned first.
-   */
-  | { type: 'closed'; code: number; reason: string; error?: TheoremError; goAway?: GoAwayClose };
-
-/** A close the provider warned of (`goAway`): the last warning's window, and when the close came. */
-export interface GoAwayClose {
-  /** The window the last `goAway` gave; omitted when it gave none. */
-  timeLeftMs?: number;
-  /** Milliseconds from the last `goAway` to the close. */
-  closedAfterMs: number;
-}
-
-/** The last `goAway` in a folded frame, if the frame carried one. */
-function goAwayIn(events: readonly TurnEvent[]): { timeLeftMs?: number } | undefined {
-  const warning = findLast(events, (ev) => ev.session?.kind === 'closing_soon');
-  return warning ? { timeLeftMs: warning.session?.timeLeftMs } : undefined;
+function goAwayIn(events: readonly ProviderEvent[]): { timeLeftMs?: number } | undefined {
+  const warning = findLast(
+    events,
+    (ev): ev is Extract<ProviderEvent, { type: 'session' }> =>
+      ev.type === 'session' && ev.session.kind === 'closing_soon',
+  );
+  return warning?.session.kind === 'closing_soon'
+    ? { timeLeftMs: warning.session.timeLeftMs }
+    : undefined;
 }
 
 export async function readMessageData(data: unknown): Promise<string> {
@@ -105,7 +87,6 @@ export async function readMessageData(data: unknown): Promise<string> {
   return String(data);
 }
 
-/** Send setup and resolve with the server's `setupComplete` frame. */
 export function performLiveSetup(
   ws: WebSocket,
   req: ProviderCompleteRequest,
@@ -176,7 +157,7 @@ export function performLiveSetup(
 
     ws.addEventListener('message', initialMessageHandler);
 
-    // A fetch-upgraded socket (Cloudflare `resp.webSocket.accept()`) is already
+    // why: A fetch-upgraded socket (Cloudflare `resp.webSocket.accept()`) is already
     // open and never fires `open`.
     if (ws.readyState === WebSocket.OPEN) {
       sendSetup();
@@ -201,19 +182,19 @@ export function sendInitialPayloads(ws: LiveSocketSender, req: ProviderCompleteR
 }
 
 export interface LiveQueue {
-  push: (item: SessionQueueItem) => void;
-  next: () => Promise<SessionQueueItem | undefined>;
+  push: (item: LiveQueueItem) => void;
+  next: () => Promise<LiveQueueItem | undefined>;
   close: () => void;
   isClosed: () => boolean;
 }
 
 export function createLiveQueue(): LiveQueue {
-  const queue: SessionQueueItem[] = [];
+  const queue: LiveQueueItem[] = [];
   let notify: (() => void) | null = null;
   let closed = false;
 
   return {
-    push(item: SessionQueueItem) {
+    push(item: LiveQueueItem) {
       queue.push(item);
       if (notify) {
         const fn = notify;
@@ -221,7 +202,7 @@ export function createLiveQueue(): LiveQueue {
         fn();
       }
     },
-    async next(): Promise<SessionQueueItem | undefined> {
+    async next(): Promise<LiveQueueItem | undefined> {
       while (queue.length === 0) {
         if (closed) return undefined;
         await new Promise<void>((resolve) => {
@@ -245,28 +226,23 @@ export function createLiveQueue(): LiveQueue {
 }
 
 /**
- * Conversational cycle boundary.
- *
- * When the server reports `interactionStatus`, that is authoritative: `IDLE`
- * closes the cycle and `IN_PROGRESS` keeps it open even across `turnComplete`
- * (background reasoning / async tools may still produce output). Without the
- * field, `turnComplete` is the boundary as before.
+ * `interactionStatus`, when sent, is authoritative: `IN_PROGRESS` keeps the cycle
+ * open across `turnComplete` (background reasoning or async tools may still
+ * produce output). Without it, `turnComplete` is the boundary.
  */
 export function turnPhaseFromMessage(
   message: Record<string, unknown>,
-  events: TurnEvent[],
+  events: ProviderEvent[],
 ): LiveTurnPhase {
   const interrupted = events.some((ev) => ev.type === 'done' && ev.interrupted === true);
   if (interrupted) return 'abort';
   const status = readLiveInteractionStatus(message);
   if (status === 'IDLE') return 'complete';
   if (status === 'IN_PROGRESS') return 'streaming';
-  const serverContent = message.serverContent as { turnComplete?: boolean } | undefined;
-  if (serverContent?.turnComplete === true) return 'complete';
+  if (asRecord(message.serverContent)?.turnComplete === true) return 'complete';
   return 'streaming';
 }
 
-/** Attach handlers that keep the socket open across conversational turns. */
 export function attachLiveSessionHandlers(ws: WebSocket, liveQueue: LiveQueue): void {
   const fold = newLiveFold();
   /** The last `goAway`, and when it arrived (monotonic ms). */

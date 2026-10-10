@@ -1,9 +1,3 @@
-/**
- * Profile model selection for composer hosts.
- *
- * @module
- */
-
 import type { ModelBinding, ModelId } from '../kernel/types.ts';
 import type { ComposerProfileInterface } from './types.ts';
 
@@ -12,11 +6,13 @@ export type ModelSelectProfile = Pick<
   'id' | 'models' | 'defaultModel' | 'allowModelSelect'
 >;
 
+/** One model a user can pick from. */
 export type InterfaceModelOption = {
   id: ModelId;
   label: string;
 };
 
+/** One effort level a user can pick from, by alias. */
 export type InterfaceEffortOption = {
   alias: string;
   level: string;
@@ -30,19 +26,19 @@ function bindingFor(
   return profile.models[modelId];
 }
 
-/** True when the host should render a model picker before sending turns. */
+/** True when the profile lets the user pick between two or more models. */
 function modelSelectEnabled(profile: ModelSelectProfile): boolean {
   return Boolean(profile.allowModelSelect && Object.keys(profile.models).length >= 2);
 }
 
-/** True when the selected model exposes two or more effort aliases. */
+/** True when the model lets the user pick between two or more effort levels. */
 function effortSelectEnabled(profile: ModelSelectProfile, modelId: ModelId | undefined): boolean {
   const binding = bindingFor(profile, modelId);
   if (!binding?.allowEffortSelect) return false;
   return Object.keys(binding.efforts ?? {}).length >= 2;
 }
 
-/** Show generation controls when model or effort can be chosen at turn time. */
+/** True when the user has any model or effort choice to make. */
 function generationSelectEnabled(
   profile: ModelSelectProfile,
   modelId: ModelId | undefined,
@@ -50,7 +46,7 @@ function generationSelectEnabled(
   return modelSelectEnabled(profile) || effortSelectEnabled(profile, modelId);
 }
 
-/** Default effort alias for a model binding. */
+/** `defaultEffort` when it names an alias, else the first alias. */
 function defaultInterfaceEffort(
   profile: ModelSelectProfile,
   modelId: ModelId | undefined,
@@ -63,7 +59,7 @@ function defaultInterfaceEffort(
   return keys[0];
 }
 
-/** Selectable models for the composer UI (empty when selection is disabled). */
+/** The models the user can pick from, or none when the choice is off. */
 function interfaceModelOptions(profile: ModelSelectProfile): InterfaceModelOption[] {
   if (!modelSelectEnabled(profile)) return [];
   return Object.entries(profile.models).map(([id, binding]) => ({
@@ -72,7 +68,7 @@ function interfaceModelOptions(profile: ModelSelectProfile): InterfaceModelOptio
   }));
 }
 
-/** Effort aliases for the selected model (empty when effort selection is disabled). */
+/** The effort levels the user can pick from for this model, or none when the choice is off. */
 function interfaceEffortOptions(
   profile: ModelSelectProfile,
   modelId: ModelId | undefined,

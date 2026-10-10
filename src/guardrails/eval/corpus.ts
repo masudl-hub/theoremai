@@ -1,37 +1,10 @@
-/**
- * Corpus acquisition for guardrail evaluation.
- *
- * Nothing is vendored. Corpora are fetched on demand and cached locally, so the
- * published package carries no third-party data and no licence obligations beyond
- * attribution here.
- *
- * Two sources, deliberately different in shape:
- *
- * - **S-Labs/prompt-injection-dataset** (MIT) — ~11k labelled prompts whose benign
- *   half deliberately includes security-adjacent questions ("explain output
- *   validation best practices", "how do I implement stress testing"). This is
- *   where user-text detectors are most likely to misfire.
- *
- *   Chosen over `prodnull/prompt-injection-repo-dataset`, which has richer hard
- *   negatives but is gated: licence and access are separate axes, and a gated
- *   corpus cannot be fetched by an unattended run.
- * - **AgentDojo** (MIT, ETH Zurich) — simulated environments for a tool-using
- *   agent. Its fixtures are read directly; the benchmark is never run, so no model
- *   or API key is involved. This supplies benign output in the shape a *tool*
- *   returns, which the repo dataset does not cover.
- *
- * The two are kept separate on purpose. Pooling sources and reporting one number
- * hides the domain shift between them, and that shift is the thing most likely to
- * make a detector look better than it is.
- *
- * @module
- */
+// why: Nothing is vendored: corpora are fetched on demand and cached locally, so the published package
+// carries no third-party data and no license obligations beyond attribution here. Sources are scored
+// separately on purpose: pooling hides the domain shift between them, which is what most flatters a detector.
 
 /** lexicon-exempt-file: evaluation corpora — not runtime user or model copy (P2) */
-/** A single labelled example. */
 export interface CorpusSample {
   text: string;
-  /** True when the sample is an attack. */
   attack: boolean;
   /** Source dataset id, kept so results are never pooled silently. */
   source: string;
@@ -41,11 +14,9 @@ export interface CorpusSample {
 
 export interface CorpusSource {
   id: string;
-  licence: string;
+  license: string;
   attribution: string;
   /**
-   * Rows fetched by default.
-   *
    * Several of these corpora are far larger than a fast run wants. The cap is
    * declared rather than buried in the loader so a report can say what fraction
    * was actually sampled — a rate over 1% of a corpus is not a rate over the
@@ -69,20 +40,15 @@ const PROMPT_DATASET_URL =
   'https://huggingface.co/datasets/S-Labs/prompt-injection-dataset/resolve/main/data/train.csv';
 
 /**
- * HuggingFace rows API.
- *
  * Serves any public dataset as JSON regardless of its storage format, which makes
  * the many parquet-only corpora usable without a parquet reader.
  */
 const HF_ROWS = 'https://datasets-server.huggingface.co/rows';
 
-/** Page through a dataset via the rows API. */
-/** Rows per request; the API caps this at 100. */
+/** The API caps this at 100. */
 const HF_PAGE = 100;
 
 /**
- * Concurrent requests.
- *
  * Kept low deliberately. Higher concurrency trips the upstream rate limiter almost
  * immediately, and a rate-limited walk yields an empty corpus that still looks like
  * a successful run.
@@ -90,8 +56,6 @@ const HF_PAGE = 100;
 const HF_CONCURRENCY = 4;
 
 /**
- * One page, retried on failure.
- *
  * A failed request and a past-the-end request are different facts and must not be
  * conflated: treating a rate-limited page as the end of the split silently
  * truncates the corpus, and the run still reports a confident rate over whatever
@@ -117,7 +81,7 @@ async function fetchPage(
       const parsed = JSON.parse(body) as { rows?: { row?: Record<string, unknown> }[] };
       return { rows: (parsed.rows ?? []).flatMap((e) => (e.row ? [e.row] : [])) };
     } catch {
-      // Seconds, not milliseconds: the upstream limiter needs tens of seconds to
+      // why: Seconds, not milliseconds: the upstream limiter needs tens of seconds to
       // clear, and a short backoff just burns the retries and returns nothing.
       await new Promise((resolve) => setTimeout(resolve, retryBaseMs * 2 ** attempt));
     }
@@ -125,14 +89,6 @@ async function fetchPage(
   return { failed: true };
 }
 
-/**
- * Page through a dataset via the rows API.
- *
- * Pages are fetched in batches rather than one at a time: a full corpus here runs
- * to thousands of pages, and a serial walk is slow enough that it pressures whoever
- * runs it into sampling a slice and quoting the result as if it covered the whole.
- */
-/** Paging options. An object rather than more positionals, which had reached five. */
 export interface FetchRowsOptions {
   split?: string;
   config?: string;
@@ -140,6 +96,11 @@ export interface FetchRowsOptions {
   retryBaseMs?: number;
 }
 
+/**
+ * Pages are fetched in batches rather than one at a time: a full corpus here runs
+ * to thousands of pages, and a serial walk is slow enough that it pressures whoever
+ * runs it into sampling a slice and quoting the result as if it covered the whole.
+ */
 async function fetchRows(
   cache: CorpusCache,
   dataset: string,
@@ -172,7 +133,7 @@ async function fetchRows(
     let pastEnd = false;
     for (const page of pages) {
       if ('failed' in page) {
-        // Retries exhausted. Skip the page rather than pretending the split ended.
+        // why: Retries exhausted. Skip the page rather than pretending the split ended.
         continue;
       }
       if (page.rows.length === 0) {
@@ -181,7 +142,6 @@ async function fetchRows(
       }
       rows.push(...page.rows);
     }
-    // Only an empty page means the split is finished.
     if (pastEnd) {
       break;
     }
@@ -202,8 +162,6 @@ const AGENTDOJO_FIXTURES: readonly { path: string; category: string }[] = [
 ];
 
 /**
- * Resolve a HuggingFace token for gated corpora.
- *
  * Checks `HF_TOKEN` first, then the location `hf auth login` writes to, so a
  * machine that is already logged in needs no extra setup. Deliberately does not
  * look inside the repository: a credential sitting next to the source is a
@@ -235,7 +193,6 @@ function isHuggingFace(url: string): boolean {
   return host === 'huggingface.co' || host.endsWith('.huggingface.co');
 }
 
-/** Create a cache that reads from disk when present and fetches when not. */
 function createCorpusCache(dir: string): CorpusCache {
   return {
     dir,
@@ -244,9 +201,9 @@ function createCorpusCache(dir: string): CorpusCache {
       try {
         return await Deno.readTextFile(path);
       } catch {
-        // Not cached yet.
+        // why: Not cached yet.
       }
-      // A gated dataset needs a token the runner may or may not have; the caller
+      // why: A gated dataset needs a token the runner may or may not have; the caller
       // decides whether a miss is fatal.
       const token = isHuggingFace(url) ? huggingFaceToken() : undefined;
       const response = await fetch(url, {
@@ -264,8 +221,6 @@ function createCorpusCache(dir: string): CorpusCache {
 }
 
 /**
- * Parse a two-column `text,label` CSV.
- *
  * Hand-rolled because the corpus text is adversarial by construction: it contains
  * quotes, commas, and embedded newlines, and a naive split would shred exactly the
  * samples that matter most.
@@ -313,7 +268,7 @@ function parseLabelledCsv(input: string): { text: string; label: number }[] {
   const out: { text: string; label: number }[] = [];
   for (const parsed of rows.slice(1)) {
     const text = parsed[0];
-    // `Number('')` is 0, so a blank label would silently count as benign and
+    // why: `Number('')` is 0, so a blank label would silently count as benign and
     // inflate the denominator every false-positive rate is measured against.
     const rawLabel = parsed[1]?.trim();
     if (!text || !rawLabel) {
@@ -329,13 +284,13 @@ function parseLabelledCsv(input: string): { text: string; label: number }[] {
 
 const promptDataset: CorpusSource = {
   id: 'prompt-injection-prompts',
-  licence: 'MIT',
+  license: 'MIT',
   attribution: 'S-Labs/prompt-injection-dataset',
   sampleLimit: 12000,
   upstreamRows: 11089,
   async load(cache, limit) {
     const raw = await cache.fetchText(PROMPT_DATASET_URL, 'prompt-dataset.csv');
-    // The CSV is one file, so the sample cap is applied after parsing: the report
+    // why: The CSV is one file, so the sample cap is applied after parsing: the report
     // must describe the rows actually scored, not the rows in the file.
     return parseLabelledCsv(raw)
       .slice(0, limit)
@@ -343,38 +298,26 @@ const promptDataset: CorpusSource = {
         text: row.text,
         attack: row.label === 1,
         source: 'prompt-injection-prompts',
-        // The dataset does not sub-label its benign half; treat it as one category
+        // why: The dataset does not sub-label its benign half; treat it as one category
         // rather than inventing a taxonomy it does not carry.
         category: row.label === 1 ? 'attack' : 'user-prompt',
       }));
   },
 };
 
-/**
- * Serialise a YAML record the way a tool would return it.
- *
- * This matters more than it looks. Extracting only prose bodies drops the
- * addresses, ids, and amounts that a real tool result carries, and a detector
- * measured against that thinner text scores better than it deserves.
- */
-
-/** True when `ch` is ASCII a-z or underscore (YAML field key char). */
 function isYamlKeyChar(ch: string): boolean {
   if (ch.length !== 1) return false;
   const code = ch.charCodeAt(0);
   return (code >= 97 && code <= 122) || ch === '_';
 }
 
-/**
- * Split a YAML list-of-maps dump into record blocks without polynomial regex.
- * Each block starts at the field after `- key:` (matching the prior split semantics).
- */
 function skipIndent(line: string): number {
   let i = 0;
   while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i += 1;
   return i;
 }
 
+/** A linear scan rather than a regex split, which was polynomial on this input. */
 function yamlRecordBlocks(yaml: string): string[] {
   const blocks: string[] = [];
   let start = -1;
@@ -387,7 +330,6 @@ function yamlRecordBlocks(yaml: string): string[] {
       while (j < line.length && isYamlKeyChar(line[j] ?? '')) j += 1;
       if (j > i + 2 && line[j] === ':') {
         if (start >= 0) blocks.push(yaml.slice(start, offset));
-        // Skip the `- ` so the block opens on `key:` like the old regex split.
         start = offset + i + 2;
       }
     }
@@ -425,6 +367,10 @@ function parseYamlRecordLine(
   return { kind: 'scalar', key, value };
 }
 
+/**
+ * Serialises each record the way a tool would return it. Extracting only prose bodies drops the
+ * addresses, ids and amounts a real tool result carries, and a detector scores better than it deserves.
+ */
 function recordsFromYaml(yaml: string): string[] {
   const blocks = yamlRecordBlocks(yaml);
   const out: string[] = [];
@@ -438,7 +384,7 @@ function recordsFromYaml(yaml: string): string[] {
         listKey = '';
         continue;
       }
-      // A bare `key:` opens a list. Without tracking it, the items below attach to
+      // why: A bare `key:` opens a list. Without tracking it, the items below attach to
       // the previous field and overwrite it — which silently dropped sender
       // addresses from every email record.
       if (parsed?.kind === 'header') {
@@ -461,7 +407,7 @@ function recordsFromYaml(yaml: string): string[] {
 
 const agentDojo: CorpusSource = {
   id: 'agentdojo-benign',
-  licence: 'MIT',
+  license: 'MIT',
   attribution: 'ethz-spylab/agentdojo (environment fixtures only; benchmark not run)',
   sampleLimit: 500,
   async load(cache, limit) {
@@ -474,7 +420,7 @@ const agentDojo: CorpusSource = {
           fixture.path.replaceAll('/', '_'),
         );
       } catch {
-        // A suite that moved upstream should not fail the whole run.
+        // why: A suite that moved upstream should not fail the whole run.
         continue;
       }
       for (const text of recordsFromYaml(raw)) {
@@ -486,7 +432,6 @@ const agentDojo: CorpusSource = {
         });
       }
     }
-    // Fixtures are fetched whole; the sample cap decides how many are scored.
     return samples.slice(0, limit);
   },
 };
@@ -500,7 +445,7 @@ const agentDojo: CorpusSource = {
  */
 const deepsetPrompts: CorpusSource = {
   id: 'deepset-prompts',
-  licence: 'Apache-2.0',
+  license: 'Apache-2.0',
   attribution: 'deepset/prompt-injections',
   sampleLimit: 600,
   upstreamRows: 546,
@@ -532,7 +477,7 @@ const deepsetPrompts: CorpusSource = {
  */
 const spmlPrompts: CorpusSource = {
   id: 'spml-chatbot',
-  licence: 'MIT',
+  license: 'MIT',
   attribution: 'reshabhs/SPML_Chatbot_Prompt_Injection',
   sampleLimit: 16100,
   upstreamRows: 16012,
@@ -567,7 +512,7 @@ const spmlPrompts: CorpusSource = {
  */
 const piiSpans: CorpusSource = {
   id: 'pii-spans',
-  licence: 'Apache-2.0',
+  license: 'Apache-2.0',
   attribution: 'gravitee-io/pii-detection-dataset',
   sampleLimit: 176000,
   upstreamRows: 175881,
@@ -604,7 +549,7 @@ const piiSpans: CorpusSource = {
  */
 const agentAttacks: CorpusSource = {
   id: 'agent-app-attacks',
-  licence: 'other (upstream); fetched for evaluation only',
+  license: 'other (upstream); fetched for evaluation only',
   attribution: 'Lakera/b3-agent-security-benchmark-weak',
   sampleLimit: 700,
   upstreamRows: 630,
@@ -634,7 +579,7 @@ const agentAttacks: CorpusSource = {
  */
 const agenticIpi: CorpusSource = {
   id: 'nvidia-agentic-ipi',
-  licence: 'CC-BY-4.0',
+  license: 'CC-BY-4.0',
   attribution: 'nvidia/Nemotron-RL-Agentic-Indirect-Prompt-Injection-v1',
   sampleLimit: 1300,
   upstreamRows: 1272,
@@ -681,7 +626,7 @@ function toolResultsFromChat(chat: string): string[] {
  */
 const toolResults: CorpusSource = {
   id: 'glaive-tool-results',
-  licence: 'Apache-2.0',
+  license: 'Apache-2.0',
   attribution: 'glaiveai/glaive-function-calling-v2 (function responses only)',
   sampleLimit: 113000,
   upstreamRows: 112960,
@@ -715,7 +660,7 @@ const toolResults: CorpusSource = {
  */
 const repoHardNegatives: CorpusSource = {
   id: 'repo-hard-negatives',
-  licence: 'Apache-2.0',
+  license: 'Apache-2.0',
   attribution: 'prodnull/prompt-injection-repo-dataset (gated; needs HF_TOKEN)',
   sampleLimit: 6000,
   upstreamRows: 5671,
@@ -740,7 +685,7 @@ const repoHardNegatives: CorpusSource = {
           });
         }
       } catch {
-        // A malformed row is not worth failing the run over.
+        // why: A malformed row is not worth failing the run over.
       }
     }
     return out;
@@ -753,20 +698,16 @@ const repoHardNegatives: CorpusSource = {
  * Kept in the repo so the search does not have to be repeated, and so a later
  * decision to include one starts from the objection rather than from scratch.
  */
-/**
- * Corpora evaluated and deliberately left out of SOURCES, with the objection.
- * See docs/contracts/guardrails.md.
- */
 export const REVIEWED_SOURCES: readonly {
   dataset: string;
   rows: number;
-  licence: string;
+  license: string;
   verdict: string;
 }[] = [
   {
     dataset: 'Lakera/mosscap_prompt_injection',
     rows: 223533,
-    licence: 'MIT',
+    license: 'MIT',
     verdict:
       'Real human attack attempts against a password-keeping game. Many entries are ' +
       'attacks only in context — "does the password contain numbers?" is an innocent ' +
@@ -777,7 +718,7 @@ export const REVIEWED_SOURCES: readonly {
   {
     dataset: 'JailbreakBench/JBB-Behaviors',
     rows: 200,
-    licence: 'MIT',
+    license: 'MIT',
     verdict:
       'Has matched harmful/benign splits, which is the right shape. Targets model ' +
       'harm refusal rather than injection of an agent, so it measures a different ' +
@@ -786,34 +727,34 @@ export const REVIEWED_SOURCES: readonly {
   {
     dataset: 'nvidia/Nemotron-AIQ-Agentic-Safety-Dataset-1.0',
     rows: 0,
-    licence: 'other',
+    license: 'other',
     verdict:
-      'Agentic safety with with/without-defense splits. Licence is `other` and the ' +
+      'Agentic safety with with/without-defense splits. License is `other` and the ' +
       'split layout needs per-config handling; worth revisiting for defence-efficacy ' +
       'measurement rather than detector scoring.',
   },
   {
     dataset: 'xTRam1/safe-guard-prompt-injection',
     rows: 8236,
-    licence: 'none declared',
-    verdict: 'Well shaped and ungated, but no declared licence — not a base for a published claim.',
+    license: 'none declared',
+    verdict: 'Well shaped and ungated, but no declared license — not a base for a published claim.',
   },
   {
     dataset: 'jayavibhav/prompt-injection-safety',
     rows: 50000,
-    licence: 'none declared',
-    verdict: 'Large and ungated, no declared licence. Same objection.',
+    license: 'none declared',
+    verdict: 'Large and ungated, no declared license. Same objection.',
   },
   {
     dataset: 'rogue-security/prompt-injections-benchmark',
     rows: 0,
-    licence: 'CC-BY-NC-4.0',
+    license: 'CC-BY-NC-4.0',
     verdict: 'Gated and non-commercial. Incompatible with an MIT package.',
   },
   {
     dataset: 'gorilla-llm/Berkeley-Function-Calling-Leaderboard',
     rows: 0,
-    licence: 'Apache-2.0',
+    license: 'Apache-2.0',
     verdict:
       'The canonical function-calling benchmark and a strong benign tool-traffic ' +
       'source, but its splits API errors; needs direct file access to use.',
@@ -835,7 +776,7 @@ export const REVIEWED_SOURCES: readonly {
 function llmailSource(id: string, evadedOnly: boolean): CorpusSource {
   return {
     id,
-    licence: 'MIT',
+    license: 'MIT',
     attribution: 'microsoft/llmail-inject-challenge',
     sampleLimit: 20000,
     upstreamRows: 370724,
@@ -854,7 +795,7 @@ function llmailSource(id: string, evadedOnly: boolean): CorpusSource {
           const objectives = JSON.parse(String(row.objectives ?? '{}')) as Record<string, unknown>;
           undetected = objectives['defense.undetected'] === true;
         } catch {
-          // Unparsable objectives: treat as not-evaded rather than guessing.
+          // why: Unparsable objectives: treat as not-evaded rather than guessing.
         }
         if (evadedOnly && !undetected) {
           continue;
@@ -877,7 +818,7 @@ const llmailEvaded = llmailSource('llmail-evaded-defense', true);
 /** Multilingual injection prompts; independently recommended and cleanly licensed. */
 const multilingualPrompts: CorpusSource = {
   id: 'multilingual-prompts',
-  licence: 'Apache-2.0',
+  license: 'Apache-2.0',
   attribution: 'yanismiraoui/prompt_injections',
   sampleLimit: 1100,
   upstreamRows: 1034,
@@ -903,7 +844,7 @@ const multilingualPrompts: CorpusSource = {
  */
 const overRefusal: CorpusSource = {
   id: 'notinject-over-refusal',
-  licence: 'none declared (academic benchmark)',
+  license: 'none declared (academic benchmark)',
   attribution: 'leolee99/NotInject',
   sampleLimit: 400,
   upstreamRows: 339,
@@ -939,7 +880,7 @@ const overRefusal: CorpusSource = {
  */
 const contentSafetyBenign: CorpusSource = {
   id: 'aegis-safe-prompts',
-  licence: 'CC-BY-4.0',
+  license: 'CC-BY-4.0',
   attribution: 'nvidia/Aegis-AI-Content-Safety-Dataset-2.0 (safe-labelled prompts only)',
   sampleLimit: 30100,
   upstreamRows: 30007,
@@ -988,7 +929,7 @@ function userContentOf(row: Record<string, unknown>): string | undefined {
  */
 const jailbreakRobustness: CorpusSource = {
   id: 'nvidia-jailbreak',
-  licence: 'CC-BY-4.0',
+  license: 'CC-BY-4.0',
   attribution: 'nvidia/Nemotron-RL-Jailbreak-Robustness-v1',
   sampleLimit: 5700,
   upstreamRows: 5611,
@@ -1019,7 +960,7 @@ const jailbreakRobustness: CorpusSource = {
  */
 const adversarialBenign: CorpusSource = {
   id: 'wildguard-benign',
-  licence: 'ODC-BY',
+  license: 'ODC-BY',
   attribution: 'allenai/wildguardmix (unharmful prompts only)',
   sampleLimit: 87000,
   upstreamRows: 86759,
@@ -1059,7 +1000,7 @@ const adversarialBenign: CorpusSource = {
  */
 const adversarialFraming: CorpusSource = {
   id: 'wildjailbreak',
-  licence: 'ODC-BY',
+  license: 'ODC-BY',
   attribution: 'allenai/wildjailbreak (eval split)',
   sampleLimit: 2300,
   upstreamRows: 2210,

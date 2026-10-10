@@ -1,102 +1,37 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
-import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
-import { detectionForTrust, resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
-import { sanitizeText } from '../../src/guardrails/sanitize.ts';
+import { detectAt } from '../../src/guardrails/detect-at.ts';
+import { DETECT_DEFAULTS, NO_ALLOW } from '../../src/guardrails/detectors.ts';
+import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import type { Verdict } from '../../src/guardrails/types.ts';
+import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { prepareLiveInboundText } from '../../src/kernel/engine/live-inbound.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const OMITTED_INJECTION = '[omitted - injection]';
 
-// ── defaults ─────────────────────────────────────────────────────────────────
-
-Deno.test('resolveGuardrailPolicy: sanitize, redact, and canary default on', () => {
-  const policy = resolveGuardrailPolicy(undefined);
-  assertEquals(policy.sanitizeInput, true);
-  assertEquals(policy.redactSensitive, true);
-  assertEquals(policy.canary, true);
-});
-
-Deno.test('resolveGuardrailPolicy: explicit false is preserved', () => {
-  const policy = resolveGuardrailPolicy({
-    sanitizeInput: false,
-    redactSensitive: false,
-    canary: false,
-  });
-  assertEquals(policy.sanitizeInput, false);
-  assertEquals(policy.redactSensitive, false);
-  assertEquals(policy.canary, false);
-});
-
-/**
- * Regression: Live ingress resolved `guardrails?.sanitizeInput === true` while the
- * turn path resolved `?? true`, so a profile that omitted the switch was sanitized
- * on one path and not the other. Both now route through `resolveGuardrailPolicy`.
- *
- * The `chat` fixture declares `guardrails` but omits `sanitizeInput`, which is
- * exactly the case that diverged.
- */
-Deno.test('Live ingress and the turn path agree when a switch is omitted', () => {
+/** The `chat` fixture declares `guardrails` and leaves `detect` out. */
+Deno.test('Live ingress and the turn path agree when detect is left out', () => {
   const profile = getProfile('chat');
-  assertEquals(profile.guardrails?.sanitizeInput, undefined);
+  assertEquals(profile.guardrails?.detect, undefined);
 
   const live = prepareLiveInboundText(profile, INJ_IGNORE);
-  const turn = sanitizeText(
-    INJ_IGNORE,
-    detectionForTrust(resolveGuardrailPolicy(profile.guardrails), 'untrusted'),
-  );
+  const turn = detectAt(INJ_IGNORE, 'user', resolveGuardrailPolicy(profile.guardrails).detect);
 
-  assertEquals(live.text.includes(OMITTED_INJECTION), true);
-  assertEquals(turn.includes(OMITTED_INJECTION), true);
-  assertEquals(live.text.includes(INJ_IGNORE), false);
+  assertEquals(live.text?.includes(OMITTED_INJECTION), true);
+  assertEquals(turn.text?.includes(OMITTED_INJECTION), true);
+  assertEquals(live.text?.includes(INJ_IGNORE), false);
 });
 
-// ── trust levels ─────────────────────────────────────────────────────────────
-
-Deno.test('detectionForTrust: trusted text takes no detection at all', () => {
-  const options = detectionForTrust(resolveGuardrailPolicy(undefined), 'trusted');
-  assertEquals(options.sanitizeInput, false);
-  assertEquals(options.redactSensitive, false);
-});
-
-Deno.test('detectionForTrust: assembled and untrusted text take full detection', () => {
-  const policy = resolveGuardrailPolicy(undefined);
-  for (const trust of ['assembled', 'untrusted'] as const) {
-    const options = detectionForTrust(policy, trust);
-    assertEquals(options.sanitizeInput, true);
-    assertEquals(options.redactSensitive, true);
-  }
-});
-
-Deno.test('trusted text reaches the provider verbatim', () => {
-  const policy = resolveGuardrailPolicy(undefined);
-  const system = `${INJ_IGNORE} — never do this. Key format looks like ${TEST_OPENAI_KEY}`;
-  assertEquals(sanitizeText(system, detectionForTrust(policy, 'trusted')), system);
-});
-
-Deno.test('detectionForTrust: trusted stays verbatim even with every switch on', () => {
-  const policy = resolveGuardrailPolicy({ sanitizeInput: true, redactSensitive: true });
-  const options = detectionForTrust(policy, 'trusted');
-  assertEquals(options.sanitizeInput, false);
-  assertEquals(options.redactSensitive, false);
-});
-
-Deno.test('assembled text loses injection spans that trusted text keeps', () => {
-  const policy = resolveGuardrailPolicy(undefined);
-  const assembled = sanitizeText(INJ_IGNORE, detectionForTrust(policy, 'assembled'));
-  assertEquals(assembled.includes(OMITTED_INJECTION), true);
-});
-
-Deno.test('detectionForTrust: redactSensitive: false disables redaction at every trust level', () => {
-  const policy = resolveGuardrailPolicy({ redactSensitive: false });
-  for (const trust of ['trusted', 'assembled', 'untrusted'] as const) {
-    assertEquals(detectionForTrust(policy, trust).redactSensitive, false);
-  }
+Deno.test('per-turn system text is read at its own boundary', () => {
+  const { detect } = resolveGuardrailPolicy(undefined);
+  const assembled = detectAt(INJ_IGNORE, 'system', detect);
+  assertEquals(assembled.action, 'redact');
+  assertEquals(assembled.text?.includes(OMITTED_INJECTION), true);
 });
 
 /**
@@ -122,7 +57,7 @@ Deno.test('identity.system reaches the provider verbatim; req.system does not', 
       tools: { allow: [] },
       inputs: { text: true },
       outputs: {},
-      guardrails: { quota: { perDay: 50 }, sanitizeInput: true },
+      guardrails: { quota: { perDay: 50 } },
     }),
   );
 
@@ -139,8 +74,6 @@ Deno.test('identity.system reaches the provider verbatim; req.system does not', 
   // ...while the host-assembled per-turn fragment was redacted.
   assertEquals(system.includes(OMITTED_INJECTION), true);
 });
-
-// ── verdict exhaustiveness ───────────────────────────────────────────────────
 
 /** Fails to compile if a `Verdict` variant is added without handling it here. */
 function describeVerdict(verdict: Verdict): string {
@@ -166,4 +99,31 @@ Deno.test('Verdict is exhaustively handled', () => {
   assertEquals(describeVerdict({ action: 'flag', hits }), 'flag:1');
   assertEquals(describeVerdict({ action: 'redact', text: 'safe', hits }), 'redact:safe');
   assertEquals(describeVerdict({ action: 'block', hits, rejection: 'nope' }), 'block:nope');
+});
+
+Deno.test('a policy resolves its detectors, what they allow and what a blocked reply does', () => {
+  const unset = resolveGuardrailPolicy(undefined);
+  assertEquals(unset.detect, DETECT_DEFAULTS);
+  assertEquals(unset.allow, NO_ALLOW);
+  assertEquals(unset.blockedReply, { onBlock: 'retry', maxRetries: 1 });
+  assertEquals(unset.detect.marker_leak.reply, 'block');
+  assertEquals(unset.detect.ungiven_images.reply, 'block');
+  assertEquals(unset.detect.ungiven_links.reply, 'ignore');
+
+  const set = resolveGuardrailPolicy({
+    detect: {
+      marker_leak: 'ignore',
+      ungiven_links: { action: 'block', allow: { hosts: ['docs.example.com'] } },
+    },
+    blockedReply: { onBlock: 'refuse' },
+  });
+  assertEquals(set.blockedReply, { onBlock: 'refuse', maxRetries: 1 });
+  assertEquals(set.detect.ungiven_links.reply, 'block');
+  assertEquals(set.detect.marker_leak.reply, 'ignore');
+  assertEquals(set.detect.ungiven_images.reply, 'block');
+  assertEquals(set.allow.ungiven_links.hosts, ['docs.example.com']);
+  assertEquals(resolveGuardrailPolicy({ blockedReply: { maxRetries: 0 } }).blockedReply, {
+    onBlock: 'retry',
+    maxRetries: 0,
+  });
 });

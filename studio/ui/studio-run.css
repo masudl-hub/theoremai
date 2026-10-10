@@ -1,0 +1,79 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap");
+
+/* Live voice still reads these from the root. */
+:root {
+	--font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	--color-ink: #000000;
+	--color-paper: #f7f5f0;
+	--color-paper-bright: #ffffff;
+	--color-mute: #464646;
+	--ink-ease: cubic-bezier(0.22, 1, 0.36, 1);
+	--ink-duration: 0.3s;
+}
+
+/* The runner fills the room the host gives the page. Keys and View trace sit above it, on the
+   page's inset. */
+.run-page {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
+	overscroll-behavior: none;
+}
+
+.run-controls {
+	display: flex;
+	flex: none;
+	justify-content: flex-end;
+	align-items: center;
+	gap: var(--spacing-2);
+	padding: var(--spacing-4);
+}
+
+.run-page > :not(.run-controls),
+.run-page > .astryx-layout,
+.run-page > div > .astryx-layout,
+.run-chat {
+	flex: 1;
+	min-height: 0;
+}
+
+/* The page's own controls are the header row. An empty layout header would
+   only repeat that inset. */
+.run-chat > div > .astryx-layout-header:not(:has(button)),
+.run-page > .astryx-layout > div > .astryx-layout-header:not(:has(button)),
+.run-page > div > .astryx-layout > div > .astryx-layout-header:not(:has(button)) {
+	display: none;
+}
+
+/* The split is already at its final widths, so the panels slide into place
+   and the fields inside the request do not reflow while they move. */
+@media (prefers-reduced-motion: no-preference) {
+	.run-page .theorem-console-request {
+		animation: theorem-console-request var(--duration-medium) var(--ease-standard);
+	}
+
+	.run-page .theorem-console-response {
+		animation: theorem-console-response var(--duration-medium) var(--ease-standard);
+	}
+}
+
+@keyframes theorem-console-request {
+	from {
+		/* Two fifths of the pair, shifted by three quarters of itself, starts centred. */
+		translate: 75% 0;
+	}
+}
+
+@keyframes theorem-console-response {
+	from {
+		translate: 100% 0;
+	}
+}
+
+/* In the shell, the run page is clipped to the panel's corners. */
+[role="main"]:has(.run-page) {
+	overflow: hidden;
+}

@@ -1,48 +1,24 @@
-/**
- * One `tokens` event per model call.
- *
- * The runner holds the provider's usage while the call streams and emits one
- * event when it ends. A side the provider did not report (`estimated`) is
- * filled with the token estimator's count; a call with no usage at all is
- * estimated whole. A call that failed with no usage emits nothing: what was
- * billed is unknown, and an estimate would claim a completed read.
- *
- * Prompt estimate: the system prompt, wire tool declarations, and structured
- * output schema the call sends, plus the conversation the model reads — turn
- * history and opening input. An Interactions continuation step
- * (`previous_interaction_id`) sends only its tool results and stage injects,
- * but the model reads the stored interaction too, so its conversation is the
- * previous call's conversation, that call's replayed output (text, tool
- * calls, media — not thoughts), and the continuation messages. A Live
- * response reads the session the provider holds (`held`, counted as each
- * earlier response ended; see `heldAfter`) plus what was sent for it.
- *
- * Output estimate: streamed text (a structured result is parsed from it, so it
- * is not counted twice), thought text, and tool-call names and arguments. Text
- * is read in runs of consecutive chunks, not chunk by chunk.
- * Reasoning the provider does not stream (`summaries: 'none'`) cannot be
- * counted. Media no verified rule counts is reported per side in
- * `unknownMedia`; output media always is.
- *
- * @module
- */
-
-import { getStructured } from '../../registry/schemas.ts';
+import type { ToolCallRequest } from '../../tools/types.ts';
 import type {
   InteractionPart,
+  ProviderEvent,
   ResolvedGeneration,
-  TurnEvent,
+  TurnEventOf,
   TurnHistoryMessage,
   TurnTokens,
 } from '../../types.ts';
 import { loadTokenEstimator, type MediaTokenFamily, type TokenCount } from '../token-estimate.ts';
 
-/** What a call's model reads beyond the system prompt, tools, and schema. */
+// why: A continuation's model also reads the stored interaction it extends, not only what was sent.
 type CallConversation =
   | { history: TurnHistoryMessage[]; input: InteractionPart[] }
   | { previous: CallUsage; continuation: TurnHistoryMessage[] };
 
-/** Usage observed across one model call. */
+/** What a call wrote that the output estimate counts: text, thoughts, media, and its tool calls. */
+export type CallOutput =
+  | TurnEventOf<'text' | 'thought' | 'media'>
+  | { type: 'tool'; tool: ToolCallRequest };
+
 interface CallUsage {
   system: string;
   /** Copied before the stream: the runner mutates history as tools run. */
@@ -51,8 +27,7 @@ interface CallUsage {
   held?: TokenCount;
   /** Last usage the provider reported for this call. */
   reported?: TurnTokens;
-  /** Output events the estimate counts. */
-  output: TurnEvent[];
+  output: CallOutput[];
   failed: boolean;
 }
 
@@ -77,17 +52,20 @@ function startCallUsage(
  * Record one provider event. Returns true for a `tokens` event, which the
  * runner holds instead of streaming; `callTokensEvent` emits it at call end.
  */
-function observeCallEvent(usage: CallUsage, event: TurnEvent): boolean {
+function observeCallEvent(usage: CallUsage, event: ProviderEvent): boolean {
   switch (event.type) {
     case 'tokens':
-      if (event.tokens) usage.reported = event.tokens;
+      usage.reported = event.tokens;
       return true;
     case 'error':
       usage.failed = true;
       return false;
+    case 'tool':
+      // why: The model wrote its call; a provider's phase event about it (a malformed call's failure) it did not.
+      if (event.tool.phase === undefined) usage.output.push({ type: 'tool', tool: event.tool });
+      return false;
     case 'text':
     case 'thought':
-    case 'tool':
     case 'media':
       usage.output.push(event);
       return false;
@@ -104,9 +82,9 @@ function addCounts(a: TokenCount, b: TokenCount): TokenCount {
  * The output's streamed text as the model wrote it: consecutive chunks of one
  * kind joined, so the estimate does not depend on how the stream was split.
  */
-function textRuns(output: TurnEvent[], thoughts: boolean): string[] {
+function textRuns(output: CallOutput[], thoughts: boolean): string[] {
   const runs: string[] = [];
-  let kind: TurnEvent['type'] | undefined;
+  let kind: CallOutput['type'] | undefined;
   for (const event of output) {
     if (event.type === 'tool' || event.type === 'media') {
       kind = undefined;
@@ -129,10 +107,9 @@ async function countOutput(usage: CallUsage, thoughts: boolean): Promise<TokenCo
   for (const event of usage.output) {
     if (event.type === 'media') {
       count.unknownMedia += 1;
-    } else if (event.type === 'tool' && event.tool) {
+    } else if (event.type === 'tool') {
       count.tokens +=
-        estimator.text(event.tool.name) +
-        estimator.text(JSON.stringify(event.tool.arguments ?? {}));
+        estimator.text(event.tool.name) + estimator.text(JSON.stringify(event.tool.arguments));
     }
   }
   for (const run of textRuns(usage.output, thoughts)) {
@@ -179,7 +156,7 @@ async function countPrompt(
   const wire = generation.tools.wire;
   const tools = wire.length > 0 ? estimator.text(JSON.stringify(wire)) : 0;
   const schema = generation.structured
-    ? estimator.text(JSON.stringify(getStructured(generation.structured).jsonSchema))
+    ? estimator.text(JSON.stringify(generation.structured.jsonSchema))
     : 0;
   const conversation = await countConversation(usage, family);
   return {
@@ -188,12 +165,15 @@ async function countPrompt(
   };
 }
 
-/** The call's one `tokens` event, or `undefined` when it failed with no usage. */
+/**
+ * `undefined` when the call failed with no usage: what was billed is unknown, and an estimate would
+ * claim a completed read.
+ */
 async function callTokensEvent(
   usage: CallUsage,
   generation: ResolvedGeneration,
   family: MediaTokenFamily | undefined,
-): Promise<TurnEvent | undefined> {
+): Promise<TurnEventOf<'tokens'> | undefined> {
   const reported = usage.reported;
   if (!reported && usage.failed) return undefined;
   const estimated = reported ? (reported.estimated ?? []) : (['input', 'output'] as const);

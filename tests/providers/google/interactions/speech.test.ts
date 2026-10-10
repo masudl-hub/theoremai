@@ -1,35 +1,28 @@
 import '../../../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../../../src/guardrails/error.ts';
-import { getProfile, registerProfile } from '../../../../src/kernel/registry/profiles.ts';
-import { resolveTurn } from '../../../../src/kernel/registry/resolve.ts';
-import type { KeyVault, TurnEvent } from '../../../../src/kernel/types.ts';
-import { createProvider } from '../../../../src/providers/create-provider.ts';
+import { registerProfile, resolveTurn } from '../../../../src/kernel/default-scope.ts';
+import { providerBuiltins } from '../../../../src/kernel/registry/provider-request.ts';
+import { defaultKernelScope } from '../../../../src/kernel/scope.ts';
+import type { KeyVault } from '../../../../src/kernel/types.ts';
 import {
   camelToSnake,
   toInteractionsBody,
 } from '../../../../src/providers/google/interactions/framing.ts';
 import { createInteractionsProvider } from '../../../../src/providers/google/interactions/stream.ts';
 import { wrapPcmAsWav } from '../../../../src/providers/shared/pcm.ts';
+import { firstOf } from '../../../fixtures/events.ts';
 import { geminiModels } from '../../../fixtures/models.ts';
 
 const vault: KeyVault = {
-  slotA: 'free-a-key',
-  slotB: 'free-b-key',
-  slotC: 'free-c-key',
-  paid: 'paid-key',
+  slot_a: 'free-a-key',
+  slot_b: 'free-b-key',
+  slot_c: 'free-c-key',
+  spare: 'spare-key',
 };
 
 function noWait(): Promise<void> {
   return Promise.resolve();
-}
-
-async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const event of gen) {
-    out.push(event);
-  }
-  return out;
 }
 
 /** A `step.delta` row as the stream sends it (shape recorded 23/09/2026). */
@@ -47,6 +40,25 @@ function sseResponse(events: unknown[]): Response {
   return new Response(`${payload}\ndata: [DONE]\n`, { status: 200 });
 }
 
+/** The provider request a resolved speech turn makes. */
+function speechRequest(generation: ReturnType<typeof resolveTurn>['generation']) {
+  return {
+    model: generation.model,
+    apiId: generation.apiId,
+    thinking: generation.thinking,
+    summaries: generation.summaries,
+    maxOutputTokens: generation.maxOutputTokens,
+    temperature: generation.temperature,
+    builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
+    system: 'sys',
+    input: generation.input,
+    structured: generation.structured,
+    image: generation.image,
+    speech: generation.speech,
+    keySlot: generation.keySlot,
+  };
+}
+
 Deno.test('speech profile resolves pins and model wire ids', () => {
   const { generation } = resolveTurn({
     profile: 'speech',
@@ -59,26 +71,60 @@ Deno.test('speech profile resolves pins and model wire ids', () => {
   assertEquals(generation.structured, null);
 });
 
+Deno.test("a turn's speech settings replace the profile's, field by field", () => {
+  const { generation } = resolveTurn({
+    profile: 'speech',
+    input: { text: 'Hello there' },
+    speech: { voice: 'Aoede', style: 'Slow and warm.', speed: undefined },
+  });
+  assertEquals(generation.speech, { voice: 'Aoede', style: 'Slow and warm.', format: 'pcm' });
+});
+
+Deno.test('the script reaches a speech model as written, with no fence around it', () => {
+  const { generation } = resolveTurn({ profile: 'speech', input: { text: 'Hello there' } });
+  assertEquals(generation.input, [{ type: 'text', text: 'Hello there' }]);
+});
+
+Deno.test('speech settings on a profile that does not speak are refused', () => {
+  assertThrows(
+    () => resolveTurn({ profile: 'chat', input: { text: 'hi' }, speech: { voice: 'Aoede' } }),
+    TheoremError,
+    'takes no speech settings',
+  );
+});
+
+Deno.test('Interactions carries the style beside the script, and refuses a speed', () => {
+  const { generation } = resolveTurn({
+    profile: 'speech',
+    input: { text: 'Hello there' },
+    speech: { style: 'Slow and warm.' },
+  });
+  const req = speechRequest(generation);
+  assertEquals(toInteractionsBody(req).input, [
+    {
+      type: 'user_input',
+      content: [
+        {
+          type: 'text',
+          text: 'Hello there',
+          annotations: [{ type: 'speech_metadata', style: 'Slow and warm.' }],
+        },
+      ],
+    },
+  ]);
+  assertThrows(
+    () => toInteractionsBody({ ...req, speech: { ...req.speech, speed: 1.5 } }),
+    TheoremError,
+    'no speed field',
+  );
+});
+
 Deno.test('Interactions body for speech uses audio response_format and speech_config', () => {
   const { generation } = resolveTurn({
     profile: 'speech',
     input: { text: 'Say hello' },
   });
-  const body = toInteractionsBody({
-    model: generation.model,
-    apiId: generation.apiId,
-    thinking: generation.thinking,
-    summaries: generation.summaries,
-    maxOutputTokens: generation.maxOutputTokens,
-    temperature: generation.temperature,
-    builtins: generation.builtins,
-    system: 'sys',
-    input: generation.input,
-    structured: generation.structured,
-    image: generation.image,
-    speech: generation.speech,
-    keySlot: generation.keySlot,
-  });
+  const body = toInteractionsBody(speechRequest(generation));
 
   const format = body[camelToSnake('responseFormat')] as Record<string, string>;
   const gen = body[camelToSnake('generationConfig')] as Record<string, unknown>;
@@ -114,7 +160,7 @@ Deno.test('Interactions speech turn wraps PCM as WAV media', async () => {
         ]),
       ),
   });
-  const events = await collect(
+  const events = await Array.fromAsync(
     provider.complete({
       model: generation.model,
       apiId: generation.apiId,
@@ -122,7 +168,7 @@ Deno.test('Interactions speech turn wraps PCM as WAV media', async () => {
       summaries: generation.summaries,
       maxOutputTokens: generation.maxOutputTokens,
       temperature: generation.temperature,
-      builtins: generation.builtins,
+      builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
       system: '',
       input: generation.input,
       structured: generation.structured,
@@ -135,7 +181,7 @@ Deno.test('Interactions speech turn wraps PCM as WAV media', async () => {
     events.map((ev) => ev.type),
     ['media', 'response', 'done'],
   );
-  const media = events[0]?.media;
+  const media = firstOf(events, 'media')?.media;
   assertEquals(media?.mimeType, 'audio/wav');
   const wavBytes = wrapPcmAsWav(pcm, { sampleRate: 24000, channels: 1 });
   assertEquals(media?.data, btoa(String.fromCharCode(...wavBytes)));
@@ -152,7 +198,7 @@ Deno.test('Interactions speech profile errors when model emits text only (no fak
     fetch: () =>
       Promise.resolve(sseResponse([deltaRow({ type: 'text', text: 'hello' }), COMPLETED_ROW])),
   });
-  const events = await collect(
+  const events = await Array.fromAsync(
     provider.complete({
       model: generation.model,
       apiId: generation.apiId,
@@ -160,7 +206,7 @@ Deno.test('Interactions speech profile errors when model emits text only (no fak
       summaries: generation.summaries,
       maxOutputTokens: generation.maxOutputTokens,
       temperature: generation.temperature,
-      builtins: generation.builtins,
+      builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
       system: '',
       input: generation.input,
       structured: generation.structured,
@@ -171,10 +217,10 @@ Deno.test('Interactions speech profile errors when model emits text only (no fak
   );
   assertEquals(
     events.map((event) => event.type),
-    ['text', 'response', 'done', 'error'],
+    ['text', 'response', 'error', 'done'],
   );
-  assertEquals(events[0]?.text, 'hello');
-  assertEquals(events[3]?.errorKind, 'bad_response');
+  assertEquals(firstOf(events, 'text')?.text, 'hello');
+  assertEquals(firstOf(events, 'error')?.errorKind, 'bad_response');
 });
 
 Deno.test('Interactions non-voice profile does not synthesize speech media from text', async () => {
@@ -188,7 +234,7 @@ Deno.test('Interactions non-voice profile does not synthesize speech media from 
     fetch: () =>
       Promise.resolve(sseResponse([deltaRow({ type: 'text', text: 'hello' }), COMPLETED_ROW])),
   });
-  const events = await collect(
+  const events = await Array.fromAsync(
     provider.complete({
       model: generation.model,
       apiId: generation.apiId,
@@ -196,7 +242,7 @@ Deno.test('Interactions non-voice profile does not synthesize speech media from 
       summaries: generation.summaries,
       maxOutputTokens: generation.maxOutputTokens,
       temperature: generation.temperature,
-      builtins: generation.builtins,
+      builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
       system: '',
       input: generation.input,
       structured: generation.structured,
@@ -215,7 +261,7 @@ Deno.test('Interactions non-voice profile does not synthesize speech media from 
   );
 });
 
-Deno.test('Interactions speech profile rejects mp3 format at profile resolution', () => {
+Deno.test('Interactions speech profile carries mp3 to the provider, which refuses it', () => {
   registerProfile({
     id: 'bad-speech',
     type: 'speech',
@@ -226,22 +272,6 @@ Deno.test('Interactions speech profile rejects mp3 format at profile resolution'
       format: 'mp3',
     },
   });
-  assertThrows(() => {
-    resolveTurn({ profile: 'bad-speech', input: { text: 'hi' } });
-  }, TheoremError);
-});
-
-Deno.test('createProvider routes speech-role Interactions to the same adapter', () => {
-  registerProfile({
-    id: 'speech-test',
-    type: 'speech',
-    identity: { handle: 'speech' },
-    ...geminiModels('gemini31FlashTts'),
-    speech: { voice: 'Kore', format: 'pcm' },
-  });
-  const profile = getProfile('speech-test');
-  const provider = createProvider(profile, {
-    gemini: { vault },
-  });
-  assertEquals(typeof provider.complete, 'function');
+  const { generation } = resolveTurn({ profile: 'bad-speech', input: { text: 'hi' } });
+  assertEquals(generation.speech?.format, 'mp3');
 });

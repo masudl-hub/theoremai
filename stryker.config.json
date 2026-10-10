@@ -7,7 +7,6 @@
   "mutate": [
     "src/providers/**/*.ts",
     "!src/providers/mod.ts",
-    "!src/providers/probe.ts"
   ],
   "ignorePatterns": [
     "coverage",

@@ -1,0 +1,41 @@
+{
+  "name": "@theoremjs/studio",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Repo-private studio for theorem hosts: the profile draft, its tree and compiler, source export, the travel concierge demo, and the studio screen. Never published. Opt-in: nothing here is installed with the kernel or the React package; `npm install` in this folder is what lets the screen run on its own.",
+  "scripts": {
+    "test": "node installed.mjs && npm run theme:check && deno test --config ../deno.json --no-check --allow-read --allow-env --allow-sys tests",
+    "theme:build": "node ../scripts/theme.mjs build studio",
+    "theme:check": "node ../scripts/theme.mjs check studio"
+  },
+  "exports": {
+    ".": "./mod.ts",
+    "./runtime": "./runtime.ts",
+    "./browser": "./browser.ts",
+    "./surface": "./surface.ts",
+    "./ui/*": "./ui/*",
+    "./vite": "./vite.mjs"
+  },
+  "dependencies": {
+    "@fontsource/figtree": "^5.3.0",
+    "@tabler/icons-react": "^3.46.0",
+    "fflate": "^0.8.2",
+    "monaco-editor": "^0.57.0",
+    "zod": "^4.6.5"
+  },
+  "peerDependencies": {
+    "@astryxdesign/core": "0.6.5",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@astryxdesign/core": "0.6.5",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
+  }
+}

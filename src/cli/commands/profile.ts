@@ -1,4 +1,4 @@
-import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
+import { getProfile, listProfiles } from '../../kernel/default-scope.ts';
 import { profileToolAllow } from '../../kernel/tools/resolve.ts';
 import type { ModelProfile, Profile } from '../../kernel/types.ts';
 
@@ -39,7 +39,6 @@ function printProfileCard(p: Profile): void {
     console.log(`   - Model:      ${Object.keys(p.models).join(', ')}`);
     console.log(`   - Inputs:     JSON state`);
     console.log(`   - Contract:   ${p.decision.contract}`);
-    console.log(`   - Key Slot: ${p.key ?? '(unset)'}`);
     console.log('-'.repeat(70));
     return;
   }
@@ -53,7 +52,6 @@ function printProfileCard(p: Profile): void {
   console.log(`   - Inputs:     ${formatProfileInputs(p)}`);
   console.log(`   - Tools:      ${tools}`);
   console.log(`   - Structured: ${structuredLabel}`);
-  console.log(`   - Key Slot: ${p.key ?? '(unset)'}`);
   console.log('-'.repeat(70));
 }
 

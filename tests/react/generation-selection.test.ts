@@ -1,27 +1,32 @@
 import { assertEquals } from '@std/assert';
-import {
-  compilePlayground,
-  createExampleDraft,
-  type PlaygroundDraft,
-  playgroundInterface,
-} from '../../playground/mod.ts';
 import { followGenerationDefaults } from '../../react/src/client/generation-selection.ts';
 import type { ComposerProfileInterface } from '../../src/interface/mod.ts';
+import {
+  compileStudio,
+  createExampleDraft,
+  type StudioDraft,
+  studioInterface,
+} from '../../studio/mod.ts';
 
-/** The example draft's interface: models fast (efforts fast, deep), smart (normal, deep), open. */
-function iface(edit: (draft: PlaygroundDraft) => PlaygroundDraft = (draft) => draft) {
-  const result = compilePlayground(edit(createExampleDraft()));
+/**
+ * The example draft's interface, with fast as its default model: models fast (efforts fast, deep),
+ * smart (normal, deep), open.
+ */
+function iface(edit: (draft: StudioDraft) => StudioDraft = (draft) => draft) {
+  const example = createExampleDraft();
+  const result = compileStudio(
+    edit({ ...example, models: { ...example.models, defaultModel: 'fast' } }),
+  );
   if (!result.ok) throw new Error(JSON.stringify(result.issues));
-  const described = playgroundInterface(result);
+  const described = studioInterface(result);
   if (described.type === 'live') throw new Error('expected a composer profile');
   return described satisfies ComposerProfileInterface;
 }
 
-/** Edits the binding for `modelId`. */
 function binding(
   modelId: string,
-  change: Partial<PlaygroundDraft['modelBindings'][number]>,
-): (draft: PlaygroundDraft) => PlaygroundDraft {
+  change: Partial<StudioDraft['modelBindings'][number]>,
+): (draft: StudioDraft) => StudioDraft {
   return (draft) => ({
     ...draft,
     modelBindings: draft.modelBindings.map((entry) =>

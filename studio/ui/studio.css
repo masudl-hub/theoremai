@@ -1,0 +1,389 @@
+/*
+ * The studio screen's own rules: the tree, the phone sheets and the few layout classes its editors
+ * use. Every look comes from Astryx and its theme tokens, which the host loads.
+ */
+
+/* A box that takes all the room its parent gives: the screen and the code view. */
+.studio-fill {
+	height: 100%;
+	width: 100%;
+}
+
+/* The guardrail examples scroll sideways with no bar under them. */
+.scrollbar-none {
+	scrollbar-width: none;
+}
+
+/* A criterion's label keeps a fixed share of its row, so the texts beside them line up. */
+.criterion-label {
+	flex: 0 0 38%;
+	min-width: 0;
+}
+
+/*
+ * A studio tree row's add or remove button shows on hover or keyboard focus, fading in,
+ * so the tree reads as names at rest. Without hover (touch), it always shows.
+ */
+.studio-tree-row {
+	position: relative;
+}
+
+/* A shared setting's row: its name over where it is declared, each cut to the row's width. */
+.studio-shared-head {
+	display: grid;
+	min-width: 0;
+	text-align: start;
+}
+
+/* Out of the row's flow, so it neither heightens the row nor narrows the label at rest. */
+.studio-tree-action {
+	position: absolute;
+	inset-inline-end: var(--spacing-1);
+	top: 50%;
+	translate: 0 -50%;
+	display: inline-flex;
+	opacity: 0;
+	transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.studio-tree-row:hover .studio-tree-action,
+.studio-tree-row:has(:focus-visible) .studio-tree-action {
+	opacity: 1;
+}
+
+@media (hover: none) {
+	.studio-tree-action {
+		opacity: 1;
+	}
+}
+
+/*
+ * The button sits over the label's end rather than beside it, so it never widens the row; the
+ * label fades out beneath it instead of being pushed along.
+ */
+@media (hover: none) {
+	.studio-tree-row > button:not([data-tree-toggle]) {
+		mask-image: linear-gradient(to left, transparent var(--spacing-6), #000 var(--spacing-10));
+	}
+}
+
+.studio-tree-row:is(:hover, :has(:focus-visible)) > button:not([data-tree-toggle]) {
+	mask-image: linear-gradient(to left, transparent var(--spacing-6), #000 var(--spacing-10));
+}
+
+/* A row with two buttons fades a button's width further in. */
+.studio-tree-row:has(.studio-tree-action > :nth-child(2)):is(:hover, :has(:focus-visible))
+> button:not([data-tree-toggle]) {
+	mask-image: linear-gradient(
+		to left,
+		transparent calc(var(--spacing-6) + var(--spacing-8)),
+		#000 calc(var(--spacing-10) + var(--spacing-8))
+	);
+}
+
+/* A list row's badges stay on one line: past the field's width they end in an ellipsis beside the
+   count, rather than wrapping the count out of the field. */
+.inspector-list span:has(> .astryx-badge) {
+	flex-wrap: nowrap;
+	min-width: 0;
+}
+
+/*
+ * Controls the project's files set in code: the fieldset is the lock, with no box of its own, and
+ * it greys what it holds. A lock inside a lock greys once.
+ */
+.inspector-set-in-code {
+	border: 0;
+	margin: 0;
+	min-inline-size: 0;
+	opacity: 0.75;
+	padding: 0;
+	pointer-events: none;
+}
+
+.inspector-set-in-code .inspector-set-in-code {
+	opacity: 1;
+}
+
+/* An optional section the draft leaves out: in the tree, a step quieter than the rest. */
+.studio-tree-off {
+	color: var(--color-text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.studio-tree-action {
+		transition: none;
+	}
+}
+
+/*
+ * The studio on a phone, the way the docs reader works: the editor fills the screen, the tree
+ * opens over it from Sections, and the preview opens over it from Preview, with Back to return. The
+ * draft lives only on this page, so the preview is a sheet here rather than another page.
+ */
+.studio-phone {
+	display: none;
+}
+
+/* The frame's class in each selector outranks Astryx's own one-class rules, including the panel's
+   resized width, without !important. */
+@media (width < 768px) {
+	.studio-phone {
+		display: contents;
+	}
+
+	.studio-frame {
+		position: relative;
+	}
+
+	.studio-frame .studio-side {
+		width: 100%;
+		max-width: none;
+		flex: 1 1 auto;
+	}
+
+	.studio-frame .studio-side-handle,
+	.studio-frame .studio-tree,
+	.studio-frame .studio-preview {
+		display: none;
+	}
+
+	.studio-frame.studio-tree-open .studio-tree,
+	.studio-frame.studio-preview-open .studio-preview {
+		display: flex;
+		position: absolute;
+		inset: 0;
+		z-index: 2;
+		width: 100%;
+	}
+
+	/* The tree covers the editor inside the raised panel; the preview covers the page. */
+	.studio-frame.studio-tree-open .studio-tree {
+		background: var(--color-background-surface);
+	}
+
+	.studio-frame.studio-preview-open .studio-preview {
+		background: var(--color-background-body);
+	}
+
+	.studio-frame.studio-tree-open .studio-tree > * {
+		width: 100%;
+	}
+}
+
+/*
+ * The map opens beside the editor, in the room the preview gives up: the panel widens over the
+ * preview, which goes with its handle, and the tree and the editor keep the widths they had. A
+ * handle between the editor and the map resizes the editor as the panel's did. The frame's class
+ * outranks the panel's resized width.
+ */
+.studio-map-pane {
+	min-width: 0;
+	border-inline-start: 1px solid var(--color-border);
+}
+
+@media (width >= 768px) {
+	.studio-frame.studio-map-open .studio-side {
+		width: 100%;
+		max-width: none;
+		flex: 1 1 auto;
+	}
+
+	.studio-frame.studio-map-open .studio-view {
+		flex: 0 0 var(--studio-view-width, 24rem);
+		width: var(--studio-view-width, 24rem);
+		min-width: 0;
+	}
+
+	.studio-frame.studio-map-open .studio-side-handle,
+	.studio-frame.studio-map-open .studio-preview {
+		display: none;
+	}
+}
+
+/* On a phone the map covers the editor inside the raised panel, the way the tree does. */
+@media (width < 768px) {
+	.studio-frame .studio-map-handle {
+		display: none;
+	}
+
+	.studio-frame .studio-map-pane {
+		position: absolute;
+		inset: 0;
+		z-index: 2;
+		width: 100%;
+		border-inline-start: 0;
+		background: var(--color-background-surface);
+	}
+}
+
+/*
+ * The guardrails editor swaps its list of detectors for one detector's page, and back. Each side
+ * fades in as it mounts, so the swap reads as a move rather than a jump.
+ */
+.detector-view {
+	animation: detector-view-enter var(--duration-fast) var(--ease-standard);
+}
+
+@keyframes detector-view-enter {
+	from {
+		opacity: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.detector-view {
+		animation: none;
+	}
+}
+
+/*
+ * A row's own action, shown while the row is hovered or holds focus. Where nothing hovers (touch),
+ * it always shows.
+ */
+@media (hover: hover) {
+	.row-reveal {
+		opacity: 0;
+		transition: opacity var(--duration-fast) var(--ease-standard);
+	}
+
+	.astryx-list-item:hover .row-reveal,
+	.astryx-list-item:focus-within .row-reveal {
+		opacity: 1;
+	}
+}
+
+/* A unified diff, in the Save review and the file-conflict dialog: removed lines red, added lines
+   green, each with its sign in a gutter. */
+.studio-diff {
+	margin: 0;
+	min-width: 0;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-element);
+	overflow: hidden;
+	font-family: var(--font-family-code);
+	font-size: var(--font-size-xs);
+	line-height: 1.6;
+}
+
+.studio-diff-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--spacing-3);
+	padding: var(--spacing-1) var(--spacing-3);
+	border-bottom: 1px solid var(--color-border);
+	background: var(--color-background-muted);
+	color: var(--color-text-secondary);
+}
+
+.studio-diff-title {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.studio-diff-sides {
+	display: flex;
+	flex-wrap: wrap;
+	column-gap: var(--spacing-4);
+	min-width: 0;
+}
+
+.studio-diff-count {
+	display: flex;
+	flex: none;
+	gap: var(--spacing-2);
+	font-variant-numeric: tabular-nums;
+}
+
+.studio-diff-head [data-sign='-'] {
+	color: var(--color-text-red);
+}
+
+.studio-diff-head [data-sign='+'] {
+	color: var(--color-text-green);
+}
+
+/* The gutters size to their widest cell and every line shares them. */
+.studio-diff-lines {
+	display: grid;
+	grid-template-columns: repeat(2, max-content) minmax(max-content, 1fr);
+	overflow: auto;
+	padding-block: var(--spacing-1);
+}
+
+.studio-diff[data-wrapped='true'] .studio-diff-lines {
+	grid-template-columns: repeat(2, max-content) minmax(0, 1fr);
+}
+
+.studio-diff-line {
+	display: grid;
+	grid-column: 1 / -1;
+	grid-template-columns: subgrid;
+}
+
+.studio-diff-line[data-sign='-'] {
+	background: var(--color-background-red);
+}
+
+.studio-diff-line[data-sign='+'] {
+	background: var(--color-background-green);
+}
+
+.studio-diff-number,
+.studio-diff-sign {
+	padding-inline: var(--spacing-2);
+	color: var(--color-text-secondary);
+	text-align: end;
+	user-select: none;
+}
+
+.studio-diff-sign {
+	grid-column: 2;
+	text-align: center;
+}
+
+.studio-diff-line[data-sign='-'] .studio-diff-sign {
+	color: var(--color-text-red);
+}
+
+.studio-diff-line[data-sign='+'] .studio-diff-sign {
+	color: var(--color-text-green);
+}
+
+.studio-diff-line code {
+	grid-column: 3;
+	padding-inline-end: var(--spacing-3);
+	font: inherit;
+	white-space: pre;
+	transition: opacity 120ms ease;
+}
+
+.studio-diff[data-wrapped='true'] .studio-diff-line code {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* The side that does not stand is set aside: struck through and faint. */
+.studio-diff[data-kept='+'] .studio-diff-line[data-sign='-'] code,
+.studio-diff[data-kept='-'] .studio-diff-line[data-sign='+'] code {
+	text-decoration: line-through;
+	opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.studio-diff-line code {
+		transition: none;
+	}
+}
+
+/* In Save's review, a file's name stays at the top while its changes pass. */
+.save-file {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	padding-block: var(--spacing-1);
+	background: var(--color-background-surface);
+}

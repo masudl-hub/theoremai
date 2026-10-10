@@ -1,35 +1,29 @@
-/**
- * Google Gemini Live session transport — long-lived BidiGenerateContent WebSocket.
- *
- * `turnComplete` is a conversational turn boundary, not session teardown.
- *
- * @module
- */
-
 import { describeError, isAbortError, TheoremError } from '../../../guardrails/error.ts';
-import type { ProviderCompleteRequest } from '../../../kernel/types.ts';
-import { canOverflow, type GeminiTransport, requireKey } from '../keys.ts';
-import { buildGeminiLiveWebSocketUrl } from './framing.ts';
+import type { InteractionPart, ProviderCompleteRequest } from '../../../kernel/types.ts';
+import { requireKey, resolveFallbackKey } from '../../shared/vault.ts';
+import { LIVE_FALLBACK_ROW, type LiveConnection, type LiveQueueItem } from '../../types.ts';
+import type { GeminiTransport } from '../keys.ts';
+import {
+  buildGeminiLiveContext,
+  buildGeminiLiveRealtimeInput,
+  buildGeminiLiveToolResponse,
+  buildGeminiLiveWebSocketUrl,
+} from './framing.ts';
 import {
   attachLiveSessionHandlers,
   createLiveQueue,
   type LiveQueue,
   performLiveSetup,
-  type SessionQueueItem,
   sendInitialPayloads,
   sendLiveFrame,
 } from './stream.ts';
 
-export interface GoogleLiveConnection {
-  /** The server's `setupComplete` frame. */
-  readonly setup: Record<string, unknown>;
-  /** Send one frame upstream (tapped as a `ws_send` row). */
+/** An open Google Live socket: a {@linkcode LiveConnection}, with `send` for a frame built by hand. */
+export interface GoogleLiveConnection extends LiveConnection {
   send(payload: Record<string, unknown>): void;
-  /** Drain session batches until the socket closes or errors. */
-  batches(): AsyncGenerator<SessionQueueItem>;
-  close(code?: number, reason?: string): void;
 }
 
+/** Opens the WebSocket for a Live session at a URL. */
 export type OpenLiveWebSocket = (url: string) => Promise<WebSocket>;
 
 function defaultOpenWebSocket(url: string): Promise<WebSocket> {
@@ -43,7 +37,7 @@ function attachAbort(ws: WebSocket, liveQueue: LiveQueue, signal?: AbortSignal):
       try {
         ws.close(1000, 'aborted');
       } catch {
-        // Ignore
+        // why: closing a socket that already closed throws; the session is over either way.
       }
       liveQueue.push({
         type: 'error',
@@ -63,9 +57,6 @@ function attachAbort(ws: WebSocket, liveQueue: LiveQueue, signal?: AbortSignal):
   return () => signal.removeEventListener('abort', onAbort);
 }
 
-/** Tape row: setup on the pinned key was refused for quota, so the session opens on `paid`. */
-export const LIVE_OVERFLOW_ROW = 'ws_overflow';
-
 interface OpenedSocket {
   ws: WebSocket;
   liveQueue: LiveQueue;
@@ -73,7 +64,6 @@ interface OpenedSocket {
   setup: Record<string, unknown>;
 }
 
-/** Open the socket on one key and complete the setup handshake. */
 async function openOnKey(
   req: ProviderCompleteRequest,
   apiKey: string,
@@ -94,7 +84,7 @@ async function openOnKey(
     try {
       ws.close();
     } catch {
-      // Ignore
+      // why: closing a socket that already closed throws; the abort is what the caller sees.
     }
     throw new DOMException('The operation was aborted.', 'AbortError');
   }
@@ -106,16 +96,16 @@ async function openOnKey(
     try {
       ws.close();
     } catch {
-      // Ignore
+      // why: closing a socket that already closed throws; the original error is what the caller sees.
     }
     throw err;
   }
 }
 
 /**
- * Open on the pinned key; a quota refusal at setup reopens on the vault's
- * `paid` key when it holds a distinct one, as `fetchGemini` does for HTTP.
- * The tape records the refusal (`ws_overflow`) before the retry.
+ * Open on the pinned key; a quota refusal at setup reopens on the profile's
+ * fallback slot when it names one, as `fetchGemini` does for HTTP.
+ * The tape records the refusal (`ws_fallback`) before the retry.
  */
 async function openWithOverflow(
   req: ProviderCompleteRequest,
@@ -129,24 +119,30 @@ async function openWithOverflow(
   try {
     return await openOnKey(req, primary, openWebSocket);
   } catch (err) {
-    const paid = canOverflow(req.keySlot, transport.vault, primary);
-    if (!paid || !(err instanceof TheoremError) || err.kind !== 'rate_limit') throw err;
+    if (!(err instanceof TheoremError) || err.kind !== 'rate_limit') throw err;
+    const fallback = await resolveFallbackKey(
+      req.fallbackKeySlot,
+      transport.vault,
+      primary,
+      req.signal,
+    );
+    if (!fallback) throw err;
     req.tapUpstream?.({
-      eventType: LIVE_OVERFLOW_ROW,
+      eventType: LIVE_FALLBACK_ROW,
       from: req.keySlot,
-      keySlot: 'paid',
+      keySlot: fallback.slot,
       errorKind: err.kind,
       error: describeError(err),
     });
-    return await openOnKey(req, paid, openWebSocket);
+    return await openOnKey(req, fallback.key, openWebSocket);
   }
 }
 
 /**
- * Open a long-lived Gemini Live WebSocket after setup handshake.
- * Callers own send / batch drain / close — typically via `runSession`.
+ * Opens a Google Live session for a request: connects, sends the setup and the initial payloads,
+ * and returns the connection. A quota refusal at setup reopens on the profile's fallback key.
  *
- * @param openWebSocket Host override for Cloudflare fetch-upgrade (etc.).
+ * @param openWebSocket Host override, e.g. for a Cloudflare fetch-upgrade.
  */
 export async function openGoogleLiveSession(
   req: ProviderCompleteRequest,
@@ -162,14 +158,25 @@ export async function openGoogleLiveSession(
   attachLiveSessionHandlers(ws, liveQueue);
   sendInitialPayloads(ws, req);
 
+  const send = (payload: Record<string, unknown>) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      sendLiveFrame(ws, payload, req.tapUpstream);
+    }
+  };
+
   return {
     setup,
-    send(payload: Record<string, unknown>) {
-      if (ws.readyState === WebSocket.OPEN) {
-        sendLiveFrame(ws, payload, req.tapUpstream);
-      }
+    send,
+    sendContext(text: string) {
+      send(buildGeminiLiveContext(text));
     },
-    async *batches(): AsyncGenerator<SessionQueueItem> {
+    sendInput(input: InteractionPart) {
+      send(buildGeminiLiveRealtimeInput(input));
+    },
+    sendToolResponse(callId: string, name: string, output: unknown, parts?: InteractionPart[]) {
+      send(buildGeminiLiveToolResponse(callId, name, output, parts));
+    },
+    async *batches(): AsyncGenerator<LiveQueueItem> {
       try {
         while (true) {
           const item = await liveQueue.next();
@@ -190,7 +197,7 @@ export async function openGoogleLiveSession(
             ws.close(1000, 'session-closed');
           }
         } catch {
-          // Ignore
+          // why: closing a socket that already closed throws; the session is over either way.
         }
       }
     },
@@ -202,7 +209,7 @@ export async function openGoogleLiveSession(
           ws.close(code, reason);
         }
       } catch {
-        // Ignore
+        // why: closing a socket that already closed throws; the session is over either way.
       }
     },
   };

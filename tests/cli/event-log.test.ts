@@ -1,8 +1,9 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { assertEquals } from '@std/assert';
 import { createCliTraceCapture, printTraceRecord } from '../../src/cli/event-log.ts';
 import { forClient } from '../../src/host/client-turn.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
+
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
 
 Deno.test('createCliTraceCapture records turns and supports jsonl mirror', async () => {
@@ -11,7 +12,7 @@ Deno.test('createCliTraceCapture records turns and supports jsonl mirror', async
   const provider: ModelProvider = {
     async *complete() {
       yield { type: 'text', text: 'ok' };
-      yield { type: 'done' };
+      yield { type: 'done', stop: { kind: 'completed' } };
     },
   };
 
@@ -53,10 +54,10 @@ Deno.test('printTraceRecord warns when no record captured', () => {
 Deno.test('forClient and CLI verbose paths preserve complementary fields', () => {
   const event: TurnEvent = {
     type: 'error',
+    errorKind: 'unavailable',
     error: 'Unavailable',
     errorInternal: 'Gemini HTTP 503',
   };
   const client = forClient(event);
-  assertEquals(client.error, 'Unavailable');
-  assertEquals(client.errorInternal, undefined);
+  assertEquals(client, { type: 'error', errorKind: 'unavailable', error: 'Unavailable' });
 });

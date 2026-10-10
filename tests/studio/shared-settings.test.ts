@@ -1,0 +1,70 @@
+import { assertEquals } from '@std/assert';
+import { createBlankDraft } from '../../studio/draft.ts';
+import type { SharedSetting } from '../../studio/server/save-wire.ts';
+import { sharedAt, sharedEntries, sharedNodeId } from '../../studio/shared-settings.ts';
+import {
+  type AgentDraft,
+  addAgent,
+  type StudioWorkspace,
+  workspaceFromDraft,
+} from '../../studio/workspace.ts';
+
+const blank = createBlankDraft();
+const named = (agentId: string) => ({ ...blank, identity: { ...blank.identity, agentId } });
+
+/** Three agents: `desk` and `shop` share their guardrails, `yard` has its own. */
+function opened(): StudioWorkspace {
+  return ['shop', 'yard'].reduce(
+    (workspace, id) => addAgent(workspace, named(id)),
+    workspaceFromDraft(named('desk')),
+  );
+}
+
+const setting = (over: Partial<SharedSetting>): SharedSetting => ({
+  name: 'STANDARD_GUARDRAILS',
+  label: 'Standard guardrails',
+  file: 'shared.ts',
+  line: 1,
+  key: 'guardrails',
+  profiles: ['desk', 'shop'],
+  tools: [],
+  readByCode: false,
+  ...over,
+});
+
+const agent = (workspace: StudioWorkspace, id: string): AgentDraft => {
+  const found = workspace.agents.find((each) => each.identity.agentId === id);
+  if (!found) throw new Error(`No agent ${id}.`);
+  return found;
+};
+
+Deno.test('a shared setting is edited in the section its key fills, on the agents that share it', () => {
+  const workspace = opened();
+  const [desk, shop] = [agent(workspace, 'desk').key, agent(workspace, 'shop').key];
+  const entries = sharedEntries(workspace, [
+    setting({}),
+    setting({ name: 'MODELS', key: 'models' }),
+    // Not the whole of a section, or read by a profile the studio could not open: changed in code.
+    setting({ name: 'STEPS', key: 'maxSteps' }),
+    setting({ name: 'tone', key: undefined }),
+    setting({ name: 'LIMITS', profiles: ['desk', 'gone'] }),
+  ]);
+  assertEquals(
+    entries.map(({ facet, agents }) => [facet, agents]),
+    [
+      ['guardrails', [desk, shop]],
+      ['models', [desk, shop]],
+      [undefined, [desk, shop]],
+      [undefined, [desk, shop]],
+      [undefined, [desk]],
+    ],
+  );
+  const [guardrails, models] = entries;
+  if (!guardrails || !models) throw new Error('No entries.');
+  assertEquals(sharedNodeId(guardrails, shop), `agent:${shop}/guardrails`);
+  assertEquals(sharedAt(entries, `agent:${shop}/guardrails`), guardrails);
+  assertEquals(sharedAt(entries, `agent:${desk}/modelBinding:model-1`), models);
+  assertEquals(sharedAt(entries, `agent:${desk}/models`), models);
+  assertEquals(sharedAt(entries, `agent:${desk}`), undefined);
+  assertEquals(sharedAt(entries, `agent:${agent(workspace, 'yard').key}/guardrails`), undefined);
+});

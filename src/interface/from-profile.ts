@@ -1,49 +1,66 @@
-/**
- * Profile → `ProfileInterface` projection.
- *
- * Kernel `projectProfileObject` is the single inspection projection; this module
- * only enriches `inputs` (acceptAttr, an image profile's image cap) and attaches
- * serializable guardrails / observability views and the client's lexicon.
- *
- * @module
- */
+// why: `profileInterfaceSchema` keeps only the JSON it names, so host functions never reach the view.
 
+import type { UrlAllow } from '../guardrails/detectors.ts';
 import { clientLexicon } from '../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import type { ProfileGuardrailsSpec } from '../guardrails/types.ts';
 import { projectProfileObject, requireModelProfile } from '../kernel/registry/resolve.ts';
 import { profileAllowsSteering } from '../kernel/stop.ts';
+import type { ToolRegistry } from '../kernel/tools/registry.ts';
 import { profileToolAllow, profileToolsSpec } from '../kernel/tools/resolve.ts';
 import type { LiveProfile, ModelProfile, Profile, ProjectedProfile } from '../kernel/types.ts';
 import { resolveObservabilityPolicy } from '../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../observability/types.ts';
 import { inputsFromSpec } from './inputs.ts';
+import { profileInterfaceSchema } from './profile-interface.ts';
 import type {
   ComposerProfileInterface,
   LiveProfileInterface,
-  LiveResolvedTools,
   ProfileGuardrailsView,
   ProfileInterface,
-  ProfileInterfaceSource,
   ProfileObservabilityView,
-  ResolvedTools,
+  ProfileToolsView,
+  UrlAllowView,
 } from './types.ts';
 
-/**
- * Project a profile's guardrails for the headless interface.
- *
- * Values are resolved, not raw: a host rendering this view sees what the kernel
- * will actually enforce rather than re-deriving defaults of its own.
- */
+/** Resolved, not raw: a host sees what the kernel will enforce, not defaults of its own. */
 function guardrailsView(guardrails?: ProfileGuardrailsSpec): ProfileGuardrailsView {
   const policy = resolveGuardrailPolicy(guardrails);
+  const { sources, host, ...detect } = policy.detect;
   return {
     quota: policy.quota,
-    canary: policy.canary,
-    sanitizeInput: policy.sanitizeInput,
-    redactSensitive: policy.redactSensitive,
-    hasEgress: Boolean(policy.egress),
+    detect,
+    ...(sources
+      ? {
+          patterns: Object.fromEntries(
+            Object.entries(sources).map(([detector, { theorem, matchers }]) => [
+              detector,
+              { theorem, names: matchers.map(({ name }) => name) },
+            ]),
+          ),
+        }
+      : {}),
+    ...(host
+      ? {
+          host: host.map(({ id, label, actions, matchers, find }) => ({
+            id,
+            label,
+            actions,
+            names: matchers.map(({ name }) => name),
+            find: Boolean(find),
+          })),
+        }
+      : {}),
+    allow: {
+      ungiven_images: urlAllowView(policy.allow.ungiven_images),
+      ungiven_links: urlAllowView(policy.allow.ungiven_links),
+    },
+    blockedReply: policy.blockedReply,
   };
+}
+
+function urlAllowView(allow: UrlAllow): UrlAllowView {
+  return { hosts: [...(allow.hosts ?? [])], fromTools: allow.fromTools ?? true };
 }
 
 function writeToView(
@@ -58,11 +75,7 @@ function writeToView(
   return 'custom';
 }
 
-/**
- * Project a profile's observability for the headless interface.
- *
- * TraceSink and onWriteError are omitted; writeTo becomes 'custom' when inline.
- */
+/** `writeTo` becomes `'custom'` when it is an inline TraceSink. */
 function observabilityView(
   observability?: ProfileObservabilitySpec,
 ): ProfileObservabilityView | undefined {
@@ -83,22 +96,29 @@ function observabilityView(
   };
 }
 
-function toolsResolved(projected: ProjectedProfile, profile?: ModelProfile): ResolvedTools {
-  if (projected.type === 'speech') {
-    return { allow: [], resolved: [] };
-  }
+/** The live settings a client reads. The greeting and resume prompts are the host's, like `identity.system`. */
+function liveView(live: ProjectedProfile['live']): LiveProfileInterface['live'] {
+  const { greeting: _greeting, resumed: _resumed, ...view } = live ?? {};
+  return view;
+}
+
+function toolsView(projected: ProjectedProfile, profile?: ModelProfile): ProfileToolsView {
+  const page = projected.tools
+    .filter((tool) => 'type' in tool && tool.type === 'function' && tool.answeredBy === 'page')
+    .map((tool) => tool.name);
   if (profile) {
     const t2Loader = profileToolsSpec(profile)?.t2Loader;
-    return {
-      allow: [...profileToolAllow(profile)],
-      ...(t2Loader ? { t2Loader } : {}),
-      resolved: projected.tools,
-    };
+    return { allow: [...profileToolAllow(profile)], page, ...(t2Loader ? { t2Loader } : {}) };
   }
   const allow = projected.tools
     .filter((tool) => !('type' in tool && tool.type === 'builtin'))
     .map((tool) => tool.name);
-  return { allow, resolved: projected.tools };
+  return { allow, page };
+}
+
+/** A call has no T2 loader. */
+function liveToolsView({ allow, page }: ProfileToolsView): LiveProfileInterface['tools'] {
+  return { allow, page };
 }
 
 function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInterface {
@@ -114,7 +134,7 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
     defaultModel: projected.defaultModel,
     allowModelSelect: projected.allowModelSelect,
     maxSteps: projected.maxSteps,
-    key: projected.key,
+    providerContinuation: projected.providerContinuation,
     outputs,
     guardrails,
     observability,
@@ -123,41 +143,42 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
 
   switch (projected.type) {
     case 'text':
-      return {
+      return profileInterfaceSchema.parse({
         ...shared,
         type: 'text',
         inputs,
-        tools: toolsResolved(projected, profile),
+        tools: toolsView(projected, profile),
         turnBehaviour: profile?.type === 'text' ? profile.turnBehaviour : undefined,
         canStop: true,
         allowSteering: profile ? profileAllowsSteering(profile) : true,
-      } as ProfileInterface;
+      });
     case 'image':
-      return {
+      return profileInterfaceSchema.parse({
         ...shared,
         type: 'image',
         image: projected.image ?? {},
         inputs,
-        tools: toolsResolved(projected, profile),
+        tools: toolsView(projected, profile),
         turnBehaviour: profile?.type === 'image' ? profile.turnBehaviour : undefined,
         canStop: true,
-      } as ProfileInterface;
+      });
     case 'speech':
-      return {
+      return profileInterfaceSchema.parse({
         ...shared,
         type: 'speech',
         speech: projected.speech ?? {},
         inputs,
         turnBehaviour: profile?.type === 'speech' ? profile.turnBehaviour : undefined,
         canStop: true,
-      } as ProfileInterface;
+      });
     case 'live':
-      return {
+      return profileInterfaceSchema.parse({
         ...shared,
         type: 'live',
-        live: projected.live ?? {},
-        tools: toolsResolved(projected, profile) as LiveResolvedTools,
-      } as ProfileInterface;
+        live: liveView(projected.live),
+        ...(projected.inputs ? { inputs: { slots: inputs.slots, context: inputs.context } } : {}),
+        tools: liveToolsView(toolsView(projected, profile)),
+      });
     default: {
       const exhaustive: never = projected.type;
       return exhaustive;
@@ -165,24 +186,28 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
   }
 }
 
-function interfaceFrom(source: ProfileInterfaceSource): ProfileInterface {
-  if ('handle' in source) {
-    return enrich(source);
-  }
-  // Host profiles never run a model and have no composer surface.
-  const profile = requireModelProfile(source, 'interfaceFromProfile');
-  return enrich(projectProfileObject(profile), profile);
+/**
+ * The interface for `input`, its tools resolved from `tools`: the registry of
+ * the scope that runs the profile.
+ */
+function interfaceFromProfile(input: LiveProfile, tools: ToolRegistry): LiveProfileInterface;
+/** The interface for a profile that is not live. */
+function interfaceFromProfile(
+  input: Exclude<Profile, LiveProfile>,
+  tools: ToolRegistry,
+): ComposerProfileInterface;
+/** The interface for any profile. */
+function interfaceFromProfile(input: Profile, tools: ToolRegistry): ProfileInterface;
+/** The interface for any profile. */
+function interfaceFromProfile(input: Profile, tools: ToolRegistry): ProfileInterface {
+  // why: Host profiles never run a model and have no composer surface.
+  const profile = requireModelProfile(input, 'interfaceFromProfile');
+  return enrich(projectProfileObject(tools, profile), profile);
 }
 
-function interfaceFromProfile(profile: LiveProfile): LiveProfileInterface;
-function interfaceFromProfile(profile: Exclude<Profile, LiveProfile>): ComposerProfileInterface;
-function interfaceFromProfile(profile: Profile): ProfileInterface;
-function interfaceFromProfile(profile: Profile): ProfileInterface {
-  return interfaceFrom(profile);
-}
-
+/** The interface for a profile the host has already projected, without resolving its tools again. */
 function interfaceFromProjected(projected: ProjectedProfile): ProfileInterface {
-  return interfaceFrom(projected);
+  return enrich(projected);
 }
 
-export { interfaceFrom, interfaceFromProfile, interfaceFromProjected };
+export { interfaceFromProfile, interfaceFromProjected };

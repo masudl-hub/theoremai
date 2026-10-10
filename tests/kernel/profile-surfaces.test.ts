@@ -6,38 +6,31 @@ import { stubProfile } from '../fixtures/profiles.ts';
 
 const TEXT_TOOLS = { allow: ['lookup'], t2Loader: 'lookup' };
 const TEXT_INPUTS = { text: false };
-
 function textProfile(): Profile {
-  const base = stubProfile({ protocol: 'openAi', provider: 'openrouter', role: 'text' });
+  const base = stubProfile({ provider: 'openrouter', role: 'text' });
   if (base.type !== 'text') throw new Error('stubProfile role text');
   return { ...base, tools: TEXT_TOOLS, inputs: TEXT_INPUTS };
 }
-
 function imageProfile(): Profile {
-  const base = stubProfile({ protocol: 'openAi', provider: 'openrouter', role: 'image' });
+  const base = stubProfile({ provider: 'openrouter', role: 'image' });
   if (base.type !== 'image') throw new Error('stubProfile role image');
   return { ...base, tools: TEXT_TOOLS, inputs: TEXT_INPUTS };
 }
-
 function liveProfile(): Profile {
-  const base = stubProfile({ protocol: 'geminiLive', provider: 'google', role: 'live' });
+  const base = stubProfile({ provider: 'google', role: 'live' });
   if (base.type !== 'live') throw new Error('stubProfile role live');
   return { ...base, tools: { allow: ['live-tool'] } };
 }
-
-const speech = stubProfile({ protocol: 'openAi', provider: 'openrouter', role: 'speech' });
-
+const speech = stubProfile({ provider: 'openrouter', role: 'speech' });
 const host: Profile = { type: 'host', id: 'host-test', tools: { allow: ['host-tool'] } };
-
 const decision: Profile = {
   type: 'decision',
   id: 'decision-test',
   identity: { handle: 'Decision test' },
-  models: { jev: { apiId: 'jev-latest' } },
+  models: { jev: { provider: 'typesafe', apiId: 'jev-latest' } },
   inputs: { state: 'json' },
   decision: { contract: 'test.v1' },
 };
-
 Deno.test('profileToolAllow returns tools.allow, or none for types without a tools block', () => {
   assertEquals(profileToolAllow(textProfile()), ['lookup']);
   assertEquals(profileToolAllow(imageProfile()), ['lookup']);
@@ -46,7 +39,6 @@ Deno.test('profileToolAllow returns tools.allow, or none for types without a too
   assertEquals(profileToolAllow(speech), []);
   assertEquals(profileToolAllow(decision), []);
 });
-
 Deno.test('profileToolsSpec returns the tiered spec for text and image only', () => {
   assertEquals(profileToolsSpec(textProfile())?.t2Loader, 'lookup');
   assertEquals(profileToolsSpec(imageProfile())?.t2Loader, 'lookup');
@@ -54,7 +46,6 @@ Deno.test('profileToolsSpec returns the tiered spec for text and image only', ()
     assertEquals(profileToolsSpec(profile), undefined, profile.type);
   }
 });
-
 Deno.test('profileInputs returns turn inputs for text and image only', () => {
   assertEquals(profileInputs(textProfile()), TEXT_INPUTS);
   assertEquals(profileInputs(imageProfile()), TEXT_INPUTS);

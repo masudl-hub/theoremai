@@ -1,15 +1,10 @@
-/**
- * Live session traces: the session record, one record per response, one per
- * `executeTool` call.
- */
 import { z } from 'zod';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import { forClient } from '../../src/host/client-turn.ts';
+import { registerProfile, registerTool, runSession } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { sha256Base64 } from '../../src/kernel/engine/hash.ts';
-import { runSession } from '../../src/kernel/engine/session/mod.ts';
-import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { registerTool } from '../../src/kernel/tools/registry.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { LiveSession, SessionRequest, TurnEvent } from '../../src/kernel/types.ts';
 import {
   contentOf,
@@ -17,8 +12,10 @@ import {
   type TraceRecord,
 } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes, TraceSpan } from '../../src/observability/trace-span.ts';
+import { eventsOf, firstOf, sessionEventOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
+import { googleLiveCheckpoint } from '../fixtures/provider-checkpoint.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 const PROFILE = 'live_trace_probe';
@@ -27,7 +24,6 @@ const API_ID = HOST_BINDINGS.gemini31FlashLive.apiId;
 const HANDLE_IN = 'resume-handle-sent-synthetic';
 const HANDLE_OUT = 'resume-handle-issued-synthetic';
 const USAGE = { promptTokenCount: 12, responseTokenCount: 3, totalTokenCount: 15 };
-
 registerTool({
   type: 'function',
   name: TOOL,
@@ -41,13 +37,18 @@ registerTool({
   output: z.object({ finding: z.string(), status: z.string() }),
   handler: () => ({ finding: 'shipped', status: 'shipped' }),
 });
-
 registerProfile(
   defineProfile({
     type: 'live',
     id: PROFILE,
     identity: { handle: 'live', system: 'hi' },
-    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
+    models: {
+      gemini31FlashLive: {
+        ...HOST_BINDINGS.gemini31FlashLive,
+        keySlot: 'main',
+        fallbackKeySlot: 'spare',
+      },
+    },
     live: {
       voice: 'Aoede',
       ingress: { text: true },
@@ -57,23 +58,34 @@ registerProfile(
     tools: { allow: [TOOL] },
   }),
 );
-
+/** The same live profile with its own ended-call wording. */
+const WORDED_PROFILE = `${PROFILE}_worded`;
+const ENDED_WORDING = 'That call is over. Start another any time.';
+registerProfile(
+  defineProfile({
+    type: 'live',
+    id: WORDED_PROFILE,
+    identity: { handle: 'live', system: 'hi' },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'main' } },
+    live: { voice: 'Aoede', ingress: { text: true } },
+    tools: { allow: [TOOL] },
+    lexicon: { 'live.session_ended': ENDED_WORDING },
+  }),
+);
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
-
 interface Harness {
   session: LiveSession;
   socket: MockLiveWebSocket;
   records: TraceRecord[];
   events: Promise<TurnEvent[]>;
 }
-
 async function open(extra: Partial<SessionRequest> = {}): Promise<Harness> {
   const records: TraceRecord[] = [];
   let socket: MockLiveWebSocket | undefined;
   const session = await runSession(
     { profile: PROFILE, ...extra },
     {
-      gemini: { vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined } },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         socket = new MockLiveWebSocket();
         setTimeout(() => socket?.open(), 0);
@@ -90,48 +102,38 @@ async function open(extra: Partial<SessionRequest> = {}): Promise<Harness> {
   })();
   return { session, socket, records, events };
 }
-
 async function deliver(harness: Harness, ...frames: unknown[]): Promise<void> {
   for (const frame of frames) harness.socket.deliver(frame);
   await tick();
   await tick();
 }
-
 async function finish(harness: Harness): Promise<TurnEvent[]> {
   await harness.session.close();
   return await harness.events;
 }
-
 function rootOf(record: TraceRecord | undefined): TraceSpan {
   const root = record?.spans[0];
   if (!root) throw new Error('no root span');
   return root;
 }
-
 function recordNamed(records: TraceRecord[], prefix: string): TraceRecord[] {
   return records.filter((record) => rootOf(record).name.startsWith(prefix));
 }
-
 function sessionRecord(records: TraceRecord[]): TraceRecord {
   const [record] = recordNamed(records, 'invoke_agent');
   if (!record) throw new Error('no session record');
   return record;
 }
-
 function sessionEvents(span: TraceSpan): TraceAttributes[] {
   return span.events.filter((e) => e.name === 'theorem.session').map((e) => e.attributes);
 }
-
 function messages(span: TraceSpan, key: string): TraceAttributes[] {
   return span.attributes[key] as TraceAttributes[];
 }
-
 function partsOf(message: TraceAttributes | undefined): TraceAttributes[] {
   return (message?.parts ?? []) as TraceAttributes[];
 }
-
 const complete = { serverContent: { turnComplete: true }, usageMetadata: USAGE };
-
 Deno.test('a response is its own record under the session, with what was sent for it', async () => {
   const harness = await open({ conversationId: 'conv-live-1' });
   await harness.session.sendText('where is my order');
@@ -142,7 +144,6 @@ Deno.test('a response is its own record under the session, with what was sent fo
     complete,
   );
   const events = await finish(harness);
-
   const [response] = recordNamed(harness.records, 'generate_content');
   const call = rootOf(response);
   const root = rootOf(sessionRecord(harness.records));
@@ -151,6 +152,8 @@ Deno.test('a response is its own record under the session, with what was sent fo
   assertEquals(call.kind, 'CLIENT');
   assertEquals(call.status, { code: 'OK' });
   assertEquals(call.attributes['gen_ai.request.stream'], true);
+  // The first output frame stamps the person's wait from the response's first input frame.
+  assertEquals(typeof call.attributes['gen_ai.response.time_to_first_chunk'], 'number');
   assertEquals(call.attributes['gen_ai.output.type'], 'speech');
   assertEquals(call.attributes['gen_ai.agent.name'], PROFILE);
   assertEquals(call.attributes['gen_ai.conversation.id'], 'conv-live-1');
@@ -163,7 +166,6 @@ Deno.test('a response is its own record under the session, with what was sent fo
   assertEquals(output?.finish_reason, 'generation_complete');
   assertEquals(call.attributes['gen_ai.usage.input_tokens'], 12);
   assertEquals(call.events.filter((e) => e.name === 'theorem.wire.request').length, 1);
-
   assertEquals(root.attributes['theorem.steps'], 1);
   assertEquals(root.attributes['gen_ai.usage.input_tokens'], 12);
   assertEquals(
@@ -175,16 +177,39 @@ Deno.test('a response is its own record under the session, with what was sent fo
     ['setup_complete', 'closed'],
   );
   assertEquals(sessionEvents(root)[1]?.initiator, 'host');
-
-  const tokens = events.filter((e) => e.type === 'tokens');
+  const tokens = eventsOf(events, 'tokens');
   assertEquals(
     tokens.map((e) => e.tokens?.input),
     [12],
   );
-  const done = events.find((e) => e.type === 'done');
+  const done = firstOf(events, 'done');
   assertEquals(done?.traceparent, `00-${call.traceId}-${call.spanId}-01`);
 });
-
+/** A span's guardrail check named `check`. */
+function checkOn(span: TraceSpan, check: string): TraceAttributes | undefined {
+  return span.events.find((e) => e.name === 'theorem.guardrail' && e.attributes.check === check)
+    ?.attributes;
+}
+Deno.test("a live session times the host's input check and each response's output check", async () => {
+  const harness = await open();
+  await harness.session.sendText('where is my order');
+  await deliver(
+    harness,
+    { serverContent: { modelTurn: { parts: [{ text: 'On its way.' }] } } },
+    complete,
+  );
+  await finish(harness);
+  const input = checkOn(rootOf(sessionRecord(harness.records)), 'live_input');
+  assertEquals(input?.action, 'allow');
+  assertEquals(typeof input?.duration_ms, 'number');
+  const call = rootOf(recordNamed(harness.records, 'generate_content')[0]);
+  const output = checkOn(call, 'live_output');
+  assertEquals(output?.action, 'allow');
+  assertEquals(output?.stage, 'live_outbound');
+  assertEquals(typeof output?.duration_ms, 'number');
+  assertEquals((output?.runs as number) >= 1, true);
+  assertEquals(call.attributes['theorem.guardrail.stream_ms'], output?.duration_ms);
+});
 Deno.test('a response records what the host received beside what the model produced', async () => {
   const harness = await open();
   await harness.session.sendText('read me the note');
@@ -214,7 +239,6 @@ Deno.test('a response records what the host received beside what the model produ
   const [produced] = messages(call, 'gen_ai.output.messages');
   assertEquals(contentOf(response, partsOf(produced)[0])?.startsWith('The note says '), true);
 });
-
 Deno.test('an interrupted response is UNSET with no finish reason, and keeps its usage', async () => {
   const harness = await open();
   await harness.session.sendText('tell me a story');
@@ -231,7 +255,6 @@ Deno.test('an interrupted response is UNSET with no finish reason, and keeps its
   assertEquals('finish_reason' in (messages(call, 'gen_ai.output.messages')[0] ?? {}), false);
   assertEquals(call.attributes['gen_ai.usage.output_tokens'], 3);
 });
-
 Deno.test('transcripts are labelled parts beside what the model read and wrote', async () => {
   const harness = await open();
   await deliver(
@@ -250,9 +273,8 @@ Deno.test('transcripts are labelled parts beside what the model read and wrote',
   const said = partsOf(messages(call, 'gen_ai.output.messages')[0])[0];
   assertEquals(said?.['theorem.source'], 'output_transcription');
 });
-
 Deno.test('a resumption handle is never recorded', async () => {
-  const harness = await open({ sessionResumptionHandle: HANDLE_IN });
+  const harness = await open({ providerState: googleLiveCheckpoint(API_ID, HANDLE_IN) });
   await deliver(harness, { sessionResumptionUpdate: { newHandle: HANDLE_OUT, resumable: true } });
   await finish(harness);
   const stored = JSON.stringify(harness.records);
@@ -262,11 +284,10 @@ Deno.test('a resumption handle is never recorded', async () => {
   );
   assertEquals(resumption, { kind: 'session_resumption', resumable: true, handle_issued: true });
 });
-
 Deno.test('a tool call is its own record under the response that asked; the next response reads its result', async () => {
   const harness = await open();
   await deliver(harness, { toolCall: { functionCalls: [{ id: 'c1', name: TOOL, args: {} }] } });
-  await harness.session.executeTool({ name: TOOL, callId: 'c1', input: {} });
+  await harness.session.executeTool({ callId: 'c1' });
   // As Live orders it: the asking response completes as the result lands, then the answer.
   await deliver(
     harness,
@@ -275,7 +296,6 @@ Deno.test('a tool call is its own record under the response that asked; the next
     complete,
   );
   await finish(harness);
-
   const [toolRecord] = recordNamed(harness.records, 'execute_tool');
   const [asking, response] = recordNamed(harness.records, 'generate_content');
   const tool = rootOf(toolRecord);
@@ -286,11 +306,13 @@ Deno.test('a tool call is its own record under the response that asked; the next
   assertEquals(tool.attributes['gen_ai.agent.name'], PROFILE);
   const read = toolRecord && contentOf(toolRecord, tool.attributes['gen_ai.tool.call.result']);
   // The guarded text a turn would send, never the raw output: summary, then the rest of the data.
-  assertEquals(JSON.parse(read ?? 'null'), { result: 'shipped\n{"status":"shipped"}' });
+  assertEquals(read, 'shipped\n{"status":"shipped"}');
   const sent = messages(call, 'gen_ai.input.messages').find((m) => m.role === 'tool');
-  assertEquals(response && contentOf(response, partsOf(sent)[0]?.response), read);
+  assertEquals(
+    JSON.parse((response && contentOf(response, partsOf(sent)[0]?.response)) || 'null'),
+    { result: read },
+  );
 });
-
 Deno.test('audio sent for a response is one part over its concatenated bytes, stored as a hash', async () => {
   const harness = await open();
   const chunks = [btoa('first-chunk-'), btoa('second-chunk')];
@@ -313,7 +335,6 @@ Deno.test('audio sent for a response is one part over its concatenated bytes, st
     false,
   );
 });
-
 Deno.test('a response with no reported usage has one estimated usage event', async () => {
   const harness = await open();
   await harness.session.sendText('hello');
@@ -323,11 +344,10 @@ Deno.test('a response with no reported usage has one estimated usage event', asy
     { serverContent: { turnComplete: true } },
   );
   const events = await finish(harness);
-  const tokens = events.filter((e) => e.type === 'tokens');
+  const tokens = eventsOf(events, 'tokens');
   assertEquals(tokens.length, 1);
   assertEquals(tokens[0]?.tokens?.estimated, ['input', 'output']);
 });
-
 Deno.test('a session that fails to open still writes its record, typed by its kind', async () => {
   const records: TraceRecord[] = [];
   let failed = false;
@@ -335,9 +355,7 @@ Deno.test('a session that fails to open still writes its record, typed by its ki
     await runSession(
       { profile: PROFILE },
       {
-        gemini: {
-          vault: { slotA: undefined, slotB: undefined, slotC: undefined, paid: undefined },
-        },
+        vault: { main: undefined },
       },
       catalogedSink(records),
     );
@@ -353,12 +371,11 @@ Deno.test('a session that fails to open still writes its record, typed by its ki
     true,
   );
 });
-
 Deno.test('a provider close mid-session reaches the host as an error with its kind', async () => {
   const harness = await open();
   harness.socket.close(1011, 'upstream overloaded');
   const events = await harness.events;
-  const error = events.find((e) => e.type === 'error');
+  const error = firstOf(events, 'error');
   assertEquals(error?.errorKind, 'unavailable');
   assertEquals(error?.error, lexiconDefault('error.unavailable'));
   await harness.session.close();
@@ -367,7 +384,6 @@ Deno.test('a provider close mid-session reaches the host as an error with its ki
   assertEquals(root.attributes['error.type'], 'unavailable');
   assertEquals(sessionEvents(root).at(-1)?.initiator, 'provider');
 });
-
 Deno.test('a normal provider close ends the session without an error', async () => {
   const harness = await open();
   harness.socket.close(1000, '');
@@ -380,7 +396,6 @@ Deno.test('a normal provider close ends the session without an error', async () 
   const root = rootOf(sessionRecord(harness.records));
   assertEquals(root.attributes['error.type'], undefined);
 });
-
 Deno.test('a close after goAway ends the session quietly, with every close fact kept', async () => {
   const harness = await open();
   await deliver(harness, { goAway: { timeLeft: '50s' } });
@@ -390,15 +405,15 @@ Deno.test('a close after goAway ends the session quietly, with every close fact 
     events.some((e) => e.type === 'error'),
     false,
   );
-  const ended = events.find((e) => e.session?.kind === 'ended');
-  assertEquals(ended?.session?.message, lexiconDefault('live.session_ended'));
-  assertEquals(ended?.session?.timeLeftMs, 50_000);
-  assertEquals(ended?.session?.ended?.cause, 'go_away');
-  assertEquals(ended?.session?.ended?.code, 1008);
-  assertEquals(ended?.session?.ended?.errorKind, 'unsupported');
-  assertEquals(typeof ended?.session?.ended?.closedAfterMs, 'number');
+  const ended = sessionEventOf(events, 'ended');
+  assertEquals(ended?.session.message, lexiconDefault('live.session_ended'));
+  assertEquals(ended?.session.timeLeftMs, 50000);
+  assertEquals(ended?.session.ended.cause, 'go_away');
+  assertEquals(ended?.session.ended.code, 1008);
+  assertEquals(ended?.session.ended.errorKind, 'unsupported');
+  assertEquals(typeof ended?.session.ended.closedAfterMs, 'number');
   assertEquals(ended?.errorInternal?.includes('1008: session limit'), true);
-  assertEquals(ended && forClient(ended).errorInternal, undefined);
+  assertEquals(ended && firstOf([forClient(ended)], 'session')?.errorInternal, undefined);
   await harness.session.close();
   const root = rootOf(sessionRecord(harness.records));
   assertEquals(root.status, { code: 'UNSET' });
@@ -409,20 +424,27 @@ Deno.test('a close after goAway ends the session quietly, with every close fact 
   assertEquals(closed?.code, 1008);
   assertEquals(closed?.reason, 'session limit');
   assertEquals(closed?.cause, 'go_away');
-  assertEquals(closed?.time_left_ms, 50_000);
+  assertEquals(closed?.time_left_ms, 50000);
   assertEquals(closed?.['error.type'], 'unsupported');
   assertEquals(typeof closed?.closed_after_ms, 'number');
 });
-
+Deno.test('an ended session speaks in the profile lexicon', async () => {
+  const harness = await open({ profile: WORDED_PROFILE });
+  await deliver(harness, { goAway: {} });
+  harness.socket.close(1000, '');
+  const ended = sessionEventOf(await harness.events, 'ended');
+  assertEquals(ended?.session.message, ENDED_WORDING);
+  await harness.session.close();
+});
 Deno.test('a normal close after goAway ends the session with no failure kind', async () => {
   const harness = await open();
   await deliver(harness, { goAway: {} });
   harness.socket.close(1000, '');
   const events = await harness.events;
-  const ended = events.find((e) => e.session?.kind === 'ended');
-  assertEquals(ended?.session?.ended?.code, 1000);
-  assertEquals(ended?.session?.ended?.errorKind, undefined);
-  assertEquals(ended?.session?.timeLeftMs, undefined);
+  const ended = sessionEventOf(events, 'ended');
+  assertEquals(ended?.session.ended.code, 1000);
+  assertEquals(ended?.session.ended.errorKind, undefined);
+  assertEquals(ended?.session.timeLeftMs, undefined);
   assertEquals(ended?.errorInternal, undefined);
   await harness.session.close();
   const closed = sessionEvents(rootOf(sessionRecord(harness.records))).find(
@@ -431,7 +453,6 @@ Deno.test('a normal close after goAway ends the session with no failure kind', a
   assertEquals(closed?.['error.type'], undefined);
   assertEquals(closed?.time_left_ms, undefined);
 });
-
 /** A socket whose setup Google refuses for quota. */
 class QuotaRefusedSocket extends MockLiveWebSocket {
   override send(data: string): void {
@@ -439,17 +460,14 @@ class QuotaRefusedSocket extends MockLiveWebSocket {
     queueMicrotask(() => this.close(1011, 'You exceeded your current quota.'));
   }
 }
-
-Deno.test('a quota refusal at setup reopens on paid, and the trace names the refusal and the key that served', async () => {
+Deno.test('a quota refusal at setup reopens on the fallback slot, and the trace names the refusal and the key that served', async () => {
   const records: TraceRecord[] = [];
   const urls: string[] = [];
   const sockets: MockLiveWebSocket[] = [];
   const session = await runSession(
     { profile: PROFILE },
     {
-      gemini: {
-        vault: { slotA: 'free-key', slotB: undefined, slotC: undefined, paid: 'paid-key' },
-      },
+      vault: { main: 'free-key', spare: 'spare-key' },
       openWebSocket: (url) => {
         urls.push(url);
         const socket = urls.length === 1 ? new QuotaRefusedSocket() : new MockLiveWebSocket();
@@ -472,27 +490,25 @@ Deno.test('a quota refusal at setup reopens on paid, and the trace names the ref
   await tick();
   await session.close();
   await drained;
-
   assertEquals(
     urls.map((url) => new URL(url).searchParams.get('key')),
-    ['free-key', 'paid-key'],
+    ['free-key', 'spare-key'],
   );
   const root = rootOf(sessionRecord(records));
-  const [overflow] = sessionEvents(root);
-  assertEquals(overflow?.kind, 'key_overflow');
-  assertEquals(overflow?.key_slot, 'slotA');
-  assertEquals(overflow?.to_key_slot, 'paid');
-  assertEquals(overflow?.['error.type'], 'rate_limit');
-  assertEquals(String(overflow?.error).includes('exceeded your current quota'), true);
+  const [fallback] = sessionEvents(root);
+  assertEquals(fallback?.kind, 'key_fallback');
+  assertEquals(fallback?.key_slot, 'main');
+  assertEquals(fallback?.to_key_slot, 'spare');
+  assertEquals(fallback?.['error.type'], 'rate_limit');
+  assertEquals(String(fallback?.error).includes('exceeded your current quota'), true);
   assertEquals(
     sessionEvents(root).map((e) => e.kind),
-    ['key_overflow', 'setup_complete', 'closed'],
+    ['key_fallback', 'setup_complete', 'closed'],
   );
   const [response] = recordNamed(records, 'generate_content');
-  assertEquals(rootOf(response).attributes['theorem.key_slot'], 'paid');
+  assertEquals(rootOf(response).attributes['theorem.key_slot'], 'spare');
 });
-
-Deno.test('a quota refusal with no distinct paid key fails the open as rate_limit', async () => {
+Deno.test('a quota refusal with no filled fallback slot fails the open as rate_limit', async () => {
   const records: TraceRecord[] = [];
   let opens = 0;
   let failure: unknown;
@@ -500,9 +516,7 @@ Deno.test('a quota refusal with no distinct paid key fails the open as rate_limi
     await runSession(
       { profile: PROFILE },
       {
-        gemini: {
-          vault: { slotA: 'free-key', slotB: undefined, slotC: undefined, paid: undefined },
-        },
+        vault: { main: 'free-key' },
         openWebSocket: () => {
           opens += 1;
           const socket = new QuotaRefusedSocket();
@@ -516,8 +530,16 @@ Deno.test('a quota refusal with no distinct paid key fails the open as rate_limi
     failure = err;
   }
   assertEquals(opens, 1);
-  assertEquals((failure as { kind?: string } | undefined)?.kind, 'rate_limit');
+  assertEquals(
+    (
+      failure as
+        | {
+            kind?: string;
+          }
+        | undefined
+    )?.kind,
+    'rate_limit',
+  );
   assertEquals(rootOf(records[0]).attributes['error.type'], 'rate_limit');
 });
-
 catalogGate();

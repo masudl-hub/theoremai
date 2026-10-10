@@ -6,22 +6,22 @@
  */
 
 import {
-	describeError,
-	type ErrorKind,
-	errorKind,
-	type LexiconOverrides,
-	lexiconText,
-	publicError,
-} from '../../../mod.ts';
-import type { AttachmentValidationIssue } from '../../../src/interface/mod.ts';
+  describeError,
+  type ErrorKind,
+  errorKind,
+  type LexiconOverrides,
+  lexiconText,
+  publicError,
+} from '@theoremjs/agents';
+import type { AttachmentValidationIssue, InterfaceTurnSession } from '@theoremjs/agents/interface';
 import { isTheoremStreamError } from './transport.ts';
 
 export type ClientFailure = {
-	/** What the user reads: the host's wording, else the profile lexicon's for the failure. */
-	error: string;
-	errorKind: ErrorKind;
-	/** Raw detail for the builder; never shown to the user. */
-	errorInternal?: string;
+  /** What the user reads: the host's wording, else the profile lexicon's for the failure. */
+  error: string;
+  errorKind: ErrorKind;
+  /** Raw detail for the builder; never shown to the user. */
+  errorInternal?: string;
 };
 
 /**
@@ -29,38 +29,40 @@ export type ClientFailure = {
  * `lexicon`). A host-reported failure keeps the host's wording.
  */
 export function clientFailure(err: unknown, lexicon?: LexiconOverrides): ClientFailure {
-	if (isTheoremStreamError(err)) {
-		return {
-			error: err.publicMessage ?? lexiconText(`error.${err.kind}`, {}, lexicon),
-			errorKind: err.kind,
-			...(err.internalMessage ? { errorInternal: err.internalMessage } : {}),
-		};
-	}
-	const error = publicError(err, lexicon);
-	const internal = describeError(err);
-	return {
-		error,
-		errorKind: errorKind(err),
-		...(internal && internal !== error ? { errorInternal: internal } : {}),
-	};
+  if (isTheoremStreamError(err)) {
+    return {
+      error: err.publicMessage ?? lexiconText(`error.${err.kind}`, {}, lexicon),
+      errorKind: err.kind,
+      ...(err.internalMessage ? { errorInternal: err.internalMessage } : {}),
+    };
+  }
+  const error = publicError(err, lexicon);
+  const internal = describeError(err);
+  return {
+    error,
+    errorKind: errorKind(err),
+    ...(internal && internal !== error ? { errorInternal: internal } : {}),
+  };
 }
 
 /** A turn that did not run or did not finish. */
 export type TurnFailure = ClientFailure & {
-	ok: false;
-	/** The files the profile refused, one entry per reason (the kernel's check). */
-	issues?: AttachmentValidationIssue[];
-	/** The user stopped it; nothing to show. */
-	aborted?: boolean;
+  ok: false;
+  /** The files the profile refused, one entry per reason (the kernel's check). */
+  issues?: AttachmentValidationIssue[];
+  /** The user stopped it; nothing to show. */
+  aborted?: boolean;
+  /** The conversation with what the turn got through before it stopped; the next turn resumes from it. */
+  session?: InterfaceTurnSession;
 };
 
 /** A caught value as a turn failure; an aborted `signal` marks it the user's stop. */
 export function turnFailure(
-	err: unknown,
-	lexicon?: LexiconOverrides,
-	signal?: AbortSignal,
+  err: unknown,
+  lexicon?: LexiconOverrides,
+  signal?: AbortSignal,
 ): TurnFailure {
-	const failure = clientFailure(err, lexicon);
-	const aborted = failure.errorKind === 'cancelled' || signal?.aborted === true;
-	return { ok: false, ...failure, ...(aborted ? { aborted: true } : {}) };
+  const failure = clientFailure(err, lexicon);
+  const aborted = failure.errorKind === 'cancelled' || signal?.aborted === true;
+  return { ok: false, ...failure, ...(aborted ? { aborted: true } : {}) };
 }

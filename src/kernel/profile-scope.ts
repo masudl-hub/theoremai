@@ -1,22 +1,7 @@
-/**
- * Which profile types each profile field belongs to — the one owner of that fact.
- *
- * `defineProfile` enforces it, `PROFILE_FIELDS` exposes it on every field's
- * `FieldMeta`, and `PROFILE_GRAPH` takes its facets' types from it, so an
- * authoring UI projects the same rule the kernel enforces. A path with no entry
- * inherits its nearest ancestor's scope; a path with none at all belongs to
- * every type.
- *
- * Leaf module: `schema.ts` and `profile-graph.ts` both read it at load time.
- *
- * @module
- */
-
+// invariant: Leaf module: `schema.ts` and `profile-graph.ts` read it at load time.
 /** lexicon-exempt-file: authoring field-meta scope reasons — not runtime user or model copy (P2) */
-
 import { HOST_GUARDRAIL_FIELDS } from '../guardrails/types.ts';
 import type { ProfileType } from './schema.ts';
-
 /**
  * Mirrors `PROFILE_TYPES` — a value import would cycle through `schema.ts`.
  * Drift is gated by tests/kernel/profile-scope.test.ts.
@@ -29,37 +14,57 @@ export const ALL_PROFILE_TYPES: readonly ProfileType[] = [
   'decision',
   'host',
 ];
-
-/** Types that bind models — `host` never runs a model. */
 const MODEL_PROFILE_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live', 'decision'];
-
-/** Types that run a model turn: everything but `decision` and `host`. */
 const TURN_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live'];
-
+/** Types whose `inputs` are turn inputs (text, files, slots) rather than decision state. */
+const TURN_INPUT_TYPES: readonly ProfileType[] = ['text', 'image'];
+const TURN_INPUT_REASON = 'a decision takes JSON state, not turn text, files or slots';
+/** Types that take slots and context: the turn types, and a call. */
+const SLOT_TYPES: readonly ProfileType[] = ['text', 'image', 'live'];
+const SLOT_REASON = 'a decision takes JSON state, and speech reads its transcript only';
 export interface ProfileFieldScope {
-  /** The profile types the field may be set on. */
   profileTypes: readonly ProfileType[];
   /** Why other types can't take it — shown in `defineProfile` errors and authoring UIs. */
   reason: string;
   /**
-   * The one value other types may still carry: the field's "off" value, which
-   * `defineProfile` itself writes (speech stores `guardrails.canary: false`).
+   * The one value other types may still carry: the field's "off" value
+   * (`outputs.structured: null` asks for no schema).
    */
-  offValue?: false;
+  offValue?: null;
 }
-
 /** Guardrails a host profile may set keep `host`; the rest guard a model turn. */
 function turnGuardrailTypes(key: string): readonly ProfileType[] {
   return (HOST_GUARDRAIL_FIELDS as readonly string[]).includes(key)
     ? [...TURN_TYPES, 'host']
     : TURN_TYPES;
 }
-
-/**
- * Profile paths scoped to some profile types, keyed like `PROFILE_FIELDS`
- * (`models.*` matches every model binding).
- */
+/** Keyed like `PROFILE_FIELDS`; `models.*` matches every model binding. */
 export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = {
+  providerContinuation: {
+    profileTypes: TURN_TYPES,
+    reason: 'only model turns and live sessions use provider continuation',
+  },
+  ...Object.fromEntries(
+    [
+      'efforts',
+      'defaultEffort',
+      'allowEffortSelect',
+      'summaries',
+      'maxOutputTokens',
+      'temperature',
+      'builtInTools',
+    ].map((field) => [
+      `models.*.${field}`,
+      {
+        profileTypes: TURN_TYPES,
+        reason: 'only model turns use this setting; decisions send state and questions',
+      },
+    ]),
+  ),
+  'models.*.timeoutMs': {
+    profileTypes: ['decision'],
+    reason: 'only decision bindings configure a request timeout here',
+  },
   identity: {
     profileTypes: MODEL_PROFILE_TYPES,
     reason: 'a host profile has no agent identity — it runs no model',
@@ -67,19 +72,22 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   'identity.system': {
     profileTypes: ['text', 'image', 'live'],
     reason:
-      'speech has no system channel (the input text is the transcript) and a decision prompts through decision.contract',
+      'speech has no system channel (the input text is the transcript) and a decision is asked only through its questions',
   },
   'identity.systemByRole': {
     profileTypes: ['text', 'image', 'live'],
     reason:
-      'speech has no system channel (the input text is the transcript) and a decision prompts through decision.contract',
+      'speech has no system channel (the input text is the transcript) and a decision is asked only through its questions',
   },
   models: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
-  'models.*.compaction': {
-    profileTypes: ['text'],
-    reason: 'only text turns keep a history to compact',
+  'models.*.provider': {
+    profileTypes: MODEL_PROFILE_TYPES,
+    reason: 'a host profile runs no model',
   },
-  key: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
+  'models.*.compaction': {
+    profileTypes: ['text', 'image', 'speech'],
+    reason: 'live compacts with live.contextCompression',
+  },
   defaultModel: {
     profileTypes: TURN_TYPES,
     reason: 'a host profile runs no model and a decision declares exactly one',
@@ -111,18 +119,66 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
       'live function declarations are fixed at session setup, and a host profile can execute every allowed tool',
   },
   inputs: {
-    profileTypes: ['text', 'image', 'decision'],
-    reason:
-      'speech input is the transcript, live ingress is live.ingress, and a host profile takes no turns',
+    profileTypes: ['text', 'image', 'live', 'decision'],
+    reason: 'speech input is the transcript, and a host profile takes no turns',
   },
   'inputs.voice': {
     profileTypes: ['text'],
     reason: 'no image model reads audio, and a decision takes JSON state',
   },
+  'inputs.text': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.attachments': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.maxFiles': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.maxBytes': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.maxTurnBytes': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.limitsByMime': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.slots': {
+    profileTypes: SLOT_TYPES,
+    reason: SLOT_REASON,
+  },
+  'inputs.context': {
+    profileTypes: SLOT_TYPES,
+    reason: SLOT_REASON,
+  },
+  'inputs.state': {
+    profileTypes: ['decision'],
+    reason: 'only a decision reads JSON state; a turn takes text, files and slots',
+  },
+  'inputs.maxStateBytes': {
+    profileTypes: ['decision'],
+    reason: 'only a decision reads JSON state; a turn takes text, files and slots',
+  },
   outputs: {
     profileTypes: ['text', 'image', 'speech'],
     reason:
       'live output is the realtime session, and decision and host profiles produce no turn output',
+  },
+  'outputs.structured': {
+    profileTypes: ['text'],
+    reason: 'only a text reply has a JSON shape; image and speech turns return media',
+    offValue: null,
+  },
+  'outputs.validation': {
+    profileTypes: ['text'],
+    reason: 'validation checks a structured reply, which only text profiles make',
   },
   turnBehaviour: {
     profileTypes: TURN_TYPES,
@@ -140,38 +196,27 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     profileTypes: turnGuardrailTypes('quota'),
     reason: 'quota counts model turns',
   },
-  'guardrails.canary': {
+  'guardrails.detect': {
+    profileTypes: turnGuardrailTypes('detect'),
+    reason: 'the decision path runs none of the turn guardrails',
+  },
+  'guardrails.blockedReply': {
     profileTypes: ['text', 'image', 'live'],
-    reason:
-      'the canary is minted into a system prompt, which speech, decision and host profiles lack',
-    offValue: false,
-  },
-  'guardrails.sanitizeInput': {
-    profileTypes: turnGuardrailTypes('sanitizeInput'),
-    reason: 'the decision path runs none of the turn guardrails',
-  },
-  'guardrails.redactSensitive': {
-    profileTypes: turnGuardrailTypes('redactSensitive'),
-    reason: 'the decision path runs none of the turn guardrails',
-  },
-  'guardrails.egress': {
-    profileTypes: turnGuardrailTypes('egress'),
-    reason: 'egress gates user-visible model text in the turn runner',
+    reason: 'only a reply can be blocked, and speech, decision and host profiles write none',
   },
   'guardrails.network': {
-    profileTypes: turnGuardrailTypes('network'),
-    reason: 'the decision path calls no tools',
+    profileTypes: ['text', 'image', 'live', 'host'],
+    reason: 'speech and decision profiles call no tools',
   },
   'guardrails.taint': {
-    profileTypes: turnGuardrailTypes('taint'),
-    reason: 'the decision path calls no tools',
+    profileTypes: ['text', 'image', 'live'],
+    reason: 'speech and decision profiles call no tools, and a host profile runs no turn to taint',
   },
   'guardrails.disclosure': {
     profileTypes: ['decision'],
     reason: 'disclosure gates state leaving a decision profile for its model',
   },
 };
-
 /**
  * The scope entry that governs `path`: its own, else its nearest ancestor's.
  * `undefined` means every profile type.
@@ -184,19 +229,14 @@ export function profileFieldScope(path: string): ProfileFieldScope | undefined {
   }
   return undefined;
 }
-
-/** The profile types `path` may be set on. */
 export function profileTypesForField(path: string): readonly ProfileType[] {
   return profileFieldScope(path)?.profileTypes ?? ALL_PROFILE_TYPES;
 }
-
-/** A field set on a profile type outside its scope, at its concrete path. */
 export interface OutOfScopeField {
   /** e.g. `models.fast.compaction` for the `models.*.compaction` scope. */
   path: string;
   scope: ProfileFieldScope;
 }
-
 /** Every set value under `segments`, keyed by concrete path; `*` walks each key of a map. */
 function valuesAt(root: unknown, segments: readonly string[], at = ''): [string, unknown][] {
   if (!segments.length) return root === undefined ? [] : [[at, root]];
@@ -206,7 +246,6 @@ function valuesAt(root: unknown, segments: readonly string[], at = ''): [string,
   const keys = head === '*' ? Object.keys(record) : [head];
   return keys.flatMap((key) => valuesAt(record[key], rest, at ? `${at}.${key}` : key));
 }
-
 /**
  * Every field `profile` sets that its type may not, ancestors before their
  * children. A scope's off value is not reported.

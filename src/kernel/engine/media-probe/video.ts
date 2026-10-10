@@ -1,10 +1,3 @@
-/**
- * Video track length, frame size, and accompanying audio length from container
- * headers — MP4 / MOV / 3GP and Matroska / WebM. Frames are never decoded.
- *
- * @module
- */
-
 import {
   type MatroskaTrack,
   MKV_AUDIO_TRACK,
@@ -17,18 +10,13 @@ import { OPUS_RATE } from './opus.ts';
 
 const NS_PER_SECOND = 1e9;
 
-/** What a video file holds, as its headers state it. */
 export interface VideoInfo {
   /** Presented length of the first video track. */
   seconds: number;
   /** Coded frame size of the first video track. */
   width: number;
   height: number;
-  /**
-   * Decoded length of the first audio track (see `audioSeconds`) — `0` when
-   * there is none, `undefined` when there is one whose length cannot be read
-   * exactly.
-   */
+  /** `0` when there is no audio track; `undefined` when its length cannot be read exactly. */
   audioSeconds: number | undefined;
 }
 
@@ -70,16 +58,9 @@ function matroskaVideo(bytes: Uint8Array): VideoInfo | undefined {
 }
 
 /**
- * Video track length, coded frame size, and first audio track length of an
- * MP4 / MOV / 3GP or Matroska / WebM file — identified by its bytes, not its
- * declared MIME type. `undefined` for anything else, or when the video track's
- * length or frame size cannot be read.
- *
- * MP4 video length is the track's edit-list-aware header duration; its audio
- * length is decoded samples (`Mp4Track.decodedSeconds`). Matroska video
- * ends one frame after its latest block (`DefaultDuration`, else the gap
- * between the two latest blocks), else at the segment's stated `Duration`;
- * Matroska audio is known only when it is unlaced Opus.
+ * Identified by the bytes, not the declared MIME type. MP4 video length is the edit-list-aware
+ * header duration; Matroska video ends one frame after its latest block, else at the segment's
+ * stated `Duration`, and Matroska audio is known only when it is unlaced Opus.
  */
 export function videoInfo(bytes: Uint8Array): VideoInfo | undefined {
   return mp4Video(bytes) ?? matroskaVideo(bytes);

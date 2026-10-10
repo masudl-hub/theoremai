@@ -1,14 +1,3 @@
-/**
- * Tracks of a Matroska / WebM file: each track's type, codec, pixel size, and
- * what its blocks add up to. Shared by the audio and video readers.
- *
- * Live-recorded files (MediaRecorder, streaming muxers) leave the Segment and
- * Cluster sizes unknown and state no `Duration`; their elements are walked
- * all the same, so block timing is still read.
- *
- * @module
- */
-
 import { ascii, view } from './bytes.ts';
 import { OPUS_RATE, opusPacketSamples } from './opus.ts';
 
@@ -38,7 +27,10 @@ const MKV_LACING = 0x06;
 /** Track number (vint), relative timestamp (int16), and flags open every block. */
 const MKV_BLOCK_FIXED = 3;
 const NS_PER_SECOND = 1e9;
-/** Masters walked into; every other element is skipped by its size. */
+/**
+ * Masters are walked into whatever their size says, since live recordings (MediaRecorder,
+ * streaming muxers) leave Segment and Cluster sizes unknown; every other element is skipped by size.
+ */
 const MKV_DESCEND = new Set([
   MKV_SEGMENT,
   MKV_INFO,
@@ -52,7 +44,6 @@ const MKV_DESCEND = new Set([
 export const MKV_VIDEO_TRACK = 1;
 export const MKV_AUDIO_TRACK = 2;
 
-/** One track and the sum of its blocks. */
 export interface MatroskaTrack {
   number?: number;
   type?: number;
@@ -72,7 +63,6 @@ export interface MatroskaTrack {
   previousNs?: number;
 }
 
-/** Every track, the segment's stated duration, and whether every block was walked. */
 export interface Matroska {
   tracks: MatroskaTrack[];
   /** `Duration` from the segment info, in seconds. */
@@ -83,7 +73,6 @@ export interface Matroska {
 
 interface EbmlElement {
   id: number;
-  /** First payload byte. */
   body: number;
   size: number;
   /** Size is the reserved "unknown" value. */
@@ -138,7 +127,6 @@ export function opusSamplesFromNs(ns: number): number {
   return Math.round((ns * OPUS_RATE) / NS_PER_SECOND);
 }
 
-/** Walk state shared by the element loop and block readers. */
 interface Walk {
   tracks: MatroskaTrack[];
   scale: number;
@@ -147,10 +135,8 @@ interface Walk {
 }
 
 /**
- * Tracks of a Matroska / WebM file, or `undefined` when the bytes do not open
- * with an EBML header. A walk that meets a truncated or unknown-sized leaf
- * element, or a block whose header cannot be read, stops there and reports
- * `complete: false`.
+ * `undefined` without an EBML header. A truncated or unknown-sized leaf element, or an unreadable
+ * block header, stops the walk with `complete: false`.
  */
 export function matroska(bytes: Uint8Array): Matroska | undefined {
   const head = vint(bytes, 0, true);
@@ -167,7 +153,7 @@ export function matroska(bytes: Uint8Array): Matroska | undefined {
     }
     const incomplete = el.unknown || el.body + el.size > bytes.length;
     if (incomplete || !readLeaf(bytes, el, walk)) {
-      // Past here nothing can be walked; only a stated duration still holds.
+      // why: Past here nothing can be walked; only a stated duration still holds.
       return {
         tracks: walk.tracks,
         durationSeconds: seconds(walk.duration, walk.scale),

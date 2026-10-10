@@ -1,10 +1,6 @@
-/**
- * P2 — no unownable words.
- *
- * Two hosts with contradictory overrides (quota message, profile lexicon for
- * the continue instruction and error wording) must each see only their own copy; with overrides set, kernel
- * default strings must not appear in either turn's emitted text.
- */
+import { runTurn } from '../fixtures/registered-runner.ts';
+// P2: two hosts with contradictory overrides each see only their own copy, and no kernel default
+// string appears in either turn's emitted text.
 import '../fixtures/test-host.ts';
 import {
   defineProfile,
@@ -15,7 +11,6 @@ import {
   quotaExhausted,
   registerProfile,
   resetLexicon,
-  runTurn,
   type TurnEvent,
 } from '../../mod.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
@@ -60,7 +55,10 @@ Deno.test('two hosts: contradictory overrides never leak across turns', async ()
     identity: { handle: 'a', system: 'SYSTEM_A' },
     tools: { allow: [] },
     inputs: { text: true },
-    guardrails: { quota: { perDay: 3 }, canary: false },
+    guardrails: {
+      quota: { perDay: 3 },
+      detect: { canary_leak: 'ignore', prompt_leak: 'ignore' },
+    },
     lexicon: {
       'continue.instruction': HOST_A_CONTINUE,
       'error.internal': HOST_A_PUBLIC,
@@ -74,7 +72,10 @@ Deno.test('two hosts: contradictory overrides never leak across turns', async ()
     identity: { handle: 'b', system: 'SYSTEM_B' },
     tools: { allow: [] },
     inputs: { text: true },
-    guardrails: { quota: { perDay: 7 }, canary: false },
+    guardrails: {
+      quota: { perDay: 7 },
+      detect: { canary_leak: 'ignore', prompt_leak: 'ignore' },
+    },
     lexicon: {
       'continue.instruction': HOST_B_CONTINUE,
       'error.internal': HOST_B_PUBLIC,

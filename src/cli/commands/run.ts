@@ -1,7 +1,7 @@
-import { runTurn } from '../../kernel/engine/runner.ts';
-import { getProfile } from '../../kernel/registry/profiles.ts';
+import { getProfile, runTurn } from '../../kernel/default-scope.ts';
+import type { ProviderHostOptions } from '../../kernel/provider-contract.ts';
 import { requireModelProfile } from '../../kernel/registry/resolve.ts';
-import type { ModelProvider, TurnRequest } from '../../kernel/types.ts';
+import type { TurnRequest } from '../../kernel/types.ts';
 import { createCliTraceCapture, printRunEvent, printTraceRecord } from '../event-log.ts';
 
 export interface RunOptions {
@@ -10,7 +10,7 @@ export interface RunOptions {
   mode?: string;
   search?: boolean;
   map?: boolean;
-  provider?: ModelProvider;
+  provider?: ProviderHostOptions;
   verbose?: boolean;
   trace?: boolean;
   traceDir?: string;
@@ -21,7 +21,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
   const provider = options.provider;
   if (!provider) {
     console.error(
-      '\n\x1b[31mExecution Failed\x1b[0m: Theorem CLI does not create providers or read keys. Run turns from a host app with an explicit ModelProvider.\n',
+      '\n\x1b[31mExecution Failed\x1b[0m: Theorem CLI does not create providers or read keys. Run turns from a host app with an explicit ProviderHostOptions.\n',
     );
     return;
   }

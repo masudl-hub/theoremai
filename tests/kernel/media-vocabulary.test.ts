@@ -1,13 +1,8 @@
-/**
- * One owner for "what media can a turn carry": `MEDIA_INPUT_KINDS` is the whole
- * vocabulary, a profile's `accept` lists are the whole host declaration, and the
- * only per-adapter media refusal is the reference part.
- */
 import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { getProfile } from '../../src/kernel/default-scope.ts';
 import { mediaChannelForMime } from '../../src/kernel/registry/catalog.ts';
-import { getProfile } from '../../src/kernel/registry/profiles.ts';
 import { MEDIA_INPUT_KINDS } from '../../src/kernel/schema.ts';
 import type { InteractionPart, MediaInputKind } from '../../src/kernel/types.ts';
 import { wireMessageContent } from '../../src/providers/openrouter/openai/compat.ts';

@@ -1,116 +1,13 @@
-/**
- * Prompt-injection span detection.
- *
- * These utilities return spans that can be redacted from untrusted user text
- * before provider submission.
- *
- * @module
- */
-
-import { blobAt, type RedactSpan, spansFromPatterns } from '../observability/spans.ts';
-import { normalizeForDetection } from './normalize.ts';
-
-const IGNORE_PREVIOUS =
-  /ignore\s+(all\s+)?(previous|prior)\s+((?:safety|security|system|operational|internal|core|original|initial|existing|given|stated|provided|defined|specified|established)\s+)?(instructions?|rules?|guidelines?|constraints?|directives?)/gi;
-const DISREGARD_INSTRUCTIONS =
-  /disregard\s+(all\s+)?(previous|prior|above)\s+(instructions?|rules?|guidelines?|constraints?|directives?)/gi;
-const FORGET_INSTRUCTIONS =
-  /forget\s+(all\s+)?(previous|prior|above)\s+(instructions?|rules?|guidelines?|constraints?|directives?)/gi;
-const NEW_INSTRUCTIONS = /new\s+instructions?:/gi;
-const DO_NOT_FOLLOW = /do\s+not\s+follow\s+(the\s+)?(system|developer|previous|original)/gi;
-const SUPERSEDE_INSTRUCTIONS =
-  /supersedes?\s+(all\s+)?(prior|previous)\s+(instructions?|rules?|guidelines?|constraints?|directives?)/gi;
-const VOID_INSTRUCTIONS =
-  /(all\s+)?(previous|prior)\s+instructions?\s+(are|is)\s+(void|invalid|null|obsolete|cancelled|revoked)/gi;
-const DEVELOPER_MODE = /you\s+are\s+now\s+(in\s+)?developer\s+mode/gi;
-const ENTER_SPECIAL_MODE =
-  /enter\s+(developer|admin|debug|maintenance)\s+mode(?!\s+(?:in|on|via|through|from|using|for)\b)/gi;
-const ACTIVATE_SPECIAL_MODE =
-  /activate\s+(developer|admin|debug|jailbreak)\s+mode(?!\s+(?:in|on|via|through|from|using|for)\b)/gi;
-const SYSTEM_OVERRIDE = /\bsystem\s+override\b/gi;
-const OVERRIDE_INSTRUCTIONS =
-  /override\s+(your\s+)?(instructions?|rules?|guidelines?|constraints?|directives?)/gi;
-const REVEAL_PROMPT =
-  /reveal\s+((?:your?|yoru|yuor|the|my|its|his|her|our|their)\s+)?((?:(?:full|hidden|complete|internal|secret|original|entire|exact|actual|real)\s+){0,2})((?:system|systme|sysetm|systemp?)\s+)?prompt\b/gi;
-const SHOW_PROMPT =
-  /show\s+(me\s+)?((?:your?|yoru|yuor|the|my|its|his|her|our|their)\s+)((?:system|systme|sysetm|systemp?)\s+)?prompt\b/gi;
-const WHAT_INSTRUCTIONS = /what\s+(are|were)\s+(your\s+)?(exact\s+)?instructions/gi;
-const REPEAT_INSTRUCTIONS = /repeat\s+(the\s+)?(text|instructions?)\s+(above|before)/gi;
-const OUTPUT_PROMPT = /output\s+(your\s+)?(initial|original|system)\s+(prompt|instructions?)/gi;
-const REMOVE_RESTRICTIONS = /you\s+are\s+no\s+longer\s+(bound|restricted|limited)/gi;
-const ACT_UNBOUND = /act\s+as\s+if\s+(you('re|\s+are)\s+)?not\s+bound/gi;
-const PRETEND_DIFFERENT =
-  /pretend\s+(you('re|\s+are)\s+)?(a\s+)?different\s+(ai|assistant|model)/gi;
-const IDENTITY_HIJACK =
-  /you\s+are\s+now\s+(?:(?:a|an)\s+)?\w+.{0,40}(without\s+(any\s+)?restrict|ignor\w*\s+(all|any|every|prev)|bypass|unrestrict|unlimit|obey\s+only|no\s+(rules|limits|restrict|boundari))/gi;
-const DAN_JAILBREAK = /\bDAN\b[\s\S]{0,120}\bdo\s+anything\s+now\b/g;
-const JAILBREAK_MODE = /jailbreak(ed)?\s+(mode|prompt)/gi;
-const DO_ANYTHING_NOW = /\bdo\s+anything\s+now\b/gi;
-const BYPASS_SAFETY =
-  /bypass\s+(your\s+)?(safety|security|content|ethical)\s+(filters?|measures?|guidelines?|restrictions?)/gi;
-const DISABLE_SAFETY =
-  /(disable|delete|remove|turn\s+off|eliminate)\s+(all\s+)?(your\s+)?(safety|security|content)\s+(filters?|measures?|rules?|guidelines?|restrictions?)/gi;
-const IGNORE_SAFETY =
-  /(ignore|disregard)\s+(all\s+)?(your\s+)?(safety|security|ethical|content)\s+(guidelines?|rules?|restrictions?|measures?|filters?|polic(?:y|ies)|protocols?)/gi;
-/** Bound whitespace so tag scanners cannot polynomial-backtrack on long runs. */
-const TAG_WS = String.raw`[^\S\r\n]{0,32}`;
-const SYSTEM_TAG = new RegExp(`<${TAG_WS}\\/?${TAG_WS}system${TAG_WS}\\/?>`, 'gi');
-const ROLE_TAG = new RegExp(
-  `<${TAG_WS}\\/?${TAG_WS}(assistant|developer|tool|function)${TAG_WS}\\/?>`,
-  'gi',
-);
-const ROLE_DELIMITER = /\][^\S\r\n]{0,32}\n[^\S\r\n]{0,32}\[?(system|assistant|user)\]?:/gi;
-const BRACKETED_ROLE =
-  /\[[^\S\r\n]{0,32}(System[^\S\r\n]{0,8}Message|System|Assistant|Internal)[^\S\r\n]{0,32}\]/gi;
-const SYSTEM_YOU_ARE = /^[^\S\r\n]{0,32}System:[^\S\r\n]{1,32}(you\s+are|ignore|override)/gim;
-const CONTROL_TOKEN = /<\|(?:im_start|im_end|eot_id|start_header_id|end_header_id|endoftext)\|>/g;
-const DEEPSEEK_CONTROL = /<｜(?:end▁of▁sentence|begin▁of▁sentence)｜>/g;
-const LLAMA_INST = /\[\/?INST\]/gi;
-const IGNORE_YOUR_INSTRUCTIONS = /ignore\s+(all\s+)?(your\s+)?(instructions?|rules?)\b/gi;
-const UNRESTRICTED_MODE = /\bunrestricted\s+(ai|mode|model)\b/gi;
-const IGNORE_MULTILANG =
-  /\b(?:ignorieren|ignorez|ignora|ignorer|oubliez|vergessen|olvida|desestima|missachten)\b[\s\S]{0,50}\b(?:anweisungen|instructions?|instrucciones|directives?|r[eè]gles|reglas)\b/gi;
-
-const INJECTION_PATTERNS = [
-  IGNORE_PREVIOUS,
-  DISREGARD_INSTRUCTIONS,
-  FORGET_INSTRUCTIONS,
-  NEW_INSTRUCTIONS,
-  DO_NOT_FOLLOW,
-  SUPERSEDE_INSTRUCTIONS,
-  VOID_INSTRUCTIONS,
-  DEVELOPER_MODE,
-  ENTER_SPECIAL_MODE,
-  ACTIVATE_SPECIAL_MODE,
-  SYSTEM_OVERRIDE,
-  OVERRIDE_INSTRUCTIONS,
-  REVEAL_PROMPT,
-  SHOW_PROMPT,
-  WHAT_INSTRUCTIONS,
-  REPEAT_INSTRUCTIONS,
-  OUTPUT_PROMPT,
-  REMOVE_RESTRICTIONS,
-  ACT_UNBOUND,
-  PRETEND_DIFFERENT,
-  IDENTITY_HIJACK,
-  DAN_JAILBREAK,
-  JAILBREAK_MODE,
-  DO_ANYTHING_NOW,
-  BYPASS_SAFETY,
-  DISABLE_SAFETY,
-  IGNORE_SAFETY,
-  SYSTEM_TAG,
-  ROLE_TAG,
-  ROLE_DELIMITER,
-  BRACKETED_ROLE,
-  SYSTEM_YOU_ARE,
-  CONTROL_TOKEN,
-  DEEPSEEK_CONTROL,
-  LLAMA_INST,
-  IGNORE_YOUR_INSTRUCTIONS,
-  UNRESTRICTED_MODE,
-  IGNORE_MULTILANG,
-];
+import { blobAt, mergeSpans, type RedactSpan, spansFromPatterns } from '../observability/spans.ts';
+import { REVERSED_INJECTION_PATTERNS } from './egress-automata.ts';
+import {
+  BASE64_BLOB,
+  HEX_BLOB,
+  INJECTION_PATTERNS,
+  PIPE_SEPARATED,
+  SPACED_LETTERS,
+} from './injection-patterns.ts';
+import { normalizedView, normalizeForDetection } from './normalize.ts';
 
 const TYPO_TARGETS = [
   'ignore',
@@ -134,13 +31,64 @@ const TYPO_TARGETS = [
   'developer',
   'disable',
   'measures',
+  'output',
 ];
 
-const BASE64_BLOB = /[A-Za-z0-9+/]{16,}={0,2}/g;
-const HEX_BLOB = /(?:[0-9a-f]{2}[\s]?){8,}/gi;
-const SPACED_LETTERS = /\b(?:[A-Za-z] ){3,}[A-Za-z]\b/g;
-/** Three+ alphabetic tokens joined by `|` (no shell spaces around pipes). */
-const PIPE_SEPARATED = /\b(?:[A-Za-z]+\|){2,}[A-Za-z]+\b/g;
+/** The shortest target a one-edit misspelling is read as: a shorter word has too many real neighbours. */
+const EDIT_TARGET_MIN = 6;
+
+/**
+ * Real words one edit from a target (`forgot`, `safely`, `filter`): the dictionary's, and the
+ * inflections it leaves out. They are words, not misspellings.
+ */
+const REAL_WORDS: ReadonlySet<string> = new Set([
+  'instruction',
+  'filter',
+  'guideline',
+  'restriction',
+  'measure',
+  'ignote',
+  'bypast',
+  'overrode',
+  'overrife',
+  'overripe',
+  'overrise',
+  'overrude',
+  'overside',
+  'overtide',
+  'overwide',
+  'redeal',
+  'reheal',
+  'repeal',
+  'reseal',
+  'reveil',
+  'revel',
+  'delate',
+  'deplete',
+  'safely',
+  'fitters',
+  'precious',
+  'premious',
+  'prepious',
+  'forge',
+  'forged',
+  'forger',
+  'forges',
+  'forgot',
+  'forlet',
+  'forpet',
+  'forset',
+  'gorget',
+  'developed',
+  'measured',
+  'measurer',
+  'outcut',
+  'outhut',
+  'outjut',
+]);
+
+const TYPO_TARGET_SET: ReadonlySet<string> = new Set(TYPO_TARGETS);
+
 /** Pipe evasion only when the first token is a known injection lead-in. */
 const PIPE_HEAD_VERBS =
   /^(ignore|disregard|forget|bypass|reveal|show|repeat|output|disable|override|new|jailbreak|pretend|act|enter|activate|void|supersede|do)$/i;
@@ -186,15 +134,126 @@ function isTypoglycemia(word: string, target: string): boolean {
   return sortedLetters(lower.slice(1, -1)) === sortedLetters(target.slice(1, -1));
 }
 
-function typoNormalize(text: string): string {
-  return text.replace(WORD, (word) => {
-    for (const target of TYPO_TARGETS) {
-      if (isTypoglycemia(word, target)) {
-        return target;
-      }
-    }
-    return word;
+/** Whether one insertion, deletion, substitution or swap of two neighbours turns `word` into `target`. */
+function isOneEdit(word: string, target: string): boolean {
+  const wordEnd = word.length - 1;
+  const targetEnd = target.length - 1;
+  if (word[0] !== target[0] && word[wordEnd] !== target[targetEnd]) {
+    return false;
+  }
+  const short = Math.min(word.length, target.length);
+  let head = 0;
+  while (head < short && word[head] === target[head]) {
+    head += 1;
+  }
+  let tail = 0;
+  while (tail < short - head && word[wordEnd - tail] === target[targetEnd - tail]) {
+    tail += 1;
+  }
+  if (word.length !== target.length) {
+    return head + tail === short;
+  }
+  const differing = short - head - tail;
+  return (
+    differing === 1 ||
+    (differing === 2 && word[head] === target[head + 1] && word[head + 1] === target[head])
+  );
+}
+
+/**
+ * Whether `word` is `target` misspelt by one edit. A real word is not: one of
+ * {@linkcode REAL_WORDS}, or the target with a letter added at its end
+ * (`ignored`, `systems`).
+ */
+function isMisspelling(word: string, target: string): boolean {
+  return isOneEdit(word, target) && !REAL_WORDS.has(word) && word.slice(0, -1) !== target;
+}
+
+/** For a word length, the targets a scramble of that length can be, and the targets a one-edit misspelling of it can be. */
+const TARGETS_BY_LENGTH = new Map<number, { same: string[]; near: string[] }>();
+for (
+  let length = 4;
+  length <= Math.max(...TYPO_TARGETS.map((target) => target.length)) + 1;
+  length += 1
+) {
+  TARGETS_BY_LENGTH.set(length, {
+    same: TYPO_TARGETS.filter((target) => target.length === length),
+    near: TYPO_TARGETS.filter(
+      (target) => target.length >= EDIT_TARGET_MIN && Math.abs(target.length - length) <= 1,
+    ),
   });
+}
+
+/** The target `word` is read as, or `undefined`: a scramble of one first, then a one-edit misspelling. */
+function targetOf(word: string): string | undefined {
+  const targets = TARGETS_BY_LENGTH.get(word.length);
+  if (targets === undefined) {
+    return undefined;
+  }
+  const lower = word.toLowerCase();
+  if (TYPO_TARGET_SET.has(lower)) {
+    return undefined;
+  }
+  return (
+    targets.same.find((target) => isTypoglycemia(lower, target)) ??
+    targets.near.find((target) => isMisspelling(lower, target))
+  );
+}
+
+/** A word `typoNormalize` rewrites: where it is in the text, and the target it becomes. */
+interface Fold {
+  start: number;
+  end: number;
+  to: string;
+}
+
+function typoFolds(text: string): Fold[] {
+  const folds: Fold[] = [];
+  for (const match of text.matchAll(WORD)) {
+    const to = targetOf(match[0]);
+    if (to !== undefined) {
+      folds.push({ start: match.index, end: match.index + match[0].length, to });
+    }
+  }
+  return folds;
+}
+
+function applyFolds(text: string, folds: readonly Fold[]): string {
+  let out = '';
+  let at = 0;
+  for (const fold of folds) {
+    out += text.slice(at, fold.start) + fold.to;
+    at = fold.end;
+  }
+  return out + text.slice(at);
+}
+
+function typoNormalize(text: string): string {
+  return applyFolds(text, typoFolds(text));
+}
+
+/**
+ * `typoNormalize(text)`, and for an index in it the index of `text` it stands
+ * for. A corrected word may be a letter longer or shorter than the word as
+ * written, so an index past the written word stands for its last letter.
+ */
+function typoFolded(text: string): { text: string; at: (index: number) => number } {
+  const folds = typoFolds(text);
+  const at = (index: number): number => {
+    let shift = 0;
+    for (const fold of folds) {
+      const start = fold.start + shift;
+      if (index < start) {
+        break;
+      }
+      if (index < start + fold.to.length) {
+        return fold.start + Math.min(index - start, fold.end - fold.start - 1);
+      }
+      shift += fold.to.length - (fold.end - fold.start);
+    }
+    return index - shift;
+  };
+  return { text: applyFolds(text, folds), at };
 }
 
 function isMostlyPrintable(value: string): boolean {
@@ -249,58 +308,47 @@ function tryHex(blob: string): string | undefined {
   return out;
 }
 
-function encodedFrom(
-  text: string,
-  pattern: RegExp,
-  decode: (blob: string) => string | undefined,
-): RedactSpan[] {
+function base64Hit(blob: string): boolean {
+  const decoded = tryBase64(blob);
+  return decoded !== undefined && decodedHits(decoded);
+}
+
+function hexHit(blob: string): boolean {
+  const decoded = tryHex(blob);
+  return decoded !== undefined && decodedHits(decoded);
+}
+
+function spacedHit(blob: string): boolean {
+  const collapsed = blob.replaceAll(' ', '');
+  return injectionSpansOn(`${collapsed} previous instructions`).length > 0;
+}
+
+function pipeHit(blob: string): boolean {
+  const head = blob.split('|')[0]?.toLowerCase();
+  if (!head || !PIPE_HEAD_VERBS.test(head)) return false;
+  return injectionSpansOn(blob.replaceAll('|', ' ')).length > 0;
+}
+
+/** Blob patterns whose match is a hit only when the blob decodes to an injection. */
+const INJECTION_BLOBS: readonly { pattern: RegExp; hit: (blob: string) => boolean }[] = [
+  { pattern: BASE64_BLOB, hit: base64Hit },
+  { pattern: HEX_BLOB, hit: hexHit },
+  { pattern: SPACED_LETTERS, hit: spacedHit },
+  { pattern: PIPE_SEPARATED, hit: pipeHit },
+];
+
+function blobSpans(text: string): RedactSpan[] {
   const spans: RedactSpan[] = [];
-  for (const match of text.matchAll(pattern)) {
-    const found = blobAt(match);
-    if (found) {
-      const decoded = decode(found.blob);
-      if (decoded && decodedHits(decoded)) {
+  for (const { pattern, hit } of INJECTION_BLOBS) {
+    for (const match of text.matchAll(pattern)) {
+      const found = blobAt(match);
+      if (found && hit(found.blob)) {
         spans.push({ start: found.index, end: found.index + found.blob.length, kind: 'injection' });
       }
     }
   }
   return spans;
 }
-
-function encodedSpans(text: string): RedactSpan[] {
-  return [...encodedFrom(text, BASE64_BLOB, tryBase64), ...encodedFrom(text, HEX_BLOB, tryHex)];
-}
-
-function spacedSpans(text: string): RedactSpan[] {
-  const spans: RedactSpan[] = [];
-  for (const match of text.matchAll(SPACED_LETTERS)) {
-    const found = blobAt(match);
-    if (found) {
-      const collapsed = found.blob.replaceAll(' ', '');
-      if (injectionSpansOn(`${collapsed} previous instructions`).length > 0) {
-        spans.push({ start: found.index, end: found.index + found.blob.length, kind: 'injection' });
-      }
-    }
-  }
-  return spans;
-}
-
-function pipeSeparatedSpans(text: string): RedactSpan[] {
-  const spans: RedactSpan[] = [];
-  for (const match of text.matchAll(PIPE_SEPARATED)) {
-    const found = blobAt(match);
-    if (!found) continue;
-    const head = found.blob.split('|')[0]?.toLowerCase();
-    if (!head || !PIPE_HEAD_VERBS.test(head)) continue;
-    const collapsed = found.blob.replaceAll('|', ' ');
-    if (injectionSpansOn(collapsed).length > 0) {
-      spans.push({ start: found.index, end: found.index + found.blob.length, kind: 'injection' });
-    }
-  }
-  return spans;
-}
-
-// ── Encoding evasion decoders ────────────────────────────────────────
 
 function tryRot13(text: string): string {
   return text.replace(/[a-zA-Z]/g, (c) => {
@@ -309,18 +357,24 @@ function tryRot13(text: string): string {
   });
 }
 
-function tryUrlDecode(text: string): string | undefined {
-  if (!text.includes('%')) return undefined;
-  try {
-    const decoded = decodeURIComponent(text);
-    return decoded !== text ? decoded : undefined;
-  } catch {
-    return undefined;
-  }
+const URL_ESCAPES = /(?:%[0-9A-Fa-f]{2})+/g;
+const UTF8 = new TextDecoder();
+
+/** Each run of `%XX` escapes decoded on its own, so one stray `%` cannot switch decoding off. */
+function decodeUrlRuns(text: string): string {
+  return text.replace(URL_ESCAPES, (run) => {
+    const bytes = new Uint8Array(run.length / 3);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = Number.parseInt(run.slice(i * 3 + 1, i * 3 + 3), HEX_RADIX);
+    }
+    return UTF8.decode(bytes);
+  });
 }
 
-function tryReverse(text: string): string {
-  return [...text].reverse().join('');
+function tryUrlDecode(text: string): string | undefined {
+  if (!text.includes('%')) return undefined;
+  const decoded = decodeUrlRuns(text);
+  return decoded !== text ? decoded : undefined;
 }
 
 const LEET_MAP: Record<string, string> = {
@@ -344,52 +398,142 @@ function tryLeet(text: string): string | undefined {
   return decoded !== text ? decoded : undefined;
 }
 
-function decodedTextSpans(text: string): RedactSpan[] {
-  const attempts: (string | undefined)[] = [tryRot13(text), tryUrlDecode(text), tryLeet(text)];
-  const reversed = tryReverse(text);
-  if (reversed !== text) {
-    attempts.push(reversed);
-  }
-  for (const decoded of attempts) {
-    if (decoded && decoded !== text && injectionSpansOn(decoded).length > 0) {
-      return [{ start: 0, end: text.length, kind: 'injection' }];
-    }
-  }
-  return [];
+/** A rewrite of a text, and for an index of it the stretch of the text as written it stands for. */
+interface View {
+  text: string;
+  start: (index: number) => number;
+  end: (index: number) => number;
 }
 
-// ── Main entry point ─────────────────────────────────────────────────
+/** Matches found in a rewrite, each placed on the stretch of the text as written it was read from. */
+function placed(spans: readonly RedactSpan[], view: Omit<View, 'text'>): RedactSpan[] {
+  return spans.map((span) => ({
+    ...span,
+    start: view.start(span.start),
+    end: view.end(span.end - 1),
+  }));
+}
 
-function injectionSpans(text: string): RedactSpan[] {
-  const direct = injectionSpansOn(text);
+/** The matches in the text typo-folded, as indexes of the folded text, and the way back from it. */
+function typoSpans(text: string): { spans: RedactSpan[]; view: View } {
+  const folded = typoFolded(text);
+  return {
+    spans: folded.text === text ? [] : injectionSpansOn(folded.text),
+    view: { text: folded.text, start: folded.at, end: (index) => folded.at(index) + 1 },
+  };
+}
 
-  const shadow = typoNormalize(text);
-  let typo: RedactSpan[] = [];
-  if (shadow !== text) {
-    typo = injectionSpansOn(shadow);
-  }
+function unicodeView(text: string): View {
+  const view = normalizedView(text);
+  return {
+    text: view.text,
+    start: (index) => view.start[index] ?? text.length,
+    end: (index) => view.end[index] ?? text.length,
+  };
+}
 
-  const normalized = normalizeForDetection(text);
-  let unicodeHits: RedactSpan[] = [];
-  if (normalized !== text) {
-    const normalizedTypo = typoNormalize(normalized);
-    if (
-      injectionSpansOn(normalized).length > 0 ||
-      (normalizedTypo !== normalized && injectionSpansOn(normalizedTypo).length > 0)
-    ) {
-      unicodeHits = [{ start: 0, end: text.length, kind: 'injection' }];
+/** `decodeUrlRuns(text)`: a decoded character stands for the whole run of escapes it came from. */
+function urlView(text: string): View {
+  const start: number[] = [];
+  const end: number[] = [];
+  let decoded = '';
+  let last = 0;
+  const keep = (to: number): void => {
+    for (let i = last; i < to; i += 1) {
+      start.push(i);
+      end.push(i + 1);
     }
+    decoded += text.slice(last, to);
+  };
+  for (const match of text.matchAll(URL_ESCAPES)) {
+    keep(match.index);
+    const run = decodeUrlRuns(match[0]);
+    last = match.index + match[0].length;
+    for (let i = 0; i < run.length; i += 1) {
+      start.push(match.index);
+      end.push(last);
+    }
+    decoded += run;
   }
+  keep(text.length);
+  return {
+    text: decoded,
+    start: (index) => start[index] ?? text.length,
+    end: (index) => end[index] ?? text.length,
+  };
+}
 
+/** A rewrite of a rewrite: `inner` is a view of `outer.text`. */
+function through(inner: View, outer: View): View {
+  return {
+    text: inner.text,
+    start: (index) => outer.start(inner.start(index)),
+    end: (index) => outer.end(inner.end(index) - 1),
+  };
+}
+
+function urlSpans(text: string): RedactSpan[] {
+  const decoded = tryUrlDecode(text);
+  const spans = decoded === undefined ? [] : injectionSpansOn(decoded);
+  return spans.length > 0 ? placed(spans, urlView(text)) : [];
+}
+
+/**
+ * The matches in the text decoded: ROT13 and leet keep each character in its
+ * place, a URL-decoded match is placed through {@linkcode urlView}, and text
+ * written backwards is matched as written, by each pattern reversed
+ * (`REVERSED_INJECTION_PATTERNS`).
+ */
+function decodedTextSpans(text: string): RedactSpan[] {
+  const leet = tryLeet(text);
   return [
-    ...direct,
-    ...typo,
-    ...unicodeHits,
-    ...encodedSpans(text),
-    ...spacedSpans(text),
-    ...pipeSeparatedSpans(text),
-    ...decodedTextSpans(text),
+    ...injectionSpansOn(tryRot13(text)),
+    ...(leet === undefined ? [] : injectionSpansOn(leet)),
+    ...urlSpans(text),
+    ...spansFromPatterns(text, REVERSED_INJECTION_PATTERNS, 'injection'),
   ];
 }
 
-export { injectionSpans };
+/** The matches in the text normalized, and in that typo-folded. The way back is built only when one of them matches. */
+function unicodeSpans(text: string): RedactSpan[] {
+  const normalized = normalizeForDetection(text);
+  if (normalized === text) {
+    return [];
+  }
+  const spans = injectionSpansOn(normalized);
+  const typo = typoSpans(normalized);
+  if (spans.length === 0 && typo.spans.length === 0) {
+    return [];
+  }
+  const view = unicodeView(text);
+  return [...placed(spans, view), ...placed(typo.spans, through(typo.view, view))];
+}
+
+/**
+ * The spans of injection in the text, each stretch once. The text is read as
+ * written and in each rewrite of it: typo-folded, normalized, decoded, and its
+ * encoded blobs. A match in a rewrite is the stretch of the text as written it
+ * was read from, so text around a match stays.
+ */
+function injectionSpans(text: string): RedactSpan[] {
+  const typo = typoSpans(text);
+  return mergeSpans([
+    ...injectionSpansOn(text),
+    ...placed(typo.spans, typo.view),
+    ...unicodeSpans(text),
+    ...blobSpans(text),
+    ...decodedTextSpans(text),
+  ]);
+}
+
+export {
+  decodeUrlRuns,
+  INJECTION_BLOBS,
+  injectionSpans,
+  LEET_MAP,
+  TYPO_TARGETS,
+  tryLeet,
+  tryRot13,
+  typoFolded,
+  typoNormalize,
+};

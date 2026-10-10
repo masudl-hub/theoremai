@@ -1,0 +1,61 @@
+/**
+ * Every rule id Theorem's own guardrails report, in one place. The trace
+ * catalog describes each one, and its description map is keyed by
+ * {@link GuardrailRule}, so a new id fails typecheck until it is described.
+ * A host's egress `enforce` hook may report ids of its own; those are not here.
+ *
+ * @module
+ */
+
+import type { Detector } from './detectors.ts';
+
+/** What a detector found, the same id at every boundary; the event names the boundary. */
+export const DETECT_RULES = {
+  ids: 'detect.ids',
+  financial: 'detect.financial',
+  network: 'detect.network',
+  credentials: 'detect.credentials',
+  injection: 'detect.injection',
+  tool_instructions: 'detect.tool_instructions',
+  canary_leak: 'detect.canary_leak',
+  prompt_leak: 'detect.prompt_leak',
+  marker_leak: 'detect.marker_leak',
+  ungiven_images: 'detect.ungiven_images',
+  ungiven_links: 'detect.ungiven_links',
+  tool_leak: 'detect.tool_leak',
+} as const satisfies Record<Detector, string>;
+
+/** The rule a match of `key` reports: a detector of Theorem's, or the id of one of the host's own (`detect.acme.record`). */
+export function detectRule(key: string): string {
+  return `detect.${key}`;
+}
+
+/** What stops a reply besides a detector's match. */
+export const EGRESS_RULES = {
+  /**
+   * A provider-side built-in tool carried the canary or the system prompt. It
+   * ran before Theorem saw it: the data already left, so this is an incident.
+   */
+  providerToolLeak: 'egress.provider-tool-leak', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  /** Payload could not be rendered for inspection — released output is unverified. */
+  unscannable: 'egress.unscannable', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+} as const;
+
+/** A tool call refused for what the turn read before it. */
+export const TOOL_RULES = {
+  taintedTurn: 'tool_call.tainted-turn',
+  steeredTurn: 'tool_call.steered-turn',
+  remoteDestination: 'tool_call.remote-destination',
+} as const;
+
+/** A tool's network target refused before any request was made. */
+export const NETWORK_RULES = {
+  blocked: 'network.blocked',
+} as const;
+
+/** A rule id Theorem's own guardrails report. */
+export type GuardrailRule =
+  | (typeof DETECT_RULES)[keyof typeof DETECT_RULES]
+  | (typeof EGRESS_RULES)[keyof typeof EGRESS_RULES]
+  | (typeof TOOL_RULES)[keyof typeof TOOL_RULES]
+  | (typeof NETWORK_RULES)[keyof typeof NETWORK_RULES];

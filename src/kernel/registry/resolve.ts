@@ -1,21 +1,20 @@
-/**
- * Profile resolution for THEOREM turns.
- *
- * @module
- */
-
 import { mintCanary } from '../../guardrails/canary.ts';
+import { detects } from '../../guardrails/detectors.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
+import { replyIsJudged } from '../../guardrails/progressive-yield.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
+import { DEFAULT_MAX_STEPS } from '../profile-presence.ts';
 import { profileTurnResumption } from '../stop.ts';
 import { projectTools } from '../tools/project.ts';
+import type { ToolRegistry } from '../tools/registry.ts';
 import { resolveTurnTools } from '../tools/resolve.ts';
 import type {
   ModelBinding,
   ModelId,
   ModelProfile,
   Profile,
+  ProfileLiveSpec,
   ProjectedProfile,
   ProviderTransport,
   ResolvedGeneration,
@@ -28,19 +27,21 @@ import { profileInputs, requireModelBinding } from './catalog.ts';
 import {
   assertOutputMode,
   assertSpeechRole,
+  assertTurnContext,
+  assertTurnSlots,
   resolveImageFormat,
   resolveInputParts,
+  resolveSpeech,
 } from './ingress.ts';
-import { getProfile } from './profiles.ts';
+import type { KernelRegistry } from './kernel-registry.ts';
 import { resolveTurnSystemPrompt } from './system-prompt.ts';
-import { providerUsesKeySlots, resolveKeySlot } from './vault.ts';
+import { resolveKeySlot } from './vault.ts';
 
-/** True for a profile that runs a model turn; `host` and `decision` never do. */
 function isModelProfile(profile: Profile): profile is ModelProfile {
   return profile.type !== 'host' && profile.type !== 'decision';
 }
 
-/** Narrow to a profile that runs a model turn, or throw naming the door it cannot use. */
+/** Returns the profile when it runs a model; throws a request error naming `door` for a host or decision profile. */
 function requireModelProfile(profile: Profile, door: string): ModelProfile {
   if (isModelProfile(profile)) return profile;
   if (profile.type === 'host') {
@@ -55,10 +56,7 @@ function requireModelProfile(profile: Profile, door: string): ModelProfile {
   );
 }
 
-/**
- * Chooses a profile model, honoring an explicit request only when selection is
- * allowed; otherwise the profile's default, which registration guarantees.
- */
+/** A request is honored only when selection is allowed; registration guarantees the default. */
 function pickModel(profile: ModelProfile, requested?: string): ModelId {
   if (requested) {
     if (!profile.allowModelSelect) {
@@ -105,14 +103,8 @@ function resolveEffort(
     }
     return level;
   }
-  const alias = binding.defaultEffort ?? (keys.length === 1 ? keys[0] : undefined);
-  if (!alias) {
-    throw new TheoremError(
-      'config',
-      `Profile ${profile.id} model '${modelId}' must set defaultEffort when more than one effort is declared`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  return efforts[alias];
+  // why: Registration requires a default whenever more than one effort is declared.
+  return efforts[binding.defaultEffort ?? keys[0]];
 }
 
 function resolveSummaries(binding: ModelBinding): SummaryMode | undefined {
@@ -149,10 +141,6 @@ function resolveStructured(
   return structured.fallback;
 }
 
-/**
- * THEOREM prefers SSE when the host omits `outputs.streaming.mode`.
- * Explicit `'buffered'` opts out; `'sse'` (or omit) yields `stream: true`.
- */
 function resolveStreamFlag(profile: ModelProfile): boolean {
   if (profile.type === 'live') {
     return true;
@@ -160,21 +148,8 @@ function resolveStreamFlag(profile: ModelProfile): boolean {
   return profile.outputs?.streaming?.mode !== 'buffered';
 }
 
-function resolveStore(binding: ModelBinding, reqStore: boolean | undefined): boolean | undefined {
-  if (reqStore !== undefined) {
-    return reqStore;
-  }
-  return binding.store;
-}
-
-function resolveTransport(profile: ModelProfile, binding: ModelBinding): ProviderTransport {
-  if (profile.type === 'live') {
-    return 'geminiLive';
-  }
-  if (binding.protocol === 'geminiInteractions' && binding.provider === 'google') {
-    return 'interactions';
-  }
-  return 'openAiCompat';
+function resolveTransport(profile: ModelProfile, _binding: ModelBinding): ProviderTransport {
+  return profile.type === 'live' ? 'live' : 'turn';
 }
 
 function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
@@ -210,56 +185,77 @@ function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
   }
 }
 
-/** Resolve a host `TurnRequest` into provider-ready generation state. */
-function resolveTurn(req: TurnRequest): {
+/**
+ * A guarded Live profile (a detector reading `live_reply`) always transcribes its own speech: the outbound gate can only check audio
+ * through its transcript.
+ */
+function resolveLiveSpec(
+  live: ProfileLiveSpec | undefined,
+  guardrails: ModelProfile['guardrails'],
+): ProfileLiveSpec | undefined {
+  if (!replyIsJudged(resolveGuardrailPolicy(guardrails), ['live_reply'])) {
+    return live;
+  }
+  return { ...live, transcription: { ...live?.transcription, output: true } };
+}
+
+/**
+ * A canary for the turn while `canary_leak` reads somewhere, else none. Speech
+ * has no system prompt to plant one in.
+ */
+function plantedCanary(profile: ModelProfile): string {
+  const { detect } = resolveGuardrailPolicy(profile.guardrails);
+  return profile.type !== 'speech' && detects(detect, 'canary_leak') ? mintCanary() : '';
+}
+
+function resolveTurnInRegistry(
+  registry: KernelRegistry,
+  req: TurnRequest,
+): {
   profile: ModelProfile;
   generation: ResolvedGeneration;
 } {
-  const safe = sanitizeTurnRequest(req);
+  const profile = requireModelProfile(registry.profiles.get(req.profile), 'resolveTurn');
+  assertTurnSlots(profile, req);
+  assertTurnContext(profile, req);
+  const safe = sanitizeTurnRequest(req, profile);
   const input = safe.input ?? {};
-  const profile = requireModelProfile(getProfile(safe.profile), 'resolveTurn');
   assertTurnResumption(profile, safe);
   const model = pickModel(profile, safe.model);
   const binding = requireModelBinding(profile, model);
-  const toolSnapshot = resolveTurnTools(profile, safe, model);
+  const toolSnapshot = resolveTurnTools(registry.tools, profile, safe, model);
   const builtins = toolSnapshot.builtins;
-  const structured = resolveStructured(profile, input.slots);
-  assertOutputMode(profile, structured);
-  assertSpeechRole(profile, binding, safe);
-  const keySlot = providerUsesKeySlots(binding.provider)
-    ? resolveKeySlot(profile.key, binding, builtins, binding.provider === 'google')
-    : undefined;
-  const previousInteractionId =
-    binding.persistViaInteractionId === false ? undefined : safe.previousInteractionId;
+  const structuredId = resolveStructured(profile, input.slots);
+  assertOutputMode(profile, structuredId);
+  assertSpeechRole(profile, safe);
+  const keys = resolveKeySlot(registry.providers.require(binding.provider), binding);
+  const transport = resolveTransport(profile, binding);
   return {
     profile,
     generation: {
       model,
       apiId: binding.apiId,
-      transport: resolveTransport(profile, binding),
-      previousInteractionId,
-      store: resolveStore(binding, safe.store),
+      transport,
       stream: resolveStreamFlag(profile),
       thinking: resolveEffort(profile, binding, model, safe.effort),
       summaries: resolveSummaries(binding),
       maxOutputTokens: binding.maxOutputTokens,
       temperature: binding.temperature,
       builtins,
-      googleMapsLocation: safe.googleMapsLocation,
-      cache: binding.cache,
       sessionId: safe.sessionId,
       tools: toolSnapshot,
       sessionPermissions: safe.sessionPermissions,
       history: input.history,
-      maxSteps: profile.maxSteps,
-      structured,
+      maxSteps: profile.maxSteps ?? DEFAULT_MAX_STEPS,
+      structured: structuredId
+        ? { id: structuredId, jsonSchema: registry.schemas.get(structuredId).jsonSchema }
+        : null,
       image: resolveImageFormat(profile),
-      speech: profile.type === 'speech' ? profile.speech : undefined,
-      live: profile.type === 'live' ? profile.live : undefined,
+      speech: resolveSpeech(profile, safe),
+      live: profile.type === 'live' ? resolveLiveSpec(profile.live, profile.guardrails) : undefined,
       input: resolveInputParts(profile, safe),
-      keySlot,
-      canary: resolveGuardrailPolicy(profile.guardrails).canary ? mintCanary() : '',
-      sessionResumptionHandle: safe.sessionResumptionHandle ?? input.sessionResumptionHandle,
+      ...keys,
+      canary: plantedCanary(profile),
       resolvedSystem: resolveTurnSystemPrompt(profile, safe),
       host: safe.host,
     },
@@ -270,8 +266,8 @@ function primaryImageSpec(profile: ModelProfile) {
   return profile.type === 'image' ? profile.image : null;
 }
 
-/** Project a profile object into a safe host/UI inspection object. */
-function projectProfileObject(input: Profile): ProjectedProfile {
+/** Projects a profile into the plain object a host reads: its id, type, handle, models, inputs, outputs and the tools it can use. Throws for a host or decision profile. */
+function projectProfileObject(tools: ToolRegistry, input: Profile): ProjectedProfile {
   const profile = requireModelProfile(input, 'projectProfile');
   const { identity } = profile;
   const inputs = profileInputs(profile) ?? null;
@@ -284,8 +280,7 @@ function projectProfileObject(input: Profile): ProjectedProfile {
     defaultModel: profile.defaultModel,
     allowModelSelect: profile.allowModelSelect,
     maxSteps: profile.maxSteps,
-    key: profile.key,
-    tools: projectTools(profile),
+    tools: projectTools(tools, profile),
     inputs,
     outputs,
     image: primaryImageSpec(profile),
@@ -294,16 +289,15 @@ function projectProfileObject(input: Profile): ProjectedProfile {
   };
 }
 
-/** Project a registered profile into a safe host/UI inspection object. */
-function projectProfile(id: Profile['id']): ProjectedProfile {
-  return projectProfileObject(getProfile(id));
+function projectProfileInRegistry(registry: KernelRegistry, id: Profile['id']): ProjectedProfile {
+  return projectProfileObject(registry.tools, registry.profiles.get(id));
 }
 
 export {
   isModelProfile,
   pickModel,
-  projectProfile,
+  projectProfileInRegistry,
   projectProfileObject,
   requireModelProfile,
-  resolveTurn,
+  resolveTurnInRegistry,
 };

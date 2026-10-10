@@ -1,9 +1,9 @@
 import '../fixtures/test-host.ts';
-import { sanitizeText } from '../../src/guardrails/sanitize.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import { redactAll } from '../fixtures/detect.ts';
 
 function assertClean(_label: string, text: string): void {
-  const out = sanitizeText(text);
+  const out = redactAll(text);
   assertEquals(out, text);
 }
 
@@ -73,7 +73,7 @@ Deno.test('benign number sequences are not misidentified as SSN', () => {
 
 Deno.test('benign base64 that is not injection passes through', () => {
   assertClean('b64-hello', `Hash: ${btoa('hello world')}`);
-  assertClean('b64-creds', `Token: ${btoa('user:password')}`);
+  assertClean('b64-creds', `Payload: ${btoa('user:password')}`);
 });
 
 Deno.test('benign text with digits is not mistaken for leet speak', () => {

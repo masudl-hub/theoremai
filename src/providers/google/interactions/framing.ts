@@ -1,14 +1,15 @@
 import { TheoremError } from '../../../guardrails/error.ts';
 import { historyMessageParts, wireInteractionPart } from '../../../kernel/interaction-parts.ts';
-import { getStructured } from '../../../kernel/registry/schemas.ts';
-import { requireBuiltinWire } from '../../../kernel/tools/registry.ts';
 import type {
   InteractionPart,
   ProviderCompleteRequest,
   TurnHistoryMessage,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
+import { GOOGLE_SPEECH_FORMATS } from '../../../presets/google-limits.ts';
+import { builtinWire } from '../../shared/builtin-wire.ts';
 import { historyToolArguments, historyToolIdentity } from '../../shared/tool-args.ts';
+import { assertGoogleThinkingLevel } from '../thinking.ts';
 
 export function camelToSnake(key: string): string {
   return key.replaceAll(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`);
@@ -21,9 +22,8 @@ export function toGoogleValue(value: unknown): unknown {
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, nested] of Object.entries(value)) {
-      // JSON Schema property names must stay as authored (e.g. correctAnswer in
-      // both properties and required). Snake-casing breaks Gemini validation.
-      if (key === 'schema' || key === 'parameters') {
+      // why: A schema's property names and a call's argument names are the builder's own; snake-casing them breaks Gemini validation and shows the model a call it did not make.
+      if (key === 'schema' || key === 'parameters' || key === 'arguments') {
         out[camelToSnake(key)] = nested;
         continue;
       }
@@ -44,7 +44,6 @@ export function userInputStep(parts: InteractionPart[]): Record<string, unknown>
   return { type: USER_INPUT, content: parts.map(wirePart) };
 }
 
-/** Wire content for a history message; an empty message is one empty text part. */
 function historyContent(msg: TurnHistoryMessage): Record<string, string>[] {
   const parts = historyMessageParts(msg);
   return parts.length > 0 ? parts.map(wirePart) : [{ type: 'text', text: '' }];
@@ -59,38 +58,39 @@ function functionResultStep(msg: TurnHistoryMessage): Record<string, unknown> {
   };
 }
 
-function functionCallStep(call: {
+/**
+ * A history call as input steps: the thought that led to it when it carries
+ * that thought's signature, then the call. Google rejects a current-turn call
+ * replayed without its signature, and rejects a `thought_signature` field on
+ * the call; a `thought` step with the signature ahead of it is accepted (probe
+ * 25/09/2026, gemini-3.1-flash-lite, `store: false`).
+ */
+function functionCallSteps(call: {
   id: string;
   function: { name: string; arguments: string };
   thoughtSignature?: string;
-}): Record<string, unknown> {
-  const step: Record<string, unknown> = {
+}): Record<string, unknown>[] {
+  const step = {
     type: 'function_call',
     id: call.id,
     name: call.function.name,
     arguments: historyToolArguments(call.function.arguments),
   };
-  if (call.thoughtSignature) {
-    step.thoughtSignature = call.thoughtSignature;
-  }
-  return step;
+  return call.thoughtSignature
+    ? [{ type: 'thought', signature: call.thoughtSignature }, step]
+    : [step];
 }
 
 function textOrPartsStep(
   role: 'assistant' | 'user',
   msg: TurnHistoryMessage,
 ): Record<string, unknown> {
-  // Google Interactions input steps: assistant history is `model_output` (not `model_turn`).
+  // why: Assistant history is `model_output`, not `model_turn`.
   const type = role === 'assistant' ? 'model_output' : 'user_input';
   return { type, content: historyContent(msg) };
 }
 
-/**
- * Map one host history message to Interactions input step(s).
- *
- * OpenAI-shaped assistant `tool_calls` (often with no `content`) become
- * `function_call` steps — never empty `model_output` text.
- */
+/** Assistant `tool_calls` (often with no `content`) become `function_call` steps, never empty `model_output`. */
 export function historySteps(msg: TurnHistoryMessage): Record<string, unknown>[] {
   if (msg.role === 'tool') {
     return [functionResultStep(msg)];
@@ -102,7 +102,7 @@ export function historySteps(msg: TurnHistoryMessage): Record<string, unknown>[]
       steps.push(textOrPartsStep('assistant', msg));
     }
     for (const call of msg.tool_calls) {
-      steps.push(functionCallStep(call));
+      steps.push(...functionCallSteps(call));
     }
     return steps;
   }
@@ -114,7 +114,6 @@ export function historySteps(msg: TurnHistoryMessage): Record<string, unknown>[]
   return [textOrPartsStep('user', msg)];
 }
 
-/** Single-step helper for simple messages (first of {@link historySteps}). */
 export function historyStep(msg: TurnHistoryMessage): Record<string, unknown> {
   const steps = historySteps(msg);
   return steps[0] ?? { type: 'user_input', content: [{ type: 'text', text: '' }] };
@@ -135,6 +134,13 @@ export function attachResponseFormat(
     if (req.structured) {
       throw new TheoremError('config', 'cannot mix speech and structured response formats');
     }
+    const format = req.speech.format;
+    if (format && !(GOOGLE_SPEECH_FORMATS as readonly string[]).includes(format)) {
+      throw new TheoremError(
+        'unsupported',
+        `Gemini speech returns ${GOOGLE_SPEECH_FORMATS.join(', ')}, not '${format}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
     camel.responseFormat = { type: 'audio' };
     camel.responseModalities = ['audio'];
     return;
@@ -147,17 +153,29 @@ export function attachResponseFormat(
     if (req.image.aspectRatio) {
       imageEntry.aspectRatio = req.image.aspectRatio;
     }
-    if (req.image.size) {
-      imageEntry.imageSize = req.image.size;
+    if (req.image.resolution) {
+      imageEntry.imageSize = req.image.resolution;
     }
-    // Post–May 2026 Interactions API: object = image-only; array = text + image.
+    for (const [name, value] of [
+      ['quality', req.image.quality],
+      ['background', req.image.background],
+      ['n', req.image.n],
+      ['outputCompression', req.image.outputCompression],
+    ] as const) {
+      if (value !== undefined) {
+        throw new TheoremError(
+          'unsupported',
+          `image.${name} is not supported on Google image models`,
+        );
+      }
+    }
     camel.responseFormat = req.image.includeText ? [{ type: 'text' }, imageEntry] : imageEntry;
     return;
   }
   if (!req.structured) {
     return;
   }
-  camel.responseFormat = jsonResponseFormat(getStructured(req.structured).jsonSchema);
+  camel.responseFormat = jsonResponseFormat(req.structured.jsonSchema);
 }
 
 export function attachSpeechConfig(
@@ -167,11 +185,29 @@ export function attachSpeechConfig(
   if (!req.speech) {
     return;
   }
-  const voice = req.speech.voice;
+  const { voice, speed } = req.speech;
+  if (speed !== undefined) {
+    // why: Interactions has no rate field, and a speed dropped here would be a setting the host believes it made.
+    throw new TheoremError(
+      'config',
+      'Gemini Interactions speech has no speed field: set the pace in speech.style',
+    );
+  }
   if (!voice) {
     return;
   }
   generationConfig.speechConfig = [{ voice }];
+}
+
+/** The script's text parts, each carrying the delivery note: Gemini reads `text` aloud and `speech_metadata` as direction. */
+function speechInputStep(parts: InteractionPart[], style: string): Record<string, unknown> {
+  const annotations = [{ type: 'speech_metadata', style }];
+  return {
+    type: USER_INPUT,
+    content: parts
+      .map(wirePart)
+      .map((part) => (part.type === 'text' ? { ...part, annotations } : part)),
+  };
 }
 
 function wireInteractionsFunctionTool(decl: WireFunctionTool): Record<string, unknown> {
@@ -197,8 +233,8 @@ function wireGoogleMapsTool(req: ProviderCompleteRequest): Record<string, unknow
 
 function wireInteractionsTools(req: ProviderCompleteRequest): Record<string, unknown>[] {
   const tools: Record<string, unknown>[] = [];
-  for (const id of req.builtins) {
-    const type = requireBuiltinWire(id, 'interactions');
+  for (const builtin of req.builtins) {
+    const type = builtinWire(builtin, 'interactions');
     if (type === 'google_maps') {
       tools.push(wireGoogleMapsTool(req));
       continue;
@@ -211,16 +247,31 @@ function wireInteractionsTools(req: ProviderCompleteRequest): Record<string, unk
   return tools;
 }
 
+/**
+ * A `tool` message without `name` takes its call's name: Google rejects a
+ * `function_result` without one as "Invalid input received" (live, 29/09/2026).
+ */
+function withToolNames(messages: readonly TurnHistoryMessage[]): TurnHistoryMessage[] {
+  const names = new Map<string, string>();
+  return messages.map((msg) => {
+    for (const call of msg.tool_calls ?? []) names.set(call.id, call.function.name);
+    if (msg.role !== 'tool' || msg.name || !msg.tool_call_id) return msg;
+    const name = names.get(msg.tool_call_id);
+    return name ? { ...msg, name } : msg;
+  });
+}
+
 export function inputStepsFromRequest(req: ProviderCompleteRequest): Record<string, unknown>[] {
   if (req.continuation && req.continuation.length > 0) {
-    return req.continuation.flatMap(historySteps);
+    return withToolNames(req.continuation).flatMap((msg) => historySteps(msg));
   }
   const inputSteps: Record<string, unknown>[] = [];
-  for (const h of req.history ?? []) {
+  for (const h of withToolNames(req.history ?? [])) {
     inputSteps.push(...historySteps(h));
   }
   if (req.input.length > 0 || inputSteps.length === 0) {
-    inputSteps.push(userInputStep(req.input));
+    const style = req.speech?.style;
+    inputSteps.push(style ? speechInputStep(req.input, style) : userInputStep(req.input));
   }
   return inputSteps;
 }
@@ -250,14 +301,18 @@ export function baseInteractionsBody(req: ProviderCompleteRequest): Record<strin
     maxOutputTokens: req.maxOutputTokens,
   };
   if (req.speech) {
-    // TTS models reject chat thinking knobs; voice lives under speech_config.
+    // why: TTS models reject chat thinking knobs; voice lives under speech_config.
     attachSpeechConfig(req, generationConfig);
   } else {
+    assertGoogleThinkingLevel(req.thinking);
     if (req.thinking) {
       generationConfig.thinkingLevel = req.thinking;
     }
     if (req.summaries) {
       generationConfig.thinkingSummaries = req.summaries;
+    }
+    if (req.image?.seed !== undefined) {
+      generationConfig.seed = req.image.seed;
     }
   }
   return {
@@ -268,7 +323,6 @@ export function baseInteractionsBody(req: ProviderCompleteRequest): Record<strin
   };
 }
 
-/** Compatibility wrapper for callers that need the complete wire body. */
 export function toInteractionsBody(req: ProviderCompleteRequest): Record<string, unknown> {
   const body = baseInteractionsBody(req);
   attachResponseFormat(req, body);

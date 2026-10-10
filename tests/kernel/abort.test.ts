@@ -1,17 +1,11 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
+
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
+import { lastOf } from '../fixtures/events.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
-
-async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const event of gen) {
-    out.push(event);
-  }
-  return out;
-}
 
 Deno.test('runTurn emits cancelled done + post_turn when signal is already aborted', async () => {
   const controller = new AbortController();
@@ -21,15 +15,15 @@ Deno.test('runTurn emits cancelled done + post_turn when signal is already abort
       throw new Error('provider should not run');
     },
   };
-  const events = await collect(
+  const events = await Array.fromAsync(
     runTurn({ profile: 'chat', input: { text: 'hi' }, signal: controller.signal }, provider),
   );
   assertEquals(
     events.some((e) => e.type === 'done' && e.stop?.kind === 'cancelled'),
     true,
   );
+  assertEquals(lastOf(events, 'stage')?.stage, 'post_turn');
   assertEquals(events.at(-1)?.type, 'stage');
-  assertEquals(events.at(-1)?.stage, 'post_turn');
 });
 
 Deno.test('runTurn cancels an in-flight provider and ends with cancelled done', async () => {
@@ -58,11 +52,11 @@ Deno.test('runTurn cancels an in-flight provider and ends with cancelled done', 
         );
         queueMicrotask(() => controller.abort());
       });
-      yield { type: 'done' };
+      yield { type: 'done', stop: { kind: 'completed' } };
     },
   };
 
-  const events = await collect(
+  const events = await Array.fromAsync(
     runTurn(
       { profile: 'chat', input: { text: 'hi' }, signal: controller.signal },
       provider,
@@ -77,7 +71,8 @@ Deno.test('runTurn cancels an in-flight provider and ends with cancelled done', 
     events.some((e) => e.type === 'done' && e.stop?.kind === 'cancelled'),
     true,
   );
-  assertEquals(events.at(-1)?.stage, 'post_turn');
+  assertEquals(events.at(-1)?.type, 'stage');
+  assertEquals(lastOf(events, 'stage')?.stage, 'post_turn');
 });
 
 catalogGate();

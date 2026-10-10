@@ -1,35 +1,23 @@
-/**
- * OpenAI-compatible `/audio/speech` transport (internal).
- *
- * Hosts use `createProvider(profile, { openAiGateway })` — this module is selected
- * when the profile is an openAi speech role. Not a separate public door.
- *
- * @module
- */
-
 import { TheoremError, toErrorEvent } from '../../guardrails/error.ts';
 import type {
   InteractionPart,
   ModelProvider,
   ProfileSpeechSpec,
   ProviderCompleteRequest,
-  TurnEvent,
+  ProviderEvent,
 } from '../../kernel/types.ts';
 import { bytesToBase64 } from '../../kernel/util/base64.ts';
 import { mimeEssence } from '../../kernel/util/mime.ts';
 import { pcmFormatFromMime, wrapPcmAsWav } from '../shared/pcm.ts';
-import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
-import type { OpenAiGatewayConfig } from '../types.ts';
+import { networkFetch } from '../shared/upstream-tap.ts';
+import type { OpenAiGatewayTransport } from '../types.ts';
 import { httpErrorEvent, openAiGatewayHeaders } from './openai/compat.ts';
 import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
+import { openRouterFetch } from './transport.ts';
 
 const HTTP_OK = 200;
 
-/** Credentials for the openAi speech path — gateway config + optional voice. */
-export type SpeechProviderConfig = OpenAiGatewayConfig & {
-  /** Fallback TTS voice when the profile does not pin `speech.voice`. */
-  voice?: string;
-};
+export type SpeechProviderConfig = OpenAiGatewayTransport;
 
 export function extractInputText(input: InteractionPart[]): string {
   return input
@@ -56,9 +44,7 @@ export function buildPayload(
   req: ProviderCompleteRequest,
   text: string,
   speech: ProfileSpeechSpec | undefined,
-  configVoice?: string,
 ): Record<string, unknown> {
-  const voice = speech?.voice ?? configVoice;
   const payload: Record<string, unknown> = {
     model: req.apiId,
     input: text,
@@ -66,8 +52,15 @@ export function buildPayload(
   if (speech?.format) {
     payload.response_format = speech.format;
   }
-  if (voice) {
-    payload.voice = voice;
+  if (speech?.voice) {
+    payload.voice = speech.voice;
+  }
+  if (speech?.speed !== undefined) {
+    payload.speed = speech.speed;
+  }
+  // why: `instructions` is the endpoint's own field for delivery, never read aloud (probe 07/10/2026: Gemini 3.8 slowed and sped by it).
+  if (speech?.style) {
+    payload.instructions = speech.style;
   }
   return payload;
 }
@@ -78,13 +71,13 @@ export async function requestSpeech(
   req: ProviderCompleteRequest,
   config: SpeechProviderConfig,
 ): Promise<Response> {
-  const fetchFn = tapFetch(req.tapUpstream, networkFetch(config.fetch ?? fetch), req.keySlot);
+  const fetchFn = networkFetch(openRouterFetch(req, config, apiKey));
   const baseUrl = config.baseUrl?.replace(/\/+$/, '') ?? 'https://openrouter.ai/api/v1';
   const url = `${baseUrl}/audio/speech`;
   return await fetchFn(url, {
     method: 'POST',
     headers: buildSpeechHeaders(apiKey, config),
-    body: JSON.stringify(buildPayload(req, text, req.speech, config.voice)),
+    body: JSON.stringify(buildPayload(req, text, req.speech)),
     signal: req.signal,
   });
 }
@@ -97,7 +90,7 @@ export async function requestSpeech(
 export function* yieldSpeechSuccess(
   rawBytes: Uint8Array,
   contentType: string | null,
-): Generator<TurnEvent> {
+): Generator<ProviderEvent> {
   const format = pcmFormatFromMime(contentType ?? '');
   const media = format
     ? { mimeType: 'audio/wav', data: bytesToBase64(wrapPcmAsWav(rawBytes, format)) }
@@ -107,14 +100,14 @@ export function* yieldSpeechSuccess(
       };
 
   yield { type: 'media', media };
-
-  yield { type: 'done' };
+  // why: The endpoint answers whole or not at all: a body with audio completed.
+  yield { type: 'done', stop: { kind: 'completed' } };
 }
 
 export async function* streamSpeech(
   req: ProviderCompleteRequest,
   config: SpeechProviderConfig = {},
-): AsyncGenerator<TurnEvent> {
+): AsyncGenerator<ProviderEvent> {
   let apiKey: string;
   try {
     apiKey = resolveOpenAiGatewayApiKey(config, req.keySlot);
@@ -138,7 +131,7 @@ export async function* streamSpeech(
   const arrayBuffer = await res.arrayBuffer();
   const rawBytes = new Uint8Array(arrayBuffer);
   const contentType = res.headers.get('content-type');
-  // The audio body as a tape row; the tape keeps its hash, not its bytes.
+  // why: The audio body as a tape row; the tape keeps its hash, not its bytes.
   req.tapUpstream?.({
     eventType: 'http_body',
     mime_type: contentType ?? '',
@@ -154,7 +147,6 @@ export async function* streamSpeech(
   }
 }
 
-/** Internal ModelProvider for openAi speech roles. */
 export function createSpeechProvider(config: SpeechProviderConfig = {}): ModelProvider {
   return {
     complete: (req: ProviderCompleteRequest) => streamSpeech(req, config),

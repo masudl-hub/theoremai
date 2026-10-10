@@ -1,19 +1,11 @@
-/**
- * Byte helpers shared by the media header readers.
- *
- * @module
- */
-
 const ID3V2_HEADER = 10;
 const ID3V2_FOOTER_FLAG = 0x10;
 const SYNCSAFE_BITS = 7;
 
-/** `length` bytes at `offset` as ASCII. */
 export function ascii(bytes: Uint8Array, offset: number, length: number): string {
   return String.fromCharCode(...bytes.subarray(offset, offset + length));
 }
 
-/** DataView over exactly the bytes of `bytes`. */
 export function view(bytes: Uint8Array): DataView {
   return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }

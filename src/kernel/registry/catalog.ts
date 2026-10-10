@@ -1,9 +1,3 @@
-/**
- * MIME helpers and model binding utilities.
- *
- * @module
- */
-
 import { TheoremError } from '../../guardrails/error.ts';
 import { MEDIA_INPUT_KINDS } from '../schema.ts';
 import type {
@@ -17,13 +11,10 @@ import type {
 } from '../types.ts';
 import { mimeEssence } from '../util/mime.ts';
 
-/** `TurnInput` field a media file rides in. */
+/** Where a media input arrives: as an attachment or as voice. */
 type MediaInputChannel = 'attachments' | 'voice';
 
-/**
- * Returns whether an accept list permits a MIME value. Rules are normalized and
- * support a subtype wildcard such as `image/*`; parameter values are ignored.
- */
+/** Rules support a subtype wildcard such as `image/*`; parameter values are ignored. */
 function mimeAllowed(accept: readonly string[], mime: string): boolean {
   const actual = mimeEssence(mime);
   return accept.some((rule) => {
@@ -35,29 +26,25 @@ function mimeAllowed(accept: readonly string[], mime: string): boolean {
   });
 }
 
-/** Maps a normalized MIME value to a kernel-supported media input kind, if any. */
+/** The kind of media a MIME type is, or `undefined` when it is not accepted. */
 function mediaKindForMime(mime: string): MediaInputKind | undefined {
   return MEDIA_INPUT_KINDS[mimeEssence(mime)];
 }
 
-/** The turn inputs spec; only `text` and `image` declare one. */
 function profileInputs(profile: Profile): ProfileInputsSpec | undefined {
-  return profile.type === 'text' || profile.type === 'image' ? profile.inputs : undefined;
+  return profile.type === 'text' || profile.type === 'image' || profile.type === 'live'
+    ? profile.inputs
+    : undefined;
 }
 
-/** The `accept` list a profile declares for one input channel, if it declares one. */
 function profileAccept(profile: Profile, channel: MediaInputChannel): string[] | undefined {
   const inputs = profileInputs(profile);
   return channel === 'voice' ? inputs?.voice?.accept : inputs?.attachments?.accept;
 }
 
 /**
- * Which `TurnInput` channel of a profile accepts this MIME, or `undefined` when
- * the profile accepts it nowhere (or the kernel cannot classify it at all).
- *
- * The one public answer to "does this profile take this file". Hosts route and
- * filter channel ingress with it instead of keeping their own MIME table: the
- * profile's `accept` lists are the whole declaration.
+ * `undefined` when the profile accepts it nowhere or the kernel cannot classify it. Hosts route
+ * files with this instead of their own MIME table: the profile's `accept` lists are the whole declaration.
  */
 function mediaChannelForMime(profile: Profile, mime: string): MediaInputChannel | undefined {
   if (!mediaKindForMime(mime)) {
@@ -72,7 +59,7 @@ function mediaChannelForMime(profile: Profile, mime: string): MediaInputChannel 
   return undefined;
 }
 
-/** Require a host-declared model binding for a profile model id. */
+/** The profile's binding for the model id; throws when there is none. */
 function requireModelBinding(profile: ModelProfile, modelId: ModelId): ModelBinding {
   const binding = profile.models[modelId];
   if (!binding) {
@@ -104,12 +91,12 @@ function clampLevels(binding: ModelBinding | undefined, level: ThinkingLevel): T
   return legal[0] ?? level;
 }
 
-/** Clamp a requested thinking level to what the model binding accepts. */
+/** The level if the binding accepts it, else the binding's default effort level, else its first listed level. */
 function clampThinkingLevel(binding: ModelBinding, level: ThinkingLevel): ThinkingLevel {
   return clampLevels(binding, level);
 }
 
-/** Look up a model binding by provider-native API id within a host map. */
+/** The binding whose provider model id is `apiId`, or `undefined`. */
 function modelEntryByApiId(
   bindings: Record<string, ModelBinding>,
   apiId: string,
@@ -117,7 +104,7 @@ function modelEntryByApiId(
   return Object.values(bindings).find((m) => m.apiId === apiId);
 }
 
-/** Clamp thinking level using a provider-native API id within a host map. */
+/** The level if the binding for this provider model id accepts it, else that binding's default effort level, else its first listed level. */
 function clampThinkingLevelForApiId(
   bindings: Record<string, ModelBinding>,
   apiId: string,

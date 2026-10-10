@@ -5,6 +5,37 @@
  */
 
 export * from './auth/mod.ts';
+export {
+  clearProfiles,
+  compactHistory,
+  getProfile,
+  getProvider,
+  getStructured,
+  getTool,
+  hasProfile,
+  hasProvider,
+  hasTool,
+  invokeTool,
+  listProfiles,
+  listProviders,
+  listTools,
+  projectProfile,
+  registerProfile,
+  registerProfiles,
+  registerProvider,
+  registerProviders,
+  registerStructured,
+  registerTool,
+  registerTools,
+  requireProvider,
+  requireTool,
+  resetProviders,
+  resetTools,
+  resolveTurn,
+  runDecision,
+  runSession,
+  runTurn,
+} from './default-scope.ts';
 export type { CompactionSplit, CompactionTokens } from './engine/compaction.ts';
 export {
   compactionMeter,
@@ -15,7 +46,7 @@ export {
   splitForCompaction,
 } from './engine/compaction.ts';
 export type { RunDecisionOptions } from './engine/decision.ts';
-export { DecisionError, runDecision } from './engine/decision.ts';
+export { DecisionError, validateDecisionRequest } from './engine/decision.ts';
 export type { LiveIngressChannel } from './engine/live-ingress.ts';
 export {
   assertLiveIngress,
@@ -25,9 +56,7 @@ export {
   liveIngressEnabled,
   liveIngressEnabledFromSpec,
 } from './engine/live-ingress.ts';
-export { runTurn } from './engine/runner.ts';
-export type { RunSessionOptions } from './engine/session/mod.ts';
-export { runSession } from './engine/session/mod.ts';
+export type { RunSessionOptions, SignInGatePolicy } from './engine/session/mod.ts';
 export type {
   MediaPayload,
   MediaTokenFamily,
@@ -52,6 +81,53 @@ export {
   profileGraphFacet,
   spineFacetsForProfileType,
 } from './profile-graph.ts';
+export type {
+  CapabilitySupport,
+  CredentialContext,
+  CredentialResolver,
+  DefinedProvider,
+  JsonObject,
+  JsonValue,
+  OpenProviderWebSocket,
+  ProviderAdapter,
+  ProviderCapabilities,
+  ProviderCheckpoint,
+  ProviderContentEvent,
+  ProviderContext,
+  ProviderContinuationPolicy,
+  ProviderCredential,
+  ProviderDecisionRequest,
+  ProviderDefinition,
+  ProviderHostOptions,
+  ProviderLiveConnection,
+  ProviderModelEvent,
+  ProviderModelSettings,
+  ProviderOperations,
+  ProviderRegistry,
+  ProviderRequest,
+  ProviderSessionRequest,
+  ProviderToolResult,
+  ProviderTurnRequest,
+  ProviderVault,
+  ProviderWait,
+  ProviderWarning,
+  RegisteredProvider,
+  ResolvedProviderModel,
+} from './provider-contract.ts';
+export {
+  commonModelSettingsSchema,
+  createProviderRegistry,
+  decisionModelBindingSchema,
+  defineProvider,
+  jsonObjectSchema,
+  jsonValueSchema,
+  keySlotSchema,
+  modelBindingSchema,
+  providerCapabilitiesSchema,
+  providerCheckpointSchema,
+  providerContinuationSchema,
+  providerWarningSchema,
+} from './provider-contract.ts';
 export type { MediaInputChannel } from './registry/catalog.ts';
 export {
   clampThinkingLevel,
@@ -63,6 +139,8 @@ export {
   modelEntryByApiId,
   requireModelBinding,
 } from './registry/catalog.ts';
+export type { KernelRegistry } from './registry/kernel-registry.ts';
+export { createKernelRegistry } from './registry/kernel-registry.ts';
 export type {
   DecisionProfileDefinition,
   HostProfileDefinition,
@@ -70,36 +148,26 @@ export type {
   LiveProfileDefinition,
   ProfileDefinition,
   ProfileDefinitionBase,
+  ProfileRegistry,
   SpeechProfileDefinition,
   TextProfileDefinition,
 } from './registry/profiles.ts';
-export {
-  clearProfiles,
-  defineProfile,
-  getProfile,
-  hasProfile,
-  listProfiles,
-  registerProfile,
-  registerProfiles,
-} from './registry/profiles.ts';
-export {
-  projectProfile,
-  projectProfileObject,
-  requireModelProfile,
-  resolveTurn,
-} from './registry/resolve.ts';
-export { getStructured, registerStructured } from './registry/schemas.ts';
+export { createProfileRegistry, defineProfile } from './registry/profiles.ts';
+export { projectProfileObject, requireModelProfile } from './registry/resolve.ts';
+export type { SchemaRegistry } from './registry/schemas.ts';
+export { createSchemaRegistry } from './registry/schemas.ts';
 export type {
   AuthUnauthenticatedPolicy,
   CustomToolType,
   HttpMethod,
-  PlaygroundAuthType,
+  StudioAuthType,
   ToolAccess,
   ToolAuthType,
   ToolPermission,
   ToolType,
 } from './schema.ts';
 export {
+  API_EXPORTS,
   ATTACHMENT_ACCEPT_MIMES,
   AUTH_UNAUTHENTICATED_POLICIES,
   AWAITING_USER_INPUT_KINDS,
@@ -107,29 +175,29 @@ export {
   CACHE_MODES,
   CACHE_TTLS,
   COMPACTION_METERS,
+  COMPACTION_OUTCOMES,
   COMPACTION_TIMINGS,
   CONTINUE_STOP_KINDS,
   catalogPathFor,
   coerceProtocol,
   coerceProvider,
-  coerceSpeechFormat,
   EXTRA_FIELDS,
   fieldMeta,
   HTTP_METHODS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
-  isSpeechFormatAllowedForProtocol,
+  isKeySlotName,
   isToolGateKind,
   isTurnInjectStage,
   isTurnStage,
   isValidPair,
   isValidProfileProtocol,
-  KEY_SLOTS,
+  KEY_SLOT_NAME,
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
   MEDIA_WILDCARDS,
-  OVERFLOW_KEY_SLOTS,
-  PLAYGROUND_AUTH_TYPES,
   PROFILE_FIELDS,
+  PROFILE_HANDLE_MAX_CHARS,
+  PROFILE_ID_MAX_CHARS,
   PROFILE_TYPE_PROTOCOLS,
   PROFILE_TYPES,
   PROTOCOL_PROVIDERS,
@@ -138,10 +206,11 @@ export {
   protocolsFor,
   protocolsForProfileType,
   providersFor,
+  REQUEST_FIELDS,
   SPEECH_AUDIO_FORMATS,
   STREAM_MODES,
+  STUDIO_AUTH_TYPES,
   SUMMARY_MODES,
-  speechFormatsForProtocol,
   THINKING_LEVELS,
   TOOL_ACCESS,
   TOOL_AUTH_TYPES,
@@ -154,6 +223,8 @@ export {
   TURN_STOP_KINDS,
   VOICE_ACCEPT_MIMES,
 } from './schema.ts';
+export type { KernelScope } from './scope.ts';
+export { createKernelScope, defaultKernelScope } from './scope.ts';
 export type {
   AwaitingUserInput,
   StageAffordance,
@@ -170,8 +241,6 @@ export type {
 export {
   applyStageResult,
   isAwaitingUserInput,
-  parseAwaitingUserInput,
-  parseToolGate,
   STAGE_AFFORDANCE_MATRIX,
   STAGE_AFFORDANCES,
   stageAllowsAffordance,
@@ -201,31 +270,47 @@ export {
   turnStopFromInteractionStatus,
   turnStopFromOpenAiFinishReason,
 } from './stop.ts';
-export type { McpProtocolVersion, McpRpcResponse } from './tools/mod.ts';
 export {
+  type AnsweredGate,
+  answerGatedCall,
+  GATE_DECISIONS,
+  type GateAnswerRequest,
+  type GateDecision,
+  gateExpired,
+  type HeldGatedCall,
+  resolveGateTtlMs,
+  sessionPermissionsAfterApproval,
+  type ToolGateAuth,
+} from './tools/gate-answer.ts';
+export type { McpProtocolVersion, McpRpcResponse, ToolRegistry } from './tools/mod.ts';
+export {
+  askUserTool,
   coerceToolResultParts,
+  createToolRegistry,
   executeHttpTool,
   executeMcpTool,
   executeRegisteredTool,
   formatToolResult,
-  getTool,
-  hasTool,
-  invokeTool,
   isUnsupportedMcpProtocolError,
   leanToolResultData,
-  listBuiltinIds,
-  listFunctionIds,
-  listTools,
   MCP_PROTOCOL_VERSIONS,
   parseMcpRpcResponse,
   prepareTurnToolSnapshot,
   projectForModel,
   registerHarnessTools,
-  registerTool,
-  registerTools,
-  requireTool,
-  resetTools,
   resolveToolAuth,
 } from './tools/mod.ts';
-export type { ToolPause } from './tools/types.ts';
+export { CredentialRefusedError } from './tools/signed-in-fetch.ts';
+export {
+  awaitingUserInputSchema,
+  TURN_EVENT_SCHEMAS,
+  toolGateSchema,
+  turnDoneOf,
+  turnEventSchema,
+  turnHistoryMessageSchema,
+  turnToolSnapshotSchema,
+} from './turn-events.ts';
 export type * from './types.ts';
+export { base64ToBytes, bytesToBase64 } from './util/base64.ts';
+export type { Equals } from './util/exact-type.ts';
+export { isRecord } from './util/record.ts';

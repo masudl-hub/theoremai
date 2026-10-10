@@ -15,24 +15,31 @@ import {
 } from '../../react/src/client/ink-waveform.ts';
 import {
   applyLiveTranscript,
+  applyLiveTurnEvent,
   clearLiveCaptionInterim,
   emptyLiveCaptionState,
   latestLiveCaptionTurnId,
+  liveCaptionStreaming,
+  liveCaptionTranscript,
 } from '../../react/src/client/live/live-captions.ts';
 import {
   applyLiveToolTurnEvent,
+  type LiveToolCallDraft,
   liveTranscriptFromEvidence,
   shouldForwardMicFrame,
 } from '../../react/src/client/live/live-mic-forward.ts';
 import { liveState } from '../../react/src/client/live/live-state.ts';
-import { chipsFromBlock } from '../../react/src/client/source-chips.ts';
+import { applyTurnResultToTranscript } from '../../react/src/client/run-session.ts';
+import { citationsFromBlock } from '../../react/src/client/source-citations.ts';
 import {
   assistantTurnTiming,
   composeAssistantTurn,
-  groupTimeKey,
   groupTranscriptBlocks,
   pendingPromptOf,
+  promptTime,
+  replyKey,
   type TranscriptTurnGroup,
+  toolCallLabel,
   workStatus,
 } from '../../react/src/client/transcript-groups.ts';
 import { resolveScrollToBottomScrollTop } from '../../react/src/client/transcript-scroll.ts';
@@ -44,13 +51,24 @@ import {
   workStatusLabel,
 } from '../../react/src/ui/labels.ts';
 import { transcriptBlockCopyText } from '../../react/src/ui/transcript-copy-text.ts';
-import { interfaceFromProfile, type TranscriptBlock } from '../../src/interface/mod.ts';
+import {
+  emptyInterfaceTurnSession,
+  interfaceFromProfile,
+  type TranscriptBlock,
+} from '../../src/interface/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { toolCallRequestEvent, toolEvent } from '../../src/kernel/tools/events.ts';
+import type { ProviderEvidence, Source } from '../../src/kernel/turn-events.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
+import { malformedToolCall } from '../../src/providers/shared/tool-args.ts';
+import { foldedCall } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, geminiModels } from '../fixtures/models.ts';
 import { defaultLabels as t } from './default-labels.ts';
 
 registerGooglePreset();
+
+const CALC = { name: 'calc', callId: 'c6' };
 
 Deno.test('transcriptBlockCopyText formats all block kinds', () => {
   assertEquals(transcriptBlockCopyText(t, { kind: 'user-text', id: '1', text: 'hello' }), 'hello');
@@ -83,7 +101,7 @@ Deno.test('transcriptBlockCopyText formats all block kinds', () => {
     transcriptBlockCopyText(t, {
       kind: 'tool',
       id: '6',
-      tool: { name: 'calc', output: { res: 42 } },
+      tool: foldedCall(CALC, {}, { phase: 'complete', output: { res: 42 } }),
     }),
     'Tool: calc\n\n{\n  "res": 42\n}',
   );
@@ -91,12 +109,19 @@ Deno.test('transcriptBlockCopyText formats all block kinds', () => {
     transcriptBlockCopyText(t, {
       kind: 'tool',
       id: '6b',
-      tool: { name: 'calc', failure: { code: 'bad', kind: 'failed', message: 'err' } },
+      tool: foldedCall(
+        CALC,
+        {},
+        {
+          phase: 'error',
+          failure: { code: 'bad', kind: 'failed', message: 'err' },
+        },
+      ),
     }),
     'Tool: calc\n\n{\n  "code": "bad",\n  "kind": "failed",\n  "message": "err"\n}',
   );
   assertEquals(
-    transcriptBlockCopyText(t, { kind: 'tool', id: '6c', tool: { name: 'calc' } }),
+    transcriptBlockCopyText(t, { kind: 'tool', id: '6c', tool: foldedCall(CALC, {}) }),
     'Tool: calc',
   );
   assertEquals(
@@ -120,64 +145,260 @@ Deno.test('transcriptBlockCopyText formats all block kinds', () => {
     transcriptBlockCopyText(t, {
       kind: 'grounding',
       id: '9',
-      grounding: { sources: [] },
+      grounding: { searchHtml: '<div>chip</div>' },
     }),
-    '{\n  "sources": []\n}',
+    '{\n  "searchHtml": "<div>chip</div>"\n}',
+  );
+  assertEquals(
+    transcriptBlockCopyText(t, {
+      kind: 'citation',
+      id: '9b',
+      sources: [{ type: 'web', title: 'a', uri: 'https://a.example' }],
+    }),
+    '[\n  {\n    "type": "web",\n    "title": "a",\n    "uri": "https://a.example"\n  }\n]',
   );
   assertEquals(
     transcriptBlockCopyText(t, {
       kind: 'evidence',
       id: '10',
-      evidence: { provider: 'google', sources: [] },
+      evidence: { provider: 'google', kind: 'url_context' },
     }),
-    '{\n  "provider": "google",\n  "sources": []\n}',
+    '{\n  "provider": "google",\n  "kind": "url_context"\n}',
   );
   assertEquals(transcriptBlockCopyText(t, { kind: 'error', id: '11', message: 'fatal' }), 'fatal');
   assertEquals(transcriptBlockCopyText(t, { kind: 'turn-done', id: '12' }), '');
 });
 
+/** The words of the caption line at `index`. */
+function said(state: ReturnType<typeof emptyLiveCaptionState>, index: number): string {
+  const turn = state.turns[index];
+  return turn.role === 'work' ? '' : turn.text;
+}
+
 Deno.test('applyLiveTranscript merges interim and final text correctly', () => {
   let state = emptyLiveCaptionState();
   assertEquals(state.turns.length, 0);
 
-  // Empty text does nothing
   assertEquals(applyLiveTranscript(state, '', true), state);
 
-  // Interim user text
   state = applyLiveTranscript(state, 'Hello', true, true);
   assertEquals(state.interimUser, 'Hello');
 
-  // Final user text
   state = applyLiveTranscript(state, 'Hello world', true, false);
   assertEquals(state.turns.length, 1);
-  assertEquals(state.turns[0].text, 'Hello world');
+  assertEquals(said(state, 0), 'Hello world');
   assertEquals(state.interimUser, '');
 
-  // Second user turn with append
   state = applyLiveTranscript(state, 'again', true, false);
   assertEquals(state.turns.length, 1);
-  assertEquals(state.turns[0].text, 'Hello world again');
+  assertEquals(said(state, 0), 'Hello world again');
 
-  // Agent turn switches role
   state = applyLiveTranscript(state, 'Hi there', false, false);
   assertEquals(state.turns.length, 2);
   assertEquals(state.turns[1].role, 'agent');
-  assertEquals(state.turns[1].text, 'Hi there');
+  assertEquals(said(state, 1), 'Hi there');
 
-  // Force new turn
   state = applyLiveTranscript(state, 'New prompt', false, false, { forceNew: true });
   assertEquals(state.turns.length, 3);
-  assertEquals(state.turns[2].text, 'New prompt');
+  assertEquals(said(state, 2), 'New prompt');
 
-  // Interim agent text
   state = applyLiveTranscript(state, 'thinking', false, true);
   assertEquals(state.interimAgent, 'thinking');
 
-  // clear interim
   state = clearLiveCaptionInterim(state);
   assertEquals(state.interimUser, '');
   assertEquals(state.interimAgent, '');
   assertEquals(typeof latestLiveCaptionTurnId(state), 'string');
+});
+
+/** Work that is one thought, as a live call's captions hold it. */
+function thought(id: string, text: string) {
+  return { id, role: 'work' as const, events: [{ type: 'thought' as const, text }] };
+}
+
+Deno.test('applyLiveTurnEvent keeps a thought on its own line, before the speech that follows', () => {
+  let state = applyLiveTranscript(emptyLiveCaptionState(), 'What is on today?', true, false);
+  assertEquals(applyLiveTurnEvent(state, { type: 'thought', text: '' }), state);
+  assertEquals(applyLiveTurnEvent(state, { type: 'thought', text: '\n\n' }), state);
+
+  state = applyLiveTurnEvent(state, { type: 'thought', text: '**Checking the calendar**\n\n' });
+  state = applyLiveTurnEvent(state, { type: 'thought', text: 'The user wants today.' });
+  assertEquals(liveCaptionStreaming(state), true);
+  state = applyLiveTranscript(state, 'You have', false, false);
+  state = applyLiveTranscript(state, 'two meetings.', false, false);
+
+  // The thought guard releases a held blank tail when the turn ends, after the speech.
+  assertEquals(applyLiveTurnEvent(state, { type: 'thought', text: '\n\n' }), state);
+
+  assertEquals(
+    liveCaptionTranscript([], state).blocks.map((block) => [
+      block.kind,
+      'text' in block ? block.text : '',
+    ]),
+    [
+      ['user-text', 'What is on today?'],
+      ['thought', '**Checking the calendar**\n\nThe user wants today.'],
+      ['text', 'You have two meetings.'],
+    ],
+  );
+});
+
+Deno.test('applyLiveTurnEvent folds a tool call into the block the chat draws', () => {
+  const call = { name: 'get_weather', callId: 'c1', arguments: { city: 'Lisbon' } };
+  let state = applyLiveTranscript(emptyLiveCaptionState(), 'Weather in Lisbon?', true, false);
+  // A phase for a call the captions never saw is left out.
+  assertEquals(
+    applyLiveTurnEvent(state, { type: 'tool', tool: { ...call, phase: 'running', at: 1 } }),
+    state,
+  );
+
+  state = applyLiveTurnEvent(state, { type: 'thought', text: 'Looking it up.' });
+  state = applyLiveTurnEvent(state, { type: 'tool', tool: call });
+  state = applyLiveTurnEvent(state, { type: 'tool', tool: { ...call, phase: 'running', at: 1 } });
+  state = applyLiveTranscript(state, 'One moment.', false, false);
+  // The call settles after the agent has spoken: it stays in the work that made it.
+  state = applyLiveTurnEvent(state, {
+    type: 'tool',
+    tool: { ...call, phase: 'complete', at: 5, output: { celsius: 18 } },
+  });
+  assertEquals(liveCaptionStreaming(state), true);
+  state = applyLiveTurnEvent(state, { type: 'done', stop: { kind: 'completed' } });
+  assertEquals(liveCaptionStreaming(state), false);
+
+  const { blocks } = liveCaptionTranscript([], state);
+  assertEquals(
+    blocks.map((block) => block.kind),
+    ['user-text', 'thought', 'tool', 'text'],
+  );
+  const tool = blocks[2];
+  assertEquals(tool.kind === 'tool' && tool.id, 'tool-c1');
+  assertEquals(tool.kind === 'tool' && tool.tool.arguments, { city: 'Lisbon' });
+  assertEquals(tool.kind === 'tool' && tool.tool.state?.phase, 'complete');
+  assertEquals(tool.kind === 'tool' && [tool.tool.startedAt, tool.tool.endedAt], [1, 5]);
+});
+
+Deno.test('liveCaptionTranscript turns captions into the transcript blocks the chat draws', () => {
+  const past = [[{ id: 'a', role: 'user' as const, text: 'Earlier' }], []];
+  const captions = {
+    turns: [
+      { id: 'a', role: 'user' as const, text: 'Hi' },
+      thought('b', '**Greeting**'),
+      { id: 'c', role: 'agent' as const, text: 'Hello.' },
+    ],
+    interimUser: 'And',
+    interimAgent: '',
+    working: false,
+  };
+  assertEquals(liveCaptionTranscript(past, captions), {
+    blocks: [
+      { id: '0:a', kind: 'user-text', text: 'Earlier' },
+      { id: 'a', kind: 'user-text', text: 'Hi' },
+      { id: 'b-1', kind: 'thought', text: '**Greeting**' },
+      { id: 'c', kind: 'text', text: 'Hello.' },
+      { id: 'interim-user', kind: 'user-text', text: 'And' },
+    ],
+    callStarts: ['a'],
+  });
+  assertEquals(liveCaptionTranscript([], emptyLiveCaptionState()), { blocks: [], callStarts: [] });
+  assertEquals(liveCaptionStreaming(captions), false);
+  assertEquals(liveCaptionStreaming({ ...captions, interimAgent: 'So' }), true);
+  assertEquals(liveCaptionStreaming({ ...captions, working: true }), true);
+});
+
+Deno.test('liveCaptionTranscript drops speech the agent broke off and began again', () => {
+  const cutOff = 'Lisbon in November is a fantastic choice for a tight budget. Outside of the';
+  const again =
+    'Lisbon in November is a fantastic choice for a tight budget. You get lower prices.';
+  const ids = (turns: Parameters<typeof liveCaptionTranscript>[1]['turns'], interimAgent = '') =>
+    liveCaptionTranscript([], { turns, interimUser: '', interimAgent, working: false }).blocks.map(
+      (block) => block.id,
+    );
+  const start = [
+    { id: 'q', role: 'user' as const, text: 'Plan a trip' },
+    thought('t1', 'Plan'),
+    { id: 'a1', role: 'agent' as const, text: cutOff },
+    thought('t2', 'Searched'),
+  ];
+  assertEquals(ids([...start, { id: 'a2', role: 'agent', text: again }]), [
+    'q',
+    't1-1',
+    't2-1',
+    'a2',
+  ]);
+  // The first line stays until the second has repeated enough of it, heard or still arriving.
+  assertEquals(ids([...start, { id: 'a2', role: 'agent', text: 'Lisbon in' }]), [
+    'q',
+    't1-1',
+    'a1',
+    't2-1',
+    'a2',
+  ]);
+  assertEquals(ids(start, again), ['q', 't1-1', 't2-1', 'interim-agent']);
+  // Different words after a thought are a second line, and a later reply never replaces an earlier one.
+  assertEquals(ids([...start, { id: 'a2', role: 'agent', text: 'Here is the plan.' }]), [
+    'q',
+    't1-1',
+    'a1',
+    't2-1',
+    'a2',
+  ]);
+  assertEquals(
+    ids([
+      ...start,
+      { id: 'q2', role: 'user', text: 'Again?' },
+      { id: 'a2', role: 'agent', text: again },
+    ]),
+    ['q', 't1-1', 'a1', 't2-1', 'q2', 'a2'],
+  );
+  // A short line is restarted only by one that opens with all of it.
+  const short = [{ id: 'a1', role: 'agent' as const, text: 'Okay.' }, thought('t', 'x')];
+  assertEquals(ids([...short, { id: 'a2', role: 'agent', text: 'Okay. Here it is.' }]), [
+    't-1',
+    'a2',
+  ]);
+  assertEquals(ids([...short, { id: 'a2', role: 'agent', text: 'Okra is cheap.' }]), [
+    'a1',
+    't-1',
+    'a2',
+  ]);
+});
+
+Deno.test('groupTranscriptBlocks starts a new turn at a break', () => {
+  const blocks = [
+    { id: 'a', kind: 'text' as const, text: 'Bye.' },
+    { id: 'b', kind: 'text' as const, text: 'Hello again.' },
+    { id: 'c', kind: 'text' as const, text: 'How can I help?' },
+  ];
+  assertEquals(
+    groupTranscriptBlocks(blocks).map((group) => group.key),
+    ['a'],
+  );
+  assertEquals(
+    groupTranscriptBlocks(blocks, new Set(['b'])).map((group) => [group.key, group.blocks.length]),
+    [
+      ['a', 1],
+      ['b', 2],
+    ],
+  );
+});
+
+Deno.test('groupTranscriptBlocks closes a message whose turn was stopped', () => {
+  const groups = groupTranscriptBlocks([
+    { id: 'a', kind: 'user-text', text: 'Tell me a story' },
+    { id: 's', kind: 'turn-done', stop: { kind: 'cancelled' } },
+    { id: 'b', kind: 'user-text', text: 'A short one' },
+    { id: 'c', kind: 'text', text: 'Once.' },
+    { id: 'd', kind: 'turn-done', stop: { kind: 'completed' }, workedMs: 5, endedAt: 9 },
+  ]);
+  assertEquals(
+    groups.map((group) => [group.key, group.kind === 'user' && group.interrupted === true]),
+    [
+      ['a', true],
+      ['b', false],
+      ['c', false],
+    ],
+  );
+  assertEquals(groups[2]?.kind === 'assistant' && groups[2].workedMs, 5);
 });
 
 Deno.test('inkWaveDriver and computeInkBarTargets calculate animations', () => {
@@ -256,6 +477,11 @@ Deno.test('liveState maps all states and connect phases; liveStateLabel words th
       isMuted: false,
     }),
     'requesting mic',
+  );
+  // A dropped call says so, over a tool that was running when it dropped.
+  assertEquals(
+    liveLine({ status: 'reconnecting', connectPhase: null, toolName: 'search', isMuted: false }),
+    'reconnecting',
   );
   assertEquals(
     liveLine({ status: 'speaking', connectPhase: null, toolName: null, isMuted: false }),
@@ -347,44 +573,46 @@ Deno.test('shouldForwardMicFrame, liveTranscriptFromEvidence, applyLiveToolTurnE
     false,
   );
 
+  const transcript = (evidence: ProviderEvidence, text?: string) =>
+    liveTranscriptFromEvidence({
+      type: 'evidence',
+      evidence,
+      ...(text === undefined ? {} : { text }),
+    });
   assertEquals(
-    liveTranscriptFromEvidence({ kind: 'input_transcription', text: 'abc', interim: true }),
+    transcript({ provider: 'google', kind: 'input_transcription', interim: true }, 'abc'),
     {
       text: 'abc',
       isUser: true,
       interim: true,
     },
   );
-  assertEquals(liveTranscriptFromEvidence({ kind: 'output_transcription', text: 'def' }), {
+  assertEquals(transcript({ provider: 'google', kind: 'output_transcription' }, 'def'), {
     text: 'def',
     isUser: false,
     interim: false,
   });
-  assertEquals(liveTranscriptFromEvidence({ kind: 'unknown', text: 'def' }), null);
-  assertEquals(liveTranscriptFromEvidence({ kind: 'input_transcription', text: '' }), null);
+  assertEquals(transcript({ provider: 'google', kind: 'voice_activity' }, 'def'), null);
+  assertEquals(transcript({ provider: 'google', kind: 'input_transcription' }, ''), null);
+  assertEquals(transcript({ provider: 'google', kind: 'input_transcription' }), null);
 
-  const accum = {
-    cancelledToolIds: new Set<string>(),
-    toolCalls: [] as Array<{
-      id: string;
-      name: string;
-      arguments: Record<string, unknown>;
-      error?: string;
-    }>,
-  };
-  applyLiveToolTurnEvent({ id: 'c1', phase: 'cancel' }, accum);
-  assertEquals(accum.cancelledToolIds.has('c1'), true);
-
-  applyLiveToolTurnEvent({ id: 't1', name: 'search', arguments: { q: 'hi' } }, accum);
-  assertEquals(accum.toolCalls.length, 1);
-  assertEquals(accum.toolCalls[0].name, 'search');
-
+  const accum = { cancelledToolIds: new Set<string>(), toolCalls: [] as LiveToolCallDraft[] };
   applyLiveToolTurnEvent(
-    { id: 't2', name: 'calc', phase: 'error', failure: { message: 'oops' } },
+    toolEvent({ name: 'search', callId: 'c1' }, { phase: 'cancel' }).tool,
     accum,
   );
-  assertEquals(accum.toolCalls.length, 2);
-  assertEquals(accum.toolCalls[1].error, 'oops');
+  assertEquals([...accum.cancelledToolIds], ['c1']);
+
+  applyLiveToolTurnEvent(
+    toolCallRequestEvent({ name: 'search', callId: 't1' }, { q: 'hi' }).tool,
+    accum,
+  );
+  const bad = { name: 'calc', callId: 't2' };
+  for (const event of malformedToolCall(bad, 'oops', '{')) {
+    if (event.type === 'tool') applyLiveToolTurnEvent(event.tool, accum);
+  }
+  // The session answered the malformed call; only the usable one runs.
+  assertEquals(accum.toolCalls, [{ id: 't1', name: 'search', arguments: { q: 'hi' } }]);
 });
 
 Deno.test('composer drawer summary names what is waiting, by kind', () => {
@@ -442,11 +670,11 @@ Deno.test('stash shortcut is mod+shift+S', () => {
 });
 
 Deno.test('composeAssistantTurn streams the answer after the latest tool in the body', () => {
-  const tool = {
+  const tool: TranscriptBlock = {
     id: 't',
     kind: 'tool',
-    tool: { name: 'plan_day', phase: 'complete' },
-  } as TranscriptBlock;
+    tool: foldedCall({ name: 'plan_day', callId: 'p1' }, {}, { phase: 'complete', output: {} }),
+  };
   const blocks: TranscriptBlock[] = [
     { id: 'r', kind: 'thought', text: 'Planning' },
     { id: 'n', kind: 'text', text: 'Let me check.' },
@@ -478,6 +706,27 @@ Deno.test('groupTranscriptBlocks keeps tools and text in one assistant turn', ()
     ['user', 'assistant', 'user'],
   );
   assertEquals(groups[1]?.blocks.length, 2);
+});
+
+Deno.test("a reply's usage is the sum of its runs, with a part-reported cost marked partial", () => {
+  const blocks = [
+    { id: 'u-1', kind: 'user-text', text: 'hi' },
+    { id: 'a-1', kind: 'text', text: 'one' },
+    { id: 'd-1', kind: 'turn-done', tokens: { input: 90, output: 10, total: 100 } },
+    { id: 'a-2', kind: 'text', text: 'two' },
+    {
+      id: 'd-2',
+      kind: 'turn-done',
+      tokens: { input: 40, output: 5, total: 45, cost: { usd: 0.002 } },
+    },
+    { id: 'u-2', kind: 'user-text', text: 'again' },
+    { id: 'a-3', kind: 'text', text: 'three' },
+    { id: 'd-3', kind: 'turn-done' },
+  ] as TranscriptBlock[];
+  const replies = groupTranscriptBlocks(blocks).flatMap((group) =>
+    group.kind === 'assistant' ? [group.usage] : [],
+  );
+  assertEquals(replies, [{ total: 145, cost: { usd: 0.002, partial: true } }, undefined]);
 });
 
 Deno.test('composeAssistantTurn keeps a plain reply in the body', () => {
@@ -528,33 +777,89 @@ Deno.test('resolveScrollToBottomScrollTop targets the live edge', () => {
   assertEquals(resolveScrollToBottomScrollTop({ scrollHeight: 400, clientHeight: 600 }), 0);
 });
 
-Deno.test('assistantTurnTiming keys replies by their prompt and times only this session', () => {
+Deno.test('a committed reply carries its work on its latest turn-done, and its group reads it', () => {
+  const prompt: TranscriptBlock = { id: 'user-1', kind: 'user-text', text: 'hi' };
+  const reply: TranscriptBlock[] = [
+    { id: 'turn-1', kind: 'text', text: 'on it' },
+    { id: 'turn-2', kind: 'turn-done' },
+    { id: 'turn-3', kind: 'text', text: 'done' },
+    { id: 'turn-4', kind: 'turn-done' },
+  ];
+  const merged = applyTurnResultToTranscript({
+    blocks: [prompt],
+    streamBlocks: [],
+    session: emptyInterfaceTurnSession(),
+    assistantBlocks: reply,
+    worked: { workedMs: 4200, endedAt: 99 },
+  });
+  assertEquals(merged.blocks.at(-1), {
+    id: 'turn-4',
+    kind: 'turn-done',
+    workedMs: 4200,
+    endedAt: 99,
+  });
+  assertEquals(merged.blocks.at(-3), { id: 'turn-2', kind: 'turn-done' });
+  const reread = groupTranscriptBlocks(merged.blocks).at(-1);
+  assertEquals(
+    reread?.kind === 'assistant' ? [reread.workedMs, reread.endedAt] : undefined,
+    [4200, 99],
+  );
+});
+
+Deno.test('promptTime dates a sent prompt from its stopped reply, so a restored chat keeps it', () => {
+  const groups: TranscriptTurnGroup[] = [
+    { kind: 'user', key: 'u1', blocks: [] },
+    { kind: 'assistant', key: 'turn-1', blocks: [], workedMs: 4, endedAt: 15 },
+    { kind: 'user', key: 'u2', blocks: [] },
+  ];
+  const timeOf = () => 99;
+  assertEquals(promptTime(groups, 0, timeOf), 11);
+  assertEquals(promptTime(groups, 2, timeOf), 99);
+});
+
+Deno.test('assistantTurnTiming keys replies by their prompt; a stopped reply reads its time from its blocks', () => {
   const user = (key: string): TranscriptTurnGroup => ({ kind: 'user', key, blocks: [] });
-  const reply = (key: string): TranscriptTurnGroup => ({ kind: 'assistant', key, blocks: [] });
-  const groups = [user('u1'), reply('a1'), user('u2'), reply('a2')];
-  const timeOf = (id: string) => (id === 'u1' ? 10 : 20);
-  const turnEnds = new Map([['u1', 15]]);
-  assertEquals(assistantTurnTiming({ groups, index: 1, streaming: true, timeOf, turnEnds }), {
+  const reply = (key: string, workedMs?: number): TranscriptTurnGroup => ({
+    kind: 'assistant',
+    key,
+    blocks: [],
+    ...(workedMs === undefined ? {} : { workedMs, endedAt: 15 }),
+  });
+  // Block ids restart every reply, so both replies' groups carry the same key.
+  const groups = [user('u1'), reply('turn-1', 2), user('u2'), reply('turn-1')];
+  const timeOf = (key: string) => (key === 'u1' ? 10 : 20);
+  // u2 paused 3 on an approval before it streamed again.
+  const spans = new Map([['u2', { pausedMs: 3 }]]);
+  assertEquals(replyKey(groups, 1), 'u1:reply');
+  assertEquals(replyKey(groups, 3), 'u2:reply');
+  assertEquals(assistantTurnTiming({ groups, index: 1, streaming: true, timeOf, spans }), {
     key: 'u1:reply',
     live: false,
-    startedAt: 10,
+    workedMs: 2,
     endedAt: 15,
   });
-  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: true, timeOf, turnEnds }), {
+  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: true, timeOf, spans }), {
     key: 'u2:reply',
     live: true,
-    startedAt: 20,
-    endedAt: undefined,
+    startedAt: 23,
   });
-  // Loaded history: no end recorded, not live, so untimed.
-  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: false, timeOf, turnEnds }), {
+  // Stopped without a stamp (a host that doesn't stamp, a failed run): untimed.
+  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: false, timeOf, spans }), {
     key: 'u2:reply',
     live: false,
-    startedAt: undefined,
-    endedAt: undefined,
   });
+  // The stamp needs no span: it survives a remount or a reload of saved blocks.
   assertEquals(
-    assistantTurnTiming({ groups: [reply('a0')], index: 0, streaming: false, timeOf, turnEnds }),
+    assistantTurnTiming({ groups, index: 1, streaming: false, timeOf, spans: new Map() }),
+    {
+      key: 'u1:reply',
+      live: false,
+      workedMs: 2,
+      endedAt: 15,
+    },
+  );
+  assertEquals(
+    assistantTurnTiming({ groups: [reply('a0')], index: 0, streaming: false, timeOf, spans }),
     {
       key: 'a0',
       live: false,
@@ -562,7 +867,6 @@ Deno.test('assistantTurnTiming keys replies by their prompt and times only this 
   );
   assertEquals(pendingPromptOf(groups), undefined);
   assertEquals(pendingPromptOf(groups.slice(0, 3))?.key, 'u2');
-  assertEquals(groupTimeKey(user('u9')), 'u9');
 });
 
 Deno.test('composerActionState gates the primary button on payload, phase and recording', () => {
@@ -575,6 +879,7 @@ Deno.test('composerActionState gates the primary button on payload, phase and re
       tools: { allow: [] },
       inputs: { text: true, ...CHAT_MEDIA_LIMITS },
     }),
+    defaultKernelScope.tools,
   );
   if (iface.type !== 'text') throw new Error('expected a text interface');
   assertEquals(iface.allowSteering, true);
@@ -616,33 +921,78 @@ Deno.test('composerActionState gates the primary button on payload, phase and re
   assertEquals(steering.menuActions, ['queue', 'steer', 'send_now', 'stash']);
 });
 
-Deno.test('source chips link only http(s) sources', () => {
-  const chips = chipsFromBlock({
-    kind: 'evidence',
-    id: 'e1',
-    evidence: {
-      provider: 'openrouter',
-      citations: [
-        'https://www.example.com/a',
-        'javascript:alert(1)',
-        'httpx://example.com',
-        'a plain note',
-      ],
-      sources: [
-        { title: 'Docs', uri: 'http://example.org/docs', type: 'web' },
-        { title: '', uri: 'data:text/html,<script>alert(1)</script>', type: 'web' },
-      ],
-    },
+Deno.test('source citations link only http(s) sources', () => {
+  const web = (title: string, uri: string): Source => ({ type: 'web', title, uri });
+  const citations = citationsFromBlock({
+    kind: 'citation',
+    id: 'c1',
+    sources: [
+      web('Docs', 'http://example.org/docs'),
+      web('', 'https://www.example.com/a'),
+      web('', 'data:text/html,<script>alert(1)</script>'),
+      web('', 'javascript:alert(1)'),
+      web('', 'httpx://example.com'),
+    ],
   });
   assertEquals(
-    chips.map((chip) => [chip.label, chip.href]),
+    citations.map((citation) => [citation.title, citation.href]),
     [
       ['Docs', 'http://example.org/docs'],
-      ['web', undefined],
       ['example.com', 'https://www.example.com/a'],
-      ['javascript:alert(1)', undefined],
-      ['httpx://example.com', undefined],
-      ['a plain note', undefined],
+      ['web', undefined],
+      ['web', undefined],
+      ['example.com', undefined],
     ],
   );
+});
+
+Deno.test('a source favicon names only its site, never the page', () => {
+  const web = (title: string, uri: string): Source => ({ type: 'web', title, uri });
+  const favicon = (site: string) => `https://www.google.com/s2/favicons?domain=${site}&sz=32`;
+  const citations = citationsFromBlock({
+    kind: 'citation',
+    id: 'c1',
+    sources: [
+      web('Docs', 'https://docs.example.org/a/b?q=secret'),
+      // Gemini grounding links through a redirect and names the site in the title.
+      web('lisboa.pt', 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc'),
+      web(
+        'Lisbon travel guide',
+        'https://vertexaisearch.cloud.google.com/grounding-api-redirect/def',
+      ),
+      web('', 'javascript:alert(1)'),
+    ],
+  });
+  assertEquals(
+    citations.map((citation) => citation.icon),
+    [favicon('docs.example.org'), favicon('lisboa.pt'), undefined, undefined],
+  );
+});
+
+Deno.test('a tool row reads as its filled activity label, else the tool name in words', () => {
+  const call = { name: 'save_to_collection', callId: 'c1', arguments: {}, artifacts: [] };
+  assertEquals(toolCallLabel(call), 'Save to collection');
+  const running = {
+    ...call,
+    activity: 'Saving Monty to your collection',
+    activityPast: 'Saved Monty',
+  };
+  assertEquals(toolCallLabel(running), 'Saving Monty to your collection');
+  const complete = {
+    ...running,
+    state: { phase: 'complete' as const, name: call.name, callId: 'c1', at: 1, output: {} },
+  };
+  assertEquals(toolCallLabel(complete), 'Saved Monty');
+  assertEquals(toolCallLabel({ ...complete, activityPast: undefined }), 'Save to collection');
+  const failed = {
+    ...running,
+    state: {
+      phase: 'error' as const,
+      name: call.name,
+      callId: 'c1',
+      at: 1,
+      failure: { code: 'upstream', kind: 'failed' as const, message: 'x' },
+    },
+  };
+  assertEquals(toolCallLabel(failed), 'Save to collection');
 });

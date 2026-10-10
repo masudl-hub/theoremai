@@ -1,6 +1,3 @@
-/**
- * Round-trip pending attachment encode/decode used by stash restore.
- */
 import { assertEquals } from '@std/assert';
 import { composerFieldsFromDraft } from '../../react/src/client/decode-composer-draft.ts';
 import { encodeComposerDraft } from '../../react/src/client/encode-composer-draft.ts';

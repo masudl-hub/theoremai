@@ -1,20 +1,11 @@
-/**
- * URI media references (`TurnMediaRef` / `InteractionMediaRefPart`): MIME
- * acceptance still applies; base64 and byte limits do not; the uri passes
- * through untouched for the Google adapter to wire.
- */
 import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { publicError, TheoremError } from '../../src/guardrails/error.ts';
+import { getProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
 import { isMediaRefPart, wireInteractionPart } from '../../src/kernel/interaction-parts.ts';
-import {
-  assertTurnAttachments,
-  isTurnMediaRef,
-  sanitizeTurnBlobs,
-} from '../../src/kernel/registry/attachments.ts';
-import { getProfile } from '../../src/kernel/registry/profiles.ts';
-import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
+import { assertTurnAttachments, isTurnMediaRef } from '../../src/kernel/registry/attachments.ts';
 import type { InteractionPart, Profile } from '../../src/kernel/types.ts';
+import { sanitizeBlobs } from '../fixtures/detect.ts';
 
 /** The chat fixture with a one-file, one-byte ceiling. */
 function tiny(): Profile {
@@ -68,7 +59,7 @@ Deno.test('a media reference never runs base64 or byte limits; file count still 
   assertEquals(publicError(tooMany), 'Sorry, only 1 file can be sent per message.');
   // Text-mime sanitization only rewrites inline bytes; a ref passes through untouched.
   const csvRef = { mimeType: 'text/csv', uri: 'files/csv1' };
-  const sanitized = sanitizeTurnBlobs(tiny(), [csvRef], undefined);
+  const sanitized = sanitizeBlobs(tiny(), [csvRef], undefined);
   assertEquals(sanitized.attachments, [csvRef]);
 });
 

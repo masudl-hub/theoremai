@@ -1,168 +1,60 @@
-import { type LexiconOverrides, lexiconText, TheoremError } from '../../../../mod.ts';
-import type { LiveSessionClient } from '../../client/live-client';
-import type { LiveToolGatePrompt } from '../../client/live/live-tool';
-import { continueGatedToolInvocation, type ToolGateResolution } from '../../client/tool-resume';
-
-function asOutputRecord(value: unknown, fallback: Record<string, unknown>): Record<string, unknown> {
-	if (value && typeof value === 'object' && !Array.isArray(value)) {
-		return value as Record<string, unknown>;
-	}
-	return fallback;
-}
+import type { ExecuteToolOnRelay } from '../live-messages.ts';
+import { continueGatedToolInvocation } from '../tool-resume.ts';
+import type { PageTools } from './live-page-tool.ts';
+import type { LiveGateAnswer, LiveToolGatePrompt } from './live-tool.ts';
 
 /**
- * Settle a gated call as denied on the relay. The user reads `failure`; the
- * model reads the relay's output, else the lexicon's `session.tool_denied`.
- */
-async function settleDeniedTool(args: {
-	client: LiveSessionClient;
-	name: string;
-	callId: string;
-	input: Record<string, unknown>;
-	failure: TheoremError;
-	lexicon: LexiconOverrides;
-	reportFailure: (err: unknown) => void;
-}): Promise<Record<string, unknown>> {
-	const settled = await args.client.executeToolOnRelay({
-		name: args.name,
-		callId: args.callId,
-		input: args.input,
-		resume: { granted: false },
-	});
-	const denied = lexiconText('session.tool_denied', { tool: args.name }, args.lexicon);
-	const output = asOutputRecord(settled.output, { error: denied });
-	args.reportFailure(args.failure);
-	return 'error' in output ? output : { ...output, error: denied };
-}
-
-type LiveToolLoopState = {
-	resume: { granted?: boolean } | undefined;
-	/** A key the user just typed, sent on the next call only. */
-	secret: string | undefined;
-	sessionPermissions: string[];
-};
-
-async function advanceLiveToolGate(args: {
-	client: LiveSessionClient;
-	name: string;
-	toolArgs: Record<string, unknown>;
-	callId: string;
-	gate: NonNullable<Awaited<ReturnType<LiveSessionClient['executeToolOnRelay']>>['gate']>;
-	state: LiveToolLoopState;
-	waitForGateDecision: (prompt: LiveToolGatePrompt) => Promise<ToolGateResolution>;
-	setSessionPermissions: (next: string[]) => void;
-	lexicon: LexiconOverrides;
-	reportFailure: (err: unknown) => void;
-}): Promise<{ done: true; output: Record<string, unknown> } | { done: false; state: LiveToolLoopState }> {
-	const resolution = await args.waitForGateDecision({
-		toolName: args.name,
-		input: args.toolArgs,
-		gate: args.gate,
-	});
-	const next = continueGatedToolInvocation({
-		toolName: args.name,
-		gate: args.gate,
-		sessionPermissions: args.state.sessionPermissions,
-		resolution,
-	});
-	if (next.kind === 'denied') {
-		return {
-			done: true,
-			output: await settleDeniedTool({
-				client: args.client,
-				name: args.name,
-				callId: args.callId,
-				input: args.toolArgs,
-				failure: new TheoremError(
-					'declined',
-					// lexicon-exempt: internal diagnostic; the user reads session.tool_denied
-					`user denied ${args.name}`,
-					{ copy: { key: 'session.tool_denied', params: { tool: args.name } } },
-				),
-				lexicon: args.lexicon,
-				reportFailure: args.reportFailure,
-			}),
-		};
-	}
-	if (next.kind === 'auth') {
-		return {
-			done: false,
-			state: {
-				...args.state,
-				secret: next.secret,
-				resume: undefined,
-			},
-		};
-	}
-	args.setSessionPermissions(next.sessionPermissions);
-	return {
-		done: false,
-		state: {
-			sessionPermissions: next.sessionPermissions,
-			resume: next.resume,
-			secret: undefined,
-		},
-	};
-}
-
-/**
- * Live provider tool-call handler: execute on relay, pause for gates, resume.
+ * Live provider tool-call handler: the page answers the call if it is the
+ * page's; else run the model's call on the relay; at a gate, ask the user and
+ * send their decision. The session answers the model
+ * however the call ends; its tool events tell the user. A call the model
+ * cancels while its gate is open is gone: nothing is sent.
  */
 export async function runLiveToolCall(args: {
-	client: LiveSessionClient;
-	name: string;
-	toolArgs: Record<string, unknown>;
-	callId: string;
-	sessionPermissions: string[];
-	setSessionPermissions: (next: string[]) => void;
-	waitForGateDecision: (prompt: LiveToolGatePrompt) => Promise<ToolGateResolution>;
-	/** The interface's `lexicon`: the profile's wording. */
-	lexicon: LexiconOverrides;
-	reportFailure: (err: unknown) => void;
-}): Promise<Record<string, unknown>> {
-	const { client, name, toolArgs, callId, waitForGateDecision, lexicon, reportFailure, setSessionPermissions } =
-		args;
-	let state: LiveToolLoopState = {
-		resume: undefined,
-		secret: undefined,
-		sessionPermissions: args.sessionPermissions,
-	};
-
-	for (;;) {
-		const result = await client.executeToolOnRelay({
-			name,
-			callId,
-			input: toolArgs,
-			resume: state.resume,
-			secret: state.secret,
-		});
-		// A failed step reaches the user through its tool event; the output is the model's.
-		if (result.status === 'complete') return asOutputRecord(result.output, { result: result.output });
-		if (!result.gate) {
-			return settleDeniedTool({
-				client,
-				name,
-				callId,
-				input: toolArgs,
-				// lexicon-exempt: internal diagnostic; the user reads error.bad_response
-				failure: new TheoremError('bad_response', `relay gated ${name} without a gate`),
-				lexicon,
-				reportFailure,
-			});
-		}
-		const stepped = await advanceLiveToolGate({
-			client,
-			name,
-			toolArgs,
-			callId,
-			gate: result.gate,
-			state,
-			waitForGateDecision,
-			setSessionPermissions,
-			lexicon,
-			reportFailure,
-		});
-		if (stepped.done) return stepped.output;
-		state = stepped.state;
-	}
+  executeToolOnRelay: ExecuteToolOnRelay;
+  /** The host's page tools, if it has any. */
+  pageTools?: PageTools;
+  name: string;
+  toolArgs: Record<string, unknown>;
+  callId: string;
+  sessionPermissions: string[];
+  setSessionPermissions: (next: string[]) => void;
+  waitForGateDecision: (prompt: LiveToolGatePrompt) => Promise<LiveGateAnswer>;
+}): Promise<void> {
+  const { executeToolOnRelay, name, toolArgs, callId } = args;
+  let sessionPermissions = args.sessionPermissions;
+  // why: A name from the model is looked up among the host's own keys only.
+  const pageTool =
+    args.pageTools && Object.hasOwn(args.pageTools, name) ? args.pageTools[name] : undefined;
+  const answer = await pageTool?.(toolArgs, { callId });
+  let step = await executeToolOnRelay(answer ? { callId, output: answer.output } : { callId });
+  while (step.status === 'gated') {
+    const { gate } = step;
+    const resolution = await args.waitForGateDecision({
+      callId,
+      toolName: name,
+      input: toolArgs,
+      gate,
+    });
+    if (resolution === 'withdrawn') return;
+    const reply = continueGatedToolInvocation({
+      toolName: name,
+      gate,
+      sessionPermissions,
+      resolution,
+    });
+    if (reply.decision === 'deny') {
+      // why: The session settles the refusal; its tool event tells the user.
+      await executeToolOnRelay({ callId, decision: 'deny' });
+      return;
+    }
+    sessionPermissions = reply.sessionPermissions;
+    args.setSessionPermissions(reply.sessionPermissions);
+    // why: Signed in: a typed key goes once, with the approval; after an OAuth callback there is none.
+    step = await executeToolOnRelay({
+      callId,
+      decision: 'approve',
+      ...(reply.secret !== undefined ? { secret: reply.secret } : {}),
+    });
+  }
 }

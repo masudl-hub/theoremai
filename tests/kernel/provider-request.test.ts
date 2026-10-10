@@ -1,7 +1,12 @@
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
+
+registerFixtureProviders(defaultKernelScope);
+
+import { registerProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { providerCompleteRequest } from '../../src/kernel/registry/provider-request.ts';
-import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
 
 Deno.test('providerCompleteRequest forwards summaries for OpenAI-compatible providers', () => {
   registerProfile(
@@ -11,7 +16,6 @@ Deno.test('providerCompleteRequest forwards summaries for OpenAI-compatible prov
       identity: { handle: 'provider_request' },
       models: {
         'openrouter/free': {
-          protocol: 'openAi',
           provider: 'openrouter',
           apiId: 'openrouter/free',
           summaries: false,
@@ -21,13 +25,11 @@ Deno.test('providerCompleteRequest forwards summaries for OpenAI-compatible prov
       inputs: { text: true },
     }),
   );
-
   const { generation } = resolveTurn({
     profile: 'provider_request_openai_summaries_none',
     input: { text: 'hi' },
   });
-  const req = providerCompleteRequest(generation, 'system');
-
+  const req = providerCompleteRequest(defaultKernelScope.tools, generation, 'system');
   assertEquals(generation.summaries, 'none');
   assertEquals(req.summaries, 'none');
 });

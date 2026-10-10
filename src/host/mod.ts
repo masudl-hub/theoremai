@@ -1,8 +1,6 @@
 /**
- * Optional host-application helpers.
- *
- * Not part of the turn kernel. Shared glue for Deno HTTP hosts (reply status,
- * cutout-trace flush) and live structured-output preview while tokens stream.
+ * Optional host-application helpers, not part of the turn kernel: HTTP reply status, cutout-trace
+ * flush, and live structured-output preview.
  *
  * @module
  */

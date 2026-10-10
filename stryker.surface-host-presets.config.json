@@ -1,0 +1,43 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker/master/packages/core/schema/stryker-core.schema.json",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "deno test --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/surface tests/host tests/presets"
+  },
+  "mutate": [
+    "src/surface/**/*.ts",
+    "src/host/**/*.ts",
+    "src/presets/**/*.ts"
+  ],
+  "ignorePatterns": [
+    "coverage",
+    "npm",
+    "docs",
+    ".stryker-cache",
+    ".stryker-tmp",
+    "node_modules",
+    "traces",
+    "cov_profile",
+    ".fallow",
+    ".stryker-tmp-surface-host-presets"
+  ],
+  "reporters": [
+    "clear-text",
+    "progress"
+  ],
+  "coverageAnalysis": "off",
+  "incremental": true,
+  "incrementalFile": ".stryker-cache/surface-host-presets-incremental.json",
+  "thresholds": {
+    "high": 85,
+    "low": 75,
+    "break": null
+  },
+  "timeoutMS": 120000,
+  "concurrency": 4,
+  "ignoreStatic": false,
+  "tempDirName": ".stryker-tmp-surface-host-presets",
+  "jsonReporter": {
+    "fileName": "reports/mutation/surface-host-presets.json"
+  }
+}

@@ -1,37 +1,18 @@
-/**
- * Span builder — the one way THEOREM and host applications open, nest, and
- * close trace spans.
- *
- * Spans are plain data shaped like OTLP/JSON (`startTimeUnixNano`, `spanId`,
- * …). The kernel stamps spans at its own checkpoints; hosts use the same
- * builder for their own steps and link to a turn through W3C `traceparent`.
- *
- * Content is held in memory as markers the record builder resolves:
- * - `traceContent(text)` → `{ $content }`: scrubbed, hashed, moved into
- *   `TraceRecord.content`, so a stored span never carries inline text.
- * - `traceBytes(base64)` → `{ $bytes }`: hashed over the raw bytes; the bytes
- *   are never stored.
- * - `traceJson(value)` → `{ $json }`: a provider row or wire body; media is
- *   hashed, strings equal to recorded content become their hash, and the
- *   result is stored by hash like any other text.
- *
- * @module
- */
+// invariant: Content is held in memory as markers the record builder resolves: `$content` is scrubbed, hashed
+// and moved into `TraceRecord.content`; `$bytes` is hashed and never stored; `$json` has media
+// hashed and strings equal to recorded content replaced by their hash.
 
 import { TheoremError } from '../guardrails/error.ts';
 import { isRecord } from '../kernel/util/record.ts';
-
-/** JSON-shaped attribute value (OTLP `AnyValue`). */
-type TraceAttributeValue =
-  | null
-  | string
-  | number
-  | boolean
-  | TraceAttributeValue[]
-  | { [key: string]: TraceAttributeValue };
-
-/** Span or event attributes keyed by semantic-convention name. */
-type TraceAttributes = Record<string, TraceAttributeValue>;
+import type {
+  TraceAttributes,
+  TraceAttributeValue,
+  TraceSpan,
+  TraceSpanEvent,
+  TraceSpanKind,
+  TraceSpanLink,
+  TraceSpanStatus,
+} from './trace-schema.ts';
 
 /** In-memory text awaiting scrub + hash at record build. */
 interface TraceContent {
@@ -51,51 +32,13 @@ interface TraceJson {
   $json: TraceAttributeValue;
 }
 
-/** OTLP span kind. THEOREM emits INTERNAL (agent, tool) and CLIENT (model call). */
-type TraceSpanKind = 'INTERNAL' | 'CLIENT';
-
-/** OTLP status. `UNSET` is used for cancelled and paused spans. */
-interface TraceSpanStatus {
-  code: 'OK' | 'ERROR' | 'UNSET';
-  message?: string;
-}
-
-/** Edge to a span in an earlier trace (resume, continue, retry). */
-interface TraceSpanLink {
-  traceId: string;
-  spanId: string;
-  attributes: TraceAttributes;
-}
-
-/** Timestamped annotation on a span. */
-interface TraceSpanEvent {
-  name: string;
-  timeUnixNano: string;
-  attributes: TraceAttributes;
-}
-
-/** One closed span. */
-interface TraceSpan {
-  traceId: string;
-  spanId: string;
-  parentSpanId?: string;
-  name: string;
-  kind: TraceSpanKind;
-  startTimeUnixNano: string;
-  endTimeUnixNano: string;
-  attributes: TraceAttributes;
-  events: TraceSpanEvent[];
-  links: TraceSpanLink[];
-  status: TraceSpanStatus;
-}
-
-/** A link request: the linked span's W3C `traceparent` plus link attributes. */
+/** A link from a span to another trace, by its `traceparent`. */
 interface SpanLinkInput {
   traceparent: string;
   attributes?: TraceAttributes;
 }
 
-/** Options when opening a span. */
+/** Options for starting a span: its kind, attributes and links. */
 interface SpanOptions {
   kind?: TraceSpanKind;
   attributes?: TraceAttributes;
@@ -108,11 +51,9 @@ interface SpanOptions {
 interface SpanHandle {
   readonly traceId: string;
   readonly spanId: string;
-  /** True once `end` ran (or the trace was collected). */
+  /** True once `end` ran or the trace was collected. */
   readonly ended: boolean;
-  /** W3C `traceparent` naming this span as the parent. */
   traceparent: () => string;
-  /** Open a child span in the same trace. */
   child: (name: string, options?: SpanOptions) => SpanHandle;
   /** Merge attributes; later values win. Ignored after `end`. */
   set: (attributes: TraceAttributes) => void;
@@ -121,9 +62,8 @@ interface SpanHandle {
    * it could be attached (default: now). Ignored after `end`.
    */
   event: (name: string, attributes?: TraceAttributes, timeUnixNano?: string) => void;
-  /** Close the span. Default status is `OK`. Second and later calls are ignored. */
+  /** Default status is `OK`. Second and later calls are ignored. */
   end: (status?: TraceSpanStatus) => void;
-  /** Milliseconds from this span's start to now. */
   msSinceStart: () => number;
   /** Milliseconds from this span's end to now; `undefined` while open. */
   msSinceEnd: () => number | undefined;
@@ -131,19 +71,16 @@ interface SpanHandle {
   nowUnixNano: () => string;
 }
 
-/** Root span plus the collection of every span opened under it. */
+/** A trace being built: its root span and the clock it shares. */
 interface TraceTree {
   root: SpanHandle;
   /** The trace's clock; pass it to `startTrace` so related trees share one timeline. */
   clock: TraceClock;
-  /**
-   * Close anything still open as `ERROR` / `unclosed`, then return every span:
-   * root first, the rest in start order.
-   */
+  /** Closes anything still open as `ERROR` / `unclosed`; returns root first, then start order. */
   collect: () => TraceSpan[];
 }
 
-/** Monotonic unix-nanosecond clock anchored once per trace. */
+/** The clock a trace reads its timestamps from. */
 interface TraceClock {
   nowUnixNano: () => bigint;
 }
@@ -168,12 +105,7 @@ function randomHex(bytes: number): string {
   }
 }
 
-/**
- * Wall-clock epoch at trace start plus `performance.now()` for durations.
- *
- * On Cloudflare Workers both clocks advance only at I/O; spans there measure to
- * I/O boundaries and the root carries `theorem.clock=io`.
- */
+/** On Cloudflare Workers both clocks advance only at I/O; the root carries `theorem.clock=io`. */
 function systemClock(): TraceClock {
   const epochMs = Date.now();
   const perfStart = performance.now();
@@ -184,41 +116,47 @@ function systemClock(): TraceClock {
   };
 }
 
-/** True inside a Cloudflare Worker, where clocks advance only at I/O. */
 function clockAdvancesOnlyAtIo(): boolean {
   return globalThis.navigator?.userAgent === 'Cloudflare-Workers';
 }
 
-/** Parse a W3C `traceparent`. Throws on a malformed value — a host bug, not a runtime state. */
-function parseTraceparent(value: string): { traceId: string; spanId: string } {
+/**
+ * The trace and span ids of a W3C `traceparent` THEOREM accepts (version 00,
+ * lowercase hex, non-zero ids), or `undefined`. For a host checking a value from
+ * a request before handing it to a turn, which throws on anything else.
+ */
+function readTraceparent(value: string): { traceId: string; spanId: string } | undefined {
   const match = TRACEPARENT.exec(value.trim());
   const traceId = match?.[1];
   const spanId = match?.[2];
-  if (!traceId || !spanId || ALL_ZERO.test(traceId) || ALL_ZERO.test(spanId)) {
+  if (!traceId || !spanId || ALL_ZERO.test(traceId) || ALL_ZERO.test(spanId)) return undefined;
+  return { traceId, spanId };
+}
+
+/** Throws on a malformed value: a host bug, not a runtime state. */
+function parseTraceparent(value: string): { traceId: string; spanId: string } {
+  const parsed = readTraceparent(value);
+  if (!parsed) {
     throw new TheoremError('request', `traceparent is not a valid W3C trace context: '${value}'`);
   }
-  return { traceId, spanId };
+  return parsed;
 }
 
 function formatTraceparent(traceId: string, spanId: string): string {
   return `00-${traceId}-${spanId}-${SAMPLED_FLAGS}`;
 }
 
-/** Mark text for scrub + hash at record build. */
+/** Marks text as message content, which the trace stores by hash. */
 function traceContent(text: string): TraceContent {
   return { $content: text };
 }
 
-/** Mark base64 media bytes for hashing at record build. */
+/** Marks base64 data as bytes, which the trace stores by hash. */
 function traceBytes(base64: string): TraceBytes {
   return { $bytes: base64 };
 }
 
-/**
- * Mark a provider row or wire body for scrub, intern and hash at record build.
- * `undefined` members and non-JSON values are dropped the way `JSON.stringify`
- * drops them.
- */
+/** `undefined` members and non-JSON values are dropped the way `JSON.stringify` drops them. */
 function traceJson(value: unknown): TraceJson {
   return { $json: toAttributeValue(value) ?? null };
 }
@@ -253,17 +191,14 @@ function isMarker(value: unknown, key: string): value is Record<string, unknown>
   return isRecord(value) && key in value;
 }
 
-/** True for an in-memory `traceContent` wrapper. */
 function isTraceContent(value: unknown): value is TraceContent {
   return isMarker(value, '$content') && typeof value.$content === 'string';
 }
 
-/** True for an in-memory `traceBytes` wrapper. */
 function isTraceBytes(value: unknown): value is TraceBytes {
   return isMarker(value, '$bytes') && typeof value.$bytes === 'string';
 }
 
-/** True for an in-memory `traceJson` wrapper. */
 function isTraceJson(value: unknown): value is TraceJson {
   return isMarker(value, '$json');
 }
@@ -409,6 +344,7 @@ export {
   isTraceContent,
   isTraceJson,
   parseTraceparent,
+  readTraceparent,
   startTrace,
   traceBytes,
   traceContent,

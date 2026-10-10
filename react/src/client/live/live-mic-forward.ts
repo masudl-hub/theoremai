@@ -1,61 +1,57 @@
+import type { ToolCallEvent, TurnEventOf } from '@theoremjs/agents';
+
 /** Whether a mic frame should be sent upstream given mute / socket / barge-in gates. */
 export function shouldForwardMicFrame(args: {
-	isMuted: boolean;
-	socketOpen: boolean;
-	modelPlaying: boolean;
-	rms: number;
-	bargeInRmsWhileSpeaking: number;
+  isMuted: boolean;
+  socketOpen: boolean;
+  modelPlaying: boolean;
+  rms: number;
+  bargeInRmsWhileSpeaking: number;
 }): boolean {
-	if (args.isMuted || !args.socketOpen) return false;
-	if (args.modelPlaying && args.rms < args.bargeInRmsWhileSpeaking) return false;
-	return true;
+  if (args.isMuted || !args.socketOpen) return false;
+  if (args.modelPlaying && args.rms < args.bargeInRmsWhileSpeaking) return false;
+  return true;
 }
 
 /** Classify live evidence transcription into a UI transcript callback payload. */
-export function liveTranscriptFromEvidence(args: {
-	kind?: string;
-	text?: string;
-	interim?: boolean;
-}): { text: string; isUser: boolean; interim: boolean } | null {
-	if (!args.text) return null;
-	if (args.kind === 'input_transcription') {
-		return { text: args.text, isUser: true, interim: args.interim === true };
-	}
-	if (args.kind === 'output_transcription') {
-		return { text: args.text, isUser: false, interim: args.interim === true };
-	}
-	return null;
+export function liveTranscriptFromEvidence(
+  event: TurnEventOf<'evidence'>,
+): { text: string; isUser: boolean; interim: boolean } | null {
+  const { evidence, text } = event;
+  if (!text) return null;
+  if (evidence.kind !== 'input_transcription' && evidence.kind !== 'output_transcription')
+    return null;
+  return {
+    text,
+    isUser: evidence.kind === 'input_transcription',
+    interim: evidence.interim === true,
+  };
 }
 
 export type LiveToolCallDraft = {
-	id: string;
-	name: string;
-	arguments: Record<string, unknown>;
-	error?: string;
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
 };
 
-/** Fold a tool turn event into cancelled-id / runnable-call lists. */
+/**
+ * Fold a tool turn event into cancelled-id / runnable-call lists. The model's
+ * call is runnable; a failure in the same batch (a name or arguments the
+ * provider could not use) is not: the session answered the model with it.
+ */
 export function applyLiveToolTurnEvent(
-	tool: {
-		id?: string;
-		name?: string;
-		phase?: string;
-		arguments?: unknown;
-		failure?: { message?: string };
-	},
-	accum: { cancelledToolIds: Set<string>; toolCalls: LiveToolCallDraft[] },
+  tool: ToolCallEvent,
+  accum: { cancelledToolIds: Set<string>; toolCalls: LiveToolCallDraft[] },
 ): void {
-	if (tool.phase === 'cancel') {
-		if (tool.id) accum.cancelledToolIds.add(tool.id);
-		return;
-	}
-	if (!tool.name) return;
-	const failure =
-		tool.phase === 'error' && tool.failure?.message ? tool.failure.message : undefined;
-	accum.toolCalls.push({
-		id: tool.id ?? '',
-		name: tool.name,
-		arguments: (tool.arguments as Record<string, unknown> | undefined) ?? {},
-		error: failure,
-	});
+  if (tool.phase === undefined) {
+    accum.toolCalls.push({ id: tool.callId, name: tool.name, arguments: tool.arguments });
+    return;
+  }
+  if (tool.phase === 'cancel') {
+    accum.cancelledToolIds.add(tool.callId);
+    return;
+  }
+  if (tool.phase !== 'error') return;
+  const failed = accum.toolCalls.findIndex((draft) => draft.id === tool.callId);
+  if (failed !== -1) accum.toolCalls.splice(failed, 1);
 }

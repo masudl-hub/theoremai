@@ -1,27 +1,8 @@
-/**
- * Network SSRF guardrails for HTTP tools, remote MCP tools, and OAuth.
- *
- * Enforces URL scheme safety and blocks loopback, private RFC 1918,
- * link-local (cloud metadata 169.254.x.x), and multicast targets unless
- * explicitly permitted by profile guardrail configuration. Every redirect
- * hop is checked the same way, and origin-bound headers never follow a
- * redirect off the origin they were configured for.
- *
- * The URL check judges literal addresses and local host names. A public name
- * whose DNS answers a private address passes it, so `fetchGuarded` also takes
- * a host-supplied resolver and refuses a hop when any address the name
- * resolves to is private. That lookup is separate from the connection's own,
- * so it stops names that point inward but not a DNS server that changes its
- * answer between the two (rebinding); only the host's egress layer can.
- *
- * @module
- */
-
 import { TheoremError } from './error.ts';
 import type { NetworkGuardrailSpec } from './types.ts';
 
 /**
- * Checks if an IPv4 address is in a private, loopback, or link-local range:
+ * IPv4 ranges refused outright:
  * - Loopback: 127.0.0.0/8
  * - RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
  * - Link-local / Cloud metadata: 169.254.0.0/16
@@ -31,21 +12,24 @@ import type { NetworkGuardrailSpec } from './types.ts';
  * - RFC 2544 benchmark testing: 198.18.0.0/15
  * - Broadcast / multicast / reserved: 224.0.0.0/4, 240.0.0.0/4, 255.255.255.255
  */
+/** Four dotted decimal octets and nothing else, so an IPv6 literal's dotted tail is never read as an IPv4 address. */
+const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
+
 type IPv4OctetMatch = (b0: number, b1: number, b2: number) => boolean;
 
 const PRIVATE_OR_LOCAL_IPV4_MATCHES: readonly IPv4OctetMatch[] = [
-  (b0) => b0 === 0, // 0.0.0.0/8
-  (b0) => b0 === 127, // 127.0.0.0/8 (loopback)
-  (b0) => b0 === 10, // 10.0.0.0/8
-  (b0, b1) => b0 === 100 && b1 >= 64 && b1 <= 127, // 100.64.0.0/10 (CGNAT)
-  (b0, b1) => b0 === 172 && b1 >= 16 && b1 <= 31, // 172.16.0.0/12
-  (b0, b1) => b0 === 192 && b1 === 168, // 192.168.0.0/16
-  (b0, b1) => b0 === 169 && b1 === 254, // 169.254.0.0/16 (link-local)
-  (b0, b1, b2) => b0 === 192 && b1 === 0 && (b2 === 0 || b2 === 2), // 192.0.0.0/24, 192.0.2.0/24
-  (b0, b1) => b0 === 198 && (b1 === 18 || b1 === 19), // 198.18.0.0/15
-  (b0, b1, b2) => b0 === 198 && b1 === 51 && b2 === 100, // 198.51.100.0/24
-  (b0, b1, b2) => b0 === 203 && b1 === 0 && b2 === 113, // 203.0.113.0/24
-  (b0) => b0 >= 224, // Multicast & Reserved (224.0.0.0/4, 240.0.0.0/4)
+  (b0) => b0 === 0,
+  (b0) => b0 === 127,
+  (b0) => b0 === 10,
+  (b0, b1) => b0 === 100 && b1 >= 64 && b1 <= 127,
+  (b0, b1) => b0 === 172 && b1 >= 16 && b1 <= 31,
+  (b0, b1) => b0 === 192 && b1 === 168,
+  (b0, b1) => b0 === 169 && b1 === 254,
+  (b0, b1, b2) => b0 === 192 && b1 === 0 && (b2 === 0 || b2 === 2),
+  (b0, b1) => b0 === 198 && (b1 === 18 || b1 === 19),
+  (b0, b1, b2) => b0 === 198 && b1 === 51 && b2 === 100,
+  (b0, b1, b2) => b0 === 203 && b1 === 0 && b2 === 113,
+  (b0) => b0 >= 224,
 ];
 
 function isPrivateOrLocalIPv4Parts(b0: number, b1: number, b2: number, _b3: number): boolean {
@@ -53,32 +37,11 @@ function isPrivateOrLocalIPv4Parts(b0: number, b1: number, b2: number, _b3: numb
 }
 
 function isPrivateOrLocalIPv4(ip: string): boolean {
-  const parts = ip.split('.').map((p) => Number.parseInt(p, 10));
-  if (parts.length !== 4) {
+  if (!IPV4_LITERAL.test(ip)) {
     return false;
   }
-  const b0 = parts[0];
-  const b1 = parts[1];
-  const b2 = parts[2];
-  const b3 = parts[3];
-  if (
-    b0 === undefined ||
-    b1 === undefined ||
-    b2 === undefined ||
-    b3 === undefined ||
-    Number.isNaN(b0) ||
-    Number.isNaN(b1) ||
-    Number.isNaN(b2) ||
-    Number.isNaN(b3) ||
-    b0 < 0 ||
-    b0 > 255 ||
-    b1 < 0 ||
-    b1 > 255 ||
-    b2 < 0 ||
-    b2 > 255 ||
-    b3 < 0 ||
-    b3 > 255
-  ) {
+  const [b0 = 0, b1 = 0, b2 = 0, b3 = 0] = ip.split('.').map(Number);
+  if (b0 > 255 || b1 > 255 || b2 > 255 || b3 > 255) {
     return false;
   }
   return isPrivateOrLocalIPv4Parts(b0, b1, b2, b3);
@@ -101,7 +64,8 @@ function parseIPv6Words(ip: string): number[] | null {
       const b2 = v4Parts[2] ?? 0;
       const b3 = v4Parts[3] ?? 0;
       ipv4Words = [(b0 << 8) | b1, (b2 << 8) | b3];
-      v6Str = trimmed.slice(0, lastColon);
+      const head = trimmed.slice(0, lastColon + 1);
+      v6Str = head.endsWith('::') ? head : head.slice(0, -1);
     }
   }
 
@@ -139,68 +103,62 @@ function parseIPv6Words(ip: string): number[] | null {
   return [...leftWords, ...mid, ...rightWords, ...ipv4Words];
 }
 
+type IPv6WordsMatch = (w: readonly number[]) => boolean;
+
+const zeros = (w: readonly number[], from: number, to: number) =>
+  w.slice(from, to).every((x) => x === 0);
+
 /**
- * Checks if an IPv6 address is in a private, loopback, or link-local range:
- * - Loopback: ::1
- * - Unspecified: ::
- * - Link-local: fe80::/10
- * - Unique Local (ULA): fc00::/7 (fc00:: - fdff::)
- * - Multicast: ff00::/8
- * - Documentation: 2001:db8::/32
- * - Discard: 100::/64
- * - IPv4-mapped (::ffff:0:0/96), IPv4-compatible (::/96), and NAT64 (64:ff9b::/96)
+ * IPv6 ranges refused outright:
+ * - Unspecified `::` and loopback `::1`
+ * - Link-local fe80::/10, deprecated site-local fec0::/10, unique local fc00::/7
+ * - Multicast ff00::/8, documentation 2001:db8::/32, discard 100::/64
+ * - Local-use NAT64 64:ff9b:1::/48 (RFC 8215), which translates to IPv4 behind
+ *   the host's own gateway, and Teredo 2001::/32, whose client address is hidden
  */
+const PRIVATE_OR_LOCAL_IPV6_MATCHES: readonly IPv6WordsMatch[] = [
+  (w) => zeros(w, 0, 8),
+  (w) => zeros(w, 0, 7) && w[7] === 1,
+  (w) => ((w[0] ?? 0) & 0xffc0) === 0xfe80,
+  (w) => ((w[0] ?? 0) & 0xffc0) === 0xfec0,
+  (w) => ((w[0] ?? 0) & 0xfe00) === 0xfc00,
+  (w) => ((w[0] ?? 0) & 0xff00) === 0xff00,
+  (w) => w[0] === 0x2001 && w[1] === 0x0db8,
+  (w) => w[0] === 0x0100 && zeros(w, 1, 4),
+  (w) => w[0] === 0x0064 && w[1] === 0xff9b && w[2] === 0x0001,
+  (w) => w[0] === 0x2001 && w[1] === 0x0000,
+];
+
+/**
+ * IPv6 ranges that carry an IPv4 address, judged by that address. `at` is the
+ * word where its two words start.
+ * - IPv4-mapped ::ffff:0:0/96 and IPv4-translated ::ffff:0:0:0/96
+ * - IPv4-compatible ::/96 and NAT64 64:ff9b::/96
+ * - 6to4 2002::/16, whose relay forwards to the embedded address
+ */
+const EMBEDDED_IPV4_RANGES: readonly { match: IPv6WordsMatch; at: number }[] = [
+  { match: (w) => zeros(w, 0, 5) && w[5] === 0xffff, at: 6 },
+  { match: (w) => zeros(w, 0, 4) && w[4] === 0xffff && w[5] === 0, at: 6 },
+  { match: (w) => zeros(w, 0, 6), at: 6 },
+  { match: (w) => w[0] === 0x0064 && w[1] === 0xff9b && zeros(w, 2, 6), at: 6 },
+  { match: (w) => w[0] === 0x2002, at: 1 },
+];
+
 function isPrivateOrLocalIPv6(ip: string): boolean {
   const words = parseIPv6Words(ip);
   if (words?.length !== 8) {
     return false;
   }
-
-  const w0 = words[0] ?? 0;
-  const w1 = words[1] ?? 0;
-
-  // Unspecified ::
-  if (words.every((w) => w === 0)) return true;
-
-  // Loopback ::1
-  if (words.slice(0, 7).every((w) => w === 0) && words[7] === 1) return true;
-
-  // Link-local unicast (fe80::/10)
-  if ((w0 & 0xffc0) === 0xfe80) return true;
-
-  // Unique local address (fc00::/7)
-  if ((w0 & 0xfe00) === 0xfc00) return true;
-
-  // Multicast (ff00::/8)
-  if ((w0 & 0xff00) === 0xff00) return true;
-
-  // Documentation (2001:db8::/32)
-  if (w0 === 0x2001 && w1 === 0x0db8) return true;
-
-  // Discard prefix (100::/64)
-  if (w0 === 0x0100 && words.slice(1, 4).every((w) => w === 0)) return true;
-
-  // IPv4-mapped (::ffff:0:0/96)
-  const isV4Mapped = words.slice(0, 5).every((w) => w === 0) && words[5] === 0xffff;
-  // IPv4-compatible (::/96)
-  const isV4Compatible = words.slice(0, 6).every((w) => w === 0);
-  // NAT64 well-known prefix (64:ff9b::/96)
-  const isNat64 = w0 === 0x0064 && w1 === 0xff9b && words.slice(2, 6).every((w) => w === 0);
-
-  if (isV4Mapped || isV4Compatible || isNat64) {
-    const w6 = words[6] ?? 0;
-    const w7 = words[7] ?? 0;
-    const b0 = (w6 >> 8) & 0xff;
-    const b1 = w6 & 0xff;
-    const b2 = (w7 >> 8) & 0xff;
-    const b3 = w7 & 0xff;
-    return isPrivateOrLocalIPv4Parts(b0, b1, b2, b3);
-  }
-
-  return false;
+  if (PRIVATE_OR_LOCAL_IPV6_MATCHES.some((match) => match(words))) return true;
+  return EMBEDDED_IPV4_RANGES.some(({ match, at }) => {
+    if (!match(words)) return false;
+    const hi = words[at] ?? 0;
+    const lo = words[at + 1] ?? 0;
+    return isPrivateOrLocalIPv4Parts((hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff);
+  });
 }
 
-/** Check if hostname represents localhost or private domain names */
+/** True for loopback addresses and names reserved for local use: `localhost`, `.local`, `.internal`, `.lan`, `.home.arpa` and `.localdomain`. */
 export function isLocalhostName(hostname: string): boolean {
   let lower = hostname.toLowerCase();
   while (lower.endsWith('.')) {
@@ -225,17 +183,14 @@ export function isLocalhostName(hostname: string): boolean {
   );
 }
 
-/** Check if an IP address string is loopback or private IPv4/IPv6 */
+/** True when the IP address, or bracketed IPv6 host, is a private or local IPv4 or IPv6 address. */
 export function isPrivateOrLocalAddress(ipOrHost: string): boolean {
   const stripped =
     ipOrHost.startsWith('[') && ipOrHost.endsWith(']') ? ipOrHost.slice(1, -1) : ipOrHost;
   return isPrivateOrLocalIPv4(stripped) || isPrivateOrLocalIPv6(stripped);
 }
 
-/**
- * Validates a target URL against network guardrail policy.
- * Throws a `TheoremError` if the URL is blocked.
- */
+/** Throws a `TheoremError` when the URL is blocked. */
 export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): URL {
   let parsed: URL;
   try {
@@ -248,7 +203,7 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
   const allowedHosts = policy?.allowedHosts?.map((h) => h.toLowerCase()) ?? [];
   const hostname = parsed.hostname.toLowerCase();
 
-  // An allowed host is exempt from the address checks, never from the scheme.
+  // invariant: An allowed host is exempt from the address checks, never from the scheme.
   const defaultSchemes = allowPrivate ? ['http:', 'https:'] : ['https:'];
   const allowedSchemes = policy?.allowedSchemes
     ? policy.allowedSchemes.map((s) => (s.endsWith(':') ? s.toLowerCase() : `${s.toLowerCase()}:`))
@@ -261,7 +216,6 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
     );
   }
 
-  // Unless private networks or this host are allowed, block localhost and private subnets
   if (!allowPrivate && !allowedHosts.includes(hostname)) {
     if (isLocalhostName(hostname)) {
       throw new TheoremError(
@@ -295,9 +249,8 @@ const FETCH_REDIRECT_LIMIT = 20;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
-/** Options for {@link fetchGuarded}. */
+/** Options for a fetch that checks the network policy on every hop. */
 export interface GuardedFetchOptions {
-  /** Network policy every hop must clear. */
   policy?: NetworkGuardrailSpec;
   /** Follow redirects, clearing each hop; when false a redirect comes back as the response. */
   followRedirects: boolean;
@@ -313,14 +266,19 @@ export interface GuardedFetchOptions {
    */
   resolveHost?: ResolveHost;
   fetchFn?: typeof fetch;
+  /** Told how long each hop's checks took: its address, and its lookup when `resolveHost` is set. */
+  onCheck?: (ms: number) => void;
 }
 
 /** A host name's IPv4 and IPv6 addresses; empty when the name does not exist. */
 export type ResolveHost = (hostname: string, signal?: AbortSignal) => Promise<readonly string[]>;
 
-const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
-
-/** Refuse `target` when its name resolves to a private address, or to nothing. */
+/**
+ * `assertSafeUrl` judges literal addresses and local names, so a public name whose DNS answers a
+ * private address passes it. This lookup is separate from the connection's own: it stops names that
+ * point inward, but not a DNS server that changes its answer between the two (rebinding); only the
+ * host's egress layer can.
+ */
 async function assertResolvesPublic(
   target: URL,
   options: GuardedFetchOptions,
@@ -356,19 +314,24 @@ function redirectsToGet(status: number, method: string): boolean {
   return (status === 301 || status === 302) && method === 'POST';
 }
 
-/**
- * `fetch` through the network guard: the target and every redirect hop must
- * clear `policy`, and origin-bound headers stay on their origin.
- * Throws a `TheoremError` (`blocked`) when a hop is refused.
- */
+/** Every redirect hop must clear `policy`; throws a `TheoremError` (`blocked`) when one is refused. */
 export async function fetchGuarded(
   url: string,
   init: Omit<RequestInit, 'redirect' | 'body'> & { body?: string },
   options: GuardedFetchOptions,
 ): Promise<Response> {
   const fetchFn = options.fetchFn ?? fetch;
-  let target = assertSafeUrl(url, options.policy);
-  await assertResolvesPublic(target, options, init.signal);
+  const clearHop = async (href: string): Promise<URL> => {
+    const start = performance.now();
+    try {
+      const safe = assertSafeUrl(href, options.policy);
+      await assertResolvesPublic(safe, options, init.signal);
+      return safe;
+    } finally {
+      options.onCheck?.(performance.now() - start);
+    }
+  };
+  let target = await clearHop(url);
   const origin = target.origin;
   const headers = new Headers(init.headers);
   let method = init.method ?? 'GET';
@@ -396,8 +359,7 @@ export async function fetchGuarded(
     if (hop === FETCH_REDIRECT_LIMIT) {
       throw new TheoremError('network', `Too many redirects from "${url}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
-    target = assertSafeUrl(new URL(location, target).href, options.policy);
-    await assertResolvesPublic(target, options, init.signal);
+    target = await clearHop(new URL(location, target).href);
     onOrigin &&= target.origin === origin;
     if (redirectsToGet(response.status, method)) {
       method = 'GET';
@@ -407,7 +369,7 @@ export async function fetchGuarded(
   }
 }
 
-/** Options for {@link dnsOverHttpsResolver}. */
+/** Options for `dnsOverHttpsResolver`: the DNS JSON endpoint and an optional `fetch`. */
 export interface DnsOverHttpsOptions {
   /** A DNS JSON API endpoint, e.g. `https://cloudflare-dns.com/dns-query`. */
   endpoint: string;

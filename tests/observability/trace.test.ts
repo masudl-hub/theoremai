@@ -1,26 +1,17 @@
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
-import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { registerProfile } from '../../src/kernel/default-scope.ts';
+import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
-import { jsonlSink, noopSink } from '../../src/observability/trace.ts';
+import { noopSink } from '../../src/observability/trace.ts';
 import { inlineContent, type TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes, TraceSpan } from '../../src/observability/trace-span.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 import { STUB_WRITE, stubRecord } from '../fixtures/trace-record.ts';
 
-async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const event of gen) {
-    out.push(event);
-  }
-  return out;
-}
-
 /** Media the model returns: the record must hold its hash, never its bytes. */
 const MEDIA_BASE64 = btoa('secret-bytes');
-
 async function* fakeComplete(): AsyncGenerator<TurnEvent> {
   await Promise.resolve();
   yield { type: 'text', text: 'ok' };
@@ -29,20 +20,19 @@ async function* fakeComplete(): AsyncGenerator<TurnEvent> {
     media: { mimeType: 'image/jpeg', data: MEDIA_BASE64 },
   };
 }
-
 const fake: ModelProvider = { complete: fakeComplete };
-
 function modelCall(record: TraceRecord): TraceSpan {
-  const span = record.spans.find((s) => s.name.startsWith('generate_content'));
+  const span = record.spans.find(
+    (s) => s.name.startsWith('generate_content') || s.name.startsWith('chat '),
+  );
   if (!span) {
     throw new Error('no model call span');
   }
   return span;
 }
-
 Deno.test('runTurn traces projectId and hashes media not bytes', async () => {
   const into: TraceRecord[] = [];
-  await collect(
+  await Array.fromAsync(
     runTurn(
       {
         profile: 'image',
@@ -74,13 +64,14 @@ Deno.test('runTurn traces projectId and hashes media not bytes', async () => {
   const call = modelCall(record);
   assertEquals(call.attributes['gen_ai.request.model'], 'gemini-3.1-flash-lite-image');
   assertEquals(call.attributes['gen_ai.output.type'], 'image');
-  const [output] = call.attributes['gen_ai.output.messages'] as { parts: TraceAttributes[] }[];
+  const [output] = call.attributes['gen_ai.output.messages'] as {
+    parts: TraceAttributes[];
+  }[];
   const media = output?.parts.find((part) => part.type === 'blob');
   assertEquals(media?.mime_type, 'image/jpeg');
   assertEquals(typeof media?.content_sha256, 'string');
   assertEquals(JSON.stringify(record).includes(MEDIA_BASE64), false);
 });
-
 Deno.test('runTurn records what the host received on the turn root, beside what the model wrote', async () => {
   registerProfile({
     type: 'text',
@@ -88,7 +79,6 @@ Deno.test('runTurn records what the host received on the turn root, beside what 
     identity: { handle: 'quiet', system: 'Reply briefly.' },
     models: { gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite },
     maxSteps: 1,
-    key: 'slotA',
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: null, streaming: { streamThoughts: false } },
@@ -104,7 +94,7 @@ Deno.test('runTurn records what the host received on the turn root, beside what 
     },
   };
   const into: TraceRecord[] = [];
-  await collect(
+  await Array.fromAsync(
     runTurn(
       { profile: 'trace_quiet_thoughts', input: { text: 'fern?' } },
       provider,
@@ -130,37 +120,17 @@ Deno.test('runTurn records what the host received on the turn root, beside what 
   const [produced] = inlineContent(
     record,
     modelCall(record).attributes['gen_ai.output.messages'],
-  ) as { parts: { type: string }[] }[];
+  ) as {
+    parts: {
+      type: string;
+    }[];
+  }[];
   assertEquals(
     produced?.parts.map((part) => part.type),
     ['reasoning', 'text', 'structured'],
   );
 });
-
-Deno.test('runTurn traces explicit Interactions state controls', async () => {
-  const into: TraceRecord[] = [];
-  await collect(
-    runTurn(
-      {
-        profile: 'chat',
-        previousInteractionId: 'v1_prev',
-        store: false,
-        input: { text: 'continue' },
-      },
-      { complete: fakeComplete },
-      catalogedSink(into),
-    ),
-  );
-  const [record] = into;
-  if (!record) {
-    throw new Error('missing trace');
-  }
-  const call = modelCall(record);
-  assertEquals(call.attributes['gen_ai.request.previous_response.id'], 'v1_prev');
-  assertEquals(call.attributes['theorem.request.store'], false);
-});
-
-Deno.test('runTurn forwards Interactions state controls and preserves host metadata', async () => {
+Deno.test('runTurn preserves host metadata without forwarding vendor continuation fields', async () => {
   const into: TraceRecord[] = [];
   const seen: ProviderCompleteRequest[] = [];
   const provider: ModelProvider = {
@@ -169,13 +139,10 @@ Deno.test('runTurn forwards Interactions state controls and preserves host metad
       yield { type: 'text', text: 'continued' };
     },
   };
-
-  await collect(
+  await Array.fromAsync(
     runTurn(
       {
         profile: 'chat',
-        previousInteractionId: 'v1_prev_2',
-        store: true,
         metadata: {
           channel: 'imessage',
           deliveryPath: 'demo',
@@ -187,75 +154,15 @@ Deno.test('runTurn forwards Interactions state controls and preserves host metad
       catalogedSink(into),
     ),
   );
-
-  assertEquals(seen[0]?.previousInteractionId, 'v1_prev_2');
-  assertEquals(seen[0]?.store, true);
+  assertEquals(seen[0]?.previousInteractionId, undefined);
+  assertEquals(seen[0]?.store, undefined);
   assertEquals(into[0]?.metadata, {
     channel: 'imessage',
     deliveryPath: 'demo',
     nested: { untouched: true },
   });
 });
-
-Deno.test('jsonlSink rejects unsafe trace directories before filesystem access', () => {
-  assertThrows(() => jsonlSink('traces'), Error, 'absolute');
-  assertThrows(() => jsonlSink(`${Deno.cwd()}/traces`), Error, 'outside');
-  assertThrows(
-    () => jsonlSink(`${Deno.cwd()}/../${Deno.cwd().split('/').at(-1)}/traces`),
-    Error,
-    'outside',
-  );
-});
-
 Deno.test('noopSink drops traces without filesystem access', async () => {
   await noopSink().write(stubRecord(), STUB_WRITE);
 });
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await Deno.stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** A JSONL sink on 16/08/2026 over a directory holding one file from 01/01/2000. */
-async function sinkWithStaleDay() {
-  const dir = await Deno.makeTempDir();
-  const stale = `${dir}/turns-2000-01-01.jsonl`;
-  await Deno.writeTextFile(stale, '{}\n');
-  const sink = jsonlSink(dir, { now: () => Date.parse('2026-08-16T00:00:00.000Z') });
-  return { dir, stale, sink };
-}
-
-Deno.test('jsonl sink writes a day file and drops files past the record retention', async () => {
-  const { dir, stale, sink } = await sinkWithStaleDay();
-  await sink.write(stubRecord(), STUB_WRITE);
-  assertEquals(await exists(stale), false);
-  const today = await Deno.readTextFile(`${dir}/turns-2026-08-16.jsonl`);
-  assertEquals(today.includes('"v":3'), true);
-});
-
-Deno.test('jsonl sink keeps every file when retention is 0 or less', async () => {
-  for (const retainForDays of [0, -1]) {
-    const { stale, sink } = await sinkWithStaleDay();
-    await sink.write(stubRecord(), { retainForDays });
-    assertEquals(await exists(stale), true);
-  }
-});
-
-Deno.test('jsonl sink creates its directory and files readable by the host user only', async () => {
-  const root = await Deno.makeTempDir();
-  const dir = `${root}/traces`;
-  await jsonlSink(dir, { now: () => Date.parse('2026-08-16T00:00:00.000Z') }).write(
-    stubRecord(),
-    STUB_WRITE,
-  );
-  const permissions = (path: string) => Deno.stat(path).then((info) => (info.mode ?? 0) & 0o777);
-  assertEquals(await permissions(dir), 0o700);
-  assertEquals(await permissions(`${dir}/turns-2026-08-16.jsonl`), 0o600);
-  await Deno.remove(root, { recursive: true });
-});
-
 catalogGate();

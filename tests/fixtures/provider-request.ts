@@ -1,4 +1,12 @@
-import type { ProviderCompleteRequest, ThinkingLevel } from '../../src/kernel/types.ts';
+import { getStructured } from '../../src/kernel/default-scope.ts';
+import type {
+  BuiltinToolId,
+  ProviderBuiltin,
+  ProviderCompleteRequest,
+  ResolvedStructured,
+  ThinkingLevel,
+} from '../../src/kernel/types.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../src/presets/google.ts';
 
 export type StubOverrides = Partial<ProviderCompleteRequest> & {
   model?: string;
@@ -33,4 +41,18 @@ export function stubCompleteRequest(overrides: StubOverrides = {}): ProviderComp
     store: overrides.store,
     stream: overrides.stream,
   };
+}
+
+/** The Google preset's builtins `ids`, as a provider request carries them. */
+export function googleBuiltins(...ids: BuiltinToolId[]): ProviderBuiltin[] {
+  return ids.map((id) => {
+    const tool = GOOGLE_BUILTIN_TOOLS.find((t) => t.name === id);
+    if (!tool) throw new Error(`No Google builtin '${id}'`);
+    return { id, wire: tool.wire };
+  });
+}
+
+/** The default scope's schema `id`, as a provider request carries it. */
+export function resolvedStructured(id: string): ResolvedStructured {
+  return { id, jsonSchema: getStructured(id).jsonSchema };
 }

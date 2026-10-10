@@ -1,25 +1,51 @@
 /**
- * Server half of `@theoremai/react`: serve one profile to the chat UI.
+ * Server half of `@theoremjs/react`: serve one profile to the chat UI, a
+ * decision profile to the decision UI, or a host profile's tools to the host UI.
  *
  * @module
  */
 
+export { theoremHostCallRequestSchema } from '../client/host-transport.ts';
+export type { LiveClientMessage, LiveOpenMessage } from '../client/live-messages.ts';
 export {
-	createTheoremHandler,
-	type TheoremHandlerOptions,
-	type TheoremRequestContext,
-	theoremSessionId,
-} from './handler.ts';
+  theoremInvokeRequestSchema,
+  theoremReplaySchema,
+  theoremSteerRequestSchema,
+  theoremTurnRequestSchema,
+} from '../client/transport.ts';
 export {
-	createMemoryCredentialStore,
-	type TheoremCredentialStore,
-	type TheoremCredentials,
+  createMemoryCredentialStore,
+  type TheoremCredentialStore,
+  type TheoremCredentials,
 } from './credential-store.ts';
-export { createMemorySteerInbox, type SteerInbox, type SteerUnit } from './steer-inbox.ts';
 export {
-	createMemorySessionStore,
-	type MemorySessionStoreOptions,
-	type PendingToolGate,
-	type TheoremSessionState,
-	type TheoremSessionStore,
+  createTheoremDecisionHandler,
+  type TheoremDecisionHandlerOptions,
+} from './decision-handler.ts';
+export {
+  createTheoremHandler,
+  createTheoremHostHandler,
+  readBody,
+  type TheoremHandlerOptions,
+  type TheoremHostHandlerOptions,
+  type TheoremRequestContext,
+  theoremSessionId,
+} from './handler.ts';
+export { checkRequest, parseLiveClientMessage, parseLiveOpenMessage } from './request-check.ts';
+export {
+  createMemorySessionStore,
+  type MemorySessionStoreOptions,
+  type PendingToolGate,
+  type SettledToolGate,
+  type TheoremSessionState,
+  type TheoremSessionStore,
 } from './session-store.ts';
+export {
+  createMemorySteerInbox,
+  type SteerInbox,
+  type SteerUnit,
+  steerStage,
+  steerUnitOf,
+} from './steer-inbox.ts';
+export { liveSessionOpen } from './turn-input.ts';
+export { checkWalkAway, type WalkedAwayCall, walkAway } from './walk-away.ts';

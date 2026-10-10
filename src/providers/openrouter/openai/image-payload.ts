@@ -1,17 +1,9 @@
-/**
- * OpenAI-compatible image generation payloads.
- *
- * Maps kernel `ImageResponseFormat` pins to the `/images` REST body shared by
- * OpenRouter and other OpenAI-compat gateways.
- *
- * @module
- */
-
 import { TheoremError } from '../../../guardrails/error.ts';
 import { isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import type {
   ImageResponseFormat,
   InteractionMediaPart,
+  InteractionMediaRefPart,
   InteractionPart,
   ProviderCompleteRequest,
 } from '../../../kernel/types.ts';
@@ -35,18 +27,16 @@ export function outputFormatFromMime(mimeType: string): string {
   return 'png';
 }
 
-export function wireInputReference(part: InteractionMediaPart): Record<string, unknown> {
-  return {
-    type: 'image_url',
-    image_url: { url: `data:${part.mimeType};base64,${part.data}` },
-  };
+const HTTP_URL = /^https?:\/\//i;
+
+export function wireInputReference(
+  part: InteractionMediaPart | InteractionMediaRefPart,
+): Record<string, unknown> {
+  const url = isMediaRefPart(part) ? part.uri : `data:${part.mimeType};base64,${part.data}`;
+  return { type: 'image_url', image_url: { url } };
 }
 
-/**
- * The `/images` reference list: every image part. Text is the prompt; any other
- * media is refused, since `/images` takes image references only and a dropped
- * file would leave the user believing the model saw it.
- */
+/** Non-image media is refused, not dropped: a dropped file would leave the user believing the model saw it. */
 export function wireInputReferences(input: InteractionPart[]): Record<string, unknown>[] {
   const references: Record<string, unknown>[] = [];
   for (const part of input) {
@@ -59,8 +49,11 @@ export function wireInputReferences(input: InteractionPart[]): Record<string, un
         `${part.mimeType} input is not supported on /images, which takes image references only`,
       );
     }
-    if (isMediaRefPart(part)) {
-      throw new TheoremError('unsupported', 'media references are not supported on openAi');
+    if (isMediaRefPart(part) && !HTTP_URL.test(part.uri)) {
+      throw new TheoremError(
+        'unsupported',
+        'only http(s) media references are supported on /images',
+      );
     }
     references.push(wireInputReference(part));
   }
@@ -74,15 +67,29 @@ export function attachImagePins(
   if (image.aspectRatio) {
     payload.aspect_ratio = image.aspectRatio;
   }
-  if (image.size) {
-    payload.resolution = image.size;
+  if (image.resolution) {
+    payload.resolution = image.resolution;
   }
   if (image.mimeType) {
     payload.output_format = outputFormatFromMime(image.mimeType);
   }
+  if (image.quality) {
+    payload.quality = image.quality;
+  }
+  if (image.background) {
+    payload.background = image.background;
+  }
+  if (image.n !== undefined) {
+    payload.n = image.n;
+  }
+  if (image.seed !== undefined) {
+    payload.seed = image.seed;
+  }
+  if (image.outputCompression !== undefined) {
+    payload.output_compression = image.outputCompression;
+  }
 }
 
-/** Build a POST `/images` body for native image-generation models. */
 export function buildImagesPayload(req: ProviderCompleteRequest): Record<string, unknown> {
   if (!req.image) {
     throw new Error('buildImagesPayload requires req.image');
@@ -102,7 +109,6 @@ export function buildImagesPayload(req: ProviderCompleteRequest): Record<string,
   return payload;
 }
 
-/** Tool parameters for gateways that generate images inside chat completions. */
 export function imageToolParameters(image: ImageResponseFormat): Record<string, unknown> {
   const params: Record<string, unknown> = {};
   if (image.mimeType) {
@@ -111,8 +117,28 @@ export function imageToolParameters(image: ImageResponseFormat): Record<string, 
   if (image.aspectRatio) {
     params.aspect_ratio = image.aspectRatio;
   }
-  if (image.size) {
-    params.resolution = image.size;
+  if (image.resolution) {
+    params.resolution = image.resolution;
+  }
+  if (image.quality) {
+    params.quality = image.quality;
+  }
+  if (image.background) {
+    params.background = image.background;
+  }
+  if (image.outputCompression !== undefined) {
+    params.output_compression = image.outputCompression;
+  }
+  for (const [name, value] of [
+    ['n', image.n],
+    ['seed', image.seed],
+  ] as const) {
+    if (value !== undefined) {
+      throw new TheoremError(
+        'unsupported',
+        `image.${name} is not supported with image.includeText`,
+      );
+    }
   }
   return params;
 }

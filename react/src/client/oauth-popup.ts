@@ -9,7 +9,7 @@
  * @module
  */
 
-import { isRecord } from '../../../src/kernel/util/record.ts';
+import { isRecord } from '@theoremjs/agents/kernel';
 
 const OAUTH_COMPLETE = 'theorem.oauth_complete';
 
@@ -19,17 +19,17 @@ const OAUTH_COMPLETE = 'theorem.oauth_complete';
  * page no chat opened, it does nothing.
  */
 export function notifyOAuthComplete(slot: string): void {
-	const opener: unknown = Reflect.get(globalThis, 'opener');
-	if (!isRecord(opener) || typeof opener.postMessage !== 'function') return;
-	opener.postMessage({ type: OAUTH_COMPLETE, slot }, globalThis.location.origin);
+  const opener: unknown = Reflect.get(globalThis, 'opener');
+  if (!isRecord(opener) || typeof opener.postMessage !== 'function') return;
+  opener.postMessage({ type: OAUTH_COMPLETE, slot }, globalThis.location.origin);
 }
 
 /** The message is `popup`'s, from `origin` (the chat page's own), saying `slot` is signed in. */
 export function isOAuthComplete(
-	event: { data: unknown; source: unknown; origin: string },
-	expected: { popup: unknown; slot: string; origin: string },
+  event: { data: unknown; source: unknown; origin: string },
+  expected: { popup: unknown; slot: string; origin: string },
 ): boolean {
-	if (event.source !== expected.popup || event.origin !== expected.origin) return false;
-	const data: unknown = event.data;
-	return isRecord(data) && data.type === OAUTH_COMPLETE && data.slot === expected.slot;
+  if (event.source !== expected.popup || event.origin !== expected.origin) return false;
+  const data: unknown = event.data;
+  return isRecord(data) && data.type === OAUTH_COMPLETE && data.slot === expected.slot;
 }

@@ -4,43 +4,43 @@
  * (`attachmentIssueText`).
  */
 
-import type { AttachmentValidationIssue } from '../../../src/interface/mod.ts';
+import type { AttachmentValidationIssue } from '@theoremjs/agents/interface';
 
 export type StageComposerFilesArgs = {
-	existing: readonly File[];
-	incoming: readonly File[];
-	/** Profile `inputs.maxFiles`. When omitted, no cap. */
-	maxFiles?: number;
-	/** Staged voice notes that share the same maxFiles budget. */
-	voiceCount?: number;
+  existing: readonly File[];
+  incoming: readonly File[];
+  /** Profile `inputs.maxFiles`. When omitted, no cap. */
+  maxFiles?: number;
+  /** Staged voice notes that share the same maxFiles budget. */
+  voiceCount?: number;
 };
 
 export type StageComposerFilesResult = {
-	files: File[];
-	dropped: number;
-	/** `too_many_files` when the cap dropped a file. */
-	issues: AttachmentValidationIssue[];
+  files: File[];
+  dropped: number;
+  /** `too_many_files` when the cap dropped a file. */
+  issues: AttachmentValidationIssue[];
 };
 
 /** Append `incoming` to `existing`, dropping overflow past maxFiles − voice. */
 export function stageComposerFiles(args: StageComposerFilesArgs): StageComposerFilesResult {
-	const { existing, incoming, maxFiles } = args;
-	const voiceCount = Math.max(0, args.voiceCount ?? 0);
-	if (maxFiles === undefined || !Number.isFinite(maxFiles) || maxFiles < 0) {
-		return { files: [...existing, ...incoming], dropped: 0, issues: [] };
-	}
+  const { existing, incoming, maxFiles } = args;
+  const voiceCount = Math.max(0, args.voiceCount ?? 0);
+  if (maxFiles === undefined || !Number.isFinite(maxFiles) || maxFiles < 0) {
+    return { files: [...existing, ...incoming], dropped: 0, issues: [] };
+  }
 
-	const room = Math.max(0, maxFiles - voiceCount - existing.length);
-	if (incoming.length <= room) {
-		return { files: [...existing, ...incoming], dropped: 0, issues: [] };
-	}
+  const room = Math.max(0, maxFiles - voiceCount - existing.length);
+  if (incoming.length <= room) {
+    return { files: [...existing, ...incoming], dropped: 0, issues: [] };
+  }
 
-	const kept = room === 0 ? [] : incoming.slice(0, room);
-	return {
-		files: [...existing, ...kept],
-		dropped: incoming.length - kept.length,
-		issues: [{ code: 'too_many_files', params: { maxFiles } }],
-	};
+  const kept = room === 0 ? [] : incoming.slice(0, room);
+  return {
+    files: [...existing, ...kept],
+    dropped: incoming.length - kept.length,
+    issues: [{ code: 'too_many_files', params: { maxFiles } }],
+  };
 }
 
 /**
@@ -48,7 +48,7 @@ export function stageComposerFiles(args: StageComposerFilesArgs): StageComposerF
  * Recording clears any prior staged voice first, so only `fileCount` matters.
  */
 export function canStageVoice(args: { fileCount: number; maxFiles?: number }): boolean {
-	const maxFiles = args.maxFiles;
-	if (maxFiles === undefined || !Number.isFinite(maxFiles)) return true;
-	return args.fileCount < maxFiles;
+  const maxFiles = args.maxFiles;
+  if (maxFiles === undefined || !Number.isFinite(maxFiles)) return true;
+  return args.fileCount < maxFiles;
 }

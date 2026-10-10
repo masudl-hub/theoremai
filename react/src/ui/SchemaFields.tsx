@@ -9,6 +9,7 @@ import { Selector } from '@astryxdesign/core/Selector';
 import { Slider } from '@astryxdesign/core/Slider';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Switch } from '@astryxdesign/core/Switch';
+import { Text } from '@astryxdesign/core/Text';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Tokenizer } from '@astryxdesign/core/Tokenizer';
@@ -32,10 +33,22 @@ type Edit<T = unknown> = StateEdit<T>;
 const NO_SUGGESTIONS = { search: () => [], bootstrap: () => [] };
 const CODE_FONT = { '--font-family-body': 'var(--font-family-code)' } as CSSProperties;
 
+/** Lines a description shows before it is cut short. */
+const DESCRIPTION_LINES = 2;
+
+/** What a field is for, cut to a couple of lines. Hovering a cut one shows all of it. */
+function Description({ text }: { text: string }) {
+  return (
+    <Text type="supporting" color="secondary" maxLines={DESCRIPTION_LINES}>
+      {text}
+    </Text>
+  );
+}
+
 /** A field whose input carries no label of its own, labelled as one. */
 function Described({ field, children }: { field: SchemaField; children: React.ReactNode }) {
   return (
-    <Labelled label={field.label} isRequired={field.isRequired} description={field.description}>
+    <Labelled label={field.label} isRequired={field.isRequired}>
       {children}
     </Labelled>
   );
@@ -49,7 +62,6 @@ function JsonField({ field, value, onChange }: Edit & { field: SchemaField }) {
   return (
     <TextArea
       label={field.label}
-      description={field.description}
       isRequired={field.isRequired}
       size="sm"
       rows={3}
@@ -85,7 +97,11 @@ function RowsField({
   const rows = Array.isArray(value) ? value : [];
   const keyed = useKeyedRows(rows);
   return (
-    <Group label={field.label} isRequired={field.isRequired} description={field.description}>
+    <Group
+      label={field.label}
+      isRequired={field.isRequired}
+      description={field.description && <Description text={field.description} />}
+    >
       <VStack gap={3}>
         {keyed.rows.map(({ item: row, index, key }) => (
           <HStack key={key} gap={2} vAlign="start">
@@ -114,7 +130,6 @@ function RowsField({
 function common(field: SchemaField) {
   return {
     label: field.label,
-    description: field.description,
     isRequired: field.isRequired,
     size: 'sm',
   } as const;
@@ -220,7 +235,6 @@ const CONTROLS: { [K in ControlKind]: (props: ControlProps<K>) => ReactNode } = 
   range: ({ field, control, value, onChange }) => (
     <Slider
       label={field.label}
-      description={field.description}
       isRequired={field.isRequired}
       min={control.min}
       max={control.max}
@@ -244,7 +258,6 @@ const CONTROLS: { [K in ControlKind]: (props: ControlProps<K>) => ReactNode } = 
   switch: ({ field, value, onChange }) => (
     <Switch
       label={field.label}
-      description={field.description}
       value={value === true}
       onChange={onChange}
     />
@@ -268,7 +281,6 @@ const CONTROLS: { [K in ControlKind]: (props: ControlProps<K>) => ReactNode } = 
   choices: ({ field, control, value, onChange }) => (
     <CheckboxList
       label={field.label}
-      description={field.description}
       value={
         Array.isArray(value)
           ? value.filter((entry): entry is string => typeof entry === 'string')
@@ -288,7 +300,11 @@ const CONTROLS: { [K in ControlKind]: (props: ControlProps<K>) => ReactNode } = 
     <RowsField field={field} item={control.item} value={value} onChange={onChange} />
   ),
   group: ({ field, control, value, onChange }) => (
-    <Group label={field.label} isRequired={field.isRequired} description={field.description}>
+    <Group
+      label={field.label}
+      isRequired={field.isRequired}
+      description={field.description && <Description text={field.description} />}
+    >
       <ObjectFields schema={control.schema} value={isRow(value) ? value : {}} onChange={onChange} />
     </Group>
   ),
@@ -299,7 +315,16 @@ const CONTROLS: { [K in ControlKind]: (props: ControlProps<K>) => ReactNode } = 
 
 function Field({ field, value, onChange }: Edit & { field: SchemaField }) {
   const control = CONTROLS[field.control.kind] as (props: ControlProps<ControlKind>) => ReactNode;
-  return control({ field, control: field.control, value, onChange });
+  const input = control({ field, control: field.control, value, onChange });
+  // why: A group already says its description under its name.
+  const isGroup = field.control.kind === 'rows' || field.control.kind === 'group';
+  if (!field.description || isGroup) return input;
+  return (
+    <VStack gap={1}>
+      {input}
+      <Description text={field.description} />
+    </VStack>
+  );
 }
 
 /** Room a short field takes: numbers, dates, menus and one-line text sit side by side. */
@@ -331,12 +356,12 @@ function ObjectFields({
   return (
     <Grid columns={{ minWidth: SHORT_FIELD_PX, repeat: 'fill' }} gap={3}>
       {schemaFields(schema).map((field) => (
-        // why: Short fields meet at their inputs, whether or not each has a description.
+        // why: Short fields start level: label, then input, then what the field is for.
         <div
           key={field.key}
           style={
             isShort(field)
-              ? { minWidth: 0, alignSelf: 'end' }
+              ? { minWidth: 0, alignSelf: 'start' }
               : { gridColumn: '1 / -1', minWidth: 0 }
           }
         >

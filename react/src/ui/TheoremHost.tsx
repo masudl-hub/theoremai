@@ -4,7 +4,7 @@ import { HStack } from '@astryxdesign/core/HStack';
 import type { IconType } from '@astryxdesign/core/Icon';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { List, ListItem } from '@astryxdesign/core/List';
-import { Selector } from '@astryxdesign/core/Selector';
+import { Selector, SelectorOption } from '@astryxdesign/core/Selector';
 import { Spinner } from '@astryxdesign/core/Spinner';
 import { StatusDot, type StatusDotVariant } from '@astryxdesign/core/StatusDot';
 import { Text } from '@astryxdesign/core/Text';
@@ -125,6 +125,10 @@ const KIND_ICON: Record<HostToolKind, IconType> = {
   http: IconWorld,
   mcp: IconMcp,
 };
+
+/** The most room a row of the tool menu takes, and the lines of description it shows. */
+const TOOL_MENU_PX = 440;
+const TOOL_MENU_LINES = 2;
 
 /** Kind and description, shown on the dropdown row and nowhere else. */
 function toolOptionDescription(t: LabelText, tool: HostToolView): string {
@@ -364,6 +368,22 @@ function ToolRequest({
           }))}
           value={tool.name}
           hasSearch={tools.length > 8}
+          renderOption={(option) => (
+            // why: A tool's description runs to a paragraph, and the menu is as wide as its rows.
+            <div style={{ width: TOOL_MENU_PX, maxWidth: '100%', minWidth: 0 }}>
+              <SelectorOption
+                icon={option.icon}
+                label={option.label}
+                description={
+                  option.description && (
+                    <Text type="supporting" color="secondary" maxLines={TOOL_MENU_LINES}>
+                      {option.description}
+                    </Text>
+                  )
+                }
+              />
+            </div>
+          )}
           onChange={onPick}
         />
         <ToolTokens tool={tool} />

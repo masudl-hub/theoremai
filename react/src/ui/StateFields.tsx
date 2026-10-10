@@ -77,7 +77,7 @@ function PlainField({ value, onChange, label, isLabelHidden }: FieldProps) {
   );
 }
 
-export type GroupLabel = { label: string; isRequired?: boolean; description?: string };
+export type GroupLabel = { label: string; isRequired?: boolean; description?: React.ReactNode };
 
 /** Several fields under one name, in the same label a single field has. */
 export function Labelled({

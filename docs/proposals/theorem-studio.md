@@ -439,8 +439,8 @@ are not in the files, and a button, Review and save.
   its own, so one profile's issue does not stop the others. A profile that
   has an issue, or would change in more than this, is left as it is: the
   dialog names it and says to set the value there once it is fixed, and the
-  review names it at Save. An edit by th30 is made on every profile without
-  the dialog (Claude's choice, open).
+  review names it at Save. th30 does not run in the studio on a project, so
+  its edits never meet a shared value (10 Oct, Masud).
 - A project opens with everything its files hold (10 Oct). The schema a
   profile's replies take is read from what the project registers, and a tool
   that runs an agent is linked to that agent once every profile is read.

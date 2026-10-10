@@ -35,7 +35,7 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { Token } from '@astryxdesign/core/Token';
 import { IconKey } from '@tabler/icons-react';
-import { type ComponentProps, useMemo, useRef, useState } from 'react';
+import { type ComponentProps, useContext, useMemo, useRef, useState } from 'react';
 import { noting } from './lib/studio-activity.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
 import {
@@ -54,6 +54,7 @@ import {
 	useEditedLoad,
 	useSavedHidden,
 } from './studio-compare.tsx';
+import { ChooseConflictsContext } from './studio-conflicts.tsx';
 import { decisionSeed, StudioDecision } from './studio-decision.tsx';
 import { clearRemoves, useProjectSave } from './studio-save.tsx';
 
@@ -189,15 +190,25 @@ export function StudioRunner({
  */
 function UnsavedActions({ agentId, isNew }: { agentId: string; isNew: boolean }) {
 	const save = useProjectSave();
+	const choose = useContext(ChooseConflictsContext);
 	if (!save) return null;
 	return (
 		<>
-			<Token
-				label="Save"
-				color="blue"
-				description={save.review ? 'Review the diff, then save' : 'Fix the issues in the editor first'}
-				onClick={save.review}
-			/>
+			{choose ? (
+				<Token
+					label="Choose"
+					color="orange"
+					description="Choose between your edits and your files, then save"
+					onClick={choose}
+				/>
+			) : (
+				<Token
+					label="Save"
+					color="blue"
+					description={save.review ? 'Review the diff, then save' : 'Fix the issues in the editor first'}
+					onClick={save.review}
+				/>
+			)}
 			<Button
 				label={isNew ? 'Remove agent' : 'Clear changes'}
 				variant="ghost"

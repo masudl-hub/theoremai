@@ -162,7 +162,7 @@ import {
 	readFiles,
 	useProject,
 } from './lib/studio-project.ts';
-import { dropAside, setAside } from './lib/studio-restore.ts';
+import { dropAside, keepReading, keptReading, setAside } from './lib/studio-restore.ts';
 import { projectKey, type RestoredStudio } from './lib/studio-session.ts';
 import { createStudioStore, type StudioStore } from './lib/studio-store.ts';
 import { setWatchWanted, subscribeToFiles, watchWanted } from './lib/studio-watch.ts';
@@ -180,7 +180,7 @@ import {
 	StudioKeys,
 	useStudioConnection,
 } from './studio-connection.tsx';
-import { FileConflicts } from './studio-conflicts.tsx';
+import { ChooseConflictsContext, FileConflicts } from './studio-conflicts.tsx';
 import { StudioMap } from './studio-map.tsx';
 import { StudioRunner } from './studio-runner.tsx';
 import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
@@ -1439,7 +1439,9 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 						offerEditsBack(toast, store, before, projectKey(project.name));
 					} else if (read.print !== stoodOn) {
 						const before = store.getWorkspace();
-						const merge = mergedWithFiles(before, workspace, lastRead.current);
+						// After a reload the reading the edits stand on is the one the tab kept.
+						const stood = lastRead.current ?? keptReading(projectKey(project.name), stoodOn);
+						const merge = mergedWithFiles(before, workspace, stood);
 						const named = changedFiles(changed);
 						if (merge.conflicts.length > 0) {
 							// The builder's edits stand, and nothing moves under them, until they choose.
@@ -1455,6 +1457,7 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 					// Files that went back to what the edits stand on leave nothing to choose.
 					setConflict(undefined);
 					lastRead.current = workspace;
+					keepReading(projectKey(project.name), read.print, workspace);
 					keep(read);
 				})
 				.catch(() => undefined)
@@ -1476,10 +1479,11 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 			store.update(withFilesChosen(conflict.merge, theirs));
 			store.standOn(conflict.read.print);
 			lastRead.current = conflict.workspace;
+			if (project) keepReading(projectKey(project.name), conflict.read.print, conflict.workspace);
 			keep(conflict.read);
 			setConflict(undefined);
 		},
-		[conflict, store, keep],
+		[conflict, project, store, keep],
 	);
 	useEffect(() => {
 		globalThis.addEventListener('focus', refreshOrigins);
@@ -2851,6 +2855,10 @@ function SaveScope({
 	children: ReactNode;
 }) {
 	const discard = useDiscardAll(state);
+	const { showConflict } = state;
+	const choose = useCallback(() => {
+		showConflict(true);
+	}, [showConflict]);
 	if (!project) return children;
 	return (
 		<WatchFilesContext.Provider value={state.watchFiles}>
@@ -2860,9 +2868,14 @@ function SaveScope({
 			update={state.update}
 			onFilesChanged={state.filesChanged}
 			onDiscard={discard}
-			blocked={blocked}
+			// A Save would be built on files that changed: it waits for the builder's choice.
+			blocked={blocked || Boolean(state.conflict)}
 		>
-			{children}
+			<ChooseConflictsContext.Provider
+				value={state.conflict ? choose : undefined}
+			>
+				{children}
+			</ChooseConflictsContext.Provider>
 			{state.conflict?.open && (
 				<FileConflicts
 					conflicts={state.conflict.merge.conflicts}

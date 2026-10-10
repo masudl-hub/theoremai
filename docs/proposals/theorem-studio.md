@@ -484,6 +484,7 @@ what the builder's editor saves as it saves.
   the studio until they press Apply; until then the chat runs on their edits.
 - Escape or a click outside closes the dialog without choosing. The edits
   stand, and a "1 conflict" token in the editor's header opens it again.
+  The token stands where Save does: Save comes back once they have chosen. The chat pane's Save reads Choose meanwhile, and opens the same dialog.
 - The merge is setting by setting (`mergedWithFiles`, `withFilesChosen`). A
   list of rows, such as an agent's models, merges row by row: a row either
   side added stays, and a row one side took out goes unless the other
@@ -492,9 +493,9 @@ what the builder's editor saves as it saves.
   builder's edits under its new name. Renamed and changed in one save, it
   reads as one removed and one added.
 - Reloading the page merges the same way: the edits the tab kept come back
-  over the files as they are now, with the toast or the dialog. A profile
-  the builder removed before the reload comes back if the files changed
-  meanwhile.
+  over the files as they are now, with the toast or the dialog. The tab
+  keeps the files as it last read them beside the edits, so a profile the
+  builder removed stays removed.
 - Watching is on by default. "Watch files" in the view menu turns it off for
   this browser, and `--no-watch` at launch turns it off for the run: the
   menu item is then not offered. With it off, the files are read as before,

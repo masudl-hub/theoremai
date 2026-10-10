@@ -202,6 +202,34 @@ export function editsAside(key: string, opened: StudioWorkspace): StudioWorkspac
 	return undefined;
 }
 
+/** Where the files a project's kept edits stand on wait, as the studio read them. */
+const readingKey = (key: string) => `${key}.read`;
+
+/**
+ * Keeps the files as the studio read them, beside the edits that stand on that reading. It says
+ * which profiles the builder removed, so a merge after a reload leaves them removed.
+ */
+export function keepReading(key: string, print: string, read: StudioWorkspace): void {
+	const record: StoredWorkspace = {
+		v: STUDIO_WORKSPACE_VERSION,
+		workspace: keptWorkspace(read),
+		revision: 0,
+		files: print,
+	};
+	try {
+		session()?.setItem(readingKey(key), JSON.stringify(record));
+	} catch {
+		// Quota or a blocked store: a profile removed here comes back after a reload.
+	}
+}
+
+/** The files as the studio read them when they printed as `print`, if this tab kept that reading. */
+export function keptReading(key: string, print: string | undefined): StudioWorkspace | undefined {
+	const store = session();
+	const kept = store ? parsed(store, readingKey(key)) : undefined;
+	return isStoredWorkspace(kept) && kept.files === print ? kept.workspace : undefined;
+}
+
 /**
  * The edits this tab kept for a project. `restored` with the reading of the files they stand on:
  * when the files changed since, the studio merges the change into them as it does one the

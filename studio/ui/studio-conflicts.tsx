@@ -8,10 +8,13 @@ import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/Segme
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
-import { useState } from 'react';
+import { createContext, useState } from 'react';
 import type { FileConflict } from '../mod.ts';
 
 const DIALOG_WIDTH = 720;
+
+/** Opens the choice a Save waits on, while the files and the builder's edits conflict. */
+export const ChooseConflictsContext = createContext<(() => void) | undefined>(undefined);
 
 type Side = 'mine' | 'theirs';
 

@@ -12,7 +12,7 @@ import {
 } from '@astryxdesign/core/PowerSearch';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconTimeline } from '@tabler/icons-react';
+import { IconActivity } from '@tabler/icons-react';
 import type { TraceRecord } from '@theoremjs/agents';
 import { type ReactNode, useMemo, useState } from 'react';
 import type { TraceFeed } from '../client/trace-feed.ts';
@@ -329,7 +329,7 @@ function EmptyTrace() {
   return (
     <VStack height="100%" vAlign="center" padding={4}>
       <EmptyState
-        icon={<Icon icon={IconTimeline} size="lg" color="secondary" />}
+        icon={<Icon icon={IconActivity} size="lg" color="secondary" />}
         title={t('@theorem.panel.trace.empty.title')}
         description={t('@theorem.panel.trace.empty.description')}
         isCompact

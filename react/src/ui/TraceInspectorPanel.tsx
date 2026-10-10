@@ -1,5 +1,5 @@
 import { Icon } from '@astryxdesign/core/Icon';
-import { IconTimeline } from '@tabler/icons-react';
+import { IconActivity } from '@tabler/icons-react';
 import type { TraceRecord } from '@theoremjs/agents';
 import type { ProfileObservabilityView } from '@theoremjs/agents/interface';
 import {
@@ -115,7 +115,7 @@ export function useTraceInspector(
     open === undefined ? (
       <SidePanelToggle
         labels={labels}
-        icon={<Icon icon={IconTimeline} />}
+        icon={<Icon icon={IconActivity} />}
         panelId={id}
         open={isOpen}
         onToggle={() => setOwn((value) => !value)}

@@ -133,6 +133,7 @@ function HunkBlock({ file, hunk }: { file: SaveFile; hunk: DiffHunk }) {
 					? `${fileNote(file)} · ${file.file}`
 					: `${file.file}:${String(hunk.line)}`
 			}
+			start={hunk.line - hunk.lead.length}
 			lines={[
 				...hunk.lead.map(signed(' ')),
 				...hunk.removed.map(signed('-')),

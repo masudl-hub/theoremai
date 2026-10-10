@@ -246,6 +246,132 @@
 	}
 }
 
+/* A unified diff, in the Save review and the file-conflict dialog: removed lines red, added lines
+   green, each with its sign in a gutter. */
+.studio-diff {
+	margin: 0;
+	min-width: 0;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-element);
+	overflow: hidden;
+	font-family: var(--font-family-code);
+	font-size: var(--font-size-xs);
+	line-height: 1.6;
+}
+
+.studio-diff-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--spacing-3);
+	padding: var(--spacing-1) var(--spacing-3);
+	border-bottom: 1px solid var(--color-border);
+	background: var(--color-background-muted);
+	color: var(--color-text-secondary);
+}
+
+.studio-diff-title {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.studio-diff-sides {
+	display: flex;
+	flex-wrap: wrap;
+	column-gap: var(--spacing-4);
+	min-width: 0;
+}
+
+.studio-diff-count {
+	display: flex;
+	flex: none;
+	gap: var(--spacing-2);
+	font-variant-numeric: tabular-nums;
+}
+
+.studio-diff-head [data-sign='-'] {
+	color: var(--color-text-red);
+}
+
+.studio-diff-head [data-sign='+'] {
+	color: var(--color-text-green);
+}
+
+/* The gutters size to their widest cell and every line shares them. */
+.studio-diff-lines {
+	display: grid;
+	grid-template-columns: repeat(2, max-content) minmax(max-content, 1fr);
+	overflow: auto;
+	padding-block: var(--spacing-1);
+}
+
+.studio-diff[data-wrapped='true'] .studio-diff-lines {
+	grid-template-columns: repeat(2, max-content) minmax(0, 1fr);
+}
+
+.studio-diff-line {
+	display: grid;
+	grid-column: 1 / -1;
+	grid-template-columns: subgrid;
+}
+
+.studio-diff-line[data-sign='-'] {
+	background: var(--color-background-red);
+}
+
+.studio-diff-line[data-sign='+'] {
+	background: var(--color-background-green);
+}
+
+.studio-diff-number,
+.studio-diff-sign {
+	padding-inline: var(--spacing-2);
+	color: var(--color-text-secondary);
+	text-align: end;
+	user-select: none;
+}
+
+.studio-diff-sign {
+	grid-column: 2;
+	text-align: center;
+}
+
+.studio-diff-line[data-sign='-'] .studio-diff-sign {
+	color: var(--color-text-red);
+}
+
+.studio-diff-line[data-sign='+'] .studio-diff-sign {
+	color: var(--color-text-green);
+}
+
+.studio-diff-line code {
+	grid-column: 3;
+	padding-inline-end: var(--spacing-3);
+	font: inherit;
+	white-space: pre;
+	transition: opacity 120ms ease;
+}
+
+.studio-diff[data-wrapped='true'] .studio-diff-line code {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* The side that does not stand is set aside: struck through and faint. */
+.studio-diff[data-kept='+'] .studio-diff-line[data-sign='-'] code,
+.studio-diff[data-kept='-'] .studio-diff-line[data-sign='+'] code {
+	text-decoration: line-through;
+	opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.studio-diff-line code {
+		transition: none;
+	}
+}
+
 /* In Save's review, a file's name stays at the top while its changes pass. */
 .save-file {
 	position: sticky;

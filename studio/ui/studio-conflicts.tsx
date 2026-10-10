@@ -72,6 +72,9 @@ export function FileConflicts({
 		setPicks(Object.fromEntries(conflicts.map((_, index) => [index, side])));
 	};
 	const one = conflicts.length === 1;
+	// With no one file to name, the side's own name says it.
+	const sourceName =
+		files === 'source code' ? SIDE_NAME.source : `${SIDE_NAME.source} (${files})`;
 	const count = one ? '1 setting' : `${String(conflicts.length)} settings`;
 	return (
 		<Dialog
@@ -119,10 +122,11 @@ export function FileConflicts({
 											<DiffBlock
 												lines={lineDiff(valueText(conflict, 'source'), valueText(conflict, 'studio'))}
 												sides={{
-													removed: `${SIDE_NAME.source} (${files})`,
+													removed: sourceName,
 													added: SIDE_NAME.studio,
 												}}
-												marked={pick === 'studio' ? '+' : '-'}
+												kept={pick === 'studio' ? '+' : '-'}
+												isWrapped
 												maxHeight={DIFF_MAX_HEIGHT}
 											/>
 										</VStack>

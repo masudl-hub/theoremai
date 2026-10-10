@@ -1552,7 +1552,7 @@ interface FilesConflict {
 /** The files that changed, as a toast and the conflict dialog name them: the one, or how many. */
 function changedFiles(files: readonly string[]): string {
 	const [only] = files;
-	if (only === undefined) return 'your files';
+	if (only === undefined) return 'source code';
 	return files.length === 1 ? only : `${String(files.length)} files`;
 }
 
@@ -1562,7 +1562,7 @@ const conflictsLabel = (count: number) => (count === 1 ? '1 conflict' : `${Strin
 function filesToast(files: string, updated: number, hadEdits: boolean): string | undefined {
 	if (updated === 0) return undefined;
 	const settings = updated === 1 ? '1 setting updated' : `${String(updated)} settings updated`;
-	const subject = files === 'your files' ? 'Your files' : files;
+	const subject = files === 'source code' ? 'Source code' : files;
 	return `${subject} changed: ${settings}.${hadEdits ? ' Studio edits are kept.' : ''}`;
 }
 

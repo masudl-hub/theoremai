@@ -1,15 +1,13 @@
 /**
  * The trace panel's colours, taken from Theorem's landscape stills rather than
- * the stock hues: deep royal navy, antique brass, fjord teal, heather, warm
- * stone, and moss and oxblood kept for how a step ended. Each is a
+ * the stock hues: antique brass, fjord teal, heather, warm stone, and
+ * moss and oxblood kept for how a step ended. Each is a
  * light-dark pair, deep in light mode and softened, not brightened, in dark.
  *
  * @module
  */
 
 export const TRACE_HUE = {
-  /** Royal navy: the model. */
-  navy: 'light-dark(#152350, #2b4596)',
   /** Antique brass: tools. */
   brass: 'light-dark(#6f5520, #b39150)',
   /** Deep fjord teal: the host. */

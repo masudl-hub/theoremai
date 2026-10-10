@@ -428,6 +428,16 @@ are not in the files, and a button, Review and save.
 - A function that makes the `defineProfile` call defines one profile for each
   call of it, when each call names the id (10 Oct). The call's options are
   shared by those profiles. Each one's arguments are its own.
+- The studio asks before it changes a shared value (10 Oct, Masud). An edit
+  to a value the files write once is held, and a dialog names what sets it,
+  its `file:line`, and the other profiles that use it: Cancel, or Change for
+  all. The studio does not change it for one profile only. The same value is
+  not asked about again while the same section stays open (Claude's choice),
+  and "Don't ask again this session" stops the asking for the tab. The change
+  is made on a profile only when that profile then compiles to the new value
+  there and to nothing else new (`withSharedCarry`). Otherwise the profile is
+  left as it is and the review names it. An edit by th30 is made on every
+  profile without the dialog (Claude's choice, open).
 - Save writes every change or none. If one change is set by a shared
   constant, by code, or by a tool's schema, Save is off. This keeps the third
   promise of 5.1: the files hold what was tested. Claude asked Masud on 9 Oct

@@ -357,56 +357,8 @@ export function removeLibraryTool(workspace: StudioWorkspace, toolKey: string): 
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-/** A setting several agents hold as one value: the parts of an agent it fills, and the agents, by key. */
-export interface SharedLink {
-  fields: readonly (keyof AgentDraft)[];
-  agents: readonly string[];
-}
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
-
-/** `onto` with what changed from `before` to `after`: a record field by field, anything else whole. */
-function carried(before: unknown, after: unknown, onto: unknown): unknown {
-  if (same(before, after)) return onto;
-  if (!isRecord(before) || !isRecord(after) || !isRecord(onto)) return after;
-  const next = { ...onto };
-  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-    next[key] = carried(before[key], after[key], onto[key]);
-  }
-  return next;
-}
-
-/**
- * `after`, with a change one agent made to a shared setting made on every agent that shares it:
- * the project sets the value once, so the workspace does too. Only what changed is carried, so
- * what the agents set apart in the same section stays apart.
- */
-export function withSharedCarried(
-  before: StudioWorkspace,
-  after: StudioWorkspace,
-  links: readonly SharedLink[],
-): StudioWorkspace {
-  const was = new Map(before.agents.map((agent) => [agent.key, agent]));
-  let agents = after.agents;
-  for (const { fields, agents: sharers } of links) {
-    const now = new Map(agents.map((agent) => [agent.key, agent]));
-    const moved = (key: string) => {
-      const [old, held] = [was.get(key), now.get(key)];
-      return old && held && fields.some((field) => !same(old[field], held[field]));
-    };
-    const source = sharers.find(moved);
-    const [old, held] = [source && was.get(source), source && now.get(source)];
-    if (!old || !held) continue;
-    agents = agents.map((agent) => {
-      if (agent.key === source || !sharers.includes(agent.key)) return agent;
-      const next = { ...agent } as Record<string, unknown>;
-      for (const field of fields) next[field] = carried(old[field], held[field], agent[field]);
-      return same(next, agent) ? agent : next as unknown as AgentDraft;
-    });
-  }
-  return agents === after.agents || same(agents, after.agents) ? after : { ...after, agents };
-}
 
 /** Whether every agent and tool is as it started, and no tool was added or removed. */
 export function atStart(workspace: StudioWorkspace): boolean {

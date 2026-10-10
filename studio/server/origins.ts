@@ -76,8 +76,10 @@ class Reader {
 
   /** The whole target. */
   read() {
-    const { options, source, env } = this.target;
-    this.written.push({ path: [], at: { node: options, source } });
+    const { options, source, env, call } = this.target;
+    // A function that makes the call holds it for each profile it makes.
+    const maker = call && holderOf({ node: options, source })?.name;
+    this.written.push({ path: [], at: { node: options, source }, ...(maker ? { name: maker } : {}) });
     this.walk({ node: options, source, env }, []);
   }
 

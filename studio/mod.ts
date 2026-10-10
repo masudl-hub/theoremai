@@ -189,8 +189,6 @@ export {
   type WorkspaceStarts,
   type WorkspaceTree,
   workspaceTree,
-  type SharedLink,
-  withSharedCarried,
   type FileConflict,
   type FilesMerge,
   type FileUpdate,
@@ -199,10 +197,18 @@ export {
   withFilesChosen,
 } from './workspace.ts';
 export {
+  type SharedCarry,
+  type SharedReach,
+  type SharedSites,
+  type SharedSnapshot,
+  sharedAsk,
+  sharedSnapshot,
+  withSharedCarry,
+} from './shared-carry.ts';
+export {
   type SharedEntry,
   sharedAt,
   sharedEntries,
-  sharedLinks,
   sharedNodeId,
 } from './shared-settings.ts';
 export {

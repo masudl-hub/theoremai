@@ -8,7 +8,7 @@
 import { PROFILE_GRAPH, type ProfileGraphFacetId } from '../src/kernel/schema.ts';
 import type { SharedSetting } from './server/save-wire.ts';
 import { modelBindingNodeId } from './tree.ts';
-import { type AgentDraft, agentNodeId, type SharedLink, type StudioWorkspace } from './workspace.ts';
+import { agentNodeId, type StudioWorkspace } from './workspace.ts';
 
 /** One shared setting, beside the agents of the workspace that share it. */
 export interface SharedEntry {
@@ -20,11 +20,6 @@ export interface SharedEntry {
    * every profile, or a profile that reads it is not open: then it is changed in the builder's editor.
    */
   facet?: ProfileGraphFacetId;
-}
-
-/** The parts of an agent a section's own profile key fills. The models' key holds the bindings only. */
-function fieldsOf(facet: ProfileGraphFacetId): (keyof AgentDraft)[] {
-  return facet === 'models' ? ['modelBindings'] : [facet as keyof AgentDraft];
 }
 
 /** The section whose whole value is the profile key `key`. */
@@ -41,11 +36,6 @@ export function sharedEntries(workspace: StudioWorkspace, settings: readonly Sha
     const facet = agents.length === setting.profiles.length ? facetOf(setting.key) : undefined;
     return { setting, agents, ...(facet ? { facet } : {}) };
   });
-}
-
-/** What the workspace keeps as one value: each setting the studio edits, for `withSharedCarried`. */
-export function sharedLinks(entries: readonly SharedEntry[]): SharedLink[] {
-  return entries.flatMap(({ facet, agents }) => (facet ? [{ fields: fieldsOf(facet), agents }] : []));
 }
 
 /** The node that opens a shared setting on one of its agents. */

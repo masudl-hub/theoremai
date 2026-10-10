@@ -105,7 +105,6 @@ import {
 	type StudioWorkspace,
 	sharedAt,
 	sharedEntries,
-	sharedLinks,
 	sharedNodeId,
 	sampleToolInput,
 	saveStudioRunPayload,
@@ -176,6 +175,7 @@ import {
 	ProfileEditor,
 	toolTypeIcon,
 } from './profile-editor.tsx';
+import { SharedChange } from './shared-change.tsx';
 import {
 	type StudioConnectionState,
 	StudioKeys,
@@ -1350,7 +1350,7 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 	const [shared] = useState(() => sharedEntries(start.workspace, project?.shared ?? []));
 	// th30's tools read the store synchronously. The editor works on the open agent's draft, with the
 	// whole tool library.
-	const [store] = useState(() => createStudioStore(start, sharedLinks(shared)));
+	const [store] = useState(() => createStudioStore(start, project?.origins.sites?.profiles));
 	const workspace = useSyncExternalStore(store.subscribe, store.getWorkspace, store.getWorkspace);
 	const draft = useSyncExternalStore(store.subscribe, store.getDraft, store.getDraft);
 	const setDraft = useCallback(
@@ -1377,6 +1377,11 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 	}, [store]);
 	const { files, refreshOrigins, filesChanged, conflict, settle, showConflict, watchFiles } =
 		useProjectFiles(project, store);
+	// Where the files write each shared value, as they were last read.
+	const sites = files?.origins.sites?.profiles;
+	useEffect(() => {
+		store.setSites(sites);
+	}, [store, sites]);
 	return {
 		store,
 		workspace,
@@ -2779,6 +2784,7 @@ function Studio({ opened }: { opened: StudioOpened }) {
 			<ConfirmWrite value={asking.confirm}>
 				<ProjectAsks value={state.asks ?? NO_ASKS}>
 					{asking.dialog}
+					<SharedChange store={state.store} />
 					<SaveScope project={project} state={state} blocked={Boolean(compile.blocked)}>
 					<Layout
 						ref={frame.layoutCallbackRef}

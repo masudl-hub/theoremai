@@ -9,13 +9,17 @@ import {
 	agentNodeId,
 	createBlankDraft,
 	libraryDraft,
-	type SharedLink,
+	type SharedCarry,
+	type SharedReach,
+	type SharedSites,
+	type SharedSnapshot,
+	sharedSnapshot,
 	STUDIO_WORKSPACE_VERSION,
 	type StudioDraft,
 	type StudioWorkspace,
 	type ToolSpecDraft,
 	withLibraryDraft,
-	withSharedCarried,
+	withSharedCarry,
 } from '../../mod.ts';
 import {
 	isRecord,
@@ -26,6 +30,8 @@ import {
 } from './studio-session.ts';
 
 const WRITE_MS = 300;
+/** Beside the workspace's key: the builder said not to be asked about shared values again. */
+const QUIET_SUFFIX = '.shared-quiet';
 const CHANGES_SIZE = 50;
 
 export type DraftAuthor = 'th30' | 'visitor';
@@ -114,8 +120,14 @@ function agentOf(workspace: StudioWorkspace, id: string): string | undefined {
 /** The store's mutable state, shared by the helpers below. */
 interface StoreState {
 	workspace: StudioWorkspace;
-	/** The settings several agents hold as one value: a change to one is made on each. */
-	links: readonly SharedLink[];
+	/** Where the project's files write each value more than one setting reads. */
+	sites: SharedSites | undefined;
+	/** The last workspace that compiled: what a change to a shared value is read against. */
+	good: SharedSnapshot | undefined;
+	/** A change to a shared value, held until the builder says to make it. */
+	pending: { carry: SharedCarry; reach: SharedReach; by: DraftAuthor } | undefined;
+	/** The shared places the builder said to change, while the same node stays open. */
+	agreed: Set<number>;
 	revision: number;
 	focus: string;
 	changes: DraftChange[];
@@ -183,7 +195,27 @@ function draftOf(state: StoreState): StudioDraft {
 	return view.draft;
 }
 
-/** Moves to `next`, as the visitor's or th30's change, with the move in the open node. */
+/** `made`, with a change to a value the files write once made on every agent that shares it. */
+function sharedCarry(state: StoreState, made: StudioWorkspace): SharedCarry {
+	if (!state.sites) return { workspace: made };
+	state.good ??= sharedSnapshot(state.workspace);
+	if (!state.good) return { workspace: made, snapshot: sharedSnapshot(made) };
+	return withSharedCarry(state.good, made, state.sites);
+}
+
+/** Whether the builder said not to be asked again, for this tab. */
+function isQuiet(state: StoreState): boolean {
+	try {
+		return session()?.getItem(`${state.slot}${QUIET_SUFFIX}`) === '1';
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Moves to `next`, as the visitor's or th30's change, with the move in the open node. The
+ * visitor's change to a shared value is held until they say to make it: `confirmShared`.
+ */
 function updateWorkspace(
 	state: StoreState,
 	next: StudioWorkspace | ((current: StudioWorkspace) => StudioWorkspace),
@@ -191,10 +223,24 @@ function updateWorkspace(
 ): StudioWorkspace {
 	const made = typeof next === 'function' ? next(state.workspace) : next;
 	if (made === state.workspace) return state.workspace;
-	const value = state.links.length ? withSharedCarried(state.workspace, made, state.links) : made;
+	const carry = sharedCarry(state, made);
+	const { reach } = carry;
+	const asks = reach && by === 'visitor' && !isQuiet(state) &&
+		reach.sites.some((site) => !state.agreed.has(site));
+	if (reach && asks) {
+		state.pending = { carry, reach, by };
+		notifyListeners(state);
+		return state.workspace;
+	}
+	return commitWorkspace(state, carry, by);
+}
+
+function commitWorkspace(state: StoreState, carry: SharedCarry, by: DraftAuthor): StudioWorkspace {
+	state.pending = undefined;
+	if (carry.snapshot) state.good = carry.snapshot;
 	const before = draftOf(state);
 	const agentsBefore = state.workspace.agents.map((agent) => agent.key).join();
-	state.workspace = value;
+	state.workspace = carry.workspace;
 	state.focus = agentOf(state.workspace, state.workspace.selected) ?? state.focus;
 	const sections = changedSections(before, draftOf(state));
 	if (state.workspace.agents.map((agent) => agent.key).join() !== agentsBefore) {
@@ -235,6 +281,7 @@ function selectNode(state: StoreState, id: string): void {
 	if (id === state.workspace.selected) return;
 	const workspace = { ...state.workspace, selected: id };
 	state.focus = agentOf(workspace, id) ?? state.focus;
+	state.agreed.clear();
 	moveWorkspace(state, workspace);
 }
 
@@ -246,10 +293,13 @@ export type StudioStore = ReturnType<typeof createStudioStore>;
  * agent at a time, the focused one: `getDraft` and `updateDraft` read and write its draft, with
  * the whole tool library as its tools.
  */
-export function createStudioStore(initial: RestoredStudio, links: readonly SharedLink[] = []) {
+export function createStudioStore(initial: RestoredStudio, sites?: SharedSites) {
 	const state: StoreState = {
 		workspace: initial.workspace,
-		links,
+		sites,
+		good: undefined,
+		pending: undefined,
+		agreed: new Set(),
 		revision: initial.revision,
 		focus: agentOf(initial.workspace, initial.workspace.selected) ?? initial.workspace.chatWith,
 		changes: [],
@@ -301,6 +351,36 @@ export function createStudioStore(initial: RestoredStudio, links: readonly Share
 		 */
 		/** The reading of the project's files the starts stand on. */
 		standsOn: () => state.files,
+		/** Says where the files write each shared value now: after they are read again. */
+		setSites: (next: SharedSites | undefined) => {
+			state.sites = next;
+			state.good = undefined;
+		},
+		/** What a held change to a shared value reaches. Undefined when none is held. */
+		getPending: (): SharedReach | undefined => state.pending?.reach,
+		/**
+		 * Makes the held change, on every agent that shares the value. The same value is not asked
+		 * about again while the same node stays open, and `quiet` stops the asking for this tab.
+		 */
+		confirmShared: (quiet = false) => {
+			const { pending } = state;
+			if (!pending) return;
+			for (const site of pending.reach.sites) state.agreed.add(site);
+			if (quiet) {
+				try {
+					session()?.setItem(`${state.slot}${QUIET_SUFFIX}`, '1');
+				} catch {
+					// Storage is full or off: the builder is asked again.
+				}
+			}
+			commitWorkspace(state, pending.carry, pending.by);
+		},
+		/** Drops the held change: no agent has it. */
+		cancelShared: () => {
+			if (!state.pending) return;
+			state.pending = undefined;
+			notifyListeners(state);
+		},
 		standOn: (files: string) => {
 			if (files === state.files) return;
 			state.files = files;

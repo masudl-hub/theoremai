@@ -1,7 +1,7 @@
 /**
- * The panel takes the whole frame for the map, and gives it back. The tree stays where it is; the
- * view beside it, the preview and the panel's handle fade out, the panel's far edge moves the way
- * the shell's does after load, and what the panel now holds fades in.
+ * The panel takes the whole frame for the map, and gives it back. The tree and the editor stay
+ * where they are, at the widths they had; the preview and the panel's handle fade out, the panel's
+ * far edge moves over them the way the shell's does after load, uncovering the map, and back.
  */
 import { HOLD_MS, prefersReducedMotion, sleep } from '../shell-motion.ts';
 
@@ -10,8 +10,11 @@ const MOVE_MS = 640;
 const FADE_MS = 280;
 const EASE = 'cubic-bezier(0.45, 0.02, 0.15, 1)';
 
-/** What fades around the move: the view beside the tree, the preview and the panel's handle. */
-const PARTS = '.studio-view, .studio-preview, .studio-side-handle';
+/** What fades around the move: the preview and the panel's handle. */
+const PARTS = '.studio-preview, .studio-side-handle';
+
+/** The width the editor keeps while the map is open beside it. */
+const VIEW_WIDTH = '--studio-view-width';
 
 /** A phone's panel already takes the frame, and reduced motion moves nothing. */
 export function panelCanMove(): boolean {
@@ -32,8 +35,15 @@ function ended(animations: Animation[], ms: number): Promise<unknown> {
 export async function movePanel(widens: boolean, swap: () => void): Promise<void> {
 	const frame = document.querySelector<HTMLElement>('.studio-frame');
 	const surface = frame?.querySelector<HTMLElement>('[data-shell-frame]');
-	if (!frame || !surface || !panelCanMove()) {
+	// The editor is held at the width it has now, so nothing under the moving edge shifts.
+	const view = frame?.querySelector<HTMLElement>('.studio-view');
+	if (widens && frame && view) frame.style.setProperty(VIEW_WIDTH, `${String(view.offsetWidth)}px`);
+	const swapped = () => {
 		swap();
+		if (!widens) frame?.style.removeProperty(VIEW_WIDTH);
+	};
+	if (!frame || !surface || !panelCanMove()) {
+		swapped();
 		return;
 	}
 	const parts = () => [...frame.querySelectorAll<HTMLElement>(PARTS)];
@@ -55,7 +65,7 @@ export async function movePanel(widens: boolean, swap: () => void): Promise<void
 			{ clipPath: [cut(narrow), whole] },
 			{ duration: MOVE_MS, easing: EASE, fill: 'both' },
 		);
-		swap();
+		swapped();
 		await ended([move], MOVE_MS);
 		move.cancel();
 	} else {
@@ -67,10 +77,10 @@ export async function movePanel(widens: boolean, swap: () => void): Promise<void
 				{ duration: MOVE_MS, easing: EASE, fill: 'both' },
 			);
 			await ended([move], MOVE_MS);
-			swap();
+			swapped();
 			move.cancel();
 		} else {
-			swap();
+			swapped();
 		}
 	}
 

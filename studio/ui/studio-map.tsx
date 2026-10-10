@@ -7,9 +7,10 @@
 
 import { Button } from '@astryxdesign/core/Button';
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
+import { IconButton } from '@astryxdesign/core/IconButton';
 import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
 import { Text } from '@astryxdesign/core/Text';
-import { IconCloud, IconCode, IconLayoutGrid } from '@tabler/icons-react';
+import { IconCloud, IconCode, IconLayoutGrid, IconX } from '@tabler/icons-react';
 import {
 	type CSSProperties,
 	type KeyboardEvent,
@@ -67,6 +68,7 @@ function rowIcon(type: string): IconType {
 /** Whether `selected`, the open node, is `node` or a section under it. */
 function isOpen(node: MapNode, selected: string): boolean {
 	if (node.kind === 'agent') return selected === node.id || selected.startsWith(`${node.id}/`);
+	if (node.kind === 'model') return node.holds?.includes(selected) ?? false;
 	return node.kind === 'tool' && selected === node.id;
 }
 
@@ -123,12 +125,14 @@ export function StudioMap({
 	shared,
 	selected,
 	onOpen,
+	onClose,
 }: {
 	workspace: StudioWorkspace;
 	shared: readonly SharedEntry[];
 	/** The open node's id; its agent or tool is marked on the map. */
 	selected: string;
 	onOpen: (node: string) => void;
+	onClose: () => void;
 }) {
 	const project = useProject()?.name;
 	const map = useMemo(() => workspaceMap(workspace, shared), [workspace, shared]);
@@ -402,8 +406,8 @@ export function StudioMap({
 					})}
 				</div>
 			</ScrollableArea>
-			{isMoved && (
-				<div className="studio-map-tidy">
+			<div className="studio-map-tools">
+				{isMoved && (
 					<Button
 						label="Tidy"
 						variant="secondary"
@@ -413,8 +417,16 @@ export function StudioMap({
 							keep({});
 						}}
 					/>
-				</div>
-			)}
+				)}
+				<IconButton
+					label="Close map"
+					variant="secondary"
+					size="sm"
+					icon={<Icon icon={IconX} size="sm" />}
+					tooltip="Close the map"
+					onClick={onClose}
+				/>
+			</div>
 		</div>
 	);
 }

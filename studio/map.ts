@@ -30,6 +30,8 @@ export interface MapNode {
   note: string;
   /** The workspace node that opens it; unset for a shared setting nothing here uses. */
   opens?: string;
+  /** A model: every workspace node it stands for, one for each profile that runs it. */
+  holds?: string[];
   /** An agent's profile type, a tool's type, or the section a shared setting fills. */
   type?: string;
   /** A profile's sections, in the tree's order. */
@@ -144,13 +146,17 @@ export function workspaceMap(workspace: StudioWorkspace, shared: readonly Shared
           opens: agentNodeId(agent.key, modelBindingNodeId(binding.key)),
         });
       }
-      if (!models.has(id)) {
+      const opens = agentNodeId(agent.key, modelBindingNodeId(binding.key));
+      const model = models.get(id);
+      if (model) model.holds?.push(opens);
+      else {
         models.set(id, {
           id,
           kind: 'model',
           label: binding.modelId || 'New model',
           note: binding.apiId || binding.protocol,
-          opens: agentNodeId(agent.key, modelBindingNodeId(binding.key)),
+          opens,
+          holds: [opens],
         });
         links.push({ from: provider, to: id, kind: 'serves' });
       }

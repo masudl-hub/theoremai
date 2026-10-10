@@ -15,11 +15,13 @@
 	container-type: size;
 }
 
-/* Over the field's corner, and only while a node is out of its place. */
-.studio-map-tidy {
+/* Over the field's corner: Tidy, only while a node is out of its place, and Close. */
+.studio-map-tools {
 	position: absolute;
 	inset-block-start: var(--spacing-3);
 	inset-inline-end: var(--spacing-3);
+	display: flex;
+	gap: var(--spacing-2);
 }
 
 .studio-map {

@@ -165,9 +165,15 @@
 }
 
 /*
- * The map takes the whole frame: the panel widens over the preview, which goes with its handle,
- * and the tree stays beside the map. On a phone the panel already does. The frame's class outranks the panel's resized width.
+ * The map opens beside the editor, in the room the preview gives up: the panel widens over the
+ * preview, which goes with its handle, and the tree and the editor keep the widths they had. The
+ * frame's class outranks the panel's resized width.
  */
+.studio-map-pane {
+	min-width: 0;
+	border-inline-start: 1px solid var(--color-border);
+}
+
 @media (width >= 768px) {
 	.studio-frame.studio-map-open .studio-side {
 		width: 100%;
@@ -175,9 +181,27 @@
 		flex: 1 1 auto;
 	}
 
+	.studio-frame.studio-map-open .studio-view {
+		flex: 0 0 var(--studio-view-width, 24rem);
+		width: var(--studio-view-width, 24rem);
+		min-width: 0;
+	}
+
 	.studio-frame.studio-map-open .studio-side-handle,
 	.studio-frame.studio-map-open .studio-preview {
 		display: none;
+	}
+}
+
+/* On a phone the map covers the editor inside the raised panel, the way the tree does. */
+@media (width < 768px) {
+	.studio-frame .studio-map-pane {
+		position: absolute;
+		inset: 0;
+		z-index: 2;
+		width: 100%;
+		border-inline-start: 0;
+		background: var(--color-background-surface);
 	}
 }
 

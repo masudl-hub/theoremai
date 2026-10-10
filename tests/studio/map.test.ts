@@ -337,3 +337,32 @@ Deno.test('a line that would pass behind a node between its ends goes round it',
     mapLayout(map, SIZES).lines.find(({ link }) => link.to === price)?.d,
   );
 });
+
+Deno.test('a model two profiles run stands for the model of each', () => {
+  const workspace = opened();
+  const [desk, shop] = workspace.agents;
+  if (!desk || !shop) throw new Error('two agents');
+  const same = {
+    ...workspace,
+    agents: [
+      desk,
+      {
+        ...shop,
+        modelBindings: desk.modelBindings.map((each) => ({ ...each, key: 'shop-model' })),
+      },
+    ],
+  };
+  const models = workspaceMap(same)
+    .columns.flat()
+    .flatMap((group) => group.nodes)
+    .filter((node) => node.kind === 'model');
+  assertEquals(
+    models.map((node) => node.holds),
+    [
+      [
+        agentNodeId(desk.key, modelBindingNodeId('desk-model')),
+        agentNodeId(shop.key, modelBindingNodeId('shop-model')),
+      ],
+    ],
+  );
+});

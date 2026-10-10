@@ -558,7 +558,7 @@ export function ProjectSave({
 				isOpen={asking}
 				onOpenChange={setAsking}
 				title="Discard every unsaved edit?"
-				description={`The studio opens ${project.name} as its files hold it. Your files do not change.`}
+				description={`Everything you changed in the studio since your last save is thrown away, and ${project.name} is loaded again from its files. The files themselves are not touched.`}
 				actionLabel="Discard all"
 				actionVariant="destructive"
 				onAction={() => {

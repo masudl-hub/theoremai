@@ -12,6 +12,7 @@
 import ts from 'typescript';
 import { type SourceStyle, valueSource } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
+import { canonical } from './canonical.ts';
 import {
   type Located,
   namedValue,
@@ -50,17 +51,6 @@ type Json = Record<string, unknown>;
 
 function isRecord(value: unknown): value is Json {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-/** `value` with every object's keys in order and nothing undefined, as text: equal values give equal text. */
-export function canonical(value: unknown): string {
-  const ordered = (item: unknown): unknown => {
-    if (Array.isArray(item)) return item.map(ordered);
-    if (!isRecord(item)) return item;
-    const keys = Object.keys(item).filter((key) => item[key] !== undefined).sort();
-    return Object.fromEntries(keys.map((key) => [key, ordered(item[key])]));
-  };
-  return JSON.stringify(ordered(value)) ?? 'undefined';
 }
 
 function same(a: unknown, b: unknown): boolean {

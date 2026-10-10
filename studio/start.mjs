@@ -1,7 +1,7 @@
 /**
  * Opens the studio on a project, with one command:
  *
- *   node studio/start.mjs <setup-module> [--editor <command>] [--no-watch]
+ *   node studio/start.mjs <setup-module> [--editor <command>] [--deno-config <file>] [--no-watch]
  *
  * It starts the project's local server (`server/serve.ts`, under Deno, with the project's own
  * permissions) and the studio's page, and stops both together. Only this machine reaches either.
@@ -10,10 +10,13 @@
  * does not start, the machine's default editor opens the file.
  * The studio watches the files the setup reads and takes in what the builder's editor changes;
  * `--no-watch` turns that off, and the studio then reads them when the builder comes back to it.
+ * The project loads with its own Deno config: the one `--deno-config` names, else the `deno.json`
+ * or `deno.jsonc` in the folder the command ran in, else the studio's.
  * The studio is opt-in, so this checks for its install and never installs it.
  */
 import './installed.mjs';
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -24,15 +27,29 @@ const PAGE = `http://127.0.0.1:${PAGE_PORT}`;
 const [setup, ...rest] = process.argv.slice(2);
 const noWatch = rest.includes('--no-watch');
 const named = rest.filter((arg) => arg !== '--no-watch');
-const editorAt = named.indexOf('--editor');
-const editor = editorAt < 0 ? undefined : named[editorAt + 1];
-if (!setup || setup.startsWith('--') || (editorAt >= 0 && !editor) || named.length > (editor ? 2 : 0)) {
-	console.error('usage: node studio/start.mjs <setup-module> [--editor <command>] [--no-watch]');
+/** The value after each flag that takes one. A flag with none, or anything else, is a mistake. */
+const VALUED = ['--editor', '--deno-config'];
+const given = {};
+let mistaken = !setup || setup.startsWith('--');
+for (let at = 0; at < named.length; at += 2) {
+	const value = named[at + 1];
+	if (!VALUED.includes(named[at]) || !value || value.startsWith('--')) mistaken = true;
+	else given[named[at]] = value;
+}
+if (mistaken) {
+	console.error(
+		'usage: node studio/start.mjs <setup-module> [--editor <command>] [--deno-config <file>] [--no-watch]',
+	);
 	process.exit(2);
 }
+const editor = given['--editor'];
 
 // The setup module is named from where the command was run, which is also the project's name.
 const from = process.env.INIT_CWD ?? process.cwd();
+const ownConfig = ['deno.json', 'deno.jsonc'].map((name) => path.join(from, name)).find(existsSync);
+const projectConfig = given['--deno-config']
+	? path.resolve(from, given['--deno-config'])
+	: (ownConfig ?? path.join(here, '../deno.json'));
 const server = spawn(
 	'deno',
 	[
@@ -45,7 +62,7 @@ const server = spawn(
 		'--page',
 		`${PAGE},http://localhost:${PAGE_PORT}`,
 		'--deno-config',
-		path.join(here, '../deno.json'),
+		projectConfig,
 		...(editor ? ['--editor', editor] : []),
 		...(noWatch ? ['--no-watch'] : []),
 	],

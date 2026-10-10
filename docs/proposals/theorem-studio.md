@@ -839,6 +839,10 @@ Masud chose one name: studio everywhere. The paths above are the old ones.
   `node studio/start.mjs <setup-module>`. It starts the project's server
   and the page at `http://127.0.0.1:4984/studio/`, and stops both together.
   This closes "Two processes" above.
+- The project loads with its own Deno config: the one `--deno-config` names,
+  else the `deno.json` in the folder the command ran in, else the studio's.
+  The project's load reads no source, so it needs nothing the project's own
+  import map does not already have.
 - The studio is opt-in. Nothing of it installs with the kernel or the React
   package. `npm install --prefix studio` is the one install; the start and
   test commands check for it and print that line when it is missing. The

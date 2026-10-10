@@ -16,7 +16,8 @@ import type { ProjectQuestions } from './handler.ts';
 import { withCompiledPatterns } from '../runtime-scope.ts';
 import { registerCustomTool } from '../tools.ts';
 import type { NewSubjects } from './save-new.ts';
-import { canonical, type SaveSubject } from './save-plan.ts';
+import { canonical } from './canonical.ts';
+import type { SaveSubject } from './save-plan.ts';
 
 /** What the builder changed and added, as Save reads a workspace. */
 export interface ProjectEdits {

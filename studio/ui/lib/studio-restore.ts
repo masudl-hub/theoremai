@@ -5,8 +5,8 @@
  */
 import {
 	agentDraft,
-	atStart,
 	createBlankDraft,
+	editedSince,
 	STUDIO_WORKSPACE_VERSION,
 	type StudioDraft,
 	type StudioWorkspace,
@@ -197,5 +197,6 @@ export function restoreProject(
 	}
 	store.removeItem(key);
 	// With nothing edited there is nothing to offer back.
-	return atStart(workspace) ? { kind: 'none' } : { kind: 'moved', workspace };
+	const isEdited = kept.files === undefined || editedSince(kept.workspace, kept.files);
+	return isEdited ? { kind: 'moved', workspace } : { kind: 'none' };
 }

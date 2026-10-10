@@ -138,6 +138,40 @@ Deno.test('a save that fails a proof puts the files back and keeps the old load'
   }
 });
 
+Deno.test('files the editor changed are loaded again, and ones that do not load leave the last load', async () => {
+  let loads = 0;
+  const failing = { fails: false };
+  const { session, files, stopped, state } = project({
+    load: () => {
+      loads += 1;
+      return failing.fails ? Promise.reject(new Error('It threw.')) : Promise.resolve(state.loads);
+    },
+  });
+  // Files as they loaded start nothing.
+  assertEquals(await session.refresh(), undefined);
+  assertEquals(loads, 0);
+
+  const next = edited();
+  state.loads = next;
+  files.set(SETUP, `${TEXT}\n// An edit in the editor.\n`);
+  assertEquals(await session.refresh(), undefined);
+  assertEquals(session.project(), next);
+  assertEquals([loads, stopped.length], [1, 1]);
+
+  // Files that do not load are tried once, and the last load answers.
+  failing.fails = true;
+  files.set(SETUP, `${TEXT}\n// A broken edit.\n`);
+  assertEquals(await session.refresh(), 'It threw.');
+  assertEquals(await session.refresh(), 'It threw.');
+  assertEquals(session.project(), next);
+  assertEquals(loads, 2);
+
+  failing.fails = false;
+  files.set(SETUP, `${TEXT}\n// Mended.\n`);
+  assertEquals(await session.refresh(), undefined);
+  assertEquals(loads, 3);
+});
+
 Deno.test('an undo whose load fails writes the save again', async () => {
   let fail = false;
   const workspace = edited();

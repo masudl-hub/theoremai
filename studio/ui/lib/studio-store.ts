@@ -299,6 +299,8 @@ export function createStudioStore(initial: RestoredStudio, links: readonly Share
 		 * Says which reading of the project's files the starts stand on now: after a Save, an undo,
 		 * or opening the files again.
 		 */
+		/** The reading of the project's files the starts stand on. */
+		standsOn: () => state.files,
 		standOn: (files: string) => {
 			if (files === state.files) return;
 			state.files = files;

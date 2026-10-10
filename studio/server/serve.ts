@@ -10,10 +10,11 @@
  * says where the providers find their keys. Only this machine can reach the server.
  *
  * The project loads in a process of its own (`project.ts`), and this passes the
- * page's requests on to it. Save is here: it writes the builder's edits into the
- * project's files, checks them, and starts the project again from disk. It writes
- * only files the project's setup imports, inside the folder the command ran in,
- * and it never runs git. Open starts the builder's editor on a line of one of
+ * page's requests on to it, and starts it again when the page asks for a project
+ * whose files the builder's editor changed. Save is here: it writes the builder's
+ * edits into the project's files, checks them, and starts the project again from
+ * disk. It writes only files the project's setup imports, inside the folder the
+ * command ran in, and it never runs git. Open starts the builder's editor on a line of one of
  * those files: the editor `--editor` names, else `$VISUAL` or `$EDITOR` when it
  * opens in a window, else VS Code.
  *
@@ -119,7 +120,9 @@ async function loadProject(edits?: ProjectEdits): Promise<Loaded> {
   });
   if (!(await listening)) {
     await Promise.all([process.status, errors]);
-    throw new Error(printed.trim() || 'The project did not start.');
+    // The page shows this, so the terminal's colours come out.
+    // deno-lint-ignore no-control-regex
+    throw new Error(printed.replace(/\x1b\[[0-9;]*m/g, '').trim() || 'The project did not start.');
   }
   const origin = `http://127.0.0.1:${childPort}`;
   const description: StudioDescription = await (await fetch(origin + STUDIO_BASE)).json();
@@ -282,16 +285,22 @@ const editor: EditorHost = {
 
 /**
  * The project as the page opens it: what it registered, the settings its files say its profiles
- * share, and the ones they set in code.
+ * share, and the ones they set in code. Files the builder's editor changed are loaded first.
  */
-function opened(request: Request): StudioDescription | undefined {
+async function opened(request: Request): Promise<StudioDescription | undefined> {
   if (request.method !== 'GET' || new URL(request.url).pathname !== STUDIO_BASE) return undefined;
-  return { ...session.project().description, shared: session.shared(), origins: session.origins() };
+  const unloaded = await session.refresh();
+  return {
+    ...session.project().description,
+    shared: session.shared(),
+    origins: session.origins(),
+    ...(unloaded === undefined ? {} : { unloaded }),
+  };
 }
 
 Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
   if (isForeign(request, gate)) return json(403, {}, {});
-  const answer = opened(request) ?? (await answerSave(session, SAVE, request)) ??
+  const answer = (await opened(request)) ?? (await answerSave(session, SAVE, request)) ??
     (await answerOpen(editor, OPEN, request));
   if (!answer) return (await answerEdited(request)) ?? forward(request);
   const cors = corsHeaders(request, pageOrigins);

@@ -59,6 +59,11 @@ export interface SaveSession<Loaded> {
   save(request: SaveRequest): Promise<SaveReview | SaveDone | SaveRefusal>;
   /** Puts the last Save's files back, when they still hold what it wrote. */
   undo(): Promise<SaveDone | SaveRefusal>;
+  /**
+   * Loads the project again when its files changed outside the studio. Answers what the project
+   * printed when the files do not load: the last load that did answers requests until they do.
+   */
+  refresh(): Promise<string | undefined>;
 }
 
 /**
@@ -137,6 +142,14 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
   /** The last Save's files, until another Save or an undo. */
   let lastSave: Files | undefined;
 
+  const source = () => readProjectSource(host.setupFile, root, host.read);
+  /** The text of every file the setup reads, which changes when the builder's editor writes one. */
+  const held = () => JSON.stringify([...source().files].map(([file, read]) => [file, read.text]));
+  /** What the files held when the load that answers started. */
+  let loadedFrom = held();
+  /** The files that did not load, and what the project printed. */
+  let unloaded: { from: string; printed: string } | undefined;
+
   /** What the builder changed, or why it cannot be read. */
   const subjectsOf = (workspace: StudioWorkspace): ReturnType<typeof saveSubjects> => {
     try {
@@ -183,6 +196,7 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
 
   /** Loads the project from disk and answers with it from now on. */
   const reload = async (keep: (next: Loaded) => string[]): Promise<SaveRefusal | undefined> => {
+    const from = held();
     let next: Loaded;
     try {
       next = await host.load();
@@ -196,8 +210,21 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     }
     const old = project;
     project = next;
+    loadedFrom = from;
+    unloaded = undefined;
     await host.stop(old);
     return undefined;
+  };
+
+  const refresh = async (): Promise<string | undefined> => {
+    const now = held();
+    if (now === loadedFrom) unloaded = undefined;
+    // Files that did not load are not tried again until they change.
+    else if (unloaded?.from !== now) {
+      const refused = await reload(() => []);
+      if (refused) unloaded = { from: now, printed: refused.detail.join('\n') };
+    }
+    return unloaded?.printed;
   };
 
   /** Proves the files as written: the project type-checks, loads, and is what was tested. */
@@ -249,8 +276,6 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     return next;
   };
 
-  const source = () => readProjectSource(host.setupFile, root, host.read);
-
   return {
     project: () => project,
     shared: () => sharedSettings(source()).map((setting) => ({ ...setting, file: inRoot(setting.file) })),
@@ -267,5 +292,6 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     },
     save: (request) => inTurn(() => save(request)),
     undo: () => inTurn(undo),
+    refresh: () => inTurn(refresh),
   };
 }

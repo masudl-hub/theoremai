@@ -35,6 +35,8 @@ export interface ProjectSession {
 	asks: StudioAsks;
 	/** The files as the server read them, as a short text that changes when they do. */
 	print: string;
+	/** What the project printed when its files stopped loading; the page shows the last load that did. */
+	unloaded?: string;
 }
 
 export const NO_ASKS: StudioAsks = { asked: [], inside: [] };
@@ -127,6 +129,7 @@ interface Opened {
 	shared?: SharedSetting[];
 	origins?: ProjectOrigins;
 	asks?: StudioAsks;
+	unloaded?: string;
 }
 
 async function describe(): Promise<Opened> {
@@ -138,7 +141,7 @@ async function describe(): Promise<Opened> {
 /** What a project's files say, which a Save or an edit in the builder's editor changes. */
 export type ProjectFiles = Pick<
 	ProjectSession,
-	'profiles' | 'problems' | 'origins' | 'asks' | 'print'
+	'profiles' | 'problems' | 'origins' | 'asks' | 'print' | 'unloaded'
 >;
 
 /** What the files say, of a project as the server describes it. */
@@ -149,16 +152,18 @@ function filesOf(opened: Opened): ProjectFiles {
 		origins: opened.origins ?? NO_ORIGINS,
 		asks: opened.asks ?? NO_ASKS,
 		print: filesPrint(opened.workspace),
+		...(opened.unloaded === undefined ? {} : { unloaded: opened.unloaded }),
 	};
 }
 
 /**
  * What the project's files say now that the page does not hold as edits: the profiles they hold
  * and the ones the studio cannot run, the settings they set in code, whose lines a Save moves,
- * and the tools the studio makes ask.
+ * and the tools the studio makes ask. With them, the workspace the files open as.
  */
-export async function readFiles(): Promise<ProjectFiles> {
-	return filesOf(await describe());
+export async function readFiles(): Promise<{ files: ProjectFiles; workspace: StudioWorkspace }> {
+	const opened = await describe();
+	return { files: filesOf(opened), workspace: opened.workspace };
 }
 
 /** The project the local server has open. Throws when no server answers. */

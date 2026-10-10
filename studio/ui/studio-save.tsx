@@ -257,18 +257,28 @@ function RefusalBody({ refusal }: { refusal: SaveRefusal }) {
 }
 
 /**
- * The profiles a project registers that the studio cannot run: a count that shows each one's
- * reason on hover. Nothing while there are none.
+ * What the studio cannot run: files that stopped loading, and the profiles a project registers
+ * that it cannot run. A count that shows each one's reason on hover. Nothing while there are none.
  */
-function ProjectProblems({ project }: { project: ProjectSession }) {
+function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloaded?: string }) {
 	const { problems } = project;
-	if (!problems.length) return null;
+	const count = problems.length + (unloaded === undefined ? 0 : 1);
+	if (!count) return null;
 	return (
 		<HoverCard
-			label="Profiles the studio cannot run"
+			label="What the studio cannot run"
 			touchTrigger="tap"
 			content={
 				<VStack gap={3} width={ALERTS_WIDTH}>
+					{unloaded !== undefined && (
+						<VStack gap={1}>
+							<Text weight="semibold">The studio cannot load your files.</Text>
+							<Text type="supporting" color="secondary">
+								It runs them as they last loaded, until they load again.
+							</Text>
+							<CodeBlock code={unloaded.trim()} size="sm" isWrapped maxHeight={240} />
+						</VStack>
+					)}
 					{problems.map((problem) => (
 						<VStack key={problem.profile} gap={1}>
 							<Text weight="semibold">{`The studio cannot run ${problem.profile}.`}</Text>
@@ -281,7 +291,7 @@ function ProjectProblems({ project }: { project: ProjectSession }) {
 			}
 		>
 			<Token
-				label={problems.length === 1 ? '1 alert' : `${String(problems.length)} alerts`}
+				label={count === 1 ? '1 alert' : `${String(count)} alerts`}
 				color="orange"
 			/>
 		</HoverCard>
@@ -565,7 +575,13 @@ export function ProjectSave({
  * A project's tokens in the editor's toolbar: Save while the studio holds edits the files do not,
  * and what the studio cannot run. Nothing while there is neither.
  */
-export function ProjectTokens({ project }: { project: ProjectSession }) {
+export function ProjectTokens({
+	project,
+	unloaded,
+}: {
+	project: ProjectSession;
+	unloaded?: string;
+}) {
 	const save = useProjectSave();
 	return (
 		<>
@@ -578,7 +594,7 @@ export function ProjectTokens({ project }: { project: ProjectSession }) {
 					onClick={save.review}
 				/>
 			)}
-			<ProjectProblems project={project} />
+			<ProjectProblems project={project} unloaded={unloaded} />
 		</>
 	);
 }

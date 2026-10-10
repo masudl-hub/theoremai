@@ -62,6 +62,8 @@ export type StudioDescription = {
   origins?: ProjectOrigins;
   /** The tools that write: the ones the studio makes ask before each run, and the ones it cannot. */
   asks: StudioAsks;
+  /** What the project printed when its files stopped loading. The page then shows the last load that did. */
+  unloaded?: string;
 };
 
 export type StudioHandlerOptions = {

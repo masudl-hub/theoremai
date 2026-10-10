@@ -572,6 +572,14 @@ export function filesPrint(workspace: StudioWorkspace): string {
 }
 
 /**
+ * Whether the workspace holds edits the files it stands on do not: a change, or an agent or a
+ * tool added or removed. `files` is the print of those files.
+ */
+export function editedSince(workspace: StudioWorkspace, files: string): boolean {
+  return filesPrint(workspace) !== files;
+}
+
+/**
  * Puts one library tool back to its start, for every agent that allows it. Which agents allow it
  * stays as it is. A tool already at its start returns the same workspace.
  */

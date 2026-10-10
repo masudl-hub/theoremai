@@ -76,6 +76,7 @@ import {
 	includableFacets,
 	includeFacet,
 	libraryDraft,
+	editedSince,
 	readStudioSource,
 	removeAgent,
 	removeLibraryTool,
@@ -1378,24 +1379,39 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
  * tools the studio makes ask. They are read again when the files may have moved: after a Save or
  * an undo, and when the builder comes back to the page from their editor. `filesChanged` is for
  * the studio's own moves (a Save, an undo, opening the files again): the workspace's starts then
- * stand on this reading, which the tab keeps with the edits.
+ * stand on this reading, which the tab keeps with the edits. Files the builder's editor changed
+ * are opened in place of the ones the page held, and edits made on the old ones are offered back.
  */
 function useProjectFiles(project: ProjectSession | undefined, store: StudioStore) {
 	const [files, setFiles] = useState<ProjectFiles | undefined>(project);
+	const toast = useToast();
+	/** The studio's own moves still being read: a reading that lands meanwhile is theirs. */
+	const ours = useRef(0);
 	const reread = useCallback(
 		(isOurs: boolean) => {
 			// A server that does not answer leaves the last reading.
 			if (!project) return;
-			readFiles().then(
-				// Files that say what they said keep the reading, so nothing that runs on it starts again.
-				(read) => {
+			if (isOurs) ours.current += 1;
+			readFiles()
+				.then(({ files: read, workspace }) => {
 					if (isOurs) store.standOn(read.print);
+					else if (ours.current === 0 && read.print !== store.standsOn()) {
+						const [before, stoodOn] = [store.getWorkspace(), store.standsOn()];
+						store.update(reopened(workspace, before));
+						store.standOn(read.print);
+						if (stoodOn === undefined || editedSince(before, stoodOn)) {
+							offerEditsBack(toast, store, before);
+						}
+					}
+					// Files that say what they said keep the reading, so nothing that runs on it starts again.
 					setFiles((held) => (JSON.stringify(held) === JSON.stringify(read) ? held : read));
-				},
-				() => undefined,
-			);
+				})
+				.catch(() => undefined)
+				.finally(() => {
+					if (isOurs) ours.current -= 1;
+				});
 		},
-		[project, store],
+		[project, store, toast],
 	);
 	const refreshOrigins = useCallback(() => {
 		reread(false);
@@ -1610,13 +1626,15 @@ function useArrivalToast(
 			});
 		}
 		if (!displaced) return;
+		if (inProject) {
+			offerEditsBack(toast, store, displaced);
+			return;
+		}
 		const dismiss = toast({
-			body: inProject
-				? 'Your files changed since you made your edits here, so the studio opened the files.'
-				: 'Opened the example from the docs.',
+			body: 'Opened the example from the docs.',
 			endContent: (
 				<Button
-					label={inProject ? 'Bring my edits back' : 'Back to my draft'}
+					label="Back to my draft"
 					variant="ghost"
 					size="sm"
 					onClick={() => {
@@ -1627,6 +1645,28 @@ function useArrivalToast(
 			),
 		});
 	}, [toast, store]);
+}
+
+/** Says the project's files changed under the builder's edits, and offers the edits back. */
+function offerEditsBack(
+	toast: ReturnType<typeof useToast>,
+	store: StudioStore,
+	edits: StudioWorkspace,
+) {
+	const dismiss = toast({
+		body: 'Your files changed since you made your edits here, so the studio opened the files.',
+		endContent: (
+			<Button
+				label="Bring my edits back"
+				variant="ghost"
+				size="sm"
+				onClick={() => {
+					store.update(edits);
+					dismiss();
+				}}
+			/>
+		),
+	});
 }
 
 /** Which view stands in the editor column, and opening a node there. */
@@ -2787,7 +2827,9 @@ function EditorColumn({
 					reveal({ node });
 				}}
 				reset={reset}
-				project={project && <ProjectTokens project={project} />}
+				project={
+					project && <ProjectTokens project={project} unloaded={state.files?.unloaded} />
+				}
 				setSheet={setSheet}
 			/>
 			{shared && <SharedLine entry={shared} onOpen={sharedList} />}

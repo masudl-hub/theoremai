@@ -9,6 +9,8 @@ import {
   createLiveExampleDraft,
   createNarratorExampleDraft,
   demoToolSpecs,
+  duplicateAgent,
+  editedSince,
   filesPrint,
   libraryDraft,
   removeAgent,
@@ -162,6 +164,17 @@ Deno.test('two opens of the same files print the same, and an edit prints anothe
     identity: { ...view.identity, system: 'Changed.' },
   });
   assert(filesPrint(edited) !== filesPrint(first));
+});
+
+Deno.test('a change, an added agent and a removed one are each edits the files do not hold', () => {
+  const opened = createArchitectWorkspace();
+  const files = filesPrint(opened);
+  const [architect] = opened.agents;
+  assert(architect);
+  assert(!editedSince(opened, files));
+  assert(!editedSince({ ...opened, selected: 'elsewhere' }, files));
+  assert(editedSince(duplicateAgent(opened, architect.key), files));
+  assert(editedSince(removeAgent(opened, architect.key), files));
 });
 
 Deno.test('opening the files again keeps the keys in use and brings back a removed agent', () => {

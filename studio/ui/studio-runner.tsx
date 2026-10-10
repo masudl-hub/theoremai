@@ -31,10 +31,8 @@ import {
 	type StudioBrowserRuntime,
 } from '../browser.ts';
 import { Button } from '@astryxdesign/core/Button';
-import { Divider } from '@astryxdesign/core/Divider';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
-import { StackItem } from '@astryxdesign/core/Stack';
 import { Token } from '@astryxdesign/core/Token';
 import { IconKey } from '@tabler/icons-react';
 import { type ComponentProps, useMemo, useRef, useState } from 'react';
@@ -51,6 +49,7 @@ import {
 	EditedSide,
 	ProjectChat,
 	SavedSide,
+	SavedSlot,
 	unsavedEdits,
 	useEditedLoad,
 	useSavedHidden,
@@ -375,8 +374,8 @@ function ProjectSides({
 	const [editedTraces] = useState(createTraceFeed);
 	return (
 		<HStack height="100%">
-			{saved && !isSavedHidden && (
-				<StackItem key="saved" size="fill">
+			<SavedSlot isShown={!isSavedHidden} hasDivider>
+				{saved && (
 					<SavedSide>
 						<SideRun
 							{...shared}
@@ -385,10 +384,9 @@ function ProjectSides({
 							traces={traces}
 						/>
 					</SavedSide>
-				</StackItem>
-			)}
-			{saved && !isSavedHidden && <Divider orientation="vertical" />}
-			<StackItem key="edited" size="fill">
+				)}
+			</SavedSlot>
+			<div key="edited" className="studio-edited-slot">
 				<EditedSide
 					refused={refused}
 					isLoading={stamp === undefined && !refused}
@@ -412,7 +410,7 @@ function ProjectSides({
 						/>
 					)}
 				</EditedSide>
-			</StackItem>
+			</div>
 		</HStack>
 	);
 }

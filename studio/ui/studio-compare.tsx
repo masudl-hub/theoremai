@@ -208,6 +208,54 @@ function Pane({
 }
 
 /**
+ * Where the files' side stands in the row, with the line between it and the edits. Hiding it
+ * closes it toward its edge and showing it opens it again, on the motion the rest of the studio
+ * uses; it leaves the page once it has closed. It does not move when the page first opens.
+ */
+export function SavedSlot({
+	isShown,
+	hasDivider,
+	children,
+}: {
+	isShown: boolean;
+	/** Whether the edits sit beside it. */
+	hasDivider: boolean;
+	/** The side. With none there is nothing to close, and the slot is gone at once. */
+	children: ReactNode;
+}) {
+	const [isMounted, setMounted] = useState(isShown);
+	const [hasMoved, setMoved] = useState(false);
+	const slot = useRef<HTMLDivElement>(null);
+	if (isShown && !isMounted) setMounted(true);
+	if (isShown !== isMounted && !hasMoved) setMoved(true);
+	useEffect(() => {
+		if (isShown || !slot.current) return;
+		// It leaves once its own motion has run: at once where motion is reduced, and still on time
+		// in a tab that is not showing, where nothing reports a transition's end.
+		const seconds = Number.parseFloat(getComputedStyle(slot.current).transitionDuration) || 0;
+		const timer = setTimeout(() => {
+			setMounted(false);
+		}, seconds * 1000);
+		return () => {
+			clearTimeout(timer);
+		};
+	}, [isShown]);
+	if (!children || !(isShown || isMounted)) return null;
+	return (
+		<div
+			ref={slot}
+			className="studio-saved-slot"
+			data-moved={hasMoved ? '' : undefined}
+			data-closed={isShown ? undefined : ''}
+			aria-hidden={isShown ? undefined : true}
+		>
+			<div className="studio-saved-slot-side">{children}</div>
+			{hasDivider && <Divider orientation="vertical" />}
+		</div>
+	);
+}
+
+/**
  * The files' side: its run, and while the edits sit beside it, its title and the way to put it
  * away.
  */
@@ -514,8 +562,8 @@ export function ProjectChat(props: ProjectChatProps) {
 		<VStack height="100%">
 			<StackItem size="fill">
 				<HStack height="100%">
-					{showsSaved && (
-						<StackItem key="saved" size="fill">
+					<SavedSlot isShown={showsSaved} hasDivider={view.isShared}>
+						{view.inFiles && (
 							<SavedSide isCompared={view.isEditing}>
 								<TheoremChat
 									{...common}
@@ -526,11 +574,10 @@ export function ProjectChat(props: ProjectChatProps) {
 									chatRef={pair.refs.saved}
 								/>
 							</SavedSide>
-						</StackItem>
-					)}
-					{isShared && <Divider orientation="vertical" />}
+						)}
+					</SavedSlot>
 					{view.isEditing && (
-						<StackItem key="edited" size="fill">
+						<div key="edited" className="studio-edited-slot">
 							<EditedSide
 								refused={refused}
 								isLoading={!transports.edited && !refused}
@@ -547,7 +594,7 @@ export function ProjectChat(props: ProjectChatProps) {
 									/>
 								)}
 							</EditedSide>
-						</StackItem>
+						</div>
 					)}
 				</HStack>
 			</StackItem>

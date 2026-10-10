@@ -64,3 +64,50 @@ body {
 	min-width: 0;
 	overflow-wrap: anywhere;
 }
+
+/*
+ * The files' side of a comparison closes toward its edge when it is hidden and opens again when
+ * it is shown, on the studio's standard motion. It only moves once the builder has asked: the
+ * page opens with it in place.
+ */
+.studio-saved-slot,
+.studio-edited-slot {
+	flex: 1 1 0;
+	min-width: 0;
+	height: 100%;
+}
+
+.studio-saved-slot {
+	display: flex;
+	overflow: hidden;
+}
+
+.studio-saved-slot-side {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+.studio-saved-slot[data-moved] {
+	transition:
+		flex-grow var(--duration-medium) var(--ease-standard),
+		opacity var(--duration-medium) var(--ease-standard);
+}
+
+.studio-saved-slot[data-closed] {
+	flex-grow: 0;
+	opacity: 0;
+	pointer-events: none;
+}
+
+@starting-style {
+	.studio-saved-slot[data-moved] {
+		flex-grow: 0;
+		opacity: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.studio-saved-slot[data-moved] {
+		transition: none;
+	}
+}

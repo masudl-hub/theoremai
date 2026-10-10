@@ -95,6 +95,7 @@ import {
 	openOutcome,
 	originLabel,
 	originPlace,
+	originWay,
 	type StudioDraft,
 	type StudioIssue,
 	type StudioNodeRef,
@@ -3039,15 +3040,15 @@ function OriginBanner({
 	onOpen: () => void;
 }) {
 	const place = originPlace(origin);
-	const shown = partly
-		? 'The studio shows the values it sets, greyed, and does not change them.'
-		: 'The studio shows these values and does not change them.';
+	// The cause is the title. Here: what it does to this page, then the way out.
+	const effect = partly ? 'The greyed rows are read-only here.' : 'Read-only here.';
+	const way = place ? `Edit it at ${place}.` : originWay(origin);
 	return (
 		<Section variant="transparent" padding={3}>
 			<Banner
 				status="info"
 				title={originLabel(origin)}
-				description={place ? `${place}. ${shown}` : shown}
+				description={`${effect} ${way}`}
 				endContent={place && <Button label="Open" variant="ghost" size="sm" onClick={onOpen} />}
 			/>
 		</Section>

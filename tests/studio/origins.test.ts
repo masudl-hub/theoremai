@@ -367,7 +367,7 @@ Deno.test('an origin reads as what set the value and where', () => {
     [
       'Set by LIMITS, which other code reads',
       'Defined more than once in your files',
-      'The studio could not find where your files define this',
+      'Not defined where the studio reads',
     ],
   );
   assertEquals(

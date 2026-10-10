@@ -10,7 +10,6 @@ import { IconButton } from '@astryxdesign/core/IconButton';
 import { Layout, LayoutContent, LayoutFooter } from '@astryxdesign/core/Layout';
 import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
 import { Tab, TabList } from '@astryxdesign/core/TabList';
-import { Section } from '@astryxdesign/core/Section';
 import { Text } from '@astryxdesign/core/Text';
 import { useToast } from '@astryxdesign/core/Toast';
 import { Token } from '@astryxdesign/core/Token';
@@ -44,6 +43,8 @@ import { type ProjectSession, reviewSave, undoSave, writeSave } from './lib/stud
 
 /** Wide enough for a reason's sentence to read in a few lines. */
 const ALERTS_WIDTH = 320;
+/** The most of the alerts a hover shows before it scrolls: a project can have one for every agent. */
+const ALERTS_MAX_HEIGHT = 'min(24rem, 60vh)';
 
 export type Update = (change: (current: StudioWorkspace) => StudioWorkspace) => void;
 
@@ -269,7 +270,12 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
 			label="What the studio cannot run"
 			touchTrigger="tap"
 			content={
-				<VStack gap={3} width={ALERTS_WIDTH}>
+				<ScrollableArea
+					label="What the studio cannot run"
+					width={ALERTS_WIDTH}
+					style={{ maxHeight: ALERTS_MAX_HEIGHT }}
+				>
+				<VStack gap={3}>
 					{unloaded !== undefined && (
 						<VStack gap={1}>
 							<Text weight="semibold">The studio cannot load your files.</Text>
@@ -288,6 +294,7 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
 						</VStack>
 					))}
 				</VStack>
+				</ScrollableArea>
 			}
 		>
 			<Token

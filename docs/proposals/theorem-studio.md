@@ -839,6 +839,9 @@ Masud chose one name: studio everywhere. The paths above are the old ones.
   `node studio/start.mjs <setup-module>`. It starts the project's server
   and the page at `http://127.0.0.1:4984/studio/`, and stops both together.
   This closes "Two processes" above.
+- A section the files set in code says three things and no more: what sets
+  it, that it is read-only here, and where to edit it, with Open beside it.
+  The alerts a hover lists scroll inside it past a set height.
 - The project loads with its own Deno config: the one `--deno-config` names,
   else the `deno.json` in the folder the command ran in, else the studio's.
   The project's load reads no source, so it needs nothing the project's own

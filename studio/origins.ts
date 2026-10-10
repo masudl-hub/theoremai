@@ -154,10 +154,18 @@ export function originLabel(origin: SettingOrigin): string {
     case 'twice':
       return 'Defined more than once in your files';
     case 'unfound':
-      return 'The studio could not find where your files define this';
+      return 'Not defined where the studio reads';
     default:
       return origin.text ? `Set in code · ${origin.text}` : 'Set in code';
   }
+}
+
+/** What the builder does about an origin with no place to open. */
+export function originWay(origin: SettingOrigin): string {
+  if (origin.kind === 'unfound') {
+    return 'Define it with defineProfile or registerTool, in a file your setup imports by a relative path.';
+  }
+  return 'Edit it in your files.';
 }
 
 /** What the page says once it asked for a place in the builder's editor. */

@@ -325,6 +325,30 @@ registerTool({ name: "list", description: "Lists.", input, handler: () => [] });
   ]);
 });
 
+Deno.test('a field that can be null keeps its description open', () => {
+  const files = {
+    'setup.ts': `import { registerTool } from '@theoremjs/agents';
+import { z } from 'zod';
+const input = z.object({ note: z.string().nullable().describe('A note.') });
+registerTool({ name: 'list', description: 'Lists.', input, handler: () => [] });
+`,
+  };
+  const before = jsonSchemaFromZod(
+    z.object({ note: z.string().nullable().describe('A note.') }),
+    'input',
+  ) as Json;
+  const after = changed(before, (schema) => {
+    schema.properties.note.description = 'Any note.';
+  });
+  assertEquals(saved([subject('list', 'inputSchema', before, after)], files), {
+    changes: ['list inputSchema.properties.note.description: written setup.ts:3'],
+    lines: [
+      "setup.ts - const input = z.object({ note: z.string().nullable().describe('A note.') });",
+      "setup.ts + const input = z.object({ note: z.string().nullable().describe('Any note.') });",
+    ],
+  });
+});
+
 Deno.test('a schema that is not Zod the studio follows is left for code', () => {
   const files = {
     'setup.ts': `import { registerTool } from '@theoremjs/agents';

@@ -110,6 +110,7 @@ export function readZod(project: ProjectSource, at: Located): ZodRead | undefine
 const READ_THROUGH = new Set([
   'describe',
   'optional',
+  'nullable',
   'extend',
   'refine',
   'superRefine',

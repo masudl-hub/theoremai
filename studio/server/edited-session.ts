@@ -31,6 +31,26 @@ export interface EditedSession<Loaded> {
   close(): Promise<void>;
 }
 
+/**
+ * The load with each added tool's sample reply as the page holds it. A tool added here has no
+ * file to read its sample reply from, and the load answers with it all the same.
+ */
+function withSampleReplies(
+  loaded: StudioWorkspace,
+  tested: StudioWorkspace,
+  added: readonly { name: string }[],
+): StudioWorkspace {
+  const fresh = new Set(added.map((tool) => tool.name));
+  const held = new Map(tested.toolSpecs.map((tool) => [tool.toolName, tool.stubOutputJson]));
+  return {
+    ...loaded,
+    toolSpecs: loaded.toolSpecs.map((tool) => {
+      const reply = fresh.has(tool.toolName) ? held.get(tool.toolName) : undefined;
+      return reply === undefined ? tool : { ...tool, stubOutputJson: reply };
+    }),
+  };
+}
+
 export function createEditedSession<Loaded>(host: EditedHost<Loaded>): EditedSession<Loaded> {
   let held: { loaded: Loaded; stamp: string } | undefined;
 
@@ -61,7 +81,8 @@ export function createEditedSession<Loaded>(host: EditedHost<Loaded>): EditedSes
     }
     // The same proof Save makes of the files it wrote: this load is what the builder is testing.
     // What the builder removed is still in this load, where nothing the page shows can reach it.
-    const differs = projectDiffers(withoutRemoved(host.opened(loaded), subjects.removed), workspace);
+    const opened = withSampleReplies(host.opened(loaded), workspace, subjects.added.tools);
+    const differs = projectDiffers(withoutRemoved(opened, subjects.removed), workspace);
     if (differs.length) {
       await host.stop(loaded);
       return refusal('differs', differs);

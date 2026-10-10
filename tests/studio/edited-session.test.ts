@@ -1,4 +1,5 @@
 import { assertEquals } from '@std/assert';
+import { defaultToolSpec } from '../../studio/draft.ts';
 import { createEditedSession, type EditedHost } from '../../studio/server/edited-session.ts';
 import type { ProjectEdits } from '../../studio/server/edits.ts';
 import registerExample from '../../studio/server/example.ts';
@@ -96,4 +97,27 @@ Deno.test('closing ends the load, and the same edits start it again', async () =
   assertEquals(stopped.length, 1);
   await session.open(edited(), opened.workspace);
   assertEquals(asked.length, 2);
+});
+
+Deno.test('a tool added with a sample reply runs: the load has no file to read the reply from', async () => {
+  const { session, state } = project();
+  const agent = opened.workspace.agents[0];
+  if (!agent) throw new Error('The example changed.');
+  const count = defaultToolSpec({
+    toolName: 'count_plants',
+    description: 'Counts the plants in a bed.',
+  });
+  const withTool = (stubOutputJson?: string) =>
+    setToolAllowed(
+      {
+        ...opened.workspace,
+        toolSpecs: [...opened.workspace.toolSpecs, { ...count, stubOutputJson }],
+      },
+      agent.key,
+      count.key,
+      true,
+    );
+  state.loads = withTool();
+  const answer = await session.open(withTool('{"count": 3}'), opened.workspace);
+  assertEquals(answer.ok, true);
 });

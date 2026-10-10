@@ -29,6 +29,7 @@ import { answerOpen, chosenEditor, type EditorHost } from './open-editor.ts';
 import { PROJECT_READY } from './project.ts';
 import { isInside } from './project-source.ts';
 import { answerSave, createSaveSession, isSaveRequest } from './save-session.ts';
+import { createWatchFeed, watchFiles } from './watch.ts';
 
 function flag(name: string, fallback: string): string {
   const at = Deno.args.indexOf(`--${name}`);
@@ -38,7 +39,7 @@ function flag(name: string, fallback: string): string {
 const setupPath = Deno.args.find((arg, i) => !arg.startsWith('--') && !Deno.args[i - 1]?.startsWith('--'));
 if (!setupPath) {
   console.error(
-    'usage: studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174] [--deno-config deno.json] [--editor code]',
+    'usage: studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174] [--deno-config deno.json] [--editor code] [--no-watch]',
   );
   Deno.exit(2);
 }
@@ -244,6 +245,7 @@ function forwardSocket(request: Request, to: string): Response {
 }
 
 const SAVE = `${STUDIO_BASE}/save`;
+const WATCH = `${STUDIO_BASE}/watch`;
 const OPEN = `${STUDIO_BASE}/open`;
 const EDITED = `${STUDIO_BASE}/edited`;
 
@@ -299,8 +301,28 @@ async function opened(request: Request): Promise<StudioDescription | undefined> 
   };
 }
 
+/** Tells the page when the builder's editor writes a file the setup reads, unless `--no-watch` says not to. */
+const feed = Deno.args.includes('--no-watch') ? undefined : createWatchFeed();
+if (feed) {
+  watchFiles({
+    files: () => session.watched(),
+    changed: () => session.changed(),
+    tell: feed.tell,
+    watch: (folders) => Deno.watchFs(folders, { recursive: false }),
+  });
+}
+
+/** The page's subscription to file changes. No content when the studio was started without watching. */
+function watching(request: Request): Response | undefined {
+  if (request.method !== 'GET' || new URL(request.url).pathname !== WATCH) return undefined;
+  const cors = corsHeaders(request, pageOrigins);
+  return feed ? feed.subscribe(cors) : new Response(null, { status: 204, headers: cors });
+}
+
 Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
   if (isForeign(request, gate)) return json(403, {}, {});
+  const subscribed = watching(request);
+  if (subscribed) return subscribed;
   const answer = (await opened(request)) ?? (await answerSave(session, SAVE, request)) ??
     (await answerOpen(editor, OPEN, request));
   if (!answer) return (await answerEdited(request)) ?? forward(request);

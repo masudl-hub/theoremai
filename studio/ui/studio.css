@@ -254,3 +254,25 @@
 	padding-block: var(--spacing-1);
 	background: var(--color-background-surface);
 }
+
+/* The file-conflict dialog: a setting's two values side by side, the one that stands at full strength. */
+.studio-conflict-sides {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: var(--spacing-3, 0.75rem);
+}
+
+.studio-conflict-side {
+	min-width: 0;
+	transition: opacity 120ms ease;
+}
+
+.studio-conflict-side[data-kept='false'] {
+	opacity: 0.5;
+}
+
+@media (max-width: 640px) {
+	.studio-conflict-sides {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}

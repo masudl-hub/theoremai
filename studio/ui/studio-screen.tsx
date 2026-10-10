@@ -29,6 +29,7 @@ import {
 	IconCode,
 	IconCopy,
 	IconCopyPlus,
+	IconEye,
 	IconFile,
 	IconFileZip,
 	IconKey,
@@ -79,11 +80,14 @@ import {
 	includeFacet,
 	libraryDraft,
 	editedSince,
+	type FilesMerge,
+	mergedWithFiles,
 	readStudioSource,
 	rebased,
 	removeAgent,
 	removeLibraryTool,
 	reopened,
+	withFilesChosen,
 	resetAgent,
 	resetAll,
 	resetLibraryTool,
@@ -161,6 +165,7 @@ import {
 import { dropAside, setAside } from './lib/studio-restore.ts';
 import { projectKey, type RestoredStudio } from './lib/studio-session.ts';
 import { createStudioStore, type StudioStore } from './lib/studio-store.ts';
+import { setWatchWanted, subscribeToFiles, watchWanted } from './lib/studio-watch.ts';
 import { toolCredential } from './lib/tool-credentials.ts';
 import { useConfirmWrite } from './confirm-write.tsx';
 import { runToolProbe } from './lib/tool-probe.ts';
@@ -175,17 +180,20 @@ import {
 	StudioKeys,
 	useStudioConnection,
 } from './studio-connection.tsx';
+import { FileConflicts } from './studio-conflicts.tsx';
 import { StudioMap } from './studio-map.tsx';
 import { StudioRunner } from './studio-runner.tsx';
 import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
 import {
 	type CSSProperties,
+	createContext,
 	type Dispatch,
 	memo,
 	type ReactNode,
 	type RefObject,
 	type SetStateAction,
 	useCallback,
+	useContext,
 	useEffect,
 	useLayoutEffect,
 	useMemo,
@@ -1366,7 +1374,10 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 			flush();
 		};
 	}, [store]);
-	const { files, refreshOrigins, filesChanged } = useProjectFiles(project, store);
+	const { files, refreshOrigins, filesChanged, conflict, settle, watchFiles } = useProjectFiles(
+		project,
+		store,
+	);
 	return {
 		store,
 		workspace,
@@ -1380,6 +1391,9 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 		files,
 		refreshOrigins,
 		filesChanged,
+		conflict,
+		settle,
+		watchFiles,
 	};
 }
 
@@ -1388,39 +1402,64 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
  * tools the studio makes ask. They are read again when the files may have moved: after a Save or
  * an undo, and when the builder comes back to the page from their editor. `filesChanged` is for
  * the studio's own moves (a Save, an undo, opening the files again): the workspace's starts then
- * stand on this reading, which the tab keeps with the edits. Files the builder's editor changed
- * are opened in place of the ones the page held, and edits made on the old ones are offered back.
+ * stand on this reading, which the tab keeps with the edits. The local server also says when the
+ * builder's editor writes a file, unless the watch is off. What the editor changed is merged
+ * into the workspace setting by setting: the builder's edits stay, and a setting both changed
+ * waits in `conflict` until the builder chooses with `settle`.
  */
 function useProjectFiles(project: ProjectSession | undefined, store: StudioStore) {
 	const [files, setFiles] = useState<ProjectFiles | undefined>(project);
+	const [conflict, setConflict] = useState<FilesConflict>();
 	const toast = useToast();
 	/** The studio's own moves still being read: a reading that lands meanwhile is theirs. */
 	const ours = useRef(0);
+	/** The files as last read, which name an agent the builder removed since. */
+	const lastRead = useRef<StudioWorkspace | undefined>(undefined);
+	const keep = useCallback((read: ProjectFiles) => {
+		// Files that say what they said keep the reading, so nothing that runs on it starts again.
+		setFiles((held) => (JSON.stringify(held) === JSON.stringify(read) ? held : read));
+	}, []);
 	const reread = useCallback(
-		(isOurs: boolean) => {
+		(isOurs: boolean, changed: readonly string[] = []) => {
 			// A server that does not answer leaves the last reading.
 			if (!project) return;
 			if (isOurs) ours.current += 1;
 			readFiles()
 				.then(({ files: read, workspace }) => {
+					const stoodOn = store.standsOn();
 					if (isOurs) store.standOn(read.print);
-					else if (ours.current === 0 && read.print !== store.standsOn()) {
-						const [before, stoodOn] = [store.getWorkspace(), store.standsOn()];
+					else if (ours.current > 0) return;
+					else if (stoodOn === undefined) {
+						// Edits that stand on no reading cannot be merged: the files open, and the edits are offered back.
+						const before = store.getWorkspace();
 						store.update(reopened(workspace, before));
 						store.standOn(read.print);
-						if (stoodOn === undefined || editedSince(before, stoodOn)) {
-							offerEditsBack(toast, store, before, projectKey(project.name));
+						offerEditsBack(toast, store, before, projectKey(project.name));
+					} else if (read.print !== stoodOn) {
+						const before = store.getWorkspace();
+						const merge = mergedWithFiles(before, workspace, lastRead.current);
+						const named = changedFiles(changed);
+						if (merge.conflicts.length > 0) {
+							// The builder's edits stand, and nothing moves under them, until they choose.
+							setConflict({ merge, read, workspace, files: named });
+							return;
 						}
+						store.update(merge.workspace);
+						store.standOn(read.print);
+						const said = filesToast(named, merge.updated.length, editedSince(before, stoodOn));
+						if (said) toast({ body: said });
 					}
-					// Files that say what they said keep the reading, so nothing that runs on it starts again.
-					setFiles((held) => (JSON.stringify(held) === JSON.stringify(read) ? held : read));
+					// Files that went back to what the edits stand on leave nothing to choose.
+					setConflict(undefined);
+					lastRead.current = workspace;
+					keep(read);
 				})
 				.catch(() => undefined)
 				.finally(() => {
 					if (isOurs) ours.current -= 1;
 				});
 		},
-		[project, store, toast],
+		[project, store, toast, keep],
 	);
 	const refreshOrigins = useCallback(() => {
 		reread(false);
@@ -1428,14 +1467,88 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 	const filesChanged = useCallback(() => {
 		reread(true);
 	}, [reread]);
+	const settle = useCallback(
+		(theirs: number[]) => {
+			if (!conflict) return;
+			store.update(withFilesChosen(conflict.merge, theirs));
+			store.standOn(conflict.read.print);
+			lastRead.current = conflict.workspace;
+			keep(conflict.read);
+			setConflict(undefined);
+		},
+		[conflict, store, keep],
+	);
 	useEffect(() => {
 		globalThis.addEventListener('focus', refreshOrigins);
 		return () => {
 			globalThis.removeEventListener('focus', refreshOrigins);
 		};
 	}, [refreshOrigins]);
-	return { files, refreshOrigins, filesChanged };
+
+	const [watch, setWatch] = useState({ available: false, on: watchWanted() });
+	const watching = useRef(watch.on);
+	const setWatching = useCallback(
+		(on: boolean) => {
+			watching.current = on;
+			setWatchWanted(on);
+			setWatch((held) => ({ ...held, on }));
+			// What the files changed while the watch was off comes in now.
+			if (on) reread(false);
+		},
+		[reread],
+	);
+	useEffect(() => {
+		if (!project) return;
+		// The files as the page opened them, when the edits still stand on them.
+		readFiles()
+			.then(({ files: read, workspace }) => {
+				if (read.print === store.standsOn()) lastRead.current ??= workspace;
+			})
+			.catch(() => undefined);
+		return subscribeToFiles(project.endpoint, {
+			open: () => {
+				setWatch((held) => (held.available ? held : { ...held, available: true }));
+			},
+			files: (changed) => {
+				if (watching.current) reread(false, changed);
+			},
+		});
+	}, [project, store, reread]);
+	const watchFiles = useMemo(
+		() => (watch.available ? { on: watch.on, set: setWatching } : undefined),
+		[watch, setWatching],
+	);
+	return { files, refreshOrigins, filesChanged, conflict, settle, watchFiles };
 }
+
+/** A merge that waits on the builder: the settings they and their files both changed. */
+interface FilesConflict {
+	merge: FilesMerge;
+	read: ProjectFiles;
+	workspace: StudioWorkspace;
+	/** The files that changed, as the builder reads them. */
+	files: string;
+}
+
+/** The files that changed, as a toast and the conflict dialog name them: the one, or how many. */
+function changedFiles(files: readonly string[]): string {
+	const [only] = files;
+	if (only === undefined) return 'your files';
+	return files.length === 1 ? only : `${String(files.length)} files`;
+}
+
+/** What a merge with no conflicts says, or nothing when the files changed no setting. */
+function filesToast(files: string, updated: number, hadEdits: boolean): string | undefined {
+	if (updated === 0) return undefined;
+	const settings = updated === 1 ? '1 setting updated' : `${String(updated)} settings updated`;
+	const subject = files === 'your files' ? 'Your files' : files;
+	return `${subject} changed: ${settings}.${hadEdits ? ' Your edits are kept.' : ''}`;
+}
+
+/** Watching the project's files, for the view menu: absent with no project or a server that does not watch. */
+const WatchFilesContext = createContext<{ on: boolean; set: (on: boolean) => void } | undefined>(
+	undefined,
+);
 
 /** Shows an origin's line in the builder's editor, and says where it is when no editor opens. */
 function useOpenOrigin(project: ProjectSession | null) {
@@ -1946,6 +2059,7 @@ function IssueToken({
  */
 function ViewToggleButton({ view }: { view: EditorViewState }) {
 	const current = EDITOR_VIEWS.find((each) => each.id === view.editorView) ?? EDITOR_VIEWS[0];
+	const watch = useContext(WatchFilesContext);
 	return (
 		<DropdownMenu
 			button={{
@@ -1982,6 +2096,20 @@ function ViewToggleButton({ view }: { view: EditorViewState }) {
 						view.setMapOpen(!view.mapOpen);
 					},
 				},
+				...(watch
+					? [
+							{
+								id: 'watch',
+								label: 'Watch files',
+								description: <span>Take in what your editor saves, as it saves</span>,
+								icon: <Icon icon={IconEye} size="sm" />,
+								endContent: watch.on ? <Icon icon={IconCheck} size="sm" /> : undefined,
+								onClick: () => {
+									watch.set(!watch.on);
+								},
+							},
+						]
+					: []),
 			]}
 		/>
 	);
@@ -2722,6 +2850,7 @@ function SaveScope({
 	const discard = useDiscardAll(state);
 	if (!project) return children;
 	return (
+		<WatchFilesContext.Provider value={state.watchFiles}>
 		<ProjectSave
 			project={project}
 			workspace={state.workspace}
@@ -2731,7 +2860,15 @@ function SaveScope({
 			blocked={blocked}
 		>
 			{children}
+			{state.conflict && (
+				<FileConflicts
+					conflicts={state.conflict.merge.conflicts}
+					files={state.conflict.files}
+					onApply={state.settle}
+				/>
+			)}
 		</ProjectSave>
+		</WatchFilesContext.Provider>
 	);
 }
 

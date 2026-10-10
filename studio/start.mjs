@@ -1,13 +1,15 @@
 /**
  * Opens the studio on a project, with one command:
  *
- *   node studio/start.mjs <setup-module> [--editor <command>]
+ *   node studio/start.mjs <setup-module> [--editor <command>] [--no-watch]
  *
  * It starts the project's local server (`server/serve.ts`, under Deno, with the project's own
  * permissions) and the studio's page, and stops both together. Only this machine reaches either.
  * `--editor` names the editor the studio opens a line of the project's files in; without it the
  * studio uses `$VISUAL` or `$EDITOR` when that opens a window, and `code` otherwise. When that one
  * does not start, the machine's default editor opens the file.
+ * The studio watches the files the setup reads and takes in what the builder's editor changes;
+ * `--no-watch` turns that off, and the studio then reads them when the builder comes back to it.
  * The studio is opt-in, so this checks for its install and never installs it.
  */
 import './installed.mjs';
@@ -20,10 +22,12 @@ const PAGE_PORT = 4984;
 const PAGE = `http://127.0.0.1:${PAGE_PORT}`;
 
 const [setup, ...rest] = process.argv.slice(2);
-const editorAt = rest.indexOf('--editor');
-const editor = editorAt < 0 ? undefined : rest[editorAt + 1];
-if (!setup || setup.startsWith('--') || (editorAt >= 0 && !editor) || rest.length > (editor ? 2 : 0)) {
-	console.error('usage: node studio/start.mjs <setup-module> [--editor <command>]');
+const noWatch = rest.includes('--no-watch');
+const named = rest.filter((arg) => arg !== '--no-watch');
+const editorAt = named.indexOf('--editor');
+const editor = editorAt < 0 ? undefined : named[editorAt + 1];
+if (!setup || setup.startsWith('--') || (editorAt >= 0 && !editor) || named.length > (editor ? 2 : 0)) {
+	console.error('usage: node studio/start.mjs <setup-module> [--editor <command>] [--no-watch]');
 	process.exit(2);
 }
 
@@ -43,6 +47,7 @@ const server = spawn(
 		'--deno-config',
 		path.join(here, '../deno.json'),
 		...(editor ? ['--editor', editor] : []),
+		...(noWatch ? ['--no-watch'] : []),
 	],
 	{ cwd: from, stdio: ['ignore', 'ignore', 'inherit'] },
 );

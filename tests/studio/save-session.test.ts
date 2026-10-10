@@ -150,11 +150,16 @@ Deno.test('files the editor changed are loaded again, and ones that do not load 
   // Files as they loaded start nothing.
   assertEquals(await session.refresh(), undefined);
   assertEquals(loads, 0);
+  assertEquals(session.watched(), [SETUP]);
+  assertEquals(await session.changed(), []);
 
   const next = edited();
   state.loads = next;
   files.set(SETUP, `${TEXT}\n// An edit in the editor.\n`);
+  // The watch names the file from the project's folder until the load takes it in.
+  assertEquals((await session.changed()).length, 1);
   assertEquals(await session.refresh(), undefined);
+  assertEquals(await session.changed(), []);
   assertEquals(session.project(), next);
   assertEquals([loads, stopped.length], [1, 1]);
 

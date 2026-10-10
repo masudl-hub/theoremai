@@ -64,6 +64,13 @@ export interface SaveSession<Loaded> {
    * printed when the files do not load: the last load that did answers requests until they do.
    */
   refresh(): Promise<string | undefined>;
+  /** Every file the project's setup reads, by absolute path. */
+  watched(): string[];
+  /**
+   * The files that hold something other than what the load that answers was read from, each from
+   * the project's folder. None after a Save or an undo: those are the studio's own writes.
+   */
+  changed(): Promise<string[]>;
 }
 
 /**
@@ -293,5 +300,15 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     save: (request) => inTurn(() => save(request)),
     undo: () => inTurn(undo),
     refresh: () => inTurn(refresh),
+    watched: () => [...source().files.keys()],
+    // In turn, so a Save that is still proving its files is not taken for the builder's editor.
+    changed: () =>
+      inTurn(() => {
+        const now = held();
+        if (now === loadedFrom) return Promise.resolve([]);
+        const [was, is] = [loadedFrom, now].map((text) => new Map(JSON.parse(text) as [string, string][]));
+        const files = [...new Set([...(was?.keys() ?? []), ...(is?.keys() ?? [])])];
+        return Promise.resolve(files.filter((file) => was?.get(file) !== is?.get(file)).map(inRoot));
+      }),
   };
 }

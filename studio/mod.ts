@@ -191,6 +191,12 @@ export {
   workspaceTree,
   type SharedLink,
   withSharedCarried,
+  type FileConflict,
+  type FilesMerge,
+  type FileUpdate,
+  mergedWithFiles,
+  type SettingPath,
+  withFilesChosen,
 } from './workspace.ts';
 export {
   type SharedEntry,

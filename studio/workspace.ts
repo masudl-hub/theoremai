@@ -614,6 +614,311 @@ export function editedSince(workspace: StudioWorkspace, files: string): boolean 
   return filesPrint(workspace) !== files;
 }
 
+/** One setting inside an agent or a tool, as the fields that lead to it. Empty for the whole agent or tool. */
+export type SettingPath = readonly (string | number)[];
+
+/** A setting the project's files changed. */
+export interface FileUpdate {
+  kind: 'agent' | 'tool';
+  /** The agent's or the tool's key in the merged workspace. */
+  key: string;
+  /** The agent's id or the tool's name, as the files hold it. */
+  name: string;
+  path: SettingPath;
+}
+
+/** A setting the builder and the files both changed, to different values. Undefined is a removal. */
+export interface FileConflict extends FileUpdate {
+  mine: unknown;
+  theirs: unknown;
+}
+
+export interface FilesMerge {
+  /** The builder's edits over the files as they are now, with the builder's value at every conflict. */
+  workspace: StudioWorkspace;
+  /** What the files changed that the builder had not touched: it is as the files hold it. */
+  updated: FileUpdate[];
+  conflicts: FileConflict[];
+  /** The files as they are now, under the keys the workspace holds them by. */
+  files: StudioWorkspace;
+}
+
+const DRAFT_KEY = /^(agent|model|tool|question|criterion|reference)-[0-9a-f]{8}$/;
+
+/** A value as text with each key named by where it first stands, so two opens of one thing read the same. */
+function keyless(value: unknown): string {
+  const names = new Map<string, string>();
+  return JSON.stringify(value).replace(/\b(agent|model|tool|question|criterion|reference)-[0-9a-f]{8}\b/g, (key) => {
+    if (!names.has(key)) names.set(key, `#${names.size}`);
+    return names.get(key) ?? key;
+  });
+}
+
+/**
+ * `now` with the keys inside each agent and tool named as its start names them. A key is new on
+ * every open, so what stands in the same place in the start gives its key: a model, a question.
+ */
+function alignedToStarts(now: StudioWorkspace, starts: WorkspaceStarts): StudioWorkspace {
+  let text = JSON.stringify(now);
+  // A key can name a field, whose inner keys line up only once it does: so more than one pass.
+  for (let pass = 0; pass < 4; pass += 1) {
+    const held = JSON.parse(text) as StudioWorkspace;
+    const renames = new Map<string, string>();
+    const walk = (start: unknown, file: unknown): void => {
+      if (Array.isArray(start) && Array.isArray(file)) {
+        start.slice(0, file.length).forEach((each, index) => walk(each, file[index]));
+      } else if (isRecord(start) && isRecord(file)) {
+        for (const [field, inner] of Object.entries(start)) {
+          const other = file[field];
+          if (field !== 'key') walk(inner, other);
+          else if (
+            typeof inner === 'string' && typeof other === 'string' && inner !== other &&
+            DRAFT_KEY.test(inner) && DRAFT_KEY.test(other)
+          ) renames.set(other, inner);
+        }
+      }
+    };
+    for (const agent of held.agents) walk(starts.agents[agent.key], agent);
+    for (const tool of held.toolSpecs) walk(starts.tools[tool.key], tool);
+    if (renames.size === 0) return held;
+    for (const [from, to] of renames) text = text.split(from).join(to);
+  }
+  return JSON.parse(text) as StudioWorkspace;
+}
+
+const isNames = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((each) => typeof each === 'string') && new Set(value).size === value.length;
+
+/** Whether the three lists hold the same keyed things in the same order, so each merges on its own. */
+function isSameRows(lists: readonly unknown[]): boolean {
+  const [first] = lists;
+  if (!Array.isArray(first)) return false;
+  return lists.every((list) =>
+    Array.isArray(list) && list.length === first.length &&
+    list.every((row, index) => isRecord(row) && typeof row.key === 'string' && row.key === first[index]?.key)
+  );
+}
+
+/**
+ * One value three ways: what the files held, what the builder holds and what the files hold now.
+ * A record merges field by field, a list of keyed rows row by row, and a list of names as a set.
+ * Anything else is one setting: whoever changed it has it, and both changing it is a conflict the
+ * builder's value stands in for.
+ */
+function mergedValue(
+  base: unknown,
+  mine: unknown,
+  theirs: unknown,
+  path: SettingPath,
+  tell: { updated(path: SettingPath): void; conflict(path: SettingPath, mine: unknown, theirs: unknown): void },
+): unknown {
+  if (same(base, theirs) || same(mine, theirs)) return mine;
+  if (isRecord(base) && isRecord(mine) && isRecord(theirs)) {
+    const next = { ...mine };
+    for (const field of new Set([...Object.keys(base), ...Object.keys(mine), ...Object.keys(theirs)])) {
+      const value = mergedValue(base[field], mine[field], theirs[field], [...path, field], tell);
+      if (value === undefined) delete next[field];
+      else next[field] = value;
+    }
+    return next;
+  }
+  if (isSameRows([base, mine, theirs])) {
+    const [was, held, now] = [base, mine, theirs] as unknown[][];
+    return held.map((row, index) => mergedValue(was[index], row, now[index], [...path, index], tell));
+  }
+  if (same(base, mine)) {
+    tell.updated(path);
+    return theirs;
+  }
+  if (isNames(base) && isNames(mine) && isNames(theirs)) {
+    const taken = base.filter((name) => !theirs.includes(name));
+    const added = theirs.filter((name) => !base.includes(name) && !mine.includes(name));
+    tell.updated(path);
+    return [...mine.filter((name) => !taken.includes(name)), ...added];
+  }
+  tell.conflict(path, mine, theirs);
+  return mine;
+}
+
+/** Leaves nothing pointing at an agent or a tool that is not there, and keeps something open. */
+function sound(workspace: StudioWorkspace): StudioWorkspace {
+  const agentKeys = new Set(workspace.agents.map((agent) => agent.key));
+  // An agent tool whose agent is gone has nothing to run.
+  const toolSpecs = workspace.toolSpecs.filter((tool) =>
+    tool.toolType !== 'agent' || agentKeys.has(tool.agentKey ?? '')
+  );
+  const library = new Set(toolSpecs.map((tool) => tool.key));
+  const agents = workspace.agents.map((agent): AgentDraft => {
+    const allow = agent.tools.allow.filter((toolKey) => library.has(toolKey));
+    const modelBindings = agent.modelBindings.map((binding) =>
+      binding.compactWith && !agentKeys.has(binding.compactWith) ? { ...binding, compactWith: undefined } : binding
+    );
+    const next = { ...agent, tools: { ...agent.tools, allow }, modelBindings };
+    return same(next, agent) ? agent : next;
+  });
+  const next = remembered({ ...workspace, agents, toolSpecs });
+  const first = agents[0];
+  return {
+    ...next,
+    selected: workspaceNodeRef(next, next.selected) || !first ? next.selected : agentNodeId(first.key),
+    chatWith: agentKeys.has(next.chatWith) || !first ? next.chatWith : first.key,
+  };
+}
+
+/**
+ * The builder's edits merged with files that changed under them, setting by setting. What only
+ * the files changed is as the files hold it; what only the builder changed stays; what both
+ * changed to different values is a conflict, and the builder's value stands until they choose
+ * (`withFilesChosen`). Every start is the files', so what is left to save is the builder's edits.
+ *
+ * `before` is the files as the studio last read them. It tells an agent the files took away from
+ * one the builder added, and names the agents the builder removed, which keep no start. Without
+ * it nothing the studio holds is taken away, and an agent the builder removed comes back.
+ */
+export function mergedWithFiles(edits: StudioWorkspace, files: StudioWorkspace, before?: StudioWorkspace): FilesMerge {
+  const now = alignedToStarts(reopened(files, edits), edits.starts);
+  const updated: FileUpdate[] = [];
+  const conflicts: FileConflict[] = [];
+  const laid = <T extends { key: string }>(
+    kind: FileUpdate['kind'],
+    nameOf: (each: T) => string,
+    held: readonly T[],
+    starts: Record<string, T>,
+    inFiles: readonly T[],
+    fileStarts: Record<string, T>,
+    read: readonly T[] | undefined,
+  ) => {
+    const file = new Map(inFiles.map((each) => [each.key, each]));
+    const here = new Set(held.map((each) => each.key));
+    const names = new Set(held.map((each) => nameOf(starts[each.key] ?? each)));
+    const wasRead = new Set(read?.map(nameOf));
+    const kept: T[] = [];
+    const nextStarts: Record<string, T> = { ...fileStarts };
+    for (const mine of held) {
+      const [base, theirs] = [starts[mine.key], file.get(mine.key)];
+      const of = { kind, key: mine.key, name: nameOf(theirs ?? base ?? mine) };
+      if (!base || (!theirs && !wasRead.has(nameOf(base)))) {
+        // Added here, since the files never held it: it starts as it did.
+        kept.push(mine);
+        nextStarts[mine.key] = base ?? mine;
+      } else if (!theirs) {
+        // The files took it away: it goes unless the builder changed it.
+        if (same(mine, base)) updated.push({ ...of, path: [] });
+        else {
+          conflicts.push({ ...of, path: [], mine, theirs: undefined });
+          kept.push(mine);
+          nextStarts[mine.key] = base;
+        }
+      } else {
+        kept.push(
+          mergedValue(base, mine, theirs, [], {
+            updated: (path) => updated.push({ ...of, path }),
+            conflict: (path, yours, files) => conflicts.push({ ...of, path, mine: yours, theirs: files }),
+          }) as T,
+        );
+      }
+    }
+    // Whether the builder removed what the files hold, and whether the files changed it since.
+    const removedHere = (theirs: T): 'unchanged' | 'changed' | undefined => {
+      // A start outlives its removal for a tool an agent started with; the last reading names the rest.
+      const was = starts[theirs.key] ?? read?.find((each) => nameOf(each) === nameOf(theirs) && !names.has(nameOf(each)));
+      if (!was) return undefined;
+      // What it points at may have a new key: an agent tool's agent, removed with it.
+      return keyless(was) === keyless(theirs) ? 'unchanged' : 'changed';
+    };
+    for (const theirs of inFiles) {
+      if (here.has(theirs.key)) continue;
+      const of = { kind, key: theirs.key, name: nameOf(theirs), path: [] };
+      const removed = removedHere(theirs);
+      if (removed === 'changed') conflicts.push({ ...of, mine: undefined, theirs });
+      else if (removed === undefined) {
+        kept.push(theirs);
+        updated.push(of);
+      }
+    }
+    return { held: kept, starts: nextStarts };
+  };
+  const agents = laid(
+    'agent',
+    (agent: AgentDraft) => agent.identity.agentId,
+    edits.agents,
+    edits.starts.agents,
+    now.agents,
+    now.starts.agents,
+    before?.agents,
+  );
+  const tools = laid(
+    'tool',
+    (tool: ToolSpecDraft) => tool.toolName,
+    edits.toolSpecs,
+    edits.starts.tools,
+    now.toolSpecs,
+    now.starts.tools,
+    before?.toolSpecs,
+  );
+  const workspace = sound({
+    ...edits,
+    agents: agents.held,
+    toolSpecs: tools.held,
+    starts: { agents: agents.starts, tools: tools.starts },
+  });
+  return { workspace, updated, conflicts, files: now };
+}
+
+function putAt(value: unknown, path: SettingPath, to: unknown): unknown {
+  const [field, ...rest] = path;
+  if (field === undefined) return to;
+  if (Array.isArray(value)) return value.map((each, index) => (index === field ? putAt(each, rest, to) : each));
+  const next: Record<string, unknown> = { ...(isRecord(value) ? value : {}) };
+  const inner = putAt(next[field], rest, to);
+  if (inner === undefined) delete next[field];
+  else next[field] = inner;
+  return next;
+}
+
+/**
+ * A merge's workspace with the files' value at each conflict named in `theirs`, by its place in
+ * `merge.conflicts`. Every other conflict keeps the builder's value.
+ */
+export function withFilesChosen(merge: FilesMerge, theirs: readonly number[]): StudioWorkspace {
+  let { agents, toolSpecs } = merge.workspace;
+  const starts = { agents: { ...merge.workspace.starts.agents }, tools: { ...merge.workspace.starts.tools } };
+  const settle = <T extends { key: string }>(held: readonly T[], kept: Record<string, T>, conflict: FileConflict) => {
+    if (conflict.path.length > 0) {
+      return held.map((each) => (each.key === conflict.key ? putAt(each, conflict.path, conflict.theirs) as T : each));
+    }
+    // The whole agent or tool: the files took it away, or hold one the builder removed.
+    if (conflict.theirs === undefined) {
+      delete kept[conflict.key];
+      return held.filter((each) => each.key !== conflict.key);
+    }
+    kept[conflict.key] = conflict.theirs as T;
+    return [...held, conflict.theirs as T];
+  };
+  for (const index of new Set(theirs)) {
+    const conflict = merge.conflicts[index];
+    if (!conflict) continue;
+    if (conflict.kind === 'tool') toolSpecs = settle(toolSpecs, starts.tools, conflict);
+    else {
+      agents = settle(agents, starts.agents, conflict);
+      if (conflict.path.length > 0 || conflict.theirs === undefined) continue;
+      // An agent that comes back brings the tools that run it, for the agents the files let use them.
+      const held = new Set(toolSpecs.map((tool) => tool.key));
+      const runIt = merge.files.toolSpecs.filter((tool) =>
+        tool.toolType === 'agent' && tool.agentKey === conflict.key && !held.has(tool.key)
+      );
+      for (const tool of runIt) starts.tools[tool.key] = tool;
+      toolSpecs = [...toolSpecs, ...runIt];
+      agents = agents.map((agent) => {
+        const allowed = merge.files.agents.find((each) => each.key === agent.key)?.tools.allow ?? [];
+        const more = runIt.map((tool) => tool.key).filter((key) => allowed.includes(key) && !agent.tools.allow.includes(key));
+        return more.length ? { ...agent, tools: { ...agent.tools, allow: [...agent.tools.allow, ...more] } } : agent;
+      });
+    }
+  }
+  return sound({ ...merge.workspace, agents, toolSpecs, starts });
+}
+
 /**
  * Puts one library tool back to its start, for every agent that allows it. Which agents allow it
  * stays as it is. A tool already at its start returns the same workspace.

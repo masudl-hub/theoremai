@@ -471,6 +471,27 @@ and where (`Set in code · stepsFor(PLAN) · setup.ts:34`), with "Open".
 - The places are read again after a Save or an undo, and when the builder
   comes back to the page from their editor.
 
+Built: the studio watches the files the project's setup reads, and takes in
+what the builder's editor saves as it saves.
+
+- What only the files changed is updated in the editor, and a toast says so:
+  "setup.ts changed: 2 settings updated. Your edits are kept." The builder's
+  unsaved edits stay as they are.
+- A setting changed both in the studio and in the files, to different values,
+  is a conflict. A dialog lists only those settings, the builder's value
+  beside the file's, and the builder picks one for each: "Mine" or "The
+  file's", or "Take all from files" or "Keep all mine". Nothing changes in
+  the studio until they press Apply; until then the chat runs on their edits.
+- The merge is setting by setting (`mergedWithFiles`, `withFilesChosen`). Two
+  different edits to one list of rows are one conflict over the whole list,
+  and a profile renamed in the files reads as one removed and one added.
+- Watching is on by default. "Watch files" in the view menu turns it off for
+  this browser, and `--no-watch` at launch turns it off for the run: the
+  menu item is then not offered. With it off, the files are read as before,
+  after a Save or an undo and when the builder comes back to the page.
+- A Save from the studio is not a file change: it brings no toast and no
+  dialog.
+
 Built (D8): in the studio, every tool that writes asks the builder before
 each run, whatever its own Permission says. A tool that only reads runs
 unasked.

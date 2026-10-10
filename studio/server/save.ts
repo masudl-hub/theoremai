@@ -39,7 +39,8 @@ interface Compiled {
 }
 
 function compiled(workspace: StudioWorkspace): Compiled | string[] {
-  const result = compileWorkspace(workspace);
+  // As the project's own: which models the studio's keys may call is a rule for a run, not for a file.
+  const result = compileWorkspace(workspace, 'byok');
   if (!result.ok) return result.issues.map((issue) => issue.message);
   const tools = new Map<string, ToolRegistration>();
   for (const agent of result.agents) for (const tool of agent.customTools) tools.set(tool.name, tool);

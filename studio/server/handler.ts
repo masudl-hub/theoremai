@@ -16,6 +16,7 @@
 import {
   type DecisionQuestion,
   getProvider,
+  getStructured,
   listProfiles,
   listTools,
   type Profile,
@@ -158,6 +159,20 @@ export function printableProfile<P extends Profile>(profile: P): P {
   return plainSetting(recording) as P;
 }
 
+/**
+ * The schema a profile's replies take, as registered. None when the profile names one nothing
+ * registers, or one for each slot: the editor holds a single schema.
+ */
+function replySchema(profile: Profile) {
+  const id = 'outputs' in profile ? profile.outputs?.structured : undefined;
+  if (typeof id !== 'string') return undefined;
+  try {
+    return { id, spec: { jsonSchema: getStructured(id).jsonSchema } };
+  } catch {
+    return undefined;
+  }
+}
+
 /** One registered profile as the draft the editor shows, read from the source the studio prints for it. */
 function readProfile(
   profile: Profile,
@@ -165,11 +180,13 @@ function readProfile(
   questions: Record<string, DecisionQuestion> | undefined,
 ): ProfileRead {
   try {
+    const structured = replySchema(profile);
     const source = studioSource({
       ...(questions ? { questions } : {}),
       agentId: profile.id,
       profile: withProviderSlots(printableProfile(profile)) as Parameters<typeof studioSource>[0]['profile'],
       customTools: [...tools],
+      ...(structured ? { structured } : {}),
     });
     const read = readStudioSource(source, createBlankDraft());
     if (!read.ok) return { ok: false, message: read.errors.map((error) => error.message).join(' ') };
@@ -211,15 +228,20 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
   // A tool no profile allows is still the project's: it joins the library.
   const extra = unlisted(opened, library);
   const first = opened.agents[0];
+  // A tool that runs an agent names it by id. Each profile is read alone, so the agent is found once all are.
+  const runs = new Map(tools.flatMap((tool) => (tool.type === 'agent' ? [[tool.name, tool.profile] as const] : [])));
+  const linked = (tool: ToolSpecDraft): ToolSpecDraft => {
+    const id = tool.toolType === 'agent' && !tool.agentKey ? runs.get(tool.toolName) : undefined;
+    const agentKey = id && opened.agents.find((agent) => agent.identity.agentId === id)?.key;
+    return agentKey ? { ...tool, agentKey } : tool;
+  };
+  const toolSpecs = [...opened.toolSpecs, ...extra].map(linked);
   return {
     project,
     workspace: {
       ...opened,
-      toolSpecs: [...opened.toolSpecs, ...extra],
-      starts: {
-        ...opened.starts,
-        tools: { ...opened.starts.tools, ...Object.fromEntries(extra.map((t) => [t.key, t])) },
-      },
+      toolSpecs,
+      starts: { ...opened.starts, tools: Object.fromEntries(toolSpecs.map((tool) => [tool.key, tool])) },
       ...(first ? { selected: agentNodeId(first.key), chatWith: first.key } : {}),
     },
     problems,

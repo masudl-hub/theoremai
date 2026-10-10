@@ -435,9 +435,17 @@ are not in the files, and a button, Review and save.
   not asked about again while the same section stays open (Claude's choice),
   and "Don't ask again this session" stops the asking for the tab. The change
   is made on a profile only when that profile then compiles to the new value
-  there and to nothing else new (`withSharedCarry`). Otherwise the profile is
-  left as it is and the review names it. An edit by th30 is made on every
-  profile without the dialog (Claude's choice, open).
+  there and to nothing else new (`withSharedCarry`). Each profile is read on
+  its own, so one profile's issue does not stop the others. A profile that
+  has an issue, or would change in more than this, is left as it is: the
+  dialog names it and says to set the value there once it is fixed, and the
+  review names it at Save. An edit by th30 is made on every profile without
+  the dialog (Claude's choice, open).
+- A project opens with everything its files hold (10 Oct). The schema a
+  profile's replies take is read from what the project registers, and a tool
+  that runs an agent is linked to that agent once every profile is read.
+  Save checks the workspace as the project's own: the rule on which models
+  the studio's keys may call is for a run, and does not stop a write.
 - Save writes every change or none. If one change is set by a shared
   constant, by code, or by a tool's schema, Save is off. This keeps the third
   promise of 5.1: the files hold what was tested. Claude asked Masud on 9 Oct

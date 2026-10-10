@@ -32,6 +32,7 @@ import {
 const WRITE_MS = 300;
 /** Beside the workspace's key: the builder said not to be asked about shared values again. */
 const QUIET_SUFFIX = '.shared-quiet';
+const NO_SNAPSHOT: SharedSnapshot = new Map();
 const CHANGES_SIZE = 50;
 
 export type DraftAuthor = 'th30' | 'visitor';
@@ -122,7 +123,7 @@ interface StoreState {
 	workspace: StudioWorkspace;
 	/** Where the project's files write each value more than one setting reads. */
 	sites: SharedSites | undefined;
-	/** The last workspace that compiled: what a change to a shared value is read against. */
+	/** Each agent as it last compiled: what a change to a shared value is read against. */
 	good: SharedSnapshot | undefined;
 	/** A change to a shared value, held until the builder says to make it. */
 	pending: { carry: SharedCarry; reach: SharedReach; by: DraftAuthor } | undefined;
@@ -197,9 +198,8 @@ function draftOf(state: StoreState): StudioDraft {
 
 /** `made`, with a change to a value the files write once made on every agent that shares it. */
 function sharedCarry(state: StoreState, made: StudioWorkspace): SharedCarry {
-	if (!state.sites) return { workspace: made };
+	if (!state.sites) return { workspace: made, snapshot: NO_SNAPSHOT };
 	state.good ??= sharedSnapshot(state.workspace);
-	if (!state.good) return { workspace: made, snapshot: sharedSnapshot(made) };
 	return withSharedCarry(state.good, made, state.sites);
 }
 
@@ -237,7 +237,7 @@ function updateWorkspace(
 
 function commitWorkspace(state: StoreState, carry: SharedCarry, by: DraftAuthor): StudioWorkspace {
 	state.pending = undefined;
-	if (carry.snapshot) state.good = carry.snapshot;
+	if (state.sites) state.good = carry.snapshot;
 	const before = draftOf(state);
 	const agentsBefore = state.workspace.agents.map((agent) => agent.key).join();
 	state.workspace = carry.workspace;

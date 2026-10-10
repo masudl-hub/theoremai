@@ -1,7 +1,12 @@
 import { assert, assertEquals } from '@std/assert';
 import { createExampleDraft } from '../../studio/mod.ts';
 import type { SettingSite } from '../../studio/server/save-wire.ts';
-import { type SharedSites, sharedSnapshot, withSharedCarry } from '../../studio/shared-carry.ts';
+import {
+  type SharedSites,
+  sharedAsk,
+  sharedSnapshot,
+  withSharedCarry,
+} from '../../studio/shared-carry.ts';
 import {
   type AgentDraft,
   addAgent,
@@ -60,9 +65,7 @@ const model = (workspace: StudioWorkspace, id: string, name: string) =>
   agent(workspace, id).modelBindings.find((each) => each.modelId === name);
 
 function carry(before: StudioWorkspace, after: StudioWorkspace, sites: SharedSites) {
-  const good = sharedSnapshot(before);
-  assert(good);
-  return withSharedCarry(good, after, sites);
+  return withSharedCarry(sharedSnapshot(before), after, sites);
 }
 
 /** `desk` and `shop` build `fast` with one helper, which `shop` uses for `smart` too. Each sets its own summaries. */
@@ -92,6 +95,7 @@ Deno.test('a change to what a helper writes is made on each agent and each model
     line: 1,
     from: agent(before, 'desk').key,
     agents: [agent(before, 'shop').key],
+    left: [],
   });
 });
 
@@ -107,23 +111,19 @@ Deno.test('a change to what an agent sets apart inside a shared value stays its 
   );
 });
 
-Deno.test('a change is read against the last workspace that compiled', () => {
+Deno.test('a change is read against each agent as it last compiled', () => {
   const before = opened();
   const good = sharedSnapshot(before);
-  assert(good);
-  // Mid-edit: the workspace does not compile, so nothing is carried and nothing is forgotten.
+  // Mid-edit: the agent does not compile, so nothing is carried and nothing is forgotten.
   const cleared = edit(before, 'desk', bound('fast', { apiId: '' }));
   const first = withSharedCarry(good, cleared, HELPED);
-  assertEquals(
-    [first.workspace === cleared, first.snapshot, first.reach],
-    [true, undefined, undefined],
-  );
+  assertEquals([first.workspace === cleared, first.reach], [true, undefined]);
+  assertEquals(first.snapshot.get(agent(before, 'desk').key), good.get(agent(before, 'desk').key));
   const typed = edit(cleared, 'desk', bound('fast', { apiId: 'gemini-3.5-flash-lite' }));
-  const second = withSharedCarry(good, typed, HELPED);
+  const second = withSharedCarry(first.snapshot, typed, HELPED);
   assertEquals(model(second.workspace, 'shop', 'fast')?.apiId, 'gemini-3.5-flash-lite');
   assertEquals(second.reach?.agents, [agent(before, 'shop').key]);
   // The next change is read against it: nothing is owed twice.
-  assert(second.snapshot);
   assertEquals(withSharedCarry(second.snapshot, second.workspace, HELPED).reach, undefined);
 });
 
@@ -159,7 +159,6 @@ Deno.test('a change to an agent a function makes is made on each agent the funct
   const more = carry(before, added, MADE);
   assertEquals(model(more.workspace, 'shop', 'extra')?.apiId, model(before, 'desk', 'fast')?.apiId);
   assert(model(more.workspace, 'shop', 'extra')?.key !== 'model-00000000');
-  assert(more.snapshot);
   const taken = edit(more.workspace, 'shop', (each) => ({
     ...each,
     modelBindings: each.modelBindings.filter((binding) => binding.modelId !== 'extra'),
@@ -186,4 +185,22 @@ Deno.test('an agent that would not hold the value alone is left as it is', () =>
   const made = carry(apart, after, sites);
   assertEquals(agent(made.workspace, 'shop'), agent(apart, 'shop'));
   assertEquals(made.reach, undefined);
+});
+
+Deno.test('an agent with an issue is left as it is and named, and the others still change', () => {
+  const sites: SharedSites = { ...HELPED, yard: [site('models.fast', 1, true, 'lite')] };
+  // `yard` does not compile: one agent's issue does not stop the rest.
+  const before = edit(opened(), 'yard', bound('smart', { apiId: '' }));
+  const after = edit(before, 'desk', bound('fast', { maxOutputTokens: 4096 }));
+  const { workspace, reach } = carry(before, after, sites);
+  assertEquals(model(workspace, 'shop', 'fast')?.maxOutputTokens, 4096);
+  assertEquals(agent(workspace, 'yard'), agent(before, 'yard'));
+  assert(reach);
+  assertEquals([reach.agents, reach.left], [[agent(before, 'shop').key], [agent(before, 'yard').key]]);
+  assertEquals(sharedAsk(reach, workspace), {
+    title: 'Change it for 2 other profiles?',
+    line: 'lite · models.ts:1 sets this once. shop uses it too, and will change with it. ' +
+      'yard uses it too, but has issues and stays as it is. ' +
+      'Fix them, then set this there too: Save writes it once every profile agrees.',
+  });
 });

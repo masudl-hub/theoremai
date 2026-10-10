@@ -39,7 +39,7 @@ export function SharedChange({ store }: { store: StudioStore }) {
 							}}
 						/>
 						<Button
-							label={reach.agents.length ? 'Change for all' : 'Change'}
+							label={reach.agents.length + reach.left.length ? 'Change for all' : 'Change'}
 							variant="primary"
 							onClick={() => {
 								store.confirmShared(quiet);

@@ -423,11 +423,12 @@ function SharedHead({ entry: { setting, facet } }: { entry: SharedEntry }) {
 		<Tooltip
 			placement="end"
 			content={
-				<VStack gap={1}>
-					<Text weight="semibold">{setting.name}</Text>
-					<Text type="supporting">{`${setting.file}:${line}`}</Text>
-					{!facet && <Text type="supporting">Changed in your code, not in the studio.</Text>}
-				</VStack>
+				// Plain lines, so each takes the tooltip's own colour.
+				<span className="studio-shared-head">
+					<span>{setting.name}</span>
+					<span>{`${setting.file}:${line}`}</span>
+					{!facet && <span>Changed in your code, not in the studio.</span>}
+				</span>
 			}
 		>
 			<span className="studio-shared-head">

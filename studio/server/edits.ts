@@ -12,6 +12,7 @@ import { defineProfile, type KernelScope, type ProfileDefinition } from '../../m
 import type { RegisteredTool } from '../../src/kernel/tools/types.ts';
 import type { CompiledStudio } from '../compile.ts';
 import type { ToolRegistration } from '../registrations.ts';
+import type { ProjectQuestions } from './handler.ts';
 import { withCompiledPatterns } from '../runtime-scope.ts';
 import { registerCustomTool } from '../tools.ts';
 import type { NewSubjects } from './save-new.ts';
@@ -24,6 +25,19 @@ export interface ProjectEdits {
 }
 
 type Json = Record<string, unknown>;
+
+/**
+ * What each decision is asked in the edited load: the questions the setup names, and for a
+ * decision the setup does not name (one the builder added, renamed or made a decision) the ones
+ * on the page.
+ */
+export function editedQuestions(edits: ProjectEdits, named: ProjectQuestions = {}): ProjectQuestions {
+  const asked: ProjectQuestions = { ...named };
+  for (const agent of edits.added.agents) {
+    if (agent.questions && !asked[agent.agentId]) asked[agent.agentId] = agent.questions;
+  }
+  return asked;
+}
 
 /** One setting that differs: where it is, and its value now. No value when it was taken away. */
 export interface Change {
@@ -109,7 +123,10 @@ function registerTool(scope: KernelScope, tool: ToolRegistration, subject: SaveS
 
 async function registerAgent(scope: KernelScope, agent: CompiledStudio, subject: SaveSubject | undefined): Promise<void> {
   if (agent.structured && agent.profile.type !== 'live') scope.schemas.register(agent.structured.id, agent.structured.spec);
-  const registered = subject ? scope.profiles.find(subject.of) : undefined;
+  const held = subject ? scope.profiles.find(subject.of) : undefined;
+  // An agent that became another type keeps nothing of the old one: the kernel filled the old
+  // type's own settings in, and the new type refuses them.
+  const registered = held?.type === agent.profile.type ? held : undefined;
   const definition = registered
     ? withSettings(registered, profileChanges(subject?.before, subject?.after))
     : agent.profile;

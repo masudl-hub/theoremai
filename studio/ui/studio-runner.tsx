@@ -30,13 +30,18 @@ import {
 import { Button } from '@astryxdesign/core/Button';
 import { Icon } from '@astryxdesign/core/Icon';
 import { Token } from '@astryxdesign/core/Token';
-import { IconDeviceFloppy, IconKey } from '@tabler/icons-react';
+import { IconKey } from '@tabler/icons-react';
 import { type ComponentProps, useMemo, useRef, useState } from 'react';
 import { noting } from './lib/studio-activity.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
-import { type ProjectSession, projectProfileEndpoint, useProject } from './lib/studio-project.ts';
+import {
+	editedProfileEndpoint,
+	type ProjectSession,
+	projectProfileEndpoint,
+	useProject,
+} from './lib/studio-project.ts';
 import { tracedTransport } from './lib/project-traces.ts';
-import { ProjectChat } from './studio-compare.tsx';
+import { EditedSide, ProjectChat, unsavedEdits, useEditedLoad } from './studio-compare.tsx';
 import { decisionSeed, StudioDecision } from './studio-decision.tsx';
 import { useProjectSave } from './studio-save.tsx';
 
@@ -196,8 +201,9 @@ type RunProps = Omit<Parameters<typeof StudioRunner>[0], 'mode' | 'onActivity'> 
 	note: () => void;
 };
 /**
- * A project's profile, run by the studio's local server: the project's own tools and models, not
- * the draft on the page. The page names the profile by its id.
+ * A project's profile, run by the studio's local server: the project's own tools and models.
+ * While the builder has edits the files do not hold, the run is the files with those edits laid
+ * over them. A chat then answers twice, side by side with the files' own.
  */
 function ProjectRun({
 	project,
@@ -214,62 +220,29 @@ function ProjectRun({
 	tested,
 }: Omit<RunProps, 'runtime'> & { project: ProjectSession }) {
 	const { type } = payload.profile;
-	const endpoint = projectProfileEndpoint(project, payload.agentId);
+	const isChat = type !== 'host' && type !== 'decision' && type !== 'live';
+	const edits = useMemo(
+		() => unsavedEdits(tested, project.profiles),
+		[tested, project.profiles],
+	);
+	// A chat asks for its own load, and holds it while a reply streams.
+	const { answer, pending } = useEditedLoad(project, isChat ? undefined : edits, false);
+	const stamp = answer?.ok ? answer.stamp : undefined;
+	const endpoint = edits
+		? editedProfileEndpoint(project, payload.agentId)
+		: projectProfileEndpoint(project, payload.agentId);
+	// A new load of the edits is a new run: its transport is made again with the load's stamp.
 	const host = useMemo(
 		() =>
 			type === 'host' ? noting(tracedTransport(createHostTransport, endpoint, traces), note) : null,
-		[type, endpoint, traces, note],
+		// biome-ignore lint/correctness/useExhaustiveDependencies: the stamp names the load the endpoint reaches
+		[type, endpoint, stamp, traces, note],
 	);
 	const decision = useMemo(
 		() => (type === 'decision' ? noting(createDecisionTransport({ endpoint }), note) : null),
-		[type, endpoint, note],
+		// biome-ignore lint/correctness/useExhaustiveDependencies: the stamp names the load the endpoint reaches
+		[type, endpoint, stamp, note],
 	);
-	const isChat = type !== 'host' && type !== 'decision' && type !== 'live';
-	// Only a chat answers with edits the files do not hold. Every other run is the files' own.
-	if (!isChat && !project.profiles.includes(payload.agentId))
-		return (
-			<PaneState
-				icon={<Icon icon={IconDeviceFloppy} size="lg" color="secondary" />}
-				actions={<UnsavedActions agentId={payload.agentId} />}
-				title="Not in your files yet"
-				description={`${payload.agentId} is a ${type} profile, and those run from ${project.name}'s files. Save it to run it here.`}
-			/>
-		);
-	const inFiles = tested?.agents.find((agent) => agent.identity.agentId === payload.agentId);
-	const savedType = inFiles && tested?.starts.agents[inFiles.key]?.identity.profileType;
-	// The files hold it as another type, so their run of it is not the one this page would show.
-	if (!isChat && savedType && savedType !== type)
-		return (
-			<PaneState
-				icon={<Icon icon={IconDeviceFloppy} size="lg" color="secondary" />}
-				actions={<UnsavedActions agentId={payload.agentId} />}
-				title={`Save to run it as a ${type} profile`}
-				description={`${payload.agentId} is a ${savedType} profile in ${project.name}'s files, and a ${type} profile runs from the files.`}
-			/>
-		);
-	if (decision)
-		return (
-			<TheoremDecision
-				transport={decision}
-				defaultState={decisionSeed(payload.profile)}
-				trace={trace}
-				flush={flush}
-				columns={columns}
-				className={className}
-			/>
-		);
-	if (host)
-		return (
-			<TheoremHost
-				detectCodeLanguage
-				labels={STUDIO_LABELS}
-				transport={host}
-				trace={trace}
-				flush={flush}
-				columns={columns}
-				className={className}
-			/>
-		);
 	if (isChat)
 		return (
 			<ProjectChat
@@ -285,8 +258,30 @@ function ProjectRun({
 				context={context}
 			/>
 		);
-	return (
+	const run = decision ? (
+		<TheoremDecision
+			key={stamp}
+			transport={decision}
+			defaultState={decisionSeed(payload.profile)}
+			trace={trace}
+			flush={flush}
+			columns={columns}
+			className={className}
+		/>
+	) : host ? (
+		<TheoremHost
+			key={stamp}
+			detectCodeLanguage
+			labels={STUDIO_LABELS}
+			transport={host}
+			trace={trace}
+			flush={flush}
+			columns={columns}
+			className={className}
+		/>
+	) : (
 		<ProjectCall
+			key={stamp}
 			payload={payload}
 			endpoint={endpoint}
 			note={note}
@@ -294,6 +289,17 @@ function ProjectRun({
 			slots={slots}
 			context={context}
 		/>
+	);
+	if (!edits) return run;
+	const refused = answer && !answer.ok && !pending ? answer : undefined;
+	return (
+		<EditedSide
+			refused={refused}
+			isLoading={stamp === undefined && !refused}
+			actions={<UnsavedActions agentId={payload.agentId} />}
+		>
+			{stamp !== undefined && !refused && run}
+		</EditedSide>
 	);
 }
 /** A project's live profile: the call runs in the project, through the studio's local server. */

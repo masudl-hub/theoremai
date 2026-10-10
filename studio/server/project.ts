@@ -15,7 +15,7 @@
 import { basename, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { defaultKernelScope, type ProviderHostOptions } from '../../mod.ts';
-import { type ProjectEdits, registerEdits } from './edits.ts';
+import { editedQuestions, type ProjectEdits, registerEdits } from './edits.ts';
 import { createStudioHandler, type ProjectQuestions } from './handler.ts';
 
 type SetupModule = {
@@ -35,9 +35,11 @@ if (import.meta.main) {
   const port = Number(flag('port'));
   const setup: SetupModule = await import(pathToFileURL(resolve(setupPath)).href);
   await setup.default?.();
+  let questions = setup.questions;
   if (flags.includes('--edits')) {
     const edits: ProjectEdits = await new Response(Deno.stdin.readable).json();
     await registerEdits(defaultKernelScope, edits);
+    questions = editedQuestions(edits, questions);
   }
 
   const handler = createStudioHandler({
@@ -46,7 +48,7 @@ if (import.meta.main) {
     listenHost: `127.0.0.1:${port}`,
     ...(setup.host ? { host: setup.host } : {}),
     ...(setup.provider ? { provider: setup.provider } : {}),
-    ...(setup.questions ? { questions: setup.questions } : {}),
+    ...(questions ? { questions } : {}),
     upgrade: (request) => Deno.upgradeWebSocket(request),
   });
   Deno.serve({ hostname: '127.0.0.1', port, onListen: () => console.log(PROJECT_READY) }, handler);

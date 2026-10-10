@@ -43,10 +43,13 @@ export function PaneLoading({ label }: { label: string }) {
 export function PaneFailure({
   title,
   description,
+  actions,
   children,
 }: {
   title: string;
   description?: string;
+  /** The buttons that lead out of the failure. */
+  actions?: ReactNode;
   children?: ReactNode;
 }) {
   return (
@@ -54,6 +57,7 @@ export function PaneFailure({
       icon={<Icon icon={IconAlertTriangle} size="lg" color="secondary" />}
       title={title}
       description={description}
+      actions={actions}
     >
       {children}
     </PaneState>

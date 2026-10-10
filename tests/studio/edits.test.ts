@@ -1,7 +1,12 @@
 import { assertEquals } from '@std/assert';
 import { defaultKernelScope } from '../../mod.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
-import { changedSettings, registerEdits } from '../../studio/server/edits.ts';
+import {
+  changedSettings,
+  editedQuestions,
+  type ProjectEdits,
+  registerEdits,
+} from '../../studio/server/edits.ts';
 import registerExample from '../../studio/server/example.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import { projectDiffers, projectNames, saveSubjects } from '../../studio/server/save.ts';
@@ -93,4 +98,30 @@ Deno.test("edits laid over the project load as what the builder tested, on the p
   if (added?.type !== 'function') throw new Error('The new tool was not registered.');
   assertEquals(added.input.safeParse({ bed: 'north' }).success, true);
   assertEquals(added.input.safeParse({ bed: 'west' }).success, false);
+});
+
+Deno.test("a decision the setup does not name is asked the page's questions; the setup's own win", () => {
+  const mood = { kind: 'choice', options: ['calm', 'tense'] };
+  const page = { kind: 'choice', options: ['dry', 'wet'] };
+  const edits = {
+    subjects: [],
+    added: {
+      agents: [
+        { agentId: 'new-check', questions: { soil: page } },
+        { agentId: 'watering-check', questions: { soil: page } },
+        { agentId: 'desk' },
+      ],
+      profiles: [],
+      tools: [],
+    },
+  } as unknown as ProjectEdits;
+  const named = { 'watering-check': { mood } } as unknown as Parameters<typeof editedQuestions>[1];
+  assertEquals(editedQuestions(edits, named) as unknown, {
+    'watering-check': { mood },
+    'new-check': { soil: page },
+  });
+  assertEquals(editedQuestions(edits) as unknown, {
+    'new-check': { soil: page },
+    'watering-check': { soil: page },
+  });
 });

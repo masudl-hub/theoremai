@@ -67,7 +67,7 @@ function unreachable(saved: string[]) {
  * change. `answer` is the last one the server gave; `pending` while it is not for these edits yet.
  * It waits while `hold` is set, so a reply that is streaming is not cut off by the next edit.
  */
-function useEditedLoad(
+export function useEditedLoad(
 	project: ProjectSession,
 	edits: StudioWorkspace | undefined,
 	hold: boolean,
@@ -162,9 +162,12 @@ function Pane({ title, children }: { title: string | undefined; children: ReactN
 	);
 }
 
-function NotRunning({ refusal }: { refusal: SaveRefusal }) {
+function NotRunning({ refusal, actions }: { refusal: SaveRefusal; actions?: ReactNode }) {
 	return (
-		<PaneFailure title={NOT_RUNNING[refusal.reason] ?? 'Your edits are not running.'}>
+		<PaneFailure
+			title={NOT_RUNNING[refusal.reason] ?? 'Your edits are not running.'}
+			actions={actions}
+		>
 			{refusal.detail.length > 0 && (
 				<CodeBlock code={refusal.detail.join('\n')} size="sm" isWrapped maxHeight={320} />
 			)}
@@ -280,19 +283,39 @@ function useTransports(
 	return { saved, edited };
 }
 
-/** The edited side: its conversation, why it is not running, or that it is loading. */
-function EditedSide({
+/**
+ * The workspace when it holds edits the files do not: a changed setting, or an agent added or
+ * removed. Undefined when it is the files' own.
+ */
+export function unsavedEdits(
+	tested: StudioWorkspace | undefined,
+	profiles: readonly string[],
+): StudioWorkspace | undefined {
+	if (!tested) return undefined;
+	// An agent added here is at its own start, and still one the files do not hold.
+	const isFiles =
+		atStart(tested) &&
+		tested.agents.length === profiles.length &&
+		tested.agents.every((agent) => profiles.includes(agent.identity.agentId));
+	return isFiles ? undefined : tested;
+}
+
+/** The edited side: its run, why it is not running, or that it is loading. */
+export function EditedSide({
 	refused,
 	isLoading,
+	actions,
 	children,
 }: {
 	refused: SaveRefusal | undefined;
 	isLoading: boolean;
+	/** The ways out when the edits cannot run. */
+	actions?: ReactNode;
 	children: ReactNode;
 }) {
 	return (
 		<Pane title="Edited (studio)">
-			{refused && <NotRunning refusal={refused} />}
+			{refused && <NotRunning refusal={refused} actions={actions} />}
 			{children}
 			{isLoading && <PaneLoading label="Loading your edits" />}
 		</Pane>
@@ -301,7 +324,10 @@ function EditedSide({
 
 /** What the comparison shows now: which sides there are, and what each one runs. */
 function useComparison({ project, profileId, tested, note, traces }: ProjectChatProps) {
-	const edits = useMemo(() => (tested && !atStart(tested) ? tested : undefined), [tested]);
+	const edits = useMemo(
+		() => unsavedEdits(tested, project.profiles),
+		[tested, project.profiles],
+	);
 	const pair = usePair();
 	const isBusy = pair.busy.length > 0;
 	const { answer, pending } = useEditedLoad(project, edits, isBusy);

@@ -147,9 +147,9 @@ export function StudioMap({
 	/** What makes `id`'s node draggable, and movable with Alt and the arrow keys. */
 	const draggable = (id: string) => ({
 		onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+			dropped.current = false;
 			const from = layout.nodes[id];
 			if (!from || !drags(event)) return;
-			dropped.current = false;
 			let places: MapPlaces | undefined;
 			follow(
 				event,
@@ -163,6 +163,10 @@ export function StudioMap({
 				(lifted) => {
 					if (!places) return;
 					dropped.current = lifted;
+					// The click, if one follows, comes at once; a drop off the node leaves none to wait for.
+					globalThis.setTimeout(() => {
+						dropped.current = false;
+					}, 0);
 					setDragging(undefined);
 					writeMapPlaces(project, places);
 				},
@@ -201,7 +205,7 @@ export function StudioMap({
 		follow(
 			event,
 			(x, y) => {
-				scroller.scrollTo({ left: scrollLeft - x, top: scrollTop - y });
+				scroller.scrollTo({ left: scrollLeft - x, top: scrollTop - y, behavior: 'instant' });
 			},
 			() => {
 				setPanning(false);

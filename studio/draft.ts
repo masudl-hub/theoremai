@@ -268,7 +268,10 @@ export interface GuardrailsDraft {
 }
 
 export interface ObservabilityDraft {
-  writeTo: false | typeof STUDIO_TRACE_DESTINATION;
+  /** The store traces go to, or `false` when they are off. */
+  writeTo: false | string;
+  /** The store they go to when they are on: the studio's, or the one a project's profile names. */
+  destination: string;
   sampleRate: number;
   include: {
     upstreamLog: boolean;
@@ -511,6 +514,7 @@ function defaultObservability(): ObservabilityDraft {
   const resolved = resolveObservabilityPolicy(undefined);
   return {
     writeTo: STUDIO_TRACE_DESTINATION,
+    destination: STUDIO_TRACE_DESTINATION,
     sampleRate: resolved.sampleRate,
     include: { ...resolved.include },
     scrub: {

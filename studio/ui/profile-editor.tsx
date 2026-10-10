@@ -4219,10 +4219,17 @@ function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: S
 	);
 }
 
-const TRACE_SEGMENTS: Segment<'studio' | 'off'>[] = [
-	{ value: 'studio', label: 'Studio', icon: IconFlask },
-	{ value: 'off', label: 'Off', icon: IconEyeOff },
-];
+/** Traces go to the studio's store, or to the store a project's profile names, shown by its name. */
+function traceSegments(destination: string): Segment<'studio' | 'off'>[] {
+	const on =
+		destination === STUDIO_TRACE_DESTINATION
+			? { label: 'Studio', icon: IconFlask }
+			: { label: destination, icon: IconDatabase };
+	return [
+		{ value: 'studio', ...on },
+		{ value: 'off', label: 'Off', icon: IconEyeOff },
+	];
+}
 
 /** One flag of a set, with what turning it on means. */
 interface Flag<K extends string> {
@@ -4306,9 +4313,9 @@ function TracesSection({ observability, set }: ObservabilitySectionProps) {
 				label="Write to"
 				path="observability.writeTo"
 				value={on ? 'studio' : 'off'}
-				segments={TRACE_SEGMENTS}
+				segments={traceSegments(observability.destination)}
 				onChange={(segment) => {
-					set({ writeTo: segment === 'off' ? false : STUDIO_TRACE_DESTINATION });
+					set({ writeTo: segment === 'off' ? false : observability.destination });
 				}}
 			/>
 			{on && (

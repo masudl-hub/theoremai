@@ -1069,9 +1069,12 @@ function turnOf(turn: Record<string, unknown>): StudioDraft['turnBehaviour'] {
 
 function observabilityOf(spec: Record<string, unknown>): StudioDraft['observability'] {
   const blank = createBlankDraft().observability;
+  // A project's profile names its own store. It stays the one traces go to when they are on.
+  const destination = typeof spec.writeTo === 'string' && spec.writeTo ? spec.writeTo : blank.destination;
   return {
     ...blank,
-    writeTo: spec.writeTo === false || spec.writeTo === 'studio' ? spec.writeTo : blank.writeTo,
+    writeTo: spec.writeTo === false ? false : destination,
+    destination,
     sampleRate: typeof spec.sampleRate === 'number' ? spec.sampleRate : blank.sampleRate,
     include: { ...blank.include, ...record(spec.include) },
     scrub: { ...blank.scrub, ...record(spec.scrub) },

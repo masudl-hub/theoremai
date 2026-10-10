@@ -182,6 +182,17 @@ Deno.test('a profile that sets something in code still opens and runs, and its c
   assertEquals(inline, []);
 });
 
+Deno.test("a profile that names its own trace store opens with that store's name", async () => {
+  const response = await handler(new Request(BASE, { headers: { host: HOST } }));
+  const description: StudioDescription = await response.json();
+  const opened = description.workspace.agents.find(
+    (agent) => agent.identity.agentId === 'bench-tools',
+  );
+  assertEquals(opened?.observability.writeTo, 'bench-store');
+  // Turned off and on again in the editor, it is still that store.
+  assertEquals(opened?.observability.destination, 'bench-store');
+});
+
 Deno.test('what a profile writes as code is left out of what the studio prints', () => {
   const profile = printableProfile({
     type: 'host',

@@ -582,7 +582,9 @@ decision shows no trace, as in the playground.
 Built: a profile that sets something in code opens in the studio. A trace
 sink of the project's own, a validator or a trigger is left to the file: the
 studio shows the rest, Save does not touch it, and a run is the profile as
-the project registered it.
+the project registered it. A profile that names a trace store of the
+project's shows that store by its name, and turning traces off and on again
+keeps it.
 
 Built: the studio on its own opens with the website's loader. The mark draws
 on the full-bleed shell while the project opens, then that panel pulls in to

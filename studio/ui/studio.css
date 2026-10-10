@@ -4,7 +4,7 @@
  */
 
 /* A box that takes all the room its parent gives: the screen and the code view. */
-.fill {
+.studio-fill {
 	height: 100%;
 	width: 100%;
 }
@@ -198,4 +198,13 @@
 	.astryx-list-item:focus-within .row-reveal {
 		opacity: 1;
 	}
+}
+
+/* In Save's review, a file's name stays at the top while its changes pass. */
+.save-file {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	padding-block: var(--spacing-1);
+	background: var(--color-background-surface);
 }

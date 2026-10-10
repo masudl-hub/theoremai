@@ -232,7 +232,7 @@ export function StudioCode({ text, hold, issues, onApply }: StudioCodeProps) {
 		paintMarkers(session.current, issues);
 	}, [issues]);
 
-	return <div ref={node} className="fill" />;
+	return <div ref={node} className="studio-fill" />;
 }
 
 /** `self` in the browser, which Monaco reads for its workers. */

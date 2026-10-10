@@ -166,7 +166,7 @@ import {
 	useStudioConnection,
 } from './studio-connection.tsx';
 import { StudioRunner } from './studio-runner.tsx';
-import { ProjectLine } from './studio-save.tsx';
+import { ProjectSave, ProjectTokens } from './studio-save.tsx';
 import {
 	type CSSProperties,
 	type Dispatch,
@@ -1785,23 +1785,21 @@ const TreeColumn = memo(function TreeColumn({
 });
 
 /**
- * The issue count, which goes to the next issue after the selected node. Hidden with none. `quiet`
- * is how many the open page's rows are not showing yet, which the count leaves out as they do.
+ * The issue count, which goes to the next issue after the selected node and shows it there. Hidden
+ * with none. It counts every issue, so what blocks a run or Save always has a way to it.
  */
 function IssueToken({
 	compile,
-	quiet,
 	selected,
 	onIssue,
 }: {
 	compile: WorkspaceCompile;
-	quiet: number;
 	selected: string;
 	onIssue: (node: string) => void;
 }) {
 	const { compiled } = compile;
 	if (compiled.ok) return null;
-	const issues = issuesLabel(compiled.issues.length - quiet);
+	const issues = issuesLabel(compiled.issues.length);
 	if (!issues) return null;
 	return (
 		<Token
@@ -1874,17 +1872,17 @@ function useReset({ workspace, focus, update }: StudioWorkspaceState) {
 function EditorToolbar({
 	heading,
 	compile,
-	quiet,
 	selected,
 	view,
 	onIssue,
 	reset,
+	project,
 	setSheet,
 }: {
 	heading: string | undefined;
 	compile: WorkspaceCompile;
-	/** How many of the open page's issues its rows are not showing yet. */
-	quiet: number;
+	/** An open project's tokens: Save, and what the studio cannot run. */
+	project: ReactNode;
 	selected: string;
 	view: EditorViewState;
 	onIssue: (node: string) => void;
@@ -1905,7 +1903,10 @@ function EditorToolbar({
 					)}
 				</StackItem>
 				<StackItem size="static">
-					<IssueToken compile={compile} quiet={quiet} selected={selected} onIssue={onIssue} />
+					<HStack gap={1} vAlign="center">
+						<IssueToken compile={compile} selected={selected} onIssue={onIssue} />
+						{project}
+					</HStack>
 				</StackItem>
 				<IconButton
 					label="Keys"
@@ -2060,7 +2061,7 @@ function CodeBody({
 		);
 	}
 	return (
-		<div className="fill">
+		<div className="studio-fill">
 			<StudioCode
 				text={source ?? seen.current}
 				hold={source == null}
@@ -2411,6 +2412,7 @@ function Studio({ opened }: { opened: StudioOpened }) {
 			<ConfirmWrite value={asking.confirm}>
 				<ProjectAsks value={state.asks ?? NO_ASKS}>
 					{asking.dialog}
+					<SaveScope project={project} state={state} blocked={Boolean(compile.blocked)}>
 					<Layout
 						ref={frame.layoutCallbackRef}
 						className={frameClass(sheet)}
@@ -2456,9 +2458,36 @@ function Studio({ opened }: { opened: StudioOpened }) {
 							/>
 						}
 					/>
+					</SaveScope>
 				</ProjectAsks>
 			</ConfirmWrite>
 		</ProjectContext.Provider>
+	);
+}
+
+/** Save for the screen under it, when the studio is open on a project. */
+function SaveScope({
+	project,
+	state,
+	blocked,
+	children,
+}: {
+	project: ProjectSession | null;
+	state: StudioWorkspaceState;
+	blocked: boolean;
+	children: ReactNode;
+}) {
+	if (!project) return children;
+	return (
+		<ProjectSave
+			project={project}
+			workspace={state.workspace}
+			update={state.update}
+			onFilesChanged={state.refreshOrigins}
+			blocked={blocked}
+		>
+			{children}
+		</ProjectSave>
 	);
 }
 
@@ -2649,7 +2678,6 @@ function EditorColumn({
 			<EditorToolbar
 				heading={heading}
 				compile={compile}
-				quiet={compile.editorIssues.length - shown.length}
 				selected={selected}
 				view={view}
 				onIssue={(node) => {
@@ -2657,17 +2685,9 @@ function EditorColumn({
 					reveal({ node });
 				}}
 				reset={reset}
+				project={project && <ProjectTokens project={project} />}
 				setSheet={setSheet}
 			/>
-			{project && (
-				<ProjectLine
-					project={project}
-					workspace={state.workspace}
-					update={state.update}
-					onFilesChanged={state.refreshOrigins}
-					blocked={compile.blocked || undefined}
-				/>
-			)}
 			{shared && <SharedLine entry={shared} onOpen={sharedList} />}
 			{said && (
 				<OriginBanner

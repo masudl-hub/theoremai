@@ -3,16 +3,35 @@ import { Button } from '@astryxdesign/core/Button';
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Dialog, DialogHeader } from '@astryxdesign/core/Dialog';
 import { HStack } from '@astryxdesign/core/HStack';
-import { Popover } from '@astryxdesign/core/Popover';
+import { HoverCard } from '@astryxdesign/core/HoverCard';
+import { Icon } from '@astryxdesign/core/Icon';
+import { IconButton } from '@astryxdesign/core/IconButton';
+import { Layout, LayoutContent, LayoutFooter } from '@astryxdesign/core/Layout';
 import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
+import { Tab, TabList } from '@astryxdesign/core/TabList';
 import { Section } from '@astryxdesign/core/Section';
-import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { useToast } from '@astryxdesign/core/Toast';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
-import { useMemo, useState } from 'react';
-import { atStart, type StudioWorkspace, startedHere } from '../mod.ts';
+import { IconFiles, IconListDetails } from '@tabler/icons-react';
+import {
+	createContext,
+	type ReactNode,
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from 'react';
+import {
+	atStart,
+	removeAgent,
+	resetAgent,
+	type StudioWorkspace,
+	startedHere,
+} from '../mod.ts';
 import type {
 	DiffHunk,
 	SaveChange,
@@ -23,7 +42,7 @@ import type {
 import { type ProjectSession, reviewSave, undoSave, writeSave } from './lib/studio-project.ts';
 
 /** Wide enough for a reason's sentence to read in a few lines. */
-const POPOVER_WIDTH = 320;
+const ALERTS_WIDTH = 320;
 
 export type Update = (change: (current: StudioWorkspace) => StudioWorkspace) => void;
 
@@ -101,7 +120,7 @@ function reason(change: SaveChange): string {
 }
 
 /** One run of changed lines: the lines taken out marked `-`, the lines put in marked `+`. */
-function HunkBlock({ file, hunk, whole }: { file: string; hunk: DiffHunk; whole?: string }) {
+function HunkBlock({ file, hunk }: { file: SaveFile; hunk: DiffHunk }) {
 	const lines = [
 		...hunk.lead.map((line) => `  ${line}`),
 		...hunk.removed.map((line) => `- ${line}`),
@@ -113,7 +132,11 @@ function HunkBlock({ file, hunk, whole }: { file: string; hunk: DiffHunk; whole?
 		<CodeBlock
 			code={lines.join('\n')}
 			language="diff"
-			title={whole ? `${whole} · ${file}` : `${file}:${String(hunk.line)}`}
+			title={
+				file.created || file.removed
+					? `${fileNote(file)} · ${file.file}`
+					: `${file.file}:${String(hunk.line)}`
+			}
 			size="sm"
 			hasCopyButton={false}
 			highlightLines={hunk.added.map((_, index) => firstAdded + index)}
@@ -121,20 +144,34 @@ function HunkBlock({ file, hunk, whole }: { file: string; hunk: DiffHunk; whole?
 	);
 }
 
-function ReviewBody({ review }: { review: SaveReview }) {
-	const blocked = review.changes.filter((change) => change.status !== 'written');
-	if (review.changes.length === 0)
-		return <Text color="secondary">Nothing here changes what your files set.</Text>;
+/** What happens to a file: it is new, it goes, or how many places in it change. */
+function fileNote(file: SaveFile): string {
+	if (file.created) return 'New file';
+	if (file.removed) return 'Removed file';
+	return file.hunks.length === 1 ? '1 change' : `${String(file.hunks.length)} changes`;
+}
+
+function FileHunks({ file }: { file: SaveFile }) {
+	return (
+		<VStack gap={3}>
+			{file.hunks.map((hunk) => (
+				<HunkBlock key={hunk.line} file={file} hunk={hunk} />
+			))}
+		</VStack>
+	);
+}
+
+/** The changes Save cannot write, each with what the builder does about it. */
+function BlockedChanges({ changes }: { changes: readonly SaveChange[] }) {
+	if (!changes.length) return null;
 	return (
 		<VStack gap={4}>
-			{blocked.length > 0 && (
-				<Banner
-					status="warning"
-					title="Save writes every change or none, so your files hold exactly what you tested."
-					description="Reset the changes below in the studio, or make them in your code."
-				/>
-			)}
-			{blocked.map((change) => (
+			<Banner
+				status="warning"
+				title="Save writes every change or none, so your files hold exactly what you tested."
+				description="Reset the changes below in the studio, or make them in your code."
+			/>
+			{changes.map((change) => (
 				<VStack key={`${change.kind}:${change.of}:${change.setting}`} gap={1}>
 					<Text weight="semibold">
 						{change.setting ? `${change.of} · ${change.setting}` : change.of}
@@ -144,17 +181,66 @@ function ReviewBody({ review }: { review: SaveReview }) {
 					</Text>
 				</VStack>
 			))}
-			{review.files.flatMap((file: SaveFile) =>
-				file.hunks.map((hunk) => (
-					<HunkBlock
-						key={`${file.file}:${String(hunk.line)}`}
-						file={file.file}
-						hunk={hunk}
-						whole={file.created ? 'New file' : file.removed ? 'Removed file' : undefined}
-					/>
-				)),
-			)}
 		</VStack>
+	);
+}
+
+/** How the review reads: every file down one scroll, or one file at a time. */
+type ReviewView = 'all' | 'file';
+
+/** The button that flips the review's view: it names the view it goes to. */
+const VIEW_FLIP = {
+	all: { label: 'By file', icon: IconFiles, tooltip: 'Show one file at a time', next: 'file' },
+	file: {
+		label: 'All changes',
+		icon: IconListDetails,
+		tooltip: 'Show every change in one scroll',
+		next: 'all',
+	},
+} as const;
+
+/**
+ * The lines Save changes. Down one scroll, each file's name stays at the top while its changes
+ * pass. By file, a tab for each file stays there and shows that file alone.
+ */
+function ReviewBody({ review, view }: { review: SaveReview; view: ReviewView }) {
+	const [picked, setPicked] = useState<string>();
+	const { files } = review;
+	const blocked = review.changes.filter((change) => change.status !== 'written');
+	const shown = files.find((file) => file.file === picked) ?? files[0];
+	return (
+		<>
+			{review.changes.length === 0 && (
+				<Text color="secondary">Nothing here changes what your files set.</Text>
+			)}
+			<BlockedChanges changes={blocked} />
+			{view === 'file'
+				? shown && (
+						<VStack gap={2}>
+							<div className="save-file">
+								<TabList value={shown.file} size="sm" onChange={setPicked}>
+									{files.map((file) => (
+										<Tab key={file.file} value={file.file} label={file.file} />
+									))}
+								</TabList>
+							</div>
+							<FileHunks file={shown} />
+						</VStack>
+					)
+				: files.map((file) => (
+						<VStack key={file.file} gap={2}>
+							<div className="save-file">
+								<HStack gap={2} vAlign="center">
+									<Text weight="semibold">{file.file}</Text>
+									<Text type="supporting" color="secondary">
+										{fileNote(file)}
+									</Text>
+								</HStack>
+							</div>
+							<FileHunks file={file} />
+						</VStack>
+					))}
+		</>
 	);
 }
 
@@ -170,19 +256,18 @@ function RefusalBody({ refusal }: { refusal: SaveRefusal }) {
 }
 
 /**
- * The profiles a project registers that the studio cannot run: a count that opens each one's
- * reason. Nothing while there are none.
+ * The profiles a project registers that the studio cannot run: a count that shows each one's
+ * reason on hover. Nothing while there are none.
  */
 function ProjectProblems({ project }: { project: ProjectSession }) {
 	const { problems } = project;
 	if (!problems.length) return null;
 	return (
-		<Popover
+		<HoverCard
 			label="Profiles the studio cannot run"
-			width={POPOVER_WIDTH}
-			padding={3}
+			touchTrigger="tap"
 			content={
-				<VStack gap={3}>
+				<VStack gap={3} width={ALERTS_WIDTH}>
 					{problems.map((problem) => (
 						<VStack key={problem.profile} gap={1}>
 							<Text weight="semibold">{`The studio cannot run ${problem.profile}.`}</Text>
@@ -198,32 +283,59 @@ function ProjectProblems({ project }: { project: ProjectSession }) {
 				label={problems.length === 1 ? '1 alert' : `${String(problems.length)} alerts`}
 				color="orange"
 			/>
-		</Popover>
+		</HoverCard>
 	);
 }
 
+/** Save, for whatever on the page offers it. */
+export interface ProjectSaveActions {
+	/** Whether the studio holds edits the project's files do not. */
+	unsaved: boolean;
+	/** Opens the review of the lines a Save writes. Absent while Save cannot start. */
+	review: (() => void) | undefined;
+	/** Puts one profile back as the files hold it. One the files do not hold leaves the studio. */
+	clear: (agentId: string) => void;
+}
+
+const ProjectSaveContext = createContext<ProjectSaveActions | null>(null);
+
+/** Save for the open project, or null on a page that has none. */
+export function useProjectSave(): ProjectSaveActions | null {
+	return useContext(ProjectSaveContext);
+}
+
+/** One profile as the files hold it: back to its start, or gone when it was added here. */
+function clearProfile(workspace: StudioWorkspace, agentId: string): StudioWorkspace {
+	const agent = workspace.agents.find((each) => each.identity.agentId === agentId);
+	if (!agent) return workspace;
+	const back = resetAgent(workspace, agent.key);
+	return back === workspace ? removeAgent(workspace, agent.key) : back;
+}
+
 /**
- * A project's line over the editor: Save while the studio holds edits the files do not, with a
- * review of the lines that change before anything is written, and what the studio cannot run.
- * Nothing while there is neither.
+ * Save for a project: the review of the lines that change before anything is written, and the
+ * write. Whatever it wraps opens that review through `useProjectSave`.
  */
-export function ProjectLine({
+export function ProjectSave({
 	project,
 	workspace,
 	update,
 	onFilesChanged,
 	blocked,
+	children,
 }: {
 	project: ProjectSession;
 	workspace: StudioWorkspace;
 	update: Update;
 	/** Called once a Save or an undo has changed the project's files. */
 	onFilesChanged: () => void;
-	/** Why Save cannot start: the editor has issues. */
-	blocked: string | undefined;
+	/** Whether Save cannot start: the editor has issues. */
+	blocked: boolean;
+	children: ReactNode;
 }) {
 	const toast = useToast();
 	const [step, setStep] = useState<SaveStep>({ at: 'closed' });
+	const [view, setView] = useState<ReviewView>('all');
 	// An agent added here is at its own start, and still one the files do not hold. One removed
 	// here has no start left, and is still one the files hold.
 	const clean = useMemo(
@@ -234,9 +346,14 @@ export function ProjectLine({
 		[workspace, project.profiles],
 	);
 
-	const open = () => {
+	// The review reads the workspace as it is when asked for, so a keystroke does not remake Save.
+	const held = useRef({ project, workspace });
+	useEffect(() => {
+		held.current = { project, workspace };
+	});
+	const open = useCallback(() => {
 		setStep({ at: 'reading' });
-		reviewSave(project, workspace)
+		reviewSave(held.current.project, held.current.workspace)
 			.catch(unreachable)
 			.then((answer) => {
 				setStep(
@@ -245,7 +362,13 @@ export function ProjectLine({
 						: { at: 'refused', refusal: answer },
 				);
 			});
-	};
+	}, []);
+	const clear = useCallback(
+		(agentId: string) => {
+			update((current) => clearProfile(current, agentId));
+		},
+		[update],
+	);
 
 	const undo = (starts: StudioWorkspace['starts']) => {
 		undoSave(project)
@@ -293,24 +416,17 @@ export function ProjectLine({
 			});
 	};
 
-	const saved = clean && step.at === 'closed';
-	if (saved && !project.problems.length) return null;
+	const unsaved = !clean || step.at !== 'closed';
+	const actions = useMemo(
+		() => ({ unsaved, review: blocked ? undefined : open, clear }),
+		[unsaved, blocked, open, clear],
+	);
 	const writing = step.at === 'review' && step.writing;
+	const refusal = step.at === 'refused' || step.at === 'review' ? step.refusal : undefined;
+	const flip = VIEW_FLIP[view];
 	return (
-		<Section variant="transparent" paddingInline={3} paddingBlock={2} dividers={['bottom']}>
-			<HStack gap={2} vAlign="center">
-				<StackItem size="fill">
-					{!saved && (
-						<Token
-							label={blocked ?? 'Review and save'}
-							color="blue"
-							description={`Your edits are not in ${project.name}'s files yet`}
-							onClick={blocked || step.at === 'reading' ? undefined : open}
-						/>
-					)}
-				</StackItem>
-				<ProjectProblems project={project} />
-			</HStack>
+		<ProjectSaveContext.Provider value={actions}>
+			{children}
 			<Dialog
 				isOpen={step.at === 'review' || step.at === 'refused'}
 				purpose={writing ? 'required' : 'form'}
@@ -320,46 +436,90 @@ export function ProjectLine({
 					if (!isOpen && !writing) setStep({ at: 'closed' });
 				}}
 			>
-				<VStack gap={4} height="100%">
-					<DialogHeader
-						title={`Save to ${project.name}`}
-						subtitle={
-							writing
-								? 'Checking that the project still loads with these lines.'
-								: 'These lines change in your files. The studio does not commit them.'
-						}
-					/>
-					<ScrollableArea label="Changes">
-						{step.at === 'refused' && <RefusalBody refusal={step.refusal} />}
-						{step.at === 'review' && (
-							<VStack gap={4}>
-								{step.refusal && <RefusalBody refusal={step.refusal} />}
-								<ReviewBody review={step.review} />
-							</VStack>
-						)}
-					</ScrollableArea>
-					<HStack gap={2} justify="end">
-						<Button
-							label="Cancel"
-							variant="ghost"
-							isDisabled={writing}
-							onClick={() => {
-								setStep({ at: 'closed' });
-							}}
+				<Layout
+					header={
+						<DialogHeader
+							title={`Save to ${project.name}`}
+							subtitle={
+								writing
+									? 'Checking that the project still loads with these lines.'
+									: 'Save writes all of these lines or none. It then type-checks and loads the project, and puts your files back unless it runs as what you tested.'
+							}
+							endContent={
+								step.at === 'review' && (
+									<IconButton
+										label={flip.label}
+										variant="ghost"
+										icon={<Icon icon={flip.icon} size="sm" />}
+										tooltip={flip.tooltip}
+										onClick={() => {
+											setView(flip.next);
+										}}
+									/>
+								)
+							}
+							onOpenChange={writing ? undefined : () => setStep({ at: 'closed' })}
 						/>
-						{step.at === 'review' && (
-							<Button
-								label="Save"
-								isDisabled={!step.review.writable}
-								isLoading={writing}
-								onClick={() => {
-									write(step.review);
-								}}
-							/>
-						)}
-					</HStack>
-				</VStack>
+					}
+					content={
+						<LayoutContent isScrollable={false} padding={0}>
+							<ScrollableArea label="Changes" height="100%" paddingInline={4}>
+								<VStack gap={4}>
+									{refusal && <RefusalBody refusal={refusal} />}
+									{step.at === 'review' && <ReviewBody review={step.review} view={view} />}
+								</VStack>
+							</ScrollableArea>
+						</LayoutContent>
+					}
+					footer={
+						<LayoutFooter>
+							<HStack gap={2} justify="end">
+								<Button
+									label="Cancel"
+									variant="ghost"
+									isDisabled={writing}
+									onClick={() => {
+										setStep({ at: 'closed' });
+									}}
+								/>
+								{step.at === 'review' && (
+									<Button
+										label="Save"
+										variant="primary"
+										isDisabled={!step.review.writable}
+										isLoading={writing}
+										onClick={() => {
+											write(step.review);
+										}}
+									/>
+								)}
+							</HStack>
+						</LayoutFooter>
+					}
+				/>
 			</Dialog>
-		</Section>
+		</ProjectSaveContext.Provider>
+	);
+}
+
+/**
+ * A project's tokens in the editor's toolbar: Save while the studio holds edits the files do not,
+ * and what the studio cannot run. Nothing while there is neither.
+ */
+export function ProjectTokens({ project }: { project: ProjectSession }) {
+	const save = useProjectSave();
+	return (
+		<>
+			{/* While the editor has issues, its own count stands here and leads to each one. */}
+			{save?.unsaved && save.review && (
+				<Token
+					label="Save"
+					color="blue"
+					description="Review the diff, then save"
+					onClick={save.review}
+				/>
+			)}
+			<ProjectProblems project={project} />
+		</>
 	);
 }

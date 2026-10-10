@@ -27,6 +27,10 @@ import {
 	createBrowserStudioTransport,
 	type StudioBrowserRuntime,
 } from '../browser.ts';
+import { Button } from '@astryxdesign/core/Button';
+import { Icon } from '@astryxdesign/core/Icon';
+import { Token } from '@astryxdesign/core/Token';
+import { IconDeviceFloppy, IconKey } from '@tabler/icons-react';
 import { type ComponentProps, useMemo, useRef, useState } from 'react';
 import { noting } from './lib/studio-activity.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
@@ -34,6 +38,7 @@ import { type ProjectSession, projectProfileEndpoint, useProject } from './lib/s
 import { tracedTransport } from './lib/project-traces.ts';
 import { ProjectChat } from './studio-compare.tsx';
 import { decisionSeed, StudioDecision } from './studio-decision.tsx';
+import { useProjectSave } from './studio-save.tsx';
 
 export interface StudioRunnerProps {
 	payload: StudioRunPayload;
@@ -112,6 +117,7 @@ export function StudioRunner({
 	if (mode !== 'demo' && !runtime)
 		return (
 			<PaneState
+				icon={<Icon icon={IconKey} size="lg" color="secondary" />}
 				title="Connect to run"
 				description="Add your provider keys or local endpoint under Keys."
 			/>
@@ -160,6 +166,30 @@ export function StudioRunner({
 	);
 }
 
+/** The two ways out of a run that waits on a Save: write the edits, or drop them. */
+function UnsavedActions({ agentId }: { agentId: string }) {
+	const save = useProjectSave();
+	if (!save) return null;
+	return (
+		<>
+			<Token
+				label="Save"
+				color="blue"
+				description={save.review ? 'Review the diff, then save' : 'Fix the issues in the editor first'}
+				onClick={save.review}
+			/>
+			<Button
+				label="Clear changes"
+				variant="ghost"
+				size="sm"
+				onClick={() => {
+					save.clear(agentId);
+				}}
+			/>
+		</>
+	);
+}
+
 export type ChatProps = ComponentProps<typeof TheoremChat>;
 type RunProps = Omit<Parameters<typeof StudioRunner>[0], 'mode' | 'onActivity'> & {
 	traces: TraceFeed;
@@ -199,6 +229,8 @@ function ProjectRun({
 	if (!isChat && !project.profiles.includes(payload.agentId))
 		return (
 			<PaneState
+				icon={<Icon icon={IconDeviceFloppy} size="lg" color="secondary" />}
+				actions={<UnsavedActions agentId={payload.agentId} />}
 				title="Not in your files yet"
 				description={`${payload.agentId} is a ${type} profile, and those run from ${project.name}'s files. Save it to run it here.`}
 			/>
@@ -209,6 +241,8 @@ function ProjectRun({
 	if (!isChat && savedType && savedType !== type)
 		return (
 			<PaneState
+				icon={<Icon icon={IconDeviceFloppy} size="lg" color="secondary" />}
+				actions={<UnsavedActions agentId={payload.agentId} />}
 				title={`Save to run it as a ${type} profile`}
 				description={`${payload.agentId} is a ${savedType} profile in ${project.name}'s files, and a ${type} profile runs from the files.`}
 			/>

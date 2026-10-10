@@ -2,7 +2,6 @@ import { Banner } from '@astryxdesign/core/Banner';
 import { Center } from '@astryxdesign/core/Center';
 import { type ChatComposerInputHandle, ChatLayout } from '@astryxdesign/core/Chat';
 import { Layout, LayoutContent } from '@astryxdesign/core/Layout';
-import { Spinner } from '@astryxdesign/core/Spinner';
 import { Text } from '@astryxdesign/core/Text';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
@@ -39,6 +38,7 @@ import { ChatTranscript } from './ChatTranscript.tsx';
 import type { TheoremLabels } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { MarkdownPluginsProvider } from './markdown-plugins.tsx';
+import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { SidePanelHeader } from './SidePanel.tsx';
 import { useTraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
 import { TheoremThemeProvider } from './theme.tsx';
@@ -426,15 +426,11 @@ function ChatForTransport(
 ) {
   const t = useLabels();
   const described = useTheoremInterface(props.transport);
-  if (described.status === 'loading')
-    return <Spinner size="lg" label={t('@theorem.chat.loading')} />;
-  if (described.status === 'error') {
-    return <Banner status="error" title={described.failure.error} />;
-  }
+  if (described.status === 'loading') return <PaneLoading label={t('@theorem.chat.loading')} />;
+  if (described.status === 'error') return <PaneFailure title={described.failure.error} />;
   if (described.iface.type === 'live') {
     return (
-      <Banner
-        status="warning"
+      <PaneFailure
         title={t('@theorem.chat.live_unsupported.title')}
         description={t('@theorem.chat.live_unsupported.description')}
       />

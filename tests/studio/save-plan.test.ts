@@ -480,7 +480,7 @@ Deno.test('a tool the studio added is compared as the kernel reads its schema', 
   assertEquals(projectDiffers(loadedAs(looser), tested), ['count_plants']);
 });
 
-Deno.test('a profile the studio added is one to write, and one it removed is named, not written', () => {
+Deno.test('a profile the studio added is one to write, and one it removed is one to take out', () => {
   const { workspace } = opened;
   const [agent] = workspace.agents;
   if (!agent) throw new Error('The example changed.');
@@ -488,13 +488,11 @@ Deno.test('a profile the studio added is one to write, and one it removed is nam
     profiles: ['other'],
     tools: projectNames(workspace).tools,
   });
-  assertEquals(
-    subjects.ok && [
-      subjects.added.profiles,
-      subjects.changes.map(({ of, status }) => [of, status]),
-    ],
-    [['garden-desk'], [['other', 'removed']]],
-  );
+  assertEquals(subjects.ok && [subjects.added.profiles, subjects.removed, subjects.changes], [
+    ['garden-desk'],
+    { profiles: ['other'], tools: [] },
+    [],
+  ]);
 });
 
 Deno.test('Save rewrites complete literal values and joined text without evaluating expressions', () => {
@@ -537,4 +535,32 @@ Deno.test('Save rewrites complete literal values and joined text without evaluat
     assertEquals(result.statuses, ['value: code'], expression);
     assertEquals(result.text, source, expression);
   }
+});
+
+Deno.test('an object whose every entry is replaced is written whole, and one that keeps some is edited', () => {
+  const source = (models: string) => `defineProfile({ id: 'desk', models: ${models} });\n`;
+  // The options the file holds once saved, read as the code they are.
+  const written = (text: string) =>
+    new Function(`return ${text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)}`)();
+  const was = { id: 'desk', models: { main: { apiId: 'live' } } };
+  const swapped = saved({ 'setup.ts': source(`{ main: { apiId: 'live' } }`) }, was, {
+    id: 'desk',
+    models: { fast: { apiId: 'lite' } },
+  });
+  assertEquals(swapped.statuses, ['models.main: written', 'models.fast: written']);
+  assertEquals(written(swapped.text), { id: 'desk', models: { fast: { apiId: 'lite' } } });
+
+  const two = { id: 'desk', models: { main: { apiId: 'live' }, spare: { apiId: 'old' } } };
+  const kept = saved(
+    { 'setup.ts': source(`{ main: { apiId: 'live' }, spare: { apiId: 'old' } }`) },
+    two,
+    {
+      id: 'desk',
+      models: { main: { apiId: 'live' }, fast: { apiId: 'lite' } },
+    },
+  );
+  assertEquals(written(kept.text), {
+    id: 'desk',
+    models: { main: { apiId: 'live' }, fast: { apiId: 'lite' } },
+  });
 });

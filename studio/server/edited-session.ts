@@ -10,7 +10,7 @@
 import type { StudioWorkspace } from '../workspace.ts';
 import type { ProjectEdits } from './edits.ts';
 import { message, refusal, stampOf } from './save-session.ts';
-import { projectDiffers, projectNames, saveSubjects } from './save.ts';
+import { projectDiffers, projectNames, saveSubjects, withoutRemoved } from './save.ts';
 import type { EditedAnswer } from './save-wire.ts';
 
 /** What the edited load needs from the machine. `Loaded` is one load of the project. */
@@ -60,7 +60,8 @@ export function createEditedSession<Loaded>(host: EditedHost<Loaded>): EditedSes
       return refusal('load', [message(error)]);
     }
     // The same proof Save makes of the files it wrote: this load is what the builder is testing.
-    const differs = projectDiffers(host.opened(loaded), workspace);
+    // What the builder removed is still in this load, where nothing the page shows can reach it.
+    const differs = projectDiffers(withoutRemoved(host.opened(loaded), subjects.removed), workspace);
     if (differs.length) {
       await host.stop(loaded);
       return refusal('differs', differs);

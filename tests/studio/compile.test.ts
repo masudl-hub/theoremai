@@ -329,7 +329,7 @@ Deno.test('setProfileType to live swaps bindings and hides facets live lacks', (
   assertEquals(live.modelBindings.length, 1);
   assertEquals(live.modelBindings[0].protocol, 'geminiLive');
   assertEquals(live.modelBindings[0].apiId, GEMINI_STUDIO_LIVE_DEFAULT_API_ID);
-  assertEquals(live.models.defaultModel, '');
+  assertEquals(live.models.defaultModel, live.modelBindings[0].modelId);
   assertEquals(live.models.key, createExampleDraft().models.key);
   assertEquals(draftFacets(live).includes('outputs'), false);
   const { profile } = compiled(live);

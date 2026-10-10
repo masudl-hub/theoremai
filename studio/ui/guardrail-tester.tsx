@@ -1,7 +1,6 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
 import { Collapsible, CollapsibleGroup } from '@astryxdesign/core/Collapsible';
-import { EmptyState } from '@astryxdesign/core/EmptyState';
 import { HoverCard } from '@astryxdesign/core/HoverCard';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
@@ -35,7 +34,13 @@ import {
 	IconWorld,
 	IconX,
 } from '@tabler/icons-react';
-import { PaneLayout, PanePanel, Prose, TraceGuardrailsView } from '../../react/src/ui/index.ts';
+import {
+	PaneLayout,
+	PanePanel,
+	PaneState,
+	Prose,
+	TraceGuardrailsView,
+} from '../../react/src/ui/index.ts';
 import {
 	type GuardrailProbeAnswer,
 	PROBE_BATTERY,
@@ -504,13 +509,10 @@ export function GuardrailTester({
 	const refusal = probeRefusal(payload.profile);
 	if (refusal) {
 		return (
-			<VStack height="100%" vAlign="center" padding={4}>
-				<EmptyState
-					icon={<Icon icon={IconShieldSearch} size="lg" color="secondary" />}
-					title={refusal}
-					isCompact
-				/>
-			</VStack>
+			<PaneState
+				icon={<Icon icon={IconShieldSearch} size="lg" color="secondary" />}
+				title={refusal}
+			/>
 		);
 	}
 	const send = async (texts: readonly string[]) => {

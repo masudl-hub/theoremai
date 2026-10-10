@@ -12,6 +12,7 @@ import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
 import type { CompiledStudio } from '../compile.ts';
 import type { NewSubjects } from './save-new.ts';
+import type { Removed } from './save-remove.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import type { StudioWorkspace } from '../workspace.ts';
 import { canonical, type SaveSubject } from './save-plan.ts';
@@ -24,7 +25,7 @@ export interface ProjectNames {
 }
 
 export type SaveSubjects =
-  | { ok: true; subjects: SaveSubject[]; added: NewSubjects; changes: SaveChange[] }
+  | { ok: true; subjects: SaveSubject[]; added: NewSubjects; removed: Removed; changes: SaveChange[] }
   | { ok: false; issues: string[] };
 
 interface Compiled {
@@ -63,9 +64,9 @@ function atStart(workspace: StudioWorkspace, names: ProjectNames): StudioWorkspa
 }
 
 /**
- * The profiles and tools that changed, each before and after, and the ones the studio added.
- * `changes` holds what Save cannot write at all: a profile or tool the studio removed, and a tool
- * it added that no agent allows.
+ * The profiles and tools that changed, each before and after, the ones the studio added, and the
+ * ones it removed. `changes` holds what Save cannot write at all: a tool the studio added that no
+ * agent allows, and an edit to a tool no agent allows.
  */
 export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): SaveSubjects {
   const before = compiled(atStart(workspace, names));
@@ -113,13 +114,11 @@ export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): S
     const start = workspace.starts.tools[tool.key];
     add('tool', start?.toolName, tool.toolName, names.tools, canonical(start) !== canonical(tool));
   }
-  for (const id of names.profiles) {
-    if (!seen.profile.has(id)) changes.push({ kind: 'profile', of: id, setting: '', status: 'removed' });
-  }
-  for (const name of names.tools) {
-    if (!seen.tool.has(name)) changes.push({ kind: 'tool', of: name, setting: '', status: 'removed' });
-  }
-  return { ok: true, subjects, added: { agents: after.agents, ...added }, changes };
+  const removed = {
+    profiles: names.profiles.filter((id) => !seen.profile.has(id)),
+    tools: names.tools.filter((name) => !seen.tool.has(name)),
+  };
+  return { ok: true, subjects, added: { agents: after.agents, ...added }, removed, changes };
 }
 
 /** A tool with its schemas as the kernel reads them from the file Save writes: zod's reading of the same JSON. */
@@ -135,6 +134,15 @@ function asKernelReads(tool: ToolRegistration): ToolRegistration {
     // A schema zod cannot read does not load either: the tool is left to differ.
     return tool;
   }
+}
+
+/** A load of the project as the studio shows it once these are removed: what is left of it. */
+export function withoutRemoved(loaded: StudioWorkspace, removed: Removed): StudioWorkspace {
+  return {
+    ...loaded,
+    agents: loaded.agents.filter((agent) => !removed.profiles.includes(agent.identity.agentId)),
+    toolSpecs: loaded.toolSpecs.filter((tool) => !removed.tools.includes(tool.toolName)),
+  };
 }
 
 /**

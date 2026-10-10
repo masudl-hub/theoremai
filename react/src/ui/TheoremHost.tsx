@@ -31,6 +31,7 @@ import { isRow, json } from '../client/shaped-data.ts';
 import { toolCallLabel } from '../client/transcript-groups.ts';
 import type { HttpOptions } from '../client/transport.ts';
 import { useSecondTicker } from '../hooks/use-second-ticker.ts';
+import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { type TheoremHostCall, useTheoremHost } from '../hooks/use-theorem-host.ts';
 import { Arrive, Stream } from './arrive.tsx';
 import {
@@ -552,8 +553,8 @@ function HostBody({
 function HostForTransport(props: Omit<BodyProps, 'iface' | 'host'>) {
   const t = useLabels();
   const host = useTheoremHost(props.transport);
-  if (host.describeFailure) return <Banner status="error" title={host.describeFailure.error} />;
-  if (!host.iface) return <Spinner size="lg" label={t('@theorem.chat.loading')} />;
+  if (host.describeFailure) return <PaneFailure title={host.describeFailure.error} />;
+  if (!host.iface) return <PaneLoading label={t('@theorem.chat.loading')} />;
   return <HostBody {...props} iface={host.iface} host={host} />;
 }
 

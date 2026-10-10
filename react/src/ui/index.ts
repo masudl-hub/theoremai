@@ -57,6 +57,7 @@ export {
   type TheoremLabelsProviderProps,
   useLabels,
 } from './labels-provider.tsx';
+export { PaneFailure, PaneLoading, PaneState } from './PaneState.tsx';
 export { InPlace, PaneLayout, PanePanel, Prose, RaisedPane } from './SidePanel.tsx';
 export {
   DEFAULT_CHAT_MAX_WIDTH,

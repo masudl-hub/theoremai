@@ -11,6 +11,7 @@ import type { StudioWorkspace } from '../workspace.ts';
 import { sourceOrigins } from './origins.ts';
 import { type ProjectSource, readProjectSource, sharedSettings } from './project-source.ts';
 import { planNew } from './save-new.ts';
+import { planRemoved } from './save-remove.ts';
 import { applyEdits, diffHunks, planSave, type SourceEdit } from './save-plan.ts';
 import { type ProjectNames, projectDiffers, projectNames, saveSubjects } from './save.ts';
 import type {
@@ -34,7 +35,7 @@ export interface SaveHost<Loaded> {
   read(path: string): string | undefined;
   /** Writes a file, with the folders that lead to it. */
   write(path: string, text: string): void;
-  /** Takes away a file Save created. */
+  /** Takes away a file: one Save created, or one a removal left with nothing of its own. */
   remove(path: string): void;
   /** Whether the project type-checks as it is on disk, and what the checker printed. */
   typeChecks(): Promise<{ ok: boolean; output: string }>;
@@ -60,8 +61,11 @@ export interface SaveSession<Loaded> {
   undo(): Promise<SaveDone | SaveRefusal>;
 }
 
-/** A file Save changes: its text now and its text after. `created` when Save makes the file. */
-type FileChange = { before: string; after: string; created: boolean };
+/**
+ * A file Save changes: its text now and its text after. `created` when Save makes the file,
+ * `removed` when Save takes it away.
+ */
+type FileChange = { before: string; after: string; created: boolean; removed: boolean };
 type Files = Map<string, FileChange>;
 
 /** Why nothing was done, with what to show for it. */
@@ -151,24 +155,28 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     const added = planNew(source, subjects.added, (path) => host.read(path) !== undefined);
     const files: Files = new Map();
     const view: SaveReview['files'] = [];
-    const edits = [...plan.edits, ...added.edits];
-    for (const [file, held] of Map.groupBy(edits, (edit: SourceEdit) => edit.file)) {
+    const taken = planRemoved(source, subjects.removed);
+    const whole = taken.gone.map((file): SourceEdit => ({ file, start: 0, end: source.files.get(file)?.text.length ?? 0, text: '' }));
+    const edits = [...plan.edits, ...added.edits, ...taken.edits].filter((edit) => !taken.gone.includes(edit.file));
+    for (const [file, held] of Map.groupBy([...edits, ...whole], (edit: SourceEdit) => edit.file)) {
       const opened = source.files.get(file);
       const before = opened?.text ?? '';
-      files.set(file, { before, after: applyEdits(before, held), created: !opened });
-      view.push({ file: inRoot(file), hunks: diffHunks(before, held), ...(opened ? {} : { created: true }) });
+      const removed = taken.gone.includes(file);
+      files.set(file, { before, after: applyEdits(before, held), created: !opened, removed });
+      const marked = removed ? { removed: true as const } : opened ? {} : { created: true as const };
+      view.push({ file: inRoot(file), hunks: diffHunks(before, held), ...marked });
     }
-    const changes = [...subjects.changes, ...plan.changes, ...added.changes].map((change: SaveChange) =>
+    const changes = [...subjects.changes, ...plan.changes, ...added.changes, ...taken.changes].map((change: SaveChange) =>
       change.file ? { ...change, file: inRoot(change.file) } : change
     );
     const writable = files.size > 0 && changes.every((change) => change.status === 'written');
     return { files, view: { ok: true, changes, files: view, stamp: await stampOf([...files]), writable } };
   };
 
-  /** Writes each file as it was or as Save makes it. A file Save created is taken away, not emptied. */
+  /** Writes each file as it was or as Save makes it. A file that is not there on that side is taken away, not emptied. */
   const put = (files: Files, side: 'before' | 'after') => {
     for (const [file, change] of files) {
-      if (change.created && side === 'before') host.remove(file);
+      if (side === 'before' ? change.created : change.removed) host.remove(file);
       else host.write(file, change[side]);
     }
   };
@@ -221,7 +229,7 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
   const undo = async (): Promise<SaveDone | SaveRefusal> => {
     if (!lastSave) return refusal('nothing');
     const files = lastSave;
-    const moved = [...files].filter(([file, change]) => host.read(file) !== change.after);
+    const moved = [...files].filter(([file, change]) => host.read(file) !== (change.removed ? undefined : change.after));
     if (moved.length) return refusal('stale', moved.map(([file]) => inRoot(file)));
     put(files, 'before');
     const refused = await reload(() => []);

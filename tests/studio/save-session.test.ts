@@ -9,7 +9,12 @@ import {
   type SaveHost,
 } from '../../studio/server/save-session.ts';
 import type { SaveDone, SaveRefusal, SaveReview } from '../../studio/server/save-wire.ts';
-import { type StudioWorkspace, setToolAllowed, startedHere } from '../../studio/workspace.ts';
+import {
+  removeLibraryTool,
+  type StudioWorkspace,
+  setToolAllowed,
+  startedHere,
+} from '../../studio/workspace.ts';
 
 registerExample();
 const opened: StudioDescription = await (
@@ -246,10 +251,16 @@ Deno.test('a new file that fails a proof is taken away again', async () => {
 });
 
 Deno.test('a change Save cannot write turns Save off, and a workspace it cannot read is refused', async () => {
-  const { session, text } = project();
+  const { session, files, text } = project();
   const workspace = edited();
   const [agent] = workspace.agents;
   if (!agent) throw new Error('The example changed.');
+  // The file holds on to what registering the tool returns, so the studio cannot take the line out.
+  const HELD = TEXT.replace(
+    "registerTool({\n    type: 'function',\n    name: 'list_plants'",
+    "void registerTool({\n    type: 'function',\n    name: 'list_plants'",
+  );
+  files.set(SETUP, HELD);
   const removed = {
     ...workspace,
     toolSpecs: workspace.toolSpecs.filter((tool) => tool.toolName !== 'list_plants'),
@@ -258,15 +269,15 @@ Deno.test('a change Save cannot write turns Save off, and a workspace it cannot 
   assertEquals(
     review.changes
       .filter(({ status }) => status !== 'written')
-      .map(({ of, status }) => [of, status]),
-    [['list_plants', 'removed']],
+      .map(({ of, status, file }) => [of, status, file]),
+    [['list_plants', 'removed', 'example.ts']],
   );
   assertEquals(review.writable, false);
   assertEquals(
     ((await session.save({ workspace: removed, stamp: review.stamp })) as SaveRefusal).reason,
     'unwritable',
   );
-  assertEquals(text(), TEXT);
+  assertEquals(text(), HELD);
 
   const broken = {
     ...workspace,
@@ -343,4 +354,72 @@ Deno.test('Save answers its own two addresses, and leaves every other request al
     status: 200,
     body: { ok: true, written: ['example.ts'] },
   });
+});
+
+/** The example with `remove_plant`, which no agent allows, taken away. */
+function withoutRemoval(): StudioWorkspace {
+  const { workspace } = opened;
+  const removal = workspace.toolSpecs.find((tool) => tool.toolName === 'remove_plant');
+  if (!removal) throw new Error('The example changed.');
+  return removeLibraryTool(workspace, removal.key);
+}
+
+Deno.test('a tool the studio removed is taken out of the file, and undo puts it back', async () => {
+  const { session, text, state } = project();
+  const workspace = withoutRemoval();
+  const review = await reviewed(session, workspace);
+  assertEquals(
+    [review.writable, review.changes.map(({ of, status }) => [of, status])],
+    [true, [['remove_plant', 'written']]],
+  );
+  const [hunk] = review.files[0]?.hunks ?? [];
+  assertEquals([hunk?.added, hunk?.removed.at(0)], [[], '  registerTool({']);
+  assertEquals(text(), TEXT);
+
+  state.loads = startedHere(workspace);
+  assertEquals(await session.save({ workspace, stamp: review.stamp }), {
+    ok: true,
+    written: ['example.ts'],
+  });
+  assertEquals([text().includes('remove_plant'), text().includes('log_watering')], [false, true]);
+  state.loads = opened.workspace;
+  assertEquals(await session.undo(), { ok: true, written: ['example.ts'] });
+  assertEquals(text(), TEXT);
+});
+
+Deno.test('a file left with nothing of its own is taken away, and comes back on undo or a failed proof', async () => {
+  const OWN = `${ROOT}/removal.ts`;
+  const start = TEXT.indexOf("  registerTool({\n    type: 'function',\n    name: 'remove_plant'");
+  const end = TEXT.indexOf('  registerProfile(');
+  const MOVED = `import { registerTool, z } from '../../mod.ts';\n\n${TEXT.slice(start, end).trim()}\n`;
+  const SPLIT = `import './removal.ts';\n${TEXT.slice(0, start)}${TEXT.slice(end)}`;
+  const checks = { ok: false };
+  const { session, files, text, state } = project({
+    typeChecks: () => Promise.resolve({ ok: checks.ok, output: 'broken' }),
+  });
+  files.set(SETUP, SPLIT).set(OWN, MOVED);
+  const workspace = withoutRemoval();
+  const review = await reviewed(session, workspace);
+  assertEquals(
+    review.files.map(({ file, removed }) => [file, removed]),
+    [
+      ['example.ts', undefined],
+      ['removal.ts', true],
+    ],
+  );
+
+  // The project does not type-check without the file: the proof fails, and the file is back.
+  const refused = (await session.save({ workspace, stamp: review.stamp })) as SaveRefusal;
+  assertEquals([refused.reason, text(), files.get(OWN)], ['check', SPLIT, MOVED]);
+
+  checks.ok = true;
+  state.loads = startedHere(workspace);
+  assertEquals(await session.save({ workspace, stamp: review.stamp }), {
+    ok: true,
+    written: ['example.ts', 'removal.ts'],
+  });
+  assertEquals([text().includes('removal.ts'), files.has(OWN)], [false, false]);
+  state.loads = opened.workspace;
+  assertEquals(await session.undo(), { ok: true, written: ['example.ts', 'removal.ts'] });
+  assertEquals([text(), files.get(OWN)], [SPLIT, MOVED]);
 });

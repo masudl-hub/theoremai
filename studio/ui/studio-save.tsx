@@ -86,14 +86,16 @@ function reason(change: SaveChange): string {
 		case 'setup':
 			return `The studio cannot tell where ${place(change)} would register a new ${change.kind}. Add it in your code.`;
 		case 'removed':
-			return `Removed in the studio. Save does not remove a ${change.kind} from your files yet.`;
+			return change.file
+				? `The studio cannot tell how ${place(change)} registers this ${change.kind}. Remove it in your code.`
+				: `The studio could not find where your files register this ${change.kind}. Remove it in your code.`;
 		default:
 			return 'The studio could not find where your files set this.';
 	}
 }
 
 /** One run of changed lines: the lines taken out marked `-`, the lines put in marked `+`. */
-function HunkBlock({ file, hunk, isNew }: { file: string; hunk: DiffHunk; isNew: boolean }) {
+function HunkBlock({ file, hunk, whole }: { file: string; hunk: DiffHunk; whole?: string }) {
 	const lines = [
 		...hunk.lead.map((line) => `  ${line}`),
 		...hunk.removed.map((line) => `- ${line}`),
@@ -105,7 +107,7 @@ function HunkBlock({ file, hunk, isNew }: { file: string; hunk: DiffHunk; isNew:
 		<CodeBlock
 			code={lines.join('\n')}
 			language="diff"
-			title={isNew ? `New file · ${file}` : `${file}:${String(hunk.line)}`}
+			title={whole ? `${whole} · ${file}` : `${file}:${String(hunk.line)}`}
 			size="sm"
 			hasCopyButton={false}
 			highlightLines={hunk.added.map((_, index) => firstAdded + index)}
@@ -142,7 +144,7 @@ function ReviewBody({ review }: { review: SaveReview }) {
 						key={`${file.file}:${String(hunk.line)}`}
 						file={file.file}
 						hunk={hunk}
-						isNew={file.created === true}
+						whole={file.created ? 'New file' : file.removed ? 'Removed file' : undefined}
 					/>
 				)),
 			)}
@@ -222,10 +224,12 @@ export function ProjectSave({
 }) {
 	const toast = useToast();
 	const [step, setStep] = useState<SaveStep>({ at: 'closed' });
-	// An agent added here is at its own start, and still one the files do not hold.
+	// An agent added here is at its own start, and still one the files do not hold. One removed
+	// here has no start left, and is still one the files hold.
 	const clean = useMemo(
 		() =>
 			atStart(workspace) &&
+			workspace.agents.length === project.profiles.length &&
 			workspace.agents.every((agent) => project.profiles.includes(agent.identity.agentId)),
 		[workspace, project.profiles],
 	);

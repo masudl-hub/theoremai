@@ -308,6 +308,7 @@ class Planner {
     const properties = [...node.properties];
     const spread = properties.some(ts.isSpreadAssignment);
     const inserts: Array<[string, unknown]> = [];
+    const removed: ts.ObjectLiteralElementLike[] = [];
     for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
       if (same(before[key], after[key])) continue;
       const here = [...path, key];
@@ -332,12 +333,20 @@ class Planner {
       } else if (!ts.isPropertyAssignment(held)) {
         this.note('code', here, { source, node: held });
       } else if (after[key] === undefined) {
-        this.remove(held, source);
+        removed.push(held);
         this.note('written', here, { source, node: held });
       } else {
         this.walk(held.initializer, source, before[key], after[key], here);
       }
     }
+    if (inserts.length && removed.length === properties.length) {
+      // Every property goes and others come: the object is written whole, as an empty one is.
+      for (const [key] of inserts) this.note('written', [...path, key], { source, node });
+      const start = node.getStart(source);
+      this.edit(source, start, node.end, valueSource(Object.fromEntries(inserts), this.style(source, start)));
+      return;
+    }
+    for (const held of removed) this.remove(held, source);
     if (inserts.length) this.insert(node, source, inserts, path);
   }
 

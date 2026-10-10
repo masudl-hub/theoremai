@@ -1,7 +1,6 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
 import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
-import { EmptyState } from '@astryxdesign/core/EmptyState';
 import { Heading } from '@astryxdesign/core/Heading';
 import { HStack } from '@astryxdesign/core/HStack';
 import { useClipboard } from '@astryxdesign/core/hooks';
@@ -23,7 +22,6 @@ import { VStack } from '@astryxdesign/core/VStack';
 import {
 	IconActivity,
 	IconAdjustmentsHorizontal,
-	IconAlertTriangle,
 	IconArrowBarToDown,
 	IconArrowLeft,
 	IconBrowserShare,
@@ -51,6 +49,7 @@ import {
 } from '../../mod.ts';
 import {
 	InPlace,
+	PaneFailure,
 	RaisedPane,
 	type TheoremChatHandle,
 	useDisclosureMotion,
@@ -2054,8 +2053,7 @@ function CodeBody({
 	);
 	if (!seen.current) {
 		return (
-			<EmptyState
-				icon={<Icon icon={IconAlertTriangle} />}
+			<PaneFailure
 				title="No code yet"
 				description={`${blocked ?? ''} to generate the TypeScript.`}
 			/>
@@ -2207,24 +2205,15 @@ function PreviewBody({
 	const sent = useMemo(() => sentPageValues(pageInputs, pageValues), [pageInputs, pageValues]);
 	if (unserved) {
 		return (
-			<VStack height="100%" vAlign="center" padding={4}>
-				<EmptyState
-					icon={<Icon icon={IconAlertTriangle} />}
-					title={`${unserved.profile} does not run here yet`}
-					description={unserved.message}
-				/>
-			</VStack>
+			<PaneFailure
+				title={`${unserved.profile} does not run here yet`}
+				description={unserved.message}
+			/>
 		);
 	}
 	if (!payload) {
 		return (
-			<VStack height="100%" vAlign="center" padding={4}>
-				<EmptyState
-					icon={<Icon icon={IconAlertTriangle} />}
-					title="No agent yet"
-					description={`${compile.blocked ?? ''} to run the agent.`}
-				/>
-			</VStack>
+			<PaneFailure title="No agent yet" description={`${compile.blocked ?? ''} to run the agent.`} />
 		);
 	}
 	return (

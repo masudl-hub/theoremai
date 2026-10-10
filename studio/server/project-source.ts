@@ -146,7 +146,7 @@ export interface Binding {
 }
 
 /** The file of the project a relative import in `source` names. */
-function sourceOf(project: ProjectSource, source: ts.SourceFile, specifier: string): ts.SourceFile | undefined {
+export function sourceOf(project: ProjectSource, source: ts.SourceFile, specifier: string): ts.SourceFile | undefined {
   const file = importedFile(source.fileName, specifier, (path) => project.files.has(path), project.root);
   return file ? project.files.get(file) : undefined;
 }
@@ -185,7 +185,7 @@ export function namedValue(project: ProjectSource, at: Located): { origin: Locat
 }
 
 /** Whether an identifier reads a value: not a declaration's name, a property's name, an import, or a type. */
-function isRead(node: ts.Identifier): boolean {
+export function isRead(node: ts.Identifier): boolean {
   const { parent } = node;
   if (ts.isShorthandPropertyAssignment(parent)) return true;
   if (ts.isPropertyAccessExpression(parent)) return parent.expression === node;

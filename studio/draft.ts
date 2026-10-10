@@ -777,6 +777,16 @@ export function updateModelBinding(
 }
 
 /**
+ * The default model once the bindings change: the one it was while that is still a model, and the
+ * only model when one is left, as the kernel reads a profile with one model.
+ */
+function defaultAmong(current: string, modelBindings: readonly ModelBindingDraft[]): string {
+  if (modelBindings.some((binding) => binding.modelId === current)) return current;
+  const [only, ...others] = modelBindings;
+  return only && !others.length ? only.modelId : '';
+}
+
+/**
  * Drops a binding, and the default model with it when it was that one. Model select turns off
  * below two bindings, as on a type switch.
  */
@@ -788,7 +798,7 @@ export function removeModelBinding(draft: StudioDraft, bindingKey: string): Stud
     ...draft,
     models: {
       ...draft.models,
-      defaultModel: draft.models.defaultModel === binding.modelId ? '' : draft.models.defaultModel,
+      defaultModel: defaultAmong(draft.models.defaultModel, modelBindings),
       allowModelSelect: draft.models.allowModelSelect && modelBindings.length > 1,
     },
     modelBindings,
@@ -844,7 +854,6 @@ export function setProfileType(
     modelBindings: kept,
   };
   const modelBindings = kept.length ? kept : [newModelBinding(retyped)];
-  const modelIds = new Set(modelBindings.map((binding) => binding.modelId));
   const needsKey =
     !draft.models.key &&
     modelBindings.some((binding) => !binding.keySlot && binding.provider !== 'local');
@@ -853,7 +862,7 @@ export function setProfileType(
     inputs: type === 'image' ? imageInputs(draft.inputs) : draft.inputs,
     models: {
       ...draft.models,
-      defaultModel: modelIds.has(draft.models.defaultModel) ? draft.models.defaultModel : '',
+      defaultModel: defaultAmong(draft.models.defaultModel, modelBindings),
       allowModelSelect: draft.models.allowModelSelect && modelBindings.length > 1,
       key: needsKey ? DEFAULT_KEY_SLOT : draft.models.key,
     },

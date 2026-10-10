@@ -83,7 +83,7 @@ export type OpenAnswer =
  * - `unused`: a tool the studio added that no agent allows, so it was never run.
  * - `taken`: the file a new profile or tool would be written to is already there.
  * - `setup`: the studio cannot tell how the project's setup registers things, so it cannot add one.
- * - `removed`: a profile or tool the studio took away.
+ * - `removed`: a profile or tool the studio took away, registered in a way the studio cannot follow.
  */
 export type SaveStatus =
   | 'written'
@@ -137,6 +137,8 @@ export interface SaveFile {
   hunks: DiffHunk[];
   /** Save creates the file: its one hunk is the whole of it. */
   created?: true;
+  /** Save takes the file away: nothing of its own is left in it. Its one hunk is the whole of it. */
+  removed?: true;
 }
 
 /** The review before a write: every change, where it lands, and whether Save can write them all. */

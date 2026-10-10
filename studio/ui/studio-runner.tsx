@@ -1,4 +1,3 @@
-import { EmptyState } from '@astryxdesign/core/EmptyState';
 import {
 	createDecisionTransport,
 	createHostTransport,
@@ -6,7 +5,12 @@ import {
 	type TraceFeed,
 } from '../../react/src/client/index.ts';
 import { LiveRunner } from '../../react/src/live.ts';
-import { TheoremChat, TheoremDecision, TheoremHost } from '../../react/src/ui/index.ts';
+import {
+	PaneState,
+	TheoremChat,
+	TheoremDecision,
+	TheoremHost,
+} from '../../react/src/ui/index.ts';
 import {
 	createStudioHostTransport,
 	createStudioTransport,
@@ -107,7 +111,7 @@ export function StudioRunner({
 		);
 	if (mode !== 'demo' && !runtime)
 		return (
-			<EmptyState
+			<PaneState
 				title="Connect to run"
 				description="Add your provider keys or local endpoint under Keys."
 			/>
@@ -194,9 +198,19 @@ function ProjectRun({
 	// Only a chat answers with edits the files do not hold. Every other run is the files' own.
 	if (!isChat && !project.profiles.includes(payload.agentId))
 		return (
-			<EmptyState
+			<PaneState
 				title="Not in your files yet"
 				description={`${payload.agentId} is a ${type} profile, and those run from ${project.name}'s files. Save it to run it here.`}
+			/>
+		);
+	const inFiles = tested?.agents.find((agent) => agent.identity.agentId === payload.agentId);
+	const savedType = inFiles && tested?.starts.agents[inFiles.key]?.identity.profileType;
+	// The files hold it as another type, so their run of it is not the one this page would show.
+	if (!isChat && savedType && savedType !== type)
+		return (
+			<PaneState
+				title={`Save to run it as a ${type} profile`}
+				description={`${payload.agentId} is a ${savedType} profile in ${project.name}'s files, and a ${type} profile runs from the files.`}
 			/>
 		);
 	if (decision)

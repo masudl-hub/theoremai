@@ -592,8 +592,16 @@ the studio's frame. The loader and the shell's movement live in the studio
 package (`studio/ui/boot-mark.tsx`, `studio/ui/shell-motion.ts`), and the
 website mounts the same ones.
 
-Not built: editing those in the studio. Removing a profile or a tool: the
-review names it and Save does not write it. Changing a tool's schema once it
+Built: Save takes a profile or a tool the studio removed out of the files
+(`studio/server/save-remove.ts`). It cuts the statement that registers it,
+and what only that statement used: the definition when nothing else reads
+it, its import, its entry in `questions`, and a file that defined it once
+nothing imports that file. The review shows the lines, and a file that goes
+as a removed file. The same three proofs run, and undo puts every line and
+file back. When the files register it in a way the studio cannot follow, the
+review names the place and Save does not write.
+
+Not built: editing those in the studio. Changing a tool's schema once it
 is in a file: it reads as set in code, like every tool the project has.
 The project's formatter after the write. Markdown instruction files. A
 type-check for a project that is not Deno.

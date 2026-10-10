@@ -1,9 +1,7 @@
-import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Divider } from '@astryxdesign/core/Divider';
 import { HStack } from '@astryxdesign/core/HStack';
-import { Spinner } from '@astryxdesign/core/Spinner';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
@@ -14,6 +12,8 @@ import {
 } from '../../react/src/client/index.ts';
 import {
 	ChatComposerBar,
+	PaneFailure,
+	PaneLoading,
 	TheoremChat,
 	type TheoremChatHandle,
 } from '../../react/src/ui/index.ts';
@@ -164,15 +164,11 @@ function Pane({ title, children }: { title: string | undefined; children: ReactN
 
 function NotRunning({ refusal }: { refusal: SaveRefusal }) {
 	return (
-		<VStack gap={3} padding={3}>
-			<Banner
-				status="error"
-				title={NOT_RUNNING[refusal.reason] ?? 'Your edits are not running.'}
-			/>
+		<PaneFailure title={NOT_RUNNING[refusal.reason] ?? 'Your edits are not running.'}>
 			{refusal.detail.length > 0 && (
 				<CodeBlock code={refusal.detail.join('\n')} size="sm" isWrapped maxHeight={320} />
 			)}
-		</VStack>
+		</PaneFailure>
 	);
 }
 
@@ -227,11 +223,14 @@ export interface ProjectChatProps {
 	context?: unknown;
 }
 
-/** The profile as the files name it: an edit may have renamed it. */
-function savedIdOf(tested: StudioWorkspace | undefined, profileId: string): string {
+/** The agent as the files hold it: an edit may have renamed it, or made it another type. */
+function savedOf(tested: StudioWorkspace | undefined, profileId: string) {
 	const agent = tested?.agents.find((held) => held.identity.agentId === profileId);
-	return (agent && tested?.starts.agents[agent.key]?.identity.agentId) ?? profileId;
+	return agent && tested?.starts.agents[agent.key]?.identity;
 }
+
+/** The types a chat cannot talk to: the files' side of one of these has no conversation to show. */
+const NOT_A_CHAT = new Set(['decision', 'host', 'live']);
 
 /** Why a message cannot go to both sides now, when it cannot. */
 function whyNot(failed: boolean, isReady: boolean): string | undefined {
@@ -295,11 +294,7 @@ function EditedSide({
 		<Pane title="Edited (studio)">
 			{refused && <NotRunning refusal={refused} />}
 			{children}
-			{isLoading && (
-				<VStack height="100%" vAlign="center" hAlign="center">
-					<Spinner size="lg" label="Loading your edits" />
-				</VStack>
-			)}
+			{isLoading && <PaneLoading label="Loading your edits" />}
 		</Pane>
 	);
 }
@@ -310,12 +305,16 @@ function useComparison({ project, profileId, tested, note, traces }: ProjectChat
 	const pair = usePair();
 	const isBusy = pair.busy.length > 0;
 	const { answer, pending } = useEditedLoad(project, edits, isBusy);
+	const saved = savedOf(tested, profileId);
 	const ids = useMemo(
-		() => ({ saved: savedIdOf(tested, profileId), edited: profileId }),
-		[tested, profileId],
+		() => ({ saved: saved?.agentId ?? profileId, edited: profileId }),
+		[saved?.agentId, profileId],
 	);
 	const isEditing = edits !== undefined;
-	const inFiles = !isEditing || (answer?.saved ?? project.profiles).includes(ids.saved);
+	// A profile the edits made a chat is another type in the files, which a chat cannot talk to.
+	const chatsInFiles = !saved || !NOT_A_CHAT.has(saved.profileType);
+	const inFiles =
+		!isEditing || (chatsInFiles && (answer?.saved ?? project.profiles).includes(ids.saved));
 	const { snapshots, onRest } = useSnapshots(isEditing, pair.rested);
 	const stamp = answer?.ok ? answer.stamp : undefined;
 	const transports = useTransports(project, ids, stamp, { note, traces });

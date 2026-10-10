@@ -11,6 +11,7 @@ import {
   type DecisionTransport,
 } from '../client/decision-transport.ts';
 import type { HttpOptions } from '../client/transport.ts';
+import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { useTheoremDecision } from '../hooks/use-theorem-decision.ts';
 import {
   ConsoleFrame,
@@ -208,7 +209,7 @@ function DecisionAnswered({ iface, decision }: { iface: DecisionInterface; decis
     <>
       {decision.failure ? <Banner status="error" title={decision.failure.error} /> : null}
       {deciding && !decision.result ? (
-        <Spinner size="lg" label={t('@theorem.decision.deciding')} />
+        <PaneLoading label={t('@theorem.decision.deciding')} />
       ) : null}
       {decision.result ? (
         <TheoremDecisionAnswers
@@ -238,9 +239,7 @@ function decisionResponse(
   return (
     <ResponseColumn label={labels.answers} fill={waiting}>
       {waiting ? (
-        <VStack height="100%" vAlign="center" padding={4}>
-          <Spinner size="lg" label={labels.deciding} />
-        </VStack>
+        <PaneLoading label={labels.deciding} />
       ) : (
         answers
       )}
@@ -300,9 +299,8 @@ function DecisionBody({
 function DecisionForTransport(props: Omit<BodyProps, 'iface' | 'decision'>) {
   const t = useLabels();
   const decision = useTheoremDecision(props.transport);
-  if (decision.describeFailure)
-    return <Banner status="error" title={decision.describeFailure.error} />;
-  if (!decision.iface) return <Spinner size="lg" label={t('@theorem.chat.loading')} />;
+  if (decision.describeFailure) return <PaneFailure title={decision.describeFailure.error} />;
+  if (!decision.iface) return <PaneLoading label={t('@theorem.chat.loading')} />;
   return <DecisionBody {...props} iface={decision.iface} decision={decision} />;
 }
 

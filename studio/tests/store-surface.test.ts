@@ -1,7 +1,9 @@
 import { assert, assertEquals } from '@std/assert';
 import { createSurfaceRuntime } from '../../src/surface/mod.ts';
 import {
+  addAgent,
   createBlankDraft,
+  createExampleDraft,
   type StudioDraft,
   type StudioWorkspace,
   setProfileType,
@@ -12,14 +14,20 @@ import { createStudioStore } from '../ui/lib/studio-store.ts';
 
 const KEY = ['AIzaSy', 'TESTONLY0000000000000000000000000'].join('');
 
-function setup(draft: StudioDraft = setProfileType(createBlankDraft(), 'text')) {
-  const store = createStudioStore({ workspace: workspaceFromDraft(draft), revision: 0 });
+function setup(
+  draft: StudioDraft = setProfileType(createBlankDraft(), 'text'),
+  workspace: StudioWorkspace = workspaceFromDraft(draft),
+) {
+  const store = createStudioStore({ workspace, revision: 0 });
   const vault: Record<string, string> = {};
   const host: StudioSurfaceHost = {
     getDraft: store.getDraft,
     getRevision: store.getRevision,
     getMode: () => 'byok',
-    update: (next) => store.updateDraft(next, 'th30'),
+    update: (next) => {
+      store.updateDraft(next, 'th30');
+      return store.getPending() && 'The person is being asked.';
+    },
     replaceDraft: (next) => store.updateDraft(next, 'th30'),
     select: store.select,
     changesSince: (since) =>
@@ -118,4 +126,24 @@ Deno.test('a kept draft masks tool credentials and leaves plain settings as type
   assertEquals(keptOther?.headersJson, plain);
   const live = store.getDraft().toolSpecs.find((spec) => spec.key === weather.key);
   assertEquals(live?.headersJson, '{"X-Api-Key":"s3cr3theader"}');
+});
+
+Deno.test("th30's change to a tool another agent allows is not made until the person agrees", async () => {
+  sessionStorage.clear();
+  const example = createExampleDraft();
+  const { store, runtime } = setup(example, addAgent(workspaceFromDraft(example), example));
+  const [tool] = store.getDraft().toolSpecs;
+  assert(tool);
+  const set = () =>
+    runtime.answer('act', {
+      at: `studio/toolSpec:${tool.key}`,
+      action: 'set',
+      input: { changes: { description: 'By th30.' } },
+      basedOn: store.getRevision(),
+    }, 'c1') as Promise<Answer>;
+  const held = await set();
+  assertEquals(JSON.stringify(held).includes('The person is being asked.'), true);
+  assertEquals(store.getDraft().toolSpecs[0]?.description, tool.description);
+  store.confirmShared();
+  assertEquals(store.getDraft().toolSpecs[0]?.description, 'By th30.');
 });

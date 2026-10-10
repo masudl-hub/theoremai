@@ -61,8 +61,11 @@ export interface StudioSurfaceHost {
   getDraft(): StudioDraft;
   getRevision(): number;
   getMode(): StudioConnectionMode;
-  /** Replaces the draft as the agent's edit: the revision moves, and the person's undo stays. */
-  update(next: StudioDraft): void;
+  /**
+   * Replaces the draft as the agent's edit: the revision moves, and the person's undo stays.
+   * Returns what the person is being asked when the edit waits for their answer: it is not made.
+   */
+  update(next: StudioDraft): string | undefined;
   /** A whole new agent: draft, selection and conversation start over, with an Undo. */
   replaceDraft(next: StudioDraft, message: string): void;
   /** Selects a section in the editor, focusing one field when named. */
@@ -310,10 +313,14 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
     ...keyIssues(),
   ];
 
-  /** Selects a node so the person sees what the agent changed. */
-  const apply = (next: StudioDraft, nodeId?: string) => {
-    if (next !== draft()) host.update(next);
+  /**
+   * Selects a node so the person sees what the agent changed. Returns why the change is not made
+   * yet, when the person has to agree to it first.
+   */
+  const apply = (next: StudioDraft, nodeId?: string): string | undefined => {
+    const waits = next !== draft() ? host.update(next) : undefined;
     if (nodeId && studioNodeRef(draft(), nodeId)) host.select(nodeId);
+    return waits;
   };
 
   const refuse = (field: string, why: string): SurfaceActionOutcome => ({ rejected: [{ field, why }] });
@@ -547,8 +554,8 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
         description: 'Remove this tool.',
         effect: 'write',
         run: () => {
-          apply({ ...draft(), toolSpecs: draft().toolSpecs.filter((tool) => tool.key !== key) }, 'tools');
-          return { node: 'tools' };
+          const waits = apply({ ...draft(), toolSpecs: draft().toolSpecs.filter((tool) => tool.key !== key) });
+          return waits ? refuse('at', waits) : { node: 'tools' };
         },
       });
       const testTool = host.testTool;
@@ -571,7 +578,12 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
         const before = draft();
         if (!studioNodeRef(before, id)) return { rejected: [{ field: 'at', why: 'gone' }] };
         const { next, rejected } = editNode(before, id, changes);
-        apply(next, id);
+        const waits = apply(next, id);
+        if (waits) {
+          const refused = new Set(rejected.map(({ field }) => field));
+          const held = Object.keys(changes).filter((field) => !refused.has(field));
+          return { rejected: [...rejected, ...held.map((field) => ({ field, why: waits }))] };
+        }
         if (facet === 'modelBinding') {
           const binding = draft().modelBindings.find((candidate) => id === `modelBinding:${candidate.key}`);
           const violation = binding ? modelBindingViolation(binding, host.getMode()) : null;

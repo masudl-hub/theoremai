@@ -439,8 +439,13 @@ are not in the files, and a button, Review and save.
   its own, so one profile's issue does not stop the others. A profile that
   has an issue, or would change in more than this, is left as it is: the
   dialog names it and says to set the value there once it is fixed, and the
-  review names it at Save. th30 does not run in the studio on a project, so
-  its edits never meet a shared value (10 Oct, Masud).
+  review names it at Save.
+- th30 is asked about in the same dialog (10 Oct, Masud). th30 runs on the
+  website's studio, where the shared thing is a tool of the library. When
+  th30 changes or removes a tool that other agents allow, the change is held
+  (`toolReach`), the dialog names the tool and those agents, and th30 is told
+  the change is not made yet and to wait. The person's own edit to a tool is
+  not asked about: they opened the tool to change it (Claude's choice).
 - A project opens with everything its files hold (10 Oct). The schema a
   profile's replies take is read from what the project registers, and a tool
   that runs an agent is linked to that agent once every profile is read.

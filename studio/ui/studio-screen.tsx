@@ -115,6 +115,7 @@ import {
 	studioSource,
 	studioTree,
 	toolSpecKeyOf,
+	sharedAsk,
 	toolSpecNodeId,
 	type WorkspaceCompileResult,
 	type WriteAsk,
@@ -1080,7 +1081,14 @@ function studioSurfaceHost(
 		getDraft: store.getDraft,
 		getRevision: store.getRevision,
 		getMode: () => page.current.mode,
-		update: (next) => store.updateDraft(next, 'th30'),
+		update: (next) => {
+			store.updateDraft(next, 'th30');
+			const reach = store.getPending();
+			if (!reach) return undefined;
+			const ask = sharedAsk(reach, store.getWorkspace());
+			const asked = `Not made yet. The person is being asked: ${ask.title} ${ask.line}`;
+			return `${asked} Tell them, and wait for their answer: do not make this change again.`;
+		},
 		replaceDraft: (next, message) => {
 			const workspace = store.getWorkspace();
 			page.current.replaceWorkspace(

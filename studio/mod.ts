@@ -199,9 +199,11 @@ export {
 export {
   type SharedCarry,
   type SharedReach,
+  type ToolReach,
   type SharedSites,
   type SharedSnapshot,
   sharedAsk,
+  toolReach,
   sharedSnapshot,
   withSharedCarry,
 } from './shared-carry.ts';

@@ -35,6 +35,16 @@ export interface SharedReach {
   left: string[];
 }
 
+/** A change to tools of the library that other agents allow too: a tool is one thing for all of them. */
+export interface ToolReach {
+  /** The tools changed or removed, by key, and by name as they were. */
+  tools: string[];
+  names: string[];
+  /** The agent the change was made in, and the other agents that allow one of the tools, by key. */
+  from: string;
+  agents: string[];
+}
+
 export interface SharedCarry {
   workspace: StudioWorkspace;
   /** What the next change is read against. */
@@ -255,11 +265,38 @@ function listed(ids: readonly string[]): string {
   return shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown.at(-1) ?? ''}` : shown[0] ?? '';
 }
 
+/** What a change from `before` to `made`, made in the agent `from`, does to tools other agents allow. */
+export function toolReach(before: StudioWorkspace, made: StudioWorkspace, from: string): ToolReach | undefined {
+  const now = new Map(made.toolSpecs.map((tool) => [tool.key, tool]));
+  const changed = before.toolSpecs.filter((tool) => !same(now.get(tool.key), tool));
+  const keys = new Set(changed.map((tool) => tool.key));
+  const agents = before.agents
+    .filter((agent) => agent.key !== from && agent.tools.allow.some((key) => keys.has(key)))
+    .map((agent) => agent.key);
+  if (!agents.length) return undefined;
+  const used = changed.filter((tool) =>
+    before.agents.some((agent) => agent.key !== from && agent.tools.allow.includes(tool.key))
+  );
+  return { tools: used.map((tool) => tool.key), names: used.map((tool) => tool.toolName), from, agents };
+}
+
 /** What the builder is asked before a change to a shared value is made: the question, then its cause and effect. */
-export function sharedAsk(reach: SharedReach, workspace: StudioWorkspace): { title: string; line: string } {
+export function sharedAsk(
+  reach: SharedReach | ToolReach,
+  workspace: StudioWorkspace,
+): { title: string; line: string } {
   const idsOf = (keys: readonly string[]) =>
     keys.map((key) => workspace.agents.find((agent) => agent.key === key)?.identity.agentId.trim())
       .filter((id): id is string => Boolean(id));
+  if ('tools' in reach) {
+    const [ids, one] = [idsOf(reach.agents), reach.names.length === 1];
+    return {
+      title: `Change it for ${String(ids.length)} other ${ids.length === 1 ? 'profile' : 'profiles'}?`,
+      line: `${listed(reach.names)} ${one ? 'is one tool' : 'are tools'} in the library. ` +
+        `${listed(ids)} ${ids.length === 1 ? 'uses' : 'use'} ${one ? 'it' : 'them'} too, ` +
+        `and will change with ${one ? 'it' : 'them'}.`,
+    };
+  }
   const [ids, left] = [idsOf(reach.agents), idsOf(reach.left)];
   const place = `${reach.name ? `${reach.name} · ` : ''}${reach.file}:${String(reach.line)}`;
   if (!ids.length && !left.length) {

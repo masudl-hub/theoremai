@@ -11,6 +11,8 @@ import {
 	libraryDraft,
 	type SharedCarry,
 	type SharedReach,
+	type ToolReach,
+	toolReach,
 	type SharedSites,
 	type SharedSnapshot,
 	sharedSnapshot,
@@ -126,9 +128,9 @@ interface StoreState {
 	/** Each agent as it last compiled: what a change to a shared value is read against. */
 	good: SharedSnapshot | undefined;
 	/** A change to a shared value, held until the builder says to make it. */
-	pending: { carry: SharedCarry; reach: SharedReach; by: DraftAuthor } | undefined;
-	/** The shared places the builder said to change, while the same node stays open. */
-	agreed: Set<number>;
+	pending: { carry: SharedCarry; reach: SharedReach | ToolReach; by: DraftAuthor } | undefined;
+	/** The shared places and tools the builder said to change, while the same node stays open. */
+	agreed: Set<number | string>;
 	revision: number;
 	focus: string;
 	changes: DraftChange[];
@@ -212,9 +214,14 @@ function isQuiet(state: StoreState): boolean {
 	}
 }
 
+/** What agreeing to `reach` covers: the places the files write, or the tools. */
+const reachKeys = (reach: SharedReach | ToolReach): readonly (number | string)[] =>
+	'tools' in reach ? reach.tools : reach.sites;
+
 /**
- * Moves to `next`, as the visitor's or th30's change, with the move in the open node. The
- * visitor's change to a shared value is held until they say to make it: `confirmShared`.
+ * Moves to `next`, as the visitor's or th30's change, with the move in the open node. A change
+ * to a shared value is held until the person says to make it: `confirmShared`. So is th30's
+ * change to a tool other agents allow: the person did not open that tool to change it.
  */
 function updateWorkspace(
 	state: StoreState,
@@ -224,9 +231,9 @@ function updateWorkspace(
 	const made = typeof next === 'function' ? next(state.workspace) : next;
 	if (made === state.workspace) return state.workspace;
 	const carry = sharedCarry(state, made);
-	const { reach } = carry;
-	const asks = reach && by === 'visitor' && !isQuiet(state) &&
-		reach.sites.some((site) => !state.agreed.has(site));
+	const reach = carry.reach ??
+		(by === 'th30' ? toolReach(state.workspace, made, focusOf(state)) : undefined);
+	const asks = reach && !isQuiet(state) && reachKeys(reach).some((key) => !state.agreed.has(key));
 	if (reach && asks) {
 		state.pending = { carry, reach, by };
 		notifyListeners(state);
@@ -357,7 +364,7 @@ export function createStudioStore(initial: RestoredStudio, sites?: SharedSites) 
 			state.good = undefined;
 		},
 		/** What a held change to a shared value reaches. Undefined when none is held. */
-		getPending: (): SharedReach | undefined => state.pending?.reach,
+		getPending: (): SharedReach | ToolReach | undefined => state.pending?.reach,
 		/**
 		 * Makes the held change, on every agent that shares the value. The same value is not asked
 		 * about again while the same node stays open, and `quiet` stops the asking for this tab.
@@ -365,7 +372,7 @@ export function createStudioStore(initial: RestoredStudio, sites?: SharedSites) 
 		confirmShared: (quiet = false) => {
 			const { pending } = state;
 			if (!pending) return;
-			for (const site of pending.reach.sites) state.agreed.add(site);
+			for (const key of reachKeys(pending.reach)) state.agreed.add(key);
 			if (quiet) {
 				try {
 					session()?.setItem(`${state.slot}${QUIET_SUFFIX}`, '1');

@@ -77,7 +77,8 @@ Deno.test('a change to a shared value waits for the builder, then is made on eac
   store.update(capped(desk.key, 2048));
   assertEquals([store.getPending(), tokens(store.getWorkspace(), shop.key)], [undefined, 2048]);
   store.update(capped(desk.key, 512, 'smart'));
-  assertEquals(store.getPending()?.sites, [2]);
+  const next = store.getPending();
+  assertEquals(next && 'sites' in next && next.sites, [2]);
   store.cancelShared();
   assertEquals([store.getPending(), tokens(store.getWorkspace(), desk.key, 'smart')], [undefined, null]);
   // Opening another node asks again.
@@ -97,10 +98,44 @@ Deno.test('the builder can say not to be asked again in this tab', () => {
   assertEquals(tokens(store.getWorkspace(), desk.key, 'smart'), 1024);
 });
 
-Deno.test('a change that reaches no other agent, and a change by th30, are made at once', () => {
+Deno.test('a change that reaches no other agent is made at once, and one by th30 waits like any other', () => {
   const { store, desk, shop, yard } = opened();
   store.update(capped(yard.key, 4096));
   assertEquals([store.getPending(), tokens(store.getWorkspace(), yard.key)], [undefined, 4096]);
   store.update(capped(desk.key, 4096), 'th30');
-  assertEquals([store.getPending(), tokens(store.getWorkspace(), shop.key)], [undefined, 4096]);
+  assertEquals([store.getPending()?.agents, tokens(store.getWorkspace(), shop.key)], [[shop.key], null]);
+  store.confirmShared();
+  assertEquals(tokens(store.getWorkspace(), shop.key), 4096);
+});
+
+Deno.test("th30's change to a tool other agents allow waits for the person, and the visitor's does not", () => {
+  const { store, desk, shop, yard } = opened();
+  const [tool] = store.getWorkspace().toolSpecs;
+  assert(tool);
+  const described = (description: string) => (workspace: StudioWorkspace) => ({
+    ...workspace,
+    toolSpecs: workspace.toolSpecs.map((each) => (each.key === tool.key ? { ...each, description } : each)),
+  });
+  const descriptionNow = () => store.getWorkspace().toolSpecs.find((each) => each.key === tool.key)?.description;
+  store.update(described('By hand.'));
+  assertEquals([store.getPending(), descriptionNow()], [undefined, 'By hand.']);
+
+  store.update(described('By th30.'), 'th30');
+  const reach = store.getPending();
+  assert(reach && 'tools' in reach);
+  assertEquals([reach.tools, reach.agents, descriptionNow()], [[tool.key], [shop.key, yard.key], 'By hand.']);
+  assertEquals(sharedAsk(reach, store.getWorkspace()), {
+    title: 'Change it for 2 other profiles?',
+    line: `${tool.toolName} is one tool in the library. shop and yard use it too, and will change with it.`,
+  });
+  store.cancelShared();
+  assertEquals(descriptionNow(), 'By hand.');
+  store.update(described('By th30.'), 'th30');
+  store.confirmShared();
+  assertEquals([store.getPending(), descriptionNow(), desk.key === store.getFocus()], [undefined, 'By th30.', true]);
+
+  // Removing it is a change to the others too.
+  store.select(agentNodeId(shop.key));
+  store.update((workspace) => ({ ...workspace, toolSpecs: workspace.toolSpecs.slice(1) }), 'th30');
+  assertEquals(store.getPending()?.agents, [desk.key, yard.key]);
 });

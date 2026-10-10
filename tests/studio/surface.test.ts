@@ -35,7 +35,10 @@ function setup(start: StudioDraft = setProfileType(createBlankDraft(), 'text')) 
     getDraft: () => draft,
     getRevision: () => revision,
     getMode: () => 'byok',
-    update: (next) => commit(next, 'agent'),
+    update: (next) => {
+      commit(next, 'agent');
+      return undefined;
+    },
     replaceDraft: (next) => {
       seen.replaced += 1;
       commit(next, 'agent');

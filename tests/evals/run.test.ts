@@ -165,6 +165,23 @@ Deno.test('a wrong answer names the grader and the field', async () => {
   ]);
 });
 
+Deno.test("a live trial's turn runs with the stage handler the suite module exports", async () => {
+  const loaded = await loadSuite(SUITE_PATH);
+  const stages = new Set<string>();
+  const run = await runSuite(
+    {
+      ...loaded,
+      onStage: ({ stage }) => {
+        stages.add(stage);
+        return undefined;
+      },
+    },
+    { provider: fixtureHostOptions(translator()), repeat: 1 },
+  );
+  assertEquals(run.passed, true);
+  assertEquals(stages.has('before_end'), true);
+});
+
 Deno.test('a turn that fails still leaves a trace, and the trace is what gets graded', async () => {
   const loaded = await loadSuite(SUITE_PATH);
   // The stream rejects on its first read, as a dead upstream does.

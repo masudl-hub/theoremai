@@ -399,8 +399,9 @@ stopped on budget is `UNSET`, never `OK`. Failed verdicts never make the run
 `loadSuite(path)` imports the suite module, validates its `default` export
 with `evalSuiteSchema`, reads `cases` relative to the module (a bad line is
 named `file:line`; a repeated case id is a `TheoremError('config')`) and picks
-up `export const provider`, `judgeProvider`, `judgeDecision` and `media` when the module
-has them.
+up `export const provider`, `judgeProvider`, `judgeDecision`, `media` and `onStage` when the module
+has them. Every live trial's turn runs with the module's `onStage`, the stage
+handler the host's own requests carry; recorded mode ignores it.
 `readTraceRecords(path)` reads one JSONL file or every `.jsonl` file of a
 directory, in name order, through `traceRecordSchema`.
 

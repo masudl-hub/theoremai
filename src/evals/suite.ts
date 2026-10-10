@@ -4,6 +4,7 @@ import type { z } from 'zod';
 import { TheoremError } from '../guardrails/error.ts';
 import type { RunDecisionOptions } from '../kernel/engine/decision.ts';
 import type { ProviderHostOptions } from '../kernel/provider-contract.ts';
+import type { StageHandler } from '../kernel/stages.ts';
 import { isRecord } from '../kernel/util/record.ts';
 import { type TraceRecord, traceRecordSchema } from '../observability/trace-schema.ts';
 import { pinCaseFiles } from './attachments.ts';
@@ -15,7 +16,7 @@ import {
   evalSuiteSchema,
 } from './types.ts';
 
-/** A suite with its cases read, the providers and media resolver its module exports, and the module's path. */
+/** A suite with its cases read, the providers, media resolver and stage handler its module exports, and the module's path. */
 interface LoadedSuite {
   suite: EvalSuite;
   cases: EvalCase[];
@@ -23,6 +24,8 @@ interface LoadedSuite {
   judgeProvider?: ProviderHostOptions;
   judgeDecision?: Omit<RunDecisionOptions, 'sink'>;
   media?: EvalMediaResolver;
+  /** The stage handler every live trial's turn runs with, as the host's own requests do. */
+  onStage?: StageHandler;
   path: string;
 }
 
@@ -119,6 +122,7 @@ async function loadSuite(modulePath: string): Promise<LoadedSuite> {
     ...(isProvider(module.judgeProvider) ? { judgeProvider: module.judgeProvider } : {}),
     ...(isDecisionKey(module.judgeDecision) ? { judgeDecision: module.judgeDecision } : {}),
     ...(typeof module.media === 'function' ? { media: module.media as EvalMediaResolver } : {}),
+    ...(typeof module.onStage === 'function' ? { onStage: module.onStage as StageHandler } : {}),
   };
 }
 

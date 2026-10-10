@@ -2,6 +2,7 @@ import { assertEquals } from '@std/assert';
 import {
   answerOpen,
   chosenEditor,
+  defaultOpener,
   type EditorHost,
   editorCommand,
   openInEditor,
@@ -90,4 +91,49 @@ Deno.test('Open answers its own address, and refuses a body that is not a file a
     status: 200,
     body: { ok: true, editor: 'code' },
   });
+});
+
+Deno.test("when the editor does not start, the machine's default editor opens the file", () => {
+  assertEquals(defaultOpener('darwin', '/p/inputs.ts'), {
+    command: 'open',
+    args: ['-t', '/p/inputs.ts'],
+  });
+  assertEquals(defaultOpener('linux', '/p/inputs.ts'), {
+    command: 'xdg-open',
+    args: ['/p/inputs.ts'],
+  });
+  // Windows runs a script by default, so nothing is started there.
+  assertEquals(defaultOpener('windows', '/p/inputs.ts'), undefined);
+
+  // `code` is not on this machine; `open` is.
+  const started: string[][] = [];
+  const start = (command: string, args: string[]) =>
+    started.push([command, ...args]) > 0 && command === 'open';
+  const missing = machine({ os: 'darwin', start });
+  assertEquals(openInEditor(missing.host, { file: 'inputs.ts', line: 14 }), {
+    ok: true,
+    editor: 'code',
+    byDefault: true,
+  });
+  assertEquals(started, [
+    ['code', '-g', '/p/inputs.ts:14'],
+    ['open', '-t', '/p/inputs.ts'],
+  ]);
+  // An editor the studio cannot start on a line goes the same way.
+  assertEquals(
+    openInEditor(machine({ os: 'darwin', editor: 'vim' }).host, { file: 'inputs.ts' }).ok,
+    true,
+  );
+  // Still only a file the project's setup reads.
+  assertEquals(openInEditor(missing.host, { file: '../.env' }), { ok: false, reason: 'file' });
+  // Where there is no default, the answer is as before.
+  assertEquals(
+    openInEditor(machine({ os: 'windows', start: () => false }).host, { file: 'inputs.ts' }),
+    {
+      ok: false,
+      reason: 'failed',
+      editor: 'code',
+      place: '/p/inputs.ts',
+    },
+  );
 });

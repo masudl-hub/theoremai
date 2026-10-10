@@ -162,6 +162,9 @@ export function originLabel(origin: SettingOrigin): string {
 
 /** What the page says once it asked for a place in the builder's editor. */
 export function openOutcome(answer: OpenAnswer, place: string): string {
+  if (answer.ok && answer.byDefault) {
+    return `Opened in your default editor: ${place}. To open on the line, start the studio with --editor.`;
+  }
   if (answer.ok) return `Opened ${place} in ${answer.editor}.`;
   const how = 'Start the studio with --editor and the command of an editor that opens a window: code, cursor, zed.';
   switch (answer.reason) {

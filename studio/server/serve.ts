@@ -281,6 +281,7 @@ const editor: EditorHost = {
   editor: chosenEditor(flag('editor', ''), [Deno.env.get('VISUAL'), Deno.env.get('EDITOR')]),
   place: (file) => session.place(file),
   start,
+  os: Deno.build.os,
 };
 
 /**

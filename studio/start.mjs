@@ -6,7 +6,8 @@
  * It starts the project's local server (`server/serve.ts`, under Deno, with the project's own
  * permissions) and the studio's page, and stops both together. Only this machine reaches either.
  * `--editor` names the editor the studio opens a line of the project's files in; without it the
- * studio uses `$VISUAL` or `$EDITOR` when that opens a window, and `code` otherwise.
+ * studio uses `$VISUAL` or `$EDITOR` when that opens a window, and `code` otherwise. When that one
+ * does not start, the machine's default editor opens the file.
  * The studio is opt-in, so this checks for its install and never installs it.
  */
 import './installed.mjs';

@@ -456,9 +456,10 @@ a tool's schemas and handler. Under it is one line that says what sets it
 and where (`Set in code · stepsFor(PLAN) · setup.ts:34`), with "Open".
 
 - Open starts the builder's editor on that line: the one `--editor` names,
-  else `$VISUAL` or `$EDITOR` when it opens a window, else `code`. When no
-  editor starts, the studio says so and offers the path to copy. It opens
-  only files the project's setup reads.
+  else `$VISUAL` or `$EDITOR` when it opens a window, else `code`. When that
+  one does not start, the machine's default editor opens the file at the top
+  (macOS and Linux). When no editor starts, the studio says so and offers
+  the path to copy. It opens only files the project's setup reads.
 - When one place sets a whole section (`inputs: deskInputs()`), the line is
   said once, over the section, and every row in it is locked. A spread
   (`...BASE_GUARDRAILS`) is said once too, and locks only the rows the files

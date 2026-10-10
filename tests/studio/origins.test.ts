@@ -385,6 +385,7 @@ Deno.test('an Open the builder asked for says what happened, and how to name an 
   assertEquals(
     [
       said({ ok: true, editor: 'code' }),
+      said({ ok: true, editor: 'code', byDefault: true }),
       said({ ok: false, reason: 'file' }),
       said({ ok: false, reason: 'editor', editor: 'vim' }),
       said({ ok: false, reason: 'editor', editor: '' }),
@@ -393,6 +394,7 @@ Deno.test('an Open the builder asked for says what happened, and how to name an 
     ],
     [
       'Opened setup.ts:4 in code.',
+      'Opened in your default editor: setup.ts:4. To open on the line, start the studio with --editor.',
       'setup.ts:4 is not a file your setup reads now. Reload the studio.',
       `The studio cannot start vim on a line. ${how}`,
       `The studio cannot start that editor on a line. ${how}`,

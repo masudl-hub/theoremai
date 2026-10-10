@@ -64,13 +64,14 @@ export interface OpenRequest {
 }
 
 /**
- * Whether the builder's editor was started on the line.
+ * Whether the builder's editor was started on the line. `byDefault` is the machine's own default
+ * editor, started on the file when the named one did not start; it opens at the top.
  * - `file`: the project's setup does not read that file.
  * - `editor`: the studio does not know how to start the editor on a line.
  * - `failed`: the editor did not start.
  */
 export type OpenAnswer =
-  | { ok: true; editor: string }
+  | { ok: true; editor: string; byDefault?: true }
   | { ok: false; reason: 'file' | 'editor' | 'failed'; editor?: string; place?: string };
 
 /**

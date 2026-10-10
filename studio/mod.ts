@@ -207,6 +207,7 @@ export {
   sharedSnapshot,
   withSharedCarry,
 } from './shared-carry.ts';
+export { type DiffLine, lineDiff } from './line-diff.ts';
 export {
   type SharedEntry,
   sharedAt,

@@ -507,13 +507,15 @@ Built: the studio watches the files the project's setup reads, and takes in
 what the builder's editor saves as it saves.
 
 - What only the files changed is updated in the editor, and a toast says so:
-  "setup.ts changed: 2 settings updated. Your edits are kept." The builder's
+  "setup.ts changed: 2 settings updated. Studio edits are kept." The builder's
   unsaved edits stay as they are.
 - A setting changed both in the studio and in the files, to different values,
-  is a conflict. A dialog lists only those settings, the builder's value
-  beside the file's, and the builder picks one for each: "Mine" or "The
-  file's", or "Take all from files" or "Keep all mine". Nothing changes in
-  the studio until they press Apply; until then the chat runs on their edits.
+  is a conflict. A dialog lists only those settings, each as a diff: the
+  source code's value on `-` lines and the studio edit on `+` lines, in the
+  same block the Save review shows. The builder picks one for each, "Keep
+  source code" or "Keep studio edit", or all at once. "Resolve 2 conflicts"
+  puts the chosen values in the studio; the source code is written at Save.
+  Until then the chat runs on the studio edits.
 - Escape or a click outside closes the dialog without choosing. The edits
   stand, and a "1 conflict" token in the editor's header opens it again.
   The token stands where Save does: Save comes back once they have chosen. The chat pane's Save reads Choose meanwhile, and opens the same dialog.

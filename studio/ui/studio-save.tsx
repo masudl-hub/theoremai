@@ -27,11 +27,13 @@ import {
 } from 'react';
 import {
 	atStart,
+	type DiffLine,
 	removeAgent,
 	resetAgent,
 	type StudioWorkspace,
 	startedHere,
 } from '../mod.ts';
+import { DiffBlock } from './diff-block.tsx';
 import type {
 	DiffHunk,
 	SaveChange,
@@ -123,25 +125,20 @@ function reason(change: SaveChange): string {
 
 /** One run of changed lines: the lines taken out marked `-`, the lines put in marked `+`. */
 function HunkBlock({ file, hunk }: { file: SaveFile; hunk: DiffHunk }) {
-	const lines = [
-		...hunk.lead.map((line) => `  ${line}`),
-		...hunk.removed.map((line) => `- ${line}`),
-		...hunk.added.map((line) => `+ ${line}`),
-		...hunk.trail.map((line) => `  ${line}`),
-	];
-	const firstAdded = hunk.lead.length + hunk.removed.length + 1;
+	const signed = (sign: DiffLine['sign']) => (text: string) => ({ sign, text });
 	return (
-		<CodeBlock
-			code={lines.join('\n')}
-			language="diff"
+		<DiffBlock
 			title={
 				file.created || file.removed
 					? `${fileNote(file)} · ${file.file}`
 					: `${file.file}:${String(hunk.line)}`
 			}
-			size="sm"
-			hasCopyButton={false}
-			highlightLines={hunk.added.map((_, index) => firstAdded + index)}
+			lines={[
+				...hunk.lead.map(signed(' ')),
+				...hunk.removed.map(signed('-')),
+				...hunk.added.map(signed('+')),
+				...hunk.trail.map(signed(' ')),
+			]}
 		/>
 	);
 }
@@ -210,13 +207,15 @@ function ReviewBody({ review, view }: { review: SaveReview; view: ReviewView }) 
 	const { files } = review;
 	const blocked = review.changes.filter((change) => change.status !== 'written');
 	const shown = files.find((file) => file.file === picked) ?? files[0];
+	// One file reads the same either way.
+	const byFile = view === 'file' && files.length > 1;
 	return (
 		<>
 			{review.changes.length === 0 && (
 				<Text color="secondary">Nothing here changes what your files set.</Text>
 			)}
 			<BlockedChanges changes={blocked} />
-			{view === 'file'
+			{byFile
 				? shown && (
 						<VStack gap={2}>
 							<div className="save-file">
@@ -501,7 +500,8 @@ export function ProjectSave({
 									: 'Save writes all of these lines or none. It then type-checks and loads the project, and puts your files back unless it runs as what you tested.'
 							}
 							endContent={
-								step.at === 'review' && (
+								step.at === 'review' &&
+								step.review.files.length > 1 && (
 									<IconButton
 										label={flip.label}
 										variant="ghost"

@@ -198,7 +198,7 @@ function UnsavedActions({ agentId, isNew }: { agentId: string; isNew: boolean })
 				<Token
 					label="Choose"
 					color="orange"
-					description="Choose between your edits and your files, then save"
+					description="Choose between studio edits and source code, then save"
 					onClick={choose}
 				/>
 			) : (

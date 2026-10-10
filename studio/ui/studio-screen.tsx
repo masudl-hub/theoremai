@@ -1563,7 +1563,7 @@ function filesToast(files: string, updated: number, hadEdits: boolean): string |
 	if (updated === 0) return undefined;
 	const settings = updated === 1 ? '1 setting updated' : `${String(updated)} settings updated`;
 	const subject = files === 'your files' ? 'Your files' : files;
-	return `${subject} changed: ${settings}.${hadEdits ? ' Your edits are kept.' : ''}`;
+	return `${subject} changed: ${settings}.${hadEdits ? ' Studio edits are kept.' : ''}`;
 }
 
 /** Watching the project's files, for the view menu: absent with no project or a server that does not watch. */
@@ -3129,7 +3129,7 @@ function EditorColumn({
 								<Token
 									label={conflictsLabel(state.conflict.merge.conflicts.length)}
 									color="orange"
-									description="Choose between your edits and your files"
+									description="Choose between studio edits and source code"
 									onClick={() => {
 										state.showConflict(true);
 									}}

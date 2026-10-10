@@ -17,6 +17,7 @@ import { Text } from '@astryxdesign/core/Text';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { useToast } from '@astryxdesign/core/Toast';
 import { Token } from '@astryxdesign/core/Token';
+import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { TreeList, type TreeListItemData } from '@astryxdesign/core/TreeList';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
@@ -412,6 +413,36 @@ function declaredAt({ setting }: SharedEntry): string {
 }
 
 /**
+ * A shared setting's row: its name, and under it the file and line that declare it, each on one
+ * line. Hovering says the rest: its name in the code, the whole path, and whether the studio
+ * edits it.
+ */
+function SharedHead({ entry: { setting, facet } }: { entry: SharedEntry }) {
+	const line = String(setting.line);
+	return (
+		<Tooltip
+			placement="end"
+			content={
+				<VStack gap={1}>
+					<Text weight="semibold">{setting.name}</Text>
+					<Text type="supporting">{`${setting.file}:${line}`}</Text>
+					{!facet && <Text type="supporting">Changed in your code, not in the studio.</Text>}
+				</VStack>
+			}
+		>
+			<span className="studio-shared-head">
+				<Text maxLines={1} hasTruncateTooltip={false}>
+					{setting.label}
+				</Text>
+				<Text type="supporting" color="secondary" maxLines={1} hasTruncateTooltip={false}>
+					{`${setting.file.split('/').at(-1) ?? setting.file}:${line}`}
+				</Text>
+			</span>
+		</Tooltip>
+	);
+}
+
+/**
  * The settings the project's profiles share, each over the profiles and tools that use it. A row
  * opens the setting on that profile; one the studio does not edit says so, and opens the profile.
  */
@@ -459,8 +490,7 @@ function sharedItems({ workspace, shared, selectedId, onSelect }: WorkspaceTreeS
 		});
 		return {
 			id,
-			label: setting.label,
-			description: facet ? declaredAt(entry) : `${declaredAt(entry)} · edited in your code`,
+			label: <SharedHead entry={entry} />,
 			startContent: (
 				<Icon
 					icon={facet ? FACET_ICON[facet as keyof typeof FACET_ICON] : IconCode}

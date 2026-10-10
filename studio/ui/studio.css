@@ -28,6 +28,13 @@
 	position: relative;
 }
 
+/* A shared setting's row: its name over where it is declared, each cut to the row's width. */
+.studio-shared-head {
+	display: grid;
+	min-width: 0;
+	text-align: start;
+}
+
 /* Out of the row's flow, so it neither heightens the row nor narrows the label at rest. */
 .studio-tree-action {
 	position: absolute;

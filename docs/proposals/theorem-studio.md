@@ -579,6 +579,11 @@ edited side. A run that fails still shows its trace. These runs are tests
 too, so their records go to the page and not to the profile's store. A
 decision shows no trace, as in the playground.
 
+Built: a profile that sets something in code opens in the studio. A trace
+sink of the project's own, a validator or a trigger is left to the file: the
+studio shows the rest, Save does not touch it, and a run is the profile as
+the project registered it.
+
 Not built: editing those in the studio. Removing a profile or a tool: the
 review names it and Save does not write it. Changing a tool's schema once it
 is in a file: it reads as set in code, like every tool the project has.

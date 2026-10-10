@@ -7,12 +7,17 @@ import { assertEquals } from '@std/assert';
 import { z } from 'zod';
 import {
   getTraceDestination,
+  type Profile,
   registerProfile,
   registerTool,
   registerTraceDestination,
   type TraceRecord,
 } from '../../mod.ts';
-import { createStudioHandler } from '../../studio/server/handler.ts';
+import {
+  createStudioHandler,
+  printableProfile,
+  type StudioDescription,
+} from '../../studio/server/handler.ts';
 import { STUDIO_RUN_TRACES, withRunTraces } from '../../studio/server/run-traces.ts';
 
 const HOST = '127.0.0.1:4983';
@@ -50,6 +55,21 @@ registerProfile({
   tools: { allow: ['echo_note'] },
 });
 registerProfile({ type: 'host', id: 'quiet-tools', tools: { allow: ['echo_note'] } });
+/** What the sink a profile holds in code was written. */
+const inline: unknown[] = [];
+registerProfile({
+  type: 'host',
+  id: 'coded-tools',
+  observability: {
+    writeTo: {
+      write: (record) => {
+        inline.push(record);
+        return Promise.resolve();
+      },
+    },
+  },
+  tools: { allow: ['echo_note'] },
+});
 registerProfile({
   type: 'text',
   id: 'bench-chat',
@@ -146,4 +166,33 @@ Deno.test('a stream that ends in a failure sends its trace ahead of it, so the p
     .filter(Boolean)
     .map((line) => JSON.parse(line).type);
   assertEquals(types, ['stage', 'trace', 'error']);
+});
+
+Deno.test('a profile that sets something in code still opens and runs, and its code is left alone', async () => {
+  const response = await handler(new Request(BASE, { headers: { host: HOST } }));
+  const description: StudioDescription = await response.json();
+  assertEquals(description.problems, []);
+  const opened = description.workspace.agents.find(
+    (agent) => agent.identity.agentId === 'coded-tools',
+  );
+  // The editor shows it as a profile that records, which it is.
+  assertEquals(opened?.observability.writeTo, 'studio');
+  const sent = await call('coded-tools', 'one');
+  assertEquals(sent.filter((line) => line.type === 'trace').length, 1);
+  assertEquals(inline, []);
+});
+
+Deno.test('what a profile writes as code is left out of what the studio prints', () => {
+  const profile = printableProfile({
+    type: 'host',
+    id: 'coded',
+    tools: { allow: [] },
+    guardrails: { validators: { total: () => ({ ok: true }) }, detect: 'ignore' },
+  } as unknown as Profile);
+  assertEquals(profile, {
+    type: 'host',
+    id: 'coded',
+    tools: { allow: [] },
+    guardrails: { detect: 'ignore' },
+  } as unknown as Profile);
 });

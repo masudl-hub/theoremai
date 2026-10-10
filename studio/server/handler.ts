@@ -24,6 +24,7 @@ import {
 } from '../../mod.ts';
 import { type StudioAsks, studioAsks } from '../asks.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
+import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
 import { readStudioSource } from '../read-source.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import { studioSource } from '../source.ts';
@@ -125,6 +126,32 @@ export function withProviderSlots<P extends object>(
   return { ...profile, models: Object.fromEntries(models) };
 }
 
+/** A setting with what only code can say taken out, or nothing when it is code itself. */
+function plainSetting(value: unknown): unknown {
+  if (typeof value === 'function') return undefined;
+  if (Array.isArray(value)) return value.map(plainSetting).filter((item) => item !== undefined);
+  if (!isRecord(value)) return value;
+  const kept = Object.entries(value)
+    .map(([key, item]) => [key, plainSetting(item)] as const)
+    .filter(([, item]) => item !== undefined);
+  // A setting that was all code is left out whole, not shown as an empty one.
+  return kept.length || !Object.keys(value).length ? Object.fromEntries(kept) : undefined;
+}
+
+/**
+ * A profile as the studio can print it. What a file writes as code (a validator, a trigger, a
+ * trace sink of its own) cannot be shown as a setting, so it is left to the file: the editor
+ * says where it is set, Save does not touch it, and a run is still the profile as registered.
+ */
+export function printableProfile<P extends Profile>(profile: P): P {
+  const { observability } = profile;
+  // A sink of the project's own still records, so the studio shows the profile as one that does.
+  const recording = isRecord(observability?.writeTo)
+    ? { ...profile, observability: { ...observability, writeTo: STUDIO_TRACE_DESTINATION } }
+    : profile;
+  return plainSetting(recording) as P;
+}
+
 /** One registered profile as the draft the editor shows, read from the source the studio prints for it. */
 function readProfile(
   profile: Profile,
@@ -135,7 +162,7 @@ function readProfile(
     const source = studioSource({
       ...(questions ? { questions } : {}),
       agentId: profile.id,
-      profile: withProviderSlots(profile) as Parameters<typeof studioSource>[0]['profile'],
+      profile: withProviderSlots(printableProfile(profile)) as Parameters<typeof studioSource>[0]['profile'],
       customTools: [...tools],
     });
     const read = readStudioSource(source, createBlankDraft());

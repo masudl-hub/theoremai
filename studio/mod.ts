@@ -168,6 +168,7 @@ export {
   duplicateAgent,
   editedSince,
   filesPrint,
+  rebased,
   libraryDraft,
   startedHere,
   STUDIO_WORKSPACE_VERSION,

@@ -78,6 +78,7 @@ import {
 	libraryDraft,
 	editedSince,
 	readStudioSource,
+	rebased,
 	removeAgent,
 	removeLibraryTool,
 	reopened,
@@ -1647,12 +1648,16 @@ function useArrivalToast(
 	}, [toast, store]);
 }
 
-/** Says the project's files changed under the builder's edits, and offers the edits back. */
+/**
+ * Says the project's files changed under the builder's edits, and offers the edits back. The
+ * store holds the files as they are now, and the edits come back over those.
+ */
 function offerEditsBack(
 	toast: ReturnType<typeof useToast>,
 	store: StudioStore,
 	edits: StudioWorkspace,
 ) {
+	const files = store.getWorkspace();
 	const dismiss = toast({
 		body: 'Your files changed since you made your edits here, so the studio opened the files.',
 		endContent: (
@@ -1661,7 +1666,7 @@ function offerEditsBack(
 				variant="ghost"
 				size="sm"
 				onClick={() => {
-					store.update(edits);
+					store.update(rebased(edits, files));
 					dismiss();
 				}}
 			/>

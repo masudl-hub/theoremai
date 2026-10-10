@@ -535,6 +535,41 @@ export function reopened(files: StudioWorkspace, before: StudioWorkspace): Studi
 }
 
 /**
+ * The builder's edits brought back over files that changed since they were made. What the builder
+ * changed or added stays as they left it, and what they did not touch is as the files hold it
+ * now. Every start is the files', so an edit made on the old files is one the new files do not
+ * hold. A tool the builder removed stays removed; an agent they removed comes back.
+ */
+export function rebased(edits: StudioWorkspace, files: StudioWorkspace): StudioWorkspace {
+  const now = reopened(files, edits);
+  const laid = <T extends { key: string }>(
+    held: readonly T[],
+    starts: Record<string, T>,
+    inFiles: readonly T[],
+    fileStarts: Record<string, T>,
+  ) => {
+    const file = new Map(inFiles.map((each) => [each.key, each]));
+    // What stands in the studio, or stood there and was removed, is not the files' to add.
+    const known = new Set([...held.map((each) => each.key), ...Object.keys(starts)]);
+    const kept = held.map((each) => (same(each, starts[each.key]) ? file.get(each.key) ?? each : each));
+    // One the files do not hold was added here, and starts where it did.
+    const added = kept.filter((each) => !(each.key in fileStarts)).map((each) => [each.key, starts[each.key] ?? each]);
+    return {
+      held: [...kept, ...inFiles.filter((each) => !known.has(each.key))],
+      starts: { ...Object.fromEntries(added), ...fileStarts } as Record<string, T>,
+    };
+  };
+  const agents = laid(edits.agents, edits.starts.agents, now.agents, now.starts.agents);
+  const tools = laid(edits.toolSpecs, edits.starts.tools, now.toolSpecs, now.starts.tools);
+  return {
+    ...edits,
+    agents: agents.held,
+    toolSpecs: tools.held,
+    starts: { agents: agents.starts, tools: tools.starts },
+  };
+}
+
+/**
  * A project's files as the studio opened them, as a short text that stays the same until they
  * change. An agent's or a tool's key is new on every open, so each is named by where it first
  * stands. What is open and who the preview talks to are not part of it.

@@ -13,6 +13,7 @@ import {
   editedSince,
   filesPrint,
   libraryDraft,
+  rebased,
   removeAgent,
   removeLibraryTool,
   reopened,
@@ -20,6 +21,7 @@ import {
   resetAll,
   resetLibraryTool,
   type StudioWorkspace,
+  startedHere,
   withLibraryDraft,
   workspaceFromDraft,
 } from '../../studio/mod.ts';
@@ -175,6 +177,45 @@ Deno.test('a change, an added agent and a removed one are each edits the files d
   assert(!editedSince({ ...opened, selected: 'elsewhere' }, files));
   assert(editedSince(duplicateAgent(opened, architect.key), files));
   assert(editedSince(removeAgent(opened, architect.key), files));
+});
+
+Deno.test('edits brought back over changed files keep the edits and take the rest from the files', () => {
+  const system = (workspace: StudioWorkspace, key: string, text: string) => {
+    const view = libraryDraft(workspace, key);
+    assert(view);
+    return withLibraryDraft(workspace, key, {
+      ...view,
+      identity: { ...view.identity, system: text },
+    });
+  };
+  const old = createArchitectWorkspace();
+  const [architect, narrator] = old.agents;
+  const [tool] = old.toolSpecs;
+  assert(architect && narrator && tool);
+  // The builder changed one agent and added another in the studio.
+  const edits = duplicateAgent(system(old, architect.key, 'Edited in the studio.'), narrator.key);
+  // Meanwhile their editor changed the other agent and a tool.
+  const opened = createArchitectWorkspace();
+  const [, theirs] = opened.agents;
+  assert(theirs);
+  const changed = system(opened, theirs.key, 'Edited in the editor.');
+  const files = startedHere({
+    ...changed,
+    toolSpecs: changed.toolSpecs.map((each, at) =>
+      at === 0 ? { ...each, description: 'From the editor.' } : each,
+    ),
+  });
+
+  const back = rebased(edits, files);
+  const by = (id: string) => back.agents.find((agent) => agent.identity.agentId === id);
+  assertEquals(by(architect.identity.agentId)?.identity.system, 'Edited in the studio.');
+  assertEquals(by(narrator.identity.agentId)?.identity.system, 'Edited in the editor.');
+  assertEquals(back.agents.length, edits.agents.length);
+  assertEquals(back.toolSpecs[0]?.description, 'From the editor.');
+  // Only the builder's own edits are left to save: the starts are the files'.
+  assertEquals(back.starts.tools[tool.key]?.description, 'From the editor.');
+  assertEquals(back.starts.agents[narrator.key]?.identity.system, 'Edited in the editor.');
+  assertEquals(back.starts.agents[architect.key]?.identity.system, architect.identity.system);
 });
 
 Deno.test('opening the files again keeps the keys in use and brings back a removed agent', () => {

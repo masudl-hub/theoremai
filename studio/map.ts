@@ -312,11 +312,16 @@ export function mapNoteLines(node: MapNode): 1 | 2 {
   return node.kind === 'tool' || node.kind === 'shared' ? 2 : 1;
 }
 
+/** How finely a line is walked to see what it crosses, and how far apart lines going round keep. */
+const CURVE_STEPS = 24;
+const LANE_GAP = 8;
+
 /**
  * Where everything on the map goes: the columns side by side from the top, each group under its
  * heading, except a node in `moved`, which goes where it was put. A line leaves the side of a node
  * that faces the other, level with the section it joins or else with the node's head; between two
- * nodes one above the other it bows out to the right.
+ * nodes one above the other it bows out to the right, and one that would pass behind a node between
+ * its ends goes over or under what is between. The map is large enough for every line.
  */
 export function mapLayout(
   map: WorkspaceMap,
@@ -357,6 +362,28 @@ export function mapLayout(
     });
   });
 
+  /** A line that would cross a node between its ends goes round: over or under what is between. */
+  const gap = columnGap / 2;
+  let lanes = 0;
+  const between = (from: string, to: string, ax: number, bx: number) =>
+    Object.entries(nodes).filter(
+      ([id, at]) => id !== from && id !== to && at.x < Math.max(ax, bx) && at.x + node.width > Math.min(ax, bx),
+    );
+  const crosses = (a: MapPlace, b: MapPlace, ax: number, bx: number, boxes: [string, MapLayout['nodes'][string]][]) => {
+    const mid = (ax + bx) / 2;
+    for (let step = 1; step < CURVE_STEPS; step += 1) {
+      const t = step / CURVE_STEPS;
+      const u = 1 - t;
+      const x = u * u * u * ax + 3 * u * t * mid + t * t * t * bx;
+      const y = (u * u * u + 3 * u * u * t) * a.y + (3 * u * t * t + t * t * t) * b.y;
+      const hit = boxes.some(
+        ([, at]) => x > at.x && x < at.x + node.width && y > at.y - rowGap / 2 && y < at.y + at.height + rowGap / 2,
+      );
+      if (hit) return true;
+    }
+    return false;
+  };
+
   const lines = mapLinkEnds(map).flatMap(({ link, from, to }): MapLine[] => {
     const a = ports.get(link.from);
     const b = ports.get(link.to);
@@ -365,16 +392,34 @@ export function mapLayout(
     if (Math.abs(a.x - b.x) < node.width) {
       const ax = a.x + node.width;
       const bx = b.x + node.width;
-      const bow = Math.max(ax, bx) + columnGap / 2;
+      const bow = Math.max(ax, bx) + gap;
+      right = Math.max(right, bow);
       const d = `M ${ax} ${a.y} C ${bow} ${a.y}, ${bow} ${b.y}, ${bx} ${b.y}`;
       return [{ link, from, to, d, tip: { x: bx, y: b.y, heading: -1 } }];
     }
     const ahead = a.x < b.x;
+    const way = ahead ? 1 : -1;
     const ax = ahead ? a.x + node.width : a.x;
     const bx = ahead ? b.x : b.x + node.width;
+    const tip: MapLine['tip'] = { x: bx, y: b.y, heading: way };
+    const boxes = between(from, to, ax, bx);
+    if (Math.abs(bx - ax) >= 4 * gap && crosses(a, b, ax, bx, boxes)) {
+      const top = Math.min(...boxes.map(([, at]) => at.y)) - heading - rowGap - lanes * LANE_GAP;
+      const under = Math.max(...boxes.map(([, at]) => at.y + at.height)) + 2 * rowGap + lanes * LANE_GAP;
+      const mean = (a.y + b.y) / 2;
+      const lane = top >= rowGap && mean - top < under - mean ? top : under;
+      lanes += 1;
+      bottom = Math.max(bottom, lane);
+      const out = ax + way * gap;
+      const back = bx - way * gap;
+      const d =
+        `M ${ax} ${a.y} C ${out} ${a.y}, ${out} ${lane}, ${out + way * gap} ${lane} ` +
+        `L ${back - way * gap} ${lane} C ${back} ${lane}, ${back} ${b.y}, ${bx} ${b.y}`;
+      return [{ link, from, to, d, tip }];
+    }
     const mid = (ax + bx) / 2;
     const d = `M ${ax} ${a.y} C ${mid} ${a.y}, ${mid} ${b.y}, ${bx} ${b.y}`;
-    return [{ link, from, to, d, tip: { x: bx, y: b.y, heading: ahead ? 1 : -1 } }];
+    return [{ link, from, to, d, tip }];
   });
 
   const columns = Math.max(map.columns.length, 1);

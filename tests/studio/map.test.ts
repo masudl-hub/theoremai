@@ -295,3 +295,45 @@ Deno.test('a node that was moved goes where it was put, and its lines and the ma
     height: 60,
   });
 });
+
+Deno.test('the map is large enough for a line that bows out past its last node', () => {
+  const start = opened();
+  const [desk, shop] = start.agents;
+  if (!desk || !shop) throw new Error('two agents');
+  const workspace: StudioWorkspace = {
+    ...start,
+    agents: [
+      {
+        ...desk,
+        modelBindings: desk.modelBindings.map((binding) => ({ ...binding, compactWith: shop.key })),
+      },
+      shop,
+    ],
+  };
+  const placed = {
+    [agentNodeId(desk.key)]: { x: 2000, y: 100 },
+    [agentNodeId(shop.key)]: { x: 2000, y: 400 },
+  };
+  const layout = mapLayout(workspaceMap(workspace), SIZES, placed);
+  const line = layout.lines.find(({ link }) => link.kind === 'summarised');
+  assertEquals(line?.d, 'M 2200 150 C 2250 150, 2250 420, 2200 420');
+  assertEquals(layout.width, 2250 + 20);
+});
+
+Deno.test('a line that would pass behind a node between its ends goes round it', () => {
+  const workspace = opened();
+  const map = workspaceMap(workspace);
+  const find = toolSpecNodeId('find');
+  const layout = mapLayout(map, SIZES, { [find]: { x: 20, y: 60 } });
+  // The model stands between the tool and its profile, from 50 down to 90: the line goes under it.
+  assertEquals(
+    layout.lines.find(({ link }) => link.to === find)?.d,
+    'M 620 120 C 570 120, 570 110, 520 110 L 320 110 C 270 110, 270 90, 220 90',
+  );
+  // A line with nothing in its way is left as it was.
+  const price = toolSpecNodeId('price');
+  assertEquals(
+    layout.lines.find(({ link }) => link.to === price)?.d,
+    mapLayout(map, SIZES).lines.find(({ link }) => link.to === price)?.d,
+  );
+});

@@ -155,7 +155,8 @@ import {
 	readFiles,
 	useProject,
 } from './lib/studio-project.ts';
-import type { RestoredStudio } from './lib/studio-session.ts';
+import { dropAside, setAside } from './lib/studio-restore.ts';
+import { projectKey, type RestoredStudio } from './lib/studio-session.ts';
 import { createStudioStore, type StudioStore } from './lib/studio-store.ts';
 import { toolCredential } from './lib/tool-credentials.ts';
 import { useConfirmWrite } from './confirm-write.tsx';
@@ -1401,7 +1402,7 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 						store.update(reopened(workspace, before));
 						store.standOn(read.print);
 						if (stoodOn === undefined || editedSince(before, stoodOn)) {
-							offerEditsBack(toast, store, before);
+							offerEditsBack(toast, store, before, projectKey(project.name));
 						}
 					}
 					// Files that say what they said keep the reading, so nothing that runs on it starts again.
@@ -1615,10 +1616,11 @@ function useArrivalToast(
 	store: StudioStore,
 ) {
 	const toast = useToast();
-	const arrival = useRef({ displaced, discarded, inProject: project !== undefined });
+	const arrival = useRef({ displaced, discarded, name: project?.name });
 	useEffect(() => {
-		const { displaced, discarded, inProject } = arrival.current;
-		arrival.current = { displaced: undefined, discarded: false, inProject };
+		const { displaced, discarded, name } = arrival.current;
+		const inProject = name !== undefined;
+		arrival.current = { displaced: undefined, discarded: false, name };
 		if (discarded) {
 			toast({
 				body: inProject
@@ -1627,8 +1629,8 @@ function useArrivalToast(
 			});
 		}
 		if (!displaced) return;
-		if (inProject) {
-			offerEditsBack(toast, store, displaced);
+		if (name !== undefined) {
+			offerEditsBack(toast, store, displaced, projectKey(name));
 			return;
 		}
 		const dismiss = toast({
@@ -1648,30 +1650,42 @@ function useArrivalToast(
 	}, [toast, store]);
 }
 
+/** The one offer of set-aside edits a page shows. */
+const EDITS_ASIDE = 'studio-edits-aside';
+
 /**
  * Says the project's files changed under the builder's edits, and offers the edits back. The
- * store holds the files as they are now, and the edits come back over those.
+ * offer stays until the builder answers it, and the tab keeps the edits under `key` meanwhile, so
+ * a reload offers them again. They come back over whatever the studio holds then.
  */
 function offerEditsBack(
 	toast: ReturnType<typeof useToast>,
 	store: StudioStore,
 	edits: StudioWorkspace,
+	key: string,
 ) {
-	const files = store.getWorkspace();
 	const dismiss = toast({
 		body: 'Your files changed since you made your edits here, so the studio opened the files.',
+		isAutoHide: false,
+		// A later change to the files replaces the offer with the edits it set aside.
+		uniqueID: EDITS_ASIDE,
+		// Closing the offer lets the edits go.
+		onHide: () => {
+			dropAside(key);
+		},
 		endContent: (
 			<Button
 				label="Bring my edits back"
 				variant="ghost"
 				size="sm"
 				onClick={() => {
-					store.update(rebased(edits, files));
+					store.update(rebased(edits, store.getWorkspace()));
 					dismiss();
 				}}
 			/>
 		),
 	});
+	setAside(key, edits);
 }
 
 /** Which view stands in the editor column, and opening a node there. */

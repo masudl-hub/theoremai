@@ -68,7 +68,7 @@ export function keptTool(tool: ToolSpecDraft): ToolSpecDraft {
  * The workspace as kept: each tool's URLs and headers with their credentials masked, in the library
  * and in the starts a reset puts back.
  */
-function keptWorkspace(workspace: StudioWorkspace): StudioWorkspace {
+export function keptWorkspace(workspace: StudioWorkspace): StudioWorkspace {
 	return {
 		...workspace,
 		toolSpecs: workspace.toolSpecs.map(keptTool),

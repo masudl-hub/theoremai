@@ -20,7 +20,7 @@ import {
 	session,
 	WORKSPACE_KEY,
 } from './studio-session.ts';
-import { keptTool } from './studio-store.ts';
+import { keptTool, keptWorkspace } from './studio-store.ts';
 
 const V1_DRAFT_KEY = 'theorem.studio.v1';
 const V1_CHAT_KEY = 'theorem.studio.v1.chat';
@@ -167,10 +167,45 @@ function withFilesCredentials(kept: StudioWorkspace, files: StudioWorkspace): St
 	};
 }
 
+/** Where a project's set-aside edits wait for the builder's answer. */
+const asideKey = (key: string) => `${key}.aside`;
+
+/**
+ * Keeps edits the project's files changed under, masked as the tab keeps a workspace, until the
+ * builder brings them back or lets them go. A reload offers them again.
+ */
+export function setAside(key: string, edits: StudioWorkspace): void {
+	const record: StoredWorkspace = {
+		v: STUDIO_WORKSPACE_VERSION,
+		workspace: keptWorkspace(edits),
+		revision: 0,
+	};
+	try {
+		session()?.setItem(asideKey(key), JSON.stringify(record));
+	} catch {
+		// Quota or a blocked store: the offer on the page still holds the edits.
+	}
+}
+
+/** Forgets a project's set-aside edits: the builder brought them back or let them go. */
+export function dropAside(key: string): void {
+	session()?.removeItem(asideKey(key));
+}
+
+/** The edits set aside for a project and not yet answered for, over the files as `opened`. */
+export function editsAside(key: string, opened: StudioWorkspace): StudioWorkspace | undefined {
+	const store = session();
+	const kept = store ? parsed(store, asideKey(key)) : undefined;
+	if (kept === undefined) return undefined;
+	if (isStoredWorkspace(kept)) return withFilesCredentials(kept.workspace, opened);
+	dropAside(key);
+	return undefined;
+}
+
 /**
  * The edits this tab kept for a project. `restored` while the files still print as they did when
  * the edits were made. `moved` when the files changed under edits: the files open, and the edits
- * are handed back to be offered. Kept edits that cannot be read back are removed.
+ * are set aside and handed back to be offered. Kept edits that cannot be read back are removed.
  */
 export function restoreProject(
 	key: string,
@@ -198,5 +233,7 @@ export function restoreProject(
 	store.removeItem(key);
 	// With nothing edited there is nothing to offer back.
 	const isEdited = kept.files === undefined || editedSince(kept.workspace, kept.files);
-	return isEdited ? { kind: 'moved', workspace } : { kind: 'none' };
+	if (!isEdited) return { kind: 'none' };
+	setAside(key, kept.workspace);
+	return { kind: 'moved', workspace };
 }

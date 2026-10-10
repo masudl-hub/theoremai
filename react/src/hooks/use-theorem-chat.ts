@@ -12,7 +12,7 @@ import {
   removeLandedSteers,
   type TranscriptBlock,
 } from '@theoremjs/agents/interface';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { clientFailure, type TurnFailure } from '../client/failure.ts';
 import { followGenerationDefaults } from '../client/generation-selection.ts';
 import { applyTurnResultToTranscript, type StreamView } from '../client/index.ts';
@@ -43,8 +43,14 @@ export type UseTheoremChatOptions = {
    * removed. Never while a reply streams or waits on a gate.
    */
   onChange?: (snapshot: ChatSnapshot) => void;
-  /** The value chosen for each of the profile's `inputs.slots`. Sent with every turn. */
+  /**
+   * The value chosen for each of the profile's `inputs.slots`. Sent with every turn. A slot you
+   * name here is fixed to that value; one you leave out is chosen in the composer, starting at
+   * its first allowed value.
+   */
   slots?: Record<string, string>;
+  /** Told each time the visitor chooses a slot in the composer, with every slot's value. */
+  onSlotsChange?: (slots: Record<string, string>) => void;
   /** What the page wants the agent to know: any JSON. The latest value goes with every turn. */
   context?: unknown;
   /** The page's tools, by name: each answers a tool the profile declares with `answeredBy: 'page'`. */
@@ -55,6 +61,39 @@ export type UseTheoremChatOptions = {
    */
   onTurnEvent?: TurnEventSink;
 };
+
+/**
+ * The slots the profile declares and the value of each: the page's where it names one, else what
+ * the visitor chose, else the first allowed value.
+ */
+function useSlotChoices(
+  iface: ComposerProfileInterface | null,
+  fixed: Record<string, string> | undefined,
+  onSlotsChange: ((slots: Record<string, string>) => void) | undefined,
+) {
+  const [picked, setPicked] = useState<Record<string, string>>({});
+  const declared = iface?.inputs.slots;
+  const values = useMemo(() => {
+    const out: Record<string, string> = { ...fixed };
+    for (const [name, allowed] of Object.entries(declared ?? {})) {
+      const value = fixed?.[name] ?? picked[name] ?? allowed[0];
+      if (value !== undefined) out[name] = value;
+    }
+    return out;
+  }, [declared, fixed, picked]);
+  const choose = useCallback(
+    (name: string, value: string) => {
+      setPicked((prev) => ({ ...prev, [name]: value }));
+      onSlotsChange?.({ ...values, [name]: value });
+    },
+    [values, onSlotsChange],
+  );
+  const isChosen = declared !== undefined && Object.keys(declared).length > 0;
+  return {
+    values: isChosen || fixed ? values : undefined,
+    choices: isChosen ? { declared, values, onChange: choose } : undefined,
+  };
+}
 
 /** What the page sends with each turn besides the message. */
 type TurnValues = Pick<UseTheoremChatOptions, 'slots' | 'context'>;
@@ -435,10 +474,12 @@ export function useTheoremChat({
   initialText,
   onChange,
   slots,
+  onSlotsChange,
   context,
   pageTools,
   onTurnEvent,
 }: UseTheoremChatOptions) {
+  const slotState = useSlotChoices(iface, slots, onSlotsChange);
   const state = useTheoremChatState(initial, initialText);
   useDefaultGeneration(iface, state.session, state.setSession);
 
@@ -460,7 +501,12 @@ export function useTheoremChat({
 
   const runTurnStream = useRunTurnStream(iface, state);
 
-  const steerTransport = useTappedTransport(transport, state, { slots, context }, onTurnEvent);
+  const steerTransport = useTappedTransport(
+    transport,
+    state,
+    { slots: slotState.values, context },
+    onTurnEvent,
+  );
   const actions = useTheoremChatActions({
     ...state,
     iface,
@@ -563,6 +609,7 @@ export function useTheoremChat({
     handleSendNow: actions.handleSendNow,
     handleToolDecision: actions.handleToolDecision,
     handleGenerationChange,
+    slotChoices: slotState.choices,
     sendText,
   };
 }

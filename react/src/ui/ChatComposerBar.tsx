@@ -19,6 +19,7 @@ import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
+  IconAdjustmentsHorizontal,
   IconArrowDown,
   IconArrowUp,
   IconBrain,
@@ -73,6 +74,13 @@ import { VoiceNote } from './VoiceNote.tsx';
 
 const NO_FOCUS_RING = { '--focus-outline-width': '0px' } as React.CSSProperties;
 
+/** A slot the profile declares: its allowed values, the one chosen, and how to choose another. */
+export type SlotChoices = {
+  declared: Readonly<Record<string, readonly string[]>>;
+  values: Readonly<Record<string, string>>;
+  onChange: (name: string, value: string) => void;
+};
+
 export type ChatComposerBarProps = {
   iface: ComposerProfileInterface;
   draftText: string;
@@ -97,6 +105,8 @@ export type ChatComposerBarProps = {
   onStop: () => void;
   onMenuAction: (action: ComposerMenuAction) => void;
   onGenerationChange: (next: { modelId: string; effort?: string }) => void;
+  /** The profile's `inputs.slots` with the value chosen for each; one selector per slot, beside the model's. */
+  slotChoices?: SlotChoices;
   onPendingMove: (id: string, direction: 'up' | 'down') => void;
   onPendingRemove: (id: string) => void;
   onPendingQueue: (id: string) => void;
@@ -292,15 +302,37 @@ function EffortSelector(props: {
   );
 }
 
+function SlotSelectors(props: { choices?: SlotChoices; isDisabled: boolean }) {
+  if (!props.choices) return null;
+  const { declared, values, onChange } = props.choices;
+  return Object.entries(declared).map(([name, allowed]) => (
+    <Selector
+      key={name}
+      label={name}
+      isLabelHidden
+      size="sm"
+      variant="ghost"
+      startIcon={<IconAdjustmentsHorizontal size={14} />}
+      placement="above"
+      isDisabled={props.isDisabled}
+      value={values[name] ?? ''}
+      options={allowed.map((value) => ({ value, label: value }))}
+      onChange={(value) => onChange(name, value)}
+    />
+  ));
+}
+
 function GenerationSelect(props: {
   iface: ComposerProfileInterface;
+  slotChoices?: SlotChoices;
   selectedModel?: string;
   selectedEffort?: string;
   isDisabled: boolean;
   onChange: ChatComposerBarProps['onGenerationChange'];
 }) {
   const { models, efforts } = generationOptions(props.iface, props.selectedModel);
-  if (models.length + efforts.length === 0) return null;
+  const slotCount = Object.keys(props.slotChoices?.declared ?? {}).length;
+  if (models.length + efforts.length + slotCount === 0) return null;
   return (
     <HStack gap={1}>
       <ModelSelector
@@ -317,6 +349,7 @@ function GenerationSelect(props: {
           if (props.selectedModel) props.onChange({ modelId: props.selectedModel, effort });
         }}
       />
+      <SlotSelectors choices={props.slotChoices} isDisabled={props.isDisabled} />
     </HStack>
   );
 }
@@ -739,6 +772,7 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
       footerActions={
         <GenerationSelect
           iface={iface}
+          slotChoices={props.slotChoices}
           selectedModel={props.selectedModel}
           selectedEffort={props.selectedEffort}
           isDisabled={phase === 'streaming'}

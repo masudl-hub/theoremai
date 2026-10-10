@@ -65,8 +65,14 @@ export type TheoremChatProps = {
    * A fence with a language is never changed. Off by default.
    */
   detectCodeLanguage?: boolean;
-  /** The value chosen for each of the profile's `inputs.slots`, sent with every turn. */
+  /**
+   * The value chosen for each of the profile's `inputs.slots`, sent with every turn. A slot you
+   * name is fixed to that value; one you leave out gets a selector in the composer bar, beside
+   * the model's, starting at its first allowed value.
+   */
   slots?: Record<string, string>;
+  /** Told each time the visitor chooses a slot in the composer, with every slot's value. */
+  onSlotsChange?: (slots: Record<string, string>) => void;
   /**
    * What the page wants the agent to know: any JSON. The latest value goes with every
    * turn, and the profile's `inputs.context.from` must list `client`.
@@ -248,6 +254,7 @@ function ChatComposerForChat({
       onStop={chat.handleStop}
       onMenuAction={chat.handleMenuAction}
       onGenerationChange={chat.handleGenerationChange}
+      slotChoices={chat.slotChoices}
       onPendingMove={(id, direction) => {
         chat.setPendingMessages((prev) => moveComposerPendingWithinKind(prev, id, direction));
       }}
@@ -284,6 +291,7 @@ function ChatBody({
   chatRef,
   composer: hasComposer = true,
   slots,
+  onSlotsChange,
   context,
   pageTools,
   onTurnEvent,
@@ -296,6 +304,7 @@ function ChatBody({
     initialText,
     onChange: onChatChange,
     slots,
+    onSlotsChange,
     context,
     pageTools,
     onTurnEvent,

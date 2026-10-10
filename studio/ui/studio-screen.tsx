@@ -137,6 +137,7 @@ import {
 } from './inspector-context.ts';
 import { exportFiles, exportText, llmBrief } from './lib/export-agent.ts';
 import { FACET_ICON } from './lib/facet-icons.ts';
+import { movePanel } from './lib/panel-motion.ts';
 import {
 	clearConversation,
 	restoreConversation,
@@ -174,18 +175,6 @@ import {
 	StudioKeys,
 	useStudioConnection,
 } from './studio-connection.tsx';
-import {
-	enterShell,
-	frameShape,
-	HOLD_MS,
-	holdShell,
-	moveShell,
-	REGULAR_SHAPE,
-	type ShellShape,
-	settleShell,
-	shellCanMove,
-	sleep,
-} from './shell-motion.ts';
 import { StudioMap } from './studio-map.tsx';
 import { StudioRunner } from './studio-runner.tsx';
 import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
@@ -204,6 +193,7 @@ import {
 	useState,
 	useSyncExternalStore,
 } from 'react';
+import { flushSync } from 'react-dom';
 import { StudioCode } from './code/studio-code.tsx';
 import { STUDIO_EXAMPLES } from './lib/studio-examples.ts';
 import { zipFiles } from './lib/zip.ts';
@@ -1719,34 +1709,28 @@ function offerEditsBack(
 function useEditorView(store: StudioStore) {
 	const [keysOpen, setKeysOpen] = useState(false);
 	const [editorView, setView] = useState<EditorViewName>('editor');
+	/** The view asked for last, the view on screen, and the changes still to make, one at a time. */
+	const wanted = useRef<EditorViewName>('editor');
 	const shown = useRef<EditorViewName>('editor');
-	/** The shell's shape before the map opened: where it draws back to. */
-	const panel = useRef<ShellShape | null>(null);
+	const changes = useRef(Promise.resolve());
 	const setEditorView = useCallback((next: EditorViewName) => {
-		const from = shown.current;
-		shown.current = next;
-		const opens = next === 'map' && from !== 'map';
-		const closes = from === 'map' && next !== 'map';
-		if ((!opens && !closes) || !shellCanMove()) {
-			if (closes) panel.current = null;
-			setView(next);
-			return;
-		}
-		const before = opens ? frameShape() : REGULAR_SHAPE;
-		if (opens) panel.current = before;
-		holdShell();
-		void sleep(HOLD_MS).then(async () => {
-			// Overtaken while fading: the later change moves the shell.
-			if (shown.current !== next) return;
-			// The shell holds its shape as a clip, so the panel changing width under it is not seen.
-			enterShell(before);
-			setView(next);
-			const back = panel.current;
-			if (closes) panel.current = null;
-			// A map that opened without moving left no shape; measure the panel once it has drawn back.
-			if (closes && !back) await sleep(32);
-			const to = opens ? REGULAR_SHAPE : (back ?? frameShape());
-			if (await moveShell(before, to)) settleShell(opens ? frameShape() : to);
+		wanted.current = next;
+		changes.current = changes.current.then(async () => {
+			// Only the last view asked for is worth moving to.
+			const to = wanted.current;
+			const from = shown.current;
+			if (to === from) return;
+			shown.current = to;
+			if ((to === 'map') === (from === 'map')) {
+				setView(to);
+				return;
+			}
+			// The map takes the frame and gives it back; the tree beside it never leaves.
+			await movePanel(to === 'map', () => {
+				flushSync(() => {
+					setView(to);
+				});
+			});
 		});
 	}, []);
 	/** Opens a node from the tree or the editor, closing whatever stood over it. */
@@ -2809,7 +2793,9 @@ function SidePanel({
 								setSheet={setSheet}
 							/>
 						</StackItem>
-						<StackItem size="fill">{children}</StackItem>
+						<StackItem size="fill" className="studio-view">
+							{children}
+						</StackItem>
 					</HStack>
 				</Section>
 			</LayoutPanel>

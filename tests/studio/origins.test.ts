@@ -96,15 +96,18 @@ Deno.test('each setting the files set in code is read once, at the key that hold
 
 Deno.test('a constant other code reads too is open, and its place names each line that reads it', () => {
   const sites = sourceOrigins(project(FILES)).sites?.profiles.desk ?? [];
-  assertEquals(sites.find((site) => site.name === 'LIMITS'), {
-    path: ['guardrails', 'quota'],
-    site: 2,
-    shared: false,
-    name: 'LIMITS',
-    file: '/project/shared.ts',
-    line: 4,
-    readBy: [{ file: '/project/shared.ts', line: 5 }],
-  });
+  assertEquals(
+    sites.find((site) => site.name === 'LIMITS'),
+    {
+      path: ['guardrails', 'quota'],
+      site: 2,
+      shared: false,
+      name: 'LIMITS',
+      file: '/project/shared.ts',
+      line: 4,
+      readBy: [{ file: '/project/shared.ts', line: 5 }],
+    },
+  );
   const held = `import { defineProfile } from '@theoremjs/agents';
 const DESK = 'desk';
 defineProfile({ type: 'text', id: DESK });

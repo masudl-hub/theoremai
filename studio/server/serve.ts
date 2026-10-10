@@ -319,15 +319,18 @@ function watching(request: Request): Response | undefined {
   return feed ? feed.subscribe(cors) : new Response(null, { status: 204, headers: cors });
 }
 
-Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
-  if (isForeign(request, gate)) return json(403, {}, {});
-  const subscribed = watching(request);
-  if (subscribed) return subscribed;
+/** What the studio answers itself: the project as it opens, a save, or the builder's editor on a line. */
+async function answered(request: Request): Promise<Response | undefined> {
   const answer = (await opened(request)) ?? (await answerSave(session, SAVE, request)) ??
     (await answerOpen(editor, OPEN, request));
-  if (!answer) return (await answerEdited(request)) ?? forward(request);
+  if (!answer) return undefined;
   const cors = corsHeaders(request, pageOrigins);
   return 'workspace' in answer ? json(200, answer, cors) : json(answer.status, answer.body, cors);
+}
+
+Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
+  if (isForeign(request, gate)) return json(403, {}, {});
+  return watching(request) ?? (await answered(request)) ?? (await answerEdited(request)) ?? forward(request);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

@@ -379,6 +379,21 @@ export function startedHere(workspace: StudioWorkspace): StudioWorkspace {
   };
 }
 
+/** Something that holds keys: a set, or a map by key. */
+type Has = { has(key: string): boolean };
+
+/** `start` under `agentId`, allowing the tools that are held and compacting with an agent that is here. */
+function fitted(start: AgentDraft, agentId: string, held: Has, here: Has): AgentDraft {
+  return {
+    ...start,
+    identity: { ...start.identity, agentId },
+    tools: { ...start.tools, allow: start.tools.allow.filter((toolKey) => held.has(toolKey)) },
+    modelBindings: start.modelBindings.map((binding) =>
+      binding.compactWith && !here.has(binding.compactWith) ? { ...binding, compactWith: undefined } : binding
+    ),
+  };
+}
+
 /**
  * Puts one agent back to its start: its own settings and the tools it allowed. The tools keep
  * their edits, since other agents share them; one that left the library comes back as it started.
@@ -405,14 +420,7 @@ export function resetAgent(workspace: StudioWorkspace, key: string): StudioWorks
   const held = new Set(toolSpecs.map((tool) => tool.key));
   const id = start.identity.agentId;
   const others = workspace.agents.filter((agent) => agent.key !== key).map((agent) => agent.identity.agentId);
-  const agent: AgentDraft = {
-    ...start,
-    identity: { ...start.identity, agentId: id && freeName(id, others, (n) => `${id}_${n}`) },
-    tools: { ...start.tools, allow: start.tools.allow.filter((toolKey) => held.has(toolKey)) },
-    modelBindings: start.modelBindings.map((binding) =>
-      binding.compactWith && !here.has(binding.compactWith) ? { ...binding, compactWith: undefined } : binding
-    ),
-  };
+  const agent = fitted(start, id && freeName(id, others, (n) => `${id}_${n}`), held, here);
   if (back.length === 0 && same(agent, now)) return workspace;
   const next = { ...workspace, agents: mapAgent(workspace, key, () => agent), toolSpecs };
   return workspaceNodeRef(next, next.selected) ? next : { ...next, selected: agentNodeId(key) };
@@ -449,14 +457,7 @@ export function resetAll(workspace: StudioWorkspace): StudioWorkspace {
     const id = start.identity.agentId;
     const agentId = id && freeName(id, ids, (n) => `${id}_${n}`);
     ids.push(agentId);
-    return {
-      ...start,
-      identity: { ...start.identity, agentId },
-      tools: { ...start.tools, allow: start.tools.allow.filter((toolKey) => library.has(toolKey)) },
-      modelBindings: start.modelBindings.map((binding) =>
-        binding.compactWith && !here.has(binding.compactWith) ? { ...binding, compactWith: undefined } : binding
-      ),
-    };
+    return fitted(start, agentId, library, here);
   });
   if (same(agents, workspace.agents) && same(toolSpecs, workspace.toolSpecs)) return workspace;
   const next = { ...workspace, agents, toolSpecs };

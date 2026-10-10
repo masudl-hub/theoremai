@@ -174,20 +174,29 @@ function followable(name: string, source: ts.SourceFile, fn: ts.FunctionLikeDecl
   };
 }
 
+/** Each top-level `const` of a file that is set to something, by its name. */
+function constsOf(source: ts.SourceFile): Array<{ name: string; initializer: ts.Expression }> {
+  return source.statements
+    .filter((statement): statement is ts.VariableStatement =>
+      ts.isVariableStatement(statement) && Boolean(statement.declarationList.flags & ts.NodeFlags.Const)
+    )
+    .flatMap((statement) => [...statement.declarationList.declarations])
+    .flatMap(({ name, initializer }) => (initializer && ts.isIdentifier(name) ? [{ name: name.text, initializer }] : []));
+}
+
+const isFunctionValue = (node: ts.Expression): node is ts.ArrowFunction | ts.FunctionExpression =>
+  ts.isArrowFunction(node) || ts.isFunctionExpression(node);
+
 /** Each top-level function of a file: a declaration, or a `const` set to one. */
 function functionsOf(source: ts.SourceFile): Array<{ name: string; fn: ts.FunctionLikeDeclaration }> {
-  const found: Array<{ name: string; fn: ts.FunctionLikeDeclaration }> = [];
-  for (const statement of source.statements) {
-    if (ts.isFunctionDeclaration(statement) && statement.name) found.push({ name: statement.name.text, fn: statement });
-    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
-    for (const { name, initializer } of statement.declarationList.declarations) {
-      const value = initializer && unwrapped(initializer);
-      if (value && ts.isIdentifier(name) && (ts.isArrowFunction(value) || ts.isFunctionExpression(value))) {
-        found.push({ name: name.text, fn: value });
-      }
-    }
-  }
-  return found;
+  const declared = source.statements
+    .filter((statement): statement is ts.FunctionDeclaration => ts.isFunctionDeclaration(statement))
+    .flatMap((fn) => (fn.name ? [{ name: fn.name.text, fn }] : []));
+  const held = constsOf(source).flatMap(({ name, initializer }) => {
+    const value = unwrapped(initializer);
+    return isFunctionValue(value) ? [{ name, fn: value }] : [];
+  });
+  return [...declared, ...held];
 }
 
 /** The function a name in `source` calls: one declared there, or one a relative import brings in. */
@@ -221,7 +230,7 @@ function calledValue(project: ProjectSource, call: ts.CallExpression, at: Locate
 }
 
 /** A provider's `model(apiId, settings)`: it returns the settings with the provider's id and the API id. */
-export function isModelCall(node: ts.Node): node is ts.CallExpression {
+function isModelCall(node: ts.Node): node is ts.CallExpression {
   return ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
     node.expression.name.text === 'model' && (node.arguments.length === 1 || node.arguments.length === 2) &&
     !node.arguments.some(ts.isSpreadElement);
@@ -348,57 +357,74 @@ function isWritten(node: ts.Expression): boolean {
     node.kind === ts.SyntaxKind.FalseKeyword || isModelCall(node);
 }
 
+type Stepped = Located | typeof MISSING;
+
+/** A key read off an object: what the object holds there. */
+function stepAccess(project: ProjectSource, node: ts.PropertyAccessExpression, here: Located, depth: number): Stepped {
+  const owner = step(project, { ...here, node: node.expression }, depth + 1);
+  const shape = owner === MISSING ? undefined : shapeOf(project, owner, depth + 1);
+  if (!shape) return here;
+  const held = shape.entries.get(node.name.text);
+  if (shape.open && !(held && shape.open.after.has(held.key))) return here;
+  if (!held) return MISSING;
+  return held.value ? step(project, held.value, depth + 1) : here;
+}
+
+/** A name: the argument a followed function was called with, or the `const` it names. */
+function stepName(project: ProjectSource, node: ts.Identifier, here: Located, depth: number): Stepped {
+  if (here.env?.bound.has(node.text)) {
+    const argument = here.env.bound.get(node.text);
+    return argument ? step(project, argument, depth + 1) : MISSING;
+  }
+  const binding = bindingOf(project, here.source, node.text);
+  return binding ? step(project, { node: binding.initializer, source: binding.source }, depth + 1) : here;
+}
+
+/** Whether a followed condition is written out as true or false. Undefined when the files do not say. */
+function truthOf(when: Stepped): boolean | undefined {
+  if (when === MISSING) return false;
+  if (when.node.kind === ts.SyntaxKind.TrueKeyword) return true;
+  return when.node.kind === ts.SyntaxKind.FalseKeyword ? false : undefined;
+}
+
+/** A condition the files write out as true or false picks its side. */
+function stepCondition(project: ProjectSource, node: ts.ConditionalExpression, here: Located, depth: number): Stepped {
+  const truth = truthOf(step(project, { ...here, node: node.condition }, depth + 1));
+  if (truth === undefined) return here;
+  return step(project, { ...here, node: truth ? node.whenTrue : node.whenFalse }, depth + 1);
+}
+
+/** `left ?? right`: the right when the left is not there, the left when it is written out. */
+function stepFallback(project: ProjectSource, node: ts.BinaryExpression, here: Located, depth: number): Stepped {
+  const left = step(project, { ...here, node: node.left }, depth + 1);
+  if (left === MISSING) return step(project, { ...here, node: node.right }, depth + 1);
+  return isWritten(left.node) ? left : here;
+}
+
+/** A copy of one list is that list. */
+function stepCopy(project: ProjectSource, node: ts.ArrayLiteralExpression, here: Located, depth: number): Stepped {
+  const [only] = node.elements;
+  if (node.elements.length !== 1 || !only || !ts.isSpreadElement(only)) return here;
+  const copied = step(project, { ...here, node: only.expression }, depth + 1);
+  return copied !== MISSING && ts.isArrayLiteralExpression(copied.node) ? copied : here;
+}
+
 /** One expression followed as far as the files say what it is, or `MISSING` when they say it is not there. */
-function step(project: ProjectSource, at: Located, depth: number): Located | typeof MISSING {
+function step(project: ProjectSource, at: Located, depth: number): Stepped {
   const node = unwrapped(at.node);
   const here: Located = { ...at, node };
   if (depth > MAX_DEPTH) return here;
-  const inside = (inner: ts.Expression): Located => ({ node: inner, source: at.source, env: at.env });
-  if (ts.isPropertyAccessExpression(node)) {
-    const owner = step(project, inside(node.expression), depth + 1);
-    const shape = owner === MISSING ? undefined : shapeOf(project, owner, depth + 1);
-    if (!shape) return here;
-    const held = shape.entries.get(node.name.text);
-    if (shape.open && !(held && shape.open.after.has(held.key))) return here;
-    if (!held) return MISSING;
-    return held.value ? step(project, held.value, depth + 1) : here;
-  }
-  if (ts.isIdentifier(node)) {
-    if (at.env?.bound.has(node.text)) {
-      const argument = at.env.bound.get(node.text);
-      return argument ? step(project, argument, depth + 1) : MISSING;
-    }
-    const binding = bindingOf(project, at.source, node.text);
-    return binding ? step(project, { node: binding.initializer, source: binding.source }, depth + 1) : here;
-  }
+  if (ts.isPropertyAccessExpression(node)) return stepAccess(project, node, here, depth);
+  if (ts.isIdentifier(node)) return stepName(project, node, here, depth);
   if (ts.isCallExpression(node)) {
     const seen = seenThrough(project, node, at);
     return seen ? step(project, seen, depth + 1) : here;
   }
-  if (ts.isConditionalExpression(node)) {
-    // A condition the files write out as true or false picks its side.
-    const when = step(project, inside(node.condition), depth + 1);
-    const truth = when === MISSING
-      ? false
-      : when.node.kind === ts.SyntaxKind.TrueKeyword
-      ? true
-      : when.node.kind === ts.SyntaxKind.FalseKeyword
-      ? false
-      : undefined;
-    return truth === undefined ? here : step(project, inside(truth ? node.whenTrue : node.whenFalse), depth + 1);
-  }
+  if (ts.isConditionalExpression(node)) return stepCondition(project, node, here, depth);
   if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
-    const left = step(project, inside(node.left), depth + 1);
-    if (left === MISSING) return step(project, inside(node.right), depth + 1);
-    return isWritten(left.node) ? left : here;
+    return stepFallback(project, node, here, depth);
   }
-  const [only] = ts.isArrayLiteralExpression(node) ? node.elements : [];
-  if (ts.isArrayLiteralExpression(node) && node.elements.length === 1 && only && ts.isSpreadElement(only)) {
-    // A copy of one list is that list.
-    const copied = step(project, inside(only.expression), depth + 1);
-    return copied !== MISSING && ts.isArrayLiteralExpression(copied.node) ? copied : here;
-  }
-  return here;
+  return ts.isArrayLiteralExpression(node) ? stepCopy(project, node, here, depth) : here;
 }
 
 /**
@@ -447,14 +473,8 @@ export function holderOf(at: Located): Binding | undefined {
     const value = returned(fn);
     return value && holds(value) ? { name, source: at.source, initializer: value, returns: true } : undefined;
   }
-  for (const statement of at.source.statements) {
-    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
-    for (const { name, initializer } of statement.declarationList.declarations) {
-      if (!initializer || !ts.isIdentifier(name)) continue;
-      if (holds(initializer)) return { name: name.text, source: at.source, initializer };
-    }
-  }
-  return undefined;
+  const held = constsOf(at.source).find(({ initializer }) => holds(initializer));
+  return held && { ...held, source: at.source };
 }
 
 /**
@@ -641,17 +661,9 @@ export function usersOf(project: ProjectSource, binding: Binding): ConstantUsers
 
 /** Each top-level `const` of a file that is set to a value, not a function. */
 function constantsOf(source: ts.SourceFile): Binding[] {
-  const found: Binding[] = [];
-  for (const statement of source.statements) {
-    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
-    for (const { name, initializer } of statement.declarationList.declarations) {
-      if (!initializer || !ts.isIdentifier(name)) continue;
-      const value = unwrapped(initializer);
-      if (ts.isArrowFunction(value) || ts.isFunctionExpression(value)) continue;
-      found.push({ name: name.text, source, initializer });
-    }
-  }
-  return found;
+  return constsOf(source)
+    .filter(({ initializer }) => !isFunctionValue(unwrapped(initializer)))
+    .map((held) => ({ ...held, source }));
 }
 
 /** `STANDARD_GUARDRAILS` and `standardGuardrails` as "Standard guardrails". */

@@ -16,25 +16,28 @@ export interface DiffLine {
  */
 export function lineDiff(was: string, now: string): DiffLine[] {
   const [a, b] = [was.split('\n'), now.split('\n')];
-  // The longest run of lines both hold, from each place to the end.
-  const held = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  // The longest run of lines both hold, from each place to the end, row after row.
+  const width = b.length + 1;
+  const held = new Array<number>((a.length + 1) * width).fill(0);
+  const run = (i: number, j: number) => held[i * width + j] ?? 0;
   for (let i = a.length - 1; i >= 0; i -= 1) {
     for (let j = b.length - 1; j >= 0; j -= 1) {
-      held[i]![j] = a[i] === b[j] ? held[i + 1]![j + 1]! + 1 : Math.max(held[i + 1]![j]!, held[i]![j + 1]!);
+      held[i * width + j] = a[i] === b[j] ? run(i + 1, j + 1) + 1 : Math.max(run(i + 1, j), run(i, j + 1));
     }
   }
   const lines: DiffLine[] = [];
   let [i, j] = [0, 0];
   while (i < a.length || j < b.length) {
-    if (i < a.length && j < b.length && a[i] === b[j]) {
-      lines.push({ sign: ' ', text: a[i]! });
+    const [out, put] = [a[i], b[j]];
+    if (out !== undefined && out === put) {
+      lines.push({ sign: ' ', text: out });
       i += 1;
       j += 1;
-    } else if (i < a.length && (j === b.length || held[i + 1]![j]! >= held[i]![j + 1]!)) {
-      lines.push({ sign: '-', text: a[i]! });
+    } else if (out !== undefined && (put === undefined || run(i + 1, j) >= run(i, j + 1))) {
+      lines.push({ sign: '-', text: out });
       i += 1;
     } else {
-      lines.push({ sign: '+', text: b[j]! });
+      lines.push({ sign: '+', text: put ?? '' });
       j += 1;
     }
   }

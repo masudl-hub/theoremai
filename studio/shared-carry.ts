@@ -194,93 +194,157 @@ function withOwed(agent: AgentDraft, owed: Owed, was: AgentDraft, now: AgentDraf
   return modelBindings === agent.modelBindings ? agent : { ...agent, modelBindings };
 }
 
+/** The agents or the tools a change is carried among, and how each is read and changed. */
+interface CarryAmong<D extends { key: string }> {
+  /** Each of them as edited. */
+  made: readonly D[];
+  /** One's draft when it last compiled, and what it compiled to. */
+  goodOf(key: string): { draft: D; value: unknown } | undefined;
+  /** What each compiles to now. Nothing for one that does not compile. */
+  now: ReadonlyMap<string, unknown>;
+  /** Where the files write one's settings. */
+  sitesOf(key: string): readonly SettingSite[];
+  /** `draft` with one owed change, as the edited one made it. Undefined when it cannot take it. */
+  withOwed(draft: D, owed: Owed, was: D, now: D): D | undefined;
+  /** What each compiles to with `drafts` in place of the edited ones. */
+  compiledWith(drafts: readonly D[]): (key: string) => unknown;
+}
+
+/** One change to a shared value: the place that writes it, the path below that place, and who made it. */
+interface SharedEdit {
+  site: SettingSite;
+  rest: Path;
+  value: unknown;
+  from: string;
+  fromPath: Path;
+}
+
+/** Each place `other` holds the value `edit` changed and does not hold the change yet. */
+function owedOn<D extends { key: string }>(among: CarryAmong<D>, other: D, edit: SharedEdit): Owed[] {
+  const sites = among.sitesOf(other.key);
+  const held = among.now.get(other.key);
+  return sites
+    .filter((place) => place.site === edit.site.site)
+    .map((place) => [...place.path, ...edit.rest])
+    // What the other sets apart inside the shared value is its own.
+    .filter((target) => writerOf(sites, target)?.site === edit.site.site)
+    .filter((target) => held === undefined || !same(valueAt(held, target), edit.value))
+    .map((path) => ({ key: other.key, path, from: edit.from, fromPath: edit.fromPath, value: edit.value, site: edit.site }));
+}
+
+/** Each change one of them made since it last compiled, with the place in the files that writes it. */
+function editsOf<D extends { key: string }>(among: CarryAmong<D>, draft: D): Array<{ path: Path; site?: SettingSite; value: unknown }> {
+  const [before, after] = [among.goodOf(draft.key)?.value, among.now.get(draft.key)];
+  if (before === undefined || after === undefined) return [];
+  const sites = among.sitesOf(draft.key);
+  return changedPaths(before, after).map((path) => {
+    const site = writerOf(sites, path);
+    return { path, ...(site ? { site } : {}), value: valueAt(after, path) };
+  });
+}
+
+/**
+ * What each change to a shared value is owed on, and each place a change is written that other
+ * code reads too, with who made it.
+ */
+function owedAmong<D extends { key: string }>(among: CarryAmong<D>) {
+  const owed = new Map<string, Owed | null>();
+  const read: Array<{ site: SettingSite; from: string }> = [];
+  for (const draft of among.made) {
+    for (const { path, site, value } of editsOf(among, draft)) {
+      if (site?.readBy) read.push({ site, from: draft.key });
+      if (!site?.shared) continue;
+      const edit = { site, rest: path.slice(site.path.length), value, from: draft.key, fromPath: path };
+      for (const mine of among.made.flatMap((other) => owedOn(among, other, edit))) {
+        const id = text([mine.key, mine.path]);
+        const known = owed.get(id);
+        // Two changed one value two ways: neither is carried.
+        if (known === undefined) owed.set(id, mine);
+        else if (known && !same(known.value, value)) owed.set(id, null);
+      }
+    }
+  }
+  return { all: [...owed.values()].filter((each): each is Owed => each !== null), read };
+}
+
+/** Whether what one compiles to now holds each change it is owed, and nothing else new. */
+function holdsOwed(before: unknown, held: unknown, mine: readonly Owed[]): boolean {
+  return same(changedPaths(before, held).map(text).sort(), mine.map((each) => text(each.path)).sort()) &&
+    mine.every((each) => same(valueAt(held, each.path), each.value));
+}
+
+/** What a carry did: the drafts with what was carried, what each of those compiles to, and the ones left. */
+interface Carried<D> {
+  drafts: D[];
+  kept: Map<string, unknown>;
+  left: Set<string>;
+  /** Set when the change reaches past where it was made: where it is written, and who made it. */
+  place?: ReturnType<typeof placeOf> & { from: string };
+}
+
+/**
+ * Each change to a shared value made on every one that shares it. A change is carried only when
+ * the one it is owed on then compiles to that value there and to nothing else new: otherwise it
+ * is left as it is, and Save names it.
+ */
+function carriedAmong<D extends { key: string }>(among: CarryAmong<D>): Carried<D> {
+  const { all, read } = owedAmong(among);
+  const kept = new Map<string, unknown>();
+  const left = new Set<string>();
+  const from = all[0]?.from ?? read[0]?.from;
+  if (from === undefined) return { drafts: [...among.made], kept, left };
+  const place = { ...placeOf([...all, ...read].map((each) => each.site)), from };
+
+  const edited = new Map(among.made.map((draft) => [draft.key, draft]));
+  const drafts = new Map(edited);
+  for (const each of all) {
+    const [old, held, draft] = [among.goodOf(each.from)?.draft, edited.get(each.from), drafts.get(each.key)];
+    // One that does not compile cannot show that it holds the value: it is left.
+    const able = old && held && draft && among.now.get(each.key) !== undefined;
+    const next = able ? among.withOwed(draft, each, old, held) : undefined;
+    if (next) drafts.set(each.key, next);
+    else left.add(each.key);
+  }
+  const compiled = among.compiledWith(among.made.map((draft) => drafts.get(draft.key) ?? draft));
+  for (const key of new Set(all.map((each) => each.key))) {
+    const before = among.now.get(key);
+    const held = left.has(key) || drafts.get(key) === edited.get(key) ? undefined : compiled(key);
+    const mine = all.filter((each) => each.key === key);
+    if (before !== undefined && held !== undefined && holdsOwed(before, held, mine)) kept.set(key, held);
+    else left.add(key);
+  }
+  return { drafts: among.made.map((draft) => (kept.has(draft.key) ? drafts.get(draft.key) ?? draft : draft)), kept, left, place };
+}
+
 /**
  * `made`, with each change since `good` to a shared value made on every agent that shares it.
  * A change is carried only when the agent then compiles to that value there and to nothing else
  * new: otherwise the agent is left as it is, and Save names it.
  */
 export function withSharedCarry(good: SharedSnapshot, made: StudioWorkspace, sites: SharedSites): SharedCarry {
-  const now = new Map(made.agents.map((agent) => [agent.key, profileOf(made, agent.key)]));
-  const fileId = (key: string) => made.starts.agents[key]?.identity.agentId.trim();
-  const sitesOf = (key: string) => sites[fileId(key) ?? ''] ?? [];
-  const edited = new Map(made.agents.map((agent) => [agent.key, agent]));
-  const plain = (): SharedSnapshot => sharedSnapshot(made, good);
-
-  const owed = new Map<string, Owed | null>();
-  const left = new Set<string>();
-  /** Each place a change is written that other code reads too, and the agent it was made in. */
-  const read: Array<{ site: SettingSite; from: string }> = [];
-  for (const agent of made.agents) {
-    const [before, after] = [good.get(agent.key)?.profile, now.get(agent.key)];
-    if (before === undefined || after === undefined) continue;
-    for (const path of changedPaths(before, after)) {
-      const site = writerOf(sitesOf(agent.key), path);
-      if (site?.readBy) read.push({ site, from: agent.key });
-      if (!site?.shared) continue;
-      const rest = path.slice(site.path.length);
-      const value = valueAt(after, path);
-      for (const other of made.agents) {
-        for (const place of sitesOf(other.key)) {
-          if (place.site !== site.site) continue;
-          const target = [...place.path, ...rest];
-          // What the other sets apart inside the shared value is its own.
-          if (writerOf(sitesOf(other.key), target)?.site !== site.site) continue;
-          const held = now.get(other.key);
-          if (held !== undefined && same(valueAt(held, target), value)) continue;
-          const id = text([other.key, target]);
-          const mine = { key: other.key, path: target, from: agent.key, fromPath: path, value, site };
-          const known = owed.get(id);
-          // Two agents changed one value two ways: neither is carried.
-          if (known === undefined) owed.set(id, mine);
-          else if (known && !same(known.value, value)) owed.set(id, null);
-        }
-      }
-    }
-  }
-  const all = [...owed.values()].filter((each): each is Owed => each !== null);
-  const [first] = all;
-  if (!first) {
-    const [code] = read;
-    if (!code) return { workspace: made, snapshot: plain() };
-    // Nothing else holds the value, but other code reads it.
-    return { workspace: made, snapshot: plain(), reach: { ...placeOf(read.map((each) => each.site)), from: code.from, agents: [], left: [] } };
-  }
-
-  const drafts = new Map(edited);
-  for (const each of all) {
-    const [old, held, agent] = [good.get(each.from)?.draft, edited.get(each.from), drafts.get(each.key)];
-    // An agent that does not compile cannot show that it holds the value: it is left.
-    if (old && held && agent && now.get(each.key) !== undefined) drafts.set(each.key, withOwed(agent, each, old, held));
-  }
-  const next = { ...made, agents: made.agents.map((agent) => drafts.get(agent.key) ?? agent) };
-
-  // Each agent has to hold what it is owed, and nothing else new.
-  const kept = new Map<string, unknown>();
-  for (const key of new Set(all.map((each) => each.key))) {
-    const mine = all.filter((each) => each.key === key);
-    const [before, held] = [now.get(key), drafts.get(key) === edited.get(key) ? undefined : profileOf(next, key)];
-    const holds = before !== undefined && held !== undefined &&
-      same(changedPaths(before, held).map(text).sort(), mine.map((each) => text(each.path)).sort()) &&
-      mine.every((each) => same(valueAt(held, each.path), each.value));
-    if (holds) kept.set(key, held);
-    else left.add(key);
-  }
-  const agents = made.agents.map((agent) => (kept.has(agent.key) ? drafts.get(agent.key) ?? agent : agent));
-  const workspace = kept.size ? { ...made, agents } : made;
-  const snapshot = plain();
-  for (const agent of agents) {
+  const { drafts, kept, left, place } = carriedAmong<AgentDraft>({
+    made: made.agents,
+    goodOf: (key) => {
+      const held = good.get(key);
+      return held && { draft: held.draft, value: held.profile };
+    },
+    now: new Map(made.agents.map((agent) => [agent.key, profileOf(made, agent.key)])),
+    sitesOf: (key) => sites[made.starts.agents[key]?.identity.agentId.trim() ?? ''] ?? [],
+    withOwed,
+    compiledWith: (agents) => {
+      const next = { ...made, agents: [...agents] };
+      return (key) => profileOf(next, key);
+    },
+  });
+  const snapshot = sharedSnapshot(made, good);
+  for (const agent of drafts) {
     if (kept.has(agent.key)) snapshot.set(agent.key, { draft: agent, profile: kept.get(agent.key) });
   }
-  const done = all.filter((each) => kept.has(each.key) || left.has(each.key));
+  const others = (keys: Iterable<string>) => [...keys].filter((key) => key !== place?.from);
   return {
-    workspace,
+    workspace: kept.size ? { ...made, agents: drafts } : made,
     snapshot,
-    reach: {
-      ...placeOf([...done.map((each) => each.site), ...read.map((each) => each.site)]),
-      from: first.from,
-      agents: [...kept.keys()].filter((key) => key !== first.from),
-      left: [...left].filter((key) => key !== first.from),
-    },
+    ...(place ? { reach: { ...place, agents: others(kept.keys()), left: others(left) } } : {}),
   };
 }
 
@@ -374,95 +438,30 @@ export function withToolCarry(
   made: StudioWorkspace,
   sites: SharedSites,
 ): { workspace: StudioWorkspace; snapshot: ToolSnapshot; reach?: SharedReach } {
-  const now = toolsOf(made);
-  const sitesOf = (key: string) => sites[made.starts.tools[key]?.toolName ?? ''] ?? [];
-  const edited = new Map(made.toolSpecs.map((tool) => [tool.key, tool]));
-  const plain = () => toolSnapshot(made, good);
-
-  const owed = new Map<string, Owed | null>();
-  const read: Array<{ site: SettingSite; from: string }> = [];
-  for (const tool of made.toolSpecs) {
-    const [before, after] = [good.get(tool.key)?.tool, now.get(tool.key)];
-    if (before === undefined || after === undefined) continue;
-    for (const path of changedPaths(before, after)) {
-      const site = writerOf(sitesOf(tool.key), path);
-      if (site?.readBy) read.push({ site, from: tool.key });
-      if (!site?.shared) continue;
-      const rest = path.slice(site.path.length);
-      const value = valueAt(after, path);
-      for (const other of made.toolSpecs) {
-        for (const place of sitesOf(other.key)) {
-          if (place.site !== site.site) continue;
-          const target = [...place.path, ...rest];
-          // What the other sets apart inside the shared value is its own.
-          if (writerOf(sitesOf(other.key), target)?.site !== site.site) continue;
-          const held = now.get(other.key);
-          if (held !== undefined && same(valueAt(held, target), value)) continue;
-          const id = text([other.key, target]);
-          const mine = { key: other.key, path: target, from: tool.key, fromPath: path, value, site };
-          const known = owed.get(id);
-          // Two tools changed one value two ways: neither is carried.
-          if (known === undefined) owed.set(id, mine);
-          else if (known && !same(known.value, value)) owed.set(id, null);
-        }
-      }
-    }
-  }
-  const all = [...owed.values()].filter((each): each is Owed => each !== null);
-  const [first] = all;
-  if (!first) {
-    const [code] = read;
-    if (!code) return { workspace: made, snapshot: plain() };
-    const amongTools = { made: [], left: [] };
-    return {
-      workspace: made,
-      snapshot: plain(),
-      reach: { ...placeOf(read.map((each) => each.site)), from: code.from, agents: [], left: [], amongTools },
-    };
-  }
-
-  const drafts = new Map(edited);
-  const left = new Set<string>();
-  for (const each of all) {
-    const [old, held, tool] = [good.get(each.from)?.draft, edited.get(each.from), drafts.get(each.key)];
-    const next = old && held && tool && now.get(each.key) !== undefined ? toolWithOwed(tool, each, old, held) : undefined;
-    if (next) drafts.set(each.key, next);
-    else left.add(each.key);
-  }
-  const next = { ...made, toolSpecs: made.toolSpecs.map((tool) => drafts.get(tool.key) ?? tool) };
-
-  // Each tool has to hold what it is owed, and nothing else new.
-  const after = toolsOf(next);
-  const kept = new Map<string, unknown>();
-  for (const key of new Set(all.map((each) => each.key))) {
-    if (left.has(key)) continue;
-    const mine = all.filter((each) => each.key === key);
-    const [before, held] = [now.get(key), after.get(key)];
-    const holds = before !== undefined && held !== undefined &&
-      same(changedPaths(before, held).map(text).sort(), mine.map((each) => text(each.path)).sort()) &&
-      mine.every((each) => same(valueAt(held, each.path), each.value));
-    if (holds) kept.set(key, held);
-    else left.add(key);
-  }
-  const toolSpecs = made.toolSpecs.map((tool) => (kept.has(tool.key) ? drafts.get(tool.key) ?? tool : tool));
-  const workspace = kept.size ? { ...made, toolSpecs } : made;
-  const snapshot = plain();
-  for (const tool of toolSpecs) {
+  const { drafts, kept, left, place } = carriedAmong<ToolSpecDraft>({
+    made: made.toolSpecs,
+    goodOf: (key) => {
+      const held = good.get(key);
+      return held && { draft: held.draft, value: held.tool };
+    },
+    now: toolsOf(made),
+    sitesOf: (key) => sites[made.starts.tools[key]?.toolName ?? ''] ?? [],
+    withOwed: toolWithOwed,
+    compiledWith: (toolSpecs) => {
+      const after = toolsOf({ ...made, toolSpecs: [...toolSpecs] });
+      return (key) => after.get(key);
+    },
+  });
+  const snapshot = toolSnapshot(made, good);
+  for (const tool of drafts) {
     if (kept.has(tool.key)) snapshot.set(tool.key, { draft: tool, tool: kept.get(tool.key) });
   }
+  const others = (keys: Iterable<string>) => [...keys].filter((key) => key !== place?.from);
+  const amongTools = { made: others(kept.keys()), left: others(left) };
   return {
-    workspace,
+    workspace: kept.size ? { ...made, toolSpecs: drafts } : made,
     snapshot,
-    reach: {
-      ...placeOf([...all.map((each) => each.site), ...read.map((each) => each.site)]),
-      from: first.from,
-      agents: [],
-      left: [],
-      amongTools: {
-        made: [...kept.keys()].filter((key) => key !== first.from),
-        left: [...left].filter((key) => key !== first.from),
-      },
-    },
+    ...(place ? { reach: { ...place, agents: [], left: [], amongTools } } : {}),
   };
 }
 
@@ -491,28 +490,39 @@ export function toolReach(before: StudioWorkspace, made: StudioWorkspace, from: 
   return { tools: used.map((tool) => tool.key), names: used.map((tool) => tool.toolName), from, agents };
 }
 
+export interface Ask {
+  title: string;
+  line: string;
+}
+
+/** The ids of agents, by key, as the builder knows them. */
+const idsOf = (workspace: StudioWorkspace, keys: readonly string[]) =>
+  keys.map((key) => workspace.agents.find((agent) => agent.key === key)?.identity.agentId.trim())
+    .filter((id): id is string => Boolean(id));
+
+/** The names of tools, by key. */
+const toolNames = (workspace: StudioWorkspace, keys: readonly string[]) =>
+  keys.map((key) => workspace.toolSpecs.find((tool) => tool.key === key)?.toolName.trim())
+    .filter((name): name is string => Boolean(name));
+
+/** The question for a tool of the library that other agents allow too. */
+function libraryAsk(reach: ToolReach, workspace: StudioWorkspace): Ask {
+  const [ids, one] = [idsOf(workspace, reach.agents), reach.names.length === 1];
+  return {
+    title: `Change it for ${String(ids.length)} other ${ids.length === 1 ? 'profile' : 'profiles'}?`,
+    line: `${listed(reach.names)} ${one ? 'is one tool' : 'are tools'} in the library. ` +
+      `${listed(ids)} ${ids.length === 1 ? 'uses' : 'use'} ${one ? 'it' : 'them'} too, ` +
+      `and will change with ${one ? 'it' : 'them'}.`,
+  };
+}
+
 /** What the builder is asked before a change to a shared value is made: the question, then its cause and effect. */
-export function sharedAsk(
-  reach: SharedReach | ToolReach,
-  workspace: StudioWorkspace,
-): { title: string; line: string } {
-  const idsOf = (keys: readonly string[]) =>
-    keys.map((key) => workspace.agents.find((agent) => agent.key === key)?.identity.agentId.trim())
-      .filter((id): id is string => Boolean(id));
-  if ('tools' in reach) {
-    const [ids, one] = [idsOf(reach.agents), reach.names.length === 1];
-    return {
-      title: `Change it for ${String(ids.length)} other ${ids.length === 1 ? 'profile' : 'profiles'}?`,
-      line: `${listed(reach.names)} ${one ? 'is one tool' : 'are tools'} in the library. ` +
-        `${listed(ids)} ${ids.length === 1 ? 'uses' : 'use'} ${one ? 'it' : 'them'} too, ` +
-        `and will change with ${one ? 'it' : 'them'}.`,
-    };
-  }
-  const toolNames = (keys: readonly string[]) =>
-    keys.map((key) => workspace.toolSpecs.find((tool) => tool.key === key)?.toolName.trim())
-      .filter((name): name is string => Boolean(name));
+export function sharedAsk(reach: SharedReach | ToolReach, workspace: StudioWorkspace): Ask {
+  if ('tools' in reach) return libraryAsk(reach, workspace);
   const among = reach.amongTools;
-  const [ids, left] = among ? [toolNames(among.made), toolNames(among.left)] : [idsOf(reach.agents), idsOf(reach.left)];
+  const [ids, left] = among
+    ? [toolNames(workspace, among.made), toolNames(workspace, among.left)]
+    : [idsOf(workspace, reach.agents), idsOf(workspace, reach.left)];
   const [one, many] = among ? ['tool', 'tools'] : ['profile', 'profiles'];
   const place = `${reach.name ? `${reach.name} · ` : ''}${reach.file}:${String(reach.line)}`;
   // The other code that reads it, by line when the studio can name one.

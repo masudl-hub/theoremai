@@ -1,3 +1,4 @@
+// deno-lint-ignore-file no-explicit-any
 import { assertEquals } from '@std/assert';
 import { createExampleDraft } from '../../studio/mod.ts';
 import type { SettingSite } from '../../studio/server/save-wire.ts';

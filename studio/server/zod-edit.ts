@@ -250,24 +250,38 @@ export function isWrittenOut(project: ProjectSource, at: Located): boolean {
   const read = readZod(project, at);
   if (!read || read.named || !WRITTEN_KINDS.has(read.base.name)) return false;
   if (read.chain.some((call) => !WRITTEN_METHODS.has(call.name))) return false;
-  const { call, source, env } = read.base;
-  const inside = (node: ts.Expression) => isWrittenOut(project, { node, source, ...(env ? { env } : {}) });
+  const { source, env } = read.base;
+  const parts = partsWritten(read.base);
+  return parts !== undefined && parts.every((node) => isWrittenOut(project, { node, source, ...(env ? { env } : {}) }));
+}
+
+/** The schemas a `z.` call holds, when it lists each one. */
+function partsWritten(base: ZodCall): ts.Expression[] | undefined {
   const parts: ts.Expression[] = [];
-  for (const argument of call.arguments) {
+  for (const argument of base.call.arguments) {
     const node = unwrapped(argument);
-    if (ts.isSpreadElement(node)) return false;
-    if (OBJECTS.has(read.base.name)) {
-      if (!ts.isObjectLiteralExpression(node)) return false;
-      for (const property of node.properties) {
-        if (!ts.isPropertyAssignment(property) || propertyName(property) === undefined) return false;
-        parts.push(property.initializer);
-      }
-    } else if (read.base.name === 'union') {
-      if (!ts.isArrayLiteralExpression(node) || node.elements.some(ts.isSpreadElement)) return false;
+    if (ts.isSpreadElement(node)) return undefined;
+    if (OBJECTS.has(base.name)) {
+      const fields = fieldsWritten(node);
+      if (!fields) return undefined;
+      parts.push(...fields);
+    } else if (base.name === 'union') {
+      if (!ts.isArrayLiteralExpression(node) || node.elements.some(ts.isSpreadElement)) return undefined;
       parts.push(...node.elements);
-    } else if (read.base.name === 'array' || read.base.name === 'record') parts.push(node);
+    } else if (base.name === 'array' || base.name === 'record') parts.push(node);
   }
-  return parts.every(inside);
+  return parts;
+}
+
+/** The schema of each field an object lists by name. */
+function fieldsWritten(node: ts.Expression): ts.Expression[] | undefined {
+  if (!ts.isObjectLiteralExpression(node)) return undefined;
+  const fields: ts.Expression[] = [];
+  for (const property of node.properties) {
+    if (!ts.isPropertyAssignment(property) || propertyName(property) === undefined) return undefined;
+    fields.push(property.initializer);
+  }
+  return fields;
 }
 
 type Json = Record<string, unknown>;
@@ -325,34 +339,47 @@ class Writer {
   }
 
   private kind(schema: Json, depth: number): Draft | undefined {
+    const { type } = schema;
+    if (Object.keys(schema).length === 0) return { text: `${this.name}.unknown()`, live: z.unknown() };
+    if (Array.isArray(type)) return this.kinds(schema, type, depth);
+    if (Array.isArray(schema.anyOf)) return this.only(schema, ['anyOf']) ? this.union(schema.anyOf, depth) : undefined;
+    if ('const' in schema) return this.literal(schema);
+    if (Array.isArray(schema.enum)) return this.choice(schema, schema.enum);
+    return this.typed(schema, depth);
+  }
+
+  /** A schema of more than one type: the one type that can be null, or a union of them. */
+  private kinds(schema: Json, type: readonly unknown[], depth: number): Draft | undefined {
+    const kinds = type.filter((each) => each !== 'null');
+    const [one] = kinds;
+    const held = kinds.length === 1 && one
+      ? this.kind({ ...schema, type: one }, depth)
+      : this.only(schema, ['type'])
+      ? this.union(kinds.map((each) => ({ type: each })), depth)
+      : undefined;
+    if (!held || kinds.length === type.length) return held;
+    return { text: `${held.text}.nullable()`, live: held.live.nullable() };
+  }
+
+  private literal(schema: Json): Draft | undefined {
+    const { const: value } = schema;
+    const plain = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+    if (!plain || !this.only(schema, ['type', 'const'])) return undefined;
+    return { text: `${this.name}.literal(${valueSource(value, this.style)})`, live: z.literal(value) };
+  }
+
+  private choice(schema: Json, among: readonly unknown[]): Draft | undefined {
+    const values = among.filter((each): each is string => typeof each === 'string');
+    const [first, ...others] = values;
+    if (first === undefined || values.length !== among.length || !this.only(schema, ['type', 'enum'])) return undefined;
+    const items = values.map((each) => this.quote(each)).join(', ');
+    return { text: `${this.name}.enum([${items}])`, live: z.enum([first, ...others]) };
+  }
+
+  /** A schema of one type. */
+  private typed(schema: Json, depth: number): Draft | undefined {
     const n = this.name;
     const { type } = schema;
-    if (Object.keys(schema).length === 0) return { text: `${n}.unknown()`, live: z.unknown() };
-    if (Array.isArray(type)) {
-      const kinds = type.filter((each) => each !== 'null');
-      const [one] = kinds;
-      const held = kinds.length === 1 && one
-        ? this.kind({ ...schema, type: one }, depth)
-        : this.only(schema, ['type'])
-        ? this.union(kinds.map((each) => ({ type: each })), depth)
-        : undefined;
-      if (!held || kinds.length === type.length) return held;
-      return { text: `${held.text}.nullable()`, live: held.live.nullable() };
-    }
-    if (Array.isArray(schema.anyOf)) return this.only(schema, ['anyOf']) ? this.union(schema.anyOf, depth) : undefined;
-    if ('const' in schema) {
-      const { const: value } = schema;
-      const plain = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
-      if (!plain || !this.only(schema, ['type', 'const'])) return undefined;
-      return { text: `${n}.literal(${valueSource(value, this.style)})`, live: z.literal(value) };
-    }
-    if (Array.isArray(schema.enum)) {
-      const values = schema.enum.filter((each): each is string => typeof each === 'string');
-      const [first, ...others] = values;
-      if (first === undefined || values.length !== schema.enum.length || !this.only(schema, ['type', 'enum'])) return undefined;
-      const items = values.map((each) => this.quote(each)).join(', ');
-      return { text: `${n}.enum([${items}])`, live: z.enum([first, ...others]) };
-    }
     if (type === 'string') return this.text(schema);
     if (type === 'number' || type === 'integer') return this.number(schema);
     if (type === 'boolean' && this.only(schema, ['type'])) return { text: `${n}.boolean()`, live: z.boolean() };

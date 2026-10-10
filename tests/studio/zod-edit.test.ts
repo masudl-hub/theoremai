@@ -1,3 +1,4 @@
+// deno-lint-ignore-file no-explicit-any
 import { assertEquals } from '@std/assert';
 import { z } from 'zod';
 import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
@@ -223,6 +224,63 @@ Deno.test('a field written out in full is written again when its kind changes; o
     "find.ts - max: z.number().optional().describe('How many.'),",
     "find.ts + max: z.int().min(1).describe('How many.').optional(),",
   ]);
+});
+
+Deno.test('a schema is written again whole only where every part of it is written out', () => {
+  const files = {
+    'setup.ts': `import { registerTool } from '@theoremjs/agents';
+import { z } from 'zod';
+const name = z.string();
+const more = { extra: z.string() };
+const input = z.strictObject({
+  place: z.object({ lat: z.number(), lng: z.number() }),
+  either: z.union([z.string(), z.number()]),
+  rows: z.array(z.object({ id: z.string() })),
+  counts: z.record(z.string(), z.number()),
+  named: z.object({ name }),
+  spread: z.object({ ...more }),
+  mixed: z.union([name, z.number()]),
+});
+registerTool({ name: 'list', description: 'Lists.', input, handler: () => [] });
+`,
+  };
+  const before = jsonSchemaFromZod(
+    z.strictObject({
+      place: z.object({ lat: z.number(), lng: z.number() }),
+      either: z.union([z.string(), z.number()]),
+      rows: z.array(z.object({ id: z.string() })),
+      counts: z.record(z.string(), z.number()),
+      named: z.object({ name: z.string() }),
+      spread: z.object({ extra: z.string() }),
+      mixed: z.union([z.string(), z.number()]),
+    }),
+    'input',
+  ) as Json;
+  const after = changed(before, (schema) => {
+    for (const key of Object.keys(schema.properties)) schema.properties[key] = { type: 'boolean' };
+  });
+  assertEquals(saved([subject('list', 'inputSchema', before, after)], files), {
+    changes: [
+      'list inputSchema.properties.place: written setup.ts:6',
+      'list inputSchema.properties.either: written setup.ts:7',
+      'list inputSchema.properties.rows: written setup.ts:8',
+      'list inputSchema.properties.counts: written setup.ts:9',
+      // A name stands for a part of each of these: what it holds is not theirs to write.
+      'list inputSchema.properties.named: code setup.ts:10',
+      'list inputSchema.properties.spread: code setup.ts:11',
+      'list inputSchema.properties.mixed: code setup.ts:12',
+    ],
+    lines: [
+      'setup.ts - place: z.object({ lat: z.number(), lng: z.number() }),',
+      'setup.ts - either: z.union([z.string(), z.number()]),',
+      'setup.ts - rows: z.array(z.object({ id: z.string() })),',
+      'setup.ts - counts: z.record(z.string(), z.number()),',
+      'setup.ts + place: z.boolean(),',
+      'setup.ts + either: z.boolean(),',
+      'setup.ts + rows: z.boolean(),',
+      'setup.ts + counts: z.boolean(),',
+    ],
+  });
 });
 
 Deno.test('whether an object takes other fields is the call it starts from', () => {

@@ -27,6 +27,7 @@ import {
   propertyName,
   shapeOf,
   type SourceTarget,
+  type ShapeEntry,
   unwrapped,
   usersOf,
 } from './project-source.ts';
@@ -38,8 +39,11 @@ import {
   readZod,
   type SchemaSide,
   unread,
+  type ZodCall,
   zodName,
+  type ZodObject,
   zodObject,
+  type ZodRead,
   zodSource,
 } from './zod-edit.ts';
 
@@ -243,6 +247,84 @@ interface Frame {
   refused: SaveChange[];
 }
 
+/** One key of an object that changed. */
+interface KeyChange {
+  key: string;
+  before: unknown;
+  after: unknown;
+  here: string[];
+}
+
+/** Whether a field can be left out, and where the schema says so. */
+interface Optionality {
+  was: boolean;
+  now: boolean;
+  path: string[];
+}
+
+/** A schema where the files write it. */
+interface ZodSite {
+  site: Located;
+  where: Place;
+  read: ZodRead;
+  /** What the `z.` call is given first: an enum's values, a list's items, a union's members. */
+  part: Located | undefined;
+  /** A union's members, when the call lists each one. */
+  members: readonly ts.Expression[] | undefined;
+  object: ZodObject | undefined;
+}
+
+/** A schema's JSON Schema before and after. */
+interface ZodChange {
+  before: Json;
+  after: Json;
+  path: string[];
+  side: SchemaSide;
+  left: Optionality;
+}
+
+/** A method added after a schema, and the setting it writes. */
+interface ZodAdded {
+  text: string;
+  path: string[];
+}
+
+/** A node of the file a `z.` call is in. The call itself when none is named. */
+function located(call: ZodCall, node: ts.Expression = call.call): Located {
+  return { node, source: call.source, ...(call.env ? { env: call.env } : {}) };
+}
+
+function partsOf(read: ZodRead): Pick<ZodSite, 'part' | 'members'> {
+  const { base } = read;
+  const [first] = base.call.arguments;
+  const part = first && !ts.isSpreadElement(first) ? located(base, first) : undefined;
+  const list = part && base.name === 'union' ? unwrapped(part.node) : undefined;
+  const members = list && ts.isArrayLiteralExpression(list) && !list.elements.some(ts.isSpreadElement) ? list.elements : undefined;
+  return { part, members };
+}
+
+/** Whether an object takes fields it does not name is the `z.` call it starts from. */
+function objectCall(more: unknown, side: SchemaSide): string | undefined {
+  if (more === true || (isRecord(more) && Object.keys(more).length === 0)) return 'looseObject';
+  if (more === false) return side === 'input' ? 'strictObject' : 'object';
+  return more === undefined && side === 'input' ? 'object' : undefined;
+}
+
+/** The parts of a schema that are changed where they are written. A change to any other writes it again whole. */
+function inPlace(z: ZodSite, before: Json, after: Json, kind: string | undefined): Set<string> {
+  const { part, members, read: { base } } = z;
+  const reads = new Set(['description']);
+  if (z.object) reads.add('properties').add('required');
+  if (kind) reads.add('additionalProperties');
+  if (part && base.name === 'enum' && Array.isArray(before.enum) && Array.isArray(after.enum)) reads.add('enum');
+  if (part && base.name === 'array' && isRecord(before.items) && isRecord(after.items)) reads.add('items');
+  const [olds, news] = [before.anyOf, after.anyOf];
+  if (members && Array.isArray(olds) && Array.isArray(news) && olds.length === news.length && members.length === news.length) {
+    reads.add('anyOf');
+  }
+  return reads;
+}
+
 class Planner {
   readonly shared: SharedChange[] = [];
   /** The subject's own call. Other profiles share it when a function makes the call for each. */
@@ -444,50 +526,77 @@ class Planner {
     this.named(here, node.getText(source), before, after, path);
   }
 
+  /** Where a key of `shape` is written, or `at` when no property writes it. */
+  private placeIn(shape: ObjectShape, at: Located, key: string): Place {
+    const entry = shape.entries.get(key);
+    return entry?.property ? { source: entry.source, node: entry.property } : at;
+  }
+
   private object(shape: ObjectShape, at: Located, before: Json, after: Json, path: string[]) {
-    const { open, own } = shape;
-    const region = this.regionOf(at);
-    const place = (key: string): Place => {
-      const entry = shape.entries.get(key);
-      return entry?.property ? { source: entry.source, node: entry.property } : at;
-    };
     const inserts: Array<[string, unknown]> = [];
     const removed: ts.ObjectLiteralElementLike[] = [];
     for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
       if (same(before[key], after[key])) continue;
-      const here = [...path, key];
+      const change: KeyChange = { key, before: before[key], after: after[key], here: [...path, key] };
       const schema = this.subject.kind === 'tool' && path.length === 0 ? TOOL_SCHEMAS[key] : undefined;
-      if (schema) {
-        // A tool's schema is Zod in its file: each part that changed is changed there.
-        const held = shape.entries.get(schema.key);
-        if (!held) this.note('code', here, at);
-        else if (!held.value || (open && !open.after.has(schema.key))) this.note('code', here, place(schema.key));
-        else this.zod(held.value, before[key], after[key], here, schema.side);
-        continue;
-      }
       const entry = shape.entries.get(key);
-      if (!entry) {
-        // Past a spread the studio could not follow, the object may hold the key already.
-        if (open || !own) this.note('code', here, at);
-        else if (after[key] === undefined) this.note('unfound', here, at);
-        else inserts.push([key, after[key]]);
-        continue;
+      if (schema) this.toolSchema(shape, at, schema, change);
+      else if (!entry) {
+        if (this.isAdded(shape, at, change)) inserts.push([key, change.after]);
+      } else {
+        const gone = this.held(shape, at, entry, change);
+        if (gone) removed.push(gone);
       }
-      const { property, value } = entry;
-      if (open && !open.after.has(key)) this.note('code', here, place(key));
-      else if (!value) this.note('code', here, place(key));
-      else if (property && ts.isShorthandPropertyAssignment(property)) this.named(value, key, before[key], after[key], here);
-      else if (after[key] === undefined) {
-        // A key another object spreads in is not this one's to take out.
-        if (!property || !own || property.parent !== own.node) this.note('code', here, place(key));
-        else {
-          removed.push(property);
-          this.note('written', here, place(key));
-        }
-      } else if (this.regionOf(value) === region) this.walk(value, before[key], after[key], here);
-      else this.enter(value, key, before[key], after[key], here);
     }
-    if (!own) return;
+    if (shape.own) this.refit(shape.own, inserts, removed, path);
+  }
+
+  /** A tool's schema is Zod in its file: each part that changed is changed there. */
+  private toolSchema(shape: ObjectShape, at: Located, schema: { key: string; side: SchemaSide }, change: KeyChange) {
+    const { before, after, here } = change;
+    const { open } = shape;
+    const held = shape.entries.get(schema.key);
+    if (!held) this.note('code', here, at);
+    else if (!held.value || (open && !open.after.has(schema.key))) this.note('code', here, this.placeIn(shape, at, schema.key));
+    else this.zod(held.value, before, after, here, schema.side);
+  }
+
+  /** Whether a key the object does not hold is added to it. */
+  private isAdded(shape: ObjectShape, at: Located, { after, here }: KeyChange): boolean {
+    // Past a spread the studio could not follow, the object may hold the key already.
+    if (shape.open || !shape.own) this.note('code', here, at);
+    else if (after === undefined) this.note('unfound', here, at);
+    else return true;
+    return false;
+  }
+
+  /** A key the object holds, changed where it is written. Gives the property when it is to be taken out. */
+  private held(shape: ObjectShape, at: Located, entry: ShapeEntry, change: KeyChange): ts.ObjectLiteralElementLike | undefined {
+    const { key, before, after, here } = change;
+    const { open, own } = shape;
+    const { property, value } = entry;
+    const place = this.placeIn(shape, at, key);
+    if (!value || (open && !open.after.has(key))) this.note('code', here, place);
+    else if (property && ts.isShorthandPropertyAssignment(property)) this.named(value, key, before, after, here);
+    else if (after === undefined) {
+      // A key another object spreads in is not this one's to take out.
+      if (!property || !own || property.parent !== own.node) this.note('code', here, place);
+      else {
+        this.note('written', here, place);
+        return property;
+      }
+    } else if (this.regionOf(value) === this.regionOf(at)) this.walk(value, before, after, here);
+    else this.enter(value, key, before, after, here);
+    return undefined;
+  }
+
+  /** Takes properties out of an object and adds others to it. */
+  private refit(
+    own: NonNullable<ObjectShape['own']>,
+    inserts: Array<[string, unknown]>,
+    removed: ts.ObjectLiteralElementLike[],
+    path: string[],
+  ) {
     if (inserts.length && removed.length === own.node.properties.length) {
       // Every property goes and others come: the object is written whole, as an empty one is.
       for (const [key] of inserts) this.note('written', [...path, key], own);
@@ -521,7 +630,7 @@ class Planner {
     after: unknown,
     path: string[],
     side: SchemaSide,
-    left: { was: boolean; now: boolean; path: string[] } = { was: false, now: false, path },
+    left: Optionality = { was: false, now: false, path },
   ) {
     if (same(before, after) && left.was === left.now) return;
     const site: Located = { ...at, node: unwrapped(at.node) };
@@ -536,115 +645,123 @@ class Planner {
       this.note('code', path, { source: stopped.source, node: stopped.call });
       return;
     }
-    const { base } = read;
-    const inside = (node: ts.Expression): Located => ({ node, source: base.source, ...(base.env ? { env: base.env } : {}) });
-    const [first] = base.call.arguments;
-    const part = first && !ts.isSpreadElement(first) ? inside(first) : undefined;
-    const list = part && base.name === 'union' ? unwrapped(part.node) : undefined;
-    const members = list && ts.isArrayLiteralExpression(list) && !list.elements.some(ts.isSpreadElement) ? list.elements : undefined;
-    const object = zodObject(this.project, read);
-    const reads = new Set(['description']);
-    if (object) reads.add('properties').add('required');
-    // Whether an object takes fields it does not name is the `z.` call it starts from.
-    const more = after.additionalProperties;
-    const kind = !object
-      ? undefined
-      : more === true || (isRecord(more) && Object.keys(more).length === 0)
-      ? 'looseObject'
-      : more === false
-      ? (side === 'input' ? 'strictObject' : 'object')
-      : more === undefined && side === 'input'
-      ? 'object'
-      : undefined;
-    if (kind) reads.add('additionalProperties');
-    if (part && base.name === 'enum' && Array.isArray(before.enum) && Array.isArray(after.enum)) reads.add('enum');
-    if (part && base.name === 'array' && isRecord(before.items) && isRecord(after.items)) reads.add('items');
-    const [olds, news] = [before.anyOf, after.anyOf];
-    if (
-      members && Array.isArray(olds) && Array.isArray(news) && olds.length === news.length &&
-      members.length === news.length
-    ) reads.add('anyOf');
+    const z: ZodSite = { site, where, read, ...partsOf(read), object: zodObject(this.project, read) };
+    const change: ZodChange = { before, after, path, side, left };
+    const kind = z.object ? objectCall(after.additionalProperties, side) : undefined;
+    const reads = inPlace(z, before, after, kind);
     const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((key) => !same(before[key], after[key]));
     if (changed.some((key) => !reads.has(key))) {
       this.rewritten(site, after, left.now, path, side);
       return;
     }
+    this.zodAdded(z, change);
+    if (kind) this.zodOpen(z, kind, change);
+    this.zodInner(z, reads, change);
+    if (z.object) this.zodFields(z.object, change);
+  }
 
-    // What is added to the schema goes after it, where it is used.
-    let added = '';
-    const notes: string[][] = [];
-    const [was, now] = [before.description, after.description];
-    if (!same(was, now)) {
-      const here = [...path, 'description'];
-      const describe = methodCall(read, 'describe');
-      const [text] = describe?.call.arguments ?? [];
-      if (now !== undefined && typeof now !== 'string') this.note('code', here, where);
-      else if (was === undefined && now !== undefined) {
-        added += `.describe(${valueSource(now, this.style(site.source, site.node.getStart(site.source)))})`;
-        notes.push(here);
-      } else if (!describe || !text || ts.isSpreadElement(text)) this.note('code', here, where);
-      else {
-        const call: Located = { node: describe.call, source: describe.source, ...(describe.env ? { env: describe.env } : {}) };
-        this.within(call, here, () => {
-          if (now !== undefined) {
-            this.walk({ ...call, node: text }, was, now, here);
-            return;
-          }
-          const { start, end } = methodSpan(describe);
-          this.edit(describe.source, start, end, '');
-          this.note('written', here, { source: describe.source, node: describe.call });
-        });
-      }
-    }
-    if (left.was && !left.now) {
-      const optional = methodCall(read, 'optional');
-      if (!optional) this.note('code', left.path, where);
-      else {
-        this.within({ node: optional.call, source: optional.source }, left.path, () => {
-          const { start, end } = methodSpan(optional);
-          this.edit(optional.source, start, end, '');
-          this.note('written', left.path, { source: optional.source, node: optional.call });
-        });
-      }
-    } else if (!left.was && left.now) {
-      added += '.optional()';
-      notes.push(left.path);
-    }
+  /** Takes a method off a schema. */
+  private cut(call: ZodCall) {
+    const { start, end } = methodSpan(call);
+    this.edit(call.source, start, end, '');
+  }
+
+  /** What is added to the schema goes after it, where it is used. */
+  private zodAdded(z: ZodSite, change: ZodChange) {
+    const { site, where } = z;
+    const adds = [this.described(z, change), this.leftOut(z, change.left)].filter((each) => each !== undefined);
+    const added = adds.map((each) => each.text).join('');
     // One edit holds all that is added; each setting it adds is its own change.
-    notes.forEach((here, index) => {
+    adds.forEach(({ path: here }, index) => {
       this.within(site, here, () => {
         if (index === 0) this.edit(site.source, site.node.end, site.node.end, added);
         this.note('written', here, where);
       });
     });
+  }
 
-    if (kind && !same(before.additionalProperties, more)) {
-      const here = [...path, 'additionalProperties'];
-      // A method that says it is taken away, and the call says it instead.
-      for (const call of read.chain.filter((each) => OPEN_METHODS.has(each.name))) {
-        this.within({ node: call.call, source: call.source }, here, () => {
-          const { start, end } = methodSpan(call);
-          this.edit(call.source, start, end, '');
-        });
+  /** A schema's description, changed where it is written. Gives the method that adds one. */
+  private described(z: ZodSite, { before, after, path }: ZodChange): ZodAdded | undefined {
+    const [was, now] = [before.description, after.description];
+    if (same(was, now)) return undefined;
+    const here = [...path, 'description'];
+    const { site, where } = z;
+    if (now !== undefined && typeof now !== 'string') this.note('code', here, where);
+    else if (was === undefined && now !== undefined) {
+      const text = `.describe(${valueSource(now, this.style(site.source, site.node.getStart(site.source)))})`;
+      return { text, path: here };
+    } else this.redescribed(z, was, now, here);
+    return undefined;
+  }
+
+  /** A description the schema has, written again or taken off. */
+  private redescribed(z: ZodSite, was: unknown, now: unknown, here: string[]) {
+    const describe = methodCall(z.read, 'describe');
+    const [text] = describe?.call.arguments ?? [];
+    if (!describe || !text || ts.isSpreadElement(text)) {
+      this.note('code', here, z.where);
+      return;
+    }
+    const call = located(describe);
+    this.within(call, here, () => {
+      if (now !== undefined) {
+        this.walk({ ...call, node: text }, was, now, here);
+        return;
       }
-      this.within(inside(base.call), here, () => {
-        const name = (base.call.expression as ts.PropertyAccessExpression).name;
-        if (name.text !== kind) this.edit(base.source, name.getStart(base.source), name.end, kind);
-        this.note('written', here, { source: base.source, node: base.call });
+      this.cut(describe);
+      this.note('written', here, { source: describe.source, node: describe.call });
+    });
+  }
+
+  /** Whether a field can be left out, changed where it is written. Gives the method that lets it be. */
+  private leftOut(z: ZodSite, left: Optionality): ZodAdded | undefined {
+    if (!left.was && left.now) return { text: '.optional()', path: left.path };
+    if (!left.was || left.now) return undefined;
+    const optional = methodCall(z.read, 'optional');
+    if (!optional) this.note('code', left.path, z.where);
+    else {
+      this.within({ node: optional.call, source: optional.source }, left.path, () => {
+        this.cut(optional);
+        this.note('written', left.path, { source: optional.source, node: optional.call });
       });
     }
+    return undefined;
+  }
+
+  /** Whether an object takes fields it does not name, said by the `z.` call it starts from. */
+  private zodOpen(z: ZodSite, kind: string, { before, after, path }: ZodChange) {
+    if (same(before.additionalProperties, after.additionalProperties)) return;
+    const { base, chain } = z.read;
+    const here = [...path, 'additionalProperties'];
+    // A method that says it is taken away, and the call says it instead.
+    for (const call of chain.filter((each) => OPEN_METHODS.has(each.name))) {
+      this.within({ node: call.call, source: call.source }, here, () => this.cut(call));
+    }
+    this.within(located(base), here, () => {
+      const name = (base.call.expression as ts.PropertyAccessExpression).name;
+      if (name.text !== kind) this.edit(base.source, name.getStart(base.source), name.end, kind);
+      this.note('written', here, { source: base.source, node: base.call });
+    });
+  }
+
+  /** What a schema holds inside its `z.` call: an enum's values, a list's items, a union's members. */
+  private zodInner(z: ZodSite, reads: Set<string>, { before, after, path, side }: ZodChange) {
+    const { part, members, read } = z;
     if (part && reads.has('enum') && !same(before.enum, after.enum)) {
       const here = [...path, 'enum'];
-      this.within(inside(base.call), here, () => this.walk(part, before.enum, after.enum, here));
+      this.within(located(read.base), here, () => this.walk(part, before.enum, after.enum, here));
     }
     if (part && reads.has('items')) this.zod(part, before.items, after.items, [...path, 'items'], side);
+    const [olds, news] = [before.anyOf, after.anyOf];
     if (members && reads.has('anyOf') && Array.isArray(olds) && Array.isArray(news)) {
       members.forEach((member, index) => {
-        this.zod(inside(member), olds[index], news[index], [...path, 'anyOf', String(index)], side);
+        this.zod(located(read.base, member), olds[index], news[index], [...path, 'anyOf', String(index)], side);
       });
     }
-    if (!object) return;
+  }
 
+  /** An object schema's fields: each one changed, added or taken away. */
+  private zodFields(object: ZodObject, { before, after, path, side }: ZodChange) {
     const [fields, held] = [isRecord(before.properties) ? before.properties : {}, isRecord(after.properties) ? after.properties : {}];
     const [needed, needs] = [names(before.required), names(after.required)];
     const own: Located = { node: object.own.node, source: object.own.source };
@@ -658,29 +775,46 @@ class Planner {
         if (entry?.value) this.zod(entry.value, fields[key], held[key], here, side, optional);
         else if (!same(fields[key], held[key]) || optional.was !== optional.now) this.note('code', here, own);
       } else if (key in held) {
-        const name = zodName(object.own.source);
-        // The field is written as Zod once here, to know that it can be.
-        if (!name || zodSource(held[key], optional.now, side, name) === undefined) this.note('code', here, own);
-        else {
-          const write = (style: SourceStyle) => zodSource(held[key], optional.now, side, name, style) ?? '';
-          inserts.push([key, new ZodField(write)]);
-        }
+        const field = this.fieldAdded(object, held[key], optional.now, side, here);
+        if (field) inserts.push([key, field]);
       } else {
-        const property = entry?.property;
-        if (!entry || !property || !ts.isObjectLiteralExpression(property.parent)) this.note('code', here, own);
-        else if (property.parent === object.own.node) removed.push(property);
-        else {
-          this.within({ node: property.parent, source: entry.source }, here, () => {
-            this.remove(property, entry.source);
-            this.note('written', here, { source: entry.source, node: property });
-          });
-        }
+        const gone = this.fieldTaken(object, entry, here);
+        if (gone) removed.push(gone);
       }
     }
-    if (!inserts.length && !removed.length) return;
-    const inFields = [...path, 'properties'];
+    if (inserts.length || removed.length) this.refield(object, inserts, removed, [...path, 'properties']);
+  }
+
+  /** A field to add, as the Zod that writes it. */
+  private fieldAdded(object: ZodObject, schema: unknown, optional: boolean, side: SchemaSide, here: string[]): ZodField | undefined {
+    const name = zodName(object.own.source);
+    // The field is written as Zod once here, to know that it can be.
+    if (!name || zodSource(schema, optional, side, name) === undefined) {
+      this.note('code', here, object.own);
+      return undefined;
+    }
+    return new ZodField((style: SourceStyle) => zodSource(schema, optional, side, name, style) ?? '');
+  }
+
+  /** A field taken away. Gives its property when the object's own literal writes it. */
+  private fieldTaken(object: ZodObject, entry: ShapeEntry | undefined, here: string[]): ts.ObjectLiteralElementLike | undefined {
+    const property = entry?.property;
+    if (!entry || !property || !ts.isObjectLiteralExpression(property.parent)) this.note('code', here, object.own);
+    else if (property.parent === object.own.node) return property;
+    else {
+      this.within({ node: property.parent, source: entry.source }, here, () => {
+        this.remove(property, entry.source);
+        this.note('written', here, { source: entry.source, node: property });
+      });
+    }
+    return undefined;
+  }
+
+  /** Takes fields out of an object schema's own literal and adds others to it. */
+  private refield(object: ZodObject, inserts: Array<[string, unknown]>, removed: ts.ObjectLiteralElementLike[], inFields: string[]) {
+    const { node, source } = object.own;
+    const own: Located = { node, source };
     this.within(own, inFields, () => {
-      const { node, source } = object.own;
       for (const property of removed) {
         this.note('written', [...inFields, propertyName(property) ?? ''], { source, node: property });
       }

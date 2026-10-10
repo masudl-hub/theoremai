@@ -35,6 +35,7 @@ import {
 	IconPlayerPlay,
 	IconPlaylistX,
 	IconPlus,
+	IconRestore,
 	IconRotateClockwise,
 	IconSearch,
 	IconShieldSearch,
@@ -78,7 +79,9 @@ import {
 	readStudioSource,
 	removeAgent,
 	removeLibraryTool,
+	reopened,
 	resetAgent,
+	resetAll,
 	resetLibraryTool,
 	nodeOrigins,
 	openOutcome,
@@ -143,6 +146,7 @@ import {
 import {
 	NO_ASKS,
 	openInEditor,
+	openProject,
 	ProjectContext,
 	type ProjectFiles,
 	type ProjectSession,
@@ -166,7 +170,7 @@ import {
 	useStudioConnection,
 } from './studio-connection.tsx';
 import { StudioRunner } from './studio-runner.tsx';
-import { ProjectSave, ProjectTokens } from './studio-save.tsx';
+import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
 import {
 	type CSSProperties,
 	type Dispatch,
@@ -1352,7 +1356,7 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 			flush();
 		};
 	}, [store]);
-	const { files, refreshOrigins } = useProjectFiles(project);
+	const { files, refreshOrigins, filesChanged } = useProjectFiles(project, store);
 	return {
 		store,
 		workspace,
@@ -1365,34 +1369,47 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 		asks: files?.asks,
 		files,
 		refreshOrigins,
+		filesChanged,
 	};
 }
 
 /**
  * What the project's files say: the profiles they hold, the settings they set in code, and the
  * tools the studio makes ask. They are read again when the files may have moved: after a Save or
- * an undo, and when the builder comes back to the page from their editor.
+ * an undo, and when the builder comes back to the page from their editor. `filesChanged` is for
+ * the studio's own moves (a Save, an undo, opening the files again): the workspace's starts then
+ * stand on this reading, which the tab keeps with the edits.
  */
-function useProjectFiles(project: ProjectSession | undefined) {
+function useProjectFiles(project: ProjectSession | undefined, store: StudioStore) {
 	const [files, setFiles] = useState<ProjectFiles | undefined>(project);
+	const reread = useCallback(
+		(isOurs: boolean) => {
+			// A server that does not answer leaves the last reading.
+			if (!project) return;
+			readFiles().then(
+				// Files that say what they said keep the reading, so nothing that runs on it starts again.
+				(read) => {
+					if (isOurs) store.standOn(read.print);
+					setFiles((held) => (JSON.stringify(held) === JSON.stringify(read) ? held : read));
+				},
+				() => undefined,
+			);
+		},
+		[project, store],
+	);
 	const refreshOrigins = useCallback(() => {
-		// A server that does not answer leaves the last reading.
-		if (!project) return;
-		readFiles().then(
-			// Files that say what they said keep the reading, so nothing that runs on it starts again.
-			(read) => {
-				setFiles((held) => (JSON.stringify(held) === JSON.stringify(read) ? held : read));
-			},
-			() => undefined,
-		);
-	}, [project]);
+		reread(false);
+	}, [reread]);
+	const filesChanged = useCallback(() => {
+		reread(true);
+	}, [reread]);
 	useEffect(() => {
 		globalThis.addEventListener('focus', refreshOrigins);
 		return () => {
 			globalThis.removeEventListener('focus', refreshOrigins);
 		};
 	}, [refreshOrigins]);
-	return { files, refreshOrigins };
+	return { files, refreshOrigins, filesChanged };
 }
 
 /** Shows an origin's line in the builder's editor, and says where it is when no editor opens. */
@@ -1572,23 +1589,34 @@ function useConversationRun(mode: string, chatWith: string, question: string | u
 
 type ConversationRun = ReturnType<typeof useConversationRun>;
 
-/** Once, on arrival: say when a kept draft was set aside for a docs seed, or couldn't be read back. */
+/**
+ * Once, on arrival: say when a kept draft was set aside for a docs seed, when a project's files
+ * changed under the edits this tab kept, or when what was kept couldn't be read back.
+ */
 function useArrivalToast(
-	{ displaced, discarded }: Pick<StudioOpened, 'displaced' | 'discarded'>,
+	{ displaced, discarded, project }: Pick<StudioOpened, 'displaced' | 'discarded' | 'project'>,
 	store: StudioStore,
 ) {
 	const toast = useToast();
-	const arrival = useRef({ displaced, discarded });
+	const arrival = useRef({ displaced, discarded, inProject: project !== undefined });
 	useEffect(() => {
-		const { displaced, discarded } = arrival.current;
-		arrival.current = { displaced: undefined, discarded: false };
-		if (discarded) toast({ body: "Your last draft couldn't be restored." });
+		const { displaced, discarded, inProject } = arrival.current;
+		arrival.current = { displaced: undefined, discarded: false, inProject };
+		if (discarded) {
+			toast({
+				body: inProject
+					? "The edits this tab kept couldn't be restored."
+					: "Your last draft couldn't be restored.",
+			});
+		}
 		if (!displaced) return;
 		const dismiss = toast({
-			body: 'Opened the example from the docs.',
+			body: inProject
+				? 'Your files changed since you made your edits here, so the studio opened the files.'
+				: 'Opened the example from the docs.',
 			endContent: (
 				<Button
-					label="Back to my draft"
+					label={inProject ? 'Bring my edits back' : 'Back to my draft'}
 					variant="ghost"
 					size="sm"
 					onClick={() => {
@@ -1834,10 +1862,13 @@ function ViewToggleButton({ view }: { view: EditorViewState }) {
 
 /**
  * Reset for what is open: a library tool, or else the agent. It goes back to how it joined the
- * workspace, and nothing else changes. `run` is absent while it is still as it started.
+ * workspace, and nothing else changes. `run` is absent while it is still as it started. `all` does
+ * it for everything: every agent and tool back to its start, or on a project every unsaved edit
+ * gone once the builder says yes. It is absent while there is nothing to put back.
  */
 function useReset({ workspace, focus, update }: StudioWorkspaceState) {
 	const toast = useToast();
+	const save = useProjectSave();
 	const toolKey = toolSpecKeyOf(workspace.selected);
 	const what = toolKey === undefined ? 'agent' : 'tool';
 	const next = useMemo(
@@ -1845,13 +1876,14 @@ function useReset({ workspace, focus, update }: StudioWorkspaceState) {
 			toolKey === undefined ? resetAgent(workspace, focus) : resetLibraryTool(workspace, toolKey),
 		[workspace, focus, toolKey],
 	);
-	const run =
-		next === workspace
+	const everything = useMemo(() => resetAll(workspace), [workspace]);
+	const put = (to: StudioWorkspace, body: string) =>
+		to === workspace
 			? undefined
 			: () => {
-					update(() => next);
+					update(() => to);
 					const dismiss = toast({
-						body: `Reset the ${what} to how it started.`,
+						body,
 						endContent: (
 							<Button
 								label="Undo"
@@ -1865,7 +1897,46 @@ function useReset({ workspace, focus, update }: StudioWorkspaceState) {
 						),
 					});
 				};
-	return { what, run };
+	return {
+		what,
+		run: put(next, `Reset the ${what} to how it started.`),
+		all: save ? save.discard : put(everything, 'Reset every agent and tool to how it started.'),
+		inProject: save !== null,
+	};
+}
+
+/** Opens the project's files again in place of every unsaved edit. Undo brings the edits back. */
+function useDiscardAll({ store, filesChanged }: StudioWorkspaceState) {
+	const toast = useToast();
+	return useCallback(() => {
+		openProject().then(
+			({ workspace: files }) => {
+				const before = store.getWorkspace();
+				store.update(reopened(files, before));
+				filesChanged();
+				const dismiss = toast({
+					body: 'Discarded every unsaved edit.',
+					endContent: (
+						<Button
+							label="Undo"
+							variant="ghost"
+							size="sm"
+							onClick={() => {
+								store.update(before);
+								dismiss();
+							}}
+						/>
+					),
+				});
+			},
+			() => {
+				toast({
+					type: 'error',
+					body: 'The studio server did not answer, so your edits are still here.',
+				});
+			},
+		);
+	}, [store, filesChanged, toast]);
 }
 
 /** The editor column's header: its title, the next issue, Keys, what to start from and the view toggle. */
@@ -1919,17 +1990,46 @@ function EditorToolbar({
 						view.setEditorView('editor');
 					}}
 				/>
-				<IconButton
-					label="Reset"
-					variant="ghost"
-					icon={<Icon icon={IconRotateClockwise} size="sm" />}
-					isDisabled={!reset.run}
-					tooltip={
-						reset.run
-							? `Reset this ${reset.what} to how it started. Undo brings your changes back`
-							: `This ${reset.what} is as it started`
-					}
-					onClick={reset.run}
+				<DropdownMenu
+					button={{
+						label: 'Reset',
+						variant: 'ghost',
+						isIconOnly: true,
+						icon: <Icon icon={IconRotateClockwise} size="sm" />,
+						tooltip:
+							reset.run || reset.all
+								? `Reset this ${reset.what}, or everything`
+								: 'Everything is as it started',
+						isDisabled: !reset.run && !reset.all,
+					}}
+					menuWidth="fit-content(15rem)"
+					hasChevron={false}
+					placement="below"
+					alignment="end"
+					items={[
+						{
+							id: 'this',
+							label: `Reset this ${reset.what}`,
+							description: <span>Back to how it started. Undo brings your changes back.</span>,
+							icon: <Icon icon={IconRotateClockwise} size="sm" />,
+							isDisabled: !reset.run,
+							onClick: reset.run,
+						},
+						{
+							id: 'all',
+							label: reset.inProject ? 'Discard all edits' : 'Reset everything',
+							description: (
+								<span>
+									{reset.inProject
+										? 'Every unsaved edit goes, and the studio opens your files as they are.'
+										: 'Every agent and tool, back to how it started.'}
+								</span>
+							),
+							icon: <Icon icon={IconRestore} size="sm" />,
+							isDisabled: !reset.all,
+							onClick: reset.all,
+						},
+					]}
 				/>
 				<ViewToggleButton view={view} />
 				<SheetButton label="Preview" icon={IconPlayerPlay} sheet="preview" setSheet={setSheet} />
@@ -2477,13 +2577,15 @@ function SaveScope({
 	blocked: boolean;
 	children: ReactNode;
 }) {
+	const discard = useDiscardAll(state);
 	if (!project) return children;
 	return (
 		<ProjectSave
 			project={project}
 			workspace={state.workspace}
 			update={state.update}
-			onFilesChanged={state.refreshOrigins}
+			onFilesChanged={state.filesChanged}
+			onDiscard={discard}
 			blocked={blocked}
 		>
 			{children}

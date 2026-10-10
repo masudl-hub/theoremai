@@ -1,7 +1,8 @@
 import { clearStaleStudioRuns, createExampleDraft, type StudioDraft, workspaceFromDraft } from '../../mod.ts';
 import type { StudioOpened } from '../studio-host.ts';
 import { openProject, type ProjectSession } from './studio-project.ts';
-import { restoreStudio } from './studio-restore.ts';
+import { restoreProject, restoreStudio } from './studio-restore.ts';
+import { projectKey } from './studio-session.ts';
 
 /**
  * What the studio opens on in this tab. Draft keys are random, so this runs in the browser. The
@@ -33,16 +34,22 @@ export function openStudio(seed?: { draft: StudioDraft; question: string | undef
 }
 
 /**
- * What the studio opens on when a local server holds a project: the project's workspace. Nothing
- * of it is kept in the tab. Throws when no server answers.
+ * What the studio opens on when a local server holds a project: the project's workspace, with the
+ * edits this tab kept for it while its files are as they were. Edits whose files changed wait
+ * behind an offer. Closing the tab forgets them. Throws when no server answers.
  */
 export async function openStudioProject(): Promise<StudioOpened & { project: ProjectSession }> {
 	const { project, workspace } = await openProject();
+	const key = projectKey(project.name);
+	const kept = restoreProject(key, workspace, project.print);
 	return {
-		start: { workspace, revision: 0, transient: true },
+		start:
+			kept.kind === 'restored'
+				? kept.value
+				: { workspace, revision: 0, project: { key, files: project.print } },
 		question: undefined,
-		displaced: undefined,
-		discarded: false,
+		displaced: kept.kind === 'moved' ? kept.workspace : undefined,
+		discarded: kept.kind === 'discarded',
 		project,
 	};
 }

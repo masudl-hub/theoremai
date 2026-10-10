@@ -5,6 +5,7 @@
  */
 import {
 	agentDraft,
+	atStart,
 	createBlankDraft,
 	STUDIO_WORKSPACE_VERSION,
 	type StudioDraft,
@@ -19,6 +20,7 @@ import {
 	session,
 	WORKSPACE_KEY,
 } from './studio-session.ts';
+import { keptTool } from './studio-store.ts';
 
 const V1_DRAFT_KEY = 'theorem.studio.v1';
 const V1_CHAT_KEY = 'theorem.studio.v1.chat';
@@ -131,4 +133,69 @@ export function restoreStudio():
 	}
 	forgetAll(store);
 	return { kind: 'discarded' };
+}
+
+const MASKED = ['endpoint', 'serverUrl', 'headersJson'] as const;
+
+/**
+ * A kept workspace with what keeping it masked put back from the files: a tool's URLs and headers,
+ * in its start and wherever the builder had not changed them. One they did change stays masked.
+ */
+function withFilesCredentials(kept: StudioWorkspace, files: StudioWorkspace): StudioWorkspace {
+	const held = new Map(files.toolSpecs.map((tool) => [tool.toolName, tool]));
+	const starts = { ...kept.starts.tools };
+	const tools = new Map(kept.toolSpecs.map((tool) => [tool.key, tool]));
+	for (const [key, start] of Object.entries(kept.starts.tools)) {
+		const file = held.get(start.toolName);
+		if (!file) continue;
+		const masked = keptTool(file);
+		const now = tools.get(key);
+		const back = { ...start };
+		const next = now && { ...now };
+		for (const field of MASKED) {
+			if (file[field] === undefined || start[field] !== masked[field]) continue;
+			back[field] = file[field];
+			if (next && now[field] === start[field]) next[field] = file[field];
+		}
+		starts[key] = back;
+		if (next) tools.set(key, next);
+	}
+	return {
+		...kept,
+		toolSpecs: kept.toolSpecs.map((tool) => tools.get(tool.key) ?? tool),
+		starts: { ...kept.starts, tools: starts },
+	};
+}
+
+/**
+ * The edits this tab kept for a project. `restored` while the files still print as they did when
+ * the edits were made. `moved` when the files changed under edits: the files open, and the edits
+ * are handed back to be offered. Kept edits that cannot be read back are removed.
+ */
+export function restoreProject(
+	key: string,
+	opened: StudioWorkspace,
+	files: string,
+):
+	| { kind: 'restored'; value: RestoredStudio }
+	| { kind: 'moved'; workspace: StudioWorkspace }
+	| { kind: 'none' | 'discarded' } {
+	const store = session();
+	if (!store) return { kind: 'none' };
+	const kept = parsed(store, key);
+	if (kept === undefined) return { kind: 'none' };
+	if (!isStoredWorkspace(kept)) {
+		store.removeItem(key);
+		return { kind: 'discarded' };
+	}
+	const workspace = withFilesCredentials(kept.workspace, opened);
+	if (kept.files === files) {
+		return {
+			kind: 'restored',
+			value: { workspace, revision: kept.revision, project: { key, files } },
+		};
+	}
+	store.removeItem(key);
+	// With nothing edited there is nothing to offer back.
+	return atStart(workspace) ? { kind: 'none' } : { kind: 'moved', workspace };
 }

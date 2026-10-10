@@ -54,7 +54,8 @@ function keptHeaders(raw: string): string {
 	return typeof masked === 'string' && masked !== JSON.stringify(parsedHeaders) ? masked : raw;
 }
 
-function keptTool(tool: ToolSpecDraft): ToolSpecDraft {
+/** A tool as kept: its URLs and headers with their credentials masked. */
+export function keptTool(tool: ToolSpecDraft): ToolSpecDraft {
 	return {
 		...tool,
 		...(tool.endpoint ? { endpoint: maskUrl(tool.endpoint) } : {}),
@@ -120,8 +121,10 @@ interface StoreState {
 	changes: DraftChange[];
 	listeners: Set<() => void>;
 	timer: ReturnType<typeof setTimeout> | undefined;
-	/** Whether the workspace is written to sessionStorage. */
-	kept: boolean;
+	/** The sessionStorage key the workspace is written under. */
+	slot: string;
+	/** For a project's workspace: the print of the files its starts stand on. */
+	files: string | undefined;
 	view: { agents: unknown; toolSpecs: unknown; focus: string; draft: StudioDraft } | undefined;
 }
 
@@ -132,9 +135,10 @@ function writeWorkspace(state: StoreState): void {
 		v: STUDIO_WORKSPACE_VERSION,
 		workspace: keptWorkspace(state.workspace),
 		revision: state.revision,
+		...(state.files === undefined ? {} : { files: state.files }),
 	};
 	try {
-		session()?.setItem(WORKSPACE_KEY, JSON.stringify(record));
+		session()?.setItem(state.slot, JSON.stringify(record));
 	} catch {
 		// Quota or a blocked store: the page keeps working on what is in memory.
 	}
@@ -142,7 +146,6 @@ function writeWorkspace(state: StoreState): void {
 
 /** Queues a write, unless one is already queued. */
 function scheduleWrite(state: StoreState): void {
-	if (!state.kept) return;
 	state.timer ??= setTimeout(() => {
 		writeWorkspace(state);
 	}, WRITE_MS);
@@ -252,7 +255,8 @@ export function createStudioStore(initial: RestoredStudio, links: readonly Share
 		changes: [],
 		listeners: new Set(),
 		timer: undefined,
-		kept: !initial.transient,
+		slot: initial.project?.key ?? WORKSPACE_KEY,
+		files: initial.project?.files,
 		view: undefined,
 	};
 	const getFocus = () => focusOf(state);
@@ -290,6 +294,15 @@ export function createStudioStore(initial: RestoredStudio, links: readonly Share
 			return () => {
 				state.listeners.delete(listener);
 			};
+		},
+		/**
+		 * Says which reading of the project's files the starts stand on now: after a Save, an undo,
+		 * or opening the files again.
+		 */
+		standOn: (files: string) => {
+			if (files === state.files) return;
+			state.files = files;
+			scheduleWrite(state);
 		},
 		/** Writes now if a write is pending; the route calls it on pagehide and unmount. */
 		flush() {

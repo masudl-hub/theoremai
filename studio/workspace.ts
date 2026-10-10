@@ -467,6 +467,111 @@ export function resetAgent(workspace: StudioWorkspace, key: string): StudioWorks
 }
 
 /**
+ * Puts every agent and every library tool back to its start, in one step. A tool that left the
+ * library comes back when an agent started out allowing it. An agent or a tool added here stays: it
+ * started as it is. A workspace already at its start is returned as it is.
+ */
+export function resetAll(workspace: StudioWorkspace): StudioWorkspace {
+  const { starts } = workspace;
+  const here = new Set(workspace.agents.map((agent) => agent.key));
+  const library = new Map(workspace.toolSpecs.map((tool) => [tool.key, starts.tools[tool.key] ?? tool]));
+  for (const agent of workspace.agents) {
+    for (const toolKey of starts.agents[agent.key]?.tools.allow ?? []) {
+      const tool = starts.tools[toolKey];
+      if (!tool || library.has(toolKey)) continue;
+      // An agent tool whose agent was removed has nothing to run.
+      if (tool.toolType === 'agent' && !here.has(tool.agentKey ?? '')) continue;
+      library.set(toolKey, tool);
+    }
+  }
+  // Two that started under one name cannot both hold it: the later one takes the next free name.
+  const names: string[] = [];
+  const toolSpecs = [...library.values()].map((tool) => {
+    const toolName = freeName(tool.toolName, names, (n) => `${tool.toolName}_${n}`);
+    names.push(toolName);
+    return toolName === tool.toolName ? tool : { ...tool, toolName };
+  });
+  const ids: string[] = [];
+  const agents = workspace.agents.map((now): AgentDraft => {
+    const start = starts.agents[now.key] ?? now;
+    const id = start.identity.agentId;
+    const agentId = id && freeName(id, ids, (n) => `${id}_${n}`);
+    ids.push(agentId);
+    return {
+      ...start,
+      identity: { ...start.identity, agentId },
+      tools: { ...start.tools, allow: start.tools.allow.filter((toolKey) => library.has(toolKey)) },
+      modelBindings: start.modelBindings.map((binding) =>
+        binding.compactWith && !here.has(binding.compactWith) ? { ...binding, compactWith: undefined } : binding
+      ),
+    };
+  });
+  if (same(agents, workspace.agents) && same(toolSpecs, workspace.toolSpecs)) return workspace;
+  const next = { ...workspace, agents, toolSpecs };
+  const first = agents[0];
+  return workspaceNodeRef(next, next.selected) || !first ? next : { ...next, selected: agentNodeId(first.key) };
+}
+
+/**
+ * The files' workspace, opened again over the one the studio holds. An agent or a tool the studio
+ * already opened from the files keeps its key, so what is open, each conversation and the
+ * settings agents share carry on. One the builder removed comes back under a new key.
+ */
+export function reopened(files: StudioWorkspace, before: StudioWorkspace): StudioWorkspace {
+  const agents = new Map(Object.values(before.starts.agents).map((agent) => [agent.identity.agentId, agent.key]));
+  const tools = new Map(Object.values(before.starts.tools).map((tool) => [tool.toolName, tool.key]));
+  let text = JSON.stringify(files);
+  const rekey = (from: string, to: string | undefined) => {
+    if (to !== undefined && to !== from) text = text.split(from).join(to);
+  };
+  for (const agent of files.agents) rekey(agent.key, agents.get(agent.identity.agentId));
+  for (const tool of files.toolSpecs) rekey(tool.key, tools.get(tool.toolName));
+  const next = JSON.parse(text) as StudioWorkspace;
+  return {
+    ...next,
+    selected: workspaceNodeRef(next, before.selected) ? before.selected : next.selected,
+    chatWith: next.agents.some((agent) => agent.key === before.chatWith) ? before.chatWith : next.chatWith,
+  };
+}
+
+/**
+ * A project's files as the studio opened them, as a short text that stays the same until they
+ * change. An agent's or a tool's key is new on every open, so each is named by where it first
+ * stands. What is open and who the preview talks to are not part of it.
+ */
+export function filesPrint(workspace: StudioWorkspace): string {
+  const names = new Map<string, string>();
+  const collect = (value: unknown): void => {
+    if (Array.isArray(value)) return value.forEach(collect);
+    if (typeof value !== 'object' || value === null) return;
+    for (const [field, inner] of Object.entries(value)) {
+      if (field !== 'key' || typeof inner !== 'string') collect(inner);
+      else if (!names.has(inner)) names.set(inner, `#${names.size}`);
+    }
+  };
+  const named = (value: unknown): unknown => {
+    if (typeof value === 'string') return names.get(value) ?? value;
+    if (Array.isArray(value)) return value.map(named);
+    if (typeof value !== 'object' || value === null) return value;
+    return Object.fromEntries(
+      Object.entries(value).map(([field, inner]) => [names.get(field) ?? field, named(inner)]),
+    );
+  };
+  const held = { agents: workspace.agents, toolSpecs: workspace.toolSpecs };
+  collect(held);
+  const text = JSON.stringify(named(held));
+  // Two 32-bit FNV-1a passes: enough to tell one reading of the files from another.
+  let low = 0x811c9dc5;
+  let high = 0x01000193;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    low = Math.imul(low ^ code, 0x01000193);
+    high = Math.imul(high ^ code, 0x85ebca6b);
+  }
+  return `${text.length.toString(36)}-${(low >>> 0).toString(36)}${(high >>> 0).toString(36)}`;
+}
+
+/**
  * Puts one library tool back to its start, for every agent that allows it. Which agents allow it
  * stays as it is. A tool already at its start returns the same workspace.
  */

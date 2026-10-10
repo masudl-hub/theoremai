@@ -1,3 +1,4 @@
+import { AlertDialog } from '@astryxdesign/core/AlertDialog';
 import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
@@ -295,6 +296,11 @@ export interface ProjectSaveActions {
 	review: (() => void) | undefined;
 	/** Puts one profile back as the files hold it. One the files do not hold leaves the studio. */
 	clear: (agentId: string) => void;
+	/**
+	 * Asks once, then drops every unsaved edit and opens the files as they are. Absent while the
+	 * studio holds no edits.
+	 */
+	discard: (() => void) | undefined;
 }
 
 const ProjectSaveContext = createContext<ProjectSaveActions | null>(null);
@@ -341,6 +347,7 @@ export function ProjectSave({
 	workspace,
 	update,
 	onFilesChanged,
+	onDiscard,
 	blocked,
 	children,
 }: {
@@ -349,6 +356,8 @@ export function ProjectSave({
 	update: Update;
 	/** Called once a Save or an undo has changed the project's files. */
 	onFilesChanged: () => void;
+	/** Drops every unsaved edit and opens the files as they are. The builder has said yes. */
+	onDiscard: () => void;
 	/** Whether Save cannot start: the editor has issues. */
 	blocked: boolean;
 	children: ReactNode;
@@ -356,6 +365,7 @@ export function ProjectSave({
 	const toast = useToast();
 	const [step, setStep] = useState<SaveStep>({ at: 'closed' });
 	const [view, setView] = useState<ReviewView>('all');
+	const [asking, setAsking] = useState(false);
 	// An agent added here is at its own start, and still one the files do not hold. One removed
 	// here has no start left, and is still one the files hold.
 	const clean = useMemo(
@@ -436,10 +446,18 @@ export function ProjectSave({
 			});
 	};
 
+	const ask = useCallback(() => {
+		setAsking(true);
+	}, []);
 	const unsaved = !clean || step.at !== 'closed';
 	const actions = useMemo(
-		() => ({ unsaved, review: blocked ? undefined : open, clear }),
-		[unsaved, blocked, open, clear],
+		() => ({
+			unsaved,
+			review: blocked ? undefined : open,
+			clear,
+			discard: clean ? undefined : ask,
+		}),
+		[unsaved, blocked, open, clear, clean, ask],
 	);
 	const writing = step.at === 'review' && step.writing;
 	const refusal = step.at === 'refused' || step.at === 'review' ? step.refusal : undefined;
@@ -493,31 +511,52 @@ export function ProjectSave({
 					}
 					footer={
 						<LayoutFooter>
-							<HStack gap={2} justify="end">
+							<HStack gap={2} justify="between">
 								<Button
-									label="Cancel"
+									label="Discard all"
 									variant="ghost"
-									isDisabled={writing}
-									onClick={() => {
-										setStep({ at: 'closed' });
-									}}
+									isDisabled={writing || clean}
+									onClick={ask}
 								/>
-								{step.at === 'review' && (
+								<HStack gap={2}>
 									<Button
-										label="Save"
-										variant="primary"
-										isDisabled={!step.review.writable}
-										isLoading={writing}
+										label="Cancel"
+										variant="ghost"
+										isDisabled={writing}
 										onClick={() => {
-											write(step.review);
+											setStep({ at: 'closed' });
 										}}
 									/>
-								)}
+									{step.at === 'review' && (
+										<Button
+											label="Save"
+											variant="primary"
+											isDisabled={!step.review.writable}
+											isLoading={writing}
+											onClick={() => {
+												write(step.review);
+											}}
+										/>
+									)}
+								</HStack>
 							</HStack>
 						</LayoutFooter>
 					}
 				/>
 			</Dialog>
+			<AlertDialog
+				isOpen={asking}
+				onOpenChange={setAsking}
+				title="Discard every unsaved edit?"
+				description={`The studio opens ${project.name} as its files hold it. Your files do not change.`}
+				actionLabel="Discard all"
+				actionVariant="destructive"
+				onAction={() => {
+					setAsking(false);
+					setStep({ at: 'closed' });
+					onDiscard();
+				}}
+			/>
 		</ProjectSaveContext.Provider>
 	);
 }

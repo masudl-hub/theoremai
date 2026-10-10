@@ -3,7 +3,7 @@
  * the page the project's registered profiles and tools as a workspace, and runs each profile's
  * own code.
  */
-import type { StudioAsks, StudioWorkspace } from '../../mod.ts';
+import { filesPrint, type StudioAsks, type StudioWorkspace } from '../../mod.ts';
 import type {
 	EditedAnswer,
 	OpenAnswer,
@@ -33,6 +33,8 @@ export interface ProjectSession {
 	origins: ProjectOrigins;
 	/** The tools that write: the ones the studio makes ask, and the ones it cannot. */
 	asks: StudioAsks;
+	/** The files as the server read them, as a short text that changes when they do. */
+	print: string;
 }
 
 export const NO_ASKS: StudioAsks = { asked: [], inside: [] };
@@ -55,6 +57,7 @@ export function projectSession(name: string): ProjectSession {
 		shared: [],
 		origins: NO_ORIGINS,
 		asks: NO_ASKS,
+		print: '',
 	};
 }
 
@@ -133,7 +136,10 @@ async function describe(): Promise<Opened> {
 }
 
 /** What a project's files say, which a Save or an edit in the builder's editor changes. */
-export type ProjectFiles = Pick<ProjectSession, 'profiles' | 'problems' | 'origins' | 'asks'>;
+export type ProjectFiles = Pick<
+	ProjectSession,
+	'profiles' | 'problems' | 'origins' | 'asks' | 'print'
+>;
 
 /** What the files say, of a project as the server describes it. */
 function filesOf(opened: Opened): ProjectFiles {
@@ -142,6 +148,7 @@ function filesOf(opened: Opened): ProjectFiles {
 		problems: opened.problems,
 		origins: opened.origins ?? NO_ORIGINS,
 		asks: opened.asks ?? NO_ASKS,
+		print: filesPrint(opened.workspace),
 	};
 }
 

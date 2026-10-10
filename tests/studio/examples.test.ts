@@ -9,9 +9,13 @@ import {
   createLiveExampleDraft,
   createNarratorExampleDraft,
   demoToolSpecs,
+  filesPrint,
   libraryDraft,
+  removeAgent,
   removeLibraryTool,
+  reopened,
   resetAgent,
+  resetAll,
   resetLibraryTool,
   type StudioWorkspace,
   withLibraryDraft,
@@ -109,6 +113,82 @@ Deno.test('resetting an agent puts back its start and leaves the other agents al
   assertEquals(reset.toolSpecs.length, start.toolSpecs.length);
   assertEquals(resetAgent(reset, concierge.key), reset);
   compiled(reset);
+});
+
+Deno.test('resetting everything puts every agent and tool back, and a swap of names with it', () => {
+  const start = addArchitectExample(workspaceFromDraft(createExampleDraft()));
+  const [concierge, architect] = start.agents;
+  const weather = start.toolSpecs.find((tool) => tool.toolName === 'get_weather');
+  assert(concierge && architect && weather);
+  assertEquals(resetAll(start), start);
+
+  const swap = (workspace: typeof start, key: string, agentId: string) => {
+    const view = libraryDraft(workspace, key);
+    assert(view);
+    return withLibraryDraft(workspace, key, {
+      ...view,
+      identity: { ...view.identity, agentId, system: 'Changed.' },
+    });
+  };
+  const parked = swap(start, concierge.key, 'parked');
+  const swapped = swap(
+    swap(parked, architect.key, concierge.identity.agentId),
+    concierge.key,
+    architect.identity.agentId,
+  );
+  const reset = resetAll(removeLibraryTool(swapped, weather.key));
+
+  assertEquals(reset.agents, start.agents);
+  assertEquals(
+    new Set(reset.toolSpecs.map((tool) => tool.toolName)),
+    new Set(start.toolSpecs.map((tool) => tool.toolName)),
+  );
+  assertEquals(resetAll(reset), reset);
+  compiled(reset);
+});
+
+Deno.test('two opens of the same files print the same, and an edit prints another', () => {
+  const first = createArchitectWorkspace();
+  const second = createArchitectWorkspace();
+  assert(first.agents[0]?.key !== second.agents[0]?.key);
+  assertEquals(filesPrint(first), filesPrint(second));
+  assertEquals(filesPrint({ ...first, selected: 'elsewhere' }), filesPrint(first));
+
+  const [architect] = first.agents;
+  const view = architect && libraryDraft(first, architect.key);
+  assert(architect && view);
+  const edited = withLibraryDraft(first, architect.key, {
+    ...view,
+    identity: { ...view.identity, system: 'Changed.' },
+  });
+  assert(filesPrint(edited) !== filesPrint(first));
+});
+
+Deno.test('opening the files again keeps the keys in use and brings back a removed agent', () => {
+  const held = createArchitectWorkspace();
+  const [architect, narrator] = held.agents;
+  assert(architect && narrator);
+  const view = libraryDraft(held, architect.key);
+  assert(view);
+  const renamed = withLibraryDraft(held, architect.key, {
+    ...view,
+    identity: { ...view.identity, agentId: 'renamed', system: 'Changed.' },
+  });
+  const keys = (workspace: StudioWorkspace) => [
+    ...workspace.agents.map((agent) => agent.key),
+    ...workspace.toolSpecs.map((tool) => tool.key),
+  ];
+  const again = reopened(createArchitectWorkspace(), renamed);
+  assertEquals(keys(again), keys(held));
+  assertEquals(filesPrint(again), filesPrint(held));
+  assertEquals(again.selected, renamed.selected);
+
+  const without = removeAgent(renamed, narrator.key);
+  const back = reopened(createArchitectWorkspace(), without);
+  assertEquals(back.agents[0]?.key, architect.key);
+  assert(back.agents[1] && back.agents[1].key !== narrator.key);
+  assertEquals(filesPrint(back), filesPrint(held));
+  compiled(back);
 });
 
 Deno.test('resetting the architect keeps it linked to its narrator', () => {

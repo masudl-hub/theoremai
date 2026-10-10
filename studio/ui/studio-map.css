@@ -1,21 +1,26 @@
 /*
- * The map: a dotted sheet as large as its columns, at least as large as its panel, that scrolls
- * both ways. The lines are one drawing under the nodes; the nodes are buttons placed over it.
- * Every colour, radius and timing is an Astryx theme token.
+ * The map: the showcase's field of dots, panned both ways. The scrollport is the query box, so the
+ * field is at least the panel and only larger when the columns need the room. The lines are one
+ * drawing under the nodes; the nodes are buttons placed over it. Every colour, radius and timing
+ * is an Astryx theme token. The shell's own motion brings the map in.
  */
-.studio-map {
-	position: relative;
-	box-sizing: border-box;
-	min-width: 100%;
-	min-height: 100%;
-	background-image: radial-gradient(var(--color-border) 1px, transparent 1px);
-	background-size: var(--spacing-4) var(--spacing-4);
-	animation: studio-map-enter var(--duration-medium) var(--ease-standard);
+.studio-map-scroll {
+	container-type: size;
 }
 
-@keyframes studio-map-enter {
-	from {
-		opacity: 0;
+.studio-map {
+	position: relative;
+	width: var(--map-width);
+	height: var(--map-height);
+	background-color: var(--color-background-surface);
+	background-image: radial-gradient(circle, var(--color-border) 1px, transparent 1px);
+	background-size: var(--spacing-6) var(--spacing-6);
+}
+
+@supports (width: 1cqw) {
+	.studio-map {
+		width: max(100cqw, var(--map-width));
+		height: max(100cqh, var(--map-height));
 	}
 }
 
@@ -109,10 +114,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.studio-map,
 	.studio-map-node,
 	.studio-map-lines path {
-		animation: none;
 		transition: none;
 	}
 }

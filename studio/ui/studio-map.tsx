@@ -7,7 +7,7 @@ import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
 import { Text } from '@astryxdesign/core/Text';
 import { IconCode } from '@tabler/icons-react';
-import { useMemo, useState } from 'react';
+import { type CSSProperties, useMemo, useState } from 'react';
 import {
 	type MapNode,
 	type MapSizes,
@@ -70,11 +70,23 @@ export function StudioMap({
 	const nodes = map.columns.flat().flatMap((group) => group.nodes);
 
 	return (
-		<ScrollableArea label="Map" axis="both" height="100%">
+		<ScrollableArea
+			className="studio-map-scroll"
+			axis="both"
+			role="region"
+			label="Map"
+			height="100%"
+			overscroll="allow"
+		>
 			<div
 				className="studio-map"
 				data-lit={lit === undefined ? undefined : ''}
-				style={{ width: layout.width, height: layout.height }}
+				style={
+					{
+						'--map-width': `${String(layout.width)}px`,
+						'--map-height': `${String(layout.height)}px`,
+					} as CSSProperties
+				}
 			>
 				<svg
 					className="studio-map-lines"

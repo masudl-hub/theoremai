@@ -25,6 +25,7 @@ import {
 	IconArrowBarToDown,
 	IconArrowLeft,
 	IconBrowserShare,
+	IconCheck,
 	IconCode,
 	IconCopy,
 	IconCopyPlus,
@@ -173,6 +174,18 @@ import {
 	StudioKeys,
 	useStudioConnection,
 } from './studio-connection.tsx';
+import {
+	enterShell,
+	frameShape,
+	HOLD_MS,
+	holdShell,
+	moveShell,
+	REGULAR_SHAPE,
+	type ShellShape,
+	settleShell,
+	shellCanMove,
+	sleep,
+} from './shell-motion.ts';
 import { StudioMap } from './studio-map.tsx';
 import { StudioRunner } from './studio-runner.tsx';
 import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
@@ -990,22 +1003,19 @@ function useLastGood(compile: Compile) {
 	return good ?? lastGood;
 }
 
-/** The editor/code button, by the view it leaves; the map leaves for the editor. */
-const VIEW_TOGGLE = {
-	editor: { label: 'Code', icon: IconCode, tooltip: 'Edit as TypeScript', next: 'code' },
-	code: {
-		label: 'Editor',
-		icon: IconAdjustmentsHorizontal,
-		tooltip: 'Edit as a form',
-		next: 'editor',
+/** The views of the editor column, in the order its one button lists them. */
+const EDITOR_VIEWS = [
+	{ id: 'editor', label: 'Editor', icon: IconAdjustmentsHorizontal, description: 'Edit as a form' },
+	{ id: 'code', label: 'Code', icon: IconCode, description: 'Edit as TypeScript' },
+	{
+		id: 'map',
+		label: 'Map',
+		icon: IconSitemap,
+		description: 'See how everything connects',
 	},
-	map: {
-		label: 'Editor',
-		icon: IconAdjustmentsHorizontal,
-		tooltip: 'Edit as a form',
-		next: 'editor',
-	},
-} as const;
+] as const;
+
+type EditorViewName = (typeof EDITOR_VIEWS)[number]['id'];
 
 /** The agent with every use of key slot `from` pointed at `to`; `''` lets go of it. */
 function swapKeySlot<Agent extends Pick<StudioDraft, 'models' | 'modelBindings'>>(
@@ -1701,10 +1711,44 @@ function offerEditsBack(
 	setAside(key, edits);
 }
 
-/** Which view stands in the editor column, and opening a node there. */
+/**
+ * Which view stands in the editor column, and opening a node there. Going to the map or back moves
+ * the shell the way it moves after load: what is on it fades out, the shell widens over the preview
+ * or draws back to the panel, and the new view comes in.
+ */
 function useEditorView(store: StudioStore) {
 	const [keysOpen, setKeysOpen] = useState(false);
-	const [editorView, setEditorView] = useState<'editor' | 'code' | 'map'>('editor');
+	const [editorView, setView] = useState<EditorViewName>('editor');
+	const shown = useRef<EditorViewName>('editor');
+	/** The shell's shape before the map opened: where it draws back to. */
+	const panel = useRef<ShellShape | null>(null);
+	const setEditorView = useCallback((next: EditorViewName) => {
+		const from = shown.current;
+		shown.current = next;
+		const opens = next === 'map' && from !== 'map';
+		const closes = from === 'map' && next !== 'map';
+		if ((!opens && !closes) || !shellCanMove()) {
+			if (closes) panel.current = null;
+			setView(next);
+			return;
+		}
+		const before = opens ? frameShape() : REGULAR_SHAPE;
+		if (opens) panel.current = before;
+		holdShell();
+		void sleep(HOLD_MS).then(async () => {
+			// Overtaken while fading: the later change moves the shell.
+			if (shown.current !== next) return;
+			// The shell holds its shape as a clip, so the panel changing width under it is not seen.
+			enterShell(before);
+			setView(next);
+			const back = panel.current;
+			if (closes) panel.current = null;
+			// A map that opened without moving left no shape; measure the panel once it has drawn back.
+			if (closes && !back) await sleep(32);
+			const to = opens ? REGULAR_SHAPE : (back ?? frameShape());
+			if (await moveShell(before, to)) settleShell(opens ? frameShape() : to);
+		});
+	}, []);
 	/** Opens a node from the tree or the editor, closing whatever stood over it. */
 	const open = useCallback(
 		(id: string) => {
@@ -1712,7 +1756,7 @@ function useEditorView(store: StudioStore) {
 			store.select(id);
 			setEditorView('editor');
 		},
-		[store],
+		[store, setEditorView],
 	);
 	return { keysOpen, setKeysOpen, editorView, setEditorView, open };
 }
@@ -1915,37 +1959,34 @@ function IssueToken({
 
 /** Replaces the workspace with one blank agent or one of the examples. */
 
-/** Opens the map in place of the editor, or goes back to the editor; either way Keys closes. */
-function MapButton({ view }: { view: EditorViewState }) {
-	const isOpen = view.editorView === 'map' && !view.keysOpen;
-	return (
-		<IconButton
-			label="Map"
-			variant="ghost"
-			icon={<Icon icon={IconSitemap} size="sm" />}
-			aria-pressed={isOpen}
-			tooltip="See how your agents, tools, models and shared settings connect"
-			onClick={() => {
-				view.setKeysOpen(false);
-				view.setEditorView(isOpen ? 'editor' : 'map');
-			}}
-		/>
-	);
-}
-
-/** Switches the editor between the form and the code, closing Keys. */
+/** The one button for the editor column's view: the form, the code or the map. Choosing closes Keys. */
 function ViewToggleButton({ view }: { view: EditorViewState }) {
-	const viewToggle = VIEW_TOGGLE[view.editorView];
+	const current = EDITOR_VIEWS.find((each) => each.id === view.editorView) ?? EDITOR_VIEWS[0];
 	return (
-		<IconButton
-			label={viewToggle.label}
-			variant="ghost"
-			icon={<Icon icon={viewToggle.icon} size="sm" />}
-			tooltip={viewToggle.tooltip}
-			onClick={() => {
-				view.setKeysOpen(false);
-				view.setEditorView(viewToggle.next);
+		<DropdownMenu
+			button={{
+				label: current.label,
+				variant: 'ghost',
+				isIconOnly: true,
+				icon: <Icon icon={current.icon} size="sm" />,
+				tooltip: 'Switch between the editor, the code and the map',
 			}}
+			menuWidth="fit-content(15rem)"
+			hasChevron={false}
+			placement="below"
+			alignment="end"
+			items={EDITOR_VIEWS.map((each) => ({
+				id: each.id,
+				label: each.label,
+				description: <span>{each.description}</span>,
+				icon: <Icon icon={each.icon} size="sm" />,
+				endContent:
+					each.id === current.id && !view.keysOpen ? <Icon icon={IconCheck} size="sm" /> : undefined,
+				onClick: () => {
+					view.setKeysOpen(false);
+					view.setEditorView(each.id);
+				},
+			}))}
 		/>
 	);
 }
@@ -2121,7 +2162,6 @@ function EditorToolbar({
 						},
 					]}
 				/>
-				<MapButton view={view} />
 				<ViewToggleButton view={view} />
 				<SheetButton label="Preview" icon={IconPlayerPlay} sheet="preview" setSheet={setSheet} />
 			</HStack>

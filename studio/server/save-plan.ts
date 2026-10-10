@@ -136,8 +136,13 @@ export function indentUnit(source: ts.SourceFile): string {
 }
 
 /** Text of one line, in the quotes the file already uses at this spot. */
+/** Quotes as the text being replaced does. With no text there, as the file's first import does. */
 function quoteLike(existing: ts.Expression | undefined, source: ts.SourceFile) {
-  const double = existing && ts.isStringLiteral(existing) && existing.getText(source).startsWith('"');
+  const first = existing && ts.isArrayLiteralExpression(existing) ? existing.elements.find(ts.isStringLiteral) : existing;
+  const like = first && ts.isStringLiteral(first)
+    ? first
+    : source.statements.find(ts.isImportDeclaration)?.moduleSpecifier;
+  const double = like?.getText(source).startsWith('"');
   return (text: string): string => {
     const body = JSON.stringify(text);
     if (double) return body;
@@ -425,7 +430,14 @@ class Planner {
         return;
       }
       const start = node.getStart(source);
-      this.edit(source, start, node.end, valueSource(after, this.style(source, start, node)));
+      // A list's own quotes are for the list that replaces it.
+      const style = this.style(source, start, Array.isArray(after) || !ts.isArrayLiteralExpression(node) ? node : undefined);
+      // A list of plain values on one line stays on one line.
+      const inline = ts.isArrayLiteralExpression(node) && Array.isArray(after) && after.length > 0 &&
+        after.every((item) => item === null || typeof item !== 'object') &&
+        !node.getText(source).includes('\n');
+      const text = inline ? `[${after.map((item) => valueSource(item, style)).join(', ')}]` : valueSource(after, style);
+      this.edit(source, start, node.end, text);
       this.note('written', path, { source, node });
       return;
     }

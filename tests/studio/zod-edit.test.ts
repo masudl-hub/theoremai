@@ -298,6 +298,33 @@ Deno.test('a field an extended schema adds is its own', () => {
   });
 });
 
+Deno.test('what Save adds is quoted as the file quotes, and a list on one line stays on one', () => {
+  const files = {
+    'setup.ts': `import { registerTool } from "@theoremjs/agents";
+import { z } from "zod";
+const input = z.strictObject({
+  kind: z.enum(["nursery", "garden_center", "hardware_store", "any"]).optional(),
+});
+registerTool({ name: "list", description: "Lists.", input, handler: () => [] });
+`,
+  };
+  const kinds = ['nursery', 'garden_center', 'hardware_store', 'any'];
+  const before = {
+    type: 'object',
+    properties: { kind: { type: 'string', enum: kinds } },
+    additionalProperties: false,
+  };
+  const after = changed(before, (schema) => {
+    schema.properties.kind.enum.push('florist');
+    schema.properties.near = { type: 'string', description: 'Where.' };
+  });
+  assertEquals(saved([subject('list', 'inputSchema', before, after)], files).lines, [
+    'setup.ts - kind: z.enum(["nursery", "garden_center", "hardware_store", "any"]).optional(),',
+    'setup.ts + kind: z.enum(["nursery", "garden_center", "hardware_store", "any", "florist"]).optional(),',
+    'setup.ts + near: z.string().describe("Where.").optional(),',
+  ]);
+});
+
 Deno.test('a schema that is not Zod the studio follows is left for code', () => {
   const files = {
     'setup.ts': `import { registerTool } from '@theoremjs/agents';

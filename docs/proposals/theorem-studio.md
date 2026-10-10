@@ -584,6 +584,12 @@ sink of the project's own, a validator or a trigger is left to the file: the
 studio shows the rest, Save does not touch it, and a run is the profile as
 the project registered it.
 
+Built: the studio on its own opens with the website's loader. The mark draws
+on the full-bleed shell while the project opens, then that panel pulls in to
+the studio's frame. The loader and the shell's movement live in the studio
+package (`studio/ui/boot-mark.tsx`, `studio/ui/shell-motion.ts`), and the
+website mounts the same ones.
+
 Not built: editing those in the studio. Removing a profile or a tool: the
 review names it and Save does not write it. Changing a tool's schema once it
 is in a file: it reads as set in code, like every tool the project has.

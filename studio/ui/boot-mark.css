@@ -1,0 +1,22 @@
+/* First load: the pen waits a beat, then finishes, dot included. A page that is ready inside that
+   beat never shows the mark (boot-mark.tsx reads the delay as the answer). */
+[data-boot] .theorem-mark {
+	--mark-delay: 240ms;
+	--mark-draw: 620ms;
+	--mark-draw-late: 560ms;
+	--mark-stagger: 200ms;
+	--mark-dot-at: 780ms;
+	--mark-dot-in: 220ms;
+}
+
+[data-boot] {
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	display: grid;
+	place-items: center;
+	/* Literal, matching the inline paint in boot-paint.ts. The mark sits in the shell,
+	   outside the theme scope, so a surface token here is the library default. */
+	color: #fff;
+	background: #262626;
+}

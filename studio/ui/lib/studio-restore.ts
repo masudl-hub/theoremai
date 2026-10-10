@@ -203,9 +203,11 @@ export function editsAside(key: string, opened: StudioWorkspace): StudioWorkspac
 }
 
 /**
- * The edits this tab kept for a project. `restored` while the files still print as they did when
- * the edits were made. `moved` when the files changed under edits: the files open, and the edits
- * are set aside and handed back to be offered. Kept edits that cannot be read back are removed.
+ * The edits this tab kept for a project. `restored` with the reading of the files they stand on:
+ * when the files changed since, the studio merges the change into them as it does one the
+ * builder's editor writes while the page is open. `moved` when the edits stand on no reading, so
+ * nothing says what the files changed: the files open, and the edits are set aside and handed back
+ * to be offered. Kept edits that cannot be read back are removed.
  */
 export function restoreProject(
 	key: string,
@@ -230,9 +232,15 @@ export function restoreProject(
 			value: { workspace, revision: kept.revision, project: { key, files } },
 		};
 	}
-	store.removeItem(key);
-	// With nothing edited there is nothing to offer back.
+	// With nothing edited the files open as they are.
 	const isEdited = kept.files === undefined || editedSince(kept.workspace, kept.files);
+	if (isEdited && kept.files !== undefined) {
+		return {
+			kind: 'restored',
+			value: { workspace, revision: kept.revision, project: { key, files: kept.files } },
+		};
+	}
+	store.removeItem(key);
 	if (!isEdited) return { kind: 'none' };
 	setAside(key, kept.workspace);
 	return { kind: 'moved', workspace };

@@ -482,9 +482,19 @@ what the builder's editor saves as it saves.
   beside the file's, and the builder picks one for each: "Mine" or "The
   file's", or "Take all from files" or "Keep all mine". Nothing changes in
   the studio until they press Apply; until then the chat runs on their edits.
-- The merge is setting by setting (`mergedWithFiles`, `withFilesChosen`). Two
-  different edits to one list of rows are one conflict over the whole list,
-  and a profile renamed in the files reads as one removed and one added.
+- Escape or a click outside closes the dialog without choosing. The edits
+  stand, and a "1 conflict" token in the editor's header opens it again.
+- The merge is setting by setting (`mergedWithFiles`, `withFilesChosen`). A
+  list of rows, such as an agent's models, merges row by row: a row either
+  side added stays, and a row one side took out goes unless the other
+  changed it, which is a conflict over that row.
+- A profile or tool renamed in the files, and otherwise as it was, keeps the
+  builder's edits under its new name. Renamed and changed in one save, it
+  reads as one removed and one added.
+- Reloading the page merges the same way: the edits the tab kept come back
+  over the files as they are now, with the toast or the dialog. A profile
+  the builder removed before the reload comes back if the files changed
+  meanwhile.
 - Watching is on by default. "Watch files" in the view menu turns it off for
   this browser, and `--no-watch` at launch turns it off for the run: the
   menu item is then not offered. With it off, the files are read as before,

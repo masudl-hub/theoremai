@@ -267,6 +267,13 @@
 	transition: opacity 120ms ease;
 }
 
+/* Long text breaks between words, and inside one only when it cannot fit. Two classes outrank
+   the code block's own one-class rule. */
+.studio-conflict-sides .studio-conflict-side * {
+	word-break: normal;
+	overflow-wrap: anywhere;
+}
+
 .studio-conflict-side[data-kept='false'] {
 	opacity: 0.5;
 }

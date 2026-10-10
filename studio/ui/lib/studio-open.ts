@@ -35,8 +35,9 @@ export function openStudio(seed?: { draft: StudioDraft; question: string | undef
 
 /**
  * What the studio opens on when a local server holds a project: the project's workspace, with the
- * edits this tab kept for it while its files are as they were. Edits whose files changed wait
- * behind an offer until the builder answers it. Closing the tab forgets them. Throws when no server answers.
+ * edits this tab kept for it. The studio merges into them what the files changed since; edits
+ * that stand on no reading of the files wait behind an offer until the builder answers it.
+ * Closing the tab forgets them. Throws when no server answers.
  */
 export async function openStudioProject(): Promise<StudioOpened & { project: ProjectSession }> {
 	const { project, workspace } = await openProject();

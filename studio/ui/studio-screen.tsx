@@ -1374,10 +1374,8 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 			flush();
 		};
 	}, [store]);
-	const { files, refreshOrigins, filesChanged, conflict, settle, watchFiles } = useProjectFiles(
-		project,
-		store,
-	);
+	const { files, refreshOrigins, filesChanged, conflict, settle, showConflict, watchFiles } =
+		useProjectFiles(project, store);
 	return {
 		store,
 		workspace,
@@ -1393,6 +1391,7 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 		filesChanged,
 		conflict,
 		settle,
+		showConflict,
 		watchFiles,
 	};
 }
@@ -1405,11 +1404,14 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
  * stand on this reading, which the tab keeps with the edits. The local server also says when the
  * builder's editor writes a file, unless the watch is off. What the editor changed is merged
  * into the workspace setting by setting: the builder's edits stay, and a setting both changed
- * waits in `conflict` until the builder chooses with `settle`.
+ * waits in `conflict` until the builder chooses with `settle`. They can close the choice and come
+ * back to it with `showConflict`: their edits stand meanwhile.
  */
 function useProjectFiles(project: ProjectSession | undefined, store: StudioStore) {
 	const [files, setFiles] = useState<ProjectFiles | undefined>(project);
-	const [conflict, setConflict] = useState<FilesConflict>();
+	const [pending, setConflict] = useState<Omit<FilesConflict, 'open'>>();
+	const [isChoosing, showConflict] = useState(true);
+	const conflict = useMemo(() => pending && { ...pending, open: isChoosing }, [pending, isChoosing]);
 	const toast = useToast();
 	/** The studio's own moves still being read: a reading that lands meanwhile is theirs. */
 	const ours = useRef(0);
@@ -1442,6 +1444,7 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 						if (merge.conflicts.length > 0) {
 							// The builder's edits stand, and nothing moves under them, until they choose.
 							setConflict({ merge, read, workspace, files: named });
+							showConflict(true);
 							return;
 						}
 						store.update(merge.workspace);
@@ -1499,12 +1502,8 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 	);
 	useEffect(() => {
 		if (!project) return;
-		// The files as the page opened them, when the edits still stand on them.
-		readFiles()
-			.then(({ files: read, workspace }) => {
-				if (read.print === store.standsOn()) lastRead.current ??= workspace;
-			})
-			.catch(() => undefined);
+		// Edits the tab kept may stand on files that changed while the page was closed.
+		reread(false);
 		return subscribeToFiles(project.endpoint, {
 			open: () => {
 				setWatch((held) => (held.available ? held : { ...held, available: true }));
@@ -1518,7 +1517,7 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 		() => (watch.available ? { on: watch.on, set: setWatching } : undefined),
 		[watch, setWatching],
 	);
-	return { files, refreshOrigins, filesChanged, conflict, settle, watchFiles };
+	return { files, refreshOrigins, filesChanged, conflict, settle, showConflict, watchFiles };
 }
 
 /** A merge that waits on the builder: the settings they and their files both changed. */
@@ -1528,6 +1527,8 @@ interface FilesConflict {
 	workspace: StudioWorkspace;
 	/** The files that changed, as the builder reads them. */
 	files: string;
+	/** Whether the choice shows. Closed, it waits behind the editor's "conflicts" token. */
+	open: boolean;
 }
 
 /** The files that changed, as a toast and the conflict dialog name them: the one, or how many. */
@@ -1536,6 +1537,8 @@ function changedFiles(files: readonly string[]): string {
 	if (only === undefined) return 'your files';
 	return files.length === 1 ? only : `${String(files.length)} files`;
 }
+
+const conflictsLabel = (count: number) => (count === 1 ? '1 conflict' : `${String(count)} conflicts`);
 
 /** What a merge with no conflicts says, or nothing when the files changed no setting. */
 function filesToast(files: string, updated: number, hadEdits: boolean): string | undefined {
@@ -2860,11 +2863,14 @@ function SaveScope({
 			blocked={blocked}
 		>
 			{children}
-			{state.conflict && (
+			{state.conflict?.open && (
 				<FileConflicts
 					conflicts={state.conflict.merge.conflicts}
 					files={state.conflict.files}
 					onApply={state.settle}
+					onClose={() => {
+						state.showConflict(false);
+					}}
 				/>
 			)}
 		</ProjectSave>
@@ -3089,7 +3095,21 @@ function EditorColumn({
 				}}
 				reset={reset}
 				project={
-					project && <ProjectTokens project={project} unloaded={state.files?.unloaded} />
+					project && (
+						<>
+							{state.conflict && (
+								<Token
+									label={conflictsLabel(state.conflict.merge.conflicts.length)}
+									color="orange"
+									description="Choose between your edits and your files"
+									onClick={() => {
+										state.showConflict(true);
+									}}
+								/>
+							)}
+							<ProjectTokens project={project} unloaded={state.files?.unloaded} />
+						</>
+					)
 				}
 				setSheet={setSheet}
 			/>

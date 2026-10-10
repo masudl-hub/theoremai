@@ -655,6 +655,58 @@ function keyless(value: unknown): string {
 }
 
 /**
+ * Each thing in a start's list with the one in the files' list it is: the one that reads the
+ * same, and otherwise the next one left. So a row the files add or take out moves no other row.
+ */
+function paired(start: readonly unknown[], file: readonly unknown[]): [unknown, unknown][] {
+  const texts = file.map(keyless);
+  const taken = new Set<number>();
+  const pairs: [unknown, unknown][] = [];
+  const unmatched: unknown[] = [];
+  for (const each of start) {
+    const text = keyless(each);
+    const at = texts.findIndex((other, index) => other === text && !taken.has(index));
+    if (at < 0) unmatched.push(each);
+    else {
+      taken.add(at);
+      pairs.push([each, file[at]]);
+    }
+  }
+  const left = file.filter((_, index) => !taken.has(index));
+  unmatched.slice(0, left.length).forEach((each, index) => pairs.push([each, left[index]]));
+  return pairs;
+}
+
+/**
+ * The files with an agent or a tool they renamed under the key the studio holds it by. It is a
+ * rename when one the studio opened is gone, one it never held is there, and the two read the
+ * same but for the name.
+ */
+function renamedAsHeld(now: StudioWorkspace, edits: StudioWorkspace): StudioWorkspace {
+  let text = JSON.stringify(now);
+  const pair = <T extends { key: string }>(
+    held: readonly T[],
+    starts: Record<string, T>,
+    inFiles: readonly T[],
+    unnamed: (each: T) => T,
+  ) => {
+    const file = new Set(inFiles.map((each) => each.key));
+    const here = new Set(held.map((each) => each.key));
+    const gone = held.flatMap((each) => (file.has(each.key) ? [] : starts[each.key] ?? []));
+    const fresh = inFiles.filter((each) => !here.has(each.key) && !starts[each.key]);
+    const [was, is] = [gone[0], fresh[0]];
+    if (gone.length !== 1 || fresh.length !== 1 || !was || !is) return;
+    if (keyless(unnamed(was)) === keyless(unnamed(is))) text = text.split(is.key).join(was.key);
+  };
+  pair(edits.agents, edits.starts.agents, now.agents, (agent) => ({
+    ...agent,
+    identity: { ...agent.identity, agentId: '' },
+  }));
+  pair(edits.toolSpecs, edits.starts.tools, now.toolSpecs, (tool) => ({ ...tool, toolName: '' }));
+  return JSON.parse(text) as StudioWorkspace;
+}
+
+/**
  * `now` with the keys inside each agent and tool named as its start names them. A key is new on
  * every open, so what stands in the same place in the start gives its key: a model, a question.
  */
@@ -666,7 +718,7 @@ function alignedToStarts(now: StudioWorkspace, starts: WorkspaceStarts): StudioW
     const renames = new Map<string, string>();
     const walk = (start: unknown, file: unknown): void => {
       if (Array.isArray(start) && Array.isArray(file)) {
-        start.slice(0, file.length).forEach((each, index) => walk(each, file[index]));
+        for (const [each, other] of paired(start, file)) walk(each, other);
       } else if (isRecord(start) && isRecord(file)) {
         for (const [field, inner] of Object.entries(start)) {
           const other = file[field];
@@ -689,19 +741,16 @@ function alignedToStarts(now: StudioWorkspace, starts: WorkspaceStarts): StudioW
 const isNames = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((each) => typeof each === 'string') && new Set(value).size === value.length;
 
-/** Whether the three lists hold the same keyed things in the same order, so each merges on its own. */
-function isSameRows(lists: readonly unknown[]): boolean {
-  const [first] = lists;
-  if (!Array.isArray(first)) return false;
-  return lists.every((list) =>
-    Array.isArray(list) && list.length === first.length &&
-    list.every((row, index) => isRecord(row) && typeof row.key === 'string' && row.key === first[index]?.key)
-  );
-}
+type Row = Record<string, unknown> & { key: string };
+
+/** Whether a list holds keyed rows: models, questions. */
+const isRows = (value: unknown): value is Row[] =>
+  Array.isArray(value) && value.every((row) => isRecord(row) && typeof row.key === 'string');
 
 /**
  * One value three ways: what the files held, what the builder holds and what the files hold now.
  * A record merges field by field, a list of keyed rows row by row, and a list of names as a set.
+ * A row either side added stays, and one either side took out goes unless the other changed it.
  * Anything else is one setting: whoever changed it has it, and both changing it is a conflict the
  * builder's value stands in for.
  */
@@ -722,9 +771,34 @@ function mergedValue(
     }
     return next;
   }
-  if (isSameRows([base, mine, theirs])) {
-    const [was, held, now] = [base, mine, theirs] as unknown[][];
-    return held.map((row, index) => mergedValue(was[index], row, now[index], [...path, index], tell));
+  if (isRows(base) && isRows(mine) && isRows(theirs)) {
+    const was = new Map(base.map((row) => [row.key, row]));
+    const now = new Map(theirs.map((row) => [row.key, row]));
+    const kept: unknown[] = [];
+    for (const row of mine) {
+      const [start, file] = [was.get(row.key), now.get(row.key)];
+      const at = [...path, kept.length];
+      if (!start) kept.push(row);
+      else if (file) kept.push(mergedValue(start, row, file, at, tell));
+      else if (same(row, start)) tell.updated(at);
+      else {
+        tell.conflict(at, row, undefined);
+        kept.push(row);
+      }
+    }
+    const here = new Set(mine.map((row) => row.key));
+    // A row the builder took out and the files changed: it would come back after the rows kept.
+    let back = kept.length;
+    for (const row of theirs) {
+      if (here.has(row.key)) continue;
+      const start = was.get(row.key);
+      if (!start) {
+        tell.updated([...path, kept.length]);
+        kept.push(row);
+        back += 1;
+      } else if (!same(row, start)) tell.conflict([...path, back++], undefined, row);
+    }
+    return kept;
   }
   if (same(base, mine)) {
     tell.updated(path);
@@ -776,7 +850,7 @@ function sound(workspace: StudioWorkspace): StudioWorkspace {
  * it nothing the studio holds is taken away, and an agent the builder removed comes back.
  */
 export function mergedWithFiles(edits: StudioWorkspace, files: StudioWorkspace, before?: StudioWorkspace): FilesMerge {
-  const now = alignedToStarts(reopened(files, edits), edits.starts);
+  const now = alignedToStarts(renamedAsHeld(reopened(files, edits), edits), edits.starts);
   const updated: FileUpdate[] = [];
   const conflicts: FileConflict[] = [];
   const laid = <T extends { key: string }>(
@@ -865,10 +939,27 @@ export function mergedWithFiles(edits: StudioWorkspace, files: StudioWorkspace, 
   return { workspace, updated, conflicts, files: now };
 }
 
+/** Stands where a row was taken out, so the rows after it keep their places until every choice is in. */
+const GONE = Object.freeze({ gone: true });
+
+function withoutGone<T>(value: T): T {
+  if (Array.isArray(value)) return value.filter((each) => each !== GONE).map(withoutGone) as T;
+  if (!isRecord(value)) return value;
+  const fields = Object.entries(value).map(([field, inner]) => [field, withoutGone(inner)]);
+  return Object.fromEntries(fields) as T;
+}
+
 function putAt(value: unknown, path: SettingPath, to: unknown): unknown {
   const [field, ...rest] = path;
   if (field === undefined) return to;
-  if (Array.isArray(value)) return value.map((each, index) => (index === field ? putAt(each, rest, to) : each));
+  if (Array.isArray(value)) {
+    // A row past the end comes back after the rows there.
+    if (typeof field === 'number' && field >= value.length) return to === undefined ? value : [...value, to];
+    return value.map((each, index) => {
+      if (index !== field) return each;
+      return rest.length === 0 && to === undefined ? GONE : putAt(each, rest, to);
+    });
+  }
   const next: Record<string, unknown> = { ...(isRecord(value) ? value : {}) };
   const inner = putAt(next[field], rest, to);
   if (inner === undefined) delete next[field];
@@ -916,6 +1007,7 @@ export function withFilesChosen(merge: FilesMerge, theirs: readonly number[]): S
       });
     }
   }
+  [agents, toolSpecs] = [withoutGone(agents), withoutGone(toolSpecs)];
   return sound({ ...merge.workspace, agents, toolSpecs, starts });
 }
 

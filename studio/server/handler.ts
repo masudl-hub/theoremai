@@ -92,11 +92,15 @@ type Serve = (request: Request) => Promise<Response>;
 
 /** The registered tools as the studio's printer takes them: their fields and JSON schemas. */
 function registeredTools(): ToolRegistration[] {
-  return listTools().map((tool) => {
-    const fields: Record<string, unknown> = { ...tool };
-    for (const own of ['handler', 'input', 'output']) delete fields[own];
-    return fields as ToolRegistration;
-  });
+  return listTools()
+    // A provider's built-in tool is a model's setting, not a tool the project registers.
+    .filter((tool) => tool.type !== 'builtin')
+    .map((tool) => {
+      const fields: Record<string, unknown> = { ...tool };
+      for (const own of ['handler', 'input', 'output']) delete fields[own];
+      // What the file writes as code (a hook before the call, its sources) is left to the file.
+      return plainSetting(fields) as ToolRegistration;
+    });
 }
 
 type ProfileRead =

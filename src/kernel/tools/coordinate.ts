@@ -1,5 +1,6 @@
 import { TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import { lexiconText } from '../../guardrails/lexicon.ts';
+import { type JsonObject, jsonObjectSchema } from '../provider-contract.ts';
 import type { TurnEvent } from '../types.ts';
 import type { ToolExecuteSettlement } from './execute.ts';
 import {
@@ -34,18 +35,24 @@ class CoordinatedExecution {
   constructor(
     private coordinator: ToolExecutionCoordinator,
     private operation: ToolOperationIdentity,
+    private accepted: JsonObject,
     private signal?: AbortSignal,
   ) {}
 
-  async beginBody(): Promise<void> {
+  async beginBody(preparedInput: unknown): Promise<ToolOperationClaim> {
     throwIfAborted(this.signal);
-    const result = await this.coordinator.begin(this.operation);
+    const operation = {
+      ...this.operation,
+      invocation: { accepted: this.accepted, preparedInput: operationWireValue(preparedInput) },
+    };
+    const result = await this.coordinator.begin(operation);
     if (result.kind === 'settled') throw new ReplayedOperation(result.outcome);
     if (result.kind === 'running' || result.kind === 'uncertain') throw uncertainError();
     if (result.kind !== 'acquired' || typeof result.claimToken !== 'string' || !result.claimToken)
       throw operationUnavailable();
-    this.claim = { ...this.operation, claimToken: result.claimToken };
+    this.claim = { ...operation, claimToken: result.claimToken };
     throwIfAborted(this.signal);
+    return this.claim;
   }
 
   observe(event: TurnEvent): boolean {
@@ -129,12 +136,28 @@ export async function* coordinateTool(
   identity: Omit<ToolOperationIdentity, 'invocationHash'>,
   invocation: unknown,
   signal: AbortSignal | undefined,
-  run: (beginBody?: () => Promise<void>) => AsyncGenerator<TurnEvent, ToolExecuteSettlement>,
+  run: (
+    beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>,
+  ) => AsyncGenerator<TurnEvent, ToolExecuteSettlement>,
+  authorizeReplay?: (outcome: ToolOperationOutcome) => void | Promise<void>,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   if (!coordinator) return yield* run();
-  const operation = { ...identity, invocationHash: await toolInvocationHash(invocation) };
-  const execution = new CoordinatedExecution(coordinator, operation, signal);
-  const iterator = run(() => execution.beginBody());
+  const accepted = jsonObjectSchema.parse(operationWireValue(invocation));
+  const operation = { ...identity, invocationHash: await toolInvocationHash(accepted) };
+  const execution = new CoordinatedExecution(coordinator, operation, accepted, signal);
+  throwIfAborted(signal);
+  const existing = await coordinator.lookup(operation);
+  throwIfAborted(signal);
+  if (existing?.kind === 'running' || existing?.kind === 'uncertain') throw uncertainError();
+  if (existing?.kind === 'settled') {
+    if (!authorizeReplay) throw operationUnavailable();
+    const saved = execution.replay(new ReplayedOperation(existing.outcome));
+    await authorizeReplay(saved);
+    throwIfAborted(signal);
+    yield saved.event;
+    return saved.replay;
+  }
+  const iterator = run((input) => execution.beginBody(input));
   try {
     for (;;) {
       const next = await iterator.next();
@@ -147,7 +170,9 @@ export async function* coordinateTool(
     }
   } catch (error) {
     if (error instanceof ReplayedOperation) {
+      if (!authorizeReplay) throw operationUnavailable();
       const saved = execution.replay(error);
+      await authorizeReplay(saved);
       yield saved.event;
       return saved.replay;
     }

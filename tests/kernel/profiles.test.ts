@@ -449,7 +449,6 @@ Deno.test('live snapshot turns on every gated builtin regardless of loadTier', (
     paths: ['*'],
     loadTier: 'T2',
     permission: 'auto',
-    wire: { live: 'live_builtin_t1' },
   });
   registerProfile(
     defineProfile({

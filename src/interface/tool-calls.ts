@@ -2,6 +2,7 @@
 // session and history read calls through this fold only.
 
 import { TheoremError } from '../guardrails/error.ts';
+import { lexiconText } from '../guardrails/lexicon.ts';
 import type { ToolCallEvent, TurnEvent, TurnEventOf } from '../kernel/types.ts';
 import type { ToolCall } from './types.ts';
 
@@ -14,6 +15,7 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
     return {
       name: tool.name,
       callId: tool.callId,
+      ...(tool.operationId ? { operationId: tool.operationId } : {}),
       arguments: tool.arguments,
       ...(tool.thoughtSignature ? { thoughtSignature: tool.thoughtSignature } : {}),
       ...(tool.stepId ? { stepId: tool.stepId } : {}),
@@ -25,6 +27,9 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
       'bad_response',
       `Tool event '${tool.phase}' for call '${tool.callId}' arrived before the call.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
+  }
+  if (call.callId !== tool.callId || call.name !== tool.name) {
+    throw new TheoremError('bad_response', lexiconText('error.bad_response'));
   }
   switch (tool.phase) {
     case 'running': {
@@ -51,6 +56,7 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
       return { ...call, state: tool, endedAt: tool.at };
     case 'artifact':
       return { ...call, artifacts: [...call.artifacts, tool.artifact] };
+    case 'dispatch':
     case 'progress':
     case 'trace':
     case 'warning':
@@ -64,14 +70,19 @@ function toolCallsOf(events: readonly TurnEvent[]): ToolCall[] {
   for (const event of events) {
     if (event.type !== 'tool') continue;
     const { tool } = event;
-    calls.set(tool.callId, applyToolEvent(calls.get(tool.callId), tool));
+    const key = tool.operationId ?? tool.callId;
+    calls.set(key, applyToolEvent(calls.get(key), tool));
   }
   return [...calls.values()];
 }
 
-/** The arguments a call ran with: the user's edit, else the model's. */
+/** The arguments shown for approval, or the user's edit, or the model's original call. */
 function toolCallRanWith(call: ToolCall): Record<string, unknown> {
-  return call.edited?.to ?? call.arguments;
+  return (
+    (call.state?.phase === 'gate' ? call.state.gate.preparedArguments : undefined) ??
+    call.edited?.to ??
+    call.arguments
+  );
 }
 
 /** A tool event that settles its call: the call completed or failed. */

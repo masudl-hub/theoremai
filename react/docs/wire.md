@@ -1,38 +1,93 @@
 # The wire
 
-How the browser and the host talk, and what each side checks.
+Use this contract when you implement a transport or a live relay.
+The browser and host validate messages at their shared boundary. Provider adapters and credentials remain on the host.
 
-Turn lines, live envelopes, request bodies, live messages and the profile
-interface `describe` returns are each checked against their schema, both ways:
+## Describe the interface
 
-- **Browser → host.** `createTheoremHandler` reads `/turn`, `/invoke` and
-  `/steer` bodies with `theoremTurnRequestSchema`, `theoremInvokeRequestSchema`
-  and `theoremSteerRequestSchema`; a missing or malformed field is a `request`
-  error (400). `/invoke` answers a paused call by its `gateId` with a
-  `decision`: `approve` (with `input` when the user edited it, `secret` at a
-  sign-in gate) or `deny`; the host settles each one. An answer whose request
-  ends before its call settles (the network drops, the host fails) puts the
-  call back to wait, to be answered again; once it settled, the session keeps
-  the settle (`TheoremSessionState.settled`, pruned with the gates): a second
-  answer is refused with `session.gate_expired`, and a walk-away naming the
-  call reads its result. A message sent while
-  its reply waits walks away in its own `/turn`: `abandon` names the waiting
-  calls, its history leaves exactly those open, and the host settles each
-  cancelled ahead of the message's reply (`checkWalkAway` and `walkAway` for a
-  host with routes of its own). A relay reads the live client's messages with
-  `parseLiveClientMessage`. A host with routes of its own reads a body with
-  `checkRequest(schema, body, what)`, and answers a paused call with
-  `answerGatedCall` (`@theoremjs/agents/kernel`), the rule the handler uses.
-- **Host → browser.** `describe` returns the profile interface as
-  `profileInterfaceSchema` names it: tool ids, never a tool's definition, and
-  no host functions. The transport and the live client read each line or
-  envelope against its kind's schema, and `describe` against
-  `profileInterfaceSchema`. A kind the client does not know reaches
-  the event handler as `unsupported`, and one that fails its check (not JSON,
-  no kind, or a known kind that fails its schema) as `malformed`: a
-  `bad_response` naming what broke, never the value. Either way the reply or
-  call goes on without it. The chat names a skipped part in the composer and
-  the live call in its failure banner, both with the lexicon's
-  `session.part_skipped`; a run built on `streamInterfaceTurn` hears of it
-  through its `view.skipped`. A `describe` reply that fails its schema is
-  `bad_response`.
+The host returns a profile interface validated by `profileInterfaceSchema`.
+The interface contains tool IDs, model choices, input declarations, and client wording.
+It excludes tool definitions and host functions.
+The browser rejects an invalid description with `bad_response`.
+
+## Send a turn or tool decision
+
+`createTheoremHandler` validates each request before it calls the kernel.
+
+| Route | Schema | Purpose |
+| --- | --- | --- |
+| `/turn` | `theoremTurnRequestSchema` | Start or continue a turn |
+| `/invoke` | `theoremInvokeRequestSchema` | Answer a paused tool call |
+| `/page-result` | `pageToolResultSchema` | Return an active dispatch result |
+| `/steer` | `theoremSteerRequestSchema` | Send a steer to a running turn |
+
+A missing or malformed field produces a `request` error with HTTP status 400.
+For custom routes, use `checkRequest(schema, body, what)`.
+
+An `/invoke` request carries `gateId` and `operationId`.
+The gate ID is the provider call ID. The operation ID identifies the action that the kernel issued.
+The host checks both values against its saved gate. A missing operation ID fails request validation.
+Its decision is `approve` or `deny`. An approval can contain edited `input` or a sign-in `secret`.
+The host settles the call. Custom routes use `answerGatedCall` from `@theoremjs/agents/kernel` for the same rule.
+
+The handler saves the accepted answer in a ready operation record. A retry must repeat that answer.
+The kernel claims execution immediately before the tool body. Its claim token identifies the worker that can settle it.
+The handler saves the outcome before the client receives completion. A repeat answer receives the saved terminal event.
+A walk-away request also receives that retained event. Settled outcomes remain for 24 hours from settlement.
+A settled replay may omit input. Supplied input must match the saved accepted invocation.
+Legacy settlements without invocation evidence refuse supplied input.
+A request failure after dispatch does not restore an approval. Its operation remains running or uncertain.
+The host must check the destination before it creates a replacement action.
+
+Session authority uses `TheoremSessionStore.load` and `compareAndSwap`.
+The handler claims a pending gate with an atomic revision check before it executes the tool.
+On conflict, it reads the current state and evaluates the answer again.
+Two handlers that share the same atomic store cannot both claim that pending gate.
+A process failure after the claim leaves a protected running record. No timer permits another worker to execute it.
+The current session schema is version 3. Previous versions require an explicit host migration.
+
+A new message can abandon calls that its reply waits for.
+The `/turn` request lists `{ callId, operationId }` references in `abandon`.
+Its history must leave exactly those calls open. Browser replay entries use operation IDs as keys.
+The host cancels them before it starts the new reply.
+Custom routes use `checkWalkAway` and `walkAway` for this operation.
+
+## Read events
+
+The transport validates each turn line or live envelope against the schema for its kind.
+It reports an unknown kind as `unsupported`.
+It reports invalid JSON, a missing kind, or an invalid known kind as `malformed`.
+The resulting `bad_response` diagnostic names the failure, not the malformed value.
+The reply or live call continues without that part.
+
+The chat identifies skipped parts in the composer. The live interface identifies them in its failure banner.
+Both use the lexicon key `session.part_skipped`.
+`streamInterfaceTurn` reports skipped parts through `view.skipped`.
+
+## Open and resume a live session
+
+The relay validates live client messages with `parseLiveClientMessage`.
+An `executeTool` message requires both IDs. Its result echoes both IDs.
+The client resolves a pending result only when both values match.
+Check the call with the relay before invoking page code. Answer permission and sign-in gates first.
+Invoke the callback only after a `dispatched` result. It contains the grant ID and final arguments.
+Return the result with both IDs and `grantId`. A restored page gate does not authorize a callback.
+Confirmation gates can carry `preparedArguments` for approval after an input change.
+Studio replay carries `gateKind`, so permission approval does not skip preparation.
+A settled relay result does not permit a page callback. Server tool results arrive through tool events.
+Chat and host transports expose `pageResult` for the same authenticated result endpoint.
+`withPageToolDispatch` accepts either transport. It runs callbacks only from the active stream.
+A kernel-owned `dispatch` phase follows the acquired body claim and persisted grant.
+A cached terminal replay emits no new grant. Results require the issuing session and exact grant reference.
+It reads the opening message before it calls `runSession`.
+`createTheoremSessionBoundary` validates conversation ownership before `prepareLiveOpen` returns normalized fields.
+The relay supplies its vault through separate host options.
+
+A live `provider_checkpoint` event contains `providerState` and the covered portable `history`.
+The client stores both separately from displayed transcript content. Its next opening message sends both values.
+The relay validates them through `prepareLiveOpen`. It saves new checkpoint ownership before browser delivery.
+
+The kernel validates native state against provider identity, model identity, state version, deployment, and covered history.
+On a mismatch, the default policy rebuilds from portable history and emits `provider_warning`.
+The client then discards the incompatible native state and retains portable history.
+The profile can instead select `providerContinuation.onMismatch: 'error'`.

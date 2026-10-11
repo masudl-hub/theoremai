@@ -17,13 +17,13 @@ import type {
   WireFunctionTool,
 } from '../../../kernel/types.ts';
 import { isRecord } from '../../../kernel/util/record.ts';
-import { builtinWire } from '../../shared/builtin-wire.ts';
 import { pcmMediaAsWav } from '../../shared/pcm.ts';
 import {
   historyToolArguments,
   historyToolIdentity,
   toolCallEvents,
 } from '../../shared/tool-args.ts';
+import { liveBuiltinTool } from '../builtins.ts';
 import { groundingFromLiveMetadata } from '../grounding.ts';
 import { assertGoogleThinkingLevel } from '../thinking.ts';
 import { GEMINI_LIVE_WS_URL } from '../urls.ts';
@@ -57,7 +57,7 @@ export function wireFunctionDeclaration(decl: WireFunctionTool): Record<string, 
 function wireLiveTools(req: ProviderCompleteRequest): Array<Record<string, unknown>> {
   const tools: Array<Record<string, unknown>> = [];
   for (const builtin of req.builtins) {
-    tools.push({ [builtinWire(builtin, 'live')]: {} });
+    tools.push(liveBuiltinTool(builtin));
   }
   const functionDeclarations = (req.wireTools ?? []).map(wireFunctionDeclaration);
   if (functionDeclarations.length > 0) {

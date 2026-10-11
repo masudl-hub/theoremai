@@ -15,20 +15,28 @@ import {
 } from '../../studio/mod.ts';
 
 /** One agent's draft changed, as the editor form changes it. */
-function edit(workspace: StudioWorkspace, key: string, change: (draft: StudioDraft) => StudioDraft) {
+function edit(
+  workspace: StudioWorkspace,
+  key: string,
+  change: (draft: StudioDraft) => StudioDraft,
+) {
   const view = libraryDraft(workspace, key);
   assert(view);
   return withLibraryDraft(workspace, key, change(view));
 }
 
-const system = (text: string) => (draft: StudioDraft): StudioDraft => ({
-  ...draft,
-  identity: { ...draft.identity, system: text },
-});
-const handle = (text: string) => (draft: StudioDraft): StudioDraft => ({
-  ...draft,
-  identity: { ...draft.identity, handle: text },
-});
+const system =
+  (text: string) =>
+  (draft: StudioDraft): StudioDraft => ({
+    ...draft,
+    identity: { ...draft.identity, system: text },
+  });
+const handle =
+  (text: string) =>
+  (draft: StudioDraft): StudioDraft => ({
+    ...draft,
+    identity: { ...draft.identity, handle: text },
+  });
 
 /** The project's files after the builder's editor changed them: a new open, with keys of its own. */
 function filesAfter(change: (opened: StudioWorkspace) => StudioWorkspace): StudioWorkspace {
@@ -51,7 +59,7 @@ Deno.test('files that say what they said merge to the same edits, with nothing t
   assertEquals(merge.workspace.toolSpecs, edits.toolSpecs);
 });
 
-Deno.test('a setting only the files changed is the files\', and the builder keeps their own beside it', () => {
+Deno.test("a setting only the files changed is the files', and the builder keeps their own beside it", () => {
   const old = createArchitectWorkspace();
   const key = first(old).key;
   const edits = edit(old, key, system('Mine.'));
@@ -62,9 +70,10 @@ Deno.test('a setting only the files changed is the files\', and the builder keep
   assertEquals(agent.identity.system, 'Mine.');
   assertEquals(agent.identity.handle, 'from-editor');
   assertEquals(merge.conflicts, []);
-  assertEquals(merge.updated.map((each) => [each.kind, each.key, each.path.join('.')]), [
-    ['agent', key, 'identity.handle'],
-  ]);
+  assertEquals(
+    merge.updated.map((each) => [each.kind, each.key, each.path.join('.')]),
+    [['agent', key, 'identity.handle']],
+  );
   // The files' value is the start, so only the builder's edit is left to save.
   assertEquals(merge.workspace.starts.agents[key]?.identity.handle, 'from-editor');
   assertEquals(merge.workspace.starts.agents[key]?.identity.system, first(old).identity.system);
@@ -89,15 +98,16 @@ Deno.test('both making the same change is no conflict', () => {
   assert(atStart(merge.workspace));
 });
 
-Deno.test('a setting both changed is a conflict: the builder\'s stands until they take the files\'', () => {
+Deno.test("a setting both changed is a conflict: the builder's stands until they take the files'", () => {
   const old = createArchitectWorkspace();
   const key = first(old).key;
   const edits = edit(edit(old, key, system('Mine.')), key, handle('mine'));
   const files = filesAfter((opened) => edit(opened, first(opened).key, system('Theirs.')));
   const merge = mergedWithFiles(edits, files, old);
-  assertEquals(merge.conflicts.map(({ kind, key, path, mine, theirs }) => ({ kind, key, path, mine, theirs })), [
-    { kind: 'agent', key, path: ['identity', 'system'], mine: 'Mine.', theirs: 'Theirs.' },
-  ]);
+  assertEquals(
+    merge.conflicts.map(({ kind, key, path, mine, theirs }) => ({ kind, key, path, mine, theirs })),
+    [{ kind: 'agent', key, path: ['identity', 'system'], mine: 'Mine.', theirs: 'Theirs.' }],
+  );
   assertEquals(first(merge.workspace).identity.system, 'Mine.');
   assertEquals(first(withFilesChosen(merge, [])).identity.system, 'Mine.');
   const taken = withFilesChosen(merge, [0]);
@@ -114,7 +124,9 @@ Deno.test('a model the builder changed and another setting of it the files chang
   const bound = (workspace: StudioWorkspace, agentKey: string, change: Record<string, unknown>) =>
     edit(workspace, agentKey, (draft) => ({
       ...draft,
-      modelBindings: draft.modelBindings.map((each, at) => (at === 0 ? { ...each, ...change } : each)),
+      modelBindings: draft.modelBindings.map((each, at) =>
+        at === 0 ? { ...each, ...change } : each,
+      ),
     }));
   const edits = bound(old, key, { temperature: 0.11 });
   const files = filesAfter((opened) => bound(opened, first(opened).key, { maxOutputTokens: 321 }));
@@ -136,21 +148,28 @@ Deno.test('tools each side allowed are all allowed', () => {
     return {
       ...workspace,
       agents: workspace.agents.map((each, at) =>
-        at === 0 ? { ...each, tools: { ...each.tools, allow: each.tools.allow.filter((k) => k !== gone) } } : each
+        at === 0
+          ? { ...each, tools: { ...each.tools, allow: each.tools.allow.filter((k) => k !== gone) } }
+          : each,
       ),
     };
   };
-  const held = agent.tools.allow.map((k) => old.toolSpecs.find((each) => each.key === k)?.toolName ?? '');
+  const held = agent.tools.allow.map(
+    (k) => old.toolSpecs.find((each) => each.key === k)?.toolName ?? '',
+  );
   if (held.length < 2) return;
   const [mineGone, theirsGone] = held as [string, string];
   const edits = without(old, mineGone);
   const files = filesAfter((opened) => without(opened, theirsGone));
   const merge = mergedWithFiles(edits, files, old);
   assertEquals(merge.conflicts, []);
-  const names = first(merge.workspace).tools.allow.map((k) =>
-    merge.workspace.toolSpecs.find((each) => each.key === k)?.toolName
+  const names = first(merge.workspace).tools.allow.map(
+    (k) => merge.workspace.toolSpecs.find((each) => each.key === k)?.toolName,
   );
-  assertEquals(names, held.filter((name) => name !== mineGone && name !== theirsGone));
+  assertEquals(
+    names,
+    held.filter((name) => name !== mineGone && name !== theirsGone),
+  );
 });
 
 Deno.test('an agent the files add comes in, and one they remove goes unless the builder changed it', () => {
@@ -159,21 +178,30 @@ Deno.test('an agent the files add comes in, and one they remove goes unless the 
   assert(architect && narrator);
   const files = filesAfter((opened) => removeAgent(opened, opened.agents[1]?.key ?? ''));
   const untouched = mergedWithFiles(old, files, old);
-  assertEquals(untouched.workspace.agents.map((agent) => agent.key), [architect.key]);
+  assertEquals(
+    untouched.workspace.agents.map((agent) => agent.key),
+    [architect.key],
+  );
   assertEquals(untouched.conflicts, []);
 
   const merge = mergedWithFiles(edit(old, narrator.key, system('Mine.')), files, old);
-  assertEquals(merge.conflicts.map((each) => [each.key, each.path, each.theirs]), [[narrator.key, [], undefined]]);
+  assertEquals(
+    merge.conflicts.map((each) => [each.key, each.path, each.theirs]),
+    [[narrator.key, [], undefined]],
+  );
   assertEquals(merge.workspace.agents.length, 2);
-  assertEquals(withFilesChosen(merge, [0]).agents.map((agent) => agent.key), [architect.key]);
+  assertEquals(
+    withFilesChosen(merge, [0]).agents.map((agent) => agent.key),
+    [architect.key],
+  );
 
   // The other way: the files hold one more agent than the studio opened.
   const fewer = startedHere(removeAgent(old, narrator.key));
   const added = mergedWithFiles(fewer, createArchitectWorkspace(), fewer);
-  assertEquals(added.workspace.agents.map((agent) => agent.identity.agentId), [
-    architect.identity.agentId,
-    narrator.identity.agentId,
-  ]);
+  assertEquals(
+    added.workspace.agents.map((agent) => agent.identity.agentId),
+    [architect.identity.agentId, narrator.identity.agentId],
+  );
   assertEquals(added.conflicts, []);
 });
 
@@ -184,21 +212,25 @@ Deno.test('an agent the builder removed stays removed, and is a conflict when th
   const edits = removeAgent(old, narrator.key);
   const elsewhere = filesAfter((opened) => edit(opened, first(opened).key, system('Theirs.')));
   const merge = mergedWithFiles(edits, elsewhere, old);
-  assertEquals(merge.workspace.agents.map((agent) => agent.key), [architect.key]);
+  assertEquals(
+    merge.workspace.agents.map((agent) => agent.key),
+    [architect.key],
+  );
   assertEquals(merge.conflicts, []);
   assertEquals(first(merge.workspace).identity.system, 'Theirs.');
 
   const onIt = filesAfter((opened) => edit(opened, opened.agents[1]?.key ?? '', system('Theirs.')));
   const clash = mergedWithFiles(edits, onIt, old);
-  assertEquals(clash.conflicts.map((each) => [each.kind, each.name, each.path, each.mine]), [
-    ['agent', narrator.identity.agentId, [], undefined],
-  ]);
+  assertEquals(
+    clash.conflicts.map((each) => [each.kind, each.name, each.path, each.mine]),
+    [['agent', narrator.identity.agentId, [], undefined]],
+  );
   assertEquals(clash.workspace.agents.length, 1);
   const back = withFilesChosen(clash, [0]);
-  assertEquals(back.agents.map((agent) => agent.identity.agentId), [
-    architect.identity.agentId,
-    narrator.identity.agentId,
-  ]);
+  assertEquals(
+    back.agents.map((agent) => agent.identity.agentId),
+    [architect.identity.agentId, narrator.identity.agentId],
+  );
   assertEquals(back.agents[1]?.identity.system, 'Theirs.');
   // The tool that ran it comes back with it, for the agent the files let use it.
   const ran = back.toolSpecs.find((tool) => tool.agentKey === back.agents[1]?.key);
@@ -216,20 +248,23 @@ Deno.test('a tool the builder removed stays removed when the files left it alone
   assert(!merge.workspace.toolSpecs.some((each) => each.toolName === tool.toolName));
 });
 
-Deno.test('a tool the files changed is the files\', under the key the studio holds it by', () => {
+Deno.test("a tool the files changed is the files', under the key the studio holds it by", () => {
   const old = createArchitectWorkspace();
   const [tool] = old.toolSpecs;
   assert(tool);
   const files = filesAfter((opened) => ({
     ...opened,
-    toolSpecs: opened.toolSpecs.map((each, at) => (at === 0 ? { ...each, description: 'From the editor.' } : each)),
+    toolSpecs: opened.toolSpecs.map((each, at) =>
+      at === 0 ? { ...each, description: 'From the editor.' } : each,
+    ),
   }));
   const merge = mergedWithFiles(edit(old, first(old).key, system('Mine.')), files, old);
   assertEquals(merge.workspace.toolSpecs[0]?.key, tool.key);
   assertEquals(merge.workspace.toolSpecs[0]?.description, 'From the editor.');
-  assertEquals(merge.updated.map((each) => [each.kind, each.name, each.path.join('.')]), [
-    ['tool', tool.toolName, 'description'],
-  ]);
+  assertEquals(
+    merge.updated.map((each) => [each.kind, each.name, each.path.join('.')]),
+    [['tool', tool.toolName, 'description']],
+  );
   assertEquals(first(merge.workspace).identity.system, 'Mine.');
 });
 
@@ -242,7 +277,10 @@ Deno.test('an agent the builder added stays through a change to the files, edite
   for (const edits of [added, edit(added, copy.key, system('Mine.'))]) {
     const merge = mergedWithFiles(edits, files, old);
     assertEquals(merge.conflicts, []);
-    assertEquals(merge.workspace.agents.map((agent) => agent.key), edits.agents.map((agent) => agent.key));
+    assertEquals(
+      merge.workspace.agents.map((agent) => agent.key),
+      edits.agents.map((agent) => agent.key),
+    );
     assertEquals(first(merge.workspace).identity.system, 'Theirs.');
     assertEquals(merge.workspace.starts.agents[copy.key], added.starts.agents[copy.key]);
   }
@@ -254,7 +292,11 @@ Deno.test('an agent the builder added stays through a change to the files, edite
 const models = (
   workspace: StudioWorkspace,
   change: (rows: StudioDraft['modelBindings']) => StudioDraft['modelBindings'],
-) => edit(workspace, first(workspace).key, (draft) => ({ ...draft, modelBindings: change(draft.modelBindings) }));
+) =>
+  edit(workspace, first(workspace).key, (draft) => ({
+    ...draft,
+    modelBindings: change(draft.modelBindings),
+  }));
 
 const second = (rows: StudioDraft['modelBindings'], modelId: string) => {
   const [row] = rows;
@@ -270,36 +312,49 @@ Deno.test('a model the files add comes in beside the one the builder changed', (
   assertEquals(merge.conflicts, []);
   const rows = first(merge.workspace).modelBindings;
   const held = first(old).modelBindings;
-  assertEquals(rows.map((row) => [row.modelId, row.temperature]), [
-    ...held.map((row) => [row.modelId, 0.11]),
-    ['spare', held[0]?.temperature],
-  ]);
-  assertEquals(rows.slice(0, held.length).map((row) => row.key), held.map((row) => row.key));
+  assertEquals(
+    rows.map((row) => [row.modelId, row.temperature]),
+    [...held.map((row) => [row.modelId, 0.11]), ['spare', held[0]?.temperature]],
+  );
+  assertEquals(
+    rows.slice(0, held.length).map((row) => row.key),
+    held.map((row) => row.key),
+  );
 });
 
 Deno.test('a model the files take out goes, unless the builder changed it: then they choose', () => {
-  const two = startedHere(models(createArchitectWorkspace(), (rows) => [...rows, second(rows, 'spare')]));
+  const two = startedHere(
+    models(createArchitectWorkspace(), (rows) => [...rows, second(rows, 'spare')]),
+  );
   const without = () => filesAfter((opened) => opened);
   const untouched = mergedWithFiles(two, without(), two);
   assertEquals(untouched.conflicts, []);
   const ids = first(createArchitectWorkspace()).modelBindings.map((row) => row.modelId);
-  assertEquals(first(untouched.workspace).modelBindings.map((row) => row.modelId), ids);
+  assertEquals(
+    first(untouched.workspace).modelBindings.map((row) => row.modelId),
+    ids,
+  );
 
-  const edits = models(
-    two,
-    (rows) => rows.map((row) => (row.modelId === 'spare' ? { ...row, temperature: 0.9 } : row)),
+  const edits = models(two, (rows) =>
+    rows.map((row) => (row.modelId === 'spare' ? { ...row, temperature: 0.9 } : row)),
   );
   const merge = mergedWithFiles(edits, without(), two);
-  assertEquals(merge.conflicts.map((each) => [each.path.join('.'), each.theirs]), [
-    [`modelBindings.${ids.length}`, undefined],
-  ]);
+  assertEquals(
+    merge.conflicts.map((each) => [each.path.join('.'), each.theirs]),
+    [[`modelBindings.${ids.length}`, undefined]],
+  );
   assertEquals(first(merge.workspace).modelBindings.length, ids.length + 1);
-  assertEquals(first(withFilesChosen(merge, [0])).modelBindings.map((row) => row.modelId), ids);
+  assertEquals(
+    first(withFilesChosen(merge, [0])).modelBindings.map((row) => row.modelId),
+    ids,
+  );
   assertEquals(first(withFilesChosen(merge, [])).modelBindings.length, ids.length + 1);
 });
 
-Deno.test('a model the builder took out stays out, and comes back only when they take the files\' change to it', () => {
-  const two = startedHere(models(createArchitectWorkspace(), (rows) => [...rows, second(rows, 'spare')]));
+Deno.test("a model the builder took out stays out, and comes back only when they take the files' change to it", () => {
+  const two = startedHere(
+    models(createArchitectWorkspace(), (rows) => [...rows, second(rows, 'spare')]),
+  );
   const edits = models(two, (rows) => rows.filter((row) => row.modelId !== 'spare'));
   const same = filesAfter((opened) => models(opened, (rows) => [...rows, second(rows, 'spare')]));
   const quiet = mergedWithFiles(edits, same, two);
@@ -308,26 +363,35 @@ Deno.test('a model the builder took out stays out, and comes back only when they
   assertEquals(first(quiet.workspace).modelBindings.length, count);
 
   const changed = filesAfter((opened) =>
-    models(opened, (rows) => [...rows, { ...second(rows, 'spare'), temperature: 0.9 }])
+    models(opened, (rows) => [...rows, { ...second(rows, 'spare'), temperature: 0.9 }]),
   );
   const merge = mergedWithFiles(edits, changed, two);
   assertEquals(merge.conflicts.length, 1);
   assertEquals(merge.conflicts[0]?.mine, undefined);
   assertEquals(first(merge.workspace).modelBindings.length, count);
   const back = first(withFilesChosen(merge, [0])).modelBindings;
-  assertEquals([back.length, back.at(-1)?.modelId, back.at(-1)?.temperature], [count + 1, 'spare', 0.9]);
+  assertEquals(
+    [back.length, back.at(-1)?.modelId, back.at(-1)?.temperature],
+    [count + 1, 'spare', 0.9],
+  );
 });
 
-Deno.test('an agent the files rename keeps its key and the builder\'s edits', () => {
+Deno.test("an agent the files rename keeps its key and the builder's edits", () => {
   const old = createArchitectWorkspace();
   const key = first(old).key;
   const edits = edit(old, key, system('Mine.'));
   const files = filesAfter((opened) =>
-    edit(opened, first(opened).key, (draft) => ({ ...draft, identity: { ...draft.identity, agentId: 'renamed-desk' } }))
+    edit(opened, first(opened).key, (draft) => ({
+      ...draft,
+      identity: { ...draft.identity, agentId: 'renamed-desk' },
+    })),
   );
   const merge = mergedWithFiles(edits, files, old);
   assertEquals(merge.conflicts, []);
   assertEquals(merge.workspace.agents.length, old.agents.length);
   const agent = first(merge.workspace);
-  assertEquals([agent.key, agent.identity.agentId, agent.identity.system], [key, 'renamed-desk', 'Mine.']);
+  assertEquals(
+    [agent.key, agent.identity.agentId, agent.identity.system],
+    [key, 'renamed-desk', 'Mine.'],
+  );
 });

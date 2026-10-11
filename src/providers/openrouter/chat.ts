@@ -18,13 +18,13 @@ import type {
   TurnEventOf,
   TurnResponse,
 } from '../../kernel/types.ts';
-import { builtinWire } from '../shared/builtin-wire.ts';
 import { foldResponse } from '../shared/response-identity.ts';
 import { readSseChunks } from '../shared/sse.ts';
 import { structuredEvent } from '../shared/structured-output.ts';
 import { historyToolArguments, toolCallEvents } from '../shared/tool-args.ts';
 import { networkFetch } from '../shared/upstream-tap.ts';
 import type { OpenAiGatewayTransport } from '../types.ts';
+import { OPENROUTER_BUILTINS } from './builtins.ts';
 import { cacheControlJson } from './cache-control.ts';
 import { buildChatMessages, resolveResponseFormat } from './openai/compat.ts';
 import { openAiResponse, openAiUsageTokens } from './openai/usage.ts';
@@ -177,12 +177,13 @@ function rawThoughtEvent(raw: Record<string, unknown>): ProviderEvent | undefine
   return undefined;
 }
 
-function rawChoiceMessageEvents(
-  raw: Record<string, unknown>,
-  acc: StreamAccumulator,
-): ProviderEvent[] {
+/** A choice carries its citations on `message` in a whole reply and on `delta` in a streamed one. */
+function rawChoiceEvents(raw: Record<string, unknown>, acc: StreamAccumulator): ProviderEvent[] {
   const choices = Array.isArray(raw.choices) ? raw.choices : [];
-  return choices.flatMap((choice) => eventsFromMetadata(asRecord(choice)?.message, acc));
+  return choices.flatMap((choice) => {
+    const record = asRecord(choice);
+    return [...eventsFromMetadata(record?.message, acc), ...eventsFromMetadata(record?.delta, acc)];
+  });
 }
 
 function rawEvents(raw: unknown, acc: StreamAccumulator): ProviderEvent[] {
@@ -197,7 +198,7 @@ function rawEvents(raw: unknown, acc: StreamAccumulator): ProviderEvent[] {
   if (thought) {
     events.push(thought);
   }
-  events.push(...eventsFromMetadata(record, acc), ...rawChoiceMessageEvents(record, acc));
+  events.push(...eventsFromMetadata(record, acc), ...rawChoiceEvents(record, acc));
   if (!acc.emittedTokens) {
     const usage = openAiUsageTokens(record.usage);
     if (usage) {
@@ -226,13 +227,12 @@ function wireRequest(req: ProviderCompleteRequest): Record<string, unknown> {
       { type: 'text', text: req.system, cache_control: cacheControlJson(req.cache) },
     ];
   }
-  const plugins: Array<{ id: string }> = [];
-  let web = false;
   for (const builtin of req.builtins) {
-    const id = builtinWire(builtin, 'openRouter');
-    if (id === 'web') web = true;
-    else plugins.push({ id });
+    if (!Object.hasOwn(OPENROUTER_BUILTINS, builtin.id)) {
+      throw new TheoremError('config', `Builtin '${builtin.id}' is not an OpenRouter tool`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
   }
+  const web = req.builtins.some((builtin) => builtin.id === 'webSearch');
   const wire = {
     model: req.apiId,
     messages,
@@ -240,20 +240,26 @@ function wireRequest(req: ProviderCompleteRequest): Record<string, unknown> {
     stream_options: req.stream === false ? undefined : { include_usage: true },
     temperature: req.temperature,
     max_tokens: req.maxOutputTokens,
-    tools: req.wireTools?.map((t) => ({
-      type: 'function',
-      function: {
-        name: t.name,
-        description: t.description,
-        parameters: t.parameters ?? { type: 'object', properties: {}, additionalProperties: true },
-      },
-    })),
+    // probed 2026-10-09: an empty `tools` list counts as a parameter the model must support, so OpenRouter refuses models without tool calling.
+    tools: req.wireTools?.length
+      ? req.wireTools.map((t) => ({
+          type: 'function',
+          function: {
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters ?? {
+              type: 'object',
+              properties: {},
+              additionalProperties: true,
+            },
+          },
+        }))
+      : undefined,
     reasoning: req.thinking ? { effort: req.thinking } : undefined,
     response_format: resolveResponseFormat(req.structured),
     provider: { require_parameters: true },
     cache_control: req.cache?.mode === 'automatic' ? cacheControlJson(req.cache) : undefined,
     session_id: req.sessionId,
-    plugins: plugins.length ? plugins : undefined,
     web_search_options: web ? {} : undefined,
   };
   return wire;

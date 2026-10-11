@@ -508,7 +508,7 @@ function sentText(socket: ProbeSocket, boundary: ProbeBoundary): string | undefi
 /** Runs one probe in a Live session on a scripted socket, and returns what the session yielded. */
 async function runLiveSession(
   scope: Awaited<ReturnType<typeof writtenScope>>['scope'],
-  profile: Profile,
+  profile: Extract<Profile, { type: 'live' }>,
   probe: GuardrailProbe,
   sink: { write(record: TraceRecord): Promise<void> },
   events: TurnEvent[],
@@ -516,6 +516,12 @@ async function runLiveSession(
 ): Promise<ProbeSocket> {
   const { boundary, text } = probe;
   const socket = new ProbeSocket();
+  const binding = profile.models[profile.defaultModel];
+  const provider = scope.providers.require(binding.provider);
+  const slots = [
+    binding.keySlot ?? provider.keySlot,
+    binding.fallbackKeySlot ?? provider.fallbackKeySlot,
+  ].filter((slot): slot is string => slot !== undefined);
   if (boundary === 'history' || boundary === 'system') {
     // why: A session that refuses what it is seeded with throws before it reports anything, so a
     // blocked probe reads the request first to show what was found. Otherwise the session reports it.
@@ -547,8 +553,8 @@ async function runLiveSession(
       ...(signal ? { signal } : {}),
     },
     {
-      // why: The socket is scripted, so no key is read for real; any slot the draft names has one.
-      vault: new Proxy({}, { get: () => 'probe' }),
+      // why: The scripted socket needs explicit fixture entries for the selected credential slots.
+      vault: Object.fromEntries(slots.map((slot) => [slot, 'probe'])),
       openWebSocket: () => {
         queueMicrotask(() => {
           socket.open();
@@ -847,6 +853,7 @@ export async function runGuardrailProbe(args: {
   const viaSession = asked.type === 'live' && LIVE_SESSION_BOUNDARIES.has(probe.boundary);
   try {
     if (viaSession) {
+      if (profile.type !== 'live') throw new Error('A live probe requires a live profile');
       socket = await runLiveSession(scope, profile, probe, sink, events, args.signal);
     }
     for await (const event of viaSession

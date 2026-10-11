@@ -32,6 +32,7 @@ import type {
 } from './schema.ts';
 import type { StageHandler } from './stages.ts';
 import type { GateDecision } from './tools/gate-answer.ts';
+import type { PageToolExecution, ToolExecutionCoordinator } from './tools/operation.ts';
 import type {
   AgentCall,
   AgentCallHook,
@@ -39,7 +40,6 @@ import type {
   AgentToolDef,
   AgentToolInput,
   AgentToolOutput,
-  BuiltinWire,
   HostProfileToolsSpec,
   InvokeToolRequest,
   InvokeToolResume,
@@ -174,11 +174,14 @@ export interface ResolvedStructured {
   jsonSchema: Record<string, unknown>;
 }
 
-/** A provider-side tool and the wire shape it is sent as. */
+/** A provider-side tool the turn uses, with the args the request addressed to it. */
 export interface ProviderBuiltin {
   id: BuiltinToolId;
-  wire: BuiltinWire;
+  args?: JsonObject;
 }
+
+/** Args a request hands to built-in tools, each checked by the schema its adapter declares. */
+export type BuiltInArgs = Record<BuiltinToolId, JsonObject>;
 
 /** The id a profile is registered and run under. */
 export type ProfileId = string;
@@ -845,6 +848,8 @@ export interface TurnTraceLink {
 
 /** A request to `runTurn`: the profile, the input and the host's hooks and keys. */
 export interface TurnRequest {
+  execution?: ToolExecutionCoordinator;
+  pageExecution?: PageToolExecution;
   providerState?: ProviderCheckpoint;
   profile: ProfileId;
   projectId?: string;
@@ -857,6 +862,11 @@ export interface TurnRequest {
   model?: ModelId;
   /** Selected effort alias when the binding has `allowEffortSelect`. */
   effort?: string;
+  /**
+   * Args for built-in tools on the chosen model's `builtInTools`, by tool id.
+   * Each is parsed by the schema the provider's adapter declares for that tool.
+   */
+  builtInArgs?: BuiltInArgs;
   /** Host-provided dynamic system prompt combined with profile persona */
   system?: SystemPrompt;
   /** This turn's voice, style and speed, over `profile.speech`. Speech profiles only. */
@@ -911,7 +921,7 @@ export interface TurnRequest {
   /**
    * Runs before each agent tool call in this turn, and in the turns those
    * calls run. Shape the called agent's request (history, model, provider) or
-   * refuse the call. Omit it: the agent runs on the model's text alone.
+   * refuse the call. Omit it: the agent runs on what the model sent.
    */
   onAgentCall?: AgentCallHook;
 }
@@ -952,6 +962,10 @@ export type ProviderTransport = 'turn' | 'live';
 
 /** A generation config after the profile and request are resolved, with its transport. */
 export interface ResolvedGeneration extends ProviderGenerationConfig {
+  /** The request's `builtInArgs`, parsed. */
+  builtInArgs?: BuiltInArgs;
+  execution?: ToolExecutionCoordinator;
+  pageExecution?: PageToolExecution;
   transport: ProviderTransport;
   tools: TurnToolSnapshot;
   sessionPermissions?: string[];
@@ -991,8 +1005,7 @@ export interface ProviderCompleteRequest
   previousInteractionId?: string;
   store?: boolean;
   cache?: CacheSpec;
-  googleMapsLocation?: { latitude: number; longitude: number };
-  /** The turn's builtins with their wire names; adapters read no registry. */
+  /** The turn's builtins with the args addressed to each; adapters read no registry. */
   builtins: ProviderBuiltin[];
   summaries?: SummaryMode;
   providerState?: ProviderCheckpoint;
@@ -1033,6 +1046,8 @@ export interface SessionRequest {
   system?: SystemPrompt;
   /** Override `profile.live.voice` for this session. */
   voice?: string;
+  /** As `TurnRequest.builtInArgs`. */
+  builtInArgs?: BuiltInArgs;
   path?: string;
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
@@ -1067,6 +1082,12 @@ export interface SessionRequest {
   /** Immutable for the session; there is no `setOnStage`. */
   onStage?: StageHandler;
   /**
+   * As `TurnRequest.onAgentCall`, for the agent tools this session's calls run.
+   * Omit it: each agent runs on what the model sent, with the session's own
+   * provider options.
+   */
+  onAgentCall?: AgentCallHook;
+  /**
    * Default credentials for `executeTool` (per-call args override). Without one, the
    * session keeps keys typed at its sign-in gates in memory.
    */
@@ -1087,6 +1108,7 @@ export interface SessionRequest {
  */
 export type LiveExecuteToolArgs = {
   callId: string;
+  operationId?: string;
   decision?: GateDecision;
   input?: unknown;
   /**

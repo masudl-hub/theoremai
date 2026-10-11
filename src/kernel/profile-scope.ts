@@ -192,6 +192,10 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     profileTypes: ['text', 'live'],
     reason: 'image and speech turns take no mid-turn input',
   },
+  'turnBehaviour.atStepLimit': {
+    profileTypes: ['text'],
+    reason: 'only a text turn writes an answer after its tools',
+  },
   'guardrails.quota': {
     profileTypes: turnGuardrailTypes('quota'),
     reason: 'quota counts model turns',

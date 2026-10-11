@@ -431,8 +431,12 @@ async function* executeSingleAttemptCycle(args: {
     });
     latestStructured = attempt.latestStructured;
 
-    // why: Tool / gate suspension — do not before_end; finalize with that stop.
-    if (state.lastStop?.kind === 'tool' || state.lastStop?.kind === 'gate') {
+    // why: Tool / gate suspension, or no answer to check — do not before_end; finalize with that stop.
+    if (
+      state.lastStop?.kind === 'tool' ||
+      state.lastStop?.kind === 'gate' ||
+      state.lastStop?.kind === 'step_limit'
+    ) {
       break;
     }
     if (state.lastStop?.kind === 'cancelled') {

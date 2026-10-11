@@ -12,6 +12,7 @@ import type { TurnEvent, TurnEventOf } from '../types.ts';
 import { isRecord } from '../util/record.ts';
 import { fillActivityLabel } from './activity-label.ts';
 import { formatToolFailureForModel, formatToolResult } from './model-text.ts';
+import type { ToolOperationClaim } from './operation.ts';
 import type {
   ToolCallRequest,
   ToolContext,
@@ -20,7 +21,7 @@ import type {
   ToolPhaseEvent,
 } from './types.ts';
 
-export type ToolCallBase = Pick<ToolPhaseEvent, 'name' | 'callId'>;
+export type ToolCallBase = Pick<ToolPhaseEvent, 'name' | 'callId'> & { operationId?: string };
 
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -29,7 +30,13 @@ export type ToolPhasePatch = DistributiveOmit<ToolPhaseEvent, keyof ToolCallBase
 export function toolEvent(base: ToolCallBase, patch: ToolPhasePatch): TurnEventOf<'tool'> {
   return {
     type: 'tool',
-    tool: { ...patch, name: base.name, callId: base.callId, at: Date.now() },
+    tool: {
+      ...patch,
+      name: base.name,
+      callId: base.callId,
+      ...(base.operationId ? { operationId: base.operationId } : {}),
+      at: Date.now(),
+    },
   };
 }
 
@@ -53,6 +60,7 @@ export function toolCallRequestEvent(
     tool: {
       name: base.name,
       callId: base.callId,
+      ...(base.operationId ? { operationId: base.operationId } : {}),
       arguments: args,
       ...(thoughtSignature ? { thoughtSignature } : {}),
       ...(stepId ? { stepId } : {}),
@@ -113,20 +121,39 @@ export function* sourceEvents(
   if (cited.length > 0) yield { type: 'citation', sources: cited, callId: base.callId };
 }
 
-/** The `running` event, then the parsed input or the failure the caller settles the call with. */
-export function* startToolExecution<T>(
-  tool: { input: z.ZodType<T>; labels?: ToolLabels },
+function toolRunningEvent(
+  tool: { labels?: ToolLabels },
   rawInput: unknown,
   ctx: ToolContext,
   base: ToolCallBase,
-): Generator<TurnEvent, { ok: true; data: T } | { ok: false; failure: ToolFailure }> {
+): TurnEvent {
   const edited = ctx.resume?.edited;
   const activity = fillActivityLabel(tool.labels?.activity, { input: rawInput });
-  yield toolEvent(base, {
+  return toolEvent(base, {
     phase: 'running',
     ...(edited ? { edited: { from: edited.from, to: toolCallArguments(rawInput) } } : {}),
     ...(activity ? { activity } : {}),
   });
+}
+
+export async function* dispatchToolBody(
+  tool: { labels?: ToolLabels },
+  input: unknown,
+  ctx: ToolContext,
+  base: ToolCallBase,
+  beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>,
+): AsyncGenerator<TurnEvent, ToolOperationClaim | undefined> {
+  const claim = await beginBody?.(input);
+  throwIfAborted(ctx.signal);
+  yield toolRunningEvent(tool, input, ctx, base);
+  return claim;
+}
+
+export function startToolExecution<T>(
+  tool: { input: z.ZodType<T> },
+  rawInput: unknown,
+  ctx: ToolContext,
+): { ok: true; data: T } | { ok: false; failure: ToolFailure } {
   throwIfAborted(ctx.signal);
   const parsed = tool.input.safeParse(rawInput);
   if (!parsed.success) {

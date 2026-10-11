@@ -496,9 +496,9 @@ function requestAttributes(
 }
 
 /**
- * Request controls semconv has no names for, as requested. The Maps location
- * builtin's coordinates are left to the wire body (`outboundWire`): they locate
- * the user.
+ * Request controls semconv has no names for, as requested. Builtins are named
+ * by id only; their args are left to the wire body (`outboundWire`): the Maps
+ * location locates the user.
  */
 function controlAttributes(req: ProviderCompleteRequest): TraceAttributes {
   const { cache, image, speech, live } = req;

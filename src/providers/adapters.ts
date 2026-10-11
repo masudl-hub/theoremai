@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { TheoremError } from '../guardrails/error.ts';
+import { lexiconText } from '../guardrails/lexicon.ts';
 import type {
   JsonObject,
   ProviderAdapter,
@@ -12,11 +13,14 @@ import type {
 import { jsonObjectSchema, jsonValueSchema } from '../kernel/provider-contract.ts';
 import type { ProviderCompleteRequest, ProviderEvent } from '../kernel/types.ts';
 import {
+  GOOGLE_FREE_TIER_GROUNDING,
   GOOGLE_NO_EFFORT_API_IDS,
   GOOGLE_NO_THINKING_API_IDS,
   GOOGLE_THINKING_LEVELS,
   GOOGLE_THINKING_REQUIRED_API_IDS,
 } from '../presets/google.ts';
+import { GOOGLE_BUILTIN_IDS, GOOGLE_BUILTINS } from './google/builtins.ts';
+import { OPENROUTER_BUILTINS } from './openrouter/builtins.ts';
 import {
   collectReasoning,
   type ReasoningState,
@@ -59,17 +63,10 @@ const routerOptions: z.ZodType<{ cache?: { mode: 'automatic' | 'system'; ttl?: '
 const googleOptions: z.ZodType<{
   store?: boolean;
   persistViaInteractionId?: boolean;
-  googleMapsLocation?: { latitude: number; longitude: number };
 }> = z
   .strictObject({
     store: z.boolean().optional(),
     persistViaInteractionId: z.boolean().optional(),
-    googleMapsLocation: z
-      .strictObject({
-        latitude: z.number().min(-90).max(90),
-        longitude: z.number().min(-180).max(180),
-      })
-      .optional(),
   })
   .refine(
     (options) => !options.persistViaInteractionId || options.store !== false,
@@ -217,21 +214,46 @@ export function openRouterAdapter(): ProviderAdapter<
   return {
     apiVersion: 1,
     id: 'openrouter',
+    builtins: OPENROUTER_BUILTINS,
     connectionSchema,
     optionsSchema: routerOptions,
     credentialSchema,
     capabilities: () =>
-      capability(
-        ['text', 'image', 'speech', 'decision'],
-        ['googleSearch', 'webSearch', 'fileParser'],
-      ),
+      capability(['text', 'image', 'speech', 'decision'], Object.keys(OPENROUTER_BUILTINS)),
     continuation: {
       version: 1,
       schema: reasoningStateSchema,
       compatibilityKey: (model) =>
         JSON.stringify([model.connection, model.apiId, model.providerOptions]),
     },
-    validateRequest() {},
+    validateRequest(req, model) {
+      if (!('input' in req) || (!req.image && !req.speech)) return;
+      const unsupported = [
+        ...(model.providerOptions.cache ? ['cache'] : []),
+        ...(req.speech?.speed !== undefined && !model.apiId.startsWith('openai/')
+          ? ['speech.speed']
+          : []),
+        ...(req.wireTools?.length ? ['clientTools'] : []),
+        ...(req.builtins.length ? ['builtins'] : []),
+        ...(req.structured ? ['structuredOutput'] : []),
+        ...(req.summaries && req.summaries !== 'none' ? ['summaries'] : []),
+        ...(!req.image?.includeText
+          ? [
+              ...(req.thinking && req.thinking !== 'none' ? ['thinking'] : []),
+              ...(req.maxOutputTokens !== undefined ? ['maxOutputTokens'] : []),
+              ...(req.temperature !== undefined ? ['temperature'] : []),
+            ]
+          : []),
+      ];
+      if (unsupported.length)
+        throw new TheoremError(
+          'unsupported',
+          lexiconText('provider.feature', {
+            provider: 'openrouter',
+            feature: unsupported.join(', '),
+          }),
+        );
+    },
     create(context) {
       return Promise.resolve().then(() => {
         return {
@@ -366,7 +388,9 @@ function* googleLiveBatch(
   return liveHandle;
 }
 
-export function googleAdapter(): ProviderAdapter<
+export function googleAdapter(
+  declarations: Readonly<Record<string, ProviderCapabilities>> = {},
+): ProviderAdapter<
   z.infer<typeof googleConnection>,
   z.infer<typeof googleOptions>,
   string,
@@ -375,14 +399,57 @@ export function googleAdapter(): ProviderAdapter<
   return {
     apiVersion: 1,
     id: 'google',
+    builtins: GOOGLE_BUILTINS,
     connectionSchema: googleConnection,
     optionsSchema: googleOptions,
     credentialSchema,
     capabilities(model) {
-      const cap = capability(
-        ['text', 'image', 'speech', 'live'],
-        ['googleSearch', 'googleMaps', 'urlContext', 'codeExecution'],
-      );
+      const declared = declarations[model.apiId];
+      if (declared) return structuredClone(declared);
+      const known =
+        Object.hasOwn(GOOGLE_FREE_TIER_GROUNDING, model.apiId) ||
+        [
+          ...GOOGLE_NO_THINKING_API_IDS,
+          ...GOOGLE_NO_EFFORT_API_IDS,
+          ...GOOGLE_THINKING_REQUIRED_API_IDS,
+          'gemini-3.1-pro-preview',
+          'gemini-3.8-flash',
+        ].some((id) => id === model.apiId);
+      const cap = capability(['text', 'image', 'speech', 'live'], GOOGLE_BUILTIN_IDS);
+      if (!known) {
+        cap.features = Object.fromEntries(
+          Object.keys(cap.features).map((feature) => [feature, 'unknown']),
+        ) as ProviderCapabilities['features'];
+        cap.inputKinds = [];
+        cap.outputKinds = [];
+        cap.builtins = [];
+        return cap;
+      }
+      if (model.apiId.includes('live')) {
+        cap.profileTypes = ['live'];
+        // why: a live call's starting history may carry stills alongside the realtime channels.
+        cap.inputKinds = ['text', 'image', 'audio', 'video'];
+        cap.outputKinds = ['audio'];
+        cap.features.structuredOutput = 'unsupported';
+        cap.builtins = ['googleSearch'];
+      } else if (model.apiId.includes('tts')) {
+        cap.profileTypes = ['speech'];
+        cap.inputKinds = ['text'];
+        cap.outputKinds = ['audio'];
+        cap.features.structuredOutput = 'unsupported';
+        cap.features.clientTools = 'unsupported';
+        cap.features.parallelTools = 'unsupported';
+        cap.builtins = [];
+      } else {
+        cap.profileTypes = ['text', 'image'];
+        cap.outputKinds = ['text', 'image'];
+        if (model.apiId.includes('image')) {
+          cap.features.structuredOutput = 'unknown';
+          cap.features.clientTools = 'unknown';
+          cap.features.parallelTools = 'unknown';
+          cap.builtins = [];
+        }
+      }
       if ((GOOGLE_NO_THINKING_API_IDS as readonly string[]).includes(model.apiId)) {
         cap.features.thinking = 'unsupported';
         cap.features.summaries = 'unsupported';
@@ -435,7 +502,6 @@ export function googleAdapter(): ProviderAdapter<
             const bound = {
               ...credentialRequest(req),
               store: context.providerOptions.store,
-              googleMapsLocation: context.providerOptions.googleMapsLocation,
               previousInteractionId: previous,
               continuation: previous
                 ? [
@@ -475,6 +541,13 @@ export function googleAdapter(): ProviderAdapter<
               {
                 ...credentialRequest(req),
                 sessionResumptionHandle: liveHandle,
+                history: liveHandle
+                  ? (req.history ?? []).slice(req.stateHistoryLength ?? 0)
+                  : req.history,
+                live: {
+                  ...req.live,
+                  transcription: { ...req.live?.transcription, input: true, output: true },
+                },
                 tapUpstream: (row) => {
                   const body = row.body;
                   context.tapUpstream(
@@ -579,7 +652,21 @@ export function typesafeAdapter(): ProviderAdapter<
     connectionSchema: typesafeConnection,
     optionsSchema: z.strictObject({}),
     credentialSchema,
-    capabilities: () => capability(['decision']),
+    capabilities: () => ({
+      profileTypes: ['decision'],
+      inputKinds: [],
+      outputKinds: [],
+      builtins: [],
+      features: {
+        streaming: 'unsupported',
+        clientTools: 'unsupported',
+        parallelTools: 'unsupported',
+        structuredOutput: 'supported',
+        thinking: 'unsupported',
+        summaries: 'unsupported',
+        storedContinuation: 'unsupported',
+      },
+    }),
     validateRequest() {},
     create(context) {
       return Promise.resolve().then(() => {

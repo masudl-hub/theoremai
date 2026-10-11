@@ -55,7 +55,7 @@ Deno.test('renaming a binding preserves the selected default and leaves other bi
   assertEquals(other.models.defaultModel, 'primary');
   assert(compileStudio(other).ok);
 });
-Deno.test('removing the default binding clears the default and turns model select off', () => {
+Deno.test('removing the default binding clears the default and leaves model select as set', () => {
   const draft = createExampleDraft();
   const first = draft.modelBindings[0];
   const removed = removeModelBinding(
@@ -64,7 +64,7 @@ Deno.test('removing the default binding clears the default and turns model selec
   );
   assertEquals(removed.modelBindings, draft.modelBindings.slice(1));
   assertEquals(removed.models.defaultModel, '');
-  assertEquals(removed.models.allowModelSelect, draft.modelBindings.length > 2);
+  assertEquals(removed.models.allowModelSelect, true);
   assertEquals(removeModelBinding(draft, 'missing'), draft);
 });
 /** A turn draft's compile; decision and host drafts have their own tests. */
@@ -442,6 +442,7 @@ Deno.test('a draft compiles only the fields its type takes in the schema', () =>
       resumeEnabled: true,
       continueInstruction: 'Keep going.',
       allowSteering: false,
+      atStepLimit: 'answer',
     },
   });
   assertEquals(profile.type, 'image');
@@ -451,6 +452,20 @@ Deno.test('a draft compiles only the fields its type takes in the schema', () =>
   const liveProfile = compiled({ ...live, tools: { t2Loader: 'not_checked' } }).profile;
   assert(liveProfile.type === 'live');
   assertEquals(Object.keys(liveProfile.tools), ['allow']);
+});
+Deno.test('answering at the step limit compiles on a text profile, and stopping is left out', () => {
+  const text = includeFacet(createExampleDraft(), 'turnBehaviour');
+  assertEquals(draftAllows(text, 'turnBehaviour.atStepLimit'), true);
+  assertEquals(draftAllows(setProfileType(text, 'live'), 'turnBehaviour.atStepLimit'), false);
+  assertEquals('atStepLimit' in (compiled(text).profile.turnBehaviour ?? {}), false);
+  const answering = compiled({
+    ...text,
+    turnBehaviour: { ...text.turnBehaviour, atStepLimit: 'answer' },
+  });
+  assertEquals(answering.profile.turnBehaviour, {
+    ...compiled(text).profile.turnBehaviour,
+    atStepLimit: 'answer',
+  });
 });
 Deno.test('continuing set to Never compiles to an empty allow list, not the kernel default', () => {
   const text = includeFacet(createExampleDraft(), 'turnBehaviour');

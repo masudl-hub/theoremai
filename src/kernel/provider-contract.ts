@@ -126,12 +126,21 @@ export interface ProviderWarning {
 }
 export const providerContinuationSchema: z.ZodType<
   ProviderContinuationPolicy,
-  { onMismatch?: 'rebuild' | 'error' }
+  { onMismatch?: 'rebuild' | 'error'; history?: 'host' | 'stateless' | 'provider' }
 > = z.strictObject({
   onMismatch: z.enum(['rebuild', 'error']).default('rebuild'),
+  history: z.enum(['host', 'stateless', 'provider']).optional(),
 });
 export interface ProviderContinuationPolicy {
   onMismatch: 'rebuild' | 'error';
+  /**
+   * Who holds the conversation a checkpoint continues. `'host'` (unset) passes the covered
+   * history back with the checkpoint. `'provider'` passes the checkpoint alone: the provider's
+   * stored conversation is the history, and a request that also carries history is a mismatch.
+   * `'stateless'` keeps no conversation: a request that carries history or a checkpoint is refused,
+   * and completion carries no checkpoint.
+   */
+  history?: 'host' | 'stateless' | 'provider';
 }
 export type ProviderCredential = string | JsonObject;
 export interface CredentialContext {
@@ -193,7 +202,6 @@ export type ProviderTurnRequest<S = unknown> = Omit<
   | 'continuation'
   | 'store'
   | 'cache'
-  | 'googleMapsLocation'
   | 'sessionResumptionHandle'
   | 'providerState'
   | 'state'
@@ -260,6 +268,7 @@ export interface ProviderOperations<S = unknown> {
 export type ProviderWait = (ms: number, signal?: AbortSignal | null) => Promise<void>;
 export type OpenProviderWebSocket = (url: string) => Promise<WebSocket>;
 export interface ProviderHostOptions {
+  limits?: Partial<ProviderLimits>;
   vault?: ProviderVault;
   fetch?: typeof fetch;
   wait?: ProviderWait;
@@ -267,6 +276,7 @@ export interface ProviderHostOptions {
 }
 export interface ProviderContext<C = unknown, O = unknown, K = unknown>
   extends ResolvedProviderModel<C, O> {
+  limits: ProviderLimits;
   signal?: AbortSignal;
   resolveCredential(which: 'primary' | 'fallback'): Promise<K | undefined>;
   fetch: typeof fetch;
@@ -274,9 +284,62 @@ export interface ProviderContext<C = unknown, O = unknown, K = unknown>
   openWebSocket?: OpenProviderWebSocket;
   tapUpstream(row: JsonObject): void;
 }
+
+export interface ProviderLimits {
+  operationTimeoutMs: number;
+  connectTimeoutMs: number;
+  liveStepTimeoutMs: number;
+  maxWireRecordBytes: number;
+  maxWireResponseBytes: number;
+  maxEventBytes: number;
+  maxStepBytes: number;
+  maxStepEvents: number;
+  maxPendingToolCalls: number;
+}
+
+const positiveBudget = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+const timerBudget = positiveBudget.max(2147483647);
+export const providerLimitsSchema: z.ZodType<ProviderLimits> = z.strictObject({
+  operationTimeoutMs: timerBudget,
+  connectTimeoutMs: timerBudget,
+  liveStepTimeoutMs: timerBudget,
+  maxWireRecordBytes: positiveBudget,
+  maxWireResponseBytes: positiveBudget,
+  maxEventBytes: positiveBudget,
+  maxStepBytes: positiveBudget,
+  maxStepEvents: positiveBudget,
+  maxPendingToolCalls: positiveBudget,
+});
+
+export function resolveProviderLimits(overrides: Partial<ProviderLimits> = {}): ProviderLimits {
+  return Object.freeze(
+    providerLimitsSchema.parse({
+      operationTimeoutMs: 120000,
+      connectTimeoutMs: 30000,
+      liveStepTimeoutMs: 120000,
+      maxWireRecordBytes: 16 * 1024 * 1024,
+      maxWireResponseBytes: 64 * 1024 * 1024,
+      maxEventBytes: 16 * 1024 * 1024,
+      maxStepBytes: 64 * 1024 * 1024,
+      maxStepEvents: 100000,
+      maxPendingToolCalls: 32,
+      ...overrides,
+    }),
+  );
+}
+/** One tool the provider runs itself. Omit `args`: a request can hand it none. */
+export interface ProviderBuiltinSpec {
+  /** What a request's `builtInArgs` may hand this tool. */
+  args?: z.ZodType<JsonObject>;
+}
 export interface ProviderAdapter<C = unknown, O = unknown, K = unknown, S = unknown> {
   apiVersion: 1;
   id: string;
+  /**
+   * Every tool this provider runs itself, by the id `models.*.builtInTools` lists.
+   * `capabilities` says which of them a model takes; the adapter owns how each is sent.
+   */
+  builtins?: Readonly<Record<string, ProviderBuiltinSpec>>;
   connectionSchema: z.ZodType<C>;
   optionsSchema: z.ZodType<O>;
   credentialSchema: z.ZodType<K>;

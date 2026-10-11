@@ -261,6 +261,7 @@ export type {
   JsonValue,
   OpenProviderWebSocket,
   ProviderAdapter,
+  ProviderBuiltinSpec,
   ProviderCapabilities,
   ProviderCheckpoint,
   ProviderContentEvent,
@@ -270,6 +271,7 @@ export type {
   ProviderDecisionRequest,
   ProviderDefinition,
   ProviderHostOptions,
+  ProviderLimits,
   ProviderLiveConnection,
   ProviderModelEvent,
   ProviderModelSettings,
@@ -297,7 +299,9 @@ export {
   providerCapabilitiesSchema,
   providerCheckpointSchema,
   providerContinuationSchema,
+  providerLimitsSchema,
   providerWarningSchema,
+  resolveProviderLimits,
 } from './src/kernel/provider-contract.ts';
 export type { AttachmentFacts, AttachmentRules } from './src/kernel/registry/attachments.ts';
 export {
@@ -343,6 +347,7 @@ export type {
   ContinueStopKind,
   CustomToolType,
   HttpMethod,
+  StepLimitMode,
   StudioAuthType,
   ToolAccess,
   ToolAuthType,
@@ -456,6 +461,7 @@ export {
   turnStopFromInteractionStatus,
   turnStopFromOpenAiFinishReason,
 } from './src/kernel/stop.ts';
+export { authorizeToolReplay } from './src/kernel/tools/execute.ts';
 export { GATE_DECISIONS, type GateDecision } from './src/kernel/tools/gate-answer.ts';
 export type { McpProtocolVersion, McpRpcResponse, ToolRegistry } from './src/kernel/tools/mod.ts';
 export {
@@ -474,8 +480,28 @@ export {
   UncheckedOutput,
   uncheckedOutput,
 } from './src/kernel/tools/mod.ts';
+export type {
+  BeginToolOperationResult,
+  PageToolDispatch,
+  PageToolExecution,
+  SavedToolInvocation,
+  TerminalToolEvent,
+  ToolExecutionCoordinator,
+  ToolOperationClaim,
+  ToolOperationIdentity,
+  ToolOperationOutcome,
+  ToolOperationUncertainty,
+} from './src/kernel/tools/operation.ts';
+export {
+  savedToolInvocationSchema,
+  toolInvocationHash,
+  toolOperationOutcomeSchema,
+} from './src/kernel/tools/operation.ts';
+export type { ModelToolResult, PageAnswer, ToolContext } from './src/kernel/tools/types.ts';
 export {
   awaitingUserInputSchema,
+  type GateReference,
+  gateReferenceSchema,
   TURN_EVENT_SCHEMAS,
   toolGateSchema,
   turnDoneOf,

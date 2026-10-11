@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
+import { jsonObjectSchema } from '../provider-contract.ts';
 import type { ToolAccess } from '../schema.ts';
 import {
   type InjectUnit,
@@ -11,6 +12,7 @@ import {
 } from '../stages.ts';
 import type { Profile, TurnEvent, TurnHistoryMessage } from '../types.ts';
 import { type ToolCallBase, toolEvent } from './events.ts';
+import { operationWireValue } from './operation.ts';
 import { type GateDetails, gateDetails, isGateResumeGranted } from './permission.ts';
 import { plainToolInput } from './schema.ts';
 import type { ModelToolResult, ToolContext, ToolFailure, ToolGate, ToolLabels } from './types.ts';
@@ -44,7 +46,7 @@ function defaultToolStageSupport(ctx: ToolContext): ToolStageSupport {
 export type PreBodyOutcome =
   | { ok: true; input: unknown }
   | { ok: false; kind: 'aborted'; aborted: true | { reason?: string } }
-  | { ok: false; kind: 'gated'; gate: ToolGate }
+  | { ok: false; kind: 'gated'; gate: ToolGate; input?: unknown }
   | {
       ok: false;
       kind: 'failed';
@@ -82,7 +84,11 @@ export async function* runPreToolPipeline(args: {
   const { tool, ctx, base, stages } = args;
   let toolPreTool: StageResult | undefined;
   // why: An approval skips the tool's own check it already passed — unless the user edited the arguments.
-  const approvedAsIs = isGateResumeGranted(ctx.resume) && ctx.resume?.edited === undefined;
+  const approvedAsIs =
+    isGateResumeGranted(ctx.resume) &&
+    ctx.resume?.edited === undefined &&
+    ctx.resume?.gateKind !== 'permission' &&
+    ctx.resume?.gateKind !== 'auth';
   if (tool.preTool && !approvedAsIs) {
     toolPreTool = (await tool.preTool(args.input as never, ctx)) ?? undefined;
   }
@@ -98,7 +104,36 @@ export async function* runPreToolPipeline(args: {
     details: gateDetails(tool, args.input),
   });
   if (!pre.ok) {
-    if (pre.kind === 'gated') yield toolEvent(base, { phase: 'gate', gate: pre.gate });
+    if (pre.kind === 'gated') {
+      if ('input' in pre) {
+        const candidate = pre.input;
+        const parsed = tool.input.safeParse(plainToolInput(candidate));
+        if (!parsed.success) {
+          return {
+            ok: false,
+            kind: 'failed',
+            failure: {
+              code: 'invalid_input',
+              kind: 'bad_response',
+              message: lexiconText('tool.input_invalid_after_mutate', {}, ctx.profile.lexicon),
+              details: parsed.error.flatten(),
+            },
+          };
+        }
+        pre.gate = {
+          ...pre.gate,
+          ...gateDetails(tool, parsed.data),
+          preparedArguments: jsonObjectSchema.parse(operationWireValue(plainToolInput(candidate))),
+        };
+      }
+      yield stageEventFields('pre_tool', {
+        callId: base.callId,
+        toolName: tool.name,
+        callNotStarted: true,
+        gate: pre.gate,
+      });
+      yield toolEvent(base, { phase: 'gate', gate: pre.gate });
+    }
     return pre;
   }
   if (!pre.mutated) return { ok: true, input: pre.input };
@@ -163,8 +198,12 @@ async function* runPreToolStages(args: {
       ...(applied.confirm.summary ? { summary: applied.confirm.summary } : {}),
       ...details,
     };
-    yield stageEventFields('pre_tool', { callId, toolName, callNotStarted: true, gate });
-    return { ok: false, kind: 'gated', gate };
+    return {
+      ok: false,
+      kind: 'gated',
+      gate,
+      ...(applied.mutate && 'input' in applied.mutate ? { input: applied.mutate.input } : {}),
+    };
   }
   if (applied.mutate && 'input' in applied.mutate) {
     return { ok: true, input: applied.mutate.input, mutated: true };

@@ -10,6 +10,7 @@ import {
 } from '../../mod.ts';
 import { createHostTransport } from '../../react/src/client/host-transport.ts';
 import type { TurnEventSink } from '../../react/src/client/transport.ts';
+import { issuedOperationId } from '../../react/src/client/turn-client.ts';
 import { studioAsks, writeAsk, writeAskLine } from '../../studio/asks.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
@@ -145,7 +146,10 @@ Deno.test('a tool that writes stops before every run, and runs only once the bui
       assert(gate, `${name} ran unasked`);
       assertEquals(ran.includes(`${name}:${id}`), false);
       const settled = await collect((onEvent) =>
-        page.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent),
+        page.invoke(
+          { gateId: gate.callId, operationId: issuedOperationId(gate), decision: 'approve' },
+          onEvent,
+        ),
       );
       assertEquals(toolEventsOf(settled, 'complete')[0]?.output, { id });
     }
@@ -160,7 +164,10 @@ Deno.test('a run the builder refuses never happens', async () => {
   const gate = toolEventsOf(paused, 'gate').at(-1);
   assert(gate);
   const settled = await collect((onEvent) =>
-    page.invoke({ gateId: gate.callId, decision: 'deny' }, onEvent),
+    page.invoke(
+      { gateId: gate.callId, operationId: issuedOperationId(gate), decision: 'deny' },
+      onEvent,
+    ),
   );
   assertEquals(
     [toolEventsOf(settled, 'complete').length, ran.includes('asks_write:no')],

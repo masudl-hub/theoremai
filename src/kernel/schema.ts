@@ -163,12 +163,18 @@ export const TURN_STOP_KINDS = [
   'provider_error',
   'cancelled',
   'stream_incomplete',
+  /** The turn made its last allowed model call and that call asked for tools: there is no answer. */
+  'step_limit',
   'interrupted',
   /** Live: model finished generating audio/text for this utterance; turn may still be open. */
   'generation_complete',
 ] as const;
 /** One of {@linkcode TURN_STOP_KINDS}. */
 export type TurnStopKind = (typeof TURN_STOP_KINDS)[number];
+/** What a text turn's last allowed model call may do, as `turnBehaviour.atStepLimit` sets it. */
+export const STEP_LIMIT_MODES = ['stop', 'answer'] as const;
+/** One of {@linkcode STEP_LIMIT_MODES}. */
+export type StepLimitMode = (typeof STEP_LIMIT_MODES)[number];
 /** Every other stop resumes by another host path, or not at all. */
 export const CONTINUE_STOP_KINDS = ['length', 'stream_incomplete', 'provider_error'] as const;
 /** One of {@linkcode CONTINUE_STOP_KINDS}. */
@@ -779,6 +785,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'Rebuild from portable history or reject an incompatible checkpoint.',
     ['rebuild', 'error'],
   ),
+  'providerContinuation.history': field(
+    "'host' | 'stateless' | 'provider'",
+    'Who holds the conversation a checkpoint continues: the host passes history back, the provider keeps it and the checkpoint travels alone, or the profile is stateless and every request stands alone.',
+    ['host', 'stateless', 'provider'],
+  ),
   'models.*.apiId': field('string', "The model's name at the provider."),
   'models.*.timeoutMs': field(
     'number',
@@ -829,7 +840,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.builtInTools': field(
     'BuiltinToolId[]',
-    "The provider's own tools, such as Google Search, this model may use; each must be registered as a builtin tool.",
+    "The provider's own tools, such as Google Search, this model may use; each must be registered as a builtin tool and declared by the provider's adapter.",
   ),
   'models.*.compaction': field(
     'CompactionSpec',
@@ -875,7 +886,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     },
   ),
   defaultModel: field('ModelId', "The model a turn gets when it doesn't pick one."),
-  allowModelSelect: field('boolean', 'Lets a turn pick a model; needs two or more models.'),
+  allowModelSelect: field(
+    'boolean',
+    'Lets a turn name the model it runs on; a name the profile does not declare is refused.',
+  ),
   maxSteps: field(
     'number',
     'The most model calls one turn may make while using tools, counted afresh for each rewrite; 1 runs the tools asked for but never sends their results back. Live sessions ignore it.',
@@ -1188,6 +1202,15 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'turnBehaviour.allowSteering': field(
     'boolean',
     'Lets your onStage hook add messages to a running turn. Text profiles also let the user steer.',
+  ),
+  'turnBehaviour.atStepLimit': field(
+    "'stop' | 'answer'",
+    'What the last model call allowed by maxSteps may do.',
+    STEP_LIMIT_MODES,
+    {
+      stop: 'It may still call tools; if it does, they run and the turn stops as step_limit with no answer.',
+      answer: 'It is sent without tools, so it writes the answer from what the turn has gathered.',
+    },
   ),
   guardrails: field('ProfileGuardrailsSpec', "Protections for this profile's turns."),
   'guardrails.quota': field(

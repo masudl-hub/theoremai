@@ -35,6 +35,136 @@ async function post(
   };
 }
 
+for (const limit of ['operations', 'reserve', 'outcome'] as const) {
+  Deno.test(`session ${limit} capacity refuses unsafe dispatch or retains its uncertain claim`, async () => {
+    const name = `capacity_${limit}`;
+    let effects = 0;
+    registerTool({
+      type: 'function',
+      name,
+      description: 'Count a dispatch',
+      category: 'test',
+      access: 'read-write',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: ['*'],
+      input: z.object({}),
+      output: z.object({ text: z.string() }),
+      handler: () => {
+        effects++;
+        return { text: limit === 'outcome' ? 'x'.repeat(10000) : 'ok' };
+      },
+    });
+    const store = createMemorySessionStore();
+    const handler = createTheoremHostHandler({
+      profile: { type: 'host', id: name, tools: { allow: [name] } },
+      session: () => name,
+      sessionStore: store,
+      sessionLimits:
+        limit === 'operations'
+          ? { maxOperations: 1 }
+          : limit === 'reserve'
+            ? { maxStateBytes: 1024 }
+            : { maxOutcomeBytes: 1024 },
+    });
+    await post(handler, 'call', { name, input: {} });
+    const before = (await store.load(name))?.state;
+    if (limit === 'operations') {
+      assertEquals(effects, 1);
+      await post(handler, 'call', { name, input: {} });
+      assertEquals((await store.load(name))?.state, before);
+    } else if (limit === 'outcome') {
+      assertEquals(Object.values(before?.operations ?? {})[0]?.status, 'uncertain');
+    }
+    assertEquals(effects, limit === 'reserve' ? 0 : 1);
+  });
+}
+
+Deno.test('settlement retention is absolute and independent of a replacement handler policy', async () => {
+  const name = 'absolute_settlement_retention';
+  registerTool({
+    type: 'function',
+    name,
+    description: 'Return a result',
+    category: 'test',
+    access: 'read-only',
+    permission: 'auto',
+    loadTier: 'T0',
+    paths: ['*'],
+    input: z.object({}),
+    output: z.object({ ok: z.boolean() }),
+    handler: () => ({ ok: true }),
+  });
+  const store = createMemorySessionStore();
+  const options = {
+    profile: { type: 'host' as const, id: name, tools: { allow: [name] } },
+    session: () => name,
+    sessionStore: store,
+  };
+  await post(createTheoremHostHandler({ ...options, operationRetentionMs: 60000 }), 'call', {
+    name,
+    input: {},
+  });
+  const saved = (await store.load(name))?.state;
+  const first = Object.values(saved?.operations ?? {})[0];
+  assert(first?.status === 'settled');
+  assertEquals(first.retainUntil, first.settledAt + 60000);
+  await post(createTheoremHostHandler({ ...options, operationRetentionMs: 1 }), 'call', {
+    name,
+    input: {},
+  });
+  const next = (await store.load(name))?.state.operations[first.operationId];
+  assertEquals(next, first);
+});
+
+Deno.test('current resource authorization can withhold replay without reopening the saved action', async () => {
+  const name = 'revoked_result_access';
+  let effects = 0;
+  let permitted = true;
+  registerTool({
+    type: 'function',
+    name,
+    description: 'Return a private result',
+    category: 'test',
+    access: 'read-write',
+    permission: 'always_confirm',
+    loadTier: 'T0',
+    paths: ['*'],
+    input: z.object({}),
+    output: z.object({ secret: z.string() }),
+    handler: () => {
+      effects++;
+      return { secret: 'private-result' };
+    },
+  });
+  const store = createMemorySessionStore();
+  const handler = createTheoremHostHandler({
+    profile: { type: 'host', id: name, tools: { allow: [name] } },
+    session: () => name,
+    sessionStore: store,
+    authorizeToolReplay: () => permitted,
+  });
+  const issued = (await post(handler, 'call', { name, input: {} })).events.findLast(
+    (event) => event.type === 'tool' && event.tool.phase === 'gate',
+  );
+  assert(issued?.type === 'tool' && issued.tool.operationId);
+  const answer = {
+    gateId: issued.tool.callId,
+    operationId: issued.tool.operationId,
+    decision: 'approve',
+  };
+  await post(handler, 'invoke', answer);
+  const saved = (await store.load(name))?.state;
+  permitted = false;
+  const replay = await post(handler, 'invoke', answer);
+  assert(!JSON.stringify(replay.events).includes('private-result'));
+  assertEquals((await store.load(name))?.state, saved);
+  assertEquals(effects, 1);
+  permitted = true;
+  assert(JSON.stringify((await post(handler, 'invoke', answer)).events).includes('private-result'));
+  assertEquals(effects, 1);
+});
+
 for (const backend of ['memory', 'sqlite'] as const) {
   Deno.test(`${backend}: output validation after dispatch cannot restore an approval`, async () => {
     const directory = backend === 'sqlite' ? await Deno.makeTempDir() : undefined;
@@ -183,6 +313,7 @@ Deno.test('unresolved claims survive idle and capacity eviction', async () => {
 
 Deno.test('kernel replay preserves guarded read-back without dispatching the handler', async () => {
   let effects = 0;
+  let preparations = 0;
   const name = 'kernel_operation_replay';
   registerTool({
     type: 'function',
@@ -195,11 +326,15 @@ Deno.test('kernel replay preserves guarded read-back without dispatching the han
     paths: ['*'],
     input: z.object({}),
     output: z.object({ count: z.number() }),
+    preTool: () => {
+      preparations++;
+    },
     handler: () => ({ count: ++effects }),
   });
   registerProfile({ type: 'host', id: name, tools: { allow: [name] } });
   let outcome: import('../../mod.ts').ToolOperationOutcome | undefined;
   const execution: import('../../mod.ts').ToolExecutionCoordinator = {
+    lookup: () => Promise.resolve(outcome ? { kind: 'settled', outcome } : undefined),
     begin: () =>
       Promise.resolve(
         outcome ? { kind: 'settled', outcome } : { kind: 'acquired', claimToken: 'worker' },
@@ -228,6 +363,7 @@ Deno.test('kernel replay preserves guarded read-back without dispatching the han
   assert(outcome?.replay.modelResult?.modelText);
   assertEquals(await run(), first);
   assertEquals(effects, 1);
+  assertEquals(preparations, 1);
 });
 
 Deno.test('settlement write failure retains uncertainty before the client receives completion', async () => {
@@ -419,6 +555,7 @@ Deno.test('promotion refusal is saved as not started before its terminal event',
   });
   let saved: import('../../mod.ts').ToolOperationOutcome | undefined;
   const execution: import('../../mod.ts').ToolExecutionCoordinator = {
+    lookup: () => Promise.resolve(undefined),
     begin: () => Promise.reject(new Error('Refusal must not acquire a body claim')),
     settle: () => Promise.reject(new Error('Refusal must not settle a body claim')),
     markUncertain: () => Promise.reject(new Error('Refusal has no body claim')),
@@ -490,5 +627,137 @@ Deno.test('shared session storage cannot approve a gate through another profile'
   ];
   assert(operation?.status === 'settled');
   assertEquals(operation.profileId, 'operation-owner');
+  assertEquals(effects, 1);
+});
+
+Deno.test('dispatch retains accepted intent and final prepared input for current replay access', async () => {
+  const name = 'final_prepared_evidence';
+  let effects = 0;
+  registerTool({
+    type: 'function',
+    name,
+    description: 'Read a resource',
+    category: 'test',
+    access: 'read-only',
+    permission: 'auto',
+    loadTier: 'T0',
+    paths: ['*'],
+    input: z.object({ resource: z.string() }),
+    output: z.object({ value: z.string() }),
+    preTool: () => ({ mutate: { input: { resource: 'resolved-resource' } } }),
+    handler: (input) => {
+      effects++;
+      return { value: input.resource };
+    },
+  });
+  const store = createMemorySessionStore();
+  const handler = createTheoremHostHandler({
+    profile: { type: 'host', id: name, tools: { allow: [name] } },
+    session: () => name,
+    sessionStore: store,
+    authorizeToolReplay: ({ operation }) => operation.invocation?.preparedInput !== undefined,
+  });
+  await post(handler, 'call', { name, input: { resource: 'requested-resource' } });
+  const operation = Object.values((await store.load(name))?.state.operations ?? {})[0];
+  assert(operation.status === 'settled');
+  assertEquals(operation.invocation?.accepted.input, { resource: 'requested-resource' });
+  assertEquals(operation.invocation?.preparedInput, { resource: 'resolved-resource' });
+  const answer = {
+    gateId: operation.callId,
+    operationId: operation.operationId,
+    decision: 'approve',
+  };
+  assertEquals(
+    (await post(handler, 'invoke', { ...answer, input: { resource: 'requested-resource' } }))
+      .status,
+    200,
+  );
+  assertEquals(
+    (await post(handler, 'invoke', { ...answer, input: { resource: 'another-resource' } })).status,
+    400,
+  );
+  assertEquals((await store.load(name))?.state.operations[operation.operationId], operation);
+  assertEquals(effects, 1);
+});
+
+Deno.test('unserializable prepared input refuses dispatch before effects', async () => {
+  const name = 'unsafe_prepared_evidence';
+  let effects = 0;
+  registerTool({
+    type: 'function',
+    name,
+    description: 'Read a date',
+    category: 'test',
+    access: 'read-only',
+    permission: 'auto',
+    loadTier: 'T0',
+    paths: ['*'],
+    input: z.object({ when: z.string().transform((value) => new Date(value)) }),
+    output: z.object({ ok: z.boolean() }),
+    handler: () => {
+      effects++;
+      return { ok: true };
+    },
+  });
+  const store = createMemorySessionStore();
+  const handler = createTheoremHostHandler({
+    profile: { type: 'host', id: name, tools: { allow: [name] } },
+    session: () => name,
+    sessionStore: store,
+  });
+  await post(handler, 'call', { name, input: { when: '2026-10-10' } });
+  assertEquals(effects, 0);
+  const operations = Object.values((await store.load(name))?.state.operations ?? {});
+  assert(operations.every((operation) => operation.status !== 'running'));
+});
+
+Deno.test('stricter current disclosure refuses a cached result without reopening its effect', async () => {
+  const name = 'stricter_cached_disclosure';
+  let effects = 0;
+  registerTool({
+    type: 'function',
+    name,
+    description: 'Read an identifier',
+    category: 'test',
+    access: 'read-only',
+    permission: 'always_confirm',
+    loadTier: 'T0',
+    paths: ['*'],
+    input: z.object({}),
+    output: z.object({ ssn: z.string() }),
+    handler: () => {
+      effects++;
+      return { ssn: '123-45-6789' };
+    },
+  });
+  const store = createMemorySessionStore();
+  const make = (action: 'ignore' | 'block') =>
+    createTheoremHostHandler({
+      profile: {
+        id: name,
+        type: 'host',
+        tools: { allow: [name] },
+        guardrails: { detect: { ids: action } },
+      },
+      session: () => name,
+      sessionStore: store,
+    });
+  const initial = make('ignore');
+  const issued = (await post(initial, 'call', { name, input: {} })).events.findLast(
+    (event) => event.type === 'tool' && event.tool.phase === 'gate',
+  );
+  assert(issued?.type === 'tool' && issued.tool.operationId);
+  const answer = {
+    gateId: issued.tool.callId,
+    operationId: issued.tool.operationId,
+    decision: 'approve',
+  };
+  const completed = await post(initial, 'invoke', answer);
+  assert(JSON.stringify(completed.events).includes('123-45-6789'));
+  const saved = (await store.load(name))?.state;
+  const replay = await post(make('block'), 'invoke', answer);
+  assert(!JSON.stringify(replay.events).includes('123-45-6789'));
+  assert(replay.events.some((event) => event.type === 'error' && event.errorKind === 'blocked'));
+  assertEquals((await store.load(name))?.state, saved);
   assertEquals(effects, 1);
 });

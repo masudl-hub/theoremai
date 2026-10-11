@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 
 import { assertEquals, assertThrows } from '@std/assert';
-import { TheoremError, type ToolGate, type TurnEvent } from '../../mod.ts';
+import { lexiconText, TheoremError, type ToolGate, type TurnEvent } from '../../mod.ts';
 import {
   float32Rms,
   float32RmsToLevel,
@@ -87,15 +87,30 @@ Deno.test('parseLiveServerEnvelope parses ready, events, error, and tool result 
     error: 'Relay disconnected',
   });
 
-  assertEquals(readEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'settled' }), {
-    type: 'executeToolResult',
-    callId: 'call_1',
-    status: 'settled',
-  });
+  assertEquals(
+    readEnvelope({
+      type: 'executeToolResult',
+      callId: 'call_1',
+      operationId: 'call_1',
+      status: 'settled',
+    }),
+    {
+      type: 'executeToolResult',
+      callId: 'call_1',
+      operationId: 'call_1',
+      status: 'settled',
+    },
+  );
   const gate: ToolGate = { kind: 'confirmation', tool: 'getWeather' };
   assertEquals(
-    readEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'gated', gate }),
-    { type: 'executeToolResult', callId: 'call_1', status: 'gated', gate },
+    readEnvelope({
+      type: 'executeToolResult',
+      callId: 'call_1',
+      operationId: 'call_1',
+      status: 'gated',
+      gate,
+    }),
+    { type: 'executeToolResult', callId: 'call_1', operationId: 'call_1', status: 'gated', gate },
   );
   const body: HostErrorBody = {
     error: 'Sorry, that step is no longer waiting for approval.',
@@ -105,10 +120,11 @@ Deno.test('parseLiveServerEnvelope parses ready, events, error, and tool result 
     readEnvelope({
       type: 'executeToolResult',
       callId: 'call_1',
+      operationId: 'call_1',
       status: 'refused',
       body,
     }),
-    { type: 'executeToolResult', callId: 'call_1', status: 'refused', body },
+    { type: 'executeToolResult', callId: 'call_1', operationId: 'call_1', status: 'refused', body },
   );
 });
 
@@ -133,14 +149,25 @@ Deno.test('a malformed envelope or gate arrives as malformed', () => {
   assertBadEnvelope([]);
   assertBadEnvelope({ type: 'ready', profile: 7 });
   // A gated reply without its gate, a gate that fails its schema, or a status the relay does not send.
-  assertBadEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'gated' });
   assertBadEnvelope({
     type: 'executeToolResult',
     callId: 'call_1',
+    operationId: 'call_1',
+    status: 'gated',
+  });
+  assertBadEnvelope({
+    type: 'executeToolResult',
+    callId: 'call_1',
+    operationId: 'call_1',
     status: 'gated',
     gate: { kind: 'confirmation', tool: 7 },
   });
-  assertBadEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'complete' });
+  assertBadEnvelope({
+    type: 'executeToolResult',
+    callId: 'call_1',
+    operationId: 'call_1',
+    status: 'complete',
+  });
   assertBadEnvelope({ type: 'error', errorKind: 'secret-value' });
 });
 
@@ -221,6 +248,7 @@ Deno.test('a live tool error shows the user wording, never the model message', (
     tool: {
       name: 'search',
       callId: 'call-1',
+      operationId: 'call-1',
       at: 0,
       phase: 'error',
       failure: {
@@ -249,12 +277,30 @@ Deno.test('a live gate closes when the model cancels its call, with nothing repo
     setActiveTool: () => {},
   };
   applyLiveTurnToolEvent(
-    { type: 'tool', tool: { name: 'search', callId: 'call-other', at: 0, phase: 'cancel' } },
+    {
+      type: 'tool',
+      tool: {
+        name: 'search',
+        callId: 'call-other',
+        operationId: 'call-other',
+        at: 0,
+        phase: 'cancel',
+      },
+    },
     args,
   );
   assertEquals(seen, []);
   applyLiveTurnToolEvent(
-    { type: 'tool', tool: { name: 'lookup', callId: 'call-gated', at: 0, phase: 'cancel' } },
+    {
+      type: 'tool',
+      tool: {
+        name: 'lookup',
+        callId: 'call-gated',
+        operationId: 'call-gated',
+        at: 0,
+        phase: 'cancel',
+      },
+    },
     args,
   );
   assertEquals(seen, ['withdraw', 'clear']);
@@ -278,11 +324,12 @@ Deno.test('a live call the model withdrew at its gate sends nothing more', async
     name: 'lookup',
     toolArgs: {},
     callId: 'call-gated',
+    operationId: 'call-gated',
     sessionPermissions: [],
     setSessionPermissions: () => {},
     waitForGateDecision: () => Promise.resolve('withdrawn'),
   });
-  assertEquals(sent, [{ callId: 'call-gated' }]);
+  assertEquals(sent, [{ callId: 'call-gated', operationId: 'call-gated' }]);
 });
 
 Deno.test('a live deny goes to the session, which settles the call; nothing else is sent', async () => {
@@ -292,11 +339,15 @@ Deno.test('a live deny goes to the session, which settles the call; nothing else
     name: 'lookup',
     toolArgs: {},
     callId: 'call-gated',
+    operationId: 'call-gated',
     sessionPermissions: [],
     setSessionPermissions: () => {},
     waitForGateDecision: () => Promise.resolve({ action: 'deny' }),
   });
-  assertEquals(sent, [{ callId: 'call-gated' }, { callId: 'call-gated', decision: 'deny' }]);
+  assertEquals(sent, [
+    { callId: 'call-gated', operationId: 'call-gated' },
+    { callId: 'call-gated', operationId: 'call-gated', decision: 'deny' },
+  ]);
 });
 
 Deno.test('a page tool answers its call with the page output; any other call runs on the relay', async () => {
@@ -306,7 +357,11 @@ Deno.test('a page tool answers its call with the page output; any other call run
     runLiveToolCall({
       executeToolOnRelay: (args) => {
         sent.push(args);
-        return Promise.resolve({ status: 'settled' });
+        return Promise.resolve(
+          args.callId === 'call-page' && args.grantId === undefined
+            ? { status: 'dispatched', grantId: 'grant', arguments: { target: 'pricing-final' } }
+            : { status: 'settled' },
+        );
       },
       pageTools: {
         highlight: (args, made) => {
@@ -317,6 +372,7 @@ Deno.test('a page tool answers its call with the page output; any other call run
       name,
       toolArgs: { target: 'pricing' },
       callId,
+      operationId: callId,
       sessionPermissions: [],
       setSessionPermissions: () => {},
       waitForGateDecision: () => Promise.resolve('withdrawn'),
@@ -325,11 +381,19 @@ Deno.test('a page tool answers its call with the page output; any other call run
   await call('lookup', 'call-relay');
   // A name the model made up is not looked up on the object's prototype.
   await call('toString', 'call-proto');
-  assertEquals(seen, [[{ target: 'pricing' }, { callId: 'call-page' }]]);
+  assertEquals(seen, [
+    [{ target: 'pricing-final' }, { callId: 'call-page', operationId: 'call-page' }],
+  ]);
   assertEquals(sent, [
-    { callId: 'call-page', output: { success: true } },
-    { callId: 'call-relay' },
-    { callId: 'call-proto' },
+    { callId: 'call-page', operationId: 'call-page' },
+    {
+      callId: 'call-page',
+      operationId: 'call-page',
+      grantId: 'grant',
+      output: { success: true },
+    },
+    { callId: 'call-relay', operationId: 'call-relay' },
+    { callId: 'call-proto', operationId: 'call-proto' },
   ]);
 });
 
@@ -346,22 +410,28 @@ Deno.test('a relay reads each live message by its schema; a malformed one is a r
   assertThrows(() => parseLiveClientMessage(JSON.stringify({ type: 'open' })), TheoremError);
   assertEquals(
     parseLiveClientMessage(
-      JSON.stringify({ type: 'executeTool', callId: 'c', decision: 'approve', input: { id: 2 } }),
+      JSON.stringify({
+        type: 'executeTool',
+        callId: 'c',
+        operationId: 'c',
+        decision: 'approve',
+        input: { id: 2 },
+      }),
     ),
-    { type: 'executeTool', callId: 'c', decision: 'approve', input: { id: 2 } },
+    { type: 'executeTool', callId: 'c', operationId: 'c', decision: 'approve', input: { id: 2 } },
   );
   for (const [text, message] of [
-    ['{nope', 'live message must be JSON'],
+    ['{nope', lexiconText('error.request')],
     [
       JSON.stringify({ type: 'video', data: 'x' }),
       'live message failed its check: mimeType invalid_type',
     ],
     [
-      JSON.stringify({ type: 'executeTool', callId: '' }),
-      'live message failed its check: callId too_small',
+      JSON.stringify({ type: 'executeTool', callId: '', operationId: '' }),
+      'live message failed its check: callId too_small; operationId too_small',
     ],
     [
-      JSON.stringify({ type: 'executeTool', callId: 'c', decision: 'maybe' }),
+      JSON.stringify({ type: 'executeTool', callId: 'c', operationId: 'c', decision: 'maybe' }),
       'live message failed its check: decision invalid_value',
     ],
     [JSON.stringify({ type: 'wave' }), 'live message failed its check: type invalid_union'],
@@ -672,6 +742,7 @@ Deno.test('a drop with no handle, or after the session ended, ends the call; fiv
 Deno.test('the call after one that could not reconnect takes it up again; a refused handle starts a new call', async () => {
   const live = liveHarness();
   const statuses: string[] = [];
+  const history = [{ role: 'user' as const, content: 'Remember the earlier call.' }];
   const client = new LiveSessionClient({
     createSocket: live.createSocket,
     voiceIngress: false,
@@ -691,14 +762,14 @@ Deno.test('the call after one that could not reconnect takes it up again; a refu
   };
   try {
     await client.connect();
-    await live.ready(live.sockets[0], [handleEvent('handle-1')]);
+    await live.ready(live.sockets[0], [{ ...handleEvent('handle-1'), history }]);
     await lose(0);
 
     live.advance(4500);
     await client.connect();
     await live.ready(live.sockets[6], [handleEvent('handle-2')]);
     assertEquals(live.sockets[6].sent, [
-      { type: 'open', resume: { providerState: checkpointFixture, awayMs: 20_000 } },
+      { type: 'open', history, resume: { providerState: checkpointFixture, awayMs: 20_000 } },
     ]);
 
     // The provider refuses the handle: the call opens as a new one.
@@ -706,7 +777,7 @@ Deno.test('the call after one that could not reconnect takes it up again; a refu
     await client.connect();
     live.drop(live.sockets[12]);
     await live.ready(live.sockets[13]);
-    assertEquals(live.sockets[13].sent, [{ type: 'open' }]);
+    assertEquals(live.sockets[13].sent, [{ type: 'open', history }]);
     assertEquals(statuses.at(-1), 'listening');
   } finally {
     client.disconnect();
@@ -748,4 +819,182 @@ Deno.test('pageToolMismatch names a page tool with no handler, and a handler for
     unused: ['lookup'],
   });
   assertEquals(pageToolMismatch([], []), { unanswered: [], unused: [] });
+});
+
+Deno.test('a live reconnect sends portable history alongside its checkpoint and the relay preserves both', async () => {
+  const live = liveHarness();
+  const client = new LiveSessionClient({
+    createSocket: live.createSocket,
+    voiceIngress: false,
+    onToolCall: async () => {},
+  });
+  const history = [
+    { role: 'user' as const, content: 'remember this' },
+    { role: 'assistant' as const, content: 'remembered' },
+  ];
+  const providerState = { ...checkpointFixture, coveredHistoryLength: history.length };
+  try {
+    await client.connect();
+    await live.ready(live.sockets[0], [{ type: 'provider_checkpoint', providerState, history }]);
+    live.drop(live.sockets[0]);
+    live.fire(1000);
+    await live.ready(live.sockets[1]);
+    const opened = parseLiveOpenMessage(JSON.stringify(live.sockets[1].sent[0]));
+    assertEquals(opened.history, history);
+    assertEquals(opened.resume?.providerState, providerState);
+    assertEquals(liveSessionOpen(opened).history, history);
+  } finally {
+    await client.disconnect();
+    live.restore();
+  }
+});
+
+Deno.test('a refused live permission gate never invokes page code', async () => {
+  let effects = 0;
+  const sent: unknown[] = [];
+  await runLiveToolCall({
+    executeToolOnRelay: (args) => {
+      sent.push(args);
+      return Promise.resolve(
+        args.decision === 'deny'
+          ? { status: 'settled' }
+          : {
+              status: 'gated',
+              gate: { kind: 'permission', tool: 'write', permission: 'always_confirm' },
+            },
+      );
+    },
+    pageTools: {
+      write: () => {
+        effects++;
+        return { output: true };
+      },
+    },
+    name: 'write',
+    toolArgs: {},
+    callId: 'call',
+    operationId: 'issued',
+    sessionPermissions: [],
+    setSessionPermissions: () => {},
+    waitForGateDecision: () => Promise.resolve({ action: 'deny' }),
+  });
+  assertEquals(effects, 0);
+  assertEquals(sent, [
+    { callId: 'call', operationId: 'issued' },
+    { callId: 'call', operationId: 'issued', decision: 'deny' },
+  ]);
+});
+
+Deno.test('a live page callback follows approval and a claimed dispatch grant', async () => {
+  const order: string[] = [];
+  let request = 0;
+  await runLiveToolCall({
+    executeToolOnRelay: (args) => {
+      request++;
+      order.push(`relay:${request}:${args.grantId ? 'result' : (args.decision ?? 'check')}`);
+      return Promise.resolve(
+        request === 1
+          ? {
+              status: 'gated',
+              gate: { kind: 'permission', tool: 'write', permission: 'always_confirm' },
+            }
+          : request === 2
+            ? { status: 'dispatched', grantId: 'claimed', arguments: { final: true } }
+            : { status: 'settled' },
+      );
+    },
+    pageTools: {
+      write: () => {
+        order.push('page');
+        return { output: true };
+      },
+    },
+    name: 'write',
+    toolArgs: {},
+    callId: 'call',
+    operationId: 'issued',
+    sessionPermissions: [],
+    setSessionPermissions: () => {},
+    waitForGateDecision: () => {
+      order.push('approval');
+      return Promise.resolve({ action: 'allow' });
+    },
+  });
+  assertEquals(order, ['relay:1:check', 'approval', 'relay:2:approve', 'page', 'relay:3:result']);
+});
+
+Deno.test('an old page gate cannot execute a browser callback', async () => {
+  let effects = 0;
+  const sent: unknown[] = [];
+  await runLiveToolCall({
+    executeToolOnRelay: (args) => {
+      sent.push(args);
+      return Promise.resolve(
+        sent.length === 1
+          ? { status: 'gated', gate: { kind: 'page', tool: 'legacy' } }
+          : { status: 'settled' },
+      );
+    },
+    pageTools: {
+      legacy: () => {
+        effects++;
+        return { output: true };
+      },
+    },
+    name: 'legacy',
+    toolArgs: {},
+    callId: 'c',
+    operationId: 'o',
+    sessionPermissions: [],
+    setSessionPermissions: () => {},
+    waitForGateDecision: () => Promise.resolve('withdrawn'),
+  });
+  assertEquals(effects, 0);
+  assertEquals(sent, [
+    { callId: 'c', operationId: 'o' },
+    { callId: 'c', operationId: 'o', decision: 'deny' },
+  ]);
+});
+
+Deno.test('live approval shows the prepared arguments that its later dispatch executes', async () => {
+  let request = 0;
+  let effects = 0;
+  await runLiveToolCall({
+    executeToolOnRelay: () => {
+      request++;
+      return Promise.resolve(
+        request === 1
+          ? {
+              status: 'gated',
+              gate: {
+                kind: 'confirmation',
+                tool: 'write',
+                preparedArguments: { recipient: 'approved' },
+              },
+            }
+          : request === 2
+            ? { status: 'dispatched', grantId: 'grant', arguments: { recipient: 'approved' } }
+            : { status: 'settled' },
+      );
+    },
+    name: 'write',
+    toolArgs: { recipient: 'original' },
+    callId: 'call',
+    operationId: 'operation',
+    sessionPermissions: [],
+    setSessionPermissions() {},
+    waitForGateDecision: (prompt) => {
+      assertEquals(prompt.input, { recipient: 'approved' });
+      assertEquals(effects, 0);
+      return Promise.resolve({ action: 'allow' });
+    },
+    pageTools: {
+      write: (input) => {
+        assertEquals(input, { recipient: 'approved' });
+        effects++;
+        return { output: true };
+      },
+    },
+  });
+  assertEquals(effects, 1);
 });

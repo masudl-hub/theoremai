@@ -4,6 +4,7 @@ import {
   googleAdapter,
   openAIChat,
   openRouterAdapter,
+  resolveProviderLimits,
 } from '../../../src/providers/mod.ts';
 
 console.log('PHASE:providers-created');
@@ -19,6 +20,7 @@ const operations = await local.adapter.create({
   connection: local.connection,
   providerOptions: {},
   apiId: 'local',
+  limits: resolveProviderLimits(),
   resolveCredential: () => Promise.resolve(undefined),
   fetch: () =>
     Promise.resolve(

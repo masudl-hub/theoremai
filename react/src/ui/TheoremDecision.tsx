@@ -1,8 +1,6 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import { useLocale } from '@astryxdesign/core/i18n';
-import { Spinner } from '@astryxdesign/core/Spinner';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
-import { VStack } from '@astryxdesign/core/VStack';
 import type { DecisionJson } from '@theoremjs/agents';
 import { type CSSProperties, type ReactNode, useMemo, useRef, useState } from 'react';
 import {
@@ -11,7 +9,6 @@ import {
   type DecisionTransport,
 } from '../client/decision-transport.ts';
 import type { HttpOptions } from '../client/transport.ts';
-import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { useTheoremDecision } from '../hooks/use-theorem-decision.ts';
 import {
   ConsoleFrame,
@@ -24,6 +21,7 @@ import {
 import { TheoremDecisionAnswers } from './DecisionAnswers.tsx';
 import type { LabelText, TheoremLabels } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
+import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { StateFields } from './StateFields.tsx';
 import { useTraceInspector } from './TraceInspectorPanel.tsx';
 import { TheoremThemeProvider } from './theme.tsx';
@@ -238,11 +236,7 @@ function decisionResponse(
   const waiting = phase === 'waiting';
   return (
     <ResponseColumn label={labels.answers} fill={waiting}>
-      {waiting ? (
-        <PaneLoading label={labels.deciding} />
-      ) : (
-        answers
-      )}
+      {waiting ? <PaneLoading label={labels.deciding} /> : answers}
     </ResponseColumn>
   );
 }

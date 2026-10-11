@@ -32,6 +32,8 @@ end-user copy, demo apps, channel behavior). The kernel may ship overridable
 defaults for mechanism text via the guardrails lexicon; it may not ship
 unreplaceable copy or bundled product. Demo fixtures live in the repo-private
 `studio/` package (`@theoremjs/studio`), never in the published artifact.
+Package verification checks both agents and React output for Studio modules.
+The React build type-checks the local Studio prototype, then removes it from the emitted package.
 
 | Id | Property |
 | --- | --- |
@@ -70,11 +72,11 @@ A `Profile` binds:
 | `inputs` | Text / attachments / voice / slots / context / per-mime limits — present on `text`, `image`; `live` takes `slots` and `context` only, and may leave `inputs` out (its channels are `live.ingress`); absent on `speech`; `decision` carries its own `DecisionInputsSpec`, not turn inputs. `{name}` in `identity.system` becomes the value the request chose for slot `name`; a prompt that uses a slot the request left unfilled is a `request` error; a `{name}` that is no slot stays as written |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
-| `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`) on `text` / `image` / `speech`; `allowSteering` on **text and live** (inject gate via `profileAllowsInject`; see [`stages.md`](stages.md)). Live must omit `turnBehaviour.resumption` (use `live.sessionResumption`) |
+| `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`) on `text` / `image` / `speech`; `atStepLimit` on **text**; `allowSteering` on **text and live** (inject gate via `profileAllowsInject`; see [`stages.md`](stages.md)). Live must omit `turnBehaviour.resumption` (use `live.sessionResumption`) |
 | `guardrails` | Quota, detect, blockedReply, network, taint — on `host` narrowed to `HostGuardrailsSpec` (`detect`, `network`); on `decision`, only pre-dispatch `disclosure` is active. A guarded `live` profile (a detector above `ignore` at `live_reply`) always requests its output transcript: `resolveTurn` sets `live.transcription.output` |
 | `observability` | Trace destination, scrub, include, sampling (`writeTo`, `sampleRate`, …) |
 
-Closed unions (`protocol`, `provider`, `thinking`, stop kinds, turn stages,
+Closed unions (`thinking`, stop kinds, turn stages,
 MIME maps, …) live as `as const` arrays in `src/kernel/schema.ts`. Types are
 derived from those arrays. `TURN_STAGES` / `TOOL_GATE_KINDS` /
 `AWAITING_USER_INPUT_*` are foundation for the stages cutover
@@ -199,10 +201,14 @@ shared generation settings, optional credential-slot overrides and JSON `provide
 `modelBindingSchema` validates shared data; profile registration parses options using the
 registered adapter. A binding has no protocol enum. Cache, storage, persistence and local
 server settings belong to adapter options. Provider definitions own credential defaults.
+Provider vault lookup requires an own property for the selected slot. Inherited credentials and resolvers do not grant access.
 
 `defineProvider` returns a typed `.model()` helper. Scope `providers` supports registration,
 replacement, lookup and reset. The host registers definitions before profiles reference them.
 Each run snapshots its selected provider. Called agents and compactors resolve independently.
+The snapshot captures adapter methods with their receiver, including methods on a class prototype.
+Continuation methods retain their receiver. A replacement registration affects later runs, not the captured active definition.
+The snapshot does not isolate hidden mutable adapter state.
 
 `ProviderAdapter` owns normalized request encoding, transport and model event decoding.
 The kernel validates declared capabilities, operations and event authority before client tools run.
@@ -274,11 +280,11 @@ Live sessions emit the same stage names around utterance cycles and
    tool steps is one match.
 7. **Tool loop** — while under `maxSteps` (20 model calls when the profile sets none), tool calls execute via `executeRegisteredTool`
    (shared with `invokeTool`), threading the host's `credentials` source (`ToolCredentialSource`, read one slot at a time as a signed-in tool runs) for authenticated HTTP/MCP tools and the opaque `host` context slot; `pre_tool` / `post_tool` stages + `preTool` run on that path. After each
-   settled tool, `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch. `generation.chains`
-   (a binding with `providerOptions.persistViaInteractionId: true`) selects an Interactions continuation
-   (`previous_interaction_id` + `continuation`: the tool results and stage injects as
-   kernel messages, which the adapter maps like history); otherwise the step's calls and
-   results go in tool-call history. Server-side `codeExecution` does not consume a runner step.
+   settled tool, `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch.
+   The runner records tool calls and results in portable history.
+   The registered adapter validates native state and encodes the next request.
+   Native continuation does not replace authoritative tool outcomes.
+   Server-side `codeExecution` does not consume a runner step.
 8. **`before_end`** — stage before egress/validation; inject re-enters the step
    loop when under `maxSteps`.
 9. **Validation / repair** — structured output validators (`outputs.validation`)
@@ -301,8 +307,8 @@ Live sessions emit the same stage names around utterance cycles and
    ([observability.md](observability.md#trace-records)).
 12. **Terminal `done` then `post_turn`** — one `done` event with optional
     `stop`, optional `compaction` signal (`timing: 'after'`), then observe-only
-    `post_turn`. Token counts are not on `done`: each model call emitted its own
-    `tokens` event (see [Token usage](#token-usage)).
+    `post_turn`. Each model call emits a `tokens` event.
+    The final `done.tokens` contains their aggregate usage (see [Token usage](#token-usage)).
 
 `continueFrom` on `TurnRequest` resumes a resumeable stop. On a text profile the
 turn's user message is the lexicon's `continue.instruction` (a continue turn takes no
@@ -335,7 +341,8 @@ compaction use the same host options and credential vault as other registered op
 
 ## Stream events
 
-`runTurn` and adapters yield `TurnEvent`:
+`runTurn` yields `TurnEvent`. Adapters yield the narrower `ProviderModelEvent` union.
+The kernel validates adapter events before it releases them or executes client tools.
 
 | `type` | Payload highlights |
 | --- | --- |
@@ -352,7 +359,9 @@ compaction use the same host options and credential vault as other registered op
 | `tokens` | One per model call, after that call's output: `TurnTokens` (see [Token usage](#token-usage)); may gate `meter: 'input'` |
 | `response` | Adapter → runner only, never yielded by `runTurn`: the response identity (`id`, `model`) as soon as the wire names it, and again when it grows or changes. The runner records it on the call's trace span (`gen_ai.response.id` / `gen_ai.response.model`), so a call that fails or is cut by a guardrail still names the model that served it |
 | `compaction` | `timing: 'before'` ran the compactor: `outcome`, the `history` the turn used, `summary` when compacted, `failure` when not, `droppedMedia`, the meter's count and message counts (see [Compaction](#compaction)) |
-| `done` | Terminal or live boundary: `stop` (`completed` / `interrupted` / `generation_complete` / …), `compaction`, `tokens` (the turn's usage); when `stop.kind` is `tool` or `gate`, required `tools` (`TurnToolSnapshot`) for host `invokeTool` resume, absent otherwise |
+| `done` | Terminal or live boundary: `stop` (`completed` / `interrupted` / `generation_complete` / …), `compaction`, `tokens` (the turn's usage), optional `providerState`; when `stop.kind` is `tool` or `gate`, required `tools` (`TurnToolSnapshot`) for host `invokeTool` resume, absent otherwise |
+| `provider_checkpoint` | Live native checkpoint in `providerState`, with the covered portable `history` |
+| `provider_warning` | Native state mismatch: `warning.code` is `provider_state_rebuilt`; `warning.reason` identifies the mismatch |
 | `error` | `errorKind` (builder), `errorInternal` (host logs only), and `error`, the user's wording for the kind (profile `lexicon` → `overrideLexicon` → default) — see [Public errors](guardrails.md#public-errors) |
 
 ### Token usage
@@ -466,10 +475,13 @@ returns the tiered spec (`t1Policy`, `t2Loader`) for `text` and `image` only;
 T2 loading see no tools on `speech` and `decision`, and `invokeTool` rejects
 `decision` explicitly.
 
-A builtin names itself per transport in `wire` (`interactions`, `live`,
-`openRouter`). Resolution copies each builtin's `{ id, wire }` onto the provider
-request, so providers never read a registry; every transport reads the wire with
-`builtinWire`, which throws for a builtin that has no name on that transport.
+A provider's adapter declares every builtin it runs (`ProviderAdapter.builtins`) and owns how each is sent.
+A builtin's registered tool is its entry in the tool list: name, description, category, labels.
+A declared builtin may take args, with a schema. A request addresses them to the tool by id:
+`runTurn({ profile, model, builtInArgs: { googleMaps: { location } } })`.
+Resolution refuses args for a builtin the chosen model does not list, args for a builtin that
+declares none, and args its schema rejects. It copies each builtin's id and parsed args onto the
+normalized request. First-party codecs reject a builtin their provider does not run before sending.
 
 A `complete` or `error` tool event carries `readBack`: the text the model read
 for that call, after guardrails. History replays it (`appendToolExchangeToHistory`),
@@ -525,33 +537,58 @@ state is the host's, through `onAgentCall` and stages.
 | --- | --- |
 | `profile` | The agent to run: a `text`, `image` or `speech` profile that takes text, registered before the tool |
 | `maxCallsPerTurn` | Calls allowed in one turn of the caller; a call past it fails `call_limit` (`declined`) |
-| `preTool` | As on a function tool, with the input `{ text }` |
+| `preTool` | As on a function tool, with the call's input |
 
-Input is always `{ text }`. Output is `{ text, structured?, parts? }`: the
-reply's text, its last structured reply, and its images or audio as `parts`.
+**Input.** The tool's input is what the called profile takes, so the calling
+model can send it anything the profile's `inputs` declares:
+
+| Field | Present when | Value |
+| --- | --- | --- |
+| `text` | always | The message to the agent |
+| `attachments` | `inputs.attachments` is set | Files, as `{ mimeType, data }` or `{ mimeType, uri }` |
+| `voice` | `inputs.voice` is set | Recorded speech, as `{ mimeType, data }` |
+| `slots` | `inputs.slots` is set | One of the declared choices for each slot sent |
+| `speech` | the profile is a `speech` profile | `{ voice?, style?, speed? }` for this call |
+
+A field the profile does not take, or a slot choice it does not declare, fails
+the call `invalid_input` (`bad_response`); nothing is dropped. The called
+turn checks MIME types, counts and sizes as it does for any turn, and a file it
+refuses fails the call `agent_failed` (`input`). The model then reads why, in
+the lexicon's own lines for refused files, and `details.reasons` holds each
+line's key and facts. `inputs.context` is not a
+field: its senders are the page and the host, and the host sends it through
+`onAgentCall`.
+
+Output is `{ text, structured?, parts?, sources? }`: the reply's text, its last
+structured reply, its images or audio as `parts`, and what it cited as
+`sources`, which the caller's turn cites as it does any tool's. A `post_tool` stage can
+replace it (`mutate: { output }`) before the caller's model reads it.
 
 **Registration.** `register` throws `config` when the profile is missing, is
 another type, takes no text, allows a tool that is not registered, or allows a
 tool that can stop on a gate (permission other than `auto`, or a sign-in
 other than `onUnauthenticated: 'report_to_model'`). A gate inside the called
-agent would have no one to answer it. A `live` profile can't allow an agent
-tool. Agents call agents only in registration order, so calls can't loop.
+agent would have no one to answer it. Agents call agents only in registration
+order, so calls can't loop.
 
 **The host's hook.** `TurnRequest.onAgentCall(call)` (and the same field on
-`InvokeToolRequest`) runs before each call with `{ tool, callId, profile,
+`InvokeToolRequest` and `SessionRequest`) runs before each call with `{ tool, callId, profile,
 input, caller, depth, metadata?, signal? }`. It returns nothing to run the call
 as is, `{ refuse }` to fail it (`refused_by_host`, `declined`, the model reads
-`refuse`), or fields for the called agent's request: `input`, `model`,
-`effort`, `metadata`, `onStage`, `conversationId`, `provider`. The hook passes
+`refuse`), or fields for the called agent's request: `input`, `speech`,
+`model`, `effort`, `builtInArgs`, `metadata`, `onStage`, `conversationId`, `provider`. The
+hook's `input` replaces what the model sent; its `speech` replaces the
+model's. The hook passes
 down to the called agent's own calls, with `depth` counting up from 1.
 
 **Provider.** The called agent resolves its registered binding. The hook's `provider` and
 `InvokeToolRequest.provider` supply host options, such as a vault or fetch, for that call.
-They do not carry an executable model provider.
+They do not carry an executable model provider. In a live session a call runs on
+the options `runSession` was opened with, unless the hook returns others.
 
 **Outcomes.** The call completes with the reply when the agent's turn completes.
-Any other stop, or an error the agent's turn reports, fails the call
-(`agent_failed`, with the agent's error kind or `failed`). `config`,
+Any other stop, or an error the agent's turn reports or is refused with, fails
+the call (`agent_failed`, with the agent's error kind or `failed`). `config`,
 `request`, `auth` and `internal` errors are the host's to fix and are thrown, as
 a compactor's are. Host abort cancels both turns.
 
@@ -565,7 +602,8 @@ was sent, so its result is `origin: 'local'`. One with tools is `delegated`
 
 **Usage.** The call's `complete` or `error` carries the called agent's own
 `tokens`. The caller's `done.tokens` includes them; the caller's span keeps
-only its own calls.
+only its own calls. A live session totals nothing: the call's `tokens` are the
+agent's whole usage.
 
 ### Host context slot
 
@@ -624,13 +662,13 @@ tools: {
 runTurn({
   profile,
   input: { text: '...' },
-}, provider);
+}, hostOptions);
 
-// Host resume for pre_tool gates (permission / confirm / auth) — pass snapshot from gate `done.tools`
-invokeTool({ profile, name: 'risky_tool', input: {...}, resume: { granted: true }, snapshot, turnInput });
+// Host resume: preserve the issued callId and operationId, and snapshot from gate done.tools
+invokeTool({ profile, name: 'risky_tool', callId, operationId, input: {...}, resume: { granted: true }, snapshot, turnInput });
 // ask_user completes with awaiting_user_input; answers are a new user turn (not resume on same call_id)
 // T2 resume after loader: include `promoted: ['record_lookup']` (or rely on snapshot.visible when emitted on `done`)
-invokeTool({ profile, name: 'record_lookup', input: {...}, resume: { granted: true }, snapshot, promoted: ['record_lookup'], turnInput });
+invokeTool({ profile, name: 'record_lookup', callId, operationId, input: {...}, resume: { granted: true }, snapshot, promoted: ['record_lookup'], turnInput });
 
 // Tool `preTool` returning `confirm` gates once; `resume.granted: true` skips preTool on the next invoke (same as `always_confirm` permission).
 
@@ -644,6 +682,73 @@ invokeTool({ profile, name: 'lookup_order', input: {...} });
 | Profile | Host | `tools.allow` / `tools.t1Policy` / `tools.t2Loader`; `models.*.builtInTools` |
 | Turn | Host | `sessionPermissions` for consent; `credentials` source for authenticated HTTP/MCP tools (read per slot, only when a tool signs in); path / input / transport |
 | Execution | Kernel | Shared `executeRegisteredTool` for model and `invokeTool` paths |
+
+The kernel assigns each client tool action an operation ID. Provider call IDs remain upstream correlation values.
+Tool events carry the operation ID. The handler receives it as `ToolContext.operationId`.
+Trusted invocations can restore the ID through `InvokeToolRequest.operationId`.
+Model calls cannot assign this authority. New actions receive new IDs.
+`GateReference` requires both IDs. Its public validator is `gateReferenceSchema`.
+Transcript blocks and portable-history folds separate actions by operation ID.
+Portable tool-result messages retain provider call IDs for upstream correlation. Legacy events use call IDs for display only.
+External live execution must restore the held operation ID when it invokes a tool.
+`LiveSession.answerToolCall` verifies that result phases carry the held operation ID and tool name.
+
+The kernel retains no session database. React's server handler owns persisted approvals and checkpoint ownership.
+Its session store uses atomic revision checks before a pending call reaches `invokeTool`.
+Conflicting state transitions retry at most eight times. No tool executes inside that retry loop.
+The separate credential store retains its existing contract.
+The live client now checks held calls before page callbacks. It answers permission and auth gates before requesting page execution.
+A page gate cannot authorize a browser callback. A kernel-owned `dispatch` phase carries a host-issued grant.
+`PageToolExecution.dispatch` requires the acquired `ToolOperationClaim`, including final invocation evidence.
+It returns `PageToolDispatch`: a grant ID and pending `PageAnswer`.
+The kernel emits final prepared arguments only after grant persistence succeeds.
+It checks cancellation before emission, then validates the returned answer through the tool output pipeline.
+The service is trusted host code. Profiles, browser request bodies, and adapters cannot inject it.
+Permission and sign-in resumes retain `gateKind`, so preparation that did not run before approval still runs before dispatch.
+The shared executor accepts an optional host-owned `ToolExecutionCoordinator` through trusted `execution` options.
+The host must reserve storage before returning an acquired claim. React handlers enforce finite capacity and reserve terminal evidence.
+Capacity exhaustion must refuse dispatch. It must not remove unresolved claims to authorize another attempt.
+`TurnRequest`, `InvokeToolRequest`, and `RunSessionOptions` carry this service. Profiles and provider options do not.
+Nested agent turns inherit it. Each child tool action receives its own operation ID.
+`ToolOperationIdentity` binds both IDs, the profile, the tool, and an accepted invocation hash.
+Its optional `invocation` contains `SavedToolInvocation`. New body claims retain accepted data and final prepared input.
+`toolInvocationHash` rejects non-JSON values and returns a canonical SHA-256 digest.
+The session boundary uses the same digest for checkpoint ownership and browser result receipts.
+The accepted data determines the hash. Preparation does not change that identity.
+`preparedInput` records the validated input after preparation hooks. Unsupported object classes refuse dispatch before the body.
+`savedToolInvocationSchema` validates JSON evidence. Older records without evidence remain readable.
+A host can withhold their results when current access requires unavailable evidence.
+`lookup` checks the exact operation identity before preparation hooks run. It does not acquire a body claim.
+A settled lookup returns saved read-back only after current tool eligibility and disclosure checks.
+`authorizeToolReplay` checks current profile eligibility and saved disclosure without calling handlers or preparation hooks.
+If current output rules require redaction or refusal, replay fails closed. The saved action remains settled.
+Host replay callbacks also check current resource access. Running or uncertain lookups refuse execution.
+The host coordinator must apply current resource access before returning a saved outcome.
+`begin` returns `BeginToolOperationResult`. Only an acquired claim permits the tool body.
+`ToolOperationClaim` adds the worker's claim token. `settle` and `markUncertain` require that token.
+`settleNotStarted` records a terminal refusal before any claim. It cannot settle a running operation.
+`ToolOperationOutcome` contains a `TerminalToolEvent`, effect status, and validated replay data.
+`ModelToolResult` retains the guarded read-back, media, provenance, and suspicious content signals.
+`toolOperationOutcomeSchema` validates terminal events and replay data, including guarded model read-back and provenance.
+`ToolOperationUncertainty` distinguishes interrupted execution, failed settlement writes, and a lost worker.
+The executor saves settlement before it emits completion. An incomplete body or settlement failure retains a protected claim.
+Live sessions also retain uncertain held calls after dispatch. They cannot execute again on the same connection.
+Recovery across connections requires a host-owned durable coordinator.
+React's `createTheoremSessionBoundary` applies the same authenticated namespace and atomic store to live setup.
+It rejects unowned native state before transport. Ownership includes an operation-state fingerprint.
+A ledger change invalidates old live ownership, including a settlement after checkpoint creation.
+Chat can retain native state across approval when portable history contains every authoritative settled result.
+Unknown effects, missing read-back, or edited results cannot satisfy that check. It records checkpoint ownership before browser delivery.
+Running or uncertain operations refuse native resumption. They remain available for trusted host reconciliation.
+A sign-in gate after dispatch cannot create a new executable approval under the same operation ID.
+A replay returns the saved terminal event and guarded model result. It does not invoke the tool body.
+The kernel owns no durable database. React's handler creates this coordinator from its atomic session store.
+Its version 3 state retains ready, running, settled, and uncertain operations.
+Each gate belongs to its issuing profile. A different profile cannot consume it through a shared session store.
+The operation record owns the retained outcome; no separate cache can contradict it.
+The memory store protects unresolved authority from idle and capacity eviction.
+Pre-body validation hooks must be read-only or independently idempotent. Types do not prove that restriction.
+These claims prevent automatic duplicate dispatch. Destination idempotency and reconciliation remain host responsibilities.
 
 **Activity labels.** A tool's `labels.activity` and `labels.activityPast` say what
 a call is doing and what it did, in the tool's words: `'Saving {title} to your
@@ -666,13 +771,17 @@ Builtins (`type: 'builtin'`) are provider-native — kernel pins capabilities in
 Function tools (`type: 'function'`) run host TypeScript handlers.
 A handler returns the type of the tool's `output` schema; any other return type fails to compile.
 A handler that cannot type its result returns `uncheckedOutput(value)`.
-A function tool with `answeredBy: 'page'` has no handler of the host's: the page the person is on
-answers the call, and the kernel returns what it sent (`ToolContext.page`, from
-`LiveSession.executeTool({ callId, page })` or `InvokeToolRequest.page`). Run with no `page`, the call
-is held at a `page` gate, after every other check, until the caller sends it again with the page's
-answer. A live session never holds a call: with no answer it sends `page: { unanswered: true }`, and
-the call fails to the model (`tool.page_no_answer`). A relay that stopped waiting sends
-`page: { timedOut: true }` (`tool.page_timed_out`). A function tool with neither a handler nor `answeredBy` does not register.
+A function tool with `answeredBy: 'page'` receives its result from the page.
+A trusted host can supply `ToolContext.page` as a read-back value. It cannot claim an effect that happened before coordination.
+With `PageToolExecution`, the kernel claims execution, issues a dispatch grant, and waits for its correlated result.
+Confirmation gates retain `preparedArguments` when a check changes input before approval.
+An unchanged approval uses these arguments. An edited approval runs the tool check again.
+Permission and sign-in approval run checks that did not run before the gate.
+The page receives final prepared input. Its result remains untrusted and passes the same output checks as a function result.
+Without that service, a turn can emit a page gate. The built-in clients refuse to execute callbacks from that gate.
+A live session without that service returns `tool.page_no_answer` for an unanswered call.
+A timed-out browser result produces `tool.page_timed_out`. It does not restore an approval.
+A function tool with neither a handler nor `answeredBy` does not register.
 The kernel checks every result against `output`, and a mismatch fails the call as `invalid_output`.
 Declarative HTTP tools (`type: 'http'`) call REST APIs directly with templated URLs, query parameters, headers, and body mapping.
 Remote MCP tools (`type: 'mcp'`) call external Model Context Protocol servers over Streamable HTTP.
@@ -804,6 +913,7 @@ Profile `turnBehaviour` (top-level on chat/image/speech):
 | `resumption.autoContinue` | Stops the host continues once on its own; omitted → length and stream_incomplete, `[]` → none |
 | `resumption.maxContinues` | How many times one reply may be continued (enforced); omitted → no cap |
 | `allowSteering` | **Text and live.** Gates **inject** via `profileAllowsInject` / stages. Stage events always emit. Image/speech must omit |
+| `atStepLimit` | **Text only.** What the last model call under `maxSteps` may do. Omitted or `'stop'`: it may call tools; if it does they run and the turn ends with stop `step_limit` and no answer (no `before_end`, no `done.tools`, no `providerState`). `'answer'`: that call is sent with no function tools and no builtins, so it writes the answer from the turn's history. Rejected with `maxSteps: 1` |
 
 Stop / cancel is not a profile field: composer `ProfileInterface` always projects `canStop: true`
 (`TurnRequest.signal`). Text interfaces also project resolved `allowSteering`.
@@ -841,7 +951,7 @@ for await (const event of runTurn({
       return { inject: [{ role: 'user', content: pendingFollowUp }] };
     }
   },
-}, provider)) {
+}, hostOptions)) {
   if (event.type === 'stage') {
     // UI: safe point to flush a client-held follow-up via host onStage
   }
@@ -1009,13 +1119,13 @@ and the `summary`; `gen_ai.conversation.compacted` is set only on
 ### After-turn signal
 
 ```ts
-for await (const event of runTurn(req, provider)) {
+for await (const event of runTurn(req, hostOptions)) {
   if (event.type === "done" && event.compaction?.needed) {
     const { history, tokens, unknownMedia, meter, promptTokens, promptTokensEstimated } =
       event.compaction;
     const result = await compactHistory(
       { profile: req.profile, model, history, tokens },
-      provider,
+      hostOptions,
     );
     if (result) persistHistory(result.history);
   }
@@ -1028,8 +1138,7 @@ of its own (`traceparent`, `conversationId` and `metadata` join it to the
 turn's). `model` defaults to the profile's default model, which must have
 `compaction`. It returns `CompactionResult` (`outcome`, `toCompact`,
 `history`, `summary` / `failure`, `droppedMedia`, the compactor's `tokens`),
-or `undefined` when the split leaves nothing to compact. `provider` runs the
-compactor.
+or `undefined` when the split leaves nothing to compact. The compactor resolves its registered binding.
 
 No signal is attached when the turn has no history. `timing: 'before'` emits no
 `compaction` event when the split leaves nothing to compact.
@@ -1087,6 +1196,7 @@ re-exports the type and owns only the resume policy below.
 | `provider_error` | Upstream failure: a finish reason that says so, or any `error` the provider sent during the call (it outranks the call's own `done`) |
 | `cancelled` | User / host abort |
 | `stream_incomplete` | Stream ended without terminal reason |
+| `step_limit` | The last model call `maxSteps` allows asked for tools: they ran, and the turn has no answer. `turnBehaviour.atStepLimit: 'answer'` (`StepLimitMode`) sends that call without tools instead |
 | `interrupted` | Live barge-in |
 | `generation_complete` | Live utterance boundary |
 
@@ -1125,6 +1235,22 @@ turnBehaviour: {
 | `profileAllowsSteering` | Text + `allowSteering !== false` (interface inject projection) |
 | `profileAllowsInject` | Stage inject gate: text + live when `allowSteering !== false`; never image / speech / host ([`stages.md`](stages.md)) |
 
+### Native state and portable history
+
+Save the provider checkpoint beside portable history. Pass both on the next turn or session request.
+`providerCheckpointSchema` identifies the provider, adapter, model, deployment, and state version.
+The kernel records the covered history prefix with its length and hash.
+
+On a mismatch, the default policy emits `provider_warning` and rebuilds from portable history.
+`providerContinuation.onMismatch: 'error'` rejects the mismatch instead.
+`providerContinuation.history: 'provider'` resumes from the checkpoint alone; the covered-history check becomes "the request carries no history".
+`providerContinuation.history: 'stateless'` keeps no conversation: a turn or session request that carries history or a checkpoint is refused with a `request` error, and completion carries no `providerState` (live sessions emit no `provider_checkpoint`). Compatible checkpoints with malformed native data fail validation.
+Successful completion carries `providerState`. Live `provider_checkpoint` events also carry the covered portable history.
+
+The live kernel preserves text spacing and final transcriptions that pass the outbound gate.
+A rebuilt session with portable history does not repeat the initial greeting.
+Native checkpoints do not authorize tool execution or replace tool outcomes.
+
 ### Continue turn
 
 ```ts
@@ -1134,7 +1260,7 @@ for await (const event of runTurn({
     history: [...priorHistory, { role: "assistant", content: bufferedAssistantText }],
   },
   continueFrom: { stop: previousDone.stop },
-}, provider)) { /* … */ }
+}, hostOptions)) { /* … */ }
 ```
 
 `GenerationStopError` / `isGenerationStopError` optional throw path for hosts
@@ -1157,18 +1283,16 @@ Beyond compaction rules (above), `registerProfile` / `defineProfile` assert:
 - A slot-mapped `outputs.structured` names a slot in `inputs.slots`, and its
   `map` keys are that slot's choices. At turn time `resolveTurn` rejects a slot
   the profile does not declare, or a value outside its choices (`request`).
-- Model bindings reject obsolete provider/protocol fields and parse JSON options with their registered adapter.
+- Model bindings require registered provider IDs and upstream model IDs.
+  They reject the former protocol field and parse JSON options with the registered adapter.
 - Credential-slot overrides are names; the provider definition supplies defaults.
 - Required capability support must be verified before transport opens.
+  Live requirements include configured audio/video input and audio output.
+  Parallel live calls require verified parallel-tool support.
 - Adapters cannot manufacture guardrail, approval, stage or client-tool execution events.
 - Pending tool calls require a valid successful terminal. Turn streams must also reach EOF
   without another event after that terminal.
 
-`providerCheckpointSchema` keeps native continuation data separate from portable history.
-The kernel covers a history prefix with its length and hash. Provider/model/deployment/version
-or history changes emit `provider_warning` and rebuild, unless
-`providerContinuation.onMismatch` selects an error. Compatible malformed data fails validation.
-Successful completion carries `providerState`; live sessions also emit `provider_checkpoint`.
 
 Runtime structured validation uses `outputs.validation.fields` keyed by dotted
 paths; failures can trigger repair turns via `input.repair`.
@@ -1258,12 +1382,13 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Compaction | `compactHistory`, `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
 | Token estimate | `loadTokenEstimator`, `mediaTokenFamily`, `TOKEN_TEXT_ENCODING`, `MediaPayload`, `MediaTokenFamily`, `TokenCount`, `TokenEstimator`, `sumTokens` |
 | Runner | `registerProvider`, `registerProviders`, `getProvider`, `requireProvider`, `hasProvider`, `listProviders`, `resetProviders`, `defineProvider`, `ProviderAdapter`, `ProviderHostOptions`, `providerCheckpointSchema`, `runTurn`, `runSession`, `runDecision`, `validateDecisionRequest`, `RunSessionOptions`, `SignInGatePolicy`, `RunDecisionOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
-| Provider definitions | `ProviderAdapter`, `ProviderDefinition`, `DefinedProvider`, `RegisteredProvider`, `ProviderRegistry`, `defineProvider`, `createProviderRegistry` |
+| Provider definitions | `ProviderAdapter`, `ProviderBuiltinSpec`, `ProviderDefinition`, `DefinedProvider`, `RegisteredProvider`, `ProviderRegistry`, `defineProvider`, `createProviderRegistry` |
 | Provider data | `JsonValue`, `JsonObject`, `CapabilitySupport`, `ProviderCapabilities`, `ResolvedProviderModel`, `ProviderModelSettings` |
 | Provider vault | `ProviderCredential`, `CredentialContext`, `CredentialResolver`, `ProviderVault`, `ProviderWait`, `OpenProviderWebSocket` |
-| Provider operations | `ProviderHostOptions`, `ProviderContext`, `ProviderOperations`, `ProviderRequest`, `ProviderTurnRequest`, `ProviderSessionRequest`, `ProviderDecisionRequest`, `ProviderLiveConnection`, `ProviderToolResult` |
+| Provider operations | `ProviderHostOptions`, `ProviderLimits`, `providerLimitsSchema`, `resolveProviderLimits`, `ProviderContext`, `ProviderOperations`, `ProviderRequest`, `ProviderTurnRequest`, `ProviderSessionRequest`, `ProviderDecisionRequest`, `ProviderLiveConnection`, `ProviderToolResult` |
 | Provider output | `ProviderContentEvent`, `ProviderModelEvent`, `ProviderCheckpoint`, `ProviderWarning`, `ProviderContinuationPolicy` |
 | Provider schemas | `jsonValueSchema`, `jsonObjectSchema`, `keySlotSchema`, `commonModelSettingsSchema`, `modelBindingSchema`, `decisionModelBindingSchema`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema`, `providerCapabilitiesSchema` |
+| Provider limits | `ProviderLimits`, `providerLimitsSchema`, `resolveProviderLimits` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `getTool`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelBinding`, `resetTools` |
 | Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_ID_MAX_CHARS`, `PROFILE_HANDLE_MAX_CHARS`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `REQUEST_FIELDS`, `API_EXPORTS`, `ApiExportMeta`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `THINKING_LEVELS`, `KEY_SLOT_NAME`, `isKeySlotName`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `STUDIO_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `StudioAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `ToolGateKind`, `TurnStage`, `TurnInjectStage`, `AwaitingUserInputKind`, `BLOCKED_REPLY_ON_BLOCK`, `BlockedReplyOnBlock` |
 | Utilities | `base64ToBytes`, `bytesToBase64`, `isRecord`, `Equals` (compile-time type equality, for exact-shape checks) |

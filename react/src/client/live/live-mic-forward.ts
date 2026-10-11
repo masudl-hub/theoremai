@@ -29,6 +29,7 @@ export function liveTranscriptFromEvidence(
 }
 
 export type LiveToolCallDraft = {
+  operationId?: string;
   id: string;
   name: string;
   arguments: Record<string, unknown>;
@@ -44,7 +45,12 @@ export function applyLiveToolTurnEvent(
   accum: { cancelledToolIds: Set<string>; toolCalls: LiveToolCallDraft[] },
 ): void {
   if (tool.phase === undefined) {
-    accum.toolCalls.push({ id: tool.callId, name: tool.name, arguments: tool.arguments });
+    accum.toolCalls.push({
+      id: tool.callId,
+      name: tool.name,
+      arguments: tool.arguments,
+      ...(tool.operationId ? { operationId: tool.operationId } : {}),
+    });
     return;
   }
   if (tool.phase === 'cancel') {

@@ -20,7 +20,8 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | `scripts/docs-truth/export-drift.mjs` | Entrypoint export vs contract drift |
 | `scripts/docs-truth/copy-lint.mjs` | Emit-site copy vs lexicon (P2) |
 | `scripts/docs-truth/graph.test.mjs` | Contract tests |
-| `docs/_map.mjs` | Export → doc ownership graph |
+| `docs/_map.mjs` | Entrypoint and document ownership graph |
+| `react/README.md` | Consumer guide owned by the `react-package` entry |
 
 ## Rules
 
@@ -28,7 +29,7 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | --- | --- |
 | Full ownership | Every production-root file has exactly one `owns` entry in `docs/_map.mjs` |
 | Schema validation | Manifest specifies `theorem.docs-truth/v1` schema |
-| Doc freshness | Changed *existing* code → owning doc appears in the diff (deletions skipped). "Changed" is `THEOREM_DOCS_BASE...HEAD` (default `origin/main`) plus staged and unstaged edits; a comment-only edit counts |
+| Doc freshness | Changed existing production or explicitly mapped files require their owning or watching document in the diff. Deleted files are skipped. The base is `THEOREM_DOCS_BASE...HEAD` (default `origin/main`), plus staged and unstaged edits. |
 | Section freshness | Watches/`section_triggers` → specific `##` headings must change, read from one diff between the fork point with the base and the working tree, so uncommitted edits cannot shift a hunk into the wrong section |
 | Owned fallback | Owned files → at least one behavioral section hunk |
 | Evidence | ≥ `min_evidence_supports` supports (default 2); behavioral sections require `contract_test` or `validation` evidence |
@@ -41,7 +42,7 @@ Two documentation surfaces. Do not mix them in the publish tarball.
 
 | Surface | Lives in | Ships in package? | Maintained by |
 | --- | --- | --- | --- |
-| **Package docs** | `README.md` (consumer how-to) | Yes | docs-truth entry `package` — export tables, public API, boundary |
+| **Package docs** | `README.md`, `react/README.md` | Yes, in their respective packages | Entries `package` and `react-package` |
 | **Repo contracts** | `docs/contracts/*.md`, `docs/DOCS_TRUTH.md`, `docs/_map.mjs` | **No** | docs-truth module entries — ownership, freshness, evidence |
 
 Publish gates:
@@ -53,6 +54,9 @@ Publish gates:
 | `deno.json` `publish.exclude` | Includes `docs/` and `src/**/*.md` |
 | `scripts/verify-publish-bundle.ts` | Asserts the above before publish |
 | `scripts/build-npm.ts` | Strips residual `*.md` from the dnt output tree (except root README) |
+| `scripts/build-npm-react.ts` | Type-checks the local Studio prototype, then removes its emitted files from the React package |
+
+Package verification rejects Studio modules in both agents and React build output.
 
 Contracts live under `docs/contracts/` (repo-only). Module code under `src/` stays
 owned by those contracts for freshness — change code, update the matching contract.
@@ -64,7 +68,12 @@ owned by those contracts for freshness — change code, update the matching cont
 | `mod.ts` | Package barrel (`@theoremjs/agents`) |
 | `package.json` | Published exports |
 | `src/**/*.ts` | Kernel + adapters (live tree only; deleted paths skip freshness) |
-| `scripts/docs-truth/**/*.mjs` | Docs-truth linter (owned by this doc: a change to it updates the section describing what changed) |
+| `scripts/docs-truth/**/*.mjs` | Docs-truth linter; changes require the relevant section of this document |
+
+Explicit mappings also monitor files outside these production roots.
+The `react-package` entry monitors `react/src/` and `react/package.json`.
+This includes TypeScript, TSX, JavaScript worklets, and stylesheets. Changes require `react/README.md` in the diff.
+Its provider and session watches require updates to the relevant README sections.
 
 ## CI and hooks
 
@@ -75,7 +84,7 @@ owned by those contracts for freshness — change code, update the matching cont
 | `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, verify:publish, fallow, typecheck (`mod.ts`, the subprocess probe fixtures the tests spawn unchecked, `scripts/*.ts`, and `react/` via its own `tsc`, since it builds against the kernel as the `@theoremjs/agents` package), and tests (publish check before fallow, which writes `coverage/`) |
 | CI | `lint:docs` (with `THEOREM_DOCS_BASE`), `deno lint`, then `lint:biome` + `lint:ast-grep` + `lint:fallow` (`FALLOW_AUDIT_BASE=origin/<base>`) |
 | Pre-commit | `npm run lint:docs` (auto-installed by `prepare` / `hooks:install`) |
-| Pre-push | `fallow audit --base origin/main` (uses `coverage/coverage-final.json` when present) |
+| Pre-push | `fallow audit --base origin/main` (uses the generated coverage report when present) |
 
 `lint:fallow` runs Istanbul coverage, then `fallow audit --base $FALLOW_AUDIT_BASE` (default `origin/main`), then full-tree `health` / `dupes` / `dead-code`. No threshold waivers.
 

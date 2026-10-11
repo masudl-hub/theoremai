@@ -1,5 +1,11 @@
 import type { ErrorKind } from '../../../guardrails/error.ts';
-import { TheoremError, throwIfAborted } from '../../../guardrails/error.ts';
+import {
+  errorCopyText,
+  isAbortError,
+  TheoremError,
+  throwIfAborted,
+  toErrorEvent,
+} from '../../../guardrails/error.ts';
 import { lexiconText } from '../../../guardrails/lexicon.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
 import {
@@ -48,7 +54,7 @@ type RunNestedTurn = (args: {
  */
 function createAgentCaller(args: {
   registry: KernelRegistry;
-  req: Pick<TurnRequest, 'onAgentCall' | 'metadata'>;
+  req: Pick<TurnRequest, 'onAgentCall' | 'metadata' | 'execution' | 'pageExecution'>;
   provider: ModelProvider | undefined;
   own: ModelBinding | undefined;
   /** 0 for the host's own turn or invoke. */
@@ -105,21 +111,33 @@ function createAgentCaller(args: {
         throw new TheoremError('internal', `Agent tool "${tool.name}" ran without a span`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
 
+      const { speech, ...sent } = input;
       const events: TurnEvent[] = [];
-      for await (const event of args.runNested({
-        req: {
-          ...fields,
-          profile: tool.profile,
-          input: fields.input ?? { text: input.text },
-          ...(signal ? { signal } : {}),
-          ...(req.onAgentCall ? { onAgentCall: req.onAgentCall } : {}),
-        },
-        provider,
-        parent: span,
-        agentDepth: args.depth + 1,
-      })) {
-        events.push(event);
-        yield event;
+      try {
+        for await (const event of args.runNested({
+          req: {
+            ...(speech ? { speech } : {}),
+            ...fields,
+            profile: tool.profile,
+            execution: req.execution,
+            pageExecution: req.pageExecution,
+            input: fields.input ?? sent,
+            ...(signal ? { signal } : {}),
+            ...(req.onAgentCall ? { onAgentCall: req.onAgentCall } : {}),
+          },
+          provider,
+          parent: span,
+          agentDepth: args.depth + 1,
+        })) {
+          events.push(event);
+          yield event;
+        }
+      } catch (err) {
+        // why: A turn refused before it starts (a file the agent does not take) throws; the caller's model reads it like any other failed call.
+        if (!(err instanceof TheoremError) || NESTED_THROWS.has(err.kind) || isAbortError(err)) {
+          throw err;
+        }
+        events.push(toErrorEvent(err));
       }
       throwIfAborted(signal);
       return agentRunOf(events, tool.name, tool.profile, lexicon);
@@ -146,12 +164,20 @@ function agentRunOf(
   }
   const stop = done?.stop.kind;
   if (stop !== 'completed' || reported) {
+    const failed = lexiconText('tool.agent_failed', { tool: toolName }, lexicon);
     return {
       failure: {
         code: 'agent_failed',
         kind: reported?.errorKind ?? 'failed',
-        message: lexiconText('tool.agent_failed', { tool: toolName }, lexicon),
-        details: { agent: profileId, ...(stop ? { stop } : {}) },
+        // why: Reasons the agent's turn named (a file it does not take) let the caller's model correct the call.
+        message: reported?.errorCopy
+          ? `${failed}\n${errorCopyText(reported.errorCopy, lexicon)}`
+          : failed,
+        details: {
+          agent: profileId,
+          ...(stop ? { stop } : {}),
+          ...(reported?.errorCopy ? { reasons: reported.errorCopy } : {}),
+        },
       },
       ...usage,
     };

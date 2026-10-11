@@ -100,6 +100,31 @@ Deno.test('a run carries the agents its agent needs, and registers them first', 
   assert(iface.type === 'text' && iface.tools.allow.includes('ask_helper'));
 });
 
+Deno.test('an agent tool takes what the agent it runs takes', () => {
+  const inputOf = (helper: StudioDraft) => {
+    const result = compileWorkspace(conciergeCallingHelper(helper));
+    assert(result.ok, JSON.stringify(result));
+    const tools = result.agents.flatMap((agent) => agent.customTools);
+    const tool = must(tools.find((each) => each.name === 'ask_helper'));
+    return Object.keys(must(tool.inputSchema.properties) as object);
+  };
+  const helper = helperDraft();
+  assertEquals(inputOf(helper), ['text']);
+  assertEquals(
+    inputOf({
+      ...helper,
+      inputs: {
+        ...helper.inputs,
+        attachmentsAccept: ['image/png'],
+        maxFiles: 2,
+        maxBytes: 1_000_000,
+        maxTurnBytes: 2_000_000,
+      },
+    }),
+    ['text', 'attachments'],
+  );
+});
+
 Deno.test('an agent tool naming a removed agent shows on the tool', () => {
   const workspace = withTool(workspaceFromDraft(createExampleDraft()), 0, agentTool('gone'));
   const tool = must(workspace.toolSpecs.at(-1));

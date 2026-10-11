@@ -1,3 +1,4 @@
+import { dispatchToolBody } from '../../src/kernel/tools/events.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { lexiconText } from '../../src/guardrails/lexicon.ts';
@@ -379,18 +380,21 @@ Deno.test('tools mutation helpers reject invalid promotion and preserve state at
 Deno.test('tools mutation coverage asserts low-level execution event payloads', async () => {
   const input = z.object({ value: z.number() });
   const context = asValue<ToolContext>({ signal: undefined, profile: {} });
-  const valid = startToolExecution({ input }, { value: 2 }, context, base) as Generator;
-  const { at, ...running } = asValue<{
-    tool: {
-      at: unknown;
-    };
-  }>(valid.next().value).tool;
+  const valid = startToolExecution({ input }, { value: 2 }, context);
+  assertEquals(valid, { ok: true, data: { value: 2 } });
+  let claimed = false;
+  const dispatch = dispatchToolBody({}, { value: 2 }, context, base, () => {
+    claimed = true;
+    return Promise.resolve(undefined);
+  });
+  const runningEvent = await dispatch.next();
+  assertEquals(claimed, true);
+  const { at, ...running } = asValue<{ tool: { at: unknown } }>(runningEvent.value).tool;
   assertEquals(running, { phase: 'running', name: 'probe', callId: 'c1' });
   assertEquals(typeof at, 'number');
-  assertEquals(valid.next().value, { ok: true, data: { value: 2 } });
-  const invalid = startToolExecution({ input }, { value: 'bad' }, context, base) as Generator;
-  invalid.next();
-  assertEquals(invalid.next().value, {
+  await dispatch.return(undefined);
+  const invalid = startToolExecution({ input }, { value: 'bad' }, context);
+  assertEquals(invalid, {
     ok: false,
     failure: {
       code: 'invalid_input',
@@ -438,7 +442,6 @@ Deno.test('tools mutation coverage exercises resolver duplicate and conflict tra
     paths: ['*'],
     loadTier: 'T2',
     permission: 'auto',
-    wire: {},
     conflictsWith: ['conflict_two'],
   });
   registerTool({
@@ -450,7 +453,6 @@ Deno.test('tools mutation coverage exercises resolver duplicate and conflict tra
     paths: ['*'],
     loadTier: 'T2',
     permission: 'auto',
-    wire: {},
     conflictsWith: ['conflict_one'],
   });
   assertEquals(

@@ -314,6 +314,14 @@ Deno.test('a new call sends its context, then its greeting with the slot filled'
   assertEquals(live.spoken(), ['Greet the visitor in fr.']);
   await live.done();
 });
+Deno.test('a rebuilt call with portable history does not repeat the initial greeting', async () => {
+  const live = await openLive(
+    { greeting: 'Greet the visitor.' },
+    { history: [{ role: 'user', content: 'Remember the previous call.' }] },
+  );
+  assertEquals(live.spoken(), []);
+  await live.done();
+});
 Deno.test('a call with no greeting waits, and a greeting that needs an unfilled slot is refused', async () => {
   const quiet = await openLive({});
   assertEquals(quiet.spoken(), []);
@@ -836,10 +844,15 @@ async function openToolSession(
   /** The events the registry process's `invokeTool` yields for one of the model's calls. */
   const invokeFor = async (name: string, callId: string, resume?: InvokeToolResume) => {
     const ran: TurnEvent[] = [];
+    const issued = events.find(
+      (event) =>
+        event.type === 'tool' && event.tool.callId === callId && event.tool.phase === undefined,
+    );
     for await (const ev of invokeTool({
       profile: profile.id,
       name,
       callId,
+      operationId: issued?.type === 'tool' ? issued.tool.operationId : undefined,
       input: {},
       ...(resume ? { resume } : {}),
     })) {
@@ -1822,4 +1835,97 @@ Deno.test('a page tool with no result, a timeout or an off-schema result fails t
   assertEquals(wrong.failure !== undefined, true);
   assertEquals(h.toolResponses().length, 3);
   await h.close();
+});
+
+Deno.test('live operation identity refuses a mismatched reference without consuming the call', async () => {
+  clearProfiles();
+  resetTools();
+  registerLookupTool();
+  const h = await openToolSession(['live_lookup_ssn']);
+  try {
+    await h.modelCalls({ id: 'current', name: 'live_lookup_ssn' });
+    const issued = h.events.find((ev) => ev.type === 'tool' && ev.tool.callId === 'current');
+    if (issued?.type !== 'tool' || !issued.tool.operationId)
+      throw new Error('missing operation identity');
+    await assertRejects(
+      () => h.session.executeTool({ callId: 'current', operationId: 'stale-operation' }),
+      TheoremError,
+    );
+    assertEquals(h.toolResponses().length, 0);
+    await h.session.executeTool({ callId: 'current', operationId: issued.tool.operationId });
+    assertEquals(h.toolResponses().length, 1);
+  } finally {
+    await h.close();
+  }
+});
+
+Deno.test('live external settlement requires the issued operation identity', async () => {
+  clearProfiles();
+  resetTools();
+  registerLookupTool();
+  const h = await openToolSession(['live_lookup_ssn']);
+  try {
+    await h.modelCalls({ id: 'external', name: 'live_lookup_ssn' });
+    const result = await h.invokeFor('live_lookup_ssn', 'external');
+    const forged = result.map((event) =>
+      event.type === 'tool'
+        ? { ...event, tool: { ...event.tool, operationId: 'wrong-operation' } }
+        : event,
+    );
+    assertThrows(
+      () => h.session.answerToolCall({ callId: 'external', events: forged }),
+      TheoremError,
+    );
+    assertEquals(h.toolResponses().length, 0);
+    await h.session.answerToolCall({ callId: 'external', events: result });
+    assertEquals(h.toolResponses().length, 1);
+  } finally {
+    await h.close();
+  }
+});
+
+Deno.test('live output validation failure cannot restore an executed call as an approval', async () => {
+  clearProfiles();
+  resetTools();
+  let effects = 0;
+  let fail = true;
+  registerTool({
+    type: 'function',
+    name: 'live_uncertain_effect',
+    description: 'Count one dispatch',
+    category: 'test',
+    access: 'read-write',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'always_confirm',
+    input: z.object({}),
+    output: z.object({ count: z.number() }).refine(() => {
+      if (fail) {
+        fail = false;
+        throw new Error('Output validator failed');
+      }
+      return true;
+    }),
+    handler: () => ({ count: ++effects }),
+  });
+  const h = await openToolSession(['live_uncertain_effect']);
+  try {
+    await h.modelCalls({ id: 'uncertain-live', name: 'live_uncertain_effect' });
+    const paused = await h.session.executeTool({ callId: 'uncertain-live' });
+    assertEquals(paused.gated?.kind, 'permission');
+    await assertRejects(
+      () => h.session.executeTool({ callId: 'uncertain-live', decision: 'approve' }),
+      TheoremError,
+      lexiconText('tool.execution_uncertain'),
+    );
+    await assertRejects(
+      () => h.session.executeTool({ callId: 'uncertain-live', decision: 'approve' }),
+      TheoremError,
+      lexiconText('tool.execution_uncertain'),
+    );
+    assertEquals(effects, 1);
+    assertEquals(h.toolResponses().length, 0);
+  } finally {
+    await h.close();
+  }
 });

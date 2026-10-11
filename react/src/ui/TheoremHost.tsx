@@ -26,12 +26,12 @@ import {
   type HostToolView,
   type HostTransport,
 } from '../client/host-transport.ts';
+import type { PageTools } from '../client/live/live-page-tool.ts';
 import { missingFields } from '../client/schema-fields.ts';
 import { isRow, json } from '../client/shaped-data.ts';
 import { toolCallLabel } from '../client/transcript-groups.ts';
 import type { HttpOptions } from '../client/transport.ts';
 import { useSecondTicker } from '../hooks/use-second-ticker.ts';
-import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { type TheoremHostCall, useTheoremHost } from '../hooks/use-theorem-host.ts';
 import { Arrive, Stream } from './arrive.tsx';
 import {
@@ -46,6 +46,7 @@ import { type LabelText, liveDuration, type TheoremLabels, workDuration } from '
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { MarkdownPluginsProvider } from './markdown-plugins.tsx';
 import { IconMcp } from './mcp-icon.tsx';
+import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { SchemaFields } from './SchemaFields.tsx';
 import { ApprovalCard, AuthChallengeCard } from './ToolGateCard.tsx';
 import { ToolResult } from './ToolResult.tsx';
@@ -59,6 +60,8 @@ export type TheoremHostProps = {
   http?: HttpOptions;
   /** Bring your own transport (tests, studios, non-HTTP hosts). */
   transport?: HostTransport;
+  /** why: Page callbacks run only after the server saves a dispatch grant. */
+  pageTools?: PageTools;
   theme?: DefinedTheme;
   mode?: 'system' | 'light' | 'dark';
   /** Replacement lines by locale, for any `@theorem.*` or `@astryx.*` key. */
@@ -572,7 +575,7 @@ function HostBody({
 
 function HostForTransport(props: Omit<BodyProps, 'iface' | 'host'>) {
   const t = useLabels();
-  const host = useTheoremHost(props.transport);
+  const host = useTheoremHost(props.transport, props.pageTools);
   if (host.describeFailure) return <PaneFailure title={host.describeFailure.error} />;
   if (!host.iface) return <PaneLoading label={t('@theorem.chat.loading')} />;
   return <HostBody {...props} iface={host.iface} host={host} />;

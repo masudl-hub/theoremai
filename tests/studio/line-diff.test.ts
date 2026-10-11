@@ -1,10 +1,14 @@
 import { assertEquals } from '@std/assert';
 import { lineDiff } from '../../studio/line-diff.ts';
 
-const text = (was: string, now: string) => lineDiff(was, now).map((line) => `${line.sign}${line.text}`);
+const text = (was: string, now: string) =>
+  lineDiff(was, now).map((line) => `${line.sign}${line.text}`);
 
 Deno.test('lineDiff: one line changed is taken out, then put in', () => {
-  assertEquals(text('gemini-2.5-flash', 'gemini-2.5-pro'), ['-gemini-2.5-flash', '+gemini-2.5-pro']);
+  assertEquals(text('gemini-2.5-flash', 'gemini-2.5-pro'), [
+    '-gemini-2.5-flash',
+    '+gemini-2.5-pro',
+  ]);
 });
 
 Deno.test('lineDiff: the lines both hold stay as context around the change', () => {

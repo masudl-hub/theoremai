@@ -533,8 +533,8 @@ Deno.test('only a signed-in tool turns a blocked error into a network block', as
   const unsigned = await drain('xb_blocked_plain');
   check(
     shapeFailure(unsigned.settlement),
-    { failure: { code: 'handler_error', kind: 'failed', message: 'nope' } },
-    'not signed in',
+    { failure: { code: 'handler_error', kind: 'blocked', message: 'nope' } },
+    'not signed in: the handler error keeps the kind it was thrown with',
   );
   check(unsigned.events.filter((e) => e.type === 'guardrail').length, 0, 'no guardrail event');
   registerFn('xb_boom_auth', {
@@ -756,7 +756,7 @@ Deno.test('a builtin the kernel is asked to run settles with the reason, and an 
     const events: TurnEvent[] = [];
     const exec = executeBuiltin(
       { name: 'googleSearch' },
-      { profile, callId: 'b1', signal },
+      { profile, callId: 'b1', operationId: 'operation-b1', signal },
       base,
       snapshot(builtins),
     );

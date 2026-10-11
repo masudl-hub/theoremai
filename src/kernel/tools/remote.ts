@@ -13,6 +13,7 @@ import type { AuthUnauthenticatedPolicy } from '../schema.ts';
 import type { InteractionPart, ToolWarning } from '../turn-events.ts';
 import type { TurnEvent } from '../types.ts';
 import {
+  dispatchToolBody,
   guardToolTarget,
   messageOf,
   networkBlocked,
@@ -31,6 +32,7 @@ import {
   type McpSessionCache,
   mcpSessionKey,
 } from './mcp-sessions.ts';
+import type { ToolOperationClaim } from './operation.ts';
 import { checkPermission, gateDetails } from './permission.ts';
 import { assertFixedEndpointOrigin } from './schema.ts';
 import { runPreToolPipeline, type ToolStageSupport } from './stage-run.ts';
@@ -406,16 +408,12 @@ async function* runRemotePreBodyStages(args: {
   return { ...failureOutcome(pre.failure, true), ...(pre.denied ? { denied: true } : {}) };
 }
 
-async function* remoteParseAndPermit(
+function remoteParseAndPermit(
   tool: HttpToolDef | McpToolDef,
   rawInput: unknown,
   ctx: ToolContext,
-  base: ToolCallBase,
-): AsyncGenerator<
-  TurnEvent,
-  { ok: true; input: unknown } | { ok: false; outcome: ToolBodyOutcome }
-> {
-  const started = yield* startToolExecution(tool, rawInput, ctx, base);
+): { ok: true; input: unknown } | { ok: false; outcome: ToolBodyOutcome } {
+  const started = startToolExecution(tool, rawInput, ctx);
   if (!started.ok) {
     return { ok: false, outcome: failureOutcome(started.failure, true) };
   }
@@ -690,8 +688,9 @@ export async function* executeHttpTool(
   ctx: ToolContext,
   base: ToolCallBase,
   stages?: ToolStageSupport,
+  beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
-  const parsed = yield* remoteParseAndPermit(tool, rawInput, ctx, base);
+  const parsed = remoteParseAndPermit(tool, rawInput, ctx);
   if (!parsed.ok) return parsed.outcome;
   let input: unknown = parsed.input as Record<string, unknown>;
 
@@ -718,6 +717,7 @@ export async function* executeHttpTool(
 
   const guarded = yield* guardToolTarget(target.url, ctx, stages?.span);
   if (!guarded.ok) return failureOutcome(guarded.failure, true);
+  yield* dispatchToolBody(tool, input, ctx, base, beginBody);
   return yield* sendWithCredential(prepared, guarded.url, () =>
     sendHttpRequest(tool, guarded.url, target.body, prepared.authHeaders, ctx, base, stages?.span),
   );
@@ -1174,8 +1174,11 @@ async function negotiateInSession(
   };
 }
 
+/** The failure kind for a tool server's HTTP status: 401 and 403 are `auth`, 429 `rate_limit`, the rest `failed`. */
 function kindOfToolHttpStatus(status: number): ErrorKind {
-  return status === 401 || status === 403 ? 'auth' : 'failed';
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 429) return 'rate_limit';
+  return 'failed';
 }
 
 type McpContent = NonNullable<NonNullable<McpRpcResponse['result']>['content']>[number];
@@ -1322,8 +1325,9 @@ export async function* executeMcpTool(
   stages?: ToolStageSupport,
   /** The scope's sessions; without them a session lasts one call. */
   sessions: McpSessionCache = createMcpSessionCache(),
+  beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
-  const permitted = yield* remoteParseAndPermit(tool, rawInput, ctx, base);
+  const permitted = remoteParseAndPermit(tool, rawInput, ctx);
   if (!permitted.ok) return permitted.outcome;
 
   const guarded = yield* guardToolTarget(tool.serverUrl, ctx, stages?.span);
@@ -1331,6 +1335,7 @@ export async function* executeMcpTool(
 
   const prepared = yield* remoteAuthAndPreBody({ tool, input: permitted.input, ctx, base, stages });
   if (!('ok' in prepared)) return prepared;
+  yield* dispatchToolBody(tool, prepared.input, ctx, base, beginBody);
   return yield* sendWithCredential(prepared, guarded.url, () =>
     sendMcpRequest(
       tool,

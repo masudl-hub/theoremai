@@ -209,7 +209,7 @@ function foldAssistantEvents(
 ): TurnHistoryMessage[] {
   let next = history;
   let textBuf = '';
-  let step: { stepId: string | undefined; callIds: string[] } | undefined;
+  let step: { stepId: string | undefined; callKeys: string[] } | undefined;
   const calls = new Map<string, ToolCall>();
 
   const flushText = () => {
@@ -223,7 +223,7 @@ function foldAssistantEvents(
     if (!step) {
       return;
     }
-    const stepCalls = step.callIds.flatMap((id) => calls.get(id) ?? []);
+    const stepCalls = step.callKeys.flatMap((id) => calls.get(id) ?? []);
     next = appendToolStepToHistory(next, stepCalls, gated);
     step = undefined;
   };
@@ -243,17 +243,18 @@ function foldAssistantEvents(
     if (event.type !== 'tool') {
       continue;
     }
-    const call = applyToolEvent(calls.get(event.tool.callId), event.tool);
-    calls.set(call.callId, call);
+    const key = event.tool.operationId ?? event.tool.callId;
+    const call = applyToolEvent(calls.get(key), event.tool);
+    calls.set(key, call);
     if (event.tool.phase !== undefined) {
       continue;
     }
     if (!step || call.stepId === undefined || step.stepId !== call.stepId) {
       flushStep();
       flushText();
-      step = { stepId: call.stepId, callIds: [] };
+      step = { stepId: call.stepId, callKeys: [] };
     }
-    step.callIds.push(call.callId);
+    step.callKeys.push(key);
   }
 
   flushStep();

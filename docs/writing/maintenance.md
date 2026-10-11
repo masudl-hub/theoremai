@@ -10,7 +10,7 @@ A doc that is true today and not checked tomorrow is a future false claim. Tie e
 
 ## In the theoremai repo
 
-The repo already has layers 1 and 2 for contracts and the root README.
+The repo has ownership and freshness checks for contracts, the root README, and the React README.
 
 - `docs/_map.mjs` is the ownership graph. Each production file has one `owns` entry. Entries list the doc, the sections that must change (`section_triggers`), and the evidence (tests, validation).
 - `npm run lint:docs` is the check. It runs in pre-commit and CI. It fails when:
@@ -64,7 +64,8 @@ It lists each Markdown file that mentions a declared symbol or file path in your
 
 ## Docs outside the map
 
-A README that `docs/_map.mjs` does not own has no check. For such a doc (for example `react/README.md`):
+A document outside `docs/_map.mjs` has no freshness check. The React README now has an explicit mapping.
+For an unmapped document:
 
 1. Tell the user it has no freshness check.
 2. Propose an ownership entry, or a script that compiles its examples and runs `docs-claims.mjs check` in CI.

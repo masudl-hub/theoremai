@@ -1,4 +1,4 @@
-import type { TurnEvent } from '@theoremjs/agents';
+import { lexiconText, TheoremError, type TurnEvent } from '@theoremjs/agents';
 import {
   type AttachmentValidationIssue,
   type ComposerProfileInterface,
@@ -19,6 +19,11 @@ import type {
   TheoremTurnInput,
   TheoremTurnRequest,
 } from './transport.ts';
+
+export function issuedOperationId(call: { operationId?: string }): string {
+  if (!call.operationId) throw new TheoremError('request', lexiconText('session.gate_expired'));
+  return call.operationId;
+}
 
 export function turnInputFromSession(
   session: InterfaceTurnSession,
@@ -66,6 +71,7 @@ export type HeldCall = {
   name: string;
   /** The model's input to the call. */
   input: unknown;
+  gateKind?: TheoremReplay['gateKind'];
   sessionPermissions?: string[];
 };
 
@@ -77,6 +83,7 @@ function gateReplay(
   return {
     name: call.name,
     input: call.input,
+    ...(call.gateKind ? { gateKind: call.gateKind } : {}),
     sessionPermissions: call.sessionPermissions ?? session.sessionPermissions,
     turnInput: turnInputFromSession(session),
     ...(session.toolSnapshot ? { snapshot: session.toolSnapshot } : {}),
@@ -92,13 +99,18 @@ function gateReplay(
 function abandonFields(
   iface: ComposerProfileInterface,
   walkAway: WalkAway,
-): { abandon: string[]; replays: Record<string, TheoremReplay> } | undefined {
+):
+  | { abandon: import('@theoremjs/agents').GateReference[]; replays: Record<string, TheoremReplay> }
+  | undefined {
   if (!walkAway.calls.length) return undefined;
   return {
-    abandon: walkAway.calls.map((call) => call.callId),
+    abandon: walkAway.calls.map((call) => ({
+      callId: call.callId,
+      operationId: issuedOperationId(call),
+    })),
     replays: Object.fromEntries(
       walkAway.calls.map((call) => [
-        call.callId,
+        issuedOperationId(call),
         gateReplay(iface, walkAway.paused, { name: call.name, input: call.arguments }),
       ]),
     ),
@@ -133,6 +145,7 @@ export function buildInvokeRequest(
   session: InterfaceTurnSession,
   args: HeldCall & {
     gateId: string;
+    operationId: string;
     decision: TheoremInvokeRequest['decision'];
     secret?: string;
     page?: PagePart;
@@ -140,10 +153,16 @@ export function buildInvokeRequest(
 ): TheoremInvokeRequest {
   return {
     gateId: args.gateId,
+    operationId: args.operationId,
     decision: args.decision,
     ...(args.secret === undefined ? {} : { secret: args.secret }),
     ...(args.page === undefined ? {} : { page: args.page }),
-    replay: gateReplay(iface, session, args),
+    replay: gateReplay(iface, session, {
+      ...args,
+      gateKind:
+        args.gateKind ??
+        (session.gatedTool?.callId === args.gateId ? session.gatedTool.gateKind : undefined),
+    }),
   };
 }
 

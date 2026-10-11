@@ -26,6 +26,7 @@ import {
   buildInvokeRequest,
   buildTurnRequest,
   foldAssistantTurn,
+  issuedOperationId,
   prepareComposerTurn,
   projectUserTurn,
   turnInputFromSession,
@@ -335,6 +336,7 @@ export async function resumeInterfaceTool(args: {
         args.transport.invoke(
           buildInvokeRequest(args.iface, args.session, {
             gateId: gated.callId,
+            operationId: issuedOperationId(gated),
             decision: reply.decision,
             name: gated.name,
             input: gated.arguments,

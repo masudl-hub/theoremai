@@ -151,7 +151,9 @@ Deno.test('OpenRouter decisions use their binding, provider cost, and trace iden
           init?.headers && new Headers(init.headers).get('Authorization'),
           'Bearer test-key',
         );
-        assertEquals(JSON.parse(String(init?.body)).model, 'respan/span-01-lite:free');
+        const body = JSON.parse(String(init?.body));
+        assertEquals(body.model, 'respan/span-01-lite:free');
+        assertEquals(body.provider, { require_parameters: true });
         return Promise.resolve(
           new Response(
             JSON.stringify({

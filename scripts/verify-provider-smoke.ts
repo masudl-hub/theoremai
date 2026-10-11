@@ -1,84 +1,71 @@
 #!/usr/bin/env -S deno run --allow-net --allow-sys --allow-env --allow-read
 
-import type { ProviderCompleteRequest } from '../src/kernel/types.ts';
-import { createOpenRouterProvider } from '../src/providers/openrouter/chat.ts';
+import { createKernelScope, defineProfile, defineProvider, openRouterAdapter } from '../mod.ts';
 import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV } from './host-env.ts';
 
 function valueAfterFlag(flag: string): string | undefined {
   const idx = Deno.args.indexOf(flag);
-  if (idx < 0) {
-    return undefined;
-  }
-  return Deno.args[idx + 1];
+  return idx < 0 ? undefined : Deno.args[idx + 1];
 }
 
 loadHostEnv();
 const apiKey = hostOpenRouterKey();
-const model = valueAfterFlag('--model') ?? 'sonar';
-const apiId = valueAfterFlag('--api-id') ?? 'perplexity/sonar';
-
+const apiId = valueAfterFlag('--api-id') ?? 'openrouter/free';
+const model = valueAfterFlag('--model') ?? 'smoke';
 if (!apiKey) {
-  Deno.stdout.writeSync(
-    new TextEncoder().encode(
-      `Error: ${OPENROUTER_ENV} unset. This script reads it; Theorem itself never reads env.\n`,
-    ),
+  console.error(
+    `Error: ${OPENROUTER_ENV} unset. This script reads it; Theorem itself never reads env.`,
   );
   Deno.exit(1);
 }
 
-Deno.stdout.writeSync(
-  new TextEncoder().encode('Testing Theorem OpenRouter provider connection...\n'),
+const scope = createKernelScope();
+const provider = defineProvider({
+  id: 'smoke-router',
+  connection: { siteUrl: 'https://theorem.agent', siteName: 'Theorem Provider Smoke' },
+  keySlot: 'openrouter',
+  adapter: openRouterAdapter(),
+});
+scope.providers.register(provider);
+scope.profiles.register(
+  defineProfile({
+    id: 'smoke',
+    type: 'text',
+    identity: {
+      handle: 'Smoke',
+      system: 'You are a precise verification assistant. Answer briefly.',
+    },
+    models: { [model]: provider.model(apiId, { maxOutputTokens: 1024 }) },
+    inputs: { text: true },
+    tools: { allow: [] },
+  }),
 );
 
-const provider = createOpenRouterProvider({
-  vault: { ...hostVault(), openrouter: apiKey },
-  siteUrl: 'https://theorem.agent',
-  siteName: 'Theorem Provider Smoke',
-});
-
-const req: ProviderCompleteRequest = {
-  model,
-  apiId,
-  thinking: 'low',
-  summaries: undefined,
-  maxOutputTokens: 200,
-  temperature: 0.2,
-  system: 'You are a precise agent kernel verification assistant.',
-  input: [
-    {
-      type: 'text',
-      text: 'Verify live streaming: Return "Theorem + OpenRouter live stream verified successfully."',
-    },
-  ],
-  builtins: [],
-  structured: null,
-  image: null,
-  keySlot: 'openrouter',
-};
-
 try {
-  let tokenCount = 0;
-
-  for await (const event of provider.complete(req)) {
-    if (event.type === 'thought' && event.text) {
-      Deno.stdout.writeSync(new TextEncoder().encode(`\x1b[33m${event.text}\x1b[0m`));
-    } else if (event.type === 'text' && event.text) {
-      Deno.stdout.writeSync(new TextEncoder().encode(event.text));
-    } else if (event.type === 'tokens' && event.tokens) {
-      tokenCount = event.tokens.total;
-    } else if (event.type === 'error') {
-      Deno.stderr.writeSync(
-        new TextEncoder().encode(`\nReceived error event from provider: ${event.error}\n`),
-      );
-    }
+  let text = '';
+  let tokens = 0;
+  let completed = false;
+  let failed = false;
+  for await (const event of scope.runTurn(
+    {
+      profile: 'smoke',
+      input: { text: 'Reply exactly THEOREM_SMOKE_OK.' },
+      signal: AbortSignal.timeout(60000),
+    },
+    { vault: { ...hostVault(), openrouter: apiKey } },
+  )) {
+    if (event.type === 'text') text += event.text;
+    if (event.type === 'tokens') tokens += event.tokens.total;
+    if (event.type === 'done') completed = event.stop.kind === 'completed';
+    if (event.type === 'error') failed = true;
   }
-
-  Deno.stdout.writeSync(
-    new TextEncoder().encode(`\n---\nLive test finished. Total tokens recorded: ${tokenCount}\n`),
+  if (!completed || failed || text.trim() !== 'THEOREM_SMOKE_OK') {
+    throw new Error('Registered provider did not return the expected successful reply');
+  }
+  console.log(
+    JSON.stringify({ provider: provider.id, apiId, passed: true, text: text.trim(), tokens }),
   );
-} catch (err) {
-  Deno.stderr.writeSync(
-    new TextEncoder().encode(`Live test failed with exception: ${String(err)}\n`),
-  );
-  Deno.exit(1);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : 'Provider smoke failed');
+  Deno.exitCode = 1;
 }

@@ -14,11 +14,13 @@
 
 import {
   describeError,
+  lexiconText,
   type SessionEvent,
   type SessionEventOf,
   TheoremError,
   type TraceRecord,
   type TurnEventOf,
+  type TurnHistoryMessage,
 } from '@theoremjs/agents';
 import { base64ToBytes, bytesToBase64 } from '@theoremjs/agents/kernel';
 import { float32Rms, float32RmsToLevel, timeDomainBytesToLevel } from './audio-level.ts';
@@ -35,13 +37,16 @@ import {
   type LiveOpenMessage,
   type LiveServerEnvelope,
   type LiveToolStep,
+  liveClientMessageSchema,
   parseLiveServerEnvelope,
 } from './live-messages.ts';
 import { MIC_CAPTURE_PROCESSOR, micCaptureWorkletUrl } from './mic-capture.ts';
 import { downsampleAndConvertToInt16, pcm16BytesToFloat32 } from './pcm-downsample.ts';
 import { type ClientTurnEvent, hostError } from './transport.ts';
+import { issuedOperationId } from './turn-client.ts';
 
 type LiveToolCall = {
+  operationId?: string;
   id: string;
   name: string;
   arguments: Record<string, unknown>;
@@ -124,7 +129,7 @@ export interface LiveClientOptions {
   onToolCall: (
     name: string,
     args: Record<string, unknown>,
-    meta: { callId: string },
+    meta: { callId: string; operationId: string },
   ) => Promise<void>;
   /** The relay opened the call: the id it gave the call, and the profile it runs. */
   onSessionReady?: (info: { sessionId?: string; profile?: string }) => void;
@@ -214,12 +219,13 @@ export class LiveSessionClient {
   private audioEpoch = 0;
   private pendingExecuteResults = new Map<
     string,
-    { resolve: (value: LiveToolStep) => void; reject: (reason: Error) => void }
+    { callId: string; resolve: (value: LiveToolStep) => void; reject: (reason: Error) => void }
   >();
   /** The page's context package, and the JSON of the one the relay last got. */
   private context: unknown;
   private sentContext: string | undefined;
   /** The provider's latest handle for taking this call up again after a drop. */
+  private history: TurnHistoryMessage[] = [];
   private providerState: import('@theoremjs/agents').ProviderCheckpoint | undefined;
   /** The session said it ended, or failed: a close after that is the end, not a drop. */
   private sessionOver = false;
@@ -316,8 +322,10 @@ export class LiveSessionClient {
     const lostAt = this.lostAt;
     this.clearReconnect();
     this.lostAt = undefined;
-    if (lostAt === undefined) this.providerState = undefined;
-    else this.droppedAt = lostAt;
+    if (lostAt === undefined) {
+      this.providerState = undefined;
+      this.history = [];
+    } else this.droppedAt = lostAt;
     return this.open('connecting');
   }
 
@@ -335,6 +343,7 @@ export class LiveSessionClient {
     const { slots, openMessage: host } = this.options;
     return {
       type: 'open',
+      ...(this.history.length ? { history: structuredClone(this.history) } : {}),
       ...(slots ? { slots } : {}),
       ...(this.context === undefined ? {} : { context: this.context }),
       ...(this.providerState
@@ -588,7 +597,12 @@ export class LiveSessionClient {
     const runnableTools = accum.toolCalls.filter((call) => !accum.cancelledToolIds.has(call.id));
     for (const call of runnableTools) {
       this.toolChain = this.toolChain
-        .then(() => this.options.onToolCall(call.name, call.arguments, { callId: call.id }))
+        .then(() =>
+          this.options.onToolCall(call.name, call.arguments, {
+            callId: call.id,
+            operationId: issuedOperationId(call),
+          }),
+        )
         .catch((err: unknown) => {
           this.options.onError?.(asError(err));
         });
@@ -635,11 +649,17 @@ export class LiveSessionClient {
   }
 
   private handleExecuteToolResultEnvelope(payload: ExecuteToolReply): void {
-    const pending = this.pendingExecuteResults.get(payload.callId);
-    if (!pending) return;
-    this.pendingExecuteResults.delete(payload.callId);
+    const pending = this.pendingExecuteResults.get(payload.operationId);
+    if (!pending || pending.callId !== payload.callId) return;
+    this.pendingExecuteResults.delete(payload.operationId);
     if (payload.status === 'refused') {
       pending.reject(hostError(payload.body, 'request'));
+    } else if (payload.status === 'dispatched') {
+      pending.resolve({
+        status: 'dispatched',
+        grantId: payload.grantId,
+        arguments: payload.arguments,
+      });
     } else if (payload.status === 'gated') {
       pending.resolve({ status: 'gated', gate: payload.gate });
     } else pending.resolve({ status: 'settled' });
@@ -677,6 +697,8 @@ export class LiveSessionClient {
   }
 
   private processTurnEvent(event: ClientTurnEvent, accum: InboundTurnAccum): void {
+    if (event.type === 'provider_checkpoint' && event.history)
+      this.history = structuredClone(event.history);
     if ((event.type === 'provider_checkpoint' || event.type === 'done') && event.providerState)
       this.providerState = event.providerState;
     if (event.type === 'provider_warning') this.providerState = undefined;
@@ -775,14 +797,31 @@ export class LiveSessionClient {
 
   /** The relay runs `LiveSession.executeTool`; see `ExecuteToolOnRelay`. */
   executeToolOnRelay(args: Parameters<ExecuteToolOnRelay>[0]): Promise<LiveToolStep> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    const socket = this.ws;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
       throw new TheoremError('request', 'live session is not connected'); // lexicon-exempt: internal diagnostic
     }
-    const resultPromise = new Promise<LiveToolStep>((resolve, reject) => {
-      this.pendingExecuteResults.set(args.callId, { resolve, reject });
+    const checked = liveClientMessageSchema.safeParse({ ...args, type: 'executeTool' });
+    if (!checked.success || checked.data.type !== 'executeTool') {
+      throw new TheoremError('request', lexiconText('error.request'));
+    }
+    const request = checked.data;
+    if (this.pendingExecuteResults.has(request.operationId)) {
+      throw new TheoremError('request', lexiconText('session.gate_expired'));
+    }
+    return new Promise<LiveToolStep>((resolve, reject) => {
+      this.pendingExecuteResults.set(request.operationId, {
+        callId: request.callId,
+        resolve,
+        reject,
+      });
+      try {
+        socket.send(clientMessage(request));
+      } catch (error) {
+        this.pendingExecuteResults.delete(request.operationId);
+        reject(asError(error));
+      }
     });
-    this.ws.send(clientMessage({ type: 'executeTool', ...args }));
-    return resultPromise;
   }
 
   private async enqueueAudioChunk(base64Data: string, mimeType?: string): Promise<void> {

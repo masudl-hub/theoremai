@@ -697,7 +697,11 @@ function GateCard({
   const gate = personGate(tool);
   if (!gate) return null;
   const index = handlers.indexOf(block);
-  const answer = handlers.answering?.callId === tool.callId ? handlers.answering.action : null;
+  const answer =
+    handlers.answering?.callId === tool.callId &&
+    handlers.answering?.operationId === tool.operationId
+      ? handlers.answering.action
+      : null;
   if (gate.kind === 'auth') {
     return (
       <AuthChallengeCard

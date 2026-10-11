@@ -17,23 +17,46 @@ export async function runLiveToolCall(args: {
   name: string;
   toolArgs: Record<string, unknown>;
   callId: string;
+  operationId: string;
   sessionPermissions: string[];
   setSessionPermissions: (next: string[]) => void;
   waitForGateDecision: (prompt: LiveToolGatePrompt) => Promise<LiveGateAnswer>;
 }): Promise<void> {
-  const { executeToolOnRelay, name, toolArgs, callId } = args;
+  const { executeToolOnRelay, name, toolArgs, callId, operationId } = args;
   let sessionPermissions = args.sessionPermissions;
   // why: A name from the model is looked up among the host's own keys only.
   const pageTool =
     args.pageTools && Object.hasOwn(args.pageTools, name) ? args.pageTools[name] : undefined;
-  const answer = await pageTool?.(toolArgs, { callId });
-  let step = await executeToolOnRelay(answer ? { callId, output: answer.output } : { callId });
-  while (step.status === 'gated') {
+  let step = await executeToolOnRelay({ callId, operationId });
+  const dispatched = new Set<string>();
+  while (step.status !== 'settled') {
+    if (step.status === 'dispatched') {
+      if (dispatched.has(step.grantId)) return;
+      dispatched.add(step.grantId);
+      const grantId = step.grantId;
+      const input = step.arguments;
+      const answer = pageTool
+        ? await Promise.resolve()
+            .then(() => pageTool(input, { callId, operationId }))
+            .catch(() => undefined)
+        : undefined;
+      step = await executeToolOnRelay({
+        callId,
+        operationId,
+        grantId,
+        ...(answer ? { output: answer.output } : { unanswered: true as const }),
+      });
+      continue;
+    }
     const { gate } = step;
+    if (gate.kind === 'page') {
+      await executeToolOnRelay({ callId, operationId, decision: 'deny' });
+      return;
+    }
     const resolution = await args.waitForGateDecision({
       callId,
       toolName: name,
-      input: toolArgs,
+      input: gate.preparedArguments ?? toolArgs,
       gate,
     });
     if (resolution === 'withdrawn') return;
@@ -45,7 +68,7 @@ export async function runLiveToolCall(args: {
     });
     if (reply.decision === 'deny') {
       // why: The session settles the refusal; its tool event tells the user.
-      await executeToolOnRelay({ callId, decision: 'deny' });
+      await executeToolOnRelay({ callId, operationId, decision: 'deny' });
       return;
     }
     sessionPermissions = reply.sessionPermissions;
@@ -54,6 +77,7 @@ export async function runLiveToolCall(args: {
     step = await executeToolOnRelay({
       callId,
       decision: 'approve',
+      operationId,
       ...(reply.secret !== undefined ? { secret: reply.secret } : {}),
     });
   }

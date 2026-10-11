@@ -298,6 +298,7 @@ function SideRun({
 	context,
 }: SideProps) {
 	const { type } = payload.profile;
+	const pageTools = useMemo(() => studioPageTools(payload), [payload]);
 	const chats = isChat(payload);
 	const chat = useMemo(
 		() => (chats ? noting(tracedTransport(createHttpTransport, endpoint, traces), note) : null),
@@ -318,6 +319,7 @@ function SideRun({
 				detectCodeLanguage
 				labels={STUDIO_LABELS}
 				transport={chat}
+				pageTools={pageTools}
 				trace={trace}
 				className={className}
 				chatRef={chatRef}
@@ -342,6 +344,7 @@ function SideRun({
 				detectCodeLanguage
 				labels={STUDIO_LABELS}
 				transport={host}
+				pageTools={pageTools}
 				trace={trace}
 				flush={flush}
 				columns={columns}
@@ -489,6 +492,7 @@ function ProjectCall({
 	);
 }
 function HostRun({ payload, runtime, traces, trace, className, flush, columns, note }: RunProps) {
+	const pageTools = useMemo(() => studioPageTools(payload), [payload]);
 	const transport = useMemo(
 		() =>
 			noting(
@@ -504,6 +508,7 @@ function HostRun({ payload, runtime, traces, trace, className, flush, columns, n
 			detectCodeLanguage
 			labels={STUDIO_LABELS}
 			transport={transport}
+			pageTools={pageTools}
 			trace={trace}
 			flush={flush}
 			columns={columns}

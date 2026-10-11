@@ -1005,6 +1005,11 @@ function modelsOf(profile: Record<string, unknown>): StudioDraft['models'] {
     profile.providerContinuation.onMismatch === 'error'
       ? { providerStateMismatch: 'error' as const }
       : {}),
+    ...(isRecord(profile.providerContinuation) &&
+    (profile.providerContinuation.history === 'provider' ||
+      profile.providerContinuation.history === 'stateless')
+      ? { providerHistory: profile.providerContinuation.history }
+      : {}),
     defaultModel: text(profile.defaultModel),
     allowModelSelect: profile.allowModelSelect === true,
     maxSteps: whole(profile.maxSteps),
@@ -1064,6 +1069,7 @@ function turnOf(turn: Record<string, unknown>): StudioDraft['turnBehaviour'] {
     maxContinues: whole(resume?.maxContinues),
     continueInstruction: '',
     allowSteering: turn.allowSteering !== false,
+    atStepLimit: turn.atStepLimit === 'answer' ? 'answer' : 'stop',
   };
 }
 

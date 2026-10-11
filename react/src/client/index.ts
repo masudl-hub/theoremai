@@ -37,6 +37,7 @@ export {
 export type { LiveToolGatePrompt } from './live/live-tool.ts';
 export { LiveSessionClient } from './live-client.ts';
 export { isOAuthComplete, notifyOAuthComplete } from './oauth-popup.ts';
+export { type PageDispatchResult, withPageToolDispatch } from './page-dispatch.ts';
 export {
   applyTurnResultToTranscript,
   resumeInterfaceTool,

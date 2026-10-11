@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import { publicError, TheoremError } from '../../guardrails/error.ts';
 import { errorKindSchema, guardrailHit, provenance } from '../../guardrails/event-schemas.ts';
-import { jsonValueSchema } from '../provider-contract.ts';
+import {
+  type JsonObject,
+  type JsonValue,
+  jsonObjectSchema,
+  jsonValueSchema,
+} from '../provider-contract.ts';
 import type { GateReference, TurnEventOf } from '../turn-events.ts';
 import {
   interactionPartSchema,
@@ -9,20 +14,40 @@ import {
   turnHistoryMessageSchema,
 } from '../turn-events.ts';
 import type { TurnHistoryMessage } from '../types.ts';
-import type { ModelToolResult, ToolFailure } from './types.ts';
+import type { ModelToolResult, PageAnswer, ToolFailure } from './types.ts';
 
 export type TerminalToolEvent = TurnEventOf<'tool'> & {
   tool: Extract<TurnEventOf<'tool'>['tool'], { phase: 'complete' | 'error' }>;
 };
 
+export interface SavedToolInvocation {
+  accepted: JsonObject;
+  preparedInput: JsonValue;
+}
+
+export const savedToolInvocationSchema: z.ZodType<SavedToolInvocation> = z.strictObject({
+  accepted: jsonObjectSchema,
+  preparedInput: jsonValueSchema,
+});
+
 export interface ToolOperationIdentity extends GateReference {
   profileId: string;
   toolId: string;
   invocationHash: string;
+  invocation?: SavedToolInvocation;
 }
 
 export interface ToolOperationClaim extends ToolOperationIdentity {
   claimToken: string;
+}
+
+export interface PageToolDispatch {
+  grantId: string;
+  result: Promise<PageAnswer>;
+}
+
+export interface PageToolExecution {
+  dispatch(claim: ToolOperationClaim, signal?: AbortSignal): Promise<PageToolDispatch>;
 }
 
 export interface ToolOperationOutcome {
@@ -52,6 +77,9 @@ export type BeginToolOperationResult =
   | { kind: 'uncertain' };
 
 export interface ToolExecutionCoordinator {
+  lookup(
+    operation: ToolOperationIdentity,
+  ): Promise<Exclude<BeginToolOperationResult, { kind: 'acquired' }> | undefined>;
   begin(operation: ToolOperationIdentity): Promise<BeginToolOperationResult>;
   settle(claim: ToolOperationClaim, outcome: ToolOperationOutcome): Promise<void>;
   settleNotStarted(operation: ToolOperationIdentity, outcome: ToolOperationOutcome): Promise<void>;
@@ -129,7 +157,7 @@ export const toolOperationOutcomeSchema: z.ZodType<ToolOperationOutcome> = z.str
   }),
 });
 
-export function operationWireValue(value: unknown): unknown {
+export function operationWireValue(value: unknown): JsonValue {
   const ancestors = new Set<object>();
   const normalize = (item: unknown): unknown => {
     if (!item || typeof item !== 'object') return item;

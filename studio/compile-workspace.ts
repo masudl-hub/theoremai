@@ -7,6 +7,8 @@
 import { createKernelScope, defineProfile, TheoremError } from '../mod.ts';
 import {
   type AgentIdOf,
+  type AgentToolInputOf,
+  agentToolInputSchema,
   type CompiledStudio,
   compileStudio,
   type StudioIssue,
@@ -185,10 +187,14 @@ function compileAgents(
   agentIdOf: AgentIdOf,
   report: Report,
 ): { key: string; agent: CompiledStudio }[] {
+  const agentInputOf: AgentToolInputOf = (key) => {
+    const called = agentDraft(workspace, key);
+    return called && agentToolInputSchema(called);
+  };
   const compiled: { key: string; agent: CompiledStudio }[] = [];
   for (const agent of agents) {
     const draft = agentDraft(workspace, agent.key);
-    const result = draft && compileStudio(draft, mode, agentIdOf);
+    const result = draft && compileStudio(draft, mode, agentIdOf, agentInputOf);
     if (!result) continue;
     if (result.ok) {
       const { ok: _ok, ...rest } = result;

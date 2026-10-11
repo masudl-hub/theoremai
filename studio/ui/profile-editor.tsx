@@ -136,6 +136,7 @@ import {
 	type Protocol,
 	type Provider,
 	profileGraphFacet,
+	type StepLimitMode,
 	type StudioAuthType,
 	THINKING_LEVELS,
 	type ThinkingLevel,
@@ -319,6 +320,12 @@ const PROFILE_TYPE_SEGMENTS: Segment<StudioProfileType>[] = [
 	{ value: 'live', label: 'Live', icon: PROFILE_TYPE_ICON.live },
 	{ value: 'decision', label: 'Decision', icon: PROFILE_TYPE_ICON.decision },
 	{ value: 'host', label: 'Host', icon: PROFILE_TYPE_ICON.host },
+];
+
+const HISTORY_HOLDER_SEGMENTS: Segment<'host' | 'stateless' | 'provider'>[] = [
+	{ value: 'host', label: 'Host', icon: IconDeviceDesktop },
+	{ value: 'stateless', label: 'Stateless', icon: IconBan },
+	{ value: 'provider', label: 'Provider', icon: IconServer },
 ];
 
 const PROTOCOL_SEGMENT = {
@@ -549,10 +556,18 @@ function ModelPolicySection({ draft, set }: { draft: StudioDraft; set: SetSectio
 				path="allowModelSelect"
 				field="allowModelSelect"
 				value={models.allowModelSelect}
-				isDisabled={draft.modelBindings.length < 2}
-				disabledMessage="Add a second model to let people switch."
 				onChange={(allowModelSelect) => {
 					set({ allowModelSelect });
+				}}
+			/>
+			<SegmentedRow<'host' | 'stateless' | 'provider'>
+				label="Conversation history kept by"
+				path="providerContinuation.history"
+				field="providerHistory"
+				value={models.providerHistory ?? 'host'}
+				segments={HISTORY_HOLDER_SEGMENTS}
+				onChange={(providerHistory) => {
+					set({ providerHistory });
 				}}
 			/>
 			<ChoiceRow
@@ -560,6 +575,7 @@ function ModelPolicySection({ draft, set }: { draft: StudioDraft; set: SetSectio
 				path="providerContinuation.onMismatch"
 				field="providerStateMismatch"
 				value={models.providerStateMismatch ?? 'rebuild'}
+				isDisabled={models.providerHistory === 'stateless'}
 				options={[
 					{ value: 'rebuild', label: 'Continue from history' },
 					{ value: 'error', label: 'Stop with an error' },
@@ -2945,6 +2961,11 @@ function ResumptionSection({
 	);
 }
 
+const STEP_LIMIT_SEGMENTS: Segment<StepLimitMode>[] = [
+	{ value: 'stop', label: 'Stop', icon: IconHandStop },
+	{ value: 'answer', label: 'Answer', icon: IconMessage },
+];
+
 function TurnBehaviourEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
 	const turn = draft.turnBehaviour;
 	const set = patch(setDraft, 'turnBehaviour');
@@ -2961,6 +2982,19 @@ function TurnBehaviourEditor({ draft, setDraft }: { draft: StudioDraft; setDraft
 						value={turn.allowSteering}
 						onChange={(allowSteering) => {
 							set({ allowSteering });
+						}}
+					/>
+				</InspectorSection>
+			)}
+			{draftAllows(draft, 'turnBehaviour.atStepLimit') && (
+				<InspectorSection path="turnBehaviour.atStepLimit">
+					<SegmentedRow
+						label="At the step limit"
+						path="turnBehaviour.atStepLimit"
+						value={turn.atStepLimit}
+						segments={STEP_LIMIT_SEGMENTS}
+						onChange={(atStepLimit) => {
+							set({ atStepLimit });
 						}}
 					/>
 				</InspectorSection>

@@ -14,8 +14,10 @@ import {
   type TraceRecord,
   TURN_EVENT_SCHEMAS,
   type TurnEvent,
+  type TurnHistoryMessage,
   toolGateSchema,
   traceRecordSchema,
+  turnHistoryMessageSchema,
   z,
 } from '@theoremjs/agents';
 import type { Equals } from '@theoremjs/agents/kernel';
@@ -34,6 +36,7 @@ import {
  */
 export type LiveOpenMessage = {
   type: 'open';
+  history?: TurnHistoryMessage[];
   /** The value chosen for each of the profile's `inputs.slots`. */
   slots?: Record<string, string>;
   /** What the page tells the agent as the call opens: the client's context package. */
@@ -45,6 +48,7 @@ export type LiveOpenMessage = {
 };
 const liveOpenMessage = z.object({
   type: z.literal('open'),
+  history: z.array(turnHistoryMessageSchema).optional(),
   slots: z.record(z.string(), z.string()).optional(),
   context: z.unknown().optional(),
   resume: z
@@ -67,11 +71,14 @@ export type LiveClientMessage =
   | {
       type: 'executeTool';
       callId: string;
+      operationId: string;
       decision?: GateDecision;
       input?: unknown;
       secret?: string;
       /** What the browser did for a tool that runs there; a relay hands it to the session as `page.output`. */
       output?: unknown;
+      grantId?: string;
+      unanswered?: true;
     };
 const liveClientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('audio'), data: z.string() }),
@@ -81,10 +88,13 @@ const liveClientMessage = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('executeTool'),
     callId: z.string().min(1),
+    operationId: z.string().min(1).max(256),
     decision: z.enum(GATE_DECISIONS).optional(),
     input: z.unknown().optional(),
     secret: z.string().optional(),
     output: z.unknown().optional(),
+    grantId: z.string().min(1).optional(),
+    unanswered: z.literal(true).optional(),
   }),
 ]);
 true satisfies Equals<z.infer<typeof liveClientMessage>, LiveClientMessage>;
@@ -105,9 +115,29 @@ export type LiveServerEnvelope =
    * call (its tool events carry what happened), holds it on a gate, or refused
    * the message (the relay's error body, read as a host error).
    */
-  | { type: 'executeToolResult'; callId: string; status: 'settled' }
-  | { type: 'executeToolResult'; callId: string; status: 'gated'; gate: ToolGate }
-  | { type: 'executeToolResult'; callId: string; status: 'refused'; body: HostErrorBody };
+  | { type: 'executeToolResult'; callId: string; operationId: string; status: 'settled' }
+  | {
+      type: 'executeToolResult';
+      callId: string;
+      operationId: string;
+      status: 'dispatched';
+      grantId: string;
+      arguments: Record<string, unknown>;
+    }
+  | {
+      type: 'executeToolResult';
+      callId: string;
+      operationId: string;
+      status: 'gated';
+      gate: ToolGate;
+    }
+  | {
+      type: 'executeToolResult';
+      callId: string;
+      operationId: string;
+      status: 'refused';
+      body: HostErrorBody;
+    };
 
 /** Each envelope kind as it arrives: `events` holds values each checked as a turn event on its own. */
 type LiveServerWireEnvelope =
@@ -126,19 +156,30 @@ const liveServerEnvelopeKinds = {
   executeToolResult: z.discriminatedUnion('status', [
     z.object({
       type: z.literal('executeToolResult'),
+      callId: z.string().min(1),
+      operationId: z.string().min(1).max(256),
+      status: z.literal('dispatched'),
+      grantId: z.string().min(1),
+      arguments: z.record(z.string(), z.unknown()),
+    }),
+    z.object({
+      type: z.literal('executeToolResult'),
       callId: z.string(),
       status: z.literal('settled'),
+      operationId: z.string().min(1).max(256),
     }),
     z.object({
       type: z.literal('executeToolResult'),
       callId: z.string(),
       status: z.literal('gated'),
+      operationId: z.string().min(1).max(256),
       gate: toolGateSchema,
     }),
     z.object({
       type: z.literal('executeToolResult'),
       callId: z.string(),
       status: z.literal('refused'),
+      operationId: z.string().min(1).max(256),
       body: hostErrorBodySchema,
     }),
   ]),
@@ -166,7 +207,10 @@ export function parseLiveServerEnvelope(
 }
 
 /** What the session did with an `executeTool`: settled the call, or holds it on a gate. */
-export type LiveToolStep = { status: 'settled' } | { status: 'gated'; gate: ToolGate };
+export type LiveToolStep =
+  | { status: 'settled' }
+  | { status: 'gated'; gate: ToolGate }
+  | { status: 'dispatched'; grantId: string; arguments: Record<string, unknown> };
 
 /**
  * Ask the relay to run `LiveSession.executeTool` for a call the model made.

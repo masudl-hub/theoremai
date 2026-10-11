@@ -196,10 +196,14 @@ Deno.test('an agent with an issue is left as it is and named, and the others sti
   assertEquals(model(workspace, 'shop', 'fast')?.maxOutputTokens, 4096);
   assertEquals(agent(workspace, 'yard'), agent(before, 'yard'));
   assert(reach);
-  assertEquals([reach.agents, reach.left], [[agent(before, 'shop').key], [agent(before, 'yard').key]]);
+  assertEquals(
+    [reach.agents, reach.left],
+    [[agent(before, 'shop').key], [agent(before, 'yard').key]],
+  );
   assertEquals(sharedAsk(reach, workspace), {
     title: 'Change it for 1 other profile?',
-    line: 'lite · models.ts:1 sets this once. shop uses it too, and will change with it. ' +
+    line:
+      'lite · models.ts:1 sets this once. shop uses it too, and will change with it. ' +
       'yard uses it too, but has issues and stays as it is. ' +
       'Fix them, then set this there too: Save writes it once every profile agrees.',
   });

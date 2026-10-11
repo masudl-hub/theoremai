@@ -12,6 +12,7 @@ export type { ToolGateAuth };
 
 /** A tool call held at a gate: the tool, its call id and arguments. */
 export type GatedToolContext = {
+  operationId?: string;
   name: string;
   callId: string;
   arguments: Record<string, unknown>;
@@ -90,7 +91,8 @@ function gatedToolsFromEvents(events: readonly TurnEvent[]): GatedToolContext[] 
       {
         name: call.name,
         callId: call.callId,
-        arguments: call.arguments,
+        ...(call.operationId ? { operationId: call.operationId } : {}),
+        arguments: gate.preparedArguments ?? call.arguments,
         ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}),
         gateKind: gate.kind,
         permission: gate.permission,

@@ -39,7 +39,7 @@ const graph = {
         },
         {
           path: 'src/providers/mod.ts',
-          reason: 'README documents createProvider as the single door',
+          reason: 'README documents registered providers and adapter boundaries',
           sections: ['Public Entrypoints', 'Package Boundary'],
         },
         {
@@ -54,6 +54,30 @@ const graph = {
         'Public Entrypoints',
         'Package Boundary',
       ],
+    },
+
+    'react-package': {
+      export: '_internal/react-package',
+      doc: 'react/README.md',
+      owns: ['react/src/', 'react/package.json'],
+      watches: [
+        {
+          path: 'src/kernel/provider-contract.ts',
+          reason: 'React setup uses provider definitions and host options',
+          sections: ['Quick start'],
+        },
+        {
+          path: 'src/interface/session.ts',
+          reason: 'Chat snapshots retain portable history and provider state',
+          sections: ['Chat'],
+        },
+        {
+          path: 'src/kernel/provider-live.ts',
+          reason: 'Live reconnects depend on the registered session boundary',
+          sections: ['Other profile types'],
+        },
+      ],
+      validates: ['tests/react/', 'scripts/docs-truth/graph.test.mjs'],
     },
 
     'docs-truth': {
@@ -100,6 +124,7 @@ const graph = {
             '.npmignore',
             'scripts/verify-publish-bundle.ts',
             'scripts/build-npm.ts',
+            'scripts/build-npm-react.ts',
           ],
           sections: ['Package vs repo documentation'],
         },
@@ -162,11 +187,17 @@ const graph = {
       ],
     },
 
+    providerTesting: {
+      export: './providers/testing',
+      doc: 'docs/contracts/providers.md',
+      owns: ['src/providers/testing.ts'],
+      validates: ['tests/providers/conformance.test.ts'],
+    },
     providers: {
       export: './providers',
       doc: 'docs/contracts/providers.md',
       owns: ['src/providers/'],
-      owns_except: ['src/providers/local/mod.ts', 'src/providers/google/live/mod.ts'],
+      owns_except: ['src/providers/local/mod.ts', 'src/providers/google/live/mod.ts', 'src/providers/testing.ts'],
       watches: [
         {
           path: 'src/kernel/registry/vault.ts',
@@ -469,6 +500,7 @@ const graph = {
         'src/presets/facts.ts',
         'src/presets/local.ts',
         'src/presets/openrouter.ts',
+        'src/presets/openrouter-facts.ts',
         'src/presets/typesafe.ts',
       ],
       watches: [

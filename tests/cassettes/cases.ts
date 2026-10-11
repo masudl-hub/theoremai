@@ -346,7 +346,7 @@ function registerLiveProfile(scope: KernelScope, model: CassetteModel): void {
   );
 }
 /** The case's guardrail events, error and shown text, as replay compares them. */
-function outcomeOf(events: readonly TurnEvent[], effects: string[] = []): CaseOutcome {
+export function outcomeOf(events: readonly TurnEvent[], effects: string[] = []): CaseOutcome {
   const guardrails = events.flatMap((e) =>
     e.type === 'guardrail'
       ? [
@@ -355,12 +355,21 @@ function outcomeOf(events: readonly TurnEvent[], effects: string[] = []): CaseOu
       : [],
   );
   const error = events.find((e) => e.type === 'error');
-  return {
+  return normalizeOutcome({
     guardrails,
     error: error?.type === 'error' ? (error.errorKind ?? 'error') : null,
     shown: shownText(events),
     toolsRun: toolCallsOf(events).map((call) => `${call.name}:${call.state?.phase ?? 'not run'}`),
     effects,
+  });
+}
+export function normalizeOutcome(outcome: CaseOutcome): CaseOutcome {
+  return {
+    ...outcome,
+    guardrails: outcome.guardrails.map((line) => {
+      const [stage, action, ...rules] = line.split(' ');
+      return `${stage} ${action} ${[...new Set(rules.join(' ').split('+'))].join('+')}`;
+    }),
   };
 }
 function unserved(outcome: CaseOutcome): boolean {

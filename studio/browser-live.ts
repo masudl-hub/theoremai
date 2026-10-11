@@ -1,3 +1,5 @@
+import { browserExecution } from './browser-execution.ts';
+import type { StudioLiveBridgeOptions } from './live-session-bridge.ts';
 import { errorKind, publicError, TheoremError } from '../mod.ts';
 import type { LiveConnection, LiveSocket } from '../react/src/client/live-messages.ts';
 import type { LiveSession, LexiconOverrides } from '../mod.ts';
@@ -23,10 +25,10 @@ class BrowserLiveSocket implements LiveSocket {
   private queued: Array<string | ArrayBuffer | ArrayBufferView | Blob> = [];
   private listening = false;
 
-  constructor(payload: StudioRunPayload, runtime: StudioBrowserRuntime) {
+  constructor(payload: StudioRunPayload, runtime: StudioBrowserRuntime, local?: ReturnType<typeof browserExecution>) {
     // Install the UI's handlers before the first ready/error message.
     queueMicrotask(() => {
-      void this.open(payload, runtime);
+      void this.open(payload, runtime, local);
     });
   }
   send(data: string | ArrayBuffer | ArrayBufferView | Blob): void {
@@ -52,6 +54,7 @@ class BrowserLiveSocket implements LiveSocket {
   private async open(
     payload: StudioRunPayload,
     runtime: StudioBrowserRuntime,
+    local?: ReturnType<typeof browserExecution>,
   ): Promise<void> {
     if (this.readyState === 3) return;
     this.readyState = 1;
@@ -74,12 +77,12 @@ class BrowserLiveSocket implements LiveSocket {
       }
       const session = await scope.runSession(
         {
-          ...liveSessionOpen(parseLiveOpenMessage(first)),
+          ...await (local ? (await local.boundary).prepareLiveOpen(parseLiveOpenMessage(first)) : Promise.resolve(liveSessionOpen(parseLiveOpenMessage(first)))),
           profile: profile.id,
           metadata: traces.metadata,
           signal: runtime.signal,
         },
-        { vault: runtime.providers.vault, fetch: runtime.providers.fetch ?? runtime.providers.gemini?.fetch, wait: runtime.providers.wait ?? runtime.providers.gemini?.wait, openWebSocket: runtime.providers.openWebSocket },
+        { execution: runtime.execution ?? local?.execution, pageExecution: runtime.pageExecution ?? local?.pageExecution, vault: runtime.providers.vault, fetch: runtime.providers.fetch ?? runtime.providers.gemini?.fetch, wait: runtime.providers.wait ?? runtime.providers.gemini?.wait, openWebSocket: runtime.providers.openWebSocket },
       );
       this.closeSession = () => session.close('client disconnected');
       if (this.readyState !== 1) {
@@ -87,7 +90,11 @@ class BrowserLiveSocket implements LiveSocket {
         traces.close();
         return;
       }
-      await this.attach(session, profile.id, traces, profile.lexicon);
+      await this.attach(session, profile.id, traces, profile.lexicon, local ? { pageResult: local.pageResult,
+        beforeEvent: async (event) => {
+          if ((event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState)
+            await (await local.boundary).recordCheckpoint(event.providerState);
+        } } : {});
     } catch (err) {
       traces.close();
       this.receive({
@@ -98,7 +105,7 @@ class BrowserLiveSocket implements LiveSocket {
       this.close();
     }
   }
-  private async attach(session: LiveSession, profileId: string, traces: StudioTraceRoute, lexicon?: LexiconOverrides): Promise<void> {
+  private async attach(session: LiveSession, profileId: string, traces: StudioTraceRoute, lexicon?: LexiconOverrides, options: StudioLiveBridgeOptions = {}): Promise<void> {
       const socket = {
         send: (data: string | ArrayBufferLike | Blob | ArrayBufferView) => {
           if (typeof data === 'string') this.receive(JSON.parse(data));
@@ -113,6 +120,7 @@ class BrowserLiveSocket implements LiveSocket {
         crypto.randomUUID(),
         traces,
         lexicon,
+        options,
       );
       this.closeSession = undefined;
       this.listening = true;
@@ -133,5 +141,6 @@ export function browserStudioLiveConnection(
   runtime: StudioBrowserRuntime,
 ): LiveConnection {
   // The in-process connection knows its draft, so its open message carries none.
-  return { createSocket: () => new BrowserLiveSocket(payload, runtime) };
+  const local = runtime.execution ? undefined : browserExecution();
+  return { createSocket: () => new BrowserLiveSocket(payload, runtime, local) };
 }

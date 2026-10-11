@@ -25,9 +25,10 @@ export function kernelTurnInput(input: TheoremTurnInput, server?: unknown): Turn
 export function liveSessionOpen(
   open: LiveOpenMessage,
   server?: unknown,
-): Pick<SessionRequest, 'slots' | 'context' | 'providerState' | 'awayMs'> {
+): Pick<SessionRequest, 'slots' | 'context' | 'providerState' | 'awayMs' | 'history'> {
   const context = turnContext(open.context, server);
   return {
+    ...(open.history ? { history: open.history } : {}),
     ...(open.slots ? { slots: open.slots } : {}),
     ...(context ? { context } : {}),
     ...(open.resume

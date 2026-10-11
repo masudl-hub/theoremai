@@ -4,8 +4,7 @@
  * @module
  */
 
-import type { ProviderFacts } from './facts.ts';
-import { googleMediaFamily } from './google/media-tokens.ts';
+import { registerTools } from '../kernel/default-scope.ts';
 
 /** `/images` takes image references only; a profile on it lists nothing wider in `inputs.attachments.accept`. */
 const OPENROUTER_IMAGES_INPUT_MIMES = ['image/*'] as const;
@@ -16,21 +15,28 @@ const OPENROUTER_IMAGES_INPUT_MIMES = ['image/*'] as const;
  */
 const OPENROUTER_IMAGES_IGNORED_INPUTS = ['system', 'history'] as const;
 
-/** How OpenRouter prefixes a Google model it routes to. */
-const ROUTED_GOOGLE = 'google/';
+/** The tools OpenRouter runs itself, as `builtin` tool definitions. */
+const OPENROUTER_BUILTIN_TOOLS = [
+  {
+    type: 'builtin' as const,
+    name: 'webSearch',
+    description: 'OpenRouter web search',
+    category: 'grounding',
+    access: 'read-only' as const,
+    paths: ['*'],
+    loadTier: 'T0' as const,
+    permission: 'auto' as const,
+  },
+];
 
-/** What OpenRouter can do, as the kernel's rules read it. */
-const OPENROUTER_FACTS: ProviderFacts = {
-  needsKey: true,
-  takesServer: false,
-  cacheOn: 'openAi',
-  traceName: 'openrouter',
-  decisionsUrl: 'https://openrouter.ai/api/alpha/decisions',
-  // why: A routed Google model is billed by Google's rule.
-  mediaFamily: (apiId) =>
-    apiId.startsWith(ROUTED_GOOGLE)
-      ? googleMediaFamily(apiId.slice(ROUTED_GOOGLE.length))
-      : undefined,
+/** Registers into the default scope; a scope of its own takes `OPENROUTER_BUILTIN_TOOLS`. */
+function registerOpenRouterPreset(): void {
+  registerTools(OPENROUTER_BUILTIN_TOOLS);
+}
+
+export {
+  OPENROUTER_BUILTIN_TOOLS,
+  OPENROUTER_IMAGES_IGNORED_INPUTS,
+  OPENROUTER_IMAGES_INPUT_MIMES,
+  registerOpenRouterPreset,
 };
-
-export { OPENROUTER_FACTS, OPENROUTER_IMAGES_IGNORED_INPUTS, OPENROUTER_IMAGES_INPUT_MIMES };

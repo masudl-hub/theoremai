@@ -96,7 +96,7 @@ function ApprovalBody({
   onDecision,
 }: ApprovalCardProps) {
   const t = useLabels();
-  const args = formatInput(input);
+  const args = formatInput(gate.preparedArguments ?? input);
 
   return (
     <GateCard

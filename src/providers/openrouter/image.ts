@@ -125,6 +125,7 @@ export function buildInterleavedChatPayload(req: ProviderCompleteRequest): Recor
   return {
     model: req.apiId,
     stream: false,
+    provider: { require_parameters: true },
     messages: buildChatMessages(req),
     temperature: req.temperature,
     max_tokens: req.maxOutputTokens,

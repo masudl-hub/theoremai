@@ -43,11 +43,24 @@ function isStepLimitReached(step: number, maxSteps: number): boolean {
   return maxSteps > 0 && step >= maxSteps;
 }
 
+/** The step's generation: the turn's history so far, and no tools when the step must answer. */
 function generationForProviderStep(
   generation: ResolvedGeneration,
   state: StepExecutionState,
+  answerOnly: boolean,
 ): ResolvedGeneration {
-  return { ...generation, history: state.currentHistory };
+  const forStep = { ...generation, history: state.currentHistory };
+  if (!answerOnly) return forStep;
+  return { ...forStep, builtins: [], tools: { ...generation.tools, wire: [] } };
+}
+
+/** True on the last step `maxSteps` allows, for a profile whose `atStepLimit` is `'answer'`. */
+function isAnswerOnlyStep(profile: Profile, generation: ResolvedGeneration, step: number): boolean {
+  return (
+    profile.type === 'text' &&
+    profile.turnBehaviour?.atStepLimit === 'answer' &&
+    isStepLimitReached(step, generation.maxSteps ?? 0)
+  );
 }
 
 /**
@@ -86,13 +99,14 @@ function startProviderCall(
   generation: ResolvedGeneration,
   system: BoundSystem,
   state: StepExecutionState,
+  answerOnly: boolean,
 ) {
   const usage = startCallUsage(system.text, {
     history: state.currentHistory,
     input: generation.input,
   });
   state.lastCall = usage;
-  const genForStep = generationForProviderStep(generation, state);
+  const genForStep = generationForProviderStep(generation, state, answerOnly);
   const request = providerCompleteRequest(state.tools, genForStep, system.text);
   addRequestUrls(state.givenUrls, request);
   addRequestDestinations(state.destinations, request, state.givenUrls.own);
@@ -125,8 +139,13 @@ async function* executeAutonomousStep(
     holdVisible: false,
   },
 ): AsyncGenerator<TurnEvent, { calls: ModelCall[]; latestStructured?: unknown }> {
-  const { generation, system, provider, signal } = args;
-  const { usage, genForStep, request, call } = startProviderCall(generation, system, state);
+  const { profile, generation, system, provider, signal } = args;
+  const { usage, genForStep, request, call } = startProviderCall(
+    generation,
+    system,
+    state,
+    isAnswerOnlyStep(profile, generation, state.stepCount),
+  );
   const calls: ModelCall[] = [];
   let latestStructured: unknown;
   // why: The stop this call ended with after gates: a canary block or provider
@@ -353,7 +372,8 @@ async function* handleModelCalls(
     return request;
   };
   let gated = false;
-  for (const call of calls) {
+  for (const upstreamCall of calls) {
+    const call = { ...upstreamCall, operationId: crypto.randomUUID() };
     yield announce(call);
 
     if (call.failure) {
@@ -375,12 +395,20 @@ async function* handleModelCalls(
     const settlement = yield* forwardToolEvents(
       executeRegisteredTool({
         tools: state.tools,
+        execution: generation.execution,
+        invocation: {
+          model: generation.model,
+          input: generation.input,
+          history: generation.history,
+        },
         ...(state.agents ? { agents: state.agents } : {}),
         profile,
         name: call.name,
         input: call.arguments,
         callId: call.callId,
         ctx: {
+          operationId: call.operationId,
+          pageExecution: generation.pageExecution,
           sessionPermissions: generation.sessionPermissions,
           path: generation.tools.path,
           turn: { step: state.stepCount, taint: state.taint, destinations: state.destinations },
@@ -455,6 +483,10 @@ async function* executeAttempt(args: {
     );
     if (!executed) {
       break;
+    }
+    // why: The tools ran and no step is left to read them, so the turn has no answer.
+    if (isStepLimitReached(state.stepCount, generation.maxSteps ?? 0)) {
+      state.lastStop = { kind: 'step_limit' };
     }
   }
 

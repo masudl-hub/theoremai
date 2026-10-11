@@ -7,7 +7,11 @@ import type { TraceSink } from '../../observability/trace-sink.ts';
 import { type SpanHandle, startTrace, traceJson } from '../../observability/trace-span.ts';
 import type { ProviderHostOptions } from '../provider-contract.ts';
 import { validateProviderModel } from '../provider-contract.ts';
-import { createProviderOperations, withProviderAbort } from '../provider-runtime.ts';
+import {
+  createProviderOperations,
+  snapshotRegisteredProvider,
+  withProviderAbort,
+} from '../provider-runtime.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import { soleModelId } from '../registry/sole-model.ts';
 import type {
@@ -378,11 +382,7 @@ async function decide(
 ): Promise<DecisionResult> {
   throwIfAborted(request.signal);
   const selected = registry.providers.require(binding.provider);
-  const provider = {
-    ...selected,
-    connection: structuredClone(selected.connection),
-    adapter: { ...selected.adapter },
-  };
+  const provider = snapshotRegisteredProvider(selected);
   binding = { ...binding, providerOptions: structuredClone(binding.providerOptions ?? {}) };
   await enforceDisclosure(profile, modelId, binding.provider, request);
   throwIfAborted(request.signal);

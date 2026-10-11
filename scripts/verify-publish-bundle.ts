@@ -279,8 +279,9 @@ async function assertNoStudioInBundles(): Promise<void> {
     throw new Error('src/studio must not exist — demo fixtures live in repo-private studio/');
   }
   // dnt output tree, when present, must not contain a studio module.
-  if (await exists(`${root}/npm`)) {
-    for await (const file of walkFiles(`${root}/npm`)) {
+  for (const bundle of ['npm', 'react/npm']) {
+    if (!(await exists(`${root}/${bundle}`))) continue;
+    for await (const file of walkFiles(`${root}/${bundle}`)) {
       if (file.includes('/studio/')) {
         throw new Error(`npm build output must not contain studio modules: ${file}`);
       }

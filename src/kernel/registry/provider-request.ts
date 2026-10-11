@@ -1,19 +1,25 @@
 import { TheoremError } from '../../guardrails/error.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import type {
+  BuiltInArgs,
   BuiltinToolId,
   ProviderBuiltin,
   ProviderCompleteRequest,
   ResolvedGeneration,
 } from '../types.ts';
 
-function providerBuiltins(tools: ToolRegistry, ids: readonly BuiltinToolId[]): ProviderBuiltin[] {
+function providerBuiltins(
+  tools: ToolRegistry,
+  ids: readonly BuiltinToolId[],
+  args: BuiltInArgs = {},
+): ProviderBuiltin[] {
   return ids.map((id) => {
     const tool = tools.get(id);
     if (tool?.type !== 'builtin') {
       throw new TheoremError('config', `Builtin '${id}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
-    return { id, wire: tool.wire };
+    const given = args[id];
+    return given ? { id, args: given } : { id };
   });
 }
 
@@ -31,7 +37,7 @@ function providerCompleteRequest(
     summaries: generation.summaries,
     maxOutputTokens: generation.maxOutputTokens,
     temperature: generation.temperature,
-    builtins: providerBuiltins(tools, generation.builtins),
+    builtins: providerBuiltins(tools, generation.builtins, generation.builtInArgs),
     sessionId: generation.sessionId,
     system,
     input: generation.input,

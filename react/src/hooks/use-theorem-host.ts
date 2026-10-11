@@ -1,11 +1,14 @@
 import type { TurnEvent } from '@theoremjs/agents';
 import { toolCallsOf, toolSnapshotFromEvents } from '@theoremjs/agents/interface';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type ClientFailure, clientFailure } from '../client/failure.ts';
 import type { ToolCall } from '../client/host-call.ts';
 import type { HostInterface, HostTransport } from '../client/host-transport.ts';
+import type { PageTools } from '../client/live/live-page-tool.ts';
+import { withPageToolDispatch } from '../client/page-dispatch.ts';
 import { continueGatedToolInvocation, type PersonGateResolution } from '../client/tool-resume.ts';
 import type { ClientTurnEvent } from '../client/transport.ts';
+import { issuedOperationId } from '../client/turn-client.ts';
 import { useDescribed } from './use-described.ts';
 
 export type { ToolCall };
@@ -58,11 +61,15 @@ function withEvent(call: TheoremHostCall, event: TurnEvent): TheoremHostCall {
  * as often as needed, and answer the gates a call pauses on. `run` returns the
  * call's id at once; calls run side by side, and `cancel` stops one.
  */
-export function useTheoremHost(transport: HostTransport): TheoremHostState & {
+export function useTheoremHost(
+  source: HostTransport,
+  pageTools?: PageTools,
+): TheoremHostState & {
   run: (name: string, input: unknown) => string;
   answer: (id: string, resolution: PersonGateResolution) => Promise<void>;
   cancel: (id: string) => void;
 } {
+  const transport = useMemo(() => withPageToolDispatch(source, pageTools), [source, pageTools]);
   const { iface, describeFailure } = useDescribed(transport);
   const [calls, setCalls] = useState<TheoremHostCall[]>([]);
   const running = useRef(new Map<string, AbortController>());
@@ -149,6 +156,7 @@ export function useTheoremHost(transport: HostTransport): TheoremHostState & {
       const state = held?.call?.state;
       if (!held?.call || state?.phase !== 'gate') return;
       const gateId = held.call.callId;
+      const operationId = issuedOperationId(held.call);
       const reply = continueGatedToolInvocation({
         toolName: held.name,
         gate: state.gate,
@@ -162,6 +170,7 @@ export function useTheoremHost(transport: HostTransport): TheoremHostState & {
         transport.invoke(
           {
             gateId,
+            operationId,
             decision: reply.decision,
             ...(reply.decision === 'approve' && reply.secret !== undefined
               ? { secret: reply.secret }
@@ -169,7 +178,8 @@ export function useTheoremHost(transport: HostTransport): TheoremHostState & {
             // why: A host without sessions (the studio) replays the paused call; others ignore it.
             replay: {
               name: held.name,
-              input: held.input,
+              input: state.gate.preparedArguments ?? held.input,
+              gateKind: state.gate.kind,
               sessionPermissions: permissions.current,
               ...(snapshot ? { snapshot } : {}),
             },

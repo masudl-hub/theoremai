@@ -31,14 +31,30 @@ export {
   type TheoremRequestContext,
   theoremSessionId,
 } from './handler.ts';
+export {
+  createMemoryPageToolBroker,
+  type PageToolBroker,
+  type PageToolResult,
+  pageToolResultSchema,
+} from './page-dispatch.ts';
 export { checkRequest, parseLiveClientMessage, parseLiveOpenMessage } from './request-check.ts';
+export {
+  createTheoremSessionBoundary,
+  type PreparedLiveOpen,
+  type SessionBoundaryOptions,
+  type TheoremSessionBoundary,
+} from './session-boundary.ts';
+export type { TheoremSessionLimits } from './session-limits.ts';
 export {
   createMemorySessionStore,
   type MemorySessionStoreOptions,
   type PendingToolGate,
-  type SettledToolGate,
+  type SessionSnapshot,
+  type SessionToolOperation,
+  type SessionWriteResult,
   type TheoremSessionState,
   type TheoremSessionStore,
+  theoremSessionStateSchema,
 } from './session-store.ts';
 export {
   createMemorySteerInbox,
@@ -47,5 +63,4 @@ export {
   steerStage,
   steerUnitOf,
 } from './steer-inbox.ts';
-export { liveSessionOpen } from './turn-input.ts';
 export { checkWalkAway, type WalkedAwayCall, walkAway } from './walk-away.ts';

@@ -9,6 +9,7 @@ import type {
   HttpMethod,
   ToolAccess,
   ToolAuthType,
+  ToolGateKind,
   ToolLoadTier,
   ToolPermission,
   ToolResumeCause,
@@ -34,8 +35,10 @@ import type {
   ToolId,
   TurnInput,
   TurnRequest,
+  TurnSpeech,
   TurnTraceLink,
 } from '../types.ts';
+import type { PageToolExecution, ToolExecutionCoordinator } from './operation.ts';
 import type { UncheckedOutput } from './unchecked-output.ts';
 
 export type {
@@ -74,23 +77,21 @@ export interface ToolBase {
   labels?: ToolLabels;
 }
 
-export interface BuiltinWire {
-  [adapterId: string]: string | undefined;
-  interactions?: string;
-  openRouter?: string;
-  live?: string;
-}
-
+/**
+ * A tool the provider runs. This is its entry in the tool list; the provider's
+ * adapter declares it (`ProviderAdapter.builtins`) and owns how it is sent.
+ */
 export interface BuiltinToolDef extends ToolBase {
   type: 'builtin';
-  wire: BuiltinWire;
   conflictsWith?: string[];
 }
 
 /** How a held tool call resumes: approved, refused or retried after sign-in. */
 export interface InvokeToolResume {
+  gateKind?: ToolGateKind;
   /**
-   * `true` skips the confirm / permission / `preTool` re-ask (an `edited` call runs `preTool` in full);
+   * `true` approves this call. An unchanged confirmation skips the tool's completed `preTool` check.
+   * Permission and auth gates run `preTool` on resumption; edited arguments run it again.
    * `false` settles as a refusal with no body; omitted is a first attempt or an auth retry.
    */
   granted?: boolean;
@@ -120,6 +121,7 @@ export type PageAnswer =
 export interface ToolContext {
   profile: Profile;
   callId: string;
+  readonly operationId: string;
   sessionPermissions?: string[];
   path?: string;
   signal?: AbortSignal;
@@ -131,6 +133,7 @@ export interface ToolContext {
   host?: unknown;
   /** The page's answer to this call, for a tool with `answeredBy: 'page'`. */
   page?: PageAnswer;
+  pageExecution?: PageToolExecution;
   /** W3C `traceparent` of this call's `execute_tool` span; parent a tool's own outbound spans on it. */
   traceparent?: string;
   /** Set for a function tool with `auth` once its credential resolved: requests carrying it. */
@@ -258,22 +261,28 @@ export interface McpToolDef<TIn = unknown, TOut = unknown>
   auth?: ToolAuthConfig;
 }
 
-/** What the calling model sends an agent tool. */
-export interface AgentToolInput {
+/**
+ * What an agent tool call carries: the text, and whatever else the called
+ * profile's `inputs` declares. `speech` is for a speech profile.
+ */
+export interface AgentToolInput extends Pick<TurnInput, 'slots' | 'attachments' | 'voice'> {
   text: string;
+  speech?: TurnSpeech;
 }
 
-/** What an agent tool returns: the called agent's reply. Media rides as `parts`. */
+/** What an agent tool returns: the called agent's reply. Media rides as `parts`, citations as `sources`. */
 export interface AgentToolOutput {
   text: string;
   structured?: unknown;
   parts?: InteractionPart[];
+  /** What the called agent cited; the caller's turn cites them too. */
+  sources?: Source[];
 }
 
 /**
  * A tool whose call runs one turn of another registered agent. That agent is a
- * standalone profile; the tool is how another agent's model calls it. What the
- * call carries beyond the model's text is the host's choice (`onAgentCall`).
+ * standalone profile; the tool is how another agent's model calls it. Its input
+ * is what that profile's `inputs` declares; the host can reshape a call (`onAgentCall`).
  */
 export interface AgentToolDef extends ToolBase {
   type: 'agent';
@@ -285,7 +294,10 @@ export interface AgentToolDef extends ToolBase {
   exposeToModel?: boolean;
 }
 
-export interface RegisteredAgentTool extends AgentToolDef, ToolHostHooks<AgentToolInput> {
+export interface RegisteredAgentTool
+  extends AgentToolDef,
+    ToolHostHooks<AgentToolInput>,
+    ToolOutputHooks<AgentToolOutput> {
   input: z.ZodType<AgentToolInput>;
   output: z.ZodType<AgentToolOutput>;
 }
@@ -314,13 +326,16 @@ export interface AgentCall {
  */
 export interface AgentCallRequest
   extends Partial<
-    Pick<TurnRequest, 'input' | 'effort' | 'metadata' | 'onStage' | 'conversationId'>
+    Pick<
+      TurnRequest,
+      'input' | 'speech' | 'effort' | 'builtInArgs' | 'metadata' | 'onStage' | 'conversationId'
+    >
   > {
   model?: ModelId;
   provider?: import('../provider-contract.ts').ProviderHostOptions;
 }
 
-/** Return nothing to run the agent on the model's text alone; `refuse` is read back to the model. */
+/** Return nothing to run the agent on what the model sent; `refuse` is read back to the model. */
 export type AgentCallHook = (
   call: AgentCall,
 ) =>
@@ -384,6 +399,9 @@ export type ToolPolicy = (ctx: ToolLoadContext) => ToolId[] | Promise<ToolId[]>;
 
 /** A request to run a held tool call outside a turn. */
 export interface InvokeToolRequest {
+  execution?: ToolExecutionCoordinator;
+  /** invariant: Only the trusted host restores the kernel-issued identity from saved authority. */
+  operationId?: string;
   profile: string;
   name: string;
   /**
@@ -410,6 +428,7 @@ export interface InvokeToolRequest {
   host?: unknown;
   /** The page's answer, when this invoke answers a `page` gate. */
   page?: PageAnswer;
+  pageExecution?: PageToolExecution;
   /** W3C `traceparent` of the host span this invoke runs under. */
   traceparent?: string;
   /** Recorded as `gen_ai.conversation.id`. */

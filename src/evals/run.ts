@@ -297,6 +297,7 @@ async function turnRequest(
     },
     metadata: { eval: stamp },
     ...(suite.onStage ? { onStage: suite.onStage } : {}),
+    ...(suite.host === undefined ? {} : { host: suite.host }),
   };
 }
 

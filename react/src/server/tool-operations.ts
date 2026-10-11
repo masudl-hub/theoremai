@@ -1,4 +1,5 @@
 import {
+  type BeginToolOperationResult,
   lexiconText,
   TheoremError,
   type ToolExecutionCoordinator,
@@ -56,20 +57,33 @@ function checkedClaim(state: TheoremSessionState, claim: ToolOperationClaim) {
   return record;
 }
 
+function existingResult(
+  record: SessionToolOperation | undefined,
+): Exclude<BeginToolOperationResult, { kind: 'acquired' }> | undefined {
+  if (record?.status === 'settled') return { kind: 'settled', outcome: record.outcome };
+  if (record?.status === 'running') return { kind: 'running' };
+  if (record?.status === 'uncertain') return { kind: 'uncertain' };
+  return undefined;
+}
+
 function saveOutcome(
   state: TheoremSessionState,
   identity: ToolOperationIdentity,
   outcome: ToolOperationOutcome,
 ) {
+  const before = state.operations[identity.operationId];
+  const pageGrant = before && before.status !== 'ready' ? before.pageGrant : undefined;
   const settledAt = Date.now();
-  const { operationId, callId, profileId, toolId, invocationHash } = identity;
+  const { operationId, callId, profileId, toolId, invocationHash, invocation } = identity;
   state.operations[identity.operationId] = {
     operationId,
     callId,
     profileId,
     toolId,
     invocationHash,
+    ...(invocation ? { invocation } : {}),
     status: 'settled',
+    ...(pageGrant ? { pageGrant } : {}),
     outcome,
     settledAt,
   };
@@ -80,14 +94,19 @@ export function sessionToolCoordinator(
   sessionId: string,
 ): ToolExecutionCoordinator {
   return {
+    lookup(identity) {
+      return store.mutate(sessionId, (state) => {
+        const record = checkedRecord(state, identity);
+        return existingResult(record);
+      });
+    },
     begin(identity) {
       const claimToken = crypto.randomUUID();
       const startedAt = Date.now();
       return store.mutate(sessionId, (state) => {
         const record = checkedRecord(state, identity);
-        if (record?.status === 'settled') return { kind: 'settled', outcome: record.outcome };
-        if (record?.status === 'running') return { kind: 'running' };
-        if (record?.status === 'uncertain') return { kind: 'uncertain' };
+        const existing = existingResult(record);
+        if (existing) return existing;
         state.operations[identity.operationId] = {
           ...identity,
           status: 'running',
@@ -99,8 +118,8 @@ export function sessionToolCoordinator(
     },
     settle(claim, outcome) {
       return store.mutate(sessionId, (state) => {
-        checkedClaim(state, claim);
-        saveOutcome(state, claim, outcome);
+        const record = checkedClaim(state, claim);
+        saveOutcome(state, { ...claim, invocation: record.invocation }, outcome);
       });
     },
     settleNotStarted(identity, outcome) {
@@ -113,9 +132,11 @@ export function sessionToolCoordinator(
     },
     markUncertain(claim, reason) {
       return store.mutate(sessionId, (state) => {
-        checkedClaim(state, claim);
+        const record = checkedClaim(state, claim);
         state.operations[claim.operationId] = {
           ...claim,
+          invocation: record.invocation,
+          ...(record.pageGrant ? { pageGrant: record.pageGrant } : {}),
           status: 'uncertain',
           reason,
           detectedAt: Date.now(),

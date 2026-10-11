@@ -96,6 +96,7 @@ Deno.test('buildInterleavedChatPayload attaches the OpenRouter image generation 
   });
   const payload = buildInterleavedChatPayload(req);
   assertEquals(payload.stream, false);
+  assertEquals(payload.provider, { require_parameters: true });
   assertEquals(payload.tools, [
     {
       type: 'openrouter:image_generation',

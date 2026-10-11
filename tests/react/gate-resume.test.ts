@@ -49,6 +49,7 @@ const request = (callId: string, thoughtSignature?: string): TurnEvent => ({
   tool: {
     name: 'lookup',
     callId,
+    operationId: callId,
     arguments: { q: callId },
     stepId: 'step-1',
     ...(thoughtSignature ? { thoughtSignature } : {}),
@@ -56,7 +57,15 @@ const request = (callId: string, thoughtSignature?: string): TurnEvent => ({
 });
 const complete = (callId: string): TurnEvent => ({
   type: 'tool',
-  tool: { name: 'lookup', callId, at, phase: 'complete', output: {}, readBack: `read ${callId}` },
+  tool: {
+    name: 'lookup',
+    callId,
+    operationId: callId,
+    at,
+    phase: 'complete',
+    output: {},
+    readBack: `read ${callId}`,
+  },
 });
 Deno.test('a gate on a later call of a step resumes with the whole step in history', async () => {
   const sent: TurnHistoryMessage[][] = [];
@@ -75,6 +84,7 @@ Deno.test('a gate on a later call of a step resumes with the whole step in histo
             tool: {
               name: 'lookup',
               callId: 'b',
+              operationId: 'b',
               at,
               phase: 'gate',
               gate: { kind: 'permission', tool: 'lookup', permission: 'always_confirm' },
@@ -145,6 +155,7 @@ const gate = (callId: string): TurnEvent => ({
   tool: {
     name: 'lookup',
     callId,
+    operationId: callId,
     at,
     phase: 'gate',
     gate: { kind: 'permission', tool: 'lookup', permission: 'always_confirm' },
@@ -155,7 +166,7 @@ const settled = (answer: TheoremInvokeRequest): TurnEvent =>
   answer.decision === 'approve'
     ? complete(answer.gateId)
     : failureEvent(
-        { name: 'lookup', callId: answer.gateId },
+        { name: 'lookup', callId: answer.gateId, operationId: answer.operationId },
         { code: 'denied', kind: 'declined', message: 'declined' },
       );
 /** A walked-away call, as the host settles it. */
@@ -300,7 +311,10 @@ Deno.test('a message sent while gated walks away from every waiting call in its 
   });
   if (!sent.ok) throw new Error(sent.error);
   const walk = requests[1];
-  assertEquals(walk.abandon, ['a', 'b']);
+  assertEquals(walk.abandon, [
+    { callId: 'a', operationId: 'a' },
+    { callId: 'b', operationId: 'b' },
+  ]);
   assertEquals(Object.keys(walk.replay?.abandon ?? {}), ['a', 'b']);
   assertEquals(walk.replay?.abandon?.b?.input, { q: 'b' });
   // The model reads the paused step with its calls open; the host answers them.
@@ -394,7 +408,7 @@ function cutAnswer(paused: TurnEvent[], answered: TurnEvent[]): TheoremTransport
 }
 const running = (callId: string): TurnEvent => ({
   type: 'tool',
-  tool: { name: 'lookup', callId, at, phase: 'running' },
+  tool: { name: 'lookup', callId, operationId: callId, at, phase: 'running' },
 });
 Deno.test('an answer the network lost before its call settled leaves the reply waiting on the same gate', async () => {
   const iface = textInterface();

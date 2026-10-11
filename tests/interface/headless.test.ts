@@ -1240,3 +1240,37 @@ Deno.test('a reply cites each source once, in one row per citer', () => {
     ],
   );
 });
+
+Deno.test('issued operation IDs keep repeated call IDs distinct in transcript and portable history', () => {
+  const events: TurnEvent[] = ['first', 'second'].flatMap((operationId) => [
+    {
+      type: 'tool',
+      tool: { name: 'lookup', callId: 'reused', operationId, arguments: { operationId } },
+    },
+    {
+      type: 'tool',
+      tool: {
+        name: 'lookup',
+        callId: 'reused',
+        operationId,
+        at: 0,
+        phase: 'complete',
+        output: { operationId },
+        readBack: operationId,
+      },
+    },
+  ]);
+  const blocks = foldTurnEvents(events).filter((block) => block.kind === 'tool');
+  assertEquals(
+    blocks.map((block) => [block.id, block.tool.arguments, block.tool.state?.phase]),
+    [
+      ['tool-first', { operationId: 'first' }, 'complete'],
+      ['tool-second', { operationId: 'second' }, 'complete'],
+    ],
+  );
+  const history = appendAssistantEventsToHistory([], events);
+  assertEquals(
+    history.filter((message) => message.role === 'tool').map((message) => message.content),
+    ['first', 'second'],
+  );
+});

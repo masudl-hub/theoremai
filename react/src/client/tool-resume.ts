@@ -14,7 +14,11 @@ export type ToolGateResolution =
 export type PagePart = { output: unknown } | { unanswered: true };
 
 /** An answer on its way to the gate on `callId`; the gate shows it until the answer settles or fails. */
-export type AnsweringGate = { callId: string; action: PersonGateResolution['action'] };
+export type AnsweringGate = {
+  callId: string;
+  operationId: string;
+  action: PersonGateResolution['action'];
+};
 
 /** An answer a person gives: every resolution but the page's own. */
 export type PersonGateResolution = Exclude<ToolGateResolution, { action: 'page' }>;

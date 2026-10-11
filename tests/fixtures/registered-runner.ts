@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TheoremError } from '../../mod.ts';
 import type {
   ProviderCapabilities,
   ProviderModelEvent,
@@ -31,15 +32,19 @@ const capabilities: ProviderCapabilities = {
   outputKinds: ['text', 'image', 'audio'],
   builtins: ['googleSearch', 'googleMaps', 'urlContext', 'codeExecution'],
 };
+const fixtureDispatches = new Map<string, { provider?: ModelProvider }>();
 const nativeAdapters = new Map<string, import('../../mod.ts').RegisteredProvider>();
-const fixtures = new WeakMap<typeof fetch, ModelProvider>();
 export function fixtureHostOptions(
   provider: ModelProvider,
   scope: KernelScope = defaultKernelScope,
 ) {
-  const send: typeof fetch = () =>
-    Promise.reject(new Error('Fixture transport must be consumed by its registered adapter'));
-  fixtures.set(send, provider);
+  const send: typeof fetch = (input) => {
+    const token = new URL(input instanceof Request ? input.url : String(input)).pathname.slice(1);
+    const dispatch = fixtureDispatches.get(token);
+    if (!dispatch) return Promise.reject(new Error('Unknown fixture dispatch'));
+    dispatch.provider = provider;
+    return Promise.resolve(new Response('fixture'));
+  };
   const ids = new Set([
     ...scope.providers.list().map((provider) => provider.id),
     ...scope.profiles
@@ -68,13 +73,39 @@ export function fixtureHostOptions(
           credentialSchema: z.string(),
           capabilities: () => capabilities,
           validateRequest() {},
-          async create(context) {
-            const selected = fixtures.get(context.fetch);
-            if (!selected && native)
-              return await native.adapter.create({ ...context, connection: native.connection });
-            if (!selected) throw new Error('Fixture host options are required');
-            return {
+          create(context) {
+            const nativeOperations = () => {
+              if (!native) throw new TheoremError('unsupported', 'Missing native fixture adapter');
+              return native.adapter.create({
+                ...context,
+                connection: native.connection,
+                providerOptions: native.adapter.optionsSchema.parse(context.providerOptions),
+              });
+            };
+            return Promise.resolve({
+              async openSession(request) {
+                const operations = await nativeOperations();
+                if (!operations.openSession)
+                  throw new TheoremError('unsupported', 'Missing fixture live operation');
+                return operations.openSession(request);
+              },
+              async decide(request) {
+                const operations = await nativeOperations();
+                if (!operations.decide)
+                  throw new TheoremError('unsupported', 'Missing fixture decision operation');
+                return operations.decide(request);
+              },
               async *complete(request): AsyncGenerator<ProviderModelEvent> {
+                const token = crypto.randomUUID();
+                const dispatch: { provider?: ModelProvider } = {};
+                fixtureDispatches.set(token, dispatch);
+                try {
+                  await context.fetch(`https://fixture.test/${token}`);
+                } finally {
+                  fixtureDispatches.delete(token);
+                }
+                const selected = dispatch.provider;
+                if (!selected) throw new Error('Fixture transport did not select a provider');
                 let terminal = false;
                 for await (const event of selected.complete(request)) {
                   const converted = translateProviderEvent(event as ProviderEvent);
@@ -84,7 +115,7 @@ export function fixtureHostOptions(
                 }
                 if (!terminal) yield { type: 'done', stop: { kind: 'completed' } };
               },
-            };
+            });
           },
         },
       }),

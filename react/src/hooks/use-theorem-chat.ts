@@ -17,6 +17,7 @@ import { clientFailure, type TurnFailure } from '../client/failure.ts';
 import { followGenerationDefaults } from '../client/generation-selection.ts';
 import { applyTurnResultToTranscript, type StreamView } from '../client/index.ts';
 import type { PageTools } from '../client/live/live-page-tool.ts';
+import { withPageToolDispatch } from '../client/page-dispatch.ts';
 import type { ToolGateResolution } from '../client/tool-resume.ts';
 import type { TheoremTransport, TheoremTurnRequest, TurnEventSink } from '../client/transport.ts';
 import { usePageToolWarnings } from './use-page-tool-warnings.ts';
@@ -99,8 +100,7 @@ function useSlotChoices(
 type TurnValues = Pick<UseTheoremChatOptions, 'slots' | 'context'>;
 
 /**
- * Answers a `page` gate the reply waits on: runs the page's tool for the call and sends what it
- * returned, or that the page has nothing for the tool. Each call is answered once.
+ * Settles legacy page gates as unanswered. Browser callbacks require an active dispatch grant.
  */
 function usePageAnswers(
   gated: InterfaceTurnSession['gatedTool'],
@@ -112,23 +112,11 @@ function usePageAnswers(
   latest.current = { pageTools, answer };
   const waiting = gated?.gateKind === 'page' ? gated : null;
   useEffect(() => {
-    if (!waiting || answered.current === waiting.callId) return;
-    answered.current = waiting.callId;
-    const { pageTools: tools, answer: send } = latest.current;
-    // why: A name from the model is looked up among the host's own keys only.
-    const tool = tools && Object.hasOwn(tools, waiting.name) ? tools[waiting.name] : undefined;
-    void (async () => {
-      const page = tool
-        ? await Promise.resolve(tool(waiting.arguments, { callId: waiting.callId })).catch(
-            (err: unknown) => {
-              // lexicon-exempt: builder diagnostic
-              console.error(`Theorem: page tool '${waiting.name}' threw.`, err);
-              return { unanswered: true } as const;
-            },
-          )
-        : ({ unanswered: true } as const);
-      await send({ action: 'page', page });
-    })();
+    if (!waiting?.operationId || answered.current === waiting.operationId) return;
+    const operationId = waiting.operationId;
+    answered.current = operationId;
+    // invariant: A restored page gate cannot authorize callback execution. Only active dispatch grants do.
+    void latest.current.answer({ action: 'page', page: { unanswered: true } });
   }, [waiting]);
 }
 
@@ -501,8 +489,12 @@ export function useTheoremChat({
 
   const runTurnStream = useRunTurnStream(iface, state);
 
+  const pageTransport = useMemo(
+    () => withPageToolDispatch(transport, pageTools),
+    [transport, pageTools],
+  );
   const steerTransport = useTappedTransport(
-    transport,
+    pageTransport,
     state,
     { slots: slotState.values, context },
     onTurnEvent,

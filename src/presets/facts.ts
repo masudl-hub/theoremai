@@ -9,7 +9,7 @@ import type { MediaTokenFamily } from '../kernel/engine/token-estimate.ts';
 import type { Protocol, Provider } from '../kernel/schema.ts';
 import { GOOGLE_FACTS } from './google-limits.ts';
 import { LOCAL_FACTS } from './local.ts';
-import { OPENROUTER_FACTS } from './openrouter.ts';
+import { OPENROUTER_FACTS } from './openrouter-facts.ts';
 import { TYPESAFE_FACTS } from './typesafe.ts';
 
 /** First-party catalog metadata for profile editors and usage estimates. */

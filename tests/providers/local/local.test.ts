@@ -455,3 +455,59 @@ Deno.test('compatible chat encodes and normalizes structured output for streamed
     assertEquals(events.at(-1)?.type, 'done');
   }
 });
+
+Deno.test('compatible chat assembles delayed and fragmented tool identity', async () => {
+  const { createCompatibleChatProvider } = await import('../../../src/providers/local/local.ts');
+  const provider = createCompatibleChatProvider({
+    baseUrl: 'https://gateway.test/v1',
+    fetch: () =>
+      Promise.resolve(
+        new Response(
+          `${[
+            { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{' } }] } }] },
+            {
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      { index: 0, id: 'call-', function: { name: 'look', arguments: '"q":1' } },
+                    ],
+                  },
+                },
+              ],
+            },
+            {
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [{ index: 0, id: 'one', function: { name: 'up', arguments: '}' } }],
+                  },
+                  finish_reason: 'tool_calls',
+                },
+              ],
+            },
+          ]
+            .map((row) => `data: ${JSON.stringify(row)}\n\n`)
+            .join('')}data: [DONE]\n\n`,
+          { headers: { 'Content-Type': 'text/event-stream' } },
+        ),
+      ),
+  });
+  const events = await Array.fromAsync(
+    provider.complete({
+      model: 'test',
+      apiId: 'test',
+      system: '',
+      input: [],
+      builtins: [],
+      structured: null,
+      image: null,
+    }),
+  );
+  const call = events.find((event) => event.type === 'tool');
+  assertEquals(call?.type === 'tool' && call.tool.callId, 'call-one');
+  assertEquals(call?.type === 'tool' && call.tool.name, 'lookup');
+  assertEquals(call?.type === 'tool' && call.tool.phase === undefined && call.tool.arguments, {
+    q: 1,
+  });
+});

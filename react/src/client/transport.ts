@@ -1,4 +1,12 @@
-import { type ProviderCheckpoint, providerCheckpointSchema } from '@theoremjs/agents';
+import {
+  type GateReference,
+  gateReferenceSchema,
+  type ProviderCheckpoint,
+  providerCheckpointSchema,
+  TOOL_GATE_KINDS,
+  type ToolGate,
+} from '@theoremjs/agents';
+import type { PageDispatchResult } from './page-dispatch.ts';
 /**
  * Transport contract between a Theorem chat UI and the host that runs turns.
  *
@@ -77,6 +85,7 @@ true satisfies Equals<z.infer<typeof theoremTurnInput>, TheoremTurnInput>;
  * keeps permissions, paused calls, and tool snapshots in its own session.
  */
 export type TheoremReplay = {
+  gateKind?: ToolGate['kind'];
   sessionPermissions?: string[];
   name?: string;
   input?: unknown;
@@ -88,6 +97,7 @@ export type TheoremReplay = {
   path?: string;
 };
 const theoremReplay = z.object({
+  gateKind: z.enum(TOOL_GATE_KINDS).optional(),
   sessionPermissions: z.array(z.string()).optional(),
   name: z.string().optional(),
   input: z.unknown().optional(),
@@ -120,10 +130,10 @@ export type TheoremTurnRequest = {
   effort?: string;
   /** Client-generated id so mid-turn steers can find this turn's inbox. */
   turnId?: string;
-  /** Call ids of the paused calls this message walks away from. */
-  abandon?: string[];
+  /** invariant: Both issued IDs identify each paused action that this message abandons. */
+  abandon?: GateReference[];
   replay?: Pick<TheoremReplay, 'sessionPermissions'> & {
-    /** Each walked-away call as the client holds it, by call id, for a host without a session. */
+    /** invariant: Replay entries use operation IDs when a local host has no session store. */
     abandon?: Record<string, TheoremReplay>;
   };
 };
@@ -133,7 +143,7 @@ const theoremTurnRequest = z.object({
   model: z.string().optional(),
   effort: z.string().optional(),
   turnId: clientId.optional(),
-  abandon: z.array(z.string().min(1)).min(1).optional(),
+  abandon: z.array(gateReferenceSchema).min(1).optional(),
   replay: theoremReplay
     .pick({ sessionPermissions: true })
     .extend({ abandon: z.record(z.string(), theoremReplay).optional() })
@@ -155,6 +165,7 @@ const INVOKE_DECISIONS = ['approve', 'deny'] as const satisfies readonly GateDec
 export type TheoremInvokeRequest = {
   /** Call id of the paused tool call (`tool.callId` on its gate event). */
   gateId: string;
+  operationId: string;
   decision: (typeof INVOKE_DECISIONS)[number];
   /** The user's edit of the model's input; only with `approve`. */
   input?: unknown;
@@ -178,6 +189,7 @@ const pagePart = z.union([
 ]);
 const theoremInvokeRequest = z.object({
   gateId: z.string().min(1),
+  operationId: z.string().min(1).max(256),
   decision: z.enum(INVOKE_DECISIONS),
   input: z.unknown().optional(),
   secret: z.string().optional(),
@@ -219,6 +231,7 @@ export interface TheoremTransport {
     signal?: AbortSignal,
   ): Promise<void>;
   steer(request: TheoremSteerRequest): Promise<void>;
+  pageResult?(result: PageDispatchResult, signal?: AbortSignal): Promise<void>;
   /** Trace records the host sends back, when it delivers them (the studio does). */
   traces?: TraceFeed;
 }
@@ -403,23 +416,31 @@ export async function postNdjson<Line extends { type: string }>(
   onLine: (line: Line | UnsupportedEvent | MalformedEvent) => void,
   options: HttpOptions & { signal?: AbortSignal } = {},
 ): Promise<void> {
+  const response = await jsonPostResponse(url, body, options);
+  await readNdjsonStream(response, lines, onLine, options.signal);
+}
+
+async function jsonPostResponse(
+  url: string,
+  body: unknown,
+  options: HttpOptions & { signal?: AbortSignal },
+): Promise<Response> {
   const response = await request(
     url,
     { method: 'POST', body: JSON.stringify(body), signal: options.signal },
     options,
   );
   if (!response.ok) throw await failureFromResponse(response);
-  await readNdjsonStream(response, lines, onLine, options.signal);
+  return response;
 }
 
 /** POST JSON; a non-OK reply throws its failure. The OK reply's body is not read. */
 export async function postJson(
   url: string,
   body: unknown,
-  options: HttpOptions = {},
+  options: HttpOptions & { signal?: AbortSignal } = {},
 ): Promise<void> {
-  const response = await request(url, { method: 'POST', body: JSON.stringify(body) }, options);
-  if (!response.ok) throw await failureFromResponse(response);
+  await jsonPostResponse(url, body, options);
 }
 
 /** GET, or POST `body` as JSON, and read the JSON reply; a non-OK reply throws its failure. */
@@ -470,6 +491,7 @@ export function createHttpTransport(options: HttpTransportOptions = {}): Theorem
       postNdjson(`${base}/turn`, body, TURN_EVENT_SCHEMAS, onEvent, { ...options, signal }),
     invoke: ({ replay: _replay, ...body }, onEvent, signal) =>
       postNdjson(`${base}/invoke`, body, TURN_EVENT_SCHEMAS, onEvent, { ...options, signal }),
+    pageResult: (body, signal) => postJson(`${base}/page-result`, body, { ...options, signal }),
     steer: (body) => postJson(`${base}/steer`, body, options),
   };
 }

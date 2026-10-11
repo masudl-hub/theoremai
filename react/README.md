@@ -74,26 +74,34 @@ The package does not include the Figtree font. The theme uses Figtree, and falls
 
 ## Quick start
 
-### 1. Define the profile and start the handler
+### 1. Register the provider and create the handler
+
+Register the provider before you create the handler. The profile binds models through the provider's `.model()` helper.
+Pass credential values through the handler's vault.
+Supply vault slots as own properties. The server ignores inherited credentials and resolvers.
+You can register an object adapter or a class adapter that implements `ProviderAdapter`.
+The server preserves method receivers. Replacing the registration affects later runs; an active run retains its captured adapter methods.
 
 ```ts
-import { defineProfile } from '@theoremjs/agents';
+import { defineProfile, defineProvider, googleAdapter, registerProvider } from '@theoremjs/agents';
 import { createTheoremHandler } from '@theoremjs/react/server';
+
+const google = defineProvider({
+  id: 'company-google',
+  connection: {},
+  keySlot: 'main',
+  adapter: googleAdapter(),
+});
+registerProvider(google);
 
 const support = defineProfile({
   type: 'text',
   id: 'support.agent',
   identity: { handle: 'support', system: 'You help customers with their account.' },
   models: {
-    fast: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      apiId: 'gemini-3.5-flash-lite',
-      persistViaInteractionId: false,
-    },
+    fast: google.model('gemini-3.5-flash-lite'),
   },
   defaultModel: 'fast',
-  key: 'main',
   tools: { allow: [] },
   inputs: { text: true },
 });
@@ -173,7 +181,9 @@ The profile, the keys and the system prompt stay on the server. The browser rece
 
 It does not run while a reply streams or waits for a gate.
 
-To restore the conversation, pass the saved value as `initialChat`. The component reads `initialChat` once, when it mounts.
+Save the complete snapshot, including `session`. The session contains native provider state separately from displayed transcript blocks.
+To restore the conversation, pass the saved value as `initialChat`. The component reads this value once, when it mounts.
+The kernel validates native state against portable history. On a mismatch, it rebuilds history or applies the profile's error policy.
 
 ```tsx
 <TheoremChat
@@ -305,30 +315,90 @@ Three more props give the call values from the page. The profile declares each o
 - `TheoremChat` and `useTheoremChat` take the same `pageTools`. When a chat agent calls a page tool, the reply waits for the page's answer and then goes on. The person is shown no prompt.
 - The runner writes a console warning when the profile has a page tool with no function in `pageTools`, and when `pageTools` has a function for a tool that is not a page tool.
 
+The live client checks a tool call with its relay before it invokes a page callback.
+It waits for permission and sign-in decisions first. A claimed dispatch grant supplies the final checked arguments.
+The callback runs only for that grant. It returns its result with the call ID, operation ID, and grant ID.
+The server validates the result against the saved claim before the kernel checks the tool output.
+A restored page gate does not run a callback. Cached terminal replay emits no dispatch grant.
+
 To make the agent speak first, set `live.greeting` on the profile. The page sends nothing for it.
 
 ### A call that drops
 
-When the profile sets `live.sessionResumption` and the connection drops, or the provider ends the call at its time limit, the runner takes the call up again. It shows `reconnecting` and tries 5 times, after 0.5, 1, 2, 4 and 8 seconds. If no try connects, the call fails with a `network` error. The runner tells the relay how long the person was away. If the profile sets `live.resumed`, the agent says that it is back after an absence of `afterMs` or longer.
+Use `live.sessionResumption` to reconnect after a dropped connection or a provider time limit.
+The client stores the native checkpoint beside portable history. It sends both when it opens the next session.
 
-A call that fails is not taken up again. Without `live.sessionResumption`, a call the provider ends is over.
+The runner shows `reconnecting`. It tries five times, after 0.5, 1, 2, 4, and 8 seconds.
+If all attempts fail, it reports a `network` error.
+The relay receives the absence duration. If the profile sets `live.resumed`, the agent announces its return after the configured `afterMs`.
+
+The kernel validates native state before resumption. A provider, model, or history mismatch rebuilds from portable history by default.
+It emits `provider_warning`. The client then discards the incompatible checkpoint and retains the history.
+A rebuilt session with history does not repeat the initial greeting.
+The profile can reject mismatches with `providerContinuation.onMismatch: 'error'`.
+
+A failed call does not reconnect. Without `live.sessionResumption`, a provider-ended call is complete.
 
 ### Your relay
 
-The live client's first message is the open message. Read it before you open the session:
+Use a session boundary to authenticate the conversation before you open the upstream session.
+Use the same authenticated session resolver and atomic session store for chat and live requests.
+The boundary rejects native state that this conversation did not save.
+Saved ownership also covers the operation state. An older live checkpoint cannot revive a completed action.
 
 ```ts
-import { liveSessionOpen, parseLiveOpenMessage } from '@theoremjs/react/server';
+import { runSession } from '@theoremjs/agents';
+import {
+  createTheoremSessionBoundary,
+  parseLiveOpenMessage,
+} from '@theoremjs/react/server';
 
+const boundary = await createTheoremSessionBoundary({
+  request,
+  session: authenticatedConversation,
+  sessionStore: sharedSessionStore,
+});
 const open = parseLiveOpenMessage(firstFrame);
-const session = await runSession({ profile, ...liveSessionOpen(open, hostContext) });
+const session = await runSession(
+  { profile, ...await boundary.prepareLiveOpen(open, hostContext) },
+  { vault: hostKeyVault, execution: boundary.toolExecution, pageExecution: boundary.pageExecution },
+);
+for await (const event of session.events()) {
+  if ((event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState) {
+    await boundary.recordCheckpoint(event.providerState);
+  }
+  sendToBrowser(event);
+}
 ```
 
-- `liveSessionOpen` returns the session's `slots`, `context`, `sessionResumptionHandle` and `awayMs`. Its second argument is your server's own context. Pass it only if the profile lists `server` in `inputs.context.from`.
+- `prepareLiveOpen` returns validated history, slots, context, native state, and absence duration. It removes system-role history.
+- Its second argument supplies server context. Browser context stays under `client`.
+- Save checkpoint ownership before you send the event. If storage fails, close the session without advertising that checkpoint.
+- The boundary refuses native resumption while a saved operation is ready, running, or uncertain. It does not repeat the operation.
+- Without a session resolver, the boundary uses an anonymous cookie. Forward its `setCookie` value in the upgrade response.
 - `open.host` is the `openMessage` that your `connection` returned.
-- Read each later message with `parseLiveClientMessage`. Give a `context` message to `session.sendContext({ client: message.context })`.
+- Read later messages with `parseLiveClientMessage`. Give context messages to `session.sendContext({ client: message.context })`.
 
 To build your own call view, use `useLiveRunnerModel(iface, connection, { slots, context, pageTools })` from `@theoremjs/react/ui`. It returns the state of the call, its captions and its controls. `LiveCaptionsPanel` draws the captions.
+
+### A custom browser transport
+
+Use `withPageToolDispatch` when your screen consumes turn events through a custom transport.
+The helper runs callbacks only for dispatch grants received on the active stream.
+It never reads a saved transcript to authorize callback execution.
+Implement the transport's `pageResult` method to return the result to your authenticated server.
+`createHttpTransport` and `createHostTransport` post that result to `/page-result`.
+The built-in chat and host console apply this helper for their `pageTools`.
+For a custom host view, pass callbacks as the second argument to `useTheoremHost`.
+
+```ts
+import { createHttpTransport, withPageToolDispatch } from '@theoremjs/react';
+
+const transport = withPageToolDispatch(
+  createHttpTransport({ endpoint: '/api/theorem' }),
+  { highlight: async argumentsFromServer => ({ output: { shown: argumentsFromServer.id } }) },
+);
+```
 
 ## Server options
 
@@ -337,9 +407,10 @@ To build your own call view, use `useLiveRunnerModel(iface, connection, { slots,
 | Option | Use |
 | --- | --- |
 | `profile` | The profile to serve. The kernel registers it when you create the handler. |
-| `provider` | The provider settings, with the key vault by slot. Or a function that builds a provider for each request. Use the function if each tenant has its own keys. |
+| `provider` | Host options, including the credential vault. A function can return these options per request, for example for tenant-specific credentials. |
 | `session` | Returns the session id of the caller, for example `${userId}:${conversationId}`. Return `undefined` to refuse the request with a 401. Default: a random id in an HttpOnly, SameSite=Lax cookie. |
 | `host` | App data for the tool handlers (`ctx.host`), such as the signed-in user. |
+| `pageToolBroker` | Delivers results to active page dispatches. Default: bounded process memory. |
 | `sessionStore`, `steerInbox` | Where open gates and queued steers are kept. Default: process memory. |
 | `credentialStore` | Where tool credentials are kept, by session. Default: process memory. |
 | `authorizationUrl` | Returns the sign-in URL for an OAuth gate. Without it, an OAuth gate has no URL. |
@@ -347,7 +418,104 @@ To build your own call view, use `useLiveRunnerModel(iface, connection, { slots,
 | `clientEvents` | Options for `forClient`, which prepares each event for the browser. |
 | `onError` | Receives each error that the handler catches. The user sees the wording of the profile for that kind of error, never the error. |
 
-**Note:** Process memory is correct for development and for one process. In production, use a store that all instances share.
+### Share session authority
+
+Use one shared `TheoremSessionStore` when requests can reach several server instances.
+New execution claims retain accepted request data and final prepared input under `operation.invocation`.
+Use this data in `authorizeToolReplay` to check current access to the affected resource.
+Older records can lack this evidence. Refuse disclosure if your access check needs it.
+It holds approvals and provider checkpoint ownership. Tool credentials use the separate `credentialStore`.
+
+```ts
+import type {
+  SessionSnapshot,
+  SessionWriteResult,
+  TheoremSessionState,
+} from '@theoremjs/react/server';
+
+interface SharedSessionStore {
+  load(sessionId: string): Promise<SessionSnapshot | undefined>;
+  compareAndSwap(
+    sessionId: string,
+    expectedRevision: string | null,
+    next: TheoremSessionState,
+  ): Promise<SessionWriteResult>;
+}
+```
+
+Implement `compareAndSwap` as one atomic database operation. A separate read followed by a write is unsafe.
+A null revision creates an absent session. A matching revision replaces the current state.
+Return `{ written: false }` on a conflict. On success, return `{ written: true, revision }` with a new opaque revision.
+Never reuse a revision, including after expiration. Return detached state from `load`.
+Return write success only after the store meets its promised durability.
+
+Each tool action has a kernel-issued `operationId`. The provider's `callId` identifies the upstream call.
+An approval must carry both values. A new action receives a new operation ID even if its provider reuses a call ID.
+A settled replay can omit input. If it supplies input, that input must match the accepted invocation.
+The built-in clients copy this reference from the gate event. Custom clients must preserve it.
+Historical events can omit operation IDs for display. They cannot authorize a new action.
+
+The handler validates versioned state and retries a conflicting transition at most eight times.
+It does not run tools inside this retry loop. Invalid state fails; it does not become an empty session.
+The previous session `load`/`save` contract is not supported. Existing unversioned state and versions 1 or 2 require an explicit host migration.
+An older pending gate does not prove that its body never ran. Verify the destination before restoring execution authority.
+The current session state uses version 3. Gates and operation records use operation IDs as keys.
+Each operation record contains its retained outcome. There is no separate outcome cache.
+A gate belongs to the profile that issued it. Another profile cannot consume it through shared session storage.
+The handler saves an accepted answer as ready before it invokes the kernel.
+A retry before dispatch must repeat that accepted answer. It cannot change the input or decision.
+Immediately before the tool body, an atomic claim changes ready to running.
+The kernel saves the terminal outcome before it sends completion to the client.
+A later answer receives that outcome without executing the tool or preparation hooks again.
+The handler checks current tool registration and profile allowlisting before disclosing the outcome.
+The handler checks current output rules before replay. Required redaction or refusal withholds the saved result.
+Supply `authorizeToolReplay` for current role or resource access checks. This read-only callback can withhold a result without reopening the action.
+If execution ends without a saved outcome, the claim remains running or becomes uncertain.
+The handler never restores that operation as an approval. The host must check the destination before any new action.
+Saved outcomes include guarded model read-back, media, provenance, and suspicious content signals.
+The handler retains settled operations for 24 hours from settlement by default. Set `operationRetentionMs` to change this window.
+Each saved outcome records its absolute retention deadline. Changing a handler's policy does not shorten that deadline.
+Each issued gate records its absolute expiry. Changing `gateTtlMs` does not extend an issued gate.
+Ready, running, and uncertain operations do not expire.
+
+Use `sessionLimits` when your storage budget requires different finite limits. The defaults are:
+
+| Limit | Default |
+| --- | --- |
+| `maxGates` | 32 |
+| `maxOperations` | 128 |
+| `maxCheckpoints` | 256 |
+| `maxPermissions` | 2,048 |
+| `maxStateBytes` | 32 MiB |
+| `maxInvocationBytes` | 256 KiB |
+| `maxOutcomeBytes` | 256 KiB |
+
+Set `maxRequestBytes` to bound browser JSON before parsing. Its default is 16 MiB.
+The handler rejects oversized requests before provider access or tool preparation.
+Provider host options also accept `limits` for deadlines and upstream output.
+Byte limits measure UTF-8 JSON. The handler reserves one maximum outcome for each gate and unresolved operation.
+A new claim fails before dispatch when it cannot reserve that space.
+An oversized result after dispatch leaves an uncertain claim. It does not restore an approval.
+Limits never remove unresolved authority or shorten retained settlements. The host must reconcile and archive unresolved actions.
+The memory store accepts the same `sessionLimits` options. Shared stores receive checked states through the handler.
+
+The default memory store coordinates handlers that share the same store object.
+It retains unexpired gates, unresolved operations, and unexpired outcomes during idle and capacity eviction.
+It refuses a new session when every stored session has protected authority.
+Separate memory stores and process restarts do not retain shared authority.
+Atomic updates prevent two workers from dispatching the same operation. A process crash leaves its running claim protected.
+These claims do not provide exactly-once effects at the destination. Use the operation ID with destination idempotency when available.
+Concurrent pending attempts can reach preparation before one claims the body.
+Permission checks and pre-body hooks must be read-only or independently idempotent. The kernel cannot prove hook purity.
+A live session does not restore a dispatched call after an unexpected failure. It retains an uncertain call on that connection.
+To retain execution claims across connections, supply a durable coordinator through `RunSessionOptions.execution`.
+Browser dispatch uses a host-owned `PageToolExecution` service beside the execution coordinator.
+`createTheoremHandler` supplies both services. Live relays pass the session boundary's `pageExecution` and `toolExecution` to `runSession`.
+Forward live page results to `answerPageResult`. Preserve checkpoint ownership through `beforeEvent` when using the Studio bridge.
+The default `PageToolBroker` keeps active result waiters in process memory. Several workers need a shared broker or request affinity.
+Use `pageToolBroker` to supply that broker. It carries results; the atomic session store retains execution authority.
+Lost result delivery does not permit another dispatch. The operation retains its claim or an uncertain outcome.
+The default result deadline is 20 seconds. An expired or interrupted result cannot reopen approval.
 
 ## Build your own UI
 

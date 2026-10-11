@@ -7,8 +7,8 @@ import type {
   WireFunctionTool,
 } from '../../../kernel/types.ts';
 import { GOOGLE_SPEECH_FORMATS } from '../../../presets/google-limits.ts';
-import { builtinWire } from '../../shared/builtin-wire.ts';
 import { historyToolArguments, historyToolIdentity } from '../../shared/tool-args.ts';
+import { interactionsBuiltinTool } from '../builtins.ts';
 import { assertGoogleThinkingLevel } from '../thinking.ts';
 
 export function camelToSnake(key: string): string {
@@ -219,27 +219,10 @@ function wireInteractionsFunctionTool(decl: WireFunctionTool): Record<string, un
   };
 }
 
-function wireGoogleMapsTool(req: ProviderCompleteRequest): Record<string, unknown> {
-  const loc = req.googleMapsLocation;
-  if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
-    return {
-      type: 'google_maps',
-      latitude: loc.latitude,
-      longitude: loc.longitude,
-    };
-  }
-  return { type: 'google_maps' };
-}
-
 function wireInteractionsTools(req: ProviderCompleteRequest): Record<string, unknown>[] {
   const tools: Record<string, unknown>[] = [];
   for (const builtin of req.builtins) {
-    const type = builtinWire(builtin, 'interactions');
-    if (type === 'google_maps') {
-      tools.push(wireGoogleMapsTool(req));
-      continue;
-    }
-    tools.push({ type });
+    tools.push(interactionsBuiltinTool(builtin));
   }
   for (const decl of req.wireTools ?? []) {
     tools.push(wireInteractionsFunctionTool(decl));

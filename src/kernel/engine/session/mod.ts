@@ -1,4 +1,10 @@
-import { canaryNote, contextNote, userDataNote } from '../../../guardrails/canary.ts';
+import {
+  canaryNote,
+  contextNote,
+  USER_CLOSE,
+  USER_OPEN,
+  userDataNote,
+} from '../../../guardrails/canary.ts';
 import {
   addGivenDestinations,
   addHistoryDestinations,
@@ -43,6 +49,7 @@ import { memoryCredentialSource, type ToolCredentialSource } from '../../auth/cr
 import type { ProviderHostOptions } from '../../provider-contract.ts';
 import { historyHash } from '../../provider-contract.ts';
 import { openRegisteredLiveSession } from '../../provider-live.ts';
+import { assertHistoryKept } from '../../provider-runtime.ts';
 import { assertTurnContext } from '../../registry/ingress.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
@@ -59,6 +66,7 @@ import {
 } from '../../stages.ts';
 import { profileAllowsInject, stageAbortStop } from '../../stop.ts';
 import { bindSystem } from '../../system-parts.ts';
+import type { AgentCaller } from '../../tools/agent.ts';
 import { failureEvent } from '../../tools/events.ts';
 import {
   executeRegisteredTool,
@@ -73,6 +81,7 @@ import {
   resumeForAnswer,
 } from '../../tools/gate-answer.ts';
 import { formatToolFailureForModel, formatToolResult } from '../../tools/model-text.ts';
+import type { PageToolExecution, ToolExecutionCoordinator } from '../../tools/operation.ts';
 import { ownToolsOf } from '../../tools/project.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
 import { cloneTurnToolSnapshot } from '../../tools/resolve.ts';
@@ -103,13 +112,23 @@ import type {
 } from '../../types.ts';
 import { prepareLiveContext, prepareLiveInboundText } from '../live-inbound.ts';
 import { assertLiveIngress } from '../live-ingress.ts';
+import { sessionAgentCaller } from '../runner/mod.ts';
 import { mediaTokenFamily } from '../token-estimate.ts';
 import { type LiveCloser, type LiveTrace, startLiveTrace } from './session-trace.ts';
 
 export type { LiveSession, SessionRequest };
 
+function pageAnswerForLiveRequest(
+  page: LiveExecuteToolArgs['page'],
+  execution?: PageToolExecution,
+) {
+  return page ?? (execution ? undefined : { unanswered: true as const });
+}
+
 /** Options for opening a live session: the key vault, a provider's own settings, a WebSocket opener, how long a gated call waits for its decision, and the sign-in gate policy. */
 export interface RunSessionOptions extends ProviderHostOptions {
+  execution?: ToolExecutionCoordinator;
+  pageExecution?: PageToolExecution;
   /** The host's keys by slot; the session uses the slots its profile names. */
   vault?: KeyVault;
   /** Override socket open (Cloudflare fetch-upgrade, tests). Default: `new WebSocket(url)`. */
@@ -133,16 +152,24 @@ export interface RunSessionOptions extends ProviderHostOptions {
 export type SignInGatePolicy = 'hold' | 'answer';
 
 type HeldCall = {
+  operationId: string;
   name: string;
   arguments: Record<string, unknown>;
   /**
    * `running` while `executeTool` runs it; a gated call waits for its decision. A `released` call
    * has already answered the model (a sign-in's pending note) and waits for its outcome.
    */
-  state: 'open' | 'running' | { gate: ToolGate; createdAt: number; released?: true };
+  state: 'open' | 'running' | 'uncertain' | { gate: ToolGate; createdAt: number; released?: true };
   /** Settles a released call that waited past `gateTtlMs`. */
   lapse?: ReturnType<typeof setTimeout>;
 };
+
+function isUnresolvedOperationError(error: unknown): boolean {
+  if (!(error instanceof TheoremError) || !error.copy) return false;
+  return 'key' in error.copy
+    ? error.copy.key === 'tool.execution_uncertain'
+    : error.copy.some((copy) => copy.key === 'tool.execution_uncertain');
+}
 
 function isReleased(held: HeldCall): boolean {
   return typeof held.state === 'object' && held.state.released === true;
@@ -232,6 +259,7 @@ function toTurnRequest(req: SessionRequest): TurnRequest {
     profile: req.profile,
     providerState: req.providerState,
     system: req.system,
+    builtInArgs: req.builtInArgs,
     path: req.path,
     sessionPermissions: req.sessionPermissions,
     signal: req.signal,
@@ -255,7 +283,7 @@ function openingPrompt(
   slots: Record<string, string> | undefined,
 ): string | undefined {
   const { greeting, resumed } = profile.live;
-  if (!req.providerState) {
+  if (!req.providerState && !req.history?.length) {
     return greeting ? fillSlots(profile, greeting, slots, 'live.greeting') : undefined;
   }
   if (!resumed || (req.awayMs ?? 0) < (resumed.afterMs ?? DEFAULT_RESUMED_AFTER_MS)) {
@@ -401,23 +429,89 @@ function boundaryDoneEvents(
   return [{ type: 'done', stop: { kind: 'completed' } }];
 }
 
+function recordLiveHistory(
+  events: TurnEvent[],
+  recordUserText: (text: string) => void,
+  recordAssistantText: (text: string) => void,
+): void {
+  for (const event of events) {
+    if (event.type === 'text') recordAssistantText(event.text);
+    if (
+      event.type === 'evidence' &&
+      event.text &&
+      (event.evidence.kind === 'input_transcription' ||
+        event.evidence.kind === 'output_transcription') &&
+      !event.evidence.interim
+    ) {
+      if (event.evidence.kind === 'input_transcription') recordUserText(event.text);
+      if (
+        event.evidence.kind === 'output_transcription' &&
+        !events.some((item) => item.type === 'text')
+      )
+        recordAssistantText(event.text);
+    }
+  }
+}
+
+async function sealLiveCheckpoints(
+  events: TurnEvent[],
+  history: TurnHistoryMessage[],
+  calls: ReadonlyMap<string, HeldCall>,
+  keepsHistory: boolean,
+): Promise<TurnEvent[]> {
+  const sealed: TurnEvent[] = [];
+  for (const event of events) {
+    if (!keepsHistory && event.type === 'provider_checkpoint') continue;
+    if (!keepsHistory && event.type === 'done') {
+      const { providerState: _dropped, ...standsAlone } = event;
+      sealed.push(standsAlone);
+      continue;
+    }
+    if ((event.type === 'provider_checkpoint' || event.type === 'done') && event.providerState) {
+      const covered = [...history];
+      for (const [callId, held] of calls) {
+        if (covered.some((message) => message.tool_calls?.some((call) => call.id === callId)))
+          continue;
+        covered.push({
+          role: 'assistant',
+          tool_calls: [
+            {
+              id: callId,
+              type: 'function',
+              function: { name: held.name, arguments: JSON.stringify(held.arguments) },
+            },
+          ],
+        });
+      }
+      sealed.push({
+        ...event,
+        ...(event.type === 'provider_checkpoint' ? { history: structuredClone(covered) } : {}),
+        providerState: {
+          ...event.providerState,
+          coveredHistoryLength: covered.length,
+          coveredHistoryHash: await historyHash(covered),
+        },
+      });
+    } else sealed.push(event);
+  }
+  return sealed;
+}
+
 function* yieldLiveNonDoneEvents(
   gated: TurnEvent[],
   includeMatch: boolean | undefined,
-  recordAssistantText: (text: string) => void,
 ): Generator<TurnEvent, TurnEvent[]> {
   const doneBatch = gated.filter((ev) => ev.type === 'done');
   for (const ev of gated) {
     if (ev.type === 'done') continue;
-    if (ev.type === 'text' && typeof ev.text === 'string') {
-      recordAssistantText(ev.text);
-    }
     yield projectGuardrailTurnEvent(ev, includeMatch ?? false);
   }
   return doneBatch;
 }
 
 function buildLiveSession(args: {
+  execution?: ToolExecutionCoordinator;
+  pageExecution?: PageToolExecution;
   tools: ToolRegistry;
   profile: LiveProfile;
   canary: string;
@@ -445,6 +539,8 @@ function buildLiveSession(args: {
   /** The greeting or resume prompt, sent once the cycle is open. */
   opening?: string;
   trace: LiveTrace;
+  /** Runs the agent tools this session's calls reach. */
+  agents: AgentCaller;
   gateTtlMs: number;
   signInGate: SignInGatePolicy;
 }): LiveSession {
@@ -498,14 +594,13 @@ function buildLiveSession(args: {
   };
 
   const recordAssistantText = (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!text) return;
     const last = history.at(-1);
     if (last?.role === 'assistant' && typeof last.content === 'string' && !last.tool_calls) {
-      last.content = `${last.content}${trimmed}`;
+      last.content = `${last.content}${text}`;
       return;
     }
-    history.push({ role: 'assistant', content: trimmed });
+    history.push({ role: 'assistant', content: text });
   };
 
   const recordToolSettle = (
@@ -587,6 +682,14 @@ function buildLiveSession(args: {
     answerModel(callId, held, readBack, parts);
   };
 
+  const settleHeldFailure = (callId: string, held: HeldCall, failure: ToolFailure) => {
+    const readBack = formatToolResult(formatToolFailureForModel(failure));
+    enqueuePending(
+      failureEvent({ name: held.name, callId, operationId: held.operationId }, failure, readBack),
+    );
+    settleHeld(callId, held, readBack);
+  };
+
   /** A released call nobody answered in time: the model reads that its sign-in expired. */
   const lapseReleased = (callId: string, held: HeldCall) => {
     if (closed || calls.get(callId) !== held || typeof held.state !== 'object') return;
@@ -596,9 +699,7 @@ function buildLiveSession(args: {
       gate.kind === 'auth' ? gate.authChallenge.service : undefined,
       profile.lexicon,
     );
-    const readBack = formatToolResult(formatToolFailureForModel(failure));
-    enqueuePending(failureEvent({ name: held.name, callId }, failure, readBack));
-    settleHeld(callId, held, readBack);
+    settleHeldFailure(callId, held, failure);
   };
 
   /** A closed session answers nothing more. */
@@ -637,14 +738,23 @@ function buildLiveSession(args: {
       if (ev.type !== 'tool') continue;
       const tool = ev.tool;
       if (tool.phase === undefined) {
-        calls.set(tool.callId, { name: tool.name, arguments: tool.arguments, state: 'open' });
+        calls.set(tool.callId, {
+          name: tool.name,
+          arguments: tool.arguments,
+          operationId: tool.operationId ?? crypto.randomUUID(),
+          state: 'open',
+        });
         continue;
       }
       const held = calls.get(tool.callId);
       if (!held) continue;
       if (tool.phase === 'error' && tool.readBack !== undefined) {
         settleHeld(tool.callId, held, tool.readBack);
-      } else if (tool.phase === 'cancel' && held.state !== 'running') {
+      } else if (
+        tool.phase === 'cancel' &&
+        held.state !== 'running' &&
+        held.state !== 'uncertain'
+      ) {
         calls.delete(tool.callId);
       }
     }
@@ -716,7 +826,7 @@ function buildLiveSession(args: {
   const ingestPreparedLiveText = (text: string) => {
     const safe = readLiveText(text);
     if (safe === undefined) return;
-    recordUserText(safe);
+    recordUserText(safe.slice(USER_OPEN.length + 1, -(USER_CLOSE.length + 1)));
     sendInput({ type: 'text', text: safe });
   };
 
@@ -832,13 +942,20 @@ function buildLiveSession(args: {
     held.state = 'running';
     const host = per.host ?? sessionHost;
     const record = trace.toolRecord(callId);
+    let dispatched = false;
     const exec = executeRegisteredTool({
+      onDispatch: () => {
+        dispatched = true;
+      },
       tools: args.tools,
+      agents: args.agents,
+      execution: args.execution,
       profile,
       name: held.name,
       input,
       callId,
       ctx: {
+        operationId: held.operationId,
         sessionPermissions,
         credentials: per.credentials ?? sessionCredentials,
         resolveHost,
@@ -847,7 +964,8 @@ function buildLiveSession(args: {
         resume,
         host,
         // why: A call opens no second line to the page, so a call the page did not answer is not held for it.
-        page: per.page ?? { unanswered: true },
+        page: pageAnswerForLiveRequest(per.page, args.pageExecution),
+        pageExecution: args.pageExecution,
         turn: { step: Math.max(1, cycleStep), taint: cycleTaint, destinations },
       },
       snapshot,
@@ -876,8 +994,18 @@ function buildLiveSession(args: {
         enqueuePending(next.value);
       }
     } catch (err) {
-      // why: It did not settle: it waits as it did, to be run again.
-      held.state = waiting;
+      // invariant: A dispatched call with no outcome cannot regain approval authority.
+      const unresolved = dispatched || isUnresolvedOperationError(err);
+      held.state = unresolved ? 'uncertain' : waiting;
+      if (unresolved)
+        throw new TheoremError(
+          'unavailable',
+          lexiconText('tool.execution_uncertain', {}, profile.lexicon),
+          {
+            copy: { key: 'tool.execution_uncertain' },
+            cause: err,
+          },
+        );
       throw err;
     } finally {
       record.finish();
@@ -901,9 +1029,7 @@ function buildLiveSession(args: {
           }
         : s.failure;
       if (s.callNotStarted && failure) {
-        const readBack = formatToolResult(formatToolFailureForModel(failure));
-        enqueuePending(failureEvent({ name: held.name, callId }, failure, readBack));
-        settleHeld(callId, held, readBack);
+        settleHeldFailure(callId, held, failure);
       } else {
         const output = liveToolOutput(s);
         if (output === undefined) calls.delete(callId);
@@ -967,11 +1093,24 @@ function buildLiveSession(args: {
    * `gateTtlMs` is settled (a held one as abandoned, a released one as lapsed;
    * the model reads that), then refused.
    */
-  const takeHeld = async (callId: string): Promise<HeldCall> => {
+  const takeHeld = async (callId: string, operationId?: string): Promise<HeldCall> => {
     const held = calls.get(callId);
     if (!held || held.state === 'running') {
       throw new TheoremError('request', `call ${callId} is not waiting to run`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
+    if (operationId !== undefined && operationId !== held.operationId) {
+      throw new TheoremError('request', lexiconText('session.gate_expired', {}, profile.lexicon), {
+        copy: { key: 'session.gate_expired' },
+      });
+    }
+    if (held.state === 'uncertain')
+      throw new TheoremError(
+        'unavailable',
+        lexiconText('tool.execution_uncertain', {}, profile.lexicon),
+        {
+          copy: { key: 'tool.execution_uncertain' },
+        },
+      );
     if (gateLapsed(held)) {
       if (isReleased(held)) lapseReleased(callId, held);
       else
@@ -998,10 +1137,27 @@ function buildLiveSession(args: {
   const deliverBatch = async function* (
     item: Extract<LiveQueueItem, { type: 'batch' }>,
   ): AsyncGenerator<TurnEvent> {
-    holdCalls(item.events);
+    const identities = new Map<string, string>();
+    const events = item.events.map((event): ProviderEvent => {
+      if (event.type !== 'tool') return event;
+      const { tool } = event;
+      if (tool.phase === undefined) {
+        if (calls.has(tool.callId) || identities.has(tool.callId)) {
+          throw new TheoremError(
+            'bad_response',
+            lexiconText('provider.duplicate_call', {}, profile.lexicon),
+            { cause: { code: 'duplicate_pending_call' } },
+          );
+        }
+        identities.set(tool.callId, crypto.randomUUID());
+      }
+      const operationId = identities.get(tool.callId) ?? calls.get(tool.callId)?.operationId;
+      return { ...event, tool: { ...tool, operationId } };
+    });
+    holdCalls(events);
     // why: Usage is held per response and emitted once, reported or estimated, by `settle`.
     const hostEvents = hostEventsOf(
-      item.events.filter((ev) => ev.type !== 'tokens'),
+      events.filter((ev) => ev.type !== 'tokens'),
       snapshot,
     ).map(asToolGetsIt);
     const gateStart = performance.now();
@@ -1014,35 +1170,14 @@ function buildLiveSession(args: {
       if (ev.type === 'guardrail') trace.outbound(ev);
     }
 
-    const sealed: TurnEvent[] = [];
-    for (const event of gated) {
-      if ((event.type === 'provider_checkpoint' || event.type === 'done') && event.providerState) {
-        const covered = [...history];
-        for (const [callId, held] of calls) {
-          if (covered.some((message) => message.tool_calls?.some((call) => call.id === callId)))
-            continue;
-          covered.push({
-            role: 'assistant',
-            tool_calls: [
-              {
-                id: callId,
-                type: 'function',
-                function: { name: held.name, arguments: JSON.stringify(held.arguments) },
-              },
-            ],
-          });
-        }
-        sealed.push({
-          ...event,
-          providerState: {
-            ...event.providerState,
-            coveredHistoryLength: covered.length,
-            coveredHistoryHash: await historyHash(covered),
-          },
-        });
-      } else sealed.push(event);
-    }
-    const doneBatch = yield* yieldLiveNonDoneEvents(sealed, includeMatch, recordAssistantText);
+    recordLiveHistory(gated, recordUserText, recordAssistantText);
+    const sealed = await sealLiveCheckpoints(
+      gated,
+      history,
+      calls,
+      profile.providerContinuation?.history !== 'stateless',
+    );
+    const doneBatch = yield* yieldLiveNonDoneEvents(sealed, includeMatch);
     const tokens = await trace.settle();
     if (tokens) yield tokens;
 
@@ -1166,6 +1301,7 @@ function buildLiveSession(args: {
     },
     async executeTool({
       callId,
+      operationId,
       decision,
       input,
       secret,
@@ -1174,7 +1310,7 @@ function buildLiveSession(args: {
       page,
     }: LiveExecuteToolArgs): Promise<LiveExecuteToolResult> {
       assertOpen();
-      const held = await takeHeld(callId);
+      const held = await takeHeld(callId, operationId);
       const gate = typeof held.state === 'object' ? held.state.gate : undefined;
       if (!gate) {
         if (decision !== undefined || input !== undefined || secret !== undefined) {
@@ -1195,8 +1331,9 @@ function buildLiveSession(args: {
         { callId, decision, input, secret },
         {
           name: held.name,
-          arguments: held.arguments,
+          arguments: gate.preparedArguments ?? held.arguments,
           permission: gate.permission,
+          gateKind: gate.kind,
           ...(gate.kind === 'auth' ? { auth: gate.authChallenge } : {}),
         },
         sessionPermissions ?? [],
@@ -1231,6 +1368,13 @@ function buildLiveSession(args: {
           throw new TheoremError(
             'request',
             `the run answering call ${callId} carries a call of its own (${ev.tool.callId})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          );
+        }
+        if (ev.tool.operationId !== held.operationId || ev.tool.name !== held.name) {
+          throw new TheoremError(
+            'request',
+            lexiconText('session.gate_expired', {}, profile.lexicon),
+            { copy: { key: 'session.gate_expired' } },
           );
         }
         if (isSettledPhase(ev.tool)) settled = ev.tool;
@@ -1366,6 +1510,7 @@ async function openTracedSession(
     givenUrls,
     ownToolsOf(registry.tools, profile),
   );
+  assertHistoryKept(profile.providerContinuation, req.providerState, req.history);
   const definition = registry.providers.require(binding.provider);
   const connection = await openRegisteredLiveSession(
     definition,
@@ -1373,11 +1518,13 @@ async function openTracedSession(
     completeReq,
     options,
     req.providerState,
-    profile.providerContinuation?.onMismatch,
+    profile.providerContinuation,
   );
   trace.setup(connection.setup);
 
   return buildLiveSession({
+    execution: options.execution,
+    pageExecution: options.pageExecution,
     tools: registry.tools,
     profile,
     canary: generation.canary,
@@ -1399,6 +1546,7 @@ async function openTracedSession(
     initialContext: req.context,
     opening: hasInitialInput ? undefined : openingPrompt(profile, req, safe.input?.slots),
     trace,
+    agents: sessionAgentCaller(registry, req, options, trace.agentCanaries),
     gateTtlMs,
     signInGate: options.signInGate ?? 'hold',
   });

@@ -2,8 +2,15 @@ import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import type { ToolOrigin } from '../../guardrails/types.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
-import { interactionPartSchema } from '../turn-events.ts';
-import type { Profile, ProfileId, TurnEvent, TurnEventOf, TurnTokens } from '../types.ts';
+import { interactionPartSchema, sourceSchema } from '../turn-events.ts';
+import type {
+  Profile,
+  ProfileId,
+  ProfileInputsSpec,
+  TurnEvent,
+  TurnEventOf,
+  TurnTokens,
+} from '../types.ts';
 import { findLast } from '../util/find-last.ts';
 import { profileToolAllow } from './resolve.ts';
 import type {
@@ -43,14 +50,63 @@ class AgentCallFailed extends Error {
 /** The agents an agent tool can run: each has a turn that takes text. */
 const AGENT_TOOL_TYPES: ReadonlySet<Profile['type']> = new Set(['text', 'image', 'speech']);
 
-const agentToolInput: z.ZodType<AgentToolInput> = z.object({
-  text: z.string().min(1),
+// why: Bytes that are not base64, or a text of only spaces, would be refused inside the called turn as the host's error and end the caller's turn; checked here, the model reads a failed call.
+const textInput = z.string().regex(/\S/);
+
+const blobInput = z.strictObject({
+  mimeType: z.string(),
+  data: z.base64(),
+  name: z.string().optional(),
 });
+
+const mediaRefInput = z.strictObject({
+  mimeType: z.string(),
+  uri: z.string(),
+  name: z.string().optional(),
+});
+
+const speechInput = z.strictObject({
+  voice: z.string().optional(),
+  style: z.string().optional(),
+  speed: z.number().positive().optional(),
+});
+
+/** One choice per declared slot; a slot or a value the profile does not declare is refused. */
+function slotsInput(slots: Record<string, string[]>) {
+  return z.strictObject(
+    Object.fromEntries(
+      Object.entries(slots).map(([slot, choices]) => [slot, z.enum(choices).optional()]),
+    ),
+  );
+}
+
+/**
+ * The input of an agent tool that runs `agent`: text, and each channel the
+ * profile's `inputs` declares. Anything else is refused, never dropped. The
+ * called turn's own ingress checks MIME types and sizes.
+ */
+function agentToolInputFor(
+  agent: Pick<Profile, 'type'> & {
+    inputs?: Pick<ProfileInputsSpec, 'attachments' | 'voice' | 'slots'>;
+  },
+): z.ZodType<AgentToolInput> {
+  const { inputs } = agent;
+  const shape: Record<string, z.ZodType> = { text: textInput };
+  if (inputs?.attachments) {
+    shape.attachments = z.array(z.union([blobInput, mediaRefInput])).optional();
+  }
+  if (inputs?.voice) shape.voice = z.array(blobInput).optional();
+  if (inputs?.slots) shape.slots = slotsInput(inputs.slots).optional();
+  if (agent.type === 'speech') shape.speech = speechInput.optional();
+  // why: The shape is built key by key from the profile, which zod cannot type; each key is an `AgentToolInput` field.
+  return z.strictObject(shape) as unknown as z.ZodType<AgentToolInput>;
+}
 
 const agentToolOutput: z.ZodType<AgentToolOutput> = z.object({
   text: z.string(),
   structured: z.unknown().optional(),
   parts: z.array(interactionPartSchema).optional(),
+  sources: z.array(sourceSchema).optional(),
 });
 
 function profileTakesText(profile: Profile): boolean {
@@ -86,11 +142,12 @@ function agentProfileProblem(
   return undefined;
 }
 
-function assertAgentTool(
+/** The profile an agent tool runs; throws `config` when the tool can't run it. */
+function agentToolProfile(
   def: AgentToolDef,
   findProfile: (id: ProfileId) => Profile | undefined,
   findTool: (name: string) => RegisteredTool | undefined,
-): void {
+): Profile {
   const tag = `Agent tool "${def.name}"`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   const max = def.maxCallsPerTurn;
   if (max !== undefined && !(Number.isInteger(max) && max > 0)) {
@@ -107,6 +164,7 @@ function assertAgentTool(
   if (problem) {
     throw new TheoremError('config', `${tag} can't run '${def.profile}': ${problem}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
+  return profile;
 }
 
 /** An agent with no tools of its own read only what it was sent; one with tools may have read outside content. */
@@ -119,7 +177,7 @@ function agentToolOrigin(profile: Profile | undefined): ToolOrigin {
   return profileToolAllow(profile).length === 0 && !builtins ? 'local' : 'delegated';
 }
 
-/** The called agent's reply: its text, its last structured reply, and its media as parts. */
+/** The called agent's reply: its text, its last structured reply, its media as parts and what it cited. */
 function agentToolOutputOf(events: readonly TurnEvent[]): AgentToolOutput {
   const text = events.flatMap((e) => (e.type === 'text' ? [e.text] : [])).join('');
   const structured = findLast(
@@ -137,30 +195,38 @@ function agentToolOutputOf(events: readonly TurnEvent[]): AgentToolOutput {
         ]
       : [],
   );
+  const sources = events.flatMap((e) => (e.type === 'citation' ? e.sources : []));
   return {
     text,
     ...(structured === undefined ? {} : { structured }),
     ...(parts.length > 0 ? { parts } : {}),
+    ...(sources.length > 0 ? { sources } : {}),
   };
 }
 
 function normalizeAgent(
   def: AgentToolDef,
-  findProfile: (id: ProfileId) => Profile | undefined,
-  findTool: (name: string) => RegisteredTool | undefined,
+  input: z.ZodType<AgentToolInput>,
   schemas: { inputSchema: Record<string, unknown>; outputSchema: Record<string, unknown> },
 ): RegisteredAgentTool {
-  assertAgentTool(def, findProfile, findTool);
-  return { ...def, type: 'agent', input: agentToolInput, output: agentToolOutput, ...schemas };
+  return {
+    ...def,
+    type: 'agent',
+    input,
+    output: agentToolOutput,
+    sources: (output) => output.sources ?? [],
+    ...schemas,
+  };
 }
 
 export type { AgentCaller, AgentRun };
 export {
   AgentCallFailed,
   agentProfileProblem,
-  agentToolInput,
+  agentToolInputFor,
   agentToolOrigin,
   agentToolOutput,
   agentToolOutputOf,
+  agentToolProfile,
   normalizeAgent,
 };

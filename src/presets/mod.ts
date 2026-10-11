@@ -41,5 +41,10 @@ export {
 } from './google.ts';
 export type { LocalBindingViolation } from './local.ts';
 export { localBindingViolation, ollamaModelThinks } from './local.ts';
-export { OPENROUTER_IMAGES_IGNORED_INPUTS, OPENROUTER_IMAGES_INPUT_MIMES } from './openrouter.ts';
+export {
+  OPENROUTER_BUILTIN_TOOLS,
+  OPENROUTER_IMAGES_IGNORED_INPUTS,
+  OPENROUTER_IMAGES_INPUT_MIMES,
+  registerOpenRouterPreset,
+} from './openrouter.ts';
 export { JEV_USD_PER_MILLION_INPUT_TOKENS } from './typesafe.ts';

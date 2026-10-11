@@ -39,6 +39,11 @@ const tsc = await new Deno.Command('npx', {
 }).output();
 if (!tsc.success) throw new Error('tsc failed to build @theoremjs/react');
 
+// why: The local Studio prototype is type-checked but is not a public React entrypoint.
+await Deno.remove(`${outDir}/studio`, { recursive: true }).catch((error: unknown) => {
+  if (!(error instanceof Deno.errors.NotFound)) throw error;
+});
+
 for (const dir of assetDirs) {
   await Deno.mkdir(`${outDir}/${dir}`, { recursive: true });
   for await (const entry of Deno.readDir(`${srcDir}/${dir}`)) {

@@ -79,6 +79,7 @@ export type GateAnswerRequest = {
 
 /** A tool call held at a gate, with what answering it needs. */
 export type HeldGatedCall = {
+  gateKind?: import('../schema.ts').ToolGateKind;
   name: string;
   arguments: Record<string, unknown>;
   permission?: ToolPermission;
@@ -118,10 +119,13 @@ export function answerGatedCall(
   }
   const typed = secret === undefined ? undefined : credentialForSignInGate(call.auth, secret);
   return {
-    resume: resumeForAnswer(
-      input === undefined ? { decision } : { decision, edited: { from: call.arguments } },
-      call.auth !== undefined,
-    ),
+    resume: {
+      ...resumeForAnswer(
+        input === undefined ? { decision } : { decision, edited: { from: call.arguments } },
+        call.auth !== undefined,
+      ),
+      ...(call.gateKind ? { gateKind: call.gateKind } : {}),
+    },
     input: input ?? call.arguments,
     sessionPermissions: sessionPermissionsAfterApproval(
       sessionPermissions,

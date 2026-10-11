@@ -62,9 +62,9 @@ function addGuardrailBlock(blocks: TranscriptBlock[], block: TranscriptBlock): v
   blocks.splice(streaming ? blocks.length - 1 : blocks.length, 0, block);
 }
 
-/** One block per call, keyed by `callId`; each event folds into it (`applyToolEvent`). */
+/** invariant: Issued operation IDs separate action blocks; historical events use callId. */
 function upsertToolBlock(blocks: TranscriptBlock[], tool: ToolCallEvent): void {
-  const id = `tool-${tool.callId}`;
+  const id = `tool-${tool.operationId ?? tool.callId}`;
   const existing = blocks.find(
     (block): block is ToolBlock => block.kind === 'tool' && block.id === id,
   );

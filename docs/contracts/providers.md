@@ -1,57 +1,67 @@
 # Providers (`@theoremjs/agents/providers`)
 
-Register a provider before registering profiles that reference it. A provider definition
-holds host code and connection settings; a profile holds its provider ID, model ID and
-serializable options. Credentials arrive separately through the vault when an operation runs.
+Use this contract when you add an adapter or change the boundary between an adapter and the kernel.
+A registered provider supplies model operations. The kernel applies the profile, validates model events, and executes client tools.
 
 ## Export
+
+Use the providers entrypoint for adapter contracts, factories, schemas, and transport utilities.
 
 | Field | Value |
 | --- | --- |
 | Import | `@theoremjs/agents/providers` / `jsr:@theoremjs/agents/providers` |
 | Module | `src/providers/mod.ts` |
-| Root | Provider contracts and first-party factories are also exported from `mod.ts` |
+| Root | `mod.ts` also exports provider contracts and first-party factories |
 | Local subpath | `@theoremjs/agents/providers/local` exports the existing local codec |
+| Testing subpath | `@theoremjs/agents/providers/testing` exports offline conformance fixtures and reports |
 | Live subpath | `@theoremjs/agents/providers/google/live` exports the existing Google socket codec |
 
 ## Ownership
 
-The provider package owns protocol encoding, transport and decoding under `src/providers/`.
-The kernel owns registration, request requirements, credentials, event validation and checkpoints.
+Keep protocol code in the adapter. Keep execution authority in the kernel.
 
 | Source | Responsibility |
 | --- | --- |
-| `src/providers/adapters.ts` | First-party adapter definitions and lazy operation construction |
-| `src/kernel/provider-contract.ts` | Public schemas, adapter interfaces and registry |
-| `src/kernel/provider-runtime.ts` | Capability checks, credential resolution, terminal validation and checkpoints |
-| `src/kernel/provider-live.ts` | Normalized live operations exposed to the live runner |
-| `src/providers/openrouter/chat.ts` | Official SDK chat transport and normalized response decoding |
-| `src/providers/openrouter/openai/reasoning-state.ts` | Native reasoning replay associated with portable tool-call IDs |
+| `src/providers/adapters.ts` | First-party definitions and lazy construction of operations |
+| `src/kernel/provider-contract.ts` | Public schemas, adapter interfaces, and registry |
+| `src/kernel/provider-runtime.ts` | Capability checks, credentials, terminal validation, and checkpoints |
+| `src/kernel/provider-live.ts` | Normalized live operations for the session runner |
+| `src/providers/openrouter/chat.ts` | Official SDK transport and response decoding |
+| `src/providers/openrouter/openai/reasoning-state.ts` | Native reasoning associated with portable tool-call IDs |
 | `src/providers/google/interactions/` | Google request and event translation |
 | `src/providers/google/live/` | Google WebSocket request and event translation |
 | `src/providers/decision/native.ts` | Native decision HTTP operation |
-| `src/providers/shared/` | SSE, retries, tool arguments and tracing utilities |
+| `src/providers/shared/` | Server-sent events (SSE), retries, tool arguments, and tracing utilities |
 
 ## Package boundary
 
-| Authority | Owner |
+Register executable adapter code on the host. Store only model-binding data in profiles.
+Loading profile JSON does not import an adapter or resolve credentials.
+
+| Action | Owner |
 | --- | --- |
-| Protocol encoding and transport | Adapter |
-| Approvals, guardrails and client execution | Kernel |
+| Encode requests, open transport, decode responses | Adapter |
+| Validate requirements and model events | Kernel |
+| Apply guardrails, approvals, and execution limits | Kernel |
+| Execute client tools | Kernel |
+| Execute hosted provider tools | Upstream provider |
+| Supply credentials and trace storage | Host |
 
-Definitions contain executable host code. Saved profiles do not. Loading a JSON profile
-never imports a module named in that JSON, executes an adapter or resolves a credential.
-
-Importing factories and defining a provider performs schema validation. First-party factories
-load their operation implementations lazily. Construction does not open HTTP or WebSocket transport.
-Hosts supply a vault and may supply fetch, waits and a WebSocket opener. No factory reads an
-ambient environment variable to discover a credential or endpoint.
-
-The kernel executes client tools, applies approvals and guardrails, and enforces turn limits.
-An adapter encodes the tools offered by the kernel and reports requests to call them.
-Hosted provider tools remain provider operations and evidence; they are not client-tool execution.
+First-party factories load operation implementations lazily. Defining or registering these providers does not open HTTP or WebSocket transport.
+The factories do not read environment variables for credentials or endpoints.
+The host supplies a vault. It can also supply fetch, waits, and a WebSocket opener.
 
 ## Registered providers
+
+Register providers before profiles. Use the definition's model helper to validate options and produce ordinary binding data.
+
+| Factory | Operations |
+| --- | --- |
+| `openRouterAdapter` | Chat, image, speech, and decisions |
+| `googleAdapter` | Interactions and live sessions, subject to model capabilities |
+| `openAIChat` | Compatible text chat |
+| `typesafeAdapter` | Decisions; no client tools |
+| External `ProviderAdapter` | Its declared operations |
 
 ```ts
 import {
@@ -79,188 +89,274 @@ scope.profiles.register(defineProfile({
 }));
 ```
 
-`defineProvider` validates connection data and credential-slot names. Its `.model()` helper
-validates shared settings and adapter options, returning ordinary model-binding data.
-Profile registration validates the binding against the currently registered adapter again.
+`defineProvider` checks the connection and credential-slot names. Its `.model()` helper checks shared settings and adapter options.
+Profile registration checks each binding against the registered adapter again.
 
-`ProviderRegistry` supplies `register`, `registerMany`, `get`, `require`, `has`, `list` and `reset`.
-Registering the same ID replaces the definition. Registries belong to a kernel scope.
-The default scope also supplies `registerProvider`, `registerProviders`, `getProvider`,
-`requireProvider`, `hasProvider`, `listProviders` and `resetProviders`.
+`ProviderRegistry` supplies `register`, `registerMany`, `get`, `require`, `has`, `list`, and `reset`.
+Registration replaces an existing definition with the same ID. Each kernel scope has its own registry.
+Each run snapshots its selected definition. Called agents and compactors resolve their own bindings.
 
-`runTurn`, `runSession`, `runDecision` and `compactHistory` receive host options rather than
-an executable provider argument. A called agent or compaction profile resolves its own binding.
-An unknown provider fails before opening model transport.
+The snapshot captures schemas and binds adapter methods to their original receiver.
+Object adapters and class adapters use the same contract. Class continuation methods retain their receiver too.
+Replacing a registration affects later runs. It does not replace an active run's captured methods or continuation descriptor.
+Connection data is cloned. Hidden mutable adapter state is not cloned; adapters must keep active connection semantics stable.
+
+The default scope supplies `registerProvider`, `registerProviders`, `getProvider`, `requireProvider`, `hasProvider`, `listProviders`, and `resetProviders`.
+`runTurn`, `runSession`, `runDecision`, and `compactHistory` receive host options, including the vault.
+They resolve adapters from registered model bindings. An unknown provider fails before model transport opens.
 
 ## Model bindings
 
-`modelBindingSchema` requires nonempty `provider` and `apiId` strings. Shared settings include
-output tokens, temperature, effort aliases and selection, summaries, builtins and compaction.
-`keySlot` and `fallbackKeySlot` optionally override the definition's credential defaults.
-`providerOptions` defaults to an empty JSON object and is parsed using the selected adapter.
+Use a binding to select a registered provider and an upstream model or deployment.
 
-There is no provider or protocol enum in the binding. The old top-level model fields for cache,
-storage, interaction persistence and local server settings are rejected. Those settings belong
-inside the adapter's options. Profile-level credential defaults belong in provider definitions.
-Decision bindings retain their timeout and use the same provider ID and option boundary.
+| Field | Contract |
+| --- | --- |
+| `provider` | Nonempty registered provider ID |
+| `apiId` | Nonempty upstream model or deployment ID |
+| Shared settings | Output tokens, temperature, effort aliases and selection, summaries, builtins, and compaction |
+| `keySlot`, `fallbackKeySlot` | Optional overrides of the definition's credential slots |
+| `providerOptions` | JSON object, parsed by the selected adapter; defaults to an empty object |
+| Decision timeout | Decision bindings retain `timeoutMs` |
+
+`modelBindingSchema` checks shared data. The adapter's options schema checks `providerOptions`.
+Bindings have no protocol enum. Cache, storage, interaction persistence, and local server settings belong in adapter options.
+Provider definitions supply credential defaults. Profiles do not contain credential values or resolver functions.
 
 ## Adapter contract
 
-`ProviderAdapter` declares `apiVersion: 1`, an implementation ID and three schemas:
-connection, options and credentials. Connection and options must produce JSON-compatible data.
-Schema objects and adapter methods are host code and are never reconstructed from profile JSON.
+Implement `ProviderAdapter` when an endpoint needs a different protocol. Reuse a factory when its protocol matches the endpoint.
+An endpoint address alone does not establish compatibility.
 
-The adapter supplies `capabilities`, `validateRequest` and asynchronous `create`.
-Capabilities declare profile types, input/output kinds, builtins and feature support.
-Feature support is `supported`, `unsupported` or `unknown`.
+| Member | Contract |
+| --- | --- |
+| `apiVersion` | `1` |
+| `id` | Stable implementation ID |
+| `connectionSchema` | Validates connection data; output must be JSON-compatible |
+| `optionsSchema` | Validates model options; output must be a JSON object |
+| `credentialSchema` | Validates a resolved credential |
+| `capabilities` | Declares profile types, content kinds, builtins, and feature support |
+| `validateRequest` | Checks restrictions beyond shared capability checks |
+| `create` | Asynchronously returns supported operations |
+| `continuation` | Optional version, state schema, and compatibility key |
 
-The kernel derives required features from the profile and the actual request. A required feature
-must have verified support. A compatible-looking URL is not evidence of support.
-`validateRequest` checks restrictions beyond these shared checks, such as option combinations.
+Feature support is `supported`, `unsupported`, or `unknown`.
+The kernel derives requirements from the profile and actual request. Required features need `supported` status before transport opens.
+The adapter checks remaining restrictions, such as MIME types, tool schemas, and option combinations.
 
-`ProviderContext` provides the resolved connection, options, model ID, abort signal,
-`resolveCredential`, fetch, wait, an optional WebSocket opener and `tapUpstream`.
-Credential access is limited to the selected primary and explicitly selected fallback slots.
-Transport helpers are optional; an adapter can use an SDK internally.
+`ProviderContext` supplies connection data, options, model ID, abort signal, and `resolveCredential`.
+It also supplies fetch, wait, an optional WebSocket opener, and `tapUpstream`.
+Credential access covers only the selected primary and explicit fallback slots. Transport utilities are optional; adapters can use an SDK.
 
-`ProviderOperations` implements only the operations it supports:
+Implement only the operations that the adapter provides.
 
 | Operation | Input | Output |
 | --- | --- | --- |
 | `complete` | `ProviderTurnRequest` | Async stream of `ProviderModelEvent` |
 | `openSession` | `ProviderSessionRequest` | `ProviderLiveConnection` |
-| `decide` | `ProviderDecisionRequest` | Checked native decision result |
+| `decide` | `ProviderDecisionRequest` | Validated native decision result |
 
-A missing operation fails before transport starts. Requests carry normalized history, content,
-tools and generation settings. Vendor wire fields belong to the adapter's encoder.
+The kernel rejects a missing required operation. Requests contain normalized history, content, tools, and generation settings.
+The adapter converts these values to its upstream format.
 
 ## Event authority and termination
 
-`ProviderModelEvent` permits normalized content, tool requests, cancellations, response identity
-and a terminal `done`. `ProviderContentEvent` includes text, thoughts, structured output,
-media, citations, grounding, evidence, usage, session notifications and errors.
+Report model output and tool requests through `ProviderModelEvent`. Do not report kernel decisions as provider output.
 
-Adapters cannot emit stage results, guardrail verdicts, approvals or completed client tools.
-The kernel validates events at the boundary. Tool calls require JSON-object arguments and
-nonempty call IDs and names. A repeated settled call cannot authorize another execution.
+`ProviderContentEvent` permits text, thoughts, structured output, media, citations, grounding, evidence, usage, session notifications, and errors.
+Other model events carry tool requests, cancellations, response identity, or terminal `done` status.
+The kernel rejects stages, guardrail verdicts, approvals, and client-tool execution results from adapters.
 
-For a turn, client calls are held until a successful terminal event and stream exhaustion.
-A missing terminal, malformed event, error, interruption or event after termination prevents
-pending calls from executing. Reading EOF is not successful completion.
-Cancellation does not silently replay a model request.
+Tool requests need nonempty IDs and names, with JSON-object arguments. A repeated settled call cannot authorize another execution.
+The kernel holds pending client calls until it validates model-step termination.
 
-Live sessions use a successful model-step terminal to release calls. A generation notification
-alone does not authorize them. `ProviderLiveConnection` exposes asynchronous text, audio,
-video, context, approved tool-result and close operations. Optional `closeInfo` reports the
-close code, diagnostic reason and any preceding close warning after the event stream ends.
-The live kernel applies its lexicon and tracing policy to those facts.
+| Boundary | Condition for release |
+| --- | --- |
+| Turn | Successful terminal event, then stream exhaustion with no subsequent event |
+| Live session | Successful model-step terminal; a generation notification alone is insufficient |
+| Parallel calls | Verified parallel-tool support |
+
+A missing terminal, malformed event, error, or interruption prevents pending calls from executing.
+EOF alone is not successful completion. Cancellation does not silently replay a request.
+
+`ProviderLiveConnection` sends text, audio, video, context, and approved tool results. It also closes the session.
+Its optional `closeInfo` reports the close code, diagnostic reason, and preceding close warning.
+The live kernel applies its lexicon and tracing policy to these values.
 
 ## OpenRouter
 
-```ts
-const adapter = openRouterAdapter();
-```
+Use `openRouterAdapter` for OpenRouter chat and native image, speech, or decision endpoints.
 
-`openRouterAdapter` uses the pinned official `@openrouter/sdk` for chat. SDK retries are disabled;
-Theorem controls transient retries and explicitly configured quota fallback. The SDK logger
-is disabled. The raw response decoder preserves metadata that an SDK response projection can omit.
+| Operation | Transport |
+| --- | --- |
+| Chat | Pinned official `@openrouter/sdk` |
+| Image, speech, and decisions | Separate native HTTP endpoints |
 
-Requests require support for supplied routing parameters. The adapter handles text and reasoning,
-fragmented tool arguments, structured output, citations and usage. Native reasoning associated
-with tool calls is stored in the provider checkpoint and replayed with matching call IDs.
-Image, speech and native decision operations retain their separate upstream endpoints.
-OpenRouter cache settings use `providerOptions.cache`.
+Chat uses the pinned official `@openrouter/sdk`. SDK retries and debug output are disabled.
+Theorem controls transient retries and explicit quota fallback. The raw decoder preserves metadata omitted by SDK response projections.
+
+Chat and native decision requests require routing support for supplied parameters.
+Chat decodes text, reasoning, fragmented tool arguments, structured output, citations, and usage.
+Checkpoints retain native reasoning for replay with matching portable tool-call IDs.
+
+Set chat caching in `providerOptions.cache`. Native image and speech operations reject client tools, structured output, and chat-only settings.
+Speech speed requires a verified OpenAI TTS model. Other model families reject this setting.
 
 ## Google Interactions
 
+Use `googleAdapter` for Google Interactions. Its model options contain `store` and `persistViaInteractionId`. Its `googleMaps` builtin takes a `location` from the request's `builtInArgs`.
+
 ```ts
-const binding = google.model("model-id", {
+const binding = google.model('model-id', {
   providerOptions: { store: true, persistViaInteractionId: true },
 });
 ```
 
-`googleAdapter` owns Interactions request encoding and streaming decoding.
-Storage, interaction persistence and optional Google Maps location live in provider options.
-The adapter stores an interaction ID as native checkpoint data when persistence is enabled.
-After validation, it encodes only the portable-history suffix not covered by that checkpoint.
-When continuation is rebuilt, it encodes portable history instead of using the native ID.
+With persistence enabled, checkpoint data contains the interaction ID.
+After checkpoint validation, the adapter sends only history beyond the covered prefix.
+After a mismatch, it sends portable history without the native ID.
+
+Unknown model IDs have unknown feature support and no verified media kinds.
+Builders can pass model capability declarations to `googleAdapter`.
+Known live models provide live sessions and audio output. TTS models provide speech operations.
 
 ## Google Live
 
-| Session data | Boundary |
-| --- | --- |
-| Input and approved tool read-back | Normalized connection operations |
-| Native resumption handle | Provider checkpoint data |
+Use the Google adapter's `openSession` operation for native WebSocket sessions.
+The adapter encodes Google frames. The kernel sends normalized input and approved tool results through the public connection.
 
-The Google adapter opens the native WebSocket codec through `openSession`.
-The live kernel sends normalized input and approved tool read-back through the public connection.
-The adapter encodes Google frames and reports normalized content and model-step termination.
-Session resumption handles belong to checkpoint data. Portable history remains separate.
-Provider close warnings and errors are preserved through the normalized live boundary.
+| Data | Treatment |
+| --- | --- |
+| Native resumption handle | Checkpoint data |
+| Portable history | Stored separately from displayed transcript content |
+| Compatible checkpoint | Send only history beyond its covered prefix |
+| Rebuilt session | Send the complete portable history |
+
+The adapter requests input and output transcriptions for portable audio history.
+The kernel records final transcriptions only after the outbound gate releases them.
+Portable user text excludes the fences added to upstream input.
+The normalized boundary preserves provider close warnings and errors.
 
 ## Local provider
 
+Use `openAIChat` for endpoints that accept the compatible chat protocol.
+The connection requires `baseURL`. The adapter appends `/chat/completions`.
+
 ```ts
 const local = defineProvider({
-  id: "local-chat",
-  connection: { baseURL: "http://localhost:11434/v1" },
+  id: 'local-chat',
+  connection: { baseURL: 'http://localhost:11434/v1' },
   adapter: openAIChat(),
 });
 ```
 
-`openAIChat` supplies the reusable compatible-chat adapter. Its connection requires the API base URL; the adapter appends `/chat/completions`.
-Its default deployment declaration supports text; uncertain tools, structured output and reasoning
-remain unknown until the builder explicitly declares the deployment's capabilities.
-The kernel therefore refuses unverified requirements before opening transport.
-The existing `createLocalProvider` codec is exported by the local subpath for codec consumers;
-registered Theorem runners use `openAIChat`.
+The default declaration verifies text input, text output, and streaming.
+Tools, structured output, and reasoning remain unknown until the builder declares verified deployment capabilities.
+The kernel rejects unverified requirements before transport opens.
+The codec assembles fragmented tool IDs, names, and arguments before it releases a call.
+
+The local subpath retains `createLocalProvider` for codec consumers. Registered runners use `openAIChat`.
 
 ## Speech roles
+
+Use a speech profile to resolve voice, format, and media settings before the adapter call.
 
 | Adapter | Audio operation |
 | --- | --- |
 | OpenRouter | Native audio endpoint |
 | Google | Interactions output audio |
 
-Speech profiles resolve their voice, format and media settings before calling the adapter.
-OpenRouter uses its audio endpoint; Google uses Interactions output audio.
-Protocol codecs preserve native media details and convert supported raw PCM to WAV.
-The kernel still validates the profile's speech role and allowed input kinds.
+Codecs preserve native media details and convert supported raw PCM to WAV.
+The kernel validates the profile's speech role and input kinds.
+
+## Verify an external adapter
+
+Use `verifyProviderAdapter` before a host enables a custom protocol.
+The `@theoremjs/agents/providers/testing` entrypoint imports public contracts and has no test-framework dependency.
+It does not open transport at import time.
+
+`ProviderAdapterFixtureBase` contains the name, profile, host fixtures, and expected outcome.
+`ProviderAdapterFixture` adds the normalized request and operation.
+Operations are `complete`, `decide`, or `openSession`. Live fixtures also supply an exercise callback.
+Each fixture receives a new kernel scope. Its setup callback registers tools and output schemas.
+The runner registers the supplied provider and profile after setup.
+All profile model bindings must name that provider.
+
+Host fetch and WebSocket fixtures supply deterministic upstream responses.
+An omitted transport refuses network access. An explicitly supplied transport remains trusted host code.
+The fixture can inspect `ProviderFixtureObservation`: events, operation value, error kind, safe error copy, and requested credential slots.
+The runner never includes credentials or caught diagnostic messages in its report.
+
+`ProviderFixtureResult` preserves fixture names and operation names.
+Failures identify configuration, execution, expectation, or inspection.
+`ProviderConformanceReport` separates fixture results, operation coverage, and named checks.
+An explicit model identifies the deployment whose capability declaration the report checks.
+Unsupported operations and supported operations without fixtures remain distinct.
+Missing evidence is `unverified`. A fixture failure is `fail`; a satisfied fixture assertion is `pass`.
+
+`ProviderConformanceCheck` names operation, cancellation, budgets, credential isolation, and terminal checks.
+`ProviderFixtureControl` lets a fixture abort after it reaches a deterministic transport barrier.
+Cancellation checks require this callback, an expected cancelled result, and cleanup assertions.
+Preflight abort alone does not verify cooperative cancellation.
+Budget fixtures require finite overrides, an expected error, and assertions for the exhausted budget.
+Failed turn fixtures retain normalized events for these assertions.
+Credential fixtures require an inspection callback and an observed credential request.
+Terminal fixtures run through the turn boundary, including incomplete-stream rejection.
+Checks without fixtures remain unverified.
+
+The default fixture deadline is ten seconds. Expiry aborts the operation and returns a failed fixture result.
+It also bounds an asynchronous setup or inspection that ignores cancellation.
+It cannot interrupt synchronous host code or certify future upstream behavior.
+Fixture assertions remain the builder's responsibility.
 
 ## Key vault (provider-neutral)
 
-```ts
-const hostOptions = { vault: {
-  company: async () => ({ token: await refreshToken() }),
-} };
-```
+Supply credentials through host options. Keep credential values and resolver functions outside profiles.
 
-`ProviderCredential` is a string or JSON object. `CredentialResolver` receives provider ID,
-model ID, selected slot and abort signal, returning that value directly or asynchronously.
-`ProviderVault` and `KeyVault` accept values, resolvers and unfilled slots.
+| Vault entry | Resolution |
+| --- | --- |
+| String | Validate with the credential schema |
+| JSON object | Validate with the credential schema |
+| Resolver function | Call when needed, await its value, then validate it |
+| Unfilled slot | Report an authentication failure when a required credential is requested |
 
-Resolution occurs when needed, followed by the adapter's credential-schema validation.
-The host resolver owns refresh and caching. A primary model override wins over a definition
-slot; fallback follows the same precedence and occurs only when explicitly configured.
-Resolver failures and invalid shapes produce authentication failures without embedding values.
-Resolved credential strings are redacted from upstream rows and adapter error diagnostics.
-Error wording parameters receive the same protection. Tool credentials retain their separate contract.
+`CredentialResolver` receives provider ID, model ID, selected slot, and abort signal.
+The host resolver owns caching and refresh. Model slot overrides take precedence over definition defaults.
+Fallback requires an explicitly configured slot. The adapter determines when to request it.
+Vault lookup reads only own properties. An inherited primary entry is missing; an inherited fallback entry returns no credential.
+
+Resolver failures and invalid values produce authentication failures without credential values in the diagnostic.
+An exception while reading the selected vault property produces the same sanitized resolution failure.
+Exceptions during credential parsing or inspection produce a sanitized shape failure, including transformed adapter values.
+The runtime redacts resolved credential strings from upstream rows, adapter errors, and wording parameters.
+Upstream row redaction includes JSON property names and nested values.
+Tool credentials retain their separate contract.
 
 ## Saved provider state
 
-`providerCheckpointSchema` envelopes native JSON data with provider ID, adapter ID, version,
-model ID, compatibility key, covered portable-history length and covered-history hash.
-The kernel computes the envelope and hash. An adapter declares its continuation schema and
-compatibility key; the key must exclude secrets.
+Store native checkpoints beside portable history to resume a conversation or rebuild it after a provider change.
+The kernel creates the checkpoint envelope and history hash. The adapter supplies validated native JSON data.
 
-`providerState` travels on turn/session requests and successful completion output.
-Live checkpoints also arrive as `provider_checkpoint` events. Interface helpers store them
-separately from displayed history. A branch drops native state.
+| Checkpoint field | Purpose |
+| --- | --- |
+| `providerId`, `adapterId` | Provider instance and adapter identity |
+| `version`, `apiId` | State format version and upstream model identity |
+| `compatibilityKey` | Deployment and relevant option identity; excludes secrets |
+| `coveredHistoryLength`, `coveredHistoryHash` | Portable history prefix represented by the native state |
+| `data` | Adapter state validated by its continuation schema |
 
-Provider, model, deployment, version or covered-history mismatches rebuild from portable history
-and emit `provider_warning` with `provider_state_rebuilt`. A profile can instead choose
-`providerContinuation.onMismatch: 'error'`. Compatible but malformed data fails validation.
-Failed or discarded output does not authorize pending tools or commit a usable history prefix.
+Pass `providerState` with history on the next turn or session request.
+Successful turn completion returns `providerState`. Live `provider_checkpoint` events contain the checkpoint and covered portable `history`.
+Interface helpers retain checkpoints separately from displayed history. A branch discards native state.
+
+Provider, model, deployment, version, or covered-history changes cause a mismatch.
+The default policy rebuilds from portable history and emits `provider_warning` with `provider_state_rebuilt`.
+Set `providerContinuation.onMismatch` to `error` to reject the mismatch instead.
+Set `providerContinuation.history` to `provider` when the provider's stored conversation is the only history: pass `providerState` alone, and a request that also carries history is a mismatch.
+Compatible checkpoints with malformed native data fail validation.
+At browser ingress, chat and live must also validate conversation ownership before the kernel receives native state.
+The React session boundary provides this check for live relays.
+The relay must save checkpoint ownership before it exposes the checkpoint to the browser.
+Failed or discarded output does not commit a usable history prefix or authorize pending tools.
 
 ## Exported API
 
@@ -274,12 +370,13 @@ and `OpenLiveWebSocket`.
 
 | Group | Symbols |
 | --- | --- |
-| Provider definitions | `ProviderAdapter`, `ProviderDefinition`, `DefinedProvider`, `RegisteredProvider`, `ProviderRegistry`, `defineProvider`, `createProviderRegistry` |
+| Provider definitions | `ProviderAdapter`, `ProviderBuiltinSpec`, `ProviderDefinition`, `DefinedProvider`, `RegisteredProvider`, `ProviderRegistry`, `defineProvider`, `createProviderRegistry` |
 | Provider data | `JsonValue`, `JsonObject`, `CapabilitySupport`, `ProviderCapabilities`, `ResolvedProviderModel`, `ProviderModelSettings` |
 | Provider vault | `ProviderCredential`, `CredentialContext`, `CredentialResolver`, `ProviderVault`, `ProviderWait`, `OpenProviderWebSocket` |
-| Provider operations | `ProviderHostOptions`, `ProviderContext`, `ProviderOperations`, `ProviderRequest`, `ProviderTurnRequest`, `ProviderSessionRequest`, `ProviderDecisionRequest`, `ProviderLiveConnection`, `ProviderToolResult` |
+| Provider operations | `ProviderHostOptions`, `ProviderLimits`, `providerLimitsSchema`, `resolveProviderLimits`, `ProviderContext`, `ProviderOperations`, `ProviderRequest`, `ProviderTurnRequest`, `ProviderSessionRequest`, `ProviderDecisionRequest`, `ProviderLiveConnection`, `ProviderToolResult` |
 | Provider output | `ProviderContentEvent`, `ProviderModelEvent`, `ProviderCheckpoint`, `ProviderWarning`, `ProviderContinuationPolicy` |
 | Provider schemas | `jsonValueSchema`, `jsonObjectSchema`, `keySlotSchema`, `commonModelSettingsSchema`, `modelBindingSchema`, `decisionModelBindingSchema`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema`, `providerCapabilitiesSchema` |
+| Provider limits | `ProviderLimits`, `providerLimitsSchema`, `resolveProviderLimits` |
 
 ```theorem-evidence
 {
@@ -467,3 +564,29 @@ and `OpenLiveWebSocket`.
   }
 }
 ```
+
+## Operating budgets
+
+Use host limits to bound setup, credentials, retries, and upstream output. Profiles contain none of these limits.
+`ProviderHostOptions.limits` accepts positive safe-integer overrides. Timer limits must fit the runtime timer range.
+`resolveProviderLimits` merges defaults and validates the result with `providerLimitsSchema`.
+The adapter receives resolved limits through `ProviderContext.limits`.
+
+| Budget | Default |
+| --- | --- |
+| Operation deadline | 120 seconds |
+| Live connection deadline | 30 seconds |
+| Active live response deadline | 120 seconds |
+| Wire record and normalized event | 16 MiB each |
+| Decompressed HTTP response and aggregate HTTP attempts | 64 MiB each |
+| Normalized response cycle | 64 MiB and 100,000 events |
+| Pending client tool calls | 32 |
+
+The operation deadline includes creation and credential resolution. Retries retain the original deadline and consumption budget.
+Injected fetch counts decompressed bytes before forwarding each chunk. SSE records include incomplete records and comments.
+Injected WebSocket transport checks message bytes before adapter JSON parsing.
+Normalized accounting includes media, structured output, tool arguments, and native state. It measures UTF-8 JSON bytes.
+Decision outputs use the same normalized byte limit. Compaction uses the bounded complete operation.
+Live response budgets reset at validated terminal events. User-input idle time has no active response timer.
+Exhaustion cancels transport, discards unreleased tool requests, and prevents checkpoint commitment.
+Adapters must use the injected transport and signal. Theorem cannot interrupt arbitrary adapter code that bypasses them.

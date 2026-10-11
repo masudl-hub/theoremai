@@ -105,6 +105,14 @@ Deno.test('model, effort and continuation refusals are request errors; a missing
     "request: Unknown model 'z' for select",
     'unknown model',
   );
+  // A profile with one model may still let the turn name it: the name it lacks is refused.
+  define('single', { allowModelSelect: true });
+  check(
+    say(turn('single', { model: 'z' })),
+    "request: Unknown model 'z' for single",
+    'unknown model on a one-model profile',
+  );
+  check(say(turn('single', { model: 'm' })), 'returned', 'the one model, named');
   define('bare');
   check(
     say(turn('bare', { effort: 'high' })),

@@ -29,6 +29,7 @@
     ".": "./mod.ts",
     "./kernel": "./src/kernel/mod.ts",
     "./providers": "./src/providers/mod.ts",
+    "./providers/testing": "./src/providers/testing.ts",
     "./providers/local": "./src/providers/local/mod.ts",
     "./guardrails": "./src/guardrails/mod.ts",
     "./guardrails/testing": "./src/guardrails/testing.ts",
@@ -88,6 +89,7 @@
     "@stryker-mutator/core": "^10.0.0",
     "@types/node": "^20.19.43",
     "fallow": "3.17.0",
-    "intl-messageformat": "^11.2.9"
+    "intl-messageformat": "^11.2.9",
+    "typescript": "^6.0.3"
   }
 }

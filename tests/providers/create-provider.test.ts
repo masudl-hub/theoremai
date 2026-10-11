@@ -52,3 +52,14 @@ Deno.test('profiles require registration and reject unavailable profile operatio
   scope.providers.register(provider);
   assertThrows(() => scope.profiles.register(profile), Error, 'cannot run');
 });
+
+Deno.test('unverified Gemini models need an explicit capability declaration', () => {
+  const model = { apiId: 'new-model-with-new-rules', connection: {}, providerOptions: {} };
+  const unknown = googleAdapter().capabilities(model);
+  assertEquals(unknown.features.clientTools, 'unknown');
+  assertEquals(unknown.features.structuredOutput, 'unknown');
+  assertEquals(unknown.inputKinds, []);
+  const known = googleAdapter().capabilities({ ...model, apiId: 'gemini-3.5-flash-lite' });
+  assertEquals(googleAdapter({ [model.apiId]: known }).capabilities(model), known);
+  assertEquals(typesafeAdapter().capabilities(model).features.clientTools, 'unsupported');
+});

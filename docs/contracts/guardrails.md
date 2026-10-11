@@ -681,13 +681,16 @@ not the key.
 | A remote tool without its credential (`not_authorized`); tool HTTP 401 / 403 | `auth` |
 | `network_error` | `network` |
 | `invalid_*`, `malformed_arguments` | `bad_response` |
-| `handler_error`, `mcp_*`, other tool HTTP statuses | `failed` |
+| `handler_error` from a handler that threw a `TheoremError` | that error's kind |
+| any other `handler_error`, `mcp_*`, other tool HTTP statuses | `failed` |
 | `unknown_tool`, `not_loaded`, `not_gated`, `provider_native` | `request` |
 | `cancelled` | `cancelled` |
 
 `describeError` returns the raw detail for logs. `throwIfAborted(signal)`
-rethrows the abort (or timeout) reason when a turn should stop early;
+preserves a framework error, abort, or timeout reason when execution must stop;
 `isAbortError` / `isTimeoutError` read the error name only.
+
+Browser JSON parser failures retain a diagnostic code. They omit parser messages, which can contain request values.
 
 ## Trust levels
 
@@ -1528,8 +1531,9 @@ the OAuth helpers. `assertSafeUrl` runs on every outbound URL and throws
 `TheoremError` on a blocked target; a blocked tool target settles as one
 `network_blocked` failure with a `network` guardrail event.
 
-Redirects are followed manually, one hop at a time (Fetch-standard limit of 20
-and method rewrite), and every hop passes the same check. Tool auth and
+For a redirect, `fetchGuarded` reads the next target from the HTTP Location header.
+It follows redirects manually, with a limit of 20 hops and Fetch-standard method changes.
+Each target passes the same URL check before the next request. Tool auth and
 configured headers go to the configured origin only and are never re-sent once a
 redirect leaves it. OAuth discovery and token requests do not follow redirects.
 
@@ -1657,6 +1661,11 @@ in the lexicon or carry an explicit reason:
 | --- | --- |
 | `// lexicon-exempt: <reason>` | Same or previous line |
 | `lexicon-exempt-file: <reason>` | Comment in the first 40 lines (non-runtime fixtures / authoring meta only) |
+
+
+Unresolved tool operations use `tool.execution_uncertain` for public wording.
+This copy asks the user to check the destination before a new action.
+It does not suggest an automatic retry of the unresolved operation.
 
 ## Decision disclosure
 

@@ -86,7 +86,7 @@ export async function* streamStudioTurn(args: {
   /** Where the turn's mid-turn steers queue. */
   steer: SteerInbox;
   /** The paused calls the message walks away from, each as the browser replays it. */
-  abandon?: { callId: string; replay: TheoremReplay }[];
+  abandon?: { callId: string; operationId: string; replay: TheoremReplay }[];
 }): AsyncGenerator<TurnEvent | StudioTraceLine | StudioSteerLine> {
   const { scope, profile } = await studioScope(
     args.profile,
@@ -105,12 +105,12 @@ export async function* streamStudioTurn(args: {
     );
   }
   // Answered up front, so a refused call starts nothing.
-  const walked = abandon.map(({ callId, replay }) => ({
+  const walked = abandon.map(({ callId, operationId, replay }) => ({
     callId,
     invoke: answerReplayed(
       scope,
       profile.id,
-      { callId, decision: 'abandon' },
+      { callId, operationId, decision: 'abandon' },
       replay,
       args.runtime,
     ),
@@ -134,6 +134,8 @@ export async function* streamStudioTurn(args: {
       yield* scope.runTurn(
         {
           profile: profile.id,
+          execution: args.runtime.execution,
+          pageExecution: args.runtime.pageExecution,
           metadata,
           input,
           providerState: args.providerState,
@@ -180,7 +182,7 @@ type StudioScope = Awaited<ReturnType<typeof studioScope>>['scope'];
 function answerReplayed(
   scope: StudioScope,
   profile: string,
-  request: GateAnswerRequest,
+  request: GateAnswerRequest & { operationId: string },
   replay: TheoremReplay,
   runtime: StudioRuntime,
 ): Omit<Parameters<StudioScope['invokeTool']>[0], 'metadata'> {
@@ -194,6 +196,7 @@ function answerReplayed(
     {
       name: tool.name,
       arguments: checkRequest(modelArguments, replay.input, 'replayed call input'),
+      gateKind: replay.gateKind,
       ...heldGate(tool),
     },
     replay.sessionPermissions ?? [],
@@ -202,6 +205,7 @@ function answerReplayed(
     profile,
     name: tool.name,
     callId: request.callId,
+    operationId: request.operationId,
     input: answered.input,
     resume: answered.resume,
     ...(answered.page ? { page: answered.page } : {}),
@@ -219,6 +223,8 @@ function answerReplayed(
     model: replay.model,
     path: replay.path,
     resolveHost: runtime.resolveHost,
+    execution: runtime.execution,
+    pageExecution: runtime.pageExecution,
     onAgentCall: agentCallHook(scope, runtime),
   };
 }
@@ -241,11 +247,11 @@ export async function* streamStudioInvoke(args: {
     args.dependencies,
   );
   assertNotLiveProfile(profile.type, 'invoke');
-  const { gateId, decision, input, secret, page, replay = {} } = args.answer;
+  const { gateId, operationId, decision, input, secret, page, replay = {} } = args.answer;
   const invoke = answerReplayed(
     scope,
     profile.id,
-    { callId: gateId, decision, input, secret, page },
+    { callId: gateId, operationId, decision, input, secret, page },
     replay,
     args.runtime,
   );
@@ -279,6 +285,8 @@ export async function* streamStudioCall(args: {
   yield* withRunTraces((metadata) =>
     scope.invokeTool({
       profile: profile.id,
+      execution: args.runtime.execution,
+          pageExecution: args.runtime.pageExecution,
       name: args.call.name,
       input: args.call.input,
       sessionPermissions: args.sessionPermissions,

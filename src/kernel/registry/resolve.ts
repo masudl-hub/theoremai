@@ -5,11 +5,13 @@ import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { replyIsJudged } from '../../guardrails/progressive-yield.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
 import { DEFAULT_MAX_STEPS } from '../profile-presence.ts';
+import type { RegisteredProvider } from '../provider-contract.ts';
 import { profileTurnResumption } from '../stop.ts';
 import { projectTools } from '../tools/project.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import { resolveTurnTools } from '../tools/resolve.ts';
 import type {
+  BuiltInArgs,
   ModelBinding,
   ModelId,
   ModelProfile,
@@ -208,6 +210,46 @@ function plantedCanary(profile: ModelProfile): string {
   return profile.type !== 'speech' && detects(detect, 'canary_leak') ? mintCanary() : '';
 }
 
+/**
+ * The request's `builtInArgs`, each parsed by the schema the provider's adapter
+ * declares for that tool. Args must name a tool the chosen model lists.
+ */
+function resolveBuiltInArgs(
+  profile: ModelProfile,
+  model: ModelId,
+  binding: ModelBinding,
+  provider: RegisteredProvider,
+  args: BuiltInArgs | undefined,
+): BuiltInArgs | undefined {
+  if (!args) {
+    return undefined;
+  }
+  const resolved: BuiltInArgs = {};
+  for (const [id, value] of Object.entries(args)) {
+    if (!binding.builtInTools?.includes(id)) {
+      throw new TheoremError(
+        'request',
+        `Profile ${profile.id}: builtInArgs names '${id}', which model '${model}' does not list in builtInTools`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    const schema = provider.adapter.builtins?.[id]?.args;
+    if (!schema) {
+      throw new TheoremError(
+        'request',
+        `Profile ${profile.id}: builtin '${id}' takes no args on provider '${provider.id}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    const parsed = schema.safeParse(value);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const at = ['builtInArgs', id, ...(issue?.path ?? [])].join('.');
+      throw new TheoremError('request', `Profile ${profile.id}: ${at}: ${issue?.message}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    resolved[id] = parsed.data;
+  }
+  return resolved;
+}
+
 function resolveTurnInRegistry(
   registry: KernelRegistry,
   req: TurnRequest,
@@ -228,7 +270,9 @@ function resolveTurnInRegistry(
   const structuredId = resolveStructured(profile, input.slots);
   assertOutputMode(profile, structuredId);
   assertSpeechRole(profile, safe);
-  const keys = resolveKeySlot(registry.providers.require(binding.provider), binding);
+  const provider = registry.providers.require(binding.provider);
+  const builtInArgs = resolveBuiltInArgs(profile, model, binding, provider, safe.builtInArgs);
+  const keys = resolveKeySlot(provider, binding);
   const transport = resolveTransport(profile, binding);
   return {
     profile,
@@ -242,9 +286,12 @@ function resolveTurnInRegistry(
       maxOutputTokens: binding.maxOutputTokens,
       temperature: binding.temperature,
       builtins,
+      builtInArgs,
       sessionId: safe.sessionId,
       tools: toolSnapshot,
       sessionPermissions: safe.sessionPermissions,
+      execution: safe.execution,
+      pageExecution: safe.pageExecution,
       history: input.history,
       maxSteps: profile.maxSteps ?? DEFAULT_MAX_STEPS,
       structured: structuredId

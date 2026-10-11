@@ -1,6 +1,8 @@
 import { assert, assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { type ModelProvider, type ProviderEvent, TheoremError } from '../../mod.ts';
+import { withPageToolDispatch } from '../../react/src/client/page-dispatch.ts';
 import type { ClientTurnEvent } from '../../react/src/client/transport.ts';
+import { issuedOperationId } from '../../react/src/client/turn-client.ts';
 import { createMemorySteerInbox } from '../../react/src/server/steer-inbox.ts';
 import { TEST_GOOGLE_KEY, TEST_OPENROUTER_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import {
@@ -264,7 +266,12 @@ Deno.test('browser host gates settle through the same replay path as HTTP', asyn
     );
     const settled: ClientTurnEvent[] = [];
     await transport.invoke(
-      { gateId: gate.tool.callId, decision: 'approve', replay: { name: 'echo', input: {} } },
+      {
+        gateId: gate.tool.callId,
+        operationId: issuedOperationId(gate.tool),
+        decision: 'approve',
+        replay: { name: 'echo', input: {} },
+      },
       (event) => settled.push(event),
     );
     const complete = settled.find(
@@ -377,4 +384,71 @@ Deno.test('provider model lists keep the profile type and never put the key in t
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+Deno.test('browser authority preserves runtime prototype methods and private receivers', async () => {
+  class Runtime {
+    mode = 'byok' as const;
+    #text = 'Class runtime works.';
+    provider() {
+      return provider([{ type: 'text', text: this.#text }]);
+    }
+  }
+  const transport = createBrowserStudioTransport(payload(), new Runtime());
+  const events: ClientTurnEvent[] = [];
+  await transport.turn({ input: { text: 'Hello' } }, (event) => events.push(event));
+  assertEquals(
+    replyText(events.filter((event) => event.type !== 'unsupported' && event.type !== 'malformed')),
+    'Class runtime works.',
+  );
+});
+
+Deno.test('browser host retains dispatch authority and refuses a changed replay without another callback', async () => {
+  const { createBrowserStudioHostTransport } = await import('../../studio/browser.ts');
+  const compiled = {
+    agentId: 'browser-page-host',
+    profile: { id: 'browser-page-host', type: 'host' as const, tools: { allow: ['page_effect'] } },
+    customTools: [
+      {
+        type: 'function' as const,
+        name: 'page_effect',
+        description: 'Act on the page',
+        category: 'test',
+        access: 'read-write' as const,
+        permission: 'auto' as const,
+        loadTier: 'T0' as const,
+        paths: ['*'],
+        answeredBy: 'page' as const,
+        inputSchema: { type: 'object', properties: {} },
+        outputSchema: { type: 'object', properties: {} },
+      },
+    ],
+  };
+  let effects = 0;
+  const transport = withPageToolDispatch(
+    createBrowserStudioHostTransport(compiled, { mode: 'byok' }),
+    {
+      page_effect: () => {
+        effects++;
+        return { output: { ok: true } };
+      },
+    },
+  );
+  const events: ClientTurnEvent[] = [];
+  await transport.call({ name: 'page_effect', input: {} }, (event) => events.push(event));
+  const dispatch = events.find((event) => event.type === 'tool' && event.tool.phase === 'dispatch');
+  assert(dispatch?.type === 'tool');
+  assert(events.some((event) => event.type === 'tool' && event.tool.phase === 'complete'));
+  await assertRejects(() =>
+    transport.invoke(
+      {
+        gateId: dispatch.tool.callId,
+        operationId: issuedOperationId(dispatch.tool),
+        decision: 'approve',
+        replay: { name: 'page_effect', input: {} },
+      },
+      (event) => events.push(event),
+    ),
+  );
+  assertEquals(effects, 1);
 });

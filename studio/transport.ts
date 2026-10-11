@@ -133,6 +133,7 @@ export function createStudioTransport(
   /** The server's steer inbox for each turn, by the client's turn id. */
   const inboxes = new Map<string, string>();
   return {
+    pageResult: (body, signal) => postJson('/api/studio/page-result', body, { ...options, signal }),
     describe: () => Promise.resolve(studioInterface(payload)),
     turn: async (request, onEvent, signal) => {
       try {
@@ -200,8 +201,8 @@ export function createStudioDecisionTransport(
 
 /**
  * A host draft's transport: the page describes the tools from the draft's own schemas, and every
- * call posts the draft's profile and tools beside it. The studio keeps no session, so the
- * tools the user allowed for the page ride along with each call, as they do with each answer.
+ * call posts the draft's profile and tools beside it. The server retains operation authority;
+ * permission answers remain explicit request data.
  */
 export function createStudioHostTransport(
   payload: StudioRunPayload,
@@ -215,6 +216,7 @@ export function createStudioHostTransport(
   const traces = options.traces ?? createTraceFeed();
   let sessionPermissions: string[] = [];
   return {
+    pageResult: (body, signal) => postJson('/api/studio/page-result', body, { ...options, signal }),
     describe: () =>
       Promise.resolve(
         hostInterface(

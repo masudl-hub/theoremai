@@ -73,7 +73,9 @@ node scripts/docs-claims.mjs check path/to/doc.md   # every name in the doc exis
 node scripts/docs-claims.mjs affected               # docs that mention what your change touched
 ```
 
-`npm run lint:docs` makes a doc fail when its code changes. The rules are in [`docs/DOCS_TRUTH.md`](docs/DOCS_TRUTH.md) and the ownership graph is in [`docs/_map.mjs`](docs/_map.mjs). When you change code, update the contract that owns it.
+`npm run lint:docs` makes a doc fail when its code changes. The rules are in [`docs/DOCS_TRUTH.md`](docs/DOCS_TRUTH.md) and the ownership graph is in [`docs/_map.mjs`](docs/_map.mjs). When you change code, update the document that owns it.
+Changes under `react/src/` or to `react/package.json` require an update to `react/README.md`.
+Provider and session changes can also require specific sections of that README.
 
 | Contract | Owns |
 | --- | --- |

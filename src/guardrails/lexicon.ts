@@ -12,6 +12,7 @@ export const LEXICON_KEYS = [
   'provider.decision_unavailable',
   'provider.decision_model_missing',
   'provider.decision_ended',
+  'provider.budget_exhausted',
   'provider.adapter_version',
   'provider.adapter_methods',
   'provider.adapter_schemas',
@@ -33,6 +34,7 @@ export const LEXICON_KEYS = [
   'provider.stored_continuation',
   'provider.continuation_mismatch',
   'provider.continuation_contract',
+  'provider.stateless_history',
   'provider.events_after_completion',
   'provider.duplicate_call',
   'provider.tool_cancel_live',
@@ -132,6 +134,7 @@ export const LEXICON_KEYS = [
   'sign_in.expired',
   'sign_in.out_of_scope',
   'session.gate_expired',
+  'session.provider_state_unowned',
   'session.turn_ended',
   'session.gate_pending',
   'session.part_skipped',
@@ -146,6 +149,7 @@ export const LEXICON_KEYS = [
   'tool.t2_loader_needs_snapshot',
   'tool.t2_loader_shape',
   'tool.t2_loader_output_invalid',
+  'tool.execution_uncertain',
   'tool.input_invalid',
   'tool.input_invalid_after_mutate',
   'tool.output_invalid_after_mutate',
@@ -210,6 +214,7 @@ export const CLIENT_LEXICON_KEYS = [
   'live.session_ended',
   'tool.awaiting_user',
   'tool.completed_hidden',
+  'tool.execution_uncertain',
   'voice.unsupported',
   'voice.permission',
   'voice.unavailable',
@@ -246,6 +251,7 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'provider.decision_unavailable': 'Provider has no decision operation',
   'provider.decision_model_missing': 'Decision response has no model',
   'provider.decision_ended': 'Decision request ended',
+  'provider.budget_exhausted': 'The model response exceeded its operating limit.',
   'provider.adapter_version': 'Unsupported provider adapter version',
   'provider.adapter_methods': 'Provider adapters require executable host methods',
   'provider.adapter_schemas': 'Provider adapters require host schemas',
@@ -267,6 +273,7 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'provider.stored_continuation': 'Provider has no verified stored-continuation support',
   'provider.continuation_mismatch': 'Provider continuation is incompatible',
   'provider.continuation_contract': 'Provider state requires a continuation contract',
+  'provider.stateless_history': 'A stateless profile takes no conversation history',
   'provider.events_after_completion': 'Provider emitted events after completion',
   'provider.duplicate_call': 'Duplicate provider tool call',
   'provider.tool_cancel_live': 'Tool cancellation is only valid in live sessions',
@@ -404,6 +411,8 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'sign_in.expired': 'The sign-in link for {service} expired before it was used.',
   'sign_in.out_of_scope':
     "{service} needs access that this tool isn't set up for, so it can't do that.",
+  'session.provider_state_unowned':
+    'Saved model state cannot be used in this conversation. Continue from your saved history.',
   'session.gate_expired': 'Sorry, that step is no longer waiting for approval.',
   'session.turn_ended': 'Sorry, that reply has already finished.',
   'session.gate_pending':
@@ -421,6 +430,8 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'tool.t2_loader_needs_snapshot': "tools.t2Loader '{tool}' requires a turn tool snapshot",
   'tool.t2_loader_shape': "T2 loader '{tool}' must return { loaded: string[] }",
   'tool.t2_loader_output_invalid': 'T2 loader output validation failed after promotion',
+  'tool.execution_uncertain':
+    'This action has an unresolved execution. Check the destination before trying it again.',
   'tool.input_invalid': 'Tool input validation failed',
   'tool.input_invalid_after_mutate': 'Tool input validation failed after mutate',
   'tool.output_invalid_after_mutate': 'Tool output validation failed after mutate',
@@ -452,6 +463,7 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
   'provider.decision_unavailable': 'Provider validation diagnostic.',
   'provider.decision_model_missing': 'Provider validation diagnostic.',
   'provider.decision_ended': 'Provider validation diagnostic.',
+  'provider.budget_exhausted': 'Provider response budget exhaustion.',
   'provider.adapter_version': 'Provider validation diagnostic.',
   'provider.adapter_methods': 'Provider validation diagnostic.',
   'provider.adapter_schemas': 'Provider validation diagnostic.',
@@ -473,6 +485,7 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
   'provider.stored_continuation': 'Provider validation diagnostic.',
   'provider.continuation_mismatch': 'Provider validation diagnostic.',
   'provider.continuation_contract': 'Provider validation diagnostic.',
+  'provider.stateless_history': 'Provider validation diagnostic.',
   'provider.events_after_completion': 'Provider validation diagnostic.',
   'provider.duplicate_call': 'Provider validation diagnostic.',
   'provider.tool_cancel_live': 'Provider validation diagnostic.',
@@ -650,6 +663,7 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
     'Told to the model when the sign-in link expires before the user uses it. Takes {service}.',
   'sign_in.out_of_scope':
     'Told to the model when a service asks for more access than the tool declares, so no sign-in is offered. Takes {service}.',
+  'session.provider_state_unowned': 'Unowned or unavailable provider checkpoint.',
   'session.gate_expired':
     'Shown to the user who answers a step that is no longer waiting for approval.',
   'session.turn_ended': 'Shown to the user who tries to steer a reply that has already finished.',
@@ -673,6 +687,8 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
     'Told to the model when the T2 loader returns something other than { loaded: string[] }. Takes {tool}.',
   'tool.t2_loader_output_invalid':
     "Told to the model when the T2 loader's output fails its schema after promotion.",
+  'tool.execution_uncertain':
+    'Shown when a tool operation has no confirmed outcome and cannot execute again.',
   'tool.input_invalid': "Told to the model when a tool call's input fails the tool's input schema.",
   'tool.input_invalid_after_mutate':
     "Told to the model when a tool call's input fails its schema after a guardrail changed it.",

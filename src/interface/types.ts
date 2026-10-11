@@ -214,8 +214,9 @@ export type ToolCallState = Extract<
   { phase: 'running' | 'gate' | 'complete' | 'error' | 'cancel' }
 >;
 
-/** One tool call: the model's raw call joined with its phase events by `callId` (`toolCallsOf`). */
+/** invariant: An issued operation joins its request and phases; historical calls use callId. */
 export interface ToolCall {
+  operationId?: string;
   name: string;
   callId: string;
   /** What the model proposed. */

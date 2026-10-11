@@ -74,7 +74,7 @@ function onLiveTranscript(
 async function onLiveToolCall(
   name: string,
   toolArgs: Record<string, unknown>,
-  meta: { callId: string },
+  meta: { callId: string; operationId: string },
   bindings: LiveClientBindings,
   clientRef: MutableRefObject<LiveSessionClient | null>,
 ): Promise<void> {
@@ -93,6 +93,7 @@ async function onLiveToolCall(
       name,
       toolArgs,
       callId: meta.callId,
+      operationId: meta.operationId,
       sessionPermissions: bindings.sessionPermissionsRef.current,
       setSessionPermissions: (next) => {
         bindings.sessionPermissionsRef.current = next;

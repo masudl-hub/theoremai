@@ -65,3 +65,46 @@ test('lint passes on current repo graph', async () => {
   });
   assert.equal(result.errors.length, 0, result.errors.join('\n'));
 });
+
+test('React source and package changes require the React README', async () => {
+  const repoRoot = new URL('../..', import.meta.url).pathname;
+  for (const file of [
+    'react/src/client/live-client.ts',
+    'react/src/ui/TheoremChat.tsx',
+    'react/src/client/worklets/mic-capture.js',
+    'react/src/styles/ink-controls.css',
+    'react/package.json',
+  ]) {
+    const { access } = await import('node:fs/promises');
+    await access(`${repoRoot}/${file}`);
+    const stale = await lintDocsTruth({ repoRoot, changedFiles: [file] });
+    assert.ok(
+      stale.errors.some((error) =>
+        error.includes(`${file}: changed without touching owning doc react/README.md`),
+      ),
+      stale.errors.join('\n'),
+    );
+    const fresh = await lintDocsTruth({ repoRoot, changedFiles: [file, 'react/README.md'] });
+    assert.equal(fresh.errors.length, 0, fresh.errors.join('\n'));
+  }
+});
+
+test('provider and session changes also require the React guide', async () => {
+  const repoRoot = new URL('../..', import.meta.url).pathname;
+  for (const file of [
+    'src/kernel/provider-contract.ts',
+    'src/interface/session.ts',
+    'src/kernel/provider-live.ts',
+  ]) {
+    const stale = await lintDocsTruth({
+      repoRoot,
+      changedFiles: [file, 'docs/contracts/kernel.md'],
+    });
+    assert.ok(
+      stale.errors.some((error) =>
+        error.includes(`${file}: changed without touching owning doc react/README.md`),
+      ),
+      stale.errors.join('\n'),
+    );
+  }
+});

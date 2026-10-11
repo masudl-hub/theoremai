@@ -54,12 +54,9 @@ Deno.test('a builtin that is not registered, or is registered as something else,
     );
   }
   check(
-    providerBuiltins(tools({ type: 'builtin', wire: { w: 1 } }), ['a' as never, 'b' as never]),
-    [
-      { id: 'a', wire: { w: 1 } },
-      { id: 'b', wire: { w: 1 } },
-    ],
-    'registered builtins carry their wire',
+    providerBuiltins(tools({ type: 'builtin' }), ['a' as never, 'b' as never], { b: { near: 1 } }),
+    [{ id: 'a' }, { id: 'b', args: { near: 1 } }],
+    'a registered builtin carries the args addressed to it, and no others',
   );
 });
 
@@ -70,7 +67,6 @@ Deno.test('the kernel request omits vendor continuation and option fields', () =
     transport: 'turn',
     previousInteractionId: 'prev',
     store: true,
-    googleMapsLocation: { latitude: 1, longitude: 2 },
     continuation: { c: 1 },
     builtins: [],
     tools: { wire: [{ name: 't' }] },
@@ -120,7 +116,7 @@ Deno.test('the kernel request omits vendor continuation and option fields', () =
     'interactions',
   );
   const other = request({ transport: 'generateContent' }) as unknown as Record<string, unknown>;
-  for (const field of ['previousInteractionId', 'store', 'googleMapsLocation', 'continuation']) {
+  for (const field of ['previousInteractionId', 'store', 'continuation']) {
     check(other[field], undefined, `${field} off the interactions transport`);
   }
   check(other.model, 'm', 'the rest still goes');

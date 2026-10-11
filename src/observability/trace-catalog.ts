@@ -182,6 +182,10 @@ const STOP_KINDS: Readonly<Record<TurnStopKind | 'go_away', TraceOptionMeta>> = 
   },
   provider_error: { label: 'Provider error', doc: 'The provider reported an error.' },
   cancelled: { label: 'Cancelled', doc: 'The user or host stopped it.' },
+  step_limit: {
+    label: 'Ran out of steps',
+    doc: 'The last model call the profile allows asked for tools, so the turn ended without an answer.',
+  },
   stream_incomplete: {
     label: 'Stream cut off',
     doc: "The provider's stream ended before the answer was complete.",

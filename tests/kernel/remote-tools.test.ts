@@ -1649,6 +1649,13 @@ Deno.test('a 403 that asks for no scope is the call failing, not a sign-in', asy
   assertEquals(toolEventsOf(events, 'gate').length, 0);
   assertEquals(toolEventsOf(events, 'error')[0]?.failure?.code, 'http_403');
 });
+Deno.test('a 429 from a tool server fails the call as a rate limit', async () => {
+  registerProfileTool({ slot: 'user_auth', type: 'bearer', scopes: ['read'] });
+  const events = await withFetch(refusingFetch(429), () => runProfileTool('1', BEARER_SLOT));
+  const [failed] = toolEventsOf(events, 'error');
+  assertEquals(failed?.failure?.code, 'http_429');
+  assertEquals(failed?.failure?.kind, 'rate_limit');
+});
 Deno.test('an MCP server refusing the credential gates or fails as an HTTP tool does', async () => {
   resetTools();
   registerTool({

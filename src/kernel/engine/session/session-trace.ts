@@ -220,6 +220,8 @@ class LiveTrace {
   private endedByGoAway = false;
   private socketHasClosed = false;
   private closing?: Promise<void>;
+  /** Canaries bound by the turns this session's agent tools ran: scrubbed from every record after. */
+  readonly agentCanaries: string[] = [];
 
   constructor(
     private readonly tree: TraceTree,
@@ -586,7 +588,7 @@ class LiveTrace {
     const record = buildRecord({
       spans,
       policy: this.out.policy,
-      canaries: this.bound ? [this.bound.canary] : [],
+      canaries: [...(this.bound ? [this.bound.canary] : []), ...this.agentCanaries],
       ...(this.out.metadata ? { metadata: this.out.metadata } : {}),
     });
     this.writes = this.writes.then(() => writeTrace(this.out.sink, record, this.out.policy));

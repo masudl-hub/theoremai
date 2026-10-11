@@ -11,6 +11,7 @@ export type {
   JsonValue,
   OpenProviderWebSocket,
   ProviderAdapter,
+  ProviderBuiltinSpec,
   ProviderCapabilities,
   ProviderCheckpoint,
   ProviderContentEvent,
@@ -20,6 +21,7 @@ export type {
   ProviderDecisionRequest,
   ProviderDefinition,
   ProviderHostOptions,
+  ProviderLimits,
   ProviderLiveConnection,
   ProviderModelEvent,
   ProviderModelSettings,
@@ -47,7 +49,9 @@ export {
   providerCapabilitiesSchema,
   providerCheckpointSchema,
   providerContinuationSchema,
+  providerLimitsSchema,
   providerWarningSchema,
+  resolveProviderLimits,
 } from '../kernel/provider-contract.ts';
 export type { KeyVault } from '../kernel/types.ts';
 export { googleAdapter, openAIChat, openRouterAdapter, typesafeAdapter } from './adapters.ts';

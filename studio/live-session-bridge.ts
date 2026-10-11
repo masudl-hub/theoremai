@@ -1,6 +1,8 @@
-import { errorKind, type LexiconOverrides, type LiveSession, publicError } from '../mod.ts';
+import type { PageToolResult } from '../react/src/server/page-dispatch.ts';
+import { errorKind, type LexiconOverrides, type LiveSession, type TurnEvent, publicError } from '../mod.ts';
 import { parseLiveClientMessage } from '../react/src/server/request-check.ts';
 import { forClient, forClientEvents } from '../src/host/mod.ts';
+import { issuedOperationId as requiredOperationId } from '../react/src/client/turn-client.ts';
 import { bytesToBase64 } from '../src/kernel/mod.ts';
 import type { StudioTraceRoute } from './traces.ts';
 
@@ -16,32 +18,35 @@ function errorEnvelope(err: unknown, lexicon?: LexiconOverrides): string {
 
 /** Calls the model made that the browser has not yet run, each with a timer that settles it as unanswered. */
 type CallWatch = {
-  start(callId: string): void;
-  stop(callId: string): void;
+  start(callId: string, operationId: string): void;
+  stop(callId: string, operationId: string): void;
   stopAll(): void;
 };
 
 function callWatch(session: LiveSession, timeoutMs: number): CallWatch {
-  const timers = new Map<string, ReturnType<typeof setTimeout>>();
-  const stop = (callId: string) => {
-    clearTimeout(timers.get(callId));
+  const timers = new Map<string, { operationId: string; timer: ReturnType<typeof setTimeout> }>();
+  const stop = (callId: string, operationId: string) => {
+    const watched = timers.get(callId);
+    if (watched?.operationId !== operationId) return;
+    clearTimeout(watched.timer);
     timers.delete(callId);
   };
   return {
-    start(callId) {
-      stop(callId);
+    start(callId, operationId) {
+      const previous = timers.get(callId);
+      if (previous) clearTimeout(previous.timer);
       timers.set(
         callId,
-        setTimeout(() => {
+        { operationId, timer: setTimeout(() => {
           timers.delete(callId);
           // The kernel never times out an ungated held call; a refusal here means it already settled.
-          session.executeTool({ callId, page: { timedOut: true } }).catch(() => {});
-        }, timeoutMs),
+          session.executeTool({ callId, operationId, page: { timedOut: true } }).catch(() => {});
+        }, timeoutMs) },
       );
     },
     stop,
     stopAll() {
-      for (const timer of timers.values()) clearTimeout(timer);
+      for (const watched of timers.values()) clearTimeout(watched.timer);
       timers.clear();
     },
   };
@@ -52,6 +57,7 @@ function pipeBrowserToSession(
   session: LiveSession,
   watch: CallWatch,
   lexicon?: LexiconOverrides,
+  pageResult?: (result: PageToolResult) => Promise<boolean | void>,
 ): void {
   // A send the session refuses (a channel the profile turned off, a closed call) reaches the browser.
   const forward = (sent: Promise<void>): void => {
@@ -83,8 +89,17 @@ function pipeBrowserToSession(
             forward(session.sendContext({ client: msg.context }));
             return;
           case 'executeTool': {
-            const { type: _type, output, ...call } = msg;
-            watch.stop(call.callId);
+            const { type: _type, output, grantId, unanswered, ...call } = msg;
+            if (grantId) {
+              if (!pageResult) throw new Error('Page dispatch result is unavailable');
+              forward(pageResult({ callId: call.callId, operationId: call.operationId, grantId,
+                page: unanswered ? { unanswered: true } : { output } }).then((settled) => {
+                  if (settled) serverWs.send(JSON.stringify({ type: 'executeToolResult', callId: call.callId, operationId: call.operationId, status: 'settled' }));
+                }));
+              return;
+            }
+            if (pageResult && output !== undefined) throw new Error('Page result requires a dispatch grant');
+            watch.stop(call.callId, call.operationId);
             void answerExecuteTool(
               serverWs,
               session,
@@ -118,11 +133,13 @@ async function pipeSessionToBrowser(
   sessionId: string,
   traces: StudioTraceRoute,
   watch: CallWatch,
-  lexicon?: LexiconOverrides,
+  lexicon: LexiconOverrides | undefined,
+  beforeEvent?: (event: TurnEvent) => void | Promise<void>,
 ): Promise<void> {
   serverWs.send(JSON.stringify({ type: 'ready', profile: profileId, sessionId }));
   try {
     for await (const event of session.events()) {
+      await beforeEvent?.(event);
       if (event.type === 'error') {
         // The session worded it with the profile's lexicon; forClient drops the builder detail.
         serverWs.send(JSON.stringify(forClient(event)));
@@ -135,9 +152,14 @@ async function pipeSessionToBrowser(
       }
       if (event.type === 'tool') {
         const { tool } = event;
-        if (tool.phase === undefined) watch.start(tool.callId);
+        if (tool.phase === 'dispatch') {
+          watch.stop(tool.callId, requiredOperationId(tool));
+          serverWs.send(JSON.stringify({ type: 'executeToolResult', callId: tool.callId,
+            operationId: requiredOperationId(tool), status: 'dispatched', grantId: tool.grantId, arguments: tool.arguments }));
+        }
+        if (tool.phase === undefined) watch.start(tool.callId, requiredOperationId(tool));
         else if (tool.phase === 'complete' || tool.phase === 'error' || tool.phase === 'cancel') {
-          watch.stop(tool.callId);
+          watch.stop(tool.callId, requiredOperationId(tool));
         }
       }
       serverWs.send(JSON.stringify({ type: 'events', events: forClientEvents([event]) }));
@@ -160,7 +182,7 @@ async function pipeSessionToBrowser(
 async function answerExecuteTool(
   serverWs: StudioLiveSocket,
   session: LiveSession,
-  call: Parameters<LiveSession['executeTool']>[0],
+  call: Parameters<LiveSession['executeTool']>[0] & { operationId: string },
   lexicon?: LexiconOverrides,
 ): Promise<void> {
   try {
@@ -171,12 +193,14 @@ async function answerExecuteTool(
           ? {
               type: 'executeToolResult',
               callId: call.callId,
+              operationId: call.operationId,
               status: 'gated',
               gate: result.gated,
             }
           : {
               type: 'executeToolResult',
               callId: call.callId,
+              operationId: call.operationId,
               status: 'settled',
             },
       ),
@@ -187,6 +211,7 @@ async function answerExecuteTool(
       JSON.stringify({
         type: 'executeToolResult',
         callId: call.callId,
+        operationId: call.operationId,
         status: 'refused',
         body: errorBody(err, lexicon),
       }),
@@ -195,6 +220,9 @@ async function answerExecuteTool(
 }
 
 export type StudioLiveBridgeOptions = {
+  pageResult?: (result: PageToolResult) => Promise<boolean | void>;
+  /** Save trusted checkpoint ownership before the bridge exposes the event. */
+  beforeEvent?: (event: TurnEvent) => void | Promise<void>;
   /** How long the browser has to run a call the model made before the bridge settles it as unanswered. */
   clientCallTimeoutMs?: number;
 };
@@ -211,9 +239,9 @@ export function attachStudioLiveSession(
   options: StudioLiveBridgeOptions = {},
 ): Promise<void> {
   const watch = callWatch(session, options.clientCallTimeoutMs ?? CLIENT_CALL_TIMEOUT_MS);
-  pipeBrowserToSession(socket, session, watch, lexicon);
+  pipeBrowserToSession(socket, session, watch, lexicon, options.pageResult);
   socket.addEventListener('close', () => {
     void session.close('client disconnected');
   });
-  return pipeSessionToBrowser(socket, session, profileId, sessionId, traces, watch, lexicon);
+  return pipeSessionToBrowser(socket, session, profileId, sessionId, traces, watch, lexicon, options.beforeEvent);
 }

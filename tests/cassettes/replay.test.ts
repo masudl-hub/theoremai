@@ -7,7 +7,7 @@
  */
 
 import { assertEquals } from '@std/assert';
-import { CASSETTE_MODELS, casesFor } from './cases.ts';
+import { CASSETTE_MODELS, casesFor, normalizeOutcome } from './cases.ts';
 import { readCassette, replayCase } from './tape.ts';
 
 for (const model of CASSETTE_MODELS) {
@@ -25,7 +25,7 @@ for (const model of CASSETTE_MODELS) {
           assertEquals(run.misses, [], 'guardrail misses');
           assertEquals(
             run.outcome,
-            cassette.outcome,
+            normalizeOutcome(cassette.outcome),
             `outcome changed; if meant, keep it with: deno task cassettes:update\n${drift.stale.join('\n')}`,
           );
         },

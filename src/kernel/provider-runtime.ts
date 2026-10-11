@@ -7,10 +7,13 @@ import {
   throwIfAborted,
 } from '../guardrails/error.ts';
 import { lexiconText } from '../guardrails/lexicon.ts';
+import { liveIngressEnabledFromSpec } from './engine/live-ingress.ts';
 import { historyToolCalls } from './interaction-parts.ts';
+import { ProviderBudget } from './provider-budget.ts';
 import type {
   ProviderCheckpoint,
   ProviderContext,
+  ProviderContinuationPolicy,
   ProviderHostOptions,
   ProviderModelEvent,
   ProviderOperations,
@@ -22,6 +25,7 @@ import {
   jsonObjectSchema,
   jsonValueSchema,
   providerCheckpointSchema,
+  resolveProviderLimits,
   validateProviderModel,
 } from './provider-contract.ts';
 import type { ToolCallRequest } from './turn-events.ts';
@@ -119,7 +123,20 @@ export function assertProviderRequirements(
         'unsupported',
         lexiconText('provider.input_kind', { provider: provider.id, kind: part.type }),
       );
-  const output = profileType === 'image' ? 'image' : profileType === 'speech' ? 'audio' : 'text';
+  if (profileType === 'live') {
+    for (const kind of ['text', 'audio', 'video'] as const)
+      if (liveIngressEnabledFromSpec(req.live?.ingress, kind) && !cap.inputKinds.includes(kind))
+        throw new TheoremError(
+          'unsupported',
+          lexiconText('provider.input_kind', { provider: provider.id, kind }),
+        );
+  }
+  const output =
+    profileType === 'image'
+      ? 'image'
+      : profileType === 'speech' || profileType === 'live'
+        ? 'audio'
+        : 'text';
   if (profileType !== 'decision' && !cap.outputKinds.includes(output))
     throw new TheoremError(
       'unsupported',
@@ -216,9 +233,21 @@ async function safeProviderCall<T>(
 async function* safeModelEvents(
   events: () => AsyncIterable<ProviderModelEvent>,
   clean: (text: string) => string,
+  budget: ProviderBudget,
+  live = false,
 ): AsyncGenerator<ProviderModelEvent> {
+  if (!live) budget.resumeOperation();
+  let iterator: AsyncIterator<ProviderModelEvent> | undefined;
   try {
-    for await (const event of events()) {
+    iterator = events()[Symbol.asyncIterator]();
+    for (;;) {
+      const current = iterator;
+      const next = await withProviderAbort(() => current.next(), budget.signal);
+      if (next.done) break;
+      const event = validateProviderEvent(next.value);
+      if (live && (event.type !== 'session' || event.session.kind === 'working'))
+        budget.startLiveStep();
+      budget.event(event);
       if (event?.type === 'error')
         yield {
           ...event,
@@ -227,14 +256,19 @@ async function* safeModelEvents(
           ...(event.error ? { error: clean(event.error) } : {}),
         };
       else yield event;
+      if (live && event.type === 'done') budget.resetStep();
     }
   } catch (error) {
     throw diagnosticError(error, clean);
+  } finally {
+    budget.close();
+    if (iterator?.return) void Promise.resolve(iterator.return()).catch(() => undefined);
   }
 }
 function protectedOperations(
   operations: ProviderOperations,
   clean: (text: string) => string,
+  budget: ProviderBudget,
 ): ProviderOperations {
   const complete =
     typeof operations.complete === 'function' ? operations.complete.bind(operations) : undefined;
@@ -245,13 +279,39 @@ function protectedOperations(
       ? operations.openSession.bind(operations)
       : undefined;
   return {
-    complete: complete ? (request) => safeModelEvents(() => complete(request), clean) : undefined,
-    decide: decide ? (request) => safeProviderCall(() => decide(request), clean) : undefined,
+    complete: complete
+      ? (request) =>
+          safeModelEvents(() => complete({ ...request, signal: budget.signal }), clean, budget)
+      : undefined,
+    decide: decide
+      ? async (request) => {
+          try {
+            budget.resumeOperation();
+            const result = await withProviderAbort(
+              () => safeProviderCall(() => decide({ ...request, signal: budget.signal }), clean),
+              budget.signal,
+            );
+            budget.value(result);
+            return result;
+          } finally {
+            budget.close();
+          }
+        }
+      : undefined,
     openSession: open
       ? async (request) => {
-          const session = await safeProviderCall(() => open(request), clean);
+          budget.resumeOperation();
+          const session = await withProviderAbort(
+            () => safeProviderCall(() => open({ ...request, signal: budget.signal }), clean),
+            budget.signal,
+          )
+            .catch((error) => {
+              budget.close();
+              throw error;
+            })
+            .finally(() => budget.stopTimer());
           return {
-            events: () => safeModelEvents(() => session.events(), clean),
+            events: () => safeModelEvents(() => session.events(), clean, budget, true),
             closeInfo: () => {
               const closed = session.closeInfo?.();
               return (
@@ -261,13 +321,23 @@ function protectedOperations(
                 }
               );
             },
-            sendText: (text) => safeProviderCall(() => session.sendText(text), clean),
+            sendText: (text) => {
+              budget.startLiveStep();
+              return safeProviderCall(() => session.sendText(text), clean);
+            },
             sendAudio: (media) => safeProviderCall(() => session.sendAudio(media), clean),
             sendVideo: (media) => safeProviderCall(() => session.sendVideo(media), clean),
             sendContext: (context) => safeProviderCall(() => session.sendContext(context), clean),
-            sendToolResult: (result) =>
-              safeProviderCall(() => session.sendToolResult(result), clean),
-            close: (reason) => safeProviderCall(() => session.close(reason), clean),
+            sendToolResult: (result) => {
+              budget.startLiveStep();
+              return safeProviderCall(() => session.sendToolResult(result), clean);
+            },
+            close: (reason) => {
+              budget.stopTimer();
+              return safeProviderCall(() => session.close(reason), clean).finally(() =>
+                budget.dispose(),
+              );
+            },
           };
         }
       : undefined,
@@ -278,8 +348,19 @@ export async function createProviderOperations(
   provider: RegisteredProvider,
   binding: ModelBinding,
   host: ProviderHostOptions,
-  req: { signal?: AbortSignal; tapUpstream?: (row: Record<string, unknown>) => void },
+  req: {
+    signal?: AbortSignal;
+    tapUpstream?: (row: Record<string, unknown>) => void;
+    liveConnection?: boolean;
+  },
 ): Promise<ProviderOperations> {
+  const limits = resolveProviderLimits(host.limits);
+  const budget = new ProviderBudget(
+    limits,
+    req.signal,
+    req.liveConnection ? limits.connectTimeoutMs : limits.operationTimeoutMs,
+  );
+  req = { ...req, signal: budget.signal };
   const secrets = new Set<string>();
   const remember = (value: unknown): void => {
     if (typeof value === 'string') secrets.add(value);
@@ -301,7 +382,7 @@ export async function createProviderOperations(
     if (value && typeof value === 'object')
       return Object.fromEntries(
         Object.entries(value).map(([key, item]) => [
-          key,
+          String(scrub(key)),
           /^(?:authorization|proxy-authorization|cookie|set-cookie|api[_-]?key|x-goog-api-key|secret|token|access[_-]?token|refresh[_-]?token|password)$/i.test(
             key,
           ) && typeof item === 'string'
@@ -318,7 +399,13 @@ export async function createProviderOperations(
         ? (binding.keySlot ?? provider.keySlot)
         : (binding.fallbackKeySlot ?? provider.fallbackKeySlot);
     if (!slot) return undefined;
-    const entry = host.vault?.[slot];
+    let entry: import('./provider-contract.ts').ProviderVault[string];
+    try {
+      entry = host.vault && Object.hasOwn(host.vault, slot) ? host.vault[slot] : undefined;
+    } catch {
+      throwIfAborted(req.signal);
+      throw new TheoremError('auth', lexiconText('provider.credential_resolution'));
+    }
     if (entry === undefined && which === 'fallback') return undefined;
     if (entry === undefined)
       throw new TheoremError('auth', lexiconText('provider.credential_missing', { slot }));
@@ -342,24 +429,23 @@ export async function createProviderOperations(
       throw new TheoremError('auth', lexiconText('provider.credential_resolution'));
     }
     throwIfAborted(req.signal);
-    const serializable = z.union([z.string(), jsonObjectSchema]).safeParse(value);
-    if (!serializable.success)
-      throw new TheoremError('auth', lexiconText('provider.credential_shape'));
-    let credential: Awaited<ReturnType<typeof provider.adapter.credentialSchema.safeParseAsync>>;
     try {
-      credential = await withProviderAbort(
+      const serializable = z.union([z.string(), jsonObjectSchema]).safeParse(value);
+      if (!serializable.success)
+        throw new TheoremError('auth', lexiconText('provider.credential_shape'));
+      remember(serializable.data);
+      const credential = await withProviderAbort(
         () => provider.adapter.credentialSchema.safeParseAsync(serializable.data),
         req.signal,
       );
+      if (!credential.success)
+        throw new TheoremError('auth', lexiconText('provider.credential_shape'));
+      remember(credential.data);
+      return credential.data;
     } catch {
       throwIfAborted(req.signal);
       throw new TheoremError('auth', lexiconText('provider.credential_shape'));
     }
-    if (!credential.success)
-      throw new TheoremError('auth', lexiconText('provider.credential_shape'));
-    remember(serializable.data);
-    remember(credential.data);
-    return credential.data;
   };
   const wait =
     host.wait ??
@@ -380,26 +466,34 @@ export async function createProviderOperations(
         signal?.addEventListener('abort', abort, { once: true });
       }));
   const clean = (text: string): string => String(scrub(text));
-  const operations = await safeProviderCall(
-    () =>
-      withProviderAbort(
-        () =>
-          provider.adapter.create({
-            apiId: binding.apiId,
-            connection: provider.connection,
-            providerOptions: provider.adapter.optionsSchema.parse(binding.providerOptions ?? {}),
-            resolveCredential,
-            signal: req.signal,
-            fetch: host.fetch ?? globalThis.fetch,
-            wait,
-            openWebSocket: host.openWebSocket,
-            tapUpstream: (row) => req.tapUpstream?.(jsonObjectSchema.parse(scrub(row))),
-          }),
-        req.signal,
-      ),
-    clean,
-  );
-  return protectedOperations(operations, clean);
+  let operations: ProviderOperations;
+  try {
+    operations = await safeProviderCall(
+      () =>
+        withProviderAbort(
+          () =>
+            provider.adapter.create({
+              apiId: binding.apiId,
+              connection: provider.connection,
+              providerOptions: provider.adapter.optionsSchema.parse(binding.providerOptions ?? {}),
+              resolveCredential,
+              signal: req.signal,
+              limits,
+              fetch: budget.fetch(host.fetch ?? globalThis.fetch),
+              wait,
+              openWebSocket: budget.socket(host.openWebSocket),
+              tapUpstream: (row) => req.tapUpstream?.(jsonObjectSchema.parse(scrub(row))),
+            }),
+          req.signal,
+        ),
+      clean,
+    );
+  } catch (error) {
+    budget.close();
+    throw error;
+  }
+  budget.stopTimer();
+  return protectedOperations(operations, clean, budget);
 }
 
 function requireStoredContinuation(provider: RegisteredProvider, binding: ModelBinding): void {
@@ -412,13 +506,23 @@ function requireStoredContinuation(provider: RegisteredProvider, binding: ModelB
     throw new TheoremError('unsupported', lexiconText('provider.stored_continuation'));
 }
 
+/** `history: 'stateless'`: every request stands alone, so one that carries a conversation is refused. */
+export function assertHistoryKept(
+  policy: ProviderContinuationPolicy | undefined,
+  checkpoint: ProviderCheckpoint | undefined,
+  history: readonly TurnHistoryMessage[] | undefined,
+): void {
+  if (policy?.history === 'stateless' && (checkpoint || history?.length))
+    throw new TheoremError('request', lexiconText('provider.stateless_history'));
+}
+
 export async function restoreProviderState(
   provider: RegisteredProvider,
   binding: ModelBinding,
   raw: ProviderCheckpoint | undefined,
   history: readonly TurnHistoryMessage[],
-  onMismatch: 'rebuild' | 'error' = 'rebuild',
-): Promise<{ state?: unknown; warning?: ProviderWarning }> {
+  policy: ProviderContinuationPolicy = { onMismatch: 'rebuild' },
+): Promise<{ state?: unknown; covered?: number; warning?: ProviderWarning }> {
   if (!raw) return {};
   const checkpoint = providerCheckpointSchema.parse(raw);
   const contract = provider.adapter.continuation;
@@ -434,18 +538,23 @@ export async function restoreProviderState(
   else if (!contract || checkpoint.version !== contract.version) reason = 'version_changed';
   else if (checkpoint.compatibilityKey !== key) reason = 'connection_changed';
   else if (
-    checkpoint.coveredHistoryLength > history.length ||
-    checkpoint.coveredHistoryHash !==
-      (await historyHash(history.slice(0, checkpoint.coveredHistoryLength)))
+    policy.history === 'provider'
+      ? history.length > 0
+      : checkpoint.coveredHistoryLength > history.length ||
+        checkpoint.coveredHistoryHash !==
+          (await historyHash(history.slice(0, checkpoint.coveredHistoryLength)))
   )
     reason = 'history_changed';
   if (reason) {
-    if (onMismatch === 'error')
+    if (policy.onMismatch === 'error')
       throw new TheoremError('request', lexiconText('provider.continuation_mismatch'));
     return { warning: { code: 'provider_state_rebuilt', reason } };
   }
   requireStoredContinuation(provider, binding);
-  return { state: contract?.schema.parse(checkpoint.data) };
+  return {
+    state: contract?.schema.parse(checkpoint.data),
+    covered: policy.history === 'provider' ? 0 : checkpoint.coveredHistoryLength,
+  };
 }
 
 export async function checkpointProviderState(
@@ -482,7 +591,6 @@ export function providerTurnRequest(request: ProviderCompleteRequest) {
     continuation: _continuation,
     store: _store,
     cache: _cache,
-    googleMapsLocation: _location,
     sessionResumptionHandle: _handle,
     providerState: _checkpoint,
     state: _state,
@@ -553,24 +661,58 @@ async function* consumeModelStep(
   flushText();
   return { terminal, failed, pending, outputs };
 }
+export function snapshotRegisteredProvider(provider: RegisteredProvider): RegisteredProvider {
+  const adapter = provider.adapter;
+  const continuation = adapter.continuation;
+  return {
+    ...provider,
+    connection: structuredClone(provider.connection),
+    adapter: {
+      apiVersion: adapter.apiVersion,
+      id: adapter.id,
+      ...(adapter.builtins ? { builtins: adapter.builtins } : {}),
+      connectionSchema: adapter.connectionSchema,
+      optionsSchema: adapter.optionsSchema,
+      credentialSchema: adapter.credentialSchema,
+      capabilities: adapter.capabilities.bind(adapter),
+      validateRequest: adapter.validateRequest.bind(adapter),
+      create: adapter.create.bind(adapter),
+      ...(continuation
+        ? {
+            continuation: {
+              version: continuation.version,
+              schema: continuation.schema,
+              compatibilityKey: continuation.compatibilityKey.bind(continuation),
+            },
+          }
+        : {}),
+    },
+  };
+}
+
 export function registeredTurnProvider(
   provider: RegisteredProvider,
   binding: ModelBinding,
   profileType: string,
   host: ProviderHostOptions,
   initial?: ProviderCheckpoint,
-  onMismatch: 'rebuild' | 'error' = 'rebuild',
+  policy: ProviderContinuationPolicy = { onMismatch: 'rebuild' },
+  hostHistory: readonly TurnHistoryMessage[] = [],
 ): ModelProvider {
   let active = initial;
   return {
     async *complete(req): AsyncGenerator<ProviderEvent> {
       assertProviderRequirements(provider, binding, profileType, req);
+      // invariant: Only the checkpoint the host handed in follows the profile's history holder,
+      // judged against the history the host passed. A checkpoint from an earlier step of this
+      // turn always covers this turn's own history.
+      const providerHeld = active === initial && policy.history === 'provider';
       const restored = await restoreProviderState(
         provider,
         binding,
         active,
-        req.history ?? [],
-        onMismatch,
+        providerHeld ? hostHistory : (req.history ?? []),
+        providerHeld ? policy : { onMismatch: policy.onMismatch },
       );
       if (restored.warning) {
         active = undefined;
@@ -586,7 +728,7 @@ export function registeredTurnProvider(
           keySlot: binding.keySlot ?? provider.keySlot,
           fallbackKeySlot: binding.fallbackKeySlot ?? provider.fallbackKeySlot,
           state: native,
-          stateHistoryLength: active?.coveredHistoryLength,
+          stateHistoryLength: restored.covered,
         }),
         req.signal,
       );

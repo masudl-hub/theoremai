@@ -2,7 +2,11 @@ import { assertEquals } from '@std/assert';
 import type { LiveExecuteToolArgs, LiveSession, TurnEvent } from '../../src/kernel/types.ts';
 import { attachStudioLiveSession } from '../../studio/live-session-bridge.ts';
 
-function bridge(events: TurnEvent[], timeoutMs = 20) {
+function bridge(
+  events: TurnEvent[],
+  timeoutMs = 20,
+  beforeEvent?: (event: TurnEvent) => void | Promise<void>,
+) {
   const listeners: Record<string, (event: { data: unknown }) => void> = {};
   const sent: string[] = [];
   const calls: LiveExecuteToolArgs[] = [];
@@ -34,7 +38,7 @@ function bridge(events: TurnEvent[], timeoutMs = 20) {
     's',
     { close: () => {} } as never,
     undefined,
-    { clientCallTimeoutMs: timeoutMs },
+    { clientCallTimeoutMs: timeoutMs, beforeEvent },
   );
   return {
     calls,
@@ -49,17 +53,18 @@ function bridge(events: TurnEvent[], timeoutMs = 20) {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const call = (callId: string) =>
-  ({ type: 'tool', tool: { name: 't', callId, arguments: {} } }) as TurnEvent;
+  ({ type: 'tool', tool: { name: 't', callId, operationId: callId, arguments: {} } }) as TurnEvent;
 
 Deno.test('the bridge hands the outcome of a page tool to executeTool as page.output', async () => {
   const b = bridge([]);
-  b.message({ type: 'executeTool', callId: 'c1', output: { done: true } });
-  b.message({ type: 'executeTool', callId: 'c2' });
+  b.message({ type: 'executeTool', callId: 'c1', operationId: 'c1', output: { done: true } });
+  b.message({ type: 'executeTool', callId: 'c2', operationId: 'c2' });
   await wait(0);
   assertEquals(b.calls, [
-    { callId: 'c1', page: { output: { done: true } } },
+    { callId: 'c1', operationId: 'c1', page: { output: { done: true } } },
     {
       callId: 'c2',
+      operationId: 'c2',
     },
   ]);
   await b.end();
@@ -68,11 +73,11 @@ Deno.test('the bridge hands the outcome of a page tool to executeTool as page.ou
 Deno.test('the bridge settles a call the browser never answered, and only that one', async () => {
   const b = bridge([call('slow'), call('fast')]);
   await wait(0);
-  b.message({ type: 'executeTool', callId: 'fast', output: 1 });
+  b.message({ type: 'executeTool', callId: 'fast', operationId: 'fast', output: 1 });
   await wait(60);
   assertEquals(b.calls, [
-    { callId: 'fast', page: { output: 1 } },
-    { callId: 'slow', page: { timedOut: true } },
+    { callId: 'fast', operationId: 'fast', page: { output: 1 } },
+    { callId: 'slow', operationId: 'slow', page: { timedOut: true } },
   ]);
   await b.end();
 });
@@ -80,9 +85,68 @@ Deno.test('the bridge settles a call the browser never answered, and only that o
 Deno.test('a call that settles on its own is not timed out', async () => {
   const b = bridge([
     call('c1'),
-    { type: 'tool', tool: { name: 't', callId: 'c1', phase: 'cancel' } } as TurnEvent,
+    {
+      type: 'tool',
+      tool: { name: 't', callId: 'c1', operationId: 'c1', phase: 'cancel' },
+    } as TurnEvent,
   ]);
   await wait(60);
   assertEquals(b.calls, []);
+  await b.end();
+});
+
+Deno.test('checkpoint ownership is saved before a live checkpoint reaches the browser', async () => {
+  let commit = () => {};
+  const saved = new Promise<void>((resolve) => {
+    commit = resolve;
+  });
+  const checkpoint: TurnEvent = {
+    type: 'provider_checkpoint',
+    providerState: {
+      providerId: 'provider',
+      adapterId: 'adapter',
+      version: 1,
+      apiId: 'model',
+      compatibilityKey: 'deployment',
+      coveredHistoryLength: 0,
+      coveredHistoryHash: 'history',
+      data: { cursor: 'private-state' },
+    },
+  };
+  const b = bridge([checkpoint], 20, () => saved);
+  await wait(0);
+  assertEquals(
+    b.sent.some((line) => line.includes('private-state')),
+    false,
+  );
+  commit();
+  await wait(0);
+  assertEquals(
+    b.sent.some((line) => line.includes('private-state')),
+    true,
+  );
+  await b.end();
+});
+
+Deno.test('a failed ownership write never advertises resumable native state', async () => {
+  const checkpoint: TurnEvent = {
+    type: 'provider_checkpoint',
+    providerState: {
+      providerId: 'provider',
+      adapterId: 'adapter',
+      version: 1,
+      apiId: 'model',
+      compatibilityKey: 'deployment',
+      coveredHistoryLength: 0,
+      coveredHistoryHash: 'history',
+      data: { cursor: 'uncommitted-state' },
+    },
+  };
+  const b = bridge([checkpoint], 20, () => Promise.reject(new Error('storage failed')));
+  await wait(0);
+  assertEquals(
+    b.sent.some((line) => line.includes('uncommitted-state')),
+    false,
+  );
   await b.end();
 });

@@ -52,7 +52,7 @@ export interface Provenance {
   tool: string;
   depth: number;
 }
-const provenance = z.object({
+export const provenance = z.object({
   origin: z.enum(TOOL_ORIGINS),
   tool: z.string(),
   depth: z.number(),
@@ -83,7 +83,7 @@ export interface GuardrailHit {
    */
   signal?: string;
 }
-const guardrailHit = z.object({
+export const guardrailHit = z.object({
   rule: z.string(),
   severity: z.enum(SEVERITIES),
   span: z.object({ start: z.number(), end: z.number() }).optional(),

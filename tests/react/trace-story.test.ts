@@ -1,6 +1,7 @@
 import { assert, assertEquals } from '@std/assert';
 import {
   isCallTrace,
+  traceActor,
   traceGuardrails,
   traceOutcome,
   traceStory,
@@ -353,4 +354,24 @@ Deno.test('traceGuardrails lists every check in order, with the rules that fired
       match: 'ignore previous',
     },
   ]);
+});
+
+Deno.test('trace actors distinguish model, client tool and host work, with failures taking priority', () => {
+  const node = rootOf([span('root', undefined, 0, 1, { 'gen_ai.operation.name': 'invoke_agent' })]);
+  for (const [type, actor] of [
+    ['call', 'model'],
+    ['response', 'model'],
+    ['decision', 'model'],
+    ['tool', 'tool'],
+    ['cutout', 'host'],
+    ['host', 'host'],
+    ['turn', 'theorem'],
+  ] as const) {
+    const classified = { ...node, meta: { ...node.meta, type } };
+    assertEquals(traceActor(classified), actor);
+    assertEquals(
+      traceActor({ ...classified, span: { ...classified.span, status: { code: 'ERROR' } } }),
+      'error',
+    );
+  }
 });

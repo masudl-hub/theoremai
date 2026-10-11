@@ -44,6 +44,7 @@ import {
   type Protocol,
   type Provider,
   type SpeechAudioFormat,
+  type StepLimitMode,
   type StreamMode,
   type ThinkingLevel,
   TOOL_ACCESS,
@@ -77,6 +78,8 @@ export interface IdentityDraft {
 
 export interface ModelsDraft {
   providerStateMismatch?: 'rebuild' | 'error';
+  /** Who holds the conversation a saved state continues; unset is the kernel's default, the host. */
+  providerHistory?: 'host' | 'stateless' | 'provider';
   defaultModel: string;
   allowModelSelect: boolean;
   /** `null` omits it: the kernel's default cap applies. */
@@ -194,6 +197,7 @@ export interface TurnBehaviourDraft {
   maxContinues: number | null;
   continueInstruction: string;
   allowSteering: boolean;
+  atStepLimit: StepLimitMode;
 }
 
 /** What a URL detector lets through besides the URLs the model was given. */
@@ -647,6 +651,7 @@ export function createBlankDraft(): StudioDraft {
       maxContinues: null,
       continueInstruction: '',
       allowSteering: profileAllowsInject({ type: 'text' }),
+      atStepLimit: 'stop',
     },
     guardrails: defaultGuardrails(),
     observability: defaultObservability(),
@@ -799,7 +804,6 @@ export function removeModelBinding(draft: StudioDraft, bindingKey: string): Stud
     models: {
       ...draft.models,
       defaultModel: defaultAmong(draft.models.defaultModel, modelBindings),
-      allowModelSelect: draft.models.allowModelSelect && modelBindings.length > 1,
     },
     modelBindings,
   };
@@ -863,7 +867,6 @@ export function setProfileType(
     models: {
       ...draft.models,
       defaultModel: defaultAmong(draft.models.defaultModel, modelBindings),
-      allowModelSelect: draft.models.allowModelSelect && modelBindings.length > 1,
       key: needsKey ? DEFAULT_KEY_SLOT : draft.models.key,
     },
     modelBindings,

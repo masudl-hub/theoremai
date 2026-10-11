@@ -3,17 +3,20 @@ import { lexiconText } from '../guardrails/lexicon.ts';
 import type { LiveConnection, LiveQueueItem } from '../providers/types.ts';
 import type {
   ProviderCheckpoint,
+  ProviderContinuationPolicy,
   ProviderHostOptions,
   ProviderLiveConnection,
   ProviderModelEvent,
   RegisteredProvider,
 } from './provider-contract.ts';
+import { validateProviderModel } from './provider-contract.ts';
 import {
   assertProviderRequirements,
   checkpointProviderState,
   createProviderOperations,
   providerTurnRequest,
   restoreProviderState,
+  snapshotRegisteredProvider,
   validateProviderEvent,
   withProviderAbort,
 } from './provider-runtime.ts';
@@ -32,6 +35,12 @@ async function liveTerminalBatch(
     !failed &&
     !event.interrupted &&
     (event.stop.kind === 'completed' || event.stop.kind === 'tool');
+  if (
+    success &&
+    pending.length > 1 &&
+    validateProviderModel(provider, binding, 'live').features.parallelTools !== 'supported'
+  )
+    throw new TheoremError('unsupported', lexiconText('provider.parallel_tools'));
   const checkpoint = success
     ? await checkpointProviderState(provider, binding, event.state, request.history ?? [])
     : undefined;
@@ -95,18 +104,9 @@ export async function openRegisteredLiveSession(
   request: ProviderCompleteRequest,
   host: ProviderHostOptions,
   initial?: ProviderCheckpoint,
-  onMismatch: 'rebuild' | 'error' = 'rebuild',
+  policy: ProviderContinuationPolicy = { onMismatch: 'rebuild' },
 ): Promise<LiveConnection> {
-  provider = {
-    ...provider,
-    connection: structuredClone(provider.connection),
-    adapter: {
-      ...provider.adapter,
-      ...(provider.adapter.continuation
-        ? { continuation: { ...provider.adapter.continuation } }
-        : {}),
-    },
-  };
+  provider = snapshotRegisteredProvider(provider);
   binding = { ...binding, providerOptions: structuredClone(binding.providerOptions ?? {}) };
   assertProviderRequirements(provider, binding, 'live', request);
   const restored = await restoreProviderState(
@@ -114,9 +114,12 @@ export async function openRegisteredLiveSession(
     binding,
     initial,
     request.history ?? [],
-    onMismatch,
+    policy,
   );
-  const operations = await createProviderOperations(provider, binding, host, request);
+  const operations = await createProviderOperations(provider, binding, host, {
+    ...request,
+    liveConnection: true,
+  });
   if (typeof operations.openSession !== 'function')
     throw new TheoremError('unsupported', lexiconText('provider.session_unavailable'));
   const session = await operations.openSession({
@@ -124,6 +127,7 @@ export async function openRegisteredLiveSession(
     keySlot: binding.keySlot ?? provider.keySlot,
     fallbackKeySlot: binding.fallbackKeySlot ?? provider.fallbackKeySlot,
     state: restored.state,
+    stateHistoryLength: restored.covered,
   });
   let sends = Promise.resolve();
   const send = (fn: () => Promise<void>) => {

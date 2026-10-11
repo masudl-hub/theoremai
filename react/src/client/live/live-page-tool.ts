@@ -4,7 +4,7 @@ export type PageToolAnswer = { output: unknown };
 /** One page tool: what the page does for a call the model made, and what it tells the model. */
 export type PageTool = (
   args: Record<string, unknown>,
-  call: { callId: string },
+  call: { callId: string; operationId: string },
 ) => PageToolAnswer | Promise<PageToolAnswer>;
 
 /**

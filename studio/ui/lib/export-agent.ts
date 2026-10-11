@@ -352,7 +352,7 @@ function briefQuestions(agent: CompiledStudio, tools: string[]): string[] {
 		`- Which framework this app uses, and where server routes live (so the handler mounts at \`${ENDPOINT}\`, or the path you pick).`,
 		"- Where model keys come from: environment variables, a secrets manager, or each user's own key.",
 		'- Who may use the agents: anyone, or only signed-in users (the handler takes a `session` resolver).',
-		'- Whether sessions must survive restarts or span several instances (then pass a shared `sessionStore`).',
+		'- Whether sessions must survive restarts or span several instances (then pass a shared atomic `sessionStore` with `load` and `compareAndSwap`; a separate read followed by a write is unsafe).',
 		...(tools.length
 			? [
 					`- What each tool should really do: ${tools.join(', ')} return stand-in data today. Where does the real data come from, and what credentials does each need?`,

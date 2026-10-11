@@ -17,7 +17,7 @@ import {
   TheoremError,
   type TraceSink,
 } from '../../mod.ts';
-import { liveSessionOpen, parseLiveOpenMessage } from '../../react/src/server/mod.ts';
+import { createMemorySessionStore, createTheoremSessionBoundary, type TheoremSessionBoundary, parseLiveOpenMessage } from '../../react/src/server/mod.ts';
 import { attachStudioLiveSession } from '../live-session-bridge.ts';
 import type { StudioTraceLine } from '../traces.ts';
 
@@ -65,12 +65,12 @@ function openMessage(socket: WebSocket) {
 }
 
 /** Runs the call until either side ends it. A failure to open reaches the page worded, with its kind. */
-async function relay(socket: WebSocket, profile: Profile, provider: ProviderHostOptions): Promise<void> {
+async function relay(socket: WebSocket, profile: Profile, provider: ProviderHostOptions, boundary: TheoremSessionBoundary): Promise<void> {
   let session: LiveSession;
   try {
     // Listen before anything waits: the page sends its open message as the socket opens.
     const open = await openMessage(socket);
-    session = await runSession({ ...liveSessionOpen(open), profile: profile.id }, provider, pageSink(socket, profile));
+    session = await runSession({ ...await boundary.prepareLiveOpen(open), profile: profile.id }, { ...provider, execution: boundary.toolExecution, pageExecution: boundary.pageExecution }, pageSink(socket, profile));
   } catch (error) {
     if (socket.readyState !== WebSocket.OPEN) return;
     socket.send(
@@ -84,7 +84,13 @@ async function relay(socket: WebSocket, profile: Profile, provider: ProviderHost
     await session.close('client disconnected');
     return;
   }
-  await attachStudioLiveSession(socket, session, profile.id, crypto.randomUUID(), NO_ROUTE, profile.lexicon);
+  await attachStudioLiveSession(socket, session, profile.id, crypto.randomUUID(), NO_ROUTE, profile.lexicon, {
+    pageResult: boundary.answerPageResult,
+    beforeEvent: async (event) => {
+      if ((event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState)
+        await boundary.recordCheckpoint(event.providerState);
+    },
+  });
 }
 
 /** Serves a live profile: a socket upgrade starts a call, and anything else is told to upgrade. */
@@ -93,12 +99,15 @@ export function createStudioLiveHandler(
   provider: ProviderHostOptions,
   upgrade: StudioUpgrade,
 ): (request: Request) => Promise<Response> {
-  return (request) => {
+  const sessionStore = createMemorySessionStore();
+  return async (request) => {
     if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
-      return Promise.resolve(new Response(null, { status: 426, headers: { upgrade: 'websocket' } }));
+      return new Response(null, { status: 426, headers: { upgrade: 'websocket' } });
     }
+    const boundary = await createTheoremSessionBoundary({ request, sessionStore });
     const { socket, response } = upgrade(request);
-    void relay(socket, profile, provider);
-    return Promise.resolve(response);
+    if (boundary.setCookie) response.headers.append('set-cookie', boundary.setCookie);
+    void relay(socket, profile, provider, boundary);
+    return response;
   };
 }

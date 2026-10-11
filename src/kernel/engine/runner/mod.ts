@@ -26,10 +26,8 @@ import {
 } from '../../../observability/trace-span.ts';
 import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
 import { profileTypesForField } from '../../profile-scope.ts';
-import {
-  nestedRegisteredProvider,
-  resolveRegisteredTurnProvider,
-} from '../../provider-dispatch.ts';
+import type { ProviderHostOptions } from '../../provider-contract.ts';
+import { hostAgentProvider, nestedRegisteredProvider } from '../../provider-dispatch.ts';
 import { profileInputs, requireModelBinding } from '../../registry/catalog.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { resolveTurnInRegistry } from '../../registry/resolve.ts';
@@ -50,6 +48,7 @@ import type {
   Profile,
   ProfileId,
   ResolvedGeneration,
+  SessionRequest,
   TurnEvent,
   TurnEventOf,
   TurnHistoryMessage,
@@ -433,6 +432,9 @@ async function* emitTurn(args: {
     {
       stop: state.lastStop ?? { kind: 'completed' },
       ...(state.providerState &&
+      !(
+        'providerContinuation' in profile && profile.providerContinuation?.history === 'stateless'
+      ) &&
       (!state.lastStop || ['completed', 'tool', 'gate'].includes(state.lastStop.kind))
         ? { providerState: state.providerState }
         : {}),
@@ -736,9 +738,28 @@ function invokeAgentCaller(
   return createAgentCaller({
     registry,
     req: request,
-    provider: request.provider
-      ? resolveRegisteredTurnProvider(registry, request.profile, undefined, request.provider)
-      : undefined,
+    provider: request.provider ? hostAgentProvider(registry, request.provider) : undefined,
+    own: undefined,
+    depth: 0,
+    runNested: (nested) => runNestedTurn({ ...nested, registry, canaries }),
+  });
+}
+
+/**
+ * A live session's agent tools: the session's own provider options, or those
+ * `onAgentCall` returns, run each. Its nested turns bind their canaries into
+ * `canaries`.
+ */
+function sessionAgentCaller(
+  registry: KernelRegistry,
+  req: Pick<SessionRequest, 'onAgentCall' | 'metadata'>,
+  options: ProviderHostOptions & Pick<TurnRequest, 'execution'>,
+  canaries: string[],
+): AgentCaller {
+  return createAgentCaller({
+    registry,
+    req: { ...req, execution: options.execution },
+    provider: hostAgentProvider(registry, options),
     own: undefined,
     depth: 0,
     runNested: (nested) => runNestedTurn({ ...nested, registry, canaries }),
@@ -888,4 +909,4 @@ async function compactHistoryInRegistry(
   }
 }
 
-export { compactHistoryInRegistry, invokeAgentCaller, runTurnInRegistry };
+export { compactHistoryInRegistry, invokeAgentCaller, runTurnInRegistry, sessionAgentCaller };

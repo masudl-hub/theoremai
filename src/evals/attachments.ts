@@ -4,10 +4,11 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { TheoremError } from '../guardrails/error.ts';
+import { bytesToBase64 } from '../kernel/util/base64.ts';
 import type { EvalAttachment, EvalCase, EvalFileAttachment } from './types.ts';
 
-async function hashedFile(path: string): Promise<{ bytes: Buffer; sha256: string }> {
-  let bytes: Buffer;
+async function hashedFile(path: string): Promise<{ bytes: Uint8Array; sha256: string }> {
+  let bytes: Uint8Array;
   try {
     bytes = await readFile(path);
   } catch (error) {
@@ -19,7 +20,7 @@ async function hashedFile(path: string): Promise<{ bytes: Buffer; sha256: string
   return { bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
 
-async function fileBytes(attachment: EvalFileAttachment): Promise<Buffer> {
+async function fileBytes(attachment: EvalFileAttachment): Promise<Uint8Array> {
   const { bytes, sha256 } = await hashedFile(attachment.path);
   if (sha256 !== attachment.sha256) {
     throw new TheoremError(
@@ -32,7 +33,7 @@ async function fileBytes(attachment: EvalFileAttachment): Promise<Buffer> {
 
 /** An attachment's content as base64, read from the file when the attachment is a path. */
 async function attachmentData(attachment: EvalAttachment): Promise<string> {
-  return 'data' in attachment ? attachment.data : (await fileBytes(attachment)).toString('base64');
+  return 'data' in attachment ? attachment.data : bytesToBase64(await fileBytes(attachment));
 }
 
 async function pinCaseFiles(cases: EvalCase[], casesPath: string): Promise<EvalCase[]> {

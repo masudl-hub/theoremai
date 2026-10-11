@@ -258,3 +258,56 @@ Deno.test('a tool whose request label reads its output is refused at registratio
     "request label: {position} is not a field of this tool's input. Try {title}.",
   );
 });
+
+Deno.test('operation identity keeps distinct actions when a provider reuses its call ID', () => {
+  const calls = toolCallsOf(
+    ['first', 'second'].flatMap((operationId) => [
+      {
+        type: 'tool' as const,
+        tool: { name: 'lookup', callId: 'reused', operationId, arguments: { operationId } },
+      },
+      {
+        type: 'tool' as const,
+        tool: {
+          name: 'lookup',
+          callId: 'reused',
+          operationId,
+          at: 0,
+          phase: 'complete' as const,
+          output: {},
+        },
+      },
+    ]),
+  );
+  assertEquals(
+    calls.map((call) => [call.operationId, call.arguments, call.state?.phase]),
+    [
+      ['first', { operationId: 'first' }, 'complete'],
+      ['second', { operationId: 'second' }, 'complete'],
+    ],
+  );
+});
+
+Deno.test('operation identity refuses a phase with different call correlation', () => {
+  assertThrows(
+    () =>
+      toolCallsOf([
+        {
+          type: 'tool',
+          tool: { name: 'lookup', callId: 'first', operationId: 'operation', arguments: {} },
+        },
+        {
+          type: 'tool',
+          tool: {
+            name: 'lookup',
+            callId: 'second',
+            operationId: 'operation',
+            at: 0,
+            phase: 'complete',
+            output: {},
+          },
+        },
+      ]),
+    TheoremError,
+  );
+});

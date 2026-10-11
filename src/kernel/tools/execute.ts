@@ -1,7 +1,7 @@
 import { type ToolBoundary, type ToolKind, toolBoundary } from '../../guardrails/boundaries.ts';
 import { checkDestinationGate } from '../../guardrails/destinations.ts';
 import { type DetectScope, scopeOf } from '../../guardrails/detect-at.ts';
-import { errorKind, isAbortError, throwIfAborted } from '../../guardrails/error.ts';
+import { errorKind, isAbortError, TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import {
@@ -19,13 +19,16 @@ import {
   type ToolCallEnd,
   type ToolOutcome,
 } from '../engine/tool-trace.ts';
+import { jsonObjectSchema } from '../provider-contract.ts';
 import { type InjectUnit, isAwaitingUserInput } from '../stages.ts';
 import type { Source } from '../turn-events.ts';
 import type { InteractionPart, Profile, TurnEvent, TurnTokens } from '../types.ts';
 import { isRecord } from '../util/record.ts';
 import { fillActivityLabel } from './activity-label.ts';
 import { type AgentCaller, AgentCallFailed, agentToolOrigin } from './agent.ts';
+import { coordinateTool } from './coordinate.ts';
 import {
+  dispatchToolBody,
   failureEvent,
   messageOf,
   networkBlocked,
@@ -38,6 +41,12 @@ import {
   toolEvent,
 } from './events.ts';
 import { formatToolFailureForModel, formatToolResult, frameToolFailure } from './model-text.ts';
+import type {
+  ToolExecutionCoordinator,
+  ToolOperationClaim,
+  ToolOperationOutcome,
+} from './operation.ts';
+import { operationUnavailable, operationWireValue } from './operation.ts';
 import {
   checkPermission,
   gateDetails,
@@ -628,6 +637,43 @@ async function* resolveFunctionSignIn(
   };
 }
 
+function functionHandlerFailure(error: unknown): ToolFailure {
+  return {
+    code: 'handler_error',
+    kind: error instanceof TheoremError ? error.kind : 'failed',
+    message: messageOf(error),
+  };
+}
+
+function waitsForPage(tool: FunctionToolDef, ctx: ToolContext): boolean {
+  return tool.answeredBy === 'page' && ctx.page === undefined && !ctx.pageExecution;
+}
+
+async function* receivePageAnswer(
+  tool: FunctionToolDef,
+  ctx: ToolContext,
+  claim: ToolOperationClaim | undefined,
+  base: ToolCallBase,
+): AsyncGenerator<TurnEvent, ToolContext> {
+  const execution = ctx.pageExecution;
+  if (tool.answeredBy !== 'page' || !execution) return ctx;
+  if (!claim?.invocation) throw operationUnavailable();
+  const argumentsForPage = jsonObjectSchema.parse(
+    operationWireValue(claim.invocation.preparedInput),
+  );
+  const dispatch = await execution.dispatch(claim, ctx.signal);
+  throwIfAborted(ctx.signal);
+  if (!dispatch.grantId) throw operationUnavailable();
+  yield toolEvent(base, {
+    phase: 'dispatch',
+    grantId: dispatch.grantId,
+    arguments: argumentsForPage,
+  });
+  ctx = { ...ctx, page: await dispatch.result };
+  throwIfAborted(ctx.signal);
+  return ctx;
+}
+
 export async function* executeFunction(
   tools: ToolRegistry,
   tool: FunctionToolDef,
@@ -638,10 +684,11 @@ export async function* executeFunction(
   stages?: ToolStageSupport,
   /** Set when `tool` runs an agent tool: its trust, and its handler's failures and faults. */
   agent?: RegisteredAgentTool,
+  beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const guard = resultGuard(tools, agent ?? tool, ctx, snapshot, stages?.span);
   const callId = base.callId;
-  const parsed = yield* startToolExecution(tool, rawInput, ctx, base);
+  const parsed = startToolExecution(tool, rawInput, ctx);
   if (!parsed.ok) {
     return yield* settleToolFailure(guard, base, parsed.failure, stages, {
       toolName: tool.name,
@@ -691,7 +738,7 @@ export async function* executeFunction(
   }
   input = preBody.input;
 
-  if (tool.answeredBy === 'page' && ctx.page === undefined) {
+  if (waitsForPage(tool, ctx)) {
     // why: Last of the checks, so the page is asked only for a call every guardrail and gate let through.
     const gate: ToolGate = { kind: 'page', tool: tool.name, ...gateDetails(tool, input) };
     yield* emitGateSettlement({
@@ -705,6 +752,8 @@ export async function* executeFunction(
   }
 
   throwIfAborted(ctx.signal);
+  const claim = yield* dispatchToolBody(tool, input, ctx, base, beginBody);
+  ctx = yield* receivePageAnswer(tool, ctx, claim, base);
   const { secret } = signedIn;
   const fail = (failure: ToolFailure) =>
     settleToolFailure(
@@ -745,7 +794,7 @@ export async function* executeFunction(
       checks.record(blocked);
       return yield* fail(yield* networkBlocked(err, blocked));
     }
-    return yield* fail({ code: 'handler_error', kind: 'failed', message: messageOf(err) });
+    return yield* fail(functionHandlerFailure(err));
   }
   if (secret) output = omitSecret(output, secret);
   if (output === undefined) {
@@ -877,6 +926,49 @@ function registeredEligibilityFailure(args: {
   return undefined;
 }
 
+export function authorizeToolReplay(args: {
+  tools: ToolRegistry;
+  profile: Profile;
+  name: string;
+  resume: ToolContext['resume'];
+  snapshot?: TurnToolSnapshot;
+  outcome?: ToolOperationOutcome;
+}): void {
+  const tool = args.tools.get(args.name);
+  if (!tool || tool.type === 'builtin') {
+    throw new TheoremError('blocked', lexiconText('error.blocked'));
+  }
+  const failure = registeredEligibilityFailure({ ...args, tool });
+  if (failure) throw new TheoremError(failure.kind, failure.message);
+  if (args.outcome) authorizeSavedDisclosure(args, tool, args.outcome);
+}
+
+function authorizeSavedDisclosure(
+  args: { tools: ToolRegistry; profile: Profile; snapshot?: TurnToolSnapshot },
+  tool: RegisteredTool,
+  outcome: ToolOperationOutcome,
+): void {
+  const blocked = () =>
+    new TheoremError('blocked', lexiconText('detect.output_blocked', {}, args.profile.lexicon));
+  const result = outcome.replay.modelResult;
+  if (
+    tool.type === 'function' &&
+    tool.exposeToModel === false &&
+    result?.finding !== lexiconText('tool.completed_hidden', {}, args.profile.lexicon)
+  )
+    throw blocked();
+  const guard = guardToolResult(
+    outcome.event.tool.readBack ?? '',
+    { event: outcome.event, output: outcome.replay.outputRaw },
+    provenanceFor(tool, args.tools),
+    resolveGuardrailPolicy(args.profile.guardrails),
+    tool.type === 'builtin' ? undefined : toolBoundary('tool_output', tool.type),
+    args.snapshot?.executable ?? [],
+    args.profile.lexicon,
+  );
+  if (guard.event?.action === 'block' || guard.event?.action === 'redact') throw blocked();
+}
+
 /** Settles an outcome the kernel reached without a handler's own result: a remote body, or a sign-in. */
 async function* settleBodyOutcome(args: {
   outcome: ToolBodyOutcome;
@@ -936,12 +1028,16 @@ async function* settleBodyOutcome(args: {
 }
 
 interface RegisteredToolCall {
+  execution?: ToolExecutionCoordinator;
+  invocation?: unknown;
+  onDispatch?: () => void;
+  beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>;
   tools: ToolRegistry;
   profile: Profile;
   name: string;
   input: unknown;
   callId: string;
-  ctx: Omit<ToolContext, 'callId' | 'profile'>;
+  ctx: Omit<ToolContext, 'callId' | 'profile' | 'operationId'> & { operationId?: string };
   snapshot?: TurnToolSnapshot;
   stages?: ToolStageSupport;
   /** Omitted: the call is not traced. The span is handed to the tool as `ctx.traceparent`. */
@@ -1068,6 +1164,49 @@ export function shownToolArguments(
 export async function* executeRegisteredTool(
   args: RegisteredToolCall,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
+  args = {
+    ...args,
+    ctx: { ...args.ctx, operationId: args.ctx.operationId ?? crypto.randomUUID() },
+  };
+  return yield* coordinateTool(
+    args.execution,
+    {
+      operationId: args.ctx.operationId ?? crypto.randomUUID(),
+      callId: args.callId,
+      profileId: args.profile.id,
+      toolId: args.name,
+    },
+    {
+      input: args.input,
+      resume: args.ctx.resume,
+      snapshot: args.snapshot,
+      context: args.invocation,
+    },
+    args.ctx.signal,
+    (beginBody) =>
+      executeTracedTool({
+        ...args,
+        beginBody: async (input) => {
+          const claim = (await beginBody?.(input)) ?? (await args.beginBody?.(input));
+          args.onDispatch?.();
+          return claim;
+        },
+      }),
+    (outcome) =>
+      authorizeToolReplay({
+        outcome,
+        tools: args.tools,
+        profile: args.profile,
+        name: args.name,
+        resume: args.ctx.resume,
+        snapshot: args.snapshot,
+      }),
+  );
+}
+
+async function* executeTracedTool(
+  args: RegisteredToolCall,
+): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const tool = args.tools.get(args.name);
   if (!args.openSpan) {
     return yield* runRegisteredTool(args, tool);
@@ -1117,7 +1256,8 @@ async function* runRegisteredTool(
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const { profile, name, input, callId, ctx, snapshot, stages } = args;
   const safeInput = plainToolInput(input);
-  const base = { name, callId };
+  const operationId = ctx.operationId ?? crypto.randomUUID();
+  const base = { name, callId, operationId };
   if (!tool) {
     const failure: ToolFailure = {
       code: 'unknown_tool',
@@ -1137,7 +1277,7 @@ async function* runRegisteredTool(
       yield failureEvent(base, failure);
       return earlyFailure(failure);
     }
-    const fullCtx: ToolContext = { ...ctx, callId, profile };
+    const fullCtx: ToolContext = { ...ctx, callId, profile, operationId };
     return yield* executeBuiltin(tool, fullCtx, base, snapshot);
   }
 
@@ -1155,7 +1295,13 @@ async function* runRegisteredTool(
 
   if (isGateResumeDenied(ctx.resume)) {
     return yield* settleToolFailure(
-      resultGuard(args.tools, tool, { ...ctx, callId, profile }, snapshot, stages?.span),
+      resultGuard(
+        args.tools,
+        tool,
+        { ...ctx, callId, profile, operationId },
+        snapshot,
+        stages?.span,
+      ),
       base,
       refusalFailure(tool, ctx.resume, profile.lexicon),
       stages,
@@ -1163,7 +1309,7 @@ async function* runRegisteredTool(
     );
   }
 
-  const fullCtx: ToolContext = { ...ctx, callId, profile };
+  const fullCtx: ToolContext = { ...ctx, callId, profile, operationId };
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const provenance = provenanceFor(tool, args.tools);
 
@@ -1227,6 +1373,7 @@ async function* runRegisteredTool(
     snapshot,
     stages,
     args.agents,
+    args.beginBody,
   );
 }
 
@@ -1295,6 +1442,7 @@ async function* executeAgentTool(args: {
   snapshot: TurnToolSnapshot | undefined;
   stages: ToolStageSupport | undefined;
   agents: AgentCaller | undefined;
+  beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>;
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const { tool, ctx, base, agents } = args;
   if (!agents) {
@@ -1343,6 +1491,7 @@ async function* executeAgentTool(args: {
     args.snapshot,
     args.stages,
     tool,
+    args.beginBody,
   );
   for (;;) {
     const next = await exec.next();
@@ -1372,10 +1521,21 @@ async function* settleByType(
   snapshot: TurnToolSnapshot | undefined,
   stages: ToolStageSupport | undefined,
   agents: AgentCaller | undefined,
+  beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const { name } = tool;
   if (tool.type === 'function') {
-    return yield* executeFunction(tools, tool, safeInput, fullCtx, base, snapshot, stages);
+    return yield* executeFunction(
+      tools,
+      tool,
+      safeInput,
+      fullCtx,
+      base,
+      snapshot,
+      stages,
+      undefined,
+      beginBody,
+    );
   }
   if (tool.type === 'agent') {
     return yield* executeAgentTool({
@@ -1387,6 +1547,7 @@ async function* settleByType(
       snapshot,
       stages,
       agents,
+      beginBody,
     });
   }
 
@@ -1399,8 +1560,8 @@ async function* settleByType(
   }
   const remoteOutcome: ToolBodyOutcome =
     tool.type === 'http'
-      ? yield* executeHttpTool(tool, safeInput, fullCtx, base, stages)
-      : yield* executeMcpTool(tool, safeInput, fullCtx, base, stages, tools.mcpSessions);
+      ? yield* executeHttpTool(tool, safeInput, fullCtx, base, stages, beginBody)
+      : yield* executeMcpTool(tool, safeInput, fullCtx, base, stages, tools.mcpSessions, beginBody);
   return yield* settleBodyOutcome({
     outcome: remoteOutcome,
     tool,

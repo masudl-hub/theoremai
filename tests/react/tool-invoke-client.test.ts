@@ -2,6 +2,10 @@ import { assertEquals } from '@std/assert';
 import { filesToPending } from '../../react/src/client/encode-files.ts';
 import { continueGatedToolInvocation } from '../../react/src/client/tool-resume.ts';
 import {
+  theoremInvokeRequestSchema,
+  theoremTurnRequestSchema,
+} from '../../react/src/client/transport.ts';
+import {
   buildInvokeRequest,
   buildTurnRequest,
   turnInputFromSession,
@@ -230,7 +234,13 @@ Deno.test('buildInvokeRequest replays the snapshot, promoted tools and selected 
       toolSnapshot: snapshot,
       inputTokens: 5,
     }),
-    { gateId: 'call-1', decision: 'approve', name: 'search', input: { q: 'hotels' } },
+    {
+      gateId: 'call-1',
+      operationId: 'call-1',
+      decision: 'approve',
+      name: 'search',
+      input: { q: 'hotels' },
+    },
   );
   assertEquals(body.gateId, 'call-1');
   assertEquals(body.decision, 'approve');
@@ -247,6 +257,7 @@ Deno.test('buildInvokeRequest prefers explicit permissions and omits empty repla
   const iface = textInterface('react.invoke.explicit', { fast });
   const body = buildInvokeRequest(iface, session({ sessionPermissions: ['search'] }), {
     gateId: 'call-2',
+    operationId: 'call-2',
     decision: 'approve',
     name: 'fetch_report',
     input: {},
@@ -269,5 +280,31 @@ Deno.test('filesToPending keeps name, size and a fallback mime type', () => {
       { name: 'a.png', mimeType: 'image/png', sizeBytes: 3 },
       { name: 'notes', mimeType: 'application/octet-stream', sizeBytes: 5 },
     ],
+  );
+});
+
+Deno.test('operation identity is mandatory for browser approval and abandonment', () => {
+  assertEquals(
+    theoremInvokeRequestSchema.safeParse({ gateId: 'call', decision: 'approve' }).success,
+    false,
+  );
+  assertEquals(
+    theoremInvokeRequestSchema.safeParse({
+      gateId: 'call',
+      operationId: 'issued',
+      decision: 'approve',
+    }).success,
+    true,
+  );
+  assertEquals(
+    theoremTurnRequestSchema.safeParse({ input: { text: 'stop' }, abandon: ['call'] }).success,
+    false,
+  );
+  assertEquals(
+    theoremTurnRequestSchema.safeParse({
+      input: { text: 'stop' },
+      abandon: [{ callId: 'call', operationId: 'issued' }],
+    }).success,
+    true,
   );
 });

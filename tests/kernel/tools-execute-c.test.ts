@@ -893,7 +893,6 @@ Deno.test('an unregistered or snapshot-less builtin call fails as a request, nev
     loadTier: 'T0',
     permission: 'auto',
     paths: ['*'],
-    wire: { interactions: 'google_search' },
   });
   const missing = await run({ scope, profile, name: 'ghost' });
   check(

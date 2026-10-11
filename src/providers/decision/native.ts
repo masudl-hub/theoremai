@@ -23,6 +23,7 @@ export async function nativeDecision(
     },
     body: JSON.stringify({
       model: request.apiId,
+      ...(service === 'openrouter' ? { provider: { require_parameters: true } } : {}),
       state: request.state,
       questions: request.questions,
     }),

@@ -182,6 +182,25 @@ Deno.test("a live trial's turn runs with the stage handler the suite module expo
   assertEquals(stages.has('before_end'), true);
 });
 
+Deno.test("a live trial's turn carries the application context the suite module exports", async () => {
+  const loaded = await loadSuite(SUITE_PATH);
+  const context = { application: 'context' };
+  const seen = new Set<unknown>();
+  const run = await runSuite(
+    {
+      ...loaded,
+      host: context,
+      onStage: ({ host }) => {
+        seen.add(host);
+        return undefined;
+      },
+    },
+    { provider: fixtureHostOptions(translator()), repeat: 1 },
+  );
+  assertEquals(run.passed, true);
+  assertEquals([...seen], [context]);
+});
+
 Deno.test('a turn that fails still leaves a trace, and the trace is what gets graded', async () => {
   const loaded = await loadSuite(SUITE_PATH);
   // The stream rejects on its first read, as a dead upstream does.

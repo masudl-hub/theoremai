@@ -269,7 +269,6 @@ function assertModelsNonEmpty(profileId: string, models: Record<ModelId, ModelBi
 }
 
 function resolveDefaultModel(profileId: string, input: ProfileDefinitionBase): ModelId {
-  const ids = Object.keys(input.models);
   const inferred = input.defaultModel ?? soleModelId(input.models);
   if (!inferred) {
     throw new TheoremError(
@@ -281,12 +280,6 @@ function resolveDefaultModel(profileId: string, input: ProfileDefinitionBase): M
     throw new TheoremError(
       'config',
       `Profile ${profileId} defaultModel '${inferred}' is not declared`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  if (input.allowModelSelect && ids.length < 2) {
-    throw new TheoremError(
-      'config',
-      `Profile ${profileId} allowModelSelect requires at least two models`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   return inferred;
@@ -725,6 +718,7 @@ function defineProfile(input: ProfileDefinition): Profile {
   }
   assertStructuredSlot(profile);
   assertMaxSteps(profile);
+  assertAnswerStep(profile);
   return profile;
 }
 
@@ -735,6 +729,16 @@ function assertMaxSteps(profile: ModelProfile): void {
   throw new TheoremError(
     'config',
     `Profile ${profile.id}: maxSteps must be a whole number of 1 or more; leave it out for the default of 20`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+}
+
+/** The answering step takes no tools, so with one step the profile's tools could never run. */
+function assertAnswerStep(profile: ModelProfile): void {
+  if (profile.type !== 'text' || profile.turnBehaviour?.atStepLimit !== 'answer') return;
+  if (profile.maxSteps !== 1) return;
+  throw new TheoremError(
+    'config',
+    `Profile ${profile.id}: turnBehaviour.atStepLimit 'answer' with maxSteps 1 leaves no step that can call a tool`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 
@@ -905,12 +909,6 @@ function assertCompactionRetain(tag: string, spec: CompactionSpec): void {
 function assertCustomToolsOnly(tools: ToolRegistry, profile: Profile): void {
   for (const id of profileToolAllow(profile)) {
     const tool = tools.get(id);
-    if (tool?.type === 'agent' && profile.type === 'live') {
-      throw new TheoremError(
-        'config',
-        `Profile ${profile.id} lists agent tool '${id}' in tools.allow — a live session can't run an agent tool`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
     if (tool?.type === 'builtin') {
       throw new TheoremError(
         'config',

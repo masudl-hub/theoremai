@@ -9,6 +9,7 @@
  */
 
 export * from './client/index.ts';
+export { type PageDispatchResult, withPageToolDispatch } from './client/page-dispatch.ts';
 export {
   type ChatSnapshot,
   type SentTurn,

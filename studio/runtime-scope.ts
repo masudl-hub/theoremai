@@ -8,6 +8,8 @@ import {
   type KernelScope,
   type Profile,
   type ProfileDefinition,
+  type ToolExecutionCoordinator,
+  type ProviderDefinition,
   TheoremError,
 } from '../mod.ts';
 import { listsPatterns } from '../src/guardrails/host-patterns.ts';
@@ -38,6 +40,9 @@ import type { StructuredRegistration, ToolRegistration } from './registrations.t
 import { registerStudioTools } from './tools.ts';
 
 export interface StudioRuntime {
+  providerDefinitions?: readonly ProviderDefinition[];
+  execution?: ToolExecutionCoordinator;
+  pageExecution?: import('../mod.ts').PageToolExecution;
   mode: 'demo' | 'byok' | 'local';
   providers?: StudioProviderOptions;
   hostOptions?: (profile: Profile, model?: string) => ProviderHostOptions;
@@ -156,6 +161,7 @@ export function registerRuntimeProviders(scope: KernelScope, runtime?: StudioRun
       adapter: openAIChat(),
     }),
   );
+  for (const definition of runtime?.providerDefinitions ?? []) scope.providers.register(definition);
 }
 
 /**

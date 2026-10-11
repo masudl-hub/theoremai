@@ -17,13 +17,13 @@ function errorName(err: unknown): unknown {
   return err && typeof err === 'object' ? (err as { name?: unknown }).name : undefined;
 }
 
-/** Throws when the signal has aborted: its own abort or timeout reason, else an `AbortError`. */
+/** Throws when the signal has aborted: its framework, abort or timeout reason, else an `AbortError`. */
 function throwIfAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) {
     return;
   }
   const { reason } = signal;
-  if (isAbortError(reason) || isTimeoutError(reason)) {
+  if (reason instanceof TheoremError || isAbortError(reason) || isTimeoutError(reason)) {
     throw reason;
   }
   throw new DOMException('The operation was aborted.', 'AbortError'); // lexicon-exempt: DOM AbortError fingerprint
@@ -55,7 +55,11 @@ function wording(
   copy: ErrorCopies | undefined,
   lexicon?: LexiconOverrides,
 ): string {
-  if (!copy) return kindText(kind, lexicon);
+  return copy ? errorCopyText(copy, lexicon) : kindText(kind, lexicon);
+}
+
+/** The named reasons an error carries, one line each, in the profile's wording. */
+function errorCopyText(copy: ErrorCopies, lexicon?: LexiconOverrides): string {
   const lines = 'key' in copy ? [copy] : copy;
   return lines.map((line) => lexiconText(line.key, line.params, lexicon)).join('\n');
 }
@@ -110,6 +114,7 @@ export { ERROR_KINDS } from './theorem-error.ts';
 export type { ProducedError };
 export {
   describeError,
+  errorCopyText,
   errorKind,
   isAbortError,
   isTimeoutError,

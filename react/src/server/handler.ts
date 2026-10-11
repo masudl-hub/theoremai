@@ -1,3 +1,10 @@
+import { withPublicWording } from '@theoremjs/agents/guardrails';
+import {
+  createMemoryPageToolBroker,
+  type PageToolBroker,
+  pageToolResultSchema,
+  sessionPageDispatch,
+} from './page-dispatch.ts';
 /**
  * One Web-standard handler that serves a Theorem chat UI for a single profile.
  *
@@ -15,6 +22,7 @@
  * - `GET  <base>`         → `{ interface }` the tools the page may call, with their schemas
  * - `POST <base>/call`    → NDJSON events for one call of one of those tools
  * - `POST <base>/invoke`  → NDJSON events for the user's answer to a paused call
+ * - `POST <base>/page-result` → grant-correlated browser result receipt
  *
  * Trust boundary: the browser owns the conversation text; the server owns every
  * decision that grants authority. Tool permissions, which paused calls may run
@@ -26,16 +34,17 @@
  * @module
  */
 
-import type { z } from '@theoremjs/agents';
 import {
+  authorizeToolReplay,
   defaultKernelScope,
   defineProfile,
   errorKind,
+  type GateReference,
   invokeTool,
+  jsonObjectSchema,
   lexiconText,
   type Profile,
   type ProfileDefinition,
-  type ProviderCheckpoint,
   type ProviderHostOptions,
   publicError,
   registerProfile,
@@ -45,6 +54,8 @@ import {
   type TurnEvent,
   type TurnHistoryMessage,
   type TurnInput,
+  toolInvocationHash,
+  type z,
 } from '@theoremjs/agents';
 import {
   type ClientTurnOptions,
@@ -57,7 +68,6 @@ import {
   interfaceFromProfile,
   type ProfileInterface,
   promotedToolIdsFromEvents,
-  settlesToolCall,
   toolSnapshotFromEvents,
 } from '@theoremjs/agents/interface';
 import {
@@ -66,7 +76,6 @@ import {
   type GateAnswerRequest,
   resolveGateTtlMs,
   type ToolCredentialSource,
-  toBase64Url,
 } from '@theoremjs/agents/kernel';
 import {
   hostInterface,
@@ -86,19 +95,32 @@ import {
   type TheoremCredentialStore,
   type TheoremCredentials,
 } from './credential-store.ts';
+import { type MutableStore, sessionStateStore } from './session-authority.ts';
+import { cookieSession, type Session } from './session-identity.ts';
+
+export { theoremSessionId } from './session-identity.ts';
+
+import {
+  checkpointIdentity,
+  checkpointOwnershipKey,
+  requireOwnedCheckpoint,
+  retainedCheckpointIdentities,
+} from './checkpoint-ownership.ts';
 import { jsonResponse } from './json-response.ts';
+import { boundedRequestJson, requestByteLimit } from './request-body.ts';
 import { checkRequest } from './request-check.ts';
+import { resolveSessionLimits, type TheoremSessionLimits } from './session-limits.ts';
 import {
   createMemorySessionStore,
-  emptySessionState,
+  DEFAULT_OPERATION_RETENTION_MS,
   type PendingToolGate,
   type PerSessionStore,
-  pruneGates,
-  type SettledToolGate,
+  type SessionToolOperation,
   type TheoremSessionState,
   type TheoremSessionStore,
 } from './session-store.ts';
 import { createMemorySteerInbox, type SteerInbox, steerStage, steerUnitOf } from './steer-inbox.ts';
+import { sameAcceptedAnswer, sessionToolCoordinator } from './tool-operations.ts';
 import { turnContext } from './turn-input.ts';
 import { checkWalkAway, walkAway } from './walk-away.ts';
 
@@ -140,6 +162,18 @@ export type TheoremHandlerOptions = {
    * Default: 30 minutes.
    */
   gateTtlMs?: number;
+  /** Retain settled tool results in milliseconds. Default: 24 hours. */
+  operationRetentionMs?: number;
+  /** Finite per-session bounds. Unresolved authority is never evicted to satisfy them. */
+  sessionLimits?: Partial<TheoremSessionLimits>;
+  /** Maximum UTF-8 request body bytes before JSON parsing. Default: 16 MiB. */
+  maxRequestBytes?: number;
+  pageToolBroker?: PageToolBroker;
+  /** Check current resource access before disclosing a saved tool result. This callback must be read-only. */
+  authorizeToolReplay?: (context: {
+    request: Request;
+    operation: Extract<SessionToolOperation, { status: 'settled' }>;
+  }) => boolean | Promise<boolean>;
   /**
    * Tool credentials by session. Your OAuth callback route saves the token here
    * under the same session id; every turn reads from here. Default: in-process
@@ -175,15 +209,10 @@ export type TheoremHostHandlerOptions = Omit<
   profile: Extract<Profile, { type: 'host' }> | Extract<ProfileDefinition, { type: 'host' }>;
 };
 
-const SESSION_COOKIE = 'theorem_session';
-const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
-
 const NDJSON_HEADERS = {
   'content-type': 'application/x-ndjson; charset=utf-8',
   'cache-control': 'no-store',
 } as const;
-
-type Session = { id: string; setCookie?: string };
 
 function withSessionCookie(response: Response, session: Session | undefined): Response {
   if (session?.setCookie) response.headers.append('set-cookie', session.setCookie);
@@ -197,7 +226,11 @@ function clientInterface(profile: Profile): ProfileInterface {
 }
 
 /** A JSON body checked against `schema`; a missing or malformed field is a `request` error (400). */
-export async function readBody<T>(request: Request, schema: z.ZodType<T>): Promise<T> {
+export async function readBody<T>(
+  request: Request,
+  schema: z.ZodType<T>,
+  maxBytes?: number,
+): Promise<T> {
   // why: JSON-only POSTs can't be sent by a cross-site form, and force a CORS preflight.
   const type = request.headers.get('content-type') ?? '';
   if (!type.toLowerCase().startsWith('application/json')) {
@@ -206,10 +239,13 @@ export async function readBody<T>(request: Request, schema: z.ZodType<T>): Promi
   }
   let raw: unknown;
   try {
-    raw = await request.json();
-  } catch (cause) {
-    // lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-    throw new TheoremError('request', 'Request body must be JSON', { cause });
+    raw = await boundedRequestJson(request, requestByteLimit(maxBytes));
+  } catch (error) {
+    if (error instanceof TheoremError) throw error;
+    // invariant: A JSON parser's message can contain request values and must not enter diagnostics.
+    throw new TheoremError('request', lexiconText('error.request'), {
+      cause: { code: 'request_json' },
+    });
   }
   return checkRequest(schema, raw, 'request body');
 }
@@ -243,55 +279,19 @@ function userTurnInput(input: TheoremTurnInput, server: unknown): TurnInput {
 function routeOf(request: Request): string {
   const segments = new URL(request.url).pathname.split('/').filter(Boolean);
   const last = segments.at(-1) ?? '';
-  return last === 'turn' || last === 'invoke' || last === 'steer' || last === 'call' ? last : '';
+  return last === 'turn' ||
+    last === 'invoke' ||
+    last === 'steer' ||
+    last === 'call' ||
+    last === 'page-result'
+    ? last
+    : '';
 }
-
-function readCookie(request: Request, name: string): string | undefined {
-  for (const part of (request.headers.get('cookie') ?? '').split(';')) {
-    const [key, ...rest] = part.trim().split('=');
-    if (key === name) return rest.join('=');
-  }
-  return undefined;
-}
-
-function newSessionId(): string {
-  return toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
-}
-
-/**
- * The session id the handler issued in its cookie, for a host route outside the
- * handler (an OAuth callback) that saves credentials under it. Hosts that pass
- * a `session` resolver use their own id instead.
- */
-export function theoremSessionId(request: Request): string | undefined {
-  const existing = readCookie(request, SESSION_COOKIE);
-  return existing && SESSION_ID_PATTERN.test(existing) ? existing : undefined;
-}
-
-function cookieSession(request: Request): Session {
-  const existing = theoremSessionId(request);
-  if (existing) return { id: existing };
-  const id = newSessionId();
-  const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
-  return {
-    id,
-    setCookie: `${SESSION_COOKIE}=${id}; Path=/; HttpOnly; SameSite=Lax${secure}`,
-  };
-}
-
-/**
- * A store read and changed one request at a time per session, so concurrent
- * requests don't lose each other's updates. `loaded` tidies what the store held.
- */
-type LockedStore<T> = {
-  read(sessionId: string): Promise<T>;
-  mutate<R>(sessionId: string, change: (value: T) => R): Promise<R>;
-};
 
 function lockedStore<T>(
   store: PerSessionStore<T>,
   loaded: (value: T | undefined) => T,
-): LockedStore<T> {
+): MutableStore<T> {
   const locks = new Map<string, Promise<unknown>>();
   const read = async (sessionId: string) => loaded(await store.load(sessionId));
   return {
@@ -313,18 +313,6 @@ function lockedStore<T>(
   };
 }
 
-/** Session state, with expired gates dropped as it loads so they can't be answered. */
-function sessionStateStore(
-  store: TheoremSessionStore,
-  gateTtlMs: number,
-): LockedStore<TheoremSessionState> {
-  return lockedStore(store, (state = emptySessionState()) => ({
-    ...state,
-    gates: pruneGates(state.gates, Date.now(), gateTtlMs),
-    settled: pruneGates(state.settled, Date.now(), gateTtlMs),
-  }));
-}
-
 /** Everything a request needs from the handler that serves it. */
 type HandlerContext = {
   /** A host's handler has no provider: it runs no model. */
@@ -332,8 +320,9 @@ type HandlerContext = {
     Partial<Pick<TheoremHandlerOptions, 'provider'>>;
   profile: Profile;
   inbox: SteerInbox;
-  sessions: LockedStore<TheoremSessionState>;
-  credentials: LockedStore<TheoremCredentials>;
+  sessions: MutableStore<TheoremSessionState>;
+  pageToolBroker: PageToolBroker;
+  credentials: MutableStore<TheoremCredentials>;
 };
 
 async function sessionOf(ctx: HandlerContext, request: Request): Promise<Session> {
@@ -401,7 +390,17 @@ function inboxKey(sessionId: string, turnId: string): string {
   return `${sessionId}\u0000${turnId}`;
 }
 
-type OutcomeContext = { turnInput: TurnInput; model?: string; promoted?: string[] };
+type OutcomeContext = {
+  profileId: string;
+  turnInput: TurnInput;
+  model?: string;
+  promoted?: string[];
+};
+
+function requiredOperationId(call: { operationId?: string }): string {
+  if (!call.operationId) throw new TheoremError('internal', lexiconText('error.internal'));
+  return call.operationId;
+}
 
 /** The exact paused calls the user may now approve, when the stream stopped on gates. */
 function pendingGatesFrom(
@@ -411,6 +410,9 @@ function pendingGatesFrom(
   return gatedToolsFromEvents(events).map((gated) => ({
     callId: gated.callId,
     gate: {
+      profileId: context.profileId,
+      operationId: requiredOperationId(gated),
+      callId: gated.callId,
       name: gated.name,
       arguments: gated.arguments,
       gate: {
@@ -431,26 +433,8 @@ function pendingGatesFrom(
  * Record what the stream established: interaction ids for continuation and,
  * when it paused on gates, the exact calls the user may now approve.
  */
-async function checkpointIdentity(checkpoint: ProviderCheckpoint): Promise<string> {
-  const ordered = (value: unknown): unknown => {
-    if (Array.isArray(value)) return value.map(ordered);
-    if (value && typeof value === 'object')
-      return Object.fromEntries(
-        Object.entries(value)
-          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-          .map(([key, item]) => [key, ordered(item)]),
-      );
-    return value;
-  };
-  const hash = await crypto.subtle.digest(
-    'SHA-256',
-    new TextEncoder().encode(JSON.stringify(ordered(checkpoint))),
-  );
-  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
 async function recordOutcome(
-  sessions: LockedStore<TheoremSessionState>,
+  sessions: MutableStore<TheoremSessionState> & { checkpointLimit?: number },
   sessionId: string,
   events: TurnEvent[],
   context: OutcomeContext,
@@ -463,22 +447,41 @@ async function recordOutcome(
   const identities = await Promise.all(checkpoints.map(checkpointIdentity));
   const pending = pendingGatesFrom(events, context);
   if (!identities.length && !pending.length) return;
-  await sessions.mutate(sessionId, (state) => {
-    state.providerCheckpoints = [...(state.providerCheckpoints ?? []), ...identities].slice(-64);
-    for (const { callId, gate } of pending) state.gates[callId] = gate;
+  await sessions.mutate(sessionId, async (state) => {
+    state.providerCheckpoints = retainedCheckpointIdentities(
+      state.providerCheckpoints ?? [],
+      await Promise.all(
+        identities.map((identity) => checkpointOwnershipKey(identity, state.operations)),
+      ),
+      sessions.checkpointLimit ?? resolveSessionLimits().maxCheckpoints,
+    );
+    for (const { gate } of pending) {
+      const operation = state.operations[gate.operationId];
+      if (operation && operation.status !== 'ready')
+        throw new TheoremError('unavailable', lexiconText('error.unavailable'));
+      delete state.operations[gate.operationId];
+      Object.defineProperty(state.gates, gate.operationId, {
+        value: gate,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
+    }
   });
 }
 
 async function* recorded(
-  sessions: LockedStore<TheoremSessionState>,
+  sessions: MutableStore<TheoremSessionState>,
   sessionId: string,
   events: AsyncIterable<TurnEvent>,
   context: OutcomeContext,
+  seed: TurnEvent[] = [],
 ): AsyncGenerator<TurnEvent> {
-  const seen: TurnEvent[] = [];
+  const seen: TurnEvent[] = [...seed];
   for await (const event of events) {
     seen.push(event);
-    if (event.type === 'done') await recordOutcome(sessions, sessionId, seen, context);
+    if (event.type === 'done' || event.type === 'provider_checkpoint')
+      await recordOutcome(sessions, sessionId, seen, context);
     yield event;
   }
 }
@@ -540,9 +543,45 @@ async function* withAuthorizationUrls(
 /** The session's paused call, answered and taken out: each answer settles it once, as the model asked it. */
 type AnsweredCall = { callId: string; pending: PendingToolGate; answer: AnsweredGate };
 
-function answerPendingGate(state: TheoremSessionState, request: GateAnswerRequest): AnsweredCall {
-  const pending = state.gates[request.callId];
-  if (!pending) {
+function answerPendingGate(
+  state: TheoremSessionState,
+  request: GateAnswerRequest & GateReference,
+  profileId: string,
+): AnsweredCall {
+  const operation = Object.hasOwn(state.operations, request.operationId)
+    ? state.operations[request.operationId]
+    : undefined;
+  if (
+    operation?.status === 'ready' &&
+    operation.profileId === profileId &&
+    operation.pending.callId === request.callId
+  ) {
+    const accepted = answerGatedCall(
+      request,
+      {
+        name: operation.pending.name,
+        arguments: operation.pending.arguments,
+        permission: operation.pending.gate.permission,
+        gateKind: operation.pending.gate.kind,
+        ...(operation.pending.gate.kind === 'auth' && operation.pending.gate.auth
+          ? { auth: operation.pending.gate.auth }
+          : {}),
+      },
+      operation.answer.sessionPermissions,
+    );
+    const { typed: _typed, ...plain } = accepted;
+    if (!sameAcceptedAnswer(plain, operation.answer))
+      throw new TheoremError('request', lexiconText('error.request'));
+    return {
+      callId: request.callId,
+      pending: operation.pending,
+      answer: { ...operation.answer, ...(accepted.typed ? { typed: accepted.typed } : {}) },
+    };
+  }
+  const pending = Object.hasOwn(state.gates, request.operationId)
+    ? state.gates[request.operationId]
+    : undefined;
+  if (!pending || pending.profileId !== profileId || pending.callId !== request.callId) {
     // lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
     throw new TheoremError('request', `gate ${request.callId} is not pending`, {
       copy: { key: 'session.gate_expired' },
@@ -555,21 +594,42 @@ function answerPendingGate(state: TheoremSessionState, request: GateAnswerReques
       name: pending.name,
       arguments: pending.arguments,
       permission: pending.gate.permission,
+      gateKind: pending.gate.kind,
       ...(pending.gate.kind === 'auth' && pending.gate.auth ? { auth: pending.gate.auth } : {}),
     },
     state.permissions,
   );
-  delete state.gates[request.callId];
+  delete state.gates[request.operationId];
+  const { typed: _typed, ...accepted } = answer;
+  state.operations[request.operationId] = {
+    status: 'ready',
+    profileId,
+    pending,
+    answer: accepted,
+    readyAt: Date.now(),
+  };
   state.permissions = answer.sessionPermissions;
   return { callId: request.callId, pending, answer };
 }
 
 /** A call a message walks away from: taken from its gate now, or settled by an earlier request its client never heard. */
-type WalkedCall = AnsweredCall | { callId: string; settled: SettledToolGate };
+type WalkedCall =
+  | AnsweredCall
+  | { callId: string; settled: Extract<SessionToolOperation, { status: 'settled' }> };
 
-function walkedCallOf(state: TheoremSessionState, callId: string): WalkedCall {
-  const settled = state.settled[callId];
-  return settled ? { callId, settled } : answerPendingGate(state, { callId, decision: 'abandon' });
+function walkedCallOf(
+  state: TheoremSessionState,
+  reference: GateReference,
+  profileId: string,
+): WalkedCall {
+  const settled = Object.hasOwn(state.operations, reference.operationId)
+    ? state.operations[reference.operationId]
+    : undefined;
+  return settled?.status === 'settled' &&
+    settled.callId === reference.callId &&
+    settled.profileId === profileId
+    ? { callId: reference.callId, settled }
+    : answerPendingGate(state, { ...reference, decision: 'abandon' }, profileId);
 }
 
 /**
@@ -581,58 +641,25 @@ function takeWalkedAway(
   ctx: HandlerContext,
   session: Session,
   input: TurnInput,
-  abandon: readonly string[],
+  abandon: readonly GateReference[],
 ): Promise<WalkedCall[]> {
-  checkWalkAway(input, abandon);
+  checkWalkAway(
+    input,
+    abandon.map((reference) => reference.callId),
+  );
   // why: A throw leaves the session unsaved, so no call is taken unless all are.
   return ctx.sessions.mutate(session.id, (state) =>
-    abandon.map((callId) => walkedCallOf(state, callId)),
+    abandon.map((reference) => walkedCallOf(state, reference, ctx.profile.id)),
   );
 }
 
-/**
- * The run that settles an answered call, as the model asked it. The session
- * keeps the event that settles it, and `ended` names the call once it has
- * (see `restoreUnended`).
- */
 async function* settleAnswered(
   ctx: HandlerContext,
   request: Request,
   session: Session,
   answered: AnsweredCall,
-  ended: Set<string>,
 ): AsyncGenerator<TurnEvent> {
-  const { callId, pending } = answered;
-  for await (const event of invokeAnswered(ctx, request, session.id, answered)) {
-    if (!ended.has(callId) && settlesToolCall(event, callId)) {
-      ended.add(callId);
-      await ctx.sessions.mutate(session.id, (state) => {
-        state.settled[callId] = { event, createdAt: pending.createdAt };
-      });
-    }
-    yield event;
-  }
-}
-
-/**
- * A request that took calls and ended before they settled (the client went
- * away, the host failed, an earlier call's run threw) puts each back to wait
- * as it did, to be answered again, unless it paused on a gate again: the run
- * recorded that gate with its outcome.
- */
-async function restoreUnended(
-  ctx: HandlerContext,
-  session: Session,
-  calls: readonly WalkedCall[],
-  ended: ReadonlySet<string>,
-): Promise<void> {
-  const unended = calls.flatMap((call) =>
-    'pending' in call && !ended.has(call.callId) ? [call] : [],
-  );
-  if (!unended.length) return;
-  await ctx.sessions.mutate(session.id, (state) => {
-    for (const { callId, pending } of unended) state.gates[callId] ??= pending;
-  });
+  yield* invokeAnswered(ctx, request, session.id, answered);
 }
 
 function invokeAnswered(
@@ -643,8 +670,11 @@ function invokeAnswered(
 ): AsyncGenerator<TurnEvent> {
   return invokeTool({
     profile: ctx.profile.id,
+    execution: sessionToolCoordinator(ctx.sessions, sessionId),
+    pageExecution: sessionPageDispatch(ctx.sessions, sessionId, ctx.pageToolBroker).execution,
     name: pending.name,
     callId,
+    operationId: pending.operationId,
     input: answer.input,
     resume: answer.resume,
     // why: An approval that names no answer is the page saying it has none, so the call is not held again.
@@ -668,7 +698,6 @@ async function* walkAwayFrom(
   request: Request,
   session: Session,
   walked: { input: TurnInput; calls: readonly WalkedCall[] },
-  ended: Set<string>,
 ): AsyncGenerator<TurnEvent, TurnInput | undefined> {
   return yield* walkAway(
     walked.input,
@@ -676,15 +705,15 @@ async function* walkAwayFrom(
       callId: call.callId,
       events:
         'settled' in call
-          ? once(call.settled.event)
-          : settleAnswered(ctx, request, session, call, ended),
+          ? replayOperation(ctx, request, call.settled)
+          : settleAnswered(ctx, request, session, call),
     })),
   );
 }
 
 /** A settled call's answer, streamed again. */
-async function* once(event: TurnEvent): AsyncGenerator<TurnEvent> {
-  yield event;
+async function* once(event: TurnEvent, lexicon?: Profile['lexicon']): AsyncGenerator<TurnEvent> {
+  yield withPublicWording(event, lexicon);
 }
 
 async function* turnEvents(
@@ -694,30 +723,27 @@ async function* turnEvents(
   body: TheoremTurnRequest,
   walked: { input: TurnInput; calls: WalkedCall[] },
 ): AsyncGenerator<TurnEvent> {
-  const ended = new Set<string>();
-  let input: TurnInput | undefined;
-  try {
-    input = walked.calls.length
-      ? yield* walkAwayFrom(ctx, request, session, walked, ended)
-      : walked.input;
-  } finally {
-    await restoreUnended(ctx, session, walked.calls, ended);
-  }
+  const input = walked.calls.length
+    ? yield* walkAwayFrom(ctx, request, session, walked)
+    : walked.input;
   if (!input) return;
   const state = await ctx.sessions.read(session.id);
   const provider = await providerFor(ctx, request, body.model);
   // why: A browser cannot resume native state owned by another server session.
-  const providerState = body.providerState
-    ? (state.providerCheckpoints ?? []).includes(await checkpointIdentity(body.providerState))
-      ? body.providerState
-      : { ...body.providerState, providerId: `unowned:${body.providerState.providerId}` }
-    : undefined;
+  const providerState = await requireOwnedCheckpoint(
+    state.providerCheckpoints,
+    body.providerState,
+    state.operations,
+    input.history,
+  );
   const key = body.turnId ? inboxKey(session.id, body.turnId) : undefined;
   if (key) await ctx.inbox.open(key);
   try {
     const events = runTurn(
       {
         profile: ctx.profile.id,
+        execution: sessionToolCoordinator(ctx.sessions, session.id),
+        pageExecution: sessionPageDispatch(ctx.sessions, session.id, ctx.pageToolBroker).execution,
         input,
         providerState,
         sessionPermissions: state.permissions,
@@ -735,6 +761,7 @@ async function* turnEvents(
       session.id,
       withAuthorizationUrls(ctx, request, session.id, events),
       {
+        profileId: ctx.profile.id,
         turnInput: input,
         model: body.model,
       },
@@ -751,28 +778,35 @@ async function* invokeEvents(
   answered: AnsweredCall,
 ): AsyncGenerator<TurnEvent> {
   const { pending, answer } = answered;
-  const ended = new Set<string>();
-  try {
-    if (answer.typed)
-      await saveCredential(ctx, session.id, answer.typed.slot, answer.typed.credential);
-    const events = settleAnswered(ctx, request, session, answered, ended);
-    yield* recorded(
-      ctx.sessions,
-      session.id,
-      withAuthorizationUrls(ctx, request, session.id, events),
+  if (answer.typed)
+    await saveCredential(ctx, session.id, answer.typed.slot, answer.typed.credential);
+  const events = settleAnswered(ctx, request, session, answered);
+  yield* recorded(
+    ctx.sessions,
+    session.id,
+    withAuthorizationUrls(ctx, request, session.id, events),
+    {
+      profileId: ctx.profile.id,
+      turnInput: pending.turnInput,
+      model: pending.model,
+      promoted: pending.promoted,
+    },
+    [
       {
-        turnInput: pending.turnInput,
-        model: pending.model,
-        promoted: pending.promoted,
+        type: 'tool',
+        tool: {
+          name: pending.name,
+          callId: pending.callId,
+          operationId: pending.operationId,
+          arguments: jsonObjectSchema.parse(answer.input),
+        },
       },
-    );
-  } finally {
-    await restoreUnended(ctx, session, [answered], ended);
-  }
+    ],
+  );
 }
 
 async function steer(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
-  const body = await readBody(request, theoremSteerRequestSchema);
+  const body = await readBody(request, theoremSteerRequestSchema, ctx.options.maxRequestBytes);
   if (!(await ctx.inbox.enqueue(inboxKey(session.id, body.turnId), steerUnitOf(body)))) {
     // lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
     throw new TheoremError('request', `turn ${body.turnId} is not running`, {
@@ -792,6 +826,8 @@ async function* callEvents(
   const state = await ctx.sessions.read(session.id);
   const events = invokeTool({
     profile: ctx.profile.id,
+    execution: sessionToolCoordinator(ctx.sessions, session.id),
+    pageExecution: sessionPageDispatch(ctx.sessions, session.id, ctx.pageToolBroker).execution,
     name: body.name,
     input: body.input,
     sessionPermissions: state.permissions,
@@ -804,14 +840,16 @@ async function* callEvents(
     session.id,
     withAuthorizationUrls(ctx, request, session.id, events),
     {
+      profileId: ctx.profile.id,
       turnInput: {},
     },
   );
 }
 
-function answerRequest(body: TheoremInvokeRequest): GateAnswerRequest {
+function answerRequest(body: TheoremInvokeRequest): GateAnswerRequest & GateReference {
   return {
     callId: body.gateId,
+    operationId: body.operationId,
     decision: body.decision,
     input: body.input,
     secret: body.secret,
@@ -827,12 +865,71 @@ function refused(ctx: HandlerContext): Response {
   });
 }
 
+async function* replayOperation(
+  ctx: HandlerContext,
+  request: Request,
+  operation: Extract<SessionToolOperation, { status: 'settled' }>,
+): AsyncGenerator<TurnEvent> {
+  const tool = defaultKernelScope.tools.get(operation.toolId);
+  if (
+    operation.profileId !== ctx.profile.id ||
+    !tool ||
+    tool.type === 'builtin' ||
+    !('tools' in ctx.profile) ||
+    !ctx.profile.tools?.allow.includes(operation.toolId) ||
+    (ctx.options.authorizeToolReplay &&
+      !(await ctx.options.authorizeToolReplay({ request, operation })))
+  )
+    throw new TheoremError('blocked', lexiconText('error.blocked'));
+  authorizeToolReplay({
+    tools: defaultKernelScope.tools,
+    profile: ctx.profile,
+    name: operation.toolId,
+    resume: undefined,
+    outcome: operation.outcome,
+  });
+  yield* once(operation.outcome.event, ctx.profile.lexicon);
+}
+
 /** The user's answer to a paused call. */
 async function invoke(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
-  const body = await readBody(request, theoremInvokeRequestSchema);
+  const body = await readBody(request, theoremInvokeRequestSchema, ctx.options.maxRequestBytes);
+  if (body.page && 'output' in body.page)
+    throw new TheoremError('request', lexiconText('error.request'));
+  const saved = await ctx.sessions.read(session.id);
+  const operation = Object.hasOwn(saved.operations, body.operationId)
+    ? saved.operations[body.operationId]
+    : undefined;
+  if (
+    operation &&
+    operation.status !== 'ready' &&
+    operation.callId === body.gateId &&
+    operation.profileId === ctx.profile.id &&
+    (operation.status === 'running' || operation.status === 'uncertain')
+  ) {
+    throw new TheoremError('unavailable', lexiconText('tool.execution_uncertain'), {
+      copy: { key: 'tool.execution_uncertain' },
+    });
+  }
+  if (
+    operation?.status === 'settled' &&
+    operation.profileId === ctx.profile.id &&
+    operation.callId === body.gateId
+  ) {
+    if (
+      body.input !== undefined &&
+      (!operation.invocation ||
+        (await toolInvocationHash(body.input)) !==
+          (await toolInvocationHash(operation.invocation.accepted.input)))
+    )
+      throw new TheoremError('request', lexiconText('error.request'), {
+        copy: { key: 'error.request' },
+      });
+    return eventStream(ctx, request, () => replayOperation(ctx, request, operation));
+  }
   // why: Take the answered call before streaming, so a stale answer is a reply status, not a stream error.
   const answered = await ctx.sessions.mutate(session.id, (state) =>
-    answerPendingGate(state, answerRequest(body)),
+    answerPendingGate(state, answerRequest(body), ctx.profile.id),
   );
   return eventStream(ctx, request, () => invokeEvents(ctx, request, session, answered));
 }
@@ -851,7 +948,7 @@ async function hostRoute(
     return jsonResponse(200, { interface: hostInterface(ctx.profile, tool) });
   }
   if (request.method === 'POST' && target === 'call') {
-    const body = await readBody(request, theoremHostCallRequestSchema);
+    const body = await readBody(request, theoremHostCallRequestSchema, ctx.options.maxRequestBytes);
     return eventStream(ctx, request, () => callEvents(ctx, request, session, body));
   }
   if (request.method === 'POST' && target === 'invoke') return invoke(ctx, request, session);
@@ -859,6 +956,11 @@ async function hostRoute(
 }
 
 async function route(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
+  if (request.method === 'POST' && routeOf(request) === 'page-result') {
+    const body = await readBody(request, pageToolResultSchema, ctx.options.maxRequestBytes);
+    await sessionPageDispatch(ctx.sessions, session.id, ctx.pageToolBroker).answer(body);
+    return jsonResponse(200, { accepted: true });
+  }
   if (ctx.profile.type === 'host')
     return hostRoute({ ...ctx, profile: ctx.profile }, request, session);
   const target = routeOf(request);
@@ -866,7 +968,7 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
     return jsonResponse(200, { interface: clientInterface(ctx.profile) });
   if (request.method !== 'POST' || target === '' || target === 'call') return refused(ctx);
   if (target === 'turn') {
-    const body = await readBody(request, theoremTurnRequestSchema);
+    const body = await readBody(request, theoremTurnRequestSchema, ctx.options.maxRequestBytes);
     const input = userTurnInput(body.input, await ctx.options.context?.(request));
     // why: Take the walked-away calls before streaming, so a stale one is a reply status, not a stream error.
     const calls = body.abandon ? await takeWalkedAway(ctx, session, input, body.abandon) : [];
@@ -923,12 +1025,26 @@ function serve(
   steerInbox?: SteerInbox,
 ): (request: Request) => Promise<Response> {
   const gateTtlMs = resolveGateTtlMs(name, options.gateTtlMs);
+  const operationRetentionMs = options.operationRetentionMs ?? DEFAULT_OPERATION_RETENTION_MS;
+  if (!Number.isSafeInteger(operationRetentionMs) || operationRetentionMs <= 0) {
+    throw new TheoremError('config', lexiconText('error.config'), {
+      cause: { code: 'operation_retention' },
+    });
+  }
+  const limits = resolveSessionLimits(options.sessionLimits);
+  requestByteLimit(options.maxRequestBytes);
   registerProfile(profile);
   const ctx: HandlerContext = {
     options,
+    pageToolBroker: options.pageToolBroker ?? createMemoryPageToolBroker(),
     profile,
     inbox: steerInbox ?? createMemorySteerInbox(),
-    sessions: sessionStateStore(options.sessionStore ?? createMemorySessionStore(), gateTtlMs),
+    sessions: sessionStateStore(
+      options.sessionStore ?? createMemorySessionStore({ sessionLimits: limits }),
+      gateTtlMs,
+      operationRetentionMs,
+      limits,
+    ),
     credentials: lockedStore(
       options.credentialStore ?? createMemoryCredentialStore(),
       (saved = {}) => saved,

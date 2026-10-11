@@ -658,9 +658,26 @@ Deno.test('inputStepsFromRequest expands tool_calls history into function_call +
   assertEquals(steps[2]?.type, 'function_result');
 });
 
-Deno.test('applyOptionalRequestFields throws for a builtin with no Interactions wire type', () => {
-  const req = baseReq({ builtins: [{ id: 'liveOnly', wire: { live: 'liveOnly' } }] });
-  assertThrows(() => applyOptionalRequestFields(req, {}), TheoremError);
+Deno.test('applyOptionalRequestFields throws for a builtin Google does not run', () => {
+  const req = baseReq({ builtins: [{ id: 'webSearch' }] });
+  assertThrows(
+    () => applyOptionalRequestFields(req, {}),
+    TheoremError,
+    "Builtin 'webSearch' is not a Google tool",
+  );
+});
+
+Deno.test('applyOptionalRequestFields sends Maps the location its args carry, and none without args', () => {
+  const tools = (builtins: ProviderCompleteRequest['builtins']) => {
+    const body: Record<string, unknown> = {};
+    applyOptionalRequestFields(baseReq({ builtins }), body);
+    return body.tools;
+  };
+  assertEquals(tools([{ id: 'googleMaps' }]), [{ type: 'google_maps' }]);
+  assertEquals(
+    tools([{ id: 'googleMaps', args: { location: { latitude: 51.5, longitude: -0.12 } } }]),
+    [{ type: 'google_maps', latitude: 51.5, longitude: -0.12 }],
+  );
 });
 
 Deno.test('baseInteractionsBody sets thinking knobs outside of speech requests', () => {

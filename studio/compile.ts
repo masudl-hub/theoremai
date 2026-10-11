@@ -49,7 +49,7 @@ import {
 } from '../src/kernel/schema.ts';
 import { systemPromptProblem } from '../src/kernel/system-parts.ts';
 import { activityLabelProblem } from '../src/kernel/tools/activity-label.ts';
-import { agentToolInput, agentToolOutput } from '../src/kernel/tools/agent.ts';
+import { agentToolInputFor, agentToolOutput } from '../src/kernel/tools/agent.ts';
 import { jsonSchemaFromZod } from '../src/kernel/tools/schema.ts';
 import type {
   LiveContextCompressionSpec,
@@ -173,6 +173,14 @@ type Report = (nodeId: string, message: string, field?: string, index?: number) 
 export type AgentIdOf = (key: string) => string | undefined;
 
 const NO_AGENTS: AgentIdOf = () => undefined;
+
+/**
+ * What a tool that runs another agent of the workspace takes, by that agent's draft key;
+ * `undefined` when none has that key or an agent tool can't run it.
+ */
+export type AgentToolInputOf = (key: string) => Record<string, unknown> | undefined;
+
+const NO_AGENT_INPUTS: AgentToolInputOf = () => undefined;
 
 function cleanList(list: readonly string[] | undefined): string[] {
   return (list ?? []).map((item) => item.trim()).filter(Boolean);
@@ -390,6 +398,29 @@ function onGoogleInteractions(binding: ModelBindingDraft): boolean {
   return binding.protocol === 'geminiInteractions' && binding.provider === 'google';
 }
 
+function validateModelPolicy(
+  draft: StudioDraft,
+  models: Record<string, ModelBinding>,
+  report: Report,
+): string {
+  const { models: policy, modelBindings } = draft;
+  if (!modelBindings.length) report('models', 'Add at least one model.');
+  const defaultModel = policy.defaultModel.trim();
+  if (defaultModel && !(defaultModel in models)) {
+    report('models', `Default model '${defaultModel}' is not one of the models.`, 'defaultModel');
+  } else if (!defaultModel && defaultModelRequired(draft)) {
+    report('models', 'Pick a default model — there is more than one.', 'defaultModel');
+  }
+  if (policy.maxSteps !== null && !Number.isInteger(policy.maxSteps)) {
+    report('models', 'Max steps must be a whole number.', 'maxSteps');
+  }
+  if (keySlotRequired(draft) && !policy.key) {
+    report('models', 'Choose a key slot.', 'key');
+  }
+
+  return defaultModel;
+}
+
 function compileModels(
   draft: StudioDraft,
   type: StudioProfileType,
@@ -420,28 +451,22 @@ function compileModels(
     } else models[modelId] = compiled;
   }
 
-  if (!modelBindings.length) report('models', 'Add at least one model.');
-  const defaultModel = policy.defaultModel.trim();
-  if (defaultModel && !(defaultModel in models)) {
-    report('models', `Default model '${defaultModel}' is not one of the models.`, 'defaultModel');
-  } else if (!defaultModel && defaultModelRequired(draft)) {
-    report('models', 'Pick a default model — there is more than one.', 'defaultModel');
-  }
-  if (policy.allowModelSelect && modelBindings.length < 2) {
-    report('models', 'Model select needs at least two models.', 'allowModelSelect');
-  }
-  if (policy.maxSteps !== null && !Number.isInteger(policy.maxSteps)) {
-    report('models', 'Max steps must be a whole number.', 'maxSteps');
-  }
-  if (keySlotRequired(draft) && !policy.key) {
-    report('models', 'Choose a key slot.', 'key');
-  }
+  const defaultModel = validateModelPolicy(draft, models, report);
 
+  const heldElsewhere =
+    policy.providerHistory === 'provider' || policy.providerHistory === 'stateless'
+      ? policy.providerHistory
+      : undefined;
   return {
     models,
     ...(defaultModel ? { defaultModel } : {}),
-    ...(policy.providerStateMismatch === 'error'
-      ? { providerContinuation: { onMismatch: 'error' as const } }
+    ...(policy.providerStateMismatch === 'error' || heldElsewhere
+      ? {
+          providerContinuation: {
+            onMismatch: policy.providerStateMismatch ?? ('rebuild' as const),
+            ...(heldElsewhere ? { history: heldElsewhere } : {}),
+          },
+        }
       : {}),
     ...(policy.allowModelSelect ? { allowModelSelect: true } : {}),
     ...(policy.maxSteps !== null ? { maxSteps: policy.maxSteps } : {}),
@@ -566,12 +591,18 @@ function checkToolName(name: string, fail: Fail): void {
   }
 }
 
-function toolCommon(tool: ToolSpecDraft, fail: Fail) {
+function toolCommon(tool: ToolSpecDraft, fail: Fail, agentInputOf: AgentToolInputOf) {
   const name = tool.toolName.trim();
   checkToolName(name, fail);
   const description = tool.description.trim();
   if (!description) fail('Description is required.', 'description');
-  const schemas = tool.toolType === 'agent' ? AGENT_TOOL_SCHEMAS : toolSchemas(tool, fail);
+  const schemas =
+    tool.toolType === 'agent'
+      ? {
+          inputSchema: agentInputOf(tool.agentKey ?? '') ?? AGENT_TOOL_TEXT_INPUT,
+          outputSchema: AGENT_TOOL_OUTPUT,
+        }
+      : toolSchemas(tool, fail);
   const paths = cleanList(tool.paths);
   return {
     name,
@@ -596,11 +627,22 @@ function toolSchemas(tool: ToolSpecDraft, fail: Fail) {
   };
 }
 
-/** An agent tool takes the calling model's text and returns the agent's reply: the kernel fixes both. */
-const AGENT_TOOL_SCHEMAS = {
-  inputSchema: jsonSchemaFromZod(agentToolInput, 'input'),
-  outputSchema: jsonSchemaFromZod(agentToolOutput, 'output'),
-};
+/** Every agent tool takes text; what else it takes is the called agent's `inputs`. */
+const AGENT_TOOL_TEXT_INPUT = jsonSchemaFromZod(agentToolInputFor({ type: 'text' }), 'input');
+
+/** An agent tool returns the agent's reply: the kernel fixes it. */
+const AGENT_TOOL_OUTPUT = jsonSchemaFromZod(agentToolOutput, 'output');
+
+/** What a tool that runs this draft's agent takes, as the kernel derives it from the agent's inputs. */
+export function agentToolInputSchema(draft: StudioDraft): Record<string, unknown> | undefined {
+  const type = draft.identity.profileType;
+  if (type !== 'text' && type !== 'image' && type !== 'speech') return undefined;
+  const inputs =
+    type !== 'speech' && draftFacets(draft).includes('inputs')
+      ? compileInputs(draft.inputs, type, () => {})
+      : undefined;
+  return jsonSchemaFromZod(agentToolInputFor({ type, ...(inputs ? { inputs } : {}) }), 'input');
+}
 
 type ToolCommon = ReturnType<typeof toolCommon>;
 
@@ -753,6 +795,7 @@ function compileTool(
   tool: ToolSpecDraft,
   report: Report,
   agentIdOf: AgentIdOf,
+  agentInputOf: AgentToolInputOf,
 ): ToolRegistration | undefined {
   const nodeId = toolSpecNodeId(tool.key);
   if (!isCompiledToolType(tool.toolType)) {
@@ -764,7 +807,7 @@ function compileTool(
     failed = true;
     report(nodeId, message, field);
   };
-  const common = toolCommon(tool, fail);
+  const common = toolCommon(tool, fail, agentInputOf);
   const labels = toolLabels(tool, common, fail);
   const compiled = TOOL_COMPILERS[tool.toolType](tool, common, fail, agentIdOf);
   return failed ? undefined : { ...compiled, ...(labels ? { labels } : {}) };
@@ -775,11 +818,12 @@ function compileTools(
   withLoader: boolean,
   report: Report,
   agentIdOf: AgentIdOf,
+  agentInputOf: AgentToolInputOf,
 ) {
   const customTools: ToolRegistration[] = [];
   const names = new Set<string>();
   for (const tool of draft.toolSpecs) {
-    const compiled = compileTool(tool, report, agentIdOf);
+    const compiled = compileTool(tool, report, agentIdOf, agentInputOf);
     if (!compiled) continue;
     if (names.has(compiled.name)) {
       report(toolSpecNodeId(tool.key), `Tool name '${compiled.name}' is used twice.`, 'toolName');
@@ -949,6 +993,7 @@ function compileTurnBehaviour(
   const spec: ProfileTurnBehaviourSpec = {
     ...(resumption ? { resumption } : {}),
     ...(turn.allowSteering ? {} : { allowSteering: false }),
+    ...(turn.atStepLimit === 'answer' ? { atStepLimit: turn.atStepLimit } : {}),
   };
   return Object.keys(spec).length ? spec : undefined;
 }
@@ -1831,9 +1876,10 @@ function compileHost(
   draft: StudioDraft,
   report: Report,
   agentIdOf: AgentIdOf,
+  agentInputOf: AgentToolInputOf,
 ): Omit<CompiledStudio, 'agentId'> {
   const facets = new Set<string>(draftFacets(draft));
-  const { customTools, tools } = compileTools(draft, false, report, agentIdOf);
+  const { customTools, tools } = compileTools(draft, false, report, agentIdOf, agentInputOf);
   if (!customTools.length) {
     report('tools', 'Add at least one tool: a host runs only its tools.');
   }
@@ -1856,6 +1902,7 @@ function assemble(
   report: Report,
   mode: StudioConnectionMode,
   agentIdOf: AgentIdOf,
+  agentInputOf: AgentToolInputOf,
 ): Omit<CompiledStudio, 'agentId'> {
   const facets = new Set<string>(draftFacets(draft));
   const allows = (path: string) => draftAllows(draft, path);
@@ -1873,7 +1920,7 @@ function assemble(
     ? compileOutputs(draft.outputs, allows('outputs.structured'), report)
     : {};
   const { customTools, tools } = facets.has('tools')
-    ? compileTools(draft, allows('tools.t2Loader'), report, agentIdOf)
+    ? compileTools(draft, allows('tools.t2Loader'), report, agentIdOf, agentInputOf)
     : { customTools: [] };
   const turnBehaviour = facets.has('turnBehaviour')
     ? compileTurnBehaviour(draft.turnBehaviour, allows('turnBehaviour.resumption'), report)
@@ -1908,11 +1955,15 @@ function assemble(
   return { profile, customTools, ...(structured ? { structured } : {}) };
 }
 
-/** Every issue is reported, not just the first. `agentIdOf` resolves the agents a workspace draft names. */
+/**
+ * Every issue is reported, not just the first. `agentIdOf` and `agentInputOf` resolve the
+ * agents a workspace draft names.
+ */
 export function compileStudio(
   draft: StudioDraft,
   mode: StudioConnectionMode = 'demo',
   agentIdOf: AgentIdOf = NO_AGENTS,
+  agentInputOf: AgentToolInputOf = NO_AGENT_INPUTS,
 ): StudioCompileResult {
   const issues: StudioIssue[] = [];
   const report: Report = (nodeId, message, field, index) => {
@@ -1953,8 +2004,8 @@ export function compileStudio(
     type === 'decision'
       ? compileDecision(draft, report)
       : type === 'host'
-        ? compileHost(draft, report, agentIdOf)
-        : assemble(draft, type, report, mode, agentIdOf);
+        ? compileHost(draft, report, agentIdOf, agentInputOf)
+        : assemble(draft, type, report, mode, agentIdOf, agentInputOf);
   if (issues.length) return { ok: false, issues };
 
   try {

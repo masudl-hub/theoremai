@@ -256,11 +256,7 @@ const CONTROLS: { [K in ControlKind]: (props: ControlProps<K>) => ReactNode } = 
     />
   ),
   switch: ({ field, value, onChange }) => (
-    <Switch
-      label={field.label}
-      value={value === true}
-      onChange={onChange}
-    />
+    <Switch label={field.label} value={value === true} onChange={onChange} />
   ),
   date: ({ field, value, onChange }) => (
     <DateInput

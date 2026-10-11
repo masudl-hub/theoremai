@@ -410,7 +410,14 @@ Deno.test('what has no safe place is named and nothing is planned for it', () =>
 function decision(id: string): CompiledStudio {
   return {
     agentId: id,
-    profile: { type: 'decision', id, models: [{ provider: 'typesafe', model: 'jev' }] },
+    profile: {
+      type: 'decision',
+      id,
+      identity: { handle: id },
+      models: { jev: { provider: 'typesafe', apiId: 'jev' } },
+      inputs: { state: 'json' },
+      decision: { contract: 'fixture.v1' },
+    },
     customTools: [],
     questions: { urgent: { type: 'noul', instructions: 'Is it urgent?' } },
   };

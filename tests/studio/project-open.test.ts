@@ -15,17 +15,20 @@ const SCHEMA = { type: 'object', properties: { note: { type: 'string' } }, requi
 
 // An agent whose replies take a schema, a tool that runs it, and a profile that allows the tool.
 const example = setProfileType(createBlankDraft(), 'text');
-const thinker = compileStudio({
-  ...example,
-  identity: { ...example.identity, agentId: 'open-thinker', handle: 'thinker' },
-  included: [...example.included, 'outputs'],
-  outputs: {
-    ...example.outputs,
-    mode: 'structured',
-    schemaId: 'open.note',
-    schemaJson: JSON.stringify(SCHEMA),
+const thinker = compileStudio(
+  {
+    ...example,
+    identity: { ...example.identity, agentId: 'open-thinker', handle: 'thinker' },
+    included: [...example.included, 'outputs'],
+    outputs: {
+      ...example.outputs,
+      mode: 'structured',
+      schemaId: 'open.note',
+      schemaJson: JSON.stringify(SCHEMA),
+    },
   },
-}, 'byok');
+  'byok',
+);
 assert(thinker.ok && thinker.structured);
 registerStructured(thinker.structured.id, thinker.structured.spec);
 registerProfile(thinker.profile);

@@ -351,15 +351,15 @@ export async function fetchGuarded(
       body,
       redirect: 'manual',
     });
-    const location = response.headers.get('location');
-    if (!options.followRedirects || !REDIRECT_STATUSES.has(response.status) || location === null) {
+    const redirect = response.headers.get('location');
+    if (!options.followRedirects || !REDIRECT_STATUSES.has(response.status) || redirect === null) {
       return response;
     }
     await response.body?.cancel();
     if (hop === FETCH_REDIRECT_LIMIT) {
       throw new TheoremError('network', `Too many redirects from "${url}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
-    target = await clearHop(new URL(location, target).href);
+    target = await clearHop(new URL(redirect, target).href);
     onOrigin &&= target.origin === origin;
     if (redirectsToGet(response.status, method)) {
       method = 'GET';

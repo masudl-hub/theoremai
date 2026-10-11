@@ -6,7 +6,7 @@
  * @module
  */
 
-import { TheoremError, type z } from '@theoremjs/agents';
+import { lexiconText, TheoremError, type z } from '@theoremjs/agents';
 import {
   type LiveClientMessage,
   type LiveOpenMessage,
@@ -14,6 +14,7 @@ import {
   liveOpenMessageSchema,
 } from '../client/live-messages.ts';
 import { issueSummary } from '../client/wire-line.ts';
+import { requestByteLimit } from './request-body.ts';
 
 /** `raw` checked against `schema`; a missing or malformed field is a `request` error. */
 export function checkRequest<T>(schema: z.ZodType<T>, raw: unknown, what: string): T {
@@ -26,11 +27,16 @@ export function checkRequest<T>(schema: z.ZodType<T>, raw: unknown, what: string
 }
 
 function liveFrame(text: string): unknown {
+  const limit = requestByteLimit();
+  if (text.length > limit || new TextEncoder().encode(text).byteLength > limit)
+    throw new TheoremError('request', lexiconText('error.request'));
   try {
     return JSON.parse(text) as unknown;
-  } catch (cause) {
-    // lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-    throw new TheoremError('request', 'live message must be JSON', { cause });
+  } catch {
+    // invariant: JSON parser diagnostics can contain browser values.
+    throw new TheoremError('request', lexiconText('error.request'), {
+      cause: { code: 'request_json' },
+    });
   }
 }
 

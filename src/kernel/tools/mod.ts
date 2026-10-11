@@ -1,4 +1,5 @@
 export {
+  authorizeToolReplay,
   coerceToolResultParts,
   executeRegisteredTool,
   leanToolResultData,

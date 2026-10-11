@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { type ProfileDefinition, registerTool, type TurnEvent } from '../../mod.ts';
 import { createHostTransport } from '../../react/src/client/host-transport.ts';
 import type { TurnEventSink } from '../../react/src/client/transport.ts';
+import { issuedOperationId } from '../../react/src/client/turn-client.ts';
 import { createTheoremHandler, createTheoremHostHandler } from '../../react/src/server/mod.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
@@ -167,7 +168,10 @@ Deno.test('a gated call pauses, and runs only once the user approves it', async 
   assert(gate, 'expected the call to pause on a gate');
   assertEquals(ran.includes('delete:r7'), false);
   const settled = await collect((onEvent) =>
-    transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent),
+    transport.invoke(
+      { gateId: gate.callId, operationId: issuedOperationId(gate), decision: 'approve' },
+      onEvent,
+    ),
   );
   // The answer's stream resumes the call the first one paused.
   assertEquals(toolEventsOf(settled, 'complete')[0]?.output, { deleted: 'r7' });

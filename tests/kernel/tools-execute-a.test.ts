@@ -178,7 +178,6 @@ Deno.test('every tool type is traced and framed with its own origin', async () =
     name: 'origin_builtin',
     description: 'builtin',
     ...registered,
-    wire: {},
   });
   const profile = profileOf({
     allow: ['origin_http', 'origin_mcp', 'origin_function', 'origin_builtin'],

@@ -385,6 +385,214 @@ Deno.test("a speech agent's audio comes back as parts", async () => {
   });
 });
 
+/** The caller sends the tool `args` in its first step; the called agent's requests land in `seen`. */
+function sendingProvider(args: Record<string, unknown>, seen: ProviderCompleteRequest[]) {
+  let callerStep = 0;
+  const provider: ModelProvider = {
+    async *complete(req) {
+      await Promise.resolve();
+      if (!req.system.includes('You help.')) {
+        seen.push(req);
+        if (req.speech) {
+          yield { type: 'media', media: { mimeType: 'audio/pcm', data: 'c291bmQ=' } };
+          return;
+        }
+        yield { type: 'text', text: 'seen' };
+        return;
+      }
+      callerStep += 1;
+      if (callerStep === 1) {
+        yield { type: 'tool', tool: { name: 'ask_researcher', arguments: args, callId: 'call_0' } };
+        return;
+      }
+      seen.push(req);
+      yield { type: 'text', text: 'Done.' };
+    },
+  };
+  return provider;
+}
+
+/** A scope whose called agent takes pictures and one slot beside its text. */
+function pictureScope(): KernelScope {
+  const scope = createKernelScope();
+  scope.profiles.register(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'annotator', system: 'You annotate.' },
+      id: RESEARCHER,
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 2,
+      tools: { allow: [] },
+      inputs: {
+        text: true,
+        attachments: { accept: ['image/png'] },
+        maxFiles: 2,
+        maxBytes: 1_000_000,
+        maxTurnBytes: 2_000_000,
+        slots: { depth: ['quick', 'careful'] },
+      },
+    }),
+  );
+  scope.tools.register(agentTool());
+  scope.profiles.register(textProfile(CALLER, 'You help.', ['ask_researcher']));
+  return scope;
+}
+
+function speechScope(): KernelScope {
+  const scope = createKernelScope();
+  scope.profiles.register(
+    defineProfile({
+      id: RESEARCHER,
+      type: 'speech',
+      identity: { handle: 'narrator' },
+      ...geminiModels('gemini31FlashTts'),
+      speech: { voice: 'Kore', format: 'pcm' },
+    }),
+  );
+  scope.tools.register(agentTool());
+  scope.profiles.register(textProfile(CALLER, 'You help.', ['ask_researcher']));
+  return scope;
+}
+
+const PICTURE = { mimeType: 'image/png', data: 'iVBORw0KGgo=' };
+
+Deno.test("an agent tool's input is what the called profile takes", () => {
+  const properties = (scope: KernelScope) => {
+    const tool = scope.tools.get('ask_researcher');
+    const schema = tool && 'inputSchema' in tool ? tool.inputSchema : {};
+    return Object.keys(schema.properties as object);
+  };
+  assertEquals(properties(scopeWith()), ['text']);
+  assertEquals(properties(pictureScope()), ['text', 'attachments', 'slots']);
+  assertEquals(properties(speechScope()), ['text', 'speech']);
+});
+
+Deno.test('the calling model sends a picture and a slot, and the agent gets both', async () => {
+  const seen: ProviderCompleteRequest[] = [];
+  const calls: Parameters<AgentCallHook>[0][] = [];
+  const sent = { text: 'What is this?', attachments: [PICTURE], slots: { depth: 'careful' } };
+  const events = await collect(pictureScope(), sendingProvider(sent, seen), (call) => {
+    calls.push(call);
+    return undefined;
+  });
+  assertEquals(toolPhases(events, 'error'), []);
+  assertEquals(calls[0]?.input, sent);
+  assertEquals(
+    seen[0]?.history?.at(-1)?.parts?.some((part) => part.type === 'image'),
+    true,
+  );
+});
+
+Deno.test('a call that sends what the profile does not take is refused, not dropped', async () => {
+  const seen: ProviderCompleteRequest[] = [];
+  const sent = { text: 'What is this?', attachments: [PICTURE] };
+  const events = await collect(scopeWith(), sendingProvider(sent, seen));
+  const [error] = toolPhases(events, 'error');
+  const failure = (error as { failure: { code: string; kind: string } }).failure;
+  assertEquals([failure.code, failure.kind], ['invalid_input', 'bad_response']);
+  assertEquals(seen.length, 1);
+});
+
+Deno.test('bytes that are not base64, or a text of only spaces, fail the call and not the turn', async () => {
+  for (const [scope, sent] of [
+    [
+      pictureScope(),
+      { text: 'What?', attachments: [{ mimeType: 'image/png', data: 'not base64!' }] },
+    ],
+    [speechScope(), { text: '   ' }],
+  ] as const) {
+    const seen: ProviderCompleteRequest[] = [];
+    const events = await collect(scope, sendingProvider(sent, seen));
+    const [error] = toolPhases(events, 'error');
+    assertEquals((error as { failure: { code: string } }).failure.code, 'invalid_input');
+    assertEquals(doneOf(events).stop.kind, 'completed');
+  }
+});
+
+Deno.test("a picture the profile does not accept fails the call with the agent's reason", async () => {
+  const seen: ProviderCompleteRequest[] = [];
+  const sent = {
+    text: 'What is this?',
+    attachments: [{ mimeType: 'image/gif', data: 'R0lG', name: 'leaf.gif' }],
+  };
+  const events = await collect(pictureScope(), sendingProvider(sent, seen));
+  const [error] = toolPhases(events, 'error');
+  assertEquals((error as { failure: unknown }).failure, {
+    code: 'agent_failed',
+    kind: 'input',
+    message:
+      "Tool 'ask_researcher' didn't get a reply from its agent\nSorry, leaf.gif is a file type that can't be used here.",
+    details: {
+      agent: RESEARCHER,
+      reasons: [
+        {
+          key: 'attachments.mime_not_allowed',
+          params: { mimeType: 'image/gif', channel: 'attachment', fileName: 'leaf.gif' },
+        },
+      ],
+    },
+    error: "Sorry, that file can't be used here.",
+  });
+  assertEquals(doneOf(events).stop.kind, 'completed');
+});
+
+Deno.test('the calling model sets how a speech agent speaks; the host can overrule it', async () => {
+  const bySpeaker = async (onAgentCall?: AgentCallHook) => {
+    const seen: ProviderCompleteRequest[] = [];
+    const sent = { text: 'Hello there', speech: { voice: 'Puck', style: 'warmly' } };
+    await collect(speechScope(), sendingProvider(sent, seen), onAgentCall);
+    return seen[0]?.speech;
+  };
+  assertEquals(await bySpeaker(), { voice: 'Puck', format: 'pcm', style: 'warmly' });
+  assertEquals(await bySpeaker(() => ({ speech: { voice: 'Aoede' } })), {
+    voice: 'Aoede',
+    format: 'pcm',
+  });
+});
+
+Deno.test("a stage after the call can replace the agent's reply before the caller reads it", async () => {
+  const seen: ProviderCompleteRequest[] = [];
+  const events: TurnEvent[] = [];
+  for await (const event of runScopedTurn(
+    speechScope(),
+    {
+      profile: CALLER,
+      input: { text: 'Help' },
+      onStage: (ctx) =>
+        ctx.stage === 'post_tool' ? { mutate: { output: { text: 'kept as note 7' } } } : undefined,
+    },
+    sendingProvider({ text: 'Hello there' }, seen),
+  )) {
+    events.push(event);
+  }
+  const [complete] = toolPhases(events, 'complete');
+  assertEquals((complete as { output: unknown }).output, { text: 'kept as note 7' });
+  assertEquals(seen.at(-1)?.history?.at(-1)?.content, '{"text":"kept as note 7"}');
+});
+
+Deno.test("what the called agent cited comes back, and the caller's turn cites it", async () => {
+  const source = { title: 'Kew', uri: 'https://kew.org/monstera', type: 'web' as const };
+  const caller = routedProvider();
+  const provider: ModelProvider = {
+    async *complete(req) {
+      await Promise.resolve();
+      if (isResearcher(req)) {
+        yield { type: 'text', text: 'found' };
+        yield { type: 'citation', sources: [source] };
+        return;
+      }
+      yield* caller.complete(req);
+    },
+  };
+  const events = await collect(scopeWith(), provider);
+  const [complete] = toolPhases(events, 'complete');
+  assertEquals((complete as { output: unknown }).output, { text: 'found', sources: [source] });
+  assertEquals(
+    events.flatMap((e) => (e.type === 'citation' ? [e] : [])),
+    [{ type: 'citation', sources: [source], callId: 'call_0' }],
+  );
+});
+
 Deno.test("the called agent's canary is kept out of the caller's record", async () => {
   const canaries: string[] = [];
   const routed = routedProvider();
@@ -420,23 +628,4 @@ Deno.test('an agent that does not finish fails the call, with its usage', async 
   const { failure, tokens } = error as { failure: { code: string }; tokens?: TurnTokens };
   assertEquals(failure.code, 'agent_failed');
   assertEquals(tokens?.total, RESEARCHER_TOKENS.total);
-});
-
-Deno.test("a live profile can't allow an agent tool", () => {
-  const scope = scopeWith();
-  assertThrows(
-    () =>
-      scope.profiles.register(
-        defineProfile({
-          type: 'live',
-          id: 'agent_tool_live',
-          identity: { handle: 'live' },
-          ...geminiModels('gemini31FlashLive'),
-          live: { voice: 'Aoede' },
-          tools: { allow: ['ask_researcher'] },
-        }),
-      ),
-    TheoremError,
-    "a live session can't run an agent tool",
-  );
 });

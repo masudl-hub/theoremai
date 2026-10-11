@@ -17,10 +17,12 @@ import {
   z,
 } from '@theoremjs/agents';
 import type { Equals } from '@theoremjs/agents/kernel';
+import type { PageDispatchResult } from './page-dispatch.ts';
 import type { TraceFeed } from './trace-feed.ts';
 import {
   fetchJson,
   type HttpOptions,
+  postJson,
   postNdjson,
   type TheoremInvokeRequest,
   type TurnEventSink,
@@ -105,6 +107,7 @@ export const theoremHostCallRequestSchema: z.ZodType<TheoremHostCallRequest> =
   theoremHostCallRequest;
 
 export interface HostTransport {
+  pageResult?(result: PageDispatchResult, signal?: AbortSignal): Promise<void>;
   describe(signal?: AbortSignal): Promise<HostInterface>;
   /** Runs one tool; its events stream to `onEvent`, ending in `done`. */
   call(
@@ -148,6 +151,7 @@ export function createHostTransport(
 ): HostTransport {
   const base = (options.endpoint ?? '/api/host').replace(/\/$/, '');
   return {
+    pageResult: (body, signal) => postJson(`${base}/page-result`, body, { ...options, signal }),
     async describe(signal) {
       // lexicon-exempt: internal diagnostic; the user reads error.bad_response
       return checkWire(

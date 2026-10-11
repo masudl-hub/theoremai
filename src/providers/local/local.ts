@@ -78,7 +78,9 @@ function buildBody(req: ProviderCompleteRequest): Record<string, unknown> {
 }
 
 export function flushPending(pending: Map<number, PendingToolCall>): ProviderEvent[] {
-  const events = [...pending.values()].flatMap((tc) => toolCallEvents(tc, tc.args));
+  const events = [...pending.values()].flatMap((tc) =>
+    toolCallEvents({ ...tc, id: tc.id || undefined }, tc.args),
+  );
   pending.clear();
   return events;
 }
@@ -237,11 +239,13 @@ function accumulateToolCalls(
   for (const tc of toolCalls) {
     const existing = pending.get(tc.index);
     if (existing) {
+      existing.id += tc.id ?? '';
+      existing.name += tc.function?.name ?? '';
       existing.args += tc.function?.arguments ?? '';
       continue;
     }
     pending.set(tc.index, {
-      id: tc.id ?? `call_${tc.index}`,
+      id: tc.id ?? '',
       name: tc.function?.name ?? '',
       args: tc.function?.arguments ?? '',
     });

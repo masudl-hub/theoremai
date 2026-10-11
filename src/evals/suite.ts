@@ -26,6 +26,8 @@ interface LoadedSuite {
   media?: EvalMediaResolver;
   /** The stage handler every live trial's turn runs with, as the host's own requests do. */
   onStage?: StageHandler;
+  /** The application context every live trial's turn carries as `TurnRequest.host`; its tools read it as `ctx.host`. */
+  host?: unknown;
   path: string;
 }
 
@@ -123,6 +125,7 @@ async function loadSuite(modulePath: string): Promise<LoadedSuite> {
     ...(isDecisionKey(module.judgeDecision) ? { judgeDecision: module.judgeDecision } : {}),
     ...(typeof module.media === 'function' ? { media: module.media as EvalMediaResolver } : {}),
     ...(typeof module.onStage === 'function' ? { onStage: module.onStage as StageHandler } : {}),
+    ...(module.host === undefined ? {} : { host: module.host }),
   };
 }
 

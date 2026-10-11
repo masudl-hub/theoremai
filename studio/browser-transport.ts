@@ -1,3 +1,4 @@
+import { browserExecution } from './browser-execution.ts';
 import { type DecisionProfile, defineProfile, TheoremError, type TurnEvent } from '../mod.ts';
 import {
   type DecisionTransport,
@@ -71,11 +72,53 @@ async function deliver(
   }
 }
 
+async function* recordLocalCheckpoints(
+  source: AsyncIterable<TurnEvent | StudioTraceLine | StudioSteerLine>,
+  local: ReturnType<typeof browserExecution> | undefined,
+): AsyncGenerator<TurnEvent | StudioTraceLine | StudioSteerLine> {
+  for await (const event of source) {
+    if (local && (event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState)
+      await (await local.boundary).recordCheckpoint(event.providerState);
+    yield event;
+  }
+}
+
+function localPageResult(local: ReturnType<typeof browserExecution> | undefined) {
+  return local ? async (result: import('../react/src/client/page-dispatch.ts').PageDispatchResult) => {
+    await local.pageResult(result);
+  } : undefined;
+}
+
+function withBrowserExecution(runtime: StudioBrowserRuntime) {
+  const local = runtime.execution ? undefined : browserExecution();
+  if (local) {
+    const original = runtime;
+    runtime = {
+      mode: original.mode,
+      providers: original.providers,
+      providerDefinitions: original.providerDefinitions,
+      decision: original.decision,
+      signal: original.signal,
+      resolveHost: original.resolveHost?.bind(original),
+      remoteTools: original.remoteTools,
+      hostOptions: original.hostOptions?.bind(original),
+      provider: original.provider?.bind(original),
+      onAgentCall: original.onAgentCall?.bind(original),
+      execution: local.execution,
+      pageExecution: local.pageExecution,
+    };
+  }
+  return { runtime, local };
+}
+
 export function createBrowserStudioTransport(
   payload: StudioRunPayload,
   runtime: StudioBrowserRuntime,
   options: { traces?: TraceFeed } = {},
 ): TheoremTransport {
+  const prepared = withBrowserExecution(runtime);
+  runtime = prepared.runtime;
+  const local = prepared.local;
   const traces = options.traces ?? createTraceFeed();
   const steer = createMemorySteerInbox();
   const inboxes = new Map<string, string>();
@@ -89,24 +132,29 @@ export function createBrowserStudioTransport(
   const route = (onEvent: TurnEventSink, onInbox = (_inbox: string) => {}) =>
     routeStudioLines(onEvent, traces, onInbox);
   return {
+    pageResult: localPageResult(local),
     describe: () => Promise.resolve(studioInterface(payload)),
     async turn(request, onEvent, signal) {
       try {
+        const providerState = local
+          ? await (await local.boundary).prepareProviderState(request.providerState, request.input.history)
+          : request.providerState;
         const source = streamStudioTurn({
           ...compiled,
           ...request,
+          providerState,
           signal: runSignal(runtime, signal),
           steer,
-          abandon: request.abandon?.map((callId) => {
-            const replay = request.replay?.abandon?.[callId];
+          abandon: request.abandon?.map(({ callId, operationId }) => {
+            const replay = request.replay?.abandon?.[operationId];
             if (!replay) {
               throw new TheoremError('request', 'No replay for abandoned call'); // lexicon-exempt: internal diagnostic
             }
-            return { callId, replay };
+            return { callId, operationId, replay };
           }),
         });
         await deliver(
-          source,
+          recordLocalCheckpoints(source, local),
           payload,
           route(onEvent, (inbox) => {
             if (request.turnId) inboxes.set(request.turnId, inbox);
@@ -118,11 +166,11 @@ export function createBrowserStudioTransport(
     },
     invoke: (answer, onEvent, signal) =>
       deliver(
-        streamStudioInvoke({
+        recordLocalCheckpoints(streamStudioInvoke({
           ...compiled,
           answer,
           signal: runSignal(runtime, signal),
-        }),
+        }), local),
         payload,
         route(onEvent),
       ),
@@ -143,6 +191,9 @@ export function createBrowserStudioHostTransport(
   runtime: StudioBrowserRuntime,
   options: { traces?: TraceFeed } = {},
 ): HostTransport {
+  const prepared = withBrowserExecution(runtime);
+  runtime = prepared.runtime;
+  const local = prepared.local;
   const traces = options.traces ?? createTraceFeed();
   let sessionPermissions: string[] = [];
   const compiled = {
@@ -153,6 +204,7 @@ export function createBrowserStudioHostTransport(
   };
   const route = (onEvent: TurnEventSink) => routeStudioLines(onEvent, traces, () => {});
   return {
+    pageResult: localPageResult(local),
     describe: () =>
       Promise.resolve(
         hostInterface(

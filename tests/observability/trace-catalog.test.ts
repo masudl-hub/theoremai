@@ -36,7 +36,8 @@ async function emitterSources(): Promise<string[]> {
 Deno.test('every attribute key and event name the kernel writes has a catalog entry', async () => {
   const sources = await emitterSources();
   const missing = new Set<string>();
-  for (const text of sources) {
+  for (const source of sources) {
+    const text = source.replace(/\blexiconText\(\s*'[^']*'/g, 'lexiconText(');
     for (const [, key = ''] of text.matchAll(ATTRIBUTE_KEY)) {
       // A header prefix (`http.request.header`) names a family: check one member.
       const known =

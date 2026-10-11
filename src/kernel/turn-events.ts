@@ -467,8 +467,10 @@ export interface ToolGateBase {
   summary?: string;
   request?: string;
   access?: ToolAccess;
+  preparedArguments?: Record<string, unknown>;
 }
 const toolGateBase = {
+  preparedArguments: z.record(z.string(), z.unknown()).optional(),
   tool: nonEmptyText,
   permission: z.enum(TOOL_PERMISSION).optional(),
   summary: nonEmptyText.optional(),
@@ -588,12 +590,19 @@ export interface ToolEventBase {
   /** Call id: the provider's own id when it sent one, else kernel-assigned. */
   callId: string;
 }
+export interface GateReference {
+  callId: string;
+  operationId: string;
+}
+export const gateReferenceSchema: z.ZodType<GateReference> = z.strictObject({
+  callId: z.string().min(1),
+  operationId: z.string().min(1).max(256),
+});
 const toolEventBase = { name: z.string(), callId: z.string() };
 
 /**
- * The model's call, as the provider emitted it (no phase). It is the first
- * event of every call and the one owner of its arguments; phase events join
- * it by `callId`.
+ * invariant: The provider request owns the arguments. Kernel events add an operation ID.
+ * Interface folds join phases by that ID, or by callId for historical events.
  */
 export interface ToolCallRequest extends ToolEventBase {
   phase?: undefined;
@@ -656,6 +665,7 @@ export interface ToolCallEdit {
 export type ToolPhaseEvent = ToolPhaseBase &
   (
     | { phase: 'running'; edited?: ToolCallEdit; activity?: string }
+    | { phase: 'dispatch'; grantId: string; arguments: Record<string, unknown> }
     | { phase: 'progress'; data: unknown }
     | { phase: 'trace'; step: ToolTraceStep }
     | { phase: 'artifact'; artifact: unknown }
@@ -687,6 +697,12 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     phase: z.literal('running'),
     edited: z.object({ from: jsonObject, to: jsonObject }).optional(),
     activity: z.string().optional(),
+  }),
+  z.object({
+    ...toolPhaseBase,
+    phase: z.literal('dispatch'),
+    grantId: z.string().min(1),
+    arguments: jsonObject,
   }),
   z.object({ ...toolPhaseBase, phase: z.literal('progress'), data: z.unknown() }),
   z.object({ ...toolPhaseBase, phase: z.literal('trace'), step: toolTraceStep }),
@@ -720,8 +736,13 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
 true satisfies Equals<z.infer<typeof toolPhaseEvent>, ToolPhaseEvent>;
 
 /** A tool call event: the model's request or a phase of running it. */
-export type ToolCallEvent = ToolCallRequest | ToolPhaseEvent;
-const toolCallEvent = z.union([toolPhaseEvent, toolCallRequest]);
+export type ToolCallEvent = (ToolCallRequest | ToolPhaseEvent) & {
+  /** Kernel-issued identity. Historical events can predate this field. */
+  operationId?: string;
+};
+const toolCallEvent = z
+  .union([toolPhaseEvent, toolCallRequest])
+  .and(z.object({ operationId: z.string().min(1).max(256).optional() }));
 true satisfies Equals<z.infer<typeof toolCallEvent>, ToolCallEvent>;
 
 /** A note that a stage handler's result was partly or wholly ignored, and why. */
@@ -841,7 +862,11 @@ export type DoneEvent = DoneBase &
 /** Every event a host receives from `runTurn`, `invokeTool` or a live session. */
 export type TurnEvent =
   | { type: 'provider_warning'; warning: ProviderWarning }
-  | { type: 'provider_checkpoint'; providerState: ProviderCheckpoint }
+  | {
+      type: 'provider_checkpoint';
+      providerState: ProviderCheckpoint;
+      history?: TurnHistoryMessage[];
+    }
   | { type: 'text'; text: string }
   | { type: 'thought'; text: string }
   /** The profile's structured-output schema validates `structured`. */
@@ -982,6 +1007,7 @@ const TURN_EVENTS = {
   provider_checkpoint: z.object({
     type: z.literal('provider_checkpoint'),
     providerState: providerCheckpointSchema,
+    history: z.array(turnHistoryMessageSchema).optional(),
   }),
   provider_warning: z.object({
     type: z.literal('provider_warning'),

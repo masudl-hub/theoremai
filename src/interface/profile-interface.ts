@@ -12,6 +12,7 @@ import {
   LIVE_END_SENSITIVITIES,
   LIVE_START_SENSITIVITIES,
   SPEECH_AUDIO_FORMATS,
+  STEP_LIMIT_MODES,
   STREAM_MODES,
   THINKING_LEVELS,
 } from '../kernel/schema.ts';
@@ -133,7 +134,12 @@ const tools = z.object({
 });
 
 const common = {
-  providerContinuation: z.object({ onMismatch: z.enum(['rebuild', 'error']) }).optional(),
+  providerContinuation: z
+    .object({
+      onMismatch: z.enum(['rebuild', 'error']),
+      history: z.enum(['host', 'stateless', 'provider']).optional(),
+    })
+    .optional(),
   id: z.string(),
   models: z.record(z.string(), modelBinding),
   defaultModel: z.string(),
@@ -167,7 +173,11 @@ const profileInterface = z.discriminatedUnion('type', [
     inputs,
     tools,
     turnBehaviour: z
-      .object({ resumption: resumption.optional(), allowSteering: z.boolean().optional() })
+      .object({
+        resumption: resumption.optional(),
+        allowSteering: z.boolean().optional(),
+        atStepLimit: z.enum(STEP_LIMIT_MODES).optional(),
+      })
       .optional(),
     canStop: z.literal(true),
     allowSteering: z.boolean(),

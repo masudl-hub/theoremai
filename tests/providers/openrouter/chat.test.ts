@@ -1,12 +1,11 @@
 import '../../fixtures/test-host.ts';
-import { assertEquals } from '@std/assert';
+import { assert, assertEquals } from '@std/assert';
 import { resolveTurn } from '../../../src/kernel/default-scope.ts';
 import { providerBuiltins } from '../../../src/kernel/registry/provider-request.ts';
 import { defaultKernelScope } from '../../../src/kernel/scope.ts';
 import type { ProviderCompleteRequest } from '../../../src/kernel/types.ts';
 import { createOpenRouterProvider } from '../../../src/providers/openrouter/chat.ts';
 import { citedUris, eventsOf, firstOf } from '../../fixtures/events.ts';
-import { googleBuiltins } from '../../fixtures/provider-request.ts';
 import { testWireTool } from '../../fixtures/wire-tools.ts';
 
 type R = Record<string, unknown>;
@@ -396,7 +395,29 @@ Deno.test('createOpenRouterProvider sends response_format for structured request
   assertEquals(capturedBody?.provider, { require_parameters: true });
 });
 
-Deno.test('createOpenRouterProvider passes web_search_options for googleSearch builtin', async () => {
+Deno.test('a request with no tools sends no tools list, which OpenRouter would count as a required parameter', async () => {
+  let capturedBody: Record<string, unknown> | undefined;
+  const provider = createOpenRouterProvider({
+    vault: { slot_a: 'test-key' },
+    fetch: (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body));
+      return Promise.resolve(
+        sseResponse([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: 'ok' } }] })}\n\n`,
+          'data: [DONE]\n\n',
+        ]),
+      );
+    },
+  });
+
+  await Array.fromAsync(
+    provider.complete({ ...createMockTurnRequest('formatter', 'Say hi'), wireTools: [] }),
+  );
+  assert(capturedBody);
+  assertEquals(Object.hasOwn(capturedBody, 'tools'), false);
+});
+
+Deno.test('createOpenRouterProvider passes web_search_options for the webSearch builtin', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
     vault: { slot_a: 'test-key' },
@@ -412,7 +433,7 @@ Deno.test('createOpenRouterProvider passes web_search_options for googleSearch b
   });
 
   const req = createMockTurnRequest('pinned', 'search the web');
-  req.builtins = googleBuiltins('googleSearch');
+  req.builtins = [{ id: 'webSearch' }];
   const events = await Array.fromAsync(provider.complete(req));
   assertEquals(
     events.some((e) => e.type === 'text'),
@@ -422,7 +443,7 @@ Deno.test('createOpenRouterProvider passes web_search_options for googleSearch b
   assertEquals(capturedBody?.plugins, undefined);
 });
 
-Deno.test('createOpenRouterProvider errors on a builtin with no OpenRouter wire, without calling upstream', async () => {
+Deno.test('createOpenRouterProvider errors on a builtin OpenRouter does not run, without calling upstream', async () => {
   let called = false;
   const provider = createOpenRouterProvider({
     vault: { slot_a: 'test-key' },
@@ -433,10 +454,13 @@ Deno.test('createOpenRouterProvider errors on a builtin with no OpenRouter wire,
   });
 
   const req = createMockTurnRequest('pinned', 'find a nursery');
-  req.builtins = [{ id: 'liveOnly', wire: { live: 'liveOnly' } }];
+  req.builtins = [{ id: 'googleMaps' }];
   const events = await Array.fromAsync(provider.complete(req));
   const error = firstOf(events, 'error');
-  assertEquals(error?.errorInternal?.includes("Builtin 'liveOnly' has no wire.openRouter"), true);
+  assertEquals(
+    error?.errorInternal?.includes("Builtin 'googleMaps' is not an OpenRouter tool"),
+    true,
+  );
   assertEquals(called, false);
 });
 
@@ -796,6 +820,64 @@ Deno.test('createOpenRouterProvider cites each URL once across the stream', asyn
   assertEquals(
     eventsOf(events, 'citation').map((e) => e.sources.map((source) => source.uri)),
     [['https://a.com'], ['https://b.com']],
+  );
+});
+
+// The chunk shape perplexity/sonar streams through OpenRouter (captured Oct 10, 2026): citations ride each choice's `delta`, repeated chunk after chunk.
+Deno.test('createOpenRouterProvider cites the sources a streamed reply carries on its delta', async () => {
+  const cite = (url: string, title: string) => ({
+    type: 'url_citation',
+    url_citation: { url, title, start_index: 0, end_index: 0 },
+  });
+  const aspca = cite('https://www.aspca.org/news/houseplant-safe-your-pets', 'ASPCA');
+  const rhs = cite('https://www.rhs.org.uk/plants/chlorophytum', 'RHS');
+  const chunk = (content: string, annotations?: unknown[]) =>
+    JSON.stringify({
+      id: 'gen-1',
+      object: 'chat.completion.chunk',
+      model: 'perplexity/sonar',
+      provider: 'Perplexity',
+      choices: [
+        {
+          index: 0,
+          delta: { content, role: 'assistant', ...(annotations ? { annotations } : {}) },
+          finish_reason: null,
+          native_finish_reason: null,
+        },
+      ],
+    });
+  const provider = createOpenRouterProvider({
+    vault: { slot_a: 'test-key' },
+    fetch: () =>
+      Promise.resolve(
+        sseResponse([
+          `data: ${chunk('Spider plants')}\n\n`,
+          `data: ${chunk(' are', [aspca])}\n\n`,
+          `data: ${chunk(' non-toxic.[1][2]', [aspca, rhs])}\n\n`,
+          'data: [DONE]\n\n',
+        ]),
+      ),
+  });
+
+  const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'cite')));
+  assertEquals(
+    eventsOf(events, 'citation').map((e) => e.sources),
+    [
+      [
+        {
+          title: 'ASPCA',
+          uri: 'https://www.aspca.org/news/houseplant-safe-your-pets',
+          type: 'web',
+        },
+      ],
+      [{ title: 'RHS', uri: 'https://www.rhs.org.uk/plants/chlorophytum', type: 'web' }],
+    ],
+  );
+  assertEquals(
+    eventsOf(events, 'text')
+      .map((e) => e.text)
+      .join(''),
+    'Spider plants are non-toxic.[1][2]',
   );
 });
 

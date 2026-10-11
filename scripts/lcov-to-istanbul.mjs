@@ -1,7 +1,8 @@
 // Usage: node scripts/lcov-to-istanbul.mjs <lcov.info> <coverage-final.json>
 // The output is written whole or not at all: a concurrent reader never sees half a file.
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, extname } from 'node:path';
+import ts from 'typescript';
 
 const [lcovPath, outPath] = process.argv.slice(2);
 if (!lcovPath || !outPath) {
@@ -81,11 +82,46 @@ function parseRecord(block) {
   };
 }
 
+async function locateFunctions(record) {
+  let source;
+  try {
+    source = await readFile(record.path, 'utf8');
+  } catch {
+    return;
+  }
+  const kind = ['.tsx', '.jsx'].includes(extname(record.path))
+    ? ts.ScriptKind.TSX
+    : ts.ScriptKind.TS;
+  const tree = ts.createSourceFile(record.path, source, ts.ScriptTarget.Latest, true, kind);
+  const ranges = [];
+  const visit = (node) => {
+    if (ts.isFunctionLike(node) && node.body) {
+      const start = tree.getLineAndCharacterOfPosition(node.getStart(tree));
+      const end = tree.getLineAndCharacterOfPosition(node.getEnd());
+      ranges.push({ name: node.name?.getText(tree), start, end });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  for (const entry of Object.values(record.fnMap)) {
+    const candidates = ranges.filter((range) => range.start.line + 1 === entry.decl.start.line);
+    const named = candidates.filter((range) => range.name === entry.name);
+    const matches = named.length === 1 ? named : candidates;
+    if (matches.length !== 1) continue;
+    const range = matches[0];
+    entry.loc = {
+      start: loc(range.start.line + 1, range.start.character),
+      end: loc(range.end.line + 1, range.end.character),
+    };
+  }
+}
+
 const lcov = await readFile(lcovPath, 'utf8');
 const coverage = {};
 for (const block of lcov.split('end_of_record')) {
   const record = parseRecord(block);
   if (record) {
+    await locateFunctions(record);
     coverage[record.path] = record;
   }
 }

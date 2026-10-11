@@ -220,7 +220,9 @@ Deno.test('context and a tool the page answers read back', () => {
   // The studio's page answers that tool with its stub.
   const pageTools = studioPageTools(compiled);
   assertEquals(Object.keys(pageTools), [first.toolName]);
-  assertEquals(pageTools[first.toolName]?.({}, { callId: 'call-1' }), { output: { ok: true } });
+  assertEquals(pageTools[first.toolName]?.({}, { callId: 'call-1', operationId: 'operation-1' }), {
+    output: { ok: true },
+  });
 });
 
 Deno.test('saved-state mismatch policy survives a Studio source round trip', () => {
@@ -233,5 +235,37 @@ Deno.test('saved-state mismatch policy survives a Studio source round trip', () 
   const read = readStudioSource(studioSource(compiled), createExampleDraft());
   assert(read.ok);
   assertEquals(read.draft.models.providerStateMismatch, 'error');
+  roundTrip(draft);
+});
+
+Deno.test('who holds the conversation survives a Studio source round trip', () => {
+  const draft = createExampleDraft();
+  draft.models.providerHistory = 'provider';
+  const compiled = compileStudio(draft);
+  assert(compiled.ok);
+  assert(compiled.profile.type === 'text');
+  assertEquals(compiled.profile.providerContinuation, {
+    onMismatch: 'rebuild',
+    history: 'provider',
+  });
+  const read = readStudioSource(studioSource(compiled), createExampleDraft());
+  assert(read.ok);
+  assertEquals(read.draft.models.providerHistory, 'provider');
+  roundTrip(draft);
+});
+
+Deno.test('a stateless profile survives a Studio source round trip', () => {
+  const draft = createExampleDraft();
+  draft.models.providerHistory = 'stateless';
+  const compiled = compileStudio(draft);
+  assert(compiled.ok);
+  assert(compiled.profile.type === 'text');
+  assertEquals(compiled.profile.providerContinuation, {
+    onMismatch: 'rebuild',
+    history: 'stateless',
+  });
+  const read = readStudioSource(studioSource(compiled), createExampleDraft());
+  assert(read.ok);
+  assertEquals(read.draft.models.providerHistory, 'stateless');
   roundTrip(draft);
 });

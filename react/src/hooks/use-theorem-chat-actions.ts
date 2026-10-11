@@ -31,6 +31,7 @@ import {
   type ToolGateResolution,
 } from '../client/index.ts';
 import type { TheoremTransport } from '../client/transport.ts';
+import { issuedOperationId } from '../client/turn-client.ts';
 import type { MessageDelivery } from './use-theorem-chat-state.ts';
 
 function composerFieldsPayload(
@@ -315,7 +316,11 @@ function useGateActions(args: TheoremChatActionArgs) {
           const session = args.sessionRef.current;
           // why: A person's answer shows on its gate while it settles; the page's has no gate to show on.
           if (session.gatedTool && resolution.action !== 'page')
-            args.setAnswering({ callId: session.gatedTool.callId, action: resolution.action });
+            args.setAnswering({
+              callId: session.gatedTool.callId,
+              operationId: issuedOperationId(session.gatedTool),
+              action: resolution.action,
+            });
           return resumeInterfaceTool({
             iface: composer,
             transport: args.transport,

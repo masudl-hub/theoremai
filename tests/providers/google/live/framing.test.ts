@@ -211,7 +211,7 @@ Deno.test('buildGeminiLiveSetupMessage declares builtins as their own tools and 
     system: '',
     maxOutputTokens: 100,
     temperature: 0,
-    builtins: [{ id: 'liveSearch', wire: { live: 'googleSearch' } }],
+    builtins: [{ id: 'googleSearch' }],
     input: [],
     structured: null,
     image: null,
@@ -238,7 +238,7 @@ Deno.test('buildGeminiLiveSetupMessage declares builtins as their own tools and 
   assertEquals(setupMsg.setup.tools.length, 2);
 });
 
-Deno.test('buildGeminiLiveSetupMessage rejects a builtin with no Live wire type', () => {
+Deno.test('buildGeminiLiveSetupMessage rejects a builtin Google does not run', () => {
   assertThrows(
     () =>
       buildGeminiLiveSetupMessage({
@@ -247,13 +247,32 @@ Deno.test('buildGeminiLiveSetupMessage rejects a builtin with no Live wire type'
         system: '',
         maxOutputTokens: 100,
         temperature: 0,
-        builtins: [{ id: 'interactionsOnly', wire: { interactions: 'google_search' } }],
+        builtins: [{ id: 'webSearch' }],
         input: [],
         structured: null,
         image: null,
       }),
     TheoremError,
-    "Builtin 'interactionsOnly' has no wire.live",
+    "Builtin 'webSearch' is not a Google tool",
+  );
+});
+
+Deno.test('buildGeminiLiveSetupMessage rejects args for a builtin, which Live cannot take', () => {
+  assertThrows(
+    () =>
+      buildGeminiLiveSetupMessage({
+        model: 'gemini-3.1-flash-live-preview',
+        apiId: 'gemini-3.1-flash-live-preview',
+        system: '',
+        maxOutputTokens: 100,
+        temperature: 0,
+        builtins: [{ id: 'googleMaps', args: { location: { latitude: 1, longitude: 2 } } }],
+        input: [],
+        structured: null,
+        image: null,
+      }),
+    TheoremError,
+    "Builtin 'googleMaps' takes no args on Google Live",
   );
 });
 

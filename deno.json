@@ -18,6 +18,7 @@
     ".": "./mod.ts",
     "./kernel": "./src/kernel/mod.ts",
     "./providers": "./src/providers/mod.ts",
+    "./providers/testing": "./src/providers/testing.ts",
     "./providers/local": "./src/providers/local/mod.ts",
     "./guardrails": "./src/guardrails/mod.ts",
     "./guardrails/testing": "./src/guardrails/testing.ts",

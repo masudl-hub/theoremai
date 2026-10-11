@@ -1,4 +1,9 @@
-import { CONTINUE_STOP_KINDS, type ContinueStopKind, type ProfileType } from './schema.ts';
+import {
+  CONTINUE_STOP_KINDS,
+  type ContinueStopKind,
+  type ProfileType,
+  type StepLimitMode,
+} from './schema.ts';
 import type { TurnStop } from './turn-events.ts';
 
 export type { TurnStop };
@@ -50,6 +55,11 @@ export interface ProfileTurnBehaviourSpec {
   resumption?: ProfileTurnResumptionSpec;
   /** Default true on text / live. Gates injects only; stage events still emit. */
   allowSteering?: boolean;
+  /**
+   * Text only. What the last model call under `maxSteps` may do. Omit = `'stop'`: it may call
+   * tools, and if it does the turn stops as `step_limit`. `'answer'` sends it without tools.
+   */
+  atStepLimit?: StepLimitMode;
 }
 
 /**

@@ -48,7 +48,7 @@ export function googleBuiltins(...ids: BuiltinToolId[]): ProviderBuiltin[] {
   return ids.map((id) => {
     const tool = GOOGLE_BUILTIN_TOOLS.find((t) => t.name === id);
     if (!tool) throw new Error(`No Google builtin '${id}'`);
-    return { id, wire: tool.wire };
+    return { id };
   });
 }
 

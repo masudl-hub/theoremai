@@ -5,6 +5,14 @@ import type { TurnInput, TurnRequest } from './types.ts';
 
 /** The catalog of the fields a `runTurn` request takes, keyed by path like `PROFILE_FIELDS`. */
 export const REQUEST_FIELDS: Record<keyof TurnRequest | `input.${keyof TurnInput}`, FieldMeta> = {
+  pageExecution: {
+    type: 'PageToolExecution',
+    doc: 'Host-issued browser dispatch with a claimed operation and correlated result.',
+  },
+  execution: {
+    type: 'ToolExecutionCoordinator',
+    doc: 'Host-owned atomic tool claims and outcomes. Never sent to providers.',
+  },
   providerState: {
     type: 'ProviderCheckpoint',
     doc: 'Native provider state saved alongside portable history.',
@@ -65,6 +73,11 @@ export const REQUEST_FIELDS: Record<keyof TurnRequest | `input.${keyof TurnInput
     type: 'string',
     doc: "The effort the turn picks from the model's efforts; refused unless the model sets allowEffortSelect.",
     unset: "The model's default effort",
+  },
+  builtInArgs: {
+    type: 'Record<BuiltinToolId, JsonObject>',
+    doc: "Args for the provider's own tools on the chosen model's builtInTools, by tool id; each is checked by the schema the provider declares for that tool.",
+    unset: 'Each built-in runs with no args',
   },
   system: {
     type: 'SystemPrompt',
@@ -140,7 +153,7 @@ export const REQUEST_FIELDS: Record<keyof TurnRequest | `input.${keyof TurnInput
   onAgentCall: {
     type: 'AgentCallHook',
     doc: 'Runs before each agent tool call, to shape the request to the called agent or to refuse the call.',
-    unset: "The agent runs on the model's text alone",
+    unset: 'The agent runs on what the model sent',
   },
 };
 

@@ -826,7 +826,6 @@ Deno.test('T2 builtins stay off wire until profile.tools.t1Policy selects them',
     paths: ['*'],
     loadTier: 'T2',
     permission: 'auto',
-    wire: { interactions: 'deferred_probe' },
   });
   registerProfile(
     defineProfile({

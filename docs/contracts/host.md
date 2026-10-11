@@ -110,7 +110,13 @@ against its own schema: a kind it does not know reaches `onTurnEvent` as
 `events` envelope) as `malformed`, left out as `bad_response`: the session
 goes on, and an `events` envelope's other events stand.
 
-The live client's first message is the open message (`parseLiveOpenMessage`): the call's `slots`, the page's `context`, a `resume` handle with the time away when the client takes a dropped call up again, and the host's own `openMessage` as `host`. A relay reads it before it opens the session; `liveSessionOpen(open, server?)` gives the `slots`, `context`, `sessionResumptionHandle` and `awayMs` for `runSession`. It is not a `LiveClientMessage`: one sent later is a `request` error.
+The live client starts with an open message validated by `parseLiveOpenMessage`.
+It contains slots, client context, portable history, optional `providerState`, and absence duration.
+The relay uses `createTheoremSessionBoundary` to authenticate the conversation before upstream transport.
+Its `prepareLiveOpen` rejects unowned checkpoints and removes system-role history.
+Pass its `toolExecution` and `pageExecution` to `runSession`.
+Persist checkpoints with `recordCheckpoint` before browser delivery. Forward page results to `answerPageResult`.
+The opening frame is not a `LiveClientMessage`. Sending it later produces a request error.
 
 The live client's `context` message carries the page's whole package, replacing the last. It goes to `session.sendContext` as the `client` sender's package: background the model reads without replying, such as the page the visitor is on. The profile's `inputs.context` decides whether the browser may send it and how long it may be.
 

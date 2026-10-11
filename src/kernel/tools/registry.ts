@@ -1,8 +1,9 @@
 import type { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
+import { profileInputs } from '../registry/catalog.ts';
 import type { Profile, ProfileId } from '../types.ts';
 import { activityLabelProblem } from './activity-label.ts';
-import { agentToolInput, agentToolOutput, normalizeAgent } from './agent.ts';
+import { agentToolInputFor, agentToolOutput, agentToolProfile, normalizeAgent } from './agent.ts';
 import { createMcpSessionCache, type McpSessionCache } from './mcp-sessions.ts';
 import { pageAnswerHandler } from './page-answer.ts';
 import { assertFixedEndpointOrigin, jsonSchemaFromZod, validateToolSchema } from './schema.ts';
@@ -103,8 +104,11 @@ function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
     return def;
   }
   if (def.type === 'agent') {
-    const schemas = schemasFromZod({ ...def, input: agentToolInput, output: agentToolOutput });
-    return normalizeAgent(def, findProfile, findTool, schemas);
+    const profile = agentToolProfile(def, findProfile, findTool);
+    const inputs = profileInputs(profile);
+    const input = agentToolInputFor({ type: profile.type, ...(inputs ? { inputs } : {}) });
+    const schemas = schemasFromZod({ ...def, input, output: agentToolOutput });
+    return normalizeAgent(def, input, schemas);
   }
   if (def.type === 'http') {
     return normalizeHttp(def);

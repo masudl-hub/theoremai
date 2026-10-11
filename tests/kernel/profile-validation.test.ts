@@ -163,11 +163,6 @@ Deno.test('a profile declares models, a default among them, and selection needs 
       textProfile({ defaultModel: 'z' }),
       "Profile p defaultModel 'z' is not declared",
     ],
-    [
-      'selection with one model',
-      textProfile({ allowModelSelect: true }),
-      'Profile p allowModelSelect requires at least two models',
-    ],
   ]);
   check(
     said(
@@ -492,7 +487,6 @@ Deno.test('registration checks a profile against the tools and the profiles alre
     paths: ['*'],
     loadTier: 'T2',
     permission: 'auto',
-    wire: { live: 'web', geminiInteractions: 'web' },
   };
   const fn = {
     type: 'function',

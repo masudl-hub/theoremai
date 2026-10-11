@@ -78,7 +78,6 @@ function registryWith(): ToolRegistry {
       paths,
       loadTier,
       permission: 'auto',
-      wire: {},
       ...(conflictsWith ? { conflictsWith } : {}),
     });
   fn('f0', 'T0');

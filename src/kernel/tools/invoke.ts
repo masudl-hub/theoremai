@@ -21,8 +21,14 @@ import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import { pickModel } from '../registry/resolve.ts';
 import { turnDoneOf } from '../turn-events.ts';
 import type { Profile, TurnEvent, TurnRequest } from '../types.ts';
+import { coordinateTool } from './coordinate.ts';
 import { failureEvent, newCallId, toolCallArguments, toolCallRequestEvent } from './events.ts';
-import { executeRegisteredTool } from './execute.ts';
+import {
+  authorizeToolReplay,
+  executeRegisteredTool,
+  type ToolExecuteSettlement,
+} from './execute.ts';
+import type { ToolOperationClaim } from './operation.ts';
 import { cloneTurnToolSnapshot, prepareTurnToolSnapshot, promoteLoadedTools } from './resolve.ts';
 import { plainToolInput } from './schema.ts';
 import type { InvokeToolRequest, TurnToolSnapshot } from './types.ts';
@@ -67,6 +73,7 @@ async function* invokeTool(
     guardrails: known?.guardrails,
   });
   const callId = request.callId ?? newCallId(request.name);
+  request = { ...request, operationId: request.operationId ?? crypto.randomUUID() };
   const tree = startTrace(toolSpanName(request.name), {
     attributes: {
       'gen_ai.agent.name': request.profile,
@@ -140,56 +147,114 @@ async function* invokeTraced(
 
   // why: A model's call was already announced by its turn.
   if (request.callId === undefined) {
-    yield toolCallRequestEvent({ name: request.name, callId }, toolCallArguments(request.input));
-  }
-
-  if (request.promoted?.length) {
-    const { failure } = promoteLoadedTools(registry.tools, snapshot, request.promoted, profile);
-    if (failure) {
-      failBeforeTool({ outcome: 'error', failure });
-      yield failureEvent({ name: request.name, callId }, failure);
-      yield { type: 'done', stop: { kind: 'completed' }, traceparent };
-      return;
-    }
+    yield toolCallRequestEvent(
+      { name: request.name, callId, operationId: request.operationId },
+      toolCallArguments(request.input),
+    );
   }
 
   let gated = false;
   try {
-    const handlers = request.onStage ? [request.onStage] : [];
-    const settlement = yield* executeRegisteredTool({
-      tools: registry.tools,
-      agents: invokeAgentCaller(registry, request, canaries),
-      profile,
-      name: request.name,
-      input: request.input,
-      callId,
-      ctx: {
-        sessionPermissions: request.sessionPermissions,
-        credentials: request.credentials,
-        resolveHost: request.resolveHost,
-        path: request.path,
-        signal: request.signal,
+    const settlement = yield* coordinateTool(
+      request.execution,
+      {
+        operationId: request.operationId ?? crypto.randomUUID(),
+        callId,
+        profileId: profile.id,
+        toolId: request.name,
+      },
+      {
+        input: request.input,
         resume: request.resume,
-        page: request.page,
-        host: request.host,
+        snapshot,
+        context: {
+          model: request.model,
+          turnInput: request.turnInput,
+          promoted: request.promoted,
+        },
       },
-      snapshot,
-      openSpan,
-      stages: {
-        handlers,
-        profile,
-        step: 1,
-        history: () => [],
-        injectAllowed: false,
-        host: request.host,
-        signal: request.signal,
-      },
-    });
+      request.signal,
+      (beginBody) =>
+        invokePrepared(
+          registry,
+          request,
+          profile,
+          snapshot,
+          callId,
+          openSpan,
+          failBeforeTool,
+          canaries,
+          beginBody,
+        ),
+      (outcome) =>
+        authorizeToolReplay({
+          outcome,
+          tools: registry.tools,
+          profile,
+          name: request.name,
+          resume: request.resume,
+          snapshot,
+        }),
+    );
     gated = settlement.gated !== undefined;
   } catch (err) {
     yield toErrorEvent(err);
   }
   yield turnDoneOf({ stop: { kind: gated ? 'gate' : 'completed' }, traceparent }, snapshot);
+}
+
+async function* invokePrepared(
+  registry: KernelRegistry,
+  request: InvokeToolRequest,
+  profile: Profile,
+  snapshot: TurnToolSnapshot,
+  callId: string,
+  openSpan: (name: string, attributes: TraceAttributes) => SpanHandle,
+  failBeforeTool: (end: ToolCallEnd) => void,
+  canaries: string[],
+  beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>,
+): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
+  if (request.promoted?.length) {
+    const { failure } = promoteLoadedTools(registry.tools, snapshot, request.promoted, profile);
+    if (failure) {
+      failBeforeTool({ outcome: 'error', failure });
+      yield failureEvent({ name: request.name, callId, operationId: request.operationId }, failure);
+      return { failure, callNotStarted: true };
+    }
+  }
+  const handlers = request.onStage ? [request.onStage] : [];
+  return yield* executeRegisteredTool({
+    tools: registry.tools,
+    beginBody,
+    agents: invokeAgentCaller(registry, request, canaries),
+    profile,
+    name: request.name,
+    input: request.input,
+    callId,
+    ctx: {
+      operationId: request.operationId,
+      sessionPermissions: request.sessionPermissions,
+      credentials: request.credentials,
+      resolveHost: request.resolveHost,
+      path: request.path,
+      signal: request.signal,
+      resume: request.resume,
+      page: request.page,
+      pageExecution: request.pageExecution,
+      host: request.host,
+    },
+    snapshot,
+    openSpan,
+    stages: {
+      handlers,
+      profile,
+      step: 1,
+      history: () => [],
+      injectAllowed: false,
+      host: request.host,
+      signal: request.signal,
+    },
+  });
 }
 
 export { invokeTool };

@@ -90,6 +90,7 @@ export type {
   JsonValue,
   OpenProviderWebSocket,
   ProviderAdapter,
+  ProviderBuiltinSpec,
   ProviderCapabilities,
   ProviderCheckpoint,
   ProviderContentEvent,
@@ -99,6 +100,7 @@ export type {
   ProviderDecisionRequest,
   ProviderDefinition,
   ProviderHostOptions,
+  ProviderLimits,
   ProviderLiveConnection,
   ProviderModelEvent,
   ProviderModelSettings,
@@ -126,7 +128,9 @@ export {
   providerCapabilitiesSchema,
   providerCheckpointSchema,
   providerContinuationSchema,
+  providerLimitsSchema,
   providerWarningSchema,
+  resolveProviderLimits,
 } from './provider-contract.ts';
 export type { MediaInputChannel } from './registry/catalog.ts';
 export {
@@ -285,6 +289,7 @@ export {
 export type { McpProtocolVersion, McpRpcResponse, ToolRegistry } from './tools/mod.ts';
 export {
   askUserTool,
+  authorizeToolReplay,
   coerceToolResultParts,
   createToolRegistry,
   executeHttpTool,
@@ -300,9 +305,29 @@ export {
   registerHarnessTools,
   resolveToolAuth,
 } from './tools/mod.ts';
+export type {
+  BeginToolOperationResult,
+  PageToolDispatch,
+  PageToolExecution,
+  SavedToolInvocation,
+  TerminalToolEvent,
+  ToolExecutionCoordinator,
+  ToolOperationClaim,
+  ToolOperationIdentity,
+  ToolOperationOutcome,
+  ToolOperationUncertainty,
+} from './tools/operation.ts';
+export {
+  savedToolInvocationSchema,
+  toolInvocationHash,
+  toolOperationOutcomeSchema,
+} from './tools/operation.ts';
 export { CredentialRefusedError } from './tools/signed-in-fetch.ts';
+export type { ModelToolResult, PageAnswer, ToolContext } from './tools/types.ts';
 export {
   awaitingUserInputSchema,
+  type GateReference,
+  gateReferenceSchema,
   TURN_EVENT_SCHEMAS,
   toolGateSchema,
   turnDoneOf,

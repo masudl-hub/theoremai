@@ -355,7 +355,7 @@ const isSection = (value: string): value is SettingsSection =>
 
 function SettingsHeader() {
 	return (
-		<LayoutHeader hasDivider>
+		<LayoutHeader padding={4}>
 			<HStack vAlign="center" gap={2}>
 				<StackItem size="fill">
 					<Heading level={1}>Settings</Heading>

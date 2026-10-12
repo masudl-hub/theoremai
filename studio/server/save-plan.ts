@@ -12,6 +12,7 @@
  */
 
 import ts from 'typescript';
+import { MASK, unmaskUrl } from '../../src/surface/mod.ts';
 import { type SourceStyle, valueSource } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
 import { canonical } from '../canonical.ts';
@@ -74,6 +75,12 @@ type Json = Record<string, unknown>;
 
 function isRecord(value: unknown): value is Json {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** A value the page sent with each mask in it filled in from `written`, what the file holds there. */
+function fileHeld(shown: unknown, written: string): unknown {
+  if (typeof shown !== 'string' || !shown.includes(MASK)) return shown;
+  return shown === MASK ? written : unmaskUrl(shown, written);
 }
 
 function same(a: unknown, b: unknown): boolean {
@@ -485,7 +492,7 @@ class Planner {
     }
   }
 
-  private walk(at: Located, before: unknown, after: unknown, path: string[]) {
+  private walk(at: Located, before: unknown, after: unknown, path: string[]): void {
     if (same(before, after)) return;
     const node = unwrapped(at.node);
     const here: Located = { ...at, node };
@@ -507,6 +514,14 @@ class Planner {
     }
     const value = plain(node);
     if (value !== NOT_PLAIN) {
+      // A credential the page holds masked is the file's own text: the edit beside it keeps it.
+      if (this.subject.kind === 'tool' && typeof value === 'string') {
+        const [was, now] = [fileHeld(before, value), fileHeld(after, value)];
+        if (was !== before || now !== after) {
+          this.walk(at, was, now, path);
+          return;
+        }
+      }
       if (!same(value, before)) {
         this.note('changed', path, { source, node });
         return;

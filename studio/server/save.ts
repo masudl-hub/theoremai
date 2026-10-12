@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
 import type { CompiledStudio } from '../compile.ts';
+import { unheldProblem } from '../held-credentials.ts';
 import type { NewSubjects } from './save-new.ts';
 import type { Removed } from './save-remove.ts';
 import type { ToolRegistration } from '../registrations.ts';
@@ -116,6 +117,14 @@ export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): S
     const start = workspace.starts.tools[tool.key];
     add('tool', start?.toolName, tool.toolName, names.tools, canonical(start) !== canonical(tool));
   }
+  // A mask the page sends that it was not given has no value to run or to save with.
+  const unheld = [
+    ...subjects.filter((subject) => subject.kind === 'tool').map((subject) =>
+      unheldProblem(subject.of, subject.after as ToolRegistration, subject.before as ToolRegistration)
+    ),
+    ...added.tools.map((tool) => unheldProblem(tool.name, tool)),
+  ].filter((problem) => problem !== undefined);
+  if (unheld.length) return { ok: false, issues: unheld };
   const removed = {
     profiles: names.profiles.filter((id) => !seen.profile.has(id)),
     tools: names.tools.filter((name) => !seen.tool.has(name)),

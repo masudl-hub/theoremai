@@ -1,7 +1,8 @@
 import { redactDetectors } from '../guardrails/detect-at.ts';
 import { SENSITIVE_GROUPS } from '../guardrails/sensitive.ts';
 
-const MASK = '••••';
+/** What stands in for a credential's value wherever one is shown. */
+export const MASK = '••••';
 
 /** Names that carry a credential, in a URL's query or a header. */
 const CREDENTIAL_NAME =
@@ -70,28 +71,78 @@ export function secretCard(
   };
 }
 
-/** A URL with its credential query parameters and `user:pass@` masked. */
-export function maskUrl(raw: string): string {
-  let url: URL;
+/** A URL's `user:pass@`, after its scheme. */
+const USERINFO = /^([a-z][a-z0-9+.-]*:\/\/)([^/?#@]*)@/i;
+/** One `name=value` of a URL, with the separator before it. */
+const PAIR = /([?&;])([^=&;#\s]*)=([^&;#\s]*)/g;
+
+/** A `user:pass`, as its two parts. A password keeps its own colons. */
+function userinfo(text: string): [user: string, password: string | undefined] {
+  const at = text.indexOf(':');
+  return at < 0 ? [text, undefined] : [text.slice(0, at), text.slice(at + 1)];
+}
+
+function decoded(name: string): string {
   try {
-    url = new URL(raw);
+    return decodeURIComponent(name);
   } catch {
-    return raw.replace(/[?&;][^?&;#\s]*/g, (pair) => {
-      const at = pair.indexOf('=');
-      const name = pair.slice(1, at);
-      return at > 1 && at < pair.length - 1 && QUERY_CREDENTIAL.test(name)
-        ? `${pair.slice(0, at + 1)}${MASK}`
-        : pair;
-    });
+    return name;
   }
-  const credentials = [...new Set(url.searchParams.keys())].filter((name) =>
-    CREDENTIAL_NAME.test(name),
+}
+
+/**
+ * A URL with its credential query parameters and `user:pass@` masked. The rest stays as written:
+ * a `{param}` in a tool's path is not encoded.
+ */
+export function maskUrl(raw: string): string {
+  const names = URL.canParse(raw) ? CREDENTIAL_NAME : QUERY_CREDENTIAL;
+  return raw
+    .replace(USERINFO, (_whole, scheme: string, info: string) => {
+      const [user, password] = userinfo(info);
+      return `${scheme}${user && MASK}${password === undefined ? '' : `:${password && MASK}`}@`;
+    })
+    .replace(PAIR, (pair, separator: string, name: string, value: string) =>
+      value && names.test(decoded(name)) ? `${separator}${name}=${MASK}` : pair,
+    );
+}
+
+/**
+ * A masked URL with each masked credential filled in from `held`, the URL it was masked from.
+ * A mask `held` has no value for stays a mask.
+ */
+export function unmaskUrl(shown: string, held: string): string {
+  const [user, password] = userinfo(USERINFO.exec(held)?.[2] ?? '');
+  const values = new Map<string, string[]>();
+  for (const [, , name = '', value = ''] of held.matchAll(PAIR)) {
+    values.set(name, [...(values.get(name) ?? []), value]);
+  }
+  return shown
+    .replace(USERINFO, (_whole, scheme: string, info: string) => {
+      const [shownUser, shownPassword] = userinfo(info);
+      const name = shownUser === MASK && user ? user : shownUser;
+      const pass = shownPassword === MASK && password ? password : shownPassword;
+      return `${scheme}${name}${pass === undefined ? '' : `:${pass}`}@`;
+    })
+    .replace(PAIR, (pair, separator: string, name: string, value: string) => {
+      const real = value === MASK ? values.get(name)?.shift() : undefined;
+      return real ? `${separator}${name}=${real}` : pair;
+    });
+}
+
+/**
+ * Masked headers with each masked value filled in from `held`, the headers they were masked from.
+ * A mask `held` has no header for stays a mask.
+ */
+export function unmaskHeaders(
+  shown: Record<string, string>,
+  held: Record<string, string> | undefined,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(shown).map(([name, value]) => [
+      name,
+      value === MASK ? (held?.[name] ?? value) : value,
+    ]),
   );
-  if (!url.username && !url.password && credentials.length === 0) return raw;
-  if (url.username) url.username = MASK;
-  if (url.password) url.password = MASK;
-  for (const name of credentials) url.searchParams.set(name, MASK);
-  return url.href.replaceAll(encodeURIComponent(MASK), MASK);
 }
 
 /**

@@ -7,7 +7,17 @@
  */
 
 export type { SecretCard } from './formats.ts';
-export { knownSecrets, maskHeaders, maskUrl, scrubDeep, scrubText, secretCard } from './formats.ts';
+export {
+  knownSecrets,
+  MASK,
+  maskHeaders,
+  maskUrl,
+  scrubDeep,
+  scrubText,
+  secretCard,
+  unmaskHeaders,
+  unmaskUrl,
+} from './formats.ts';
 export type {
   SurfaceLedgerEntry,
   SurfaceRuntime,

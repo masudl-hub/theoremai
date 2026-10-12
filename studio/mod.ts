@@ -7,6 +7,7 @@ export {
   type StudioProfileDefinition,
   type StudioTurnProfileDefinition,
 } from './compile.ts';
+export { unheldProblem } from './held-credentials.ts';
 export {
   agentToolTarget,
   COMPACTION_DRAFT_DEFAULTS,

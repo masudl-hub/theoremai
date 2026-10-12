@@ -3,7 +3,7 @@
  * Test and th30's `test` action both go through here.
  */
 import { HTTP_METHODS } from '../../../mod.ts';
-import { credentialHeaderProblem, type ToolSpecDraft } from '../../mod.ts';
+import { credentialHeaderProblem, type ToolSpecDraft, unheldProblem } from '../../mod.ts';
 
 /** What the test-connection route answers: an HTTP response, or an MCP server's tool list. */
 export interface ProbeResult {
@@ -46,6 +46,13 @@ function probeRequest(
 		headers.value as Record<string, string> | undefined,
 	);
 	if (credentialHeader) return { error: credentialHeader };
+	// A mask stands for a value only the project holds: this request would carry the mask itself.
+	const unheld = unheldProblem(tool.toolName, {
+		endpoint: tool.endpoint,
+		serverUrl: tool.serverUrl,
+		headers: headers.value,
+	});
+	if (unheld) return { error: unheld };
 	const authType = tool.authType ?? 'none';
 	const shared = {
 		headers: headers.value,

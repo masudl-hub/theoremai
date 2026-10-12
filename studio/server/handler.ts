@@ -25,6 +25,7 @@ import {
 } from '../../mod.ts';
 import { type StudioAsks, studioAsks } from '../asks.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
+import { withoutCredentials } from '../held-credentials.ts';
 import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
 import { readStudioSource } from '../read-source.ts';
 import type { ToolRegistration } from '../registrations.ts';
@@ -104,7 +105,8 @@ function registeredTools(): ToolRegistration[] {
       const fields: Record<string, unknown> = { ...tool };
       for (const own of ['handler', 'input', 'output']) delete fields[own];
       // What the file writes as code (a hook before the call, its sources) is left to the file.
-      return plainSetting(fields) as ToolRegistration;
+      // A credential in its URL or headers stays in this load: the page gets a mask.
+      return withoutCredentials(plainSetting(fields) as ToolRegistration);
     });
 }
 

@@ -64,6 +64,7 @@ import type {
   SystemPrompt,
 } from '../src/kernel/types.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
+import { MASK } from '../src/surface/mod.ts';
 import { GOOGLE_SPEECH_FORMATS, GOOGLE_THINKING_LEVELS } from '../src/presets/google.ts';
 import { STUDIO_KEY_SLOT_CAP } from './browser-connection.ts';
 import type {
@@ -684,7 +685,10 @@ const CREDENTIAL_HEADER = /auth|key|token|secret|passw|cookie|session|signature|
 export function credentialHeaderProblem(
   headers: Record<string, string> | undefined,
 ): string | undefined {
-  const name = Object.keys(headers ?? {}).find((header) => CREDENTIAL_HEADER.test(header));
+  // A masked one is the project's own: its value never came to the page, and the project fills it in.
+  const name = Object.entries(headers ?? {}).find(
+    ([header, value]) => CREDENTIAL_HEADER.test(header) && value !== MASK,
+  )?.[0];
   return name
     ? `${name} looks like a credential. Put it under Auth instead: Auth asks for it when a call runs and nothing saves it.` // lexicon-exempt: builder diagnostic
     : undefined;

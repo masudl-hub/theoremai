@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { defineProfile, type KernelScope, type ProfileDefinition } from '../../mod.ts';
 import type { RegisteredTool } from '../../src/kernel/tools/types.ts';
 import type { CompiledStudio } from '../compile.ts';
+import { heldSetting, unheldProblem } from '../held-credentials.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import type { ProjectQuestions } from './handler.ts';
 import { withCompiledPatterns } from '../runtime-scope.ts';
@@ -93,6 +94,13 @@ const STUDIO_ONLY = new Set(['stubResponse']);
 /** A tool's schema, and the field the kernel holds it in. */
 const SCHEMAS: Record<string, 'input' | 'output'> = { inputSchema: 'input', outputSchema: 'output' };
 
+/** `tool`, refused when it shows a credential nothing holds a value for: a call must not carry a mask. */
+function held<T extends { name: string }>(tool: T): T {
+  const problem = unheldProblem(tool.name, tool);
+  if (problem) throw new Error(problem);
+  return tool;
+}
+
 /** The project's tool with the builder's changes: its handler and everything unchanged stay its own. */
 function editedTool(registered: RegisteredTool, before: ToolRegistration, after: ToolRegistration): RegisteredTool {
   const edited = { ...registered };
@@ -102,16 +110,17 @@ function editedTool(registered: RegisteredTool, before: ToolRegistration, after:
     const schema = SCHEMAS[key];
     if (schema) Object.assign(edited, { [schema]: asFileReads(is) });
     else if (is === undefined) Reflect.deleteProperty(edited, key);
-    else Object.assign(edited, { [key]: is });
+    // A credential the page holds masked is the project's own: the edit beside it keeps it.
+    else Object.assign(edited, { [key]: heldSetting(key, is, (registered as unknown as Json)[key]) });
   }
-  return edited;
+  return held(edited);
 }
 
 /** A schema as a file Save writes holds it: read by zod from the JSON the builder wrote. */
 const asFileReads = (schema: unknown) => z.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0]);
 
 function registerNew(scope: KernelScope, tool: ToolRegistration): void {
-  registerCustomTool(scope.tools, tool, asFileReads);
+  registerCustomTool(scope.tools, held(tool), asFileReads);
 }
 
 function registerTool(scope: KernelScope, tool: ToolRegistration, subject: SaveSubject | undefined): void {

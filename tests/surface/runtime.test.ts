@@ -10,6 +10,8 @@ import {
   type SurfaceChange,
   type SurfaceNode,
   secretCard,
+  unmaskHeaders,
+  unmaskUrl,
 } from '../../src/surface/mod.ts';
 
 const KEY = ['AIzaSy', 'TESTONLY0000000000000000000000000'].join('');
@@ -324,4 +326,28 @@ Deno.test('maskUrl and maskHeaders hide credentials and never quote bad text', (
   );
   assertEquals(maskHeaders('Authorization: abc'), '(not a JSON object, 18 characters)');
   assertEquals(maskUrl('https://h.com'), 'https://h.com');
+});
+
+Deno.test('a masked URL keeps its text as written, and is filled back in from the URL it was masked from', () => {
+  const held = 'https://u:p@h.com/v1/{id}/read?token=abc&token=def&q=2#top';
+  const shown = 'https://••••:••••@h.com/v1/{id}/read?token=••••&token=••••&q=2#top';
+  assertEquals(maskUrl(held), shown);
+  assertEquals(maskUrl(shown), shown);
+  assertEquals(unmaskUrl(shown, held), held);
+  assertEquals(
+    unmaskUrl(shown.replace('/read', '/write').replace('q=2', 'q=3'), held),
+    held.replace('/read', '/write').replace('q=2', 'q=3'),
+  );
+  // A mask the held URL has no value for stays a mask.
+  assertEquals(
+    unmaskUrl('https://h.com/x?key=••••', 'https://h.com/x'),
+    'https://h.com/x?key=••••',
+  );
+  assertEquals(
+    unmaskHeaders(
+      { Authorization: '••••', 'X-Api-Key': '••••', Accept: 'json' },
+      { Authorization: 'Bearer a' },
+    ),
+    { Authorization: 'Bearer a', 'X-Api-Key': '••••', Accept: 'json' },
+  );
 });

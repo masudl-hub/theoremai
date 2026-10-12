@@ -65,6 +65,10 @@ export type StudioDescription = {
   asks: StudioAsks;
   /** What the project printed when its files stopped loading. The page then shows the last load that did. */
   unloaded?: string;
+  /** The editor the studio command opens files in when the page names none, by its command. */
+  editor?: string;
+  /** The setup file the studio command was started on, from the folder it ran in. */
+  setup?: string;
 };
 
 export type StudioHandlerOptions = {

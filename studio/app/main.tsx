@@ -19,6 +19,7 @@ import { packageLinks, THEOREM_SITE } from '../ui/studio-nav.ts';
 import { StudioNoProject } from '../ui/studio-no-project.tsx';
 import { StudioRunScreen } from '../ui/studio-run.tsx';
 import { StudioScreen } from '../ui/studio-screen.tsx';
+import { SettingsRailButton } from '../ui/studio-settings.tsx';
 import { ShellBounds, StudioRail } from '../ui/studio-shell.tsx';
 import '../ui/figtree.css';
 // Astryx's documented order: reset → components → theme.
@@ -29,7 +30,7 @@ import '../ui/built/theme.css';
 import '../ui/motion.css';
 import '../ui/shell-motion.css';
 
-const HOST: StudioHost = { kernelVersion: kernel.version };
+const HOST: StudioHost = { kernelVersion: kernel.version, hasSettings: true };
 const PACKAGES = packageLinks(kernel.name, kernel.repository.url);
 
 const RUN_PATH = '/studio/run';
@@ -83,6 +84,7 @@ if (root) {
 								pathname={location.pathname}
 								packages={PACKAGES}
 								site={THEOREM_SITE}
+								footerIcons={onBase ? <SettingsRailButton /> : undefined}
 							/>
 						}
 					>

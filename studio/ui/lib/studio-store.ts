@@ -26,6 +26,7 @@ import {
 	withSharedCarry,
 	withToolCarry,
 } from '../../mod.ts';
+import { getPref, setPref } from './studio-prefs.ts';
 import {
 	isRecord,
 	type RestoredStudio,
@@ -227,13 +228,30 @@ function sharedCarry(state: StoreState, made: StudioWorkspace): SharedCarry {
 	};
 }
 
-/** Whether the builder said not to be asked again, for this tab. */
+/**
+ * Whether the builder said not to be asked about shared values: in Settings, for this browser, or
+ * with the question's own "don't ask again", for this tab.
+ */
 function isQuiet(state: StoreState): boolean {
+	if (getPref('askShared') === 'never') return true;
 	try {
 		return session()?.getItem(`${state.slot}${QUIET_SUFFIX}`) === '1';
 	} catch {
 		return false;
 	}
+}
+
+/** Sets whether shared values are asked about, as Settings does: asking again also ends this tab's "don't ask again". */
+function setQuiet(state: StoreState, quiet: boolean): void {
+	setPref('askShared', quiet ? 'never' : 'always');
+	if (!quiet) {
+		try {
+			session()?.removeItem(`${state.slot}${QUIET_SUFFIX}`);
+		} catch {
+			// Storage is off: nothing was kept to end.
+		}
+	}
+	notifyListeners(state);
 }
 
 /** What agreeing to `reach` covers: the places the files write, or the tools. */
@@ -423,6 +441,11 @@ export function createStudioStore(initial: RestoredStudio, sites?: SharedSites, 
 				}
 			}
 			commitWorkspace(state, pending.carry, pending.by);
+		},
+		/** Whether a change to a shared value is made without asking. */
+		isQuiet: () => isQuiet(state),
+		setQuiet: (quiet: boolean) => {
+			setQuiet(state, quiet);
 		},
 		/** Drops the held change: no agent has it. */
 		cancelShared: () => {

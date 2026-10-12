@@ -7,36 +7,15 @@
  */
 
 import { basename } from 'node:path';
+import { type EditorLineForm, studioEditor } from '../editors.ts';
 import type { OpenAnswer, OpenRequest } from './save-wire.ts';
 
-/** How an editor's command takes a file and a line. */
-type LineForm = (file: string, line: number) => string[];
-
-const goto: LineForm = (file, line) => ['-g', `${file}:${line}`];
-const colon: LineForm = (file, line) => [`${file}:${line}`];
-const lineFlag: LineForm = (file, line) => ['--line', String(line), file];
-
-/** The editors that open in a window of their own, by command name. One that runs in a terminal is not here. */
-const EDITORS: Record<string, LineForm> = {
-  code: goto,
-  'code-insiders': goto,
-  codium: goto,
-  cursor: goto,
-  windsurf: goto,
-  positron: goto,
-  zed: colon,
-  zeditor: colon,
-  subl: colon,
-  idea: lineFlag,
-  webstorm: lineFlag,
-  pycharm: lineFlag,
-  phpstorm: lineFlag,
-  goland: lineFlag,
-  rubymine: lineFlag,
-  clion: lineFlag,
-  rider: lineFlag,
-  fleet: lineFlag,
-  mate: (file, line) => ['-l', String(line), file],
+/** The arguments each form of command takes for a file and a line. */
+const LINE_ARGS: Record<EditorLineForm, (file: string, line: number) => string[]> = {
+  goto: (file, line) => ['-g', `${file}:${line}`],
+  colon: (file, line) => [`${file}:${line}`],
+  'line-flag': (file, line) => ['--line', String(line), file],
+  'l-flag': (file, line) => ['-l', String(line), file],
 };
 
 /** The command an editor setting names: `code --wait` is `code`. */
@@ -54,7 +33,7 @@ function editorName(editor: string): string {
  */
 export function chosenEditor(flag: string | undefined, environment: readonly (string | undefined)[]): string {
   if (flag?.trim()) return flag;
-  return environment.find((editor) => editor !== undefined && editorName(editor) in EDITORS) ?? 'code';
+  return environment.find((editor) => editor !== undefined && studioEditor(editorName(editor))) ?? 'code';
 }
 
 /** The command that opens `file` at `line` in an editor, or undefined when the studio does not know the editor. */
@@ -63,9 +42,9 @@ export function editorCommand(
   file: string,
   line: number | undefined,
 ): { command: string; args: string[] } | undefined {
-  const form = EDITORS[editorName(editor)];
-  if (!form) return undefined;
-  return { command: commandOf(editor), args: line === undefined ? [file] : form(file, line) };
+  const known = studioEditor(editorName(editor));
+  if (!known) return undefined;
+  return { command: commandOf(editor), args: line === undefined ? [file] : LINE_ARGS[known.form](file, line) };
 }
 
 /**
@@ -81,7 +60,7 @@ export function defaultOpener(os: string, file: string): { command: string; args
 
 /** What opening needs from the machine. */
 export interface EditorHost {
-  /** The editor's command, as the builder set it. */
+  /** The editor's command, as the builder set it when the studio started. */
   editor: string;
   /** The absolute path of a project file named from the project's folder, or undefined when the project has none there. */
   place(file: string): string | undefined;
@@ -91,22 +70,34 @@ export interface EditorHost {
   os?: string;
 }
 
+/**
+ * A page may name the editor only by a command the studio lists, exactly: never a path or a
+ * command of its own, since the studio starts what is named.
+ */
 function isOpenRequest(body: unknown): body is OpenRequest {
-  const { file, line } = (body ?? {}) as Partial<OpenRequest>;
+  const { file, line, editor } = (body ?? {}) as Partial<OpenRequest>;
+  if (editor !== undefined && (typeof editor !== 'string' || !studioEditor(editor))) return false;
   return typeof file === 'string' && (line === undefined || (Number.isInteger(line) && line > 0));
 }
 
+/** The editor the studio starts when the page names none, by the command the studio lists it under. */
+export function defaultEditor(host: EditorHost): string {
+  return editorName(host.editor);
+}
+
 /**
- * Opens the file a request names. The answer says which editor, or why not and the place to go to
- * by hand. When the editor is not one the studio can start, or did not start, the machine's default
- * editor opens the file instead.
+ * Opens the file a request names, in the editor it names or else the one the studio started with.
+ * The answer says which editor, or why not and the place to go to by hand. When the editor is not
+ * one the studio can start, or did not start, the machine's default editor opens the file instead.
  */
 export function openInEditor(host: EditorHost, request: OpenRequest): OpenAnswer {
   const path = host.place(request.file);
   if (path === undefined) return { ok: false, reason: 'file' };
-  const editor = editorName(host.editor);
+  // Only a command the studio lists is taken from the page; `answerOpen` refuses any other.
+  const named = request.editor !== undefined && studioEditor(request.editor) ? request.editor : host.editor;
+  const editor = editorName(named);
   const place = request.line === undefined ? path : `${path}:${request.line}`;
-  const run = editorCommand(host.editor, path, request.line);
+  const run = editorCommand(named, path, request.line);
   if (run && host.start(run.command, run.args)) return { ok: true, editor };
   const other = host.os === undefined ? undefined : defaultOpener(host.os, path);
   if (other && host.start(other.command, other.args)) return { ok: true, editor, byDefault: true };

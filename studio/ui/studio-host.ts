@@ -60,6 +60,11 @@ export interface StudioHost {
 	mountSurface?: (surface: ReturnType<typeof studioSurface>) => () => void;
 	/** Called as what is on screen changes, and with null when the screen closes. */
 	onReport?: (report: StudioReport | null) => void;
+	/**
+	 * True when the host's page has a door to Settings (`SettingsRailButton`). The screen then
+	 * shows Settings when asked, and Keys are there and not in the editor's header.
+	 */
+	hasSettings?: boolean;
 }
 
 export const StudioHostContext = createContext<StudioHost | null>(null);

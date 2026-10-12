@@ -396,9 +396,8 @@ Deno.test('an origin reads as what set the value and where', () => {
   );
 });
 
-Deno.test('an Open the builder asked for says what happened, and how to name an editor when none started', () => {
-  const how =
-    'Start the studio with --editor and the command of an editor that opens a window: code, cursor, zed.';
+Deno.test('an Open the builder asked for says what happened, and where to choose an editor when none started', () => {
+  const how = 'Choose the editor you use in Settings, under Files.';
   const said = (answer: Parameters<typeof openOutcome>[0]) => openOutcome(answer, 'setup.ts:4');
   assertEquals(
     [
@@ -411,12 +410,12 @@ Deno.test('an Open the builder asked for says what happened, and how to name an 
       said({ ok: false, reason: 'failed' }),
     ],
     [
-      'Opened setup.ts:4 in code.',
-      'Opened in your default editor: setup.ts:4. To open on the line, start the studio with --editor.',
+      'Opened setup.ts:4 in VS Code.',
+      'Opened in your default editor: setup.ts:4. To open on the line, choose your editor in Settings.',
       'setup.ts:4 is not a file your setup reads now. Reload the studio.',
       `The studio cannot start vim on a line. ${how}`,
       `The studio cannot start that editor on a line. ${how}`,
-      `code did not start. ${how}`,
+      `VS Code did not start. ${how}`,
       `Your editor did not start. ${how}`,
     ],
   );

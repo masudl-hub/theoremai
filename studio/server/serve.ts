@@ -21,11 +21,11 @@
  * @module
  */
 
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } from './handler.ts';
 import { createEditedSession } from './edited-session.ts';
 import type { ProjectEdits } from './edits.ts';
-import { answerOpen, chosenEditor, type EditorHost } from './open-editor.ts';
+import { answerOpen, chosenEditor, defaultEditor, type EditorHost } from './open-editor.ts';
 import { PROJECT_READY } from './project.ts';
 import { isInside } from './project-source.ts';
 import { answerSave, createSaveSession, isSaveRequest } from './save-session.ts';
@@ -298,6 +298,8 @@ async function opened(request: Request): Promise<StudioDescription | undefined> 
     shared: session.shared(),
     origins: session.origins(),
     ...(unloaded === undefined ? {} : { unloaded }),
+    editor: defaultEditor(editor),
+    setup: relative(root, setupFile),
   };
 }
 

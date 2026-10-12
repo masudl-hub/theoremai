@@ -90,6 +90,8 @@ export interface ProjectOrigins {
 export interface OpenRequest {
   file: string;
   line?: number;
+  /** The editor to open it in, by a command the studio lists. Without one, the editor the studio started with. */
+  editor?: string;
 }
 
 /**

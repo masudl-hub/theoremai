@@ -1,7 +1,9 @@
 import { assertEquals } from '@std/assert';
+import { editorLabel, STUDIO_EDITORS, studioEditor } from '../../studio/editors.ts';
 import {
   answerOpen,
   chosenEditor,
+  defaultEditor,
   defaultOpener,
   type EditorHost,
   editorCommand,
@@ -91,6 +93,60 @@ Deno.test('Open answers its own address, and refuses a body that is not a file a
     status: 200,
     body: { ok: true, editor: 'code' },
   });
+});
+
+Deno.test('the page names the editor only by a command the studio lists', async () => {
+  const { host, started } = machine({ editor: '/usr/local/bin/Code --wait' });
+  assertEquals(defaultEditor(host), 'code');
+  assertEquals(openInEditor(host, { file: 'inputs.ts', line: 14, editor: 'zed' }), {
+    ok: true,
+    editor: 'zed',
+  });
+  assertEquals(started, [['zed', '/p/inputs.ts:14']]);
+
+  const post = (body: unknown) =>
+    answerOpen(
+      host,
+      '/api/studio/open',
+      new Request('http://127.0.0.1:4983/api/studio/open', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    );
+  // A path, a command with arguments, a name the studio does not list, or an object's own members: none is started.
+  for (const editor of [
+    '/tmp/code',
+    'code --wait',
+    'Code',
+    'vim',
+    'sh',
+    'constructor',
+    '__proto__',
+    '',
+    3,
+  ]) {
+    assertEquals(await post({ file: 'inputs.ts', editor }), { status: 400, body: {} });
+  }
+  assertEquals(started.length, 1);
+  assertEquals(await post({ file: 'inputs.ts', line: 2, editor: 'cursor' }), {
+    status: 200,
+    body: { ok: true, editor: 'cursor' },
+  });
+  assertEquals(started[1], ['cursor', '-g', '/p/inputs.ts:2']);
+});
+
+Deno.test('each listed editor has one command and a name, and the common ones come first', () => {
+  const commands = STUDIO_EDITORS.map((editor) => editor.command);
+  assertEquals(new Set(commands).size, commands.length);
+  assertEquals(
+    STUDIO_EDITORS.filter((editor) => editor.common).map((editor) => editor.label),
+    ['VS Code', 'Cursor', 'Zed', 'Windsurf', 'WebStorm', 'Sublime Text'],
+  );
+  for (const editor of STUDIO_EDITORS) {
+    assertEquals(editorCommand(editor.command, '/p/a.ts', 1)?.command, editor.command);
+  }
+  assertEquals([editorLabel('subl'), editorLabel('vim')], ['Sublime Text', 'vim']);
+  assertEquals([studioEditor('constructor'), studioEditor('toString')], [undefined, undefined]);
 });
 
 Deno.test("when the editor does not start, the machine's default editor opens the file", () => {

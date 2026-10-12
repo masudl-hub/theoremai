@@ -30,7 +30,6 @@ import {
 	IconCode,
 	IconCopy,
 	IconCopyPlus,
-	IconEye,
 	IconFile,
 	IconFileZip,
 	IconKey,
@@ -164,10 +163,12 @@ import {
 	readFiles,
 	useProject,
 } from './lib/studio-project.ts';
+import { getPref, setPref } from './lib/studio-prefs.ts';
 import { dropAside, keepReading, keptReading, setAside } from './lib/studio-restore.ts';
 import { projectKey, type RestoredStudio } from './lib/studio-session.ts';
+import { closeSettings, openSettings, settingsScreen, useSettingsDoor } from './lib/studio-settings.ts';
 import { createStudioStore, type StudioStore } from './lib/studio-store.ts';
-import { setWatchWanted, subscribeToFiles, watchWanted } from './lib/studio-watch.ts';
+import { subscribeToFiles } from './lib/studio-watch.ts';
 import { toolCredential } from './lib/tool-credentials.ts';
 import { useConfirmWrite } from './confirm-write.tsx';
 import { runToolProbe } from './lib/tool-probe.ts';
@@ -216,6 +217,7 @@ import {
 	type StudioReport,
 	useStudioHost,
 } from './studio-host.ts';
+import { StudioSettings } from './studio-settings.tsx';
 
 /** A node's icon; Identity shows the profile type's once one is picked. */
 function nodeIcon(draft: StudioDraft, ref: StudioNodeRef) {
@@ -1513,7 +1515,7 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 						store.takeFiles(merge.workspace);
 						store.standOn(read.print);
 						const said = filesToast(named, merge.updated.length, editedSince(before, stoodOn));
-						if (said) toast({ body: said });
+						if (said && getPref('filesToast') === 'on') toast({ body: said });
 					}
 					// Files that went back to what the edits stand on leave nothing to choose.
 					setConflict(undefined);
@@ -1553,12 +1555,12 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 		};
 	}, [refreshOrigins]);
 
-	const [watch, setWatch] = useState({ available: false, on: watchWanted() });
+	const [watch, setWatch] = useState({ available: false, on: getPref('watch') === 'on' });
 	const watching = useRef(watch.on);
 	const setWatching = useCallback(
 		(on: boolean) => {
 			watching.current = on;
-			setWatchWanted(on);
+			setPref('watch', on ? 'on' : 'off');
 			setWatch((held) => ({ ...held, on }));
 			// What the files changed while the watch was off comes in now.
 			if (on) reread(false);
@@ -1612,11 +1614,6 @@ function filesToast(files: string, updated: number, hadEdits: boolean): string |
 	const subject = files === 'source code' ? 'Source code' : files;
 	return `${subject} changed: ${settings}.${hadEdits ? ' Studio edits are kept.' : ''}`;
 }
-
-/** Watching the project's files, for the view menu: absent with no project or a server that does not watch. */
-const WatchFilesContext = createContext<{ on: boolean; set: (on: boolean) => void } | undefined>(
-	undefined,
-);
 
 /** Shows an origin's line in the builder's editor, and says where it is when no editor opens. */
 function useOpenOrigin(project: ProjectSession | null) {
@@ -2127,7 +2124,6 @@ function IssueToken({
  */
 function ViewToggleButton({ view }: { view: EditorViewState }) {
 	const current = EDITOR_VIEWS.find((each) => each.id === view.editorView) ?? EDITOR_VIEWS[0];
-	const watch = useContext(WatchFilesContext);
 	return (
 		<DropdownMenu
 			button={{
@@ -2164,20 +2160,6 @@ function ViewToggleButton({ view }: { view: EditorViewState }) {
 						view.setMapOpen(!view.mapOpen);
 					},
 				},
-				...(watch
-					? [
-							{
-								id: 'watch',
-								label: 'Watch files',
-								description: oneLine('Take in what your editor saves, as it saves'),
-								icon: <Icon icon={IconEye} size="sm" />,
-								endContent: watch.on ? <Icon icon={IconCheck} size="sm" /> : undefined,
-								onClick: () => {
-									watch.set(!watch.on);
-								},
-							},
-						]
-					: []),
 			]}
 		/>
 	);
@@ -2302,17 +2284,7 @@ function EditorToolbar({
 						{project}
 					</HStack>
 				</StackItem>
-				<IconButton
-					label="Keys"
-					variant="ghost"
-					icon={<Icon icon={IconKey} size="sm" />}
-					aria-pressed={view.keysOpen}
-					tooltip="Add your own model keys to run this agent with"
-					onClick={() => {
-						view.setKeysOpen((open) => !open);
-						view.setEditorView('editor');
-					}}
-				/>
+				<KeysButton view={view} />
 				<DropdownMenu
 					button={{
 						label: 'Reset',
@@ -2359,8 +2331,42 @@ function EditorToolbar({
 	);
 }
 
-/** The Keys panel, its slots renamed or let go across every agent. */
+/** The door to the Keys panel in the editor's header. A host with Settings keeps Keys there, so it has none. */
+function KeysButton({ view }: { view: EditorViewState }) {
+	const { hasSettings } = useStudioHost();
+	if (hasSettings) return null;
+	return (
+		<IconButton
+			label="Keys"
+			variant="ghost"
+			icon={<Icon icon={IconKey} size="sm" />}
+			aria-pressed={view.keysOpen}
+			tooltip="Add your own model keys to run this agent with"
+			onClick={() => {
+				view.setKeysOpen((open) => !open);
+				view.setEditorView('editor');
+			}}
+		/>
+	);
+}
+
+/** The Keys panel, in the editor's column. */
 function KeysBody({
+	connection,
+	state,
+}: {
+	connection: StudioConnectionState;
+	state: StudioWorkspaceState;
+}) {
+	return (
+		<ScrollableArea label="Keys" height="100%">
+			<KeySlots connection={connection} state={state} />
+		</ScrollableArea>
+	);
+}
+
+/** The key slots, renamed or let go across every agent. */
+function KeySlots({
 	connection,
 	state,
 }: {
@@ -2369,28 +2375,95 @@ function KeysBody({
 }) {
 	const { setDraft, update } = state;
 	return (
-		<ScrollableArea label="Keys" height="100%">
-			<StudioKeys
-				connection={connection}
-				onAddSlot={(slot) => {
-					setDraft((current) =>
-						current.models.key ? current : { ...current, models: { ...current.models, key: slot } },
-					);
-				}}
-				onRenameSlot={(from, to) => {
-					update((current) => ({
-						...current,
-						agents: current.agents.map((agent) => swapKeySlot(agent, from, to)),
-					}));
-				}}
-				onRemoveSlot={(slot) => {
-					update((current) => ({
-						...current,
-						agents: current.agents.map((agent) => swapKeySlot(agent, slot, '')),
-					}));
-				}}
-			/>
-		</ScrollableArea>
+		<StudioKeys
+			connection={connection}
+			onAddSlot={(slot) => {
+				setDraft((current) =>
+					current.models.key ? current : { ...current, models: { ...current.models, key: slot } },
+				);
+			}}
+			onRenameSlot={(from, to) => {
+				update((current) => ({
+					...current,
+					agents: current.agents.map((agent) => swapKeySlot(agent, from, to)),
+				}));
+			}}
+			onRemoveSlot={(slot) => {
+				update((current) => ({
+					...current,
+					agents: current.agents.map((agent) => swapKeySlot(agent, slot, '')),
+				}));
+			}}
+		/>
+	);
+}
+
+/**
+ * Settings over the studio, for a host that has a door to them. The studio stays on the page
+ * under them, so a run goes on and the editor is where it was left.
+ */
+function useStudioSettings() {
+	const { hasSettings } = useStudioHost();
+	useEffect(() => (hasSettings ? settingsScreen() : undefined), [hasSettings]);
+	const door = useSettingsDoor();
+	return hasSettings === true && door.open;
+}
+
+/** Opens Keys where the host keeps them: in Settings, or in the editor's column. */
+function useOpenKeys(setKeysOpen: (open: boolean) => void) {
+	const { hasSettings } = useStudioHost();
+	return useCallback(
+		(open: boolean) => {
+			if (!hasSettings) setKeysOpen(open);
+			else if (open) openSettings('keys');
+			else closeSettings();
+		},
+		[hasSettings, setKeysOpen],
+	);
+}
+
+const HIDDEN = { display: 'none' };
+
+/** Settings for the open project, with what they reach in the studio. */
+function SettingsPane({
+	state,
+	connection,
+	project,
+	setConversation,
+}: {
+	state: StudioWorkspaceState;
+	connection: StudioConnectionState;
+	project: ProjectSession;
+	setConversation: Dispatch<SetStateAction<number>>;
+}) {
+	const { kernelVersion } = useStudioHost();
+	const { store } = state;
+	const reset = useReset(state);
+	const toast = useToast();
+	const quiet = useSyncExternalStore(store.subscribe, store.isQuiet, store.isQuiet);
+	const shared = useMemo(
+		() => ({
+			asks: !quiet,
+			set: (asks: boolean) => {
+				store.setQuiet(!asks);
+			},
+		}),
+		[quiet, store],
+	);
+	const clearChats = useCallback(() => {
+		clearConversation();
+		setConversation((count) => count + 1);
+		toast({ body: "Cleared this tab's chats." });
+	}, [setConversation, toast]);
+	return (
+		<StudioSettings
+			project={project}
+			version={kernelVersion}
+			watch={state.watchFiles}
+			shared={shared}
+			actions={{ clearChats, discard: reset.inProject ? reset.all : undefined }}
+			keys={<KeySlots connection={connection} state={state} />}
+		/>
 	);
 }
 
@@ -2770,13 +2843,14 @@ function useStudioPage(opened: StudioOpened) {
 	useArrivalToast(opened, store);
 	const { replaceWorkspace, copy } = usePageActions(store, view, run.setConversation);
 	const asking = useConfirmWrite();
+	const openKeys = useOpenKeys(view.setKeysOpen);
 	const chatRef = useStudioSurface(store, {
 		confirmWrite: asking.confirm,
 		mode: connection.mode,
 		connection,
 		replaceWorkspace,
 		copy,
-		setKeysOpen: view.setKeysOpen,
+		setKeysOpen: openKeys,
 		setConversation: run.setConversation,
 		project: opened.project ?? null,
 	});
@@ -2825,6 +2899,7 @@ function Studio({ opened }: { opened: StudioOpened }) {
 	const closeMap = useCallback(() => {
 		setMapOpen(false);
 	}, [setMapOpen]);
+	const settingsOpen = useStudioSettings();
 
 	// The project as its files are now: a Save changes which profiles they hold.
 	const project = useMemo(
@@ -2842,6 +2917,7 @@ function Studio({ opened }: { opened: StudioOpened }) {
 					<Layout
 						ref={frame.layoutCallbackRef}
 						className={frameClass(sheet, view.mapOpen)}
+						style={settingsOpen ? HIDDEN : undefined}
 						padding={0}
 						start={
 							<SidePanel
@@ -2895,6 +2971,14 @@ function Studio({ opened }: { opened: StudioOpened }) {
 							/>
 						}
 					/>
+					{settingsOpen && project && (
+						<SettingsPane
+							state={state}
+							connection={connection}
+							project={project}
+							setConversation={run.setConversation}
+						/>
+					)}
 					</SaveScope>
 				</ProjectAsks>
 			</ConfirmWrite>
@@ -2921,7 +3005,6 @@ function SaveScope({
 	}, [showConflict]);
 	if (!project) return children;
 	return (
-		<WatchFilesContext.Provider value={state.watchFiles}>
 		<ProjectSave
 			project={project}
 			workspace={state.workspace}
@@ -2947,7 +3030,6 @@ function SaveScope({
 				/>
 			)}
 		</ProjectSave>
-		</WatchFilesContext.Provider>
 	);
 }
 

@@ -7,6 +7,7 @@
  */
 
 import { PROFILE_GRAPH } from '../src/kernel/schema.ts';
+import { editorLabel } from './editors.ts';
 import type { OpenAnswer, ProjectOrigins, SettingOrigin } from './server/save-wire.ts';
 import { type StudioWorkspace, workspaceNodeRef } from './workspace.ts';
 
@@ -171,16 +172,16 @@ export function originWay(origin: SettingOrigin): string {
 /** What the page says once it asked for a place in the builder's editor. */
 export function openOutcome(answer: OpenAnswer, place: string): string {
   if (answer.ok && answer.byDefault) {
-    return `Opened in your default editor: ${place}. To open on the line, start the studio with --editor.`;
+    return `Opened in your default editor: ${place}. To open on the line, choose your editor in Settings.`;
   }
-  if (answer.ok) return `Opened ${place} in ${answer.editor}.`;
-  const how = 'Start the studio with --editor and the command of an editor that opens a window: code, cursor, zed.';
+  if (answer.ok) return `Opened ${place} in ${editorLabel(answer.editor)}.`;
+  const how = 'Choose the editor you use in Settings, under Files.';
   switch (answer.reason) {
     case 'file':
       return `${place} is not a file your setup reads now. Reload the studio.`;
     case 'editor':
       return `The studio cannot start ${answer.editor || 'that editor'} on a line. ${how}`;
     default:
-      return `${answer.editor ?? 'Your editor'} did not start. ${how}`;
+      return `${answer.editor ? editorLabel(answer.editor) : 'Your editor'} did not start. ${how}`;
   }
 }

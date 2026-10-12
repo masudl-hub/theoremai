@@ -5,13 +5,15 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Layout, LayoutContent, LayoutFooter } from '@astryxdesign/core/Layout';
 import { type ReactNode, useCallback, useState } from 'react';
 import { type WriteAsk, writeAskLine } from '../mod.ts';
+import { writeAsks } from './lib/studio-prefs.ts';
 
 const DIALOG_WIDTH = 520;
 
 /**
  * The stop before a real run of a tool that writes: the input it would send, and Cancel or Run.
  * `confirm` answers once the builder chose; closing the dialog is Cancel. A second question while
- * one is open is refused, so each run is one the builder read.
+ * one is open is refused, so each run is one the builder read. A run the builder's settings say
+ * not to ask about goes ahead.
  */
 export function useConfirmWrite(): {
 	confirm: (ask: WriteAsk) => Promise<boolean>;
@@ -21,6 +23,10 @@ export function useConfirmWrite(): {
 	const confirm = useCallback(
 		(ask: WriteAsk) =>
 			new Promise<boolean>((resolve) => {
+				if (!writeAsks(ask.access)) {
+					resolve(true);
+					return;
+				}
 				setOpen((current) => {
 					if (current) {
 						resolve(false);

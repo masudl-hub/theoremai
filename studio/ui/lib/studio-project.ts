@@ -15,6 +15,7 @@ import type {
 	SharedSetting,
 } from '../../server/save-wire.ts';
 import { createContext, useContext } from 'react';
+import { getPref } from './studio-prefs.ts';
 
 /** Where the local server listens. Only this machine reaches it. */
 const PROJECT_ENDPOINT = 'http://127.0.0.1:4983/api/studio';
@@ -37,6 +38,10 @@ export interface ProjectSession {
 	print: string;
 	/** What the project printed when its files stopped loading; the page shows the last load that did. */
 	unloaded?: string;
+	/** The editor the studio command opens files in when the builder chose none, by its command. */
+	editor?: string;
+	/** The setup file the studio command was started on, from the folder it ran in. */
+	setup?: string;
 }
 
 export const NO_ASKS: StudioAsks = { asked: [], inside: [] };
@@ -116,9 +121,10 @@ export function editedProfileEndpoint(project: ProjectSession, profileId: string
 	return `${project.endpoint}/edited/profiles/${encodeURIComponent(profileId)}`;
 }
 
-/** Shows a line of one of the project's files in the builder's editor. */
+/** Shows a line of one of the project's files in the editor the builder chose, or the studio command's. */
 export function openInEditor(project: ProjectSession, place: OpenRequest): Promise<OpenAnswer> {
-	return post(project, '/open', place);
+	const editor = getPref('editor');
+	return post(project, '/open', editor ? { ...place, editor } : place);
 }
 
 /** What the local server says the project is now. */
@@ -130,6 +136,8 @@ interface Opened {
 	origins?: ProjectOrigins;
 	asks?: StudioAsks;
 	unloaded?: string;
+	editor?: string;
+	setup?: string;
 }
 
 async function describe(): Promise<Opened> {
@@ -177,6 +185,8 @@ export async function openProject(): Promise<{
 			endpoint: PROJECT_ENDPOINT,
 			name: opened.project,
 			shared: opened.shared ?? [],
+			...(opened.editor === undefined ? {} : { editor: opened.editor }),
+			...(opened.setup === undefined ? {} : { setup: opened.setup }),
 			...filesOf(opened),
 		},
 		workspace: opened.workspace,

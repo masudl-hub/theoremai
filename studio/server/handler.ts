@@ -284,7 +284,8 @@ export function json(status: number, body: unknown, headers: HeadersInit): Respo
  * Whether a request comes from somewhere other than the studio's own page.
  * A page on another site can reach 127.0.0.1 through the builder's browser: the
  * origin check stops its requests, and the host check stops a name it pointed at
- * this machine.
+ * this machine. A browser's request that names no page at all (an image or a script tag, an
+ * address typed in) is refused too: the studio's page always names itself.
  */
 export function isForeign(
   request: Request,
@@ -292,7 +293,9 @@ export function isForeign(
 ): boolean {
   if (request.headers.get('host') !== options.listenHost) return true;
   const origin = request.headers.get('origin');
-  return origin !== null && !options.pageOrigins.includes(origin);
+  // Only a browser says where a request was fetched from; the studio's command and server say nothing.
+  if (origin === null) return request.headers.has('sec-fetch-site');
+  return !options.pageOrigins.includes(origin);
 }
 
 /** Where the server is mounted unless the host says otherwise. */

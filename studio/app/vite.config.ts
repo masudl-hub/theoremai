@@ -25,6 +25,29 @@ const projectAddress: Plugin = {
 };
 
 /**
+ * What the page may load and call. Scripts, workers and fonts are the studio's own. It calls this
+ * machine (the project's server, a local model) and the two providers it lists models from. An
+ * image or a video in a reply or a tool's result loads from wherever it is, as the project's own
+ * app would show it. Styles are written inline by the editor and the design system.
+ */
+const LOCAL = ['127.0.0.1', 'localhost', '[::1]'].flatMap((host) => ['http', 'https', 'ws'].map((scheme) => `${scheme}://${host}:*`));
+const CONTENT_POLICY = [
+  "default-src 'none'",
+  "script-src 'self'",
+  "worker-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'",
+  "img-src 'self' data: blob: https: http:",
+  "media-src 'self' data: blob: https: http:",
+  `connect-src 'self' ${LOCAL.join(' ')} https://generativelanguage.googleapis.com https://openrouter.ai`,
+  "frame-src 'none'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+/**
  * Serves the studio as a page of its own, at `/studio/` so a run tab's address is the one the
  * screen opens. The screen's packages are the studio's own install (`studio/node_modules`).
  * The page calls the project's local server (`studio/server/serve.ts`) directly.
@@ -43,6 +66,7 @@ export default defineConfig({
     // Only this machine, and only this page: no other page may read what this serves.
     host: '127.0.0.1',
     cors: false,
+    headers: { 'Content-Security-Policy': CONTENT_POLICY, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' },
     // The command that starts this names the port; it is never moved to another.
     port: 4984,
     strictPort: true,

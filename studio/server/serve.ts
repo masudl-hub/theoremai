@@ -292,12 +292,10 @@ const editor: EditorHost = {
  */
 async function opened(request: Request): Promise<StudioDescription | undefined> {
   if (request.method !== 'GET' || new URL(request.url).pathname !== STUDIO_BASE) return undefined;
-  const unloaded = await session.refresh();
+  const files = await session.read();
   return {
     ...session.project().description,
-    shared: session.shared(),
-    origins: session.origins(),
-    ...(unloaded === undefined ? {} : { unloaded }),
+    ...files,
     editor: defaultEditor(editor),
     setup: relative(root, setupFile),
   };

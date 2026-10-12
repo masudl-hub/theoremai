@@ -47,13 +47,19 @@ export interface SaveHost<Loaded> {
   opened(loaded: Loaded): StudioWorkspace;
 }
 
+/** What one read of the project's files says. Each file is named from the project's folder. */
+export interface FilesRead {
+  /** The project's shared settings. */
+  shared: SharedSetting[];
+  /** The settings the files set in code. */
+  origins: ProjectOrigins;
+  /** What the project printed when the files did not load. */
+  unloaded?: string;
+}
+
 /** Save for one project, and the load of it that answers requests now. */
 export interface SaveSession<Loaded> {
   project(): Loaded;
-  /** The project's shared settings as its files hold them now, each file from the project's folder. */
-  shared(): SharedSetting[];
-  /** The settings the project's files set in code, each file from the project's folder. */
-  origins(): ProjectOrigins;
   /** The absolute path of a file named from the project's folder, when the project's setup reads it. */
   place(file: string): string | undefined;
   /** The review when the request has no stamp; the write when it has the review's. */
@@ -61,10 +67,11 @@ export interface SaveSession<Loaded> {
   /** Puts the last Save's files back, when they still hold what it wrote. */
   undo(): Promise<SaveDone | SaveRefusal>;
   /**
-   * Loads the project again when its files changed outside the studio. Answers what the project
-   * printed when the files do not load: the last load that did answers requests until they do.
+   * What the project's files say now, from one read of them. Loads the project again first when
+   * they changed outside the studio; when they do not load, the last load that did answers
+   * requests until they do.
    */
-  refresh(): Promise<string | undefined>;
+  read(): Promise<FilesRead>;
   /** Every file the project's setup reads, by absolute path. */
   watched(): string[];
   /**
@@ -164,7 +171,8 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
 
   const source = () => readProjectSource(host.setupFile, root, host.read);
   /** The text of every file the setup reads, which changes when the builder's editor writes one. */
-  const held = () => JSON.stringify([...source().files].map(([file, read]) => [file, read.text]));
+  const heldIn = (read: ProjectSource) => JSON.stringify([...read.files].map(([file, each]) => [file, each.text]));
+  const held = () => heldIn(source());
   /** What the files held when the load that answers started. */
   let loadedFrom = held();
   /** The files that did not load, and what the project printed. */
@@ -215,8 +223,7 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
   };
 
   /** Loads the project from disk and answers with it from now on. */
-  const reload = async (keep: (next: Loaded) => string[]): Promise<SaveRefusal | undefined> => {
-    const from = held();
+  const reload = async (keep: (next: Loaded) => string[], from = held()): Promise<SaveRefusal | undefined> => {
     let next: Loaded;
     try {
       next = await host.load();
@@ -236,15 +243,31 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     return undefined;
   };
 
-  const refresh = async (): Promise<string | undefined> => {
-    const now = held();
+  /** Loads the project again when `files` are not the ones the load that answers was read from. Whether it did. */
+  const refresh = async (files: ProjectSource): Promise<boolean> => {
+    const now = heldIn(files);
     if (now === loadedFrom) unloaded = undefined;
     // Files that did not load are not tried again until they change.
     else if (unloaded?.from !== now) {
-      const refused = await reload(() => []);
+      const refused = await reload(() => [], now);
       if (refused) unloaded = { from: now, printed: refused.detail.join('\n') };
+      return true;
     }
-    return unloaded?.printed;
+    return false;
+  };
+
+  const read = async (): Promise<FilesRead> => {
+    const first = source();
+    // A load takes time, so the files are read again after one: the answer is what they say now.
+    const files = (await refresh(first)) ? source() : first;
+    const opened = host.opened(project);
+    const decisions = opened.agents.filter((agent) => agent.identity.profileType === 'decision')
+      .map((agent) => agent.identity.agentId);
+    return {
+      shared: sharedSettings(files).map((setting) => ({ ...setting, file: inRoot(setting.file) })),
+      origins: pageOrigins(sourceOrigins(files, decisions), projectNames(opened), files, inRoot),
+      ...(unloaded === undefined ? {} : { unloaded: unloaded.printed }),
+    };
   };
 
   /** Proves the files as written: the project type-checks, loads, and is what was tested. */
@@ -298,21 +321,13 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
 
   return {
     project: () => project,
-    shared: () => sharedSettings(source()).map((setting) => ({ ...setting, file: inRoot(setting.file) })),
-    origins: () => {
-      const read = source();
-      const opened = host.opened(project);
-      const decisions = opened.agents.filter((agent) => agent.identity.profileType === 'decision')
-        .map((agent) => agent.identity.agentId);
-      return pageOrigins(sourceOrigins(read, decisions), projectNames(opened), read, inRoot);
-    },
     place: (file) => {
       const path = resolve(root, file);
       return source().files.has(path) ? path : undefined;
     },
     save: (request) => inTurn(() => save(request)),
     undo: () => inTurn(undo),
-    refresh: () => inTurn(refresh),
+    read: () => inTurn(read),
     watched: () => [...source().files.keys()],
     // In turn, so a Save that is still proving its files is not taken for the builder's editor.
     changed: () =>

@@ -148,7 +148,7 @@ Deno.test('files the editor changed are loaded again, and ones that do not load 
     },
   });
   // Files as they loaded start nothing.
-  assertEquals(await session.refresh(), undefined);
+  assertEquals((await session.read()).unloaded, undefined);
   assertEquals(loads, 0);
   assertEquals(session.watched(), [SETUP]);
   assertEquals(await session.changed(), []);
@@ -158,7 +158,7 @@ Deno.test('files the editor changed are loaded again, and ones that do not load 
   files.set(SETUP, `${TEXT}\n// An edit in the editor.\n`);
   // The watch names the file from the project's folder until the load takes it in.
   assertEquals((await session.changed()).length, 1);
-  assertEquals(await session.refresh(), undefined);
+  assertEquals((await session.read()).unloaded, undefined);
   assertEquals(await session.changed(), []);
   assertEquals(session.project(), next);
   assertEquals([loads, stopped.length], [1, 1]);
@@ -166,15 +166,40 @@ Deno.test('files the editor changed are loaded again, and ones that do not load 
   // Files that do not load are tried once, and the last load answers.
   failing.fails = true;
   files.set(SETUP, `${TEXT}\n// A broken edit.\n`);
-  assertEquals(await session.refresh(), 'It threw.');
-  assertEquals(await session.refresh(), 'It threw.');
+  assertEquals((await session.read()).unloaded, 'It threw.');
+  assertEquals((await session.read()).unloaded, 'It threw.');
   assertEquals(session.project(), next);
   assertEquals(loads, 2);
 
   failing.fails = false;
   files.set(SETUP, `${TEXT}\n// Mended.\n`);
-  assertEquals(await session.refresh(), undefined);
+  assertEquals((await session.read()).unloaded, undefined);
   assertEquals(loads, 3);
+});
+
+Deno.test('a read of unchanged files walks them once, and twice around a load', async () => {
+  let reads = 0;
+  const files = new Map([[SETUP, TEXT]]);
+  const { session } = project({
+    read: (path) => {
+      if (path === SETUP) reads += 1;
+      return files.get(path);
+    },
+  });
+  // Starting the session read the files once. One walk of them is the measure.
+  reads = 0;
+  session.watched();
+  const walk = reads;
+
+  reads = 0;
+  await session.read();
+  assertEquals(reads, walk);
+
+  // After a load the files are read again, so the answer is what they say now.
+  files.set(SETUP, `${TEXT}\n// An edit in the editor.\n`);
+  reads = 0;
+  await session.read();
+  assertEquals(reads, walk * 2);
 });
 
 Deno.test('an undo whose load fails writes the save again', async () => {
@@ -327,9 +352,9 @@ Deno.test('a change Save cannot write turns Save off, and a workspace it cannot 
   assertEquals([isSaveRequest(null), isSaveRequest({ workspace: { agents: [] } })], [false, false]);
 });
 
-Deno.test('the page reads what the files set in code, with each file from the project, and what no file defines', () => {
+Deno.test('the page reads what the files set in code, with each file from the project, and what no file defines', async () => {
   const { session } = project();
-  const { tools, profiles } = session.origins();
+  const { tools, profiles } = (await session.read()).origins;
   assertEquals(profiles, {});
   assertEquals(
     tools.remove_plant?.map(({ path, kind, file }) => [path.join('.'), kind, file]),

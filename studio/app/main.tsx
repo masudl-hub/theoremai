@@ -11,6 +11,7 @@ import { createRoot } from 'react-dom/client';
 import kernel from '../../package.json' with { type: 'json' };
 import { BootMark } from '../ui/boot-mark.tsx';
 import { theoremStudioTheme } from '../ui/built/theorem-studio.js';
+import { createReading } from '../ui/lib/read-progress.ts';
 import { openStudioProject } from '../ui/lib/studio-open.ts';
 import { openStudioRun } from '../ui/lib/studio-run-open.ts';
 import { frameShape } from '../ui/shell-motion.ts';
@@ -41,6 +42,9 @@ const RUN_PATH = '/studio/run';
 /** An agent opened in a tab of its own sits on the shell's panel; the studio draws its own on the black base. */
 const onBase = location.pathname !== RUN_PATH;
 
+/** The local server's read of the project, which the loader draws as a map. */
+const reading = createReading();
+
 /** An agent opened in a tab of its own, or the studio on the project. */
 async function page(): Promise<ReactNode> {
 	if (!onBase) {
@@ -51,7 +55,7 @@ async function page(): Promise<ReactNode> {
 		return null;
 	}
 	try {
-		const opened = await openStudioProject();
+		const opened = await openStudioProject(reading.say).finally(reading.finish);
 		return <StudioScreen opened={opened} host={HOST} />;
 	} catch {
 		return <StudioNoProject />;
@@ -91,7 +95,7 @@ if (root) {
 							/>
 						}
 					>
-						<BootMark shape={frameShape} ready={shown} />
+						<BootMark shape={frameShape} ready={shown} reading={onBase ? reading : undefined} />
 						<Suspense>
 							<Opened />
 						</Suspense>

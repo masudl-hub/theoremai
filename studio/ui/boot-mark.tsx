@@ -3,6 +3,8 @@
  * the page it opens. The website and the studio on its own both mount this in their shell.
  */
 import { useEffect, useRef, useState } from 'react';
+import type { Reading } from './lib/read-progress.ts';
+import { ReadMap } from './read-map.tsx';
 import {
 	bootHasPlayed,
 	prefersReducedMotion,
@@ -66,17 +68,23 @@ export interface BootMarkProps {
 	shape: () => ShellShape;
 	/** Settles when the page under the mark is on screen. Left out, the page is ready with its fonts. */
 	ready?: Promise<unknown>;
+	/**
+	 * A project being read for the page. With it, the mark moves aside once drawn and the read is
+	 * drawn as a map, and the panel pulls in when the map has drawn all of it.
+	 */
+	reading?: Reading;
 }
 
 /**
  * The mark draws in the shell only when the page is still loading. When the dot lands, or at once
  * when the page was ready first, that same panel pulls in over the page.
  */
-function useBootPhase({ shape, ready }: BootMarkProps) {
-	const [phase, setPhase] = useState<'draw' | 'done'>(() => (bootHasPlayed() ? 'done' : 'draw'));
+function useBootPhase({ shape, ready, reading }: BootMarkProps) {
+	const [phase, setPhase] = useState<'draw' | 'map' | 'done'>(() => (bootHasPlayed() ? 'done' : 'draw'));
+	const mapDrawn = useRef<() => void>(() => {});
 	const rootRef = useRef<HTMLDivElement>(null);
-	const latest = useRef({ shape, ready });
-	latest.current = { shape, ready };
+	const latest = useRef({ shape, ready, reading });
+	latest.current = { shape, ready, reading };
 
 	useEffect(() => {
 		const root = rootRef.current;
@@ -100,16 +108,29 @@ function useBootPhase({ shape, ready }: BootMarkProps) {
 		void Promise.all([fontsSettled(), loaded])
 			.then(() => {
 				if (!reduced && !penHasStarted(root)) return undefined;
-				return markDrawn(root, reduced).then(() => sleep(reduced ? REDUCED_HOLD_MS : HOLD_MS));
+				return markDrawn(root, reduced)
+					.then(() => (reduced || !latest.current.reading ? undefined : map))
+					.then(() => sleep(reduced ? REDUCED_HOLD_MS : HOLD_MS));
 			})
 			.then(reveal);
+
+		/* A project's read is drawn as soon as the mark is, loaded or not: the map shows the read
+		   while it happens. It settles when the map has drawn every step of a read that has ended. */
+		const map = new Promise<void>((resolve) => {
+			mapDrawn.current = resolve;
+		});
+		if (!reduced && latest.current.reading) {
+			void markDrawn(root, reduced).then(() => {
+				if (!cancelled && !revealed) setPhase('map');
+			});
+		}
 
 		return () => {
 			cancelled = true;
 		};
 	}, []);
 
-	return { phase, rootRef };
+	return { phase, rootRef, mapDrawn };
 }
 
 /**
@@ -117,13 +138,22 @@ function useBootPhase({ shape, ready }: BootMarkProps) {
  * pulls in over the page.
  */
 export function BootMark(props: BootMarkProps) {
-	const { phase, rootRef } = useBootPhase(props);
+	const { phase, rootRef, mapDrawn } = useBootPhase(props);
 
 	if (phase === 'done') return null;
 
+	const mapped = phase === 'map' && props.reading;
 	return (
-		<div ref={rootRef} data-boot="" role="status" aria-live="polite" aria-label="Loading">
+		<div
+			ref={rootRef}
+			data-boot=""
+			data-phase={phase}
+			role="status"
+			aria-live="polite"
+			aria-label={mapped ? 'Reading your project' : 'Loading'}
+		>
 			<TheoremMark />
+			{mapped && <ReadMap reading={mapped} onDrawn={() => mapDrawn.current()} />}
 		</div>
 	);
 }

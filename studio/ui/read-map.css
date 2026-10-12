@@ -1,0 +1,57 @@
+/* The loader's map of a project being read. It fills the mark's panel; the mark rests at its left edge. */
+.read-map {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+}
+
+.read-map-lines {
+	position: absolute;
+	inset: 0 auto auto 0;
+	pointer-events: none;
+}
+
+/* The same line as the map canvas draws, drawn in from the node it leaves. */
+.read-map-line {
+	fill: none;
+	stroke: var(--color-border-emphasized);
+	stroke-width: 1.5;
+	stroke-dasharray: 1;
+	stroke-dashoffset: 1;
+	animation: read-map-line-in var(--duration-medium, 240ms) var(--ease-standard, ease-out) forwards;
+}
+
+.read-map-dot {
+	fill: var(--color-text-secondary);
+	animation: read-map-in var(--duration-fast, 120ms) var(--ease-standard, ease-out) both;
+}
+
+.read-map-node {
+	position: absolute;
+	translate: 0 -50%;
+	white-space: nowrap;
+	transition:
+		left var(--duration-medium, 240ms) var(--ease-standard, ease-out),
+		top var(--duration-medium, 240ms) var(--ease-standard, ease-out);
+	animation: read-map-in var(--duration-medium, 240ms) var(--ease-standard, ease-out) both;
+}
+
+.read-map-foot {
+	position: absolute;
+	inset: auto 24px 24px 24px;
+	display: flex;
+	gap: 16px;
+	justify-content: space-between;
+}
+
+@keyframes read-map-line-in {
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+
+@keyframes read-map-in {
+	from {
+		opacity: 0;
+	}
+}

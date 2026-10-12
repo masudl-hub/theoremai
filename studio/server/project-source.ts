@@ -779,21 +779,46 @@ function madeBy(project: ProjectSource, target: SourceTarget, key: string): Arra
   return named;
 }
 
-/** Reads the project from `entry`, the setup module. `read` returns a file's text, or undefined. */
-export function readProjectSource(entry: string, root: string, read: ReadFile): ProjectSource {
-  const project: ProjectSource = { root, entry: resolve(entry), files: new Map(), profiles: new Map(), tools: new Map() };
-  const queue = [project.entry];
-  for (let path = queue.shift(); path !== undefined; path = queue.shift()) {
-    if (project.files.has(path)) continue;
+/** One file of the walk as it is read: its absolute path, and the file whose import led to it. */
+export interface FileStep {
+  file: string;
+  from?: string;
+}
+
+/**
+ * Walks the project's files from `entry`, the setup module, following each import. Yields each
+ * file as it is read, so a caller can say where the walk is. Returns every file read.
+ */
+export function* walkProject(entry: string, root: string, read: ReadFile): Generator<FileStep, Map<string, ts.SourceFile>> {
+  const files = new Map<string, ts.SourceFile>();
+  const queue: FileStep[] = [{ file: resolve(entry) }];
+  for (let step = queue.shift(); step !== undefined; step = queue.shift()) {
+    const path = step.file;
+    if (files.has(path)) continue;
     const text = read(path);
     if (text === undefined) continue;
     const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
-    project.files.set(path, source);
+    files.set(path, source);
+    yield step;
     for (const specifier of specifiers(source)) {
       const next = importedFile(path, specifier, (file) => read(file) !== undefined, root);
-      if (next && !project.files.has(next)) queue.push(next);
+      if (next && !files.has(next)) queue.push({ file: next, from: path });
     }
   }
+  return files;
+}
+
+/** Reads the project from `entry`, the setup module. `read` returns a file's text, or undefined. */
+export function readProjectSource(entry: string, root: string, read: ReadFile): ProjectSource {
+  const walk = walkProject(entry, root, read);
+  let step = walk.next();
+  while (!step.done) step = walk.next();
+  return projectOf(step.value, entry, root);
+}
+
+/** The project the walked `files` hold: its profiles and tools, where each is made. */
+export function projectOf(files: Map<string, ts.SourceFile>, entry: string, root: string): ProjectSource {
+  const project: ProjectSource = { root, entry: resolve(entry), files, profiles: new Map(), tools: new Map() };
   const calls: Array<{ into: Map<string, SourceTarget[]>; key: string; target: SourceTarget }> = [];
   for (const [file, source] of project.files) {
     const visit = (node: ts.Node) => {

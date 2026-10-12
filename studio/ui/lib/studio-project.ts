@@ -18,6 +18,7 @@ import { createContext, useContext } from 'react';
 import { getPref } from './studio-prefs.ts';
 
 /** Where the local server listens. Only this machine reaches it. */
+import { READ_STEPS, type ReadStep } from '../../read-steps.ts';
 const PROJECT_ENDPOINT = 'http://127.0.0.1:4983/api/studio';
 
 export interface ProjectSession {
@@ -146,6 +147,34 @@ async function describe(): Promise<Opened> {
 	return response.json();
 }
 
+/**
+ * The project as the server describes it, after each step of its read of the files: `said` hears
+ * each as it happens. The server sends a line of JSON for each, then one holding the project.
+ */
+async function describeSaying(said: (step: ReadStep) => void): Promise<Opened> {
+	const response = await fetch(`${PROJECT_ENDPOINT}?${READ_STEPS}`);
+	if (!response.ok || !response.body) {
+		throw new Error(`The studio server answered ${String(response.status)}.`);
+	}
+	const lines = response.body.pipeThrough(new TextDecoderStream()).getReader();
+	let kept = '';
+	let opened: Opened | undefined;
+	const take = (line: string) => {
+		if (!line) return;
+		const read = JSON.parse(line) as ReadStep | { opened: Opened };
+		if ('opened' in read) opened = read.opened;
+		else said(read);
+	};
+	for (let next = await lines.read(); !next.done; next = await lines.read()) {
+		const whole = (kept + next.value).split('\n');
+		kept = whole.pop() ?? '';
+		whole.forEach(take);
+	}
+	take(kept);
+	if (!opened) throw new Error('The studio server stopped before it sent the project.');
+	return opened;
+}
+
 /** What a project's files say, which a Save or an edit in the builder's editor changes. */
 export type ProjectFiles = Pick<
 	ProjectSession,
@@ -174,12 +203,15 @@ export async function readFiles(): Promise<{ files: ProjectFiles; workspace: Stu
 	return { files: filesOf(opened), workspace: opened.workspace };
 }
 
-/** The project the local server has open. Throws when no server answers. */
-export async function openProject(): Promise<{
+/**
+ * The project the local server has open. `said` hears each step of the server's read of the
+ * files. Throws when no server answers.
+ */
+export async function openProject(said?: (step: ReadStep) => void): Promise<{
 	project: ProjectSession;
 	workspace: StudioWorkspace;
 }> {
-	const opened = await describe();
+	const opened = await (said ? describeSaying(said) : describe());
 	return {
 		project: {
 			endpoint: PROJECT_ENDPOINT,

@@ -9,7 +9,8 @@
 import { relative, resolve } from 'node:path';
 import type { StudioWorkspace } from '../workspace.ts';
 import { sourceOrigins } from './origins.ts';
-import { type ProjectSource, readProjectSource, sharedSettings } from './project-source.ts';
+import type { ReadStep } from '../read-steps.ts';
+import { type ProjectSource, projectOf, readProjectSource, sharedSettings, walkProject } from './project-source.ts';
 import { planNew } from './save-new.ts';
 import { planRemoved } from './save-remove.ts';
 import { applyEdits, diffHunks, planSave, type SourceEdit } from './save-plan.ts';
@@ -69,9 +70,9 @@ export interface SaveSession<Loaded> {
   /**
    * What the project's files say now, from one read of them. Loads the project again first when
    * they changed outside the studio; when they do not load, the last load that did answers
-   * requests until they do.
+   * requests until they do. `said` hears each step of the read as it happens.
    */
-  read(): Promise<FilesRead>;
+  read(said?: (step: ReadStep) => void): Promise<FilesRead>;
   /** Every file the project's setup reads, by absolute path. */
   watched(): string[];
   /**
@@ -161,6 +162,9 @@ export function pageOrigins(
   };
 }
 
+/** How long the walk runs before it pauses to let what it said go out. */
+const PAUSE_EVERY_MS = 12;
+
 /** Starts Save for a project that `first` loaded. */
 export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded): SaveSession<Loaded> {
   const { root } = host;
@@ -244,11 +248,12 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
   };
 
   /** Loads the project again when `files` are not the ones the load that answers was read from. Whether it did. */
-  const refresh = async (files: ProjectSource): Promise<boolean> => {
+  const refresh = async (files: ProjectSource, said?: (step: ReadStep) => void): Promise<boolean> => {
     const now = heldIn(files);
     if (now === loadedFrom) unloaded = undefined;
     // Files that did not load are not tried again until they change.
     else if (unloaded?.from !== now) {
+      said?.({ again: true });
       const refused = await reload(() => [], now);
       if (refused) unloaded = { from: now, printed: refused.detail.join('\n') };
       return true;
@@ -256,10 +261,35 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     return false;
   };
 
-  const read = async (): Promise<FilesRead> => {
-    const first = source();
+  /** The same walk as `source`, pausing so each step said reaches the page while the walk goes on. */
+  const sourceSaying = async (said: (step: ReadStep) => void): Promise<ProjectSource> => {
+    const walk = walkProject(host.setupFile, root, host.read);
+    let paused = performance.now();
+    let step = walk.next();
+    while (!step.done) {
+      const { file, from } = step.value;
+      said({ file: inRoot(file), ...(from === undefined ? {} : { from: inRoot(from) }) });
+      if (performance.now() - paused > PAUSE_EVERY_MS) {
+        await new Promise((resume) => setTimeout(resume, 0));
+        paused = performance.now();
+      }
+      step = walk.next();
+    }
+    const files = projectOf(step.value, host.setupFile, root);
+    for (const [found, made] of [['profile', files.profiles], ['tool', files.tools]] as const) {
+      for (const [name, targets] of made) {
+        const at = targets[0];
+        if (at) said({ found, name, file: inRoot(at.file) });
+      }
+    }
+    return files;
+  };
+
+  const read = async (said?: (step: ReadStep) => void): Promise<FilesRead> => {
+    const first = said ? await sourceSaying(said) : source();
     // A load takes time, so the files are read again after one: the answer is what they say now.
-    const files = (await refresh(first)) ? source() : first;
+    const loaded = await refresh(first, said);
+    const files = loaded ? source() : first;
     const opened = host.opened(project);
     const decisions = opened.agents.filter((agent) => agent.identity.profileType === 'decision')
       .map((agent) => agent.identity.agentId);
@@ -327,7 +357,7 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     },
     save: (request) => inTurn(() => save(request)),
     undo: () => inTurn(undo),
-    read: () => inTurn(read),
+    read: (said) => inTurn(() => read(said)),
     watched: () => [...source().files.keys()],
     // In turn, so a Save that is still proving its files is not taken for the builder's editor.
     changed: () =>

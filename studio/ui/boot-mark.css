@@ -20,3 +20,16 @@
 	color: #fff;
 	background: #262626;
 }
+
+/* A project being read: the drawn mark moves to the left edge, where the map starts from it. */
+[data-boot] {
+	container-type: size;
+}
+
+[data-boot] .theorem-mark {
+	transition: transform var(--duration-medium, 300ms) cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-boot][data-phase='map'] .theorem-mark {
+	transform: translateX(calc(36px - 50cqi)) scale(0.34);
+}

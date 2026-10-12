@@ -1,4 +1,6 @@
+import { relative } from 'node:path';
 import { assertEquals } from '@std/assert';
+import type { ReadStep } from '../../studio/read-steps.ts';
 import registerExample from '../../studio/server/example.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import {
@@ -200,6 +202,28 @@ Deno.test('a read of unchanged files walks them once, and twice around a load', 
   reads = 0;
   await session.read();
   assertEquals(reads, walk * 2);
+});
+
+Deno.test('a read that says its steps names each file from the project, then answers as a silent one does', async () => {
+  const { session, files } = project();
+  const said: ReadStep[] = [];
+  const answer = await session.read((step) => void said.push(step));
+  assertEquals(answer, await session.read());
+  // The setup file is read first, and nothing led to it.
+  assertEquals(said[0], { file: relative(ROOT, SETUP) });
+  const found = said.filter((step) => 'found' in step);
+  // What is found is said after every file is read: a name is followed only once all are.
+  assertEquals(said.slice(-found.length), found);
+  assertEquals(
+    found.every((step) => 'found' in step && step.file === relative(ROOT, SETUP)),
+    true,
+  );
+
+  // Files that changed are loaded again, and the read says so.
+  files.set(SETUP, `${TEXT}\n// An edit in the editor.\n`);
+  const again: ReadStep[] = [];
+  await session.read((step) => void again.push(step));
+  assertEquals(again.at(-1), { again: true });
 });
 
 Deno.test('an undo whose load fails writes the save again', async () => {

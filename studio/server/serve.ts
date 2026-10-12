@@ -29,6 +29,7 @@ import { answerOpen, chosenEditor, defaultEditor, type EditorHost } from './open
 import { PROJECT_READY } from './project.ts';
 import { isInside } from './project-source.ts';
 import { answerSave, createSaveSession, isSaveRequest } from './save-session.ts';
+import { READ_STEPS, type ReadStep } from '../read-steps.ts';
 import { createWatchFeed, watchFiles } from './watch.ts';
 
 function flag(name: string, fallback: string): string {
@@ -290,15 +291,46 @@ const editor: EditorHost = {
  * The project as the page opens it: what it registered, the settings its files say its profiles
  * share, and the ones they set in code. Files the builder's editor changed are loaded first.
  */
-async function opened(request: Request): Promise<StudioDescription | undefined> {
-  if (request.method !== 'GET' || new URL(request.url).pathname !== STUDIO_BASE) return undefined;
-  const files = await session.read();
+async function described(said?: (step: ReadStep) => void): Promise<StudioDescription> {
+  const files = await session.read(said);
   return {
     ...session.project().description,
     ...files,
     editor: defaultEditor(editor),
     setup: relative(root, setupFile),
   };
+}
+
+/** Whether the request asks for the project as the page opens it, and whether for the steps of reading it first. */
+function opens(request: Request): { steps: boolean } | undefined {
+  const url = new URL(request.url);
+  if (request.method !== 'GET' || url.pathname !== STUDIO_BASE) return undefined;
+  return { steps: url.searchParams.has(READ_STEPS) };
+}
+
+async function opened(request: Request): Promise<StudioDescription | undefined> {
+  return opens(request)?.steps === false ? await described() : undefined;
+}
+
+/**
+ * The project as the page opens it, after each step of reading it: a line of JSON for each
+ * step as it happens, then one holding the project.
+ */
+function openedSaying(request: Request): Response | undefined {
+  if (!opens(request)?.steps) return undefined;
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const line = (said: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(said)}\n`));
+      described(line).then((project) => {
+        line({ opened: project });
+        controller.close();
+      }, (error) => controller.error(error));
+    },
+  });
+  return new Response(body, {
+    headers: { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store', ...corsHeaders(request, pageOrigins) },
+  });
 }
 
 /** Tells the page when the builder's editor writes a file the setup reads, unless `--no-watch` says not to. */
@@ -330,7 +362,7 @@ async function answered(request: Request): Promise<Response | undefined> {
 
 Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
   if (isForeign(request, gate)) return json(403, {}, {});
-  return watching(request) ?? (await answered(request)) ?? (await answerEdited(request)) ?? forward(request);
+  return watching(request) ?? openedSaying(request) ?? (await answered(request)) ?? (await answerEdited(request)) ?? forward(request);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

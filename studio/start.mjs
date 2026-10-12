@@ -1,7 +1,12 @@
 /**
  * Opens the studio on a project, with one command:
  *
- *   node studio/start.mjs <setup-module> [--editor <command>] [--deno-config <file>] [--no-watch]
+ *   node studio/start.mjs [setup] [--editor <command>] [--deno-config <file>] [--no-watch]
+ *
+ * `setup` is a setup's file or its name. A setup is a file named `studio.setup.ts`, named for its
+ * folder, or `<name>.studio.setup.ts`. With no `setup` the project's one setup opens, and when the
+ * project has several the command asks which. A project gives this a short name of its own:
+ * `"studio": "node <path to>/studio/start.mjs"` in its scripts makes it `npm run studio`.
  *
  * It starts the project's local server (`server/serve.ts`, under Deno, with the project's own
  * permissions) and the studio's page, and stops both together. Only this machine reaches either.
@@ -19,33 +24,69 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { chooseSetup, findSetups, setupLines, setupsNamed } from './setups.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PAGE_PORT = 4984;
 const PAGE = `http://127.0.0.1:${PAGE_PORT}`;
 
-const [setup, ...rest] = process.argv.slice(2);
-const noWatch = rest.includes('--no-watch');
-const named = rest.filter((arg) => arg !== '--no-watch');
-/** The value after each flag that takes one. A flag with none, or anything else, is a mistake. */
+const USAGE = 'usage: node studio/start.mjs [setup] [--editor <command>] [--deno-config <file>] [--no-watch]';
+/** The value after each flag that takes one. A flag with none, a second setup, or anything else, is a mistake. */
 const VALUED = ['--editor', '--deno-config'];
 const given = {};
-let mistaken = !setup || setup.startsWith('--');
-for (let at = 0; at < named.length; at += 2) {
-	const value = named[at + 1];
-	if (!VALUED.includes(named[at]) || !value || value.startsWith('--')) mistaken = true;
-	else given[named[at]] = value;
+let wanted;
+let noWatch = false;
+let mistaken = false;
+const args = process.argv.slice(2);
+for (let at = 0; at < args.length; at += 1) {
+	const arg = args[at];
+	if (arg === '--no-watch') noWatch = true;
+	else if (VALUED.includes(arg)) {
+		const value = args[at + 1];
+		if (!value || value.startsWith('--')) mistaken = true;
+		else given[arg] = value;
+		at += 1;
+	} else if (arg.startsWith('--') || wanted !== undefined) mistaken = true;
+	else wanted = arg;
 }
 if (mistaken) {
-	console.error(
-		'usage: node studio/start.mjs <setup-module> [--editor <command>] [--deno-config <file>] [--no-watch]',
-	);
+	console.error(USAGE);
 	process.exit(2);
 }
 const editor = given['--editor'];
 
 // The setup module is named from where the command was run, which is also the project's name.
 const from = process.env.INIT_CWD ?? process.cwd();
+const setup = await setupToOpen();
+
+/** Says why no setup opens, and stops. */
+function refuse(message) {
+	console.error(`${message}\n\n${USAGE}`);
+	process.exit(2);
+}
+
+/** The setup this run opens: the file named, else the one found, else the one the builder picks. */
+async function setupToOpen() {
+	if (wanted !== undefined && existsSync(path.resolve(from, wanted))) return wanted;
+	const found = findSetups(from);
+	const setups = wanted === undefined ? found : setupsNamed(found, wanted);
+	if (setups.length === 1) {
+		if (wanted !== setups[0].file) console.log(`theorem studio: opening ${setups[0].file}`);
+		return setups[0].file;
+	}
+	if (found.length === 0) {
+		refuse(`No setup in ${from}. A setup is a file named studio.setup.ts, or <name>.studio.setup.ts.`);
+	}
+	if (setups.length === 0) {
+		refuse(`No setup is named ${wanted}. This project has:\n\n${setupLines(found).join('\n')}`);
+	}
+	if (!process.stdin.isTTY || !process.stdout.isTTY) {
+		refuse(`This project has more than one setup. Name the one to open:\n\n${setupLines(setups).join('\n')}`);
+	}
+	const chosen = await chooseSetup(setups, process.stdin, process.stdout);
+	if (!chosen) process.exit(130);
+	return chosen.file;
+}
 const ownConfig = ['deno.json', 'deno.jsonc'].map((name) => path.join(from, name)).find(existsSync);
 const projectConfig = given['--deno-config']
 	? path.resolve(from, given['--deno-config'])

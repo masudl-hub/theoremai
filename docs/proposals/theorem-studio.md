@@ -905,8 +905,11 @@ Masud chose one name: studio everywhere. The paths above are the old ones.
   The website's `/studio/run` route sends a tab with no agent back to the
   studio and renders the screen.
 - The studio runs from the package with one command:
-  `node studio/start.mjs <setup-module>`. It starts the project's server
+  `node studio/start.mjs [setup]`. It starts the project's server
   and the page at `http://127.0.0.1:4984/studio/`, and stops both together.
+  A setup is a file named `studio.setup.ts`, or `<name>.studio.setup.ts`
+  when a project keeps several. With no setup named, the project's one
+  setup opens; with several, the command asks which, with the arrow keys.
   This closes "Two processes" above.
 - A section the files set in code says three things and no more: what sets
   it, that it is read-only here, and where to edit it, with Open beside it.

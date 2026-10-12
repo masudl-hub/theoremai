@@ -633,6 +633,22 @@ const EXAMPLE_AGENTS: readonly (ExampleEntry & { add: AddAgent })[] = [
 ];
 
 /** Adds a blank agent or one of the examples. */
+/** As wide as the row, and no wider: the description does not widen the menu its labels size. */
+const ROW_WIDE = { inlineSize: 0, minInlineSize: '100%' };
+
+/** A menu row's description on one line. What does not fit shows on hover. */
+const oneLine = (text: string) => (
+	<Text
+		type="supporting"
+		color="secondary"
+		maxLines={1}
+		hasTruncateTooltip="end"
+		style={ROW_WIDE}
+	>
+		{text}
+	</Text>
+);
+
 function AddAgentMenu({ onAddAgent }: { onAddAgent: (add: AddAgent) => void }) {
 	return (
 		<DropdownMenu
@@ -644,15 +660,13 @@ function AddAgentMenu({ onAddAgent }: { onAddAgent: (add: AddAgent) => void }) {
 				icon: <Icon icon={IconPlus} size="sm" />,
 				style: { height: 'calc(var(--size-element-sm) - 4px)' },
 			}}
-			menuWidth="fit-content(13rem)"
 			hasChevron={false}
 			placement="below"
-			alignment="end"
 			items={[
 				{
 					id: 'blank',
 					label: 'Blank agent',
-					description: <span>One empty agent to build from.</span>,
+					description: oneLine('One empty agent to build from.'),
 					icon: <Icon icon={IconFile} size="sm" />,
 					onClick: () => {
 						onAddAgent(addsDraft(createBlankDraft));
@@ -661,7 +675,7 @@ function AddAgentMenu({ onAddAgent }: { onAddAgent: (add: AddAgent) => void }) {
 				...EXAMPLE_AGENTS.map((example) => ({
 					id: example.id,
 					label: example.label,
-					description: <span>{example.description}</span>,
+					description: oneLine(example.description),
 					icon: <Icon icon={example.icon} size="sm" />,
 					onClick: () => {
 						onAddAgent(example.add);
@@ -1339,7 +1353,7 @@ function ExportMenu({
 					'Download every agent as a .zip, or copy its files, or copy them with a brief for an LLM',
 				isDisabled: !compiled,
 			}}
-			menuWidth="fit-content(13rem)"
+			menuWidth="15rem"
 			hasChevron={false}
 			placement="below"
 			alignment="end"
@@ -1347,7 +1361,7 @@ function ExportMenu({
 				{
 					id: 'download',
 					label: 'Download',
-					description: <span>Every agent, as a .zip.</span>,
+					description: oneLine('Every agent, as a .zip.'),
 					icon: <Icon icon={IconFileZip} size="sm" />,
 					onClick: () => {
 						if (compiled && chatted) {
@@ -1358,7 +1372,7 @@ function ExportMenu({
 				{
 					id: 'copy',
 					label: 'Copy',
-					description: <span>Every file, each under its path, to paste into your code.</span>,
+					description: oneLine('Every file, each under its path, to paste into your code.'),
 					icon: <Icon icon={IconCopy} size="sm" />,
 					onClick: () => {
 						if (compiled && chatted) {
@@ -1369,8 +1383,8 @@ function ExportMenu({
 				{
 					id: 'copy-llm',
 					label: 'Copy for LLM',
-					description: (
-						<span>Every file with a brief: what to install, where each goes, what to ask you.</span>
+					description: oneLine(
+						'Every file with a brief: what to install, where each goes, what to ask you.',
 					),
 					icon: <Icon icon={IconSparkles} size="sm" />,
 					onClick: () => {
@@ -2123,7 +2137,7 @@ function ViewToggleButton({ view }: { view: EditorViewState }) {
 				icon: <Icon icon={current.icon} size="sm" />,
 				tooltip: 'Switch between the editor, the code and the map',
 			}}
-			menuWidth="fit-content(15rem)"
+			menuWidth="15rem"
 			hasChevron={false}
 			placement="below"
 			alignment="end"
@@ -2131,7 +2145,7 @@ function ViewToggleButton({ view }: { view: EditorViewState }) {
 				...EDITOR_VIEWS.map((each) => ({
 					id: each.id,
 					label: each.label,
-					description: <span>{each.description}</span>,
+					description: oneLine(each.description),
 					icon: <Icon icon={each.icon} size="sm" />,
 					endContent:
 						each.id === current.id && !view.keysOpen ? <Icon icon={IconCheck} size="sm" /> : undefined,
@@ -2143,7 +2157,7 @@ function ViewToggleButton({ view }: { view: EditorViewState }) {
 				{
 					id: 'map',
 					label: 'Map',
-					description: <span>See how everything connects</span>,
+					description: oneLine('See how everything connects'),
 					icon: <Icon icon={IconSitemap} size="sm" />,
 					endContent: view.mapOpen ? <Icon icon={IconCheck} size="sm" /> : undefined,
 					onClick: () => {
@@ -2155,7 +2169,7 @@ function ViewToggleButton({ view }: { view: EditorViewState }) {
 							{
 								id: 'watch',
 								label: 'Watch files',
-								description: <span>Take in what your editor saves, as it saves</span>,
+								description: oneLine('Take in what your editor saves, as it saves'),
 								icon: <Icon icon={IconEye} size="sm" />,
 								endContent: watch.on ? <Icon icon={IconCheck} size="sm" /> : undefined,
 								onClick: () => {
@@ -2311,7 +2325,7 @@ function EditorToolbar({
 								: 'Everything is as it started',
 						isDisabled: !reset.run && !reset.all,
 					}}
-					menuWidth="fit-content(15rem)"
+					menuWidth="15rem"
 					hasChevron={false}
 					placement="below"
 					alignment="end"
@@ -2319,7 +2333,7 @@ function EditorToolbar({
 						{
 							id: 'this',
 							label: `Reset this ${reset.what}`,
-							description: <span>Back to how it started. Undo brings your changes back.</span>,
+							description: oneLine('Back to how it started. Undo brings your changes back.'),
 							icon: <Icon icon={IconRotateClockwise} size="sm" />,
 							isDisabled: !reset.run,
 							onClick: reset.run,
@@ -2327,12 +2341,10 @@ function EditorToolbar({
 						{
 							id: 'all',
 							label: reset.inProject ? 'Discard all edits' : 'Reset everything',
-							description: (
-								<span>
-									{reset.inProject
-										? 'Every unsaved edit goes, and the studio opens your files as they are.'
-										: 'Every agent and tool, back to how it started.'}
-								</span>
+							description: oneLine(
+								reset.inProject
+									? 'Every unsaved edit goes, and the studio opens your files as they are.'
+									: 'Every agent and tool, back to how it started.',
 							),
 							icon: <Icon icon={IconRestore} size="sm" />,
 							isDisabled: !reset.all,

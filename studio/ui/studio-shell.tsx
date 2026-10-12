@@ -99,8 +99,8 @@ const VARS = ['top', 'right', 'bottom', 'left'] as const;
 
 /**
  * Publishes where the shell's page sits as `--shell-top|right|bottom|left` (distance from each
- * viewport edge). Popups live in the browser's top layer, which a clip cannot reach, so
- * studio-shell.css insets them to this box and the browser flips and shifts them inside it.
+ * viewport edge). A dialog lives in the browser's top layer, which a clip cannot reach, so
+ * studio-shell.css insets it to this box and it centres there.
  */
 export function ShellBounds() {
 	useEffect(() => {
@@ -122,7 +122,7 @@ export function ShellBounds() {
 		const observer = new ResizeObserver(measure);
 		observer.observe(main);
 		globalThis.addEventListener('resize', measure);
-		/* The shell moves between pages without resizing; re-measure as a popup opens. */
+		/* The shell moves between pages without resizing; re-measure as a dialog opens. */
 		document.addEventListener('beforetoggle', measure, true);
 		return () => {
 			observer.disconnect();

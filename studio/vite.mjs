@@ -19,6 +19,7 @@ const HOST_PACKAGES = [
 	'react-dom',
 	'@astryxdesign/core',
 	'@fontsource/figtree',
+	'@fontsource/jetbrains-mono',
 	'@tabler/icons-react',
 	'monaco-editor',
 	'fflate',

@@ -407,7 +407,8 @@ are not in the files, and a button, Review and save.
 
 - The review shows each changed line of each file, before and after.
 - Save writes a value where the file sets it as a plain value in the
-  `defineProfile` or `registerTool` call. It keeps the file's indentation and
+  `defineProfile` or `registerTool` call, or in a `registerProfile` call the
+  profile is written straight into. It keeps the file's indentation and
   quotes. A setting put back to its default is taken out.
 - Save follows a constant (9 Oct). When one profile or tool is all that reads
   the constant, Save changes the value where the constant is set, in its own

@@ -162,6 +162,26 @@ function readInside(path: string): string | undefined {
   }
 }
 
+/**
+ * Whether a write to a path lands inside the project. A link where the file would go, or in a
+ * folder on the way to it, can lead anywhere on the machine; a project from someone else can hold one.
+ */
+function landsInside(path: string): boolean {
+  try {
+    if (Deno.lstatSync(path).isSymlink) return false;
+  } catch {
+    // No file there yet.
+  }
+  for (let folder = dirname(path);; folder = dirname(folder)) {
+    try {
+      return isInside(root, Deno.realPathSync(folder));
+    } catch {
+      // That folder is not made yet: the one above it decides.
+      if (folder === dirname(folder)) return false;
+    }
+  }
+}
+
 let first: Loaded;
 try {
   first = await loadProject();
@@ -180,6 +200,7 @@ const session = createSaveSession<Loaded>(
     root,
     setupFile,
     read: readInside,
+    landsInside,
     write: (path, text) => {
       Deno.mkdirSync(dirname(path), { recursive: true });
       Deno.writeTextFileSync(path, text);

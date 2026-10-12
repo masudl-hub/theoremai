@@ -40,8 +40,9 @@ export default defineConfig({
     entries: ['main.tsx', '../ui/**/*.{ts,tsx}', '../../react/src/**/*.tsx'],
   },
   server: {
-    // Only this machine.
+    // Only this machine, and only this page: no other page may read what this serves.
     host: '127.0.0.1',
+    cors: false,
     // The command that starts this names the port; it is never moved to another.
     port: 4984,
     strictPort: true,

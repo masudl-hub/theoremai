@@ -51,6 +51,7 @@ function project(over: Partial<SaveHost<StudioWorkspace>> = {}) {
       root: ROOT,
       setupFile: SETUP,
       read: (path) => files.get(path),
+      landsInside: () => true,
       write: (path, text) => void files.set(path, text),
       remove: (path) => void files.delete(path),
       typeChecks: () => Promise.resolve({ ok: true, output: '' }),
@@ -120,6 +121,14 @@ Deno.test('a file that changed after the review, or after the save, is left as i
   files.set(SETUP, moved);
   assertEquals(await session.undo(), { ok: false, reason: 'stale', detail: ['example.ts'] });
   assertEquals(text(), moved);
+});
+
+Deno.test('a save whose file would land outside the project writes nothing', async () => {
+  const { session, text } = project({ landsInside: () => false });
+  const workspace = edited();
+  const { stamp } = await reviewed(session, workspace);
+  assertEquals(await session.save({ workspace, stamp }), { ok: false, reason: 'unwritable', detail: ['example.ts'] });
+  assertEquals(text(), TEXT);
 });
 
 Deno.test('a save that fails a proof puts the files back and keeps the old load', async () => {

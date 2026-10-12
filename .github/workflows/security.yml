@@ -49,15 +49,16 @@ jobs:
         if: env.SNYK_TOKEN == ''
         run: echo "::notice::SNYK_TOKEN is not configured; Snyk scans skipped."
 
-      # Every lockfile in the repo (root + react/), dev dependencies included:
-      # they run in CI and on contributor machines. studio/ has no lockfile
-      # and npm/ is build output. The root policy file covers react/ too.
+      # Every lockfile in the repo (root, react/ and studio/), dev dependencies included:
+      # they run in CI and on contributor machines. studio/ is here too: a builder
+      # runs it on their own files. npm/ is build output. The root policy file
+      # covers react/ and studio/ too.
       - name: Snyk Open Source (all projects)
         if: env.SNYK_TOKEN != ''
         run: |
           npx --yes snyk@1.1307.3 test \
             --all-projects --dev \
-            --exclude=studio,npm,tmp \
+            --exclude=npm,tmp \
             --policy-path=.snyk \
             --severity-threshold=medium
 
@@ -84,5 +85,5 @@ jobs:
         run: |
           npx --yes snyk@1.1307.3 monitor \
             --all-projects --dev \
-            --exclude=studio,npm,tmp \
+            --exclude=npm,tmp \
             --project-tags=repo=theoremai

@@ -35,6 +35,8 @@ export interface SaveHost<Loaded> {
   setupFile: string;
   /** A project file's text, or undefined when it is missing or leads outside the project. */
   read(path: string): string | undefined;
+  /** Whether a write to this path lands inside `root`: no link on the way, or at it, leads out. */
+  landsInside(path: string): boolean;
   /** Writes a file, with the folders that lead to it. */
   write(path: string, text: string): void;
   /** Takes away a file: one Save created, or one a removal left with nothing of its own. */
@@ -312,6 +314,8 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
   const write = async (files: Files, view: SaveReview, request: SaveRequest): Promise<SaveDone | SaveRefusal> => {
     if (view.stamp !== request.stamp) return refusal('stale');
     if (!view.writable) return refusal('unwritable');
+    const astray = [...files.keys()].filter((file) => !host.landsInside(file));
+    if (astray.length) return refusal('unwritable', astray.map(inRoot));
     put(files, 'after');
     const refused = await proven(request.workspace);
     if (refused) {

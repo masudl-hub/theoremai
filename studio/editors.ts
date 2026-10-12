@@ -14,17 +14,17 @@ export interface StudioEditor {
   /** The editor's name, as the builder reads it. */
   label: string;
   form: EditorLineForm;
-  /** One of the few the settings list first. */
-  common?: true;
+  /** One the builder can choose in Settings. The others are started only when the studio command or the environment names them. */
+  choice?: true;
 }
 
 export const STUDIO_EDITORS: readonly StudioEditor[] = [
-  { command: 'code', label: 'VS Code', form: 'goto', common: true },
-  { command: 'cursor', label: 'Cursor', form: 'goto', common: true },
-  { command: 'zed', label: 'Zed', form: 'colon', common: true },
-  { command: 'windsurf', label: 'Windsurf', form: 'goto', common: true },
-  { command: 'webstorm', label: 'WebStorm', form: 'line-flag', common: true },
-  { command: 'subl', label: 'Sublime Text', form: 'colon', common: true },
+  { command: 'code', label: 'VS Code', form: 'goto', choice: true },
+  { command: 'cursor', label: 'Cursor', form: 'goto', choice: true },
+  { command: 'zed', label: 'Zed', form: 'colon' },
+  { command: 'windsurf', label: 'Windsurf', form: 'goto' },
+  { command: 'webstorm', label: 'WebStorm', form: 'line-flag' },
+  { command: 'subl', label: 'Sublime Text', form: 'colon' },
   { command: 'code-insiders', label: 'VS Code Insiders', form: 'goto' },
   { command: 'codium', label: 'VSCodium', form: 'goto' },
   { command: 'positron', label: 'Positron', form: 'goto' },
@@ -43,6 +43,11 @@ export const STUDIO_EDITORS: readonly StudioEditor[] = [
 /** The editor a command names, or undefined when the studio cannot start it on a line. */
 export function studioEditor(command: string): StudioEditor | undefined {
   return STUDIO_EDITORS.find((editor) => editor.command === command);
+}
+
+/** Whether a command is one the builder can choose in Settings, so one a page may name. */
+export function isEditorChoice(command: string): boolean {
+  return studioEditor(command)?.choice === true;
 }
 
 /** An editor's name as the builder reads it: `code` is VS Code. One the studio does not know keeps its command. */

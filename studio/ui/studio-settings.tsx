@@ -10,22 +10,24 @@ import { Grid } from '@astryxdesign/core/Grid';
 import { Heading } from '@astryxdesign/core/Heading';
 import { HStack } from '@astryxdesign/core/HStack';
 import { useMediaQuery } from '@astryxdesign/core/hooks';
-import { Icon } from '@astryxdesign/core/Icon';
+import { Field } from '@astryxdesign/core/Field';
+import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Layout, LayoutContent, LayoutHeader, LayoutPanel } from '@astryxdesign/core/Layout';
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
 import { RadioList, RadioListItem } from '@astryxdesign/core/RadioList';
 import { Section } from '@astryxdesign/core/Section';
-import { Selector } from '@astryxdesign/core/Selector';
+import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Tab, TabList } from '@astryxdesign/core/TabList';
 import { Text } from '@astryxdesign/core/Text';
 import { TreeList } from '@astryxdesign/core/TreeList';
 import { type SearchableItem, type SearchSource, Typeahead } from '@astryxdesign/core/Typeahead';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconSearch, IconSettings, IconX } from '@tabler/icons-react';
-import { type ReactNode, useState } from 'react';
+import { IconBrandVscode, IconSearch, IconSettings, IconWand, IconX } from '@tabler/icons-react';
+import { type ReactNode, useId, useState } from 'react';
 import { editorLabel, STUDIO_EDITORS } from '../editors.ts';
+import { IconCursor } from './brand-icons.tsx';
 import { setPref, type StudioPrefs, usePref } from './lib/studio-prefs.ts';
 import type { ProjectSession } from './lib/studio-project.ts';
 import {
@@ -51,7 +53,7 @@ const SETTINGS: readonly (SearchableItem & { section: SettingsSection; words?: s
 		id: 'editor',
 		label: 'Open files in',
 		section: 'files',
-		words: `editor ${STUDIO_EDITORS.map((editor) => editor.label).join(' ')}`,
+		words: 'editor automatic vs code vscode cursor',
 	},
 	{ id: 'watch', label: 'Watch files', section: 'files', words: 'reload save' },
 	{ id: 'files-toast', label: 'Tell me when files change', section: 'files', words: 'note notify' },
@@ -111,26 +113,46 @@ function Group({ title, about, children }: { title: string; about: string; child
 
 const AUTOMATIC = 'automatic';
 
-/** The editors to choose from: the studio's own pick, the common ones, then the rest. */
-function editorOptions(automatic: string | undefined) {
-	const option = ({ command, label }: (typeof STUDIO_EDITORS)[number]) => ({ value: command, label });
-	return [
-		{
-			value: AUTOMATIC,
-			label: automatic ? `Automatic (${editorLabel(automatic)})` : 'Automatic',
-			description: 'The editor the studio command was started with, or your $VISUAL or $EDITOR.',
-		},
-		{
-			type: 'section' as const,
-			title: 'Common',
-			options: STUDIO_EDITORS.filter((editor) => editor.common).map(option),
-		},
-		{
-			type: 'section' as const,
-			title: 'More',
-			options: STUDIO_EDITORS.filter((editor) => !editor.common).map(option),
-		},
-	];
+/** Where files open: the studio's own pick, or one of the two editors Settings offers. */
+const EDITOR_CHOICES: readonly { value: string; label: string; icon: IconType }[] = [
+	{ value: AUTOMATIC, label: 'Automatic', icon: IconWand },
+	...STUDIO_EDITORS.filter((editor) => editor.choice).map((editor) => ({
+		value: editor.command,
+		label: editor.label,
+		icon: editor.command === 'cursor' ? IconCursor : IconBrandVscode,
+	})),
+];
+
+/** What Automatic opens files in, in the builder's words. */
+function automaticNote(automatic: string | undefined): string {
+	return automatic
+		? `Automatic opens ${editorLabel(automatic)}.`
+		: 'Automatic opens the editor your $VISUAL or $EDITOR names.';
+}
+
+function EditorChoice({ automatic }: { automatic: string | undefined }) {
+	const editor = usePref('editor');
+	const id = useId();
+	return (
+		<Field label="Open files in" description={automaticNote(automatic)} inputID={id} isGroupLabel>
+			<SegmentedControl
+				label="Open files in"
+				value={editor || AUTOMATIC}
+				onChange={(next) => {
+					setPref('editor', next === AUTOMATIC ? '' : next);
+				}}
+			>
+				{EDITOR_CHOICES.map((choice) => (
+					<SegmentedControlItem
+						key={choice.value}
+						value={choice.value}
+						label={choice.label}
+						icon={<Icon icon={choice.icon} size="sm" />}
+					/>
+				))}
+			</SegmentedControl>
+		</Field>
+	);
 }
 
 /** Watching the project's files: absent when the studio command was started without it. */
@@ -140,7 +162,6 @@ export interface WatchChoice {
 }
 
 function FilesSettings({ project, watch }: { project: ProjectSession; watch: WatchChoice | undefined }) {
-	const editor = usePref('editor');
 	const filesToast = usePref('filesToast');
 	return (
 		<>
@@ -148,16 +169,7 @@ function FilesSettings({ project, watch }: { project: ProjectSession; watch: Wat
 				title="Your editor"
 				about="Where a file opens when you follow a setting to the line that sets it."
 			>
-				<Selector
-					label="Open files in"
-					hasSearch
-					placement="below"
-					options={editorOptions(project.editor)}
-					value={editor || AUTOMATIC}
-					onChange={(next) => {
-						setPref('editor', next === AUTOMATIC ? '' : next);
-					}}
-				/>
+				<EditorChoice automatic={project.editor} />
 			</Group>
 			<Divider />
 			<Group

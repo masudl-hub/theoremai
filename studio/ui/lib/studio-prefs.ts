@@ -4,7 +4,7 @@
  * this version does not know, reads as the studio's own default.
  */
 import { useSyncExternalStore } from 'react';
-import { studioEditor } from '../../editors.ts';
+import { isEditorChoice } from '../../editors.ts';
 
 export interface StudioPrefs {
 	/** The editor files open in, by its command. Empty leaves it to the studio command. */
@@ -39,7 +39,7 @@ const PREF_KEYS: Record<StudioPref, string> = {
 
 /** Whether a kept text is a value the preference takes. */
 const PREF_TAKES: { [K in StudioPref]: (kept: string) => boolean } = {
-	editor: (kept) => studioEditor(kept) !== undefined,
+	editor: isEditorChoice,
 	watch: (kept) => kept === 'off',
 	filesToast: (kept) => kept === 'off',
 	askShared: (kept) => kept === 'never',

@@ -33,6 +33,9 @@ import '../ui/shell-motion.css';
 const HOST: StudioHost = { kernelVersion: kernel.version, hasSettings: true };
 const PACKAGES = packageLinks(kernel.name, kernel.repository.url);
 
+/** Toasts sit a step inside the shell's frame, which is itself a step inside the window. */
+const TOASTS = { inset: { bottom: 32, end: 32 } };
+
 const RUN_PATH = '/studio/run';
 
 /** An agent opened in a tab of its own sits on the shell's panel; the studio draws its own on the black base. */
@@ -75,7 +78,7 @@ if (root) {
 	createRoot(root).render(
 		<StrictMode>
 			<Theme theme={theoremStudioTheme} mode="dark">
-				<LayerProvider>
+				<LayerProvider toast={TOASTS}>
 					<AppShell
 						variant={onBase ? 'wash' : 'elevated'}
 						sideNav={

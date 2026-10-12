@@ -95,14 +95,14 @@ Deno.test('Open answers its own address, and refuses a body that is not a file a
   });
 });
 
-Deno.test('the page names the editor only by a command the studio lists', async () => {
+Deno.test('the page names the editor only by a command Settings offers', async () => {
   const { host, started } = machine({ editor: '/usr/local/bin/Code --wait' });
   assertEquals(defaultEditor(host), 'code');
-  assertEquals(openInEditor(host, { file: 'inputs.ts', line: 14, editor: 'zed' }), {
+  assertEquals(openInEditor(host, { file: 'inputs.ts', line: 14, editor: 'cursor' }), {
     ok: true,
-    editor: 'zed',
+    editor: 'cursor',
   });
-  assertEquals(started, [['zed', '/p/inputs.ts:14']]);
+  assertEquals(started, [['cursor', '-g', '/p/inputs.ts:14']]);
 
   const post = (body: unknown) =>
     answerOpen(
@@ -135,12 +135,12 @@ Deno.test('the page names the editor only by a command the studio lists', async 
   assertEquals(started[1], ['cursor', '-g', '/p/inputs.ts:2']);
 });
 
-Deno.test('each listed editor has one command and a name, and the common ones come first', () => {
+Deno.test('each listed editor has one command and a name, and Settings offers two of them', () => {
   const commands = STUDIO_EDITORS.map((editor) => editor.command);
   assertEquals(new Set(commands).size, commands.length);
   assertEquals(
-    STUDIO_EDITORS.filter((editor) => editor.common).map((editor) => editor.label),
-    ['VS Code', 'Cursor', 'Zed', 'Windsurf', 'WebStorm', 'Sublime Text'],
+    STUDIO_EDITORS.filter((editor) => editor.choice).map((editor) => editor.label),
+    ['VS Code', 'Cursor'],
   );
   for (const editor of STUDIO_EDITORS) {
     assertEquals(editorCommand(editor.command, '/p/a.ts', 1)?.command, editor.command);

@@ -80,7 +80,9 @@ Deno.test('a kept text the studio does not know reads as the default, and is nev
     [readPref(kept, 'editor'), readPref(kept, 'watch'), readPref(kept, 'askWrites')],
     ['', 'on', 'always'],
   );
-  // An editor the studio does not list is not kept: the page sends only a listed command.
-  writePref(kept, 'editor', 'vim');
-  assertEquals(kept.held['theorem.studio.editor'], undefined);
+  // An editor Settings does not offer is not kept: the page sends only one it offers.
+  for (const editor of ['vim', 'zed']) {
+    writePref(kept, 'editor', editor);
+    assertEquals(kept.held['theorem.studio.editor'], undefined);
+  }
 });

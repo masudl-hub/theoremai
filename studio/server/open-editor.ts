@@ -7,7 +7,7 @@
  */
 
 import { basename } from 'node:path';
-import { type EditorLineForm, studioEditor } from '../editors.ts';
+import { type EditorLineForm, isEditorChoice, studioEditor } from '../editors.ts';
 import type { OpenAnswer, OpenRequest } from './save-wire.ts';
 
 /** The arguments each form of command takes for a file and a line. */
@@ -71,12 +71,12 @@ export interface EditorHost {
 }
 
 /**
- * A page may name the editor only by a command the studio lists, exactly: never a path or a
+ * A page may name the editor only by a command Settings offers, exactly: never a path or a
  * command of its own, since the studio starts what is named.
  */
 function isOpenRequest(body: unknown): body is OpenRequest {
   const { file, line, editor } = (body ?? {}) as Partial<OpenRequest>;
-  if (editor !== undefined && (typeof editor !== 'string' || !studioEditor(editor))) return false;
+  if (editor !== undefined && (typeof editor !== 'string' || !isEditorChoice(editor))) return false;
   return typeof file === 'string' && (line === undefined || (Number.isInteger(line) && line > 0));
 }
 
@@ -94,7 +94,7 @@ export function openInEditor(host: EditorHost, request: OpenRequest): OpenAnswer
   const path = host.place(request.file);
   if (path === undefined) return { ok: false, reason: 'file' };
   // Only a command the studio lists is taken from the page; `answerOpen` refuses any other.
-  const named = request.editor !== undefined && studioEditor(request.editor) ? request.editor : host.editor;
+  const named = request.editor !== undefined && isEditorChoice(request.editor) ? request.editor : host.editor;
   const editor = editorName(named);
   const place = request.line === undefined ? path : `${path}:${request.line}`;
   const run = editorCommand(named, path, request.line);

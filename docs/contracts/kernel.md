@@ -559,9 +559,11 @@ line's key and facts. `inputs.context` is not a
 field: its senders are the page and the host, and the host sends it through
 `onAgentCall`.
 
-Output is `{ text, structured?, parts?, sources? }`: the reply's text, its last
-structured reply, its images or audio as `parts`, and what it cited as
-`sources`, which the caller's turn cites as it does any tool's. A `post_tool` stage can
+Output is `{ text?, structured?, parts?, sources? }`: the reply's text, or its last
+structured reply when the called profile declares `outputs.structured` (the text
+of such a reply is the same JSON, so it is not returned twice), its images or
+audio as `parts`, and what it cited as `sources`, which the caller's turn cites
+as it does any tool's. A `post_tool` stage can
 replace it (`mutate: { output }`) before the caller's model reads it.
 
 **Registration.** `register` throws `config` when the profile is missing, is

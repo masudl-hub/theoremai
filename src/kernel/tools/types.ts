@@ -273,7 +273,8 @@ export interface AgentToolInput extends Pick<TurnInput, 'slots' | 'attachments' 
 
 /** What an agent tool returns: the called agent's reply. Media rides as `parts`, citations as `sources`. */
 export interface AgentToolOutput {
-  text: string;
+  /** The reply's text; absent when the reply is `structured`, whose text is the same JSON. */
+  text?: string;
   structured?: unknown;
   parts?: InteractionPart[];
   /** What the called agent cited; the caller's turn cites them too. */

@@ -165,6 +165,42 @@ Deno.test('an agent tool returns the called agent reply to the caller', async ()
   assertEquals(doneOf(events).stop.kind, 'completed');
 });
 
+Deno.test('a structured reply comes back once, as the object and not also as its text', async () => {
+  const scope = createKernelScope();
+  scope.schemas.register('agent_tool_reply', {
+    jsonSchema: { type: 'object', properties: { summary: { type: 'string' } } },
+  });
+  scope.profiles.register(
+    defineProfile({
+      ...textProfile(RESEARCHER, RESEARCHER_SYSTEM, []),
+      outputs: { structured: 'agent_tool_reply' },
+    }),
+  );
+  scope.tools.register(agentTool());
+  scope.profiles.register(textProfile(CALLER, 'You help.', ['ask_researcher']));
+  const read: string[] = [];
+  const caller = routedProvider();
+  const provider: ModelProvider = {
+    async *complete(req) {
+      await Promise.resolve();
+      if (isResearcher(req)) {
+        yield { type: 'text', text: '{"summary":"water less"}' };
+        yield { type: 'structured', structured: { summary: 'water less' } };
+        return;
+      }
+      const last = req.history?.at(-1);
+      if (last?.role === 'tool' && typeof last.content === 'string') read.push(last.content);
+      yield* caller.complete(req);
+    },
+  };
+  const events = await collect(scope, provider);
+  const [complete] = toolPhases(events, 'complete');
+  assertEquals((complete as { output: unknown }).output, {
+    structured: { summary: 'water less' },
+  });
+  assertEquals(read, ['{"structured":{"summary":"water less"}}']);
+});
+
 Deno.test("the caller's done.tokens includes the agent call, which carries its own", async () => {
   const events = await collect(scopeWith(), routedProvider());
   const [complete] = toolPhases(events, 'complete');

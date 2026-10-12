@@ -103,7 +103,7 @@ function agentToolInputFor(
 }
 
 const agentToolOutput: z.ZodType<AgentToolOutput> = z.object({
-  text: z.string(),
+  text: z.string().optional(),
   structured: z.unknown().optional(),
   parts: z.array(interactionPartSchema).optional(),
   sources: z.array(sourceSchema).optional(),
@@ -177,7 +177,11 @@ function agentToolOrigin(profile: Profile | undefined): ToolOrigin {
   return profileToolAllow(profile).length === 0 && !builtins ? 'local' : 'delegated';
 }
 
-/** The called agent's reply: its text, its last structured reply, its media as parts and what it cited. */
+/**
+ * The called agent's reply: its text or its last structured reply, its media as parts and what it cited.
+ *
+ * why: A structured reply's text is the same JSON as a string, so returning both would have the caller's model read the answer twice.
+ */
 function agentToolOutputOf(events: readonly TurnEvent[]): AgentToolOutput {
   const text = events.flatMap((e) => (e.type === 'text' ? [e.text] : [])).join('');
   const structured = findLast(
@@ -197,8 +201,7 @@ function agentToolOutputOf(events: readonly TurnEvent[]): AgentToolOutput {
   );
   const sources = events.flatMap((e) => (e.type === 'citation' ? e.sources : []));
   return {
-    text,
-    ...(structured === undefined ? {} : { structured }),
+    ...(structured === undefined ? { text } : { structured }),
     ...(parts.length > 0 ? { parts } : {}),
     ...(sources.length > 0 ? { sources } : {}),
   };

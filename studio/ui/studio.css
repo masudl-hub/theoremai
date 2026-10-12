@@ -183,7 +183,7 @@
 }
 
 @media (width >= 768px) {
-	.studio-frame.studio-map-open .studio-side {
+	.studio-frame:is(.studio-map-open, .studio-settings-open) .studio-side {
 		width: 100%;
 		max-width: none;
 		flex: 1 1 auto;
@@ -195,8 +195,8 @@
 		min-width: 0;
 	}
 
-	.studio-frame.studio-map-open .studio-side-handle,
-	.studio-frame.studio-map-open .studio-preview {
+	.studio-frame:is(.studio-map-open, .studio-settings-open) .studio-side-handle,
+	.studio-frame:is(.studio-map-open, .studio-settings-open) .studio-preview {
 		display: none;
 	}
 }

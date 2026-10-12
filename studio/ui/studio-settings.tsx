@@ -13,7 +13,6 @@ import { useMediaQuery } from '@astryxdesign/core/hooks';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Layout, LayoutContent, LayoutHeader, LayoutPanel } from '@astryxdesign/core/Layout';
-import { List, ListItem } from '@astryxdesign/core/List';
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
 import { RadioList, RadioListItem } from '@astryxdesign/core/RadioList';
 import { Section } from '@astryxdesign/core/Section';
@@ -21,6 +20,7 @@ import { Selector } from '@astryxdesign/core/Selector';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Tab, TabList } from '@astryxdesign/core/TabList';
 import { Text } from '@astryxdesign/core/Text';
+import { TreeList } from '@astryxdesign/core/TreeList';
 import { type SearchableItem, type SearchSource, Typeahead } from '@astryxdesign/core/Typeahead';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconSearch, IconSettings, IconX } from '@tabler/icons-react';
@@ -39,7 +39,7 @@ import {
 
 const SECTION_LABELS: Record<SettingsSection, string> = {
 	files: 'Files',
-	asking: 'Asking',
+	confirmations: 'Confirmations',
 	keys: 'Keys',
 	project: 'Project',
 	about: 'About',
@@ -55,8 +55,8 @@ const SETTINGS: readonly (SearchableItem & { section: SettingsSection; words?: s
 	},
 	{ id: 'watch', label: 'Watch files', section: 'files', words: 'reload save' },
 	{ id: 'files-toast', label: 'Tell me when files change', section: 'files', words: 'note notify' },
-	{ id: 'ask-shared', label: 'Ask before changing a shared value', section: 'asking', words: 'confirm' },
-	{ id: 'ask-writes', label: 'Ask before a tool writes', section: 'asking', words: 'confirm destructive run' },
+	{ id: 'ask-shared', label: 'Ask before changing a shared value', section: 'confirmations', words: 'confirm asking' },
+	{ id: 'ask-writes', label: 'Ask before a tool writes', section: 'confirmations', words: 'confirm asking destructive run' },
 	{ id: 'keys', label: 'Model keys', section: 'keys', words: 'api key provider' },
 	{ id: 'open-project', label: 'Open project and setup file', section: 'project' },
 	{ id: 'clear-chats', label: "Clear this tab's chats", section: 'project', words: 'conversation reset' },
@@ -194,7 +194,7 @@ export interface SharedAsking {
 const isAskWrites = (value: string): value is StudioPrefs['askWrites'] =>
 	value === 'always' || value === 'destructive';
 
-function AskingSettings({ shared }: { shared: SharedAsking }) {
+function ConfirmationSettings({ shared }: { shared: SharedAsking }) {
 	const askWrites = usePref('askWrites');
 	return (
 		<>
@@ -332,8 +332,8 @@ function SectionBody({ section, ...props }: StudioSettingsProps & { section: Set
 	switch (section) {
 		case 'files':
 			return <FilesSettings project={props.project} watch={props.watch} />;
-		case 'asking':
-			return <AskingSettings shared={props.shared} />;
+		case 'confirmations':
+			return <ConfirmationSettings shared={props.shared} />;
 		case 'keys':
 			return (
 				<Group
@@ -385,7 +385,7 @@ function SettingsHeader() {
 	);
 }
 
-/** Settings, in the studio's place in the shell, on the shell's own ground. */
+/** Settings, inside the studio's panel: the panel widens over the preview to hold them. */
 export function StudioSettings(props: StudioSettingsProps) {
 	const isNarrow = useMediaQuery('(max-width: 768px)');
 	const { section } = useSettingsDoor();
@@ -398,18 +398,18 @@ export function StudioSettings(props: StudioSettingsProps) {
 				start={
 					isNarrow ? undefined : (
 						<LayoutPanel hasDivider={false} width={260} padding={2}>
-							<List density="balanced">
-								{SETTINGS_SECTIONS.map((each) => (
-									<ListItem
-										key={each}
-										label={SECTION_LABELS[each]}
-										isSelected={section === each}
-										onClick={() => {
-											showSettingsSection(each);
-										}}
-									/>
-								))}
-							</List>
+							<TreeList
+								density="compact"
+								aria-label="Settings"
+								items={SETTINGS_SECTIONS.map((each) => ({
+									id: each,
+									label: SECTION_LABELS[each],
+									isSelected: section === each,
+									onClick: () => {
+										showSettingsSection(each);
+									},
+								}))}
+							/>
 						</LayoutPanel>
 					)
 				}

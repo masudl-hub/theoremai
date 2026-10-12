@@ -4,7 +4,7 @@
  */
 import { useSyncExternalStore } from 'react';
 
-export const SETTINGS_SECTIONS = ['files', 'asking', 'keys', 'project', 'about'] as const;
+export const SETTINGS_SECTIONS = ['files', 'confirmations', 'keys', 'project', 'about'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export interface SettingsDoor {

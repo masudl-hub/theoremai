@@ -1022,8 +1022,13 @@ function isTraced(payload: StudioRunPayload | null): boolean {
  * The frame's class; on a phone it names the sheet open over the editor. While the map is open the
  * panel takes the whole frame, over the preview.
  */
-function frameClass(sheet: 'tree' | 'preview' | null, map: boolean): string {
-	return ['studio-frame', sheet && `studio-${sheet}-open`, map && 'studio-map-open']
+function frameClass(sheet: 'tree' | 'preview' | null, map: boolean, settings: boolean): string {
+	return [
+		'studio-frame',
+		sheet && `studio-${sheet}-open`,
+		map && 'studio-map-open',
+		settings && 'studio-settings-open',
+	]
 		.filter(Boolean)
 		.join(' ');
 }
@@ -1877,6 +1882,14 @@ function offerEditsBack(
 	setAside(key, edits);
 }
 
+/** What the panel widens over the preview to hold: the map beside the editor, or Settings. */
+interface WidePanel {
+	map: boolean;
+	settings: boolean;
+}
+const NARROW: WidePanel = { map: false, settings: false };
+const isWide = (panel: WidePanel) => panel.map || panel.settings;
+
 /**
  * Which view stands in the editor column, whether the map is open beside it, and opening a node
  * there. The map takes the preview's place: the panel widens over it the way the shell moves after
@@ -1886,24 +1899,40 @@ function useEditorView(store: StudioStore) {
 	const [keysOpen, setKeysOpen] = useState(false);
 	const [editorView, setEditorView] = useState<EditorViewName>('editor');
 	const [mapOpen, setMap] = useState(false);
-	/** Whether the map was asked for last, whether it is on screen, and the moves still to make. */
-	const wanted = useRef(false);
-	const shown = useRef(false);
+	const [settingsOpen, setSettings] = useState(false);
+	/** What was asked for last, what is on screen, and the moves still to make. */
+	const wanted = useRef(NARROW);
+	const shown = useRef(NARROW);
 	const moves = useRef(Promise.resolve());
-	const setMapOpen = useCallback((next: boolean) => {
-		wanted.current = next;
+	const move = useCallback((next: Partial<WidePanel>) => {
+		wanted.current = { ...wanted.current, ...next };
 		moves.current = moves.current.then(async () => {
 			// Only the last one asked for is worth moving to.
 			const to = wanted.current;
-			if (to === shown.current) return;
+			const was = shown.current;
+			if (to.map === was.map && to.settings === was.settings) return;
 			shown.current = to;
-			await movePanel(to, () => {
+			const swap = () => {
 				flushSync(() => {
-					setMap(to);
+					setMap(to.map);
+					setSettings(to.settings);
 				});
-			});
+			};
+			// Settings over an open map, and back: the panel is already as wide as it goes.
+			if (isWide(to) === isWide(was)) swap();
+			else await movePanel(isWide(to), swap);
 		});
 	}, []);
+	const setMapOpen = useCallback(
+		(next: boolean) => {
+			move({ map: next });
+		},
+		[move],
+	);
+	const settingsWanted = useStudioSettings();
+	useEffect(() => {
+		move({ settings: settingsWanted });
+	}, [move, settingsWanted]);
 	/**
 	 * Opens a node from the tree, the editor or the map, closing Keys over it. The map stays open
 	 * beside the editor; on a phone it covers the editor, so it closes.
@@ -1917,7 +1946,7 @@ function useEditorView(store: StudioStore) {
 		},
 		[store, setMapOpen],
 	);
-	return { keysOpen, setKeysOpen, editorView, setEditorView, mapOpen, setMapOpen, open };
+	return { keysOpen, setKeysOpen, editorView, setEditorView, mapOpen, setMapOpen, settingsOpen, open };
 }
 
 type EditorViewState = ReturnType<typeof useEditorView>;
@@ -2399,8 +2428,9 @@ function KeySlots({
 }
 
 /**
- * Settings over the studio, for a host that has a door to them. The studio stays on the page
- * under them, so a run goes on and the editor is where it was left.
+ * Whether Settings is asked for, for a host that has a door to them. They open in the studio's
+ * panel, with the tree, the editor and the preview kept under them: a run goes on, and the editor
+ * is where it was left.
  */
 function useStudioSettings() {
 	const { hasSettings } = useStudioHost();
@@ -2408,6 +2438,8 @@ function useStudioSettings() {
 	const door = useSettingsDoor();
 	return hasSettings === true && door.open;
 }
+
+const HIDDEN = { display: 'none' };
 
 /** Opens Keys where the host keeps them: in Settings, or in the editor's column. */
 function useOpenKeys(setKeysOpen: (open: boolean) => void) {
@@ -2421,8 +2453,6 @@ function useOpenKeys(setKeysOpen: (open: boolean) => void) {
 		[hasSettings, setKeysOpen],
 	);
 }
-
-const HIDDEN = { display: 'none' };
 
 /** Settings for the open project, with what they reach in the studio. */
 function SettingsPane({
@@ -2839,6 +2869,11 @@ function useStudioPage(opened: StudioOpened) {
 	const compile = useWorkspaceCompile(workspace, focus, connection);
 	/** On a phone, the tree or the preview, each over the editor; neither shows beside it there. */
 	const [sheet, setSheet] = useState<Sheet>(null);
+	// Settings take the panel; a phone's sheet over it would hide them.
+	const { settingsOpen } = view;
+	useEffect(() => {
+		if (settingsOpen) setSheet(null);
+	}, [settingsOpen]);
 	const run = useConversationRun(connection.mode, workspace.chatWith, opened.question);
 	useArrivalToast(opened, store);
 	const { replaceWorkspace, copy } = usePageActions(store, view, run.setConversation);
@@ -2899,7 +2934,6 @@ function Studio({ opened }: { opened: StudioOpened }) {
 	const closeMap = useCallback(() => {
 		setMapOpen(false);
 	}, [setMapOpen]);
-	const settingsOpen = useStudioSettings();
 
 	// The project as its files are now: a Save changes which profiles they hold.
 	const project = useMemo(
@@ -2916,8 +2950,7 @@ function Studio({ opened }: { opened: StudioOpened }) {
 					<SaveScope project={project} state={state} blocked={Boolean(compile.blocked)}>
 					<Layout
 						ref={frame.layoutCallbackRef}
-						className={frameClass(sheet, view.mapOpen)}
-						style={settingsOpen ? HIDDEN : undefined}
+						className={frameClass(sheet, view.mapOpen, view.settingsOpen)}
 						padding={0}
 						start={
 							<SidePanel
@@ -2926,6 +2959,17 @@ function Studio({ opened }: { opened: StudioOpened }) {
 								draft={draft}
 								onAddAgent={addAgentFrom}
 								setSheet={setSheet}
+								settings={
+									view.settingsOpen &&
+									project && (
+										<SettingsPane
+											state={state}
+											connection={connection}
+											project={project}
+											setConversation={run.setConversation}
+										/>
+									)
+								}
 								map={
 									view.mapOpen && (
 										<StudioMap
@@ -2971,14 +3015,6 @@ function Studio({ opened }: { opened: StudioOpened }) {
 							/>
 						}
 					/>
-					{settingsOpen && project && (
-						<SettingsPane
-							state={state}
-							connection={connection}
-							project={project}
-							setConversation={run.setConversation}
-						/>
-					)}
 					</SaveScope>
 				</ProjectAsks>
 			</ConfirmWrite>
@@ -3085,6 +3121,7 @@ function SidePanel({
 	draft,
 	onAddAgent,
 	setSheet,
+	settings,
 	map,
 	children,
 }: {
@@ -3093,6 +3130,8 @@ function SidePanel({
 	draft: StudioDraft;
 	onAddAgent: (add: AddAgent) => void;
 	setSheet: (sheet: Sheet) => void;
+	/** Settings, while they are open: in the tree's and the editor's place, which stay under them. */
+	settings: ReactNode;
 	/** The map, while it is open: beside the editor, in the room the preview gave up. */
 	map: ReactNode;
 	children: ReactNode;
@@ -3108,7 +3147,8 @@ function SidePanel({
 				isScrollable={false}
 			>
 				<Section variant="raised" height="100%" padding={0} data-shell-frame="">
-					<HStack height="100%" className="shell-fade">
+					{settings}
+					<HStack height="100%" className="shell-fade" style={settings ? HIDDEN : undefined}>
 						{/* Static, so the editor beside it never squeezes the tree. */}
 						<StackItem size="static" className="studio-tree">
 							<TreeColumn

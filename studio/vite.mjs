@@ -183,7 +183,7 @@ function rewriteTypeSpecifiers(contents) {
 }
 
 /** A package's folder as `root` resolves it: in its own `node_modules`, or the nearest one above. */
-function installedFrom(root, name) {
+export function installedFrom(root, name) {
 	let dir = root;
 	for (;;) {
 		const found = path.join(dir, 'node_modules', name);
@@ -195,8 +195,8 @@ function installedFrom(root, name) {
 }
 
 /** A package's folder: the host's install when it has one, or the copy the studio package came with. */
-function hostPackage(hostRoot, name) {
-	const found = installedFrom(hostRoot, name) ?? installedFrom(studioRoot, name);
+export function hostPackage(hostRoot, name, ownRoot = studioRoot) {
+	const found = installedFrom(hostRoot, name) ?? installedFrom(ownRoot, name);
 	if (!found) throw new Error(`studio: ${name} is not installed for ${hostRoot} or for the studio package`);
 	return found;
 }

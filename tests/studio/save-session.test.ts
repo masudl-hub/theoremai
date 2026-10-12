@@ -127,7 +127,11 @@ Deno.test('a save whose file would land outside the project writes nothing', asy
   const { session, text } = project({ landsInside: () => false });
   const workspace = edited();
   const { stamp } = await reviewed(session, workspace);
-  assertEquals(await session.save({ workspace, stamp }), { ok: false, reason: 'unwritable', detail: ['example.ts'] });
+  assertEquals(await session.save({ workspace, stamp }), {
+    ok: false,
+    reason: 'unwritable',
+    detail: ['example.ts'],
+  });
   assertEquals(text(), TEXT);
 });
 

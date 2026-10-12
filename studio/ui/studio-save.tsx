@@ -42,6 +42,7 @@ import type {
 	SaveReview,
 } from '../server/save-wire.ts';
 import { type ProjectSession, reviewSave, undoSave, writeSave } from './lib/studio-project.ts';
+import { RefusalDetail } from './refusal-detail.tsx';
 
 /** Wide enough for a reason's sentence to read in a few lines. */
 const ALERTS_WIDTH = 320;
@@ -264,9 +265,7 @@ function RefusalBody({ refusal }: { refusal: SaveRefusal }) {
 	return (
 		<VStack gap={3}>
 			<Banner status="error" title={REFUSED[refusal.reason]} />
-			{refusal.detail.length > 0 && (
-				<CodeBlock code={refusal.detail.join('\n')} size="sm" isWrapped maxHeight={320} />
-			)}
+			<RefusalDetail refusal={refusal} />
 		</VStack>
 	);
 }

@@ -1,5 +1,4 @@
 import { Button } from '@astryxdesign/core/Button';
-import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Divider } from '@astryxdesign/core/Divider';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
@@ -43,6 +42,7 @@ import {
 	type ProjectSession,
 	projectProfileEndpoint,
 } from './lib/studio-project.ts';
+import { RefusalDetail } from './refusal-detail.tsx';
 
 type ChatProps = ComponentProps<typeof TheoremChat>;
 type Snapshot = NonNullable<ChatProps['initialChat']>;
@@ -293,9 +293,7 @@ function NotRunning({ refusal, actions }: { refusal: SaveRefusal; actions?: Reac
 			title={NOT_RUNNING[refusal.reason] ?? 'Your edits are not running.'}
 			actions={actions}
 		>
-			{refusal.detail.length > 0 && (
-				<CodeBlock code={refusal.detail.join('\n')} size="sm" isWrapped maxHeight={320} />
-			)}
+			<RefusalDetail refusal={refusal} />
 		</PaneFailure>
 	);
 }

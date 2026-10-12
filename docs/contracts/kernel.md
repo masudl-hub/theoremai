@@ -592,6 +592,8 @@ as is, `{ refuse }` to fail it (`refused_by_host`, `declined`, the model reads
 hook's `input` replaces what the model sent; its `speech` replaces the
 model's. The hook passes
 down to the called agent's own calls, with `depth` counting up from 1.
+A hook that throws ends the caller's turn with that error: what the model should
+read instead is the hook's to catch and return as `refuse`.
 
 **Provider.** The called agent resolves its registered binding. The hook's `provider` and
 `InvokeToolRequest.provider` supply host options, such as a vault or fetch, for that call.

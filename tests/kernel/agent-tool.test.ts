@@ -763,3 +763,14 @@ Deno.test('a host-only channel is out of the model input, and the hook still sen
     "keeps 'voice' for the host, which its profile does not take",
   );
 });
+
+Deno.test("a hook that throws ends the caller's turn with its error", async () => {
+  await assertRejects(
+    () =>
+      collect(scopeWith(), routedProvider(), () => {
+        throw new Error('storage read failed');
+      }),
+    Error,
+    'storage read failed',
+  );
+});

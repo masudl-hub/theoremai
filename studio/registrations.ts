@@ -10,7 +10,10 @@ import type { StructuredSpec } from '../src/kernel/types.ts';
 /** The kernel's auth config; the host's OAuth endpoints are never set from the studio. */
 export type StudioToolAuth = Omit<ToolAuthConfig, 'preResolved'>;
 
-export type StudioToolLabels = Pick<ToolLabels, 'activity' | 'activityPast' | 'request'>;
+export type StudioToolLabels = Pick<
+	ToolLabels,
+	'activity' | 'activityPast' | 'activityFailed' | 'request'
+>;
 
 export type StructuredRegistration = {
 	id: string;

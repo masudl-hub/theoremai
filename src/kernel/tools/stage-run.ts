@@ -62,6 +62,7 @@ export type PostToolStageOutcome = {
   deny?: { code: string; message: string };
   /** The caller re-validates and re-projects it. */
   mutate?: { output: unknown };
+  labelFailed?: true;
 };
 
 /** Tool `preTool` → host `pre_tool` → mutate re-parse. */
@@ -220,6 +221,7 @@ export async function* runPostToolStages(args: {
   outputRaw?: unknown;
   outputModel?: ModelToolResult;
   activityPast?: string;
+  activityFailed?: string;
   failure?: ToolFailure;
   awaiting?: boolean;
   /** False when there is no completed output for `mutate` to replace. */
@@ -247,6 +249,7 @@ export async function* runPostToolStages(args: {
     ...(applied.abort !== undefined ? { abort: applied.abort } : {}),
     ...(applied.deny ? { deny: applied.deny } : {}),
     ...(applied.mutate && 'output' in applied.mutate ? { mutate: applied.mutate } : {}),
+    ...(applied.labelFailed ? { labelFailed: true as const } : {}),
     inject: applied.inject,
   };
 }

@@ -760,6 +760,13 @@ at 40 characters; numbers keep at most two decimals. The `running` phase carries
 the input and output. When a placeholder has no such value, the phase carries no
 label and the transcript names the tool in words instead.
 
+`labels.activityFailed` says a call did not happen: `'Couldn't save {title}'`,
+filled from the input as the model sent it. Every `error` phase carries it in
+`activityPast`, and so does a `complete` phase a `post_tool` handler labelled
+failed (`labelFailed`, see [`stages.md`](stages.md)). A tool with no failed
+label, or one whose placeholder has no value, shows the lexicon's
+`tool.activity_failed` line: "Couldn't complete", then the tool's name in words.
+
 `labels.request` says what a gated call would do, as the rest of "@agent wants
 to …": `'check the weather in {city}'`. The kernel fills it from the input onto
 the gate (`ToolGate.request`) of a permission or confirmation gate, beside the

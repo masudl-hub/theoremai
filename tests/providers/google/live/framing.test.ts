@@ -772,6 +772,7 @@ Deno.test('foldGeminiLiveServerMessage emits malformed_arguments on bad tool JSO
         callId: 'call_bad',
         failure,
         readBack: formatToolResult(formatToolFailureForModel(failure)),
+        activityPast: "Couldn't complete search",
       },
     ],
   );

@@ -655,11 +655,13 @@ export interface ToolCallEdit {
  * - `complete` — `output`; `awaiting` when it asked the user something; `parts` for the
  *   media it returned beside its output (images, audio);
  *   `readBack` is the text the model reads back, after guardrails;
- *   `activityPast` is the tool's past activity label filled from its input and output.
+ *   `activityPast` is the tool's past activity label filled from its input and output, or its
+ *   failed label when a `post_tool` handler asked for it (`labelFailed`).
  * - `gate` — confirmation, permission or sign-in held the call; the body did not run.
  *   A sign-in gate's `readBack` is what the model reads while the person signs in.
  * - `error` — the call failed or was refused (`failure.kind` `declined` · `blocked` · `cancelled` · …);
- *   `readBack` is the text the model reads back for it, after guardrails.
+ *   `readBack` is the text the model reads back for it, after guardrails;
+ *   `activityPast` is the tool's failed label.
  * - `cancel` — cancelled in flight (e.g. live barge-in).
  */
 export type ToolPhaseEvent = ToolPhaseBase &
@@ -685,6 +687,7 @@ export type ToolPhaseEvent = ToolPhaseBase &
         phase: 'error';
         failure: ToolFailure;
         readBack?: string;
+        activityPast?: string;
         /** An agent tool's call: the called agent's own usage, as on `complete`. */
         tokens?: TurnTokens;
       }
@@ -729,6 +732,7 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     phase: z.literal('error'),
     failure: toolFailure,
     readBack: z.string().optional(),
+    activityPast: z.string().optional(),
     tokens: turnTokens.optional(),
   }),
   z.object({ ...toolPhaseBase, phase: z.literal('cancel') }),

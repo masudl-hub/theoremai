@@ -168,6 +168,7 @@ export const LEXICON_KEYS = [
   'tool.unsupported_type',
   'tool.agent_call_limit',
   'tool.agent_failed',
+  'tool.activity_failed',
 ] as const;
 
 /** One of {@linkcode LEXICON_KEYS}. */
@@ -452,6 +453,7 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'tool.unsupported_type': "Tool '{tool}' has unsupported type",
   'tool.agent_call_limit': "Tool '{tool}' can't be called again this turn",
   'tool.agent_failed': "Tool '{tool}' didn't get a reply from its agent",
+  'tool.activity_failed': "Couldn't complete {tool}",
 };
 
 /**
@@ -721,6 +723,8 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
     "Told to the model when it calls an agent tool more times this turn than the tool's maxCallsPerTurn. Takes {tool}.",
   'tool.agent_failed':
     'Told to the model when the agent an agent tool runs ends without a reply. Takes {tool}.',
+  'tool.activity_failed':
+    "Shown in the transcript for a failed call when its tool has no failed label. Takes {tool}, the tool's name in words.",
 };
 
 const TOOL: readonly string[] = ['tool'];
@@ -777,6 +781,7 @@ const LEXICON_PLACEHOLDERS: Partial<Record<LexiconKey, readonly string[]>> = {
   'tool.unsupported_type': TOOL,
   'tool.agent_call_limit': TOOL,
   'tool.agent_failed': TOOL,
+  'tool.activity_failed': TOOL,
   ...Object.fromEntries(
     LEXICON_KEYS.filter((key) => key.startsWith('error.')).map((key) => [key, TOOL]),
   ),

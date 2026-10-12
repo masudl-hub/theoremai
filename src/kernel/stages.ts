@@ -19,8 +19,15 @@ import { isRecord } from './util/record.ts';
 
 export type { AwaitingUserInput, ToolGate };
 
-/** What a stage handler can ask for: inject messages, abort, deny a tool call, ask for confirmation or mutate it. */
-export const STAGE_AFFORDANCES = ['inject', 'abort', 'deny', 'confirm', 'mutate'] as const;
+/** What a stage handler can ask for: inject messages, abort, deny a tool call, ask for confirmation, mutate it or label it failed. */
+export const STAGE_AFFORDANCES = [
+  'inject',
+  'abort',
+  'deny',
+  'confirm',
+  'mutate',
+  'labelFailed',
+] as const;
 /** One of {@linkcode STAGE_AFFORDANCES}. */
 export type StageAffordance = (typeof STAGE_AFFORDANCES)[number];
 
@@ -29,7 +36,7 @@ export const STAGE_AFFORDANCE_MATRIX: Readonly<Record<TurnStage, readonly StageA
   Object.freeze({
     pre_turn: Object.freeze(['inject', 'abort'] as const),
     pre_tool: Object.freeze(['abort', 'deny', 'confirm', 'mutate'] as const),
-    post_tool: Object.freeze(['inject', 'abort', 'deny', 'mutate'] as const),
+    post_tool: Object.freeze(['inject', 'abort', 'deny', 'mutate', 'labelFailed'] as const),
     before_end: Object.freeze(['inject', 'abort'] as const),
     post_turn: Object.freeze([] as const),
   });
@@ -45,6 +52,8 @@ export type StageCallBag = {
   outputModel?: ModelToolResult;
   /** `post_tool`: the tool's past activity label, filled from the input and `outputRaw`. */
   activityPast?: string;
+  /** `post_tool`: the tool's failed activity label, filled from the input. */
+  activityFailed?: string;
   failure?: ToolFailure;
   awaiting?: boolean;
   stop?: TurnStop;
@@ -76,6 +85,11 @@ export interface StageResult {
   confirm?: true | { summary?: string };
   /** `pre_tool`: replace the call input. `post_tool`: replace the raw output. Both re-validate. */
   mutate?: StageMutate;
+  /**
+   * `post_tool` only: the call completed, but show its failed label (`activityFailed`) on the
+   * terminal `tool` event. The result and the phase stay as they are.
+   */
+  labelFailed?: true;
 }
 
 /** A rewrite of a tool call's input or output. */
@@ -114,6 +128,7 @@ export interface StageApplyOutput {
   deny?: { code: string; message: string };
   confirm?: { summary?: string };
   mutate?: StageMutate;
+  labelFailed?: true;
   warnings: StageApplyWarning[];
 }
 
@@ -352,6 +367,26 @@ function applyDenyField(
   }
 }
 
+function applyLabelFailedField(
+  result: Record<string, unknown>,
+  stage: TurnStage,
+  out: StageApplyOutput,
+): void {
+  if (!('labelFailed' in result) || result.labelFailed === undefined) return;
+  if (!stageAllowsAffordance(stage, 'labelFailed')) {
+    warn(
+      out.warnings,
+      'affordance_not_allowed',
+      'labelFailed',
+      `labelFailed is not allowed at stage ${stage}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  } else if (result.labelFailed === true) {
+    out.labelFailed = true;
+  } else if (result.labelFailed !== false) {
+    warn(out.warnings, 'label_failed_invalid', 'labelFailed', 'labelFailed must be true'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+}
+
 function applyConfirmField(
   result: Record<string, unknown>,
   stage: TurnStage,
@@ -466,6 +501,7 @@ export function applyStageResult(input: StageApplyInput): StageApplyOutput {
   applyDenyField(result, stage, out);
   applyConfirmField(result, stage, out);
   applyMutateField(result, input, out);
+  applyLabelFailedField(result, stage, out);
 
   if (out.deny && out.confirm) {
     warn(warnings, 'confirm_invalid', 'confirm', 'confirm ignored because deny is set'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -570,6 +606,7 @@ function mergeApplied(parts: readonly StageApplyOutput[]): RunStageOutput {
     if (part.deny) out.deny = part.deny;
     if (part.confirm) out.confirm = part.confirm;
     if (part.mutate) out.mutate = part.mutate;
+    if (part.labelFailed) out.labelFailed = true;
     if (part.inject) out.inject.push(part.inject);
   }
   if (out.deny && out.confirm) {

@@ -47,10 +47,16 @@ Deno.test('TURN_INJECT_STAGES excludes tool gates and post_turn', () => {
 });
 
 Deno.test('STAGE_AFFORDANCE_MATRIX matches the contract table', () => {
-  assertEquals([...STAGE_AFFORDANCES], ['inject', 'abort', 'deny', 'confirm', 'mutate']);
+  assertEquals(
+    [...STAGE_AFFORDANCES],
+    ['inject', 'abort', 'deny', 'confirm', 'mutate', 'labelFailed'],
+  );
   assertEquals([...STAGE_AFFORDANCE_MATRIX.pre_turn], ['inject', 'abort']);
   assertEquals([...STAGE_AFFORDANCE_MATRIX.pre_tool], ['abort', 'deny', 'confirm', 'mutate']);
-  assertEquals([...STAGE_AFFORDANCE_MATRIX.post_tool], ['inject', 'abort', 'deny', 'mutate']);
+  assertEquals(
+    [...STAGE_AFFORDANCE_MATRIX.post_tool],
+    ['inject', 'abort', 'deny', 'mutate', 'labelFailed'],
+  );
   assertEquals([...STAGE_AFFORDANCE_MATRIX.before_end], ['inject', 'abort']);
   assertEquals([...STAGE_AFFORDANCE_MATRIX.post_turn], []);
   assertEquals(stageAllowsAffordance('pre_tool', 'inject'), false);
@@ -191,6 +197,14 @@ Deno.test('applyStageResult: deny / mutate on pre_tool and post_tool, confirm on
   });
   assertEquals(denyElsewhere.deny, undefined);
   assertEquals(denyElsewhere.warnings[0]?.code, 'affordance_not_allowed');
+
+  const labelFailed = (stage: 'pre_tool' | 'post_tool', value: unknown) =>
+    applyStageResult({ stage, injectAllowed: true, result: { labelFailed: value } });
+  assertEquals(labelFailed('post_tool', true).labelFailed, true);
+  assertEquals(labelFailed('post_tool', false).warnings, []);
+  assertEquals(labelFailed('post_tool', 'yes').warnings[0]?.code, 'label_failed_invalid');
+  assertEquals(labelFailed('pre_tool', true).labelFailed, undefined);
+  assertEquals(labelFailed('pre_tool', true).warnings[0]?.code, 'affordance_not_allowed');
 
   const confirmPostTool = applyStageResult({
     stage: 'post_tool',

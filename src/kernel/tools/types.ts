@@ -62,6 +62,7 @@ export type {
 export interface ToolLabels {
   activity?: string;
   activityPast?: string;
+  activityFailed?: string;
   request?: string;
   hiddenFromSettings?: boolean;
 }

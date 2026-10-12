@@ -986,6 +986,7 @@ Deno.test('a tool row reads as its filled activity label, else the tool name in 
   assertEquals(toolCallLabel({ ...complete, activityPast: undefined }), 'Save to collection');
   const failed = {
     ...running,
+    activityPast: "Couldn't save Monty",
     state: {
       phase: 'error' as const,
       name: call.name,
@@ -994,5 +995,10 @@ Deno.test('a tool row reads as its filled activity label, else the tool name in 
       failure: { code: 'upstream', kind: 'failed' as const, message: 'x' },
     },
   };
-  assertEquals(toolCallLabel(failed), 'Save to collection');
+  assertEquals(toolCallLabel(failed), "Couldn't save Monty");
+  const cancelled = {
+    ...running,
+    state: { phase: 'cancel' as const, name: call.name, callId: 'c1', at: 1 },
+  };
+  assertEquals(toolCallLabel(cancelled), 'Save to collection');
 });

@@ -13,7 +13,12 @@ import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
 import { profileAllowsInject, stageAbortStop } from '../../stop.ts';
 import type { BoundSystem } from '../../system-parts.ts';
-import { failureEvent, type ToolCallBase, toolCallRequestEvent } from '../../tools/events.ts';
+import {
+  failedActivity,
+  failureEvent,
+  type ToolCallBase,
+  toolCallRequestEvent,
+} from '../../tools/events.ts';
 import type { ToolExecuteSettlement } from '../../tools/execute.ts';
 import {
   executeRegisteredTool,
@@ -377,7 +382,11 @@ async function* handleModelCalls(
     yield announce(call);
 
     if (call.failure) {
-      yield recordProviderToolFailure(state, call, call.failure);
+      yield recordProviderToolFailure(
+        state,
+        { ...call, activityFailed: failedActivity(call.name, profile.lexicon) },
+        call.failure,
+      );
       continue;
     }
 

@@ -230,6 +230,7 @@ export const STAGE_APPLY_WARNING_CODES = [
   'deny_invalid',
   'confirm_invalid',
   'mutate_invalid',
+  'label_failed_invalid',
   'abort_invalid',
   'unknown_field',
   'result_invalid',
@@ -1583,6 +1584,13 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
       "What the transcript says once a call completes, e.g. 'Found {results.0.name}'. Each {path} is filled from the call's input, then its output.",
     ),
     unset: 'The tool name, in words',
+  },
+  'labels.activityFailed': {
+    ...field(
+      'string',
+      "What the transcript says when a call fails or the host labels it failed, e.g. 'Couldn't save {title}'. Each {path} is filled from the call's input.",
+    ),
+    unset: "Couldn't complete, then the tool name in words",
   },
   'labels.request': {
     ...field(

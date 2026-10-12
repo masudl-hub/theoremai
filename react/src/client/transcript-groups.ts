@@ -314,6 +314,7 @@ export function assistantTurnTiming(args: {
 
 export function toolCallLabel(tool: Extract<TranscriptBlock, { kind: 'tool' }>['tool']): string {
   const phase = tool.state?.phase;
-  if (phase === 'error' || phase === 'cancel') return humanize(tool.name);
-  return (phase === 'complete' ? tool.activityPast : tool.activity) ?? humanize(tool.name);
+  if (phase === 'cancel') return humanize(tool.name);
+  const settled = phase === 'complete' || phase === 'error';
+  return (settled ? tool.activityPast : tool.activity) ?? humanize(tool.name);
 }

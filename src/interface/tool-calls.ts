@@ -51,6 +51,12 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
         ...(tool.activityPast ? { activityPast: tool.activityPast } : {}),
       };
     case 'error':
+      return {
+        ...call,
+        state: tool,
+        endedAt: tool.at,
+        ...(tool.activityPast ? { activityPast: tool.activityPast } : {}),
+      };
     case 'cancel':
     case 'gate':
       return { ...call, state: tool, endedAt: tool.at };

@@ -67,7 +67,7 @@ import {
 import { profileAllowsInject, stageAbortStop } from '../../stop.ts';
 import { bindSystem } from '../../system-parts.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
-import { failureEvent } from '../../tools/events.ts';
+import { failedActivity, failureEvent } from '../../tools/events.ts';
 import {
   executeRegisteredTool,
   lapsedGateFailure,
@@ -685,7 +685,16 @@ function buildLiveSession(args: {
   const settleHeldFailure = (callId: string, held: HeldCall, failure: ToolFailure) => {
     const readBack = formatToolResult(formatToolFailureForModel(failure));
     enqueuePending(
-      failureEvent({ name: held.name, callId, operationId: held.operationId }, failure, readBack),
+      failureEvent(
+        {
+          name: held.name,
+          callId,
+          operationId: held.operationId,
+          activityFailed: failedActivity(held.name, profile.lexicon),
+        },
+        failure,
+        readBack,
+      ),
     );
     settleHeld(callId, held, readBack);
   };

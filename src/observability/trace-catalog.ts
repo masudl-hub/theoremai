@@ -354,6 +354,10 @@ const AFFORDANCES: Readonly<Record<StageAffordance, TraceOptionMeta>> = {
   deny: { label: 'Denied', doc: 'Refused a tool call.' },
   confirm: { label: 'Asked to confirm', doc: 'Required confirmation before a tool call.' },
   mutate: { label: 'Changed', doc: 'Changed the tool call or its result.' },
+  labelFailed: {
+    label: 'Labelled failed',
+    doc: "Showed the tool's failed label for a call that completed.",
+  },
 };
 
 const GUARDRAIL_STAGE_OPTIONS: Readonly<Record<GuardrailStage, TraceOptionMeta>> = {

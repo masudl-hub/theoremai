@@ -22,7 +22,13 @@ import { pickModel } from '../registry/resolve.ts';
 import { turnDoneOf } from '../turn-events.ts';
 import type { Profile, TurnEvent, TurnRequest } from '../types.ts';
 import { coordinateTool } from './coordinate.ts';
-import { failureEvent, newCallId, toolCallArguments, toolCallRequestEvent } from './events.ts';
+import {
+  failedActivity,
+  failureEvent,
+  newCallId,
+  toolCallArguments,
+  toolCallRequestEvent,
+} from './events.ts';
 import {
   authorizeToolReplay,
   executeRegisteredTool,
@@ -218,7 +224,15 @@ async function* invokePrepared(
     const { failure } = promoteLoadedTools(registry.tools, snapshot, request.promoted, profile);
     if (failure) {
       failBeforeTool({ outcome: 'error', failure });
-      yield failureEvent({ name: request.name, callId, operationId: request.operationId }, failure);
+      yield failureEvent(
+        {
+          name: request.name,
+          callId,
+          operationId: request.operationId,
+          activityFailed: failedActivity(request.name, profile.lexicon),
+        },
+        failure,
+      );
       return { failure, callNotStarted: true };
     }
   }

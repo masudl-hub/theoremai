@@ -71,6 +71,15 @@ function labelValue(value: unknown): string | undefined {
   return `${head.trimEnd()}…`;
 }
 
+/** A tool's name as a label shows it: `manage_alert` reads "manage alert". */
+export function toolNameInWords(name: string): string {
+  return name
+    .replace(/([a-z\d])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
 /**
  * Fills each `{path}` or `{path|fallback}` from the call. Only text and numbers fill; a placeholder
  * with no value and no fallback leaves the whole label `undefined`, and the transcript names the tool.

@@ -59,7 +59,7 @@ ceiling on host side effects.
 | --- | --- | --- | --- |
 | `pre_turn` | Once per user turn / live utterance cycle, before model work for that cycle | if inject allowed | `abort` |
 | `pre_tool` | Per `callId`, after chosen, before body | no | `deny`, `confirm` (gate), `mutate`, `abort` |
-| `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event | if inject allowed | `deny`, `mutate`, `abort` |
+| `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event | if inject allowed | `deny`, `mutate`, `labelFailed`, `abort` |
 | `before_end` | About to end the turn / utterance cycle; host may extend | if inject allowed | `abort` |
 | `post_turn` | After cycle-ending `done` | **never** (ignored) | observe only |
 
@@ -101,6 +101,8 @@ interface StageContext {
   outputModel?: ModelToolResult;
   /** post_tool: the tool's past activity label, filled from the input and outputRaw. */
   activityPast?: string;
+  /** post_tool: the tool's failed activity label, filled from the input. */
+  activityFailed?: string;
   failure?: ToolFailure;
   /** True when outputRaw/status is awaiting_user_input completion. */
   awaiting?: boolean;
@@ -119,6 +121,8 @@ interface StageResult {
   confirm?: true | { summary?: string };
   /** pre_tool: replace the input. post_tool: replace the raw output. Both re-validate. */
   mutate?: { input: unknown } | { output: unknown };
+  /** post_tool only: the call completed, but the terminal event shows its failed label. */
+  labelFailed?: true;
 }
 
 type StageHandler = (
@@ -136,6 +140,7 @@ type StageHandler = (
 | `deny` | no | yes | yes | no | no |
 | `confirm` | no | yes | no | no | no |
 | `mutate` | no | yes | yes | no | no |
+| `labelFailed` | no | no | yes | no | no |
 
 \*Only when `profileAllowsInject` / session inject gate is true; otherwise no-op.
 
@@ -156,7 +161,7 @@ Every stage run records one `theorem.stage` span event —
 `{ stage, affordance, hook_ms?, warnings? }` — on the span it belongs to:
 turn stages on the `invoke_agent` root, Live cycle stages on the session root,
 `pre_tool` / `post_tool` on that call's `execute_tool` span. `affordance` lists
-what the handlers applied (`inject`, `abort`, `deny`, `confirm`, `mutate`;
+what the handlers applied (`inject`, `abort`, `deny`, `confirm`, `mutate`, `labelFailed`;
 `[]` when nothing, or no handler ran); `hook_ms` is present only when handlers
 ran; `warnings` lists warning codes. See
 [observability.md](./observability.md#trace-records).
@@ -233,17 +238,23 @@ Applies to function, HTTP, and MCP tools on every execute path
 9. Body (function handler / HTTP / MCP).
 10. T2 loader promotion when applicable (**before** projection).
 11. `projectForModel` → guard (fence, redaction, provenance) → model result.
-12. `onStage({ stage: 'post_tool', outputRaw, outputModel, activityPast?, failure?, awaiting? })`
+12. `onStage({ stage: 'post_tool', outputRaw, outputModel, activityPast?, activityFailed, failure?, awaiting? })`
     — `outputModel` is the guarded result. `activityPast` is the tool's past
     activity label filled from the input and `outputRaw`; it is absent when the
-    call failed, the tool has no label or a placeholder has no value. Apply `deny` → the model gets that
+    call failed, the tool has no label or a placeholder has no value.
+    `activityFailed` is the tool's failed label, filled from the input as the
+    model sent it; when the tool has none or a placeholder has no value, it is
+    the lexicon's `tool.activity_failed` line naming the tool in words. Apply
+    `labelFailed` → the call stays `complete` with its result, and the terminal
+    event's `activityPast` carries `activityFailed`: the host's way to say a
+    call that ran did not do what was asked. Apply `deny` → the model gets that
     failure instead; apply `mutate { output }` → **re-validate** output schema,
     re-project, **re-guard**; fail → error settle. `mutate` needs a completed
     body the host may own: on a failed or unstarted call, or on the T2 loader
     (whose output drives the snapshot), it is a `mutate_invalid` warning.
 13. **One** terminal host event per `callId`, after the host had its say:
     `tool.phase: 'complete'` with the final raw output, or `tool.phase: 'error'`
-    with the final failure. Hosts that rebuild history from events therefore
+    with the final failure and the failed label in `activityPast`. Hosts that rebuild history from events therefore
     never see a result the model did not get.
 14. Record provider-facing tool result when this path is responsible for it.
 

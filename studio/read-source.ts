@@ -846,6 +846,7 @@ function toolOf(
     outputJson: spec.output === undefined ? base.outputJson : schemaText(spec.output),
     activity: filled(labels.activity),
     activityPast: filled(labels.activityPast),
+    activityFailed: filled(labels.activityFailed),
     request: filled(labels.request),
     // A page tool's source has no handler: its stub is the studio's own, so it is kept.
     stubOutputJson: page ? current?.stubOutputJson : stubOf(type, spec),

@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import { throwIfAborted } from '../../guardrails/error.ts';
-import { lexiconText } from '../../guardrails/lexicon.ts';
+import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
 import { assertSafeUrl } from '../../guardrails/network.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { NETWORK_RULES } from '../../guardrails/rules.ts';
@@ -10,7 +10,7 @@ import { recordToolCheck } from '../engine/tool-trace.ts';
 import { type Source, sourceSchema } from '../turn-events.ts';
 import type { TurnEvent, TurnEventOf } from '../types.ts';
 import { isRecord } from '../util/record.ts';
-import { fillActivityLabel } from './activity-label.ts';
+import { fillActivityLabel, toolNameInWords } from './activity-label.ts';
 import { formatToolFailureForModel, formatToolResult } from './model-text.ts';
 import type { ToolOperationClaim } from './operation.ts';
 import type {
@@ -21,7 +21,11 @@ import type {
   ToolPhaseEvent,
 } from './types.ts';
 
-export type ToolCallBase = Pick<ToolPhaseEvent, 'name' | 'callId'> & { operationId?: string };
+export type ToolCallBase = Pick<ToolPhaseEvent, 'name' | 'callId'> & {
+  operationId?: string;
+  /** The call's failed label, from {@linkcode failedActivity}; absent, a failure names the tool. */
+  activityFailed?: string;
+};
 
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -40,13 +44,34 @@ export function toolEvent(base: ToolCallBase, patch: ToolPhasePatch): TurnEventO
   };
 }
 
+/**
+ * The label a failed call shows: the tool's own, filled from the input the model sent, else the
+ * lexicon's line naming the tool in words.
+ */
+export function failedActivity(
+  name: string,
+  lexicon?: LexiconOverrides,
+  labels?: ToolLabels,
+  input?: unknown,
+): string {
+  return (
+    fillActivityLabel(labels?.activityFailed, { input }) ??
+    lexiconText('tool.activity_failed', { tool: toolNameInWords(name) }, lexicon)
+  );
+}
+
 /** `readBack` is passed when the call's result guard already wrote the model's text. */
 export function failureEvent(
   base: ToolCallBase,
   failure: ToolFailure,
   readBack: string = formatToolResult(formatToolFailureForModel(failure)),
 ): TurnEventOf<'tool'> {
-  return toolEvent(base, { phase: 'error', failure, readBack });
+  return toolEvent(base, {
+    phase: 'error',
+    failure,
+    readBack,
+    activityPast: base.activityFailed ?? failedActivity(base.name),
+  });
 }
 
 /** The first event of every call. */

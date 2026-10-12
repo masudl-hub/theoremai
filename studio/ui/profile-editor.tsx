@@ -5090,7 +5090,7 @@ function ContractSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 	);
 }
 
-/** What the chat says while the tool runs, once it's done and when it asks. */
+/** What the chat says while the tool runs, once it's done, when it fails and when it asks. */
 function ActivitySection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 	return (
 		<InspectorSection title="Activity" path="labels">
@@ -5112,6 +5112,16 @@ function ActivitySection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 				hint={placeholderHint([tool.inputJson, tool.outputJson])}
 				onChange={(activityPast) => {
 					set({ activityPast });
+				}}
+			/>
+			<TextRow
+				label="Failed"
+				path="labels.activityFailed"
+				field="activityFailed"
+				value={tool.activityFailed ?? ''}
+				hint={placeholderHint([tool.inputJson])}
+				onChange={(activityFailed) => {
+					set({ activityFailed });
 				}}
 			/>
 			<TextRow

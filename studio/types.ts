@@ -36,6 +36,7 @@ export type StudioToolSpecSeed = {
   outputJson: string;
   activity?: string;
   activityPast?: string;
+  activityFailed?: string;
   request?: string;
   stubOutputJson?: string;
   /** A function tool the page answers; the studio's page answers with the stub. */

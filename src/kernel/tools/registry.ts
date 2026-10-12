@@ -32,9 +32,10 @@ function schemasFromZod<TIn, TOut>(def: {
   const labels = {
     activity: { input: inputSchema },
     activityPast: { input: inputSchema, output: outputSchema },
+    activityFailed: { input: inputSchema },
     request: { input: inputSchema },
   };
-  for (const field of ['activity', 'activityPast', 'request'] as const) {
+  for (const field of ['activity', 'activityPast', 'activityFailed', 'request'] as const) {
     const template = def.labels?.[field];
     const problem = template ? activityLabelProblem(template, labels[field]) : undefined;
     if (problem) {

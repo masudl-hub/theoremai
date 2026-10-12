@@ -188,6 +188,100 @@ Deno.test('post_tool receives the filled past label, and none when the call fail
   assertEquals(seen, ['Shelved Fern as #3', undefined]);
 });
 
+Deno.test('a failed call shows its failed label, and a hook can ask for it on a call that ran', async () => {
+  const base = {
+    type: 'function' as const,
+    description: 'Files a note in the drawer',
+    category: 'test',
+    access: 'read-write' as const,
+    paths: ['*'],
+    loadTier: 'T0' as const,
+    permission: 'auto' as const,
+    input: z.object({ title: z.string() }),
+    output: z.object({ filed: z.boolean() }),
+  };
+  const labels = { activityPast: 'Filed {title}', activityFailed: "Couldn't file {title}" };
+  const refuse = () => Promise.resolve({ filed: false });
+  registerTool({ ...base, name: 'file_note', labels, handler: refuse });
+  registerTool({ ...base, name: 'file_note_plain', handler: refuse });
+  registerTool({
+    ...base,
+    name: 'file_note_broken',
+    labels,
+    handler: () => Promise.reject(new Error('drawer stuck')),
+  });
+  registerProfile(
+    defineProfile({
+      type: 'host',
+      id: 'failed_label_host',
+      tools: { allow: ['file_note', 'file_note_plain', 'file_note_broken'] },
+      observability: { writeTo: false },
+    }),
+  );
+  const given: (string | undefined)[] = [];
+  const settle = async (name: string, labelFailed: boolean) => {
+    const events = await invokeRegisteredTool({
+      profile: 'failed_label_host',
+      name,
+      input: { title: 'Fern' },
+      onStage: (ctx) => {
+        if (ctx.stage !== 'post_tool') return undefined;
+        given.push(ctx.activityFailed);
+        return labelFailed ? { labelFailed: true } : undefined;
+      },
+    });
+    const [call] = toolCallsOf(events);
+    return { phase: call?.state?.phase, label: call?.activityPast };
+  };
+  assertEquals(await settle('file_note', false), { phase: 'complete', label: 'Filed Fern' });
+  assertEquals(await settle('file_note', true), {
+    phase: 'complete',
+    label: "Couldn't file Fern",
+  });
+  assertEquals(await settle('file_note_plain', true), {
+    phase: 'complete',
+    label: "Couldn't complete file note plain",
+  });
+  assertEquals(await settle('file_note_broken', false), {
+    phase: 'error',
+    label: "Couldn't file Fern",
+  });
+  assertEquals(given, [
+    "Couldn't file Fern",
+    "Couldn't file Fern",
+    "Couldn't complete file note plain",
+    "Couldn't file Fern",
+  ]);
+});
+
+Deno.test('a failed label reads the input only, and a call to no tool names it in words', async () => {
+  assertThrows(
+    () =>
+      registerTool({
+        type: 'function',
+        name: 'file_note_output',
+        description: 'Files a note',
+        category: 'test',
+        access: 'read-write',
+        paths: ['*'],
+        loadTier: 'T0',
+        permission: 'auto',
+        labels: { activityFailed: "Couldn't file {output.filed}" },
+        input: z.object({ title: z.string() }),
+        output: z.object({ filed: z.string() }),
+        handler: () => Promise.resolve({ filed: 'no' }),
+      }),
+    TheoremError,
+    'activityFailed label: {output.filed} is only there once the call is done',
+  );
+  const events = await invokeRegisteredTool({
+    profile: 'failed_label_host',
+    name: 'no_such_tool',
+    input: {},
+  });
+  assertEquals(toolEventsOf(events, 'error')[0]?.activityPast, "Couldn't complete no such tool");
+});
+
 Deno.test('a gate carries the tool access and its request filled from the call input', async () => {
   const base = {
     description: 'Books a table',

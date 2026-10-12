@@ -29,6 +29,7 @@ import { type AgentCaller, AgentCallFailed, agentToolOrigin } from './agent.ts';
 import { coordinateTool } from './coordinate.ts';
 import {
   dispatchToolBody,
+  failedActivity,
   failureEvent,
   messageOf,
   networkBlocked,
@@ -416,10 +417,13 @@ function completeEvent(
     outputRaw: unknown;
     modelResult: ModelToolResult;
     labels?: ToolLabels;
+    labelFailed?: true;
   },
 ): TurnEvent {
   const { input, outputRaw, modelResult } = settled;
-  const activityPast = pastActivity(settled.labels, input, outputRaw);
+  const activityPast = settled.labelFailed
+    ? (base.activityFailed ?? failedActivity(base.name))
+    : pastActivity(settled.labels, input, outputRaw);
   return toolEvent(base, {
     phase: 'complete',
     output: outputRaw,
@@ -469,6 +473,7 @@ async function* settleToolCall(args: {
       outputRaw,
       outputModel: modelResult,
       ...(activityPast ? { activityPast } : {}),
+      activityFailed: base.activityFailed ?? failedActivity(base.name),
       failure,
       awaiting: awaiting || undefined,
       mutable: !failure && reproject !== undefined,
@@ -483,7 +488,13 @@ async function* settleToolCall(args: {
   if (!failure && sources) yield* sourceEvents(base, sources, outputRaw);
   yield failure
     ? failureEvent(base, failure, formatToolResult(modelResult))
-    : completeEvent(base, { input, outputRaw, modelResult, labels: args.labels });
+    : completeEvent(base, {
+        input,
+        outputRaw,
+        modelResult,
+        labels: args.labels,
+        ...(post?.labelFailed ? { labelFailed: true as const } : {}),
+      });
   return {
     modelResult,
     ...(failure ? { failure } : { outputRaw }),
@@ -1264,7 +1275,12 @@ async function* runRegisteredTool(
   const { profile, name, input, callId, ctx, snapshot, stages } = args;
   const safeInput = plainToolInput(input);
   const operationId = ctx.operationId ?? crypto.randomUUID();
-  const base = { name, callId, operationId };
+  const base = {
+    name,
+    callId,
+    operationId,
+    activityFailed: failedActivity(name, profile.lexicon, tool?.labels, safeInput),
+  };
   if (!tool) {
     const failure: ToolFailure = {
       code: 'unknown_tool',

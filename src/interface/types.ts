@@ -229,7 +229,7 @@ export interface ToolCall {
   edited?: ToolCallEdit;
   /** What the call is doing, in the tool's words, from its last `running` phase. */
   activity?: string;
-  /** What the call did, from its `complete` phase. */
+  /** What the call did, from its `complete` phase, or that it failed, from its `error` phase. */
   activityPast?: string;
   /** Absent while the call has only been made. */
   state?: ToolCallState;

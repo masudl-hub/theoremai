@@ -676,10 +676,21 @@ project's shows that store by its name, and turning traces off and on again
 keeps it.
 
 Built: the studio on its own opens with the website's loader. The mark draws
-on the full-bleed shell while the project opens, then that panel pulls in to
-the studio's frame. The loader and the shell's movement live in the studio
-package (`studio/ui/boot-mark.tsx`, `studio/ui/shell-motion.ts`), and the
-website mounts the same ones.
+on the full-bleed shell, then that panel pulls in beside the rail. The loader
+and the shell's movement live in the studio package
+(`studio/ui/boot-mark.tsx`, `studio/ui/shell-motion.ts`), and the website
+mounts the same ones.
+
+Built: the loader draws the project being read. The server says each step of
+the read as it happens (`ReadStep` in `studio/read-steps.ts`): a file and the
+file that imported it, then each agent and tool found. On the pulled-in panel
+the studio draws those steps as a map from left to right
+(`studio/ui/read-map.tsx`): the setup file, a line to each folder its imports
+reach with a dot for each file read there, and a token for each agent and
+tool. The map draws in the order the read happened and no faster than can be
+followed. When it has drawn every step, it fades and the panel pulls in to
+the studio's frame. A project that opens before the mark starts shows neither,
+and reduced motion shows the mark without the map.
 
 Built: Save takes a profile or a tool the studio removed out of the files
 (`studio/server/save-remove.ts`). It cuts the statement that registers it,

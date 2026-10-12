@@ -1,12 +1,12 @@
 /**
- * The loader's map of a project being read: the setup file beside the mark, a line to each folder
+ * The loader's map of a project being read: the setup file at the left, a line to each folder
  * its imports reach with a dot for each file read there, and the agents and tools found. It
  * draws the steps in the order they happened, no faster than can be followed.
  */
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { Text } from '@astryxdesign/core/Text';
 import { Token } from '@astryxdesign/core/Token';
-import { IconFile, IconFolder, IconRobot, IconTool } from '@tabler/icons-react';
+import { IconFileCode, IconFolder, IconRobot, IconTool } from '@tabler/icons-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReadStep } from '../read-steps.ts';
 import { type ReadNode, type ReadNodeKind, readMap } from './lib/read-map.ts';
@@ -21,8 +21,6 @@ const LAG_MS = 500;
 const CATCH_UP_MS = 900;
 
 const PAD = 24;
-/** Where the setup file's token starts: past the mark, which rests at the left edge. */
-const ENTRY_X = 60;
 const ROW = 30;
 /** Room kept for the last column's tokens and for the line of words under the map. */
 const LAST_COL = 190;
@@ -32,7 +30,7 @@ const DOTS = 8;
 const LABEL = 30;
 
 const NODE_ICON: Record<ReadNodeKind, IconType | undefined> = {
-	entry: IconFile,
+	entry: IconFileCode,
 	folder: IconFolder,
 	profile: IconRobot,
 	tool: IconTool,
@@ -147,19 +145,20 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
 	const { ref, size } = useSize();
 	const steps = reading.steps();
 	const rows = size ? Math.floor((size.height - PAD * 2 - FOOT) / ROW) : 0;
-	// Laid out from every step said, so a node drawn later does not move the ones already drawn.
+	// Laid out from every step said so far, not only the ones drawn: drawing a node moves nothing.
+	// A folder first said later does move the rows, and the tokens and lines move together.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `steps` is one list that grows; its length is what changes.
 	const map = useMemo(() => readMap(steps.slice(0, drawn.known), rows), [drawn.known, rows]);
 	const [widths, setWidths] = useState<Record<string, number>>({});
 
 	const placed = useMemo(() => {
 		if (!size) return [];
-		const stride = map.cols > 1 ? (size.width - ENTRY_X - PAD - LAST_COL) / (map.cols - 1) : 0;
+		const stride = map.cols > 1 ? (size.width - PAD * 2 - LAST_COL) / (map.cols - 1) : 0;
 		return map.nodes
 			.filter((node) => node.first < drawn.steps)
 			.map((node): Placed => ({
 				node,
-				x: ENTRY_X + node.col * Math.max(stride, 0),
+				x: PAD + node.col * Math.max(stride, 0),
 				y: size.height / 2 + (node.row - (map.rows - 1) / 2) * ROW,
 			}));
 	}, [map, size, drawn.steps]);
@@ -180,8 +179,8 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
 
 	const byId = new Map(placed.map((each) => [each.node.id, each]));
 	return (
-		<div ref={ref} className="read-map">
-			<svg className="read-map-lines" width={size?.width ?? 0} height={size?.height ?? 0} aria-hidden="true">
+		<div ref={ref} className="read-map" aria-hidden="true">
+			<svg className="read-map-lines" width={size?.width ?? 0} height={size?.height ?? 0}>
 				{placed.map((to) => {
 					const from = to.node.parent === undefined ? undefined : byId.get(to.node.parent);
 					const width = from && widths[from.node.id];
@@ -192,8 +191,9 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
 					return (
 						<g key={to.node.id}>
 							<path className="read-map-line" d={line.d} pathLength={1} />
-							{line.dots.slice(0, dots).map(([x, y]) => (
-								<circle key={`${String(x)}:${String(y)}`} className="read-map-dot" cx={x} cy={y} r={2.5} />
+							{line.dots.slice(0, dots).map(([x, y], index) => (
+								// biome-ignore lint/suspicious/noArrayIndexKey: a dot is its place along the line.
+								<circle key={index} className="read-map-dot" cx={x} cy={y} r={2.5} />
 							))}
 						</g>
 					);
@@ -207,7 +207,7 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
 					</div>
 				);
 			})}
-			<div className="read-map-foot" aria-hidden="true">
+			<div className="read-map-foot">
 				<Text type="supporting" color="secondary" maxLines={1}>
 					{saying(steps, drawn.steps)}
 				</Text>

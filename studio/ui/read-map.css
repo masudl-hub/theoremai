@@ -1,4 +1,4 @@
-/* The loader's map of a project being read. It fills the mark's panel; the mark rests at its left edge. */
+/* The loader's map of a project being read. It fills the loader's panel. */
 .read-map {
 	position: absolute;
 	inset: 0;
@@ -30,9 +30,6 @@
 	position: absolute;
 	translate: 0 -50%;
 	white-space: nowrap;
-	transition:
-		left var(--duration-medium, 240ms) var(--ease-standard, ease-out),
-		top var(--duration-medium, 240ms) var(--ease-standard, ease-out);
 	animation: read-map-in var(--duration-medium, 240ms) var(--ease-standard, ease-out) both;
 }
 

@@ -183,15 +183,33 @@ export function settleShell(to: ShellShape): void {
 }
 
 /**
- * The mark has finished inside the full-bleed shell. The page stays hidden while the shell moves to
- * the shape of the page it opens, then comes in. A page that rests open stays open.
+ * The mark has finished but the page is still loading. The shell pulls in to the regular panel and
+ * waits there, page hidden, for what the loader shows on it. `revealShell` then takes it to rest.
+ * A shell that cannot move stays full-bleed.
+ */
+export function pullShellIn(): Promise<boolean> {
+	const root = document.documentElement;
+	const main = document.getElementById(MAIN_ID);
+	if (!main || !shellCanMove()) return Promise.resolve(true);
+	root.dataset.shellClip = 'open';
+	root.dataset.shellMove = '';
+	delete root.dataset.bootPending;
+	globalThis.dispatchEvent(new Event(SHELL_REVEAL));
+	return moveShell(OPEN_SHAPE, REGULAR_SHAPE);
+}
+
+/**
+ * The loader has finished. The page stays hidden while the shell moves to the shape of the page it
+ * opens, then comes in. It moves from the full-bleed shell, or from the regular panel when
+ * `pullShellIn` took it there. A page that rests open stays open.
  */
 export function revealShell(to: ShellShape) {
 	played = true;
 	const root = document.documentElement;
 	const main = document.getElementById(MAIN_ID);
-	const moves = Boolean(main) && shellCanMove() && to.kind !== 'open';
-	if (moves) {
+	const pulled = root.hasAttribute('data-shell-move');
+	const moves = Boolean(main) && (pulled || (shellCanMove() && to.kind !== 'open'));
+	if (moves && !pulled) {
 		root.dataset.shellClip = 'open';
 		root.dataset.shellMove = '';
 	}
@@ -203,7 +221,7 @@ export function revealShell(to: ShellShape) {
 		globalThis.dispatchEvent(new Event(SHELL_INTRO_DONE));
 		return;
 	}
-	void moveShell(OPEN_SHAPE, to).then((arrived) => {
+	void moveShell(pulled ? REGULAR_SHAPE : OPEN_SHAPE, to).then((arrived) => {
 		if (arrived) settleShell(to);
 	});
 }

@@ -11,6 +11,7 @@ import { createRoot } from 'react-dom/client';
 import kernel from '../../package.json' with { type: 'json' };
 import { BootMark } from '../ui/boot-mark.tsx';
 import { theoremStudioTheme } from '../ui/built/theorem-studio.js';
+import { onceAnswering } from '../ui/lib/project-starting.ts';
 import { createReading } from '../ui/lib/read-progress.ts';
 import { openStudioProject } from '../ui/lib/studio-open.ts';
 import { openStudioRun } from '../ui/lib/studio-run-open.ts';
@@ -55,10 +56,16 @@ async function page(): Promise<ReactNode> {
 		return null;
 	}
 	try {
-		const opened = await openStudioProject(reading.say).finally(reading.finish);
+		const opened = await onceAnswering(() => openStudioProject(reading.say)).finally(reading.finish);
 		return <StudioScreen opened={opened} host={HOST} />;
 	} catch {
-		return <StudioNoProject />;
+		// This page and the server start and stop together, so the command has stopped or is stopping.
+		return (
+			<StudioNoProject
+				title="The studio has stopped"
+				description="Run the studio command in your project again, then reload."
+			/>
+		);
 	}
 }
 

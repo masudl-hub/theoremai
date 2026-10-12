@@ -6,17 +6,11 @@ import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
 import type { SaveRefusal } from '../server/save-wire.ts';
+import { refusalLines } from './lib/refusal-lines.ts';
 
 /** More lines than this scroll, so a long report does not push the way out off the pane. */
 const LINES_SHOWN = 12;
 const SCROLL_HEIGHT = 240;
-
-/** The refusal's detail as lines the builder reads. */
-export function refusalLines(refusal: SaveRefusal): string[] {
-	if (refusal.detail.length === 0) return [];
-	if (refusal.reason === 'differs') return [`Not loading as edited: ${refusal.detail.join(', ')}.`];
-	return refusal.detail.flatMap((each) => each.split('\n')).filter((line) => line.trim() !== '');
-}
 
 export function RefusalDetail({ refusal }: { refusal: SaveRefusal }) {
 	const lines = refusalLines(refusal);

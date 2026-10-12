@@ -910,6 +910,9 @@ Masud chose one name: studio everywhere. The paths above are the old ones.
   A setup is a file named `studio.setup.ts`, or `<name>.studio.setup.ts`
   when a project keeps several. With no setup named, the project's one
   setup opens; with several, the command asks which, with the arrow keys.
+  A setup already open is not opened twice: the command says where it is.
+  A second project opens beside the first on the next free pair of ports,
+  two above the last, and its page is told where its server listens.
   This closes "Two processes" above.
 - A section the files set in code says three things and no more: what sets
   it, that it is read-only here, and where to edit it, with Open beside it.

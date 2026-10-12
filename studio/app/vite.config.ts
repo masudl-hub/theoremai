@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import { BOOT_PAINT, BOOT_PAINT_NOSCRIPT } from '../ui/boot-paint.ts';
+import { PROJECT_META } from '../ui/lib/project-address.ts';
 import { studioVite } from '../vite.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -16,6 +17,13 @@ const bootPaint: Plugin = {
   ],
 };
 
+/** The project's server, as the command that started this page beside it names it. */
+const project = process.env.THEOREM_STUDIO_PROJECT;
+const projectAddress: Plugin = {
+  name: 'theorem-studio-project-address',
+  transformIndexHtml: () => (project ? [{ tag: 'meta', attrs: { name: PROJECT_META, content: project }, injectTo: 'head' }] : []),
+};
+
 /**
  * Serves the studio as a page of its own, at `/studio/` so a run tab's address is the one the
  * screen opens. The screen's packages are the studio's own install (`studio/node_modules`).
@@ -24,7 +32,7 @@ const bootPaint: Plugin = {
 export default defineConfig({
   root: here,
   base: '/studio/',
-  plugins: [studioVite({ hostRoot: studio }), bootPaint],
+  plugins: [studioVite({ hostRoot: studio }), bootPaint, projectAddress],
   oxc: { jsx: { runtime: 'automatic' } },
   optimizeDeps: {
     // Scan every source up front, lazy chunks included, so a package first reached mid-session
@@ -34,6 +42,7 @@ export default defineConfig({
   server: {
     // Only this machine.
     host: '127.0.0.1',
+    // The command that starts this names the port; it is never moved to another.
     port: 4984,
     strictPort: true,
     fs: { allow: [path.resolve(studio, '..')] },

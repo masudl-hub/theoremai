@@ -17,18 +17,19 @@
  * `--no-watch` turns that off, and the studio then reads them when the builder comes back to it.
  * The project loads with its own Deno config: the one `--deno-config` names, else the `deno.json`
  * or `deno.jsonc` in the folder the command ran in, else the studio's.
+ * A project already open in a studio is not opened twice: the command says where it is. A second
+ * project opens beside the first, on the next free pair of ports.
  * The studio is opt-in, so this checks for its install and never installs it.
  */
 import './installed.mjs';
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { heldPairs, pageAddress, placeFor, serverAddress } from './ports.mjs';
 import { chooseSetup, findSetups, setupLines, setupsNamed } from './setups.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const PAGE_PORT = 4984;
-const PAGE = `http://127.0.0.1:${PAGE_PORT}`;
 
 const USAGE = 'usage: node studio/start.mjs [setup] [--editor <command>] [--deno-config <file>] [--no-watch]';
 /** The value after each flag that takes one. A flag with none, a second setup, or anything else, is a mistake. */
@@ -70,10 +71,7 @@ async function setupToOpen() {
 	if (wanted !== undefined && existsSync(path.resolve(from, wanted))) return wanted;
 	const found = findSetups(from);
 	const setups = wanted === undefined ? found : setupsNamed(found, wanted);
-	if (setups.length === 1) {
-		if (wanted !== setups[0].file) console.log(`theorem studio: opening ${setups[0].file}`);
-		return setups[0].file;
-	}
+	if (setups.length === 1) return setups[0].file;
 	if (found.length === 0) {
 		refuse(`No setup in ${from}. A setup is a file named studio.setup.ts, or <name>.studio.setup.ts.`);
 	}
@@ -87,6 +85,14 @@ async function setupToOpen() {
 	if (!chosen) process.exit(130);
 	return chosen.file;
 }
+const place = placeFor(realpathSync(path.resolve(from, setup)), await heldPairs());
+if (!place) refuse('Too many studios are open on this machine. Stop one, then run this again.');
+const PAGE = pageAddress(place.pair);
+if (place.running) {
+	console.log(`theorem studio: already open on ${setup}: ${PAGE}/studio/`);
+	process.exit(0);
+}
+if (setup !== wanted) console.log(`theorem studio: opening ${setup}`);
 const ownConfig = ['deno.json', 'deno.jsonc'].map((name) => path.join(from, name)).find(existsSync);
 const projectConfig = given['--deno-config']
 	? path.resolve(from, given['--deno-config'])
@@ -100,8 +106,10 @@ const server = spawn(
 		'-A',
 		path.join(here, 'server/serve.ts'),
 		path.resolve(from, setup),
+		'--port',
+		String(place.pair.server),
 		'--page',
-		`${PAGE},http://localhost:${PAGE_PORT}`,
+		`${PAGE},http://localhost:${String(place.pair.page)}`,
 		'--deno-config',
 		projectConfig,
 		...(editor ? ['--editor', editor] : []),
@@ -111,8 +119,18 @@ const server = spawn(
 );
 const page = spawn(
 	process.execPath,
-	[path.join(here, 'node_modules/vite/bin/vite.js'), '--config', path.join(here, 'app/vite.config.ts')],
-	{ cwd: here, stdio: ['ignore', 'ignore', 'inherit'] },
+	[
+		path.join(here, 'node_modules/vite/bin/vite.js'),
+		'--config',
+		path.join(here, 'app/vite.config.ts'),
+		'--port',
+		String(place.pair.page),
+	],
+	{
+		cwd: here,
+		stdio: ['ignore', 'ignore', 'inherit'],
+		env: { ...process.env, THEOREM_STUDIO_PROJECT: `${serverAddress(place.pair)}/api/studio` },
+	},
 );
 
 console.log(`theorem studio: ${PAGE}/studio/`);

@@ -17,9 +17,8 @@ import type {
 import { createContext, useContext } from 'react';
 import { getPref } from './studio-prefs.ts';
 
-/** Where the local server listens. Only this machine reaches it. */
 import { READ_STEPS, type ReadStep } from '../../read-steps.ts';
-const PROJECT_ENDPOINT = 'http://127.0.0.1:4983/api/studio';
+import { projectEndpoint } from './project-address.ts';
 
 export interface ProjectSession {
 	endpoint: string;
@@ -58,7 +57,7 @@ export function useProject(): ProjectSession | null {
 /** The session for a project already open: the run page names it in its address. */
 export function projectSession(name: string): ProjectSession {
 	return {
-		endpoint: PROJECT_ENDPOINT,
+		endpoint: projectEndpoint(),
 		name,
 		profiles: [],
 		problems: [],
@@ -142,7 +141,7 @@ interface Opened {
 }
 
 async function describe(): Promise<Opened> {
-	const response = await fetch(PROJECT_ENDPOINT);
+	const response = await fetch(projectEndpoint());
 	if (!response.ok) throw new Error(`The studio server answered ${String(response.status)}.`);
 	return response.json();
 }
@@ -152,7 +151,7 @@ async function describe(): Promise<Opened> {
  * each as it happens. The server sends a line of JSON for each, then one holding the project.
  */
 async function describeSaying(said: (step: ReadStep) => void): Promise<Opened> {
-	const response = await fetch(`${PROJECT_ENDPOINT}?${READ_STEPS}`);
+	const response = await fetch(`${projectEndpoint()}?${READ_STEPS}`);
 	if (!response.ok || !response.body) {
 		throw new Error(`The studio server answered ${String(response.status)}.`);
 	}
@@ -214,7 +213,7 @@ export async function openProject(said?: (step: ReadStep) => void): Promise<{
 	const opened = await (said ? describeSaying(said) : describe());
 	return {
 		project: {
-			endpoint: PROJECT_ENDPOINT,
+			endpoint: projectEndpoint(),
 			name: opened.project,
 			shared: opened.shared ?? [],
 			...(opened.editor === undefined ? {} : { editor: opened.editor }),

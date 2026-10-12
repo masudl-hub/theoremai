@@ -29,6 +29,7 @@ import { answerOpen, chosenEditor, defaultEditor, type EditorHost } from './open
 import { PROJECT_READY } from './project.ts';
 import { isInside } from './project-source.ts';
 import { answerSave, createSaveSession, isSaveRequest } from './save-session.ts';
+import { RUNNING_PATH } from '../ports.mjs';
 import { READ_STEPS, type ReadStep } from '../read-steps.ts';
 import { createWatchFeed, watchFiles } from './watch.ts';
 
@@ -351,6 +352,12 @@ function watching(request: Request): Response | undefined {
   return feed ? feed.subscribe(cors) : new Response(null, { status: 204, headers: cors });
 }
 
+/** The setup this studio is open on, for a second studio command to find it already running. */
+function running(request: Request): Response | undefined {
+  if (request.method !== 'GET' || new URL(request.url).pathname !== RUNNING_PATH) return undefined;
+  return json(200, { setup: setupFile }, corsHeaders(request, pageOrigins));
+}
+
 /** What the studio answers itself: the project as it opens, a save, or the builder's editor on a line. */
 async function answered(request: Request): Promise<Response | undefined> {
   const answer = (await opened(request)) ?? (await answerSave(session, SAVE, request)) ??
@@ -362,7 +369,7 @@ async function answered(request: Request): Promise<Response | undefined> {
 
 Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
   if (isForeign(request, gate)) return json(403, {}, {});
-  return watching(request) ?? openedSaying(request) ?? (await answered(request)) ?? (await answerEdited(request)) ?? forward(request);
+  return running(request) ?? watching(request) ?? openedSaying(request) ?? (await answered(request)) ?? (await answerEdited(request)) ?? forward(request);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

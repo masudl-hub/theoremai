@@ -105,6 +105,9 @@ function agentToolInputFor(
 const agentToolOutput: z.ZodType<AgentToolOutput> = z.object({
   text: z.string().optional(),
   structured: z.unknown().optional(),
+  removed: z
+    .array(z.object({ path: z.string(), reason: z.string(), item: z.unknown() }))
+    .optional(),
   parts: z.array(interactionPartSchema).optional(),
   sources: z.array(sourceSchema).optional(),
 });
@@ -184,10 +187,8 @@ function agentToolOrigin(profile: Profile | undefined): ToolOrigin {
  */
 function agentToolOutputOf(events: readonly TurnEvent[]): AgentToolOutput {
   const text = events.flatMap((e) => (e.type === 'text' ? [e.text] : [])).join('');
-  const structured = findLast(
-    events,
-    (e): e is TurnEventOf<'structured'> => e.type === 'structured',
-  )?.structured;
+  const reply = findLast(events, (e): e is TurnEventOf<'structured'> => e.type === 'structured');
+  const structured = reply?.structured;
   const parts = events.flatMap((e) =>
     e.type === 'media'
       ? [
@@ -202,6 +203,7 @@ function agentToolOutputOf(events: readonly TurnEvent[]): AgentToolOutput {
   const sources = events.flatMap((e) => (e.type === 'citation' ? e.sources : []));
   return {
     ...(structured === undefined ? { text } : { structured }),
+    ...(reply?.removed?.length ? { removed: reply.removed } : {}),
     ...(parts.length > 0 ? { parts } : {}),
     ...(sources.length > 0 ? { sources } : {}),
   };

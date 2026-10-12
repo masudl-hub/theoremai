@@ -15,6 +15,7 @@ import type {
   ToolResumeCause,
 } from '../schema.ts';
 import type {
+  RemovedItem,
   Source,
   ToolCallEdit,
   ToolCallEvent,
@@ -276,6 +277,8 @@ export interface AgentToolOutput {
   /** The reply's text; absent when the reply is `structured`, whose text is the same JSON. */
   text?: string;
   structured?: unknown;
+  /** Items the called profile's item rules removed from `structured`, each with why. */
+  removed?: RemovedItem[];
   parts?: InteractionPart[];
   /** What the called agent cited; the caller's turn cites them too. */
   sources?: Source[];

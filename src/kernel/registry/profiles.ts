@@ -17,7 +17,7 @@ import {
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../../observability/types.ts';
 import { assertLiveIngressConfigured } from '../engine/live-ingress.ts';
-import { schemaReaches } from '../engine/runner/schema-validation.ts';
+import { itemSchemaAt, schemaReaches } from '../engine/runner/schema-validation.ts';
 import { outOfScopeFields, profileTypesForField } from '../profile-scope.ts';
 import {
   decisionModelBindingSchema,
@@ -983,14 +983,23 @@ function assertStructuredSchemas(schemas: SchemaRegistry, profile: ModelProfile)
     }
     return spec;
   });
-  const fields = Object.keys(
-    (profile.type === 'text' ? profile.outputs?.validation?.fields : undefined) ?? {},
-  );
-  if (!fields.length) return;
+  const validation = profile.type === 'text' ? profile.outputs?.validation : undefined;
+  const fields = Object.keys(validation?.fields ?? {});
+  const lists = Object.keys(validation?.items ?? {});
+  if (!fields.length && !lists.length) return;
   if (!specs.length) {
     throw new TheoremError(
       'config',
-      `Profile ${profile.id}: outputs.validation.fields checks a structured reply, so it needs outputs.structured`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profile.id}: outputs.validation checks a structured reply, so it needs outputs.structured`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  const notLists = lists.filter(
+    (path) => !specs.some((spec) => itemSchemaAt(spec.jsonSchema, path)),
+  );
+  if (notLists.length) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id}: outputs.validation.items has ${notLists.join(', ')}, which no structured schema reaches as a list with an items schema`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const unreached = fields.filter(

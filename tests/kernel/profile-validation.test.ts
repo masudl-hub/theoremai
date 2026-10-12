@@ -1100,7 +1100,7 @@ Deno.test('a structured profile registers only after its schemas, and its checks
   );
   check(
     reg(withOutputs({ validation: { fields: { title: pass } } })),
-    'Profile p: outputs.validation.fields checks a structured reply, so it needs outputs.structured',
+    'Profile p: outputs.validation checks a structured reply, so it needs outputs.structured',
     'checks with no schema',
   );
 });

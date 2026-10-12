@@ -559,7 +559,7 @@ line's key and facts. `inputs.context` is not a
 field: its senders are the page and the host, and the host sends it through
 `onAgentCall`.
 
-Output is `{ text?, structured?, parts?, sources? }`: the reply's text, or its last
+Output is `{ text?, structured?, removed?, parts?, sources? }`: the reply's text, or its last
 structured reply when the called profile declares `outputs.structured` (the text
 of such a reply is the same JSON, so it is not returned twice), its images or
 audio as `parts`, and what it cited as `sources`, which the caller's turn cites
@@ -1305,6 +1305,29 @@ Beyond compaction rules (above), `registerProfile` / `defineProfile` assert:
 
 Runtime structured validation uses `outputs.validation.fields` keyed by dotted
 paths; failures can trigger repair turns via `input.repair`.
+
+**Item rules.** `outputs.validation.items` holds a check for the items of one
+list, keyed by the list's dotted path (`claims`). `registerProfile` refuses a
+path no structured schema reaches as a list with an `items` schema. A refused
+item never fails the reply, and the rest of the reply is kept:
+
+| `onFail` | What happens to a refused item |
+| --- | --- |
+| `drop` | It is removed |
+| `fix` | The model rewrites the refused items alone, once and while `maxRetries` has an attempt left; an item refused again is removed |
+
+The rewrite is one attempt: it reads only the refused items and each check's
+error (`claims[0]: …`, counted among the refused), under a schema that holds
+only their lists, so the model does not write the kept reply again. It keeps the
+turn's tools and history. Its guidance is the lexicon's `repair.items_guidance`.
+Rewrites go back by position. Field validators run first; a reply they send back
+is rewritten whole.
+
+Removed items leave on the `structured` event as `removed: [{ path, reason, item }]`,
+and an agent tool returns them as `removed` beside `structured`, so the calling
+model reads what was taken out and why. When item rules change a reply, the
+held text of that attempt becomes the kept reply's JSON; text already streamed
+is not sent again.
 
 ## Headless interface
 

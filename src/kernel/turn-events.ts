@@ -864,6 +864,14 @@ export type DoneEvent = DoneBase &
   );
 
 /** Every event a host receives from `runTurn`, `invokeTool` or a live session. */
+/** One item an item rule removed from a structured reply, and why. */
+export interface RemovedItem {
+  /** The dotted path of the list it sat in. */
+  path: string;
+  reason: string;
+  item: unknown;
+}
+
 export type TurnEvent =
   | { type: 'provider_warning'; warning: ProviderWarning }
   | {
@@ -874,7 +882,12 @@ export type TurnEvent =
   | { type: 'text'; text: string }
   | { type: 'thought'; text: string }
   /** The profile's structured-output schema validates `structured`. */
-  | { type: 'structured'; structured: unknown }
+  | {
+      type: 'structured';
+      structured: unknown;
+      /** Items the profile's item rules removed from `structured`, each with why. */
+      removed?: RemovedItem[];
+    }
   | { type: 'media'; media: { mimeType: string; data: string } }
   | { type: 'grounding'; grounding: GroundingEvent }
   /** Sources a provider or a tool cited; `callId` names the tool call when a tool did. */
@@ -1019,7 +1032,13 @@ const TURN_EVENTS = {
   }),
   text: z.object({ type: z.literal('text'), text: z.string() }),
   thought: z.object({ type: z.literal('thought'), text: z.string() }),
-  structured: z.object({ type: z.literal('structured'), structured: z.unknown() }),
+  structured: z.object({
+    type: z.literal('structured'),
+    structured: z.unknown(),
+    removed: z
+      .array(z.object({ path: z.string(), reason: z.string(), item: z.unknown() }))
+      .optional(),
+  }),
   media: z.object({
     type: z.literal('media'),
     media: z.object({ mimeType: z.string(), data: z.string() }),

@@ -439,6 +439,7 @@ export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
   'inputs.slots',
   'inputs.limitsByMime',
   'outputs.validation.fields',
+  'outputs.validation.items',
 ]);
 /** Turns a key path into its catalog path, replacing host-chosen map keys with `*`. */
 export function catalogPathFor(keys: readonly string[]): string {
@@ -1145,6 +1146,22 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'outputs.validation.fields.*': field(
     '(candidate: unknown, slots?: Record<string, string>) => ValidationResult | Promise<ValidationResult>',
     'Your check on this part of the reply, reached through object properties only; a failure sends its error back to the model to rewrite while retries remain.',
+  ),
+  'outputs.validation.items': field(
+    'Record<string, ProfileItemRule>',
+    'Your checks on the items of a list, each keyed by the dotted path of that list in the structured reply, such as claims; a path no structured schema reaches as a list is refused when the profile registers.',
+  ),
+  'outputs.validation.items.*': field(
+    'ProfileItemRule',
+    'Your check on each item of this list. A refused item never fails the reply and the rest of the reply is kept.',
+  ),
+  'outputs.validation.items.*.check': field(
+    '(item: unknown, slots?: Record<string, string>) => ValidationResult | Promise<ValidationResult>',
+    'Your check on one item; its error is the reason the model reads on a rewrite and the host reads on the removed item.',
+  ),
+  'outputs.validation.items.*.onFail': field(
+    "'drop' | 'fix'",
+    'drop removes a refused item. fix first asks the model to rewrite the refused items alone, once and while retries remain, then removes any refused again. Removed items leave on the structured event as removed.',
   ),
   'outputs.validation.maxRetries': field(
     'number',

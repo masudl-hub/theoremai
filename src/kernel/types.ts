@@ -69,6 +69,7 @@ import type {
   InteractionTextPart,
   ProviderEvent,
   ProviderEvidence,
+  RemovedItem,
   SessionEnded,
   SessionEvent,
   SessionEventKind,
@@ -127,6 +128,7 @@ export type {
   ProviderEvent,
   ProviderEvidence,
   RegisteredTool,
+  RemovedItem,
   SessionEnded,
   SessionEvent,
   SessionEventKind,
@@ -363,6 +365,16 @@ export type ProfileValidator = (
   slots?: Record<string, string>,
 ) => ValidationResult | Promise<ValidationResult>;
 
+/**
+ * A host check on each item of one list in a structured reply. A refused item
+ * never fails the reply: `drop` removes it, and `fix` first asks the model to
+ * rewrite the refused items alone, then removes any that are refused again.
+ */
+export interface ProfileItemRule {
+  check: ProfileValidator;
+  onFail: 'drop' | 'fix';
+}
+
 /** Host validators a profile runs on its structured output. */
 export interface ProfileValidationSpec {
   /**
@@ -371,6 +383,8 @@ export interface ProfileValidationSpec {
    * these run only for required paths and for optional paths that are present.
    */
   fields?: Record<string, ProfileValidator>;
+  /** Host checks on list items, keyed by the dotted path of a list in the structured output. */
+  items?: Record<string, ProfileItemRule>;
   maxRetries?: number;
 }
 

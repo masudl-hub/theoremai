@@ -1,5 +1,5 @@
 import { TheoremError } from '../../../guardrails/error.ts';
-import type { ProfileValidator, ValidationResult } from '../../types.ts';
+import type { ProfileItemRule, ProfileValidator, ValidationResult } from '../../types.ts';
 
 interface ValidationFailure {
   path: string;
@@ -170,5 +170,84 @@ function formatValidationFailures(failures: ValidationFailure[]): string {
   return failures.map((f) => f.error).join('; ');
 }
 
-export type { ValidationFailure };
-export { collectValidationFailures, formatValidationFailures, isAbsent, schemaReaches };
+/** One list item an item rule refused: where it sat, the item, and why. */
+interface ItemFailure {
+  path: string;
+  index: number;
+  item: unknown;
+  reason: string;
+  onFail: ProfileItemRule['onFail'];
+}
+
+/** The value at a dotted path, reached through object properties only. */
+function valueAt(structured: unknown, path: string): unknown {
+  let value: unknown = structured;
+  for (const key of path.split('.')) {
+    value = asRecord(value)?.[key];
+  }
+  return value;
+}
+
+/** `structured` with the list at `path` replaced; every object on the way is copied. */
+function withListAt(structured: unknown, path: string, list: unknown[]): unknown {
+  const [key, ...rest] = path.split('.');
+  const record = asRecord(structured) ?? {};
+  if (key === undefined) return structured;
+  return {
+    ...record,
+    [key]: rest.length ? withListAt(record[key], rest.join('.'), list) : list,
+  };
+}
+
+/** Each item an item rule refuses, in the reply's own order. A path with no list has no items. */
+async function collectItemFailures(
+  structured: unknown,
+  items: Record<string, ProfileItemRule> | undefined,
+  slots?: Record<string, string>,
+): Promise<ItemFailure[]> {
+  const failures: ItemFailure[] = [];
+  for (const [path, rule] of Object.entries(items ?? {})) {
+    const list = valueAt(structured, path);
+    if (!Array.isArray(list)) continue;
+    for (const [index, item] of list.entries()) {
+      const check = await rule.check(item, slots);
+      if (check.isValid) continue;
+      failures.push({
+        path,
+        index,
+        item,
+        reason: check.error || check.finding || `Validation failed for '${path}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        onFail: rule.onFail,
+      });
+    }
+  }
+  return failures;
+}
+
+/** The schema of one item of the list at `path`, or `undefined` when the path reaches no list with one. */
+function itemSchemaAt(
+  jsonSchema: Record<string, unknown>,
+  path: string,
+): Record<string, unknown> | undefined {
+  let schema: unknown = jsonSchema;
+  for (const key of path.split('.')) {
+    const object = asObjectSchema(schema);
+    if (!object) return undefined;
+    schema = propertySchemas(object)[key];
+  }
+  const list = asRecord(schema);
+  if (list?.type !== 'array') return undefined;
+  return asRecord(list.items) ?? undefined;
+}
+
+export type { ItemFailure, ValidationFailure };
+export {
+  collectItemFailures,
+  collectValidationFailures,
+  formatValidationFailures,
+  isAbsent,
+  itemSchemaAt,
+  schemaReaches,
+  valueAt,
+  withListAt,
+};

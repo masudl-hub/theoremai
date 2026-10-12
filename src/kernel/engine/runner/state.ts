@@ -17,6 +17,7 @@ import type {
   TurnStop,
 } from '../../types.ts';
 import type { MediaTokenFamily } from '../token-estimate.ts';
+import type { ItemFailure } from './schema-validation.ts';
 import type { CallUsage } from './usage.ts';
 
 interface TurnTraceState {
@@ -72,10 +73,20 @@ interface StepExecutionState {
   lastCall?: CallUsage;
 }
 
+/** A reply waiting on its refused items: the attempt under way is rewriting only those. */
+interface PendingItemFix {
+  /** The reply the items were refused in; the rewritten ones go back into it. */
+  reply: unknown;
+  refused: ItemFailure[];
+  /** The profile's own structured schema, put back once the rewrite returns. */
+  structured: ResolvedGeneration['structured'];
+}
+
 interface AttemptFlowState {
   currentAttempt: number;
   currentReq: TurnRequest;
   currentGen: ResolvedGeneration;
+  pendingItemFix?: PendingItemFix;
 }
 
 function recordStepEvent(event: TurnEvent, state: StepExecutionState): void {

@@ -86,6 +86,7 @@ export const LEXICON_KEYS = [
   'error.cancelled',
   'error.internal',
   'repair.default_guidance',
+  'repair.items_guidance',
   'repair.prompt_header',
   'repair.prompt_intro',
   'repair.prompt_instructions',
@@ -352,6 +353,8 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'error.internal': 'Sorry, something went wrong.',
   'repair.default_guidance':
     'Revise the previous output so it satisfies the validator rejection. Preserve the intended user-facing substance unless the guidance says otherwise.',
+  'repair.items_guidance':
+    'The previous output holds only the items that were rejected; the rest of your reply is kept. Return only these items, corrected, in the same order.',
   'repair.prompt_header': '## OUTPUT REPAIR REQUEST',
   'repair.prompt_intro':
     'The previous assistant output was rejected by a host validator and must be revised.',
@@ -575,6 +578,8 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
     'Shown to the user when something inside Theorem breaks. Takes {tool} when one step failed.',
   'repair.default_guidance':
     "Sent to the model when a validator rejects its output and the host gives no guidance of its own; also the Repair guidance setting's default.",
+  'repair.items_guidance':
+    'Sent to the model when an item rule rejects some items of a list in its structured reply and asks for those items alone to be rewritten.',
   'repair.prompt_header':
     'The heading that opens the repair request sent to the model after a validator or the egress check rejects its output.',
   'repair.prompt_intro':

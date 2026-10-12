@@ -37,7 +37,15 @@ import type {
 } from '../../types.ts';
 import { findLast } from '../../util/find-last.ts';
 import { guardrailCheckAttributes } from '../turn-trace.ts';
-import { collectValidationFailures, formatValidationFailures } from './schema-validation.ts';
+import {
+  collectItemFailures,
+  collectValidationFailures,
+  formatValidationFailures,
+  type ItemFailure,
+  itemSchemaAt,
+  valueAt,
+  withListAt,
+} from './schema-validation.ts';
 import { applyTurnStage } from './stages.ts';
 import { type AttemptFlowState, appendUserInput, type StepExecutionState } from './state.ts';
 import { executeAttempt } from './steps.ts';
@@ -359,6 +367,151 @@ async function* handleEgressGate(
   return 'pass';
 }
 
+/** The refused items of each list, in the reply's own shape and order. */
+function refusedLists(refused: ItemFailure[]): unknown {
+  let lists: unknown = {};
+  for (const path of new Set(refused.map((failure) => failure.path))) {
+    const items = refused.filter((failure) => failure.path === path).map(({ item }) => item);
+    lists = withListAt(lists, path, items);
+  }
+  return lists;
+}
+
+// why: A type alias, where an interface would not be read as the open record a JSON Schema is.
+type FixObjectSchema = {
+  type: 'object';
+  properties: Record<string, FixObjectSchema | { type: 'array'; items: Record<string, unknown> }>;
+  required: string[];
+  $defs?: unknown;
+};
+
+/**
+ * The schema a rewrite of refused items answers under: the reply's shape, holding
+ * only the lists that had a refused item.
+ *
+ * why: Under the reply's own schema the model would write the whole reply again to change one item.
+ */
+function fixSchemaFor(jsonSchema: Record<string, unknown>, paths: Iterable<string>) {
+  const root: FixObjectSchema = { type: 'object', properties: {}, required: [] };
+  // why: An item schema may point into the reply schema's definitions.
+  if (jsonSchema.$defs !== undefined) root.$defs = jsonSchema.$defs;
+  for (const path of paths) {
+    const items = itemSchemaAt(jsonSchema, path);
+    if (!items) continue;
+    const keys = path.split('.');
+    let node = root;
+    for (const [depth, key] of keys.entries()) {
+      if (!node.required.includes(key)) node.required.push(key);
+      if (depth === keys.length - 1) {
+        node.properties[key] = { type: 'array', items };
+        break;
+      }
+      const next = node.properties[key];
+      const child: FixObjectSchema =
+        next?.type === 'object' ? next : { type: 'object', properties: {}, required: [] };
+      node.properties[key] = child;
+      node = child;
+    }
+  }
+  return root;
+}
+
+/** `fix.reply` with each refused item replaced by its rewrite, matched by position; one with no rewrite stays as it was. */
+function withRewrittenItems(
+  fix: NonNullable<AttemptFlowState['pendingItemFix']>,
+  rewrite: unknown,
+): unknown {
+  let reply = fix.reply;
+  for (const path of new Set(fix.refused.map((failure) => failure.path))) {
+    const list = valueAt(reply, path);
+    const rewritten = valueAt(rewrite, path);
+    if (!Array.isArray(list) || !Array.isArray(rewritten)) continue;
+    const next = [...list];
+    const refusedHere = fix.refused.filter((failure) => failure.path === path);
+    for (const [position, failure] of refusedHere.entries()) {
+      if (position < rewritten.length) next[failure.index] = rewritten[position];
+    }
+    reply = withListAt(reply, path, next);
+  }
+  return reply;
+}
+
+/** `reply` without its refused items. */
+function withoutItems(reply: unknown, refused: ItemFailure[]): unknown {
+  let next = reply;
+  for (const path of new Set(refused.map((failure) => failure.path))) {
+    const list = valueAt(next, path);
+    if (!Array.isArray(list)) continue;
+    const gone = new Set(
+      refused.filter((failure) => failure.path === path).map(({ index }) => index),
+    );
+    next = withListAt(
+      next,
+      path,
+      list.filter((_, index) => !gone.has(index)),
+    );
+  }
+  return next;
+}
+
+/**
+ * Makes `reply` the attempt's structured output, with what the item rules removed.
+ *
+ * why: The buffered text is the model's own JSON, which no longer matches; held text goes out as the reply that is kept, and streamed text is skipped at release as it always is.
+ */
+function holdReply(state: StepExecutionState, reply: unknown, removed: ItemFailure[]): void {
+  const event: TurnEventOf<'structured'> = {
+    type: 'structured',
+    structured: reply,
+    ...(removed.length
+      ? { removed: removed.map(({ path, reason, item }) => ({ path, reason, item })) }
+      : {}),
+  };
+  state.attemptEvents = [
+    ...state.attemptEvents.filter((held) => held.type !== 'structured' && held.type !== 'text'),
+    { type: 'text', text: JSON.stringify(reply) },
+    event,
+  ];
+}
+
+/** The next attempt rewrites only the refused items, under a schema that holds only their lists. */
+function startItemFix(args: {
+  flow: AttemptFlowState;
+  state: StepExecutionState;
+  profile: Profile;
+  reply: unknown;
+  refused: ItemFailure[];
+  structured: NonNullable<ResolvedGeneration['structured']>;
+}): void {
+  const { flow, state, profile, reply, refused, structured } = args;
+  const positions = new Map<string, number>();
+  const rejection = refused
+    .map(({ path, reason }) => {
+      const position = positions.get(path) ?? 0;
+      positions.set(path, position + 1);
+      return `${path}[${position}]: ${reason}`;
+    })
+    .join('\n');
+  const nextRequest = buildRepairRequest(
+    flow.currentReq,
+    refusedLists(refused),
+    rejection,
+    lexiconText('repair.items_guidance', {}, profile.lexicon),
+  );
+  flow.pendingItemFix = { reply, refused, structured };
+  updateFlowForRetry(flow, state, profile, nextRequest, 'validation');
+  flow.currentGen = {
+    ...flow.currentGen,
+    structured: {
+      id: structured.id,
+      jsonSchema: fixSchemaFor(
+        structured.jsonSchema,
+        refused.map(({ path }) => path),
+      ),
+    },
+  };
+}
+
 async function handleValidationGate(
   validation: NonNullable<ProfileOutputsSpec['validation']>,
   flow: AttemptFlowState,
@@ -367,10 +520,19 @@ async function handleValidationGate(
   latestStructured: unknown,
 ): Promise<'continue' | 'pass'> {
   const canRetry = flow.currentAttempt < (validation.maxRetries ?? 0);
+  const fix = flow.pendingItemFix;
+  let reply = latestStructured;
+  if (fix) {
+    // why: The attempt that just ended answered under the fix schema; the reply is the one the items were refused in, with the rewrites put back.
+    flow.pendingItemFix = undefined;
+    flow.currentGen = { ...flow.currentGen, structured: fix.structured };
+    reply = withRewrittenItems(fix, latestStructured);
+    holdReply(state, reply, []);
+  }
   const outcome = await evaluateValidationOutcome({
     validation,
     generation: flow.currentGen,
-    latestStructured,
+    latestStructured: reply,
     request: flow.currentReq,
     canRetry,
   });
@@ -379,6 +541,17 @@ async function handleValidationGate(
     updateFlowForRetry(flow, state, profile, outcome.nextRequest, 'validation');
     return 'continue';
   }
+  if (reply === undefined) return 'pass';
+  const refused = await collectItemFailures(reply, validation.items, flow.currentReq.input?.slots);
+  if (refused.length === 0) return 'pass';
+  const fixable = refused.filter((failure) => failure.onFail === 'fix');
+  const structured = flow.currentGen.structured;
+  // invariant: Refused items get one rewrite. Refused again, they are removed.
+  if (fixable.length > 0 && canRetry && !fix && structured) {
+    startItemFix({ flow, state, profile, reply, refused: fixable, structured });
+    return 'continue';
+  }
+  holdReply(state, withoutItems(reply, refused), refused);
   return 'pass';
 }
 

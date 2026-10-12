@@ -105,6 +105,22 @@ Deno.test('a setting the files added, among the others, leaves no edit here', ()
   assert(atStart(merge.workspace));
 });
 
+Deno.test('settings held in another order are not an edit', () => {
+  const old = createArchitectWorkspace();
+  const turned = <T extends object>(each: T): T =>
+    Object.fromEntries(Object.entries(each).reverse()) as T;
+  const reordered = {
+    ...old,
+    agents: old.agents.map(turned),
+    toolSpecs: old.toolSpecs.map(turned),
+  };
+  assert(atStart(reordered));
+  const merge = mergedWithFiles(reordered, createArchitectWorkspace(), old);
+  assertEquals(merge.updated, []);
+  assertEquals(merge.conflicts, []);
+  assert(atStart(merge.workspace));
+});
+
 Deno.test('both making the same change is no conflict', () => {
   const old = createArchitectWorkspace();
   const edits = edit(old, first(old).key, system('Agreed.'));

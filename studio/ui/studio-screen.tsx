@@ -125,6 +125,7 @@ import {
 	workspaceTree,
 	writeAsk,
 } from '../mod.ts';
+import { canonical } from '../canonical.ts';
 import type { OpenAnswer, SettingOrigin } from '../server/save-wire.ts';
 import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
 import { GuardrailTester, ProbedAgent } from './guardrail-tester.tsx';
@@ -1487,7 +1488,7 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 	const lastRead = useRef<StudioWorkspace | undefined>(undefined);
 	const keep = useCallback((read: ProjectFiles) => {
 		// Files that say what they said keep the reading, so nothing that runs on it starts again.
-		setFiles((held) => (JSON.stringify(held) === JSON.stringify(read) ? held : read));
+		setFiles((held) => (canonical(held) === canonical(read) ? held : read));
 	}, []);
 	const reread = useCallback(
 		(isOurs: boolean, changed: readonly string[] = []) => {

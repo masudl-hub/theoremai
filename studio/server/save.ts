@@ -15,7 +15,7 @@ import type { NewSubjects } from './save-new.ts';
 import type { Removed } from './save-remove.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import type { StudioWorkspace } from '../workspace.ts';
-import { canonical } from './canonical.ts';
+import { canonical } from '../canonical.ts';
 import type { SaveSubject } from './save-plan.ts';
 import type { SaveChange } from './save-wire.ts';
 

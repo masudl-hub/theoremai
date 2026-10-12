@@ -1,6 +1,8 @@
 /**
- * Values compared as text. On its own so the project's load, which reads no
- * source, does not load the TypeScript the Save plan reads source with.
+ * Values compared as text, whatever order their settings are held in. A file's reading, a merge
+ * and the page each build the same agent or tool with its settings in a different order, and
+ * that is not a difference. On its own so the page and the project's load, which read no source,
+ * do not load the TypeScript the Save plan reads source with.
  *
  * @module
  */

@@ -14,7 +14,7 @@
 import ts from 'typescript';
 import { type SourceStyle, valueSource } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
-import { canonical } from './canonical.ts';
+import { canonical } from '../canonical.ts';
 import {
   followed,
   holderOf,

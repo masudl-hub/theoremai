@@ -11,7 +11,7 @@ import { z } from 'zod';
 import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
 import { type SourceStyle, valueSource } from '../source.ts';
 import { keySource, quoteSource } from '../tool-schema.ts';
-import { canonical } from './canonical.ts';
+import { canonical } from '../canonical.ts';
 import {
   type Env,
   followed,

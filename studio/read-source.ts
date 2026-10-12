@@ -27,6 +27,7 @@ import {
   type StudioProfileType,
   type ToolSpecDraft,
 } from './draft.ts';
+import { canonical } from './canonical.ts';
 import { STUDIO_DECISION_MAX_STATE_BYTES, STUDIO_DECISION_TIMEOUT_MS } from './policy.ts';
 import { stubOutputFromSchema } from './stub.ts';
 import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
@@ -559,7 +560,7 @@ function jsonText(value: unknown): string {
 }
 
 function sameValue(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return canonical(a) === canonical(b);
 }
 
 function schemaText(schema: unknown): string {

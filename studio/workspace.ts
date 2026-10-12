@@ -13,6 +13,7 @@ import {
   type ToolSpecDraft,
   type ToolsDraft,
 } from './draft.ts';
+import { canonical } from './canonical.ts';
 import {
   type StudioNodeRef,
   studioNodeRef,
@@ -355,7 +356,8 @@ export function removeLibraryTool(workspace: StudioWorkspace, toolKey: string): 
   });
 }
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/** The same settings with the same values. The order they are held in is not a difference. */
+const same = (a: unknown, b: unknown) => canonical(a) === canonical(b);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);

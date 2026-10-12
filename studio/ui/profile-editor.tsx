@@ -174,7 +174,7 @@ import {
 	GEMINI_STUDIO_MODELS,
 	type GuardrailsDraft,
 	type ImageReferenceDraft,
-	INLINE_WORDING,
+	INLINE_LABELS,
 	includableFacets,
 	includeFacet,
 	inputLimitsRequired,
@@ -4201,7 +4201,7 @@ function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: S
 			{draftAllows(draft, 'guardrails.blockedReply') && (
 				<BlockedReplySection
 					guardrails={guardrails}
-					withheld={wordingValue(draft, 'error.safety') || labelDefault('error.safety')}
+					withheld={labelValue(draft, 'error.safety') || labelDefault('error.safety')}
 					set={set}
 				/>
 			)}
@@ -5539,16 +5539,16 @@ function ToolSpecEditor({
 	);
 }
 
-/** Wording's areas, by labels key prefix: what visitors read first, then what the model reads. */
+/** Labels' areas, by labels key prefix: what visitors read first, then what the model reads. */
 /** Who reads a line: the visitor, in the chat, or the model, in its context. */
-type WordingAudience = 'visitor' | 'model';
+type LabelAudience = 'visitor' | 'model';
 
-const WORDING_AREAS: readonly {
+const LABEL_AREAS: readonly {
 	prefix: string;
 	title: string;
 	note: string;
 	icon: IconType;
-	audience: WordingAudience;
+	audience: LabelAudience;
 }[] = [
 	{
 		prefix: 'error',
@@ -5643,8 +5643,8 @@ const WORDING_AREAS: readonly {
 	},
 ];
 
-const WORDING_AUDIENCES: readonly {
-	value: WordingAudience;
+const LABEL_AUDIENCES: readonly {
+	value: LabelAudience;
 	label: string;
 	icon: IconType;
 	note: string;
@@ -5664,22 +5664,22 @@ const WORDING_AUDIENCES: readonly {
 ];
 
 /** Row names for keys whose own name reads as code. */
-const WORDING_LABELS: Partial<Record<LabelKey, string>> = {
+const LABEL_TITLES: Partial<Record<LabelKey, string>> = {
 	'attachments.mime_not_allowed': 'File type not allowed',
 	'attachments.limits_unconfigured': 'Files turned off',
 	'quota.exhausted': 'Limit reached',
 };
 
 /** `rate_limit` → "Rate limit". */
-function wordingLabel(key: LabelKey): string {
-	const named = WORDING_LABELS[key];
+function labelTitle(key: LabelKey): string {
+	const named = LABEL_TITLES[key];
 	if (named) return named;
 	const words = key.slice(key.indexOf('.') + 1).replaceAll('_', ' ');
 	return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /** The kernel's line for `key`, worded with the draft's own limits where it takes them. */
-function wordingPlaceholder(draft: StudioDraft, key: LabelKey): string {
+function labelPlaceholder(draft: StudioDraft, key: LabelKey): string {
 	const { inputs, guardrails } = draft;
 	const text = labelDefault(key, {
 		maxFiles: inputs.maxFiles ?? '{maxFiles}',
@@ -5696,9 +5696,9 @@ function wordingPlaceholder(draft: StudioDraft, key: LabelKey): string {
 
 /**
  * The lines that also sit beside their setting: one value, edited from either place. `isOn` is when
- * the kernel uses the line; off, Wording links to the setting that turns it on.
+ * the kernel uses the line; off, Labels links to the setting that turns it on.
  */
-const SHARED_WORDING: Partial<
+const SHARED_LABELS: Partial<
 	Record<
 		LabelKey,
 		{
@@ -5759,13 +5759,13 @@ const SHARED_WORDING: Partial<
 	},
 };
 
-/** The text a line holds in the draft: its own setting's field, or Wording's. */
-function wordingValue(draft: StudioDraft, key: LabelKey): string {
-	return SHARED_WORDING[key]?.read(draft) ?? draft.wording[key] ?? '';
+/** The text a line holds in the draft: its own setting's field, or Labels'. */
+function labelValue(draft: StudioDraft, key: LabelKey): string {
+	return SHARED_LABELS[key]?.read(draft) ?? draft.labels[key] ?? '';
 }
 
 /** A line that also sits beside its setting; while that setting is off, a link to turn it on. */
-function SharedWordingRow({
+function SharedLabelRow({
 	labelKey,
 	facet,
 	draft,
@@ -5778,16 +5778,16 @@ function SharedWordingRow({
 	setDraft: SetDraft;
 	onSelect: (id: string) => void;
 }) {
-	const shared = SHARED_WORDING[labelKey];
+	const shared = SHARED_LABELS[labelKey];
 	if (!shared) return null;
 	return (
 		<VStack gap={1}>
 			<TextAreaRow
-				label={wordingLabel(labelKey)}
+				label={labelTitle(labelKey)}
 				path={`labels.${labelKey}`}
 				rows={2}
 				value={shared.read(draft)}
-				placeholder={wordingPlaceholder(draft, labelKey)}
+				placeholder={labelPlaceholder(draft, labelKey)}
 				onChange={(text) => {
 					shared.write(setDraft, text);
 				}}
@@ -5812,7 +5812,7 @@ function SharedWordingRow({
 }
 
 /** Every line the kernel says, by area; left blank, a line keeps the kernel's own. */
-function WordingEditor({
+function LabelsEditor({
 	draft,
 	setDraft,
 	onSelect,
@@ -5821,16 +5821,16 @@ function WordingEditor({
 	setDraft: SetDraft;
 	onSelect: (id: string) => void;
 }) {
-	const [audience, setAudience] = useState<WordingAudience>('visitor');
+	const [audience, setAudience] = useState<LabelAudience>('visitor');
 	const [query, setQuery] = useState('');
 	const needle = query.trim().toLowerCase();
-	const areas = wordingAreas(draft, needle, audience);
-	const note = WORDING_AUDIENCES.find((entry) => entry.value === audience)?.note;
+	const areas = labelAreas(draft, needle, audience);
+	const note = LABEL_AUDIENCES.find((entry) => entry.value === audience)?.note;
 	return (
 		<Section variant="transparent" padding={3}>
 			<VStack gap={3}>
 				<TextInput
-					label="Search wording"
+					label="Search labels"
 					isLabelHidden
 					placeholder="Search names, defaults and text"
 					value={query}
@@ -5838,10 +5838,10 @@ function WordingEditor({
 					startIcon={IconSearch}
 					hasClear
 				/>
-				{!needle && <WordingAudiencePicker value={audience} onChange={setAudience} />}
+				{!needle && <LabelAudiencePicker value={audience} onChange={setAudience} />}
 				{!needle && <Text type="supporting">{note}</Text>}
 				{needle && areas.length === 0 && (
-					<Text type="supporting">No wording matches “{query.trim()}”.</Text>
+					<Text type="supporting">No labels match “{query.trim()}”.</Text>
 				)}
 				<CollapsibleGroup
 					// Searching opens every area with a match; clearing the search goes back to all closed.
@@ -5855,9 +5855,9 @@ function WordingEditor({
 						<Collapsible
 							key={area.prefix}
 							value={area.prefix}
-							trigger={<WordingAreaTrigger area={area} />}
+							trigger={<LabelAreaTrigger area={area} />}
 						>
-							<WordingAreaLines
+							<LabelAreaLines
 								keys={area.keys}
 								draft={draft}
 								setDraft={setDraft}
@@ -5875,33 +5875,33 @@ function WordingEditor({
  * The areas on show, each with its lines. A search spans both readers: a line matches on its area,
  * its name, its default or its text.
  */
-function wordingAreas(draft: StudioDraft, needle: string, audience: WordingAudience) {
-	return WORDING_AREAS.filter((area) => needle || area.audience === audience)
+function labelAreas(draft: StudioDraft, needle: string, audience: LabelAudience) {
+	return LABEL_AREAS.filter((area) => needle || area.audience === audience)
 		.map((area) => {
 			const all = LABEL_KEYS.filter((key) => key.startsWith(`${area.prefix}.`));
 			const keys = needle
 				? all.filter((key) =>
 						[
 							area.title,
-							wordingLabel(key),
-							wordingPlaceholder(draft, key),
-							wordingValue(draft, key),
+							labelTitle(key),
+							labelPlaceholder(draft, key),
+							labelValue(draft, key),
 						].some((text) => text.toLowerCase().includes(needle)),
 					)
 				: all;
-			const edited = all.filter((key) => wordingValue(draft, key)).length;
+			const edited = all.filter((key) => labelValue(draft, key)).length;
 			return { ...area, keys, edited };
 		})
 		.filter((area) => area.keys.length > 0);
 }
 
 /** Who reads the lines on show: the visitor, or the model. */
-function WordingAudiencePicker({
+function LabelAudiencePicker({
 	value,
 	onChange,
 }: {
-	value: WordingAudience;
-	onChange: (audience: WordingAudience) => void;
+	value: LabelAudience;
+	onChange: (audience: LabelAudience) => void;
 }) {
 	return (
 		<SegmentedControl
@@ -5910,11 +5910,11 @@ function WordingAudiencePicker({
 			layout="fill"
 			value={value}
 			onChange={(next) => {
-				const picked = WORDING_AUDIENCES.find((entry) => entry.value === next);
+				const picked = LABEL_AUDIENCES.find((entry) => entry.value === next);
 				if (picked) onChange(picked.value);
 			}}
 		>
-			{WORDING_AUDIENCES.map((entry) => (
+			{LABEL_AUDIENCES.map((entry) => (
 				<Tooltip key={entry.value} content={entry.label}>
 					<SegmentedControlItem
 						value={entry.value}
@@ -5929,7 +5929,7 @@ function WordingAudiencePicker({
 }
 
 /** An area's heading: its icon, title and note, and how many of its lines are edited. */
-function WordingAreaTrigger({ area }: { area: ReturnType<typeof wordingAreas>[number] }) {
+function LabelAreaTrigger({ area }: { area: ReturnType<typeof labelAreas>[number] }) {
 	return (
 		<HStack gap={2} align="center">
 			<Icon icon={area.icon} size="sm" color="secondary" />
@@ -5949,7 +5949,7 @@ function WordingAreaTrigger({ area }: { area: ReturnType<typeof wordingAreas>[nu
 }
 
 /** An area's lines; one that also sits beside its setting edits that setting's field. */
-function WordingAreaLines({
+function LabelAreaLines({
 	keys,
 	draft,
 	setDraft,
@@ -5960,14 +5960,14 @@ function WordingAreaLines({
 	setDraft: SetDraft;
 	onSelect: (id: string) => void;
 }) {
-	const set = patch(setDraft, 'wording');
+	const set = patch(setDraft, 'labels');
 	return (
 		<VStack gap={3} paddingBlock={2}>
 			{keys.map((key) => {
-				const facet = INLINE_WORDING[key];
+				const facet = INLINE_LABELS[key];
 				if (facet)
 					return (
-						<SharedWordingRow
+						<SharedLabelRow
 							key={key}
 							labelKey={key}
 							facet={facet}
@@ -5979,12 +5979,12 @@ function WordingAreaLines({
 				return (
 					<TextAreaRow
 						key={key}
-						label={wordingLabel(key)}
+						label={labelTitle(key)}
 						path={`labels.${key}`}
 						field={key}
 						rows={2}
-						value={draft.wording[key] ?? ''}
-						placeholder={wordingPlaceholder(draft, key)}
+						value={draft.labels[key] ?? ''}
+						placeholder={labelPlaceholder(draft, key)}
 						onChange={(text) => {
 							set({ [key]: text });
 						}}
@@ -6441,8 +6441,8 @@ function facetEditor(
 			return <GuardrailsEditor {...props} />;
 		case 'observability':
 			return <ObservabilityEditor {...props} />;
-		case 'wording':
-			return <WordingEditor {...props} onSelect={onSelect} />;
+		case 'labels':
+			return <LabelsEditor {...props} onSelect={onSelect} />;
 		case 'decision':
 			return <DecisionEditor {...props} />;
 	}

@@ -98,7 +98,7 @@ export {
   TheoremError,
   throwIfAborted,
   toErrorEvent,
-  withPublicWording,
+  withPublicLabels,
 } from './error.ts';
 export { errorCopiesSchema, errorKindSchema, guardrailEventSchema } from './event-schemas.ts';
 export {

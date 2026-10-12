@@ -93,7 +93,7 @@ import {
   COMPACTION_DRAFT_DEFAULTS,
   draftAllows,
   draftFacets,
-  INLINE_WORDING,
+  INLINE_LABELS,
   plantsCanary,
   takesContinueInstruction,
 } from './draft.ts';
@@ -1055,10 +1055,10 @@ function compileLabels(
       guardrails.egressRefusal.trim(),
     ]);
   }
-  if (facets.has('wording')) {
-    for (const [key, template] of Object.entries(draft.wording) as [LabelKey, string][]) {
-      if (!INLINE_WORDING[key]) {
-        entries.push(['wording', key, key, template.trim()]);
+  if (facets.has('labels')) {
+    for (const [key, template] of Object.entries(draft.labels) as [LabelKey, string][]) {
+      if (!INLINE_LABELS[key]) {
+        entries.push(['labels', key, key, template.trim()]);
       }
     }
   }
@@ -1876,7 +1876,7 @@ function compileDecision(
   return { profile, customTools: [], questions };
 }
 
-/** A host: its custom tools, called directly, and the guardrails, trace and wording a host keeps. */
+/** A host: its custom tools, called directly, and the guardrails, trace and labels a host keeps. */
 function compileHost(
   draft: StudioDraft,
   report: Report,

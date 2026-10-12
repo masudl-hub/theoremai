@@ -104,7 +104,7 @@ function exampleTextDraft(
   return {
     ...blank,
     identity: { ...identity, profileType: 'text', systemByRoleJson: '' },
-    included: ['outputs', 'turnBehaviour', 'guardrails', 'observability', 'wording'],
+    included: ['outputs', 'turnBehaviour', 'guardrails', 'observability', 'labels'],
     models: { defaultModel: 'smart', allowModelSelect: true, maxSteps: 12, key: 'gemini' },
     modelBindings: [
       defaultModelBinding({

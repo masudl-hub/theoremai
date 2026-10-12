@@ -519,17 +519,17 @@ Deno.test('the continue instruction and canary bind note compile into the profil
   });
   assertEquals(off.profile.labels, undefined);
 });
-Deno.test('Wording compiles into the profile labels; lines edited beside their setting come from there', () => {
+Deno.test('Labels compile into the profile labels; lines edited beside their setting come from there', () => {
   const draft = {
     ...createExampleDraft(),
-    wording: {
+    labels: {
       'error.rate_limit': ' Busy, try again soon. ',
       'error.timeout': '  ',
       'quota.exhausted': 'Ignored.',
     },
   };
   assertEquals(compiled(draft).profile.labels, { 'error.rate_limit': 'Busy, try again soon.' });
-  assertEquals(compiled(excludeFacet(draft, 'wording')).profile.labels, undefined);
+  assertEquals(compiled(excludeFacet(draft, 'labels')).profile.labels, undefined);
 });
 Deno.test('the refusal line beside On block compiles into the profile labels', () => {
   const draft = includeFacet(createExampleDraft(), 'guardrails');
@@ -590,8 +590,8 @@ Deno.test('includeFacet only adds facets the type allows', () => {
   const live = setProfileType(createBlankDraft(), 'live');
   assertEquals(includeFacet(live, 'outputs'), live);
   const withGuardrails = includeFacet(live, 'guardrails');
-  assertEquals(withGuardrails.included, ['observability', 'wording', 'guardrails']);
-  assertEquals(excludeFacet(withGuardrails, 'guardrails').included, ['observability', 'wording']);
+  assertEquals(withGuardrails.included, ['observability', 'labels', 'guardrails']);
+  assertEquals(excludeFacet(withGuardrails, 'guardrails').included, ['observability', 'labels']);
 });
 Deno.test('new bindings and tools get unused names', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
@@ -614,7 +614,7 @@ Deno.test('the tree nests bindings and tools under their facets', () => {
       'turnBehaviour',
       'guardrails',
       'observability',
-      'wording',
+      'labels',
     ],
   );
   const models = tree.children.find((node) => node.id === 'models');
@@ -708,7 +708,7 @@ Deno.test('a new text profile starts on the studio Gemini model', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
   assertEquals(draft.modelBindings[0].apiId, GEMINI_STUDIO_DEFAULT_API_ID);
   assert(isKeySlotName(draft.models.key));
-  assertEquals(draft.included, ['observability', 'wording']);
+  assertEquals(draft.included, ['observability', 'labels']);
   assertEquals(draft.observability.writeTo, 'studio');
 });
 Deno.test('a new image profile starts on the studio Gemini image model', () => {

@@ -376,10 +376,10 @@ export interface DecisionDraft {
 }
 
 /** Wording the author replaced, by labels key; a key left out keeps the kernel's line. */
-export type WordingDraft = Partial<Record<LabelKey, string>>;
+export type LabelsDraft = Partial<Record<LabelKey, string>>;
 
 /** Wording held beside the setting it words; each line has one value, so it edits that field. */
-export const INLINE_WORDING: Partial<Record<LabelKey, ProfileGraphFacetId>> = {
+export const INLINE_LABELS: Partial<Record<LabelKey, ProfileGraphFacetId>> = {
   'continue.instruction': 'turnBehaviour',
   'canary.bind_note': 'guardrails',
   'quota.exhausted': 'guardrails',
@@ -405,7 +405,7 @@ export interface StudioDraft {
   speech: SpeechDraft;
   live: LiveDraft;
   decision: DecisionDraft;
-  wording: WordingDraft;
+  labels: LabelsDraft;
 }
 
 export function draftKey(
@@ -617,7 +617,7 @@ export function newCriteria(type: DecisionQuestionType): DecisionCriterionDraft[
 export function createBlankDraft(): StudioDraft {
   return {
     identity: { agentId: '', profileType: '', handle: '', system: '', systemByRoleJson: '' },
-    included: ['observability', 'wording'],
+    included: ['observability', 'labels'],
     models: { defaultModel: '', allowModelSelect: false, maxSteps: null, key: '' },
     modelBindings: [],
     tools: { t2Loader: '' },
@@ -689,7 +689,7 @@ export function createBlankDraft(): StudioDraft {
       vadSilenceDurationMs: null,
     },
     decision: exampleDecisionDraft(),
-    wording: {},
+    labels: {},
   };
 }
 

@@ -8,7 +8,7 @@ import {
   isAbortError,
   TheoremError,
   throwIfAborted,
-  withPublicWording,
+  withPublicLabels,
 } from '../../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
 import { labelText } from '../../../guardrails/labels.ts';
@@ -97,7 +97,7 @@ const MS_PER_S = 1000;
  * through here, so it is where an error gets the user's wording.
  */
 function deliver(ctx: TraceCtx, event: TurnEvent): TurnEvent {
-  const out = withPublicWording(event, ctx.known?.labels);
+  const out = withPublicLabels(event, ctx.known?.labels);
   if (out.type === 'text' && !ctx.shownText) {
     ctx.shownText = true;
     ctx.root.set({ 'theorem.turn.time_to_first_text': ctx.root.msSinceStart() / MS_PER_S });

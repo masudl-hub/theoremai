@@ -10,7 +10,7 @@ import {
   TheoremError,
   throwIfAborted,
   toErrorEvent,
-  withPublicWording,
+  withPublicLabels,
 } from '../../src/guardrails/error.ts';
 import {
   type LabelOverrides,
@@ -24,7 +24,7 @@ import { firstOf, toolEventsOf } from '../fixtures/events.ts';
 
 /** An event's wording, read back as its error. */
 function wordedError(event: TurnEvent, labels?: LabelOverrides) {
-  return firstOf([withPublicWording(event, labels)], 'error');
+  return firstOf([withPublicLabels(event, labels)], 'error');
 }
 
 /** The locked user lines, one per kind. */
@@ -135,7 +135,7 @@ Deno.test('toErrorEvent keeps a failure copy for the host boundary', () => {
   );
 });
 
-Deno.test('withPublicWording words error events with the profile labels', () => {
+Deno.test('withPublicLabels words error events with the profile labels', () => {
   const ev = toErrorEvent(new TheoremError('auth', 'no key in slot free'));
   assertEquals(wordedError(ev)?.error, LOCKED.auth);
   const labels = { 'error.auth': 'Add your API key in settings to continue.' };
@@ -143,12 +143,12 @@ Deno.test('withPublicWording words error events with the profile labels', () => 
   assertEquals(wordedError(ev, labels)?.errorInternal, 'no key in slot free');
 });
 
-Deno.test('withPublicWording keeps wording already set', () => {
+Deno.test('withPublicLabels keeps wording already set', () => {
   const ev = { ...toErrorEvent(new TheoremError('failed', 'x')), error: 'Host copy.' };
   assertEquals(wordedError(ev)?.error, 'Host copy.');
 });
 
-Deno.test('withPublicWording words a failed tool step with its tool name', () => {
+Deno.test('withPublicLabels words a failed tool step with its tool name', () => {
   const ev: TurnEvent = {
     type: 'tool',
     tool: {
@@ -160,16 +160,16 @@ Deno.test('withPublicWording words a failed tool step with its tool name', () =>
     },
   };
   const failure = (labels?: LabelOverrides) =>
-    toolEventsOf([withPublicWording(ev, labels)], 'error')[0]?.failure;
+    toolEventsOf([withPublicLabels(ev, labels)], 'error')[0]?.failure;
   assertEquals(failure()?.error, LOCKED.blocked);
   const labels = { 'error.blocked': "Sorry, '{tool}' wasn't allowed." };
   assertEquals(failure(labels)?.error, "Sorry, 'send_email' wasn't allowed.");
   assertEquals(failure(labels)?.message, 'blocked host');
 });
 
-Deno.test('withPublicWording leaves other events untouched', () => {
+Deno.test('withPublicLabels leaves other events untouched', () => {
   const ev = { type: 'text' as const, text: 'hi' };
-  assertEquals(withPublicWording(ev), ev);
+  assertEquals(withPublicLabels(ev), ev);
 });
 
 Deno.test('TheoremError carries its name, kind, and copy', () => {

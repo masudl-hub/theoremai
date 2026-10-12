@@ -13,7 +13,7 @@ import {
   type TurnEventSink,
 } from '../react/src/client/transport.ts';
 import { createMemorySteerInbox, steerUnitOf } from '../react/src/server/steer-inbox.ts';
-import { toErrorEvent, withPublicWording } from '../src/guardrails/error.ts';
+import { toErrorEvent, withPublicLabels } from '../src/guardrails/error.ts';
 import type { RunDecisionOptions } from '../src/kernel/engine/decision.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import {
@@ -66,7 +66,7 @@ async function deliver(
       sink(line);
     }
   } catch (error) {
-    const event = withPublicWording(toErrorEvent(error), payload.profile.labels);
+    const event = withPublicLabels(toErrorEvent(error), payload.profile.labels);
     if (event.type === 'error') throw builderError(event);
     throw error;
   }

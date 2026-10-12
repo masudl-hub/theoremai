@@ -82,7 +82,7 @@ function describeError(err: unknown): string {
 
 type ProducedError = TurnEventOf<'error'> & { errorInternal: string };
 
-/** No user wording yet: `withPublicWording` adds it where the event reaches the host, the one place that knows the profile. */
+/** No user wording yet: `withPublicLabels` adds it where the event reaches the host, the one place that knows the profile. */
 function toErrorEvent(err: unknown): ProducedError {
   return {
     type: 'error',
@@ -93,7 +93,7 @@ function toErrorEvent(err: unknown): ProducedError {
 }
 
 /** Wording already set (host copy) is kept. */
-function withPublicWording(event: TurnEvent, labels?: LabelOverrides): TurnEvent {
+function withPublicLabels(event: TurnEvent, labels?: LabelOverrides): TurnEvent {
   if (event.type === 'error' && event.error === undefined) {
     return { ...event, error: wording(event.errorKind, event.errorCopy, labels) };
   }
@@ -123,5 +123,5 @@ export {
   TheoremError,
   throwIfAborted,
   toErrorEvent,
-  withPublicWording,
+  withPublicLabels,
 };

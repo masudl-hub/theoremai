@@ -31,7 +31,7 @@ export const FACET_ICON = {
 	turnBehaviour: IconRepeat,
 	guardrails: IconShieldCheck,
 	observability: IconActivity,
-	wording: IconQuote,
+	labels: IconQuote,
 	image: IconPhoto,
 	speech: IconVolume,
 	live: IconHeadset,

@@ -62,13 +62,13 @@ Deno.test('spineFacetsForProfileType includes identity, guardrails, observabilit
     assertEquals(ids.includes('models'), type !== 'host');
     assertEquals(ids.includes('guardrails'), true);
     assertEquals(ids.includes('observability'), true);
-    assertEquals(ids.includes('wording'), true);
+    assertEquals(ids.includes('labels'), true);
   }
 });
 
 Deno.test('host spine is tools, guardrails, observability and wording under the identity root', () => {
   const host = spineFacetsForProfileType('host').map((f) => f.id);
-  assertEquals(host, ['identity', 'tools', 'guardrails', 'observability', 'wording']);
+  assertEquals(host, ['identity', 'tools', 'guardrails', 'observability', 'labels']);
   const toolSpec = PROFILE_GRAPH.find((f) => f.id === 'toolSpec');
   assertEquals(toolSpec?.profileTypes.includes('host'), true);
   const modelBinding = PROFILE_GRAPH.find((f) => f.id === 'modelBinding');
@@ -92,7 +92,7 @@ Deno.test('ALL covers PROFILE_TYPES exactly', () => {
       f.id === 'identity' ||
       f.id === 'guardrails' ||
       f.id === 'observability' ||
-      f.id === 'wording',
+      f.id === 'labels',
   );
   for (const facet of allFacets) {
     const sortedFacetTypes = [...facet.profileTypes].sort();

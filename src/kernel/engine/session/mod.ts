@@ -26,7 +26,7 @@ import {
   TheoremError,
   throwIfAborted,
   toErrorEvent,
-  withPublicWording,
+  withPublicLabels,
 } from '../../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
 import { type LabelOverrides, labelText } from '../../../guardrails/labels.ts';
@@ -1272,7 +1272,7 @@ function buildLiveSession(args: {
     canary,
     async *events(): AsyncGenerator<TurnEvent> {
       for await (const raw of streamToHost()) {
-        const event = withPublicWording(raw, profile.labels);
+        const event = withPublicLabels(raw, profile.labels);
         trace.delivered(event);
         yield event;
       }

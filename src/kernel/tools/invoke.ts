@@ -2,7 +2,7 @@ import {
   isAbortError,
   TheoremError,
   toErrorEvent,
-  withPublicWording,
+  withPublicLabels,
 } from '../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../guardrails/events.ts';
 import { resolveTraceWriter } from '../../observability/policy.ts';
@@ -114,7 +114,7 @@ async function* invokeTool(
     )) {
       // invariant: A match is the caught text itself; it leaves only when the profile asks for it.
       yield projectGuardrailTurnEvent(
-        withPublicWording(event, labels),
+        withPublicLabels(event, labels),
         policy.include.guardrailMatchPreview,
       );
     }

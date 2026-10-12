@@ -105,7 +105,7 @@ const FACET_KEY: Record<string, keyof StudioDraft> = {
   speech: 'speech',
   live: 'live',
   decision: 'decision',
-  wording: 'wording',
+  labels: 'labels',
 };
 
 /** Draft keys a change touched, as the nodes an agent knows. */
@@ -208,7 +208,7 @@ function editNode(
       rejected.push({ field: path, why: blocked });
       continue;
     }
-    if (facet === 'wording') {
+    if (facet === 'labels') {
       if (!fieldMeta(`labels.${path}`)) rejected.push({ field: path, why: 'no such line' });
       else if (typeof value !== 'string') rejected.push({ field: path, why: 'must be text' });
       else current = { ...current, [path]: value };
@@ -514,7 +514,7 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
     const facet = facetOf(nodeId);
     const fields = Object.fromEntries(
       Object.entries(values).map(([name, value]) => {
-        const meta = fieldMeta(facet === 'wording' ? `labels.${name}` : `${facet}.${name}`);
+        const meta = fieldMeta(facet === 'labels' ? `labels.${name}` : `${facet}.${name}`);
         const why = BLOCKED_FIELDS[`${facet}.${name}`];
         const format = facet === 'toolSpec' ? TOOL_FORMATS[name] : undefined;
         return [

@@ -32,7 +32,7 @@ export {
   type ImageReferenceDraft,
   includableFacets,
   includeFacet,
-  INLINE_WORDING,
+  INLINE_LABELS,
   type InputsDraft,
   type LiveDraft,
   type ModelBindingDraft,
@@ -61,7 +61,7 @@ export {
   type ToolSpecDraft,
   type TurnBehaviourDraft,
   updateModelBinding,
-  type WordingDraft,
+  type LabelsDraft,
 } from './draft.ts';
 export {
   addArchitectExample,

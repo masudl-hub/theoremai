@@ -1,4 +1,4 @@
-import { withPublicWording } from '@theoremjs/agents/guardrails';
+import { withPublicLabels } from '@theoremjs/agents/guardrails';
 import {
   createMemoryPageToolBroker,
   type PageToolBroker,
@@ -713,7 +713,7 @@ async function* walkAwayFrom(
 
 /** A settled call's answer, streamed again. */
 async function* once(event: TurnEvent, labels?: Profile['labels']): AsyncGenerator<TurnEvent> {
-  yield withPublicWording(event, labels);
+  yield withPublicLabels(event, labels);
 }
 
 async function* turnEvents(

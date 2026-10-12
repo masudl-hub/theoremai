@@ -16,7 +16,7 @@ import {
   defaultModelBinding,
   defaultToolSpec,
   draftKey,
-  INLINE_WORDING,
+  INLINE_LABELS,
   STUDIO_PROFILE_TYPES,
   type DecisionQuestionDraft,
   type GuardrailsDraft,
@@ -715,14 +715,14 @@ const LABEL_FIELDS: Partial<Record<string, (draft: StudioDraft, value: string) =
 
 function applyLabels(draft: StudioDraft, labels: unknown): void {
   if (!isRecord(labels)) return;
-  const wording: StudioDraft['wording'] = {};
+  const entries: StudioDraft['labels'] = {};
   for (const [key, value] of Object.entries(labels)) {
     if (typeof value !== 'string') continue;
     const field = LABEL_FIELDS[key];
     if (field) field(draft, value);
-    else if (!INLINE_WORDING[key as LabelKey]) wording[key as LabelKey] = value;
+    else if (!INLINE_LABELS[key as LabelKey]) entries[key as LabelKey] = value;
   }
-  draft.wording = wording;
+  draft.labels = entries;
 }
 
 function bindingProtocol(
@@ -1218,7 +1218,7 @@ function draftFrom(
       (spec) => decisionOf(spec, parsed, current.decision.questions),
       current.decision,
     ),
-    wording: {},
+    labels: {},
   };
   const registered = registerTools(parsed.tools, byToolName, agentKeyOf, parsed.spans);
   const allowed = allowTools(registered, tools.allow, parsed.spans);

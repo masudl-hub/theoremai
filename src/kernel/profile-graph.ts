@@ -146,12 +146,12 @@ const PROFILE_GRAPH_DEF = [
     label: 'Observability',
   },
   {
-    id: 'wording',
+    id: 'labels',
     profilePath: 'labels',
     role: 'spine',
     optional: true,
     editor: 'structural',
-    label: 'Wording',
+    label: 'Labels',
   },
 ] as const satisfies readonly ProfileGraphFacetDef[];
 

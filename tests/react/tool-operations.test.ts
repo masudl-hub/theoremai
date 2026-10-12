@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertRejects } from '@std/assert';
-import { withPublicWording } from '@theoremjs/agents/guardrails';
+import { withPublicLabels } from '@theoremjs/agents/guardrails';
 import {
   defaultKernelScope,
   invokeTool,
@@ -574,7 +574,7 @@ Deno.test('promotion refusal is saved as not started before its terminal event',
     if (event.type === 'tool' && event.tool.phase === 'error') {
       assertEquals(saved?.effects, 'not_started');
       assertEquals(saved?.replay.callNotStarted, true);
-      assertEquals(saved && withPublicWording(saved.event), event);
+      assertEquals(saved && withPublicLabels(saved.event), event);
     }
   }
   assert(saved);

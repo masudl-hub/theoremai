@@ -84,7 +84,7 @@ Deno.test('the map holds every profile, tool, model and provider, joined as the 
       ['Tools', '2'],
       ['Inputs', ''],
       ['Observability', ''],
-      ['Wording', ''],
+      ['Labels', ''],
     ],
   );
   assertEquals(agents?.[0]?.rows?.[1]?.opens, agentNodeId(workspace.agents[0]?.key ?? '', 'tools'));

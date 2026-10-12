@@ -62,7 +62,7 @@ Owns every module under `src/guardrails/`.
 | `types.ts` | Guardrail vocabulary — trust levels, stages, `Verdict`, profile policy shape |
 | `policy.ts` | `resolveGuardrailPolicy` — the one place defaults are applied |
 | `detect-at.ts` | `detectAt` — the one place a match becomes an action |
-| `error.ts` | Error kinds, `TheoremError`, user wording (`publicError`, `withPublicWording`), abort helpers |
+| `error.ts` | Error kinds, `TheoremError`, user wording (`publicError`, `withPublicLabels`), abort helpers |
 | `sanitize.ts` | Turn + text sanitization |
 | `injection-patterns.ts` | Prompt-injection regexes (a leaf the generator reads) |
 | `injection.ts` | Prompt-injection spans: the patterns on each view (raw, reversed, typo, normalized, ROT13, leet, URL runs) |
@@ -648,7 +648,7 @@ turn's files: every reason, each naming its file). Tool-step wording may use
 Producers emit `toErrorEvent(err)` — a `ProducedError`, `{ type: 'error',
 errorKind, errorCopy?, errorInternal }` with the raw detail always set and no
 user wording. The runner and session add it where the
-event reaches the host (`withPublicWording(event, profile.labels)`), the one
+event reaches the host (`withPublicLabels(event, profile.labels)`), the one
 place that knows the profile. A host that catches a throw words it with
 `publicError(err, profile.labels)`.
 
@@ -1684,7 +1684,7 @@ From `src/guardrails/mod.ts`:
 
 | Group | Symbols |
 | --- | --- |
-| Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicWording`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
+| Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicLabels`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
 | Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES` |
 | Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `MAX_PATTERNS`, `MAX_PATTERN_LENGTH`, `HostDetectorConfig`, `HostDetectorId`, `HostDetector`, `HostFind`, `HostSpan`, `HOST_FIND_HOLD`, `HOST_FIND_HOLD_LIVE`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `detectAt`, `Detection`, `DetectOutcome` |

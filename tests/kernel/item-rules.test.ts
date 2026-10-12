@@ -2,6 +2,7 @@ import { createTestKernelScope } from '../fixtures/provider-scope.ts';
 import { runScopedTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { assertThrows } from '@std/assert';
+import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -259,4 +260,76 @@ Deno.test('an agent tool returns what the called agent removed', async () => {
       removed: [{ path: 'claims', reason: 'a claim needs a source', item: { claim: 'bare' } }],
     },
   ]);
+});
+
+Deno.test('a check reads what the tools of the turn returned', async () => {
+  const scope = createTestKernelScope();
+  scope.schemas.register('item_rules_reply', { jsonSchema: REPLY });
+  scope.tools.register({
+    type: 'function',
+    name: 'read',
+    description: 'Read.',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({ page: z.string() }),
+    output: z.object({ page: z.string() }),
+    handler: ({ page }) => ({ page }),
+  });
+  const turns: unknown[] = [];
+  scope.profiles.register(
+    defineProfile({
+      type: 'text',
+      id: 'item_rules',
+      identity: { handle: 'item rules' },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 3,
+      tools: { allow: ['read'] },
+      inputs: { text: true },
+      outputs: {
+        structured: 'item_rules_reply',
+        validation: {
+          items: {
+            claims: {
+              check: (item, turn) => {
+                turns.push(turn.toolResults);
+                const read = JSON.stringify(turn.toolResults);
+                return typeof item === 'object' &&
+                  item !== null &&
+                  'source' in item &&
+                  read.includes(`"page":"${item.source}"`)
+                  ? { isValid: true }
+                  : { isValid: false, error: 'not a page that was read' };
+              },
+              onFail: 'drop',
+            },
+          },
+        },
+      },
+    }),
+  );
+  let step = 0;
+  const model: ModelProvider = {
+    async *complete() {
+      await Promise.resolve();
+      step += 1;
+      if (step === 1) {
+        yield { type: 'tool', tool: { name: 'read', arguments: { page: 'a' }, callId: 'c1' } };
+        return;
+      }
+      yield { type: 'structured', structured: FIRST };
+    },
+  };
+  const event = await reply(scope, model);
+  assertEquals(turns[0], [{ tool: 'read', output: { page: 'a' } }]);
+  assertEquals(event.structured, {
+    summary: 'water less',
+    claims: [{ claim: 'kept', source: 'a' }],
+  });
+  assertEquals(
+    event.removed?.map(({ item }) => item),
+    [{ claim: 'bare' }, { claim: 'last', source: 'c' }],
+  );
 });

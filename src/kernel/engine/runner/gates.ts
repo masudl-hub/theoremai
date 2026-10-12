@@ -542,7 +542,11 @@ async function handleValidationGate(
     return 'continue';
   }
   if (reply === undefined) return 'pass';
-  const refused = await collectItemFailures(reply, validation.items, flow.currentReq.input?.slots);
+  const slots = flow.currentReq.input?.slots;
+  const refused = await collectItemFailures(reply, validation.items, {
+    ...(slots ? { slots } : {}),
+    toolResults: state.toolResults,
+  });
   if (refused.length === 0) return 'pass';
   const fixable = refused.filter((failure) => failure.onFail === 'fix');
   const structured = flow.currentGen.structured;

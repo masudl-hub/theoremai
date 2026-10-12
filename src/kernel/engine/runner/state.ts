@@ -15,6 +15,7 @@ import type {
   TurnHistoryMessage,
   TurnRequest,
   TurnStop,
+  TurnToolResult,
 } from '../../types.ts';
 import type { MediaTokenFamily } from '../token-estimate.ts';
 import type { ItemFailure } from './schema-validation.ts';
@@ -66,6 +67,8 @@ interface StepExecutionState {
   canaryGiven: boolean;
   /** What the canary scan already read this turn (`requestGivesCanary`). */
   canaryScanned: WeakSet<object>;
+  /** Every tool call the turn completed, for the checks on a reply's items (`ItemCheckTurn`). */
+  toolResults: TurnToolResult[];
   /** Last provider stop from a discarded provider `done` event. */
   lastStop?: TurnStop;
   providerState?: import('../../provider-contract.ts').ProviderCheckpoint;
@@ -128,6 +131,7 @@ function openTurnState(args: {
     trace: args.trace,
     currentHistory: [...(generation.history ?? [])],
     stepCount: 0,
+    toolResults: [],
     mediaFamily: args.mediaFamily,
     allEmittedEvents: args.allEmittedEvents ?? [],
     attemptEvents: [],

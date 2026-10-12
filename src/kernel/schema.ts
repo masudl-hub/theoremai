@@ -1156,8 +1156,8 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'Your check on each item of this list. A refused item never fails the reply and the rest of the reply is kept.',
   ),
   'outputs.validation.items.*.check': field(
-    '(item: unknown, slots?: Record<string, string>) => ValidationResult | Promise<ValidationResult>',
-    'Your check on one item; its error is the reason the model reads on a rewrite and the host reads on the removed item.',
+    '(item: unknown, turn: ItemCheckTurn) => ValidationResult | Promise<ValidationResult>',
+    'Your check on one item, given what the tools of the turn returned (turn.toolResults); its error is the reason the model reads on a rewrite and the host reads on the removed item.',
   ),
   'outputs.validation.items.*.onFail': field(
     "'drop' | 'fix'",

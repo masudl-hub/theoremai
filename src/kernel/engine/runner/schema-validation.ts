@@ -1,5 +1,10 @@
 import { TheoremError } from '../../../guardrails/error.ts';
-import type { ProfileItemRule, ProfileValidator, ValidationResult } from '../../types.ts';
+import type {
+  ItemCheckTurn,
+  ProfileItemRule,
+  ProfileValidator,
+  ValidationResult,
+} from '../../types.ts';
 
 interface ValidationFailure {
   path: string;
@@ -203,14 +208,14 @@ function withListAt(structured: unknown, path: string, list: unknown[]): unknown
 async function collectItemFailures(
   structured: unknown,
   items: Record<string, ProfileItemRule> | undefined,
-  slots?: Record<string, string>,
+  turn: ItemCheckTurn,
 ): Promise<ItemFailure[]> {
   const failures: ItemFailure[] = [];
   for (const [path, rule] of Object.entries(items ?? {})) {
     const list = valueAt(structured, path);
     if (!Array.isArray(list)) continue;
     for (const [index, item] of list.entries()) {
-      const check = await rule.check(item, slots);
+      const check = await rule.check(item, turn);
       if (check.isValid) continue;
       failures.push({
         path,

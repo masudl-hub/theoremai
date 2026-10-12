@@ -326,6 +326,9 @@ function* applyToolSettlement(
     );
   }
   if (!settlement.modelResult) return 'continue';
+  if (!settlement.failure && 'outputRaw' in settlement) {
+    state.toolResults.push({ tool: call.name, output: settlement.outputRaw });
+  }
   recordToolModelResult(state, call, settlement.modelResult);
   if (settlement.pendingInject) {
     yield* applyStageInjects(state, 'post_tool', settlement.pendingInject, {

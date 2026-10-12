@@ -1309,7 +1309,10 @@ paths; failures can trigger repair turns via `input.repair`.
 **Item rules.** `outputs.validation.items` holds a check for the items of one
 list, keyed by the list's dotted path (`claims`). `registerProfile` refuses a
 path no structured schema reaches as a list with an `items` schema. A refused
-item never fails the reply, and the rest of the reply is kept:
+item never fails the reply, and the rest of the reply is kept. A check reads the
+item and the turn: `turn.toolResults` is every tool call the turn completed
+(`{ tool, output }`, in order, across attempts), so a host can hold an item to
+what its tools returned, such as a quote to the page that was read.
 
 | `onFail` | What happens to a refused item |
 | --- | --- |

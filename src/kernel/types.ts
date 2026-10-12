@@ -365,13 +365,33 @@ export type ProfileValidator = (
   slots?: Record<string, string>,
 ) => ValidationResult | Promise<ValidationResult>;
 
+/** A tool call the turn completed, as an item check reads it. */
+export interface TurnToolResult {
+  tool: string;
+  /** The output the call settled with, after any `post_tool` `mutate`. */
+  output: unknown;
+}
+
+/** What an item check reads of the turn whose reply it is checking. */
+export interface ItemCheckTurn {
+  slots?: Record<string, string>;
+  /** Every tool call the turn completed, in order, across its attempts. */
+  toolResults: readonly TurnToolResult[];
+}
+
+/** A host function that checks one item of a list against what the turn's tools returned. */
+export type ProfileItemCheck = (
+  item: unknown,
+  turn: ItemCheckTurn,
+) => ValidationResult | Promise<ValidationResult>;
+
 /**
  * A host check on each item of one list in a structured reply. A refused item
  * never fails the reply: `drop` removes it, and `fix` first asks the model to
  * rewrite the refused items alone, then removes any that are refused again.
  */
 export interface ProfileItemRule {
-  check: ProfileValidator;
+  check: ProfileItemCheck;
   onFail: 'drop' | 'fix';
 }
 

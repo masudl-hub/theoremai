@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 
 import { assertEquals, assertThrows } from '@std/assert';
-import { lexiconText, TheoremError, type ToolGate, type TurnEvent } from '../../mod.ts';
+import { labelText, TheoremError, type ToolGate, type TurnEvent } from '../../mod.ts';
 import {
   float32Rms,
   float32RmsToLevel,
@@ -421,7 +421,7 @@ Deno.test('a relay reads each live message by its schema; a malformed one is a r
     { type: 'executeTool', callId: 'c', operationId: 'c', decision: 'approve', input: { id: 2 } },
   );
   for (const [text, message] of [
-    ['{nope', lexiconText('error.request')],
+    ['{nope', labelText('error.request')],
     [
       JSON.stringify({ type: 'video', data: 'x' }),
       'live message failed its check: mimeType invalid_type',

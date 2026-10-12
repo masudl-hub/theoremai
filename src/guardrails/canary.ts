@@ -9,7 +9,7 @@ import {
 } from '../kernel/turn-events.ts';
 import type { ProviderCompleteRequest, SystemPiece } from '../kernel/types.ts';
 import { OMIT_CANARY } from '../observability/spans.ts';
-import { type LexiconOverrides, lexiconText } from './lexicon.ts';
+import { type LabelOverrides, labelText } from './labels.ts';
 import { promptEchoScanFrom, scanTextForPromptEcho } from './prompt-echo.ts';
 import { scanTextOf, textForScan } from './serialize.ts';
 
@@ -92,18 +92,18 @@ function wrapContext(sender: ContextSender, text: string): string {
   return `<page_context from="${sender}">\n${stripUserFences(text)}\n${CONTEXT_CLOSE}`;
 }
 
-/** The lexicon's `context.note`, which tells the model what `wrapContext`'s tags mean. */
-function contextNote(lexicon?: LexiconOverrides): string {
-  return lexiconText('context.note', {}, lexicon);
+/** The labels' `context.note`, which tells the model what `wrapContext`'s tags mean. */
+function contextNote(labels?: LabelOverrides): string {
+  return labelText('context.note', {}, labels);
 }
 
 /**
- * The note is the lexicon's `canary.bind_note`: the profile's `lexicon`, then
- * `overrideLexicon`, then the default. Every override is checked for the
+ * The note is the labels' `canary.bind_note`: the profile's `labels`, then
+ * `overrideLabels`, then the default. Every override is checked for the
  * `{canary}` placeholder when it is set — a note without the token binds nothing.
  */
-function bindCanary(system: string, canary: string, lexicon?: LexiconOverrides): string {
-  const note = canaryNote(canary, lexicon);
+function bindCanary(system: string, canary: string, labels?: LabelOverrides): string {
+  const note = canaryNote(canary, labels);
   if (!note) {
     return system;
   }
@@ -114,25 +114,25 @@ function bindCanary(system: string, canary: string, lexicon?: LexiconOverrides):
 }
 
 /** The note `bindCanary` appends, or nothing without a canary. */
-function canaryNote(canary: string, lexicon?: LexiconOverrides): string {
-  return canary ? lexiconText('canary.bind_note', { canary }, lexicon) : '';
+function canaryNote(canary: string, labels?: LabelOverrides): string {
+  return canary ? labelText('canary.bind_note', { canary }, labels) : '';
 }
 
 /**
- * The words of the note `lexicon` binds, without the canary: its text before
+ * The words of the note `labels` binds, without the canary: its text before
  * the canary, or after it when nothing comes before. A reply repeating them
  * repeats the system prompt. Undefined when the note has no words of its own.
  */
-function canaryNoteMarker(lexicon?: LexiconOverrides): string | undefined {
-  const pieces = canaryNote('\u0000', lexicon)
+function canaryNoteMarker(labels?: LabelOverrides): string | undefined {
+  const pieces = canaryNote('\u0000', labels)
     .split('\u0000')
     .map((piece) => piece.trim());
   return pieces.find((piece) => piece.length > 0);
 }
 
-/** The lexicon's `user_data.note`, which tells the model what `wrapUserData`'s tags mean. */
-function userDataNote(lexicon?: LexiconOverrides): string {
-  return lexiconText('user_data.note', {}, lexicon);
+/** The labels' `user_data.note`, which tells the model what `wrapUserData`'s tags mean. */
+function userDataNote(labels?: LabelOverrides): string {
+  return labelText('user_data.note', {}, labels);
 }
 
 /**

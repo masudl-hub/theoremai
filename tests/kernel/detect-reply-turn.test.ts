@@ -2,7 +2,7 @@ import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import type { DetectSpec } from '../../src/guardrails/detectors.ts';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { labelDefault } from '../../src/guardrails/labels.ts';
 import { registerProfile, registerStructured } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -104,8 +104,8 @@ Deno.test('block at reply: the reply stops before the key and the turn says it w
 Deno.test('block at reply with blockedReply refuse: the part shown ends with the cut', async () => {
   const detect: DetectSpec = { credentials: { at: { reply: 'block' } } };
   const events = await turn('detect_reply_refuse', detect, said(TEXT), { refuse: true });
-  const shown = replyText(events).slice(0, -lexiconDefault('egress.refusal_cut').length);
-  assertEquals(replyText(events), `${shown}${lexiconDefault('egress.refusal_cut')}`);
+  const shown = replyText(events).slice(0, -labelDefault('egress.refusal_cut').length);
+  assertEquals(replyText(events), `${shown}${labelDefault('egress.refusal_cut')}`);
   assertEquals(shown.length > 0 && TEXT.startsWith(shown), true);
   assertEquals(replyText(events).includes(KEY), false);
 });

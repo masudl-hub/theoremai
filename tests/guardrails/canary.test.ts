@@ -18,7 +18,7 @@ import {
 } from '../../src/guardrails/canary.ts';
 import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
 import { givenUrlSets } from '../../src/guardrails/egress-urls.ts';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { labelDefault } from '../../src/guardrails/labels.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import { registerProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -261,7 +261,7 @@ Deno.test('canary stream gate omits the canary from a thought and reports it', a
         hits: [{ rule: DETECT_RULES.canary_leak, severity: 'high', match: '[canary]' }],
       },
     },
-    { type: 'thought', text: lexiconDefault('thought.omitted_instructions').trimStart() },
+    { type: 'thought', text: labelDefault('thought.omitted_instructions').trimStart() },
   ]);
 });
 

@@ -12,23 +12,23 @@ const SOURCE_SEPARATOR = '\n\n';
 function partProblem(part: unknown): string | undefined {
   if (typeof part === 'string') return undefined;
   if (typeof part !== 'object' || part === null || Array.isArray(part)) {
-    return 'must be a string or { private: string }'; // lexicon-exempt: developer contract error
+    return 'must be a string or { private: string }'; // labels-exempt: developer contract error
   }
   const keys = Object.keys(part);
   if (keys.length !== 1 || keys[0] !== 'private') {
-    return 'must have exactly one key, private'; // lexicon-exempt: developer contract error
+    return 'must have exactly one key, private'; // labels-exempt: developer contract error
   }
   const text = (part as { private: unknown }).private;
-  if (typeof text !== 'string') return 'must be a string'; // lexicon-exempt: developer contract error
-  if (text === '') return 'must not be empty'; // lexicon-exempt: developer contract error
+  if (typeof text !== 'string') return 'must be a string'; // labels-exempt: developer contract error
+  if (text === '') return 'must not be empty'; // labels-exempt: developer contract error
   return undefined;
 }
 
 /** What is wrong with `prompt` as a system prompt, `where` naming it, or undefined. */
 function systemPromptProblem(prompt: unknown, where: string): string | undefined {
   if (typeof prompt === 'string') return undefined;
-  if (!Array.isArray(prompt)) return `${where} must be a string or an array of parts`; // lexicon-exempt: developer contract error
-  if (prompt.length === 0) return `${where} must not be an empty array`; // lexicon-exempt: developer contract error
+  if (!Array.isArray(prompt)) return `${where} must be a string or an array of parts`; // labels-exempt: developer contract error
+  if (prompt.length === 0) return `${where} must not be an empty array`; // labels-exempt: developer contract error
   for (const [at, part] of prompt.entries()) {
     const problem = partProblem(part);
     if (!problem) continue;

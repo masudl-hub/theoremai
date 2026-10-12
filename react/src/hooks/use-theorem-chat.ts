@@ -306,7 +306,7 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
             state.scheduleStreamBlocks(partial);
           },
           // why: The reply goes on; the composer names what it left out.
-          skipped: (error) => state.setFailure(clientFailure(error, iface.lexicon)),
+          skipped: (error) => state.setFailure(clientFailure(error, iface.labels)),
         };
         const result = await run(view, paused);
 

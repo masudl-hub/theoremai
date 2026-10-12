@@ -1,5 +1,5 @@
 import { type ErrorKind, TheoremError, throwIfAborted } from '../../guardrails/error.ts';
-import { lexiconText } from '../../guardrails/lexicon.ts';
+import { labelText } from '../../guardrails/labels.ts';
 import type { DecisionDisclosureVerdict } from '../../guardrails/types.ts';
 import { resolveTraceWriter } from '../../observability/policy.ts';
 import { writeSpans } from '../../observability/trace.ts';
@@ -62,7 +62,7 @@ function requireDecisionProfile(registry: KernelRegistry, id: string): DecisionP
   if (profile.type !== 'decision') {
     throw new TheoremError(
       'request',
-      // lexicon-exempt: developer contract error
+      // labels-exempt: developer contract error
       `runDecision requires profile.type 'decision' (got '${profile.type}' for ${profile.id})`,
     );
   }
@@ -76,7 +76,7 @@ function decisionModel(profile: DecisionProfile): [ModelId, DecisionProfile['mod
   if (!modelId || !binding) {
     throw new TheoremError(
       'config',
-      `Profile ${profile.id}: type 'decision' must declare exactly one model`, // lexicon-exempt: developer contract error
+      `Profile ${profile.id}: type 'decision' must declare exactly one model`, // labels-exempt: developer contract error
     );
   }
   return [modelId, binding];
@@ -84,7 +84,7 @@ function decisionModel(profile: DecisionProfile): [ModelId, DecisionProfile['mod
 
 function finite(value: unknown, path: string, min = 0, max = 1): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) {
-    throw new DecisionError('malformed_response', `${path} is outside its valid range`); // lexicon-exempt: upstream contract error
+    throw new DecisionError('malformed_response', `${path} is outside its valid range`); // labels-exempt: upstream contract error
   }
   return value;
 }
@@ -95,13 +95,13 @@ function distribution(value: unknown, labels: string[], path: string): Record<st
     Object.keys(value).length !== labels.length ||
     labels.some((key) => !Object.hasOwn(value, key))
   ) {
-    throw new DecisionError('malformed_response', `${path} does not match declared labels`); // lexicon-exempt: upstream contract error
+    throw new DecisionError('malformed_response', `${path} does not match declared labels`); // labels-exempt: upstream contract error
   }
   const out: Record<string, number> = Object.create(null);
   for (const label of labels) out[label] = finite(value[label], `${path}.${label}`);
   const total = Object.values(out).reduce((sum, item) => sum + item, 0);
   if (Math.abs(total - 1) > 0.001) {
-    throw new DecisionError('malformed_response', `${path} must sum to one`); // lexicon-exempt: upstream contract error
+    throw new DecisionError('malformed_response', `${path} must sum to one`); // labels-exempt: upstream contract error
   }
   return out;
 }
@@ -114,7 +114,7 @@ function legend(value: unknown, labels: string[], path: string): Record<string, 
     labels.some((label) => !Object.hasOwn(value, label)) ||
     Object.values(value).some((text) => typeof text !== 'string' || !text.trim())
   ) {
-    throw new DecisionError('malformed_response', `${path} is invalid`); // lexicon-exempt: upstream contract error
+    throw new DecisionError('malformed_response', `${path} is invalid`); // labels-exempt: upstream contract error
   }
   return value as Record<string, string>;
 }
@@ -126,7 +126,7 @@ function validateAnswers(
   if (!isRecord(raw) || Object.keys(raw).length !== Object.keys(questions).length) {
     throw new DecisionError(
       'malformed_response',
-      // lexicon-exempt: upstream contract error
+      // labels-exempt: upstream contract error
       'Decision provider returned an incomplete answer set',
     );
   }
@@ -136,7 +136,7 @@ function validateAnswers(
     if (!isRecord(answer) || answer.type !== question.type) {
       throw new DecisionError(
         'malformed_response',
-        // lexicon-exempt: upstream contract error
+        // labels-exempt: upstream contract error
         `Decision provider returned an invalid answer for '${id}'`,
       );
     }
@@ -145,7 +145,7 @@ function validateAnswers(
       if (typeof answer.choice !== 'string' || !labels.includes(answer.choice)) {
         throw new DecisionError(
           'malformed_response',
-          // lexicon-exempt: upstream contract error
+          // labels-exempt: upstream contract error
           `Decision provider returned an undeclared choice for '${id}'`,
         );
       }
@@ -207,7 +207,7 @@ function validateQuestion(id: string, question: unknown): void {
   if (!isRecord(question) || !id.trim() || !isDecisionEntry(question.instructions)) {
     throw new DecisionError(
       'invalid_request',
-      // lexicon-exempt: developer contract error
+      // labels-exempt: developer contract error
       `Decision question '${id}' must include instructions`,
     );
   }
@@ -217,7 +217,7 @@ function validateQuestion(id: string, question: unknown): void {
     !['choice', 'noul', 'score'].includes(question.type) ||
     (question.type === 'score' ? !Array.isArray(question.criteria) : !isRecord(question.criteria))
   ) {
-    throw new DecisionError('invalid_request', `Decision question '${id}' has invalid criteria`); // lexicon-exempt: developer contract error
+    throw new DecisionError('invalid_request', `Decision question '${id}' has invalid criteria`); // labels-exempt: developer contract error
   }
   const criteria = Array.isArray(question.criteria)
     ? question.criteria
@@ -225,7 +225,7 @@ function validateQuestion(id: string, question: unknown): void {
   if (!criteria.length || !criteria.every(isDecisionEntry)) {
     throw new DecisionError(
       'invalid_request',
-      // lexicon-exempt: developer contract error
+      // labels-exempt: developer contract error
       `Decision ${question.type} '${id}' must declare criteria`,
     );
   }
@@ -240,25 +240,25 @@ export function validateDecisionRequest(
   if ((request as DecisionRequest & { model?: unknown }).model !== undefined) {
     throw new DecisionError(
       'invalid_request',
-      // lexicon-exempt: developer contract error
+      // labels-exempt: developer contract error
       'Decision requests do not select a model; the profile runs its one model',
     );
   }
   if (request.state === null || !isJson(request.state)) {
-    throw new DecisionError('invalid_request', 'Decision state must be non-null JSON'); // lexicon-exempt: developer contract error
+    throw new DecisionError('invalid_request', 'Decision state must be non-null JSON'); // labels-exempt: developer contract error
   }
   let serialized: string;
   try {
     serialized = JSON.stringify(request.state);
   } catch {
-    // lexicon-exempt: developer contract error
+    // labels-exempt: developer contract error
     throw new DecisionError('invalid_request', 'Decision state cannot be serialized as JSON');
   }
   const bytes = new TextEncoder().encode(serialized).byteLength;
   if (profile.inputs.maxStateBytes !== undefined && bytes > profile.inputs.maxStateBytes) {
     throw new DecisionError(
       'invalid_request',
-      // lexicon-exempt: developer contract error
+      // labels-exempt: developer contract error
       `Decision state exceeds ${profile.inputs.maxStateBytes} bytes`,
     );
   }
@@ -269,7 +269,7 @@ export function validateDecisionRequest(
   ) {
     throw new DecisionError(
       'invalid_request',
-      // lexicon-exempt: developer contract error
+      // labels-exempt: developer contract error
       'Decision request must declare at least one question',
     );
   }
@@ -306,7 +306,7 @@ async function enforceDisclosure(
       questionIds: Object.keys(request.questions),
     });
   if (verdict?.action === 'block') {
-    throw new DecisionError('disclosure_blocked', 'Decision disclosure was blocked'); // lexicon-exempt: developer contract error
+    throw new DecisionError('disclosure_blocked', 'Decision disclosure was blocked'); // labels-exempt: developer contract error
   }
 }
 
@@ -368,7 +368,7 @@ function decisionProviderError(error: unknown): DecisionError {
       : (codes[kind] ?? 'malformed_response');
   return new DecisionError(
     code,
-    lexiconText('provider.decision_failed'),
+    labelText('provider.decision_failed'),
     isRecord(error) && typeof error.status === 'number' ? error.status : undefined,
   );
 }
@@ -412,7 +412,7 @@ async function decide(
     });
     const operation = operations.decide;
     if (typeof operation !== 'function')
-      throw new DecisionError('invalid_request', lexiconText('provider.decision_unavailable'));
+      throw new DecisionError('invalid_request', labelText('provider.decision_unavailable'));
     const payload = {
       apiId: binding.apiId,
       state: request.state,
@@ -426,13 +426,13 @@ async function decide(
     });
     const result = await withProviderAbort(() => operation(payload), controller.signal);
     if (typeof result.model !== 'string' || !result.model.trim())
-      throw new DecisionError('malformed_response', lexiconText('provider.decision_model_missing'));
+      throw new DecisionError('malformed_response', labelText('provider.decision_model_missing'));
     return { ...result, answers: validateAnswers(result.answers, request.questions) };
   } catch (error) {
     if (controller.signal.aborted)
       throw new DecisionError(
         request.signal?.aborted ? 'cancelled' : 'timeout',
-        lexiconText('provider.decision_ended'),
+        labelText('provider.decision_ended'),
       );
     throw decisionProviderError(error);
   } finally {

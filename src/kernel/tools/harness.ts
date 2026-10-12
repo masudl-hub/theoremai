@@ -26,7 +26,7 @@ const AskOutputSchema: z.ZodType<AskOutput> = z.object({
 const askUserTool: ToolDefinitionInput<AskInput, AskOutput> = {
   type: 'function',
   name: 'ask_user',
-  description: 'Ask the user a question (completes with awaiting_user_input)', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  description: 'Ask the user a question (completes with awaiting_user_input)', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   category: 'conversation',
   access: 'read-only',
   paths: ['*'],

@@ -114,16 +114,16 @@ export {
 export type { CompiledPatterns, HostPattern } from './host-patterns.ts';
 export { MAX_PATTERN_LENGTH, MAX_PATTERNS } from './host-patterns.ts';
 export { injectionSpans } from './injection.ts';
-export type { ClientLexiconKey, LexiconKey, LexiconOverrides, LexiconParams } from './lexicon.ts';
+export type { ClientLabelKey, LabelKey, LabelOverrides, LabelParams } from './labels.ts';
 export {
-  CLIENT_LEXICON_KEYS,
-  LEXICON_KEYS,
-  lexiconCatalogRows,
-  lexiconDefault,
-  lexiconText,
-  overrideLexicon,
-  resetLexicon,
-} from './lexicon.ts';
+  CLIENT_LABEL_KEYS,
+  LABEL_KEYS,
+  labelCatalogRows,
+  labelDefault,
+  labelText,
+  overrideLabels,
+  resetLabels,
+} from './labels.ts';
 export type {
   LiveHeldOutput,
   LiveOutboundBatchResult,

@@ -12,7 +12,7 @@
 import {
   jsonObjectSchema,
   jsonValueSchema,
-  lexiconText,
+  labelText,
   savedToolInvocationSchema,
   TheoremError,
   TOOL_AUTH_TYPES,
@@ -324,7 +324,7 @@ function memoryStoreLimits(options: MemorySessionStoreOptions) {
     !Number.isSafeInteger(maxSessions) ||
     maxSessions <= 0
   ) {
-    throw new TheoremError('config', lexiconText('error.config'), {
+    throw new TheoremError('config', labelText('error.config'), {
       cause: { code: 'session_store_options', ttlMs, maxSessions },
     });
   }
@@ -403,7 +403,7 @@ export function createMemorySessionStore(
       if (!snapshot && sessions.size >= maxSessions) {
         const removable = [...sessions].find(([, entry]) => !held(entry));
         if (!removable) {
-          throw new TheoremError('unavailable', lexiconText('error.unavailable'), {
+          throw new TheoremError('unavailable', labelText('error.unavailable'), {
             cause: { code: 'session_store_capacity' },
           });
         }

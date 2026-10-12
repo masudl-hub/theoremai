@@ -6,7 +6,7 @@
  * error at that spot, and the draft is left alone.
  */
 
-import { type LexiconKey, liveIngressChannelDefault } from '../mod.ts';
+import { type LabelKey, liveIngressChannelDefault } from '../mod.ts';
 import { BOUNDARIES, type Boundary, recordOf } from '../src/guardrails/boundaries.ts';
 import { type DetectAction, DETECTORS, type Detector } from '../src/guardrails/detectors.ts';
 import { PROFILE_GRAPH } from '../src/kernel/profile-graph.ts';
@@ -692,7 +692,7 @@ function guardrailsOf(spec: unknown): GuardrailsDraft {
 }
 
 /** The wording a section's own field holds, and the field it goes back into. */
-const LEXICON_FIELDS: Partial<Record<string, (draft: StudioDraft, value: string) => void>> = {
+const LABEL_FIELDS: Partial<Record<string, (draft: StudioDraft, value: string) => void>> = {
   'continue.instruction': (draft, value) => {
     draft.turnBehaviour.continueInstruction = value;
   },
@@ -713,14 +713,14 @@ const LEXICON_FIELDS: Partial<Record<string, (draft: StudioDraft, value: string)
   },
 };
 
-function applyLexicon(draft: StudioDraft, lexicon: unknown): void {
-  if (!isRecord(lexicon)) return;
+function applyLabels(draft: StudioDraft, labels: unknown): void {
+  if (!isRecord(labels)) return;
   const wording: StudioDraft['wording'] = {};
-  for (const [key, value] of Object.entries(lexicon)) {
+  for (const [key, value] of Object.entries(labels)) {
     if (typeof value !== 'string') continue;
-    const field = LEXICON_FIELDS[key];
+    const field = LABEL_FIELDS[key];
     if (field) field(draft, value);
-    else if (!INLINE_WORDING[key as LexiconKey]) wording[key as LexiconKey] = value;
+    else if (!INLINE_WORDING[key as LabelKey]) wording[key as LabelKey] = value;
   }
   draft.wording = wording;
 }
@@ -1227,7 +1227,7 @@ function draftFrom(
   if (draft.tools.t2Loader && !allowedNames.has(draft.tools.t2Loader)) {
     draft.tools = { ...draft.tools, t2Loader: '' };
   }
-  applyLexicon(draft, profile.lexicon);
+  applyLabels(draft, profile.labels);
   if (type === 'decision' && isRecord(profile.models)) {
     draft.modelBindings = draft.modelBindings.map(withoutDecisionTimeout);
   }

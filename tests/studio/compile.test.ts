@@ -431,7 +431,7 @@ Deno.test('a speech profile compiles without a system prompt or canary', () => {
   });
   assertEquals(profile.type, 'speech');
   assert(!('system' in (profile.identity ?? {})));
-  assertEquals(profile.lexicon?.['canary.bind_note'], undefined);
+  assertEquals(profile.labels?.['canary.bind_note'], undefined);
 });
 Deno.test('a draft compiles only the fields its type takes in the schema', () => {
   const image = includeFacet(setProfileType(createExampleDraft(), 'image'), 'turnBehaviour');
@@ -447,7 +447,7 @@ Deno.test('a draft compiles only the fields its type takes in the schema', () =>
   });
   assertEquals(profile.type, 'image');
   assertEquals(profile.turnBehaviour, { resumption: { allowContinue: [], autoContinue: [] } });
-  assertEquals(profile.lexicon, undefined);
+  assertEquals(profile.labels, undefined);
   const live = setProfileType(image, 'live');
   const liveProfile = compiled({ ...live, tools: { t2Loader: 'not_checked' } }).profile;
   assert(liveProfile.type === 'live');
@@ -487,7 +487,7 @@ Deno.test('continuing set to Never compiles to an empty allow list, not the kern
     resumption: { allowContinue: ['length'], autoContinue: ['length'] },
   });
 });
-Deno.test('the continue instruction and canary bind note compile into the profile lexicon', () => {
+Deno.test('the continue instruction and canary bind note compile into the profile labels', () => {
   const text = includeFacet(includeFacet(createExampleDraft(), 'turnBehaviour'), 'guardrails');
   const draft = {
     ...text,
@@ -502,7 +502,7 @@ Deno.test('the continue instruction and canary bind note compile into the profil
     },
   };
   const { profile } = compiled(draft);
-  assertEquals(profile.lexicon, {
+  assertEquals(profile.labels, {
     'continue.instruction': 'Keep going.',
     'canary.bind_note': 'Token {canary} stays secret.',
   });
@@ -517,9 +517,9 @@ Deno.test('the continue instruction and canary bind note compile into the profil
       },
     },
   });
-  assertEquals(off.profile.lexicon, undefined);
+  assertEquals(off.profile.labels, undefined);
 });
-Deno.test('Wording compiles into the profile lexicon; lines edited beside their setting come from there', () => {
+Deno.test('Wording compiles into the profile labels; lines edited beside their setting come from there', () => {
   const draft = {
     ...createExampleDraft(),
     wording: {
@@ -528,17 +528,17 @@ Deno.test('Wording compiles into the profile lexicon; lines edited beside their 
       'quota.exhausted': 'Ignored.',
     },
   };
-  assertEquals(compiled(draft).profile.lexicon, { 'error.rate_limit': 'Busy, try again soon.' });
-  assertEquals(compiled(excludeFacet(draft, 'wording')).profile.lexicon, undefined);
+  assertEquals(compiled(draft).profile.labels, { 'error.rate_limit': 'Busy, try again soon.' });
+  assertEquals(compiled(excludeFacet(draft, 'wording')).profile.labels, undefined);
 });
-Deno.test('the refusal line beside On block compiles into the profile lexicon', () => {
+Deno.test('the refusal line beside On block compiles into the profile labels', () => {
   const draft = includeFacet(createExampleDraft(), 'guardrails');
   draft.guardrails = {
     ...draft.guardrails,
     blockedReplyOnBlock: 'refuse',
     egressRefusal: ' I cannot share that. ',
   };
-  assertEquals(compiled(draft).profile.lexicon?.['egress.refusal'], 'I cannot share that.');
+  assertEquals(compiled(draft).profile.labels?.['egress.refusal'], 'I cannot share that.');
 });
 Deno.test('a blank detector of the builder says what it needs in plain words', () => {
   const draft = includeFacet(createExampleDraft(), 'guardrails');

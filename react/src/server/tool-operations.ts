@@ -1,6 +1,6 @@
 import {
   type BeginToolOperationResult,
-  lexiconText,
+  labelText,
   TheoremError,
   type ToolExecutionCoordinator,
   type ToolOperationClaim,
@@ -10,7 +10,7 @@ import {
 import type { SessionToolOperation, TheoremSessionState } from './session-store.ts';
 
 function unavailable(): never {
-  throw new TheoremError('unavailable', lexiconText('error.unavailable'));
+  throw new TheoremError('unavailable', labelText('error.unavailable'));
 }
 
 function sameOperation(

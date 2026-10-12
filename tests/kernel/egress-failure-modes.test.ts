@@ -1,7 +1,7 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { HOST_FIND_HOLD, type HostFind } from '../../src/guardrails/detectors.ts';
-import { type LexiconOverrides, lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { type LabelOverrides, labelDefault } from '../../src/guardrails/labels.ts';
 import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -15,7 +15,7 @@ function profile(
   find: HostFind,
   onBlock: 'refuse' | 'retry' = 'refuse',
   maxRetries = 0,
-  lexicon?: LexiconOverrides,
+  labels?: LabelOverrides,
 ): void {
   registerProfile(
     defineProfile({
@@ -32,7 +32,7 @@ function profile(
         blockedReply: { onBlock, maxRetries },
         detect: { 'test.own': { label: 'Test', at: { reply: 'block' }, find } },
       },
-      ...(lexicon ? { lexicon } : {}),
+      ...(labels ? { labels } : {}),
     }),
   );
 }
@@ -104,7 +104,7 @@ Deno.test('a find that throws fails closed instead of killing the turn', async (
   });
 
   const events = await collect('fm_throws', says('sensitive answer'));
-  assertEquals(texts(events), [lexiconDefault('egress.refusal')]);
+  assertEquals(texts(events), [labelDefault('egress.refusal')]);
 });
 
 Deno.test('a find that throws can still be repaired against', async () => {
@@ -125,11 +125,11 @@ Deno.test('a find that throws can still be repaired against', async () => {
   assertEquals(texts(events).join(''), 'answer');
 });
 
-Deno.test('onBlock refuse shows the lexicon refusal', async () => {
+Deno.test('onBlock refuse shows the labels refusal', async () => {
   profile('fm_default_copy', findAll);
 
   const events = await collect('fm_default_copy', says('leaky'));
-  assertEquals(texts(events), [lexiconDefault('egress.refusal')]);
+  assertEquals(texts(events), [labelDefault('egress.refusal')]);
   assertEquals(
     events.some((e) => e.type === 'error'),
     false,
@@ -137,7 +137,7 @@ Deno.test('onBlock refuse shows the lexicon refusal', async () => {
   assertEquals(finalStop(events), EGRESS_FILTERED);
 });
 
-Deno.test('onBlock refuse shows the profile lexicon refusal', async () => {
+Deno.test('onBlock refuse shows the profile labels refusal', async () => {
   profile('fm_profile_copy', findAll, 'refuse', 0, { 'egress.refusal': 'I cannot share that.' });
 
   const events = await collect('fm_profile_copy', says('leaky'));
@@ -200,5 +200,5 @@ Deno.test('thoughts keep streaming after a block withholds the reply', async () 
     eventsOf(events, 'thought').map((e) => e.text),
     ['still thinking'],
   );
-  assertEquals(texts(events), [lexiconDefault('egress.refusal')]);
+  assertEquals(texts(events), [labelDefault('egress.refusal')]);
 });

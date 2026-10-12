@@ -275,7 +275,7 @@ async function turnRequest(
   if ('session' in evalCase.input) {
     throw new TheoremError(
       'config',
-      `case ${evalCase.id} is a session script; suite ${suite.suite.id} runs turns`, // lexicon-exempt: developer contract error
+      `case ${evalCase.id} is a session script; suite ${suite.suite.id} runs turns`, // labels-exempt: developer contract error
     );
   }
   const stamp: EvalStamp = { suite: suite.suite.id, case: evalCase.id, trial: index };
@@ -356,13 +356,13 @@ function judgingOf(loaded: LoadedSuite, options: RunSuiteOptions): Judging {
       if (profile.type === 'decision' && !decision) {
         throw new TheoremError(
           'config',
-          `suite ${suite.id}: grader ${grader.name} needs a key for decision judge profile ${id}; export judgeDecision`, // lexicon-exempt: developer contract error
+          `suite ${suite.id}: grader ${grader.name} needs a key for decision judge profile ${id}; export judgeDecision`, // labels-exempt: developer contract error
         );
       }
       if (profile.type !== 'decision' && !provider) {
         throw new TheoremError(
           'config',
-          `suite ${suite.id}: grader ${grader.name} needs a provider for judge profile ${id}`, // lexicon-exempt: developer contract error
+          `suite ${suite.id}: grader ${grader.name} needs a provider for judge profile ${id}`, // labels-exempt: developer contract error
         );
       }
       policies.set(id, resolveObservabilityPolicy(profile.observability));
@@ -384,19 +384,19 @@ function checkSuite(loaded: LoadedSuite, options: RunSuiteOptions): string[] {
     throw new TheoremError(
       'config',
       `suite ${suite.id}: profile ${suite.profile} runs no model turn`,
-    ); // lexicon-exempt: developer contract error
+    ); // labels-exempt: developer contract error
   }
   if (suite.mode === 'session') {
-    throw new TheoremError('config', `suite ${suite.id}: session suites are not run yet`); // lexicon-exempt: developer contract error
+    throw new TheoremError('config', `suite ${suite.id}: session suites are not run yet`); // labels-exempt: developer contract error
   }
   if (profile.type === 'live') {
-    throw new TheoremError('config', `suite ${suite.id}: a live profile needs mode 'session'`); // lexicon-exempt: developer contract error
+    throw new TheoremError('config', `suite ${suite.id}: a live profile needs mode 'session'`); // labels-exempt: developer contract error
   }
   if (!options.recorded && !options.provider) {
-    throw new TheoremError('config', `suite ${suite.id}: live mode needs a provider`); // lexicon-exempt: developer contract error
+    throw new TheoremError('config', `suite ${suite.id}: live mode needs a provider`); // labels-exempt: developer contract error
   }
   if (suite.graders.length === 0) {
-    throw new TheoremError('config', `suite ${suite.id}: no graders`); // lexicon-exempt: developer contract error
+    throw new TheoremError('config', `suite ${suite.id}: no graders`); // labels-exempt: developer contract error
   }
   const warnings: string[] = [];
   const repeat = options.repeat ?? suite.trials.repeat;
@@ -523,7 +523,7 @@ async function ranOf(grading: Grading, repeat: number, options: RunSuiteOptions)
     return ran;
   }
   if (!options.provider) {
-    throw new TheoremError('config', `suite ${grading.suite.suite.id}: live mode needs a provider`); // lexicon-exempt: developer contract error
+    throw new TheoremError('config', `suite ${grading.suite.suite.id}: live mode needs a provider`); // labels-exempt: developer contract error
   }
   return runLive(grading, options.provider, repeat, options);
 }

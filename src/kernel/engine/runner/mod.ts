@@ -11,7 +11,7 @@ import {
   withPublicWording,
 } from '../../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
-import { lexiconText } from '../../../guardrails/lexicon.ts';
+import { labelText } from '../../../guardrails/labels.ts';
 import { sanitizeTurnRequestWithEvents } from '../../../guardrails/sanitize.ts';
 import { resolveTraceWriter } from '../../../observability/policy.ts';
 import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
@@ -97,7 +97,7 @@ const MS_PER_S = 1000;
  * through here, so it is where an error gets the user's wording.
  */
 function deliver(ctx: TraceCtx, event: TurnEvent): TurnEvent {
-  const out = withPublicWording(event, ctx.known?.lexicon);
+  const out = withPublicWording(event, ctx.known?.labels);
   if (out.type === 'text' && !ctx.shownText) {
     ctx.shownText = true;
     ctx.root.set({ 'theorem.turn.time_to_first_text': ctx.root.msSinceStart() / MS_PER_S });
@@ -182,7 +182,7 @@ async function runCompactor(args: {
     profile: compactorId,
     // why: The turn already passed model selection; its default needs no naming.
     ...(self && args.model !== compactor.defaultModel ? { model: args.model } : {}),
-    input: { text: lexiconText('compaction.request', {}, compactor.lexicon), history },
+    input: { text: labelText('compaction.request', {}, compactor.labels), history },
     signal: args.signal,
   };
   const events: TurnEvent[] = [];
@@ -213,7 +213,7 @@ async function runCompactor(args: {
   if (reported && NESTED_THROWS.has(reported.errorKind)) {
     throw new TheoremError(
       reported.errorKind,
-      `Compactor '${compactorId}' failed: ${reported.errorInternal ?? reported.error}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Compactor '${compactorId}' failed: ${reported.errorInternal ?? reported.error}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const error = reported?.errorKind;
@@ -699,11 +699,11 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   if (compaction) yield deliver(ctx, projectForObs(compaction, ctx.observability));
 
   ctx.system = bindSystem(gen.resolvedSystem, [
-    canaryNote(ctx.canary, profile.lexicon),
+    canaryNote(ctx.canary, profile.labels),
     profileTypesForField('identity.system').includes(profile.type)
-      ? userDataNote(profile.lexicon)
+      ? userDataNote(profile.labels)
       : '',
-    profileInputs(profile)?.context ? contextNote(profile.lexicon) : '',
+    profileInputs(profile)?.context ? contextNote(profile.labels) : '',
   ]);
 
   yield* streamTurnEvents(ctx, profile, gen, provider, compactionSpec);
@@ -847,7 +847,7 @@ async function compactHistoryInRegistry(
   if (!spec) {
     throw new TheoremError(
       'config',
-      `Profile ${profile.id} model '${model}' has no compaction`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profile.id} model '${model}' has no compaction`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const family = mediaTokenFamily(binding);

@@ -238,7 +238,7 @@ export interface TheoremTransport {
 
 /**
  * A failure the host reported: its kind, the host's wording when it sent one
- * (the profile's lexicon, applied on the host), and raw detail when the host
+ * (the profile's labels, applied on the host), and raw detail when the host
  * exposes it. `clientFailure` words it for the user.
  */
 export class TheoremStreamError extends Error {
@@ -322,7 +322,7 @@ export async function readNdjsonStream<Line extends { type: string }>(
   onLine: (line: Line | UnsupportedEvent | MalformedEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  if (!response.body) throw new TheoremError('bad_response', 'stream reply has no body'); // lexicon-exempt: internal diagnostic
+  if (!response.body) throw new TheoremError('bad_response', 'stream reply has no body'); // labels-exempt: internal diagnostic
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -379,7 +379,7 @@ async function failureFromResponse(response: Response): Promise<TheoremError | T
   }
   const body = hostErrorBody.safeParse(raw);
   if (!body.success) {
-    // lexicon-exempt: internal diagnostic; the user reads error.bad_response
+    // labels-exempt: internal diagnostic; the user reads error.bad_response
     return new TheoremError(
       'bad_response',
       `HTTP ${String(response.status)} error body failed its wire check`,
@@ -480,7 +480,7 @@ export function createHttpTransport(options: HttpTransportOptions = {}): Theorem
     async describe(signal) {
       const response = await request(base, { method: 'GET', signal }, options);
       if (!response.ok) throw await failureFromResponse(response);
-      // lexicon-exempt: internal diagnostic; the user reads error.bad_response
+      // labels-exempt: internal diagnostic; the user reads error.bad_response
       return checkWire(
         describedSchema,
         parseWireJson(await response.text()),

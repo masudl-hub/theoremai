@@ -15,7 +15,7 @@ export function fromBase64Url(base64url: string): Uint8Array<ArrayBuffer> {
     return base64ToBytes(base64);
   } catch (err) {
     throw new Error(
-      `Invalid base64url encoding: ${err instanceof Error ? err.message : String(err)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Invalid base64url encoding: ${err instanceof Error ? err.message : String(err)}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -24,7 +24,7 @@ export function fromBase64Url(base64url: string): Uint8Array<ArrayBuffer> {
 export function generateCodeVerifier(length = 64): string {
   if (length < 43 || length > 128) {
     throw new RangeError(
-      `Invalid PKCE code_verifier length: ${length}. RFC 7636 Section 4.1 requires length between 43 and 128 characters.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Invalid PKCE code_verifier length: ${length}. RFC 7636 Section 4.1 requires length between 43 and 128 characters.`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const validChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
@@ -95,7 +95,7 @@ async function sealKey(
   const secretBytes = encoder.encode(secret);
   if (secretBytes.length < MIN_SECRET_BYTES) {
     throw new RangeError(
-      `${label} must be at least ${MIN_SECRET_BYTES} bytes; got ${secretBytes.length}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `${label} must be at least ${MIN_SECRET_BYTES} bytes; got ${secretBytes.length}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const base = await crypto.subtle.importKey('raw', secretBytes, 'HKDF', false, ['deriveKey']);
@@ -161,7 +161,7 @@ async function openBytes(
 
 const STATE_SCHEME: SealScheme = {
   info: STATE_CONTEXT,
-  label: 'OAuth state secret', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  label: 'OAuth state secret', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   associatedData: ENVELOPE_VERSION,
 };
 
@@ -181,21 +181,21 @@ export async function unsealStatePayload(
 ): Promise<SealedStatePayload> {
   const [version, ...parts] = sealed.split('.');
   if (version !== ENVELOPE_VERSION || parts.length !== 3) {
-    throw new Error('Invalid sealed state format'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error('Invalid sealed state format'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const plaintext = await openBytes(parts, secret, STATE_SCHEME);
   if (plaintext === null) {
     throw new Error(
-      'OAuth state could not be opened: it was tampered with, corrupted, or sealed with another secret', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'OAuth state could not be opened: it was tampered with, corrupted, or sealed with another secret', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 
   const payload = JSON.parse(plaintext) as SealedStatePayload;
   if (!Array.isArray(payload.scopes)) {
-    throw new Error('Invalid sealed state format'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error('Invalid sealed state format'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (Date.now() > payload.expiresAt) {
-    throw new Error('OAuth state has expired'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error('OAuth state has expired'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return payload;
 }
@@ -203,14 +203,14 @@ export async function unsealStatePayload(
 function secretScheme(keyVersion: number, binding: readonly string[]): SealScheme {
   return {
     info: SEAL_CONTEXT,
-    label: 'Secret sealing key', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    label: 'Secret sealing key', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     associatedData: JSON.stringify([ENVELOPE_VERSION, keyVersion, binding]),
   };
 }
 
 function assertKeyVersion(keyVersion: number): void {
   if (!Number.isSafeInteger(keyVersion) || keyVersion < 0) {
-    throw new RangeError(`Key version must be a non-negative integer; got ${keyVersion}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new RangeError(`Key version must be a non-negative integer; got ${keyVersion}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 
@@ -251,16 +251,16 @@ export async function openSecret(input: OpenSecretInput): Promise<string> {
   const [version, keyVersionText, ...parts] = input.sealed.split('.');
   const keyVersion = Number(keyVersionText);
   if (version !== ENVELOPE_VERSION || parts.length !== 3 || !/^\d+$/.test(keyVersionText ?? '')) {
-    throw new Error('Invalid sealed secret format'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error('Invalid sealed secret format'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const key = input.keys[keyVersion];
   if (key === undefined) {
-    throw new Error(`No key for sealed secret key version ${keyVersion}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error(`No key for sealed secret key version ${keyVersion}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const plaintext = await openBytes(parts, key, secretScheme(keyVersion, input.binding));
   if (plaintext === null) {
     throw new Error(
-      'Sealed secret could not be opened: it was tampered with, bound to something else, or sealed with another key', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'Sealed secret could not be opened: it was tampered with, bound to something else, or sealed with another key', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   return plaintext;

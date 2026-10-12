@@ -140,7 +140,7 @@ function agentToolInputFor(
     if (!shape[channel]) {
       throw new TheoremError(
         'config',
-        `Tool '${tool?.name}' keeps '${channel}' for the host, which its profile does not take`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Tool '${tool?.name}' keeps '${channel}' for the host, which its profile does not take`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     delete shape[channel];
@@ -150,7 +150,7 @@ function agentToolInputFor(
     if (!schema) {
       throw new TheoremError(
         'config',
-        `Tool '${tool?.name}' describes '${field}', which its profile does not take`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Tool '${tool?.name}' describes '${field}', which its profile does not take`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     shape[field] = schema.describe(text);
@@ -159,7 +159,7 @@ function agentToolInputFor(
     if (AGENT_INPUT_FIELDS.has(field)) {
       throw new TheoremError(
         'config',
-        `Tool '${tool?.name}' declares the host field '${field}', which is a field of every agent tool`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Tool '${tool?.name}' declares the host field '${field}', which is a field of every agent tool`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     shape[field] = schema;
@@ -198,14 +198,14 @@ function agentProfileProblem(
   find: (name: string) => RegisteredTool | undefined,
 ): string | undefined {
   if (!AGENT_TOOL_TYPES.has(profile.type)) {
-    return `it is a ${profile.type} profile; an agent tool runs a text, image or speech profile`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return `it is a ${profile.type} profile; an agent tool runs a text, image or speech profile`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  if (!profileTakesText(profile)) return 'it does not take text'; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  if (!profileTakesText(profile)) return 'it does not take text'; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   for (const id of profileToolAllow(profile)) {
     const tool = find(id);
-    if (!tool) return `its tool '${id}' is not registered; register it first`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    if (!tool) return `its tool '${id}' is not registered; register it first`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     if (toolCanGate(tool)) {
-      return `its tool '${id}' can stop on a gate; give it permission 'auto' and no sign-in`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      return `its tool '${id}' can stop on a gate; give it permission 'auto' and no sign-in`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
   return undefined;
@@ -217,21 +217,21 @@ function agentToolProfile(
   findProfile: (id: ProfileId) => Profile | undefined,
   findTool: (name: string) => RegisteredTool | undefined,
 ): Profile {
-  const tag = `Agent tool "${def.name}"`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  const tag = `Agent tool "${def.name}"`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   const max = def.maxCallsPerTurn;
   if (max !== undefined && !(Number.isInteger(max) && max > 0)) {
-    throw new TheoremError('config', `${tag}: maxCallsPerTurn must be a whole number above 0`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `${tag}: maxCallsPerTurn must be a whole number above 0`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const profile = findProfile(def.profile);
   if (!profile) {
     throw new TheoremError(
       'config',
-      `${tag}: profile '${def.profile}' must be registered before the tool`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `${tag}: profile '${def.profile}' must be registered before the tool`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const problem = agentProfileProblem(profile, findTool);
   if (problem) {
-    throw new TheoremError('config', `${tag} can't run '${def.profile}': ${problem}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `${tag} can't run '${def.profile}': ${problem}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return profile;
 }

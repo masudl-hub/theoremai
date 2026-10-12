@@ -56,7 +56,7 @@ ASD-STE100 (Simplified Technical English) is a controlled language for maintenan
 
 ## Tone: polite and plain
 
-Theorem's own words to users are polite. Read `src/guardrails/lexicon.ts`: "Sorry, the model isn't available at the moment. Please try again shortly." Docs speak in the same voice. The reader is a capable colleague, not a person to command or correct.
+Theorem's own words to users are polite. Read `src/guardrails/labels.ts`: "Sorry, the model isn't available at the moment. Please try again shortly." Docs speak in the same voice. The reader is a capable colleague, not a person to command or correct.
 
 | Do | Do not |
 | --- | --- |
@@ -70,11 +70,11 @@ Theorem's own words to users are polite. Read `src/guardrails/lexicon.ts`: "Sorr
 - Say what the reader gains or loses, not what they should have done. Offer a way forward after every limit: "The package does not include the font. To use it, ..."
 - Never blame the reader, the user or another team. Describe the state, then the fix.
 - No sarcasm, no jokes, no exclamation marks.
-- Quote user-facing wording from the lexicon. Do not rewrite it.
+- Quote user-facing wording from the labels. Do not rewrite it.
 
 ## Terms: keep a glossary as you write
 
-Before you write, list the 5 to 10 nouns the doc rests on. Give each one name and one definition. Check the finished doc for a second name for any of them. Search the repo's own lexicon or contract first: the code's word is the doc's word.
+Before you write, list the 5 to 10 nouns the doc rests on. Give each one name and one definition. Check the finished doc for a second name for any of them. Search the repo's own labels or contract first: the code's word is the doc's word.
 
 ## Jargon
 

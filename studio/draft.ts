@@ -5,7 +5,7 @@
  */
 
 import {
-  type LexiconKey,
+  type LabelKey,
   liveIngressChannelDefault,
   profileAllowsInject,
   resolveGuardrailPolicy,
@@ -222,7 +222,7 @@ export interface PatternDraft {
 export interface PatternSourceDraft {
   theorem: boolean;
   patterns: PatternDraft[];
-  /** What a retry tells the model about a match of the builder's patterns. `''` keeps the lexicon's. */
+  /** What a retry tells the model about a match of the builder's patterns. `''` keeps the labels'. */
   hint: string;
 }
 
@@ -234,7 +234,7 @@ export interface OwnDetectorDraft {
   /** What it does with a match, at every boundary. */
   at: Record<Boundary, DetectAction>;
   patterns: PatternDraft[];
-  /** What a retry tells the model about a match. `''` keeps the lexicon's. */
+  /** What a retry tells the model about a match. `''` keeps the labels'. */
   hint: string;
 }
 
@@ -259,7 +259,7 @@ export interface GuardrailsDraft {
   /** `null` omits it (kernel default: 1). */
   blockedReplyMaxRetries: number | null;
   egressRepairGuidance: string;
-  /** What the user reads in place of a refused reply. `''` keeps the lexicon's. */
+  /** What the user reads in place of a refused reply. `''` keeps the labels'. */
   egressRefusal: string;
   allowPrivateNetworks: boolean;
   allowedHosts: string[];
@@ -375,11 +375,11 @@ export interface DecisionDraft {
   questions: DecisionQuestionDraft[];
 }
 
-/** Wording the author replaced, by lexicon key; a key left out keeps the kernel's line. */
-export type WordingDraft = Partial<Record<LexiconKey, string>>;
+/** Wording the author replaced, by labels key; a key left out keeps the kernel's line. */
+export type WordingDraft = Partial<Record<LabelKey, string>>;
 
 /** Wording held beside the setting it words; each line has one value, so it edits that field. */
-export const INLINE_WORDING: Partial<Record<LexiconKey, ProfileGraphFacetId>> = {
+export const INLINE_WORDING: Partial<Record<LabelKey, ProfileGraphFacetId>> = {
   'continue.instruction': 'turnBehaviour',
   'canary.bind_note': 'guardrails',
   'quota.exhausted': 'guardrails',

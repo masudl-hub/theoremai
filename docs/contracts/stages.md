@@ -244,7 +244,7 @@ Applies to function, HTTP, and MCP tools on every execute path
     call failed, the tool has no label or a placeholder has no value.
     `activityFailed` is the tool's failed label, filled from the input as the
     model sent it; when the tool has none or a placeholder has no value, it is
-    the lexicon's `tool.activity_failed` line naming the tool in words. Apply
+    the labels' `tool.activity_failed` line naming the tool in words. Apply
     `labelFailed` → the call stays `complete` with its result, and the terminal
     event's `activityPast` carries `activityFailed`: the host's way to say a
     call that ran did not do what was asked. Apply `deny` → the model gets that

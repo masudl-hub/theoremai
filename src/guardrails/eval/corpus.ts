@@ -2,7 +2,7 @@
 // carries no third-party data and no license obligations beyond attribution here. Sources are scored
 // separately on purpose: pooling hides the domain shift between them, which is what most flatters a detector.
 
-/** lexicon-exempt-file: evaluation corpora — not runtime user or model copy (P2) */
+/** labels-exempt-file: evaluation corpora — not runtime user or model copy (P2) */
 export interface CorpusSample {
   text: string;
   attack: boolean;

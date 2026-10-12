@@ -1,7 +1,7 @@
 import { canaryLeakRanges, mintCanary } from '../../src/guardrails/canary.ts';
 import type { Detector } from '../../src/guardrails/detectors.ts';
 import { givenUrlSets } from '../../src/guardrails/egress-urls.ts';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { labelDefault } from '../../src/guardrails/labels.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import {
   createThoughtGuard,
@@ -11,9 +11,9 @@ import {
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { replyHits } from '../fixtures/detect.ts';
 
-const OMIT_IMAGE = lexiconDefault('thought.omitted_image');
-const OMIT_LINK = lexiconDefault('thought.omitted_link');
-const OMIT_INSTRUCTIONS = lexiconDefault('thought.omitted_instructions');
+const OMIT_IMAGE = labelDefault('thought.omitted_image');
+const OMIT_LINK = labelDefault('thought.omitted_link');
+const OMIT_INSTRUCTIONS = labelDefault('thought.omitted_instructions');
 
 /** Everything `guard` shows of `pieces` through to the flush, and the rules it omitted for. */
 function think(guard: ThoughtGuard, pieces: string[]): { shown: string; rules: string[] } {
@@ -226,7 +226,7 @@ Deno.test('a canary split across two calls of thoughts is omitted from the secon
 
 Deno.test("a host's wording replaces a thought's placeholder", () => {
   const canary = mintCanary();
-  const guard = leakGuard(canary, { lexicon: { 'thought.omitted_instructions': ' (hidden)' } });
+  const guard = leakGuard(canary, { labels: { 'thought.omitted_instructions': ' (hidden)' } });
   assertEquals(think(guard, [`It is ${canary}.`]).shown, 'It is (hidden).');
 });
 

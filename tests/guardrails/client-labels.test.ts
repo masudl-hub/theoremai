@@ -1,37 +1,37 @@
 import { assertEquals } from '@std/assert';
 import {
   attachmentIssueText,
-  CLIENT_LEXICON_KEYS,
-  overrideLexicon,
-  resetLexicon,
+  CLIENT_LABEL_KEYS,
+  overrideLabels,
+  resetLabels,
 } from '../../mod.ts';
-import { clientLexicon } from '../../src/guardrails/lexicon.ts';
+import { clientLabels } from '../../src/guardrails/labels.ts';
 import { attachmentIssues } from '../../src/kernel/registry/attachments.ts';
 
-Deno.test('clientLexicon sends only client keys, the profile over the process override', () => {
-  overrideLexicon({ 'error.timeout': 'Process timeout.', 'error.network': 'Process network.' });
+Deno.test('clientLabels sends only client keys, the profile over the process override', () => {
+  overrideLabels({ 'error.timeout': 'Process timeout.', 'error.network': 'Process network.' });
   try {
-    const lexicon = clientLexicon({
+    const labels = clientLabels({
       'error.timeout': 'Profile timeout.',
       'taint.reason_tainted': 'Host-only line.',
     });
-    assertEquals(lexicon, {
+    assertEquals(labels, {
       'error.timeout': 'Profile timeout.',
       'error.network': 'Process network.',
     });
-    for (const key of Object.keys(lexicon)) {
-      assertEquals((CLIENT_LEXICON_KEYS as readonly string[]).includes(key), true);
+    for (const key of Object.keys(labels)) {
+      assertEquals((CLIENT_LABEL_KEYS as readonly string[]).includes(key), true);
     }
   } finally {
-    resetLexicon();
+    resetLabels();
   }
 });
 
-Deno.test('clientLexicon is empty without overrides', () => {
-  assertEquals(clientLexicon(), {});
+Deno.test('clientLabels is empty without overrides', () => {
+  assertEquals(clientLabels(), {});
 });
 
-Deno.test('attachmentIssueText words an issue with its file name and the profile lexicon', () => {
+Deno.test('attachmentIssueText words an issue with its file name and the profile labels', () => {
   assertEquals(
     attachmentIssueText({ code: 'too_many_files', params: { maxFiles: 1 } }),
     'Sorry, only 1 file can be sent per message.',

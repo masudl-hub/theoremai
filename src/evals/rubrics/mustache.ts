@@ -21,7 +21,7 @@ type Token =
 const TAG = /\{\{(\{?)([^{}]*)\}?\}\}/g;
 
 function templateError(message: string): TheoremError {
-  return new TheoremError('config', `rubric template: ${message}`); // lexicon-exempt: developer contract error
+  return new TheoremError('config', `rubric template: ${message}`); // labels-exempt: developer contract error
 }
 
 /** A tag whose line holds nothing else: the whole line goes, newline included. */

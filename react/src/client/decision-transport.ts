@@ -123,7 +123,7 @@ const replySchema = z.object({
 
 /** A host's decide reply, checked: the answers, and any trace records it delivers. */
 export function readDecisionReply(raw: unknown): DecisionReply {
-  // lexicon-exempt: internal diagnostic; the user reads error.bad_response
+  // labels-exempt: internal diagnostic; the user reads error.bad_response
   return checkWire(replySchema, raw, 'the decision');
 }
 const describedSchema = z.object({
@@ -153,7 +153,7 @@ export function createDecisionTransport(
       return checkWire(
         describedSchema,
         await fetchJson(base, { signal }, options),
-        'the decision description', // lexicon-exempt: internal diagnostic; the user reads error.bad_response
+        'the decision description', // labels-exempt: internal diagnostic; the user reads error.bad_response
       ).interface;
     },
     decide: async (state, signal) =>

@@ -155,7 +155,7 @@ export async function continueAfterTool(args: {
     };
   } catch (err) {
     return withFailedTurnSession(
-      turnFailure(err, args.iface.lexicon),
+      turnFailure(err, args.iface.labels),
       (kept) => commitCompletedTurn(args.session, kept),
       events,
       args.seedEvents,

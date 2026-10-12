@@ -66,7 +66,7 @@ async function deliver(
       sink(line);
     }
   } catch (error) {
-    const event = withPublicWording(toErrorEvent(error), payload.profile.lexicon);
+    const event = withPublicWording(toErrorEvent(error), payload.profile.labels);
     if (event.type === 'error') throw builderError(event);
     throw error;
   }
@@ -148,7 +148,7 @@ export function createBrowserStudioTransport(
           abandon: request.abandon?.map(({ callId, operationId }) => {
             const replay = request.replay?.abandon?.[operationId];
             if (!replay) {
-              throw new TheoremError('request', 'No replay for abandoned call'); // lexicon-exempt: internal diagnostic
+              throw new TheoremError('request', 'No replay for abandoned call'); // labels-exempt: internal diagnostic
             }
             return { callId, operationId, replay };
           }),
@@ -179,7 +179,7 @@ export function createBrowserStudioTransport(
       if (!inbox || !(await steer.enqueue(inbox, steerUnitOf(request)))) {
         throw new TheoremError('request', 'The turn has ended', {
           copy: { key: 'session.turn_ended' },
-        }); // lexicon-exempt: internal diagnostic
+        }); // labels-exempt: internal diagnostic
       }
     },
     traces,

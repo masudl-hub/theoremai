@@ -16,7 +16,7 @@ export type { LiveToolEventArgs };
 
 /**
  * A failed tool step as the host reported it: the user reads its wording (else
- * the lexicon's for its kind); the model's `message` stays builder detail.
+ * the labels' for its kind); the model's `message` stays builder detail.
  */
 function toolStepFailure(failure: ToolFailure): TheoremStreamError {
   return new TheoremStreamError(failure.kind, failure.error, failure.message);

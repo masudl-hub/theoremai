@@ -907,7 +907,7 @@ Deno.test('a live profile defines without compression, a speech profile carries 
   const text = defineProfile(textProfile({ identity: { handle: 'p', system: 'sys' } }) as never);
   check(text.identity, { handle: 'p', system: 'sys' }, 'text identity');
 });
-Deno.test('a cache needs openrouter, a live profile needs a channel, a lexicon key must exist', () => {
+Deno.test('a cache needs openrouter, a live profile needs a channel, a label key must exist', () => {
   check(
     said({
       id: 'l',
@@ -921,9 +921,9 @@ Deno.test('a cache needs openrouter, a live profile needs a channel, a lexicon k
     'no live ingress',
   );
   check(
-    said(textProfile({ lexicon: { nope: 'x' } })),
-    "Profile p: unknown lexicon key 'nope'",
-    'lexicon key',
+    said(textProfile({ labels: { nope: 'x' } })),
+    "Profile p: unknown labels key 'nope'",
+    'labels key',
   );
 });
 Deno.test('a compaction profile must be a text profile', () => {

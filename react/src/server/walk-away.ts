@@ -44,7 +44,7 @@ export async function* walkAway(
       if (readBack !== undefined) answers.set(call.callId, readBack);
     }
     if (!answers.has(call.callId)) {
-      // lexicon-exempt: internal diagnostic; the user reads error.internal
+      // labels-exempt: internal diagnostic; the user reads error.internal
       throw new TheoremError('internal', `walked-away call ${call.callId} ended without settling`);
     }
   }

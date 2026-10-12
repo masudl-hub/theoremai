@@ -3,11 +3,11 @@
 
 import { TheoremError } from './theorem-error.ts';
 
-/** Values that fill a lexicon template's `{param}` placeholders. */
-export type LexiconParams = Record<string, string | number>;
+/** Values that fill a label template's `{param}` placeholders. */
+export type LabelParams = Record<string, string | number>;
 
 /** Keys are stable API. */
-export const LEXICON_KEYS = [
+export const LABEL_KEYS = [
   'provider.decision_failed',
   'provider.decision_unavailable',
   'provider.decision_model_missing',
@@ -172,8 +172,8 @@ export const LEXICON_KEYS = [
   'tool.activity_failed',
 ] as const;
 
-/** One of {@linkcode LEXICON_KEYS}. */
-export type LexiconKey = (typeof LEXICON_KEYS)[number];
+/** One of {@linkcode LABEL_KEYS}. */
+export type LabelKey = (typeof LABEL_KEYS)[number];
 
 /**
  * The keys a browser client words or writes: what the user reads (errors,
@@ -181,7 +181,7 @@ export type LexiconKey = (typeof LEXICON_KEYS)[number];
  * puts into history. Only these overrides travel to the browser; the rest
  * (repair prompts, canary, taint, egress) stay on the host.
  */
-export const CLIENT_LEXICON_KEYS = [
+export const CLIENT_LABEL_KEYS = [
   'attachments.too_many_files',
   'attachments.file_too_large',
   'attachments.turn_too_large',
@@ -222,15 +222,15 @@ export const CLIENT_LEXICON_KEYS = [
   'voice.unavailable',
   'voice.failed',
   'voice.empty',
-] as const satisfies readonly LexiconKey[];
+] as const satisfies readonly LabelKey[];
 
-/** One of {@linkcode CLIENT_LEXICON_KEYS}. */
-export type ClientLexiconKey = (typeof CLIENT_LEXICON_KEYS)[number];
+/** One of {@linkcode CLIENT_LABEL_KEYS}. */
+export type ClientLabelKey = (typeof CLIENT_LABEL_KEYS)[number];
 
 /** Host-supplied replacement templates, `{param}` placeholders included. */
-export type LexiconOverrides = Partial<Record<LexiconKey, string>>;
+export type LabelOverrides = Partial<Record<LabelKey, string>>;
 
-type LexiconDefault = string | ((params: LexiconParams) => string);
+type LabelDefault = string | ((params: LabelParams) => string);
 
 const KIB = 1024;
 
@@ -240,7 +240,7 @@ function formatMb(bytes: number): string {
 }
 
 /** The file's name when the host sent one; the line words itself without it. */
-function fileNameOf(params: LexiconParams): string | undefined {
+function fileNameOf(params: LabelParams): string | undefined {
   return params.fileName ? String(params.fileName) : undefined;
 }
 
@@ -248,7 +248,7 @@ function fileNameOf(params: LexiconParams): string | undefined {
  * Built-in defaults. Functions render plural / formatting branches; overrides
  * are plain `{param}` templates so they stay serializable in host config.
  */
-const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
+const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'provider.decision_failed': 'Decision provider failed',
   'provider.decision_unavailable': 'Provider has no decision operation',
   'provider.decision_model_missing': 'Decision response has no model',
@@ -461,9 +461,9 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
 
 /**
  * What each key is: when the kernel uses it, who reads it, and the placeholders it takes. For the
- * builders who replace the wording; the field catalog reads it for `lexicon.<key>`.
+ * builders who replace the wording; the field catalog reads it for `labels.<key>`.
  */
-export const LEXICON_NOTES: Record<LexiconKey, string> = {
+export const LABEL_NOTES: Record<LabelKey, string> = {
   'provider.decision_failed': 'Provider validation diagnostic.',
   'provider.decision_unavailable': 'Provider validation diagnostic.',
   'provider.decision_model_missing': 'Provider validation diagnostic.',
@@ -736,7 +736,7 @@ const TOOL: readonly string[] = ['tool'];
 const SERVICE: readonly string[] = ['service'];
 
 /** The placeholders the kernel fills in for each key; any other `{name}` would reach the reader as typed. */
-const LEXICON_PLACEHOLDERS: Partial<Record<LexiconKey, readonly string[]>> = {
+const LABEL_PLACEHOLDERS: Partial<Record<LabelKey, readonly string[]>> = {
   'provider.profile_type': ['provider', 'profileType'],
   'provider.event_type': ['type'],
   'provider.feature': ['provider', 'feature'],
@@ -788,42 +788,42 @@ const LEXICON_PLACEHOLDERS: Partial<Record<LexiconKey, readonly string[]>> = {
   'tool.agent_failed': TOOL,
   'tool.activity_failed': TOOL,
   ...Object.fromEntries(
-    LEXICON_KEYS.filter((key) => key.startsWith('error.')).map((key) => [key, TOOL]),
+    LABEL_KEYS.filter((key) => key.startsWith('error.')).map((key) => [key, TOOL]),
   ),
 };
 
 /** Placeholders an override for a key must keep (mechanism-critical tokens). */
-const REQUIRED_PLACEHOLDERS: Partial<Record<LexiconKey, readonly string[]>> = {
+const REQUIRED_PLACEHOLDERS: Partial<Record<LabelKey, readonly string[]>> = {
   'canary.bind_note': ['canary'],
   'egress.rejection': ['found'],
 };
 
-export function lexiconPlaceholders(key: LexiconKey): readonly string[] {
-  return LEXICON_PLACEHOLDERS[key] ?? [];
+export function labelPlaceholders(key: LabelKey): readonly string[] {
+  return LABEL_PLACEHOLDERS[key] ?? [];
 }
 
-const overrides = new Map<LexiconKey, string>();
+const overrides = new Map<LabelKey, string>();
 
-function isLexiconKey(key: string): key is LexiconKey {
-  return (LEXICON_KEYS as readonly string[]).includes(key);
+function isLabelKey(key: string): key is LabelKey {
+  return (LABEL_KEYS as readonly string[]).includes(key);
 }
 
 /** `owner` names where the overrides came from in the error. */
-export function validateLexiconOverrides(entries: LexiconOverrides, owner: string): void {
+export function validateLabelOverrides(entries: LabelOverrides, owner: string): void {
   for (const [key, template] of Object.entries(entries)) {
-    if (!isLexiconKey(key)) {
-      throw new TheoremError('config', `${owner}: unknown lexicon key '${key}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    if (!isLabelKey(key)) {
+      throw new TheoremError('config', `${owner}: unknown labels key '${key}'`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     if (template === undefined) continue;
     for (const name of REQUIRED_PLACEHOLDERS[key] ?? []) {
       if (!template.includes(`{${name}}`)) {
         throw new TheoremError(
           'config',
-          `${owner}: lexicon '${key}' must contain the {${name}} placeholder`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          `${owner}: labels '${key}' must contain the {${name}} placeholder`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         );
       }
     }
-    const allowed = lexiconPlaceholders(key);
+    const allowed = labelPlaceholders(key);
     for (const [, name] of template.matchAll(/\{(\w+)\}/g)) {
       if (!allowed.includes(name)) {
         const takes =
@@ -832,27 +832,27 @@ export function validateLexiconOverrides(entries: LexiconOverrides, owner: strin
             : 'takes no placeholders';
         throw new TheoremError(
           'config',
-          `${owner}: lexicon '${key}' has {${name}}, which is never filled in; it ${takes}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          `${owner}: labels '${key}' has {${name}}, which is never filled in; it ${takes}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         );
       }
     }
   }
 }
 
-/** Process-wide; a profile's own `lexicon` wins over these. */
-export function overrideLexicon(entries: LexiconOverrides): void {
-  validateLexiconOverrides(entries, 'overrideLexicon');
+/** Process-wide; a profile's own `labels` wins over these. */
+export function overrideLabels(entries: LabelOverrides): void {
+  validateLabelOverrides(entries, 'overrideLabels');
   for (const [key, template] of Object.entries(entries)) {
-    if (template !== undefined) overrides.set(key as LexiconKey, template);
+    if (template !== undefined) overrides.set(key as LabelKey, template);
   }
 }
 
-/** Remove every lexicon override. */
-export function resetLexicon(): void {
+/** Remove every label override. */
+export function resetLabels(): void {
   overrides.clear();
 }
 
-function substitute(template: string, params: LexiconParams): string {
+function substitute(template: string, params: LabelParams): string {
   return template.replace(/\{(\w+)\}/g, (whole, name: string) => {
     const value = params[name];
     return value === undefined ? whole : String(value);
@@ -860,35 +860,35 @@ function substitute(template: string, params: LexiconParams): string {
 }
 
 /** The wording for a key, with a profile's override applied and the params filled in. */
-export function lexiconText(
-  key: LexiconKey,
-  params: LexiconParams = {},
-  profileLexicon?: LexiconOverrides,
+export function labelText(
+  key: LabelKey,
+  params: LabelParams = {},
+  profileLabels?: LabelOverrides,
 ): string {
-  const overridden = profileLexicon?.[key] ?? overrides.get(key);
+  const overridden = profileLabels?.[key] ?? overrides.get(key);
   if (overridden !== undefined) {
     return substitute(overridden, params);
   }
-  return lexiconDefault(key, params);
+  return labelDefault(key, params);
 }
 
 /** Overrides only, resolved on the host; keys without one fall back to the defaults the client ships with. */
-export function clientLexicon(profileLexicon?: LexiconOverrides): LexiconOverrides {
-  const out: LexiconOverrides = {};
-  for (const key of CLIENT_LEXICON_KEYS) {
-    const template = profileLexicon?.[key] ?? overrides.get(key);
+export function clientLabels(profileLabels?: LabelOverrides): LabelOverrides {
+  const out: LabelOverrides = {};
+  for (const key of CLIENT_LABEL_KEYS) {
+    const template = profileLabels?.[key] ?? overrides.get(key);
     if (template !== undefined) out[key] = template;
   }
   return out;
 }
 
 /** Ignores overrides. */
-export function lexiconDefault(key: LexiconKey, params: LexiconParams = {}): string {
+export function labelDefault(key: LabelKey, params: LabelParams = {}): string {
   const fallback = DEFAULTS[key];
   return typeof fallback === 'string' ? substitute(fallback, params) : fallback(params);
 }
 
-/** Every label with its default text, named by the profile path that overrides it: `lexicon.<key>`. */
-export function lexiconCatalogRows(): readonly { name: string; text: string }[] {
-  return LEXICON_KEYS.map((key) => ({ name: `lexicon.${key}`, text: lexiconDefault(key) }));
+/** Every label with its default text, named by the profile path that overrides it: `labels.<key>`. */
+export function labelCatalogRows(): readonly { name: string; text: string }[] {
+  return LABEL_KEYS.map((key) => ({ name: `labels.${key}`, text: labelDefault(key) }));
 }

@@ -33,7 +33,7 @@ import { notePattern, SYSTEM_BOUNDARY } from './egress-patterns.ts';
 import { createEgressStream, type EgressStream } from './egress-stream.ts';
 import { type GivenUrls, imageLeakSpans, linkLeakSpans } from './egress-urls.ts';
 import { CANARY_HIT, PROMPT_ECHO_HIT } from './hits.ts';
-import { type LexiconOverrides, lexiconText } from './lexicon.ts';
+import { type LabelOverrides, labelText } from './labels.ts';
 import { promptEchoHoldFrom, promptEchoRanges, promptEchoScanFrom } from './prompt-echo.ts';
 import { DETECT_RULES } from './rules.ts';
 import type { GuardrailContext, GuardrailHit, ResolvedGuardrailPolicy } from './types.ts';
@@ -127,7 +127,7 @@ interface ThoughtGuardOptions {
   /** Rules whose leak ends what is shown of the thought, where the others are omitted alone. */
   ends?: ReadonlySet<string>;
   given?: GivenUrls;
-  lexicon?: LexiconOverrides;
+  labels?: LabelOverrides;
   /** Shown text an earlier thought ended on (`carryOut`), read in front and never shown again. */
   carry?: string;
 }
@@ -157,7 +157,7 @@ const MAX_LEAKS = 16;
  * text, is omitted too.
  */
 function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
-  const { omit = {}, canary, privateSystem, ends, given, lexicon } = options;
+  const { omit = {}, canary, privateSystem, ends, given, labels } = options;
   /** The detectors whose matches the guard omits as the thought streams. */
   const streamed: Detector[] = [
     ...(omit.markers ? (['marker_leak'] as const) : []),
@@ -167,11 +167,11 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
   const skipImages = omit.imagesRead ?? omit.images !== undefined;
   /** The canary as the echo and the note read it: planted, whether or not a thought is read for it. */
   const slot = canary ?? options.planted;
-  const note = boundaryNote({ canary: slot, lexicon });
+  const note = boundaryNote({ canary: slot, labels });
   const scope = (check: object) => ({ ...check, ...(given ? { given } : {}) });
   /** The placeholder for `kind` after `before`, without a second space. */
   function placeholder(kind: OmissionKind, before: string): string {
-    const text = lexiconText(OMIT_KEYS[kind], {}, lexicon);
+    const text = labelText(OMIT_KEYS[kind], {}, labels);
     return /\s$/.test(before) ? text.trimStart() : text;
   }
 
@@ -790,12 +790,12 @@ function thoughtEnds(detect: ResolvedDetect): Pick<ThoughtGuardOptions, 'ends'> 
 function thoughtTurn({
   canary,
   givenUrls,
-  lexicon,
-}: GuardrailContext): Pick<ThoughtGuardOptions, 'planted' | 'given' | 'lexicon'> {
+  labels,
+}: GuardrailContext): Pick<ThoughtGuardOptions, 'planted' | 'given' | 'labels'> {
   return {
     ...(canary ? { planted: canary } : {}),
     ...(givenUrls ? { given: givenUrls } : {}),
-    ...(lexicon ? { lexicon } : {}),
+    ...(labels ? { labels } : {}),
   };
 }
 

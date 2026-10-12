@@ -1,6 +1,6 @@
 import { wrapContext, wrapUserData } from '../../guardrails/canary.ts';
 import { TheoremError } from '../../guardrails/error.ts';
-import { lexiconText } from '../../guardrails/lexicon.ts';
+import { labelText } from '../../guardrails/labels.ts';
 import { contextText } from '../../guardrails/sanitize.ts';
 import { synthesizeRepairPrompt } from '../engine/repair.ts';
 import { CONTEXT_SENDERS } from '../schema.ts';
@@ -46,8 +46,8 @@ function assertOutputMode(profile: Profile, structuredId: string | null): void {
   }
   throw new TheoremError(
     'config',
-    `Profile ${profile.id} declares multiple output wire formats (${active.join(', ')}). ` + // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      'Only one of a structured JSON schema (outputs.structured), image, or speech may be active.', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    `Profile ${profile.id} declares multiple output wire formats (${active.join(', ')}). ` + // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'Only one of a structured JSON schema (outputs.structured), image, or speech may be active.', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 
@@ -56,7 +56,7 @@ function assertSpeechRole(profile: Profile, req: TurnRequest): void {
     if (req.speech) {
       throw new TheoremError(
         'request',
-        `Profile ${profile.id} (${profile.type}) takes no speech settings — only a speech profile speaks`, // lexicon-exempt: developer contract error
+        `Profile ${profile.id} (${profile.type}) takes no speech settings — only a speech profile speaks`, // labels-exempt: developer contract error
       );
     }
     return;
@@ -64,7 +64,7 @@ function assertSpeechRole(profile: Profile, req: TurnRequest): void {
   if (req.system) {
     throw new TheoremError(
       'config',
-      `Profile ${profile.id} (speech) takes no system prompt — the input text is the transcript`, // lexicon-exempt: developer contract error
+      `Profile ${profile.id} (speech) takes no system prompt — the input text is the transcript`, // labels-exempt: developer contract error
     );
   }
 }
@@ -104,7 +104,7 @@ function resolveImageFormat(profile: Profile): ImageResponseFormat | null {
 function assertMediaMime(mime: string): MediaInputKind {
   const kind = mediaKindForMime(mime);
   if (!kind) {
-    throw new TheoremError('input', `MIME '${mime}' is not a supported media input type`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('input', `MIME '${mime}' is not a supported media input type`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return kind;
 }
@@ -125,10 +125,10 @@ function mediaParts(blobs: Array<TurnBlob | TurnMediaRef>): InteractionPart[] {
 function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | null {
   const { text, repair, history } = req.input ?? {};
   if (profile.type === 'speech' && !text?.trim()) {
-    throw new TheoremError('request', `Profile ${profile.id} (speech) requires text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('request', `Profile ${profile.id} (speech) requires text input`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (profileInputs(profile)?.text === false && text) {
-    throw new TheoremError('request', `Profile ${profile.id} does not accept text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('request', `Profile ${profile.id} does not accept text input`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   // why: A repair is the kernel's, not the user's, so it applies even when the profile takes no user text.
   const promptText = repair
@@ -159,10 +159,10 @@ function continueText(profile: Profile, req: TurnRequest): string | undefined {
   if (req.input?.text) {
     throw new TheoremError(
       'request',
-      `Profile ${profile.id}: a continueFrom turn takes no input.text — its user message is the continue instruction`, // lexicon-exempt: developer contract error
+      `Profile ${profile.id}: a continueFrom turn takes no input.text — its user message is the continue instruction`, // labels-exempt: developer contract error
     );
   }
-  return lexiconText('continue.instruction', {}, profile.lexicon);
+  return labelText('continue.instruction', {}, profile.labels);
 }
 
 function pinnedReferenceParts(profile: Profile): InteractionPart[] {
@@ -197,13 +197,13 @@ function assertTurnSlots(profile: Profile, req: TurnRequest): void {
     if (!choices) {
       throw new TheoremError(
         'request',
-        `Profile ${profile.id} has no slot '${key}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profile.id} has no slot '${key}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     if (!choices.includes(value)) {
       throw new TheoremError(
         'request',
-        `Profile ${profile.id}: slot '${key}' takes ${choices.join(', ')}, not '${value}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profile.id}: slot '${key}' takes ${choices.join(', ')}, not '${value}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
   }
@@ -220,13 +220,13 @@ function assertTurnContext(profile: Profile, req: TurnRequest): void {
     if (!allowed || !spec?.from.some((from) => from === sender)) {
       throw new TheoremError(
         'request',
-        `Profile ${profile.id} takes no context from '${sender}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profile.id} takes no context from '${sender}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     if (contextText(value).length > spec.maxChars) {
       throw new TheoremError(
         'request',
-        `Profile ${profile.id}: context from '${sender}' is over inputs.context.maxChars (${String(spec.maxChars)})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profile.id}: context from '${sender}' is over inputs.context.maxChars (${String(spec.maxChars)})`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
   }

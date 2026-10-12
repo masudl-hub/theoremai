@@ -327,7 +327,7 @@ export type AttachmentValidationCode =
 
 /**
  * Structured parameters for rendering one validation issue. Validation emits
- * codes + params only; the wording is the lexicon's `attachments.*` lines.
+ * codes + params only; the wording is the labels' `attachments.*` lines.
  */
 export interface AttachmentValidationParams {
   maxFiles?: number;
@@ -513,7 +513,7 @@ export type {
   TurnStop,
 } from './stop.ts';
 
-import type { LexiconOverrides } from '../guardrails/lexicon.ts';
+import type { LabelOverrides } from '../guardrails/labels.ts';
 import type { ResolveHost } from '../guardrails/network.ts';
 import type {
   DecisionGuardrailsSpec,
@@ -610,8 +610,8 @@ export interface ProfileCommon {
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
-  /** This profile's wording: replaces any lexicon default, and any `overrideLexicon` entry, for this profile. */
-  lexicon?: LexiconOverrides;
+  /** This profile's wording: replaces any label default, and any `overrideLabels` entry, for this profile. */
+  labels?: LabelOverrides;
 }
 
 /** Any JSON value; the state a decision reads. */
@@ -656,8 +656,8 @@ export interface DecisionProfile {
   decision: { contract: DecisionContractId };
   guardrails?: DecisionGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
-  /** This profile's wording: replaces any lexicon default, and any `overrideLexicon` entry, for this profile. */
-  lexicon?: LexiconOverrides;
+  /** This profile's wording: replaces any label default, and any `overrideLabels` entry, for this profile. */
+  labels?: LabelOverrides;
 }
 
 /** Text or nested text instruction entries. Non-text leaves are rejected locally. */
@@ -783,8 +783,8 @@ export interface HostProfile {
   tools: HostProfileToolsSpec;
   guardrails?: HostGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
-  /** This profile's wording: replaces any lexicon default, and any `overrideLexicon` entry, for this profile. */
-  lexicon?: LexiconOverrides;
+  /** This profile's wording: replaces any label default, and any `overrideLabels` entry, for this profile. */
+  labels?: LabelOverrides;
 }
 
 /** Any profile, discriminated by `type`. */

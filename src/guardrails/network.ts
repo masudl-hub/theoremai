@@ -196,7 +196,7 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
   try {
     parsed = new URL(urlStr);
   } catch {
-    throw new TheoremError('request', `Invalid URL provided: "${urlStr}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('request', `Invalid URL provided: "${urlStr}"`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 
   const allowPrivate = policy?.allowPrivateNetworks ?? false;
@@ -212,7 +212,7 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
   if (!allowedSchemes.includes(parsed.protocol)) {
     throw new TheoremError(
       'blocked',
-      `URL scheme "${parsed.protocol}" is not permitted by network policy. Allowed: ${allowedSchemes.join(', ')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `URL scheme "${parsed.protocol}" is not permitted by network policy. Allowed: ${allowedSchemes.join(', ')}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 
@@ -220,14 +220,14 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
     if (isLocalhostName(hostname)) {
       throw new TheoremError(
         'blocked',
-        `Access to loopback target "${hostname}" blocked by network guardrail. Enable allowPrivateNetworks to permit local addresses.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Access to loopback target "${hostname}" blocked by network guardrail. Enable allowPrivateNetworks to permit local addresses.`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
 
     if (isPrivateOrLocalIPv4(hostname)) {
       throw new TheoremError(
         'blocked',
-        `Access to private IPv4 address "${hostname}" blocked by network guardrail.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Access to private IPv4 address "${hostname}" blocked by network guardrail.`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
 
@@ -236,7 +236,7 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
     if (isPrivateOrLocalIPv6(strippedV6)) {
       throw new TheoremError(
         'blocked',
-        `Access to private IPv6 address "${hostname}" blocked by network guardrail.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Access to private IPv6 address "${hostname}" blocked by network guardrail.`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
   }
@@ -297,13 +297,13 @@ async function assertResolvesPublic(
   }
   const addresses = await resolveHost(hostname, signal ?? undefined);
   if (addresses.length === 0) {
-    throw new TheoremError('blocked', `Host "${hostname}" did not resolve to an address.`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('blocked', `Host "${hostname}" did not resolve to an address.`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const inward = addresses.find(isPrivateOrLocalAddress);
   if (inward !== undefined) {
     throw new TheoremError(
       'blocked',
-      `Host "${hostname}" resolves to private address "${inward}", blocked by network guardrail.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Host "${hostname}" resolves to private address "${inward}", blocked by network guardrail.`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -357,7 +357,7 @@ export async function fetchGuarded(
     }
     await response.body?.cancel();
     if (hop === FETCH_REDIRECT_LIMIT) {
-      throw new TheoremError('network', `Too many redirects from "${url}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError('network', `Too many redirects from "${url}"`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     target = await clearHop(new URL(redirect, target).href);
     onOrigin &&= target.origin === origin;
@@ -400,7 +400,7 @@ export function dnsOverHttpsResolver(options: DnsOverHttpsOptions): ResolveHost 
     if (!response.ok) {
       throw new TheoremError(
         'network',
-        `DNS lookup for "${hostname}" failed: HTTP ${response.status}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `DNS lookup for "${hostname}" failed: HTTP ${response.status}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     const answer = (await response.json()) as {
@@ -411,7 +411,7 @@ export function dnsOverHttpsResolver(options: DnsOverHttpsOptions): ResolveHost 
     if (answer.Status !== DNS_NOERROR) {
       throw new TheoremError(
         'network',
-        `DNS lookup for "${hostname}" failed: status ${answer.Status}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `DNS lookup for "${hostname}" failed: status ${answer.Status}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     return (answer.Answer ?? []).flatMap((record) =>

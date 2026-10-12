@@ -1,7 +1,7 @@
 import { dispatchToolBody } from '../../src/kernel/tools/events.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
-import { lexiconText } from '../../src/guardrails/lexicon.ts';
+import { labelText } from '../../src/guardrails/labels.ts';
 import { getProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { AWAITING_USER_INPUT_STATUS } from '../../src/kernel/schema.ts';
@@ -201,14 +201,14 @@ Deno.test('tools mutation helpers project and format model results exactly', () 
   });
 });
 Deno.test('tools mutation helpers validate loaded ids and sanitize nested input', async () => {
-  const { lexiconText } = await import('../../src/guardrails/lexicon.ts');
+  const { labelText } = await import('../../src/guardrails/labels.ts');
   assertEquals(
     notLoadedMessage(asValue<FunctionToolDef>({ name: 'probe', loadTier: 'T0' })),
-    lexiconText('tool.not_visible', { tool: 'probe' }),
+    labelText('tool.not_visible', { tool: 'probe' }),
   );
   assertEquals(
     notLoadedMessage(asValue<FunctionToolDef>({ name: 'two', loadTier: 'T2' })),
-    lexiconText('tool.not_loaded_t2', { tool: 'two' }),
+    labelText('tool.not_loaded_t2', { tool: 'two' }),
   );
   assertEquals(extractLoadedIds(null), undefined);
   assertEquals(extractLoadedIds([]), undefined);
@@ -399,7 +399,7 @@ Deno.test('tools mutation coverage asserts low-level execution event payloads', 
     failure: {
       code: 'invalid_input',
       kind: 'bad_response',
-      message: lexiconText('tool.input_invalid'),
+      message: labelText('tool.input_invalid'),
       details: {
         formErrors: [],
         fieldErrors: { value: ['Invalid input: expected number, received string'] },

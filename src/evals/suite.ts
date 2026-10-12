@@ -59,7 +59,7 @@ async function readJsonl<T>(path: string, schema: z.ZodType<T>, what: string): P
     try {
       parsed = JSON.parse(line);
     } catch {
-      throw new TheoremError('config', `${path}:${index + 1}: ${what} is not JSON`); // lexicon-exempt: developer contract error
+      throw new TheoremError('config', `${path}:${index + 1}: ${what} is not JSON`); // labels-exempt: developer contract error
     }
     const result = schema.safeParse(parsed);
     if (!result.success) {
@@ -67,7 +67,7 @@ async function readJsonl<T>(path: string, schema: z.ZodType<T>, what: string): P
       const at = issue?.path.join('.') || '(root)';
       throw new TheoremError(
         'config',
-        `${path}:${index + 1}: ${what} ${at}: ${issue?.message ?? 'invalid'}`, // lexicon-exempt: developer contract error
+        `${path}:${index + 1}: ${what} ${at}: ${issue?.message ?? 'invalid'}`, // labels-exempt: developer contract error
       );
     }
     out.push(result.data);
@@ -96,14 +96,14 @@ async function loadSuite(modulePath: string): Promise<LoadedSuite> {
   const path = absolute(modulePath);
   const module: unknown = await import(new URL(`file://${path}`).href);
   if (!isRecord(module)) {
-    throw new TheoremError('config', `${modulePath}: not a module`); // lexicon-exempt: developer contract error
+    throw new TheoremError('config', `${modulePath}: not a module`); // labels-exempt: developer contract error
   }
   const parsed = evalSuiteSchema.safeParse(module.default);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     throw new TheoremError(
       'config',
-      `${modulePath}: default export is not an EvalSuite (${issue?.path.join('.') || 'root'}: ${issue?.message ?? 'invalid'})`, // lexicon-exempt: developer contract error
+      `${modulePath}: default export is not an EvalSuite (${issue?.path.join('.') || 'root'}: ${issue?.message ?? 'invalid'})`, // labels-exempt: developer contract error
     );
   }
   const suite = parsed.data;
@@ -112,7 +112,7 @@ async function loadSuite(modulePath: string): Promise<LoadedSuite> {
   const ids = new Set<string>();
   for (const evalCase of cases) {
     if (ids.has(evalCase.id)) {
-      throw new TheoremError('config', `${suite.cases}: case id ${evalCase.id} appears twice`); // lexicon-exempt: developer contract error
+      throw new TheoremError('config', `${suite.cases}: case id ${evalCase.id} appears twice`); // labels-exempt: developer contract error
     }
     ids.add(evalCase.id);
   }

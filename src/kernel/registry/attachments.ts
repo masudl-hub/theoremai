@@ -1,11 +1,11 @@
 import type { BoundaryReader } from '../../guardrails/detect-at.ts';
 import { type ErrorCopy, TheoremError } from '../../guardrails/error.ts';
 import {
-  type LexiconKey,
-  type LexiconOverrides,
-  type LexiconParams,
-  lexiconText,
-} from '../../guardrails/lexicon.ts';
+  type LabelKey,
+  type LabelOverrides,
+  type LabelParams,
+  labelText,
+} from '../../guardrails/labels.ts';
 import type {
   AttachmentValidationIssue,
   MediaLimits,
@@ -57,25 +57,25 @@ function isTurnMediaRef(item: TurnBlob | TurnMediaRef): item is TurnMediaRef {
 /** The profile's media limits; throws when it takes no media. */
 function requireMediaLimits(profile: Profile): MediaLimits {
   if (profile.type === 'speech') {
-    throw new TheoremError('request', `Profile ${profile.id} (speech) does not accept media input`); // lexicon-exempt: developer contract error
+    throw new TheoremError('request', `Profile ${profile.id} (speech) does not accept media input`); // labels-exempt: developer contract error
   }
   if (profile.type === 'live') {
     throw new TheoremError(
       'request',
-      `Profile ${profile.id} (live) does not accept turn attachment input`, // lexicon-exempt: developer contract error
+      `Profile ${profile.id} (live) does not accept turn attachment input`, // labels-exempt: developer contract error
     );
   }
   if (profile.type === 'host' || profile.type === 'decision') {
     throw new TheoremError(
       'request',
-      `Profile ${profile.id} (${profile.type}) does not accept turn input`, // lexicon-exempt: developer contract error
+      `Profile ${profile.id} (${profile.type}) does not accept turn input`, // labels-exempt: developer contract error
     );
   }
   const limits = resolveMediaLimits(profile.inputs ?? {});
   if (!limits) {
     throw new TheoremError(
       'config',
-      `Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`, // lexicon-exempt: developer contract error
+      `Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`, // labels-exempt: developer contract error
     );
   }
   return limits;
@@ -189,7 +189,7 @@ function attachmentIssues(
   return [...issues, ...limitIssues([...files, ...clips], rules.limits)];
 }
 
-const ISSUE_KEYS: Record<AttachmentValidationIssue['code'], LexiconKey> = {
+const ISSUE_KEYS: Record<AttachmentValidationIssue['code'], LabelKey> = {
   mime_not_allowed: 'attachments.mime_not_allowed',
   too_many_files: 'attachments.too_many_files',
   file_too_large: 'attachments.file_too_large',
@@ -201,7 +201,7 @@ const ISSUE_KEYS: Record<AttachmentValidationIssue['code'], LexiconKey> = {
 
 /** The user-facing wording key and params for an attachment issue. */
 function attachmentIssueCopy(issue: AttachmentValidationIssue): ErrorCopy {
-  const params: LexiconParams = {};
+  const params: LabelParams = {};
   for (const [key, value] of Object.entries(issue.params ?? {})) {
     if (value !== undefined) params[key] = value;
   }
@@ -210,16 +210,16 @@ function attachmentIssueCopy(issue: AttachmentValidationIssue): ErrorCopy {
 }
 
 /** The user-facing text for an attachment issue. */
-function attachmentIssueText(issue: AttachmentValidationIssue, lexicon?: LexiconOverrides): string {
+function attachmentIssueText(issue: AttachmentValidationIssue, labels?: LabelOverrides): string {
   const copy = attachmentIssueCopy(issue);
-  return lexiconText(copy.key, copy.params, lexicon);
+  return labelText(copy.key, copy.params, labels);
 }
 
 /** The error for a turn whose attachments were refused. */
 function attachmentsRefused(issues: readonly AttachmentValidationIssue[]): TheoremError {
   return new TheoremError(
     'input',
-    // lexicon-exempt: internal diagnostic; the user reads the copy lines
+    // labels-exempt: internal diagnostic; the user reads the copy lines
     `attachments refused: ${issues.map((issue) => issue.code).join(', ')}`,
     { copy: issues.map(attachmentIssueCopy) },
   );
@@ -229,7 +229,7 @@ function factsOf(item: TurnBlob | TurnMediaRef): AttachmentFacts {
   const facts: AttachmentFacts = { mimeType: item.mimeType, name: item.name };
   if (isTurnMediaRef(item)) return facts;
   if (!B64_BODY.test(item.data)) {
-    // lexicon-exempt: developer-facing wire-format diagnostic, not product copy
+    // labels-exempt: developer-facing wire-format diagnostic, not product copy
     throw new TheoremError('request', 'attachment data must be base64');
   }
   facts.sizeBytes = b64DecodedLen(item.data);

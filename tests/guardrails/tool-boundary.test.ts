@@ -281,7 +281,7 @@ Deno.test('a profile that ignores a detector at a failure boundary keeps the raw
   assertEquals(http.event?.action, 'redact');
 });
 
-Deno.test('a blocked failure message is replaced by the lexicon words', async () => {
+Deno.test('a blocked failure message is replaced by the labels words', async () => {
   const profile = toolProfile({ injection: { at: { tool_failure_http: 'block' } } });
   resetTools();
   const restore = registerRemote({ error: INJ_IGNORE }, 500);

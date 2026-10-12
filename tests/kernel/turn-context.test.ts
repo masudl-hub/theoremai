@@ -1,6 +1,6 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { labelDefault } from '../../src/guardrails/labels.ts';
 import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertRejects, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -58,12 +58,12 @@ Deno.test("each sender's context reaches the model in its own fence, before the 
       '<user_data>\nhello\n</user_data>',
     ].join('\n\n'),
   );
-  assertEquals(system.endsWith(lexiconDefault('context.note')), true);
+  assertEquals(system.endsWith(labelDefault('context.note')), true);
 });
 
 Deno.test('a profile without inputs.context gets no context note and takes no context', async () => {
   const { system } = await turn('chat', { text: 'hello' });
-  assertEquals(system.includes(lexiconDefault('context.note')), false);
+  assertEquals(system.includes(labelDefault('context.note')), false);
   await assertRejects(
     () => turn('chat', { text: 'hello', context: { client: 'x' } }),
     Error,

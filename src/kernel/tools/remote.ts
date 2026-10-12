@@ -1,5 +1,5 @@
 import { errorKind } from '../../guardrails/error.ts';
-import { lexiconText } from '../../guardrails/lexicon.ts';
+import { labelText } from '../../guardrails/labels.ts';
 import { fetchGuarded, type ResolveHost } from '../../guardrails/network.ts';
 import type { ErrorKind } from '../../guardrails/theorem-error.ts';
 import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
@@ -174,7 +174,7 @@ async function* resolveOAuth2Credential(
   // invariant: A token goes only to the resource it was issued for; one that names none
   // has nowhere it may go, so the user signs in again.
   if (typeof credential.resource !== 'string' || credential.resource.length === 0) {
-    const message = `OAuth credential for '${toolName}' (slot: '${slot}') does not name the resource it was issued for.`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    const message = `OAuth credential for '${toolName}' (slot: '${slot}') does not name the resource it was issued for.`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return unauthenticatedResult(toolName, authConfig, message, policy, bound);
   }
   let active = credential;
@@ -199,7 +199,7 @@ async function* resolveOAuth2Credential(
         }),
         errorInternal: messageOf(err),
       };
-      const message = `Failed to refresh OAuth token for '${toolName}' (slot: '${slot}').`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      const message = `Failed to refresh OAuth token for '${toolName}' (slot: '${slot}').`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       return unauthenticatedResult(toolName, authConfig, message, policy, bound);
     }
     // why: The host persists the refreshed credential before the call goes on; the
@@ -210,7 +210,7 @@ async function* resolveOAuth2Credential(
       data: { kind: 'auth_token_refreshed', slot },
     });
   } else if (isExpired) {
-    const message = `OAuth token expired for '${toolName}' (slot: '${slot}') and no refresh token is available.`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    const message = `OAuth token expired for '${toolName}' (slot: '${slot}') and no refresh token is available.`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return unauthenticatedResult(toolName, authConfig, message, policy, bound);
   }
 
@@ -240,7 +240,7 @@ export async function* resolveToolAuth(
   const policy = authConfig.onUnauthenticated ?? 'gate';
 
   if (!source || !credential) {
-    const message = `Authentication required for '${toolName}' (auth slot: '${authConfig.slot}').`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    const message = `Authentication required for '${toolName}' (auth slot: '${authConfig.slot}').`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return unauthenticatedResult(toolName, authConfig, message, policy);
   }
 
@@ -272,7 +272,7 @@ export type HttpToolMapping = NonNullable<HttpToolDef['mapping']>;
  */
 function pathSegment(param: string, value: string): string {
   if (value === '.' || value === '..') {
-    throw new Error(`Path parameter "${param}" cannot be "${value}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error(`Path parameter "${param}" cannot be "${value}"`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return encodeURIComponent(value);
 }
@@ -302,7 +302,7 @@ export function buildHttpToolTarget(
   const unreplacedMatch = urlStr.match(/\{([a-zA-Z0-9_-]+)\}/);
   if (unreplacedMatch) {
     throw new Error(
-      `Missing required path parameter "${unreplacedMatch[1]}" for endpoint "${endpoint}"`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Missing required path parameter "${unreplacedMatch[1]}" for endpoint "${endpoint}"`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 
@@ -445,7 +445,7 @@ export function outcomeFromUnauth(authRes: {
     };
   }
   return failureOutcome(
-    { code: 'not_authorized', kind: 'auth', message: 'Tool authentication required' }, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    { code: 'not_authorized', kind: 'auth', message: 'Tool authentication required' }, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     true,
   );
 }
@@ -496,7 +496,7 @@ export function* refusedCredentialOutcome(
   if (!auth || !refusal || Object.keys(authHeaders).length === 0) return undefined;
   const policy = auth.onUnauthenticated ?? 'gate';
   if (refusal.status === 401) {
-    const message = `The credential for '${tool.name}' (slot: '${auth.slot}') was refused.`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    const message = `The credential for '${tool.name}' (slot: '${auth.slot}') was refused.`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return outcomeFromUnauth(unauthenticatedResult(tool.name, auth, message, policy));
   }
   const challenge = bearerChallenge(refusal.challenge);
@@ -504,7 +504,7 @@ export function* refusedCredentialOutcome(
   const declared = auth.scopes ?? [];
   const requested = challenge.scopes;
   if (requested.length > 0 && requested.every((scope) => declared.includes(scope))) {
-    const message = `'${tool.name}' needs scopes its credential (slot: '${auth.slot}') does not carry.`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    const message = `'${tool.name}' needs scopes its credential (slot: '${auth.slot}') does not carry.`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return outcomeFromUnauth(unauthenticatedResult(tool.name, auth, message, policy));
   }
   const refused: AuthScopeRefused = {
@@ -518,7 +518,7 @@ export function* refusedCredentialOutcome(
     {
       code: 'out_of_scope',
       kind: 'auth',
-      message: lexiconText('sign_in.out_of_scope', { service: auth.service }, ctx.profile.lexicon),
+      message: labelText('sign_in.out_of_scope', { service: auth.service }, ctx.profile.labels),
     },
     false,
   );
@@ -619,7 +619,7 @@ function tooLargeFailure(host: string): ToolFailure {
   return {
     code: 'response_too_large',
     kind: 'bad_response',
-    message: `Response from ${host} is larger than ${MAX_TOOL_RESPONSE_BYTES} bytes`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    message: `Response from ${host} is larger than ${MAX_TOOL_RESPONSE_BYTES} bytes`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   };
 }
 
@@ -662,7 +662,7 @@ function withoutSecret(outcome: ToolBodyOutcome, secret: string | undefined): To
 /** Why an OAuth token issued for `audience` may not go to `url` (RFC 8707), or `undefined` when it may. */
 export function audienceMismatch(audience: string | undefined, url: URL): string | undefined {
   if (!audience || tokenAudienceCovers(audience, url)) return undefined;
-  return `The OAuth token for "${audience}" cannot be sent to "${url.origin}${url.pathname}"`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  return `The OAuth token for "${audience}" cannot be sent to "${url.origin}${url.pathname}"`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 }
 
 /** An OAuth token goes only to the resource it was issued for (RFC 8707); any other target gets no request. */
@@ -781,7 +781,7 @@ async function* sendHttpRequest(
       const failure: ToolFailure = {
         code: 'invalid_output',
         kind: 'bad_response',
-        message: 'HTTP response did not match tool output schema', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        message: 'HTTP response did not match tool output schema', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         details: checked.error.flatten(),
       };
       return failureOutcome(failure, false);
@@ -850,7 +850,7 @@ export function parseMcpRpcResponse(text: string): McpRpcResponse {
 
   const last = messages.at(-1);
   if (!last) {
-    throw new Error(`MCP server returned non-JSON response: ${text}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error(`MCP server returned non-JSON response: ${text}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return last;
 }
@@ -860,8 +860,8 @@ export function isUnsupportedMcpProtocolError(error: McpRpcResponse['error']): b
   if (!error) return false;
   const message = error.message.toLowerCase();
   return (
-    message.includes('unsupported protocol version') || // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    message.includes('inconsistent mcp protocol version') // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    message.includes('unsupported protocol version') || // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    message.includes('inconsistent mcp protocol version') // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 
@@ -874,7 +874,7 @@ function unsupportedProtocolFromHttpBody(text: string): McpRpcResponse['error'] 
   } catch {
     // why: A non-JSON error page falls through to the raw-text check.
   }
-  // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   if (text.toLowerCase().includes('unsupported protocol version')) {
     return { code: -32600, message: text };
   }
@@ -970,7 +970,7 @@ async function fetchMcpProtocolAttempt(
       failure: {
         code: `mcp_http_${response.status}`,
         kind: kindOfToolHttpStatus(response.status),
-        message: `MCP server error HTTP ${response.status}: ${quotedBody(text)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        message: `MCP server error HTTP ${response.status}: ${quotedBody(text)}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       },
     };
   }
@@ -987,7 +987,7 @@ async function fetchMcpProtocolAttempt(
       failure: {
         code: 'invalid_response',
         kind: 'bad_response',
-        message: `MCP server returned non-JSON response: ${quotedBody(text)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        message: `MCP server returned non-JSON response: ${quotedBody(text)}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       },
     };
   }
@@ -1087,14 +1087,14 @@ async function openMcpSession(transport: McpTransport): Promise<McpSession> {
   if (!response.ok) {
     throw sessionFailure(
       `mcp_session_http_${response.status}`,
-      `MCP server refused to open a session: HTTP ${response.status}: ${quotedBody(text)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `MCP server refused to open a session: HTTP ${response.status}: ${quotedBody(text)}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const id = response.headers.get(SESSION_HEADER);
   if (!isMcpSessionId(id)) {
     throw sessionFailure(
       'mcp_session_invalid',
-      'MCP server required a session but sent no usable session ID', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'MCP server required a session but sent no usable session ID', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   let version: unknown;
@@ -1106,7 +1106,7 @@ async function openMcpSession(transport: McpTransport): Promise<McpSession> {
   if (!MCP_PROTOCOL_VERSIONS.some((known) => known === version)) {
     throw sessionFailure(
       'mcp_protocol_error',
-      'MCP server opened a session on a protocol version Theorem does not speak', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'MCP server opened a session on a protocol version Theorem does not speak', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const protocolVersion = String(version);
@@ -1169,7 +1169,7 @@ async function negotiateInSession(
     failure: {
       code: 'mcp_session_expired',
       kind: 'failed',
-      message: 'MCP server ended the session again right after it was reopened', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      message: 'MCP server ended the session again right after it was reopened', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     },
   };
 }
@@ -1246,7 +1246,7 @@ function structuredMismatch(
   return {
     code: 'mcp_structured_mismatch',
     severity: 'warning',
-    message: `structuredContent does not match the output schema, so the text content was used. ${shown.join('; ')}${more}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    message: `structuredContent does not match the output schema, so the text content was used. ${shown.join('; ')}${more}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   };
 }
 
@@ -1264,7 +1264,7 @@ function mcpResultFailure(rpcResponse: McpRpcResponse): ToolFailure | undefined 
     return {
       code: 'mcp_tool_execution_failed',
       kind: 'failed',
-      message: result.content?.map((c) => c.text ?? '').join('\n') ?? 'MCP Tool execution error', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      message: result.content?.map((c) => c.text ?? '').join('\n') ?? 'MCP Tool execution error', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
   }
   return undefined;
@@ -1290,7 +1290,7 @@ function interpretMcpRpc(
       failure: {
         code: 'mcp_protocol_error',
         kind: 'failed',
-        message: negotiated.lastProtocolError?.message ?? 'MCP protocol negotiation failed', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        message: negotiated.lastProtocolError?.message ?? 'MCP protocol negotiation failed', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         details: negotiated.lastProtocolError?.data,
       },
     };
@@ -1307,7 +1307,7 @@ function interpretMcpRpc(
       failure: {
         code: 'invalid_output',
         kind: 'bad_response',
-        message: 'MCP output schema validation failed', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        message: 'MCP output schema validation failed', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         details: checked.error.flatten(),
       },
       ...withWarning,

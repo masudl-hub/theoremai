@@ -1,6 +1,6 @@
 // why: Leaf module: `schema.ts` reads it at load time. `defineProfile` enforces the requirements;
 // this records them for display.
-/** lexicon-exempt-file: authoring field-meta presence notes — not runtime user or model copy (P2) */
+/** labels-exempt-file: authoring field-meta presence notes — not runtime user or model copy (P2) */
 export interface ProfileFieldPresence {
   /** The profile must set the field: always (`true`), or only in the case named. */
   required?: true | string;

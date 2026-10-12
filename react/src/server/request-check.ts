@@ -6,7 +6,7 @@
  * @module
  */
 
-import { lexiconText, TheoremError, type z } from '@theoremjs/agents';
+import { labelText, TheoremError, type z } from '@theoremjs/agents';
 import {
   type LiveClientMessage,
   type LiveOpenMessage,
@@ -20,7 +20,7 @@ import { requestByteLimit } from './request-body.ts';
 export function checkRequest<T>(schema: z.ZodType<T>, raw: unknown, what: string): T {
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
-    // lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+    // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
     throw new TheoremError('request', `${what} failed its check: ${issueSummary(parsed.error)}`);
   }
   return parsed.data;
@@ -29,12 +29,12 @@ export function checkRequest<T>(schema: z.ZodType<T>, raw: unknown, what: string
 function liveFrame(text: string): unknown {
   const limit = requestByteLimit();
   if (text.length > limit || new TextEncoder().encode(text).byteLength > limit)
-    throw new TheoremError('request', lexiconText('error.request'));
+    throw new TheoremError('request', labelText('error.request'));
   try {
     return JSON.parse(text) as unknown;
   } catch {
     // invariant: JSON parser diagnostics can contain browser values.
-    throw new TheoremError('request', lexiconText('error.request'), {
+    throw new TheoremError('request', labelText('error.request'), {
       cause: { code: 'request_json' },
     });
   }
@@ -53,6 +53,6 @@ export function parseLiveClientMessage(text: string): LiveClientMessage {
  * session: JSON that passes `liveOpenMessageSchema`, else a `request` error.
  */
 export function parseLiveOpenMessage(text: string): LiveOpenMessage {
-  // lexicon-exempt: internal diagnostic; the user reads the error kind's wording
+  // labels-exempt: internal diagnostic; the user reads the error kind's wording
   return checkRequest(liveOpenMessageSchema, liveFrame(text), 'live open message');
 }

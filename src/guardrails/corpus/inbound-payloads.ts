@@ -1,4 +1,4 @@
-/** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
+/** labels-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 import { injectionSpans } from '../injection.ts';
 import { sensitiveSpans } from '../sensitive.ts';
 import {

@@ -1,5 +1,5 @@
 import { TheoremError, throwIfAborted } from '../../guardrails/error.ts';
-import { lexiconText } from '../../guardrails/lexicon.ts';
+import { labelText } from '../../guardrails/labels.ts';
 import { type JsonObject, jsonObjectSchema } from '../provider-contract.ts';
 import type { TurnEvent } from '../types.ts';
 import type { ToolExecuteSettlement } from './execute.ts';
@@ -20,7 +20,7 @@ class ReplayedOperation {
 }
 
 function uncertainError(cause?: unknown): TheoremError {
-  return new TheoremError('unavailable', lexiconText('tool.execution_uncertain'), {
+  return new TheoremError('unavailable', labelText('tool.execution_uncertain'), {
     copy: { key: 'tool.execution_uncertain' },
     cause,
   });

@@ -1,7 +1,7 @@
 import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
-import { lexiconText } from '../../src/guardrails/lexicon.ts';
+import { labelText } from '../../src/guardrails/labels.ts';
 import type { ResolveHost } from '../../src/guardrails/network.ts';
 import {
   memoryCredentialSource,
@@ -1248,7 +1248,7 @@ Deno.test('runSession with signInGate answer tells the model the sign-in is pend
   clearProfiles();
   resetTools();
   registerTrackerTool();
-  const pending = lexiconText('sign_in.pending', { service: 'Tracker' });
+  const pending = labelText('sign_in.pending', { service: 'Tracker' });
   const h = await openToolSession(['live_tracker'], { signInGate: 'answer' });
   await h.modelCalls({ id: 'c-wait', name: 'live_tracker' });
   const gated = await h.session.executeTool({ callId: 'c-wait' });
@@ -1270,7 +1270,7 @@ Deno.test('runSession with signInGate answer tells the model the sign-in is pend
   assertEquals(second?.id, 'c-wait');
   assertStringIncludes(
     JSON.stringify(second?.response),
-    lexiconText('sign_in.declined', { service: 'Tracker' }),
+    labelText('sign_in.declined', { service: 'Tracker' }),
   );
   await assertRejects(() => h.session.executeTool({ callId: 'c-wait' }), TheoremError);
   await h.close();
@@ -1295,7 +1295,7 @@ Deno.test('runSession with signInGate answer tells the model a released sign-in 
   assertEquals(responses.length, 2);
   assertStringIncludes(
     JSON.stringify(responses[1]?.response),
-    lexiconText('sign_in.declined', { service: 'Tracker' }),
+    labelText('sign_in.declined', { service: 'Tracker' }),
   );
   assertThrows(
     () => h.session.answerToolCall({ callId: 'c-later', events: outcome }),
@@ -1314,7 +1314,7 @@ Deno.test('runSession with signInGate answer tells the model when a released sig
     events: await h.invokeFor('live_tracker', 'c-lapse'),
   });
   await new Promise((r) => setTimeout(r, 40));
-  const expired = lexiconText('sign_in.expired', { service: 'Tracker' });
+  const expired = labelText('sign_in.expired', { service: 'Tracker' });
   const responses = h.toolResponses();
   assertEquals(responses.length, 2);
   assertStringIncludes(JSON.stringify(responses[1]?.response), expired);
@@ -1342,7 +1342,7 @@ Deno.test('runSession with signInGate answer settles a sign-in gate another proc
     {
       id: 'c-split-sign',
       name: 'live_tracker',
-      response: { result: lexiconText('sign_in.pending', { service: 'Tracker' }) },
+      response: { result: labelText('sign_in.pending', { service: 'Tracker' }) },
     },
   ]);
   await h.close();
@@ -1373,13 +1373,13 @@ Deno.test('a refused sign-in tells the model it was declined or expired, naming 
   );
   assertEquals(declined?.code, 'denied');
   assertEquals(declined?.kind, 'declined');
-  assertEquals(declined?.message, lexiconText('sign_in.declined', { service: 'Tracker' }));
+  assertEquals(declined?.message, labelText('sign_in.declined', { service: 'Tracker' }));
   const expired = failureOf(
     await h.invokeFor('live_tracker', 'c-late', { granted: false, signIn: true, cause: 'expired' }),
   );
   assertEquals(expired?.code, 'expired');
   assertEquals(expired?.kind, 'cancelled');
-  assertEquals(expired?.message, lexiconText('sign_in.expired', { service: 'Tracker' }));
+  assertEquals(expired?.message, labelText('sign_in.expired', { service: 'Tracker' }));
   const walkedAway = failureOf(
     await h.invokeFor('live_tracker', 'c-gone', {
       granted: false,
@@ -1916,12 +1916,12 @@ Deno.test('live output validation failure cannot restore an executed call as an 
     await assertRejects(
       () => h.session.executeTool({ callId: 'uncertain-live', decision: 'approve' }),
       TheoremError,
-      lexiconText('tool.execution_uncertain'),
+      labelText('tool.execution_uncertain'),
     );
     await assertRejects(
       () => h.session.executeTool({ callId: 'uncertain-live', decision: 'approve' }),
       TheoremError,
-      lexiconText('tool.execution_uncertain'),
+      labelText('tool.execution_uncertain'),
     );
     assertEquals(effects, 1);
     assertEquals(h.toolResponses().length, 0);

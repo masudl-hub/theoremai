@@ -3,7 +3,7 @@
  * the same mechanism that words Astryx's own components (`@astryx.*`), so one
  * override table replaces any line on screen, per locale. Messages are ICU
  * (`{handle}`, `{n, plural, …}`); `params` names the values each one is given.
- * Failures are worded by the profile lexicon, not here.
+ * Failures are worded by the profile labels, not here.
  *
  * @module
  */
@@ -1175,11 +1175,11 @@ function catalogParams(key: string): readonly string[] {
  */
 export function assertLabelOverrides(labels: TheoremLabels, strict: boolean): void {
   for (const [locale, table] of Object.entries(labels)) {
-    if (!isLocale(locale)) throw new Error(`Theorem labels: ${locale}: not a BCP 47 locale`); // lexicon-exempt: builder contract error
+    if (!isLocale(locale)) throw new Error(`Theorem labels: ${locale}: not a BCP 47 locale`); // labels-exempt: builder contract error
     for (const [key, message] of Object.entries(table ?? {})) {
       if (!strict && !key.startsWith('@theorem.')) continue;
       const problem = labelProblem(locale, key, message);
-      if (problem) throw new Error(`Theorem labels: ${locale} ${key}: ${problem}`); // lexicon-exempt: builder contract error
+      if (problem) throw new Error(`Theorem labels: ${locale} ${key}: ${problem}`); // labels-exempt: builder contract error
     }
   }
 }

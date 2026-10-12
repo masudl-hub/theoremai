@@ -1,4 +1,4 @@
-import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
+import { type LabelOverrides, labelText } from '../../guardrails/labels.ts';
 import { mediaChannelForMime } from '../registry/catalog.ts';
 import type {
   CompactionFailure,
@@ -185,7 +185,7 @@ export function compactorHistory(
   toCompact: readonly TurnHistoryMessage[],
   compactor: Profile,
 ): { history: TurnHistoryMessage[]; droppedMedia: number } {
-  const lexicon: LexiconOverrides | undefined = compactor.lexicon;
+  const labels: LabelOverrides | undefined = compactor.labels;
   const toolNames = new Map<string, string>();
   let droppedMedia = 0;
   const readable = (parts: readonly InteractionPart[] | undefined): InteractionPart[] =>
@@ -206,7 +206,7 @@ export function compactorHistory(
       history.push({
         role: 'assistant',
         parts: [
-          textPart(lexiconText('compaction.tool_result', { tool: tool ?? '', result }, lexicon)),
+          textPart(labelText('compaction.tool_result', { tool: tool ?? '', result }, labels)),
           ...parts,
         ],
       });
@@ -214,10 +214,10 @@ export function compactorHistory(
     }
     const calls = (message.tool_calls ?? []).map((call) =>
       textPart(
-        lexiconText(
+        labelText(
           'compaction.tool_call',
           { tool: call.function.name, arguments: call.function.arguments },
-          lexicon,
+          labels,
         ),
       ),
     );

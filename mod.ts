@@ -39,19 +39,19 @@ export {
   projectGuardrailEvent,
 } from './src/guardrails/hits.ts';
 export type {
-  ClientLexiconKey,
-  LexiconKey,
-  LexiconOverrides,
-  LexiconParams,
-} from './src/guardrails/lexicon.ts';
+  ClientLabelKey,
+  LabelKey,
+  LabelOverrides,
+  LabelParams,
+} from './src/guardrails/labels.ts';
 export {
-  CLIENT_LEXICON_KEYS,
-  LEXICON_KEYS,
-  lexiconDefault,
-  lexiconText,
-  overrideLexicon,
-  resetLexicon,
-} from './src/guardrails/lexicon.ts';
+  CLIENT_LABEL_KEYS,
+  LABEL_KEYS,
+  labelDefault,
+  labelText,
+  overrideLabels,
+  resetLabels,
+} from './src/guardrails/labels.ts';
 export type {
   AdvisoryLevel,
   BlockedReplyOnBlock,

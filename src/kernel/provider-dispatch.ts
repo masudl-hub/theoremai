@@ -1,5 +1,5 @@
 import { TheoremError } from '../guardrails/error.ts';
-import { lexiconText } from '../guardrails/lexicon.ts';
+import { labelText } from '../guardrails/labels.ts';
 import type { ProviderHostOptions } from './provider-contract.ts';
 import {
   assertHistoryKept,
@@ -22,9 +22,9 @@ export function resolveRegisteredTurnProvider(
   const profile = registry.profiles.get(profileId);
   if (profile.type === 'host') return hostAgentProvider(registry, options);
   if (profile.type === 'decision' || profile.type === 'live')
-    throw new TheoremError('unsupported', lexiconText('provider.turn_profile'));
+    throw new TheoremError('unsupported', labelText('provider.turn_profile'));
   const binding: ModelBinding | undefined = profile.models[modelId ?? profile.defaultModel];
-  if (!binding) throw new TheoremError('config', lexiconText('provider.model_binding_missing'));
+  if (!binding) throw new TheoremError('config', labelText('provider.model_binding_missing'));
   assertHistoryKept(profile.providerContinuation, request?.providerState, request?.input?.history);
   const selected = registry.providers.require(binding.provider);
   const provider = snapshotRegisteredProvider(selected);
@@ -53,7 +53,7 @@ export function hostAgentProvider(
 ): RegistryModelProvider {
   return {
     complete() {
-      throw new TheoremError('unsupported', lexiconText('provider.host_model'));
+      throw new TheoremError('unsupported', labelText('provider.host_model'));
     },
     forProfile: (id, model, req) =>
       resolveRegisteredTurnProvider(registry, id, model, options, req),

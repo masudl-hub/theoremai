@@ -286,7 +286,7 @@ async function registerDraft(
   runtime: StudioRuntime,
 ): Promise<Profile> {
   if (studioKeySlots(profile).length > STUDIO_KEY_SLOT_CAP) {
-    throw new TheoremError('config', 'The studio supports up to 32 key slots.'); // lexicon-exempt: builder diagnostic
+    throw new TheoremError('config', 'The studio supports up to 32 key slots.'); // labels-exempt: builder diagnostic
   }
   const defined = defineProfile(
     runtimeProfileDefinition(await withCompiledPatterns(profile), runtime),
@@ -308,7 +308,7 @@ async function registerDraft(
         },
         runtime.mode,
       );
-      if (violation) throw new TheoremError('config', violation.message); // lexicon-exempt: builder connection diagnostic
+      if (violation) throw new TheoremError('config', violation.message); // labels-exempt: builder connection diagnostic
     }
   }
   return registerDefined(scope, defined, customTools, structured);

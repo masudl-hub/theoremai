@@ -1,4 +1,4 @@
-/** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
+/** labels-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 import { clearProfiles, getProfile, registerProfile } from '../../kernel/default-scope.ts';
 import type { TurnRequest } from '../../kernel/types.ts';
 import { detectAt } from '../detect-at.ts';

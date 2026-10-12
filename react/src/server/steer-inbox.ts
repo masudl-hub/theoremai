@@ -21,7 +21,7 @@ const STEER_STAGES: ReadonlySet<string> = new Set(['pre_turn', 'post_tool', 'bef
  */
 export function steerUnitOf(steer: Pick<TheoremSteerRequest, 'id' | 'inject'>): SteerUnit {
   const messages = steer.inject.filter((message) => message.role === 'user');
-  // lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+  // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
   if (!messages.length) throw new TheoremError('request', 'inject must contain user messages');
   return { id: steer.id, messages };
 }

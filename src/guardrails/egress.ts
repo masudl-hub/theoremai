@@ -10,9 +10,9 @@ import type { GuardrailContext, GuardrailHit } from './types.ts';
 /** Why a reply was withheld, for the builder (`errorInternal`); the user reads `error.safety`. */
 const WITHHELD_REASON = {
   canary: 'canary leaked',
-  promptEcho: 'system prompt echoed', // lexicon-exempt: internal diagnostic — the user reads error.safety
-  providerToolLeak: 'a provider-side tool already sent the canary or system prompt', // lexicon-exempt: internal diagnostic — the user reads error.safety
-  egress: 'Turn withheld: egress disclosure violation', // lexicon-exempt: internal diagnostic — the user reads error.safety
+  promptEcho: 'system prompt echoed', // labels-exempt: internal diagnostic — the user reads error.safety
+  providerToolLeak: 'a provider-side tool already sent the canary or system prompt', // labels-exempt: internal diagnostic — the user reads error.safety
+  egress: 'Turn withheld: egress disclosure violation', // labels-exempt: internal diagnostic — the user reads error.safety
 } as const;
 
 function canaryHits(text: string, canary?: string): GuardrailHit[] {
@@ -150,15 +150,15 @@ function hitRules(hits: GuardrailHit[]): string[] {
 }
 
 /**
- * The words of the canary note a turn binds, when the profile's lexicon
+ * The words of the canary note a turn binds, when the profile's labels
  * rewords it so that `SYSTEM_BOUNDARY` no longer reads them.
  */
 function boundaryNote({
   canary,
-  lexicon,
-}: Pick<GuardrailContext, 'canary' | 'lexicon'>): string | undefined {
+  labels,
+}: Pick<GuardrailContext, 'canary' | 'labels'>): string | undefined {
   if (!canary) return undefined;
-  const marker = canaryNoteMarker(lexicon);
+  const marker = canaryNoteMarker(labels);
   return marker && !SYSTEM_BOUNDARY.test(marker) ? marker : undefined;
 }
 

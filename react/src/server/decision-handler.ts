@@ -16,7 +16,7 @@ import {
   defineProfile,
   errorKind,
   type KeyVault,
-  lexiconText,
+  labelText,
   publicError,
   registerProfile,
   runDecision,
@@ -43,7 +43,7 @@ export type TheoremDecisionHandlerOptions = {
   metadata?: (request: Request) => Record<string, unknown> | undefined;
   /**
    * Called with any error the handler catches, for reporting. Users read the
-   * profile's lexicon wording for the error's kind, never the error itself.
+   * profile's labels wording for the error's kind, never the error itself.
    */
   onError?: (err: unknown, ctx: { request: Request }) => void;
 };
@@ -59,7 +59,7 @@ export function createTheoremDecisionHandler(
 ): (request: Request) => Promise<Response> {
   const profile = defineProfile(options.profile as DecisionProfileDefinition);
   if (profile.type !== 'decision') {
-    // lexicon-exempt: builder config error at setup; no user sees it
+    // labels-exempt: builder config error at setup; no user sees it
     throw new Error(
       `createTheoremDecisionHandler serves type 'decision'; got type '${profile.type}'.`,
     );
@@ -73,7 +73,7 @@ export function createTheoremDecisionHandler(
         return jsonResponse(200, { interface: iface });
       if (request.method !== 'POST' || !isDecide(request)) {
         return jsonResponse(HTTP_METHOD, {
-          error: lexiconText('error.request', {}, profile.lexicon),
+          error: labelText('error.request', {}, profile.labels),
           errorKind: 'request',
         });
       }
@@ -93,7 +93,7 @@ export function createTheoremDecisionHandler(
     } catch (err) {
       options.onError?.(err, { request });
       return jsonResponse(caughtStatus(err), {
-        error: publicError(err, profile.lexicon),
+        error: publicError(err, profile.labels),
         errorKind: errorKind(err),
       });
     }

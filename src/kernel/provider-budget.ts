@@ -1,5 +1,5 @@
 import { TheoremError, throwIfAborted } from '../guardrails/error.ts';
-import { lexiconText } from '../guardrails/lexicon.ts';
+import { labelText } from '../guardrails/labels.ts';
 import type {
   OpenProviderWebSocket,
   ProviderLimits,
@@ -56,7 +56,7 @@ export class ProviderBudget {
   resumeOperation(): void {
     const remaining = this.deadline - performance.now();
     if (remaining <= 0) {
-      this.controller.abort(new TheoremError('timeout', lexiconText('error.timeout')));
+      this.controller.abort(new TheoremError('timeout', labelText('error.timeout')));
       throwIfAborted(this.signal);
     }
     this.startTimer(remaining);
@@ -66,7 +66,7 @@ export class ProviderBudget {
     this.stopTimer();
     this.timerDeadline = performance.now() + ms;
     this.timer = setTimeout(
-      () => this.controller.abort(new TheoremError('timeout', lexiconText('error.timeout'))),
+      () => this.controller.abort(new TheoremError('timeout', labelText('error.timeout'))),
       ms,
     );
   }
@@ -92,7 +92,7 @@ export class ProviderBudget {
   }
 
   fail(): never {
-    const error = new TheoremError('bad_response', lexiconText('provider.budget_exhausted'), {
+    const error = new TheoremError('bad_response', labelText('provider.budget_exhausted'), {
       copy: { key: 'provider.budget_exhausted' },
     });
     this.controller.abort(error);
@@ -101,7 +101,7 @@ export class ProviderBudget {
 
   private checkDeadline(): void {
     if (this.timerDeadline !== undefined && performance.now() >= this.timerDeadline) {
-      this.controller.abort(new TheoremError('timeout', lexiconText('error.timeout')));
+      this.controller.abort(new TheoremError('timeout', labelText('error.timeout')));
     }
     throwIfAborted(this.signal);
   }
@@ -158,7 +158,7 @@ export class ProviderBudget {
               'error',
               () => {
                 this.signal.removeEventListener('abort', abort);
-                reject(new TheoremError('unavailable', lexiconText('error.unavailable')));
+                reject(new TheoremError('unavailable', labelText('error.unavailable')));
               },
               { once: true },
             );

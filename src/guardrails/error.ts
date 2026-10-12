@@ -1,6 +1,6 @@
 import type { TurnEventOf } from '../kernel/turn-events.ts';
 import type { TurnEvent } from '../kernel/types.ts';
-import { type LexiconOverrides, type LexiconParams, lexiconText } from './lexicon.ts';
+import { type LabelOverrides, type LabelParams, labelText } from './labels.ts';
 import { type ErrorCopies, type ErrorKind, TheoremError } from './theorem-error.ts';
 
 /** True when the value is an error named `AbortError`. */
@@ -26,7 +26,7 @@ function throwIfAborted(signal?: AbortSignal): void {
   if (reason instanceof TheoremError || isAbortError(reason) || isTimeoutError(reason)) {
     throw reason;
   }
-  throw new DOMException('The operation was aborted.', 'AbortError'); // lexicon-exempt: DOM AbortError fingerprint
+  throw new DOMException('The operation was aborted.', 'AbortError'); // labels-exempt: DOM AbortError fingerprint
 }
 
 /** Anything that is not a `TheoremError` or an abort escaped every boundary that names kinds: a THEOREM bug. */
@@ -46,27 +46,27 @@ function kindOfHttpStatus(status: number): ErrorKind {
   return 'unsupported';
 }
 
-function kindText(kind: ErrorKind, lexicon?: LexiconOverrides, params?: LexiconParams): string {
-  return lexiconText(`error.${kind}`, params, lexicon);
+function kindText(kind: ErrorKind, labels?: LabelOverrides, params?: LabelParams): string {
+  return labelText(`error.${kind}`, params, labels);
 }
 
 function wording(
   kind: ErrorKind,
   copy: ErrorCopies | undefined,
-  lexicon?: LexiconOverrides,
+  labels?: LabelOverrides,
 ): string {
-  return copy ? errorCopyText(copy, lexicon) : kindText(kind, lexicon);
+  return copy ? errorCopyText(copy, labels) : kindText(kind, labels);
 }
 
 /** The named reasons an error carries, one line each, in the profile's wording. */
-function errorCopyText(copy: ErrorCopies, lexicon?: LexiconOverrides): string {
+function errorCopyText(copy: ErrorCopies, labels?: LabelOverrides): string {
   const lines = 'key' in copy ? [copy] : copy;
-  return lines.map((line) => lexiconText(line.key, line.params, lexicon)).join('\n');
+  return lines.map((line) => labelText(line.key, line.params, labels)).join('\n');
 }
 
-/** Pass the profile's `lexicon`, or the profile's wording is skipped. */
-function publicError(err: unknown, lexicon?: LexiconOverrides): string {
-  return wording(errorKind(err), err instanceof TheoremError ? err.copy : undefined, lexicon);
+/** Pass the profile's `labels`, or the profile's wording is skipped. */
+function publicError(err: unknown, labels?: LabelOverrides): string {
+  return wording(errorKind(err), err instanceof TheoremError ? err.copy : undefined, labels);
 }
 
 /** Raw diagnostic for hosts, traces and logs; never shown to end users. */
@@ -93,9 +93,9 @@ function toErrorEvent(err: unknown): ProducedError {
 }
 
 /** Wording already set (host copy) is kept. */
-function withPublicWording(event: TurnEvent, lexicon?: LexiconOverrides): TurnEvent {
+function withPublicWording(event: TurnEvent, labels?: LabelOverrides): TurnEvent {
   if (event.type === 'error' && event.error === undefined) {
-    return { ...event, error: wording(event.errorKind, event.errorCopy, lexicon) };
+    return { ...event, error: wording(event.errorKind, event.errorCopy, labels) };
   }
   if (
     event.type === 'tool' &&
@@ -103,7 +103,7 @@ function withPublicWording(event: TurnEvent, lexicon?: LexiconOverrides): TurnEv
     event.tool.failure.error === undefined
   ) {
     const { tool } = event;
-    const error = kindText(tool.failure.kind, lexicon, { tool: tool.name });
+    const error = kindText(tool.failure.kind, labels, { tool: tool.name });
     return { ...event, tool: { ...tool, failure: { ...tool.failure, error } } };
   }
   return event;

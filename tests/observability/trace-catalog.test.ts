@@ -37,7 +37,7 @@ Deno.test('every attribute key and event name the kernel writes has a catalog en
   const sources = await emitterSources();
   const missing = new Set<string>();
   for (const source of sources) {
-    const text = source.replace(/\blexiconText\(\s*'[^']*'/g, 'lexiconText(');
+    const text = source.replace(/\blabelText\(\s*'[^']*'/g, 'labelText(');
     for (const [, key = ''] of text.matchAll(ATTRIBUTE_KEY)) {
       // A header prefix (`http.request.header`) names a family: check one member.
       const known =

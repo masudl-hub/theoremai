@@ -1,7 +1,7 @@
 // why: `profileInterfaceSchema` keeps only the JSON it names, so host functions never reach the view.
 
 import type { UrlAllow } from '../guardrails/detectors.ts';
-import { clientLexicon } from '../guardrails/lexicon.ts';
+import { clientLabels } from '../guardrails/labels.ts';
 import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import type { ProfileGuardrailsSpec } from '../guardrails/types.ts';
 import { projectProfileObject, requireModelProfile } from '../kernel/registry/resolve.ts';
@@ -138,7 +138,7 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
     outputs,
     guardrails,
     observability,
-    lexicon: clientLexicon(profile?.lexicon),
+    labels: clientLabels(profile?.labels),
   };
 
   switch (projected.type) {

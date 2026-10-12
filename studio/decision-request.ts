@@ -55,7 +55,7 @@ export const studioDecisionRequestSchema = z.object({
     }),
     decision: z.object({ contract: id }),
     observability: z.record(z.string(), z.unknown()).optional(),
-    lexicon: z.record(z.string(), z.unknown()).optional(),
+    labels: z.record(z.string(), z.unknown()).optional(),
   }),
   questions: z.record(name, question)
     .refine((record) =>

@@ -58,7 +58,7 @@ async function flushMintTrace(args: {
   if (ranOn !== args.profile.id) {
     throw new TheoremError(
       'config',
-      `flushMintTrace: the held turn ran on '${String(ranOn)}', not '${args.profile.id}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `flushMintTrace: the held turn ran on '${String(ranOn)}', not '${args.profile.id}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const { sink, policy } = resolveTraceWriter({

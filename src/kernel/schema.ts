@@ -3,7 +3,7 @@
  *
  * @module
  */
-/** lexicon-exempt-file: authoring field-meta / closed unions — not runtime user or model copy (P2) */
+/** labels-exempt-file: authoring field-meta / closed unions — not runtime user or model copy (P2) */
 import { BOUNDARIES, BOUNDARY_META, recordOf } from '../guardrails/boundaries.ts';
 import {
   DETECT_ACTION_META,
@@ -14,7 +14,7 @@ import {
   DETECTORS,
   type Detector,
 } from '../guardrails/detectors.ts';
-import { LEXICON_NOTES, type LexiconKey } from '../guardrails/lexicon.ts';
+import { LABEL_NOTES, type LabelKey } from '../guardrails/labels.ts';
 import {
   BLOCKED_REPLY_ON_BLOCK,
   type BlockedReplyOnBlock,
@@ -435,7 +435,7 @@ export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
   'models',
   'models.*.efforts',
   'identity.systemByRole',
-  'lexicon',
+  'labels',
   'inputs.slots',
   'inputs.limitsByMime',
   'outputs.validation.fields',
@@ -569,7 +569,7 @@ function hostDetectorFields(path: string): [string, FieldMeta][] {
           'string',
           'One line telling the model what to leave out, sent when this detector blocks a reply that is then retried.',
         ),
-        unset: 'The lexicon’s detect.hint.own, which names the label',
+        unset: 'The labels’s detect.hint.own, which names the label',
       },
     ],
     [
@@ -613,7 +613,7 @@ function patternFields(path: string): [string, FieldMeta][] {
           'string',
           'One line telling the model what to leave out, sent when this detector blocks a reply that is then retried. Set it beside patterns of your own.',
         ),
-        unset: `The lexicon’s detect.hint line for this detector`,
+        unset: `The labels’s detect.hint line for this detector`,
       },
     ],
   ];
@@ -1296,13 +1296,13 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     '(state, context) => DecisionDisclosureVerdict | Promise<DecisionDisclosureVerdict>',
     'Your function that allows or blocks the state before it is sent.',
   ),
-  lexicon: field(
-    'LexiconOverrides',
-    "This profile's own wording for error lines, notices and notes to the model, by lexicon key.",
+  labels: field(
+    'LabelOverrides',
+    "This profile's own wording for error lines, notices and notes to the model, by labels key.",
   ),
-  'lexicon.*': field(
+  'labels.*': field(
     'string',
-    'The wording for this lexicon key; canary.bind_note must keep its {canary} placeholder.',
+    'The wording for this labels key; canary.bind_note must keep its {canary} placeholder.',
   ),
   observability: field(
     'ProfileObservabilitySpec',
@@ -1649,14 +1649,14 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     unset: 'Every path',
   },
 };
-/** `lexicon.<key>` resolves to `lexicon.*` with that key's own note. */
+/** `labels.<key>` resolves to `labels.*` with that key's own note. */
 export function fieldMeta(path: string): FieldMeta | undefined {
   const meta = PROFILE_FIELDS[path] ?? EXTRA_FIELDS[path];
-  if (meta || !path.startsWith('lexicon.')) return meta;
-  const key = path.slice('lexicon.'.length);
-  const wildcard = PROFILE_FIELDS['lexicon.*'];
-  if (!wildcard || !Object.hasOwn(LEXICON_NOTES, key)) return undefined;
-  return { ...wildcard, doc: LEXICON_NOTES[key as LexiconKey] };
+  if (meta || !path.startsWith('labels.')) return meta;
+  const key = path.slice('labels.'.length);
+  const wildcard = PROFILE_FIELDS['labels.*'];
+  if (!wildcard || !Object.hasOwn(LABEL_NOTES, key)) return undefined;
+  return { ...wildcard, doc: LABEL_NOTES[key as LabelKey] };
 }
 export { API_EXPORTS, type ApiExportMeta, REQUEST_FIELDS } from './api-catalog.ts';
 export type {

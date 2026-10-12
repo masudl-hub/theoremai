@@ -17,7 +17,7 @@ The repo has ownership and freshness checks for contracts, the root README, and 
   - an owned file changes and its owning doc is not in the diff (freshness);
   - a watched section does not change when its watched files do;
   - a barrel export is missing from the owning contract (export drift);
-  - a user-facing string in the kernel, guardrails, interface or headless react code is not in the lexicon (copy lint).
+  - a user-facing string in the kernel, guardrails, interface or headless react code is not in the labels (copy lint).
 - `docs/DOCS_TRUTH.md` describes the rules. Read it before you add or move a doc.
 
 When you add a doc, add its entry to `docs/_map.mjs` in the same change. When you move code between owners, move the ownership. Never silence the lint with a comment edit. A comment-only edit counts as a change, so the lint cannot tell you did not revise the text. Revise the text.

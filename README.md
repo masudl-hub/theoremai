@@ -47,7 +47,7 @@ You describe an agent once, as a **profile**. A profile says:
 Theorem then runs each request as a **turn** that follows the profile. It cleans the input. It selects the tools that the model can see. It executes client tools through one gated pipeline. It checks what the model says before any of it reaches your user. It writes a trace to the place that you choose.
 
 Theorem does not include application prompts, personas, or databases. It does not read `.env` files for provider credentials.
-Your application supplies credentials, trace storage, and product policy. You can replace kernel wording through the lexicon.
+Your application supplies credentials, trace storage, and product policy. You can replace kernel wording through the labels.
 
 
 Install `jsr:@theoremjs/agents` from JSR or `@theoremjs/agents` from npm.
@@ -435,7 +435,7 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | Guardrail policy | `resolveGuardrailPolicy`, `BLOCKED_REPLY_ON_BLOCK`, `hitRules`, `EGRESS_RULES` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `checkDestinationGate`, `turnDestinations`, `addGivenDestinations`, `addHistoryDestinations`, `addRequestDestinations`, `addResultDestinations`, `DESTINATION_GATES`, `directives`, `advisoryLevel`, `DIRECTIVE_SIGNALS`, `Directive`, `DirectiveSignal`, `ADVISORY_LEVELS`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `InspectedToolArguments`, `textForScan`, `scanTextOf` |
 | Quota | `QuotaSlotStatus`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
-| Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |
+| Labels | `LABEL_KEYS`, `LabelKey`, `CLIENT_LABEL_KEYS`, `ClientLabelKey`, `LabelOverrides`, `LabelParams`, `labelDefault`, `labelText`, `overrideLabels`, `resetLabels` |
 | Sanitize | `sanitizeProjectId`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `SanitizedTurnRequest`, `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |
 | Canary / egress | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `redactCanary`, `OMIT_CANARY`, `createCanaryStreamGate`, `eventHasCanary`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate`, `GivenUrls`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Compaction | `compactHistory`, `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
@@ -486,14 +486,14 @@ live_sessions = "registered adapter via runSession; host owns mic, camera, and p
 session_memory_in_kernel = false
 ```
 
-**Facts and policy.** Provider facts may ship, such as model capabilities, wire shapes and protocol metadata. For example, see `@theoremjs/agents/presets/google`. Product policy may not ship: prompts, personas, end-user copy, demo apps and channel behaviour. Every string that a user or a model reads is either supplied by the host or is an overridable default in the kernel lexicon (`overrideLexicon`). Behavioural defaults are typed profile-schema fields. Optional packages, such as `studio/`, are inert extras. If you delete one, no kernel behaviour changes.
+**Facts and policy.** Provider facts may ship, such as model capabilities, wire shapes and protocol metadata. For example, see `@theoremjs/agents/presets/google`. Product policy may not ship: prompts, personas, end-user copy, demo apps and channel behaviour. Every string that a user or a model reads is either supplied by the host or is an overridable default in the kernel labels (`overrideLabels`). Behavioural defaults are typed profile-schema fields. Optional packages, such as `studio/`, are inert extras. If you delete one, no kernel behaviour changes.
 
 Four properties are invariant. Where a test or a lint checks one, the table names it.
 
 | Id | Property | Check |
 | --- | --- | --- |
 | P1 | No ambient authority — construct with every Deno permission denied | `tests/kernel/zero-permission-import.test.ts` |
-| P2 | No unownable words — user/model-visible strings are host-suppliable or lexicon defaults | lexicon + full-tree `scripts/docs-truth/copy-lint.mjs` + two-hosts test |
+| P2 | No unownable words — user/model-visible strings are host-suppliable or labels defaults | labels + full-tree `scripts/docs-truth/copy-lint.mjs` + two-hosts test |
 | P3 | No buried policy — behavioral defaults are declared profile-schema fields | `PROFILE_FIELDS` / schema |
 | P4 | Inert extras — optional entrypoints removable without behavior change | publish-bundle gate excludes `studio/` |
 
@@ -528,7 +528,7 @@ MIT License. Copyright (c) ORCHID AI LLC.
     "Package Boundary": {
       "supports": [
         { "kind": "source", "path": "src/providers/mod.ts" },
-        { "kind": "source", "path": "src/guardrails/lexicon.ts" },
+        { "kind": "source", "path": "src/guardrails/labels.ts" },
         { "kind": "contract_test", "path": "tests/kernel/two-hosts-boundary.test.ts" },
         { "kind": "contract_test", "path": "tests/kernel/zero-permission-import.test.ts" }
       ]

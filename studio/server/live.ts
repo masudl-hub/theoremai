@@ -56,7 +56,7 @@ function openMessage(socket: WebSocket) {
     };
     const onClose = () => {
       socket.removeEventListener('message', onMessage);
-      // lexicon-exempt: internal diagnostic; the user reads error.network
+      // labels-exempt: internal diagnostic; the user reads error.network
       reject(new TheoremError('network', 'Live socket closed before its first message'));
     };
     socket.addEventListener('message', onMessage, { once: true });
@@ -74,7 +74,7 @@ async function relay(socket: WebSocket, profile: Profile, provider: ProviderHost
   } catch (error) {
     if (socket.readyState !== WebSocket.OPEN) return;
     socket.send(
-      JSON.stringify({ type: 'error', error: publicError(error, profile.lexicon), errorKind: errorKind(error) }),
+      JSON.stringify({ type: 'error', error: publicError(error, profile.labels), errorKind: errorKind(error) }),
     );
     socket.close(1011, 'session error');
     return;
@@ -84,7 +84,7 @@ async function relay(socket: WebSocket, profile: Profile, provider: ProviderHost
     await session.close('client disconnected');
     return;
   }
-  await attachStudioLiveSession(socket, session, profile.id, crypto.randomUUID(), NO_ROUTE, profile.lexicon, {
+  await attachStudioLiveSession(socket, session, profile.id, crypto.randomUUID(), NO_ROUTE, profile.labels, {
     pageResult: boundary.answerPageResult,
     beforeEvent: async (event) => {
       if ((event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState)

@@ -57,7 +57,7 @@ async function prepareInvokeSnapshot(
 ): Promise<TurnToolSnapshot> {
   const req = turnRequestFromInvoke(request);
   if (profile.type === 'decision') {
-    throw new TheoremError('request', `Profile ${profile.id}: type 'decision' cannot invoke tools`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('request', `Profile ${profile.id}: type 'decision' cannot invoke tools`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const model = profile.type === 'host' ? undefined : pickModel(profile, request.model);
   return await prepareTurnToolSnapshot(registry.tools, profile, req, model);
@@ -101,7 +101,7 @@ async function* invokeTool(
   // why: Agent tool calls run nested turns in this record; their canaries are scrubbed from it.
   const canaries: string[] = [];
   try {
-    const lexicon = known?.lexicon;
+    const labels = known?.labels;
     const traceparent = tree.root.traceparent();
     for await (const event of invokeTraced(
       registry,
@@ -114,7 +114,7 @@ async function* invokeTool(
     )) {
       // invariant: A match is the caught text itself; it leaves only when the profile asks for it.
       yield projectGuardrailTurnEvent(
-        withPublicWording(event, lexicon),
+        withPublicWording(event, labels),
         policy.include.guardrailMatchPreview,
       );
     }
@@ -229,7 +229,7 @@ async function* invokePrepared(
           name: request.name,
           callId,
           operationId: request.operationId,
-          activityFailed: failedActivity(request.name, profile.lexicon),
+          activityFailed: failedActivity(request.name, profile.labels),
         },
         failure,
       );

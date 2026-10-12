@@ -147,7 +147,7 @@ const PROFILE_GRAPH_DEF = [
   },
   {
     id: 'wording',
-    profilePath: 'lexicon',
+    profilePath: 'labels',
     role: 'spine',
     optional: true,
     editor: 'structural',

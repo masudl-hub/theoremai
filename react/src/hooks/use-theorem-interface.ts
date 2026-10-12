@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { type ClientFailure, clientFailure } from '../client/failure.ts';
 import type { TheoremTransport } from '../client/transport.ts';
 
-/** `failure` is worded with the default lexicon: the profile's is not known until it loads. */
+/** `failure` is worded with the default labels: the profile's is not known until it loads. */
 export type TheoremInterfaceState =
   | { status: 'loading'; iface: null; failure: null }
   | { status: 'ready'; iface: ProfileInterface; failure: null }

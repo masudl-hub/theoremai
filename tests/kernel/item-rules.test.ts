@@ -36,7 +36,7 @@ const cited: ProfileItemRule['check'] = (item) =>
 function scopeWith(
   onFail: ProfileItemRule['onFail'],
   maxRetries = 1,
-  lexicon?: Record<string, string>,
+  labels?: Record<string, string>,
 ): KernelScope {
   const scope = createTestKernelScope();
   scope.schemas.register('item_rules_reply', { jsonSchema: REPLY });
@@ -53,7 +53,7 @@ function scopeWith(
         structured: 'item_rules_reply',
         validation: { items: { claims: { check: cited, onFail } }, maxRetries },
       },
-      ...(lexicon ? { lexicon } : {}),
+      ...(labels ? { labels } : {}),
     }),
   );
   return scope;

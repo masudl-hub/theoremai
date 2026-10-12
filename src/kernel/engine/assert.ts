@@ -1,4 +1,4 @@
-/** lexicon-exempt-file: test assertion helpers shipped under src for Deno tests — not runtime user or model copy (P2) */
+/** labels-exempt-file: test assertion helpers shipped under src for Deno tests — not runtime user or model copy (P2) */
 type ErrorConstructor = abstract new (...args: never[]) => Error;
 
 function assertEquals(left: unknown, right: unknown): void {

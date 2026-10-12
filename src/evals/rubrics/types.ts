@@ -42,7 +42,7 @@ export interface EvalRubric {
 }
 
 function configError(rubric: string, message: string): TheoremError {
-  return new TheoremError('config', `rubric ${rubric}: ${message}`); // lexicon-exempt: developer contract error
+  return new TheoremError('config', `rubric ${rubric}: ${message}`); // labels-exempt: developer contract error
 }
 
 /** Render the prompt over the view; a rubric without one, or a variable the view lacks, is a config error. */

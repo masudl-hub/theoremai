@@ -2,8 +2,8 @@ import { assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import {
   defaultKernelScope,
-  type LexiconKey,
-  lexiconDefault,
+  type LabelKey,
+  labelDefault,
   type ModelProvider,
   type ProfileDefinition,
   registerTool,
@@ -60,10 +60,10 @@ function textProvider(
       })(),
   };
 }
-/** The host refused: the user reads the lexicon's line for `key`. */
-async function assertRefused(run: () => Promise<unknown>, key: LexiconKey): Promise<void> {
+/** The host refused: the user reads the labels' line for `key`. */
+async function assertRefused(run: () => Promise<unknown>, key: LabelKey): Promise<void> {
   const err = await assertRejects(run, TheoremStreamError);
-  assertEquals(err.publicMessage, lexiconDefault(key));
+  assertEquals(err.publicMessage, labelDefault(key));
 }
 const BASE = 'http://host.test/api/theorem';
 type Handler = (request: Request) => Promise<Response>;
@@ -227,7 +227,7 @@ Deno.test("a turn carries the page's slots and context, and the host's context a
   assertEquals(seen[0]?.sent?.includes('<page_context from="server">\n{"tier":"pro"}'), true);
   assertEquals(seen[0]?.sent?.includes('<page_context from="client">\n{"page":"Pricing"}'), true);
 });
-Deno.test('provider failures reach the client in the lexicon wording for their kind', async () => {
+Deno.test('provider failures reach the client in the labels wording for their kind', async () => {
   const handler = createTheoremHandler({
     profile: profile('handler-error'),
     provider: () => {
@@ -238,7 +238,7 @@ Deno.test('provider failures reach the client in the lexicon wording for their k
     () => collect((onEvent) => transportFor(handler).turn({ input: { text: 'hi' } }, onEvent)),
     TheoremStreamError,
   );
-  assertEquals(err.publicMessage, lexiconDefault('error.internal'));
+  assertEquals(err.publicMessage, labelDefault('error.internal'));
   assertEquals(err.message.includes('sk-live'), false);
 });
 Deno.test('React provider vault does not resolve inherited credentials', async () => {
@@ -297,14 +297,14 @@ Deno.test('a failed stream carries its error kind to the client', async () => {
     TheoremStreamError,
   );
   assertEquals(err.kind, 'rate_limit');
-  assertEquals(err.publicMessage, lexiconDefault('error.rate_limit'));
+  assertEquals(err.publicMessage, labelDefault('error.rate_limit'));
 });
-Deno.test('onError reports the error; the user reads the profile lexicon', async () => {
+Deno.test('onError reports the error; the user reads the profile labels', async () => {
   const reported: unknown[] = [];
   const handler = createTheoremHandler({
     profile: {
       ...profile('handler-on-error'),
-      lexicon: { 'error.internal': 'Host copy: please try again.' },
+      labels: { 'error.internal': 'Host copy: please try again.' },
     },
     provider: () => {
       throw new Error('boom');
@@ -424,7 +424,7 @@ Deno.test('bad requests get 4xx JSON errors', async () => {
     );
     assertEquals(response.status, 400, `${path} ${JSON.stringify(body)}`);
     assertEquals(await response.json(), {
-      error: lexiconDefault('error.request'),
+      error: labelDefault('error.request'),
       errorKind: 'request',
     });
   }
@@ -436,13 +436,13 @@ Deno.test('bad requests get 4xx JSON errors', async () => {
   );
   assertEquals(formPost.status, 400);
   assertEquals(await formPost.json(), {
-    error: lexiconDefault('error.request'),
+    error: labelDefault('error.request'),
     errorKind: 'request',
   });
   const wrongMethod = await handler(new Request(`${BASE}/turn`));
   assertEquals(wrongMethod.status, 405);
   assertEquals(await wrongMethod.json(), {
-    error: lexiconDefault('error.request'),
+    error: labelDefault('error.request'),
     errorKind: 'request',
   });
 });
@@ -1280,7 +1280,7 @@ Deno.test('a custom session resolver can refuse anonymous callers', async () => 
   const anonymous = await post(handler, 'turn', { input: { text: 'hi' } });
   assertEquals(anonymous.status, 401);
   assertEquals(await anonymous.json(), {
-    error: lexiconDefault('session.sign_in'),
+    error: labelDefault('session.sign_in'),
     errorKind: 'auth',
   });
 });

@@ -170,7 +170,7 @@ function streamContext(
     stage: 'output_final',
     trust: 'untrusted',
     profileId: profile.id,
-    ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
+    ...(profile.labels ? { labels: profile.labels } : {}),
     ...leakScopeOf(policy.detect, { canary, canaryGiven, privateSystem }),
     givenUrls: args.givenUrls,
     ...(args.ownTools ? { ownTools: args.ownTools } : {}),

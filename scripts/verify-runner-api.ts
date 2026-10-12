@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
 import type { DetectSpec } from '../src/guardrails/detectors.ts';
-import type { LexiconOverrides } from '../src/guardrails/lexicon.ts';
+import type { LabelOverrides } from '../src/guardrails/labels.ts';
 import { getProfile, registerProfile, runTurn } from '../src/kernel/default-scope.ts';
 import { loadTokenEstimator } from '../src/kernel/engine/token-estimate.ts';
 import { defineProfile, type TextProfileDefinition } from '../src/kernel/registry/profiles.ts';
@@ -129,7 +129,7 @@ function modelFields(apiId: string): Pick<TextProfileDefinition, 'models' | 'max
 function simpleProfile(
   id: string,
   guardrails: TextProfileDefinition['guardrails'] = {},
-  lexicon?: LexiconOverrides,
+  labels?: LabelOverrides,
 ): void {
   registerProfile(
     defineProfile({
@@ -140,7 +140,7 @@ function simpleProfile(
       tools: { allow: [] },
       inputs: { text: true },
       guardrails: guardrails ?? {},
-      ...(lexicon ? { lexicon } : {}),
+      ...(labels ? { labels } : {}),
     }),
   );
 }

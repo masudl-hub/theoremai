@@ -41,7 +41,7 @@ function schemasFromZod<TIn, TOut>(def: {
     if (problem) {
       throw new TheoremError(
         'config',
-        `Tool "${def.name}" ${field} label: ${problem}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Tool "${def.name}" ${field} label: ${problem}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
   }
@@ -53,7 +53,7 @@ function assertAuthService(name: string, auth: ToolAuthConfig | undefined): void
   if (auth && (typeof auth.service !== 'string' || !auth.service.trim())) {
     throw new TheoremError(
       'config',
-      `Tool "${name}" signs in with slot "${auth.slot}" but names no service`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Tool "${name}" signs in with slot "${auth.slot}" but names no service`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -90,7 +90,7 @@ function normalizeFunction<TIn = unknown, TOut = unknown>(
   if (typeof handler !== 'function') {
     throw new TheoremError(
       'config',
-      `Tool '${def.name}' needs a handler, or answeredBy: 'page'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Tool '${def.name}' needs a handler, or answeredBy: 'page'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   return { ...def, handler, type: 'function', ...schemasFromZod(def) };
@@ -160,7 +160,7 @@ function createToolRegistry(
     require(name) {
       const tool = get(name);
       if (!tool) {
-        throw new TheoremError('config', `Tool '${name}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        throw new TheoremError('config', `Tool '${name}' is not registered`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
       return tool;
     },

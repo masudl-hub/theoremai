@@ -1,5 +1,5 @@
 import type { PageToolResult } from '../react/src/server/page-dispatch.ts';
-import { errorKind, type LexiconOverrides, type LiveSession, type TurnEvent, publicError } from '../mod.ts';
+import { errorKind, type LabelOverrides, type LiveSession, type TurnEvent, publicError } from '../mod.ts';
 import { parseLiveClientMessage } from '../react/src/server/request-check.ts';
 import { forClient, forClientEvents } from '../src/host/mod.ts';
 import { issuedOperationId as requiredOperationId } from '../react/src/client/turn-client.ts';
@@ -8,12 +8,12 @@ import type { StudioTraceRoute } from './traces.ts';
 
 export type StudioLiveSocket = Pick<WebSocket, 'send' | 'close' | 'addEventListener'>;
 
-function errorBody(err: unknown, lexicon?: LexiconOverrides): { error: string; errorKind: string } {
-  return { error: publicError(err, lexicon), errorKind: errorKind(err) };
+function errorBody(err: unknown, labels?: LabelOverrides): { error: string; errorKind: string } {
+  return { error: publicError(err, labels), errorKind: errorKind(err) };
 }
 
-function errorEnvelope(err: unknown, lexicon?: LexiconOverrides): string {
-  return JSON.stringify({ type: 'error', ...errorBody(err, lexicon) });
+function errorEnvelope(err: unknown, labels?: LabelOverrides): string {
+  return JSON.stringify({ type: 'error', ...errorBody(err, labels) });
 }
 
 /** Calls the model made that the browser has not yet run, each with a timer that settles it as unanswered. */
@@ -56,13 +56,13 @@ function pipeBrowserToSession(
   serverWs: StudioLiveSocket,
   session: LiveSession,
   watch: CallWatch,
-  lexicon?: LexiconOverrides,
+  labels?: LabelOverrides,
   pageResult?: (result: PageToolResult) => Promise<boolean | void>,
 ): void {
   // A send the session refuses (a channel the profile turned off, a closed call) reaches the browser.
   const forward = (sent: Promise<void>): void => {
     sent.catch((err: unknown) => {
-      serverWs.send(errorEnvelope(err, lexicon));
+      serverWs.send(errorEnvelope(err, labels));
     });
   };
   serverWs.addEventListener('message', (event: MessageEvent) => {
@@ -104,7 +104,7 @@ function pipeBrowserToSession(
               serverWs,
               session,
               output === undefined ? call : { ...call, page: { output } },
-              lexicon,
+              labels,
             );
             return;
           }
@@ -121,7 +121,7 @@ function pipeBrowserToSession(
         );
       }
     } catch (err) {
-      serverWs.send(errorEnvelope(err, lexicon));
+      serverWs.send(errorEnvelope(err, labels));
     }
   });
 }
@@ -133,7 +133,7 @@ async function pipeSessionToBrowser(
   sessionId: string,
   traces: StudioTraceRoute,
   watch: CallWatch,
-  lexicon: LexiconOverrides | undefined,
+  labels: LabelOverrides | undefined,
   beforeEvent?: (event: TurnEvent) => void | Promise<void>,
 ): Promise<void> {
   serverWs.send(JSON.stringify({ type: 'ready', profile: profileId, sessionId }));
@@ -141,7 +141,7 @@ async function pipeSessionToBrowser(
     for await (const event of session.events()) {
       await beforeEvent?.(event);
       if (event.type === 'error') {
-        // The session worded it with the profile's lexicon; forClient drops the builder detail.
+        // The session worded it with the profile's labels; forClient drops the builder detail.
         serverWs.send(JSON.stringify(forClient(event)));
         try {
           serverWs.close(1011, 'session error');
@@ -165,7 +165,7 @@ async function pipeSessionToBrowser(
       serverWs.send(JSON.stringify({ type: 'events', events: forClientEvents([event]) }));
     }
   } catch (err) {
-    serverWs.send(errorEnvelope(err, lexicon));
+    serverWs.send(errorEnvelope(err, labels));
   } finally {
     watch.stopAll();
     // The events loop ends after the session's root record is written.
@@ -183,7 +183,7 @@ async function answerExecuteTool(
   serverWs: StudioLiveSocket,
   session: LiveSession,
   call: Parameters<LiveSession['executeTool']>[0] & { operationId: string },
-  lexicon?: LexiconOverrides,
+  labels?: LabelOverrides,
 ): Promise<void> {
   try {
     const result = await session.executeTool(call);
@@ -213,7 +213,7 @@ async function answerExecuteTool(
         callId: call.callId,
         operationId: call.operationId,
         status: 'refused',
-        body: errorBody(err, lexicon),
+        body: errorBody(err, labels),
       }),
     );
   }
@@ -235,13 +235,13 @@ export function attachStudioLiveSession(
   profileId: string,
   sessionId: string,
   traces: StudioTraceRoute,
-  lexicon?: LexiconOverrides,
+  labels?: LabelOverrides,
   options: StudioLiveBridgeOptions = {},
 ): Promise<void> {
   const watch = callWatch(session, options.clientCallTimeoutMs ?? CLIENT_CALL_TIMEOUT_MS);
-  pipeBrowserToSession(socket, session, watch, lexicon, options.pageResult);
+  pipeBrowserToSession(socket, session, watch, labels, options.pageResult);
   socket.addEventListener('close', () => {
     void session.close('client disconnected');
   });
-  return pipeSessionToBrowser(socket, session, profileId, sessionId, traces, watch, lexicon, options.beforeEvent);
+  return pipeSessionToBrowser(socket, session, profileId, sessionId, traces, watch, labels, options.beforeEvent);
 }

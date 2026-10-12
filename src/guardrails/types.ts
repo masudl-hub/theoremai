@@ -4,7 +4,7 @@
 import type { DetectSpec, ResolvedAllow, ResolvedDetect } from './detectors.ts';
 import type { GivenUrls } from './egress-urls.ts';
 import type { GuardrailEvent, GuardrailHit, Provenance } from './event-schemas.ts';
-import type { LexiconOverrides } from './lexicon.ts';
+import type { LabelOverrides } from './labels.ts';
 import type { OwnTools } from './tool-leak.ts';
 
 export type { GuardrailEvent, GuardrailHit, Provenance };
@@ -53,7 +53,7 @@ export type BlockedReplyOnBlock = (typeof BLOCKED_REPLY_ON_BLOCK)[number];
 export interface BlockedReplySpec {
   /**
    * `retry` (the default) tells the model what blocked the reply and has it write another;
-   * `refuse` sends the user the lexicon's `egress.refusal` in its place, or ends the part
+   * `refuse` sends the user the labels' `egress.refusal` in its place, or ends the part
    * they already have with `egress.refusal_cut`.
    */
   onBlock?: BlockedReplyOnBlock;
@@ -80,7 +80,7 @@ export type Verdict =
       hits: GuardrailHit[];
       /**
        * Sent to the model on a repair turn when `blockedReply.onBlock` is `retry`.
-       * With `refuse` the user reads the lexicon's `egress.refusal`.
+       * With `refuse` the user reads the labels' `egress.refusal`.
        */
       rejection: string;
       /**
@@ -197,8 +197,8 @@ export interface GuardrailContext {
   givenUrls?: GivenUrls;
   /** The names of the profile's tools and of their parameters, for `tool_leak`. Unset: none. */
   ownTools?: OwnTools;
-  /** The profile's lexicon, so a rejection reads in the host's wording. */
-  lexicon?: LexiconOverrides;
+  /** The profile's labels, so a rejection reads in the host's wording. */
+  labels?: LabelOverrides;
 }
 
 /**
@@ -238,7 +238,7 @@ export interface ProfileGuardrailsSpec {
    * for everything, or a rule for the detectors it names. Anything left out keeps
    * its default (`DETECT_DEFAULTS`). A canary is bound into the system prompt
    * while `canary_leak` is above `ignore` somewhere; the note that binds it is
-   * the lexicon's `canary.bind_note` (the profile's `lexicon` may replace it).
+   * the labels' `canary.bind_note` (the profile's `labels` may replace it).
    */
   detect?: DetectSpec;
   /** What happens once a reply is blocked. Left out, the model rewrites it once. */

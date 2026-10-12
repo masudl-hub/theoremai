@@ -162,7 +162,7 @@ export function createStudioTransport(
     async steer({ turnId, id, inject }) {
       const inbox = inboxes.get(turnId);
       if (!inbox) {
-        // lexicon-exempt: internal diagnostic; the user reads session.turn_ended
+        // labels-exempt: internal diagnostic; the user reads session.turn_ended
         throw new TheoremError('request', 'steer: the turn has not opened its inbox', {
           copy: { key: 'session.turn_ended' },
         });

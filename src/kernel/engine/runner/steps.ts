@@ -387,7 +387,7 @@ async function* handleModelCalls(
     if (call.failure) {
       yield recordProviderToolFailure(
         state,
-        { ...call, activityFailed: failedActivity(call.name, profile.lexicon) },
+        { ...call, activityFailed: failedActivity(call.name, profile.labels) },
         call.failure,
       );
       continue;

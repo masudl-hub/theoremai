@@ -260,7 +260,7 @@ Deno.test('limits count files, each file against its cap, and the turn total', (
   );
 });
 
-Deno.test('an issue becomes copy with its params, its file name and its lexicon key', () => {
+Deno.test('an issue becomes copy with its params, its file name and its labels key', () => {
   check(
     attachmentIssueCopy({
       code: 'file_too_large',
@@ -292,7 +292,7 @@ Deno.test('an issue becomes copy with its params, its file name and its lexicon 
       { 'attachments.too_many_files': 'cap {maxFiles}!' },
     ),
     'cap 4!',
-    'a lexicon override',
+    'a label override',
   );
   const refused = attachmentsRefused([{ code: 'too_many_files' }, { code: 'turn_too_large' }]);
   check(

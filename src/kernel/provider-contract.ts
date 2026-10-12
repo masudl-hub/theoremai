@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TheoremError } from '../guardrails/error.ts';
-import { lexiconText } from '../guardrails/lexicon.ts';
+import { labelText } from '../guardrails/labels.ts';
 import type { ToolCallRequest } from './turn-events.ts';
 import type {
   DecisionRequest,
@@ -383,18 +383,18 @@ export function defineProvider<C, O, K, S>(
 ): DefinedProvider<C, O, K, S> {
   z.string().min(1).parse(definition.id);
   if (definition.adapter.apiVersion !== 1)
-    throw new TheoremError('config', lexiconText('provider.adapter_version'));
+    throw new TheoremError('config', labelText('provider.adapter_version'));
   z.string().min(1).parse(definition.adapter.id);
   for (const method of ['capabilities', 'validateRequest', 'create'] as const)
     if (typeof definition.adapter[method] !== 'function')
-      throw new TheoremError('config', lexiconText('provider.adapter_methods'));
+      throw new TheoremError('config', labelText('provider.adapter_methods'));
   for (const schema of [
     definition.adapter.connectionSchema,
     definition.adapter.optionsSchema,
     definition.adapter.credentialSchema,
   ])
     if (typeof schema?.safeParse !== 'function')
-      throw new TheoremError('config', lexiconText('provider.adapter_schemas'));
+      throw new TheoremError('config', labelText('provider.adapter_schemas'));
   if (definition.adapter.continuation)
     z.number().int().positive().parse(definition.adapter.continuation.version);
   const connection = definition.adapter.connectionSchema.parse(definition.connection);
@@ -402,7 +402,7 @@ export function defineProvider<C, O, K, S>(
   if (definition.keySlot !== undefined) keySlotSchema.parse(definition.keySlot);
   if (definition.fallbackKeySlot !== undefined) keySlotSchema.parse(definition.fallbackKeySlot);
   if (definition.keySlot && definition.keySlot === definition.fallbackKeySlot)
-    throw new TheoremError('config', lexiconText('provider.fallback_slot'));
+    throw new TheoremError('config', labelText('provider.fallback_slot'));
   const frozen = { ...definition, connection: structuredClone(connection) };
   return {
     ...frozen,
@@ -464,7 +464,7 @@ export function validateProviderModel(
   const primary = binding.keySlot ?? provider.keySlot;
   const fallback = binding.fallbackKeySlot ?? provider.fallbackKeySlot;
   if (primary && primary === fallback)
-    throw new TheoremError('config', lexiconText('provider.model_fallback_slot'));
+    throw new TheoremError('config', labelText('provider.model_fallback_slot'));
   const capabilities = providerCapabilitiesSchema.parse(
     provider.adapter.capabilities({
       apiId: binding.apiId,
@@ -475,7 +475,7 @@ export function validateProviderModel(
   if (!capabilities.profileTypes.some((type) => type === profileType))
     throw new TheoremError(
       'unsupported',
-      lexiconText('provider.profile_type', { provider: provider.id, profileType }),
+      labelText('provider.profile_type', { provider: provider.id, profileType }),
     );
   binding.providerOptions = providerOptions as JsonObject;
   return capabilities;

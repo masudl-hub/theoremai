@@ -4,13 +4,13 @@ import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import {
   defineProfile,
-  lexiconDefault,
+  labelDefault,
   type ModelProvider,
-  overrideLexicon,
+  overrideLabels,
   publicError,
   quotaExhausted,
   registerProfile,
-  resetLexicon,
+  resetLabels,
   type TurnEvent,
 } from '../../mod.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
@@ -47,7 +47,7 @@ async function runContinue(profileId: string, provider: ModelProvider): Promise<
 }
 
 Deno.test('two hosts: contradictory overrides never leak across turns', async () => {
-  resetLexicon();
+  resetLabels();
 
   const profileA = defineProfile({
     type: 'text',
@@ -59,7 +59,7 @@ Deno.test('two hosts: contradictory overrides never leak across turns', async ()
       quota: { perDay: 3 },
       detect: { canary_leak: 'ignore', prompt_leak: 'ignore' },
     },
-    lexicon: {
+    labels: {
       'continue.instruction': HOST_A_CONTINUE,
       'error.internal': HOST_A_PUBLIC,
       'quota.exhausted': HOST_A_QUOTA,
@@ -76,7 +76,7 @@ Deno.test('two hosts: contradictory overrides never leak across turns', async ()
       quota: { perDay: 7 },
       detect: { canary_leak: 'ignore', prompt_leak: 'ignore' },
     },
-    lexicon: {
+    labels: {
       'continue.instruction': HOST_B_CONTINUE,
       'error.internal': HOST_B_PUBLIC,
       'quota.exhausted': HOST_B_QUOTA,
@@ -108,22 +108,22 @@ Deno.test('two hosts: contradictory overrides never leak across turns', async ()
   assertStringIncludes(inputB, HOST_B_CONTINUE);
   assertEquals(inputA.includes(HOST_B_CONTINUE), false);
   assertEquals(inputB.includes(HOST_A_CONTINUE), false);
-  assertEquals(inputA.includes(lexiconDefault('continue.instruction')), false);
-  assertEquals(inputB.includes(lexiconDefault('continue.instruction')), false);
-  assertEquals(inputA.includes(lexiconDefault('continue.instruction')), false);
+  assertEquals(inputA.includes(labelDefault('continue.instruction')), false);
+  assertEquals(inputB.includes(labelDefault('continue.instruction')), false);
+  assertEquals(inputA.includes(labelDefault('continue.instruction')), false);
 
-  assertEquals(publicError(quotaExhausted(profileA), profileA.lexicon), HOST_A_QUOTA);
-  assertEquals(publicError(quotaExhausted(profileB), profileB.lexicon), HOST_B_QUOTA);
+  assertEquals(publicError(quotaExhausted(profileA), profileA.labels), HOST_A_QUOTA);
+  assertEquals(publicError(quotaExhausted(profileB), profileB.labels), HOST_B_QUOTA);
 
   // An unknown Error is `internal`; each profile words it its own way.
   const unknown = new Error('totally unknown failure xyz');
-  assertEquals(publicError(unknown), lexiconDefault('error.internal'));
-  assertEquals(publicError(unknown, profileA.lexicon), HOST_A_PUBLIC);
-  assertEquals(publicError(unknown, profileB.lexicon), HOST_B_PUBLIC);
+  assertEquals(publicError(unknown), labelDefault('error.internal'));
+  assertEquals(publicError(unknown, profileA.labels), HOST_A_PUBLIC);
+  assertEquals(publicError(unknown, profileB.labels), HOST_B_PUBLIC);
   // A process-wide override never beats a profile's own wording.
-  overrideLexicon({ 'error.internal': 'HOST_WIDE_COPY' });
+  overrideLabels({ 'error.internal': 'HOST_WIDE_COPY' });
   assertEquals(publicError(unknown), 'HOST_WIDE_COPY');
-  assertEquals(publicError(unknown, profileA.lexicon), HOST_A_PUBLIC);
+  assertEquals(publicError(unknown, profileA.labels), HOST_A_PUBLIC);
 
-  resetLexicon();
+  resetLabels();
 });

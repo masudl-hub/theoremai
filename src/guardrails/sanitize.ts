@@ -121,7 +121,7 @@ function sanitizeHistory(
 
 /** The error a turn ends on when a detector set to `block` matched at `boundary`. */
 function requestRefused(boundary: Boundary): TheoremError {
-  // lexicon-exempt: developer contract / internal diagnostic — the user's wording is `detect.blocked`
+  // labels-exempt: developer contract / internal diagnostic — the user's wording is `detect.blocked`
   return new TheoremError('input', `guardrails.detect blocked the request at ${boundary}`, {
     copy: { key: 'detect.blocked' },
   });

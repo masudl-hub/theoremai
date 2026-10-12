@@ -1,4 +1,4 @@
-// invariant: Its own module so `lexicon.ts` can throw it without importing `error.ts`, which reads the lexicon.
+// invariant: Its own module so `labels.ts` can throw it without importing `error.ts`, which reads the labels.
 
 import type { ErrorCopies, ErrorCopy } from './event-schemas.ts';
 
@@ -7,7 +7,7 @@ export type { ErrorCopies, ErrorCopy };
 /**
  * What kind of failure happened, decided where it happens. Both worlds read it:
  * the builder in code and traces (`errorKind`, `error.type`), the user through
- * the kind's wording (`error.<kind>` in the lexicon).
+ * the kind's wording (`error.<kind>` in the labels).
  */
 export const ERROR_KINDS = [
   /** The profile, tool, or schema is set up wrong. */

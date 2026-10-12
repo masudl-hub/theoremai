@@ -11,7 +11,7 @@ import type { GivenUrls } from '../../../guardrails/egress-urls.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromHits, guardrailTurnEvent } from '../../../guardrails/events.ts';
 import { retryRejection } from '../../../guardrails/hints.ts';
-import { lexiconText } from '../../../guardrails/lexicon.ts';
+import { labelText } from '../../../guardrails/labels.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { replyIsJudged } from '../../../guardrails/progressive-yield.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
@@ -142,7 +142,7 @@ function evaluateEgressOutcome(args: {
     privateSystem: args.privateSystem,
     givenUrls: args.givenUrls,
     ...(args.ownTools ? { ownTools: args.ownTools } : {}),
-    ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
+    ...(profile.labels ? { labels: profile.labels } : {}),
   });
   const read = readReply(written, detect, {
     boundary: 'reply',
@@ -177,15 +177,15 @@ function evaluateEgressOutcome(args: {
   }
 
   if (blockedReply.onBlock === 'refuse') {
-    return { outcome: replacement(refusalAfter(args.shown, profile.lexicon)), guardrails };
+    return { outcome: replacement(refusalAfter(args.shown, profile.labels)), guardrails };
   }
 
   if (canRetry) {
     const nextRequest = buildRepairRequest(
       request,
       payload.text,
-      retryRejection(stopped, detect, profile.lexicon),
-      lexiconText('egress.default_repair_guidance', {}, profile.lexicon),
+      retryRejection(stopped, detect, profile.labels),
+      labelText('egress.default_repair_guidance', {}, profile.labels),
     );
     return { outcome: { action: 'retry', nextRequest }, guardrails };
   }
@@ -217,7 +217,7 @@ async function evaluateValidationOutcome(args: {
   if (!structured) {
     throw new TheoremError(
       'config',
-      'outputs.validation requires outputs.structured with a JSON Schema', // lexicon-exempt: developer contract error
+      'outputs.validation requires outputs.structured with a JSON Schema', // labels-exempt: developer contract error
     );
   }
   const failures = await collectValidationFailures(
@@ -496,7 +496,7 @@ function startItemFix(args: {
     flow.currentReq,
     refusedLists(refused),
     rejection,
-    lexiconText('repair.items_guidance', {}, profile.lexicon),
+    labelText('repair.items_guidance', {}, profile.labels),
   );
   flow.pendingItemFix = { reply, refused, structured };
   updateFlowForRetry(flow, state, profile, nextRequest, 'validation');

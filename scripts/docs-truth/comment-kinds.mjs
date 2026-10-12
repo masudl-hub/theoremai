@@ -6,7 +6,7 @@
  *   invariant:  a rule the surrounding code relies on and nothing else checks
  *   probed <YYYY-MM-DD>:  a fact measured against an outside system on that date
  *   license:    a legal notice
- *   lexicon-exempt: / lexicon-exempt-file:  escape hatches that `copy-lint.mjs` reads
+ *   labels-exempt: / labels-exempt-file:  escape hatches that `copy-lint.mjs` reads
  * JSDoc comments are not checked here: the kernel catalog and the entry docs own them.
  * A suppression comment (`biome-ignore`, `fallow-ignore`, `@ts-expect-error` …) fails everywhere,
  * tests and scripts included. Fix the cause.
@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 const SCAN = ['src', 'react/src', 'scripts', 'tests', 'mod.ts'];
 const KIND_ROOTS = /^(src|react\/src)\/|^mod\.ts$/;
 const TAG =
-  /^(why|invariant|probed \d{4}-\d{2}-\d{2}|licen[cs]e|lexicon-exempt|lexicon-exempt-file)\s*:/;
+  /^(why|invariant|probed \d{4}-\d{2}-\d{2}|licen[cs]e|labels-exempt|labels-exempt-file)\s*:/;
 const SUPPRESSION =
   /biome-ignore|fallow-ignore|deno-lint-ignore|eslint-disable|@ts-(ignore|nocheck|expect-error)|istanbul ignore|c8 ignore|stryker (disable|ignore)/;
 const rule = (language) => `id: comment

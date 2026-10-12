@@ -96,7 +96,7 @@ function startTrialRecord(input: TrialRecordInput): OpenTrialRecord {
       ...(trial.records[0]?.metadata ? { metadata: trial.records[0].metadata } : {}),
     });
     const [span] = record.spans;
-    if (!span) throw new TheoremError('internal', 'trial record has no span'); // lexicon-exempt: invariant
+    if (!span) throw new TheoremError('internal', 'trial record has no span'); // labels-exempt: invariant
     return { record, span };
   };
   return { traceparent: tree.root.traceparent(), finish };

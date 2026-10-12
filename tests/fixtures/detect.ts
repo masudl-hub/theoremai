@@ -21,7 +21,7 @@ import {
   type EgressStreamOptions,
 } from '../../src/guardrails/egress-stream.ts';
 import type { GuardrailHit } from '../../src/guardrails/event-schemas.ts';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { labelDefault } from '../../src/guardrails/labels.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import {
   createProgressiveYieldGate,
@@ -81,7 +81,7 @@ export function replyStream(
  * text that names `term`.
  */
 /** The hint a retry carries after {@linkcode blockNaming} blocked a reply. */
-export const TERM_HINT = lexiconDefault('detect.hint.own', { label: 'Test term' });
+export const TERM_HINT = labelDefault('detect.hint.own', { label: 'Test term' });
 
 export function blockNaming(term: string): DetectSpec {
   return {

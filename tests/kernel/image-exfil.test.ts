@@ -6,7 +6,7 @@ import { runTurn } from '../fixtures/registered-runner.ts';
  */
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { labelDefault } from '../../src/guardrails/labels.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import { registerProfile, registerTool, runSession } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -16,7 +16,7 @@ import { eventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
-const OMIT_IMAGE = lexiconDefault('thought.omitted_image');
+const OMIT_IMAGE = labelDefault('thought.omitted_image');
 const PHOTO = 'https://news.site/photo.jpg';
 registerTool({
   type: 'function',

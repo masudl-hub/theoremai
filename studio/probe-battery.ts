@@ -6,7 +6,7 @@
  *
  * @module
  */
-/** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
+/** labels-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 import {
   TEST_AWS_KEY,
   TEST_GITHUB_PAT,

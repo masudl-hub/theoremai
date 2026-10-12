@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TheoremError } from '../guardrails/error.ts';
-import { lexiconText } from '../guardrails/lexicon.ts';
+import { labelText } from '../guardrails/labels.ts';
 import type {
   JsonObject,
   ProviderAdapter,
@@ -248,7 +248,7 @@ export function openRouterAdapter(): ProviderAdapter<
       if (unsupported.length)
         throw new TheoremError(
           'unsupported',
-          lexiconText('provider.feature', {
+          labelText('provider.feature', {
             provider: 'openrouter',
             feature: unsupported.join(', '),
           }),

@@ -73,14 +73,14 @@ import { caughtStatus, HTTP_BUSY, json } from "@theoremjs/agents/host";
 try {
   return json(200, { ok: true }, cors);
 } catch (err) {
-  // Pass the profile's lexicon so its wording wins over the defaults.
-  return json(caughtStatus(err), { error: publicError(err, profile.lexicon) }, cors);
+  // Pass the profile's labels so its wording wins over the defaults.
+  return json(caughtStatus(err), { error: publicError(err, profile.labels) }, cors);
 }
 ```
 
 Quota busy responses typically use `HTTP_BUSY` after `takeSlot` returns `busy`;
 when it returns `quota`, reply with `quotaExhausted(profile)` as above (`429`,
-the lexicon's `quota.exhausted`).
+the labels' `quota.exhausted`).
 
 ## Client-safe turn events
 
@@ -131,7 +131,7 @@ so the relay passes the browser's `executeTool` message, less its `type`, to
 | --- | --- | --- |
 | `settled` | The call ran and the model has its answer | `callId` |
 | `gated` | The call waits on a gate | `callId`, `gate` |
-| `refused` | `executeTool` threw | `callId`, `body`: `{ error: publicError(err, profile.lexicon), errorKind }` |
+| `refused` | `executeTool` threw | `callId`, `body`: `{ error: publicError(err, profile.labels), errorKind }` |
 
 A tool the browser answers (a `function` tool whose result lives in the page) is
 settled by the same message: `executeToolOnRelay({ callId, output })` sends the
@@ -160,7 +160,7 @@ late answer is then refused like any `executeTool` for a settled call.
 | `forClientEvents(events, options?)` | Batch helper for Live relays and HTTP stream flush |
 | `ClientTurnOptions` | `{ includeEvidenceRaw?: boolean }` |
 
-HTTP error responses should still use `publicError(err, profile.lexicon)` —
+HTTP error responses should still use `publicError(err, profile.labels)` —
 `forClient` applies only to turn event payloads.
 
 ## Cutout mint trace

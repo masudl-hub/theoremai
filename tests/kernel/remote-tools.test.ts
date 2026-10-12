@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { lexiconText } from '../../src/guardrails/lexicon.ts';
+import { labelText } from '../../src/guardrails/labels.ts';
 import { forClientEvents } from '../../src/host/client-turn.ts';
 import {
   memoryCredentialSource,
@@ -1630,7 +1630,7 @@ Deno.test('access outside the declared scopes fails without a sign-in, recording
     assertEquals(failed?.failure?.code, 'out_of_scope');
     assertEquals(
       failed?.failure?.message,
-      lexiconText('sign_in.out_of_scope', { service: 'Example' }),
+      labelText('sign_in.out_of_scope', { service: 'Example' }),
     );
     const refused = toolEventsOf(events, 'progress').map((ev) => ev.data);
     assertEquals(refused, [

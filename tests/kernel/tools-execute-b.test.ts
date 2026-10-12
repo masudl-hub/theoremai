@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { lexiconText } from '../../src/guardrails/lexicon.ts';
+import { labelText } from '../../src/guardrails/labels.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import { TheoremError } from '../../src/guardrails/theorem-error.ts';
 import {
@@ -217,7 +217,7 @@ Deno.test('a call the host or user refuses settles denied on every path, and a f
       failure: {
         code: 'denied',
         kind: 'declined',
-        message: lexiconText('session.tool_denied', { tool: 'xb_denied_resume' }),
+        message: labelText('session.tool_denied', { tool: 'xb_denied_resume' }),
       },
       callNotStarted: true,
       denied: true,
@@ -265,7 +265,7 @@ Deno.test('a call the host or user refuses settles denied on every path, and a f
       failure: {
         code: 'invalid_input',
         kind: 'bad_response',
-        message: lexiconText('tool.input_invalid_after_mutate'),
+        message: labelText('tool.input_invalid_after_mutate'),
       },
       callNotStarted: true,
     },
@@ -373,7 +373,7 @@ Deno.test('a function tool that signs in gates with the sign-in note when the sl
     rest,
     {
       callNotStarted: true,
-      gateReadBack: lexiconText('sign_in.pending', { service: 'Sheets' }),
+      gateReadBack: labelText('sign_in.pending', { service: 'Sheets' }),
     },
     'settlement',
   );
@@ -384,7 +384,7 @@ Deno.test('a function tool that signs in gates with the sign-in note when the sl
   const heard = gateEvents(events);
   check(heard.stage.length, 1, 'one pre_tool gate stage');
   check(heard.tool.length, 1, 'one gate event');
-  check(heard.tool[0]?.readBack, lexiconText('sign_in.pending', { service: 'Sheets' }), 'readBack');
+  check(heard.tool[0]?.readBack, labelText('sign_in.pending', { service: 'Sheets' }), 'readBack');
 });
 Deno.test('a function tool that signs in tells the model, without running, when its policy says so', async () => {
   const seen = registerSheet('xb_sheet_report', {
@@ -585,14 +585,14 @@ Deno.test('a handler that returns nothing, or the wrong shape, fails with its ow
     {
       code: 'invalid_output',
       kind: 'bad_response',
-      message: lexiconText('tool.handler_no_output'),
+      message: labelText('tool.handler_no_output'),
     },
     'no output',
   );
   check(nothing.settlement.callNotStarted, undefined, 'the body ran');
   registerFn('xb_wrong_shape', { handler: (() => ({ finding: 1 })) as never });
   const wrong = await drain('xb_wrong_shape');
-  check(wrong.settlement.failure?.message, lexiconText('tool.output_invalid'), 'wrong shape');
+  check(wrong.settlement.failure?.message, labelText('tool.output_invalid'), 'wrong shape');
   check(wrong.settlement.failure?.details !== undefined, true, 'with details');
 });
 Deno.test('an input that fails its schema settles before anything else, naming the call', async () => {
@@ -618,7 +618,7 @@ Deno.test('an input that fails its schema settles before anything else, naming t
       failure: {
         code: 'invalid_input',
         kind: 'bad_response',
-        message: lexiconText('tool.input_invalid'),
+        message: labelText('tool.input_invalid'),
       },
       callNotStarted: true,
     },
@@ -734,7 +734,7 @@ Deno.test('a call to a tool that is not registered or a builtin settles as an ea
   const failure = {
     code: 'unknown_tool',
     kind: 'request',
-    message: lexiconText('tool.not_registered', { tool: 'xb_nobody' }),
+    message: labelText('tool.not_registered', { tool: 'xb_nobody' }),
   };
   check(
     unknown.settlement,
@@ -770,7 +770,7 @@ Deno.test('a builtin the kernel is asked to run settles with the reason, and an 
   const offFailure = {
     code: 'not_loaded',
     kind: 'request',
-    message: lexiconText('tool.builtin_not_enabled', { tool: 'googleSearch' }),
+    message: labelText('tool.builtin_not_enabled', { tool: 'googleSearch' }),
   };
   check(
     off.settlement,
@@ -785,7 +785,7 @@ Deno.test('a builtin the kernel is asked to run settles with the reason, and an 
   const onFailure = {
     code: 'provider_native',
     kind: 'request',
-    message: lexiconText('tool.provider_native', { tool: 'googleSearch' }),
+    message: labelText('tool.provider_native', { tool: 'googleSearch' }),
   };
   check(
     on.settlement,
@@ -811,7 +811,7 @@ Deno.test('a tool is refused when the profile leaves it out or the turn did not 
       failure: {
         code: 'not_allowed',
         kind: 'blocked',
-        message: lexiconText('tool.not_allowed', { tool: 'xb_unlisted', profile: 'xb-profile' }),
+        message: labelText('tool.not_allowed', { tool: 'xb_unlisted', profile: 'xb-profile' }),
       },
       callNotStarted: true,
     },
@@ -832,7 +832,7 @@ Deno.test('a tool is refused when the profile leaves it out or the turn did not 
       failure: {
         code: 'not_gated',
         kind: 'request',
-        message: lexiconText('tool.not_eligible', { tool: 'xb_ungated' }),
+        message: labelText('tool.not_eligible', { tool: 'xb_ungated' }),
       },
       callNotStarted: true,
     },
@@ -860,7 +860,7 @@ Deno.test('a resumed T0 call needs no load, while any other unloaded tool is ref
       failure: {
         code: 'not_loaded',
         kind: 'request',
-        message: lexiconText('tool.not_visible', { tool: 'xb_t0_resume' }),
+        message: labelText('tool.not_visible', { tool: 'xb_t0_resume' }),
       },
       callNotStarted: true,
     },
@@ -877,7 +877,7 @@ Deno.test('a resumed T0 call needs no load, while any other unloaded tool is ref
       failure: {
         code: 'not_loaded',
         kind: 'request',
-        message: lexiconText('tool.not_loaded_t2', { tool: 'xb_t2_resume' }),
+        message: labelText('tool.not_loaded_t2', { tool: 'xb_t2_resume' }),
       },
       callNotStarted: true,
     },
@@ -979,7 +979,7 @@ Deno.test('a remote tool that signs in gates with the sign-in note', async () =>
   check(settlement.callNotStarted, true, 'callNotStarted');
   check(
     settlement.gateReadBack,
-    lexiconText('sign_in.pending', { service: 'Sheets' }),
+    labelText('sign_in.pending', { service: 'Sheets' }),
     'gateReadBack',
   );
   const heard = gateEvents(events);

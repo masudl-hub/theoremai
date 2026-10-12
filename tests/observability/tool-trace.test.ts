@@ -2,7 +2,7 @@ import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { labelDefault } from '../../src/guardrails/labels.ts';
 import { memoryCredentialSource } from '../../src/kernel/auth/credential-source.ts';
 import { invokeTool, registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -442,7 +442,7 @@ Deno.test('a provider error types the turn and the call by its kind', async () =
   assertEquals(call?.attributes['error.type'], 'rate_limit');
   assertEquals(
     record && contentOf(record, root?.attributes['theorem.error.public']),
-    lexiconDefault('error.rate_limit'),
+    labelDefault('error.rate_limit'),
   );
 });
 

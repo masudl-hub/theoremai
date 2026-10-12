@@ -7,7 +7,7 @@ function structuredEvent(text: string): TurnEvent {
     return { type: 'structured', structured: JSON.parse(text) };
   } catch (cause) {
     return toErrorEvent(
-      new TheoremError('bad_response', 'structured output was not valid JSON', { cause }), // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      new TheoremError('bad_response', 'structured output was not valid JSON', { cause }), // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }

@@ -216,9 +216,9 @@ function useTurnStarters(args: TheoremChatActionArgs) {
 function steerAfterTurnEnded(args: TheoremChatActionArgs, messageId: string): void {
   args.setFailure(
     clientFailure(
-      // lexicon-exempt: internal diagnostic; the user reads session.turn_ended
+      // labels-exempt: internal diagnostic; the user reads session.turn_ended
       new TheoremError('request', 'steer: no active turn', { copy: { key: 'session.turn_ended' } }),
-      args.iface?.lexicon,
+      args.iface?.labels,
     ),
   );
   args.setPendingMessages((prev) =>
@@ -260,7 +260,7 @@ function usePendingActions(args: TheoremChatActionArgs) {
         if (inject.length === 0) return;
         await args.transport.steer({ turnId, id: message.id, inject });
       } catch (err) {
-        args.setFailure(clientFailure(err, args.iface?.lexicon));
+        args.setFailure(clientFailure(err, args.iface?.labels));
       }
     },
     [args],
@@ -293,7 +293,7 @@ function usePendingActions(args: TheoremChatActionArgs) {
         args.setPendingVoice(restored.voice);
         args.setIssues([]);
       } catch (err) {
-        args.setFailure(clientFailure(err, args.iface?.lexicon));
+        args.setFailure(clientFailure(err, args.iface?.labels));
       }
     },
     [args],

@@ -718,7 +718,7 @@ invoke_agent support                          ERROR unavailable  stop=provider_e
    events: exception { exception.type: "TheoremError", exception.message: "#e11.internal" }
 ```
 
-- **Public vs internal:** `error.type` is the builder's kind; `theorem.error.public` is what the caller received, the kind's wording from the profile's lexicon. The call's `exception.message` is the provider's own message. Both are stored by hash under the scrub.
+- **Public vs internal:** `error.type` is the builder's kind; `theorem.error.public` is what the caller received, the kind's wording from the profile's labels. The call's `exception.message` is the provider's own message. Both are stored by hash under the scrub.
 - **Where the status lives:** each `POST` carries its own status and the provider's error body as a `theorem.upstream.row`. The call's `error.type` is the kind that status maps to (`503` → `unavailable`).
 - **No usage:** the chat has no `gen_ai.usage.*` at all. Nothing was reported, and a failed call is not estimated (step 1 rule). The root has none either, so the turn's usage reads as unknown, not 0.
 

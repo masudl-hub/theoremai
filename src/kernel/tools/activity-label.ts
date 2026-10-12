@@ -198,13 +198,13 @@ export function activityLabelProblem(
     const { path } = parsePlaceholder(match[1] ?? '');
     if (!path) {
       const example = placeholdersAt(schemas.input, '')[0] ?? 'name';
-      return `Put a field name between the braces, like {${example}}.`; // lexicon-exempt: builder diagnostic
+      return `Put a field name between the braces, like {${example}}.`; // labels-exempt: builder diagnostic
     }
     const paths = routes(path, sides);
     const [route] = paths;
     if (!route) continue;
     if (route.prefixed && !sides.includes(route.side)) {
-      return `{${path}} is only there once the call is done; use it in the Done label.`; // lexicon-exempt: builder diagnostic
+      return `{${path}} is only there once the call is done; use it in the Done label.`; // labels-exempt: builder diagnostic
     }
     const found = mergeHolds(
       paths.map(({ side, keys, prefixed }) =>
@@ -217,9 +217,9 @@ export function activityLabelProblem(
     const near = all.filter((candidate) => candidate.split('.')[depth] === route.keys[0]);
     const from = route.prefixed ? route.side : sides.join(' or ');
     const reason = {
-      missing: `is not a field of this tool's ${from}.`, // lexicon-exempt: builder diagnostic
-      group: 'is a list or group; a label shows text or a number.', // lexicon-exempt: builder diagnostic
-      flag: 'is true or false; a label shows text or a number.', // lexicon-exempt: builder diagnostic
+      missing: `is not a field of this tool's ${from}.`, // labels-exempt: builder diagnostic
+      group: 'is a list or group; a label shows text or a number.', // labels-exempt: builder diagnostic
+      flag: 'is true or false; a label shows text or a number.', // labels-exempt: builder diagnostic
     }[found.holds];
     return `{${path}} ${reason}${tryInstead(near.length ? near : all)}`;
   }

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { labelDefault } from '../../src/guardrails/labels.ts';
 import { forClient } from '../../src/host/client-turn.ts';
 import { registerProfile, registerTool, runSession } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -69,7 +69,7 @@ registerProfile(
     models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'main' } },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow: [TOOL] },
-    lexicon: { 'live.session_ended': ENDED_WORDING },
+    labels: { 'live.session_ended': ENDED_WORDING },
   }),
 );
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -377,7 +377,7 @@ Deno.test('a provider close mid-session reaches the host as an error with its ki
   const events = await harness.events;
   const error = firstOf(events, 'error');
   assertEquals(error?.errorKind, 'unavailable');
-  assertEquals(error?.error, lexiconDefault('error.unavailable'));
+  assertEquals(error?.error, labelDefault('error.unavailable'));
   await harness.session.close();
   const root = rootOf(sessionRecord(harness.records));
   assertEquals(root.status, { code: 'ERROR', message: 'unavailable' });
@@ -406,7 +406,7 @@ Deno.test('a close after goAway ends the session quietly, with every close fact 
     false,
   );
   const ended = sessionEventOf(events, 'ended');
-  assertEquals(ended?.session.message, lexiconDefault('live.session_ended'));
+  assertEquals(ended?.session.message, labelDefault('live.session_ended'));
   assertEquals(ended?.session.timeLeftMs, 50000);
   assertEquals(ended?.session.ended.cause, 'go_away');
   assertEquals(ended?.session.ended.code, 1008);
@@ -428,7 +428,7 @@ Deno.test('a close after goAway ends the session quietly, with every close fact 
   assertEquals(closed?.['error.type'], 'unsupported');
   assertEquals(typeof closed?.closed_after_ms, 'number');
 });
-Deno.test('an ended session speaks in the profile lexicon', async () => {
+Deno.test('an ended session speaks in the profile labels', async () => {
   const harness = await open({ profile: WORDED_PROFILE });
   await deliver(harness, { goAway: {} });
   harness.socket.close(1000, '');

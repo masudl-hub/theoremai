@@ -96,7 +96,7 @@ interface JudgeRun {
 }
 
 function configError(grader: string, message: string): TheoremError {
-  return new TheoremError('config', `judge ${grader}: ${message}`); // lexicon-exempt: developer contract error
+  return new TheoremError('config', `judge ${grader}: ${message}`); // labels-exempt: developer contract error
 }
 
 function judgeKind(grader: string, rubric: EvalRubric, profileId: string): 'text' | 'decision' {
@@ -303,7 +303,7 @@ function stateOf(
   for (const variable of rubric.variables) {
     const value = view[variable];
     if (value === undefined) {
-      throw new TheoremError('config', `rubric ${rubric.name}: no value for ${variable}`); // lexicon-exempt: developer contract error
+      throw new TheoremError('config', `rubric ${rubric.name}: no value for ${variable}`); // labels-exempt: developer contract error
     }
     state[variable] = value;
   }

@@ -9,15 +9,15 @@ import {
   describeError,
   type ErrorKind,
   errorKind,
-  type LexiconOverrides,
-  lexiconText,
+  type LabelOverrides,
+  labelText,
   publicError,
 } from '@theoremjs/agents';
 import type { AttachmentValidationIssue, InterfaceTurnSession } from '@theoremjs/agents/interface';
 import { isTheoremStreamError } from './transport.ts';
 
 export type ClientFailure = {
-  /** What the user reads: the host's wording, else the profile lexicon's for the failure. */
+  /** What the user reads: the host's wording, else the profile labels' for the failure. */
   error: string;
   errorKind: ErrorKind;
   /** Raw detail for the builder; never shown to the user. */
@@ -25,18 +25,18 @@ export type ClientFailure = {
 };
 
 /**
- * Word a caught value for the user with the profile's `lexicon` (the interface's
- * `lexicon`). A host-reported failure keeps the host's wording.
+ * Word a caught value for the user with the profile's `labels` (the interface's
+ * `labels`). A host-reported failure keeps the host's wording.
  */
-export function clientFailure(err: unknown, lexicon?: LexiconOverrides): ClientFailure {
+export function clientFailure(err: unknown, labels?: LabelOverrides): ClientFailure {
   if (isTheoremStreamError(err)) {
     return {
-      error: err.publicMessage ?? lexiconText(`error.${err.kind}`, {}, lexicon),
+      error: err.publicMessage ?? labelText(`error.${err.kind}`, {}, labels),
       errorKind: err.kind,
       ...(err.internalMessage ? { errorInternal: err.internalMessage } : {}),
     };
   }
-  const error = publicError(err, lexicon);
+  const error = publicError(err, labels);
   const internal = describeError(err);
   return {
     error,
@@ -59,10 +59,10 @@ export type TurnFailure = ClientFailure & {
 /** A caught value as a turn failure; an aborted `signal` marks it the user's stop. */
 export function turnFailure(
   err: unknown,
-  lexicon?: LexiconOverrides,
+  labels?: LabelOverrides,
   signal?: AbortSignal,
 ): TurnFailure {
-  const failure = clientFailure(err, lexicon);
+  const failure = clientFailure(err, labels);
   const aborted = failure.errorKind === 'cancelled' || signal?.aborted === true;
   return { ok: false, ...failure, ...(aborted ? { aborted: true } : {}) };
 }

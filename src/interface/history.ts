@@ -2,7 +2,7 @@
 // matches `runTurn` / `invokeTool`.
 
 import { TheoremError } from '../guardrails/error.ts';
-import { type LexiconOverrides, lexiconText } from '../guardrails/lexicon.ts';
+import { type LabelOverrides, labelText } from '../guardrails/labels.ts';
 import { mediaKindForMime } from '../kernel/registry/catalog.ts';
 import { formatToolFailureForModel, formatToolResult } from '../kernel/tools/model-text.ts';
 import type { ToolCallRequest } from '../kernel/turn-events.ts';
@@ -19,7 +19,7 @@ function toolReadBack(call: ToolCall): string {
   if ((state?.phase !== 'complete' && state?.phase !== 'error') || state.readBack === undefined) {
     throw new TheoremError(
       'request',
-      `Tool call '${call.name}' has no readBack: only a settled call from a run carries one.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Tool call '${call.name}' has no readBack: only a settled call from a run carries one.`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   return state.readBack;
@@ -136,11 +136,11 @@ function appendToolDenialToHistory(
     /** Override the default deny copy. */
     failure?: { code: string; message: string };
   },
-  lexicon: LexiconOverrides | undefined,
+  labels: LabelOverrides | undefined,
 ): TurnHistoryMessage[] {
   const failure = tool.failure ?? {
     code: 'denied',
-    message: lexiconText('session.tool_denied', { tool: tool.name }, lexicon),
+    message: labelText('session.tool_denied', { tool: tool.name }, labels),
   };
   return appendToolCallPair(history, tool, formatToolResult(formatToolFailureForModel(failure)));
 }
@@ -323,7 +323,7 @@ function openCallsMismatch(
 ): TheoremError {
   return new TheoremError(
     'request',
-    `the history leaves open [${openToolCallIds(history).join(', ')}], not [${ids.join(', ')}]`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    `the history leaves open [${openToolCallIds(history).join(', ')}], not [${ids.join(', ')}]`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 

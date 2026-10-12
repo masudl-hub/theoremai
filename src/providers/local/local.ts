@@ -56,7 +56,7 @@ function normalizeBaseUrl(baseUrl: string): string {
 export function resolveBaseUrl(config: LocalTransport): string {
   const baseUrl = config.baseUrl.trim();
   if (!baseUrl) {
-    throw new TheoremError('config', 'Local provider requires baseUrl'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', 'Local provider requires baseUrl'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return normalizeBaseUrl(baseUrl);
 }

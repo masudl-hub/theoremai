@@ -22,7 +22,7 @@ export class CredentialRefusedError extends Error {
   readonly refusal: CredentialRefusal;
 
   constructor(refusal: CredentialRefusal) {
-    super(`The service refused the credential (HTTP ${refusal.status}).`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    super(`The service refused the credential (HTTP ${refusal.status}).`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     this.name = 'CredentialRefusedError';
     this.refusal = refusal;
   }

@@ -4,7 +4,7 @@
  * the counterweight: a detector tuned only on the attacks will fire on legitimate instruction-shaped output.
  */
 
-/** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
+/** labels-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 /** Tool names a scenario's profile can call, for the callable-tool signal. */
 export const TOOL_INGRESS_TOOLS = ['send_email', 'delete_records', 'web_fetch', 'search'] as const;
 

@@ -1,4 +1,4 @@
-import { lexiconText, TheoremError, type TurnEvent } from '@theoremjs/agents';
+import { labelText, TheoremError, type TurnEvent } from '@theoremjs/agents';
 import {
   type AttachmentValidationIssue,
   type ComposerProfileInterface,
@@ -21,7 +21,7 @@ import type {
 } from './transport.ts';
 
 export function issuedOperationId(call: { operationId?: string }): string {
-  if (!call.operationId) throw new TheoremError('request', lexiconText('session.gate_expired'));
+  if (!call.operationId) throw new TheoremError('request', labelText('session.gate_expired'));
   return call.operationId;
 }
 

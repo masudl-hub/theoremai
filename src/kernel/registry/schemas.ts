@@ -17,7 +17,7 @@ function createSchemaRegistry(): SchemaRegistry {
       if ('enforced' in spec) {
         throw new TheoremError(
           'config',
-          `registerStructured '${id}': enforced was removed; every structured schema is sent to the model as its response format`, // lexicon-exempt: developer contract error
+          `registerStructured '${id}': enforced was removed; every structured schema is sent to the model as its response format`, // labels-exempt: developer contract error
         );
       }
       if (
@@ -27,7 +27,7 @@ function createSchemaRegistry(): SchemaRegistry {
       ) {
         throw new TheoremError(
           'config',
-          `registerStructured '${id}': jsonSchema must be a JSON Schema object`, // lexicon-exempt: developer contract error
+          `registerStructured '${id}': jsonSchema must be a JSON Schema object`, // labels-exempt: developer contract error
         );
       }
       schemas.set(id, spec);
@@ -35,7 +35,7 @@ function createSchemaRegistry(): SchemaRegistry {
     get(id) {
       const spec = schemas.get(id);
       if (!spec) {
-        throw new TheoremError('config', `Unknown structured schema '${id}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        throw new TheoremError('config', `Unknown structured schema '${id}'`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
       return spec;
     },

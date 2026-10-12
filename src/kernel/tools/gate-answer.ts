@@ -16,7 +16,7 @@ export function resolveGateTtlMs(owner: string, gateTtlMs: number | undefined): 
   if (!Number.isFinite(ttl) || ttl <= 0) {
     throw new TheoremError(
       'config',
-      `${owner} gateTtlMs must be a positive number of milliseconds; got ${ttl}.`, // lexicon-exempt: builder config error at setup; no user sees it
+      `${owner} gateTtlMs must be a positive number of milliseconds; got ${ttl}.`, // labels-exempt: builder config error at setup; no user sees it
     );
   }
   return ttl;
@@ -107,7 +107,7 @@ export function answerGatedCall(
   if (approvalOnly && decision !== 'approve') {
     throw new TheoremError(
       'request',
-      `only an approval takes edited input, a secret or a page answer (call ${callId})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `only an approval takes edited input, a secret or a page answer (call ${callId})`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (decision !== 'approve') {

@@ -1,5 +1,5 @@
 import {
-  lexiconText,
+  labelText,
   type PageToolExecution,
   type ProviderCheckpoint,
   type SessionRequest,
@@ -64,12 +64,12 @@ export async function createTheoremSessionBoundary(
   const cookie = options.session ? undefined : cookieSession(options.request);
   const id = options.session ? (await options.session(options.request))?.trim() : cookie?.id;
   if (!id)
-    throw new TheoremError('auth', lexiconText('session.sign_in'), {
+    throw new TheoremError('auth', labelText('session.sign_in'), {
       copy: { key: 'session.sign_in' },
     });
   const retention = options.operationRetentionMs ?? DEFAULT_OPERATION_RETENTION_MS;
   if (!Number.isSafeInteger(retention) || retention <= 0)
-    throw new TheoremError('config', lexiconText('error.config'));
+    throw new TheoremError('config', labelText('error.config'));
   const limits = resolveSessionLimits(options.sessionLimits);
   const store = sessionStateStore(
     options.sessionStore,
@@ -103,7 +103,7 @@ export async function createTheoremSessionBoundary(
         providerState &&
         Object.values(state.operations).some((operation) => operation.status !== 'settled')
       ) {
-        throw new TheoremError('unavailable', lexiconText('tool.execution_uncertain'), {
+        throw new TheoremError('unavailable', labelText('tool.execution_uncertain'), {
           copy: { key: 'tool.execution_uncertain' },
         });
       }

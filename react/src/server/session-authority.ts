@@ -1,4 +1,4 @@
-import { lexiconText, TheoremError, z } from '@theoremjs/agents';
+import { labelText, TheoremError, z } from '@theoremjs/agents';
 import { checkSessionLimits, type TheoremSessionLimits } from './session-limits.ts';
 import {
   emptySessionState,
@@ -19,7 +19,7 @@ export function sessionStateStore(
   limits: TheoremSessionLimits,
 ): MutableStore<TheoremSessionState> & { checkpointLimit: number } {
   if (typeof store.compareAndSwap !== 'function') {
-    throw new TheoremError('config', lexiconText('error.config'), {
+    throw new TheoremError('config', labelText('error.config'), {
       cause: { code: 'session_store_contract', required: 'compareAndSwap' },
     });
   }
@@ -36,7 +36,7 @@ export function sessionStateStore(
       !parsed.success ||
       (snapshot !== undefined && (typeof snapshot.revision !== 'string' || !snapshot.revision))
     ) {
-      throw new TheoremError('config', lexiconText('error.config'), {
+      throw new TheoremError('config', labelText('error.config'), {
         cause: { code: 'session_store_state' },
       });
     }
@@ -75,7 +75,7 @@ export function sessionStateStore(
         checkSessionLimits(state, limits);
         const next = theoremSessionStateSchema.safeParse(state);
         if (!next.success) {
-          throw new TheoremError('config', lexiconText('error.config'), {
+          throw new TheoremError('config', labelText('error.config'), {
             cause: { code: 'session_store_transition' },
           });
         }
@@ -83,20 +83,20 @@ export function sessionStateStore(
           await store.compareAndSwap(sessionId, revision, next.data),
         );
         if (!written.success) {
-          throw new TheoremError('config', lexiconText('error.config'), {
+          throw new TheoremError('config', labelText('error.config'), {
             cause: { code: 'session_store_write_result' },
           });
         }
         if (written.data.written) {
           if (written.data.revision === revision) {
-            throw new TheoremError('config', lexiconText('error.config'), {
+            throw new TheoremError('config', labelText('error.config'), {
               cause: { code: 'session_store_revision' },
             });
           }
           return result;
         }
       }
-      throw new TheoremError('unavailable', lexiconText('error.unavailable'), {
+      throw new TheoremError('unavailable', labelText('error.unavailable'), {
         cause: { code: 'session_store_contention' },
       });
     },

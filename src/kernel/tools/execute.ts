@@ -2,7 +2,7 @@ import { type ToolBoundary, type ToolKind, toolBoundary } from '../../guardrails
 import { checkDestinationGate } from '../../guardrails/destinations.ts';
 import { type DetectScope, scopeOf } from '../../guardrails/detect-at.ts';
 import { errorKind, isAbortError, TheoremError, throwIfAborted } from '../../guardrails/error.ts';
-import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
+import { type LabelOverrides, labelText } from '../../guardrails/labels.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import {
   checkTaintGate,
@@ -217,17 +217,17 @@ async function* runHandler<TIn, TOut>(
 export function projectForModel(
   tool: FunctionToolDef,
   output: unknown,
-  lexicon?: LexiconOverrides,
+  labels?: LabelOverrides,
 ): ModelToolResult {
   if (tool.exposeToModel === false) {
-    return { finding: lexiconText('tool.completed_hidden', {}, lexicon) };
+    return { finding: labelText('tool.completed_hidden', {}, labels) };
   }
   if (isAwaitingUserInput(output)) {
     return {
-      finding: lexiconText(
+      finding: labelText(
         'tool.awaiting_user',
         { kind: output.kind, prompt: output.prompt },
-        lexicon,
+        labels,
       ),
       data: leanToolResultData(output),
     };
@@ -266,10 +266,10 @@ function applyT2LoaderPromotion(
       failure: {
         code: 'invalid_output',
         kind: 'bad_response',
-        message: lexiconText(
+        message: labelText(
           'tool.t2_loader_needs_snapshot',
           { tool: tool.name },
-          ctx.profile.lexicon,
+          ctx.profile.labels,
         ),
       },
     };
@@ -281,7 +281,7 @@ function applyT2LoaderPromotion(
       failure: {
         code: 'invalid_output',
         kind: 'bad_response',
-        message: lexiconText('tool.t2_loader_shape', { tool: tool.name }, ctx.profile.lexicon),
+        message: labelText('tool.t2_loader_shape', { tool: tool.name }, ctx.profile.labels),
       },
     };
   }
@@ -302,7 +302,7 @@ function applyT2LoaderPromotion(
       failure: {
         code: 'invalid_output',
         kind: 'bad_response',
-        message: lexiconText('tool.t2_loader_output_invalid', {}, ctx.profile.lexicon),
+        message: labelText('tool.t2_loader_output_invalid', {}, ctx.profile.labels),
         details: rechecked.error.flatten(),
       },
     };
@@ -550,7 +550,7 @@ function resultGuard(
     policy,
     kind: toolKindOf(tool),
     callableTools,
-    lexicon: ctx.profile.lexicon,
+    labels: ctx.profile.labels,
     span,
   };
   const service = isGateResumeGranted(ctx.resume) ? signInService(tool, ctx.resume) : undefined;
@@ -560,7 +560,7 @@ function resultGuard(
       failure: (failure) => guardFailure(failure, inputs),
     };
   }
-  const note = lexiconText('sign_in.done', { service }, ctx.profile.lexicon);
+  const note = labelText('sign_in.done', { service }, ctx.profile.labels);
   return {
     result: (result) => afterSignIn(note, guardResult(result, inputs)),
     failure: (failure) => afterSignIn(note, guardFailure(failure, inputs)),
@@ -610,7 +610,7 @@ type ParsedOutput =
 function makeReproject(
   parse: (value: unknown) => ParsedOutput,
   project: (data: unknown) => ModelToolResult,
-  lexicon: LexiconOverrides | undefined,
+  labels: LabelOverrides | undefined,
 ): Reproject {
   return (output) => {
     const checked = parse(output);
@@ -620,7 +620,7 @@ function makeReproject(
         failure: {
           code: 'invalid_output',
           kind: 'bad_response',
-          message: lexiconText('tool.output_invalid_after_mutate', {}, lexicon),
+          message: labelText('tool.output_invalid_after_mutate', {}, labels),
           details: checked.error.flatten(),
         },
       };
@@ -730,7 +730,7 @@ export async function* executeFunction(
       gate: permissionGate,
       callId,
       toolName: tool.name,
-      lexicon: ctx.profile.lexicon,
+      labels: ctx.profile.labels,
     });
     return { gated: permissionGate, callNotStarted: true };
   }
@@ -746,7 +746,7 @@ export async function* executeFunction(
       safeInput: input,
       stages,
       guard,
-      lexicon: ctx.profile.lexicon,
+      labels: ctx.profile.labels,
     });
   const signedIn = yield* resolveFunctionSignIn(tool, ctx, base);
   if (signedIn.outcome) return yield* settleOutcome(signedIn.outcome);
@@ -765,7 +765,7 @@ export async function* executeFunction(
       gate,
       callId,
       toolName: tool.name,
-      lexicon: ctx.profile.lexicon,
+      labels: ctx.profile.labels,
     });
     return { gated: gate, callNotStarted: true };
   }
@@ -820,7 +820,7 @@ export async function* executeFunction(
     return yield* fail({
       code: 'invalid_output',
       kind: 'bad_response',
-      message: lexiconText('tool.handler_no_output', {}, ctx.profile.lexicon),
+      message: labelText('tool.handler_no_output', {}, ctx.profile.labels),
     });
   }
   const checked = tool.output.safeParse(output);
@@ -828,7 +828,7 @@ export async function* executeFunction(
     return yield* fail({
       code: 'invalid_output',
       kind: 'bad_response',
-      message: lexiconText('tool.output_invalid', {}, ctx.profile.lexicon),
+      message: labelText('tool.output_invalid', {}, ctx.profile.labels),
       details: checked.error.flatten(),
     });
   }
@@ -848,7 +848,7 @@ export async function* executeFunction(
     guard,
     provisional: {
       outputRaw: promoted.output,
-      modelResult: projectForModel(tool, promoted.output, ctx.profile.lexicon),
+      modelResult: projectForModel(tool, promoted.output, ctx.profile.labels),
     },
     sources: tool.sources,
     labels: tool.labels,
@@ -857,8 +857,8 @@ export async function* executeFunction(
       : {
           reproject: makeReproject(
             (v) => tool.output.safeParse(v),
-            (data) => projectForModel(tool, data, ctx.profile.lexicon),
-            ctx.profile.lexicon,
+            (data) => projectForModel(tool, data, ctx.profile.labels),
+            ctx.profile.labels,
           ),
         }),
   });
@@ -866,12 +866,12 @@ export async function* executeFunction(
 
 export function notLoadedMessage(
   tool: { name: string; loadTier?: string },
-  lexicon?: LexiconOverrides,
+  labels?: LabelOverrides,
 ): string {
   if (tool.loadTier === 'T2') {
-    return lexiconText('tool.not_loaded_t2', { tool: tool.name }, lexicon);
+    return labelText('tool.not_loaded_t2', { tool: tool.name }, labels);
   }
-  return lexiconText('tool.not_visible', { tool: tool.name }, lexicon);
+  return labelText('tool.not_visible', { tool: tool.name }, labels);
 }
 
 function earlyFailure(failure: ToolFailure): ToolExecuteSettlement {
@@ -890,7 +890,7 @@ export async function* executeBuiltin(
     const failure: ToolFailure = {
       code: 'not_loaded',
       kind: 'request',
-      message: lexiconText('tool.builtin_not_enabled', { tool: tool.name }, ctx.profile.lexicon),
+      message: labelText('tool.builtin_not_enabled', { tool: tool.name }, ctx.profile.labels),
     };
     yield failureEvent(base, failure);
     return earlyFailure(failure);
@@ -898,7 +898,7 @@ export async function* executeBuiltin(
   const failure: ToolFailure = {
     code: 'provider_native',
     kind: 'request',
-    message: lexiconText('tool.provider_native', { tool: tool.name }, ctx.profile.lexicon),
+    message: labelText('tool.provider_native', { tool: tool.name }, ctx.profile.labels),
   };
   yield failureEvent(base, failure);
   return earlyFailure(failure);
@@ -916,10 +916,10 @@ function registeredEligibilityFailure(args: {
     return {
       code: 'not_allowed',
       kind: 'blocked',
-      message: lexiconText(
+      message: labelText(
         'tool.not_allowed',
         { tool: name, profile: profile.id },
-        profile.lexicon,
+        profile.labels,
       ),
     };
   }
@@ -929,7 +929,7 @@ function registeredEligibilityFailure(args: {
     return {
       code: 'not_gated',
       kind: 'request',
-      message: lexiconText('tool.not_eligible', { tool: name }, profile.lexicon),
+      message: labelText('tool.not_eligible', { tool: name }, profile.labels),
     };
   }
   if (!snapshot.visible.includes(name)) {
@@ -938,7 +938,7 @@ function registeredEligibilityFailure(args: {
       return {
         code: 'not_loaded',
         kind: 'request',
-        message: notLoadedMessage(tool, profile.lexicon),
+        message: notLoadedMessage(tool, profile.labels),
       };
     }
   }
@@ -955,7 +955,7 @@ export function authorizeToolReplay(args: {
 }): void {
   const tool = args.tools.get(args.name);
   if (!tool || tool.type === 'builtin') {
-    throw new TheoremError('blocked', lexiconText('error.blocked'));
+    throw new TheoremError('blocked', labelText('error.blocked'));
   }
   const failure = registeredEligibilityFailure({ ...args, tool });
   if (failure) throw new TheoremError(failure.kind, failure.message);
@@ -968,12 +968,12 @@ function authorizeSavedDisclosure(
   outcome: ToolOperationOutcome,
 ): void {
   const blocked = () =>
-    new TheoremError('blocked', lexiconText('detect.output_blocked', {}, args.profile.lexicon));
+    new TheoremError('blocked', labelText('detect.output_blocked', {}, args.profile.labels));
   const result = outcome.replay.modelResult;
   if (
     tool.type === 'function' &&
     tool.exposeToModel === false &&
-    result?.finding !== lexiconText('tool.completed_hidden', {}, args.profile.lexicon)
+    result?.finding !== labelText('tool.completed_hidden', {}, args.profile.labels)
   )
     throw blocked();
   const guard = guardToolResult(
@@ -983,7 +983,7 @@ function authorizeSavedDisclosure(
     resolveGuardrailPolicy(args.profile.guardrails),
     tool.type === 'builtin' ? undefined : toolBoundary('tool_output', tool.type),
     args.snapshot?.executable ?? [],
-    args.profile.lexicon,
+    args.profile.labels,
   );
   if (guard.event?.action === 'block' || guard.event?.action === 'redact') throw blocked();
 }
@@ -997,9 +997,9 @@ async function* settleBodyOutcome(args: {
   safeInput: unknown;
   stages?: ToolStageSupport;
   guard: ResultGuard;
-  lexicon: LexiconOverrides | undefined;
+  labels: LabelOverrides | undefined;
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
-  const { outcome, tool, base, callId, safeInput, stages, guard, lexicon } = args;
+  const { outcome, tool, base, callId, safeInput, stages, guard, labels } = args;
   const name = tool.name;
 
   if (outcome.kind === 'gated') {
@@ -1011,7 +1011,7 @@ async function* settleBodyOutcome(args: {
       gate: outcome.gate,
       callId,
       toolName: name,
-      lexicon,
+      labels,
     });
     return { gated: outcome.gate, callNotStarted: true, ...(gateReadBack ? { gateReadBack } : {}) };
   }
@@ -1041,7 +1041,7 @@ async function* settleBodyOutcome(args: {
       (v) => parseToolOutput(tool.output, v),
       // why: A hook's edit replaces the value; the media the tool returned stays.
       (data) => withMedia(modelResultFromOutput(data), outcome.modelResult.parts),
-      lexicon,
+      labels,
     ),
   });
 }
@@ -1088,19 +1088,19 @@ function signInService(tool: RegisteredTool, resume: ToolContext['resume']) {
 export function lapsedGateFailure(
   toolName: string,
   expiredService: string | undefined,
-  lexicon: LexiconOverrides | undefined,
+  labels: LabelOverrides | undefined,
 ): ToolFailure {
   if (expiredService) {
     return {
       code: 'expired',
       kind: 'cancelled',
-      message: lexiconText('sign_in.expired', { service: expiredService }, lexicon),
+      message: labelText('sign_in.expired', { service: expiredService }, labels),
     };
   }
   return {
     code: 'cancelled',
     kind: 'cancelled',
-    message: lexiconText('session.abandon_gated', { tool: toolName }, lexicon),
+    message: labelText('session.abandon_gated', { tool: toolName }, labels),
   };
 }
 
@@ -1108,7 +1108,7 @@ export function lapsedGateFailure(
 function refusalFailure(
   tool: RegisteredTool,
   resume: ToolContext['resume'],
-  lexicon: LexiconOverrides | undefined,
+  labels: LabelOverrides | undefined,
 ): ToolFailure {
   const service = signInService(tool, resume);
   const cause = resume?.cause ?? 'declined';
@@ -1117,11 +1117,11 @@ function refusalFailure(
       code: 'denied',
       kind: 'declined',
       message: service
-        ? lexiconText('sign_in.declined', { service }, lexicon)
-        : lexiconText('session.tool_denied', { tool: tool.name }, lexicon),
+        ? labelText('sign_in.declined', { service }, labels)
+        : labelText('session.tool_denied', { tool: tool.name }, labels),
     };
   }
-  return lapsedGateFailure(tool.name, cause === 'expired' ? service : undefined, lexicon);
+  return lapsedGateFailure(tool.name, cause === 'expired' ? service : undefined, labels);
 }
 
 function resumeApproval(resume: ToolContext['resume']): boolean | undefined {
@@ -1280,13 +1280,13 @@ async function* runRegisteredTool(
     name,
     callId,
     operationId,
-    activityFailed: failedActivity(name, profile.lexicon, tool?.labels, safeInput),
+    activityFailed: failedActivity(name, profile.labels, tool?.labels, safeInput),
   };
   if (!tool) {
     const failure: ToolFailure = {
       code: 'unknown_tool',
       kind: 'request',
-      message: lexiconText('tool.not_registered', { tool: name }, profile.lexicon),
+      message: labelText('tool.not_registered', { tool: name }, profile.labels),
     };
     yield failureEvent(base, failure);
     return earlyFailure(failure);
@@ -1296,7 +1296,7 @@ async function* runRegisteredTool(
       const failure: ToolFailure = {
         code: 'provider_native',
         kind: 'request',
-        message: lexiconText('tool.builtin_needs_snapshot', { tool: name }, profile.lexicon),
+        message: labelText('tool.builtin_needs_snapshot', { tool: name }, profile.labels),
       };
       yield failureEvent(base, failure);
       return earlyFailure(failure);
@@ -1327,7 +1327,7 @@ async function* runRegisteredTool(
         stages?.span,
       ),
       base,
-      refusalFailure(tool, ctx.resume, profile.lexicon),
+      refusalFailure(tool, ctx.resume, profile.labels),
       stages,
       { toolName: name, callId, input: safeInput, callNotStarted: true, denied: true },
     );
@@ -1354,14 +1354,14 @@ async function* runRegisteredTool(
     const failure: ToolFailure = {
       code: 'arguments_blocked',
       kind: 'blocked',
-      message: lexiconText('detect.call_blocked', {}, profile.lexicon),
+      message: labelText('detect.call_blocked', {}, profile.labels),
     };
     yield failureEvent(base, failure);
     return { ...earlyFailure(failure), denied: true };
   }
 
   const taintStart = performance.now();
-  const taintVerdict = checkTaintGate(ctx.turn?.taint, tool.access, policy, profile.lexicon);
+  const taintVerdict = checkTaintGate(ctx.turn?.taint, tool.access, policy, profile.labels);
   const taintEvent = toolCallEvent(taintVerdict, provenance);
   recordToolCheck(stages?.span, 'taint', performance.now() - taintStart, taintEvent);
   if (taintEvent) {
@@ -1412,13 +1412,13 @@ async function* settleRemoteDestination(args: {
   span: ToolStageSupport['span'];
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement | undefined> {
   const { tool, input, ctx, base } = args;
-  const { lexicon } = ctx.profile;
+  const { labels } = ctx.profile;
   const start = performance.now();
   const { verdict, confirm } = checkDestinationGate(
     ctx.turn?.destinations,
     input,
     args.policy,
-    lexicon,
+    labels,
   );
   const event = toolCallEvent(verdict, args.provenance);
   recordToolCheck(args.span, 'destination', performance.now() - start, event);
@@ -1446,7 +1446,7 @@ async function* settleRemoteDestination(args: {
     gate,
     callId: ctx.callId,
     toolName: tool.name,
-    lexicon,
+    labels,
   });
   return { gated: gate, callNotStarted: true };
 }
@@ -1473,7 +1473,7 @@ async function* executeAgentTool(args: {
     const failure: ToolFailure = {
       code: 'unknown_tool',
       kind: 'unsupported',
-      message: lexiconText('tool.unsupported_type', { tool: tool.name }, ctx.profile.lexicon),
+      message: labelText('tool.unsupported_type', { tool: tool.name }, ctx.profile.labels),
     };
     yield failureEvent(base, failure);
     return earlyFailure(failure);
@@ -1579,7 +1579,7 @@ async function* settleByType(
     return earlyFailure({
       code: 'unknown_tool',
       kind: 'request',
-      message: lexiconText('tool.unsupported_type', { tool: name }, fullCtx.profile.lexicon),
+      message: labelText('tool.unsupported_type', { tool: name }, fullCtx.profile.labels),
     });
   }
   const remoteOutcome: ToolBodyOutcome =
@@ -1594,7 +1594,7 @@ async function* settleByType(
     safeInput,
     stages,
     guard: resultGuard(tools, tool, fullCtx, snapshot, stages?.span),
-    lexicon: fullCtx.profile.lexicon,
+    labels: fullCtx.profile.labels,
   });
 }
 
@@ -1605,14 +1605,14 @@ interface GuardInputs {
   /** Absent for a provider builtin, whose text crosses no boundary. */
   kind: ToolKind | undefined;
   callableTools: readonly string[];
-  lexicon: LexiconOverrides | undefined;
+  labels: LabelOverrides | undefined;
   span: SpanHandle | undefined;
 }
 
 /**
  * A remote server writes its own error strings, so a failure's message is read
  * at `tool_failure_<kind>` before the kernel frames it for the model as a system
- * report. A blocked message is replaced by the lexicon's words. The framed
+ * report. A blocked message is replaced by the labels' words. The framed
  * report is the kernel's own text and is not read again.
  */
 function* guardFailure(
@@ -1630,7 +1630,7 @@ function* guardFailure(
   if (checked.event) {
     yield { type: 'guardrail', guardrail: checked.event };
   }
-  const message = checked.text ?? lexiconText('detect.output_blocked', {}, guard.lexicon);
+  const message = checked.text ?? labelText('detect.output_blocked', {}, guard.labels);
   return { modelResult: yield* reportFailure({ ...failure, message }, guard) };
 }
 
@@ -1657,7 +1657,7 @@ function* guardResult(
   const withheld: ToolFailure = {
     code: 'output_blocked',
     kind: 'blocked',
-    message: lexiconText('detect.output_blocked', {}, guard.lexicon),
+    message: labelText('detect.output_blocked', {}, guard.labels),
   };
   return { modelResult: yield* reportFailure(withheld, guard), withheld };
 }
@@ -1677,7 +1677,7 @@ function* readBack(
     guard.policy,
     boundary,
     guard.callableTools,
-    guard.lexicon,
+    guard.labels,
   );
   recordToolCheck(span, 'tool_result', performance.now() - start, guarded.event);
   if (guarded.event) {

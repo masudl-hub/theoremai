@@ -157,7 +157,7 @@ function coerceInjectMessage(
   warnings: StageApplyWarning[],
 ): TurnHistoryMessage | undefined {
   if (!isRecord(item)) {
-    warn(warnings, 'inject_invalid_messages', 'inject', 'inject entry must be an object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    warn(warnings, 'inject_invalid_messages', 'inject', 'inject entry must be an object'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return undefined;
   }
   if (item.role === 'tool') {
@@ -165,7 +165,7 @@ function coerceInjectMessage(
       warnings,
       'inject_invalid_messages',
       'inject',
-      'inject messages with role "tool" are rejected', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'inject messages with role "tool" are rejected', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
     return undefined;
   }
@@ -174,7 +174,7 @@ function coerceInjectMessage(
       warnings,
       'inject_invalid_messages',
       'inject',
-      `inject role not allowed: ${String(item.role)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `inject role not allowed: ${String(item.role)}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
     return undefined;
   }
@@ -187,7 +187,7 @@ function coerceInjectMessage(
         warnings,
         'inject_invalid_messages',
         'inject',
-        'inject content must be a string when present', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        'inject content must be a string when present', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
       return undefined;
     }
@@ -199,7 +199,7 @@ function coerceInjectMessage(
         warnings,
         'inject_invalid_messages',
         'inject',
-        'inject parts must be an array when present', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        'inject parts must be an array when present', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
       return undefined;
     }
@@ -211,7 +211,7 @@ function coerceInjectMessage(
         warnings,
         'inject_invalid_messages',
         'inject',
-        'inject tool_calls must be an array when present', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        'inject tool_calls must be an array when present', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
       return undefined;
     }
@@ -219,14 +219,14 @@ function coerceInjectMessage(
   }
   if (item.name !== undefined) {
     if (typeof item.name !== 'string') {
-      warn(warnings, 'inject_invalid_messages', 'inject', 'inject name must be a string'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      warn(warnings, 'inject_invalid_messages', 'inject', 'inject name must be a string'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       return undefined;
     }
     msg.name = item.name;
   }
   if (item.metadata !== undefined) {
     if (!isRecord(item.metadata)) {
-      warn(warnings, 'inject_invalid_messages', 'inject', 'inject metadata must be a plain object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      warn(warnings, 'inject_invalid_messages', 'inject', 'inject metadata must be a plain object'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       return undefined;
     }
     msg.metadata = { ...item.metadata };
@@ -236,7 +236,7 @@ function coerceInjectMessage(
       warnings,
       'inject_invalid_messages',
       'inject',
-      'inject tool_call_id is rejected (not a tool-role message)', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'inject tool_call_id is rejected (not a tool-role message)', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 
@@ -252,7 +252,7 @@ function coerceHistoryMessages(
       warnings,
       'inject_invalid_messages',
       'inject',
-      'inject must be an array of history messages', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'inject must be an array of history messages', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
     return undefined;
   }
@@ -279,7 +279,7 @@ function injectUnit(
     warnings,
     'inject_id_invalid',
     'injectId',
-    'injectId must be a non-empty string; inject refused', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    'injectId must be a non-empty string; inject refused', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
   return undefined;
 }
@@ -291,7 +291,7 @@ function applyInjectField(
 ): void {
   if (!('inject' in result) || result.inject === undefined) {
     if (result.injectId !== undefined) {
-      warn(out.warnings, 'inject_id_invalid', 'injectId', 'injectId without inject ignored'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      warn(out.warnings, 'inject_id_invalid', 'injectId', 'injectId without inject ignored'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     return;
   }
@@ -301,21 +301,21 @@ function applyInjectField(
       out.warnings,
       'affordance_not_allowed',
       'inject',
-      `inject is not allowed at stage ${stage}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `inject is not allowed at stage ${stage}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   } else if (!injectAllowed) {
     warn(
       out.warnings,
       'inject_not_allowed',
       'inject',
-      'inject gate is closed for this profile/session', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'inject gate is closed for this profile/session', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   } else if (injectWouldExceedMaxSteps) {
     warn(
       out.warnings,
       'inject_rejected_max_steps',
       'inject',
-      'inject rejected: another model step would exceed maxSteps', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'inject rejected: another model step would exceed maxSteps', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   } else {
     const unit = injectUnit(result, out.warnings);
@@ -330,7 +330,7 @@ function applyAbortField(
 ): void {
   if (!('abort' in result) || result.abort === undefined) return;
   if (!stageAllowsAffordance(stage, 'abort')) {
-    warn(out.warnings, 'affordance_not_allowed', 'abort', 'abort is not allowed at post_turn'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    warn(out.warnings, 'affordance_not_allowed', 'abort', 'abort is not allowed at post_turn'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   } else if (result.abort === true) {
     out.abort = true;
   } else if (isRecord(result.abort)) {
@@ -340,7 +340,7 @@ function applyAbortField(
         : undefined;
     out.abort = reason ? { reason } : true;
   } else if (result.abort !== false) {
-    warn(out.warnings, 'abort_invalid', 'abort', 'abort must be boolean or { reason?: string }'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    warn(out.warnings, 'abort_invalid', 'abort', 'abort must be boolean or { reason?: string }'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 
@@ -351,9 +351,9 @@ function applyDenyField(
 ): void {
   if (!('deny' in result) || result.deny === undefined) return;
   if (!stageAllowsAffordance(stage, 'deny')) {
-    warn(out.warnings, 'affordance_not_allowed', 'deny', `deny is not allowed at stage ${stage}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    warn(out.warnings, 'affordance_not_allowed', 'deny', `deny is not allowed at stage ${stage}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   } else if (!isRecord(result.deny)) {
-    warn(out.warnings, 'deny_invalid', 'deny', 'deny must be an object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    warn(out.warnings, 'deny_invalid', 'deny', 'deny must be an object'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   } else {
     const code =
       typeof result.deny.code === 'string' && result.deny.code.trim()
@@ -362,7 +362,7 @@ function applyDenyField(
     const message =
       typeof result.deny.message === 'string' && result.deny.message.trim()
         ? result.deny.message.trim()
-        : 'Tool execution not authorized'; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        : 'Tool execution not authorized'; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     out.deny = { code, message };
   }
 }
@@ -378,12 +378,12 @@ function applyLabelFailedField(
       out.warnings,
       'affordance_not_allowed',
       'labelFailed',
-      `labelFailed is not allowed at stage ${stage}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `labelFailed is not allowed at stage ${stage}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   } else if (result.labelFailed === true) {
     out.labelFailed = true;
   } else if (result.labelFailed !== false) {
-    warn(out.warnings, 'label_failed_invalid', 'labelFailed', 'labelFailed must be true'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    warn(out.warnings, 'label_failed_invalid', 'labelFailed', 'labelFailed must be true'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 
@@ -398,7 +398,7 @@ function applyConfirmField(
       out.warnings,
       'affordance_not_allowed',
       'confirm',
-      `confirm is not allowed at stage ${stage}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `confirm is not allowed at stage ${stage}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   } else if (result.confirm === true) {
     out.confirm = {};
@@ -413,7 +413,7 @@ function applyConfirmField(
       out.warnings,
       'confirm_invalid',
       'confirm',
-      'confirm must be true or { summary?: string }', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'confirm must be true or { summary?: string }', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -438,7 +438,7 @@ function applyMutateField(
       out.warnings,
       'affordance_not_allowed',
       'mutate',
-      `mutate is not allowed at stage ${stage}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `mutate is not allowed at stage ${stage}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
     return;
   }
@@ -449,7 +449,7 @@ function applyMutateField(
       out.warnings,
       'mutate_invalid',
       'mutate',
-      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       `no mutate subject is defined at stage ${stage}`,
     );
     return;
@@ -459,7 +459,7 @@ function applyMutateField(
       out.warnings,
       'mutate_invalid',
       'mutate',
-      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       `mutate must be { ${subject}: unknown } at stage ${stage}`,
     );
     return;
@@ -469,7 +469,7 @@ function applyMutateField(
       out.warnings,
       'mutate_invalid',
       'mutate',
-      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       `there is no ${subject} to replace at this ${stage} fire`,
     );
     return;
@@ -486,13 +486,13 @@ export function applyStageResult(input: StageApplyInput): StageApplyOutput {
 
   if (result == null) return out;
   if (!isRecord(result)) {
-    warn(warnings, 'result_invalid', 'result', 'StageResult must be a plain object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    warn(warnings, 'result_invalid', 'result', 'StageResult must be a plain object'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return out;
   }
 
   for (const key of Object.keys(result)) {
     if (!STAGE_RESULT_KEYS.has(key)) {
-      warn(warnings, 'unknown_field', key, `unknown StageResult field "${key}" ignored`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      warn(warnings, 'unknown_field', key, `unknown StageResult field "${key}" ignored`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
 
@@ -504,7 +504,7 @@ export function applyStageResult(input: StageApplyInput): StageApplyOutput {
   applyLabelFailedField(result, stage, out);
 
   if (out.deny && out.confirm) {
-    warn(warnings, 'confirm_invalid', 'confirm', 'confirm ignored because deny is set'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    warn(warnings, 'confirm_invalid', 'confirm', 'confirm ignored because deny is set'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     delete out.confirm;
   }
 
@@ -610,7 +610,7 @@ function mergeApplied(parts: readonly StageApplyOutput[]): RunStageOutput {
     if (part.inject) out.inject.push(part.inject);
   }
   if (out.deny && out.confirm) {
-    warn(out.warnings, 'confirm_invalid', 'confirm', 'confirm ignored because deny is set'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    warn(out.warnings, 'confirm_invalid', 'confirm', 'confirm ignored because deny is set'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     delete out.confirm;
   }
   return out;

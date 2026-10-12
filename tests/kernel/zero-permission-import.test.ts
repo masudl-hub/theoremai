@@ -5,7 +5,7 @@ import {
   defineProfile,
   defineProvider,
   openAIChat,
-  overrideLexicon,
+  overrideLabels,
   runTurn,
 } from '../../mod.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
@@ -56,7 +56,7 @@ Deno.test({
   permissions: ZERO_PERMS,
   fn() {
     assertEquals(typeof runTurn, 'function');
-    assertEquals(typeof overrideLexicon, 'function');
+    assertEquals(typeof overrideLabels, 'function');
     const profile = sampleProfile();
     const scope = createKernelScope();
     const provider = defineProvider({

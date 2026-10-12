@@ -1,4 +1,4 @@
-import { lexiconText, TheoremError } from '@theoremjs/agents';
+import { labelText, TheoremError } from '@theoremjs/agents';
 import type { TheoremSessionState } from './session-store.ts';
 
 export interface TheoremSessionLimits {
@@ -29,7 +29,7 @@ export function resolveSessionLimits(
     Object.keys(options).some((key) => !Object.hasOwn(DEFAULTS, key)) ||
     Object.values(limits).some((value) => !Number.isSafeInteger(value) || value <= 0)
   ) {
-    throw new TheoremError('config', lexiconText('error.config'), {
+    throw new TheoremError('config', labelText('error.config'), {
       cause: { code: 'session_limits' },
     });
   }
@@ -41,7 +41,7 @@ function bytes(value: unknown): number {
 }
 
 function capacity(): never {
-  throw new TheoremError('unavailable', lexiconText('error.unavailable'), {
+  throw new TheoremError('unavailable', labelText('error.unavailable'), {
     cause: { code: 'session_state_capacity' },
   });
 }

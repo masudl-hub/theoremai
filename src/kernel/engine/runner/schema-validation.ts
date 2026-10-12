@@ -51,7 +51,7 @@ function joinPath(prefix: string, key: string): string {
 }
 
 function pushMissing(path: string, failures: ValidationFailure[]): void {
-  failures.push({ path, error: `required field '${path}' is missing` }); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  failures.push({ path, error: `required field '${path}' is missing` }); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 }
 
 async function runFieldValidator(
@@ -70,7 +70,7 @@ async function runFieldValidator(
   }
   failures.push({
     path,
-    error: check.error || check.finding || `Validation failed for '${path}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    error: check.error || check.finding || `Validation failed for '${path}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   });
 }
 
@@ -138,7 +138,7 @@ async function collectValidationFailures(
 ): Promise<ValidationFailure[]> {
   const root = asObjectSchema(jsonSchema);
   if (!root) {
-    throw new TheoremError('config', 'structured validation requires a JSON Schema object root'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', 'structured validation requires a JSON Schema object root'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const failures: ValidationFailure[] = [];
   if (!asRecord(structured)) {
@@ -221,7 +221,7 @@ async function collectItemFailures(
         path,
         index,
         item,
-        reason: check.error || check.finding || `Validation failed for '${path}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        reason: check.error || check.finding || `Validation failed for '${path}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         onFail: rule.onFail,
       });
     }

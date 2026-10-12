@@ -1,4 +1,4 @@
-import { lexiconText } from '../../guardrails/lexicon.ts';
+import { labelText } from '../../guardrails/labels.ts';
 import type { ToolContext, ToolHandler } from './types.ts';
 import { uncheckedOutput } from './unchecked-output.ts';
 
@@ -12,8 +12,8 @@ export function pageAnswerHandler(name: string): ToolHandler<unknown, unknown> {
   return (_input: unknown, ctx: ToolContext) => {
     const { page } = ctx;
     if (page && 'output' in page) return uncheckedOutput(page.output);
-    const { lexicon } = ctx.profile;
-    if (page?.timedOut) throw new Error(lexiconText('tool.page_timed_out', {}, lexicon));
-    throw new Error(lexiconText('tool.page_no_answer', { tool: name }, lexicon));
+    const { labels } = ctx.profile;
+    if (page?.timedOut) throw new Error(labelText('tool.page_timed_out', {}, labels));
+    throw new Error(labelText('tool.page_no_answer', { tool: name }, labels));
   };
 }

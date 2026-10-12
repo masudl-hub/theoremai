@@ -24,7 +24,7 @@ Deno.test("a host call's status is its phase, else how its stream ended", () => 
   assertEquals(hostCallStatus({ call: null, failure: null, isRunning: false }), 'cancel');
 });
 
-Deno.test("a host call's failure reads its lexicon wording, with the detail only when it adds something", () => {
+Deno.test("a host call's failure reads its labels wording, with the detail only when it adds something", () => {
   assertEquals(hostCallFailure({ call: null, failure: failed, isRunning: false }), {
     title: 'The tool is unavailable.',
   });

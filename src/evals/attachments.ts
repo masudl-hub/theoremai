@@ -14,7 +14,7 @@ async function hashedFile(path: string): Promise<{ bytes: Uint8Array; sha256: st
   } catch (error) {
     throw new TheoremError(
       'config',
-      `attachment ${path} cannot be read: ${error instanceof Error ? error.message : String(error)}`, // lexicon-exempt: developer contract error
+      `attachment ${path} cannot be read: ${error instanceof Error ? error.message : String(error)}`, // labels-exempt: developer contract error
     );
   }
   return { bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
@@ -25,7 +25,7 @@ async function fileBytes(attachment: EvalFileAttachment): Promise<Uint8Array> {
   if (sha256 !== attachment.sha256) {
     throw new TheoremError(
       'config',
-      `attachment ${attachment.path} hashes to ${sha256}, not the ${attachment.sha256} its case pins`, // lexicon-exempt: developer contract error
+      `attachment ${attachment.path} hashes to ${sha256}, not the ${attachment.sha256} its case pins`, // labels-exempt: developer contract error
     );
   }
   return bytes;
@@ -56,7 +56,7 @@ async function pinCaseFiles(cases: EvalCase[], casesPath: string): Promise<EvalC
       } catch (error) {
         throw new TheoremError(
           'config',
-          `case ${evalCase.id}: ${error instanceof Error ? error.message : String(error)}`, // lexicon-exempt: developer contract error
+          `case ${evalCase.id}: ${error instanceof Error ? error.message : String(error)}`, // labels-exempt: developer contract error
         );
       }
       attachments.push({ ...attachment, path });

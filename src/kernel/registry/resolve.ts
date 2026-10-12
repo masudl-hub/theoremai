@@ -49,12 +49,12 @@ function requireModelProfile(profile: Profile, door: string): ModelProfile {
   if (profile.type === 'host') {
     throw new TheoremError(
       'request',
-      `Profile ${profile.id}: type 'host' never runs a model — ${door} is not supported; execute tools with invokeTool`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profile.id}: type 'host' never runs a model — ${door} is not supported; execute tools with invokeTool`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   throw new TheoremError(
     'request',
-    `Profile ${profile.id}: type 'decision' runs through runDecision — ${door} is not supported`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    `Profile ${profile.id}: type 'decision' runs through runDecision — ${door} is not supported`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 
@@ -62,10 +62,10 @@ function requireModelProfile(profile: Profile, door: string): ModelProfile {
 function pickModel(profile: ModelProfile, requested?: string): ModelId {
   if (requested) {
     if (!profile.allowModelSelect) {
-      throw new TheoremError('request', `Profile ${profile.id} does not allow model selection`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError('request', `Profile ${profile.id} does not allow model selection`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     if (!profile.models[requested]) {
-      throw new TheoremError('request', `Unknown model '${requested}' for ${profile.id}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError('request', `Unknown model '${requested}' for ${profile.id}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     return requested;
   }
@@ -83,7 +83,7 @@ function resolveEffort(
     if (requested) {
       throw new TheoremError(
         'request',
-        `Profile ${profile.id} model '${modelId}' has no selectable efforts`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profile.id} model '${modelId}' has no selectable efforts`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     return undefined;
@@ -93,14 +93,14 @@ function resolveEffort(
     if (!binding.allowEffortSelect) {
       throw new TheoremError(
         'request',
-        `Profile ${profile.id} model '${modelId}' does not allow effort selection`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profile.id} model '${modelId}' does not allow effort selection`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     const level = efforts[requested];
     if (!level) {
       throw new TheoremError(
         'request',
-        `Unknown effort '${requested}' for ${profile.id} model '${modelId}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Unknown effort '${requested}' for ${profile.id} model '${modelId}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     return level;
@@ -161,7 +161,7 @@ function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
   if (profile.type === 'live') {
     throw new TheoremError(
       'request',
-      `Profile ${profile.id}: type 'live' uses live.sessionResumption, not turnBehaviour.resumption/continueFrom`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profile.id}: type 'live' uses live.sessionResumption, not turnBehaviour.resumption/continueFrom`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const policy = profileTurnResumption(profile);
@@ -173,16 +173,16 @@ function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
   if (attempt === undefined) {
     throw new TheoremError(
       'request',
-      `Profile ${profile.id}: continueFrom requires TurnRequest.continuation when turnBehaviour.resumption.maxContinues is set`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profile.id}: continueFrom requires TurnRequest.continuation when turnBehaviour.resumption.maxContinues is set`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (attempt < 1) {
-    throw new TheoremError('request', `Profile ${profile.id}: continuation must be >= 1`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('request', `Profile ${profile.id}: continuation must be >= 1`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (attempt > max) {
     throw new TheoremError(
       'request',
-      `Profile ${profile.id}: continuation ${attempt} exceeds turnBehaviour.resumption.maxContinues (${max})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profile.id}: continuation ${attempt} exceeds turnBehaviour.resumption.maxContinues (${max})`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -229,21 +229,21 @@ function resolveBuiltInArgs(
     if (!binding.builtInTools?.includes(id)) {
       throw new TheoremError(
         'request',
-        `Profile ${profile.id}: builtInArgs names '${id}', which model '${model}' does not list in builtInTools`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profile.id}: builtInArgs names '${id}', which model '${model}' does not list in builtInTools`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     const schema = provider.adapter.builtins?.[id]?.args;
     if (!schema) {
       throw new TheoremError(
         'request',
-        `Profile ${profile.id}: builtin '${id}' takes no args on provider '${provider.id}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profile.id}: builtin '${id}' takes no args on provider '${provider.id}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     const parsed = schema.safeParse(value);
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
       const at = ['builtInArgs', id, ...(issue?.path ?? [])].join('.');
-      throw new TheoremError('request', `Profile ${profile.id}: ${at}: ${issue?.message}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError('request', `Profile ${profile.id}: ${at}: ${issue?.message}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     resolved[id] = parsed.data;
   }

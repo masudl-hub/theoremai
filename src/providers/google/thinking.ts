@@ -7,7 +7,7 @@ export function assertGoogleThinkingLevel(level: ThinkingLevel | undefined): voi
   if (level && !(GOOGLE_THINKING_LEVELS as readonly string[]).includes(level)) {
     throw new TheoremError(
       'unsupported',
-      `Gemini does not take the '${level}' thinking level (${GOOGLE_THINKING_LEVELS.join(', ')})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Gemini does not take the '${level}' thinking level (${GOOGLE_THINKING_LEVELS.join(', ')})`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }

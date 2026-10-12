@@ -673,7 +673,7 @@ Deno.test('runTurn executes profile validation and auto-corrects', async () => {
       },
     },
     guardrails: { quota: { perDay: 10 } },
-    lexicon: { 'repair.default_guidance': 'emit good code' },
+    labels: { 'repair.default_guidance': 'emit good code' },
   });
   let callCount = 0;
   async function* mockRepairComplete(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
@@ -1850,7 +1850,7 @@ Deno.test('guardrails.blockedReply refuse delivers in-character refusal without 
       blockedReply: { onBlock: 'refuse' },
       detect: blockNaming('internal_tool_abc'),
     },
-    lexicon: { 'egress.refusal': "i can't discuss internal wiring." },
+    labels: { 'egress.refusal': "i can't discuss internal wiring." },
   });
   const mockProvider: import('../../src/kernel/types.ts').ModelProvider = {
     async *complete() {

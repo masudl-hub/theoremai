@@ -44,7 +44,7 @@ const checklists = new Set(
   [...source.matchAll(/<FlagList[^>]*?path="([\w.*]+)"/g)].map((match) => match[1]),
 );
 /**
- * Rows named by a template with a literal start, such as `lexicon.${key}`: each `${…}` stands for
+ * Rows named by a template with a literal start, such as `labels.${key}`: each `${…}` stands for
  * one segment.
  */
 const templates = [...source.matchAll(/`(\w[\w.*]*\$\{[^`]*)`/g)].map(

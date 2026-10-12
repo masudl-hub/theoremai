@@ -102,8 +102,8 @@ Owns every module under `src/guardrails/`.
 | `bindCanary` | Append canary note to system prompt |
 | `wrapUserData` | Fence untrusted user text in `<user_data>`, first stripping any fence tag in it, however spaced, cased or nested |
 | `wrapContext` | Fence a context package in `<page_context from="client">` or `from="server"`, first stripping any fence tag in it, so neither the page nor the person can pass text off as the host's |
-| `contextNote` | The `context.note` lexicon line, which tells the model what that fence means; the runner appends it to the system prompt of a profile that sets `inputs.context`. An empty override leaves it out. |
-| `userDataNote` | The `user_data.note` lexicon line, which tells the model what the fence means; the runner appends it, private, to the system prompt of every text, image and live turn (speech has no system prompt). An empty override leaves it out. |
+| `contextNote` | The `context.note` labels line, which tells the model what that fence means; the runner appends it to the system prompt of a profile that sets `inputs.context`. An empty override leaves it out. |
+| `userDataNote` | The `user_data.note` labels line, which tells the model what the fence means; the runner appends it, private, to the system prompt of every text, image and live turn (speech has no system prompt). An empty override leaves it out. |
 | `createCanaryStreamGate` | Holds only a tail that could start a leak, for split-token streaming; with the private stretches of the system prompt, also stops a reply echoing them |
 | `scanTextForCanaryLeak` | The token — as written, reversed, in ROT13, spelled out (digit words, NATO letters), as character or byte codes, or in base64 at any offset — read through case, lookalike and fullwidth characters, and separators up to 32 characters; any 16 consecutive characters of it count |
 | `eventHasCanary` | Scan any `TurnEvent` wire shape |
@@ -169,15 +169,15 @@ type Verdict =
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `onBlock` | `retry` | `retry` hands the reply and the reason back to the model, which writes another; `refuse` gives the person the lexicon's `egress.refusal` in its place, or ends the part they already have with `egress.refusal_cut` |
+| `onBlock` | `retry` | `retry` hands the reply and the reason back to the model, which writes another; `refuse` gives the person the labels' `egress.refusal` in its place, or ends the part they already have with `egress.refusal_cut` |
 | `maxRetries` | `1` | How many rewrites `retry` allows. When they are spent, or at `0`, the turn ends withheld |
 
-The reason the model reads on a rewrite is the lexicon's `egress.rejection`,
+The reason the model reads on a rewrite is the labels' `egress.rejection`,
 with a line for each detector that matched (`retryRejection`). The line is the
 detector's hint, which says what to leave out, followed by up to three of the
 texts it matched, each cut to 120 characters (`egress.rejection_found`).
 `canary_leak` and `prompt_leak` give their hint alone: what they match is never
-repeated. A Theorem detector's hint is the lexicon's `detect.hint.<detector>`;
+repeated. A Theorem detector's hint is the labels' `detect.hint.<detector>`;
 one the profile adds patterns to may set its own `hint` beside them. A detector
 of the host's own sets `hint`, or gets `detect.hint.own`, which names its
 label. A hint is one line of at most 300 characters. The rewrite request is
@@ -191,7 +191,7 @@ validation. `defineProfile` rejects a setting `blockedReply` does not have, an
 integer.
 
 A detector decides; it never writes what the user reads. The refusal is the
-lexicon's `egress.refusal`, which the profile's `lexicon` can replace. When the
+labels' `egress.refusal`, which the profile's `labels` can replace. When the
 user already has part of the reply, that part ends with `egress.refusal_cut`
 instead, joined with no space: `I notice the—sorry, this reply couldn't be
 continued.`
@@ -441,7 +441,7 @@ text and structured output; nothing in a thought stops the turn
 link, so each thought runs through a guard that omits what leaks and streams
 the rest as it clears — in `runTurn` and Live alike:
 
-| Leak | Guarded when | Placeholder (lexicon key) |
+| Leak | Guarded when | Placeholder (labels key) |
 | --- | --- | --- |
 | Image | `ungiven_images` is above `ignore` at `thought` | `thought.omitted_image` |
 | Link | `ungiven_links` is above `ignore` at `thought` | `thought.omitted_link` |
@@ -630,14 +630,14 @@ is guessed from message text; a value that reaches a boundary without a kind is
 | World | Where it reads |
 | --- | --- |
 | Builder | `errorKind`, `errorInternal` on error events; `TheoremError.kind`; `ToolFailure.kind` + `code`; the trace's `error.type` (the kind) |
-| User | `error` on error events and `failure.error` on failed tool steps — the lexicon's `error.<kind>` |
+| User | `error` on error events and `failure.error` on failed tool steps — the labels' `error.<kind>` |
 
 Kinds (`ERROR_KINDS`): `config`, `request`, `input`, `action`, `auth`,
 `rate_limit`, `unsupported`, `unavailable`, `bad_response`, `network`,
 `timeout`, `safety`, `blocked`, `declined`, `failed`, `cancelled`, `internal`.
 
-Wording resolves the profile's `lexicon` → `overrideLexicon` → the default.
-Defaults are never forced: any profile type may carry a `lexicon` with any
+Wording resolves the profile's `labels` → `overrideLabels` → the default.
+Defaults are never forced: any profile type may carry a `labels` with any
 key. A failure more specific than its kind carries its own copy
 (`TheoremError(kind, message, { copy: { key, params } })`, surfaced as
 `errorCopy`, typed `ErrorCopies`), which wins over the kind's line. A failure
@@ -648,9 +648,9 @@ turn's files: every reason, each naming its file). Tool-step wording may use
 Producers emit `toErrorEvent(err)` — a `ProducedError`, `{ type: 'error',
 errorKind, errorCopy?, errorInternal }` with the raw detail always set and no
 user wording. The runner and session add it where the
-event reaches the host (`withPublicWording(event, profile.lexicon)`), the one
+event reaches the host (`withPublicWording(event, profile.labels)`), the one
 place that knows the profile. A host that catches a throw words it with
-`publicError(err, profile.lexicon)`.
+`publicError(err, profile.labels)`.
 
 Canary leaks and a detector's withholds on the outbound stream are
 kind `safety` (or the refusal copy under `blockedReply.onBlock: 'refuse'`). Detector hit names and
@@ -986,12 +986,12 @@ detectors match one text, the strongest action is the one taken: `block`, then
 
 | Boundary | What `block` does |
 | --- | --- |
-| `user`, `attachment`, `voice`, `slots`, `context`, `history`, `system`, `repair` | The turn is refused before the model is called: an `input` error worded by lexicon `detect.blocked` |
+| `user`, `attachment`, `voice`, `slots`, `context`, `history`, `system`, `repair` | The turn is refused before the model is called: an `input` error worded by labels `detect.blocked` |
 | `injected` | The same, at the stage that added the message |
 | `live_user` | The message is not sent into the session |
-| `tool_arguments_<kind>` | The tool is not called; the model is told so (`arguments_blocked`, lexicon `detect.call_blocked`) |
-| `tool_output_<kind>` | The model does not read the output; the call settles as failed (`output_blocked`, lexicon `detect.output_blocked`) |
-| `tool_failure_<kind>` | The model reads lexicon `detect.output_blocked` in place of the tool's message |
+| `tool_arguments_<kind>` | The tool is not called; the model is told so (`arguments_blocked`, labels `detect.call_blocked`) |
+| `tool_output_<kind>` | The model does not read the output; the call settles as failed (`output_blocked`, labels `detect.output_blocked`) |
+| `tool_failure_<kind>` | The model reads labels `detect.output_blocked` in place of the tool's message |
 
 | `reply` | The reply stops before the match. It then goes the way `blockedReply` sets: the model is asked again, the person reads the refusal, or the turn ends withheld |
 | `reply_structured` | The structured output is not sent on; the reply goes the same way |
@@ -1328,7 +1328,7 @@ signal kinds agreed.
 
 The kernel states only what it observed. What the agent should *do* — ask the user,
 refuse, proceed carefully — is product behaviour, supplied by the host as
-lexicon `advisory.guidance` (empty by default) and appended to the notice. Clean content is
+labels `advisory.guidance` (empty by default) and appended to the notice. Clean content is
 never annotated, so the warning stays rare enough to carry weight.
 
 This is where imprecision is absorbed, and by default it is the only thing the
@@ -1432,8 +1432,8 @@ so a host can count the calls before it turns the gate on.
 
 | `remoteDestination` | Wire |
 | --- | --- |
-| `confirm` | A `confirmation` gate. Its `summary` is the lexicon text `taint.destination_confirm`. |
-| `block` | A `ToolFailure` with code `remote_destination`. The model reads the lexicon text `taint.destination_blocked`. |
+| `confirm` | A `confirmation` gate. Its `summary` is the labels text `taint.destination_confirm`. |
+| `block` | A `ToolFailure` with code `remote_destination`. The model reads the labels text `taint.destination_blocked`. |
 
 `TurnDestinations` holds two sets. The turn runner fills `given` from each
 provider request and from local results, and `remote` from remote results. A
@@ -1617,50 +1617,50 @@ guardrails object is treated like missing quota config.
 
 `quotaExhausted(profile)` returns the tripped quota as a `TheoremError` of kind
 `rate_limit` (or `undefined` with no quota configured). Reply with
-`json(caughtStatus(err), { error: publicError(err, profile.lexicon) }, cors)`:
-`429` and the lexicon's `quota.exhausted` line (`{perDay}`), which the
-profile's `lexicon` can replace.
+`json(caughtStatus(err), { error: publicError(err, profile.labels) }, cors)`:
+`429` and the labels' `quota.exhausted` line (`{perDay}`), which the
+profile's `labels` can replace.
 `resetSlots()` clears in-memory state (tests).
 
-## Lexicon
+## Labels
 
 Every English string the kernel may emit toward a user or a model is registered
-in `src/guardrails/lexicon.ts` under a stable `LexiconKey`. Hosts replace
-defaults process-wide with `overrideLexicon({ … })` (same registration pattern
-as `registerTraceDestination`) and per profile with the profile's `lexicon`,
-which wins over the process override. Every profile type takes a `lexicon`.
+in `src/guardrails/labels.ts` under a stable `LabelKey`. Hosts replace
+defaults process-wide with `overrideLabels({ … })` (same registration pattern
+as `registerTraceDestination`) and per profile with the profile's `labels`,
+which wins over the process override. Every profile type takes a `labels`.
 Both throw `TheoremError('config', …)` on unknown keys, a missing required
 placeholder, or a placeholder the key never fills in.
 
 | Key family | Examples | Override |
 | --- | --- | --- |
-| Continue (text profiles; the turn's user message) | `continue.instruction` | lexicon |
-| Canary | `canary.bind_note` | lexicon (must keep `{canary}`) |
-| User-data fence | `user_data.note` | lexicon (empty leaves it out) |
-| Context fence | `context.note` | lexicon (empty leaves it out) |
-| Taint / advisory | `taint.*`, `advisory.*` | lexicon |
-| Attachments | `attachments.*` | lexicon (structured codes also exposed) |
-| Errors | `error.<kind>` | lexicon (resolved where the event reaches the host) |
-| Quota | `quota.exhausted` | lexicon (`quotaExhausted` → `rate_limit`) |
-| Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.refusal_cut`, `egress.rejection`, `egress.rejection_found`, `egress.hint_unscannable`, `egress.hint_provider_tool_leak`, `detect.hint.*` | lexicon |
-| Thoughts | `thought.omitted_image`, `thought.omitted_link`, `thought.omitted_instructions` (a leading space is dropped after whitespace) | lexicon |
-| Session | `session.abandon_gated`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending`, `session.part_skipped` | lexicon |
-| Live | `live.session_ended` (the provider ended the call after warning it would) | lexicon (the Live session words the ended signal's `message` when it closes) |
-| Voice (browser recording) | `voice.unsupported`, `voice.permission`, `voice.unavailable`, `voice.failed`, `voice.empty` | lexicon |
-| Tools | `tool.*` (model-facing), `tool.completed_hidden` | lexicon |
-| Sign-in | `sign_in.link` (the channel line with `{link}`), `sign_in.pending`, `sign_in.done`, `sign_in.declined`, `sign_in.expired`, `sign_in.out_of_scope` — each names `{service}` | lexicon |
+| Continue (text profiles; the turn's user message) | `continue.instruction` | labels |
+| Canary | `canary.bind_note` | labels (must keep `{canary}`) |
+| User-data fence | `user_data.note` | labels (empty leaves it out) |
+| Context fence | `context.note` | labels (empty leaves it out) |
+| Taint / advisory | `taint.*`, `advisory.*` | labels |
+| Attachments | `attachments.*` | labels (structured codes also exposed) |
+| Errors | `error.<kind>` | labels (resolved where the event reaches the host) |
+| Quota | `quota.exhausted` | labels (`quotaExhausted` → `rate_limit`) |
+| Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.refusal_cut`, `egress.rejection`, `egress.rejection_found`, `egress.hint_unscannable`, `egress.hint_provider_tool_leak`, `detect.hint.*` | labels |
+| Thoughts | `thought.omitted_image`, `thought.omitted_link`, `thought.omitted_instructions` (a leading space is dropped after whitespace) | labels |
+| Session | `session.abandon_gated`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending`, `session.part_skipped` | labels |
+| Live | `live.session_ended` (the provider ended the call after warning it would) | labels (the Live session words the ended signal's `message` when it closes) |
+| Voice (browser recording) | `voice.unsupported`, `voice.permission`, `voice.unavailable`, `voice.failed`, `voice.empty` | labels |
+| Tools | `tool.*` (model-facing), `tool.completed_hidden` | labels |
+| Sign-in | `sign_in.link` (the channel line with `{link}`), `sign_in.pending`, `sign_in.done`, `sign_in.declined`, `sign_in.expired`, `sign_in.out_of_scope` — each names `{service}` | labels |
 
 The copy-manifest lint (`scripts/docs-truth/copy-lint.mjs`) scans the **full**
 `src/kernel`, `src/guardrails`, and `src/interface` trees, and the headless
 React directories (`react/src/client`, `components`, `hooks`, `server`; the
 default UI in `react/src/ui` words its own chrome). Only
-`src/guardrails/lexicon.ts` is auto-skipped. Everything else must either live
-in the lexicon or carry an explicit reason:
+`src/guardrails/labels.ts` is auto-skipped. Everything else must either live
+in the labels or carry an explicit reason:
 
 | Escape | Where |
 | --- | --- |
-| `// lexicon-exempt: <reason>` | Same or previous line |
-| `lexicon-exempt-file: <reason>` | Comment in the first 40 lines (non-runtime fixtures / authoring meta only) |
+| `// labels-exempt: <reason>` | Same or previous line |
+| `labels-exempt-file: <reason>` | Comment in the first 40 lines (non-runtime fixtures / authoring meta only) |
 
 
 Unresolved tool operations use `tool.execution_uncertain` for public wording.
@@ -1698,7 +1698,7 @@ From `src/guardrails/mod.ts`:
 | Egress / Live | `hitRules`, `EGRESS_RULES`, `BlockedReplySpec`, `BlockedReplyOnBlock`, `BLOCKED_REPLY_ON_BLOCK`, `ResolvedBlockedReply`, `UrlAllow`, `NameAllow`, `UrlDetector`, `ResolvedAllow`, `GivenUrls`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions`, `NetworkGuardrailSpec` |
 | Quota | `QuotaSlotStatus`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
-| Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconCatalogRows`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |
+| Labels | `LABEL_KEYS`, `LabelKey`, `CLIENT_LABEL_KEYS`, `ClientLabelKey`, `LabelOverrides`, `LabelParams`, `labelCatalogRows`, `labelDefault`, `labelText`, `overrideLabels`, `resetLabels` |
 
 From `src/guardrails/compile-egress.ts` (build time only):
 
@@ -1802,9 +1802,9 @@ From `src/guardrails/testing.ts` (test / harness only):
         { "kind": "contract_test", "path": "tests/guardrails/quota.test.ts" }
       ]
     },
-    "Lexicon": {
+    "Labels": {
       "supports": [
-        { "kind": "source", "path": "src/guardrails/lexicon.ts" },
+        { "kind": "source", "path": "src/guardrails/labels.ts" },
         { "kind": "contract_test", "path": "tests/kernel/two-hosts-boundary.test.ts" },
         { "kind": "contract_test", "path": "tests/guardrails/quota.test.ts" }
       ]

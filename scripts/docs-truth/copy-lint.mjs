@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
  * Copy lint (P2, "Host decides, Theorem runs"): prose-like string literals (≥3 alphabetic words)
- * outside the lexicon fail. `react/src/ui`, the default UI, owns its own wording and is not scanned.
+ * outside the labels fail. `react/src/ui`, the default UI, owns its own wording and is not scanned.
  *
  * Escape hatches, each stating a reason:
- *   - `// lexicon-exempt: <reason>` on the string's line, or above it in the same statement
- *   - `lexicon-exempt-file: <reason>` in a comment in the first 40 lines, for fixture modules
+ *   - `// labels-exempt: <reason>` on the string's line, or above it in the same statement
+ *   - `labels-exempt-file: <reason>` in a comment in the first 40 lines, for fixture modules
  *     that never emit to users or models at runtime
  *
  * Do NOT strip block comments before scanning strings: template literals can contain `/*`
@@ -25,10 +25,10 @@ const SCAN_ROOTS = [
   'react/src/hooks',
   'react/src/server',
 ];
-const AUTO_SKIP = new Set(['src/guardrails/lexicon.ts']);
+const AUTO_SKIP = new Set(['src/guardrails/labels.ts']);
 
-const EXEMPT_LINE_RE = /lexicon-exempt\s*:/;
-/** Whether a `lexicon-exempt:` comment sits on the string's line or above it in the same statement. */
+const EXEMPT_LINE_RE = /labels-exempt\s*:/;
+/** Whether a `labels-exempt:` comment sits on the string's line or above it in the same statement. */
 function exempted(lines, line) {
   for (let at = line - 1; at >= 0 && at >= line - 5; at -= 1) {
     const text = lines[at] ?? '';
@@ -38,7 +38,7 @@ function exempted(lines, line) {
   return false;
 }
 
-const EXEMPT_FILE_RE = /lexicon-exempt-file\s*:/;
+const EXEMPT_FILE_RE = /labels-exempt-file\s*:/;
 const WORD_RE = /^[A-Za-z][A-Za-z'’.,:;!?()-]*$/;
 
 function walk(dir) {
@@ -168,9 +168,9 @@ for (const root of SCAN_ROOTS) {
 
 if (violations.length) {
   console.error(
-    `copy-lint: ${violations.length} prose-like string(s) outside the lexicon.\n` +
-      'Move user/model-visible copy into src/guardrails/lexicon.ts, or annotate with\n' +
-      '`// lexicon-exempt: <reason>` (on the string line, or above it in the same statement) or `lexicon-exempt-file: <reason>`\n' +
+    `copy-lint: ${violations.length} prose-like string(s) outside the labels.\n` +
+      'Move user/model-visible copy into src/guardrails/labels.ts, or annotate with\n' +
+      '`// labels-exempt: <reason>` (on the string line, or above it in the same statement) or `labels-exempt-file: <reason>`\n' +
       '(first 40 lines, for non-runtime fixture modules only).\n',
   );
   for (const v of violations.slice(0, 120)) console.error(`  ${v}`);

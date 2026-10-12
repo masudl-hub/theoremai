@@ -27,7 +27,7 @@ export function localStudioConfig(
     url = new URL(local.baseUrl);
   } catch {
     throw new TheoremError('config', 'Enter a valid localhost URL.');
-  } // lexicon-exempt: builder diagnostic
+  } // labels-exempt: builder diagnostic
   if (
     !['http:', 'https:'].includes(url.protocol) ||
     !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ||
@@ -39,7 +39,7 @@ export function localStudioConfig(
     throw new TheoremError(
       'config',
       'Use a localhost URL without credentials, query parameters or a fragment.',
-    ); // lexicon-exempt: builder diagnostic
+    ); // labels-exempt: builder diagnostic
   }
   return {
     baseUrl: url.href.replace(/\/$/, ''),
@@ -49,7 +49,7 @@ export function localStudioConfig(
       if (target.origin !== url.origin) {
         return Promise.reject(
           new TheoremError('blocked', 'Local requests must stay on the configured origin.'),
-        ); // lexicon-exempt: builder diagnostic
+        ); // labels-exempt: builder diagnostic
       }
       return fetch(input, {
         ...init,
@@ -67,11 +67,11 @@ const localModelList = z.object({ data: z.array(z.object({ id: z.string().min(1)
 /** The same localhost origin and transport used for inference; never a site proxy. */
 export async function listLocalStudioModels(local: StudioBrowserConnection['local'], signal?: AbortSignal): Promise<string[]> {
   const config = localStudioConfig(local);
-  if (!config?.fetch) throw new TheoremError('config', 'Enter a local endpoint.'); // lexicon-exempt: builder diagnostic
+  if (!config?.fetch) throw new TheoremError('config', 'Enter a local endpoint.'); // labels-exempt: builder diagnostic
   const response = await config.fetch(`${config.baseUrl}/v1/models`, { signal, headers: { Accept: 'application/json' } });
-  if (!response.ok) throw new TheoremError('network', `Local model list returned HTTP ${response.status}.`); // lexicon-exempt: builder diagnostic
+  if (!response.ok) throw new TheoremError('network', `Local model list returned HTTP ${response.status}.`); // labels-exempt: builder diagnostic
   const parsed = localModelList.safeParse(await response.json());
-  if (!parsed.success) throw new TheoremError('request', 'The endpoint returned an invalid model list.'); // lexicon-exempt: builder diagnostic
+  if (!parsed.success) throw new TheoremError('request', 'The endpoint returned an invalid model list.'); // labels-exempt: builder diagnostic
   return [...new Set(parsed.data.data.map((model) => model.id))];
 }
 
@@ -131,10 +131,10 @@ async function listedJson(provider: string, url: string, init: RequestInit): Pro
   const response = await fetch(url, { ...init, redirect: 'error', credentials: 'omit' });
   // Gemini answers a key it doesn't know with 400; the list's own query never earns one.
   if (response.status === 400 || response.status === 401 || response.status === 403) {
-    throw new TheoremError('auth', `${provider} refused the key.`); // lexicon-exempt: builder diagnostic
+    throw new TheoremError('auth', `${provider} refused the key.`); // labels-exempt: builder diagnostic
   }
   if (!response.ok) {
-    throw new TheoremError('network', `${provider} model list returned HTTP ${response.status}.`); // lexicon-exempt: builder diagnostic
+    throw new TheoremError('network', `${provider} model list returned HTTP ${response.status}.`); // labels-exempt: builder diagnostic
   }
   return await response.json();
 }
@@ -164,12 +164,12 @@ export async function listProviderModels(
         },
       }),
     );
-    if (!parsed.success) throw new TheoremError('bad_response', 'OpenRouter returned an invalid model list.'); // lexicon-exempt: builder diagnostic
+    if (!parsed.success) throw new TheoremError('bad_response', 'OpenRouter returned an invalid model list.'); // labels-exempt: builder diagnostic
     return parsed.data.data
       .filter((model) => model.architecture?.output_modalities?.includes(output) ?? true)
       .map((model) => ({ id: model.id, label: model.name ?? model.id }));
   }
-  if (!secret) throw new TheoremError('auth', 'Choose a key to list Gemini models.'); // lexicon-exempt: builder diagnostic
+  if (!secret) throw new TheoremError('auth', 'Choose a key to list Gemini models.'); // labels-exempt: builder diagnostic
   const method = profileType === 'live' ? 'bidiGenerateContent' : 'generateContent';
   const models: ProviderModel[] = [];
   let pageToken: string | undefined;
@@ -183,7 +183,7 @@ export async function listProviderModels(
         headers: { Accept: 'application/json', 'x-goog-api-key': secret },
       }),
     );
-    if (!parsed.success) throw new TheoremError('bad_response', 'Google returned an invalid model list.'); // lexicon-exempt: builder diagnostic
+    if (!parsed.success) throw new TheoremError('bad_response', 'Google returned an invalid model list.'); // labels-exempt: builder diagnostic
     for (const model of parsed.data.models ?? []) {
       if (!model.supportedGenerationMethods?.includes(method)) continue;
       const id = model.name.replace(/^models\//, '');

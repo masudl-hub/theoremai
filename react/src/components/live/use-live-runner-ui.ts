@@ -1,4 +1,4 @@
-import { type LexiconOverrides, type SessionEventOf, TheoremError } from '@theoremjs/agents';
+import { type LabelOverrides, type SessionEventOf, TheoremError } from '@theoremjs/agents';
 import {
   type Dispatch,
   type SetStateAction,
@@ -20,8 +20,8 @@ import type { LiveGateAnswer, LiveToolGatePrompt } from '../../client/live/live-
 import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video.ts';
 import type { ToolGateResolution } from '../../client/tool-resume.ts';
 
-/** UI + media state bag for the live runner. `lexicon` is the interface's: the profile's wording. */
-export function useLiveRunnerUiState(lexicon: LexiconOverrides) {
+/** UI + media state bag for the live runner. `labels` is the interface's: the profile's wording. */
+export function useLiveRunnerUiState(labels: LabelOverrides) {
   const [status, setStatus] = useState<LiveSessionStatus>('disconnected');
   const [connectPhase, setConnectPhase] = useState<LiveConnectPhase | null>(null);
   // why: Levels move the waveform only. Writing them here keeps a sample off the React tree.
@@ -65,9 +65,9 @@ export function useLiveRunnerUiState(lexicon: LexiconOverrides) {
 
   const reportFailure = useCallback(
     (err: unknown) => {
-      setFailure(clientFailure(err, lexicon));
+      setFailure(clientFailure(err, labels));
     },
-    [lexicon],
+    [labels],
   );
 
   const clearFailure = useCallback(() => {
@@ -195,7 +195,7 @@ export function useLiveRunnerGate(args: {
   );
 
   const cancelGateDecision = useCallback(() => {
-    // lexicon-exempt: internal diagnostic; the user reads error.cancelled
+    // labels-exempt: internal diagnostic; the user reads error.cancelled
     gateRejectRef.current?.(new TheoremError('cancelled', 'live session ended with a gate open'));
     gateResolverRef.current = null;
     gateRejectRef.current = null;

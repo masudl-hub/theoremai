@@ -64,6 +64,6 @@ export function unheld(tool: object, opened?: object): string[] {
 export function unheldProblem(name: string, tool: object, opened?: object): string | undefined {
   const names = unheld(tool, opened);
   return names.length
-    ? `${name}: the studio has no value for ${names.join(', ')}. It fills in only what the project's file holds. Write the value there, or put it under Auth.` // lexicon-exempt: builder diagnostic
+    ? `${name}: the studio has no value for ${names.join(', ')}. It fills in only what the project's file holds. Write the value there, or put it under Auth.` // labels-exempt: builder diagnostic
     : undefined;
 }

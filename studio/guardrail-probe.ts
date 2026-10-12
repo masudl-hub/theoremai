@@ -754,17 +754,17 @@ function assertProbeable(
 ): asserts profile is Exclude<ProfileDefinition, { type: 'decision' }> {
   const refusal = probeRefusal(profile);
   if (refusal || profile.type === 'decision') {
-    throw new TheoremError('request', refusal ?? ''); // lexicon-exempt: builder diagnostic
+    throw new TheoremError('request', refusal ?? ''); // labels-exempt: builder diagnostic
   }
   if (!probeBoundariesOf(profile).includes(probe.boundary)) {
-    // lexicon-exempt: builder diagnostic
+    // labels-exempt: builder diagnostic
     throw new TheoremError(
       'request',
       `A ${profile.type} agent has no ${PROBE_BOUNDARY_NOTES[probe.boundary].label} boundary.`,
     );
   }
   if (probe.text.length > PROBE_TEXT_LIMIT) {
-    throw new TheoremError('request', `A probe is at most ${PROBE_TEXT_LIMIT} characters.`); // lexicon-exempt: builder diagnostic
+    throw new TheoremError('request', `A probe is at most ${PROBE_TEXT_LIMIT} characters.`); // labels-exempt: builder diagnostic
   }
 }
 
@@ -801,7 +801,7 @@ function refusalOf(events: readonly TurnEvent[]): GuardrailProbeResult['refused'
   const failure = events.find((event) => event.type === 'error');
   if (failure?.type !== 'error') return undefined;
   if (!refusedBy(failure.errorKind, events)) {
-    throw new TheoremError(failure.errorKind, failure.errorInternal ?? failure.error ?? ''); // lexicon-exempt: builder diagnostic
+    throw new TheoremError(failure.errorKind, failure.errorInternal ?? failure.error ?? ''); // labels-exempt: builder diagnostic
   }
   return { kind: failure.errorKind, message: failure.error };
 }
@@ -830,7 +830,7 @@ export async function runGuardrailProbe(args: {
     ...(asked.type === 'speech' || asked.type === 'live' ? [] : [remoteAgent(asked)]),
     probedDraft(asked, args.customTools, args.structured, probe.text),
   ]);
-  if (!profile) throw new TheoremError('request', 'No agent to probe.'); // lexicon-exempt: builder diagnostic
+  if (!profile) throw new TheoremError('request', 'No agent to probe.'); // labels-exempt: builder diagnostic
 
   const seen: ProviderCompleteRequest[] = [];
   const model = scripted(script(probe), seen);

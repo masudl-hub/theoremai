@@ -7,7 +7,7 @@
 
 import type { TurnHistoryMessage } from '../kernel/turn-events.ts';
 import type { ProviderCompleteRequest } from '../kernel/types.ts';
-import { type LexiconOverrides, lexiconText } from './lexicon.ts';
+import { type LabelOverrides, labelText } from './labels.ts';
 import { TOOL_RULES } from './rules.ts';
 import { textForScan } from './serialize.ts';
 import { isRemoteOrigin } from './tool-result.ts';
@@ -238,7 +238,7 @@ function checkDestinationGate(
   turn: TurnDestinations | undefined,
   args: unknown,
   policy: ResolvedGuardrailPolicy,
-  lexicon?: LexiconOverrides,
+  labels?: LabelOverrides,
 ): DestinationVerdict {
   if (!turn || turn.remote.size === 0) return { verdict: { action: 'allow' } };
   const found = [...destinationKeys(args)].filter(
@@ -261,14 +261,14 @@ function checkDestinationGate(
       verdict: {
         action: 'block',
         hits,
-        rejection: lexiconText('taint.destination_blocked', said, lexicon),
+        rejection: labelText('taint.destination_blocked', said, labels),
       },
     };
   }
   return {
     verdict: { action: 'flag', hits },
     ...(action === 'confirm'
-      ? { confirm: lexiconText('taint.destination_confirm', said, lexicon) }
+      ? { confirm: labelText('taint.destination_confirm', said, labels) }
       : {}),
   };
 }

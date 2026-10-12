@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import { throwIfAborted } from '../../guardrails/error.ts';
-import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
+import { type LabelOverrides, labelText } from '../../guardrails/labels.ts';
 import { assertSafeUrl } from '../../guardrails/network.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { NETWORK_RULES } from '../../guardrails/rules.ts';
@@ -46,17 +46,17 @@ export function toolEvent(base: ToolCallBase, patch: ToolPhasePatch): TurnEventO
 
 /**
  * The label a failed call shows: the tool's own, filled from the input the model sent, else the
- * lexicon's line naming the tool in words.
+ * labels' line naming the tool in words.
  */
 export function failedActivity(
   name: string,
-  lexicon?: LexiconOverrides,
+  profileLabels?: LabelOverrides,
   labels?: ToolLabels,
   input?: unknown,
 ): string {
   return (
     fillActivityLabel(labels?.activityFailed, { input }) ??
-    lexiconText('tool.activity_failed', { tool: toolNameInWords(name) }, lexicon)
+    labelText('tool.activity_failed', { tool: toolNameInWords(name) }, profileLabels)
   );
 }
 
@@ -128,11 +128,11 @@ export function* sourceEvents(
   try {
     listed = sources(output);
   } catch (err) {
-    yield sourcesInvalid(base, `sources threw: ${messageOf(err)}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    yield sourcesInvalid(base, `sources threw: ${messageOf(err)}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return;
   }
   if (!Array.isArray(listed)) {
-    yield sourcesInvalid(base, 'sources must return an array'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    yield sourcesInvalid(base, 'sources must return an array'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return;
   }
   const cited: Source[] = [];
@@ -146,7 +146,7 @@ export function* sourceEvents(
       );
   });
   if (invalid.length > 0) {
-    yield sourcesInvalid(base, `sources not cited: ${invalid.join(' | ')}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    yield sourcesInvalid(base, `sources not cited: ${invalid.join(' | ')}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (cited.length > 0) yield { type: 'citation', sources: cited, callId: base.callId };
 }
@@ -192,7 +192,7 @@ export function startToolExecution<T>(
       failure: {
         code: 'invalid_input',
         kind: 'bad_response',
-        message: lexiconText('tool.input_invalid', {}, ctx.profile.lexicon),
+        message: labelText('tool.input_invalid', {}, ctx.profile.labels),
         details: parsed.error.flatten(),
       },
     };

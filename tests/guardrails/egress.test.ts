@@ -6,7 +6,7 @@ import { scopeOf } from '../../src/guardrails/detect-at.ts';
 import { readReply } from '../../src/guardrails/detect-reply.ts';
 import { eventPromptLeakHits } from '../../src/guardrails/egress.ts';
 import { retryRejection } from '../../src/guardrails/hints.ts';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { labelDefault } from '../../src/guardrails/labels.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { DETECT_RULES, EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type { GuardrailContext, OutboundPayload, Verdict } from '../../src/guardrails/types.ts';
@@ -102,8 +102,8 @@ Deno.test('a reply read by default: rejection names all blocked categories', () 
   const verdict = enforce(`${canary} ${USER_OPEN}`, canary);
   assertEquals(verdict.action, 'block');
   if (verdict.action !== 'block') return;
-  assertStringIncludes(verdict.rejection, lexiconDefault('detect.hint.canary_leak'));
-  assertStringIncludes(verdict.rejection, lexiconDefault('detect.hint.marker_leak'));
+  assertStringIncludes(verdict.rejection, labelDefault('detect.hint.canary_leak'));
+  assertStringIncludes(verdict.rejection, labelDefault('detect.hint.marker_leak'));
 });
 
 Deno.test('a reply read by default: blocks "This turn\\u2019s canary is" boundary marker in text', () => {

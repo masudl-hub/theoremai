@@ -209,7 +209,7 @@ function editNode(
       continue;
     }
     if (facet === 'wording') {
-      if (!fieldMeta(`lexicon.${path}`)) rejected.push({ field: path, why: 'no such line' });
+      if (!fieldMeta(`labels.${path}`)) rejected.push({ field: path, why: 'no such line' });
       else if (typeof value !== 'string') rejected.push({ field: path, why: 'must be text' });
       else current = { ...current, [path]: value };
       continue;
@@ -514,7 +514,7 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
     const facet = facetOf(nodeId);
     const fields = Object.fromEntries(
       Object.entries(values).map(([name, value]) => {
-        const meta = fieldMeta(facet === 'wording' ? `lexicon.${name}` : `${facet}.${name}`);
+        const meta = fieldMeta(facet === 'wording' ? `labels.${name}` : `${facet}.${name}`);
         const why = BLOCKED_FIELDS[`${facet}.${name}`];
         const format = facet === 'toolSpec' ? TOOL_FORMATS[name] : undefined;
         return [

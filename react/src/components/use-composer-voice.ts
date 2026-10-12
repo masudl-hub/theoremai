@@ -1,8 +1,8 @@
 import {
   attachmentIssueText,
   describeError,
-  type LexiconOverrides,
-  lexiconText,
+  type LabelOverrides,
+  labelText,
 } from '@theoremjs/agents';
 import type { ProfileInputsInterface } from '@theoremjs/agents/interface';
 import { useCallback, useRef, useState } from 'react';
@@ -17,7 +17,7 @@ import {
 export type VoiceFailure = {
   /** A recorder failure, or `too_many_files` when the message is already full. */
   code: VoiceRecorderFailureCode | 'too_many_files';
-  /** What the user reads: the profile lexicon's `voice.<code>` (or the file-limit line). */
+  /** What the user reads: the profile labels' `voice.<code>` (or the file-limit line). */
   error: string;
   /** Raw detail for the builder; never shown to the user. */
   errorInternal?: string;
@@ -26,21 +26,21 @@ export type VoiceFailure = {
 function voiceFailure(
   err: unknown,
   fallback: VoiceRecorderFailureCode,
-  lexicon: LexiconOverrides,
+  labels: LabelOverrides,
 ): VoiceFailure {
   const code = isVoiceRecorderFailure(err) ? err.code : fallback;
   const internal = describeError(err);
   return {
     code,
-    error: lexiconText(`voice.${code}`, {}, lexicon),
+    error: labelText(`voice.${code}`, {}, labels),
     ...(internal && internal !== code ? { errorInternal: internal } : {}),
   };
 }
 
 export function useComposerVoice(args: {
   inputs: ProfileInputsInterface;
-  /** The interface's `lexicon`: the profile's wording for voice failures. */
-  lexicon: LexiconOverrides;
+  /** The interface's `labels`: the profile's wording for voice failures. */
+  labels: LabelOverrides;
   pendingFiles: readonly File[];
   onVoiceStaged?: (file: File) => void;
   onVoiceClear?: () => void;
@@ -67,7 +67,7 @@ export function useComposerVoice(args: {
     if (!canStageVoice({ fileCount: args.pendingFiles.length, maxFiles })) {
       setFailure({
         code: 'too_many_files',
-        error: attachmentIssueText({ code: 'too_many_files', params: { maxFiles } }, args.lexicon),
+        error: attachmentIssueText({ code: 'too_many_files', params: { maxFiles } }, args.labels),
       });
       return;
     }
@@ -77,9 +77,9 @@ export function useComposerVoice(args: {
       setRecording(true);
     } catch (err) {
       setRecording(false);
-      setFailure(voiceFailure(err, 'unavailable', args.lexicon));
+      setFailure(voiceFailure(err, 'unavailable', args.labels));
     }
-  }, [args.inputs.maxFiles, args.lexicon, args.pendingFiles.length, ensureRecorder]);
+  }, [args.inputs.maxFiles, args.labels, args.pendingFiles.length, ensureRecorder]);
 
   const stopRecording = useCallback(async () => {
     setFailure(null);
@@ -91,9 +91,9 @@ export function useComposerVoice(args: {
     } catch (err) {
       setRecording(false);
       setInputLevel(0);
-      setFailure(voiceFailure(err, 'failed', args.lexicon));
+      setFailure(voiceFailure(err, 'failed', args.labels));
     }
-  }, [args.lexicon, ensureRecorder]);
+  }, [args.labels, ensureRecorder]);
 
   const toggleRecording = useCallback(async () => {
     if (recording) {

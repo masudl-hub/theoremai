@@ -229,7 +229,7 @@ export const copy = () => NESTED.canaries.length;
 const PAIR = `import { defineProfile } from '@theoremjs/agents';
 import { STANDARD_GUARDRAILS, tone } from './shared.ts';
 defineProfile({ type: 'text', id: 'desk', guardrails: STANDARD_GUARDRAILS, system: tone });
-defineProfile({ type: 'text', id: 'shop', guardrails: STANDARD_GUARDRAILS as never, lexicon: { tone } });
+defineProfile({ type: 'text', id: 'shop', guardrails: STANDARD_GUARDRAILS as never, labels: { tone } });
 `;
 const PAIR_SHARED = `export const STANDARD_GUARDRAILS = {
   blockedReply: 'refuse',

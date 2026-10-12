@@ -496,7 +496,7 @@ class LiveTrace {
     if (this.response) return this.response;
     const bound = this.bound;
     if (!bound) {
-      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       throw new TheoremError('internal', 'Live trace received a response before it was bound');
     }
     const usage = startCallUsage(bound.system, { history: [], input: [] }, this.held);
@@ -524,7 +524,7 @@ class LiveTrace {
       },
     );
     if (!tree) {
-      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       throw new TheoremError('internal', 'Live response span was not opened');
     }
     // why: A Live response streams over the session socket; no HTTP try says so.

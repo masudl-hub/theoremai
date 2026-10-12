@@ -153,7 +153,7 @@ export function createHostTransport(
   return {
     pageResult: (body, signal) => postJson(`${base}/page-result`, body, { ...options, signal }),
     async describe(signal) {
-      // lexicon-exempt: internal diagnostic; the user reads error.bad_response
+      // labels-exempt: internal diagnostic; the user reads error.bad_response
       return checkWire(
         describedSchema,
         await fetchJson(base, { signal }, options),

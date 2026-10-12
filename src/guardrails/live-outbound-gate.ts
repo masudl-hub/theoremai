@@ -67,7 +67,7 @@ function createLiveOutboundGateSession(
     trust: 'untrusted',
     profileId: profile.id,
     ...leakScopeOf(policy.detect, { canary, privateSystem }),
-    ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
+    ...(profile.labels ? { labels: profile.labels } : {}),
     ...(givenUrls ? { givenUrls } : {}),
     ...(ownTools ? { ownTools } : {}),
   };
@@ -361,7 +361,7 @@ function finalEgressVerdict(
   if (stopped) {
     // why: Live never rewrites: audio already spoken cannot be taken back for another try.
     if (blockedReply.onBlock === 'refuse') {
-      const text = refusalAfter(shown, session.context.lexicon);
+      const text = refusalAfter(shown, session.context.labels);
       return { action: 'emit', events: [...events, { type: 'text', text }] };
     }
     return {

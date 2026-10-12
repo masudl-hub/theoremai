@@ -180,7 +180,7 @@ EOF alone is not successful completion. Cancellation does not silently replay a 
 
 `ProviderLiveConnection` sends text, audio, video, context, and approved tool results. It also closes the session.
 Its optional `closeInfo` reports the close code, diagnostic reason, and preceding close warning.
-The live kernel applies its lexicon and tracing policy to these values.
+The live kernel applies its labels and tracing policy to these values.
 
 ## OpenRouter
 

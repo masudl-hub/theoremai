@@ -1,4 +1,4 @@
-/** lexicon-exempt-file: authoring request-field and export meta — not runtime user or model copy (P2) */
+/** labels-exempt-file: authoring request-field and export meta — not runtime user or model copy (P2) */
 
 import type { FieldMeta } from './schema.ts';
 import type { TurnInput, TurnRequest } from './types.ts';
@@ -221,13 +221,13 @@ export const API_EXPORTS = {
     kind: 'function',
     doc: 'Frees the turn slot that takeSlot gave.',
   },
-  overrideLexicon: {
+  overrideLabels: {
     kind: 'function',
-    doc: "Replaces status lines for every profile in the process; a profile's own lexicon wins.",
+    doc: "Replaces status lines for every profile in the process; a profile's own labels wins.",
   },
-  resetLexicon: {
+  resetLabels: {
     kind: 'function',
-    doc: 'Removes every replacement that overrideLexicon made.',
+    doc: 'Removes every replacement that overrideLabels made.',
   },
   TheoremError: {
     kind: 'class',

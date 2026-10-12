@@ -82,7 +82,7 @@ async function onLiveToolCall(
   bindings.clearFailure();
   const client = clientRef.current;
   if (!client) {
-    // lexicon-exempt: internal diagnostic; the user reads error.request
+    // labels-exempt: internal diagnostic; the user reads error.request
     bindings.reportFailure(new TheoremError('request', 'live tool call with no session client'));
     return;
   }

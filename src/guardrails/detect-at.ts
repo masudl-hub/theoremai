@@ -70,7 +70,7 @@ const ONLY: Readonly<Record<keyof SensitiveGroups, SensitiveGroups>> = recordOf(
  * `ungiven_links` no URL was given.
  */
 interface DetectScope extends LeakScope, Pick<GuardrailContext, 'givenUrls' | 'ownTools'> {
-  /** The words of the profile's own canary note, when its lexicon rewords it (`boundaryNote`). */
+  /** The words of the profile's own canary note, when its labels rewords it (`boundaryNote`). */
   note?: string;
   /** What `ungiven_images` and `ungiven_links` let through besides the given URLs. */
   allow?: ResolvedAllow;
@@ -97,13 +97,13 @@ function leakScopeOf(detect: ResolvedDetect, turn: LeakScope): LeakScope {
 /** The {@linkcode DetectScope} of a turn under `policy`: each part only while a detector reads it. */
 function scopeOf(
   policy: Pick<ResolvedGuardrailPolicy, 'detect' | 'allow'>,
-  turn: LeakScope & Pick<GuardrailContext, 'givenUrls' | 'lexicon' | 'ownTools'>,
+  turn: LeakScope & Pick<GuardrailContext, 'givenUrls' | 'labels' | 'ownTools'>,
 ): DetectScope {
   const { detect } = policy;
   const leaks = leakScopeOf(detect, turn);
   const urls = detects(detect, 'ungiven_images') || detects(detect, 'ungiven_links');
   const note = detects(detect, 'marker_leak')
-    ? boundaryNote({ canary: leaks.canary, lexicon: turn.lexicon })
+    ? boundaryNote({ canary: leaks.canary, labels: turn.labels })
     : undefined;
   const tools = detects(detect, 'tool_leak')
     ? ownToolsWithout(turn.ownTools, detect.innocent)

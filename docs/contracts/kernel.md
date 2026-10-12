@@ -29,7 +29,7 @@ may observe a decision the host did not make.
 **Facts vs policy.** Provider facts may ship (model capabilities, wire shapes,
 protocol metadata — presets/google). Product policy may not (prompts, personas,
 end-user copy, demo apps, channel behavior). The kernel may ship overridable
-defaults for mechanism text via the guardrails lexicon; it may not ship
+defaults for mechanism text via the guardrails labels; it may not ship
 unreplaceable copy or bundled product. Demo fixtures live in the repo-private
 `studio/` package (`@theoremjs/studio`), never in the published artifact.
 Package verification checks both agents and React output for Studio modules.
@@ -38,12 +38,12 @@ The React build type-checks the local Studio prototype, then removes it from the
 | Id | Property |
 | --- | --- |
 | P1 | No ambient authority — `defineProfile` / `defineProvider` succeed with every Deno permission denied (no env, net, read, write, run, ffi, sys). Deno loads the static module graph without consulting the permission system; construction must not exercise ambient I/O beyond that (`tests/kernel/zero-permission-import.test.ts`) |
-| P2 | No unownable words — every user- or model-visible string is host-supplied or an overridable registered lexicon default |
+| P2 | No unownable words — every user- or model-visible string is host-supplied or an overridable registered labels default |
 | P3 | No buried policy — behavioral defaults are declared typed profile-schema fields, never only implementation constants |
 | P4 | Inert extras — deleting optional packages (studio) changes no kernel behavior |
 
-Continue-instruction text is the lexicon's `continue.instruction`, overridable
-per profile (`lexicon`) or process-wide (`overrideLexicon`). Only text profiles
+Continue-instruction text is the labels' `continue.instruction`, overridable
+per profile (`labels`) or process-wide (`overrideLabels`). Only text profiles
 send it (`CONTINUE_INSTRUCTION_TYPES` in `src/kernel/stop.ts`, which the
 studio also reads); image and speech continue by re-sending the host's
 request unchanged. Composer labels in `src/interface/` are semantic
@@ -171,9 +171,9 @@ accepted, MIME not accepted, too many files, a file over its byte cap, the turn
 over its total — each file's issue carrying the file's `name` when the host sent
 one. The turn is all-or-nothing: `assertTurnAttachments` (run by input
 sanitization and by `resolveInputParts`) throws one `input` `TheoremError` whose
-`copy` is a list, one lexicon line per issue (`attachmentIssueCopy`), so the
+`copy` is a list, one label line per issue (`attachmentIssueCopy`), so the
 user reads every reason and the builder reads the codes in `errorInternal`
-(`attachmentsRefused` builds that error). `attachmentIssueText(issue, lexicon)`
+(`attachmentsRefused` builds that error). `attachmentIssueText(issue, labels)`
 words one issue for a client that reports issues itself (the composer). An image
 profile has no voice channel, and `defineProfile` refuses an attachment `accept`
 entry outside images, video and PDF (`IMAGE_ATTACHMENT_ACCEPT_MIMES`); every
@@ -311,7 +311,7 @@ Live sessions emit the same stage names around utterance cycles and
     The final `done.tokens` contains their aggregate usage (see [Token usage](#token-usage)).
 
 `continueFrom` on `TurnRequest` resumes a resumeable stop. On a text profile the
-turn's user message is the lexicon's `continue.instruction` (a continue turn takes no
+turn's user message is the labels' `continue.instruction` (a continue turn takes no
 `input.text`); the host passes the partial reply as the last assistant message in
 `input.history`. On image and speech nothing is added: the host re-sends the
 original request and the turn runs it again in full. `continueFrom` carries only
@@ -354,7 +354,7 @@ The kernel validates adapter events before it releases them or executes client t
 | `grounding` | Google search metadata: Live `groundingMetadata`, and Interactions tool results (`google_search_result` `search_suggestions` → `searchHtml`). Maps sources add normalized `chunks[].maps` (`title` / `uri` / `placeId`); the raw payload rides on `metadata`. The sources themselves travel as `citation` |
 | `citation` | `sources` (`title` / `uri` / `type` / `placeId?`) a provider or a tool cited. From a provider: Google `url_citation` / `place_citation` annotations and `google_maps_result` places, OpenRouter citations and `url_citation` annotations. From a tool: its `sources(output)` on a completed call, with the call's `callId` (see [Tool sources](#tool-sources)) |
 | `evidence` | Provider-native attachments. Google code execution sets `kind` (`code_execution_call` / `code_execution_result`) plus parsed `code` / `result` / `isError` / `id` / `callId`, and always keeps `raw`. Live ASR uses `input_transcription` / `output_transcription` (optional `interim`); Live `voiceActivity` uses `voice_activity` (`raw`); session resumption uses `session_resumption` + `resumable`. `partial: true` marks a step the provider started and never finished (the stream ended first); a partial tool call never runs. |
-| `session` | Live control: `closing_soon` (optional `timeLeftMs`); `ended`, the provider's close after it warned of one — not an error: `ended { cause: 'go_away', code, closedAfterMs, errorKind? }` (`errorKind` when the code is not 1000), `timeLeftMs` (the last warning's window), `message` (the user's wording, lexicon `live.session_ended`) and the raw close as `errorInternal`; `waiting_for_input`, `turn_complete` (one spoken response ended), `working` (server still reasoning / awaiting async tools), `idle` (cycle boundary) |
+| `session` | Live control: `closing_soon` (optional `timeLeftMs`); `ended`, the provider's close after it warned of one — not an error: `ended { cause: 'go_away', code, closedAfterMs, errorKind? }` (`errorKind` when the code is not 1000), `timeLeftMs` (the last warning's window), `message` (the user's wording, labels `live.session_ended`) and the raw close as `errorInternal`; `waiting_for_input`, `turn_complete` (one spoken response ended), `working` (server still reasoning / awaiting async tools), `idle` (cycle boundary) |
 | `stage` | Turn timeline (`stage`: `pre_turn` \| `pre_tool` \| `post_tool` \| `before_end` \| `post_turn`) — see [`stages.md`](stages.md) |
 | `tokens` | One per model call, after that call's output: `TurnTokens` (see [Token usage](#token-usage)); may gate `meter: 'input'` |
 | `response` | Adapter → runner only, never yielded by `runTurn`: the response identity (`id`, `model`) as soon as the wire names it, and again when it grows or changes. The runner records it on the call's trace span (`gen_ai.response.id` / `gen_ai.response.model`), so a call that fails or is cut by a guardrail still names the model that served it |
@@ -362,7 +362,7 @@ The kernel validates adapter events before it releases them or executes client t
 | `done` | Terminal or live boundary: `stop` (`completed` / `interrupted` / `generation_complete` / …), `compaction`, `tokens` (the turn's usage), optional `providerState`; when `stop.kind` is `tool` or `gate`, required `tools` (`TurnToolSnapshot`) for host `invokeTool` resume, absent otherwise |
 | `provider_checkpoint` | Live native checkpoint in `providerState`, with the covered portable `history` |
 | `provider_warning` | Native state mismatch: `warning.code` is `provider_state_rebuilt`; `warning.reason` identifies the mismatch |
-| `error` | `errorKind` (builder), `errorInternal` (host logs only), and `error`, the user's wording for the kind (profile `lexicon` → `overrideLexicon` → default) — see [Public errors](guardrails.md#public-errors) |
+| `error` | `errorKind` (builder), `errorInternal` (host logs only), and `error`, the user's wording for the kind (profile `labels` → `overrideLabels` → default) — see [Public errors](guardrails.md#public-errors) |
 
 ### Token usage
 
@@ -557,7 +557,7 @@ A field the profile does not take, or a slot choice it does not declare, fails
 the call `invalid_input` (`bad_response`); nothing is dropped. The called
 turn checks MIME types, counts and sizes as it does for any turn, and a file it
 refuses fails the call `agent_failed` (`input`). The model then reads why, in
-the lexicon's own lines for refused files, and `details.reasons` holds each
+the labels' own lines for refused files, and `details.reasons` holds each
 line's key and facts. `inputs.context` is not a
 field: its senders are the page and the host, and the host sends it through
 `onAgentCall`.
@@ -778,7 +778,7 @@ label and the transcript names the tool in words instead.
 filled from the input as the model sent it. Every `error` phase carries it in
 `activityPast`, and so does a `complete` phase a `post_tool` handler labelled
 failed (`labelFailed`, see [`stages.md`](stages.md)). A tool with no failed
-label, or one whose placeholder has no value, shows the lexicon's
+label, or one whose placeholder has no value, shows the labels'
 `tool.activity_failed` line: "Couldn't complete", then the tool's name in words.
 
 `labels.request` says what a gated call would do, as the rest of "@agent wants
@@ -852,7 +852,7 @@ Profile `outputs` pins behavior the kernel enforces before adapters run:
 | --- | --- |
 | `structured` | Schema id or slot-mapped ids; `responseFormat` vs prompt enforcement |
 | `streaming` | `mode`, `streamThoughts` |
-| `validation` | Field validators, `maxRetries` (repair guidance is the lexicon's `repair.default_guidance`) |
+| `validation` | Field validators, `maxRetries` (repair guidance is the labels' `repair.default_guidance`) |
 
 Top-level modality pins (after `model`, not under `outputs`):
 
@@ -1097,7 +1097,7 @@ Compaction applies to `runTurn` profiles (`text`, `image`, `speech`);
 
 ### What the compactor reads
 
-The compactor gets `toCompact` as its history, with the lexicon's
+The compactor gets `toCompact` as its history, with the labels'
 `compaction.request` as its input:
 
 - Media its `inputs` do not accept is left out and counted in `droppedMedia`;
@@ -1334,7 +1334,7 @@ what its tools returned, such as a quote to the page that was read.
 The rewrite is one attempt: it reads only the refused items and each check's
 error (`claims[0]: …`, counted among the refused), under a schema that holds
 only their lists, so the model does not write the kept reply again. It keeps the
-turn's tools and history. Its guidance is the lexicon's `repair.items_guidance`.
+turn's tools and history. Its guidance is the labels' `repair.items_guidance`.
 Rewrites go back by position. Field validators run first; a reply they send back
 is rewritten whole.
 
@@ -1471,7 +1471,7 @@ offered one.
     },
     "Facts and policy": {
       "supports": [
-        { "kind": "source", "path": "src/guardrails/lexicon.ts" },
+        { "kind": "source", "path": "src/guardrails/labels.ts" },
         { "kind": "source", "path": "src/kernel/stop.ts" },
         { "kind": "contract_test", "path": "tests/kernel/two-hosts-boundary.test.ts" },
         { "kind": "contract_test", "path": "tests/kernel/zero-permission-import.test.ts" }

@@ -4,7 +4,7 @@ import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 registerFixtureProviders(defaultKernelScope);
 
 import { assertEquals, assertStringIncludes, assertThrows } from '@std/assert';
-import { type DecisionQuestion, lexiconDefault } from '../../mod.ts';
+import { type DecisionQuestion, labelDefault } from '../../mod.ts';
 import { createTheoremDecisionHandler, createTheoremHandler } from '../../react/src/server/mod.ts';
 import type { DecisionProfileDefinition } from '../../src/kernel/mod.ts';
 
@@ -114,7 +114,7 @@ Deno.test('a null or oversized state is a request error, and Jev is never called
     assertEquals(response.status, 400);
     const body = await response.json();
     assertEquals(body.errorKind, 'request');
-    assertEquals(body.error, lexiconDefault('error.request'));
+    assertEquals(body.error, labelDefault('error.request'));
   }
   const malformed = await handler(
     new Request(`${BASE}/decide`, {
@@ -146,7 +146,7 @@ Deno.test('decision handlers reject malformed JSON and non-JSON content types', 
   }
   assertEquals(mock.calls.length, 0);
 });
-Deno.test("Jev's failures reach the page as their kind, in the lexicon's words", async () => {
+Deno.test("Jev's failures reach the page as their kind, in the labels' words", async () => {
   const cases = [
     [401, 'auth', 401],
     [429, 'rate_limit', 429],
@@ -164,7 +164,7 @@ Deno.test("Jev's failures reach the page as their kind, in the lexicon's words",
     assertEquals(response.status, status);
     const body = await response.json();
     assertEquals(body.errorKind, kind);
-    assertEquals(body.error, lexiconDefault(`error.${kind}`));
+    assertEquals(body.error, labelDefault(`error.${kind}`));
     assertEquals(errors.length, 1);
   }
 });
@@ -182,7 +182,7 @@ Deno.test('a vault without the profile slot is an auth error, and Jev is never c
   assertEquals(response.status, 401);
   const body = await response.json();
   assertEquals(body.errorKind, 'auth');
-  assertEquals(body.error, lexiconDefault('error.auth'));
+  assertEquals(body.error, labelDefault('error.auth'));
   assertEquals(String(errors[0]).includes('Decision provider failed'), true);
   assertEquals(mock.calls.length, 0);
 });

@@ -1,6 +1,6 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { labelDefault } from '../../src/guardrails/labels.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -66,7 +66,7 @@ Deno.test('a thought restating the canary loses it, says so, and the reply still
     guardrail?.hits?.map((hit) => hit.rule),
     [DETECT_RULES.canary_leak],
   );
-  const omitted = lexiconDefault('thought.omitted_instructions');
+  const omitted = labelDefault('thought.omitted_instructions');
   assertEquals(visibleText(events), `The note says${omitted}; keep it private.Hello.`);
   assertEquals(visibleText(events).includes(canary.slice(0, 8)), false);
 });

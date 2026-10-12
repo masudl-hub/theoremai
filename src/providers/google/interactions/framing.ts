@@ -138,7 +138,7 @@ export function attachResponseFormat(
     if (format && !(GOOGLE_SPEECH_FORMATS as readonly string[]).includes(format)) {
       throw new TheoremError(
         'unsupported',
-        `Gemini speech returns ${GOOGLE_SPEECH_FORMATS.join(', ')}, not '${format}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Gemini speech returns ${GOOGLE_SPEECH_FORMATS.join(', ')}, not '${format}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     camel.responseFormat = { type: 'audio' };

@@ -366,23 +366,23 @@ Deno.test('image and speech continueFrom re-send the request with nothing added'
     assertEquals(resumed.resolvedSystem, fresh.resolvedSystem);
   }
 });
-Deno.test('image and speech profiles take a lexicon; continueFrom still adds nothing', () => {
-  const lexicon = { 'continue.instruction': 'Keep going.', 'error.internal': 'Host copy.' };
-  registerProfile(speechDefinition({ id: 'speech_lexicon', lexicon }));
+Deno.test('image and speech profiles take labels; continueFrom still adds nothing', () => {
+  const labels = { 'continue.instruction': 'Keep going.', 'error.internal': 'Host copy.' };
+  registerProfile(speechDefinition({ id: 'speech_labels', labels }));
   registerProfile(
     defineProfile({
       type: 'image',
-      id: 'image_lexicon',
-      identity: { handle: 'image_lexicon' },
+      id: 'image_labels',
+      identity: { handle: 'image_labels' },
       ...geminiModels('gemini31FlashLiteImage'),
       maxSteps: 1,
       image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/jpeg' },
       tools: { allow: [] },
       inputs: { text: true },
-      lexicon,
+      labels,
     }),
   );
-  for (const profile of ['speech_lexicon', 'image_lexicon']) {
+  for (const profile of ['speech_labels', 'image_labels']) {
     const req = { profile, input: { text: 'hi' } };
     const resumed = resolveTurn({ ...req, continueFrom: { stop: { kind: 'provider_error' } } });
     assertEquals(resumed.generation.input, resolveTurn(req).generation.input);

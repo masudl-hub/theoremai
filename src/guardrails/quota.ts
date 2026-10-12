@@ -93,7 +93,7 @@ function quotaExhausted(profile: Profile): TheoremError | undefined {
   }
   return new TheoremError(
     'rate_limit',
-    `${profile.id} used its daily quota of ${quota.perDay} turns`, // lexicon-exempt: internal diagnostic; the user reads the copy key
+    `${profile.id} used its daily quota of ${quota.perDay} turns`, // labels-exempt: internal diagnostic; the user reads the copy key
     { copy: { key: 'quota.exhausted', params: { perDay: quota.perDay } } },
   );
 }

@@ -155,7 +155,7 @@ Change (decided: the agent is told):
 | `error` | an assistant note naming the failure kind |
 | stop `stream_incomplete` / `cancelled` / `interrupted` with partial text | the partial text, followed by a note that the reply was cut off and why |
 
-The note text comes from the lexicon (so hosts can reword it). **Locked lines:**
+The note text comes from the labels (so hosts can reword it). **Locked lines:**
 
 - `history.turn_failed`: "[My previous reply failed ({kind}) and did not reach the user.]"
 - `history.reply_cut_off`: "[My previous reply was cut off ({reason}); the user saw only the text above.]"
@@ -194,7 +194,7 @@ Theorem makes anything possible; it does not build everything possible. Host-spe
 
 | Change | Detail |
 |---|---|
-| Status line | `WorkStatus.phase` adds `waiting` (gate open), `stopped` (user stop), `failed` (error) alongside `working`/`worked`, from `done.stop` and the gate. Wording comes from the lexicon. |
+| Status line | `WorkStatus.phase` adds `waiting` (gate open), `stopped` (user stop), `failed` (error) alongside `working`/`worked`, from `done.stop` and the gate. Wording comes from the labels. |
 | Tool item | Shows the label, arguments, live latency timer while running and duration after, the tool's own citations, and its media. |
 | Approval card | Lets the user edit arguments before approving (schema-driven form from the tool's input). |
 | Artifact slot | `renderArtifact?` on `ChatTranscript` so a host renders its own cards. |

@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
+import { type LabelOverrides, labelText } from '../../guardrails/labels.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
 import { jsonObjectSchema } from '../provider-contract.ts';
 import type { ToolAccess } from '../schema.ts';
@@ -116,7 +116,7 @@ export async function* runPreToolPipeline(args: {
             failure: {
               code: 'invalid_input',
               kind: 'bad_response',
-              message: lexiconText('tool.input_invalid_after_mutate', {}, ctx.profile.lexicon),
+              message: labelText('tool.input_invalid_after_mutate', {}, ctx.profile.labels),
               details: parsed.error.flatten(),
             },
           };
@@ -146,7 +146,7 @@ export async function* runPreToolPipeline(args: {
       failure: {
         code: 'invalid_input',
         kind: 'bad_response',
-        message: lexiconText('tool.input_invalid_after_mutate', {}, args.ctx.profile.lexicon),
+        message: labelText('tool.input_invalid_after_mutate', {}, args.ctx.profile.labels),
         details: reparsed.error.flatten(),
       },
     };
@@ -263,7 +263,7 @@ export async function* emitGateSettlement(args: {
   gate: ToolGate;
   callId: string;
   toolName: string;
-  lexicon: LexiconOverrides | undefined;
+  labels: LabelOverrides | undefined;
 }): AsyncGenerator<TurnEvent, string | undefined> {
   yield stageEventFields('pre_tool', {
     callId: args.callId,
@@ -273,7 +273,7 @@ export async function* emitGateSettlement(args: {
   });
   const readBack =
     args.gate.kind === 'auth'
-      ? lexiconText('sign_in.pending', { service: args.gate.authChallenge.service }, args.lexicon)
+      ? labelText('sign_in.pending', { service: args.gate.authChallenge.service }, args.labels)
       : undefined;
   yield toolEvent(args.base, { phase: 'gate', gate: args.gate, ...(readBack ? { readBack } : {}) });
   return readBack;

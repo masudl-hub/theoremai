@@ -16,7 +16,7 @@ function providerBuiltins(
   return ids.map((id) => {
     const tool = tools.get(id);
     if (tool?.type !== 'builtin') {
-      throw new TheoremError('config', `Builtin '${id}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError('config', `Builtin '${id}' is not registered`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     const given = args[id];
     return given ? { id, args: given } : { id };

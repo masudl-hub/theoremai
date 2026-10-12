@@ -62,7 +62,7 @@ export function issueSummary(error: z.ZodError): string {
 }
 
 function badResponse(what: string, error: z.ZodError): TheoremError {
-  // lexicon-exempt: internal diagnostic; the user reads error.bad_response
+  // labels-exempt: internal diagnostic; the user reads error.bad_response
   return new TheoremError('bad_response', `${what} failed its wire check: ${issueSummary(error)}`);
 }
 
@@ -86,14 +86,14 @@ export function readWireValue<Line extends { type: string }>(
   raw: unknown,
 ): Line | UnsupportedEvent | MalformedEvent {
   const kind = wireKind.safeParse(raw);
-  // lexicon-exempt: internal diagnostic; the user reads session.part_skipped
+  // labels-exempt: internal diagnostic; the user reads session.part_skipped
   if (!kind.success)
     return malformed(`a line without a kind failed its wire check: ${issueSummary(kind.error)}`);
   const { type } = kind.data;
   if (!isKnown(lines, type)) return { type: 'unsupported', received: type, raw };
   const line = lines[type].safeParse(raw);
   if (line.success) return line.data;
-  // lexicon-exempt: internal diagnostic; the user reads session.part_skipped
+  // labels-exempt: internal diagnostic; the user reads session.part_skipped
   return malformed(`a '${type}' line failed its wire check: ${issueSummary(line.error)}`);
 }
 
@@ -113,14 +113,14 @@ export function readWireLine<Line extends { type: string }>(
   text: string,
 ): Line | UnsupportedEvent | MalformedEvent {
   const json = jsonValue(text);
-  // lexicon-exempt: internal diagnostic; the user reads session.part_skipped
+  // labels-exempt: internal diagnostic; the user reads session.part_skipped
   return json ? readWireValue(lines, json.value) : malformed('a line is not JSON');
 }
 
 /** A whole reply's JSON text as a value; text that is not JSON is `bad_response`. */
 export function parseWireJson(text: string): unknown {
   const json = jsonValue(text);
-  // lexicon-exempt: internal diagnostic; the user reads error.bad_response
+  // labels-exempt: internal diagnostic; the user reads error.bad_response
   if (!json) throw new TheoremError('bad_response', 'a line is not JSON');
   return json.value;
 }

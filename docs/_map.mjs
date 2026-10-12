@@ -153,7 +153,7 @@ const graph = {
       ],
       section_triggers: [
         {
-          paths: ['src/guardrails/lexicon.ts', 'src/kernel/stop.ts', 'studio/'],
+          paths: ['src/guardrails/labels.ts', 'src/kernel/stop.ts', 'studio/'],
           sections: ['Facts and policy'],
         },
         {
@@ -312,13 +312,13 @@ const graph = {
         'Injection categories (non-exhaustive)',
         'Sensitive data',
         'Quota',
-        'Lexicon',
+        'Labels',
         'Egress',
         'Exported API',
       ],
       section_triggers: [
         { paths: ['src/guardrails/error.ts'], sections: ['Public errors'] },
-        { paths: ['src/guardrails/lexicon.ts'], sections: ['Lexicon'] },
+        { paths: ['src/guardrails/labels.ts'], sections: ['Labels'] },
         {
           paths: ['src/guardrails/policy.ts', 'src/guardrails/types.ts'],
           sections: ['Trust levels'],

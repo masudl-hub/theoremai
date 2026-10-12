@@ -2,7 +2,7 @@ import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { wrapUserData } from '../../src/guardrails/canary.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { labelDefault } from '../../src/guardrails/labels.ts';
 import { clearProfiles, registerProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { systemText } from '../../src/kernel/system-parts.ts';
@@ -53,7 +53,7 @@ Deno.test('resolveTurn sends the continue instruction as the user message, not s
   });
   assertEquals(systemText(generation.resolvedSystem), 'STATIC_PROFILE_SYSTEM');
   assertEquals(generation.input, [
-    { type: 'text', text: wrapUserData(lexiconDefault('continue.instruction')) },
+    { type: 'text', text: wrapUserData(labelDefault('continue.instruction')) },
   ]);
 });
 

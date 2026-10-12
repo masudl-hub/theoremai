@@ -61,7 +61,7 @@ The resulting `bad_response` diagnostic names the failure, not the malformed val
 The reply or live call continues without that part.
 
 The chat identifies skipped parts in the composer. The live interface identifies them in its failure banner.
-Both use the lexicon key `session.part_skipped`.
+Both use the labels key `session.part_skipped`.
 `streamInterfaceTurn` reports skipped parts through `view.skipped`.
 
 ## Open and resume a live session

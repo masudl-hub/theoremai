@@ -1,5 +1,5 @@
 import { TheoremError } from '../guardrails/error.ts';
-import { lexiconText } from '../guardrails/lexicon.ts';
+import { labelText } from '../guardrails/labels.ts';
 import type { LiveConnection, LiveQueueItem } from '../providers/types.ts';
 import type {
   ProviderCheckpoint,
@@ -40,7 +40,7 @@ async function liveTerminalBatch(
     pending.length > 1 &&
     validateProviderModel(provider, binding, 'live').features.parallelTools !== 'supported'
   )
-    throw new TheoremError('unsupported', lexiconText('provider.parallel_tools'));
+    throw new TheoremError('unsupported', labelText('provider.parallel_tools'));
   const checkpoint = success
     ? await checkpointProviderState(provider, binding, event.state, request.history ?? [])
     : undefined;
@@ -78,7 +78,7 @@ function liveClosedItem(
           error:
             closed.error instanceof TheoremError
               ? closed.error
-              : new TheoremError('unavailable', lexiconText('provider.session_closed')),
+              : new TheoremError('unavailable', labelText('provider.session_closed')),
         }
       : {}),
     ...(closed?.warning ? { goAway: closed.warning } : {}),
@@ -94,7 +94,7 @@ function rememberLiveCall(
     callNames.has(call.callId) ||
     history?.some((message) => message.role === 'tool' && message.tool_call_id === call.callId)
   )
-    throw new TheoremError('bad_response', lexiconText('provider.settled_call'));
+    throw new TheoremError('bad_response', labelText('provider.settled_call'));
   callNames.set(call.callId, call.name);
 }
 
@@ -121,7 +121,7 @@ export async function openRegisteredLiveSession(
     liveConnection: true,
   });
   if (typeof operations.openSession !== 'function')
-    throw new TheoremError('unsupported', lexiconText('provider.session_unavailable'));
+    throw new TheoremError('unsupported', labelText('provider.session_unavailable'));
   const session = await operations.openSession({
     ...providerTurnRequest(request),
     keySlot: binding.keySlot ?? provider.keySlot,
@@ -140,7 +140,7 @@ export async function openRegisteredLiveSession(
       if (part.type === 'text') send(() => session.sendText(part.text));
       else if (part.type === 'audio' && 'data' in part) send(() => session.sendAudio(part));
       else if (part.type === 'video' && 'data' in part) send(() => session.sendVideo(part));
-      else throw new TheoremError('unsupported', lexiconText('provider.live_input'));
+      else throw new TheoremError('unsupported', labelText('provider.live_input'));
     },
     sendContext(text) {
       send(() => session.sendContext({ server: text }));
@@ -203,7 +203,7 @@ export async function openRegisteredLiveSession(
           if (event.type === 'tool_cancel') {
             const name = callNames.get(event.callId);
             if (!name)
-              throw new TheoremError('bad_response', lexiconText('provider.tool_cancel_missing'));
+              throw new TheoremError('bad_response', labelText('provider.tool_cancel_missing'));
             pending = pending.filter(
               (item) => item.type !== 'tool' || item.tool.callId !== event.callId,
             );

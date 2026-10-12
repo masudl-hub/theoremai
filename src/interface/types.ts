@@ -1,7 +1,7 @@
 import type { Boundary } from '../guardrails/boundaries.ts';
 import type { DetectAction, DetectMatrix, Detector, UrlDetector } from '../guardrails/detectors.ts';
 import type { GuardrailEvent } from '../guardrails/event-schemas.ts';
-import type { LexiconOverrides } from '../guardrails/lexicon.ts';
+import type { LabelOverrides } from '../guardrails/labels.ts';
 import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
 import type { ProfileToolsSpec, ToolCallEdit, ToolPhaseEvent } from '../kernel/tools/types.ts';
 import type {
@@ -103,8 +103,8 @@ export type ProfileOutputsView = Omit<ProfileOutputsSpec, 'validation'>;
 export type ComposerInterfaceFields = {
   models: Record<ModelId, ModelBindingView>;
   outputs?: ProfileOutputsView;
-  /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
-  lexicon: LexiconOverrides;
+  /** Client keys' overrides (`CLIENT_LABEL_KEYS`), resolved on the host; pass to `labelText`. */
+  labels: LabelOverrides;
   inputs: ProfileInputsInterface;
   guardrails?: ProfileGuardrailsView;
   observability?: ProfileObservabilityView;
@@ -115,7 +115,7 @@ export type ComposerInterfaceFields = {
 /** A text profile as a client sees it, without its server-only fields. */
 export type TextProfileInterface = Omit<
   TextProfile,
-  'inputs' | 'tools' | 'guardrails' | 'observability' | 'lexicon' | 'models' | 'outputs'
+  'inputs' | 'tools' | 'guardrails' | 'observability' | 'labels' | 'models' | 'outputs'
 > &
   ComposerInterfaceFields & {
     tools: ProfileToolsView;
@@ -126,27 +126,27 @@ export type TextProfileInterface = Omit<
 /** An image profile as a client sees it, without its server-only fields. */
 export type ImageProfileInterface = Omit<
   ImageProfile,
-  'inputs' | 'tools' | 'guardrails' | 'observability' | 'lexicon' | 'models' | 'outputs'
+  'inputs' | 'tools' | 'guardrails' | 'observability' | 'labels' | 'models' | 'outputs'
 > &
   ComposerInterfaceFields & { tools: ProfileToolsView };
 
 /** A speech profile as a client sees it, without its server-only fields. */
 export type SpeechProfileInterface = Omit<
   SpeechProfile,
-  'guardrails' | 'observability' | 'lexicon' | 'models' | 'outputs'
+  'guardrails' | 'observability' | 'labels' | 'models' | 'outputs'
 > &
   ComposerInterfaceFields;
 
 /** A live profile as a client sees it, without its server-only fields. */
 export type LiveProfileInterface = Omit<
   LiveProfile,
-  'tools' | 'guardrails' | 'observability' | 'lexicon' | 'models' | 'live'
+  'tools' | 'guardrails' | 'observability' | 'labels' | 'models' | 'live'
 > & {
   /** Without `greeting` and `resumed`: the prompts stay on the host. */
   live: Omit<LiveProfile['live'], 'greeting' | 'resumed'>;
   models: Record<ModelId, ModelBindingView>;
-  /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
-  lexicon: LexiconOverrides;
+  /** Client keys' overrides (`CLIENT_LABEL_KEYS`), resolved on the host; pass to `labelText`. */
+  labels: LabelOverrides;
   tools: Pick<ProfileToolsView, 'allow' | 'page'>;
   guardrails?: ProfileGuardrailsView;
   observability?: ProfileObservabilityView;

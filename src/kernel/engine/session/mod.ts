@@ -29,7 +29,7 @@ import {
   withPublicWording,
 } from '../../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
-import { type LexiconOverrides, lexiconText } from '../../../guardrails/lexicon.ts';
+import { type LabelOverrides, labelText } from '../../../guardrails/labels.ts';
 import {
   abortLiveOutboundTurn,
   createLiveOutboundGateSession,
@@ -189,7 +189,7 @@ function isSettledPhase(tool: ToolPhaseEvent): tool is SettledPhase {
 function sessionEndedEvent(
   closed: Extract<LiveQueueItem, { type: 'closed' }>,
   goAway: LiveGoAway,
-  lexicon: LexiconOverrides | undefined,
+  labels: LabelOverrides | undefined,
 ): TurnEvent {
   const internal = closed.error ? describeError(closed.error) : closed.reason;
   return {
@@ -197,7 +197,7 @@ function sessionEndedEvent(
     session: {
       kind: 'ended',
       ...(goAway.timeLeftMs !== undefined ? { timeLeftMs: goAway.timeLeftMs } : {}),
-      message: lexiconText('live.session_ended', {}, lexicon),
+      message: labelText('live.session_ended', {}, labels),
       ended: {
         cause: 'go_away',
         code: closed.code,
@@ -224,7 +224,7 @@ function assertLiveProfile(profile: Profile): asserts profile is LiveProfile {
   if (profile.type !== 'live') {
     throw new TheoremError(
       'request',
-      `runSession requires profile.type 'live' (got '${profile.type}' for ${profile.id})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `runSession requires profile.type 'live' (got '${profile.type}' for ${profile.id})`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -247,7 +247,7 @@ function sessionSnapshotWithinAllow(
     }
   }
   if (outside.size > 0) {
-    // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     const detail = `session snapshot declares tools outside tools.allow: ${[...outside].join(', ')}`;
     throw new TheoremError('config', `Profile ${profile.id}: ${detail}`);
   }
@@ -651,7 +651,7 @@ function buildLiveSession(args: {
 
   const assertOpen = () => {
     if (closed) {
-      throw new TheoremError('request', 'Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError('request', 'Live session is closed'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   };
 
@@ -690,7 +690,7 @@ function buildLiveSession(args: {
           name: held.name,
           callId,
           operationId: held.operationId,
-          activityFailed: failedActivity(held.name, profile.lexicon),
+          activityFailed: failedActivity(held.name, profile.labels),
         },
         failure,
         readBack,
@@ -706,7 +706,7 @@ function buildLiveSession(args: {
     const failure = lapsedGateFailure(
       held.name,
       gate.kind === 'auth' ? gate.authChallenge.service : undefined,
-      profile.lexicon,
+      profile.labels,
     );
     settleHeldFailure(callId, held, failure);
   };
@@ -859,7 +859,7 @@ function buildLiveSession(args: {
             {
               code: 'inject_invalid_messages',
               field: 'inject',
-              message: 'live ingress takes plain-text inject messages only; inject refused', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+              message: 'live ingress takes plain-text inject messages only; inject refused', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
             },
           ],
         });
@@ -1009,7 +1009,7 @@ function buildLiveSession(args: {
       if (unresolved)
         throw new TheoremError(
           'unavailable',
-          lexiconText('tool.execution_uncertain', {}, profile.lexicon),
+          labelText('tool.execution_uncertain', {}, profile.labels),
           {
             copy: { key: 'tool.execution_uncertain' },
             cause: err,
@@ -1034,7 +1034,7 @@ function buildLiveSession(args: {
         ? {
             code: 'cancelled',
             kind: 'cancelled',
-            message: lexiconText('session.tool_aborted', { tool: held.name }, profile.lexicon),
+            message: labelText('session.tool_aborted', { tool: held.name }, profile.labels),
           }
         : s.failure;
       if (s.callNotStarted && failure) {
@@ -1089,7 +1089,7 @@ function buildLiveSession(args: {
   };
 
   const gateExpiredError = (callId: string) =>
-    // lexicon-exempt: developer contract / internal diagnostic — the user reads session.gate_expired
+    // labels-exempt: developer contract / internal diagnostic — the user reads session.gate_expired
     new TheoremError('request', `gate ${callId} expired`, {
       copy: { key: 'session.gate_expired' },
     });
@@ -1105,17 +1105,17 @@ function buildLiveSession(args: {
   const takeHeld = async (callId: string, operationId?: string): Promise<HeldCall> => {
     const held = calls.get(callId);
     if (!held || held.state === 'running') {
-      throw new TheoremError('request', `call ${callId} is not waiting to run`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError('request', `call ${callId} is not waiting to run`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     if (operationId !== undefined && operationId !== held.operationId) {
-      throw new TheoremError('request', lexiconText('session.gate_expired', {}, profile.lexicon), {
+      throw new TheoremError('request', labelText('session.gate_expired', {}, profile.labels), {
         copy: { key: 'session.gate_expired' },
       });
     }
     if (held.state === 'uncertain')
       throw new TheoremError(
         'unavailable',
-        lexiconText('tool.execution_uncertain', {}, profile.lexicon),
+        labelText('tool.execution_uncertain', {}, profile.labels),
         {
           copy: { key: 'tool.execution_uncertain' },
         },
@@ -1154,7 +1154,7 @@ function buildLiveSession(args: {
         if (calls.has(tool.callId) || identities.has(tool.callId)) {
           throw new TheoremError(
             'bad_response',
-            lexiconText('provider.duplicate_call', {}, profile.lexicon),
+            labelText('provider.duplicate_call', {}, profile.labels),
             { cause: { code: 'duplicate_pending_call' } },
           );
         }
@@ -1233,7 +1233,7 @@ function buildLiveSession(args: {
         trace.receive(item);
         yield* drainPendingHostEvents(pendingHostEvents);
         if (item.type === 'closed') {
-          if (item.goAway) yield sessionEndedEvent(item, item.goAway, profile.lexicon);
+          if (item.goAway) yield sessionEndedEvent(item, item.goAway, profile.labels);
           else if (item.error) yield toErrorEvent(item.error);
           break;
         }
@@ -1272,7 +1272,7 @@ function buildLiveSession(args: {
     canary,
     async *events(): AsyncGenerator<TurnEvent> {
       for await (const raw of streamToHost()) {
-        const event = withPublicWording(raw, profile.lexicon);
+        const event = withPublicWording(raw, profile.labels);
         trace.delivered(event);
         yield event;
       }
@@ -1325,7 +1325,7 @@ function buildLiveSession(args: {
         if (decision !== undefined || input !== undefined || secret !== undefined) {
           throw new TheoremError(
             'request',
-            `call ${callId} is not waiting on a gate; it takes no decision, input or secret`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+            `call ${callId} is not waiting on a gate; it takes no decision, input or secret`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
           );
         }
         return await runHeld(callId, held, held.arguments, undefined, { credentials, host, page });
@@ -1333,7 +1333,7 @@ function buildLiveSession(args: {
       if (decision === undefined) {
         throw new TheoremError(
           'request',
-          `call ${callId} is waiting on a gate; answer it with a decision`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          `call ${callId} is waiting on a gate; answer it with a decision`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         );
       }
       const answered = answerGatedCall(
@@ -1364,7 +1364,7 @@ function buildLiveSession(args: {
       assertOpen();
       const held = calls.get(callId);
       if (!held || (held.state !== 'open' && !isReleased(held))) {
-        throw new TheoremError('request', `call ${callId} is not waiting for an answer`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        throw new TheoremError('request', `call ${callId} is not waiting for an answer`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
       if (gateLapsed(held)) {
         lapseReleased(callId, held);
@@ -1376,20 +1376,20 @@ function buildLiveSession(args: {
         if (ev.tool.phase === undefined || ev.tool.callId !== callId) {
           throw new TheoremError(
             'request',
-            `the run answering call ${callId} carries a call of its own (${ev.tool.callId})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+            `the run answering call ${callId} carries a call of its own (${ev.tool.callId})`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
           );
         }
         if (ev.tool.operationId !== held.operationId || ev.tool.name !== held.name) {
           throw new TheoremError(
             'request',
-            lexiconText('session.gate_expired', {}, profile.lexicon),
+            labelText('session.gate_expired', {}, profile.labels),
             { copy: { key: 'session.gate_expired' } },
           );
         }
         if (isSettledPhase(ev.tool)) settled = ev.tool;
       }
       if (!settled) {
-        throw new TheoremError('request', `the run answering call ${callId} settled nothing`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        throw new TheoremError('request', `the run answering call ${callId} settled nothing`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
       const forward = () => {
         for (const ev of events) {
@@ -1403,7 +1403,7 @@ function buildLiveSession(args: {
       }
       const { readBack } = settled;
       if (readBack === undefined) {
-        throw new TheoremError('request', `the run answering call ${callId} carries no readBack`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        throw new TheoremError('request', `the run answering call ${callId} carries no readBack`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
       forward();
       settleHeld(callId, held, readBack);
@@ -1487,9 +1487,9 @@ async function openTracedSession(
   generation = applyInitialInput(generation, req.input);
 
   const system = bindSystem(generation.resolvedSystem, [
-    canaryNote(generation.canary, profile.lexicon),
-    userDataNote(profile.lexicon),
-    profile.inputs?.context ? contextNote(profile.lexicon) : '',
+    canaryNote(generation.canary, profile.labels),
+    userDataNote(profile.labels),
+    profile.inputs?.context ? contextNote(profile.labels) : '',
   ]);
   const completeReq: ProviderCompleteRequest = {
     ...providerCompleteRequest(registry.tools, generation, system.text),

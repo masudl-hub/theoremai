@@ -5,8 +5,8 @@ import {
   defineProfile,
   describeError,
   type ImageProfileDefinition,
-  type LexiconKey,
-  type LexiconOverrides,
+  type LabelKey,
+  type LabelOverrides,
   type LiveProfileDefinition,
   liveIngressChannelDefault,
   type ProfileDefinitionBase,
@@ -17,7 +17,7 @@ import {
   type TextProfileDefinition,
   TheoremError,
 } from '../mod.ts';
-import { validateLexiconOverrides } from '../src/guardrails/lexicon.ts';
+import { validateLabelOverrides } from '../src/guardrails/labels.ts';
 import { BOUNDARIES, type Boundary, TOOL_BOUNDARIES } from '../src/guardrails/boundaries.ts';
 import {
   DETECT_DEFAULTS,
@@ -690,7 +690,7 @@ export function credentialHeaderProblem(
     ([header, value]) => CREDENTIAL_HEADER.test(header) && value !== MASK,
   )?.[0];
   return name
-    ? `${name} looks like a credential. Put it under Auth instead: Auth asks for it when a call runs and nothing saves it.` // lexicon-exempt: builder diagnostic
+    ? `${name} looks like a credential. Put it under Auth instead: Auth asks for it when a call runs and nothing saves it.` // labels-exempt: builder diagnostic
     : undefined;
 }
 
@@ -1003,14 +1003,14 @@ function compileTurnBehaviour(
   return Object.keys(spec).length ? spec : undefined;
 }
 
-/** Each line is checked by the kernel's lexicon rules and reported on the node that owns it. */
-function compileLexicon(
+/** Each line is checked by the kernel's labels rules and reported on the node that owns it. */
+function compileLabels(
   draft: StudioDraft,
   facets: ReadonlySet<string>,
   allows: (path: string) => boolean,
   report: Report,
-): LexiconOverrides | undefined {
-  const entries: Array<[nodeId: string, field: string, key: LexiconKey, template: string]> = [];
+): LabelOverrides | undefined {
+  const entries: Array<[nodeId: string, field: string, key: LabelKey, template: string]> = [];
   const turn = draft.turnBehaviour;
   if (facets.has('turnBehaviour') && takesContinueInstruction(draft) && turn.resumeEnabled) {
     entries.push([
@@ -1056,23 +1056,23 @@ function compileLexicon(
     ]);
   }
   if (facets.has('wording')) {
-    for (const [key, template] of Object.entries(draft.wording) as [LexiconKey, string][]) {
+    for (const [key, template] of Object.entries(draft.wording) as [LabelKey, string][]) {
       if (!INLINE_WORDING[key]) {
         entries.push(['wording', key, key, template.trim()]);
       }
     }
   }
-  const lexicon: LexiconOverrides = {};
+  const labels: LabelOverrides = {};
   for (const [nodeId, field, key, template] of entries) {
     if (!template) continue;
     try {
-      validateLexiconOverrides({ [key]: template }, 'Profile lexicon');
-      lexicon[key] = template;
+      validateLabelOverrides({ [key]: template }, 'Profile labels');
+      labels[key] = template;
     } catch (err) {
       report(nodeId, describeError(err), field);
     }
   }
-  return Object.keys(lexicon).length ? lexicon : undefined;
+  return Object.keys(labels).length ? labels : undefined;
 }
 
 function compileQuota(guardrails: GuardrailsDraft, report: Report): ProfileGuardrailsSpec['quota'] {
@@ -1754,14 +1754,14 @@ function compileProfileOptions(
   draft: StudioDraft,
   facets: Set<string>,
   report: Report,
-): Pick<ProfileDefinitionBase, 'observability' | 'lexicon'> {
+): Pick<ProfileDefinitionBase, 'observability' | 'labels'> {
   const observability = facets.has('observability')
     ? compileObservability(draft.observability, report)
     : undefined;
-  const lexicon = compileLexicon(draft, facets, (path) => draftAllows(draft, path), report);
+  const labels = compileLabels(draft, facets, (path) => draftAllows(draft, path), report);
   return {
     ...(observability ? { observability } : {}),
-    ...(lexicon ? { lexicon } : {}),
+    ...(labels ? { labels } : {}),
   };
 }
 

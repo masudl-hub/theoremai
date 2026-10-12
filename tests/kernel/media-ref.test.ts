@@ -92,7 +92,7 @@ Deno.test('wireInteractionPart emits { type, mimeType, uri } for a ref part', ()
   assertEquals(isMediaRefPart({ type: 'image', mimeType: 'image/png', data: 'x' }), false);
 });
 
-Deno.test('refused files name every reason, one line per problem, in the profile lexicon', () => {
+Deno.test('refused files name every reason, one line per problem, in the profile labels', () => {
   const profile = tiny();
   const err = assertThrows(
     () =>

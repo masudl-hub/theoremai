@@ -8,7 +8,7 @@ import {
   detectReads,
 } from './detect-at.ts';
 import type { ResolvedDetect } from './detectors.ts';
-import { type LexiconOverrides, lexiconText } from './lexicon.ts';
+import { type LabelOverrides, labelText } from './labels.ts';
 import { DETECT_RULES, EGRESS_RULES, TOOL_RULES } from './rules.ts';
 import { textForScan } from './serialize.ts';
 import { advisoryLevel } from './tool-directives.ts';
@@ -83,28 +83,28 @@ function wrapToolData(
   text: string,
   provenance: Provenance,
   advisory: AdvisoryLevel = 'none',
-  lexicon?: LexiconOverrides,
+  labels?: LabelOverrides,
 ): string {
-  const guidance = lexiconText('advisory.guidance', {}, lexicon).trim();
+  const guidance = labelText('advisory.guidance', {}, labels).trim();
   const attrs =
     `tool="${provenance.tool}" origin="${provenance.origin}"` +
     (advisory === 'none' ? '' : ` advisory="${advisory}"`);
   const notice =
     advisory === 'none'
       ? ''
-      : `${advisoryNotice(advisory, lexicon)}${guidance ? ` ${guidance}` : ''}\n`;
+      : `${advisoryNotice(advisory, labels)}${guidance ? ` ${guidance}` : ''}\n`;
   return `<${'tool_data'} ${attrs}>\n${notice}${stripToolFences(text)}\n${TOOL_CLOSE}`;
 }
 
 /**
  * Deliberately an observation, not an instruction: what the agent should do about
- * it is product behaviour, supplied by the host as lexicon `advisory.guidance`. Emitted
+ * it is product behaviour, supplied by the host as labels `advisory.guidance`. Emitted
  * only when signals fired, so it stays rare enough to carry weight — a warning on
  * every fetch is one the model learns to skip.
  */
-function advisoryNotice(advisory: AdvisoryLevel, lexicon: LexiconOverrides | undefined): string {
+function advisoryNotice(advisory: AdvisoryLevel, labels: LabelOverrides | undefined): string {
   const key = advisory === 'high' ? 'advisory.notice_high' : 'advisory.notice_elevated';
-  return lexiconText(key, {}, lexicon);
+  return labelText(key, {}, labels);
 }
 
 /** A tool result after the guard: the text the model sees, any event and the suspicious hits. */
@@ -162,7 +162,7 @@ function guardToolResult(
   policy: ResolvedGuardrailPolicy,
   boundary: ToolBoundary | undefined,
   callableTools: readonly string[] = [],
-  lexicon?: LexiconOverrides,
+  labels?: LabelOverrides,
 ): GuardedToolText {
   const composed = composeToolText(finding, data);
   const detected = readAt(composed, boundary, policy.detect, { callable: callableTools });
@@ -189,7 +189,7 @@ function guardToolResult(
         detected.text,
         provenance,
         advisoryLevel(suspicious.map(({ signal }) => signal)),
-        lexicon,
+        labels,
       )
     : detected.text;
   return { text: fenced, ...found };
@@ -326,7 +326,7 @@ function checkTaintGate(
   taint: TurnTaint | undefined,
   access: string,
   policy: ResolvedGuardrailPolicy,
-  lexicon?: LexiconOverrides,
+  labels?: LabelOverrides,
 ): Verdict {
   if (!isTainted(taint)) {
     return { action: 'allow' };
@@ -348,15 +348,15 @@ function checkTaintGate(
     return { action: 'flag', hits };
   }
   const read = taint?.sources.map((s) => s.tool).join(', ') ?? '';
-  const reason = lexiconText(
+  const reason = labelText(
     suspicious ? 'taint.reason_steered' : 'taint.reason_tainted',
     {},
-    lexicon,
+    labels,
   );
   return {
     action: 'block',
     hits,
-    rejection: lexiconText('taint.blocked', { access, sources: read, reason }, lexicon),
+    rejection: labelText('taint.blocked', { access, sources: read, reason }, labels),
   };
 }
 

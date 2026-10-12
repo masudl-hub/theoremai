@@ -351,7 +351,7 @@ tree with a search, test a tool in the host console, read each profile.
   local kernel, and the provider work in progress there removed an export
   Bonsai imports (`createProvider`). To repeat when that work is finished.
 - Against the published 0.3.0, Bonsai's current code does not register
-  either: it uses a lexicon placeholder that 0.3.0 does not know.
+  either: it uses a label placeholder that 0.3.0 does not know.
 
 **Who the builder is in a test.** Masud (8 Oct): "generally a tester
 account we've signed into". He asked how the studio handles Bonsai's

@@ -2,7 +2,7 @@ import { describeError } from '@theoremjs/agents';
 import { pickMediaRecorderMime } from '@theoremjs/agents/interface';
 import { timeDomainBytesToLevel } from './audio-level.ts';
 
-/** Why recording failed; the user reads lexicon `voice.<code>`. */
+/** Why recording failed; the user reads labels `voice.<code>`. */
 export type VoiceRecorderFailureCode =
   | 'unsupported'
   | 'permission'
@@ -87,7 +87,7 @@ export class ComposerVoiceRecorder {
 
   async stop(): Promise<File> {
     if (!this.recorder || !this.recording) {
-      // lexicon-exempt: internal diagnostic; the user reads voice.empty
+      // labels-exempt: internal diagnostic; the user reads voice.empty
       throw new VoiceRecorderFailure('empty', 'stop without a recording');
     }
 

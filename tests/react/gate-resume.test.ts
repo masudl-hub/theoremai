@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import { lexiconDefault, type TurnEvent, type TurnHistoryMessage } from '../../mod.ts';
+import { labelDefault, type TurnEvent, type TurnHistoryMessage } from '../../mod.ts';
 import {
   resumeInterfaceTool,
   streamInterfaceDraftTurn,
@@ -389,7 +389,7 @@ Deno.test('a message sent while gated, without walking away, is refused', async 
     draft: { text: 'Never mind' },
     view: unskippedView,
   });
-  assertEquals(sent.ok ? undefined : sent.error, lexiconDefault('session.gate_pending'));
+  assertEquals(sent.ok ? undefined : sent.error, labelDefault('session.gate_pending'));
 });
 /** A transport whose first turn pauses on `paused`, and whose answer streams `answered`, then the network drops. */
 function cutAnswer(paused: TurnEvent[], answered: TurnEvent[]): TheoremTransport {

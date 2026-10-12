@@ -40,16 +40,16 @@ function oauthFetch(
 /** RFC 8414 §2, RFC 9728 §1.2, OAuth 2.1 §1.5: an absolute `https` URL without a fragment. */
 function httpsUrl(value: unknown, what: string): URL {
   if (typeof value !== 'string') {
-    throw new Error(`OAuth ${what} is missing`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error(`OAuth ${what} is missing`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new Error(`OAuth ${what} "${value}" is not a URL`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error(`OAuth ${what} "${value}" is not a URL`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (url.protocol !== 'https:' || url.hash) {
-    throw new Error(`OAuth ${what} "${value}" must be an https URL without a fragment`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error(`OAuth ${what} "${value}" must be an https URL without a fragment`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return url;
 }
@@ -66,7 +66,7 @@ function assertRedirectUri(value: string): void {
   try {
     url = new URL(value);
   } catch {
-    throw new Error(`OAuth redirect_uri "${value}" is not an absolute URI`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error(`OAuth redirect_uri "${value}" is not an absolute URI`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const scheme = url.protocol.slice(0, -1);
   const allowed =
@@ -75,7 +75,7 @@ function assertRedirectUri(value: string): void {
     (scheme !== 'http' && scheme.includes('.'));
   if (!allowed || value.includes('#')) {
     throw new Error(
-      `OAuth redirect_uri "${value}" must be https, http on loopback, or a reverse-domain app scheme, without a fragment`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `OAuth redirect_uri "${value}" must be https, http on loopback, or a reverse-domain app scheme, without a fragment`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -86,7 +86,7 @@ const SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]+$/;
 function assertScopeTokens(scopes: readonly string[]): void {
   for (const scope of scopes) {
     if (!SCOPE_TOKEN.test(scope)) {
-      throw new Error(`OAuth scope "${scope}" is not a single RFC 6749 scope token`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new Error(`OAuth scope "${scope}" is not a single RFC 6749 scope token`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
 }
@@ -107,7 +107,7 @@ function assertAuthorizationParams(params: Readonly<Record<string, string>>): vo
   for (const name of Object.keys(params)) {
     if (FLOW_PARAMS.has(name)) {
       throw new Error(
-        `OAuth authorization parameter "${name}" is set by the flow and cannot be passed`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `OAuth authorization parameter "${name}" is set by the flow and cannot be passed`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
   }
@@ -116,7 +116,7 @@ function assertAuthorizationParams(params: Readonly<Record<string, string>>): vo
 /** A client id that is a URL is a Client ID Metadata Document, which is served over https. */
 function assertClientId(clientId: string): void {
   if (clientId.length === 0) {
-    throw new Error('OAuth client_id is missing'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error('OAuth client_id is missing'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (/^https?:/i.test(clientId)) httpsUrl(clientId, 'client_id');
 }
@@ -131,7 +131,7 @@ function stringList(data: Record<string, unknown>, field: string): string[] | un
   const value = data[field];
   if (value === undefined) return undefined;
   if (!Array.isArray(value) || !value.every((entry) => typeof entry === 'string')) {
-    throw new Error(`OAuth metadata "${field}" must be a list of strings`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error(`OAuth metadata "${field}" must be a list of strings`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return value;
 }
@@ -139,7 +139,7 @@ function stringList(data: Record<string, unknown>, field: string): string[] | un
 async function metadataObject(response: Response, url: string): Promise<Record<string, unknown>> {
   const data: unknown = await response.json();
   if (!isRecord(data)) {
-    throw new Error(`OAuth metadata at ${url} is not a JSON object`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error(`OAuth metadata at ${url} is not a JSON object`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return data;
 }
@@ -162,20 +162,20 @@ export async function discoverResourceMetadata(
   if (!response.ok) {
     await response.body?.cancel();
     throw new Error(
-      `Failed to discover protected resource metadata at ${metadataUrl} (HTTP ${response.status})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Failed to discover protected resource metadata at ${metadataUrl} (HTTP ${response.status})`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 
   const data = await metadataObject(response, metadataUrl);
   if (data.resource !== resourceUrl) {
     throw new Error(
-      `Protected resource metadata at ${metadataUrl} is for "${String(data.resource)}", not "${resourceUrl}"`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Protected resource metadata at ${metadataUrl} is for "${String(data.resource)}", not "${resourceUrl}"`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const authServers = stringList(data, 'authorization_servers') ?? [];
   if (authServers.length === 0) {
     throw new Error(
-      `Protected resource metadata at ${metadataUrl} did not declare any authorization_servers`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Protected resource metadata at ${metadataUrl} did not declare any authorization_servers`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   for (const server of authServers) httpsUrl(server, 'authorization server');
@@ -196,7 +196,7 @@ function parseAuthServerMetadata(
 ): AuthorizationServerMetadata {
   if (data.issuer !== issuer) {
     throw new Error(
-      `Authorization server metadata at ${url} names issuer "${String(data.issuer)}", not "${issuer}"`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Authorization server metadata at ${url} names issuer "${String(data.issuer)}", not "${issuer}"`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const authorizationEndpoint = httpsUrl(data.authorization_endpoint, 'authorization_endpoint');
@@ -238,7 +238,7 @@ export async function discoverAuthServerMetadata(
 ): Promise<AuthorizationServerMetadata> {
   const issuerUrl = httpsUrl(issuer, 'issuer');
   if (issuerUrl.search) {
-    throw new Error(`OAuth issuer "${issuer}" must not have a query`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error(`OAuth issuer "${issuer}" must not have a query`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   for (const url of authServerMetadataUrls(issuerUrl)) {
     const response = await oauthFetch(url, { headers: { Accept: 'application/json' } }, transport);
@@ -248,7 +248,7 @@ export async function discoverAuthServerMetadata(
     }
     return parseAuthServerMetadata(await metadataObject(response, url), issuer, url);
   }
-  throw new Error(`Failed to discover authorization server metadata for "${issuer}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  throw new Error(`Failed to discover authorization server metadata for "${issuer}"`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 }
 
 /** A resource that publishes no metadata is its own authorization server. */
@@ -261,7 +261,7 @@ async function discoverEndpoints(
   const asMeta = await discoverAuthServerMetadata(issuer, transport);
   if (!asMeta.code_challenge_methods_supported?.includes('S256')) {
     throw new Error(
-      `Authorization server "${issuer}" does not advertise S256 PKCE (code_challenge_methods_supported)`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Authorization server "${issuer}" does not advertise S256 PKCE (code_challenge_methods_supported)`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   return {
@@ -289,7 +289,7 @@ export async function createOAuthPkceFlow(options: CreatePkceFlowOptions): Promi
   if (options.authorizationParams) assertAuthorizationParams(options.authorizationParams);
   const ttl = options.stateTtlMs ?? 10 * 60 * 1000;
   if (!Number.isFinite(ttl) || ttl <= 0) {
-    throw new RangeError(`OAuth stateTtlMs must be a positive number of milliseconds; got ${ttl}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new RangeError(`OAuth stateTtlMs must be a positive number of milliseconds; got ${ttl}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 
   const sessionBinding = await sessionBindingDigest(options.sessionBinding);
@@ -339,7 +339,7 @@ export async function createOAuthPkceFlow(options: CreatePkceFlowOptions): Promi
 /** SHA-256 of the host's session binding, so the raw value never enters the state. */
 async function sessionBindingDigest(binding: string): Promise<string> {
   if (binding.length === 0) {
-    throw new Error('OAuth sessionBinding must be a non-empty value tied to the user session'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error('OAuth sessionBinding must be a non-empty value tied to the user session'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(binding));
   return toBase64Url(new Uint8Array(digest));
@@ -362,14 +362,14 @@ export function validateIssuer(
   if (receivedIss === undefined) {
     if (issRequired) {
       throw new Error(
-        `RFC 9207: authorization server "${expectedIssuer}" sends "iss", but the response has none (potential mix-up attack)`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `RFC 9207: authorization server "${expectedIssuer}" sends "iss", but the response has none (potential mix-up attack)`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     return;
   }
   if (expectedIssuer !== receivedIss) {
     throw new Error(
-      `RFC 9207 Issuer mismatch detected (potential mix-up attack): expected "${expectedIssuer}", received "${receivedIss}"`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `RFC 9207 Issuer mismatch detected (potential mix-up attack): expected "${expectedIssuer}", received "${receivedIss}"`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -394,28 +394,28 @@ async function tokenErrorText(response: Response): Promise<string> {
 
 function parseTokenResponse(data: unknown, tokenEndpoint: string): OAuthTokens {
   const fail = (why: string): never => {
-    throw new Error(`Token response from ${tokenEndpoint} ${why}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error(`Token response from ${tokenEndpoint} ${why}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   };
   if (!isRecord(data)) {
-    return fail('is not a JSON object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return fail('is not a JSON object'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const tokens = data;
   if (typeof tokens.access_token !== 'string' || tokens.access_token.length === 0) {
-    fail('has no access_token'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    fail('has no access_token'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (typeof tokens.token_type !== 'string' || tokens.token_type.toLowerCase() !== 'bearer') {
-    fail(`has token_type "${String(tokens.token_type)}", not Bearer`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    fail(`has token_type "${String(tokens.token_type)}", not Bearer`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const expiresIn = tokens.expires_in;
   if (
     expiresIn !== undefined &&
     (typeof expiresIn !== 'number' || !Number.isFinite(expiresIn) || expiresIn < 0)
   ) {
-    fail('has an expires_in that is not a number of seconds'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    fail('has an expires_in that is not a number of seconds'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   for (const field of ['refresh_token', 'scope'] as const) {
     if (tokens[field] !== undefined && typeof tokens[field] !== 'string') {
-      fail(`has a ${field} that is not a string`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      fail(`has a ${field} that is not a string`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
   return tokens as OAuthTokens;
@@ -448,7 +448,7 @@ function assertGrantWithin(
   const beyond = scopeTokens(granted).filter((scope) => !requested.includes(scope));
   if (beyond.length > 0) {
     throw new Error(
-      `Token response from ${tokenEndpoint} grants scopes that were not asked for: ${beyond.join(', ')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Token response from ${tokenEndpoint} grants scopes that were not asked for: ${beyond.join(', ')}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -481,7 +481,7 @@ async function requestToken(
     transport,
   );
   if (!response.ok) {
-    const failed = previous ? 'Token refresh failed' : 'Token exchange failed'; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    const failed = previous ? 'Token refresh failed' : 'Token exchange failed'; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     throw new Error(
       `${failed} at ${grant.tokenEndpoint} (HTTP ${response.status})${await tokenErrorText(response)}`,
     );
@@ -511,12 +511,12 @@ export async function exchangeOAuthPkce(
   const presented = await sessionBindingDigest(options.sessionBinding);
   if (!sameDigest(presented, state.sessionBinding)) {
     throw new Error(
-      'OAuth state belongs to another session: the callback did not come from the session that began the flow', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'OAuth state belongs to another session: the callback did not come from the session that began the flow', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (options.redirectUri !== state.redirectUri) {
     throw new Error(
-      `Redirect URI mismatch: expected "${state.redirectUri}", received "${options.redirectUri}"`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Redirect URI mismatch: expected "${state.redirectUri}", received "${options.redirectUri}"`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   validateIssuer(state.expectedIssuer, options.iss, state.issRequired);

@@ -36,9 +36,9 @@ export const EGRESS_RULES = {
    * A provider-side built-in tool carried the canary or the system prompt. It
    * ran before Theorem saw it: the data already left, so this is an incident.
    */
-  providerToolLeak: 'egress.provider-tool-leak', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  providerToolLeak: 'egress.provider-tool-leak', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /** Payload could not be rendered for inspection — released output is unverified. */
-  unscannable: 'egress.unscannable', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  unscannable: 'egress.unscannable', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 } as const;
 
 /** A tool call refused for what the turn read before it. */

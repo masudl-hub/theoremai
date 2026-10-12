@@ -111,7 +111,7 @@ Deno.test("the host's profile description is read by its schema", async () => {
   await assertBadResponse(
     () => describe(JSON.stringify({ interface: { type: 'text', id: 'p' } })),
     'the profile description failed its wire check: ' +
-      'interface.models invalid_type; interface.defaultModel invalid_type; interface.lexicon invalid_type; ' +
+      'interface.models invalid_type; interface.defaultModel invalid_type; interface.labels invalid_type; ' +
       'interface.identity invalid_type; interface.inputs invalid_type; interface.tools invalid_type; ' +
       'interface.canStop invalid_value; interface.allowSteering invalid_type',
   );

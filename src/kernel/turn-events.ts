@@ -937,7 +937,7 @@ export type TurnEvent =
       errorKind: ErrorKind;
       /** Public-safe failure text for hosts to show users: the wording for `errorKind`. */
       error?: string;
-      /** The lexicon key and parameters behind `error` when more specific than the kind's. */
+      /** The labels key and parameters behind `error` when more specific than the kind's. */
       errorCopy?: ErrorCopies;
       /** Raw diagnostic detail for traces/logs; never surface to end users (`forClient` strips it). */
       errorInternal?: string;

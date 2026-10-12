@@ -1,5 +1,5 @@
 // invariant: Leaf module: `schema.ts` and `profile-graph.ts` read it at load time.
-/** lexicon-exempt-file: authoring field-meta scope reasons — not runtime user or model copy (P2) */
+/** labels-exempt-file: authoring field-meta scope reasons — not runtime user or model copy (P2) */
 import { HOST_GUARDRAIL_FIELDS } from '../guardrails/types.ts';
 import type { ProfileType } from './schema.ts';
 /**

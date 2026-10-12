@@ -114,7 +114,7 @@ interface TraceSpan {
 - `kernel/`: `engine/history-tokens.ts` → `engine/token-estimate.ts`, `engine/compaction.ts`, `engine/runner/tokens.ts` (deleted), `mod.ts` (export rename), `engine/runner/{mod,steps}.ts`, `tools/execute.ts`, `engine/delta.ts` (cost), `providers/openrouter/chat.ts` (cost), `types.ts`, `schema.ts`.
 - `cli/`: `event-log.ts`, `commands/{run,test,bench}.ts`, `index.ts`; `interface/{types,from-profile}.ts`; `host/mint-trace.ts` (see question 5).
 - Tests: `tests/observability/*` (6 files), `tests/cli/event-log.test.ts`, `tests/host/host.test.ts`, `tests/kernel/{abort,theorem,tools}.test.ts`, `tests/providers/shared/upstream-tape.test.ts`.
-- Docs: `docs/contracts/observability.md` (Trace records section rewritten), `stages.md` (stage span events), `kernel.md` (`traceparent`), `_map.mjs` ownership for the new files, lexicon for any new copy.
+- Docs: `docs/contracts/observability.md` (Trace records section rewritten), `stages.md` (stage span events), `kernel.md` (`traceparent`), `_map.mjs` ownership for the new files, labels for any new copy.
 - theoremai-frontend: `unified-docs.ts`, `architecture.ts`.
 
 **Bonsai** (on the package bump)

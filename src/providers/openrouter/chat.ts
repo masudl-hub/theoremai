@@ -229,7 +229,7 @@ function wireRequest(req: ProviderCompleteRequest): Record<string, unknown> {
   }
   for (const builtin of req.builtins) {
     if (!Object.hasOwn(OPENROUTER_BUILTINS, builtin.id)) {
-      throw new TheoremError('config', `Builtin '${builtin.id}' is not an OpenRouter tool`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError('config', `Builtin '${builtin.id}' is not an OpenRouter tool`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
   const web = req.builtins.some((builtin) => builtin.id === 'webSearch');

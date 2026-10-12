@@ -8,7 +8,7 @@ const LIVE_INGRESS_CHANNELS: LiveIngressChannel[] = ['audio', 'video', 'text'];
 
 function assertLiveProfile(profile: Profile): LiveProfile {
   if (profile.type !== 'live') {
-    throw new TheoremError('request', `Profile '${profile.id}' is not type 'live'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('request', `Profile '${profile.id}' is not type 'live'`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return profile;
 }
@@ -48,7 +48,7 @@ export function assertLiveIngressConfigured(profile: Profile): void {
   if (hasAnyLiveIngress(live)) return;
   throw new TheoremError(
     'config',
-    `Profile '${live.id}': at least one live.ingress channel (audio, video, text) must be enabled`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    `Profile '${live.id}': at least one live.ingress channel (audio, video, text) must be enabled`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 
@@ -57,6 +57,6 @@ export function assertLiveIngress(profile: Profile, channel: LiveIngressChannel)
   if (liveIngressEnabled(profile, channel)) return;
   throw new TheoremError(
     'request',
-    `Profile '${profile.id}' live.ingress.${channel} is disabled — cannot send on this channel`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    `Profile '${profile.id}' live.ingress.${channel} is disabled — cannot send on this channel`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }

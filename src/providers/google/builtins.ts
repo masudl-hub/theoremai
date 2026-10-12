@@ -45,7 +45,7 @@ const INTERACTIONS_TYPE: Record<GoogleBuiltinId, string> = {
 function googleBuiltinId(builtin: ProviderBuiltin): GoogleBuiltinId {
   const id = GOOGLE_BUILTIN_IDS.find((known) => known === builtin.id);
   if (!id) {
-    throw new TheoremError('config', `Builtin '${builtin.id}' is not a Google tool`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Builtin '${builtin.id}' is not a Google tool`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return id;
 }
@@ -65,7 +65,7 @@ function interactionsBuiltinTool(builtin: ProviderBuiltin): Record<string, unkno
 function liveBuiltinTool(builtin: ProviderBuiltin): Record<string, unknown> {
   const id = googleBuiltinId(builtin);
   if (builtin.args) {
-    throw new TheoremError('unsupported', `Builtin '${id}' takes no args on Google Live`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('unsupported', `Builtin '${id}' takes no args on Google Live`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return { [id]: {} };
 }

@@ -40,7 +40,7 @@ function rootOf(spans: TraceSpan[], byId: ReadonlyMap<string, TraceSpan>): Trace
   );
   const [root] = roots;
   if (!root) {
-    throw new TheoremError('config', 'trial records hold no invoke_agent root span'); // lexicon-exempt: developer contract error
+    throw new TheoremError('config', 'trial records hold no invoke_agent root span'); // labels-exempt: developer contract error
   }
   return root;
 }
@@ -49,7 +49,7 @@ function rootOf(spans: TraceSpan[], byId: ReadonlyMap<string, TraceSpan>): Trace
 function mergedRecord(records: TraceRecord[]): TraceRecord {
   const [first] = records;
   if (!first) {
-    throw new TheoremError('config', 'a trial needs at least one trace record'); // lexicon-exempt: developer contract error
+    throw new TheoremError('config', 'a trial needs at least one trace record'); // labels-exempt: developer contract error
   }
   return { ...first, content: Object.assign({}, ...records.map((record) => record.content)) };
 }

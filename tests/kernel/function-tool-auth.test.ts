@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { lexiconText } from '../../src/guardrails/lexicon.ts';
+import { labelText } from '../../src/guardrails/labels.ts';
 import { TheoremError } from '../../src/guardrails/theorem-error.ts';
 import { memoryCredentialSource } from '../../src/kernel/auth/credential-source.ts';
 import type { ToolCredential } from '../../src/kernel/auth/types.ts';
@@ -150,7 +150,7 @@ Deno.test('a function tool asked for scopes it never declared fails without a si
   assertEquals(failed?.failure?.code, 'out_of_scope');
   assertEquals(
     failed?.failure?.message,
-    lexiconText('sign_in.out_of_scope', { service: 'Sheets' }),
+    labelText('sign_in.out_of_scope', { service: 'Sheets' }),
   );
 });
 Deno.test('a 403 that asks for no sign-in reaches the handler as a response', async () => {

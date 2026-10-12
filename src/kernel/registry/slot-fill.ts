@@ -23,7 +23,7 @@ export function fillSlots(
     if (value === undefined) {
       throw new TheoremError(
         'request',
-        `Profile ${profile.id}: ${where} uses slot '${name}', and the request chose no value for it`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profile.id}: ${where} uses slot '${name}', and the request chose no value for it`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     return value;

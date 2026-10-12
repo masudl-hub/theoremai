@@ -1102,17 +1102,17 @@ Deno.test('historyFromTranscriptBlocks records a failed tool block as a paired r
   const tool = history.find((m) => m.role === 'tool');
   assertEquals(tool?.content?.includes('not allowed'), true);
 });
-Deno.test('interfaceFromProfile carries only the client lexicon keys the profile overrides', () => {
+Deno.test('interfaceFromProfile carries only the client labels keys the profile overrides', () => {
   const profile = defineProfile({
-    id: 'interface.text.lexicon',
+    id: 'interface.text.labels',
     type: 'text',
     identity: { handle: 'worded' },
     ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true },
-    lexicon: { 'error.timeout': 'Took too long.', 'taint.reason_tainted': 'Host only.' },
+    labels: { 'error.timeout': 'Took too long.', 'taint.reason_tainted': 'Host only.' },
   });
-  assertEquals(interfaceFromProfile(profile, defaultKernelScope.tools).lexicon, {
+  assertEquals(interfaceFromProfile(profile, defaultKernelScope.tools).labels, {
     'error.timeout': 'Took too long.',
   });
 });

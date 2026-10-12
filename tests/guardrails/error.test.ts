@@ -13,18 +13,18 @@ import {
   withPublicWording,
 } from '../../src/guardrails/error.ts';
 import {
-  type LexiconOverrides,
-  lexiconDefault,
-  overrideLexicon,
-  resetLexicon,
-} from '../../src/guardrails/lexicon.ts';
+  type LabelOverrides,
+  labelDefault,
+  overrideLabels,
+  resetLabels,
+} from '../../src/guardrails/labels.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
 import { firstOf, toolEventsOf } from '../fixtures/events.ts';
 
 /** An event's wording, read back as its error. */
-function wordedError(event: TurnEvent, lexicon?: LexiconOverrides) {
-  return firstOf([withPublicWording(event, lexicon)], 'error');
+function wordedError(event: TurnEvent, labels?: LabelOverrides) {
+  return firstOf([withPublicWording(event, labels)], 'error');
 }
 
 /** The locked user lines, one per kind. */
@@ -51,7 +51,7 @@ const LOCKED: Record<ErrorKind, string> = {
 Deno.test('every kind has its locked wording', () => {
   assertEquals([...ERROR_KINDS].sort(), Object.keys(LOCKED).sort());
   for (const kind of ERROR_KINDS) {
-    assertEquals(lexiconDefault(`error.${kind}`), LOCKED[kind]);
+    assertEquals(labelDefault(`error.${kind}`), LOCKED[kind]);
     assertEquals(publicError(new TheoremError(kind, 'raw detail')), LOCKED[kind]);
   }
 });
@@ -100,17 +100,17 @@ Deno.test('publicError prefers the failure copy over its kind', () => {
   assertEquals(publicError(err), 'Sorry, only 5 files can be sent per message.');
 });
 
-Deno.test('wording resolves profile lexicon, then overrideLexicon, then the default', () => {
+Deno.test('wording resolves profile labels, then overrideLabels, then the default', () => {
   const err = new TheoremError('rate_limit', 'HTTP 429');
   try {
     assertEquals(publicError(err), LOCKED.rate_limit);
-    overrideLexicon({ 'error.rate_limit': 'Host-wide: busy.' });
+    overrideLabels({ 'error.rate_limit': 'Host-wide: busy.' });
     assertEquals(publicError(err), 'Host-wide: busy.');
     assertEquals(publicError(err, { 'error.rate_limit': 'Profile: busy.' }), 'Profile: busy.');
     // A profile that leaves the key unset falls through to the host.
     assertEquals(publicError(err, { 'error.auth': 'Profile: key.' }), 'Host-wide: busy.');
   } finally {
-    resetLexicon();
+    resetLabels();
   }
 });
 
@@ -135,12 +135,12 @@ Deno.test('toErrorEvent keeps a failure copy for the host boundary', () => {
   );
 });
 
-Deno.test('withPublicWording words error events with the profile lexicon', () => {
+Deno.test('withPublicWording words error events with the profile labels', () => {
   const ev = toErrorEvent(new TheoremError('auth', 'no key in slot free'));
   assertEquals(wordedError(ev)?.error, LOCKED.auth);
-  const lexicon = { 'error.auth': 'Add your API key in settings to continue.' };
-  assertEquals(wordedError(ev, lexicon)?.error, lexicon['error.auth']);
-  assertEquals(wordedError(ev, lexicon)?.errorInternal, 'no key in slot free');
+  const labels = { 'error.auth': 'Add your API key in settings to continue.' };
+  assertEquals(wordedError(ev, labels)?.error, labels['error.auth']);
+  assertEquals(wordedError(ev, labels)?.errorInternal, 'no key in slot free');
 });
 
 Deno.test('withPublicWording keeps wording already set', () => {
@@ -159,12 +159,12 @@ Deno.test('withPublicWording words a failed tool step with its tool name', () =>
       failure: { code: 'network_blocked', kind: 'blocked', message: 'blocked host' },
     },
   };
-  const failure = (lexicon?: LexiconOverrides) =>
-    toolEventsOf([withPublicWording(ev, lexicon)], 'error')[0]?.failure;
+  const failure = (labels?: LabelOverrides) =>
+    toolEventsOf([withPublicWording(ev, labels)], 'error')[0]?.failure;
   assertEquals(failure()?.error, LOCKED.blocked);
-  const lexicon = { 'error.blocked': "Sorry, '{tool}' wasn't allowed." };
-  assertEquals(failure(lexicon)?.error, "Sorry, 'send_email' wasn't allowed.");
-  assertEquals(failure(lexicon)?.message, 'blocked host');
+  const labels = { 'error.blocked': "Sorry, '{tool}' wasn't allowed." };
+  assertEquals(failure(labels)?.error, "Sorry, 'send_email' wasn't allowed.");
+  assertEquals(failure(labels)?.message, 'blocked host');
 });
 
 Deno.test('withPublicWording leaves other events untouched', () => {

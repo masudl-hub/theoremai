@@ -14,7 +14,7 @@
 
 import {
   describeError,
-  lexiconText,
+  labelText,
   type SessionEvent,
   type SessionEventOf,
   TheoremError,
@@ -113,7 +113,7 @@ export interface LiveClientOptions {
   onTurnEvent?: (event: ClientTurnEvent) => void;
   /** A trace record the session wrote, when the relay delivers them. */
   onTrace?: (record: TraceRecord) => void;
-  /** A failure, typed by kind; word it with `clientFailure` and the interface's `lexicon`. */
+  /** A failure, typed by kind; word it with `clientFailure` and the interface's `labels`. */
   onError?: (error: Error) => void;
   /** Provider signalled the upstream session is draining (e.g. goAway). */
   onSessionClosing?: (timeLeftMs?: number) => void;
@@ -267,7 +267,7 @@ export class LiveSessionClient {
 
   private detachWebSocket(): void {
     for (const [callId, pending] of this.pendingExecuteResults) {
-      // lexicon-exempt: internal diagnostic; the user reads error.network
+      // labels-exempt: internal diagnostic; the user reads error.network
       pending.reject(
         new TheoremError('network', `live session closed before call ${callId} settled`),
       );
@@ -375,7 +375,7 @@ export class LiveSessionClient {
     const delay = LIVE_RECONNECT_DELAYS_MS[this.reconnectTries];
     if (delay === undefined) {
       const droppedAt = this.droppedAt;
-      // lexicon-exempt: internal diagnostic; the user reads error.network
+      // labels-exempt: internal diagnostic; the user reads error.network
       this.failSession(new TheoremError('network', 'live call dropped and could not reconnect'));
       this.lostAt = droppedAt;
       return;
@@ -428,7 +428,7 @@ export class LiveSessionClient {
 
       this.connectTimeout = setTimeout(() => {
         if (this.opening) {
-          // lexicon-exempt: internal diagnostic; the user reads error.timeout
+          // labels-exempt: internal diagnostic; the user reads error.timeout
           this.failOpen(new TheoremError('timeout', 'live connect timed out'));
         }
       }, 20_000);
@@ -439,7 +439,7 @@ export class LiveSessionClient {
 
       this.ws.onclose = () => {
         if (this.opening) {
-          // lexicon-exempt: internal diagnostic; the user reads error.network
+          // labels-exempt: internal diagnostic; the user reads error.network
           this.failOpen(new TheoremError('network', 'live socket closed before ready'));
           return;
         }
@@ -451,7 +451,7 @@ export class LiveSessionClient {
           this.handleDrop();
           return;
         }
-        // lexicon-exempt: internal diagnostic; the user reads error.network
+        // labels-exempt: internal diagnostic; the user reads error.network
         this.failOpen(new TheoremError('network', 'live socket error'));
       };
     } catch (err) {
@@ -799,15 +799,15 @@ export class LiveSessionClient {
   executeToolOnRelay(args: Parameters<ExecuteToolOnRelay>[0]): Promise<LiveToolStep> {
     const socket = this.ws;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
-      throw new TheoremError('request', 'live session is not connected'); // lexicon-exempt: internal diagnostic
+      throw new TheoremError('request', 'live session is not connected'); // labels-exempt: internal diagnostic
     }
     const checked = liveClientMessageSchema.safeParse({ ...args, type: 'executeTool' });
     if (!checked.success || checked.data.type !== 'executeTool') {
-      throw new TheoremError('request', lexiconText('error.request'));
+      throw new TheoremError('request', labelText('error.request'));
     }
     const request = checked.data;
     if (this.pendingExecuteResults.has(request.operationId)) {
-      throw new TheoremError('request', lexiconText('session.gate_expired'));
+      throw new TheoremError('request', labelText('session.gate_expired'));
     }
     return new Promise<LiveToolStep>((resolve, reject) => {
       this.pendingExecuteResults.set(request.operationId, {

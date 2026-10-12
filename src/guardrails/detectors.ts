@@ -2,7 +2,7 @@
 // nothing from `src/guardrails/types.ts` or `src/kernel/`, so `types.ts` can read these types
 // without a cycle.
 
-/** lexicon-exempt-file: authoring labels, descriptions and profile-registration diagnostics for detectors — not runtime user or model copy (P2) */
+/** labels-exempt-file: authoring labels, descriptions and profile-registration diagnostics for detectors — not runtime user or model copy (P2) */
 
 import {
   BOUNDARIES,
@@ -90,8 +90,8 @@ interface DetectorConfig {
   compiled?: CompiledPatterns;
   /**
    * One line telling the model what to leave out, sent when this detector blocks a reply that is
-   * then retried. Left out, the lexicon's `detect.hint.<detector>`. Only beside `patterns`: the
-   * lexicon's hint describes Theorem's patterns, not the host's.
+   * then retried. Left out, the labels' `detect.hint.<detector>`. Only beside `patterns`: the
+   * labels' hint describes Theorem's patterns, not the host's.
    */
   hint?: string;
   /**
@@ -144,7 +144,7 @@ interface HostDetectorConfig {
   find?: HostFind;
   /**
    * One line telling the model what to leave out, sent when this detector blocks a reply that is
-   * then retried. Left out, the lexicon's `detect.hint.own`, which names the label.
+   * then retried. Left out, the labels' `detect.hint.own`, which names the label.
    */
   hint?: string;
 }
@@ -654,7 +654,7 @@ function sourceProblem(
     return `${path}.theorem must be a boolean`;
   }
   if (rule.hint !== undefined && !(Array.isArray(rule.patterns) && rule.patterns.length > 0)) {
-    return `${path}.hint goes beside patterns of your own: without them the lexicon's detect.hint.${detector} is the hint`;
+    return `${path}.hint goes beside patterns of your own: without them the labels' detect.hint.${detector} is the hint`;
   }
   return (
     hintProblem(`${path}.hint`, rule.hint) ?? patternsProblem(path, rule.patterns, rule.compiled)

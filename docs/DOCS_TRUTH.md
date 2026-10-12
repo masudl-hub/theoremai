@@ -8,7 +8,7 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | --- | --- |
 | CLI | `scripts/docs-truth/cli.mjs` (`lint`, `inventory`, `freshness`) |
 | Export drift | `scripts/docs-truth/export-drift.mjs` (barrel exports vs contracts) |
-| Copy lint | `scripts/docs-truth/copy-lint.mjs` (P2 — full-tree prose in `src/kernel` / `src/guardrails` / `src/interface` and the headless `react/src` directories (not `ui/`) must live in the lexicon or carry an explicit exempt) |
+| Copy lint | `scripts/docs-truth/copy-lint.mjs` (P2 — full-tree prose in `src/kernel` / `src/guardrails` / `src/interface` and the headless `react/src` directories (not `ui/`) must live in the labels or carry an explicit exempt) |
 | Graph | `docs/_map.mjs` |
 
 ## Ownership
@@ -18,7 +18,7 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | `scripts/docs-truth/graph.mjs` | Graph load, ownership, evidence, freshness |
 | `scripts/docs-truth/cli.mjs` | `lint`, `inventory`, `freshness` |
 | `scripts/docs-truth/export-drift.mjs` | Entrypoint export vs contract drift |
-| `scripts/docs-truth/copy-lint.mjs` | Emit-site copy vs lexicon (P2) |
+| `scripts/docs-truth/copy-lint.mjs` | Emit-site copy vs labels (P2) |
 | `scripts/docs-truth/graph.test.mjs` | Contract tests |
 | `docs/_map.mjs` | Entrypoint and document ownership graph |
 | `react/README.md` | Consumer guide owned by the `react-package` entry |
@@ -34,7 +34,7 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | Owned fallback | Owned files → at least one behavioral section hunk |
 | Evidence | ≥ `min_evidence_supports` supports (default 2); behavioral sections require `contract_test` or `validation` evidence |
 | Export drift | Every `export { name }` / `export type { Name }` in a published entry point (each `deno.json` export, not only `mod.ts` files) appears in the contract of the graph entry that owns that export (`export-drift.mjs`) |
-| Copy lint | A string literal of ≥3 alphabetic words in `src/kernel` / `src/guardrails` / `src/interface` or headless `react/src` (`client`, `components`, `hooks`, `server`) fails outside `src/guardrails/lexicon.ts` (`copy-lint.mjs`). `react/src/ui` owns its wording and is not scanned. `// lexicon-exempt: <reason>` goes on the string line, or above it in the same statement; `lexicon-exempt-file: <reason>` goes in the first 40 lines of a non-runtime fixture module |
+| Copy lint | A string literal of ≥3 alphabetic words in `src/kernel` / `src/guardrails` / `src/interface` or headless `react/src` (`client`, `components`, `hooks`, `server`) fails outside `src/guardrails/labels.ts` (`copy-lint.mjs`). `react/src/ui` owns its wording and is not scanned. `// labels-exempt: <reason>` goes on the string line, or above it in the same statement; `labels-exempt-file: <reason>` goes in the first 40 lines of a non-runtime fixture module |
 
 ## Package vs repo documentation
 

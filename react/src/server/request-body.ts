@@ -1,17 +1,17 @@
-import { lexiconText, TheoremError, throwIfAborted } from '@theoremjs/agents';
+import { labelText, TheoremError, throwIfAborted } from '@theoremjs/agents';
 
 const DEFAULT_REQUEST_BYTES = 16 * 1024 * 1024;
 
 export function requestByteLimit(bytes = DEFAULT_REQUEST_BYTES): number {
   if (!Number.isSafeInteger(bytes) || bytes <= 0) {
-    throw new TheoremError('config', lexiconText('error.config'));
+    throw new TheoremError('config', labelText('error.config'));
   }
   return bytes;
 }
 
 export async function boundedRequestJson(request: Request, maxBytes: number): Promise<unknown> {
   if (Number(request.headers.get('content-length')) > maxBytes || !request.body) {
-    throw new TheoremError('request', lexiconText('error.request'));
+    throw new TheoremError('request', labelText('error.request'));
   }
   const reader = request.body.getReader();
   const abort = () => {
@@ -28,7 +28,7 @@ export async function boundedRequestJson(request: Request, maxBytes: number): Pr
       throwIfAborted(request.signal);
       if (next.done) break;
       bytes += next.value.byteLength;
-      if (bytes > maxBytes) throw new TheoremError('request', lexiconText('error.request'));
+      if (bytes > maxBytes) throw new TheoremError('request', labelText('error.request'));
       if (next.value.byteLength) text.push(decoder.decode(next.value, { stream: true }));
     }
     text.push(decoder.decode());

@@ -119,9 +119,9 @@ import {
 	HTTP_METHODS,
 	type HttpMethod,
 	IMAGE_ATTACHMENT_ACCEPT_MIMES,
-	LEXICON_KEYS,
-	type LexiconKey,
-	lexiconDefault,
+	LABEL_KEYS,
+	type LabelKey,
+	labelDefault,
 	PROFILE_HANDLE_MAX_CHARS,
 	PROFILE_ID_MAX_CHARS,
 	PROFILE_TYPE_PROTOCOLS,
@@ -2683,10 +2683,10 @@ function OutputRepairSection({ outputs, set }: OutputsSectionProps) {
 					/>
 					<TextAreaRow
 						label="Guidance"
-						path="lexicon.repair.default_guidance"
+						path="labels.repair.default_guidance"
 						field="repairGuidance"
 						value={outputs.repairGuidance}
-						placeholder={lexiconDefault('repair.default_guidance')}
+						placeholder={labelDefault('repair.default_guidance')}
 						onChange={(repairGuidance) => {
 							set({ repairGuidance });
 						}}
@@ -2930,10 +2930,10 @@ function ResumptionSection({
 					{takesContinueInstruction(draft) && (
 						<TextAreaRow
 							label="Instruction"
-							path="lexicon.continue.instruction"
+							path="labels.continue.instruction"
 							field="continueInstruction"
 							value={turn.continueInstruction}
-							placeholder={lexiconDefault('continue.instruction')}
+							placeholder={labelDefault('continue.instruction')}
 							onChange={(continueInstruction) => {
 								set({ continueInstruction });
 							}}
@@ -3058,10 +3058,10 @@ function CanarySection({ guardrails, set }: GuardrailsSectionProps) {
 		<InspectorSection>
 			<TextAreaRow
 				label="Bind note"
-				path="lexicon.canary.bind_note"
+				path="labels.canary.bind_note"
 				field="canaryBindNote"
 				value={guardrails.canaryBindNote}
-				placeholder={lexiconDefault('canary.bind_note')}
+				placeholder={labelDefault('canary.bind_note')}
 				onChange={(canaryBindNote) => {
 					set({ canaryBindNote });
 				}}
@@ -3108,10 +3108,10 @@ function BlockedReplyRetryRows({
 			{!isNever && (
 				<TextAreaRow
 					label="Guidance"
-					path="lexicon.egress.default_repair_guidance"
+					path="labels.egress.default_repair_guidance"
 					field="egressRepairGuidance"
 					value={guardrails.egressRepairGuidance}
-					placeholder={lexiconDefault('egress.default_repair_guidance')}
+					placeholder={labelDefault('egress.default_repair_guidance')}
 					onChange={(egressRepairGuidance) => {
 						set({ egressRepairGuidance });
 					}}
@@ -3141,10 +3141,10 @@ function BlockedReplySection({
 			{guardrails.blockedReplyOnBlock === 'refuse' ? (
 				<TextAreaRow
 					label="Message"
-					path="lexicon.egress.refusal"
+					path="labels.egress.refusal"
 					field="egressRefusal"
 					value={guardrails.egressRefusal}
-					placeholder={lexiconDefault('egress.refusal')}
+					placeholder={labelDefault('egress.refusal')}
 					onChange={(egressRefusal) => {
 						set({ egressRefusal });
 					}}
@@ -3222,10 +3222,10 @@ function QuotaSection({ guardrails, set }: GuardrailsSectionProps) {
 					/>
 					<TextAreaRow
 						label="Message"
-						path="lexicon.quota.exhausted"
+						path="labels.quota.exhausted"
 						field="quotaMessage"
 						value={guardrails.quotaMessage}
-						placeholder={lexiconDefault('quota.exhausted', {
+						placeholder={labelDefault('quota.exhausted', {
 							perDay: guardrails.quotaPerDay ?? '{perDay}',
 						})}
 						onChange={(quotaMessage) => {
@@ -4201,7 +4201,7 @@ function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: S
 			{draftAllows(draft, 'guardrails.blockedReply') && (
 				<BlockedReplySection
 					guardrails={guardrails}
-					withheld={wordingValue(draft, 'error.safety') || lexiconDefault('error.safety')}
+					withheld={wordingValue(draft, 'error.safety') || labelDefault('error.safety')}
 					set={set}
 				/>
 			)}
@@ -5539,7 +5539,7 @@ function ToolSpecEditor({
 	);
 }
 
-/** Wording's areas, by lexicon key prefix: what visitors read first, then what the model reads. */
+/** Wording's areas, by labels key prefix: what visitors read first, then what the model reads. */
 /** Who reads a line: the visitor, in the chat, or the model, in its context. */
 type WordingAudience = 'visitor' | 'model';
 
@@ -5664,14 +5664,14 @@ const WORDING_AUDIENCES: readonly {
 ];
 
 /** Row names for keys whose own name reads as code. */
-const WORDING_LABELS: Partial<Record<LexiconKey, string>> = {
+const WORDING_LABELS: Partial<Record<LabelKey, string>> = {
 	'attachments.mime_not_allowed': 'File type not allowed',
 	'attachments.limits_unconfigured': 'Files turned off',
 	'quota.exhausted': 'Limit reached',
 };
 
 /** `rate_limit` → "Rate limit". */
-function wordingLabel(key: LexiconKey): string {
+function wordingLabel(key: LabelKey): string {
 	const named = WORDING_LABELS[key];
 	if (named) return named;
 	const words = key.slice(key.indexOf('.') + 1).replaceAll('_', ' ');
@@ -5679,9 +5679,9 @@ function wordingLabel(key: LexiconKey): string {
 }
 
 /** The kernel's line for `key`, worded with the draft's own limits where it takes them. */
-function wordingPlaceholder(draft: StudioDraft, key: LexiconKey): string {
+function wordingPlaceholder(draft: StudioDraft, key: LabelKey): string {
 	const { inputs, guardrails } = draft;
-	const text = lexiconDefault(key, {
+	const text = labelDefault(key, {
 		maxFiles: inputs.maxFiles ?? '{maxFiles}',
 		maxBytes: inputs.maxBytes ?? Number.NaN,
 		maxTurnBytes: inputs.maxTurnBytes ?? Number.NaN,
@@ -5700,7 +5700,7 @@ function wordingPlaceholder(draft: StudioDraft, key: LexiconKey): string {
  */
 const SHARED_WORDING: Partial<
 	Record<
-		LexiconKey,
+		LabelKey,
 		{
 			setting: string;
 			read: (draft: StudioDraft) => string;
@@ -5760,34 +5760,34 @@ const SHARED_WORDING: Partial<
 };
 
 /** The text a line holds in the draft: its own setting's field, or Wording's. */
-function wordingValue(draft: StudioDraft, key: LexiconKey): string {
+function wordingValue(draft: StudioDraft, key: LabelKey): string {
 	return SHARED_WORDING[key]?.read(draft) ?? draft.wording[key] ?? '';
 }
 
 /** A line that also sits beside its setting; while that setting is off, a link to turn it on. */
 function SharedWordingRow({
-	lexiconKey,
+	labelKey,
 	facet,
 	draft,
 	setDraft,
 	onSelect,
 }: {
-	lexiconKey: LexiconKey;
+	labelKey: LabelKey;
 	facet: ProfileGraphFacetId;
 	draft: StudioDraft;
 	setDraft: SetDraft;
 	onSelect: (id: string) => void;
 }) {
-	const shared = SHARED_WORDING[lexiconKey];
+	const shared = SHARED_WORDING[labelKey];
 	if (!shared) return null;
 	return (
 		<VStack gap={1}>
 			<TextAreaRow
-				label={wordingLabel(lexiconKey)}
-				path={`lexicon.${lexiconKey}`}
+				label={wordingLabel(labelKey)}
+				path={`labels.${labelKey}`}
 				rows={2}
 				value={shared.read(draft)}
-				placeholder={wordingPlaceholder(draft, lexiconKey)}
+				placeholder={wordingPlaceholder(draft, labelKey)}
 				onChange={(text) => {
 					shared.write(setDraft, text);
 				}}
@@ -5878,7 +5878,7 @@ function WordingEditor({
 function wordingAreas(draft: StudioDraft, needle: string, audience: WordingAudience) {
 	return WORDING_AREAS.filter((area) => needle || area.audience === audience)
 		.map((area) => {
-			const all = LEXICON_KEYS.filter((key) => key.startsWith(`${area.prefix}.`));
+			const all = LABEL_KEYS.filter((key) => key.startsWith(`${area.prefix}.`));
 			const keys = needle
 				? all.filter((key) =>
 						[
@@ -5955,7 +5955,7 @@ function WordingAreaLines({
 	setDraft,
 	onSelect,
 }: {
-	keys: LexiconKey[];
+	keys: LabelKey[];
 	draft: StudioDraft;
 	setDraft: SetDraft;
 	onSelect: (id: string) => void;
@@ -5969,7 +5969,7 @@ function WordingAreaLines({
 					return (
 						<SharedWordingRow
 							key={key}
-							lexiconKey={key}
+							labelKey={key}
 							facet={facet}
 							draft={draft}
 							setDraft={setDraft}
@@ -5980,7 +5980,7 @@ function WordingAreaLines({
 					<TextAreaRow
 						key={key}
 						label={wordingLabel(key)}
-						path={`lexicon.${key}`}
+						path={`labels.${key}`}
 						field={key}
 						rows={2}
 						value={draft.wording[key] ?? ''}

@@ -22,7 +22,7 @@ function googleEfforts<Efforts extends Record<string, GoogleThinkingLevel>>(
     if (!(GOOGLE_THINKING_LEVELS as readonly string[]).includes(level)) {
       throw new TheoremError(
         'config',
-        `Effort '${alias}': Gemini does not take '${level}' (${GOOGLE_THINKING_LEVELS.join(', ')})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Effort '${alias}': Gemini does not take '${level}' (${GOOGLE_THINKING_LEVELS.join(', ')})`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
   }

@@ -2,7 +2,7 @@ import { browserExecution } from './browser-execution.ts';
 import type { StudioLiveBridgeOptions } from './live-session-bridge.ts';
 import { errorKind, publicError, TheoremError } from '../mod.ts';
 import type { LiveConnection, LiveSocket } from '../react/src/client/live-messages.ts';
-import type { LiveSession, LexiconOverrides } from '../mod.ts';
+import type { LiveSession, LabelOverrides } from '../mod.ts';
 import type { StudioTraceRoute } from './traces.ts';
 import type { StudioBrowserRuntime } from './browser-transport.ts';
 import { parseLiveOpenMessage } from '../react/src/server/request-check.ts';
@@ -33,7 +33,7 @@ class BrowserLiveSocket implements LiveSocket {
   }
   send(data: string | ArrayBuffer | ArrayBufferView | Blob): void {
     if (this.readyState !== 1) {
-      throw new TheoremError('network', 'Live connection is closed'); // lexicon-exempt: internal diagnostic
+      throw new TheoremError('network', 'Live connection is closed'); // labels-exempt: internal diagnostic
     }
     if (!this.listening) this.queued.push(data);
     else this.outbound.dispatchEvent(new MessageEvent('message', { data }));
@@ -68,12 +68,12 @@ class BrowserLiveSocket implements LiveSocket {
         runtime,
       );
       if (!runtime.providers?.vault) {
-        throw new TheoremError('auth', 'Fill the vault slot this model names.'); // lexicon-exempt: builder diagnostic
+        throw new TheoremError('auth', 'Fill the vault slot this model names.'); // labels-exempt: builder diagnostic
       }
       // The client sends its open message as the socket opens: the call's slots, context and resume.
       const [first] = this.queued.splice(0, 1);
       if (typeof first !== 'string') {
-        throw new TheoremError('request', 'A live call must open with its open message'); // lexicon-exempt: internal diagnostic
+        throw new TheoremError('request', 'A live call must open with its open message'); // labels-exempt: internal diagnostic
       }
       const session = await scope.runSession(
         {
@@ -90,7 +90,7 @@ class BrowserLiveSocket implements LiveSocket {
         traces.close();
         return;
       }
-      await this.attach(session, profile.id, traces, profile.lexicon, local ? { pageResult: local.pageResult,
+      await this.attach(session, profile.id, traces, profile.labels, local ? { pageResult: local.pageResult,
         beforeEvent: async (event) => {
           if ((event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState)
             await (await local.boundary).recordCheckpoint(event.providerState);
@@ -99,13 +99,13 @@ class BrowserLiveSocket implements LiveSocket {
       traces.close();
       this.receive({
         type: 'error',
-        error: publicError(err, payload.profile.lexicon),
+        error: publicError(err, payload.profile.labels),
         errorKind: errorKind(err),
       });
       this.close();
     }
   }
-  private async attach(session: LiveSession, profileId: string, traces: StudioTraceRoute, lexicon?: LexiconOverrides, options: StudioLiveBridgeOptions = {}): Promise<void> {
+  private async attach(session: LiveSession, profileId: string, traces: StudioTraceRoute, labels?: LabelOverrides, options: StudioLiveBridgeOptions = {}): Promise<void> {
       const socket = {
         send: (data: string | ArrayBufferLike | Blob | ArrayBufferView) => {
           if (typeof data === 'string') this.receive(JSON.parse(data));
@@ -119,7 +119,7 @@ class BrowserLiveSocket implements LiveSocket {
         profileId,
         crypto.randomUUID(),
         traces,
-        lexicon,
+        labels,
         options,
       );
       this.closeSession = undefined;

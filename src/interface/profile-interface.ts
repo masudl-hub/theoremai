@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { BOUNDARIES, recordOf } from '../guardrails/boundaries.ts';
 import { DETECT_ACTIONS, DETECTORS } from '../guardrails/detectors.ts';
-import { LEXICON_KEYS } from '../guardrails/lexicon.ts';
+import { LABEL_KEYS } from '../guardrails/labels.ts';
 import { BLOCKED_REPLY_ON_BLOCK } from '../guardrails/types.ts';
 import {
   COMPACTION_METERS,
@@ -145,7 +145,7 @@ const common = {
   defaultModel: z.string(),
   allowModelSelect: z.boolean().optional(),
   maxSteps: z.number().optional(),
-  lexicon: z.partialRecord(z.enum(LEXICON_KEYS), z.string()),
+  labels: z.partialRecord(z.enum(LABEL_KEYS), z.string()),
   guardrails: guardrails.optional(),
   observability: observability.optional(),
 };

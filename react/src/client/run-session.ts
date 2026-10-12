@@ -38,7 +38,7 @@ export type { StreamView } from './run-commit.ts';
 
 /**
  * A session state the user can't act from (no gate waiting, a gate without a
- * call id): the lexicon's line for it, as a turn failure.
+ * call id): the labels' line for it, as a turn failure.
  */
 function sessionFailure(
   key: 'session.gate_pending' | 'session.gate_expired',
@@ -46,7 +46,7 @@ function sessionFailure(
 ): TurnFailure {
   return turnFailure(
     new TheoremError('request', `session state: ${key}`, { copy: { key } }),
-    iface.lexicon,
+    iface.labels,
   );
 }
 
@@ -129,7 +129,7 @@ async function streamPreparedInterfaceTurn(args: {
         ),
     });
   } catch (err) {
-    const failure = turnFailure(err, args.iface.lexicon, args.signal);
+    const failure = turnFailure(err, args.iface.labels, args.signal);
     // why: A message that never posted leaves the paused reply waiting as it was.
     if (walking && !walking.settled()) return failure;
     return failTurnStream({ session, events, media, failure });
@@ -214,7 +214,7 @@ async function runPreparedTurnStream(
     const outcome = await args.prepare();
     if (!outcome.ok) {
       return {
-        ...turnFailure(attachmentsRefused(outcome.issues), args.iface.lexicon),
+        ...turnFailure(attachmentsRefused(outcome.issues), args.iface.labels),
         issues: outcome.issues,
       };
     }
@@ -232,7 +232,7 @@ async function runPreparedTurnStream(
       ...(walking ? { walking } : {}),
     });
   } catch (err) {
-    return turnFailure(err, args.iface.lexicon, args.signal);
+    return turnFailure(err, args.iface.labels, args.signal);
   }
 }
 
@@ -356,7 +356,7 @@ export async function resumeInterfaceTool(args: {
       session: { ...args.session, sessionPermissions },
       callId: gated.callId,
       events,
-      failure: turnFailure(err, args.iface.lexicon),
+      failure: turnFailure(err, args.iface.labels),
     });
   }
 }

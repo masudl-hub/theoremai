@@ -4,7 +4,7 @@ import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { DETECTORS, HOST_FIND_HOLD_LIVE, type HostFind } from '../../src/guardrails/detectors.ts';
 import { givenUrlSets } from '../../src/guardrails/egress-urls.ts';
-import { type LexiconOverrides, lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { type LabelOverrides, labelDefault } from '../../src/guardrails/labels.ts';
 import {
   abortLiveOutboundTurn,
   createLiveOutboundGateSession,
@@ -55,7 +55,7 @@ function hostProfile(
   extras: {
     onBlock?: 'refuse';
     leaks?: 'ignore';
-    lexicon?: LexiconOverrides;
+    labels?: LabelOverrides;
   } = {},
 ) {
   registerProfile(
@@ -76,7 +76,7 @@ function hostProfile(
         },
         ...(extras.onBlock ? { blockedReply: { onBlock: extras.onBlock } } : {}),
       },
-      ...(extras.lexicon ? { lexicon: extras.lexicon } : {}),
+      ...(extras.labels ? { labels: extras.labels } : {}),
     }),
   );
   return getProfile(id);
@@ -463,7 +463,7 @@ Deno.test('finalizeLiveOutboundTurn drops withheld audio when the reply is refus
       result.events.map((e) => e.type),
       ['guardrail', 'text'],
     );
-    assertEquals(result.events.at(-1), { type: 'text', text: lexiconDefault('egress.refusal') });
+    assertEquals(result.events.at(-1), { type: 'text', text: labelDefault('egress.refusal') });
   }
 });
 
@@ -529,7 +529,7 @@ Deno.test('finalizeLiveOutboundTurn emits the refusal when blockedReply.onBlock 
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
     const refusal = firstOf(result.events, 'text');
-    assertEquals(refusal?.text, lexiconDefault('egress.refusal'));
+    assertEquals(refusal?.text, labelDefault('egress.refusal'));
     assertEquals(
       result.events.some((e) => e.type === 'guardrail'),
       true,
@@ -537,10 +537,10 @@ Deno.test('finalizeLiveOutboundTurn emits the refusal when blockedReply.onBlock 
   }
 });
 
-Deno.test('finalizeLiveOutboundTurn refuses in the profile lexicon wording', async () => {
-  const profile = hostProfile('live_egress_refuse_lexicon', findAll, {
+Deno.test('finalizeLiveOutboundTurn refuses in the profile labels wording', async () => {
+  const profile = hostProfile('live_egress_refuse_labels', findAll, {
     onBlock: 'refuse',
-    lexicon: { 'egress.refusal': 'Host refusal.' },
+    labels: { 'egress.refusal': 'Host refusal.' },
   });
   const s = createLiveOutboundGateSession(profile);
   await processLiveOutboundBatch(s, [{ type: 'text', text: 'hello' }]);
@@ -562,7 +562,7 @@ Deno.test('finalizeLiveOutboundTurn emits the refusal for non-canary egress hits
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
     const refusal = firstOf(result.events, 'text');
-    assertEquals(refusal?.text, lexiconDefault('egress.refusal'));
+    assertEquals(refusal?.text, labelDefault('egress.refusal'));
   }
 });
 
@@ -637,7 +637,7 @@ async function thoughtNaming(canary: string) {
   return { s, text, shown };
 }
 
-const OMITTED = lexiconDefault('thought.omitted_instructions');
+const OMITTED = labelDefault('thought.omitted_instructions');
 
 Deno.test('processLiveOutboundBatch omits the canary from a thought and reports it', async () => {
   const canary = '552434a3798aeb8518b8ab775dea9a4e';

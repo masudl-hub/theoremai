@@ -67,7 +67,7 @@ export function walkAwayFrom(
         return;
       }
       if (event.type !== 'tool' || !waiting.has(event.tool.callId)) {
-        // lexicon-exempt: internal diagnostic; the user reads the error kind's wording
+        // labels-exempt: internal diagnostic; the user reads the error kind's wording
         throw new TheoremError(
           'bad_response',
           'the reply began before the calls it walked away from settled',

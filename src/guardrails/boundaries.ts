@@ -1,7 +1,7 @@
 // invariant: Leaf module. Imports nothing from `src/guardrails/types.ts` or `src/kernel/`, so the
 // vocabulary can be read by every layer without a cycle.
 
-/** lexicon-exempt-file: authoring labels and descriptions for boundaries — not runtime user or model copy (P2) */
+/** labels-exempt-file: authoring labels and descriptions for boundaries — not runtime user or model copy (P2) */
 
 /** A record with one entry per key, typed by the keys it was built from. */
 function recordOf<K extends string, V>(keys: readonly K[], value: (key: K) => V): Record<K, V> {

@@ -3,7 +3,7 @@ import { runTurn } from '../fixtures/registered-runner.ts';
 // `outputs.structured` had an empty string read and always passed.
 import '../fixtures/test-host.ts';
 import type { DetectAction, HostFind } from '../../src/guardrails/detectors.ts';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { labelDefault } from '../../src/guardrails/labels.ts';
 import { registerProfile, registerStructured } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -80,7 +80,7 @@ Deno.test('a reply detector reads structured output and blocks a leak carried on
     events.some((e) => e.type === 'structured'),
     false,
   );
-  assertEquals(events.find((e) => e.type === 'text')?.text, lexiconDefault('egress.refusal'));
+  assertEquals(events.find((e) => e.type === 'text')?.text, labelDefault('egress.refusal'));
 });
 
 Deno.test('a reply detector set to redact releases the reply without what it matched', async () => {

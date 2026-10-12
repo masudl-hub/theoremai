@@ -42,7 +42,7 @@ import {
   type GateReference,
   invokeTool,
   jsonObjectSchema,
-  lexiconText,
+  labelText,
   type Profile,
   type ProfileDefinition,
   type ProviderHostOptions,
@@ -195,7 +195,7 @@ export type TheoremHandlerOptions = {
   clientEvents?: ClientTurnOptions;
   /**
    * Called with any error the handler catches, for reporting. Users read the
-   * profile's lexicon wording for the error's kind, never the error itself.
+   * profile's labels wording for the error's kind, never the error itself.
    */
   onError?: (err: unknown, ctx: { request: Request }) => void;
 };
@@ -234,7 +234,7 @@ export async function readBody<T>(
   // why: JSON-only POSTs can't be sent by a cross-site form, and force a CORS preflight.
   const type = request.headers.get('content-type') ?? '';
   if (!type.toLowerCase().startsWith('application/json')) {
-    // lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+    // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
     throw new TheoremError('request', 'Content-Type must be application/json');
   }
   let raw: unknown;
@@ -243,7 +243,7 @@ export async function readBody<T>(
   } catch (error) {
     if (error instanceof TheoremError) throw error;
     // invariant: A JSON parser's message can contain request values and must not enter diagnostics.
-    throw new TheoremError('request', lexiconText('error.request'), {
+    throw new TheoremError('request', labelText('error.request'), {
       cause: { code: 'request_json' },
     });
   }
@@ -329,7 +329,7 @@ async function sessionOf(ctx: HandlerContext, request: Request): Promise<Session
   if (!ctx.options.session) return cookieSession(request);
   const id = (await ctx.options.session(request))?.trim();
   if (!id) {
-    // lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+    // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
     throw new TheoremError('auth', 'the session resolver refused the request', {
       copy: { key: 'session.sign_in' },
     });
@@ -337,10 +337,10 @@ async function sessionOf(ctx: HandlerContext, request: Request): Promise<Session
   return { id };
 }
 
-/** Reports the error to the host, then words it for the user from the profile's lexicon. */
+/** Reports the error to the host, then words it for the user from the profile's labels. */
 function publicMessage(ctx: HandlerContext, err: unknown, request: Request): string {
   ctx.options.onError?.(err, { request });
-  return publicError(err, ctx.profile.lexicon);
+  return publicError(err, ctx.profile.labels);
 }
 
 function eventStream(
@@ -379,7 +379,7 @@ function providerFor(
   model?: string,
 ): ProviderHostOptions | Promise<ProviderHostOptions> {
   const { provider } = ctx.options;
-  // lexicon-exempt: builder config error; the user reads error.config
+  // labels-exempt: builder config error; the user reads error.config
   if (!provider) throw new TheoremError('config', `profile ${ctx.profile.id} has no provider`);
   if (typeof provider === 'function') return provider({ request, model });
   return provider;
@@ -398,7 +398,7 @@ type OutcomeContext = {
 };
 
 function requiredOperationId(call: { operationId?: string }): string {
-  if (!call.operationId) throw new TheoremError('internal', lexiconText('error.internal'));
+  if (!call.operationId) throw new TheoremError('internal', labelText('error.internal'));
   return call.operationId;
 }
 
@@ -458,7 +458,7 @@ async function recordOutcome(
     for (const { gate } of pending) {
       const operation = state.operations[gate.operationId];
       if (operation && operation.status !== 'ready')
-        throw new TheoremError('unavailable', lexiconText('error.unavailable'));
+        throw new TheoremError('unavailable', labelText('error.unavailable'));
       delete state.operations[gate.operationId];
       Object.defineProperty(state.gates, gate.operationId, {
         value: gate,
@@ -571,7 +571,7 @@ function answerPendingGate(
     );
     const { typed: _typed, ...plain } = accepted;
     if (!sameAcceptedAnswer(plain, operation.answer))
-      throw new TheoremError('request', lexiconText('error.request'));
+      throw new TheoremError('request', labelText('error.request'));
     return {
       callId: request.callId,
       pending: operation.pending,
@@ -582,7 +582,7 @@ function answerPendingGate(
     ? state.gates[request.operationId]
     : undefined;
   if (!pending || pending.profileId !== profileId || pending.callId !== request.callId) {
-    // lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+    // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
     throw new TheoremError('request', `gate ${request.callId} is not pending`, {
       copy: { key: 'session.gate_expired' },
     });
@@ -712,8 +712,8 @@ async function* walkAwayFrom(
 }
 
 /** A settled call's answer, streamed again. */
-async function* once(event: TurnEvent, lexicon?: Profile['lexicon']): AsyncGenerator<TurnEvent> {
-  yield withPublicWording(event, lexicon);
+async function* once(event: TurnEvent, labels?: Profile['labels']): AsyncGenerator<TurnEvent> {
+  yield withPublicWording(event, labels);
 }
 
 async function* turnEvents(
@@ -808,7 +808,7 @@ async function* invokeEvents(
 async function steer(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
   const body = await readBody(request, theoremSteerRequestSchema, ctx.options.maxRequestBytes);
   if (!(await ctx.inbox.enqueue(inboxKey(session.id, body.turnId), steerUnitOf(body)))) {
-    // lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+    // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
     throw new TheoremError('request', `turn ${body.turnId} is not running`, {
       copy: { key: 'session.turn_ended' },
     });
@@ -860,7 +860,7 @@ function answerRequest(body: TheoremInvokeRequest): GateAnswerRequest & GateRefe
 /** A route this profile doesn't serve. */
 function refused(ctx: HandlerContext): Response {
   return jsonResponse(HTTP_METHOD, {
-    error: lexiconText('error.request', {}, ctx.profile.lexicon),
+    error: labelText('error.request', {}, ctx.profile.labels),
     errorKind: 'request',
   });
 }
@@ -880,7 +880,7 @@ async function* replayOperation(
     (ctx.options.authorizeToolReplay &&
       !(await ctx.options.authorizeToolReplay({ request, operation })))
   )
-    throw new TheoremError('blocked', lexiconText('error.blocked'));
+    throw new TheoremError('blocked', labelText('error.blocked'));
   authorizeToolReplay({
     tools: defaultKernelScope.tools,
     profile: ctx.profile,
@@ -888,14 +888,14 @@ async function* replayOperation(
     resume: undefined,
     outcome: operation.outcome,
   });
-  yield* once(operation.outcome.event, ctx.profile.lexicon);
+  yield* once(operation.outcome.event, ctx.profile.labels);
 }
 
 /** The user's answer to a paused call. */
 async function invoke(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
   const body = await readBody(request, theoremInvokeRequestSchema, ctx.options.maxRequestBytes);
   if (body.page && 'output' in body.page)
-    throw new TheoremError('request', lexiconText('error.request'));
+    throw new TheoremError('request', labelText('error.request'));
   const saved = await ctx.sessions.read(session.id);
   const operation = Object.hasOwn(saved.operations, body.operationId)
     ? saved.operations[body.operationId]
@@ -907,7 +907,7 @@ async function invoke(ctx: HandlerContext, request: Request, session: Session): 
     operation.profileId === ctx.profile.id &&
     (operation.status === 'running' || operation.status === 'uncertain')
   ) {
-    throw new TheoremError('unavailable', lexiconText('tool.execution_uncertain'), {
+    throw new TheoremError('unavailable', labelText('tool.execution_uncertain'), {
       copy: { key: 'tool.execution_uncertain' },
     });
   }
@@ -922,7 +922,7 @@ async function invoke(ctx: HandlerContext, request: Request, session: Session): 
         (await toolInvocationHash(body.input)) !==
           (await toolInvocationHash(operation.invocation.accepted.input)))
     )
-      throw new TheoremError('request', lexiconText('error.request'), {
+      throw new TheoremError('request', labelText('error.request'), {
         copy: { key: 'error.request' },
       });
     return eventStream(ctx, request, () => replayOperation(ctx, request, operation));
@@ -985,19 +985,19 @@ export function createTheoremHandler(
 ): (request: Request) => Promise<Response> {
   const profile = defineProfile(options.profile as ProfileDefinition);
   if (profile.type === 'decision') {
-    // lexicon-exempt: builder config error at setup; no user sees it
+    // labels-exempt: builder config error at setup; no user sees it
     throw new Error(
       "createTheoremHandler serves turn-based profiles; serve type 'decision' with createTheoremDecisionHandler.",
     );
   }
   if (profile.type === 'host') {
-    // lexicon-exempt: builder config error at setup; no user sees it
+    // labels-exempt: builder config error at setup; no user sees it
     throw new Error(
       "createTheoremHandler serves turn-based profiles; serve type 'host' with createTheoremHostHandler.",
     );
   }
   if (profile.type === 'live') {
-    // lexicon-exempt: builder config error at setup; no user sees it
+    // labels-exempt: builder config error at setup; no user sees it
     throw new Error(`createTheoremHandler serves turn-based profiles; got type '${profile.type}'.`);
   }
   return serve('createTheoremHandler', profile, options, options.steerInbox);
@@ -1012,7 +1012,7 @@ export function createTheoremHostHandler(
 ): (request: Request) => Promise<Response> {
   const profile = defineProfile(options.profile as ProfileDefinition);
   if (profile.type !== 'host') {
-    // lexicon-exempt: builder config error at setup; no user sees it
+    // labels-exempt: builder config error at setup; no user sees it
     throw new Error(`createTheoremHostHandler serves type 'host'; got type '${profile.type}'.`);
   }
   return serve('createTheoremHostHandler', profile, options);
@@ -1027,7 +1027,7 @@ function serve(
   const gateTtlMs = resolveGateTtlMs(name, options.gateTtlMs);
   const operationRetentionMs = options.operationRetentionMs ?? DEFAULT_OPERATION_RETENTION_MS;
   if (!Number.isSafeInteger(operationRetentionMs) || operationRetentionMs <= 0) {
-    throw new TheoremError('config', lexiconText('error.config'), {
+    throw new TheoremError('config', labelText('error.config'), {
       cause: { code: 'operation_retention' },
     });
   }

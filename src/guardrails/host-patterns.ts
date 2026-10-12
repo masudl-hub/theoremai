@@ -1,7 +1,7 @@
 // invariant: Leaf module. Imports nothing from `src/guardrails/types.ts` or `src/kernel/`, so
 // `detectors.ts` can read a host's patterns without a cycle.
 
-/** lexicon-exempt-file: profile-registration diagnostics for a host's patterns — not runtime user or model copy (P2) */
+/** labels-exempt-file: profile-registration diagnostics for a host's patterns — not runtime user or model copy (P2) */
 
 /**
  * A pattern of the host's own, as data: a regular expression, or words. Words match whole and

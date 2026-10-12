@@ -1,6 +1,6 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
-import { lexiconText } from '../../src/guardrails/lexicon.ts';
+import { labelText } from '../../src/guardrails/labels.ts';
 import { registerTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { AWAITING_USER_INPUT_STATUS } from '../../src/kernel/schema.ts';
@@ -286,7 +286,7 @@ Deno.test('projectForModel reports an awaiting output as a prompt and any other 
   check(
     projectForModel(visible, AWAITING),
     {
-      finding: lexiconText('tool.awaiting_user', { kind: 'text', prompt: 'Your name?' }),
+      finding: labelText('tool.awaiting_user', { kind: 'text', prompt: 'Your name?' }),
       data: AWAITING,
     },
     'awaiting',
@@ -321,7 +321,7 @@ Deno.test('the T2 loader fails when the call has no turn snapshot', async () => 
   check(settlement.failure, failure, 'failure');
   check(
     settlement.failure?.message,
-    lexiconText('tool.t2_loader_needs_snapshot', { tool: 'loader' }),
+    labelText('tool.t2_loader_needs_snapshot', { tool: 'loader' }),
     'wording',
   );
   check(
@@ -354,7 +354,7 @@ Deno.test('the T2 loader fails when its output is not a list of ids', async () =
   );
   check(
     settlement.failure?.message,
-    lexiconText('tool.t2_loader_shape', { tool: 'loader' }),
+    labelText('tool.t2_loader_shape', { tool: 'loader' }),
     'wording',
   );
 });

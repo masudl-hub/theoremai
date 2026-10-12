@@ -1,6 +1,6 @@
 import {
   jsonValueSchema,
-  lexiconText,
+  labelText,
   type PageAnswer,
   type PageToolExecution,
   TheoremError,
@@ -41,14 +41,14 @@ export interface PageToolBroker {
 }
 
 function unavailable(): never {
-  throw new TheoremError('unavailable', lexiconText('tool.execution_uncertain'), {
+  throw new TheoremError('unavailable', labelText('tool.execution_uncertain'), {
     copy: { key: 'tool.execution_uncertain' },
   });
 }
 
 export function createMemoryPageToolBroker(maxPending = 128): PageToolBroker {
   if (!Number.isSafeInteger(maxPending) || maxPending <= 0)
-    throw new TheoremError('config', lexiconText('error.config'));
+    throw new TheoremError('config', labelText('error.config'));
   const waiting = new Map<string, (answer: PageAnswer) => void>();
   const key = (sessionId: string, grantId: string) => JSON.stringify([sessionId, grantId]);
   return {
@@ -76,7 +76,7 @@ export function createMemoryPageToolBroker(maxPending = 128): PageToolBroker {
       const finish = waiting.get(key(sessionId, grantId));
       if (!finish)
         return Promise.reject(
-          new TheoremError('unavailable', lexiconText('tool.execution_uncertain')),
+          new TheoremError('unavailable', labelText('tool.execution_uncertain')),
         );
       finish(page);
       return Promise.resolve();
@@ -91,7 +91,7 @@ export function sessionPageDispatch(
   timeoutMs = 20_000,
 ): { execution: PageToolExecution; answer(result: PageToolResult): Promise<boolean> } {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2147483647)
-    throw new TheoremError('config', lexiconText('error.config'));
+    throw new TheoremError('config', labelText('error.config'));
   return {
     execution: {
       async dispatch(claim: ToolOperationClaim, signal) {

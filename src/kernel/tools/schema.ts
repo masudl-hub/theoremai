@@ -5,7 +5,7 @@ export type JsonSchema = Record<string, unknown>;
 
 function validateSchemaShape(schema: JsonSchema, path: string, errors: string[]): boolean {
   if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
-    errors.push(`${path}: schema must be an object`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    errors.push(`${path}: schema must be an object`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return false;
   }
   const hasType = typeof schema.type === 'string' || Array.isArray(schema.type);
@@ -14,10 +14,10 @@ function validateSchemaShape(schema: JsonSchema, path: string, errors: string[])
     if (path !== '$') {
       return true;
     }
-    errors.push(`${path}: missing type or combinator`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    errors.push(`${path}: missing type or combinator`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (schema.type === 'array' && schema.items === undefined) {
-    errors.push(`${path}: array schema must define items`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    errors.push(`${path}: array schema must define items`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return true;
 }
@@ -31,7 +31,7 @@ function walkSchemaProperties(
   const reqList = Array.isArray(required) ? required : [];
   for (const req of reqList) {
     if (typeof req === 'string' && !Object.hasOwn(props, req)) {
-      errors.push(`${path}: required key '${req}' missing from properties`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      errors.push(`${path}: required key '${req}' missing from properties`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
   for (const [key, child] of Object.entries(props)) {
@@ -68,7 +68,7 @@ function validateToolSchema(schema: JsonSchema, label: 'input' | 'output'): void
   const errors: string[] = [];
   walkSchema(schema, '$', errors);
   if (errors.length > 0) {
-    throw new TheoremError('config', `Invalid tool ${label} schema: ${errors.join('; ')}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Invalid tool ${label} schema: ${errors.join('; ')}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 
@@ -107,7 +107,7 @@ export function assertFixedEndpointOrigin(endpoint: string): void {
   if (!origin || /[{}]/.test(origin)) {
     throw new TheoremError(
       'config',
-      `Endpoint "${endpoint}" must start with a fixed scheme and host; placeholders belong in the path or query`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Endpoint "${endpoint}" must start with a fixed scheme and host; placeholders belong in the path or query`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }

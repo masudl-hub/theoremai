@@ -1,5 +1,5 @@
 import {
-  lexiconText,
+  labelText,
   type ProviderCheckpoint,
   providerCheckpointSchema,
   TheoremError,
@@ -59,7 +59,7 @@ export async function requireOwnedCheckpoint(
     !portableSettlements &&
     !(records.length === 0 && identities.includes(identity))
   ) {
-    throw new TheoremError('request', lexiconText('session.provider_state_unowned'), {
+    throw new TheoremError('request', labelText('session.provider_state_unowned'), {
       copy: { key: 'session.provider_state_unowned' },
     });
   }

@@ -6,7 +6,7 @@ import {
   TheoremError,
   throwIfAborted,
 } from '../guardrails/error.ts';
-import { lexiconText } from '../guardrails/lexicon.ts';
+import { labelText } from '../guardrails/labels.ts';
 import { liveIngressEnabledFromSpec } from './engine/live-ingress.ts';
 import { historyToolCalls } from './interaction-parts.ts';
 import { ProviderBudget } from './provider-budget.ts';
@@ -61,12 +61,12 @@ const modelContentTypes = new Set([
 function providerStop(raw: unknown) {
   const stop = turnStopSchema.parse(raw);
   if (stop.kind === 'gate')
-    throw new TheoremError('bad_response', lexiconText('provider.kernel_gate'));
+    throw new TheoremError('bad_response', labelText('provider.kernel_gate'));
   return stop;
 }
 export function validateProviderEvent(raw: unknown): ProviderModelEvent {
   if (!isRecord(raw) || typeof raw.type !== 'string')
-    throw new TheoremError('bad_response', lexiconText('provider.event_invalid'));
+    throw new TheoremError('bad_response', labelText('provider.event_invalid'));
   if (modelContentTypes.has(raw.type)) return turnEventSchema.parse(raw) as ProviderModelEvent;
   if (raw.type === 'tool_call')
     return { type: 'tool_call', call: toolRequestSchema.parse(raw.call) };
@@ -82,7 +82,7 @@ export function validateProviderEvent(raw: unknown): ProviderModelEvent {
   }
   if (raw.type === 'response') {
     if (!isRecord(raw.response))
-      throw new TheoremError('bad_response', lexiconText('provider.response_identity'));
+      throw new TheoremError('bad_response', labelText('provider.response_identity'));
     return {
       type: 'response',
       response: z
@@ -90,7 +90,7 @@ export function validateProviderEvent(raw: unknown): ProviderModelEvent {
         .parse(raw.response),
     };
   }
-  throw new TheoremError('bad_response', lexiconText('provider.event_type', { type: raw.type }));
+  throw new TheoremError('bad_response', labelText('provider.event_type', { type: raw.type }));
 }
 
 export function assertProviderRequirements(
@@ -104,7 +104,7 @@ export function assertProviderRequirements(
     if (needed && cap.features[feature] !== 'supported')
       throw new TheoremError(
         'unsupported',
-        lexiconText('provider.feature', { provider: provider.id, feature }),
+        labelText('provider.feature', { provider: provider.id, feature }),
       );
   };
   assertFeature('streaming', req.stream !== false);
@@ -121,14 +121,14 @@ export function assertProviderRequirements(
     if (!cap.inputKinds.includes(part.type))
       throw new TheoremError(
         'unsupported',
-        lexiconText('provider.input_kind', { provider: provider.id, kind: part.type }),
+        labelText('provider.input_kind', { provider: provider.id, kind: part.type }),
       );
   if (profileType === 'live') {
     for (const kind of ['text', 'audio', 'video'] as const)
       if (liveIngressEnabledFromSpec(req.live?.ingress, kind) && !cap.inputKinds.includes(kind))
         throw new TheoremError(
           'unsupported',
-          lexiconText('provider.input_kind', { provider: provider.id, kind }),
+          labelText('provider.input_kind', { provider: provider.id, kind }),
         );
   }
   const output =
@@ -140,13 +140,13 @@ export function assertProviderRequirements(
   if (profileType !== 'decision' && !cap.outputKinds.includes(output))
     throw new TheoremError(
       'unsupported',
-      lexiconText('provider.output_kind', { provider: provider.id, kind: output }),
+      labelText('provider.output_kind', { provider: provider.id, kind: output }),
     );
   for (const builtin of req.builtins)
     if (!cap.builtins.includes(builtin.id))
       throw new TheoremError(
         'unsupported',
-        lexiconText('provider.builtin', { provider: provider.id, builtin: builtin.id }),
+        labelText('provider.builtin', { provider: provider.id, builtin: builtin.id }),
       );
   provider.adapter.validateRequest(providerTurnRequest(req), {
     apiId: binding.apiId,
@@ -404,11 +404,11 @@ export async function createProviderOperations(
       entry = host.vault && Object.hasOwn(host.vault, slot) ? host.vault[slot] : undefined;
     } catch {
       throwIfAborted(req.signal);
-      throw new TheoremError('auth', lexiconText('provider.credential_resolution'));
+      throw new TheoremError('auth', labelText('provider.credential_resolution'));
     }
     if (entry === undefined && which === 'fallback') return undefined;
     if (entry === undefined)
-      throw new TheoremError('auth', lexiconText('provider.credential_missing', { slot }));
+      throw new TheoremError('auth', labelText('provider.credential_missing', { slot }));
     let value: unknown;
     try {
       value =
@@ -426,25 +426,25 @@ export async function createProviderOperations(
           : entry;
     } catch {
       throwIfAborted(req.signal);
-      throw new TheoremError('auth', lexiconText('provider.credential_resolution'));
+      throw new TheoremError('auth', labelText('provider.credential_resolution'));
     }
     throwIfAborted(req.signal);
     try {
       const serializable = z.union([z.string(), jsonObjectSchema]).safeParse(value);
       if (!serializable.success)
-        throw new TheoremError('auth', lexiconText('provider.credential_shape'));
+        throw new TheoremError('auth', labelText('provider.credential_shape'));
       remember(serializable.data);
       const credential = await withProviderAbort(
         () => provider.adapter.credentialSchema.safeParseAsync(serializable.data),
         req.signal,
       );
       if (!credential.success)
-        throw new TheoremError('auth', lexiconText('provider.credential_shape'));
+        throw new TheoremError('auth', labelText('provider.credential_shape'));
       remember(credential.data);
       return credential.data;
     } catch {
       throwIfAborted(req.signal);
-      throw new TheoremError('auth', lexiconText('provider.credential_shape'));
+      throw new TheoremError('auth', labelText('provider.credential_shape'));
     }
   };
   const wait =
@@ -503,7 +503,7 @@ function requireStoredContinuation(provider: RegisteredProvider, binding: ModelB
     providerOptions: binding.providerOptions ?? {},
   });
   if (cap.features.storedContinuation !== 'supported')
-    throw new TheoremError('unsupported', lexiconText('provider.stored_continuation'));
+    throw new TheoremError('unsupported', labelText('provider.stored_continuation'));
 }
 
 /** `history: 'stateless'`: every request stands alone, so one that carries a conversation is refused. */
@@ -513,7 +513,7 @@ export function assertHistoryKept(
   history: readonly TurnHistoryMessage[] | undefined,
 ): void {
   if (policy?.history === 'stateless' && (checkpoint || history?.length))
-    throw new TheoremError('request', lexiconText('provider.stateless_history'));
+    throw new TheoremError('request', labelText('provider.stateless_history'));
 }
 
 export async function restoreProviderState(
@@ -547,7 +547,7 @@ export async function restoreProviderState(
     reason = 'history_changed';
   if (reason) {
     if (policy.onMismatch === 'error')
-      throw new TheoremError('request', lexiconText('provider.continuation_mismatch'));
+      throw new TheoremError('request', labelText('provider.continuation_mismatch'));
     return { warning: { code: 'provider_state_rebuilt', reason } };
   }
   requireStoredContinuation(provider, binding);
@@ -565,7 +565,7 @@ export async function checkpointProviderState(
 ): Promise<ProviderCheckpoint | undefined> {
   if (state === undefined) return undefined;
   if (!provider.adapter.continuation)
-    throw new TheoremError('bad_response', lexiconText('provider.continuation_contract'));
+    throw new TheoremError('bad_response', labelText('provider.continuation_contract'));
   requireStoredContinuation(provider, binding);
   const contract = provider.adapter.continuation;
   const data = jsonValueSchema.parse(contract.schema.parse(state));
@@ -633,7 +633,7 @@ async function* consumeModelStep(
       throwIfAborted(signal);
       const event = validateProviderEvent(raw);
       if (terminal)
-        throw new TheoremError('bad_response', lexiconText('provider.events_after_completion'));
+        throw new TheoremError('bad_response', labelText('provider.events_after_completion'));
       if (event.type === 'text') text += event.text;
       if (event.type === 'structured') {
         flushText();
@@ -641,13 +641,13 @@ async function* consumeModelStep(
       }
       if (event.type === 'tool_call') {
         if (pending.some((call) => call.callId === event.call.callId))
-          throw new TheoremError('bad_response', lexiconText('provider.duplicate_call'));
+          throw new TheoremError('bad_response', labelText('provider.duplicate_call'));
         flushText();
         pending.push(event.call);
         continue;
       }
       if (event.type === 'tool_cancel')
-        throw new TheoremError('bad_response', lexiconText('provider.tool_cancel_live'));
+        throw new TheoremError('bad_response', labelText('provider.tool_cancel_live'));
       if (event.type === 'error') failed = true;
       if (event.type === 'done') {
         terminal = event;
@@ -721,7 +721,7 @@ export function registeredTurnProvider(
       const native = restored.state;
       const operations = await createProviderOperations(provider, binding, host, req);
       if (typeof operations.complete !== 'function')
-        throw new TheoremError('unsupported', lexiconText('provider.complete_unavailable'));
+        throw new TheoremError('unsupported', labelText('provider.complete_unavailable'));
       const { terminal, failed, pending, outputs } = yield* consumeModelStep(
         operations.complete({
           ...providerTurnRequest(req),
@@ -747,7 +747,7 @@ export function registeredTurnProvider(
           validateProviderModel(provider, binding, profileType).features.parallelTools !==
             'supported'
         )
-          throw new TheoremError('unsupported', lexiconText('provider.parallel_tools'));
+          throw new TheoremError('unsupported', labelText('provider.parallel_tools'));
         if (pending.length) outputs.push(historyToolCalls(pending));
         const history = [...(req.history ?? [])];
         if (req.input.length)

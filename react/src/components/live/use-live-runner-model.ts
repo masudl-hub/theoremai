@@ -87,7 +87,7 @@ export function useLiveRunnerModel(
   connection: () => LiveConnection | Promise<LiveConnection>,
   options: LiveCallOptions = {},
 ) {
-  const ui = useLiveRunnerUiState(iface.lexicon);
+  const ui = useLiveRunnerUiState(iface.labels);
   const gate = useLiveRunnerGate({
     setCaptions: ui.setCaptions,
     setActiveTool: ui.setActiveTool,

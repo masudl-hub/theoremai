@@ -188,7 +188,7 @@ function answerReplayed(
 ): Omit<Parameters<StudioScope['invokeTool']>[0], 'metadata'> {
   const tool = replay.name === undefined ? undefined : scope.tools.get(replay.name);
   if (!tool) {
-    // lexicon-exempt: internal diagnostic; the user reads error.request
+    // labels-exempt: internal diagnostic; the user reads error.request
     throw new TheoremError('request', 'invoke: the paused call names no tool in this draft');
   }
   const answered = answerGatedCall(
@@ -279,7 +279,7 @@ export async function* streamStudioCall(args: {
     args.dependencies,
   );
   if (profile.type !== 'host') {
-    // lexicon-exempt: internal diagnostic; the user reads error.request
+    // labels-exempt: internal diagnostic; the user reads error.request
     throw new TheoremError('request', 'Studio calls run host profiles only.');
   }
   yield* withRunTraces((metadata) =>

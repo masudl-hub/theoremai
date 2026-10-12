@@ -33,7 +33,7 @@ import {
   IconStack2,
   IconX,
 } from '@tabler/icons-react';
-import { attachmentIssueText, type LexiconOverrides } from '@theoremjs/agents';
+import { attachmentIssueText, type LabelOverrides } from '@theoremjs/agents';
 import {
   type AttachmentValidationIssue,
   type ComposerMenuAction,
@@ -87,7 +87,7 @@ export type ChatComposerBarProps = {
   pendingFiles: readonly File[];
   pendingVoice: readonly File[];
   pendingMessages: readonly ComposerPendingMessage[];
-  /** Files the last send refused, one per reason; worded with the profile's lexicon. */
+  /** Files the last send refused, one per reason; worded with the profile's labels. */
   issues: readonly AttachmentValidationIssue[];
   phase: ComposerRunPhase;
   failure: ClientFailure | null;
@@ -358,11 +358,11 @@ function composerStatus(args: {
   failure: ClientFailure | null;
   issues: readonly AttachmentValidationIssue[];
   voiceFailure: VoiceFailure | null;
-  lexicon: LexiconOverrides;
+  labels: LabelOverrides;
 }): ChatComposerStatus | undefined {
   if (args.failure) return { type: 'error', message: args.failure.error };
   const warning = [
-    ...args.issues.map((issue) => attachmentIssueText(issue, args.lexicon)),
+    ...args.issues.map((issue) => attachmentIssueText(issue, args.labels)),
     args.voiceFailure?.error,
   ]
     .filter(Boolean)
@@ -701,7 +701,7 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
   const pendingFiles = useMemo(() => [...props.pendingFiles], [props.pendingFiles]);
   const voice = useComposerVoice({
     inputs,
-    lexicon: iface.lexicon,
+    labels: iface.labels,
     pendingFiles,
     onVoiceStaged: props.onVoiceStaged,
     onVoiceClear: props.onVoiceClear,
@@ -798,7 +798,7 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
         failure: props.failure,
         issues: [...props.issues, ...stagingIssues],
         voiceFailure: voice.failure,
-        lexicon: iface.lexicon,
+        labels: iface.labels,
       })}
     />
   );

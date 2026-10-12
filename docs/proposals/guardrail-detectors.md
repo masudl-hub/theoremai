@@ -245,7 +245,7 @@ Patterns live in the profile. A host with many profiles shares one constant.
 ### The hint a retry carries
 
 Every detector has a `hint`: one line telling the model what to leave out.
-Theorem's are in the lexicon; a host detector sets its own, and may set one on
+Theorem's are in the labels; a host detector sets its own, and may set one on
 a Theorem detector it adds patterns to. When a blocked reply is retried, the
 kernel sends the hints of the detectors that fired and the text each matched.
 No host code builds the message. The retry is itself read at the `repair`

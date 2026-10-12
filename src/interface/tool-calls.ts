@@ -2,7 +2,7 @@
 // session and history read calls through this fold only.
 
 import { TheoremError } from '../guardrails/error.ts';
-import { lexiconText } from '../guardrails/lexicon.ts';
+import { labelText } from '../guardrails/labels.ts';
 import type { ToolCallEvent, TurnEvent, TurnEventOf } from '../kernel/types.ts';
 import type { ToolCall } from './types.ts';
 
@@ -25,11 +25,11 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
   if (call === undefined) {
     throw new TheoremError(
       'bad_response',
-      `Tool event '${tool.phase}' for call '${tool.callId}' arrived before the call.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Tool event '${tool.phase}' for call '${tool.callId}' arrived before the call.`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (call.callId !== tool.callId || call.name !== tool.name) {
-    throw new TheoremError('bad_response', lexiconText('error.bad_response'));
+    throw new TheoremError('bad_response', labelText('error.bad_response'));
   }
   switch (tool.phase) {
     case 'running': {

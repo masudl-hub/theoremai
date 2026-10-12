@@ -41,7 +41,7 @@ export function startLiveVideoCapture(
     const context = canvas.getContext('2d');
     if (!context) {
       for (const track of stream.getTracks()) track.stop();
-      throw new TheoremError('unsupported', 'no 2d canvas for live video'); // lexicon-exempt: internal diagnostic
+      throw new TheoremError('unsupported', 'no 2d canvas for live video'); // labels-exempt: internal diagnostic
     }
 
     let timer: ReturnType<typeof setInterval> | null = null;

@@ -13,13 +13,13 @@ export function credentialFromTypedSecret(
 ): BearerCredential | ApiKeyCredential {
   const value = typeof secret === 'string' ? secret.trim() : '';
   if (!value) {
-    throw new TheoremError('request', 'A typed credential must be a non-empty string'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('request', 'A typed credential must be a non-empty string'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (authType === 'bearer') return { type: 'bearer', token: value };
   if (authType === 'api_key') return { type: 'api_key', key: value };
   throw new TheoremError(
     'request',
-    `A '${authType}' sign-in takes no typed credential; the host's callback saves it`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    `A '${authType}' sign-in takes no typed credential; the host's callback saves it`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 
@@ -29,7 +29,7 @@ export function credentialForSignInGate(
   secret: unknown,
 ): { slot: string; credential: BearerCredential | ApiKeyCredential } {
   if (!auth) {
-    throw new TheoremError('request', 'a typed credential answers only a sign-in gate'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('request', 'a typed credential answers only a sign-in gate'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return { slot: auth.slot, credential: credentialFromTypedSecret(auth.authType, secret) };
 }

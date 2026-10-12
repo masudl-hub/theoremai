@@ -545,7 +545,7 @@ To show the transcript and the composer, use `ChatTranscript` and `ChatComposerB
 The hooks and the client write no English text. They return kinds, codes and states. You write the words.
 
 - A failure is a `ClientFailure`: `{ error, errorKind, errorInternal? }`. Show `error` to the user. It is the wording of the profile. `errorKind` and `errorInternal` are for your code.
-- An attachment problem is an `AttachmentValidationIssue`. Use `attachmentIssueText(issue, iface.lexicon)` from `@theoremjs/agents` to get its text.
+- An attachment problem is an `AttachmentValidationIssue`. Use `attachmentIssueText(issue, iface.labels)` from `@theoremjs/agents` to get its text.
 - A provider can end a live call after it gives a warning. This is not a failure. `LiveSessionClient` calls `onSessionEnded(session)`. `session.message` is the wording of the profile (`live.session_ended`). `session.ended` has the close code and the timing.
 - The state of the UI is given as values, such as `liveState`, the work status, the drawer parts and the hint ids. You choose the words for them.
 

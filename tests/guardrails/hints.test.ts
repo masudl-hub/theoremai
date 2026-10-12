@@ -2,7 +2,7 @@ import { assertEquals, assertStringIncludes } from '@std/assert';
 import { detectAt } from '../../src/guardrails/detect-at.ts';
 import { detectProblem, resolveDetect } from '../../src/guardrails/detectors.ts';
 import { retryRejection } from '../../src/guardrails/hints.ts';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { labelDefault } from '../../src/guardrails/labels.ts';
 import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 
 const CODENAMES = {
@@ -23,19 +23,19 @@ Deno.test("a retry carries each detector's hint once, with what it matched", () 
   const rejection = rejectionOf('Reach 10.0.0.7 or 10.0.0.9, then 10.0.0.7.', { network: 'block' });
   assertEquals(
     rejection,
-    lexiconDefault('egress.rejection', {
-      found: lexiconDefault('egress.rejection_found', {
-        hint: lexiconDefault('detect.hint.network'),
+    labelDefault('egress.rejection', {
+      found: labelDefault('egress.rejection_found', {
+        hint: labelDefault('detect.hint.network'),
         matches: '"10.0.0.7", "10.0.0.9"',
       }),
     }),
   );
 });
 
-Deno.test("a detector of the host's own gives its hint, or the lexicon's with its label", () => {
+Deno.test("a detector of the host's own gives its hint, or the labels' with its label", () => {
   assertStringIncludes(
     rejectionOf('Project Bluebird ships.', { 'acme.codenames': CODENAMES }),
-    `${lexiconDefault('detect.hint.own', { label: 'Codenames' })} Found: "Bluebird"`,
+    `${labelDefault('detect.hint.own', { label: 'Codenames' })} Found: "Bluebird"`,
   );
   assertStringIncludes(
     rejectionOf('Project Bluebird ships.', {
@@ -57,11 +57,11 @@ Deno.test('what is ours is never quoted back, and a long match is cut', () => {
   );
   assertEquals(
     leak,
-    lexiconDefault('egress.rejection', {
+    labelDefault('egress.rejection', {
       found: [
-        lexiconDefault('detect.hint.canary_leak'),
-        lexiconDefault('detect.hint.prompt_leak'),
-        lexiconDefault('egress.hint_unscannable'),
+        labelDefault('detect.hint.canary_leak'),
+        labelDefault('detect.hint.prompt_leak'),
+        labelDefault('egress.hint_unscannable'),
       ].join('\n'),
     }),
   );

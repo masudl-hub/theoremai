@@ -6,7 +6,7 @@ import {
   throwIfAborted,
   toErrorEvent,
 } from '../../../guardrails/error.ts';
-import { lexiconText } from '../../../guardrails/lexicon.ts';
+import { labelText } from '../../../guardrails/labels.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
 import {
   nestedRegisteredProvider,
@@ -66,7 +66,7 @@ function createAgentCaller(args: {
   const { registry, req } = args;
   return {
     async *run({ tool, callId, input, caller, span, signal }): AsyncGenerator<TurnEvent, AgentRun> {
-      const lexicon = caller.lexicon;
+      const labels = caller.labels;
       const settled = (code: string, kind: ToolFailure['kind'], message: string): AgentRun => ({
         failure: { code, kind, message },
       });
@@ -75,7 +75,7 @@ function createAgentCaller(args: {
         return settled(
           'call_limit',
           'declined',
-          lexiconText('tool.agent_call_limit', { tool: tool.name }, lexicon),
+          labelText('tool.agent_call_limit', { tool: tool.name }, labels),
         );
       }
       calls.set(tool.name, made + 1);
@@ -85,7 +85,7 @@ function createAgentCaller(args: {
       if (problem) {
         throw new TheoremError(
           'config',
-          `Agent tool "${tool.name}" can't run '${tool.profile}': ${problem}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          `Agent tool "${tool.name}" can't run '${tool.profile}': ${problem}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         );
       }
 
@@ -93,7 +93,7 @@ function createAgentCaller(args: {
       if (hostInput && !req.onAgentCall) {
         throw new TheoremError(
           'config',
-          `Agent tool "${tool.name}" declares host fields, which need the request's onAgentCall`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          `Agent tool "${tool.name}" declares host fields, which need the request's onAgentCall`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         );
       }
       const shaped = await req.onAgentCall?.({
@@ -117,7 +117,7 @@ function createAgentCaller(args: {
           ? nestedRegisteredProvider(args.provider, profile.id, fields.model)
           : resolveRegisteredTurnProvider(args.registry, profile.id, fields.model, {});
       if (!span) {
-        throw new TheoremError('internal', `Agent tool "${tool.name}" ran without a span`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        throw new TheoremError('internal', `Agent tool "${tool.name}" ran without a span`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
 
       const { speech, ...sent } = modelInput;
@@ -149,7 +149,7 @@ function createAgentCaller(args: {
         events.push(toErrorEvent(err));
       }
       throwIfAborted(signal);
-      return agentRunOf(events, tool.name, tool.profile, lexicon);
+      return agentRunOf(events, tool.name, tool.profile, labels);
     },
   };
 }
@@ -159,7 +159,7 @@ function agentRunOf(
   events: readonly TurnEvent[],
   toolName: string,
   profileId: string,
-  lexicon: Profile['lexicon'],
+  labels: Profile['labels'],
 ): AgentRun {
   const done = findLast(events, (e): e is TurnEventOf<'done'> => e.type === 'done');
   const tokens = done?.tokens ?? sumEventTokens(events);
@@ -168,19 +168,19 @@ function agentRunOf(
   if (reported && NESTED_THROWS.has(reported.errorKind)) {
     throw new TheoremError(
       reported.errorKind,
-      `Agent '${profileId}' failed: ${reported.errorInternal ?? reported.error}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Agent '${profileId}' failed: ${reported.errorInternal ?? reported.error}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const stop = done?.stop.kind;
   if (stop !== 'completed' || reported) {
-    const failed = lexiconText('tool.agent_failed', { tool: toolName }, lexicon);
+    const failed = labelText('tool.agent_failed', { tool: toolName }, labels);
     return {
       failure: {
         code: 'agent_failed',
         kind: reported?.errorKind ?? 'failed',
         // why: Reasons the agent's turn named (a file it does not take) let the caller's model correct the call.
         message: reported?.errorCopy
-          ? `${failed}\n${errorCopyText(reported.errorCopy, lexicon)}`
+          ? `${failed}\n${errorCopyText(reported.errorCopy, labels)}`
           : failed,
         details: {
           agent: profileId,

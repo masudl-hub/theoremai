@@ -716,11 +716,12 @@ function mergedValue(
 ): unknown {
   if (same(base, theirs) || same(mine, theirs)) return mine;
   if (isRecord(base) && isRecord(mine) && isRecord(theirs)) {
-    const next = { ...mine };
-    for (const field of new Set([...Object.keys(base), ...Object.keys(mine), ...Object.keys(theirs)])) {
+    // In the files' order, so a setting the files added sits where they hold it and what comes of
+    // the merge is the same as its start when the builder changed nothing.
+    const next: Record<string, unknown> = {};
+    for (const field of new Set([...Object.keys(theirs), ...Object.keys(mine), ...Object.keys(base)])) {
       const value = mergedValue(base[field], mine[field], theirs[field], [...path, field], tell);
-      if (value === undefined) delete next[field];
-      else next[field] = value;
+      if (value !== undefined) next[field] = value;
     }
     return next;
   }

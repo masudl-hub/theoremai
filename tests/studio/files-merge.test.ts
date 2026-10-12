@@ -88,6 +88,23 @@ Deno.test('with no edits here the merge is the files, at their start', () => {
   assert(atStart(merge.workspace));
 });
 
+Deno.test('a setting the files added, among the others, leaves no edit here', () => {
+  const old = createArchitectWorkspace();
+  assert(old.toolSpecs.length > 0);
+  // The files gain a setting they did not hold, placed where a file's reading puts it: not last.
+  const files = filesAfter((opened) => ({
+    ...opened,
+    toolSpecs: opened.toolSpecs.map((tool) => ({ activityFailed: "couldn't do it", ...tool })),
+  }));
+  const merge = mergedWithFiles(old, files, old);
+  assertEquals(
+    merge.workspace.toolSpecs.map((tool) => tool.activityFailed),
+    old.toolSpecs.map(() => "couldn't do it"),
+  );
+  assertEquals(merge.conflicts, []);
+  assert(atStart(merge.workspace));
+});
+
 Deno.test('both making the same change is no conflict', () => {
   const old = createArchitectWorkspace();
   const edits = edit(old, first(old).key, system('Agreed.'));

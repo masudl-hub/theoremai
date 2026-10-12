@@ -508,8 +508,9 @@ edit. This is a call, a template, a spread, a tool's handler, or a tool's
 schema that is not Zod the studio follows. Under it is one line that says what sets it
 and where (`Set in code · stepsFor(PLAN) · setup.ts:34`), with "Open".
 
-- Open starts the builder's editor on that line: the one `--editor` names,
-  else `$VISUAL` or `$EDITOR` when it opens a window, else `code`. When that
+- Open starts the builder's editor on that line: the one chosen in Settings,
+  under Files, else the one `--editor` names, else `$VISUAL` or `$EDITOR`
+  when it opens a window, else `code`. When that
   one does not start, the machine's default editor opens the file at the top
   (macOS and Linux). When no editor starts, the studio says so and offers
   the path to copy. It opens only files the project's setup reads.
@@ -551,9 +552,9 @@ what the builder's editor saves as it saves.
   over the files as they are now, with the toast or the dialog. The tab
   keeps the files as it last read them beside the edits, so a profile the
   builder removed stays removed.
-- Watching is on by default. "Watch files" in the view menu turns it off for
-  this browser, and `--no-watch` at launch turns it off for the run: the
-  menu item is then not offered. With it off, the files are read as before,
+- Watching is on by default. "Watch files" in Settings, under Files, turns
+  it off for this browser, and `--no-watch` at launch turns it off for the
+  run: the setting is then shown but cannot be changed. With it off, the files are read as before,
   after a Save or an undo and when the builder comes back to the page.
 - A Save from the studio is not a file change: it brings no toast and no
   dialog.

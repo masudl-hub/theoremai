@@ -72,6 +72,17 @@ Deno.test('a value written in the profile is rewritten where it stands, and noth
   assertEquals(text, INLINE.replace('maxSteps: 8', 'maxSteps: 12'));
 });
 
+Deno.test('a profile written straight into registerProfile is found and rewritten the same way', () => {
+  const registered = INLINE.replace(
+    'import { defineProfile }',
+    'import { registerProfile }',
+  ).replace('export const desk = defineProfile({', 'registerProfile({');
+  assertEquals([...project({ 'setup.ts': registered }).profiles.keys()], ['desk']);
+  const { text, statuses } = saved({ 'setup.ts': registered }, BASE, { ...BASE, maxSteps: 12 });
+  assertEquals(statuses, ['maxSteps: written']);
+  assertEquals(text, registered.replace('maxSteps: 8', 'maxSteps: 12'));
+});
+
 Deno.test('text keeps the quotes the file uses, and text of several lines becomes a template', () => {
   const one = saved({ 'setup.ts': INLINE }, BASE, { ...BASE, system: `Say "hi".` });
   assertEquals(one.text.includes('system: "Say \\"hi\\".",'), true);

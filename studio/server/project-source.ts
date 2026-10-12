@@ -37,7 +37,7 @@ export interface ProjectSource {
   entry: string;
   /** Each file read, by absolute path, the setup module first. */
   files: Map<string, ts.SourceFile>;
-  /** The `defineProfile` calls, by profile id. An id written twice has two. */
+  /** The profiles written out, in `defineProfile` or straight into `registerProfile`, by profile id. An id written twice has two. */
   profiles: Map<string, SourceTarget[]>;
   /** The `registerTool` calls, by tool name. */
   tools: Map<string, SourceTarget[]>;
@@ -130,6 +130,14 @@ export function calleeName(call: ts.CallExpression): string | undefined {
   if (ts.isIdentifier(callee)) return callee.text;
   if (ts.isPropertyAccessExpression(callee)) return callee.name.text;
   return undefined;
+}
+
+/** The calls a profile's options are written in: where it is defined, or where it is registered without being defined first. */
+const PROFILE_CALLS = new Set(['defineProfile', 'registerProfile']);
+
+/** Whether a call is one a profile's options may be written straight into. */
+export function takesProfile(call: ts.CallExpression): boolean {
+  return PROFILE_CALLS.has(calleeName(call) ?? '');
 }
 
 /** How far a name is followed, through constants and calls. */
@@ -569,7 +577,7 @@ function passes(project: ProjectSource, call: ts.CallExpression, child: ts.Node)
   const ours = ts.isIdentifier(callee) && functionOf(project, call.getSourceFile(), callee.text) !== undefined;
   if (child === callee) return ours || (ts.isPropertyAccessExpression(callee) && SCHEMA_METHODS.has(callee.name.text));
   if (!call.arguments.some((argument) => argument === child)) return false;
-  return ours || isModelCall(call) || calleeName(call) === 'defineProfile';
+  return ours || isModelCall(call) || takesProfile(call);
 }
 
 /** Whether `node` is part of the value `value` writes out, not something a function or a call inside it reads. */
@@ -832,7 +840,7 @@ export function projectOf(files: Map<string, ts.SourceFile>, entry: string, root
         const options = unwrapped(node.arguments[0]);
         if (ts.isObjectLiteralExpression(options)) {
           const target = { file, source, options };
-          if (name === 'defineProfile') calls.push({ into: project.profiles, key: 'id', target });
+          if (takesProfile(node)) calls.push({ into: project.profiles, key: 'id', target });
           if (name === 'registerTool') calls.push({ into: project.tools, key: 'name', target });
         }
       }

@@ -53,6 +53,32 @@ Deno.test('a profile registered where it is defined goes with the comment above 
   );
 });
 
+Deno.test('a profile written straight into its registration goes with it', () => {
+  const setup = lines(
+    "import { registerProfile } from '@theoremjs/agents';",
+    '',
+    "registerProfile({ type: 'host', id: 'desk' });",
+    '',
+    'export function registerReader(): void {',
+    '  // Reads one page.',
+    "  registerProfile({ type: 'decision', id: 'reader' });",
+    '}',
+  );
+  const plan = planned({ 'setup.ts': setup }, { profiles: ['reader'] });
+  assertEquals(plan.statuses, [['reader', 'written']]);
+  assertEquals(
+    plan.written['setup.ts'],
+    lines(
+      "import { registerProfile } from '@theoremjs/agents';",
+      '',
+      "registerProfile({ type: 'host', id: 'desk' });",
+      '',
+      'export function registerReader(): void {',
+      '}',
+    ),
+  );
+});
+
 Deno.test('a named profile goes with its registration, and stays when other code reads it', () => {
   const setup = (extra: string[]) =>
     lines(

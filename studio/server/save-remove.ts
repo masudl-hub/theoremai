@@ -250,7 +250,9 @@ class Removal {
     if (targets.length > 1) return this.note('profile', id, 'removed', at);
     const defined = wrapped(target.options).parent;
     const outer = wrapped(defined).parent;
-    const inline = ts.isCallExpression(outer) && calleeName(outer) === 'registerProfile' ? statementOf(outer) : undefined;
+    // Registered where it is written: with `defineProfile` inside the call, or without it.
+    const registers = [defined, outer].find((call) => ts.isCallExpression(call) && calleeName(call) === 'registerProfile');
+    const inline = registers && statementOf(registers);
     const named = inline ? undefined : declared(defined, target.source);
     if (inline) this.cut.set(inline, target.source);
     else if (!named || !this.named(named)) return this.note('profile', id, 'removed', at);

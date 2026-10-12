@@ -6,7 +6,14 @@ import { fileURLToPath } from 'node:url';
 /** The package repo: this file is `studio/vite.mjs` in it. */
 const theoremaiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** What the screen imports that has to come from the host's one install. */
+/** The package's own folder: `studio/` in the repo, or the installed package. */
+const studioRoot = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * What the screen imports that comes from the host's install when the host has it, so there is
+ * one copy of each. A host that reaches the package by a link has only what it lists itself; the
+ * rest is the package's own copy, which only the package imports.
+ */
 const HOST_PACKAGES = [
 	'react',
 	'react-dom',
@@ -24,9 +31,11 @@ const CACHE_VERSION = 1;
 
 /**
  * What a Vite build needs to show the studio screen (`@theoremjs/studio/ui`). `hostRoot` is the
- * app that shows it; its install holds React, the design library, Monaco and zod.
+ * app that shows it; its install holds React and the design library.
  *
- * - The screen's packages resolve to the host's install, so there is one copy of each.
+ * - The screen's packages resolve to the host's install where it has them, so there is one copy
+ *   of each. Monaco, fflate and zod are the package's own dependencies: an install from the
+ *   registry puts them in the host, and a linked package keeps them beside itself.
  * - `virtual:studio-codicons/*` is Monaco's icon sheets.
  * - `virtual:studio-type-sources` is the declarations for the open agent's file. The Monaco
  *   worker typechecks that one file. It does not typecheck the kernel: these are the
@@ -40,7 +49,7 @@ export function studioVite({ hostRoot }) {
 	return {
 		name: 'theorem-studio',
 		config() {
-			return { resolve: { dedupe: HOST_PACKAGES } };
+			return { resolve: { dedupe: HOST_PACKAGES.filter((name) => installedFrom(hostRoot, name)) } };
 		},
 		resolveId(source) {
 			if (source === 'virtual:studio-type-sources') return virtual;
@@ -173,16 +182,23 @@ function rewriteTypeSpecifiers(contents) {
 	);
 }
 
-/** A package's folder as the host resolves it: in its own `node_modules`, or the nearest one above. */
-function hostPackage(hostRoot, name) {
-	let dir = hostRoot;
+/** A package's folder as `root` resolves it: in its own `node_modules`, or the nearest one above. */
+function installedFrom(root, name) {
+	let dir = root;
 	for (;;) {
 		const found = path.join(dir, 'node_modules', name);
 		if (existsSync(found)) return found;
 		const up = path.dirname(dir);
-		if (up === dir) throw new Error(`studio: ${name} is not installed for ${hostRoot}`);
+		if (up === dir) return undefined;
 		dir = up;
 	}
+}
+
+/** A package's folder: the host's install when it has one, or the copy the studio package came with. */
+function hostPackage(hostRoot, name) {
+	const found = installedFrom(hostRoot, name) ?? installedFrom(studioRoot, name);
+	if (!found) throw new Error(`studio: ${name} is not installed for ${hostRoot} or for the studio package`);
+	return found;
 }
 
 /** The host's TypeScript: the compiler its own build uses. */

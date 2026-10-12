@@ -284,6 +284,9 @@ export interface AgentToolOutput {
   sources?: Source[];
 }
 
+/** A channel of an agent tool's input that the called profile's `inputs` declares. */
+export type AgentToolChannel = 'attachments' | 'voice' | 'slots';
+
 /**
  * A tool whose call runs one turn of another registered agent. That agent is a
  * standalone profile; the tool is how another agent's model calls it. Its input
@@ -297,6 +300,14 @@ export interface AgentToolDef extends ToolBase {
   maxCallsPerTurn?: number;
   /** What the calling model reads on a field of the tool's input, by field. A field the profile does not take is refused. */
   fieldText?: Partial<Record<keyof AgentToolInput, string>>;
+  /**
+   * Fields the calling model fills that only the host reads. `onAgentCall` gets them as
+   * `hostInput` and turns them into the agent's input; they are never sent to the agent.
+   * A name the input already has is refused, and a call without the hook is a config error.
+   */
+  hostFields?: Record<string, z.ZodType>;
+  /** Channels the profile takes that the calling model can't fill; only `onAgentCall` sends them. */
+  hostOnly?: AgentToolChannel[];
   preTool?: ToolHostHooks<AgentToolInput>['preTool'];
   exposeToModel?: boolean;
 }
@@ -317,6 +328,8 @@ export interface AgentCall {
   /** The agent the tool runs. */
   profile: ProfileId;
   input: AgentToolInput;
+  /** What the model sent in the tool's `hostFields`; absent when the tool declares none. */
+  hostInput?: Record<string, unknown>;
   /** The agent whose model made the call. */
   caller: ProfileId;
   /** 1 for a call from the host's own turn; one more for each agent tool it came through. */

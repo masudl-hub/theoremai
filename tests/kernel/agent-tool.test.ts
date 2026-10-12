@@ -1,14 +1,14 @@
 import { createTestKernelScope as createKernelScope } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions, runScopedTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
-import { assertThrows } from '@std/assert';
+import { assertRejects, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { KernelScope } from '../../src/kernel/scope.ts';
 import { agentToolOrigin } from '../../src/kernel/tools/agent.ts';
-import type { AgentCallHook, AgentToolDef } from '../../src/kernel/tools/types.ts';
+import type { AgentCall, AgentCallHook, AgentToolDef } from '../../src/kernel/tools/types.ts';
 import type {
   ModelProvider,
   ProviderCompleteRequest,
@@ -676,5 +676,90 @@ Deno.test('fieldText puts the host line on an input field, and refuses a field t
     () => scopeWith({ fieldText: { voice: 'Speech.' } }),
     TheoremError,
     "describes 'voice', which its profile does not take",
+  );
+});
+
+Deno.test('a host field reaches the hook and never the called agent', async () => {
+  const scope = scopeWith({ hostFields: { media: z.string().describe('A stored file.') } });
+  const tool = scope.tools.get('ask_researcher');
+  assertEquals(tool?.type === 'agent' ? tool.inputSchema.properties : undefined, {
+    text: { type: 'string', pattern: '\\S' },
+    media: { type: 'string', description: 'A stored file.' },
+  });
+  const calls: AgentCall[] = [];
+  const seen: string[] = [];
+  const caller = routedProvider(1, seen);
+  const provider: ModelProvider = {
+    async *complete(req) {
+      for await (const event of caller.complete(req)) {
+        yield event.type === 'tool'
+          ? { ...event, tool: { ...event.tool, arguments: { text: 'question 0', media: 'm1' } } }
+          : event;
+      }
+    },
+  };
+  const events = await collect(scope, provider, (call) => {
+    calls.push(call);
+    return { input: { text: `${call.input.text} with ${String(call.hostInput?.media)}` } };
+  });
+  assertEquals(calls[0]?.input, { text: 'question 0' });
+  assertEquals(calls[0]?.hostInput, { media: 'm1' });
+  assertEquals(seen, ['question 0 with m1']);
+  assertEquals(doneOf(events).stop.kind, 'completed');
+});
+
+Deno.test('a tool with host fields needs the hook, and a host field takes no input field name', async () => {
+  const scope = scopeWith({ hostFields: { media: z.string().optional() } });
+  await assertRejects(
+    () => collect(scope, routedProvider()),
+    TheoremError,
+    "declares host fields, which need the request's onAgentCall",
+  );
+  assertThrows(
+    () => scopeWith({ hostFields: { attachments: z.string() } }),
+    TheoremError,
+    "declares the host field 'attachments'",
+  );
+});
+
+Deno.test('a host-only channel is out of the model input, and the hook still sends it', async () => {
+  const scope = createKernelScope();
+  scope.profiles.register(
+    defineProfile({
+      ...textProfile(RESEARCHER, RESEARCHER_SYSTEM, []),
+      inputs: {
+        text: true,
+        attachments: { accept: ['image/png'] },
+        maxFiles: 1,
+        maxBytes: 1024,
+        maxTurnBytes: 1024,
+      },
+    }),
+  );
+  scope.tools.register(agentTool({ hostOnly: ['attachments'] }));
+  scope.profiles.register(textProfile(CALLER, 'You help.', ['ask_researcher']));
+  const tool = scope.tools.get('ask_researcher');
+  assertEquals(tool?.type === 'agent' ? Object.keys(tool.inputSchema.properties ?? {}) : [], [
+    'text',
+  ]);
+  const files: number[] = [];
+  const caller = routedProvider();
+  const provider: ModelProvider = {
+    async *complete(req) {
+      if (isResearcher(req)) {
+        const parts = req.history?.at(-1)?.parts ?? [];
+        files.push(parts.filter((part) => part.type === 'image').length);
+      }
+      yield* caller.complete(req);
+    },
+  };
+  await collect(scope, provider, (call) => ({
+    input: { text: call.input.text, attachments: [{ mimeType: 'image/png', data: 'aGk=' }] },
+  }));
+  assertEquals(files, [1]);
+  assertThrows(
+    () => scopeWith({ hostOnly: ['voice'] }),
+    TheoremError,
+    "keeps 'voice' for the host, which its profile does not take",
   );
 });

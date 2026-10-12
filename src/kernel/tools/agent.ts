@@ -80,6 +80,43 @@ function slotsInput(slots: Record<string, string[]>) {
   );
 }
 
+/** The fields an agent tool's input can carry to the called agent; a host field takes none of these names. */
+const AGENT_INPUT_FIELDS: ReadonlySet<string> = new Set([
+  'text',
+  'attachments',
+  'voice',
+  'slots',
+  'speech',
+]);
+
+/**
+ * What the model sent, split into what goes to the called agent and what only the host reads.
+ *
+ * why: A host field is the host's own word for something (an id it resolves); the called profile does not take it, so it never reaches the agent's turn.
+ */
+function splitHostInput(
+  tool: Pick<AgentToolDef, 'hostFields'>,
+  input: AgentToolInput,
+): { sent: AgentToolInput; hostInput?: Record<string, unknown> } {
+  if (!tool.hostFields) return { sent: input };
+  const all: Record<string, unknown> = { ...input };
+  const hostInput: Record<string, unknown> = {};
+  for (const field of Object.keys(tool.hostFields)) {
+    if (all[field] !== undefined) hostInput[field] = all[field];
+  }
+  const { text, attachments, voice, slots, speech } = input;
+  return {
+    sent: {
+      text,
+      ...(attachments ? { attachments } : {}),
+      ...(voice ? { voice } : {}),
+      ...(slots ? { slots } : {}),
+      ...(speech ? { speech } : {}),
+    },
+    hostInput,
+  };
+}
+
 /**
  * The input of an agent tool that runs `agent`: text, and each channel the
  * profile's `inputs` declares. Anything else is refused, never dropped. The
@@ -89,7 +126,7 @@ function agentToolInputFor(
   agent: Pick<Profile, 'type'> & {
     inputs?: Pick<ProfileInputsSpec, 'attachments' | 'voice' | 'slots'>;
   },
-  tool?: Pick<AgentToolDef, 'name' | 'fieldText'>,
+  tool?: Pick<AgentToolDef, 'name' | 'fieldText' | 'hostFields' | 'hostOnly'>,
 ): z.ZodType<AgentToolInput> {
   const { inputs } = agent;
   const shape: Record<string, z.ZodType> = { text: textInput };
@@ -99,6 +136,15 @@ function agentToolInputFor(
   if (inputs?.voice) shape.voice = z.array(blobInput).optional();
   if (inputs?.slots) shape.slots = slotsInput(inputs.slots).optional();
   if (agent.type === 'speech') shape.speech = speechInput.optional();
+  for (const channel of tool?.hostOnly ?? []) {
+    if (!shape[channel]) {
+      throw new TheoremError(
+        'config',
+        `Tool '${tool?.name}' keeps '${channel}' for the host, which its profile does not take`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    delete shape[channel];
+  }
   for (const [field, text] of Object.entries(tool?.fieldText ?? {})) {
     const schema = shape[field];
     if (!schema) {
@@ -108,6 +154,15 @@ function agentToolInputFor(
       );
     }
     shape[field] = schema.describe(text);
+  }
+  for (const [field, schema] of Object.entries(tool?.hostFields ?? {})) {
+    if (AGENT_INPUT_FIELDS.has(field)) {
+      throw new TheoremError(
+        'config',
+        `Tool '${tool?.name}' declares the host field '${field}', which is a field of every agent tool`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    shape[field] = schema;
   }
   // why: The shape is built key by key from the profile, which zod cannot type; each key is an `AgentToolInput` field.
   return z.strictObject(shape) as unknown as z.ZodType<AgentToolInput>;
@@ -245,4 +300,5 @@ export {
   agentToolOutputOf,
   agentToolProfile,
   normalizeAgent,
+  splitHostInput,
 };

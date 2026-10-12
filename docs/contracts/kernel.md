@@ -538,6 +538,8 @@ state is the host's, through `onAgentCall` and stages.
 | `profile` | The agent to run: a `text`, `image` or `speech` profile that takes text, registered before the tool |
 | `maxCallsPerTurn` | Calls allowed in one turn of the caller; a call past it fails `call_limit` (`declined`) |
 | `fieldText` | What the calling model reads on a field of the input, by field (`{ text: '…' }`); a field the profile does not take is refused at registration |
+| `hostFields` | Fields the model fills that only the host reads, as a zod type by name (`{ media: z.string() }`); a name the input already has is refused at registration |
+| `hostOnly` | Channels the profile takes that the model can't fill (`['attachments']`); a channel the profile does not take is refused at registration |
 | `preTool` | As on a function tool, with the call's input |
 
 **Input.** The tool's input is what the called profile takes, so the calling
@@ -560,6 +562,13 @@ line's key and facts. `inputs.context` is not a
 field: its senders are the page and the host, and the host sends it through
 `onAgentCall`.
 
+**Host fields.** A tool's `hostFields` add fields to its input that the called
+agent never receives: the host's own handle for something, such as the id of a
+stored file. The hook reads them as `call.hostInput` and returns the `input` the
+agent is sent. `hostOnly` takes a channel out of the model's input, so the file
+an id names reaches the agent only as the hook attached it. A call to a tool
+with host fields on a request with no `onAgentCall` throws `config`.
+
 Output is `{ text?, structured?, removed?, parts?, sources? }`: the reply's text, or its last
 structured reply when the called profile declares `outputs.structured` (the text
 of such a reply is the same JSON, so it is not returned twice), its images or
@@ -576,7 +585,7 @@ order, so calls can't loop.
 
 **The host's hook.** `TurnRequest.onAgentCall(call)` (and the same field on
 `InvokeToolRequest` and `SessionRequest`) runs before each call with `{ tool, callId, profile,
-input, caller, depth, metadata?, signal? }`. It returns nothing to run the call
+input, hostInput?, caller, depth, metadata?, signal? }`. It returns nothing to run the call
 as is, `{ refuse }` to fail it (`refused_by_host`, `declined`, the model reads
 `refuse`), or fields for the called agent's request: `input`, `speech`,
 `model`, `effort`, `builtInArgs`, `metadata`, `onStage`, `conversationId`, `provider`. The

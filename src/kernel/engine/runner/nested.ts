@@ -18,6 +18,7 @@ import {
   type AgentRun,
   agentProfileProblem,
   agentToolOutputOf,
+  splitHostInput,
 } from '../../tools/agent.ts';
 import type { AgentCallRequest, ToolFailure } from '../../tools/types.ts';
 import type {
@@ -88,11 +89,19 @@ function createAgentCaller(args: {
         );
       }
 
+      const { sent: modelInput, hostInput } = splitHostInput(tool, input);
+      if (hostInput && !req.onAgentCall) {
+        throw new TheoremError(
+          'config',
+          `Agent tool "${tool.name}" declares host fields, which need the request's onAgentCall`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        );
+      }
       const shaped = await req.onAgentCall?.({
         tool: tool.name,
         callId,
         profile: tool.profile,
-        input,
+        input: modelInput,
+        ...(hostInput ? { hostInput } : {}),
         caller: caller.id,
         depth: args.depth + 1,
         ...(req.metadata ? { metadata: req.metadata } : {}),
@@ -111,7 +120,7 @@ function createAgentCaller(args: {
         throw new TheoremError('internal', `Agent tool "${tool.name}" ran without a span`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
 
-      const { speech, ...sent } = input;
+      const { speech, ...sent } = modelInput;
       const events: TurnEvent[] = [];
       try {
         for await (const event of args.runNested({

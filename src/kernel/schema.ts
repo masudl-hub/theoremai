@@ -1475,6 +1475,20 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     ),
     unset: 'The fields carry no text',
   },
+  hostFields: {
+    ...field(
+      'Record<string, ZodType>',
+      'Fields the calling model fills on an agent tool that only the host reads. onAgentCall gets them as hostInput and turns them into what the agent is sent; the agent never sees them. A name the input already has is refused when the tool registers.',
+    ),
+    unset: 'The input is only what the profile takes',
+  },
+  hostOnly: {
+    ...field(
+      "Array<'attachments' | 'voice' | 'slots'>",
+      'Channels the called profile takes that the calling model cannot fill on an agent tool; only onAgentCall sends them. A channel the profile does not take is refused when the tool registers.',
+    ),
+    unset: 'The model can fill every channel the profile takes',
+  },
   auth: {
     ...field('ToolAuthConfig', 'How the tool gets its credential.'),
     unset: 'No credential',

@@ -295,6 +295,8 @@ export interface AgentToolDef extends ToolBase {
   profile: ProfileId;
   /** Calls to this tool in one turn of its caller. Omit: only `maxSteps` bounds them. */
   maxCallsPerTurn?: number;
+  /** What the calling model reads on a field of the tool's input, by field. A field the profile does not take is refused. */
+  fieldText?: Partial<Record<keyof AgentToolInput, string>>;
   preTool?: ToolHostHooks<AgentToolInput>['preTool'];
   exposeToModel?: boolean;
 }

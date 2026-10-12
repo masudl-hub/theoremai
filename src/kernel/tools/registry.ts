@@ -107,7 +107,7 @@ function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
   if (def.type === 'agent') {
     const profile = agentToolProfile(def, findProfile, findTool);
     const inputs = profileInputs(profile);
-    const input = agentToolInputFor({ type: profile.type, ...(inputs ? { inputs } : {}) });
+    const input = agentToolInputFor({ type: profile.type, ...(inputs ? { inputs } : {}) }, def);
     const schemas = schemasFromZod({ ...def, input, output: agentToolOutput });
     return normalizeAgent(def, input, schemas);
   }

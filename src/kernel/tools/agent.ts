@@ -89,6 +89,7 @@ function agentToolInputFor(
   agent: Pick<Profile, 'type'> & {
     inputs?: Pick<ProfileInputsSpec, 'attachments' | 'voice' | 'slots'>;
   },
+  tool?: Pick<AgentToolDef, 'name' | 'fieldText'>,
 ): z.ZodType<AgentToolInput> {
   const { inputs } = agent;
   const shape: Record<string, z.ZodType> = { text: textInput };
@@ -98,6 +99,16 @@ function agentToolInputFor(
   if (inputs?.voice) shape.voice = z.array(blobInput).optional();
   if (inputs?.slots) shape.slots = slotsInput(inputs.slots).optional();
   if (agent.type === 'speech') shape.speech = speechInput.optional();
+  for (const [field, text] of Object.entries(tool?.fieldText ?? {})) {
+    const schema = shape[field];
+    if (!schema) {
+      throw new TheoremError(
+        'config',
+        `Tool '${tool?.name}' describes '${field}', which its profile does not take`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    shape[field] = schema.describe(text);
+  }
   // why: The shape is built key by key from the profile, which zod cannot type; each key is an `AgentToolInput` field.
   return z.strictObject(shape) as unknown as z.ZodType<AgentToolInput>;
 }

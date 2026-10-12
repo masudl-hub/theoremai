@@ -537,6 +537,7 @@ state is the host's, through `onAgentCall` and stages.
 | --- | --- |
 | `profile` | The agent to run: a `text`, `image` or `speech` profile that takes text, registered before the tool |
 | `maxCallsPerTurn` | Calls allowed in one turn of the caller; a call past it fails `call_limit` (`declined`) |
+| `fieldText` | What the calling model reads on a field of the input, by field (`{ text: '…' }`); a field the profile does not take is refused at registration |
 | `preTool` | As on a function tool, with the call's input |
 
 **Input.** The tool's input is what the called profile takes, so the calling

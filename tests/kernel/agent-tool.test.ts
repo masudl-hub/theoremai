@@ -665,3 +665,16 @@ Deno.test('an agent that does not finish fails the call, with its usage', async 
   assertEquals(failure.code, 'agent_failed');
   assertEquals(tokens?.total, RESEARCHER_TOKENS.total);
 });
+
+Deno.test('fieldText puts the host line on an input field, and refuses a field the profile does not take', () => {
+  const scope = scopeWith({ fieldText: { text: 'The question, whole.' } });
+  const tool = scope.tools.get('ask_researcher');
+  assertEquals(tool?.type === 'agent' ? tool.inputSchema.properties : undefined, {
+    text: { type: 'string', pattern: '\\S', description: 'The question, whole.' },
+  });
+  assertThrows(
+    () => scopeWith({ fieldText: { voice: 'Speech.' } }),
+    TheoremError,
+    "describes 'voice', which its profile does not take",
+  );
+});

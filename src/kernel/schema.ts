@@ -1468,6 +1468,13 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     ...field('number', 'How many times one turn of the calling agent may run this tool.'),
     unset: 'As many as its steps allow',
   },
+  fieldText: {
+    ...field(
+      'Partial<Record<keyof AgentToolInput, string>>',
+      'What the calling model reads on a field of an agent tool input, such as text. A field the profile does not take is refused when the tool registers.',
+    ),
+    unset: 'The fields carry no text',
+  },
   auth: {
     ...field('ToolAuthConfig', 'How the tool gets its credential.'),
     unset: 'No credential',

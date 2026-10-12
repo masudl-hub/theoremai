@@ -285,6 +285,19 @@ function commitWorkspace(state: StoreState, carry: SharedCarry, by: DraftAuthor)
 	return state.workspace;
 }
 
+/**
+ * Takes in what the project's files changed. Each value is in the code already, at every place
+ * that reads it: nothing is asked, nothing is carried, and what the files say now is what the next
+ * edit is measured against.
+ */
+function takeFiles(state: StoreState, made: StudioWorkspace): StudioWorkspace {
+	if (made === state.workspace) return state.workspace;
+	const held = commitWorkspace(state, { workspace: made, snapshot: NO_SNAPSHOT }, 'visitor');
+	state.good = undefined;
+	state.goodTools = undefined;
+	return held;
+}
+
 /** Changes the workspace without an edit: no revision, no change record. */
 function moveWorkspace(state: StoreState, workspace: StudioWorkspace): void {
 	state.workspace = workspace;
@@ -354,6 +367,8 @@ export function createStudioStore(initial: RestoredStudio, sites?: SharedSites, 
 		getFocus,
 		getDraft,
 		update,
+		/** Takes in what the project's files changed, without the question an edit to a shared value gets. */
+		takeFiles: (made: StudioWorkspace): StudioWorkspace => takeFiles(state, made),
 		/** Changes the focused agent's draft; a no-op keeps the revision. Returns the draft now held. */
 		updateDraft: (
 			next: StudioDraft | ((current: StudioDraft) => StudioDraft),

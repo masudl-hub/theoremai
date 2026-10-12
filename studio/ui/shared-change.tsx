@@ -2,9 +2,10 @@ import { Button } from '@astryxdesign/core/Button';
 import { CheckboxInput } from '@astryxdesign/core/CheckboxInput';
 import { Dialog, DialogHeader } from '@astryxdesign/core/Dialog';
 import { HStack } from '@astryxdesign/core/HStack';
-import { VStack } from '@astryxdesign/core/VStack';
+import { Layout, LayoutContent, LayoutFooter } from '@astryxdesign/core/Layout';
 import { useState, useSyncExternalStore } from 'react';
 import { reachesOthers, sharedAsk } from '../mod.ts';
+import { askLine } from './file-place.tsx';
 import type { StudioStore } from './lib/studio-store.ts';
 
 const DIALOG_WIDTH = 520;
@@ -28,26 +29,38 @@ export function SharedChange({ store }: { store: StudioStore }) {
 			}}
 		>
 			{ask && (
-				<VStack gap={4}>
-					<DialogHeader title={ask.title} subtitle={ask.line} />
-					<CheckboxInput label="Don't ask again this session" value={quiet} onChange={setQuiet} />
-					<HStack gap={2} justify="end">
-						<Button
-							label="Cancel"
-							variant="ghost"
-							onClick={() => {
-								store.cancelShared();
-							}}
-						/>
-						<Button
-							label={reachesOthers(reach) ? 'Change for all' : 'Change'}
-							variant="primary"
-							onClick={() => {
-								store.confirmShared(quiet);
-							}}
-						/>
-					</HStack>
-				</VStack>
+				<Layout
+					header={<DialogHeader title={ask.title} subtitle={askLine(ask)} />}
+					content={
+						<LayoutContent>
+							<CheckboxInput
+								label="Don't ask again this session"
+								value={quiet}
+								onChange={setQuiet}
+							/>
+						</LayoutContent>
+					}
+					footer={
+						<LayoutFooter>
+							<HStack gap={2} justify="end">
+								<Button
+									label="Cancel"
+									variant="ghost"
+									onClick={() => {
+										store.cancelShared();
+									}}
+								/>
+								<Button
+									label={reachesOthers(reach) ? 'Change for all' : 'Change'}
+									variant="primary"
+									onClick={() => {
+										store.confirmShared(quiet);
+									}}
+								/>
+							</HStack>
+						</LayoutFooter>
+					}
+				/>
 			)}
 		</Dialog>
 	);

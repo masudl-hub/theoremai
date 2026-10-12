@@ -65,6 +65,7 @@ Deno.test('a change to a shared value waits for the builder, then is made on eac
   assertEquals(sharedAsk(reach, before), {
     title: 'Change it for 1 other profile?',
     line: 'lite · models.ts:7 sets this once. shop uses it too, and will change with it.',
+    places: [{ file: 'models.ts', line: 7 }],
   });
 
   store.confirmShared();
@@ -127,6 +128,7 @@ Deno.test("th30's change to a tool other agents allow waits for the person, and 
   assertEquals(sharedAsk(reach, store.getWorkspace()), {
     title: 'Change it for 2 other profiles?',
     line: `${tool.toolName} is one tool in the library. shop and yard use it too, and will change with it.`,
+    places: [],
   });
   store.cancelShared();
   assertEquals(descriptionNow(), 'By hand.');
@@ -138,4 +140,19 @@ Deno.test("th30's change to a tool other agents allow waits for the person, and 
   store.select(agentNodeId(shop.key));
   store.update((workspace) => ({ ...workspace, toolSpecs: workspace.toolSpecs.slice(1) }), 'th30');
   assertEquals(store.getPending()?.agents, [desk.key, yard.key]);
+});
+
+Deno.test("what the project's files changed is taken in without a question, and the next edit is measured against it", () => {
+  const { store, desk, shop } = opened();
+  // The files changed the value both profiles read: it is in the code already.
+  const files = capped(shop.key, 4096)(capped(desk.key, 4096)(store.getWorkspace()));
+  assertEquals(store.takeFiles(files), files);
+  assertEquals([store.getPending(), store.getRevision()], [undefined, 1]);
+  assertEquals(store.takeFiles(files), files);
+  assertEquals(store.getRevision(), 1);
+  // An edit of the builder's own still asks, and Cancel leaves what the files say.
+  store.update(capped(desk.key, 8192));
+  assertEquals(store.getPending()?.agents, [shop.key]);
+  store.cancelShared();
+  assertEquals([tokens(store.getWorkspace(), desk.key), tokens(store.getWorkspace(), shop.key)], [4096, 4096]);
 });

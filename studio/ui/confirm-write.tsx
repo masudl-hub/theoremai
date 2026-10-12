@@ -2,7 +2,7 @@ import { Button } from '@astryxdesign/core/Button';
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Dialog, DialogHeader } from '@astryxdesign/core/Dialog';
 import { HStack } from '@astryxdesign/core/HStack';
-import { VStack } from '@astryxdesign/core/VStack';
+import { Layout, LayoutContent, LayoutFooter } from '@astryxdesign/core/Layout';
 import { type ReactNode, useCallback, useState } from 'react';
 import { type WriteAsk, writeAskLine } from '../mod.ts';
 
@@ -46,33 +46,43 @@ export function useConfirmWrite(): {
 			}}
 		>
 			{open && (
-				<VStack gap={4}>
-					<DialogHeader title={`Run ${open.ask.tool}?`} subtitle={writeAskLine(open.ask)} />
-					<CodeBlock
-						code={open.ask.input}
-						language="json"
-						title="Input"
-						size="sm"
-						isWrapped
-						maxHeight={320}
-					/>
-					<HStack gap={2} justify="end">
-						<Button
-							label="Cancel"
-							variant="ghost"
-							onClick={() => {
-								answer(false);
-							}}
-						/>
-						<Button
-							label="Run"
-							variant={open.ask.access === 'destructive' ? 'destructive' : 'primary'}
-							onClick={() => {
-								answer(true);
-							}}
-						/>
-					</HStack>
-				</VStack>
+				<Layout
+					header={
+						<DialogHeader title={`Run ${open.ask.tool}?`} subtitle={writeAskLine(open.ask)} />
+					}
+					content={
+						<LayoutContent>
+							<CodeBlock
+								code={open.ask.input}
+								language="json"
+								title="Input"
+								size="sm"
+								isWrapped
+								maxHeight={320}
+							/>
+						</LayoutContent>
+					}
+					footer={
+						<LayoutFooter>
+							<HStack gap={2} justify="end">
+								<Button
+									label="Cancel"
+									variant="ghost"
+									onClick={() => {
+										answer(false);
+									}}
+								/>
+								<Button
+									label="Run"
+									variant={open.ask.access === 'destructive' ? 'destructive' : 'primary'}
+									onClick={() => {
+										answer(true);
+									}}
+								/>
+							</HStack>
+						</LayoutFooter>
+					}
+				/>
 			)}
 		</Dialog>
 	);

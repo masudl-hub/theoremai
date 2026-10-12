@@ -206,6 +206,7 @@ Deno.test('an agent with an issue is left as it is and named, and the others sti
       'lite · models.ts:1 sets this once. shop uses it too, and will change with it. ' +
       'yard uses it too, but has issues and stays as it is. ' +
       'Fix them, then set this there too: Save writes it once every profile agrees.',
+    places: [{ file: 'models.ts', line: 1 }],
   });
   // Nothing else changes: the question says so.
   assertEquals(

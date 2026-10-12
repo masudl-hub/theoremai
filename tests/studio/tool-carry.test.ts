@@ -3,8 +3,10 @@ import { assertEquals } from '@std/assert';
 import { createExampleDraft } from '../../studio/mod.ts';
 import type { SettingSite } from '../../studio/server/save-wire.ts';
 import {
+  askParts,
   reachesOthers,
   sharedAsk,
+  shortPlace,
   toolSnapshot,
   withToolCarry,
 } from '../../studio/shared-carry.ts';
@@ -95,6 +97,7 @@ Deno.test('a change inside a schema tools share is made on each tool that shares
   assertEquals(carried.reach && sharedAsk(carried.reach, carried.workspace), {
     title: 'Change it for 2 other tools?',
     line: `resultSchema · result.ts:3 sets this once. ${second.toolName} and ${third.toolName} use it too, and will change with it.`,
+    places: [{ file: 'result.ts', line: 3 }],
   });
 });
 
@@ -163,6 +166,7 @@ Deno.test('a value other code reads says so, with the lines that read it', () =>
     line:
       `resultSchema · result.ts:3 sets this once. ${second.toolName} uses it too, and will change with it.` +
       ' Other code in your project reads it too (report.ts:7).',
+    places: [{ file: 'result.ts', line: 3 }, ...readBy],
   });
 
   // No other tool shares it: the question is the other code alone.
@@ -173,5 +177,32 @@ Deno.test('a value other code reads says so, with the lines that read it', () =>
     line:
       'resultSchema · result.ts:3 sets this once. Other code in your project reads it too (report.ts:7).' +
       ' That code runs on the new value once you save.',
+    places: [{ file: 'result.ts', line: 3 }, ...readBy],
   });
+});
+
+Deno.test('the question names each file by its name, and keeps where the file is for whoever asks', () => {
+  assertEquals(
+    [
+      shortPlace({ file: 'src/agents/profile.ts', line: 64 }),
+      shortPlace({ file: 'C:\\work\\profile.ts', line: 64 }),
+      shortPlace({ file: 'profile.ts', line: 64 }),
+    ],
+    ['…/profile.ts:64', '…/profile.ts:64', 'profile.ts:64'],
+  );
+  const set = { file: 'src/tools/result.ts', line: 3 };
+  const read = { file: 'src/report.ts', line: 7 };
+  // A place a long list left out is not in the line, and is skipped.
+  const unnamed = { file: 'src/more.ts', line: 9 };
+  assertEquals(
+    askParts({
+      title: 'Change it for your other code too?',
+      line: `resultSchema · ${set.file}:3 sets this once. Other code reads it too (${read.file}:7 and 1 more).`,
+      places: [set, read, unnamed],
+    }),
+    ['resultSchema · ', set, ' sets this once. Other code reads it too (', read, ' and 1 more).'],
+  );
+  assertEquals(askParts({ title: '', line: 'Nothing is named.', places: [] }), [
+    'Nothing is named.',
+  ]);
 });

@@ -1481,7 +1481,7 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 					else if (stoodOn === undefined) {
 						// Edits that stand on no reading cannot be merged: the files open, and the edits are offered back.
 						const before = store.getWorkspace();
-						store.update(reopened(workspace, before));
+						store.takeFiles(reopened(workspace, before));
 						store.standOn(read.print);
 						offerEditsBack(toast, store, before, projectKey(project.name));
 					} else if (read.print !== stoodOn) {
@@ -1496,7 +1496,7 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 							showConflict(true);
 							return;
 						}
-						store.update(merge.workspace);
+						store.takeFiles(merge.workspace);
 						store.standOn(read.print);
 						const said = filesToast(named, merge.updated.length, editedSince(before, stoodOn));
 						if (said) toast({ body: said });
@@ -1523,7 +1523,7 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 	const settle = useCallback(
 		(theirs: number[]) => {
 			if (!conflict) return;
-			store.update(withFilesChosen(conflict.merge, theirs));
+			store.takeFiles(withFilesChosen(conflict.merge, theirs));
 			store.standOn(conflict.read.print);
 			lastRead.current = conflict.workspace;
 			if (project) keepReading(projectKey(project.name), conflict.read.print, conflict.workspace);
@@ -2221,7 +2221,7 @@ function useDiscardAll({ store, filesChanged }: StudioWorkspaceState) {
 		openProject().then(
 			({ workspace: files }) => {
 				const before = store.getWorkspace();
-				store.update(reopened(files, before));
+				store.takeFiles(reopened(files, before));
 				filesChanged();
 				const dismiss = toast({
 					body: 'Discarded every unsaved edit.',

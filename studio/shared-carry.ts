@@ -490,9 +490,43 @@ export function toolReach(before: StudioWorkspace, made: StudioWorkspace, from: 
   return { tools: used.map((tool) => tool.key), names: used.map((tool) => tool.toolName), from, agents };
 }
 
+/** A line of a file the question names. */
+export interface AskPlace {
+  file: string;
+  line: number;
+}
+
 export interface Ask {
   title: string;
+  /** The cause and the effect, with each place in full. */
   line: string;
+  /** The places `line` names, in the order it names them. */
+  places: AskPlace[];
+}
+
+const placeText = ({ file, line }: AskPlace) => `${file}:${String(line)}`;
+
+/** A place as the question shows it: the file's name and the line. The folders it is in are for whoever asks. */
+export function shortPlace({ file, line }: AskPlace): string {
+  const name = file.slice(Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\')) + 1);
+  return `${name === file ? '' : '…/'}${name}:${String(line)}`;
+}
+
+/** The question's line as its text and the places it names, in the order it says them. */
+export function askParts(ask: Ask): Array<string | AskPlace> {
+  const parts: Array<string | AskPlace> = [];
+  let rest = ask.line;
+  for (const place of ask.places) {
+    const text = placeText(place);
+    const at = rest.indexOf(text);
+    // A long list names only its first places.
+    if (at < 0) continue;
+    if (at > 0) parts.push(rest.slice(0, at));
+    parts.push(place);
+    rest = rest.slice(at + text.length);
+  }
+  if (rest) parts.push(rest);
+  return parts;
 }
 
 /** The ids of agents, by key, as the builder knows them. */
@@ -513,6 +547,7 @@ function libraryAsk(reach: ToolReach, workspace: StudioWorkspace): Ask {
     line: `${listed(reach.names)} ${one ? 'is one tool' : 'are tools'} in the library. ` +
       `${listed(ids)} ${ids.length === 1 ? 'uses' : 'use'} ${one ? 'it' : 'them'} too, ` +
       `and will change with ${one ? 'it' : 'them'}.`,
+    places: [],
   };
 }
 
@@ -524,6 +559,7 @@ export function sharedAsk(reach: SharedReach | ToolReach, workspace: StudioWorks
     ? [toolNames(workspace, among.made), toolNames(workspace, among.left)]
     : [idsOf(workspace, reach.agents), idsOf(workspace, reach.left)];
   const [one, many] = among ? ['tool', 'tools'] : ['profile', 'profiles'];
+  const places: AskPlace[] = [{ file: reach.file, line: reach.line }, ...(reach.readBy ?? [])];
   const place = `${reach.name ? `${reach.name} · ` : ''}${reach.file}:${String(reach.line)}`;
   // The other code that reads it, by line when the studio can name one.
   const lines = reach.readBy?.map((each) => `${each.file}:${String(each.line)}`) ?? [];
@@ -533,11 +569,13 @@ export function sharedAsk(reach: SharedReach | ToolReach, workspace: StudioWorks
       return {
         title: 'Change it for your other code too?',
         line: `${place} sets this once.${code} That code runs on the new value once you save.`,
+        places,
       };
     }
     return {
       title: `Change it everywhere this ${one} uses it?`,
       line: `${place} sets this once, and this ${one} uses it in more than one place. Each of them changes.`,
+      places,
     };
   }
   const changes = ids.length
@@ -553,7 +591,7 @@ export function sharedAsk(reach: SharedReach | ToolReach, workspace: StudioWorks
   const title = ids.length
     ? `Change it for ${String(ids.length)} other ${ids.length === 1 ? one : many}?`
     : `Change it for this ${one} only?`;
-  return { title, line: `${place} sets this once.${changes}${waits}${code}` };
+  return { title, line: `${place} sets this once.${changes}${waits}${code}`, places };
 }
 
 /** Whether agreeing to a change makes it on others too: other agents, other tools. */

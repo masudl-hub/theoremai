@@ -43,6 +43,8 @@ export type StageCallBag = {
   callNotStarted?: boolean;
   outputRaw?: unknown;
   outputModel?: ModelToolResult;
+  /** `post_tool`: the tool's past activity label, filled from the input and `outputRaw`. */
+  activityPast?: string;
   failure?: ToolFailure;
   awaiting?: boolean;
   stop?: TurnStop;

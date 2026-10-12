@@ -401,6 +401,14 @@ function* reviseAfterStages(
   };
 }
 
+function pastActivity(
+  labels: ToolLabels | undefined,
+  input: unknown,
+  output: unknown,
+): string | undefined {
+  return fillActivityLabel(labels?.activityPast, { input, output });
+}
+
 function completeEvent(
   base: ToolCallBase,
   settled: {
@@ -411,10 +419,7 @@ function completeEvent(
   },
 ): TurnEvent {
   const { input, outputRaw, modelResult } = settled;
-  const activityPast = fillActivityLabel(settled.labels?.activityPast, {
-    input,
-    output: outputRaw,
-  });
+  const activityPast = pastActivity(settled.labels, input, outputRaw);
   return toolEvent(base, {
     phase: 'complete',
     output: outputRaw,
@@ -454,6 +459,7 @@ async function* settleToolCall(args: {
   let post: PostToolStageOutcome | undefined;
 
   if (stages) {
+    const activityPast = failure ? undefined : pastActivity(args.labels, input, outputRaw);
     post = yield* runPostToolStages({
       stages,
       toolName,
@@ -462,6 +468,7 @@ async function* settleToolCall(args: {
       callNotStarted,
       outputRaw,
       outputModel: modelResult,
+      ...(activityPast ? { activityPast } : {}),
       failure,
       awaiting: awaiting || undefined,
       mutable: !failure && reproject !== undefined,

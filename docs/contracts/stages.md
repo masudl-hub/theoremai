@@ -99,6 +99,8 @@ interface StageContext {
   callNotStarted?: boolean;
   outputRaw?: unknown;
   outputModel?: ModelToolResult;
+  /** post_tool: the tool's past activity label, filled from the input and outputRaw. */
+  activityPast?: string;
   failure?: ToolFailure;
   /** True when outputRaw/status is awaiting_user_input completion. */
   awaiting?: boolean;
@@ -231,8 +233,10 @@ Applies to function, HTTP, and MCP tools on every execute path
 9. Body (function handler / HTTP / MCP).
 10. T2 loader promotion when applicable (**before** projection).
 11. `projectForModel` → guard (fence, redaction, provenance) → model result.
-12. `onStage({ stage: 'post_tool', outputRaw, outputModel, failure?, awaiting? })`
-    — `outputModel` is the guarded result. Apply `deny` → the model gets that
+12. `onStage({ stage: 'post_tool', outputRaw, outputModel, activityPast?, failure?, awaiting? })`
+    — `outputModel` is the guarded result. `activityPast` is the tool's past
+    activity label filled from the input and `outputRaw`; it is absent when the
+    call failed, the tool has no label or a placeholder has no value. Apply `deny` → the model gets that
     failure instead; apply `mutate { output }` → **re-validate** output schema,
     re-project, **re-guard**; fail → error settle. `mutate` needs a completed
     body the host may own: on a failed or unstarted call, or on the T2 loader

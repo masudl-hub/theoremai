@@ -219,6 +219,7 @@ export async function* runPostToolStages(args: {
   callNotStarted?: boolean;
   outputRaw?: unknown;
   outputModel?: ModelToolResult;
+  activityPast?: string;
   failure?: ToolFailure;
   awaiting?: boolean;
   /** False when there is no completed output for `mutate` to replace. */

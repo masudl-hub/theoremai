@@ -144,6 +144,50 @@ Deno.test('a call carries its filled activity labels to the transcript', async (
   assertEquals(call?.activityPast, 'Saved Monty as #12');
 });
 
+Deno.test('post_tool receives the filled past label, and none when the call failed', async () => {
+  const base = {
+    type: 'function' as const,
+    description: 'Save an item to the shelf',
+    category: 'test',
+    access: 'read-write' as const,
+    paths: ['*'],
+    loadTier: 'T0' as const,
+    permission: 'auto' as const,
+    labels: { activityPast: 'Shelved {title} as #{position}' },
+    input: z.object({ title: z.string() }),
+    output: z.object({ position: z.number() }),
+  };
+  registerTool({ ...base, name: 'shelve_item', handler: () => Promise.resolve({ position: 3 }) });
+  registerTool({
+    ...base,
+    name: 'shelve_item_broken',
+    handler: () => Promise.reject(new Error('shelf fell')),
+  });
+  registerProfile(
+    defineProfile({
+      type: 'host',
+      id: 'stage_label_host',
+      tools: { allow: ['shelve_item', 'shelve_item_broken'] },
+      observability: { writeTo: false },
+    }),
+  );
+  const seen: (string | undefined)[] = [];
+  const labelAfter = async (name: string) => {
+    await invokeRegisteredTool({
+      profile: 'stage_label_host',
+      name,
+      input: { title: 'Fern' },
+      onStage: (ctx) => {
+        if (ctx.stage === 'post_tool') seen.push(ctx.activityPast);
+        return undefined;
+      },
+    });
+  };
+  await labelAfter('shelve_item');
+  await labelAfter('shelve_item_broken');
+  assertEquals(seen, ['Shelved Fern as #3', undefined]);
+});
+
 Deno.test('a gate carries the tool access and its request filled from the call input', async () => {
   const base = {
     description: 'Books a table',

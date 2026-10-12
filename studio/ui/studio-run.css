@@ -1,12 +1,5 @@
-/* The code font is the studio's own copy: the page asks no other site for it. */
-@import "@fontsource/jetbrains-mono/400.css";
-@import "@fontsource/jetbrains-mono/500.css";
-@import "@fontsource/jetbrains-mono/700.css";
-@import "@fontsource/jetbrains-mono/800.css";
-
 /* Live voice still reads these from the root. */
 :root {
-	--font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 	--color-ink: #000000;
 	--color-paper: #f7f5f0;
 	--color-paper-bright: #ffffff;

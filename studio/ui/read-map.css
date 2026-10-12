@@ -35,7 +35,7 @@
 
 .read-map-foot {
 	position: absolute;
-	inset: auto 24px 24px 24px;
+	inset: auto var(--spacing-4) var(--spacing-4) var(--spacing-4);
 	display: flex;
 	gap: 16px;
 	justify-content: space-between;

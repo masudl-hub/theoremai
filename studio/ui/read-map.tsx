@@ -20,7 +20,8 @@ const LAG_MS = 500;
 /** Once the project has arrived, the rest is drawn within this long. */
 const CATCH_UP_MS = 900;
 
-const PAD = 24;
+/** The panel's own padding, step 4. */
+const PAD = 16;
 const ROW = 30;
 /** Room kept for the last column's tokens and for the line of words under the map. */
 const LAST_COL = 190;

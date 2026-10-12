@@ -30,6 +30,7 @@ import { coordinateTool } from './coordinate.ts';
 import {
   dispatchToolBody,
   failedActivity,
+  failedActivityOf,
   failureEvent,
   messageOf,
   networkBlocked,
@@ -422,7 +423,7 @@ function completeEvent(
 ): TurnEvent {
   const { input, outputRaw, modelResult } = settled;
   const activityPast = settled.labelFailed
-    ? (base.activityFailed ?? failedActivity(base.name))
+    ? failedActivityOf(base)
     : pastActivity(settled.labels, input, outputRaw);
   return toolEvent(base, {
     phase: 'complete',
@@ -473,7 +474,7 @@ async function* settleToolCall(args: {
       outputRaw,
       outputModel: modelResult,
       ...(activityPast ? { activityPast } : {}),
-      activityFailed: base.activityFailed ?? failedActivity(base.name),
+      activityFailed: failedActivityOf(base),
       failure,
       awaiting: awaiting || undefined,
       mutable: !failure && reproject !== undefined,

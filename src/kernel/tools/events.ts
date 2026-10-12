@@ -60,6 +60,11 @@ export function failedActivity(
   );
 }
 
+/** The failed label of the call `base` names. */
+export function failedActivityOf(base: ToolCallBase): string {
+  return base.activityFailed ?? failedActivity(base.name);
+}
+
 /** `readBack` is passed when the call's result guard already wrote the model's text. */
 export function failureEvent(
   base: ToolCallBase,
@@ -70,7 +75,7 @@ export function failureEvent(
     phase: 'error',
     failure,
     readBack,
-    activityPast: base.activityFailed ?? failedActivity(base.name),
+    activityPast: failedActivityOf(base),
   });
 }
 

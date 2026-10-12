@@ -274,8 +274,16 @@ Deno.test('a failed label reads the input only, and a call to no tool names it i
     TheoremError,
     'activityFailed label: {output.filed} is only there once the call is done',
   );
+  registerProfile(
+    defineProfile({
+      type: 'host',
+      id: 'no_tool_label_host',
+      tools: { allow: [] },
+      observability: { writeTo: false },
+    }),
+  );
   const events = await invokeRegisteredTool({
-    profile: 'failed_label_host',
+    profile: 'no_tool_label_host',
     name: 'no_such_tool',
     input: {},
   });

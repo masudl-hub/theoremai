@@ -127,7 +127,7 @@ const EDITOR_CHOICES: readonly { value: string; label: string; icon: IconType }[
 function automaticNote(automatic: string | undefined): string {
 	return automatic
 		? `Automatic opens ${editorLabel(automatic)}.`
-		: 'Automatic opens the editor your $VISUAL or $EDITOR names.';
+		: 'Automatic opens the editor the studio was started with.';
 }
 
 function EditorChoice({ automatic }: { automatic: string | undefined }) {

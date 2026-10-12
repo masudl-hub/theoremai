@@ -116,7 +116,7 @@ Deno.test('PROFILE_FIELDS protocol / accept / text match live unions', () => {
   const handle = fieldMeta('identity.handle');
   assertEquals(handle?.type, 'string');
 
-  const profileType = fieldMeta('type');
+  const profileType = fieldMeta('profile.type');
   assertEquals(profileType?.type.includes('text'), true);
   assertEquals(profileType?.type.includes('live'), true);
   assertEquals(profileType?.options, PROFILE_TYPES);
@@ -158,29 +158,29 @@ Deno.test('isValidPair matches turn and decision routing tables', () => {
 
 Deno.test('EXTRA_FIELDS covers registerTool keys shown in profile docs', () => {
   const registerToolKeys = [
-    'name',
-    'description',
-    'category',
-    'access',
-    'paths',
-    'loadTier',
-    'permission',
-    'input',
-    'output',
-    'handler',
-    'endpoint',
-    'method',
-    'headers',
-    'mapping',
-    'mapping.pathParams',
-    'mapping.queryParams',
-    'mapping.bodyParam',
-    'serverUrl',
-    'mcpToolName',
-    'auth',
-    'auth.type',
-    'auth.slot',
-    'auth.onUnauthenticated',
+    'registerTool.name',
+    'registerTool.description',
+    'registerTool.category',
+    'registerTool.access',
+    'registerTool.paths',
+    'registerTool.loadTier',
+    'registerTool.permission',
+    'registerTool.input',
+    'registerTool.output',
+    'registerTool.handler',
+    'registerTool.endpoint',
+    'registerTool.method',
+    'registerTool.headers',
+    'registerTool.mapping',
+    'registerTool.mapping.pathParams',
+    'registerTool.mapping.queryParams',
+    'registerTool.mapping.bodyParam',
+    'registerTool.serverUrl',
+    'registerTool.mcpToolName',
+    'registerTool.auth',
+    'registerTool.auth.type',
+    'registerTool.auth.slot',
+    'registerTool.auth.onUnauthenticated',
     'studio.authType',
   ];
   for (const key of registerToolKeys) {
@@ -203,7 +203,7 @@ Deno.test('live wires every load tier; host is a model-less profile type', () =>
   assertEquals(isValidProfileProtocol('host', 'geminiInteractions'), false);
   assertEquals(fieldMeta('tools.t1Policy')?.profileTypes, ['text', 'image']);
   assertEquals(fieldMeta('tools.t2Loader')?.profileTypes, ['text', 'image']);
-  assertEquals(fieldMeta('type')?.doc?.includes('host'), true);
+  assertEquals(fieldMeta('profile.type')?.doc?.includes('host'), true);
 });
 
 Deno.test('every option description names one of its field options', () => {

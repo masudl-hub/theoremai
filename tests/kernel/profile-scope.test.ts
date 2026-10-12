@@ -5,6 +5,7 @@ import {
   ALL_PROFILE_TYPES,
   PROFILE_FIELD_SCOPE,
   profileFieldScope,
+  profileKeysOf,
   profileTypesForField,
 } from '../../src/kernel/profile-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -26,7 +27,7 @@ function concretePath(path: string): string {
 
 function setAt(path: string, value: unknown): Record<string, unknown> {
   let out: unknown = value;
-  for (const key of concretePath(path).split('.').reverse()) {
+  for (const key of profileKeysOf(concretePath(path)).reverse()) {
     out = { [key]: out };
   }
   return out as Record<string, unknown>;
@@ -80,7 +81,7 @@ Deno.test('defineProfile rejects each scoped field on a type outside its scope',
       if (scope.profileTypes.includes(type)) continue;
       // The ancestor's own rejection covers types it excludes.
       if (parent && !parent.profileTypes.includes(type)) continue;
-      const concrete = concretePath(path);
+      const concrete = profileKeysOf(concretePath(path)).join('.');
       assertThrows(
         () => defineProfile({ id: 'scope_probe', type, ...setAt(path, true) } as never),
         TheoremError,

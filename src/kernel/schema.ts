@@ -23,7 +23,7 @@ import {
 } from '../guardrails/types.ts';
 import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
 import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
-import { profileFieldScope } from './profile-scope.ts';
+import { isProfileRootField, profileFieldScope } from './profile-scope.ts';
 
 export { BLOCKED_REPLY_ON_BLOCK, type BlockedReplyOnBlock };
 /** The kinds of profile: each fixes which fields and models a profile may use. */
@@ -443,6 +443,8 @@ export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
 ]);
 /** Turns a key path into its catalog path, replacing host-chosen map keys with `*`. */
 export function catalogPathFor(keys: readonly string[]): string {
+  const [first] = keys;
+  if (keys.length === 1 && first !== undefined && isProfileRootField(first)) return `profile.${first}`;
   const resolved: string[] = [];
   for (const key of keys) {
     const prefix = resolved.join('.');
@@ -687,11 +689,11 @@ function withScopeAndPresence(fields: Record<string, FieldMeta>): Record<string,
  * take it, and record it in `PROFILE_FIELD_PRESENCE` if it is required or its absence matters.
  */
 export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
-  id: field(
+  'profile.id': field(
     'string',
     'The name this profile is registered and looked up by, at most 64 characters; registering the same id again replaces it.',
   ),
-  type: field(
+  'profile.type': field(
     "'text' | 'image' | 'speech' | 'live' | 'decision' | 'host'",
     'What kind of agent this is, and so what each call gives back: text, image, speech, live, decision or host.',
     PROFILE_TYPES,
@@ -887,12 +889,12 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
         'The prompt tokens the provider reported for the last call, or the count the host passes in.',
     },
   ),
-  defaultModel: field('ModelId', "The model a turn gets when it doesn't pick one."),
-  allowModelSelect: field(
+  'profile.defaultModel': field('ModelId', "The model a turn gets when it doesn't pick one."),
+  'profile.allowModelSelect': field(
     'boolean',
     'Lets a turn name the model it runs on; a name the profile does not declare is refused.',
   ),
-  maxSteps: field(
+  'profile.maxSteps': field(
     'number',
     'The most model calls one turn may make while using tools, counted afresh for each rewrite; 1 runs the tools asked for but never sends their results back. Live sessions ignore it.',
   ),
@@ -1381,9 +1383,11 @@ const CREDENTIAL_KINDS = {
   ['api_' + 'key']: 'An API key; a secret typed in at the prompt becomes an API key.',
   oauth2: 'An OAuth sign-in; the host supplies the token.',
 };
-/** The catalog of the fields `registerTool` takes, keyed by path like `PROFILE_FIELDS`. */
+/**
+ * The catalog of the fields `registerTool` takes, keyed `registerTool.<field>`. The `studio.` and
+ * `local.` rows are the studio's own; a builder never sets them.
+ */
 export const EXTRA_FIELDS: Record<string, FieldMeta> = {
-  /** Studio / UI path — avoids collision with profile `type` in fieldMeta(). */
   'registerTool.type': TOOL_TYPE_FIELD,
   /** Studio-only rows: the editor's local-model connection, and a decision question's kind. */
   'local.baseUrl': field(
@@ -1407,56 +1411,56 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
       noul: 'One number, with no options.',
     },
   ),
-  name: field(
+  'registerTool.name': field(
     'string',
     "The tool's id, which profiles list in tools.allow (or a model's builtInTools) and the model calls a custom tool by.",
   ),
-  description: field('string', 'Tells the model what the tool does (custom tools only).'),
-  input: field(
+  'registerTool.description': field('string', 'Tells the model what the tool does (custom tools only).'),
+  'registerTool.input': field(
     'ZodSchema',
     "The Zod schema for the tool's arguments, sent to the model and checked on every call.",
   ),
-  output: field(
+  'registerTool.output': field(
     'ZodSchema',
     "The Zod schema every result the tool returns must match; the kernel's own not-signed-in note is not checked.",
   ),
-  handler: field(
+  'registerTool.handler': field(
     'ToolHandler',
     'Your function that runs the tool; it can also yield progress as it goes.',
   ),
-  endpoint: field(
+  'registerTool.endpoint': field(
     'string',
     'The URL the tool calls, with {name} placeholders for mapping.pathParams; the scheme and host must be written out.',
   ),
-  method: field(
+  'registerTool.method': field(
     unionType(HTTP_METHODS),
     'The HTTP method; every method but GET sends a JSON body.',
     HTTP_METHODS,
   ),
-  headers: field(
+  'registerTool.headers': field(
     'Record<string, string>',
     "Headers sent with every request to the tool's own origin, never once a redirect leaves it.",
   ),
-  mapping: field(
+  'registerTool.mapping': field(
     '{ pathParams?, queryParams?, bodyParam? }',
     'Where each argument goes in the request.',
   ),
-  'mapping.pathParams': field(
+  'registerTool.mapping.pathParams': field(
     'string[]',
     'Arguments that fill the {name} placeholders in the endpoint.',
   ),
-  'mapping.queryParams': field('string[]', 'Arguments added to the query string.'),
-  'mapping.bodyParam': field(
+  'registerTool.mapping.queryParams': field('string[]', 'Arguments added to the query string.'),
+  'registerTool.mapping.bodyParam': field(
     'string',
     'The one argument sent as the whole JSON body; without it, a method other than GET sends every argument the path and query leave unused.',
   ),
-  serverUrl: field('string', "The MCP server's URL."),
-  mcpToolName: field('string', "The tool's name on the MCP server."),
-  profile: field(
+  'registerTool.serverUrl': field('string', "The MCP server's URL."),
+  'registerTool.mcpToolName': field('string', "The tool's name on the MCP server."),
+  'registerTool.profile': field(
     'ProfileId',
     'The profile this agent tool runs: text, image or speech. Register it first. Nothing it calls may stop on a gate.',
   ),
-  answeredBy: {
+  'registerTool.answeredBy': {
     ...field(
       "'page'",
       'Who answers a call to a function tool. With page, the page the agent is on returns the output, and the tool has no handler.',
@@ -1464,61 +1468,61 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     ),
     unset: 'Its handler',
   },
-  maxCallsPerTurn: {
+  'registerTool.maxCallsPerTurn': {
     ...field('number', 'How many times one turn of the calling agent may run this tool.'),
     unset: 'As many as its steps allow',
   },
-  fieldText: {
+  'registerTool.fieldText': {
     ...field(
       'Partial<Record<keyof AgentToolInput, string>>',
       'What the calling model reads on a field of an agent tool input, such as text. A field the profile does not take is refused when the tool registers.',
     ),
     unset: 'The fields carry no text',
   },
-  hostFields: {
+  'registerTool.hostFields': {
     ...field(
       'Record<string, ZodType>',
       'Fields the calling model fills on an agent tool that only the host reads. onAgentCall gets them as hostInput and turns them into what the agent is sent; the agent never sees them. A name the input already has is refused when the tool registers.',
     ),
     unset: 'The input is only what the profile takes',
   },
-  hostOnly: {
+  'registerTool.hostOnly': {
     ...field(
       "Array<'attachments' | 'voice' | 'slots'>",
       'Channels the called profile takes that the calling model cannot fill on an agent tool; only onAgentCall sends them. A channel the profile does not take is refused when the tool registers.',
     ),
     unset: 'The model can fill every channel the profile takes',
   },
-  auth: {
+  'registerTool.auth': {
     ...field('ToolAuthConfig', 'How the tool gets its credential.'),
     unset: 'No credential',
   },
-  'auth.type': field(
+  'registerTool.auth.type': field(
     unionType(TOOL_AUTH_TYPES),
     "The kind of credential the tool expects, shown when a turn stops to ask for one; the header follows the stored credential's own kind.",
     TOOL_AUTH_TYPES,
     CREDENTIAL_KINDS,
   ),
-  'auth.slot': field('string', 'Which of the credentials the turn passes in this tool uses.'),
-  'auth.service': field(
+  'registerTool.auth.slot': field('string', 'Which of the credentials the turn passes in this tool uses.'),
+  'registerTool.auth.service': field(
     'string',
     'The service the person signs in to, as they know it, named when a turn stops to ask for a credential.',
   ),
-  'auth.headerName': {
+  'registerTool.auth.headerName': {
     ...field(
       'string',
       "The header the credential goes in; an API key's own headerName comes first.",
     ),
     unset: 'Authorization',
   },
-  'auth.headerPrefix': {
+  'registerTool.auth.headerPrefix': {
     ...field(
       'string',
       "Text put before the credential in the header; an API key's own headerPrefix comes first.",
     ),
     unset: '"Bearer " for tokens, nothing for API keys',
   },
-  'auth.onUnauthenticated': {
+  'registerTool.auth.onUnauthenticated': {
     ...field(
       unionType(AUTH_UNAUTHENTICATED_POLICIES),
       "What happens when the credential is missing, expired, can't be refreshed or is refused by the service.",
@@ -1530,15 +1534,15 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     ),
     unset: 'gate',
   },
-  'auth.scopes': field(
+  'registerTool.auth.scopes': field(
     'string[]',
     'The OAuth scopes the tool needs, shown when a turn stops to ask for a credential. A service asking for any other scope fails the call, with no new sign-in.',
   ),
-  'auth.clientId': field(
+  'registerTool.auth.clientId': field(
     'string',
     "Your OAuth client id, kept for the host's sign-in flow; the kernel doesn't read it.",
   ),
-  'auth.redirectUri': field(
+  'registerTool.auth.redirectUri': field(
     'string',
     "Your OAuth redirect URI, kept for the host's sign-in flow; the kernel doesn't read it.",
   ),
@@ -1563,11 +1567,11 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     'Record<string, unknown>',
     'Arguments for the connection test, never saved.',
   ),
-  'studio.inputSchema': field(
+  'registerTool.inputSchema': field(
     'Record<string, unknown>',
     "The tool's arguments as a JSON Schema, sent to the model.",
   ),
-  'studio.outputSchema': field(
+  'registerTool.outputSchema': field(
     'Record<string, unknown>',
     "The tool's result as a JSON Schema, which a function tool's stand-in result is built from.",
   ),
@@ -1575,7 +1579,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     'Record<string, unknown>',
     'The JSON Schema a structured reply must follow, sent to the model as its response format.',
   ),
-  access: field(
+  'registerTool.access': field(
     unionType(TOOL_ACCESS),
     "What the tool can change, which taint.afterRemoteRead refuses calls by after a turn reads a remote tool's result.",
     TOOL_ACCESS,
@@ -1585,7 +1589,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
       destructive: 'Deletes, charges, or does something else hard to undo.',
     },
   ),
-  loadTier: field(
+  'registerTool.loadTier': field(
     unionType(TOOL_LOAD_TIERS),
     'When the tool becomes available to the model; live and host profiles load every allowed tool at the start.',
     TOOL_LOAD_TIERS,
@@ -1594,7 +1598,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
       T2: 'On demand: when tools.t1Policy picks it at the start of a turn, or when the tools.t2Loader tool loads it mid-turn (custom tools only).',
     },
   ),
-  permission: field(
+  'registerTool.permission': field(
     unionType(TOOL_PERMISSION),
     "Whether the host must approve a call before it runs; the provider's own tools never ask.",
     TOOL_PERMISSION,
@@ -1604,40 +1608,40 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
       always_confirm: 'Asks every time.',
     },
   ),
-  category: field('string', 'A label for grouping tools; nothing reads it yet.'),
-  labels: field(
+  'registerTool.category': field('string', 'A label for grouping tools; nothing reads it yet.'),
+  'registerTool.labels': field(
     'ToolLabels',
     'Transcript text for a call. {path} reads a value from the call. {results.0.name} reads a list item. {path|text} shows the text when the value is unusable. With no fallback, the label is dropped.',
   ),
-  'labels.activity': {
+  'registerTool.labels.activity': {
     ...field(
       'string',
       "Transcript text while a call runs, e.g. 'Saving {title} to your collection'. {path} reads the call's input.",
     ),
     unset: 'The tool name, in words',
   },
-  'labels.activityPast': {
+  'registerTool.labels.activityPast': {
     ...field(
       'string',
       "What the transcript says once a call completes, e.g. 'Found {results.0.name}'. Each {path} is filled from the call's input, then its output.",
     ),
     unset: 'The tool name, in words',
   },
-  'labels.activityFailed': {
+  'registerTool.labels.activityFailed': {
     ...field(
       'string',
       "What the transcript says when a call fails or the host labels it failed, e.g. 'Couldn't save {title}'. Each {path} is filled from the call's input.",
     ),
     unset: "Couldn't complete, then the tool name in words",
   },
-  'labels.request': {
+  'registerTool.labels.request': {
     ...field(
       'string',
       "What the approval card says the agent wants to do, e.g. 'check the weather in {city}'. Each {path} is filled from the call's input.",
     ),
     unset: 'The tool name, in words',
   },
-  paths: {
+  'registerTool.paths': {
     ...field(
       'string[]',
       'The turn paths this tool is offered on, where * means every path; a turn with no path gets only * tools. Host profiles ignore it.',

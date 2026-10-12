@@ -28,13 +28,6 @@ export interface NodeOrigins {
   partly?: SettingOrigin;
 }
 
-/** A tool row's path where it differs from the key `registerTool` holds. */
-const TOOL_KEYS: Record<string, string> = {
-  'registerTool.type': 'type',
-  'studio.inputSchema': 'inputSchema',
-  'studio.outputSchema': 'outputSchema',
-};
-
 /** Rows under these are the studio's own, and no file sets them. */
 const STUDIO_ONLY = new Set(['studio', 'local']);
 
@@ -48,7 +41,7 @@ const startsWith = (path: readonly string[], prefix: readonly string[]) =>
  * path stops before one it does not. Undefined for a row no file sets.
  */
 export function settingPath(scope: Pick<NodeOrigins, 'stars' | 'tool'>, catalogPath: string): string[] | undefined {
-  const keys = ((scope.tool && TOOL_KEYS[catalogPath]) || catalogPath).split('.');
+  const keys = catalogPath.replace(scope.tool ? /^registerTool\./ : /^profile\./, '').split('.');
   if (STUDIO_ONLY.has(keys[0] ?? '')) return undefined;
   const path: string[] = [];
   for (const [index, key] of keys.entries()) {

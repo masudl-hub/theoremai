@@ -118,6 +118,7 @@ export type { ClientLexiconKey, LexiconKey, LexiconOverrides, LexiconParams } fr
 export {
   CLIENT_LEXICON_KEYS,
   LEXICON_KEYS,
+  lexiconCatalogRows,
   lexiconDefault,
   lexiconText,
   overrideLexicon,

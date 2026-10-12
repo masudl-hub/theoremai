@@ -38,6 +38,25 @@ function turnGuardrailTypes(key: string): readonly ProfileType[] {
     ? [...TURN_TYPES, 'host']
     : TURN_TYPES;
 }
+/**
+ * The profile's own settings, which no section holds. The catalog names each `profile.<key>`, as
+ * a section's fields carry their section's name.
+ */
+export const PROFILE_ROOT_FIELDS = [
+  'id',
+  'type',
+  'defaultModel',
+  'allowModelSelect',
+  'maxSteps',
+] as const;
+/** Whether a top-level profile key is one of the profile's own settings. */
+export function isProfileRootField(key: string): boolean {
+  return (PROFILE_ROOT_FIELDS as readonly string[]).includes(key);
+}
+/** The keys of the profile object that a catalog path names: `profile.maxSteps` is `maxSteps`. */
+export function profileKeysOf(catalogPath: string): string[] {
+  return catalogPath.replace(/^profile\./, '').split('.');
+}
 /** Keyed like `PROFILE_FIELDS`; `models.*` matches every model binding. */
 export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = {
   providerContinuation: {
@@ -88,15 +107,15 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     profileTypes: ['text', 'image', 'speech'],
     reason: 'live compacts with live.contextCompression',
   },
-  defaultModel: {
+  'profile.defaultModel': {
     profileTypes: TURN_TYPES,
     reason: 'a host profile runs no model and a decision declares exactly one',
   },
-  allowModelSelect: {
+  'profile.allowModelSelect': {
     profileTypes: TURN_TYPES,
     reason: 'a host profile runs no model and a decision declares exactly one',
   },
-  maxSteps: {
+  'profile.maxSteps': {
     profileTypes: TURN_TYPES,
     reason: 'only model turns take tool-loop steps',
   },
@@ -258,7 +277,7 @@ export function outOfScopeFields(profile: { readonly type: ProfileType }): OutOf
   const out: OutOfScopeField[] = [];
   for (const [path, scope] of Object.entries(PROFILE_FIELD_SCOPE)) {
     if (scope.profileTypes.includes(profile.type)) continue;
-    for (const [at, value] of valuesAt(profile, path.split('.'))) {
+    for (const [at, value] of valuesAt(profile, profileKeysOf(path))) {
       if (scope.offValue !== undefined && value === scope.offValue) continue;
       out.push({ path: at, scope });
     }

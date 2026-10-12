@@ -30,7 +30,7 @@ const PROFILE_GRAPH_DEF = [
     optional: false,
     editor: 'structural',
     label: 'Identity',
-    ownsFields: ['id', 'type'],
+    ownsFields: ['profile.id', 'profile.type'],
   },
   {
     id: 'models',
@@ -39,7 +39,12 @@ const PROFILE_GRAPH_DEF = [
     optional: false,
     editor: 'structural',
     label: 'Models',
-    ownsFields: ['defaultModel', 'allowModelSelect', 'maxSteps', 'providerContinuation'],
+    ownsFields: [
+      'profile.defaultModel',
+      'profile.allowModelSelect',
+      'profile.maxSteps',
+      'providerContinuation',
+    ],
   },
   {
     id: 'modelBinding',
@@ -165,7 +170,7 @@ export interface ProfileGraphFacet {
   label: string;
   /**
    * Extra PROFILE_FIELDS top-level keys owned by this facet (not 1:1 with id).
-   * Used by the drift gate so `defaultModel` / `id` / `type` are not orphaned.
+   * Used by the drift gate so `profile.defaultModel` / `profile.id` / `profile.type` are not orphaned.
    */
   ownsFields?: readonly string[];
 }

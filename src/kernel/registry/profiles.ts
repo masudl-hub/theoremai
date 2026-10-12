@@ -18,7 +18,7 @@ import { resolveObservabilityPolicy } from '../../observability/resolve-policy.t
 import type { ProfileObservabilitySpec } from '../../observability/types.ts';
 import { assertLiveIngressConfigured } from '../engine/live-ingress.ts';
 import { itemSchemaAt, schemaReaches } from '../engine/runner/schema-validation.ts';
-import { outOfScopeFields, profileTypesForField } from '../profile-scope.ts';
+import { outOfScopeFields, profileKeysOf, profileTypesForField } from '../profile-scope.ts';
 import {
   decisionModelBindingSchema,
   modelBindingSchema,
@@ -440,7 +440,7 @@ function assertRequiredFields(input: ProfileDefinition): void {
   const root = input as unknown as Record<string, unknown>;
   for (const [path, profileTypes] of REQUIRED_PATHS) {
     if (profileTypes && !profileTypes.includes(type)) continue;
-    const keys = path.split('.');
+    const keys = profileKeysOf(path);
     const parents = valuesAt(root, keys.slice(0, -1));
     const last = keys[keys.length - 1];
     const missing = parents.some((parent) => {
@@ -451,7 +451,7 @@ function assertRequiredFields(input: ProfileDefinition): void {
     if (missing) {
       throw new TheoremError(
         'config',
-        `Profile ${id}: type '${type}' must set ${path}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${id}: type '${type}' must set ${keys.join('.')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
   }

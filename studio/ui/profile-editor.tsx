@@ -477,7 +477,7 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
 			<InspectorSection title="Profile">
 				<TextRow
 					label="Id"
-					path="id"
+					path="profile.id"
 					field="agentId"
 					value={identity.agentId}
 					placeholder="my.agent"
@@ -488,7 +488,7 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
 				/>
 				<SegmentedRow
 					label="Type"
-					path="type"
+					path="profile.type"
 					field="profileType"
 					value={identity.profileType}
 					segments={PROFILE_TYPE_SEGMENTS}
@@ -526,7 +526,7 @@ function ModelPolicySection({ draft, set }: { draft: StudioDraft; set: SetSectio
 		<InspectorSection title="Policy">
 			<ChoiceRow
 				label="Default"
-				path="defaultModel"
+				path="profile.defaultModel"
 				field="defaultModel"
 				value={models.defaultModel}
 				isRequired={defaultModelRequired(draft)}
@@ -537,7 +537,7 @@ function ModelPolicySection({ draft, set }: { draft: StudioDraft; set: SetSectio
 			/>
 			<SwitchRow
 				label="Switching"
-				path="allowModelSelect"
+				path="profile.allowModelSelect"
 				field="allowModelSelect"
 				value={models.allowModelSelect}
 				onChange={(allowModelSelect) => {
@@ -570,7 +570,7 @@ function ModelPolicySection({ draft, set }: { draft: StudioDraft; set: SetSectio
 			/>
 			<NumberRow
 				label="Max steps"
-				path="maxSteps"
+				path="profile.maxSteps"
 				units="steps"
 				field="maxSteps"
 				value={models.maxSteps}
@@ -4995,7 +4995,7 @@ function ToolSection({
 		>
 			<TextRow
 				label="Name"
-				path="name"
+				path="registerTool.name"
 				field="toolName"
 				isRequired
 				value={tool.toolName}
@@ -5007,7 +5007,7 @@ function ToolSection({
 			<ToolTypeRow tool={tool} set={set} />
 			<TextAreaRow
 				label="Description"
-				path="description"
+				path="registerTool.description"
 				field="description"
 				isRequired
 				value={tool.description}
@@ -5018,7 +5018,7 @@ function ToolSection({
 			/>
 			<TextRow
 				label="Category"
-				path="category"
+				path="registerTool.category"
 				field="category"
 				value={tool.category}
 				placeholder="studio"
@@ -5036,7 +5036,7 @@ function ContractSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 		<InspectorSection title="Contract">
 			<TextAreaRow
 				label="Input"
-				path="studio.inputSchema"
+				path="registerTool.inputSchema"
 				field="inputJson"
 				value={tool.inputJson}
 				rows={8}
@@ -5047,7 +5047,7 @@ function ContractSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 			/>
 			<TextAreaRow
 				label="Output"
-				path="studio.outputSchema"
+				path="registerTool.outputSchema"
 				field="outputJson"
 				value={tool.outputJson}
 				rows={8}
@@ -5063,10 +5063,10 @@ function ContractSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 /** What the chat says while the tool runs, once it's done, when it fails and when it asks. */
 function ActivitySection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 	return (
-		<InspectorSection title="Activity" path="labels">
+		<InspectorSection title="Activity" path="registerTool.labels">
 			<TextRow
 				label="Running"
-				path="labels.activity"
+				path="registerTool.labels.activity"
 				field="activity"
 				value={tool.activity ?? ''}
 				hint={placeholderHint([tool.inputJson])}
@@ -5076,7 +5076,7 @@ function ActivitySection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 			/>
 			<TextRow
 				label="Done"
-				path="labels.activityPast"
+				path="registerTool.labels.activityPast"
 				field="activityPast"
 				value={tool.activityPast ?? ''}
 				hint={placeholderHint([tool.inputJson, tool.outputJson])}
@@ -5086,7 +5086,7 @@ function ActivitySection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 			/>
 			<TextRow
 				label="Failed"
-				path="labels.activityFailed"
+				path="registerTool.labels.activityFailed"
 				field="activityFailed"
 				value={tool.activityFailed ?? ''}
 				hint={placeholderHint([tool.inputJson])}
@@ -5096,7 +5096,7 @@ function ActivitySection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 			/>
 			<TextRow
 				label="Asking"
-				path="labels.request"
+				path="registerTool.labels.request"
 				field="request"
 				value={tool.request ?? ''}
 				hint={placeholderHint([tool.inputJson])}
@@ -5114,7 +5114,7 @@ function StubSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 		<InspectorSection title="Stub" path="studio.stubOutput">
 			<SwitchRow
 				label="Page answers"
-				path="answeredBy"
+				path="registerTool.answeredBy"
 				value={tool.answeredBy === 'page'}
 				onChange={(page) => {
 					set({ answeredBy: page ? 'page' : undefined });
@@ -5141,7 +5141,7 @@ function HeadersRow({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 	return (
 		<TextAreaRow
 			label="Headers"
-			path="headers"
+			path="registerTool.headers"
 			field="headersJson"
 			value={tool.headersJson ?? ''}
 			rows={4}
@@ -5169,7 +5169,7 @@ function HttpRequestSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }
 		<InspectorSection title="Request" note={sectionNote('tool.headers')}>
 			<TextRow
 				label="Endpoint"
-				path="endpoint"
+				path="registerTool.endpoint"
 				field="endpoint"
 				isRequired
 				value={tool.endpoint ?? ''}
@@ -5180,7 +5180,7 @@ function HttpRequestSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }
 			/>
 			<SegmentedRow
 				label="Method"
-				path="method"
+				path="registerTool.method"
 				field="method"
 				value={tool.method ?? HTTP_METHODS[0]}
 				segments={METHOD_SEGMENTS}
@@ -5195,10 +5195,10 @@ function HttpRequestSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }
 
 function HttpMappingSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 	return (
-		<InspectorSection title="Mapping" path="mapping">
+		<InspectorSection title="Mapping" path="registerTool.mapping">
 			<NamesRow
 				label="Path"
-				path="mapping.pathParams"
+				path="registerTool.mapping.pathParams"
 				field="pathParams"
 				value={tool.pathParams ?? []}
 				placeholder="Names in {braces}"
@@ -5208,7 +5208,7 @@ function HttpMappingSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }
 			/>
 			<NamesRow
 				label="Query"
-				path="mapping.queryParams"
+				path="registerTool.mapping.queryParams"
 				field="queryParams"
 				value={tool.queryParams ?? []}
 				placeholder="None"
@@ -5218,7 +5218,7 @@ function HttpMappingSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }
 			/>
 			<TextRow
 				label="Body"
-				path="mapping.bodyParam"
+				path="registerTool.mapping.bodyParam"
 				field="bodyParam"
 				value={tool.bodyParam ?? ''}
 				hint="None"
@@ -5244,7 +5244,7 @@ function AgentSection({
 		<InspectorSection title="Agent">
 			<ChoiceRow
 				label="Runs"
-				path="profile"
+				path="registerTool.profile"
 				field="agentKey"
 				isRequired
 				value={tool.agentKey ?? ''}
@@ -5258,7 +5258,7 @@ function AgentSection({
 			/>
 			<NumberRow
 				label="Calls per turn"
-				path="maxCallsPerTurn"
+				path="registerTool.maxCallsPerTurn"
 				field="maxCallsPerTurn"
 				value={tool.maxCallsPerTurn ?? null}
 				min={1}
@@ -5277,7 +5277,7 @@ function McpServerSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) 
 		<InspectorSection title="Server" note={sectionNote('tool.headers')}>
 			<TextRow
 				label="Server"
-				path="serverUrl"
+				path="registerTool.serverUrl"
 				field="serverUrl"
 				isRequired
 				value={tool.serverUrl ?? ''}
@@ -5288,7 +5288,7 @@ function McpServerSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) 
 			/>
 			<TextRow
 				label="Remote tool"
-				path="mcpToolName"
+				path="registerTool.mcpToolName"
 				field="mcpToolName"
 				isRequired
 				value={tool.mcpToolName ?? ''}
@@ -5316,7 +5316,7 @@ function AuthCredentialRows({
 		<>
 			<TextRow
 				label="Slot"
-				path="auth.slot"
+				path="registerTool.auth.slot"
 				field="authSlot"
 				value={tool.authSlot ?? ''}
 				placeholder="default"
@@ -5326,7 +5326,7 @@ function AuthCredentialRows({
 			/>
 			<TextRow
 				label="Header"
-				path="auth.headerName"
+				path="registerTool.auth.headerName"
 				field="authHeaderName"
 				value={tool.authHeaderName ?? ''}
 				placeholder="Authorization"
@@ -5336,7 +5336,7 @@ function AuthCredentialRows({
 			/>
 			<TextRow
 				label="Prefix"
-				path="auth.headerPrefix"
+				path="registerTool.auth.headerPrefix"
 				field="authHeaderPrefix"
 				value={tool.authHeaderPrefix ?? ''}
 				placeholder={AUTH_HEADER_PREFIX[authType] || undefined}
@@ -5348,7 +5348,7 @@ function AuthCredentialRows({
 			/>
 			<SegmentedRow
 				label="Signed out"
-				path="auth.onUnauthenticated"
+				path="registerTool.auth.onUnauthenticated"
 				field="authUnauthenticated"
 				value={tool.authUnauthenticated ?? 'gate'}
 				segments={UNAUTHENTICATED_SEGMENTS}
@@ -5366,7 +5366,7 @@ function OAuthRows({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 		<>
 			<NamesRow
 				label="Scopes"
-				path="auth.scopes"
+				path="registerTool.auth.scopes"
 				field="authScopes"
 				value={tool.authScopes ?? []}
 				placeholder="None"
@@ -5376,7 +5376,7 @@ function OAuthRows({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 			/>
 			<TextRow
 				label="Client id"
-				path="auth.clientId"
+				path="registerTool.auth.clientId"
 				field="authClientId"
 				value={tool.authClientId ?? ''}
 				onChange={(authClientId) => {
@@ -5385,7 +5385,7 @@ function OAuthRows({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 			/>
 			<TextRow
 				label="Redirect"
-				path="auth.redirectUri"
+				path="registerTool.auth.redirectUri"
 				field="authRedirectUri"
 				value={tool.authRedirectUri ?? ''}
 				placeholder="https://example.com/oauth/callback"
@@ -5401,7 +5401,7 @@ function OAuthRows({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 function AuthSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 	const authType = tool.authType ?? 'none';
 	return (
-		<InspectorSection path="auth" note={sectionNote('tool.auth')}>
+		<InspectorSection path="registerTool.auth" note={sectionNote('tool.auth')}>
 			<SegmentedRow
 				label="Type"
 				path="studio.authType"
@@ -5442,7 +5442,7 @@ function PolicySection({
 		<InspectorSection title="Policy" note={note}>
 			<SegmentedRow
 				label="Access"
-				path="access"
+				path="registerTool.access"
 				field="access"
 				value={tool.access}
 				segments={ACCESS_SEGMENTS}
@@ -5452,7 +5452,7 @@ function PolicySection({
 			/>
 			<SegmentedRow
 				label="Permission"
-				path="permission"
+				path="registerTool.permission"
 				field="permission"
 				value={tool.permission}
 				segments={PERMISSION_SEGMENTS}
@@ -5462,7 +5462,7 @@ function PolicySection({
 			/>
 			<SegmentedRow
 				label="Load tier"
-				path="loadTier"
+				path="registerTool.loadTier"
 				field="loadTier"
 				value={tool.loadTier}
 				segments={LOAD_TIER_SEGMENTS}
@@ -5473,7 +5473,7 @@ function PolicySection({
 			/>
 			<NamesRow
 				label="Paths"
-				path="paths"
+				path="registerTool.paths"
 				field="paths"
 				value={tool.paths}
 				placeholder="Every path (*)"

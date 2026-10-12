@@ -1629,6 +1629,19 @@ const TRACE_SPAN_TYPES: Readonly<Record<TraceSpanType, TraceOptionMeta>> = {
   host: { label: 'Host span', doc: 'A step the host recorded itself.' },
 };
 
+/**
+ * Every trace field and span type, named by the record they belong to: `trace.resource`, and a
+ * span type by the field it fills, `trace.type.turn`.
+ */
+function traceCatalogRows(): readonly { name: string; label: string; doc: string }[] {
+  const fields = Object.entries(TRACE_FIELDS).map(([key, meta]) => ({ name: `trace.${key}`, ...meta }));
+  const spans = Object.entries(TRACE_SPAN_TYPES).map(([key, meta]) => ({
+    name: `trace.type.${key}`,
+    ...meta,
+  }));
+  return [...spans, ...fields];
+}
+
 function stringAttribute(span: TraceSpan, key: string): string | undefined {
   const value = span.attributes[key];
   return typeof value === 'string' ? value : undefined;
@@ -1685,6 +1698,7 @@ export {
   TRACE_SPAN_TYPES,
   TRACE_STATUS,
   traceAttributeMeta,
+  traceCatalogRows,
   traceEventAttributeMeta,
   traceEventMeta,
   traceSpanMeta,

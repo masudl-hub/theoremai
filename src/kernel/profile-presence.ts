@@ -11,8 +11,8 @@ export interface ProfileFieldPresence {
 export const DEFAULT_MAX_STEPS = 20;
 /** Presence for profile paths, keyed like `PROFILE_FIELDS` (`models.*` matches every binding). */
 export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresence>> = {
-  id: { required: true },
-  type: { required: true },
+  'profile.id': { required: true },
+  'profile.type': { required: true },
   identity: { required: true },
   'identity.handle': { required: true },
   'identity.system': { unset: "Only the kernel's notes" },
@@ -24,9 +24,9 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   decision: { required: true },
   'decision.contract': { required: true },
   models: { required: true },
-  defaultModel: { required: 'when more than one model is declared', unset: 'The only model' },
-  allowModelSelect: { unset: 'Off' },
-  maxSteps: { unset: `${DEFAULT_MAX_STEPS} model calls` },
+  'profile.defaultModel': { required: 'when more than one model is declared', unset: 'The only model' },
+  'profile.allowModelSelect': { unset: 'Off' },
+  'profile.maxSteps': { unset: `${DEFAULT_MAX_STEPS} model calls` },
   'models.*.provider': { required: true },
   'models.*.providerOptions': { unset: 'Adapter defaults' },
   'models.*.keySlot': { unset: 'Provider primary slot' },

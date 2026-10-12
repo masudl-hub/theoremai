@@ -3,154 +3,157 @@
 import type { FieldMeta } from './schema.ts';
 import type { TurnInput, TurnRequest } from './types.ts';
 
-/** The catalog of the fields a `runTurn` request takes, keyed by path like `PROFILE_FIELDS`. */
-export const REQUEST_FIELDS: Record<keyof TurnRequest | `input.${keyof TurnInput}`, FieldMeta> = {
-  pageExecution: {
+/** The catalog of the fields a `runTurn` request takes, keyed `runTurn.<field>`. */
+export const REQUEST_FIELDS: Record<
+  `runTurn.${keyof TurnRequest | `input.${keyof TurnInput}`}`,
+  FieldMeta
+> = {
+  'runTurn.pageExecution': {
     type: 'PageToolExecution',
     doc: 'Host-issued browser dispatch with a claimed operation and correlated result.',
   },
-  execution: {
+  'runTurn.execution': {
     type: 'ToolExecutionCoordinator',
     doc: 'Host-owned atomic tool claims and outcomes. Never sent to providers.',
   },
-  providerState: {
+  'runTurn.providerState': {
     type: 'ProviderCheckpoint',
     doc: 'Native provider state saved alongside portable history.',
   },
-  profile: {
+  'runTurn.profile': {
     type: 'string',
     doc: 'The id of the registered profile the turn runs.',
     required: true,
   },
-  input: { type: 'TurnInput', doc: 'What the user sent for the turn.' },
-  'input.text': { type: 'string', doc: "The user's message." },
-  'input.role': {
+  'runTurn.input': { type: 'TurnInput', doc: 'What the user sent for the turn.' },
+  'runTurn.input.text': { type: 'string', doc: "The user's message." },
+  'runTurn.input.role': {
     type: 'string',
     doc: 'Picks the instruction of that name from identity.systemByRole.',
     unset: 'The profile instruction',
   },
-  'input.slots': {
+  'runTurn.input.slots': {
     type: 'Record<string, string>',
     doc: 'The choice the turn makes for each slot the profile declares in inputs.slots; a slot or a value the profile does not declare is refused.',
   },
-  'input.context': {
+  'runTurn.input.context': {
     type: "Partial<Record<'client' | 'server', unknown>>",
     doc: "What the page (client) or the host (server) wants the model to know, as any JSON or text; a sender the profile's inputs.context does not list, or a package over its maxChars, is refused.",
     unset: 'No context',
   },
-  'input.attachments': {
+  'runTurn.input.attachments': {
     type: 'Array<TurnBlob | TurnMediaRef>',
     doc: "Files sent with the turn, as bytes or as a provider file reference; each must pass the profile's inputs.attachments.",
   },
-  'input.voice': {
+  'runTurn.input.voice': {
     type: 'TurnBlob[]',
     doc: "Recorded speech sent with the turn; each must pass the profile's inputs.voice.",
   },
-  'input.history': {
+  'runTurn.input.history': {
     type: 'TurnHistoryMessage[]',
     doc: 'The earlier messages of the conversation, when the host keeps them.',
     unset: 'The turn starts a new conversation',
   },
-  'input.repair': {
+  'runTurn.input.repair': {
     type: 'TurnRepairRequest',
     doc: 'A reply your host rejected and why, so that the model writes it again.',
   },
-  'input.historyTokens': {
+  'runTurn.input.historyTokens': {
     type: 'number',
     doc: "Your count of the history's tokens, used by compaction that meters history.",
     unset: "Theorem's own estimate",
   },
-  'input.inputTokens': {
+  'runTurn.input.inputTokens': {
     type: 'number',
     doc: "Your count of the whole prompt's tokens, used by compaction that meters input before the call.",
   },
-  model: {
+  'runTurn.model': {
     type: 'string',
     doc: "The model id the turn picks from the profile's models; refused unless the profile sets allowModelSelect.",
     unset: "The profile's defaultModel",
   },
-  effort: {
+  'runTurn.effort': {
     type: 'string',
     doc: "The effort the turn picks from the model's efforts; refused unless the model sets allowEffortSelect.",
     unset: "The model's default effort",
   },
-  builtInArgs: {
+  'runTurn.builtInArgs': {
     type: 'Record<BuiltinToolId, JsonObject>',
     doc: "Args for the provider's own tools on the chosen model's builtInTools, by tool id; each is checked by the schema the provider declares for that tool.",
     unset: 'Each built-in runs with no args',
   },
-  system: {
+  'runTurn.system': {
     type: 'SystemPrompt',
     doc: "An instruction for this request only, added to the profile's own.",
   },
-  path: {
+  'runTurn.path': {
     type: 'string',
     doc: 'The channel the turn comes from; only tools whose paths name it, or *, are offered.',
     unset: 'Only tools on every path',
   },
-  sessionPermissions: {
+  'runTurn.sessionPermissions': {
     type: 'string[]',
     doc: 'The tools the user has already approved for this session.',
   },
-  credentials: {
+  'runTurn.credentials': {
     type: 'ToolCredentialSource',
     doc: 'Where an HTTP or MCP tool gets the credential for its auth slot.',
   },
-  host: {
+  'runTurn.host': {
     type: 'unknown',
     doc: 'Your own context, handed to tool handlers as ctx.host; Theorem never reads or records it.',
   },
-  signal: {
+  'runTurn.signal': {
     type: 'AbortSignal',
     doc: 'Stops the turn when it aborts, and cancels the provider call where the provider can.',
   },
-  sessionId: {
+  'runTurn.sessionId': {
     type: 'string',
     doc: 'A session key that OpenRouter uses for routing and caching.',
   },
-  projectId: {
+  'runTurn.projectId': {
     type: 'string',
     doc: 'Your project id, recorded on the trace.',
   },
-  conversationId: {
+  'runTurn.conversationId': {
     type: 'string',
     doc: 'Your conversation id, recorded on the trace.',
   },
-  metadata: {
+  'runTurn.metadata': {
     type: 'Record<string, unknown>',
     doc: 'Your own values, kept on the trace; Theorem does not read them.',
   },
-  traceparent: {
+  'runTurn.traceparent': {
     type: 'string',
     doc: "The W3C traceparent of your span; the turn's trace joins it as a child.",
     unset: 'The turn starts a new trace',
   },
-  links: {
+  'runTurn.links': {
     type: 'TurnTraceLink[]',
     doc: 'Earlier traces this turn follows: a resume, a continue or a retry.',
   },
-  continueFrom: {
+  'runTurn.continueFrom': {
     type: 'TurnContinueFrom',
     doc: 'Continues a turn that stopped in a way the profile lets a turn continue.',
   },
-  continuation: {
+  'runTurn.continuation': {
     type: 'number',
     doc: 'Which continue attempt this is, from 1; checked against the maxContinues of the profile.',
   },
-  speech: {
+  'runTurn.speech': {
     type: 'TurnSpeech',
     doc: "This turn's voice, style and speed; each one given replaces the profile's speech field of that name. Refused on a profile that is not speech.",
     unset: "The profile's speech settings",
   },
-  resolveHost: {
+  'runTurn.resolveHost': {
     type: 'ResolveHost',
     doc: 'Resolves the host name of a remote tool before each request; a name that resolves to a private address is refused.',
   },
-  onStage: {
+  'runTurn.onStage': {
     type: 'StageHandler',
     doc: 'Your function that sees each stage of a text turn and can answer with what the stage allows.',
   },
-  onAgentCall: {
+  'runTurn.onAgentCall': {
     type: 'AgentCallHook',
     doc: 'Runs before each agent tool call, to shape the request to the called agent or to refuse the call.',
     unset: 'The agent runs on what the model sent',

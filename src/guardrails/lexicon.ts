@@ -887,3 +887,8 @@ export function lexiconDefault(key: LexiconKey, params: LexiconParams = {}): str
   const fallback = DEFAULTS[key];
   return typeof fallback === 'string' ? substitute(fallback, params) : fallback(params);
 }
+
+/** Every label with its default text, named by the profile path that overrides it: `lexicon.<key>`. */
+export function lexiconCatalogRows(): readonly { name: string; text: string }[] {
+  return LEXICON_KEYS.map((key) => ({ name: `lexicon.${key}`, text: lexiconDefault(key) }));
+}

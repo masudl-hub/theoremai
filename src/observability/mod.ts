@@ -37,6 +37,7 @@ export {
   TRACE_SPAN_TYPES,
   TRACE_STATUS,
   traceAttributeMeta,
+  traceCatalogRows,
   traceEventAttributeMeta,
   traceEventMeta,
   traceSpanMeta,

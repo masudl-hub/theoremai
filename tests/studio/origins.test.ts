@@ -263,9 +263,10 @@ Deno.test('a row path names the keys the files hold: a star the node names, a to
   assertEquals(settingPath(model, 'models.*.efforts.*'), ['models', 'gpt-4.1', 'efforts']);
   assertEquals(settingPath({ stars: {}, tool: false }, 'models.*.apiId'), ['models']);
   assertEquals(settingPath(model, 'studio.stubOutput'), undefined);
+  assertEquals(settingPath(model, 'profile.maxSteps'), ['maxSteps']);
   const tool = { stars: {}, tool: true };
   assertEquals(
-    ['registerTool.type', 'studio.inputSchema', 'studio.sampleInput', 'auth.slot'].map((path) =>
+    ['registerTool.type', 'registerTool.inputSchema', 'studio.sampleInput', 'registerTool.auth.slot'].map((path) =>
       settingPath(tool, path),
     ),
     [['type'], ['inputSchema'], undefined, ['auth', 'slot']],

@@ -319,6 +319,7 @@ it. The studio's trace panel reads it; a host's own tooling can too.
 | `traceSpanMeta(span)` | `{ type, label, doc, subject? }`: what the span is (`Turn`, `Live session`, `Model call`, `Live response`, `Tool call`, `HTTP try`, `Cutout`, `Decision`, else `Host span`), decided from what it recorded, plus its subject: the agent, model, tool or path |
 | `traceAttributeMeta(key)` | `{ label, doc, format, group, options?, open?, fields? }` for a span attribute, including the modality-usage and recorded-header families; `undefined` for a key Theorem does not write |
 | `traceEventMeta(name)` | `{ label, doc, attributes }` for a span event |
+| `traceCatalogRows()` | Every trace field and span type as `{ name, label, doc }`, named by its record: `trace.resource`, `trace.type.turn` |
 | `traceEventAttributeMeta(event, key)` | The event's own entry for the key, else the span attribute of that key |
 | `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS`, `TRACE_SPAN_TYPES` | Labels for attribute groups, the three status codes, a record's and span's own fields, and the span types (`TraceSpanType`) `traceSpanMeta` returns |
 
@@ -483,7 +484,7 @@ from that table, not from a span's `llm.cost.total`.
 | `listTraceDestinationIds`, `clearTraceDestinations` | function |
 | `isTraceSink` | function |
 | `resolveObservabilityPolicy`, `resolveTraceWriter` | function |
-| `traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`, `traceEventAttributeMeta` | function |
+| `traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`, `traceEventAttributeMeta`, `traceCatalogRows` | function |
 | `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS`, `TRACE_SPAN_TYPES` | const |
 | `TraceSpanMeta`, `TraceSpanType`, `TraceAttributeMeta`, `TraceEventMeta`, `TraceOptionMeta`, `TraceAttributeGroup`, `TraceValueFormat` | type |
 

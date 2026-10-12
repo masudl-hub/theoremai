@@ -52,3 +52,17 @@ Deno.test('a project of one file is that file', () => {
   const map = readMap([{ file: 'setup.ts' }], 8);
   assertEquals(map.nodes.map((node) => [node.id, node.row]), [['entry', 0]]);
 });
+
+Deno.test('an agent and a tool keep the type their file writes, and one without has none', () => {
+  const typed: ReadStep[] = [
+    { file: 'studio.setup.ts' },
+    { file: 'backend/tools/places.ts', from: 'studio.setup.ts' },
+    { found: 'profile', name: 'bonsai.pagereader', file: 'backend/tools/places.ts', type: 'decision' },
+    { found: 'tool', name: 'search_places', file: 'backend/tools/places.ts', type: 'http' },
+    { found: 'tool', name: 'remove_plant', file: 'backend/tools/places.ts' },
+  ];
+  const nodes = by(readMap(typed, 6));
+  assertEquals(nodes['profile:bonsai.pagereader']?.type, 'decision');
+  assertEquals(nodes['tool:search_places']?.type, 'http');
+  assertEquals('type' in (nodes['tool:remove_plant'] ?? {}), false);
+});

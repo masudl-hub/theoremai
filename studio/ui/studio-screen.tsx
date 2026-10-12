@@ -173,12 +173,8 @@ import { subscribeToFiles } from './lib/studio-watch.ts';
 import { toolCredential } from './lib/tool-credentials.ts';
 import { useConfirmWrite } from './confirm-write.tsx';
 import { runToolProbe } from './lib/tool-probe.ts';
-import {
-	addToolSpec,
-	PROFILE_TYPE_ICON,
-	ProfileEditor,
-	toolTypeIcon,
-} from './profile-editor.tsx';
+import { PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
+import { addToolSpec, ProfileEditor } from './profile-editor.tsx';
 import { SharedChange } from './shared-change.tsx';
 import {
 	type StudioConnectionState,

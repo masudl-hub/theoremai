@@ -5,8 +5,8 @@
 export type ReadStep =
   /** A file was read. `from` is the file whose import led to it; the setup file has none. */
   | { file: string; from?: string }
-  /** A profile or a tool was found in a file already read. */
-  | { found: 'profile' | 'tool'; name: string; file: string }
+  /** A profile or a tool was found in a file already read. `type` is the type the file writes for it. */
+  | { found: 'profile' | 'tool'; name: string; file: string; type?: string }
   /** The files changed since the last load, so the project is loading again. */
   | { again: true };
 

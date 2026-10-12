@@ -6,10 +6,11 @@
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { Text } from '@astryxdesign/core/Text';
 import { Token } from '@astryxdesign/core/Token';
-import { IconFileCode, IconFolder, IconRobot, IconTool } from '@tabler/icons-react';
+import { IconFileCode, IconFolder, IconRobot } from '@tabler/icons-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReadStep } from '../read-steps.ts';
 import { type ReadNode, type ReadNodeKind, readMap } from './lib/read-map.ts';
+import { profileTypeIcon, toolTypeIcon } from './lib/type-icons.ts';
 import type { Reading } from './lib/read-progress.ts';
 import './read-map.css';
 
@@ -34,9 +35,16 @@ const NODE_ICON: Record<ReadNodeKind, IconType | undefined> = {
 	entry: IconFileCode,
 	folder: IconFolder,
 	profile: IconRobot,
-	tool: IconTool,
+	tool: undefined,
 	more: undefined,
 };
+
+/** An agent or a tool has its type's icon, the one the tree gives it. */
+function nodeIcon({ kind, type }: ReadNode): IconType | undefined {
+	if (kind === 'profile') return profileTypeIcon(type) ?? NODE_ICON.profile;
+	if (kind === 'tool') return toolTypeIcon(type ?? '');
+	return NODE_ICON[kind];
+}
 
 function isFile(step: ReadStep): step is { file: string; from?: string } {
 	return 'file' in step && !('found' in step);
@@ -201,7 +209,7 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
 				})}
 			</svg>
 			{placed.map(({ node, x, y }) => {
-				const icon = NODE_ICON[node.kind];
+				const icon = nodeIcon(node);
 				return (
 					<div key={node.id} className="read-map-node" data-read-node={node.id} data-kind={node.kind} style={{ left: x, top: y }}>
 						<Token size="sm" label={short(node.label)} icon={icon && <Icon icon={icon} size="sm" />} />

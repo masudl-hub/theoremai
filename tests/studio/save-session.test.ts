@@ -218,6 +218,14 @@ Deno.test('a read that says its steps names each file from the project, then ans
     found.every((step) => 'found' in step && step.file === relative(ROOT, SETUP)),
     true,
   );
+  // Each is said with the type its file writes.
+  const removing = found.find((step) => 'found' in step && step.name === 'remove_plant');
+  assertEquals(removing, {
+    found: 'tool',
+    name: 'remove_plant',
+    file: relative(ROOT, SETUP),
+    type: 'function',
+  });
 
   // Files that changed are loaded again, and the read says so.
   files.set(SETUP, `${TEXT}\n// An edit in the editor.\n`);

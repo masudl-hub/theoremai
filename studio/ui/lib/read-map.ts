@@ -20,6 +20,8 @@ export interface ReadNode {
 	first: number;
 	/** The steps that read a file of the node's own, in order. Each is a dot on the line into it. */
 	own: number[];
+	/** The type an agent or a tool was written with. */
+	type?: string;
 }
 
 export interface ReadMap {
@@ -36,7 +38,7 @@ interface Folder {
 	parent?: Folder;
 	folders: Map<string, Folder>;
 	own: number[];
-	found: { kind: 'profile' | 'tool'; name: string; step: number }[];
+	found: { kind: 'profile' | 'tool'; name: string; step: number; type?: string }[];
 	/** Folders folded into this one because the rows ran out. */
 	folded: number;
 }
@@ -68,7 +70,7 @@ function foldersOf(steps: readonly ReadStep[], depth: number): Folder {
 	};
 	steps.forEach((step, index) => {
 		if ('file' in step && !('found' in step)) at(step.file).own.push(index);
-		else if ('found' in step) at(step.file).found.push({ kind: step.found, name: step.name, step: index });
+		else if ('found' in step) at(step.file).found.push({ kind: step.found, name: step.name, step: index, ...(step.type === undefined ? {} : { type: step.type }) });
 	});
 	return root;
 }
@@ -154,7 +156,17 @@ export function readMap(steps: readonly ReadStep[], rows: number): ReadMap {
 		for (const child of here.folders.values()) place(child, col + 1, id);
 		const shown = here.found.length > each ? here.found.slice(0, each - 1) : here.found;
 		for (const found of shown) {
-			nodes.push({ id: `${found.kind}:${found.name}`, kind: found.kind, label: found.name, col: foundCol, row, parent: id, first: found.step, own: [] });
+			nodes.push({
+				id: `${found.kind}:${found.name}`,
+				kind: found.kind,
+				label: found.name,
+				col: foundCol,
+				row,
+				parent: id,
+				first: found.step,
+				own: [],
+				...(found.type === undefined ? {} : { type: found.type }),
+			});
 			row += 1;
 		}
 		const rest = here.found.slice(shown.length);

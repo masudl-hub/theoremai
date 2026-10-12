@@ -10,7 +10,7 @@ import { relative, resolve } from 'node:path';
 import type { StudioWorkspace } from '../workspace.ts';
 import { sourceOrigins } from './origins.ts';
 import type { ReadStep } from '../read-steps.ts';
-import { type ProjectSource, projectOf, readProjectSource, sharedSettings, walkProject } from './project-source.ts';
+import { type ProjectSource, projectOf, readProjectSource, sharedSettings, walkProject, writtenType } from './project-source.ts';
 import { planNew } from './save-new.ts';
 import { planRemoved } from './save-remove.ts';
 import { applyEdits, diffHunks, planSave, type SourceEdit } from './save-plan.ts';
@@ -279,7 +279,9 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     for (const [found, made] of [['profile', files.profiles], ['tool', files.tools]] as const) {
       for (const [name, targets] of made) {
         const at = targets[0];
-        if (at) said({ found, name, file: inRoot(at.file) });
+        if (!at) continue;
+        const type = writtenType(files, at);
+        said({ found, name, file: inRoot(at.file), ...(type === undefined ? {} : { type }) });
       }
     }
     return files;

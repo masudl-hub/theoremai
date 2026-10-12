@@ -34,7 +34,7 @@ import {
 import { FACET_ICON } from './lib/facet-icons.ts';
 import { type MapPlaces, readMapPlaces, writeMapPlaces } from './lib/studio-map-places.ts';
 import { useProject } from './lib/studio-project.ts';
-import { PROFILE_TYPE_ICON, toolTypeIcon } from './profile-editor.tsx';
+import { PROFILE_TYPE_ICON, profileTypeIcon, toolTypeIcon } from './lib/type-icons.ts';
 import './studio-map.css';
 
 /** A node holds its icon, its name and two lines of its note; a card's head, one; a row, a section. */
@@ -49,9 +49,8 @@ const MAP_SIZES: MapSizes = {
 };
 
 function nodeIcon({ kind, type }: MapNode): IconType {
-	if (kind === 'agent' && type && Object.hasOwn(PROFILE_TYPE_ICON, type)) {
-		return PROFILE_TYPE_ICON[type as keyof typeof PROFILE_TYPE_ICON];
-	}
+	const agent = kind === 'agent' ? profileTypeIcon(type) : undefined;
+	if (agent) return agent;
 	if (kind === 'tool') return toolTypeIcon(type ?? '');
 	if (kind === 'model') return FACET_ICON.modelBinding;
 	if (kind === 'provider') return IconCloud;

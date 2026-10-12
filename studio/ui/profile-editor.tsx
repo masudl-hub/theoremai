@@ -72,19 +72,15 @@ import {
 	IconInputAi,
 	IconKey,
 	IconLayersUnion,
-	IconLetterT,
 	IconLink,
 	IconListCheck,
 	IconLockOpen,
-	IconMathFunction,
 	IconMessage,
-	IconMessageForward,
 	IconMicrophone,
 	IconNumber,
 	IconPackage,
 	IconPaperclip,
 	IconPencil,
-	IconPhoto,
 	IconPlayerPause,
 	IconPlayerPlay,
 	IconPlayerTrackNext,
@@ -103,9 +99,7 @@ import {
 	IconTrash,
 	IconUser,
 	IconUserCheck,
-	IconVolume,
 	IconWaveSine,
-	IconWorld,
 	IconWriting,
 	IconX,
 } from '@tabler/icons-react';
@@ -284,7 +278,7 @@ import {
 	type WorkspaceAgent,
 	WorkspaceContext,
 } from './inspector-context.ts';
-import { IconMcp } from './mcp-icon.tsx';
+import { PROFILE_TYPE_ICON, TOOL_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
 import { slotDescription, useProviderModels } from './studio-connection.tsx';
 import { IconTheorem } from './theorem-mark.tsx';
 
@@ -302,16 +296,6 @@ function patch<K extends SettingsSection>(setDraft: SetDraft, key: K) {
 
 /** The setter `patch` returns for one section, as a section's component takes it. */
 type SetSection<K extends SettingsSection> = (change: Partial<StudioDraft[K]>) => void;
-
-/** Each profile type's icon: the Type control's segments and the tree's Identity row. */
-export const PROFILE_TYPE_ICON = {
-	text: IconLetterT,
-	image: IconPhoto,
-	speech: IconVolume,
-	live: IconHeadset,
-	decision: IconGitBranch,
-	host: IconServer,
-} satisfies Record<StudioProfileType, unknown>;
 
 const PROFILE_TYPE_SEGMENTS: Segment<StudioProfileType>[] = [
 	{ value: 'text', label: 'Text', icon: PROFILE_TYPE_ICON.text },
@@ -4458,20 +4442,6 @@ function ObservabilityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft
 			)}
 		</>
 	);
-}
-
-/** Each custom tool type's icon: the Type control's segments and the tree's tool rows. */
-export const TOOL_TYPE_ICON = {
-	function: IconMathFunction,
-	http: IconWorld,
-	mcp: IconMcp,
-	agent: IconMessageForward,
-} satisfies Record<CustomToolType, IconType>;
-
-/** The icon for a tool type, or the plain tool icon when the type is not one of those. */
-export function toolTypeIcon(type: string): IconType {
-	if (Object.hasOwn(TOOL_TYPE_ICON, type)) return TOOL_TYPE_ICON[type as CustomToolType];
-	return IconTool;
 }
 
 const TOOL_TYPE_SEGMENTS: Segment<CustomToolType>[] = [

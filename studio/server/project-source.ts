@@ -758,6 +758,11 @@ function textOf(project: ProjectSource, target: SourceTarget, key: string): stri
   return ts.isStringLiteralLike(node) ? node.text : undefined;
 }
 
+/** The type a profile or a tool is written with, when the file says it in words. */
+export function writtenType(project: ProjectSource, target: SourceTarget): string | undefined {
+  return textOf(project, target, 'type');
+}
+
 /**
  * The names a function gives the call it makes, one for each place the project calls the function.
  * None unless every one of those calls says the name: the studio does not write what it cannot name.

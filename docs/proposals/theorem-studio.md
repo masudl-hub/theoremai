@@ -683,14 +683,17 @@ mounts the same ones.
 
 Built: the loader draws the project being read. The server says each step of
 the read as it happens (`ReadStep` in `studio/read-steps.ts`): a file and the
-file that imported it, then each agent and tool found. On the pulled-in panel
-the studio draws those steps as a map from left to right
-(`studio/ui/read-map.tsx`): the setup file, a line to each folder its imports
-reach with a dot for each file read there, and a token for each agent and
-tool. The map draws in the order the read happened and no faster than can be
-followed. When it has drawn every step, it fades and the panel pulls in to
-the studio's frame. A project that opens before the mark starts shows neither,
-and reduced motion shows the mark without the map.
+file that imported it, then each agent and tool found, with the type its file
+writes. As the panel pulls in beside the rail the studio draws those steps as
+a map from left to right (`studio/ui/read-map.tsx`): the setup file, a line to
+each folder its imports reach with a dot for each file read there, and a token
+for each agent and tool, with the icon of its type that the tree gives it
+(`studio/ui/lib/type-icons.ts`). The map draws in the order the read happened
+and no faster than can be followed. When it has drawn every step, it fades and
+the panel pulls in to the studio's frame. Until then the rail shows and opens
+nothing. A project that opens before the mark starts shows neither, and
+reduced motion shows the mark without the map. The order is `runBoot` in
+`studio/ui/lib/boot-sequence.ts`.
 
 Built: Save takes a profile or a tool the studio removed out of the files
 (`studio/server/save-remove.ts`). It cuts the statement that registers it,

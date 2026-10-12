@@ -1,9 +1,11 @@
 /**
  * The loader: the mark draws on the full-bleed shell, then that same panel pulls in to the shape of
  * the page it opens. The website and the studio on its own both mount this in their shell. The
- * studio also reads a project: its panel pulls in beside the rail first and the read is drawn there.
+ * studio also reads a project: its panel pulls in beside the rail first and the read is drawn there
+ * as it does.
  */
-import { useEffect, useRef, useState } from 'react';
+import { type RefObject, useEffect, useRef, useState } from 'react';
+import { type BootPhase, runBoot } from './lib/boot-sequence.ts';
 import type { Reading } from './lib/read-progress.ts';
 import { ReadMap } from './read-map.tsx';
 import {
@@ -18,15 +20,7 @@ import {
 import { TheoremMark } from './theorem-mark.tsx';
 import './boot-mark.css';
 
-/**
- * What the loader shows: the mark drawing, the panel pulling in for a project's read, the map of
- * that read, the map fading out, and nothing once the page has the shell.
- */
-type BootPhase = 'draw' | 'pull' | 'map' | 'leave' | 'done';
-
 const DRAW_CAP_MS = 2800;
-const HOLD_MS = 90;
-const REDUCED_HOLD_MS = 200;
 const FONT_CAP_MS = 500;
 
 /** Resolves when the mark's dot has drawn in, at once with reduced motion, or after the cap. */
@@ -101,64 +95,48 @@ function useBootPhase({ shape, ready, reading }: BootMarkProps) {
 		if (!root || bootHasPlayed()) return;
 
 		const reduced = prefersReducedMotion();
-		let cancelled = false;
-		let revealed = false;
-
-		const reveal = () => {
-			if (cancelled || revealed) return;
-			revealed = true;
-			revealShell(latest.current.shape());
-			setPhase('done');
-		};
-
-		/* A project's read is drawn once the mark is, loaded or not. The mark gives way as it does
-		   for any page, the panel pulls in beside the rail, and the map draws on it. `map` settles
-		   when the map has drawn every step of a read that has ended. */
-		const map = new Promise<void>((resolve) => {
-			mapDrawn.current = resolve;
+		return runBoot({
+			reads: !reduced && Boolean(latest.current.reading),
+			reduced,
+			fadeMs: FADE_MS,
+			// A page that failed to load is still a page to show.
+			settled: Promise.all([fontsSettled(), Promise.resolve(latest.current.ready).catch(() => undefined)]),
+			mapDrawn: new Promise<void>((resolve) => {
+				mapDrawn.current = resolve;
+			}),
+			markDrawn: () => markDrawn(root, reduced),
+			penHasStarted: () => penHasStarted(root),
+			pullIn: pullShellIn,
+			sleep,
+			show: setPhase,
+			reveal: () => {
+				revealShell(latest.current.shape());
+				setPhase('done');
+			},
 		});
-		const reads = !reduced && Boolean(latest.current.reading);
-		let pulling = false;
-		const mapped = reads
-			? markDrawn(root, reduced)
-					.then(() => sleep(HOLD_MS))
-					.then(() => {
-						if (cancelled || revealed) return false;
-						pulling = true;
-						setPhase('pull');
-						return pullShellIn().then(() => {
-							if (cancelled) return false;
-							setPhase('map');
-							return true;
-						});
-					})
-			: Promise.resolve(false);
-
-		/* If the page is ready before the pen starts (its delay in boot-mark.css), no mark was ever
-		   on screen and the panel pulls in at once. Once the pen has started, it finishes, and so
-		   does a map. A page that failed to load is still a page to show. */
-		const loaded = Promise.resolve(latest.current.ready).catch(() => undefined);
-		void Promise.all([fontsSettled(), loaded])
-			.then(() => {
-				if (!reduced && !pulling && !penHasStarted(root)) return undefined;
-				if (!reads) return markDrawn(root, reduced).then(() => sleep(reduced ? REDUCED_HOLD_MS : HOLD_MS));
-				return mapped.then((shown) => {
-					if (!shown || cancelled) return undefined;
-					return map.then(() => {
-						if (cancelled) return undefined;
-						setPhase('leave');
-						return sleep(FADE_MS);
-					});
-				});
-			})
-			.then(reveal);
-
-		return () => {
-			cancelled = true;
-		};
 	}, []);
 
 	return { phase, rootRef, mapDrawn };
+}
+
+/** The rail beside the panel a loader draws in. */
+function railOf(root: HTMLElement | null): HTMLElement | null {
+	return root?.closest('.astryx-app-shell')?.querySelector<HTMLElement>('.astryx-app-shell-sidenav') ?? null;
+}
+
+/**
+ * The rail shows beside a project's read but opens nothing until the page is there: a press or a
+ * key on it would act on a page that has not loaded.
+ */
+function useRailHeld(rootRef: RefObject<HTMLDivElement | null>, held: boolean) {
+	useEffect(() => {
+		const rail = held ? railOf(rootRef.current) : null;
+		if (!rail || rail.hasAttribute('inert')) return;
+		rail.setAttribute('inert', '');
+		return () => {
+			rail.removeAttribute('inert');
+		};
+	}, [rootRef, held]);
 }
 
 /**
@@ -167,6 +145,7 @@ function useBootPhase({ shape, ready, reading }: BootMarkProps) {
  */
 export function BootMark(props: BootMarkProps) {
 	const { phase, rootRef, mapDrawn } = useBootPhase(props);
+	useRailHeld(rootRef, phase === 'map' || phase === 'leave');
 
 	if (phase === 'done') return null;
 

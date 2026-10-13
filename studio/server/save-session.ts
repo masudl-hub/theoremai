@@ -157,13 +157,10 @@ export function pageOrigins(
         })),
       ]),
     );
-  const named = (files: Record<string, string[]>) =>
-    Object.fromEntries(Object.entries(files).map(([name, held]) => [name, held.map(inRoot)]));
   return {
     profiles: read(found.profiles, names.profiles, source.profiles),
     tools: read(found.tools, names.tools, source.tools),
     ...(found.sites ? { sites: { profiles: placed(found.sites.profiles), tools: placed(found.sites.tools) } } : {}),
-    ...(found.files ? { files: { profiles: named(found.files.profiles), tools: named(found.files.tools) } } : {}),
   };
 }
 

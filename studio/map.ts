@@ -4,8 +4,7 @@
  * line joins each to the section it feeds. It is read from the workspace and changes nothing; each
  * node and section names the workspace node that opens it.
  */
-import { type MapPlace, mapCurve, mapDots } from './map-line.ts';
-import type { ProjectFiles } from './server/save-wire.ts';
+import { type MapPlace, mapCurve } from './map-line.ts';
 import { type SharedEntry, sharedNodeId } from './shared-settings.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 import { type AgentDraft, agentNodeId, type StudioWorkspace, workspaceTree } from './workspace.ts';
@@ -38,8 +37,6 @@ export interface MapNode {
   type?: string;
   /** A profile's sections, in the tree's order. */
   rows?: MapRow[];
-  /** An agent or a tool the project's files hold: the files that write it, from the project's folder. */
-  files?: string[];
 }
 
 /**
@@ -99,17 +96,8 @@ function rowNote(agent: AgentDraft, facet: string, tools: ReadonlyMap<string, st
   return '';
 }
 
-/** The map of `workspace`, with the settings its project shares and the `files` that write each agent and tool. */
-export function workspaceMap(
-  workspace: StudioWorkspace,
-  shared: readonly SharedEntry[] = [],
-  files?: ProjectFiles,
-): WorkspaceMap {
-  /** The files know an agent or a tool by the id or name it started with. */
-  const written = (held: Record<string, string[]> | undefined, name: string | undefined) => {
-    const found = name === undefined ? undefined : held?.[name];
-    return found?.length ? { files: found } : {};
-  };
+/** The map of `workspace`, with the settings its project shares. */
+export function workspaceMap(workspace: StudioWorkspace, shared: readonly SharedEntry[] = []): WorkspaceMap {
   const links: MapLink[] = [];
   const agentIds = new Map(workspace.agents.map((agent) => [agent.key, agentNodeId(agent.key)]));
   const toolIds = new Map(workspace.toolSpecs.map((tool) => [tool.key, toolSpecNodeId(tool.key)]));
@@ -132,7 +120,6 @@ export function workspaceMap(
         opens: section.id,
         type: section.ref.facet,
       })),
-      ...written(files?.profiles, workspace.starts.agents[agent.key]?.identity.agentId.trim()),
     };
   });
   const sections = new Set(agents.flatMap((agent) => agent.rows ?? []).map((row) => row.id));
@@ -198,7 +185,6 @@ export function workspaceMap(
       note: tool.description,
       opens: id,
       type: tool.toolType,
-      ...written(files?.tools, workspace.starts.tools[tool.key]?.toolName),
     };
   });
 
@@ -352,12 +338,6 @@ export interface MapLine {
   from: string;
   to: string;
   d: string;
-  /** A dot for each file that writes the agent or the tool the line leads to, on the line a model or a profile sends it. */
-  dots: MapDot[];
-}
-
-export interface MapDot extends MapPlace {
-  file: string;
 }
 
 export interface MapLayout {
@@ -438,14 +418,6 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
   const clear = Math.max(rowGap / 2, lineGap);
   /** The lanes lines already go round in: the next one keeps `LANE_GAP` clear of each. */
   const laid: Box[] = [];
-  const held = owners(map);
-  const dotsOn = ({ kind }: MapLink, to: string, at: (t: number) => MapPlace): MapDot[] => {
-    const files = (kind === 'runs' || kind === 'allows' ? held.get(to)?.files : undefined) ?? [];
-    return mapDots(at, files.length).flatMap((dot, index) => {
-      const file = files[index];
-      return file === undefined ? [] : [{ ...dot, file }];
-    });
-  };
 
   const lines = mapLinkEnds(map).flatMap(({ link, from, to }): MapLine[] => {
     const a = ports.get(link.from);
@@ -465,8 +437,7 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
       );
       const bow = Math.max(ax, bx, ...beside.map((box) => box.x + box.width)) + gap;
       right = Math.max(right, bow);
-      const bowed = mapCurve({ x: ax, y: a.y }, { x: bx, y: b.y }, bow);
-      return [{ link, from, to, d: bowed.d, dots: dotsOn(link, to, bowed.at) }];
+      return [{ link, from, to, d: mapCurve({ x: ax, y: a.y }, { x: bx, y: b.y }, bow).d }];
     }
 
     const way = a.left < b.left ? 1 : -1;
@@ -482,7 +453,7 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
               (point) => point.x > box.x && point.x < box.x + box.width && near(box, point.y),
             ),
           );
-    if (crossed.length === 0) return [{ link, from, to, d: curve.d, dots: dotsOn(link, to, curve.at) }];
+    if (crossed.length === 0) return [{ link, from, to, d: curve.d }];
 
     const [low, high] = [Math.min(start.x, end.x), Math.max(start.x, end.x)];
     /** The lane on one side of what the line crossed, and of whatever stands in that lane's way. */
@@ -510,9 +481,7 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
     const d =
       `M ${start.x} ${a.y} C ${out} ${a.y}, ${out} ${y}, ${out + way * gap} ${y} ` +
       `L ${back - way * gap} ${y} C ${back} ${y}, ${back} ${b.y}, ${end.x} ${b.y}`;
-    // A line that goes round carries its dots on the level run.
-    const [runFrom, runTo] = [out + way * gap, back - way * gap];
-    return [{ link, from, to, d, dots: dotsOn(link, to, (t) => ({ x: runFrom + (runTo - runFrom) * t, y })) }];
+    return [{ link, from, to, d }];
   });
 
   const columns = Math.max(map.columns.length, 1);

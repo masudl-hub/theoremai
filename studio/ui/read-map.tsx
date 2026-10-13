@@ -7,7 +7,7 @@ import type { IconType } from '@astryxdesign/core/Icon';
 import { Text } from '@astryxdesign/core/Text';
 import { IconFileCode, IconFolder, IconRobot } from '@tabler/icons-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { MAP_DOTS, mapCurve, mapDots } from '../map-line.ts';
+import { mapCurve } from '../map-line.ts';
 import type { ReadStep } from '../read-steps.ts';
 import { type ReadNode, type ReadNodeKind, readMap } from './lib/read-map.ts';
 import { profileTypeIcon, toolTypeIcon } from './lib/type-icons.ts';
@@ -29,6 +29,7 @@ const ROW = 30;
 const LAST_COL = 190;
 const FOOT = 44;
 const GAP = 8;
+const DOTS = 8;
 const LABEL = 30;
 
 const NODE_ICON: Record<ReadNodeKind, IconType | undefined> = {
@@ -132,7 +133,7 @@ interface Placed {
 /** The line from a node's right edge to the next node's left, and the dots along it. */
 function lineTo(from: Placed, fromWidth: number, to: Placed, dots: number) {
 	const curve = mapCurve({ x: from.x + fromWidth + GAP, y: from.y }, { x: to.x - GAP, y: to.y });
-	return { d: curve.d, dots: mapDots(curve.at, dots) };
+	return { d: curve.d, dots: Array.from({ length: dots }, (_, index) => curve.at((index + 1) / (dots + 1))) };
 }
 
 export interface ReadMapProps {
@@ -174,14 +175,14 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
 					const width = from && widths[from.node.id];
 					if (!from || width === undefined) return null;
 					const read = to.node.own.filter((step) => step < drawn.steps).length;
-					const dots = Math.ceil((Math.min(MAP_DOTS, to.node.own.length) * read) / Math.max(1, to.node.own.length));
-					const line = lineTo(from, width, to, Math.min(MAP_DOTS, to.node.own.length));
+					const dots = Math.ceil((Math.min(DOTS, to.node.own.length) * read) / Math.max(1, to.node.own.length));
+					const line = lineTo(from, width, to, Math.min(DOTS, to.node.own.length));
 					return (
 						<g key={to.node.id}>
 							<path className="map-line read-map-line" d={line.d} pathLength={1} />
 							{line.dots.slice(0, dots).map(({ x, y }, index) => (
 								// biome-ignore lint/suspicious/noArrayIndexKey: a dot is its place along the line.
-								<circle key={index} className="map-dot read-map-dot" cx={x} cy={y} r={2.5} />
+								<circle key={index} className="read-map-dot" cx={x} cy={y} r={2.5} />
 							))}
 						</g>
 					);

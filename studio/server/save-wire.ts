@@ -84,14 +84,6 @@ export interface ProjectOrigins {
   tools: Record<string, SettingOrigin[]>;
   /** Where each value others read too is written, by profile id and tool name. Only those that hold one are listed. */
   sites?: { profiles: Record<string, SettingSite[]>; tools: Record<string, SettingSite[]> };
-  /** The files that write each profile and tool: the one that makes it, then each a name in it led to. */
-  files?: ProjectFiles;
-}
-
-/** Project files, by profile id and tool name. */
-export interface ProjectFiles {
-  profiles: Record<string, string[]>;
-  tools: Record<string, string[]>;
 }
 
 /** What the page asks to see in the builder's editor: a project file, from the project's folder. */

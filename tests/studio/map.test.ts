@@ -381,49 +381,6 @@ Deno.test('without detail every node is one token, and a line leaves the side of
   );
 });
 
-Deno.test('a line into an agent or a tool the files write carries a dot for each file, eight at most', () => {
-  const workspace = opened();
-  const [desk] = workspace.agents;
-  const find = workspace.toolSpecs.find((spec) => spec.key === 'find');
-  if (!desk || !find) throw new Error('desk and find');
-  const held = { ...workspace, starts: { agents: { [desk.key]: desk }, tools: { find } } };
-  const many = Array.from({ length: 11 }, (_, index) => `tools/${String(index)}.ts`);
-  const map = workspaceMap(held, [], {
-    profiles: { desk: ['setup.ts', 'shared.ts'], shop: ['shop.ts'] },
-    tools: { find: many },
-  });
-  const nodes = map.columns.flat().flatMap((group) => group.nodes);
-  // `shop` and `price` were added in the studio: no file writes them.
-  assertEquals(
-    nodes.flatMap((node) => (node.files ? [[node.label, node.files.length]] : [])),
-    [
-      ['desk', 2],
-      ['find', 11],
-    ],
-  );
-
-  const lines = mapLayout(map, SIZES).lines;
-  const dotted = lines.filter((line) => line.dots.length > 0);
-  assertEquals(
-    dotted.map(({ link, dots }) => [link.kind, dots.map((dot) => dot.file)]),
-    [
-      ['runs', ['setup.ts', 'shared.ts']],
-      ['allows', many.slice(0, 8)],
-    ],
-  );
-  // A dot is on its line, between the two ends and clear of both.
-  const [runs] = dotted;
-  const ends =
-    runs?.d
-      .match(/^M (\S+) \S+ .* (\S+) \S+$/)
-      ?.slice(1)
-      .map(Number) ?? [];
-  assertEquals(
-    runs?.dots.map((dot) => dot.x > Math.min(...ends) && dot.x < Math.max(...ends)),
-    [true, true],
-  );
-});
-
 Deno.test("a node's family is what feeds it and what it feeds, however far, and nothing beside it", () => {
   const workspace = opened();
   const [desk, shop] = workspace.agents.map((agent) => agentNodeId(agent.key));

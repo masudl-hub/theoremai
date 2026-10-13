@@ -19,6 +19,7 @@
 }
 
 .read-map-dot {
+	fill: var(--color-text-secondary);
 	animation: read-map-in var(--duration-fast, 120ms) var(--ease-standard, ease-out) both;
 }
 

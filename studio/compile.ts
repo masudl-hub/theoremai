@@ -114,6 +114,7 @@ import {
 import {
   LOCAL_PROVIDER_ID,
   type ModelRoute,
+  modelCapabilities,
   modelRoute,
   servesProfileType,
   type StudioProvider,
@@ -313,6 +314,11 @@ function compileBinding(
   }
   if (chained && binding.persistViaInteractionId && binding.store === false) {
     report(nodeId, 'Chaining needs Google storage on.', 'persistViaInteractionId');
+  }
+  // A built-in tool is its provider's: one left on a model whose provider does not offer it would fail the run.
+  const offered = modelCapabilities(route.adapter, apiId)?.builtins;
+  for (const tool of offered ? binding.builtInTools.filter((id) => !offered.includes(id)) : []) {
+    report(nodeId, `${binding.provider} doesn't offer the built-in tool ${tool}.`, 'builtInTools');
   }
   const cache = compileCache(binding, route, nodeId, report);
   const compaction = compileCompaction(binding, type, nodeId, report, agentIdOf);

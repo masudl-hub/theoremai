@@ -668,6 +668,27 @@ Deno.test('studioSource registers each provider by its adapter, and says which o
   assertStringIncludes(own, "// Register the provider 'theirs' here, before the agents");
   assertEquals(own.includes('registerProvider'), false);
 });
+Deno.test('a built-in tool its provider does not offer is an issue on the model', () => {
+  const draft = setProfileType(createBlankDraft(), 'text');
+  const moved = compileStudio(
+    {
+      ...draft,
+      identity: { ...draft.identity, agentId: 'desk', handle: 'Desk' },
+      modelBindings: draft.modelBindings.map((binding) => ({
+        ...binding,
+        provider: 'openrouter',
+        apiId: OPENROUTER_STUDIO_API_ID,
+        builtInTools: ['googleSearch'],
+      })),
+    },
+    'byok',
+  );
+  assert(!moved.ok);
+  assertEquals(
+    moved.issues.map((issue) => `${issue.field}: ${issue.message}`),
+    ["builtInTools: openrouter doesn't offer the built-in tool googleSearch."],
+  );
+});
 Deno.test('studioSource writes structured output and function stubs', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
   const source = studioSource(

@@ -120,7 +120,26 @@
 	line-height: var(--text-supporting-leading);
 	min-width: 0;
 	padding-block: var(--spacing-1);
-	padding-inline: var(--spacing-2) var(--spacing-1);
+	padding-inline: var(--spacing-2);
+}
+
+/* The hover card's trigger wraps the line inline: it takes the row's width instead. */
+.inspector-origin-trigger {
+	display: flex;
+	min-width: 0;
+}
+
+/* The line is the way to its file: a button that looks like the note it is. */
+button.inspector-origin {
+	border: 0;
+	cursor: pointer;
+	font-family: inherit;
+	text-align: start;
+	width: 100%;
+}
+
+button.inspector-origin:hover {
+	color: var(--color-text-primary);
 }
 
 .inspector-origin-text {

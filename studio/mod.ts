@@ -248,8 +248,8 @@ export {
   nodeOrigins,
   openOutcome,
   originLabel,
+  originShortLabel,
   originPlace,
-  originShortPlace,
   originWay,
   rowOrigin,
 } from './origins.ts';

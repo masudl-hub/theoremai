@@ -262,6 +262,8 @@ export interface ShapeEntry {
   property?: ts.ObjectLiteralElementLike;
   /** The file that writes it. */
   source: ts.SourceFile;
+  /** For a model's provider: the name its `model()` call is made on, which is what a change of provider rewrites. */
+  receiver?: Located;
 }
 
 /** An object as the files write it out: its own keys, and those of each object it spreads in. */
@@ -352,8 +354,9 @@ export function shapeOf(project: ProjectSource, at: Located, depth = 0): ObjectS
     const direct = unwrapped(settings);
     if (ts.isObjectLiteralExpression(direct)) shape.own = { node: direct, source: at.source };
   }
-  const provider = providerId(project, inside((node.expression as ts.PropertyAccessExpression).expression), depth);
-  put({ key: 'provider', source: at.source, ...(provider ? { value: provider } : {}) });
+  const receiver = inside((node.expression as ts.PropertyAccessExpression).expression);
+  const provider = providerId(project, receiver, depth);
+  put({ key: 'provider', source: at.source, receiver, ...(provider ? { value: provider } : {}) });
   if (apiId) put({ key: 'apiId', source: at.source, value: inside(apiId) });
   return shape;
 }
@@ -595,6 +598,68 @@ function isWrittenIn(project: ProjectSource, node: ts.Node, value: ts.Expression
     if (!data) return false;
   }
   return true;
+}
+
+/** A provider the project defines under a name: the top-level `const` set to its `defineProvider` call. */
+export interface NamedProvider {
+  name: string;
+  source: ts.SourceFile;
+  /** Whether another file can import the name. */
+  exported: boolean;
+}
+
+/** The constant the provider `id` is defined under, the first of the project's files that defines it. */
+export function providerNamed(project: ProjectSource, id: string): NamedProvider | undefined {
+  for (const source of project.files.values()) {
+    for (const statement of source.statements) {
+      if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
+      for (const { name, initializer } of statement.declarationList.declarations) {
+        if (!initializer || !ts.isIdentifier(name)) continue;
+        const written = providerId(project, { node: name, source }, 0);
+        const held = written && followed(project, written).node;
+        if (!held || !ts.isStringLiteralLike(held) || held.text !== id) continue;
+        const exported = statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+        return { name: name.text, source, exported };
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Whether the top level of `source` already gives `name` a meaning: a declaration, or an import. */
+export function declares(source: ts.SourceFile, name: string): boolean {
+  return source.statements.some((statement) => {
+    if (ts.isVariableStatement(statement)) {
+      return statement.declarationList.declarations.some((held) => ts.isIdentifier(held.name) && held.name.text === name);
+    }
+    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) return statement.name?.text === name;
+    if (!ts.isImportDeclaration(statement)) return false;
+    const clause = statement.importClause;
+    const bindings = clause?.namedBindings;
+    if (clause?.name?.text === name) return true;
+    if (bindings && ts.isNamespaceImport(bindings)) return bindings.name.text === name;
+    return bindings?.elements.some((element) => element.name.text === name) ?? false;
+  });
+}
+
+/** The extension the project's relative imports end in: `.ts`, `.js`, or none. `fallback` is read when it has none. */
+export function importExtension(project: ProjectSource, fallback: string): string {
+  const relatives = [...project.files.values()].flatMap((source) =>
+    source.statements.flatMap((statement) =>
+      ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier) &&
+        statement.moduleSpecifier.text.startsWith('.')
+        ? [statement.moduleSpecifier.text]
+        : []
+    )
+  );
+  const model = relatives[0] ?? fallback;
+  return /\.[cm]?[jt]sx?$/.exec(model)?.[0].replace('tsx', 'ts') ?? '';
+}
+
+/** How `from` imports `to`: a relative path, ending as the project's imports do. */
+export function specifierTo(from: string, to: string, extension: string): string {
+  const path = relative(dirname(from), to).replace(/\.ts$/, extension);
+  return path.startsWith('.') ? path : `./${path}`;
 }
 
 /**

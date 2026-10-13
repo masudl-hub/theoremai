@@ -69,11 +69,8 @@ const shop = (free: unknown) => ({ type: 'text', id: 'shop', models: { free } })
 Deno.test('a model a helper function builds is read where the function writes it', () => {
   const files = { 'setup.ts': HELPED, 'models.ts': MODELS };
   const { profiles, sites } = sourceOrigins(project(files));
-  // Only the provider is not the studio's to change: other code reads the constant that holds it.
-  assertEquals(
-    profiles.desk?.map((origin) => `${origin.path.join('.')} ${origin.kind}`),
-    ['models.fast.provider constant', 'models.free.provider constant'],
-  );
+  // Nothing is code's alone: a model's provider is the name its line is built on, and that is written.
+  assertEquals(profiles.desk ?? [], []);
   const at = (name: string) =>
     sites?.profiles[name]?.map(
       (site) => `${site.path.join('.')} ${String(site.shared)} ${site.name ?? ''}`,
@@ -169,7 +166,86 @@ Deno.test('a model call, a computed key and a spread constant are each written w
       after: desk(binding('low'), { ...fast, provider: 'openAi' }),
     },
   ]);
-  assertEquals(refused.changes, ['desk models.fast.provider: constant']);
+  // No provider of the project is defined as that.
+  assertEquals(refused.changes, ['desk models.fast.provider: code']);
+  assertEquals(refused.plan.edits, []);
+});
+
+const ROUTED = MODELS.replace(
+  'export const BASE',
+  "export const router = defineProvider({ id: 'openrouter' });\nconst hidden = defineProvider({ id: 'hidden' });\nexport const BASE",
+);
+const INLINE = `import { defineProfile, defineProvider, registerProvider } from '@theoremjs/agents';
+import { google, lite } from './models.ts';
+registerProvider(defineProvider({ id: 'unnamed' }));
+export const desk = defineProfile({ type: 'text', id: 'desk', models: { free: lite('low'), fast: google.model('flash') } });
+export const shop = defineProfile({ type: 'text', id: 'shop', models: { free: lite('high') } });
+`;
+const plainFast = { provider: 'google', apiId: 'flash' };
+
+Deno.test('a changed provider rewrites the name the model is built on, and never the provider it names', () => {
+  const files = { 'setup.ts': HELPED, 'models.ts': ROUTED };
+  const { changes, text } = saved(files, [
+    {
+      kind: 'profile',
+      of: 'desk',
+      before: desk(binding('low')),
+      after: desk(binding('low'), { ...fast, provider: 'openrouter' }),
+    },
+  ]);
+  assertEquals(changes, ['desk models.fast.provider: written']);
+  assertEquals(text['models.ts'], ROUTED.replace("google.model('flash',", "router.model('flash',"));
+});
+
+Deno.test('a provider another file defines is imported where the model is written', () => {
+  const files = { 'setup.ts': INLINE, 'models.ts': ROUTED };
+  const to = (provider: string) =>
+    saved(files, [
+      {
+        kind: 'profile',
+        of: 'desk',
+        before: desk(binding('low'), plainFast),
+        after: desk(binding('low'), { ...plainFast, provider }),
+      },
+    ]);
+  const swapped = to('openrouter');
+  assertEquals(swapped.changes, ['desk models.fast.provider: written']);
+  assertEquals(
+    swapped.text['setup.ts'],
+    INLINE.replace('{ google, lite }', '{ google, lite, router }').replace(
+      "google.model('flash')",
+      "router.model('flash')",
+    ),
+  );
+  assertEquals(swapped.text['models.ts'], ROUTED);
+  // One the project gives no name, and one its file keeps to itself, are code's to change.
+  for (const provider of ['unnamed', 'hidden']) {
+    const refused = to(provider);
+    assertEquals(refused.changes, ['desk models.fast.provider: code']);
+    assertEquals(refused.plan.edits, []);
+  }
+});
+
+Deno.test('the provider of a model a function builds changes only when each agent it builds for changes it', () => {
+  const files = { 'setup.ts': HELPED, 'models.ts': ROUTED };
+  const routed = (effort: string) => ({ ...binding(effort), provider: 'openrouter' });
+  const alone = saved(files, [
+    { kind: 'profile', of: 'desk', before: desk(binding('low')), after: desk(routed('low')) },
+  ]);
+  assertEquals(alone.changes, ['desk models.free: constant']);
+  assertEquals(alone.plan.edits, []);
+  const both = saved(files, [
+    { kind: 'profile', of: 'desk', before: desk(binding('low')), after: desk(routed('low')) },
+    { kind: 'profile', of: 'shop', before: shop(binding('high')), after: shop(routed('high')) },
+  ]);
+  assertEquals(both.changes.sort(), [
+    'desk models.free.provider: written',
+    'shop models.free.provider: written',
+  ]);
+  assertEquals(
+    both.text['models.ts'],
+    ROUTED.replace("google.model('flash-lite',", "router.model('flash-lite',"),
+  );
 });
 
 const FACTORY = `import { defineProfile } from '@theoremjs/agents';

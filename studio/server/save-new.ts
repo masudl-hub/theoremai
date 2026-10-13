@@ -16,11 +16,13 @@ import { AGENTS_PACKAGE, agentIdentifier, agentModule, toolModule } from '../sou
 import { keySource } from '../tool-schema.ts';
 import {
   calleeName,
+  importExtension,
   importOf,
   isInside,
   namedValue,
   type ProjectSource,
   questionsExport,
+  specifierTo,
   unwrapped,
 } from './project-source.ts';
 import { indentAt, indentUnit, type SavePlan, type SourceEdit } from './save-plan.ts';
@@ -91,26 +93,6 @@ function importedFrom(project: ProjectSource, names: readonly string[]): { speci
     }
   }
   return undefined;
-}
-
-/** The extension the project's relative imports end in: `.ts`, `.js`, or none. */
-function importExtension(project: ProjectSource, agents: string): string {
-  const relatives = [...project.files.values()].flatMap((source) =>
-    source.statements.flatMap((statement) =>
-      ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier) &&
-        statement.moduleSpecifier.text.startsWith('.')
-        ? [statement.moduleSpecifier.text]
-        : []
-    )
-  );
-  const model = relatives[0] ?? agents;
-  return /\.[cm]?[jt]sx?$/.exec(model)?.[0].replace('tsx', 'ts') ?? '';
-}
-
-/** How `from` imports `to`: a relative path, ending as the project's imports do. */
-function specifierTo(from: string, to: string, extension: string): string {
-  const path = relative(dirname(from), to).replace(/\.ts$/, extension);
-  return path.startsWith('.') ? path : `./${path}`;
 }
 
 /** A specifier written in `file`, as `to` must write it: a relative one is turned to start from there. */

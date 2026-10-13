@@ -17,18 +17,24 @@ import { type SourceStyle, valueSource } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
 import { canonical } from '../canonical.ts';
 import {
+  declares,
   followed,
   holderOf,
+  importExtension,
   isHeldId,
   isInCall,
   isInTarget,
   type Located,
+  type NamedProvider,
   type ObjectShape,
   type ProjectSource,
   propertyName,
+  providerNamed,
   shapeOf,
   type SourceTarget,
   type ShapeEntry,
+  sourceOf,
+  specifierTo,
   unwrapped,
   usersOf,
 } from './project-source.ts';
@@ -597,7 +603,8 @@ class Planner {
     const { open, own } = shape;
     const { property, value } = entry;
     const place = this.placeIn(shape, at, key);
-    if (!value || (open && !open.after.has(key))) this.note('code', here, place);
+    if (entry.receiver && !(open && !open.after.has(key))) this.reprovide(entry.receiver, value, change);
+    else if (!value || (open && !open.after.has(key))) this.note('code', here, place);
     else if (property && ts.isShorthandPropertyAssignment(property)) this.named(value, key, before, after, here);
     else if (after === undefined) {
       // A key another object spreads in is not this one's to take out.
@@ -609,6 +616,51 @@ class Planner {
     } else if (this.regionOf(value) === this.regionOf(at)) this.walk(value, before, after, here);
     else this.enter(value, key, before, after, here);
     return undefined;
+  }
+
+  /**
+   * A model's provider, changed by rewriting the name its `model()` call is made on. The provider's
+   * own id is never written. A provider the project gives no name, or one this file cannot reach, is
+   * code's to change.
+   */
+  private reprovide(receiver: Located, id: Located | undefined, { before, after, here }: KeyChange) {
+    const node = unwrapped(receiver.node);
+    const place = { source: receiver.source, node };
+    const to = typeof after === 'string' ? providerNamed(this.project, after) : undefined;
+    if (!id || !ts.isIdentifier(node) || !to) return this.note('code', here, place);
+    if (!same(plain(unwrapped(followed(this.project, id).node)), before)) return this.note('changed', here, place);
+    const name = this.brought(receiver.source, to);
+    if (!name) return this.note('code', here, place);
+    this.edit(receiver.source, node.getStart(receiver.source), node.end, name);
+    this.note('written', here, place);
+  }
+
+  /** The name `source` reads the provider `to` by, importing it when the file does not yet. Undefined when it cannot. */
+  private brought(source: ts.SourceFile, to: NamedProvider): string | undefined {
+    if (to.source === source) return to.name;
+    const imports = source.statements.filter((statement): statement is ts.ImportDeclaration =>
+      ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier) &&
+      !statement.importClause?.isTypeOnly &&
+      sourceOf(this.project, source, (statement.moduleSpecifier as ts.StringLiteralLike).text) === to.source
+    );
+    const named = imports.flatMap((statement) => {
+      const bindings = statement.importClause?.namedBindings;
+      return bindings && ts.isNamedImports(bindings) ? [bindings] : [];
+    });
+    const held = named.flatMap((bindings) => [...bindings.elements])
+      .find((element) => !element.isTypeOnly && (element.propertyName ?? element.name).text === to.name);
+    if (held) return held.name.text;
+    if (!to.exported || declares(source, to.name)) return undefined;
+    const last = named[0]?.elements.at(-1);
+    if (last) this.edit(source, last.end, last.end, `, ${to.name}`);
+    else {
+      const specifier = specifierTo(source.fileName, to.source.fileName, importExtension(this.project, '.ts'));
+      const line = `import { ${to.name} } from ${quoteLike(undefined, source)(specifier)};`;
+      const after = source.statements.findLast((statement) => ts.isImportDeclaration(statement));
+      if (after) this.edit(source, after.end, after.end, `\n${line}`);
+      else this.edit(source, 0, 0, `${line}\n`);
+    }
+    return to.name;
   }
 
   /** Takes properties out of an object and adds others to it. */
@@ -937,7 +989,10 @@ export function planSave(project: ProjectSource, subjects: readonly SaveSubject[
     const planner = new Planner(project, subject, target, peers);
     planner.plan();
     plan.changes.push(...planner.changes);
-    plan.edits.push(...planner.edits);
+    // Two subjects may bring the same import into one file: it is written once.
+    for (const edit of planner.edits) {
+      if (!plan.edits.some((other) => canonical(other) === canonical(edit))) plan.edits.push(edit);
+    }
     shared.push(...planner.shared);
   }
   settle(shared, plan);

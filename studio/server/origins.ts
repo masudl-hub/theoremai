@@ -160,7 +160,11 @@ class Reader {
         else this.note('code', here, place);
       } // A spread, or a key the file computes: what the object holds past it is not written here.
       else if (open && !open.after.has(entry.key)) this.note('code', here, open);
-      else if (!entry.value) this.note('code', here, place);
+      // A model's provider is the name its line is built on: a change rewrites the name, never the provider's id.
+      else if (entry.receiver) {
+        const named = entry.value && ts.isIdentifier(unwrapped(entry.receiver.node));
+        if (!named) this.note('code', here, { node: entry.receiver.node, source: entry.receiver.source });
+      } else if (!entry.value) this.note('code', here, place);
       else if (entry.property && ts.isShorthandPropertyAssignment(entry.property)) this.named(entry.value, here);
       else if (this.regionOf(entry.value) === region) this.walk(entry.value, here);
       else this.enter(entry.value, here, place);
@@ -264,18 +268,16 @@ export function sourceOrigins(project: ProjectSource, decisions: readonly string
   const read = (kind: 'profile' | 'tool', targets: Map<string, SourceTarget[]>) => {
     const origins: Record<string, SettingOrigin[]> = {};
     const written: Record<string, Written[]> = {};
-    const files: Record<string, string[]> = {};
     for (const [name, held] of targets) {
       const found = originsOf(project, kind, held);
       if (found.origins.length) origins[name] = found.origins;
       written[name] = found.written;
-      files[name] = [...new Set([...held.map((target) => target.file), ...found.written.map(({ at }) => at.source.fileName)])];
       for (const { at } of found.written) {
         const place = places.get(at.node) ?? { site: places.size + 1, held: 0 };
         places.set(at.node, { ...place, held: place.held + 1 });
       }
     }
-    return { origins, written, files };
+    return { origins, written };
   };
   const [profiles, tools] = [read('profile', project.profiles), read('tool', project.tools)];
   for (const id of decisions) profiles.origins[id] = [...(profiles.origins[id] ?? []), questionsOrigin(project, id)];
@@ -302,10 +304,5 @@ export function sourceOrigins(project: ProjectSource, decisions: readonly string
   };
   const held = { profiles: sites(profiles.written), tools: sites(tools.written) };
   const some = Object.keys(held.profiles).length + Object.keys(held.tools).length > 0;
-  return {
-    profiles: profiles.origins,
-    tools: tools.origins,
-    ...(some ? { sites: held } : {}),
-    files: { profiles: profiles.files, tools: tools.files },
-  };
+  return { profiles: profiles.origins, tools: tools.origins, ...(some ? { sites: held } : {}) };
 }

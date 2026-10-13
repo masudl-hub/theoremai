@@ -224,6 +224,7 @@ export {
   sharedNodeId,
 } from './shared-settings.ts';
 export {
+  mapFamily,
   type MapGroup,
   type MapLayout,
   mapLayout,
@@ -239,6 +240,7 @@ export {
   type MapPlace,
   type MapRow,
   type MapSizes,
+  type MapView,
   type WorkspaceMap,
   workspaceMap,
 } from './map.ts';

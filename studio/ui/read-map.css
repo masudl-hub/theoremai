@@ -11,11 +11,8 @@
 	pointer-events: none;
 }
 
-/* The same line as the map canvas draws, drawn in from the node it leaves. */
+/* The line draws in from the node it leaves. */
 .read-map-line {
-	fill: none;
-	stroke: var(--color-border-emphasized);
-	stroke-width: 1.5;
 	stroke-dasharray: 1;
 	stroke-dashoffset: 1;
 	animation: read-map-line-in var(--duration-medium, 240ms) var(--ease-standard, ease-out) forwards;
@@ -27,9 +24,6 @@
 }
 
 .read-map-node {
-	position: absolute;
-	translate: 0 -50%;
-	white-space: nowrap;
 	animation: read-map-in var(--duration-medium, 240ms) var(--ease-standard, ease-out) both;
 }
 

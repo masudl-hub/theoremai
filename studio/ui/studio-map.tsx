@@ -1,20 +1,33 @@
 /**
- * The map: each profile as a card of its sections, with the providers, models, shared settings and
- * tools that feed it beside it and an arrow from each to the section it feeds. It changes nothing; a
- * node or a section opens what it stands for. A node can be dragged to where it reads best, and the
- * field dragged to pan it; `Tidy` puts every node back.
+ * The map: the providers, models, shared settings, profiles and tools as tokens in columns, with a
+ * line from each to what it feeds. It changes nothing; a node opens what it stands for. `Expand`
+ * shows each profile as a card of its sections and each tool with its description. A node can be
+ * dragged to where it reads best, and the field dragged to pan it; `Tidy` puts every node back. A
+ * right click on a node shows its family alone: what feeds it and what it feeds.
  */
 
 import { Button } from '@astryxdesign/core/Button';
+import { ContextMenu, type ContextMenuOption } from '@astryxdesign/core/ContextMenu';
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
 import { Text } from '@astryxdesign/core/Text';
-import { IconCloud, IconCode, IconLayoutGrid, IconX } from '@tabler/icons-react';
+import {
+	IconArrowsMaximize,
+	IconArrowsMinimize,
+	IconCloud,
+	IconCode,
+	IconExternalLink,
+	IconEye,
+	IconFocus2,
+	IconLayoutGrid,
+	IconX,
+} from '@tabler/icons-react';
 import {
 	type CSSProperties,
 	type KeyboardEvent,
 	type PointerEvent as ReactPointerEvent,
+	useEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -24,6 +37,7 @@ import {
 	type MapNode,
 	type MapPlace,
 	type MapSizes,
+	mapFamily,
 	mapLayout,
 	mapLinkWords,
 	mapNoteLines,
@@ -32,13 +46,14 @@ import {
 	workspaceMap,
 } from '../mod.ts';
 import { FACET_ICON } from './lib/facet-icons.ts';
-import { type MapPlaces, readMapPlaces, writeMapPlaces } from './lib/studio-map-places.ts';
+import { type KeptMap, type MapPlaces, readKeptMap, writeKeptMap } from './lib/studio-map-kept.ts';
 import { useProject } from './lib/studio-project.ts';
 import { PROFILE_TYPE_ICON, profileTypeIcon, toolTypeIcon } from './lib/type-icons.ts';
+import { MapToken, useTokenWidths } from './map-token.tsx';
 import './studio-map.css';
 
-/** A node holds its icon, its name and two lines of its note; a card's head, one; a row, a section. */
-const MAP_SIZES: MapSizes = {
+/** With detail a node holds its icon, its name and two lines of its note; a card's head, one; a row, a section. */
+const DETAIL_SIZES: MapSizes = {
 	node: { width: 240, height: 84 },
 	card: { head: 64, row: 32, foot: 8 },
 	columnGap: 112,
@@ -46,7 +61,24 @@ const MAP_SIZES: MapSizes = {
 	heading: 28,
 	groupGap: 24,
 	padding: 24,
+	lineGap: 8,
 };
+
+/** A token's slot: as wide as the longest name it shows in full. */
+const TOKEN_SIZES: MapSizes = {
+	...DETAIL_SIZES,
+	node: { width: 240, height: 24 },
+	columnGap: 96,
+	rowGap: 6,
+	heading: 24,
+	groupGap: 16,
+};
+const TOKEN_LABEL = 28;
+
+/** A long name keeps its start. */
+function clipped(label: string): string {
+	return label.length > TOKEN_LABEL ? `${label.slice(0, TOKEN_LABEL - 1)}…` : label;
+}
 
 function nodeIcon({ kind, type }: MapNode): IconType {
 	const agent = kind === 'agent' ? profileTypeIcon(type) : undefined;
@@ -134,14 +166,49 @@ export function StudioMap({
 	onClose: () => void;
 }) {
 	const project = useProject()?.name;
-	const map = useMemo(() => workspaceMap(workspace, shared), [workspace, shared]);
-	// Where dragged nodes were put. They are kept when a drag ends, not at every step of it.
-	const [moved, setMoved] = useState<MapPlaces>(() => readMapPlaces(project));
-	const keep = (places: MapPlaces) => {
-		setMoved(places);
-		writeMapPlaces(project, places);
+	const whole = useMemo(() => workspaceMap(workspace, shared), [workspace, shared]);
+	const [kept, setKept] = useState<KeptMap>(() => readKeptMap(project));
+	const keep = (next: KeptMap) => {
+		setKept(next);
+		writeKeptMap(project, next);
 	};
-	const layout = useMemo(() => mapLayout(map, MAP_SIZES, moved), [map, moved]);
+	const { expanded } = kept;
+	const family = whole.columns.flat().some((group) => group.nodes.some((node) => node.id === kept.family))
+		? kept.family
+		: undefined;
+	const map = useMemo(() => (family === undefined ? whole : mapFamily(whole, family)), [whole, family]);
+	// A family is laid out afresh from the top. Where its nodes are dragged lasts while it shows.
+	const [lens, setLens] = useState<MapPlaces>({});
+	const places = expanded ? 'detail' : 'tokens';
+	const moved = family === undefined ? kept[places] : lens;
+	/** Puts dragged nodes at `next`. They are kept when a drag ends, not at every step of it. */
+	const put = (next: MapPlaces, ended: boolean) => {
+		if (family !== undefined) setLens(next);
+		else if (ended) keep({ ...kept, [places]: next });
+		else setKept({ ...kept, [places]: next });
+	};
+	const showFamily = (id: string | undefined) => {
+		setLens({});
+		const { tokens, detail } = kept;
+		keep({ tokens, detail, expanded, ...(id === undefined ? {} : { family: id }) });
+	};
+
+	const field = useRef<HTMLDivElement>(null);
+	const sizes = expanded ? DETAIL_SIZES : TOKEN_SIZES;
+	const widths = useTokenWidths(field, expanded ? undefined : map);
+	const layout = useMemo(
+		() => mapLayout(map, sizes, expanded ? { moved, detail: true } : { moved, widths }),
+		[map, sizes, expanded, moved, widths],
+	);
+	// A family, and the map with or without detail, each start from the top left; the whole map with what is open in view.
+	useEffect(() => {
+		const root = field.current;
+		if (!root) return;
+		scrollerOf(root)?.scrollTo({ left: 0, top: 0, behavior: 'instant' });
+		if (family === undefined) {
+			root.querySelector('[aria-current], [data-open]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+		}
+	}, [family, expanded]);
 	/** A drag just ended on this node: the click that follows it opens nothing. */
 	const dropped = useRef(false);
 	const [dragging, setDragging] = useState<string>();
@@ -153,25 +220,25 @@ export function StudioMap({
 			dropped.current = false;
 			const from = layout.nodes[id];
 			if (!from || !drags(event)) return;
-			let places: MapPlaces | undefined;
+			let next: MapPlaces | undefined;
 			follow(
 				event,
 				(x, y) => {
 					// A press that barely moves is a click.
-					if (!places && Math.hypot(x, y) < DRAG_FROM) return;
-					if (!places) setDragging(id);
-					places = { ...moved, [id]: { x: Math.max(from.x + x, 0), y: Math.max(from.y + y, 0) } };
-					setMoved(places);
+					if (!next && Math.hypot(x, y) < DRAG_FROM) return;
+					if (!next) setDragging(id);
+					next = { ...moved, [id]: { x: Math.max(from.x + x, 0), y: Math.max(from.y + y, 0) } };
+					put(next, false);
 				},
 				(lifted) => {
-					if (!places) return;
+					if (!next) return;
 					dropped.current = lifted;
 					// The click, if one follows, comes at once; a drop off the node leaves none to wait for.
 					globalThis.setTimeout(() => {
 						dropped.current = false;
 					}, 0);
 					setDragging(undefined);
-					writeMapPlaces(project, places);
+					put(next, true);
 				},
 			);
 		},
@@ -186,19 +253,22 @@ export function StudioMap({
 			const place = layout.nodes[id];
 			if (!step || !place) return;
 			event.preventDefault();
-			keep({
-				...moved,
-				[id]: {
-					x: Math.max(place.x + step.x * NUDGE, 0),
-					y: Math.max(place.y + step.y * NUDGE, 0),
+			put(
+				{
+					...moved,
+					[id]: {
+						x: Math.max(place.x + step.x * NUDGE, 0),
+						y: Math.max(place.y + step.y * NUDGE, 0),
+					},
 				},
-			});
+				true,
+			);
 		},
 	});
 
 	/** A drag that starts on the field, off every node, pans it. */
 	const pan = (event: ReactPointerEvent<HTMLElement>) => {
-		if (!drags(event) || (event.target as Element).closest('.studio-map-node, .studio-map-card')) {
+		if (!drags(event) || (event.target as Element).closest('[data-map-node]')) {
 			return;
 		}
 		const scroller = scrollerOf(event.currentTarget);
@@ -248,9 +318,69 @@ export function StudioMap({
 	});
 
 	const isMoved = nodes.some((node) => Object.hasOwn(moved, node.id));
+	const tidy = () => {
+		put({}, true);
+	};
+	const expand = () => {
+		keep({ ...kept, expanded: !expanded });
+	};
+	/** The node the menu was opened on, if on one. */
+	const [menuOn, setMenuOn] = useState<string>();
+	const onNode = nodes.find((node) => node.id === menuOn);
+	const menu: ContextMenuOption[] = [
+		...(onNode && onNode.id !== family
+			? [
+					{
+						label: 'Show only its family',
+						icon: IconFocus2,
+						onClick: () => {
+							showFamily(onNode.id);
+						},
+					},
+				]
+			: []),
+		...(onNode?.opens === undefined
+			? []
+			: [
+					{
+						label: 'Open',
+						icon: IconExternalLink,
+						onClick: () => {
+							if (onNode.opens !== undefined) onOpen(onNode.opens);
+						},
+					},
+				]),
+		...(onNode ? [{ type: 'divider' as const }] : []),
+		...(family === undefined
+			? []
+			: [
+					{
+						label: 'Show everything',
+						icon: IconEye,
+						onClick: () => {
+							showFamily(undefined);
+						},
+					},
+				]),
+		{
+			label: expanded ? 'Collapse' : 'Expand',
+			icon: expanded ? IconArrowsMinimize : IconArrowsMaximize,
+			onClick: expand,
+		},
+		{ label: 'Tidy', icon: IconLayoutGrid, isDisabled: !isMoved, onClick: tidy },
+	];
 
 	return (
-		<div className="studio-map-frame">
+		<div
+			className="studio-map-frame"
+			onKeyDown={(event) => {
+				// Escape closes an open menu first; that one is not for the family.
+				if (event.key !== 'Escape' || family === undefined) return;
+				if ((event.target as Element).closest('[role="menu"]')) return;
+				event.stopPropagation();
+				showFamily(undefined);
+			}}
+		>
 			<ScrollableArea
 				className="studio-map-scroll"
 				axis="both"
@@ -259,164 +389,213 @@ export function StudioMap({
 				height="100%"
 				overscroll="allow"
 			>
-				<div
-					className="studio-map"
-					data-lit={lit === undefined || dragging !== undefined ? undefined : ''}
-					data-panning={panning ? '' : undefined}
-					onPointerDown={pan}
-					style={
-						{
-							'--map-width': `${String(layout.width)}px`,
-							'--map-height': `${String(layout.height)}px`,
-						} as CSSProperties
-					}
-				>
-					<svg
-						className="studio-map-lines"
-						width={layout.width}
-						height={layout.height}
-						aria-hidden="true"
+				<ContextMenu items={menu} label="Map" data-map-field="">
+					<div
+						ref={field}
+						className="studio-map"
+						data-lit={lit === undefined || dragging !== undefined ? undefined : ''}
+						data-panning={panning ? '' : undefined}
+						onPointerDown={pan}
+						onContextMenuCapture={(event) => {
+							setMenuOn((event.target as Element).closest<HTMLElement>('[data-map-node]')?.dataset.mapNode);
+						}}
+						style={
+							{
+								'--map-width': `${String(layout.width)}px`,
+								'--map-height': `${String(layout.height)}px`,
+								'--map-slot': `${String(sizes.node.width)}px`,
+							} as CSSProperties
+						}
 					>
-						{layout.lines.map(({ link, d, tip }) => (
-							<g
-								key={`${link.kind}:${link.from}:${link.to}`}
-								data-kind={link.kind}
-								data-on={onLines.has(link) ? '' : undefined}
-							>
-								<path className="studio-map-line" d={d} />
+						<svg
+							className="studio-map-lines"
+							width={layout.width}
+							height={layout.height}
+							aria-hidden="true"
+						>
+							{layout.lines.map(({ link, d }) => (
 								<path
-									className="studio-map-tip"
-									d={`M ${String(tip.x)} ${String(tip.y)} l ${String(-7 * tip.heading)} -4 v 8 z`}
+									key={`${link.kind}:${link.from}:${link.to}`}
+									className="map-line"
+									d={d}
+									data-kind={link.kind}
+									data-on={onLines.has(link) ? '' : undefined}
 								/>
-							</g>
+							))}
+						</svg>
+						{layout.headings.map(({ label, x, y }) => (
+							<div key={label} className="studio-map-heading" style={{ left: x, top: y }}>
+								<Text type="supporting" color="secondary" weight="semibold">
+									{label}
+								</Text>
+							</div>
 						))}
-					</svg>
-					{layout.headings.map(({ label, x, y }) => (
-						<div key={label} className="studio-map-heading" style={{ left: x, top: y }}>
-							<Text type="supporting" color="secondary" weight="semibold">
-								{label}
-							</Text>
-						</div>
-					))}
-					{nodes.map((node) => {
-						const place = layout.nodes[node.id];
-						if (!place) return null;
-						const { opens, rows = [] } = node;
-						const isLit = on.has(node.id) || rows.some((row) => on.has(row.id));
-						const head = (
-							<>
-								<Icon icon={nodeIcon(node)} size="sm" color="secondary" />
-								<span className="studio-map-words">
-									<Text weight="semibold" maxLines={1}>
-										{node.label}
-									</Text>
-									{node.note && (
-										<Text
-											type="supporting"
-											color="secondary"
-											maxLines={rows.length > 0 ? 1 : mapNoteLines(node)}
-										>
-											{node.note}
+						{nodes.map((node) => {
+							const place = layout.nodes[node.id];
+							if (!place) return null;
+							const { opens } = node;
+							const rows = node.rows ?? [];
+							const isLit = on.has(node.id) || rows.some((row) => on.has(row.id));
+							const open =
+								opens === undefined
+									? undefined
+									: () => {
+											onOpen(opens);
+										};
+							if (!expanded) {
+								return (
+									<MapToken
+										key={node.id}
+										id={node.id}
+										label={clipped(node.label)}
+										icon={nodeIcon(node)}
+										x={place.x}
+										y={place.y + place.height / 2}
+										color={isOpen(node, selected) ? 'blue' : undefined}
+										description={[node.note, mapLinkWords(map, node.id)].filter(Boolean).join('. ') || undefined}
+										onOpen={open}
+										title={node.label.length > TOKEN_LABEL ? node.label : undefined}
+										data-map-node={node.id}
+										aria-current={isOpen(node, selected) ? 'true' : undefined}
+										data-on={isLit ? '' : undefined}
+										data-dragging={dragging === node.id ? '' : undefined}
+										{...lights(node.id)}
+										{...draggable(node.id)}
+									/>
+								);
+							}
+							const head = (
+								<>
+									<Icon icon={nodeIcon(node)} size="sm" color="secondary" />
+									<span className="studio-map-words">
+										<Text weight="semibold" maxLines={1}>
+											{node.label}
 										</Text>
-									)}
-								</span>
-							</>
-						);
-						const button = {
-							type: 'button' as const,
-							title: node.note || undefined,
-							'aria-description': mapLinkWords(map, node.id) || undefined,
-							disabled: opens === undefined,
-							onClick: () => {
-								if (opens !== undefined) onOpen(opens);
-							},
-							...lights(node.id),
-						};
-						if (rows.length === 0) {
+										{node.note && (
+											<Text
+												type="supporting"
+												color="secondary"
+												maxLines={rows.length > 0 ? 1 : mapNoteLines(node)}
+											>
+												{node.note}
+											</Text>
+										)}
+									</span>
+								</>
+							);
+							const button = {
+								type: 'button' as const,
+								title: node.note || undefined,
+								'aria-description': mapLinkWords(map, node.id) || undefined,
+								disabled: open === undefined,
+								onClick: open,
+								...lights(node.id),
+							};
+							if (rows.length === 0) {
+								return (
+									<button
+										key={node.id}
+										{...button}
+										{...draggable(node.id)}
+										className="studio-map-node"
+										style={{
+											left: place.x,
+											top: place.y,
+											width: sizes.node.width,
+											height: place.height,
+										}}
+										data-map-node={node.id}
+										aria-current={isOpen(node, selected) ? 'true' : undefined}
+										data-on={isLit ? '' : undefined}
+										data-dragging={dragging === node.id ? '' : undefined}
+									>
+										{head}
+									</button>
+								);
+							}
 							return (
-								<button
+								<div
 									key={node.id}
-									{...button}
-									{...draggable(node.id)}
-									className="studio-map-node"
+									className="studio-map-card"
 									style={{
 										left: place.x,
 										top: place.y,
-										width: MAP_SIZES.node.width,
+										width: sizes.node.width,
 										height: place.height,
 									}}
-									aria-current={isOpen(node, selected) ? 'true' : undefined}
+									data-map-node={node.id}
+									data-open={isOpen(node, selected) ? '' : undefined}
 									data-on={isLit ? '' : undefined}
 									data-dragging={dragging === node.id ? '' : undefined}
+									{...draggable(node.id)}
 								>
-									{head}
-								</button>
-							);
-						}
-						return (
-							<div
-								key={node.id}
-								className="studio-map-card"
-								style={{
-									left: place.x,
-									top: place.y,
-									width: MAP_SIZES.node.width,
-									height: place.height,
-								}}
-								data-open={isOpen(node, selected) ? '' : undefined}
-								data-on={isLit ? '' : undefined}
-								data-dragging={dragging === node.id ? '' : undefined}
-								{...draggable(node.id)}
-							>
-								<button
-									{...button}
-									className="studio-map-head"
-									style={{ height: MAP_SIZES.card.head }}
-									aria-current={selected === node.id ? 'true' : undefined}
-								>
-									{head}
-								</button>
-								{rows.map((row) => (
 									<button
-										key={row.id}
-										type="button"
-										className="studio-map-row"
-										style={{ height: MAP_SIZES.card.row }}
-										aria-current={selected === row.id ? 'true' : undefined}
-										data-on={on.has(row.id) ? '' : undefined}
-										onClick={() => {
-											onOpen(row.opens);
-										}}
-										{...lights(row.id)}
+										{...button}
+										className="studio-map-head"
+										style={{ height: sizes.card.head }}
+										aria-current={selected === node.id ? 'true' : undefined}
 									>
-										<Icon icon={rowIcon(row.type)} size="sm" color="secondary" />
-										<Text maxLines={1}>{row.label}</Text>
-										{row.note && (
-											<span className="studio-map-row-note">
-												<Text type="supporting" color="secondary" maxLines={1}>
-													{row.note}
-												</Text>
-											</span>
-										)}
+										{head}
 									</button>
-								))}
-							</div>
-						);
-					})}
-				</div>
+									{rows.map((row) => (
+										<button
+											key={row.id}
+											type="button"
+											className="studio-map-row"
+											style={{ height: sizes.card.row }}
+											aria-current={selected === row.id ? 'true' : undefined}
+											data-on={on.has(row.id) ? '' : undefined}
+											onClick={() => {
+												onOpen(row.opens);
+											}}
+											{...lights(row.id)}
+										>
+											<Icon icon={rowIcon(row.type)} size="sm" color="secondary" />
+											<Text maxLines={1}>{row.label}</Text>
+											{row.note && (
+												<span className="studio-map-row-note">
+													<Text type="supporting" color="secondary" maxLines={1}>
+														{row.note}
+													</Text>
+												</span>
+											)}
+										</button>
+									))}
+								</div>
+							);
+						})}
+					</div>
+				</ContextMenu>
 			</ScrollableArea>
 			<div className="studio-map-tools">
+				{family !== undefined && (
+					<Button
+						label="Show everything"
+						variant="secondary"
+						size="sm"
+						icon={<Icon icon={IconEye} size="sm" />}
+						onClick={() => {
+							showFamily(undefined);
+						}}
+					/>
+				)}
 				{isMoved && (
 					<Button
 						label="Tidy"
 						variant="secondary"
 						size="sm"
 						icon={<Icon icon={IconLayoutGrid} size="sm" />}
-						onClick={() => {
-							keep({});
-						}}
+						onClick={tidy}
 					/>
 				)}
+				<IconButton
+					label={expanded ? 'Collapse' : 'Expand'}
+					variant="secondary"
+					size="sm"
+					icon={<Icon icon={expanded ? IconArrowsMinimize : IconArrowsMaximize} size="sm" />}
+					tooltip={expanded ? 'Show each node as a token' : 'Show sections and descriptions'}
+					onClick={expand}
+				/>
 				<IconButton
 					label="Close map"
 					variant="secondary"

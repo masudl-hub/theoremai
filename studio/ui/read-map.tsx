@@ -3,14 +3,15 @@
  * its imports reach with a dot for each file read there, and the agents and tools found. It
  * draws the steps in the order they happened, no faster than can be followed.
  */
-import { Icon, type IconType } from '@astryxdesign/core/Icon';
+import type { IconType } from '@astryxdesign/core/Icon';
 import { Text } from '@astryxdesign/core/Text';
-import { Token } from '@astryxdesign/core/Token';
 import { IconFileCode, IconFolder, IconRobot } from '@tabler/icons-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { mapCurve } from '../map-line.ts';
 import type { ReadStep } from '../read-steps.ts';
 import { type ReadNode, type ReadNodeKind, readMap } from './lib/read-map.ts';
 import { profileTypeIcon, toolTypeIcon } from './lib/type-icons.ts';
+import { MapToken, useTokenWidths } from './map-token.tsx';
 import type { Reading } from './lib/read-progress.ts';
 import './read-map.css';
 
@@ -129,18 +130,10 @@ interface Placed {
 	y: number;
 }
 
-/** The curve from a node's right edge to the next node's left, and the dots along it. */
+/** The line from a node's right edge to the next node's left, and the dots along it. */
 function lineTo(from: Placed, fromWidth: number, to: Placed, dots: number) {
-	const [x0, x1] = [from.x + fromWidth + GAP, to.x - GAP];
-	const mid = (x0 + x1) / 2;
-	const d = `M ${String(x0)} ${String(from.y)} C ${String(mid)} ${String(from.y)}, ${String(mid)} ${String(to.y)}, ${String(x1)} ${String(to.y)}`;
-	const at = (t: number): [number, number] => {
-		const u = 1 - t;
-		const x = u ** 3 * x0 + 3 * u * u * t * mid + 3 * u * t * t * mid + t ** 3 * x1;
-		const y = u ** 3 * from.y + 3 * u * u * t * from.y + 3 * u * t * t * to.y + t ** 3 * to.y;
-		return [x, y];
-	};
-	return { d, dots: Array.from({ length: dots }, (_, index) => at((index + 1) / (dots + 1))) };
+	const curve = mapCurve({ x: from.x + fromWidth + GAP, y: from.y }, { x: to.x - GAP, y: to.y });
+	return { d: curve.d, dots: Array.from({ length: dots }, (_, index) => curve.at((index + 1) / (dots + 1))) };
 }
 
 export interface ReadMapProps {
@@ -158,7 +151,6 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
 	// A folder first said later does move the rows, and the tokens and lines move together.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `steps` is one list that grows; its length is what changes.
 	const map = useMemo(() => readMap(steps.slice(0, drawn.known), rows), [drawn.known, rows]);
-	const [widths, setWidths] = useState<Record<string, number>>({});
 
 	const placed = useMemo(() => {
 		if (!size) return [];
@@ -172,19 +164,7 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
 			}));
 	}, [map, size, drawn.steps]);
 
-	useLayoutEffect(() => {
-		const root = ref.current;
-		if (!root) return;
-		const next: Record<string, number> = {};
-		for (const each of root.querySelectorAll<HTMLElement>('[data-read-node]')) {
-			next[each.dataset.readNode ?? ''] = each.offsetWidth;
-		}
-		setWidths((last) =>
-			Object.keys(next).length === Object.keys(last).length && Object.entries(next).every(([id, width]) => last[id] === width)
-				? last
-				: next,
-		);
-	}, [placed, ref]);
+	const widths = useTokenWidths(ref, placed);
 
 	const byId = new Map(placed.map((each) => [each.node.id, each]));
 	return (
@@ -199,8 +179,8 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
 					const line = lineTo(from, width, to, Math.min(DOTS, to.node.own.length));
 					return (
 						<g key={to.node.id}>
-							<path className="read-map-line" d={line.d} pathLength={1} />
-							{line.dots.slice(0, dots).map(([x, y], index) => (
+							<path className="map-line read-map-line" d={line.d} pathLength={1} />
+							{line.dots.slice(0, dots).map(({ x, y }, index) => (
 								// biome-ignore lint/suspicious/noArrayIndexKey: a dot is its place along the line.
 								<circle key={index} className="read-map-dot" cx={x} cy={y} r={2.5} />
 							))}
@@ -208,14 +188,9 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
 					);
 				})}
 			</svg>
-			{placed.map(({ node, x, y }) => {
-				const icon = nodeIcon(node);
-				return (
-					<div key={node.id} className="read-map-node" data-read-node={node.id} data-kind={node.kind} style={{ left: x, top: y }}>
-						<Token size="sm" label={short(node.label)} icon={icon && <Icon icon={icon} size="sm" />} />
-					</div>
-				);
-			})}
+			{placed.map(({ node, x, y }) => (
+				<MapToken key={node.id} className="read-map-node" id={node.id} label={short(node.label)} icon={nodeIcon(node)} x={x} y={y} />
+			))}
 			<div className="read-map-foot">
 				<Text type="supporting" color="secondary" maxLines={1}>
 					{saying(steps, drawn.steps)}

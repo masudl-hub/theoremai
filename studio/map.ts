@@ -4,6 +4,7 @@
  * line joins each to the section it feeds. It is read from the workspace and changes nothing; each
  * node and section names the workspace node that opens it.
  */
+import { type MapPlace, mapCurve } from './map-line.ts';
 import { type SharedEntry, sharedNodeId } from './shared-settings.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 import { type AgentDraft, agentNodeId, type StudioWorkspace, workspaceTree } from './workspace.ts';
@@ -246,6 +247,36 @@ export function mapNeighbours(map: WorkspaceMap, id: string): Set<string> {
   return new Set([id, ...mapLinkEnds(map).flatMap(({ from, to }) => (from === id ? [to] : to === id ? [from] : []))]);
 }
 
+/**
+ * `id`'s family: the node, everything that feeds it and everything it feeds, however many links
+ * away, with the links between them. Empty when the map has no such node.
+ */
+export function mapFamily(map: WorkspaceMap, id: string): WorkspaceMap {
+  const ends = mapLinkEnds(map);
+  const reached = (near: 'from' | 'to', far: 'from' | 'to') => {
+    const seen = new Set([id]);
+    const queue = [id];
+    for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
+      for (const end of ends) {
+        if (end[near] !== next || seen.has(end[far])) continue;
+        seen.add(end[far]);
+        queue.push(end[far]);
+      }
+    }
+    return seen;
+  };
+  const family = new Set([...reached('to', 'from'), ...reached('from', 'to')]);
+  const columns = map.columns
+    .map((column) =>
+      column
+        .map((group) => ({ ...group, nodes: group.nodes.filter((node) => family.has(node.id)) }))
+        .filter((group) => group.nodes.length > 0),
+    )
+    .filter((column) => column.length > 0);
+  const kept = new Set(ends.filter(({ from, to }) => family.has(from) && family.has(to)).map(({ link }) => link));
+  return { columns, links: map.links.filter((link) => kept.has(link)) };
+}
+
 /** A link in words from each end: `[from's side, to's side]`, each before the other node's label. */
 const LINK_WORDS = {
   serves: ['Serves', 'Served by'],
@@ -271,11 +302,11 @@ export function mapLinkWords(map: WorkspaceMap, id: string): string {
 
 /** The sizes a map is laid out with, in pixels. */
 export interface MapSizes {
-  /** A node whose note runs to two lines: a tool, a shared setting. */
+  /** A node's slot in its column. Its height is a token's, or with detail a node whose note runs to two lines. */
   node: { width: number; height: number };
   /**
-   * A node with sections: its head, each section's row, and the room under the last. A node with a
-   * one-line note is a head alone.
+   * With detail, a node with sections: its head, each section's row, and the room under the last.
+   * A node with a one-line note is a head alone.
    */
   card: { head: number; row: number; foot: number };
   /** Between columns, and between a column's nodes. */
@@ -286,21 +317,27 @@ export interface MapSizes {
   groupGap: number;
   /** Around the whole map. */
   padding: number;
+  /** Between a node's side and the line that leaves or arrives there. */
+  lineGap: number;
 }
 
-export interface MapPlace {
-  x: number;
-  y: number;
+export type { MapPlace };
+
+export interface MapView {
+  /** Where nodes were put, by id. */
+  moved?: Readonly<Record<string, MapPlace>>;
+  /** How wide each node is drawn, by id, when narrower than its slot. */
+  widths?: Readonly<Record<string, number>>;
+  /** Each profile as a card of its sections and a line to the section it joins; else every node is one token. */
+  detail?: boolean;
 }
 
-/** A link's line as an SVG path from `link.from` to `link.to`, the nodes it joins, and its arrowhead. */
+/** A link's line as an SVG path from `link.from` to `link.to`, and the nodes it joins. */
 export interface MapLine {
   link: MapLink;
   from: string;
   to: string;
   d: string;
-  /** Where the line arrives, and the way it is heading there: 1 to the right, -1 to the left. */
-  tip: MapPlace & { heading: 1 | -1 };
 }
 
 export interface MapLayout {
@@ -322,23 +359,27 @@ export function mapNoteLines(node: MapNode): 1 | 2 {
 const CURVE_STEPS = 24;
 const LANE_GAP = 8;
 
+interface Box extends MapPlace {
+  id: string;
+  width: number;
+  height: number;
+}
+
 /**
  * Where everything on the map goes: the columns side by side from the top, each group under its
  * heading, except a node in `moved`, which goes where it was put. A line leaves the side of a node
- * that faces the other, level with the section it joins or else with the node's head; between two
- * nodes one above the other it bows out to the right, and one that would pass behind a node between
- * its ends goes over or under what is between. The map is large enough for every line.
+ * that faces the other; between two nodes one above the other it bows out to the right, past what
+ * stands between them. A line that would pass behind a node or a heading goes over or under only
+ * what is in its way, whichever is nearer. The map is large enough for every line.
  */
-export function mapLayout(
-  map: WorkspaceMap,
-  sizes: MapSizes,
-  moved: Readonly<Record<string, MapPlace>> = {},
-): MapLayout {
-  const { node, card, columnGap, rowGap, heading, groupGap, padding } = sizes;
+export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}): MapLayout {
+  const { node, card, columnGap, rowGap, heading, groupGap, padding, lineGap } = sizes;
+  const { moved = {}, widths = {}, detail = false } = view;
   const nodes: MapLayout['nodes'] = {};
   const headings: MapLayout['headings'] = [];
-  /** Where a line meets each node or section: the node's left edge and the height it joins at. */
-  const ports = new Map<string, MapPlace>();
+  const boxes: Box[] = [];
+  /** Where a line meets each node or section: the node's two sides and the height it joins at. */
+  const ports = new Map<string, { left: number; right: number; y: number }>();
   let right = 0;
   let bottom = 0;
   map.columns.forEach((column, index) => {
@@ -347,17 +388,21 @@ export function mapLayout(
     column.forEach((group, at) => {
       if (at > 0) y += groupGap;
       headings.push({ label: group.label, x, y });
+      boxes.push({ id: `heading:${index}:${at}`, x, y, width: node.width, height: heading });
       y += heading;
       for (const each of group.nodes) {
-        const rows = each.rows ?? [];
-        const head = rows.length > 0 || mapNoteLines(each) === 1 ? card.head : node.height;
+        const rows = detail ? (each.rows ?? []) : [];
+        const head = detail && (rows.length > 0 || mapNoteLines(each) === 1) ? card.head : node.height;
         const height = rows.length > 0 ? card.head + rows.length * card.row + card.foot : head;
+        const width = Math.min(widths[each.id] ?? node.width, node.width);
         const put = Object.hasOwn(moved, each.id) ? moved[each.id] : undefined;
         const place = put ? { x: Math.max(put.x, 0), y: Math.max(put.y, 0) } : { x, y };
         nodes[each.id] = { ...place, height };
-        ports.set(each.id, { x: place.x, y: place.y + head / 2 });
-        rows.forEach((row, line) =>
-          ports.set(row.id, { x: place.x, y: place.y + card.head + line * card.row + card.row / 2 }),
+        boxes.push({ id: each.id, ...place, width, height });
+        const port = { left: place.x, right: place.x + width, y: place.y + head / 2 };
+        ports.set(each.id, port);
+        (each.rows ?? []).forEach((row, line) =>
+          ports.set(row.id, detail ? { ...port, y: place.y + card.head + line * card.row + card.row / 2 } : port),
         );
         right = Math.max(right, place.x + node.width);
         bottom = Math.max(bottom, place.y + height);
@@ -368,64 +413,73 @@ export function mapLayout(
     });
   });
 
-  /** A line that would cross a node between its ends goes round: over or under what is between. */
   const gap = columnGap / 2;
-  let lanes = 0;
-  const between = (from: string, to: string, ax: number, bx: number) =>
-    Object.entries(nodes).filter(
-      ([id, at]) => id !== from && id !== to && at.x < Math.max(ax, bx) && at.x + node.width > Math.min(ax, bx),
-    );
-  const crosses = (a: MapPlace, b: MapPlace, ax: number, bx: number, boxes: [string, MapLayout['nodes'][string]][]) => {
-    const mid = (ax + bx) / 2;
-    for (let step = 1; step < CURVE_STEPS; step += 1) {
-      const t = step / CURVE_STEPS;
-      const u = 1 - t;
-      const x = u * u * u * ax + 3 * u * t * mid + t * t * t * bx;
-      const y = (u * u * u + 3 * u * u * t) * a.y + (3 * u * t * t + t * t * t) * b.y;
-      const hit = boxes.some(
-        ([, at]) => x > at.x && x < at.x + node.width && y > at.y - rowGap / 2 && y < at.y + at.height + rowGap / 2,
-      );
-      if (hit) return true;
-    }
-    return false;
-  };
+  /** The lanes lines already go round in: the next one keeps `LANE_GAP` clear of each. */
+  const laid: Box[] = [];
 
   const lines = mapLinkEnds(map).flatMap(({ link, from, to }): MapLine[] => {
     const a = ports.get(link.from);
     const b = ports.get(link.to);
     if (!a || !b) return [];
-    // One above the other: out of each one's right side, round the further of the two.
-    if (Math.abs(a.x - b.x) < node.width) {
-      const ax = a.x + node.width;
-      const bx = b.x + node.width;
-      const bow = Math.max(ax, bx) + gap;
+    const others = boxes.filter((box) => box.id !== from && box.id !== to);
+
+    if (Math.abs(a.left - b.left) < node.width) {
+      const ax = a.right + lineGap;
+      const bx = b.right + lineGap;
+      const beside = others.filter(
+        (box) =>
+          box.y < Math.max(a.y, b.y) &&
+          box.y + box.height > Math.min(a.y, b.y) &&
+          box.x < Math.max(ax, bx) + gap &&
+          box.x + box.width > Math.min(a.left, b.left),
+      );
+      const bow = Math.max(ax, bx, ...beside.map((box) => box.x + box.width)) + gap;
       right = Math.max(right, bow);
-      const d = `M ${ax} ${a.y} C ${bow} ${a.y}, ${bow} ${b.y}, ${bx} ${b.y}`;
-      return [{ link, from, to, d, tip: { x: bx, y: b.y, heading: -1 } }];
+      return [{ link, from, to, d: mapCurve({ x: ax, y: a.y }, { x: bx, y: b.y }, bow).d }];
     }
-    const ahead = a.x < b.x;
-    const way = ahead ? 1 : -1;
-    const ax = ahead ? a.x + node.width : a.x;
-    const bx = ahead ? b.x : b.x + node.width;
-    const tip: MapLine['tip'] = { x: bx, y: b.y, heading: way };
-    const boxes = between(from, to, ax, bx);
-    if (Math.abs(bx - ax) >= 4 * gap && crosses(a, b, ax, bx, boxes)) {
-      const top = Math.min(...boxes.map(([, at]) => at.y)) - heading - rowGap - lanes * LANE_GAP;
-      const under = Math.max(...boxes.map(([, at]) => at.y + at.height)) + 2 * rowGap + lanes * LANE_GAP;
-      const mean = (a.y + b.y) / 2;
-      const lane = top >= rowGap && mean - top < under - mean ? top : under;
-      lanes += 1;
-      bottom = Math.max(bottom, lane);
-      const out = ax + way * gap;
-      const back = bx - way * gap;
-      const d =
-        `M ${ax} ${a.y} C ${out} ${a.y}, ${out} ${lane}, ${out + way * gap} ${lane} ` +
-        `L ${back - way * gap} ${lane} C ${back} ${lane}, ${back} ${b.y}, ${bx} ${b.y}`;
-      return [{ link, from, to, d, tip }];
-    }
-    const mid = (ax + bx) / 2;
-    const d = `M ${ax} ${a.y} C ${mid} ${a.y}, ${mid} ${b.y}, ${bx} ${b.y}`;
-    return [{ link, from, to, d, tip }];
+
+    const way = a.left < b.left ? 1 : -1;
+    const start = { x: way > 0 ? a.right + lineGap : a.left - lineGap, y: a.y };
+    const end = { x: way > 0 ? b.left - lineGap : b.right + lineGap, y: b.y };
+    const curve = mapCurve(start, end);
+    const near = (box: Box, y: number) => y > box.y - rowGap / 2 && y < box.y + box.height + rowGap / 2;
+    const crossed =
+      Math.abs(end.x - start.x) < 4 * gap
+        ? []
+        : others.filter((box) =>
+            Array.from({ length: CURVE_STEPS - 1 }, (_, step) => curve.at((step + 1) / CURVE_STEPS)).some(
+              (point) => point.x > box.x && point.x < box.x + box.width && near(box, point.y),
+            ),
+          );
+    if (crossed.length === 0) return [{ link, from, to, d: curve.d }];
+
+    const [low, high] = [Math.min(start.x, end.x), Math.max(start.x, end.x)];
+    /** The lane on one side of what the line crossed, and of whatever stands in that lane's way. */
+    const lane = (side: 1 | -1): number => {
+      const around = [...crossed];
+      for (;;) {
+        const y =
+          side < 0
+            ? Math.min(...around.map((box) => box.y)) - rowGap / 2
+            : Math.max(...around.map((box) => box.y + box.height)) + rowGap / 2;
+        const more = [...others, ...laid].filter(
+          (box) => !around.includes(box) && box.x < high && box.x + box.width > low && near(box, y),
+        );
+        if (more.length === 0) return y;
+        around.push(...more);
+      }
+    };
+    const far = (y: number) => Math.abs(a.y - y) + Math.abs(b.y - y);
+    const [over, under] = [lane(-1), lane(1)];
+    const y = over >= 0 && far(over) <= far(under) ? over : under;
+    laid.push({ id: '', x: low, y: y - LANE_GAP + rowGap / 2, width: high - low, height: 2 * LANE_GAP - rowGap });
+    bottom = Math.max(bottom, y);
+    const out = start.x + way * gap;
+    const back = end.x - way * gap;
+    const d =
+      `M ${start.x} ${a.y} C ${out} ${a.y}, ${out} ${y}, ${out + way * gap} ${y} ` +
+      `L ${back - way * gap} ${y} C ${back} ${y}, ${back} ${b.y}, ${end.x} ${b.y}`;
+    return [{ link, from, to, d }];
   });
 
   const columns = Math.max(map.columns.length, 1);

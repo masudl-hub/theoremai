@@ -1,9 +1,9 @@
 /*
- * The map: the showcase's field of dots, panned both ways. The scrollport is the query box, so the
- * field is at least the panel and only larger when the columns need the room. The lines are one
- * drawing under the nodes; the nodes are buttons placed over it, and a profile is a card of them:
- * its head, then a row for each section. Every colour, radius and timing
- * is an Astryx theme token. The panel's own motion brings the map in.
+ * The map, panned both ways. The scrollport is the query box, so the field is at least the panel
+ * and only larger when the columns need the room. The lines are one drawing under the nodes. The
+ * nodes are the loader's tokens (map-token.css); with detail they are buttons, and a profile is a
+ * card of them: its head, then a row for each section. Every colour, radius and timing is an Astryx
+ * theme token. The panel's own motion brings the map in.
  */
 .studio-map-frame {
 	position: relative;
@@ -15,7 +15,7 @@
 	container-type: size;
 }
 
-/* Over the field's corner: Tidy, only while a node is out of its place, and Close. */
+/* Over the field's corner: what the right click offers, and Close. */
 .studio-map-tools {
 	position: absolute;
 	inset-block-start: var(--spacing-3);
@@ -29,8 +29,6 @@
 	width: var(--map-width);
 	height: var(--map-height);
 	background-color: var(--color-background-surface);
-	background-image: radial-gradient(circle, var(--color-border) 1px, transparent 1px);
-	background-size: var(--spacing-6) var(--spacing-6);
 	cursor: grab;
 	user-select: none;
 }
@@ -46,34 +44,38 @@
 	}
 }
 
+/* The right click's own box holds the field, however far it runs. */
+[data-map-field] {
+	width: max-content;
+	min-width: 100%;
+}
+
 .studio-map-lines {
 	position: absolute;
 	inset: 0 auto auto 0;
 	pointer-events: none;
 }
 
-.studio-map-line {
-	fill: none;
-	stroke: var(--color-border-emphasized);
-	stroke-width: 1.5;
-}
-
-.studio-map-tip {
-	fill: var(--color-border-emphasized);
-}
-
-.studio-map-lines g {
-	transition: opacity var(--duration-fast) var(--ease-standard);
+.studio-map-lines .map-line {
+	transition:
+		opacity var(--duration-fast) var(--ease-standard),
+		stroke var(--duration-fast) var(--ease-standard);
 }
 
 /* A tool asking a profile and a profile summarised by another run against the columns: dashed. */
-.studio-map-lines g:is([data-kind='asks'], [data-kind='summarised']) .studio-map-line {
+.studio-map-lines .map-line:is([data-kind='asks'], [data-kind='summarised']) {
 	stroke-dasharray: 4 4;
 }
 
 .studio-map-heading {
 	position: absolute;
 	pointer-events: none;
+}
+
+.studio-map .map-token {
+	max-width: var(--map-slot);
+	overflow: hidden;
+	transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
 .studio-map-node,
@@ -194,7 +196,13 @@
 	transition: none;
 }
 
+.studio-map .map-token[data-dragging] {
+	z-index: 1;
+	transition: none;
+}
+
 :is(.studio-map-node, .studio-map-card)[data-dragging],
+.studio-map .map-token[data-dragging] *,
 .studio-map-card[data-dragging] :is(.studio-map-head, .studio-map-row) {
 	cursor: grabbing;
 }
@@ -212,16 +220,16 @@
 	opacity: 0.45;
 }
 
-.studio-map[data-lit] .studio-map-lines g:not([data-on]) {
+.studio-map[data-lit] .map-token:not([data-on]) {
+	opacity: 0.45;
+}
+
+.studio-map[data-lit] .map-line:not([data-on]) {
 	opacity: 0.25;
 }
 
-.studio-map-lines g[data-on] .studio-map-line {
+.studio-map .map-line[data-on] {
 	stroke: var(--color-accent);
-}
-
-.studio-map-lines g[data-on] .studio-map-tip {
-	fill: var(--color-accent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -230,7 +238,8 @@
 	.studio-map-node > *,
 	.studio-map-card > *,
 	.studio-map-row,
-	.studio-map-lines g {
+	.studio-map .map-token,
+	.studio-map .map-line {
 		transition: none;
 	}
 }

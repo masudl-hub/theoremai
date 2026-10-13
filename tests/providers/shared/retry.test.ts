@@ -69,10 +69,12 @@ Deno.test('isTransientThrown is false for unrelated errors', () => {
   assertEquals(isTransientThrown(new Error('invalid input')), false);
 });
 
-Deno.test('backoffMs waits 1s then 2s', () => {
+Deno.test('backoffMs doubles from 1s to 8s', () => {
   assertEquals(backoffMs(0), 1000);
   assertEquals(backoffMs(1), 2000);
-  assertEquals(backoffMs(5), 2000);
+  assertEquals(backoffMs(2), 4000);
+  assertEquals(backoffMs(3), 8000);
+  assertEquals(backoffMs(9), 8000);
 });
 
 Deno.test('retryAfterMs reads milliseconds, seconds or a date, up to a minute', () => {
@@ -116,14 +118,14 @@ Deno.test('retryTransient waits what Retry-After asks, under a minute', async ()
   assertEquals(waits, [7000, 2000]);
 });
 
-Deno.test('retryTransient returns the third transient answer as it came', async () => {
+Deno.test('retryTransient returns the fifth transient answer as it came', async () => {
   const { waits, wait } = recordWaits();
   const upstream = answering(new Response('quota', { status: 429 }));
   const res = await retryTransient(upstream.send, wait)('https://x.test');
   assertEquals(res.status, 429);
   assertEquals(await res.text(), 'quota');
-  assertEquals(upstream.calls(), 3);
-  assertEquals(waits, [1000, 2000]);
+  assertEquals(upstream.calls(), 5);
+  assertEquals(waits, [1000, 2000, 4000, 8000]);
 });
 
 Deno.test('retryTransient sends a non-transient answer back at once', async () => {
@@ -149,8 +151,8 @@ Deno.test('retryTransient retries a network failure and rethrows the last one', 
     TypeError,
   );
   assertEquals(err.message, 'fetch failed');
-  assertEquals(down.calls(), 3);
-  assertEquals(waits, [1000, 1000, 2000]);
+  assertEquals(down.calls(), 5);
+  assertEquals(waits, [1000, 1000, 2000, 4000, 8000]);
 });
 
 Deno.test('retryTransient rethrows a non-transient error without retrying', async () => {

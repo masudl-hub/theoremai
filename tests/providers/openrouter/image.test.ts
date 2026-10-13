@@ -245,7 +245,7 @@ Deno.test('yieldImagesEndpoint yields error on HTTP failure once its tries run o
   )) {
     events.push(event);
   }
-  assertEquals(tries, 3);
+  assertEquals(tries, 5);
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
   assertEquals((events[0] as { errorKind: string }).errorKind, 'unavailable');

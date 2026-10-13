@@ -3,8 +3,8 @@ import { isAbortError, isTimeoutError } from '../../guardrails/error.ts';
 /** How a retry waits; a host or test may pass its own. The signal ends the wait early. */
 export type Wait = (ms: number, signal?: AbortSignal | null) => Promise<void>;
 
-const ATTEMPTS = 3;
-const BACKOFF_MS = [1000, 2000];
+const ATTEMPTS = 5;
+const BACKOFF_MS = [1000, 2000, 4000, 8000];
 /** A longer `Retry-After` is not worth holding a turn for; the refusal goes back instead. */
 const RETRY_AFTER_CAP_MS = 60_000;
 const MS_PER_SECOND = 1000;
@@ -68,9 +68,9 @@ export function retryAfterMs(headers: Headers, now = Date.now()): number | undef
 }
 
 /**
- * Sends up to three tries: a transient status (408, 429, 5xx gateway) or a network failure waits
- * the response's `Retry-After` when it gives one under a minute, else 1s then 2s. The last answer
- * or error goes back as it came; an abort ends the wait.
+ * Sends up to five tries: a transient status (408, 429, 5xx gateway) or a network failure waits
+ * the response's `Retry-After` when it gives one under a minute, else 1s, 2s, 4s then 8s. The last
+ * answer or error goes back as it came; an abort ends the wait.
  */
 export function retryTransient(send: typeof fetch, wait: Wait = waitDefault): typeof fetch {
   return async (url, init) => {

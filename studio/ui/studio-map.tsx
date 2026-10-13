@@ -59,7 +59,7 @@ import './studio-map.css';
 /** A token's slot: as wide as the longest name it shows in full. */
 const TOKEN_SIZES: MapSizes = {
 	node: { width: 240, height: 24 },
-	card: { head: 44, row: 24, foot: 4 },
+	card: { head: 52, row: 24, foot: 4 },
 	columnGap: 96,
 	rowGap: 6,
 	heading: 24,
@@ -69,7 +69,7 @@ const TOKEN_SIZES: MapSizes = {
 };
 
 /** With detail a node is its token grown to hold its note: the same slot and the same gaps. */
-const DETAIL_SIZES: MapSizes = { ...TOKEN_SIZES, node: { width: 240, height: 68 } };
+const DETAIL_SIZES: MapSizes = { ...TOKEN_SIZES, node: { width: 240, height: 76 } };
 const TOKEN_LABEL = 28;
 
 /** A long name keeps its start. */

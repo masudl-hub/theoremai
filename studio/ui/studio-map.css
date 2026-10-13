@@ -151,6 +151,7 @@
 	padding-inline: calc(var(--spacing-2) + 16px + var(--spacing-1)) var(--spacing-2);
 	color: var(--color-text-secondary);
 	font-weight: var(--font-weight-normal);
+	line-height: var(--map-line);
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: var(--map-note-lines, 1);
 	line-clamp: var(--map-note-lines, 1);
@@ -166,6 +167,10 @@
 	color: var(--color-text-secondary);
 	font-weight: var(--font-weight-normal);
 	text-align: end;
+}
+
+:is(.studio-map-node, .studio-map-head):has(> .studio-map-note) {
+	padding-block-end: var(--spacing-1);
 }
 
 /* The section under the pointer, and each one a lit line ends on. */

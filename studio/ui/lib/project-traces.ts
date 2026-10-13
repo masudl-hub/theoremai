@@ -1,6 +1,13 @@
+import { resolveObservabilityPolicy } from '../../../mod.ts';
 import type { TraceFeed } from '../../../react/src/client/index.ts';
+import type { StudioRunPayload } from '../../mod.ts';
 import { eachLine, NDJSON } from '../../stream-lines.ts';
 import { studioTraceLine } from '../../transport.ts';
+
+/** Whether the agent records traces, so the page can offer them: the rule every view reads. */
+export function recordsTraces(payload: StudioRunPayload | null): boolean {
+	return payload !== null && resolveObservabilityPolicy(payload.profile.observability).record;
+}
 
 /** The trace record a line of a run's stream carries, or nothing when it is one of the run's events. */
 function traceOf(line: string) {

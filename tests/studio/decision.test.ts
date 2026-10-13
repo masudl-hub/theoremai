@@ -154,7 +154,13 @@ Deno.test('switching to decision loads the original Jev model and tool-call exam
     ['allow', 'flag', 'block'],
   );
   assert(compileStudio(decision).ok);
-  assertEquals(draftFacets(decision), ['identity', 'models', 'decision', 'labels']);
+  assertEquals(draftFacets(decision), [
+    'identity',
+    'models',
+    'decision',
+    'observability',
+    'labels',
+  ]);
   const models = studioTree(decision).children.find((node) => node.id === 'models');
   assertEquals(models?.children.length, 1);
   assertEquals(

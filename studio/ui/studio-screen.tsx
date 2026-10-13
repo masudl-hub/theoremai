@@ -49,7 +49,6 @@ import {
 import {
 	type ProfileGraphFacetId,
 	profileGraphFacet,
-	resolveObservabilityPolicy,
 } from '../../mod.ts';
 import {
 	InPlace,
@@ -110,7 +109,6 @@ import {
 	saveStudioRunPayload,
 	scopedNodeId,
 	setToolAllowed,
-	studioInterface,
 	studioNodeRef,
 	studioSource,
 	studioTree,
@@ -144,6 +142,7 @@ import {
 import { exportFiles, exportText, llmBrief } from './lib/export-agent.ts';
 import { FACET_ICON } from './lib/facet-icons.ts';
 import { movePanel } from './lib/panel-motion.ts';
+import { recordsTraces } from './lib/project-traces.ts';
 import {
 	clearConversation,
 	restoreConversation,
@@ -1006,15 +1005,6 @@ const SIDE_DEFAULT_PERCENT = 38.2;
 /** The profile tree's width inside the side panel; the editor takes the rest. */
 const TREE_WIDTH = 224;
 
-/** Whether the agent records traces, so the header can offer them. */
-function isTraced(payload: StudioRunPayload | null): boolean {
-	if (payload === null || payload.profile.type === 'decision') return false;
-	if (payload.profile.type === 'host') {
-		return resolveObservabilityPolicy(payload.profile.observability).record;
-	}
-	return studioInterface(payload).observability?.record === true;
-}
-
 /**
  * The frame's class; on a phone it names the sheet open over the editor. While the map is open the
  * panel takes the whole frame, over the preview.
@@ -1743,7 +1733,7 @@ function useWorkspaceCompile(
 			payload,
 			/** The workspace the payload was compiled from: the edits the preview runs. */
 			tested: lastGood?.workspace,
-			traced: isTraced(payload),
+			traced: recordsTraces(payload),
 			source,
 			probed,
 			editorIssues: editorIssuesOf(compiled, focus),

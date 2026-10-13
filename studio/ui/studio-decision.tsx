@@ -37,7 +37,7 @@ export function StudioDecision({
 	traces?: TraceFeed;
 	/** Called before each decision is asked; stable, or the transport is rebuilt each render. */
 	onActivity?: () => void;
-	/** The run page's own trace control. Omit in the preview, which drives the trace itself. */
+	/** The page's own trace control. */
 	trace?: boolean;
 	/** The page is already the shell. The console sits in it. */
 	flush?: boolean;

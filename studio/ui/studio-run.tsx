@@ -3,10 +3,11 @@ import { Icon } from '@astryxdesign/core/Icon';
 import { Popover } from '@astryxdesign/core/Popover';
 import { IconActivity, IconKey } from '@tabler/icons-react';
 import { useState, useSyncExternalStore } from 'react';
-import { type ModelBinding, resolveObservabilityPolicy } from '../../mod.ts';
+import type { ModelBinding } from '../../mod.ts';
 import { TheoremThemeProvider, TracePlacement } from '../../react/src/ui/index.ts';
 import { studioKeySlots } from '../browser.ts';
 import type { StudioRunPayload } from '../mod.ts';
+import { recordsTraces } from './lib/project-traces.ts';
 import { ProjectContext } from './lib/studio-project.ts';
 import type { StudioRunOpened } from './lib/studio-run-open.ts';
 import { StudioKeys, useStudioConnection } from './studio-connection.tsx';
@@ -31,11 +32,6 @@ function usePhone() {
 		() => globalThis.matchMedia(PHONE).matches,
 		() => false,
 	);
-}
-
-/** Whether this run records traces, so the page can offer them. */
-function recordsTrace(payload: StudioRunPayload): boolean {
-	return resolveObservabilityPolicy(payload.profile.observability).record;
 }
 
 /** The name the page and the document title use. A host has no handle: it's named by its id. */
@@ -162,7 +158,7 @@ export function StudioRunScreen({ opened }: { opened: StudioRunOpened }) {
 		profiles.flatMap((profile) => studioKeySlots(profile)),
 	);
 	const [keysOpen, setKeysOpen] = useState(payload.connectionMode === 'byok');
-	const traced = recordsTrace(payload);
+	const traced = recordsTraces(payload);
 	const [traceOpen, setTraceOpen] = useState(false);
 	const phone = usePhone();
 	const { mode, runtime } = connection;

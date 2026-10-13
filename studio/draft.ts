@@ -695,12 +695,9 @@ export function createBlankDraft(): StudioDraft {
 
 /**
  * Facets a decision draft leaves out: its only guardrail is a host's disclosure
- * hook, which a draft can't carry, and the studio doesn't trace a decision.
+ * hook, which a draft can't carry.
  */
-const DECISION_HIDDEN_FACETS: ReadonlySet<ProfileGraphFacetId> = new Set([
-  'guardrails',
-  'observability',
-]);
+const DECISION_HIDDEN_FACETS: ReadonlySet<ProfileGraphFacetId> = new Set(['guardrails']);
 
 function facetFits(facet: (typeof PROFILE_GRAPH)[number], type: StudioProfileType): boolean {
   return (

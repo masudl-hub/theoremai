@@ -1,4 +1,5 @@
 import { assertEquals } from '@std/assert';
+import type { ClientTurnOptions } from '../../src/host/mod.ts';
 import type { LiveExecuteToolArgs, LiveSession, TurnEvent } from '../../src/kernel/types.ts';
 import { attachStudioLiveSession } from '../../studio/live-session-bridge.ts';
 
@@ -6,6 +7,7 @@ function bridge(
   events: TurnEvent[],
   timeoutMs = 20,
   beforeEvent?: (event: TurnEvent) => void | Promise<void>,
+  clientEvents?: ClientTurnOptions,
 ) {
   const listeners: Record<string, (event: { data: unknown }) => void> = {};
   const sent: string[] = [];
@@ -38,7 +40,7 @@ function bridge(
     's',
     { close: () => {} } as never,
     undefined,
-    { clientCallTimeoutMs: timeoutMs, beforeEvent },
+    { clientCallTimeoutMs: timeoutMs, beforeEvent, clientEvents },
   );
   return {
     calls,
@@ -149,4 +151,24 @@ Deno.test('a failed ownership write never advertises resumable native state', as
     false,
   );
   await b.end();
+});
+
+Deno.test('the bridge words a failure for a visitor unless its caller says a builder reads it', async () => {
+  const failed: TurnEvent = {
+    type: 'error',
+    errorKind: 'auth',
+    error: "Sorry, the assistant can't connect at the moment.",
+    errorInternal: "The vault has no credential in slot 'slot_a'",
+  };
+  const wording = async (clientEvents?: ClientTurnOptions) => {
+    const b = bridge([failed], 20, undefined, clientEvents);
+    await b.end();
+    return b.sent.map((line) => JSON.parse(line)).find((line) => line.type === 'error');
+  };
+  assertEquals(await wording(), { type: 'error', errorKind: 'auth', error: failed.error });
+  assertEquals(await wording({ reader: 'builder' }), {
+    type: 'error',
+    errorKind: 'auth',
+    error: failed.errorInternal,
+  });
 });

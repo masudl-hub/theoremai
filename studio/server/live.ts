@@ -85,6 +85,7 @@ async function relay(socket: WebSocket, profile: Profile, provider: ProviderHost
     return;
   }
   await attachStudioLiveSession(socket, session, profile.id, crypto.randomUUID(), NO_ROUTE, profile.labels, {
+    clientEvents: STUDIO_READER,
     pageResult: boundary.answerPageResult,
     beforeEvent: async (event) => {
       if ((event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState)

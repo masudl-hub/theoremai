@@ -118,7 +118,7 @@ class BrowserLiveSocket implements LiveSocket {
         crypto.randomUUID(),
         traces,
         labels,
-        options,
+        { ...options, clientEvents: STUDIO_READER },
       );
       this.closeSession = undefined;
       this.listening = true;

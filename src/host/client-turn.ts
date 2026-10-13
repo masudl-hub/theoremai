@@ -10,17 +10,40 @@ export interface ClientTurnOptions {
   /**
    * Who reads the copy. A `'visitor'` (the default) reads the profile's wording, and every
    * builder-only diagnostic is stripped. A `'builder'` is whoever builds the app, on their own
-   * machine and keys, as in a local development tool: a failure reads its raw diagnostic in place
-   * of the profile's wording, and builder-only diagnostics stay. Never for a page visitors reach.
+   * machine and keys, as in a local development tool: a failed turn, an ended session and a tool
+   * call's failure read their raw reason in place of the profile's wording, and builder-only
+   * diagnostics stay. Never for a page visitors reach.
    */
   reader?: 'visitor' | 'builder';
 }
 
-/** For the builder, a failure's wording is its raw diagnostic. */
+/**
+ * For the builder, the wording of a failure is its raw reason, wherever a visitor's wording
+ * stands: a failed turn, an ended session, a tool call's failure.
+ */
 function builderWording(event: TurnEvent): TurnEvent {
-  if (event.type !== 'error' || event.errorInternal === undefined) return event;
-  const { errorInternal, ...rest } = event;
-  return { ...rest, error: errorInternal };
+  if (event.type === 'error' && event.errorInternal !== undefined) {
+    // why: `errorCopy` is the labels key behind the visitor's wording, which this no longer is.
+    const { errorInternal, errorCopy: _copy, ...rest } = event;
+    return { ...rest, error: errorInternal };
+  }
+  if (
+    event.type === 'session' &&
+    event.session.kind === 'ended' &&
+    event.errorInternal !== undefined
+  ) {
+    const { errorInternal, ...rest } = event;
+    return { ...rest, session: { ...event.session, message: errorInternal } };
+  }
+  if (
+    event.type === 'tool' &&
+    event.tool.phase === 'error' &&
+    event.tool.failure.error !== undefined
+  ) {
+    const { failure } = event.tool;
+    return { ...event, tool: { ...event.tool, failure: { ...failure, error: failure.message } } };
+  }
+  return event;
 }
 
 /** Raw diagnostics ride on error events, an ended session's close, and a tool call's failure. */

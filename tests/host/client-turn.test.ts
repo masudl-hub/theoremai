@@ -149,17 +149,35 @@ Deno.test('a builder reads a failure as its raw diagnostic, a visitor as the pro
   assertEquals(firstOf([forClient(event, { reader: 'visitor' })], 'error')?.error, event.error);
 });
 
-Deno.test('a builder keeps the builder-only detail on other events, never a matched substring', () => {
-  const ended: TurnEvent = {
+Deno.test('a builder reads why a session ended, a visitor the profile wording', () => {
+  const ended = { cause: 'go_away', code: 1008, closedAfterMs: 1 } as const;
+  const event: TurnEvent = {
     type: 'session',
-    session: {
-      kind: 'ended',
-      message: 'The call has ended.',
-      ended: { cause: 'go_away', code: 1008, closedAfterMs: 1 },
-    },
+    session: { kind: 'ended', message: 'The call has ended.', ended },
     errorInternal: 'socket closed (1008)',
   };
-  assertEquals(forClient(ended, { reader: 'builder' }), ended);
+  assertEquals(forClient(event, { reader: 'builder' }), {
+    type: 'session',
+    session: { kind: 'ended', message: 'socket closed (1008)', ended },
+  });
+  assertEquals(forClient(event), { type: 'session', session: event.session });
+});
+
+Deno.test("a builder reads a tool call's failure as what failed, a visitor the profile wording", () => {
+  const failure = {
+    code: 'unknown_tool',
+    kind: 'request',
+    message: "Tool 'nope' is not registered",
+    error: 'Sorry, something went wrong.',
+  } as const;
+  const event: TurnEvent = {
+    type: 'tool',
+    tool: { name: 'nope', callId: 'call_1', at: 1, phase: 'error', failure },
+  };
+  const read = (options?: { reader: 'builder' }) =>
+    firstOf([forClient(event, options)], 'tool')?.tool.failure?.error;
+  assertEquals(read({ reader: 'builder' }), failure.message);
+  assertEquals(read(), failure.error);
 });
 
 Deno.test('clientError words a caught failure by the same rule as forClient', () => {

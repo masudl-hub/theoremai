@@ -78,17 +78,17 @@
 	transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
+/* With detail a node is the token grown: its fill, its corners and its text, and no border. */
 .studio-map-node,
 .studio-map-card {
 	position: absolute;
 	box-sizing: border-box;
 	overflow: hidden;
-	border: 1px solid var(--color-border);
-	border-radius: var(--radius-element);
-	background: var(--color-background-card);
+	border: 0;
+	border-radius: var(--radius-inner);
+	background: var(--color-neutral);
 	transition:
-		border-color var(--duration-fast) var(--ease-standard),
-		box-shadow var(--duration-fast) var(--ease-standard),
+		background-color var(--duration-fast) var(--ease-standard),
 		opacity var(--duration-fast) var(--ease-standard);
 }
 
@@ -102,7 +102,7 @@
 .studio-map-row {
 	box-sizing: border-box;
 	display: flex;
-	gap: var(--spacing-2);
+	gap: var(--spacing-1);
 	color: var(--color-text-primary);
 	font: inherit;
 	text-align: start;
@@ -112,7 +112,7 @@
 .studio-map-node,
 .studio-map-head {
 	align-items: flex-start;
-	padding: var(--spacing-3);
+	padding: var(--spacing-1) var(--spacing-2);
 }
 
 .studio-map-head,
@@ -125,7 +125,7 @@
 
 .studio-map-row {
 	align-items: center;
-	padding: 0 var(--spacing-3);
+	padding: 0 var(--spacing-2);
 	transition: background-color var(--duration-fast) var(--ease-standard);
 }
 
@@ -138,7 +138,7 @@
 /* The section under the pointer, and each one a lit line ends on. */
 .studio-map-row:is(:hover, :focus-visible, [data-on]),
 .studio-map-head:is(:hover, :focus-visible) {
-	background: var(--color-background-surface);
+	background: var(--color-background-card);
 }
 
 /* A provider, and a shared setting nothing here uses, open nothing. */
@@ -152,21 +152,10 @@
 	flex: none;
 }
 
-.studio-map-node > :first-child,
-.studio-map-head > :first-child {
-	margin-block-start: var(--spacing-1);
-}
-
 .studio-map-words {
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
-}
-
-.studio-map-node:is(:hover, :focus-visible):not(:disabled),
-.studio-map-card:is(:hover, :focus-within) {
-	border-color: var(--color-border-emphasized);
-	box-shadow: var(--shadow-low);
 }
 
 .studio-map-node:focus-visible {
@@ -182,17 +171,17 @@
 /* The profile or tool open in the editor, and the section of it that is open. */
 .studio-map-node[aria-current],
 .studio-map-card[data-open] {
-	border-color: var(--color-accent);
+	background: var(--color-background-blue);
+	color: var(--color-text-blue);
 }
 
 .studio-map-row[aria-current] {
-	background: var(--color-background-surface);
+	background: var(--color-background-card);
 }
 
 /* The node being dragged rides over the rest, under the pointer and without easing. */
 :is(.studio-map-node, .studio-map-card)[data-dragging] {
 	z-index: 1;
-	box-shadow: var(--shadow-low);
 	transition: none;
 }
 

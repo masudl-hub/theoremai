@@ -56,26 +56,20 @@ import { MapToken, useTokenWidths } from './map-token.tsx';
 import './studio-map.css';
 
 /** With detail a node holds its icon, its name and two lines of its note; a card's head, one; a row, a section. */
-const DETAIL_SIZES: MapSizes = {
-	node: { width: 240, height: 84 },
-	card: { head: 64, row: 32, foot: 8 },
-	columnGap: 112,
-	rowGap: 12,
-	heading: 28,
-	groupGap: 24,
-	padding: 24,
-	lineGap: 8,
-};
-
 /** A token's slot: as wide as the longest name it shows in full. */
 const TOKEN_SIZES: MapSizes = {
-	...DETAIL_SIZES,
 	node: { width: 240, height: 24 },
+	card: { head: 48, row: 24, foot: 4 },
 	columnGap: 96,
 	rowGap: 6,
 	heading: 24,
 	groupGap: 16,
+	padding: 24,
+	lineGap: 8,
 };
+
+/** With detail a node is its token grown to hold its note: the same slot and the same gaps. */
+const DETAIL_SIZES: MapSizes = { ...TOKEN_SIZES, node: { width: 240, height: 68 } };
 const TOKEN_LABEL = 28;
 
 /** A long name keeps its start. */
@@ -486,7 +480,7 @@ function DetailNode(props: NodeProps) {
 		<>
 			<Icon icon={nodeIcon(node)} size="sm" color="secondary" />
 			<span className="studio-map-words">
-				<Text weight="semibold" maxLines={1}>
+				<Text type="supporting" maxLines={1}>
 					{node.label}
 				</Text>
 				{node.note && (
@@ -551,7 +545,9 @@ function DetailNode(props: NodeProps) {
 					{...lights(row.id)}
 				>
 					<Icon icon={rowIcon(row.type)} size="sm" color="secondary" />
-					<Text maxLines={1}>{row.label}</Text>
+					<Text type="supporting" maxLines={1}>
+						{row.label}
+					</Text>
 					{row.note && (
 						<span className="studio-map-row-note">
 							<Text type="supporting" color="secondary" maxLines={1}>

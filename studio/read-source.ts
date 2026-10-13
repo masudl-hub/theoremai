@@ -951,7 +951,8 @@ function allowTools(
   allow: unknown,
   spans: readonly StudioSourceSpan[],
 ): ToolSpecDraft[] {
-  if (allow === undefined) return [...registered];
+  // A profile with no `tools` allows none: the kernel reads it so.
+  if (allow === undefined) return [];
   const atAllow = spans.findLast((span) => span.path === 'tools.allow') ?? { line: 1, column: 1 };
   if (!Array.isArray(allow)) {
     throw new ReadFail('tools.allow has to be a list of tool names.', atAllow.line, atAllow.column);

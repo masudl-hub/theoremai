@@ -292,6 +292,15 @@ function compileEfforts(
   return { efforts, defaultEffort };
 }
 
+/** A built-in tool is its provider's: one left on a model whose provider does not offer it would fail the run. */
+function checkBuiltInTools(binding: ModelBindingDraft, route: ModelRoute, nodeId: string, report: Report): void {
+  const offered = modelCapabilities(route.adapter, route.apiId)?.builtins;
+  if (!offered) return;
+  for (const tool of binding.builtInTools.filter((id) => !offered.includes(id))) {
+    report(nodeId, `${binding.provider} doesn't offer the built-in tool ${tool}.`, 'builtInTools');
+  }
+}
+
 function compileBinding(
   binding: ModelBindingDraft,
   type: Exclude<StudioProfileType, 'host'>,
@@ -315,11 +324,7 @@ function compileBinding(
   if (chained && binding.persistViaInteractionId && binding.store === false) {
     report(nodeId, 'Chaining needs Google storage on.', 'persistViaInteractionId');
   }
-  // A built-in tool is its provider's: one left on a model whose provider does not offer it would fail the run.
-  const offered = modelCapabilities(route.adapter, apiId)?.builtins;
-  for (const tool of offered ? binding.builtInTools.filter((id) => !offered.includes(id)) : []) {
-    report(nodeId, `${binding.provider} doesn't offer the built-in tool ${tool}.`, 'builtInTools');
-  }
+  checkBuiltInTools(binding, route, nodeId, report);
   const cache = compileCache(binding, route, nodeId, report);
   const compaction = compileCompaction(binding, type, nodeId, report, agentIdOf);
   const server = binding.provider === LOCAL_PROVIDER_ID ? binding.server?.trim() : undefined;

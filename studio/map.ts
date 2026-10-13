@@ -203,7 +203,8 @@ export function workspaceMap(workspace: StudioWorkspace, shared: readonly Shared
       kind: 'shared',
       label: setting.label,
       note: `${setting.name} · ${setting.file}:${String(setting.line)}`,
-      opens: users[0] ? sharedNodeId(entry, users[0]) : used[0],
+      // It opens where it is changed: its section, else the tool it sets. Any other is changed in its file.
+      opens: facet && users[0] ? sharedNodeId(entry, users[0]) : used[0],
       type: facet,
     };
   });

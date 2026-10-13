@@ -55,6 +55,21 @@ registerTool({
   permission: 'auto',
 });
 registerProfile(defineProfile({ type: 'host', id: 'open-desk', tools: { allow: ['open_think'] } }));
+// A profile of a type that takes no tools.
+const speaker = compileStudio(
+  {
+    ...setProfileType(createBlankDraft(), 'speech'),
+    identity: {
+      ...example.identity,
+      agentId: 'open-speaker',
+      handle: 'speaker',
+      profileType: 'speech',
+    },
+  },
+  'byok',
+);
+assert(speaker.ok);
+registerProfile(speaker.profile);
 
 const handler = createStudioHandler({ project: 'open', pageOrigins: [], listenHost: HOST });
 
@@ -78,4 +93,12 @@ Deno.test('a project opens with its own providers, each with the adapter it is d
   const adapters = Object.fromEntries(workspace.providers.map(({ id, adapter }) => [id, adapter]));
   assertEquals(adapters['open-router'], 'openrouter');
   assertEquals(adapters.local, 'openai-chat');
+});
+
+Deno.test('a profile with no tools opens allowing none, whatever the project registers', async () => {
+  const request = new Request(`http://${HOST}/api/studio`, { headers: { host: HOST } });
+  const { workspace }: StudioDescription = await (await handler(request)).json();
+  const agent = workspace.agents.find((held) => held.identity.agentId === 'open-speaker');
+  assert(agent);
+  assertEquals(agent.tools.allow, []);
 });

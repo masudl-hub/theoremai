@@ -208,6 +208,15 @@ Deno.test('the map shows a shared setting over what it sets, and an agent that w
     [{ from: agentNodeId(desk.key, 'models'), to: agentNodeId(shop.key), kind: 'summarised' }],
   );
   assertEquals(mapLinkWords(map, id), 'Sets desk, shop, price.');
+
+  // One that is not a whole section opens the tool it sets; one that sets no tool is changed in its file.
+  const opens = (tools: string[]) => {
+    const part: SharedSetting = { ...setting, tools };
+    delete part.key;
+    return workspaceMap(workspace, sharedEntries(workspace, [part])).columns[1]?.[0]?.nodes[0]
+      ?.opens;
+  };
+  assertEquals([opens(['price']), opens([])], [toolSpecNodeId('price'), undefined]);
 });
 
 Deno.test('the map is laid out in columns, with a line from the side of each node that faces the other', () => {

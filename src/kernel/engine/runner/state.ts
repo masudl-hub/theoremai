@@ -150,5 +150,5 @@ function openTurnState(args: {
   return state;
 }
 
-export type { AttemptFlowState, StepExecutionState, TurnTraceState };
+export type { AttemptFlowState, PendingItemFix, StepExecutionState, TurnTraceState };
 export { appendUserInput, openTurnState, recordStepEvent };

@@ -502,6 +502,15 @@ async function* settleToolCall(args: {
     ...(denied ? { denied } : {}),
     ...(callNotStarted ? { callNotStarted: true as const } : {}),
     ...(awaiting ? { awaiting: true as const } : {}),
+    ...stageSettlement(post),
+  };
+}
+
+/** What the after-call stages add to a settlement: a turn to stop, input to hand the model. */
+function stageSettlement(
+  post: PostToolStageOutcome | undefined,
+): Pick<ToolExecuteSettlement, 'aborted' | 'pendingInject'> {
+  return {
     ...(post?.abort !== undefined ? { aborted: post.abort } : {}),
     ...(post?.inject.length ? { pendingInject: post.inject } : {}),
   };
@@ -916,11 +925,7 @@ function registeredEligibilityFailure(args: {
     return {
       code: 'not_allowed',
       kind: 'blocked',
-      message: labelText(
-        'tool.not_allowed',
-        { tool: name, profile: profile.id },
-        profile.labels,
-      ),
+      message: labelText('tool.not_allowed', { tool: name, profile: profile.id }, profile.labels),
     };
   }
   if (!snapshot) return undefined;

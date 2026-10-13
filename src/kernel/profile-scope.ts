@@ -42,13 +42,7 @@ function turnGuardrailTypes(key: string): readonly ProfileType[] {
  * The profile's own settings, which no section holds. The catalog names each `profile.<key>`, as
  * a section's fields carry their section's name.
  */
-export const PROFILE_ROOT_FIELDS = [
-  'id',
-  'type',
-  'defaultModel',
-  'allowModelSelect',
-  'maxSteps',
-] as const;
+const PROFILE_ROOT_FIELDS = ['id', 'type', 'defaultModel', 'allowModelSelect', 'maxSteps'] as const;
 /** Whether a top-level profile key is one of the profile's own settings. */
 export function isProfileRootField(key: string): boolean {
   return (PROFILE_ROOT_FIELDS as readonly string[]).includes(key);

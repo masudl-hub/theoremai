@@ -136,7 +136,7 @@ export function calleeName(call: ts.CallExpression): string | undefined {
 const PROFILE_CALLS = new Set(['defineProfile', 'registerProfile']);
 
 /** Whether a call is one a profile's options may be written straight into. */
-export function takesProfile(call: ts.CallExpression): boolean {
+function takesProfile(call: ts.CallExpression): boolean {
   return PROFILE_CALLS.has(calleeName(call) ?? '');
 }
 

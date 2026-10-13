@@ -47,7 +47,12 @@ import {
   withListAt,
 } from './schema-validation.ts';
 import { applyTurnStage } from './stages.ts';
-import { type AttemptFlowState, appendUserInput, type StepExecutionState } from './state.ts';
+import {
+  type AttemptFlowState,
+  appendUserInput,
+  type PendingItemFix,
+  type StepExecutionState,
+} from './state.ts';
 import { executeAttempt } from './steps.ts';
 import { isWithheldOnBlock } from './stream.ts';
 
@@ -417,10 +422,7 @@ function fixSchemaFor(jsonSchema: Record<string, unknown>, paths: Iterable<strin
 }
 
 /** `fix.reply` with each refused item replaced by its rewrite, matched by position; one with no rewrite stays as it was. */
-function withRewrittenItems(
-  fix: NonNullable<AttemptFlowState['pendingItemFix']>,
-  rewrite: unknown,
-): unknown {
+function withRewrittenItems(fix: PendingItemFix, rewrite: unknown): unknown {
   let reply = fix.reply;
   for (const path of new Set(fix.refused.map((failure) => failure.path))) {
     const list = valueAt(reply, path);

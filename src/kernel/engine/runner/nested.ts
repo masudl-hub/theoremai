@@ -111,11 +111,7 @@ function createAgentCaller(args: {
         return settled('refused_by_host', 'declined', shaped.refuse);
       }
       const { provider: hostProvider, ...fields }: AgentCallRequest = shaped ?? {};
-      const provider = hostProvider
-        ? resolveRegisteredTurnProvider(args.registry, profile.id, fields.model, hostProvider)
-        : args.provider
-          ? nestedRegisteredProvider(args.provider, profile.id, fields.model)
-          : resolveRegisteredTurnProvider(args.registry, profile.id, fields.model, {});
+      const provider = agentProvider(args, profile.id, fields.model, hostProvider);
       if (!span) {
         throw new TheoremError('internal', `Agent tool "${tool.name}" ran without a span`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
@@ -152,6 +148,19 @@ function createAgentCaller(args: {
       return agentRunOf(events, tool.name, tool.profile, labels);
     },
   };
+}
+
+/** The provider an agent's turn runs on: the host's for this call, else the caller's, else the registry's. */
+function agentProvider(
+  from: { registry: KernelRegistry; provider: ModelProvider | undefined },
+  profileId: string,
+  model: AgentCallRequest['model'],
+  hostProvider: AgentCallRequest['provider'],
+): ModelProvider {
+  if (hostProvider)
+    return resolveRegisteredTurnProvider(from.registry, profileId, model, hostProvider);
+  if (from.provider) return nestedRegisteredProvider(from.provider, profileId, model);
+  return resolveRegisteredTurnProvider(from.registry, profileId, model, {});
 }
 
 /** The agent's reply, or why there is none. Errors only the host can fix are thrown. */

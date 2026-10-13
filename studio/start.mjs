@@ -72,18 +72,25 @@ async function setupToOpen() {
 	const found = findSetups(from);
 	const setups = wanted === undefined ? found : setupsNamed(found, wanted);
 	if (setups.length === 1) return setups[0].file;
-	if (found.length === 0) {
-		refuse(`No setup in ${from}. A setup is a file named studio.setup.ts, or <name>.studio.setup.ts.`);
-	}
-	if (setups.length === 0) {
-		refuse(`No setup is named ${wanted}. This project has:\n\n${setupLines(found).join('\n')}`);
-	}
-	if (!process.stdin.isTTY || !process.stdout.isTTY) {
-		refuse(`This project has more than one setup. Name the one to open:\n\n${setupLines(setups).join('\n')}`);
-	}
+	const why = whyNoSetup(found, setups);
+	if (why) refuse(why);
 	const chosen = await chooseSetup(setups, process.stdin, process.stdout);
 	if (!chosen) process.exit(130);
 	return chosen.file;
+}
+
+/** Why the builder cannot be asked which setup to open, when that is so. */
+function whyNoSetup(found, setups) {
+	if (found.length === 0) {
+		return `No setup in ${from}. A setup is a file named studio.setup.ts, or <name>.studio.setup.ts.`;
+	}
+	if (setups.length === 0) {
+		return `No setup is named ${wanted}. This project has:\n\n${setupLines(found).join('\n')}`;
+	}
+	if (!process.stdin.isTTY || !process.stdout.isTTY) {
+		return `This project has more than one setup. Name the one to open:\n\n${setupLines(setups).join('\n')}`;
+	}
+	return undefined;
 }
 const place = placeFor(realpathSync(path.resolve(from, setup)), await heldPairs());
 if (!place) refuse('Too many studios are open on this machine. Stop one, then run this again.');

@@ -266,9 +266,12 @@ Deno.test('a row path names the keys the files hold: a star the node names, a to
   assertEquals(settingPath(model, 'profile.maxSteps'), ['maxSteps']);
   const tool = { stars: {}, tool: true };
   assertEquals(
-    ['registerTool.type', 'registerTool.inputSchema', 'studio.sampleInput', 'registerTool.auth.slot'].map((path) =>
-      settingPath(tool, path),
-    ),
+    [
+      'registerTool.type',
+      'registerTool.inputSchema',
+      'studio.sampleInput',
+      'registerTool.auth.slot',
+    ].map((path) => settingPath(tool, path)),
     [['type'], ['inputSchema'], undefined, ['auth', 'slot']],
   );
 });

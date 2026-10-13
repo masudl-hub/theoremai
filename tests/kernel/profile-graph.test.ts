@@ -89,10 +89,7 @@ Deno.test('speech spine omits tools and inputs; live omits outputs', () => {
 Deno.test('ALL covers PROFILE_TYPES exactly', () => {
   const allFacets = PROFILE_GRAPH.filter(
     (f) =>
-      f.id === 'identity' ||
-      f.id === 'guardrails' ||
-      f.id === 'observability' ||
-      f.id === 'labels',
+      f.id === 'identity' || f.id === 'guardrails' || f.id === 'observability' || f.id === 'labels',
   );
   for (const facet of allFacets) {
     const sortedFacetTypes = [...facet.profileTypes].sort();

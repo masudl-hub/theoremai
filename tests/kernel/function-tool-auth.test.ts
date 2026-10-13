@@ -148,10 +148,7 @@ Deno.test('a function tool asked for scopes it never declared fails without a si
   assertEquals(toolEventsOf(events, 'gate').length, 0);
   const [failed] = toolEventsOf(events, 'error');
   assertEquals(failed?.failure?.code, 'out_of_scope');
-  assertEquals(
-    failed?.failure?.message,
-    labelText('sign_in.out_of_scope', { service: 'Sheets' }),
-  );
+  assertEquals(failed?.failure?.message, labelText('sign_in.out_of_scope', { service: 'Sheets' }));
 });
 Deno.test('a 403 that asks for no sign-in reaches the handler as a response', async () => {
   registerSheetTool({ slot: 'sheets', type: 'bearer' });

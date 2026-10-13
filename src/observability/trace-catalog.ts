@@ -1634,7 +1634,10 @@ const TRACE_SPAN_TYPES: Readonly<Record<TraceSpanType, TraceOptionMeta>> = {
  * span type by the field it fills, `trace.type.turn`.
  */
 function traceCatalogRows(): readonly { name: string; label: string; doc: string }[] {
-  const fields = Object.entries(TRACE_FIELDS).map(([key, meta]) => ({ name: `trace.${key}`, ...meta }));
+  const fields = Object.entries(TRACE_FIELDS).map(([key, meta]) => ({
+    name: `trace.${key}`,
+    ...meta,
+  }));
   const spans = Object.entries(TRACE_SPAN_TYPES).map(([key, meta]) => ({
     name: `trace.type.${key}`,
     ...meta,

@@ -1380,11 +1380,9 @@ function buildLiveSession(args: {
           );
         }
         if (ev.tool.operationId !== held.operationId || ev.tool.name !== held.name) {
-          throw new TheoremError(
-            'request',
-            labelText('session.gate_expired', {}, profile.labels),
-            { copy: { key: 'session.gate_expired' } },
-          );
+          throw new TheoremError('request', labelText('session.gate_expired', {}, profile.labels), {
+            copy: { key: 'session.gate_expired' },
+          });
         }
         if (isSettledPhase(ev.tool)) settled = ev.tool;
       }

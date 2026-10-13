@@ -50,7 +50,7 @@ export function setupsAmong(files, project) {
  * @param {string} root
  * @returns {string[]}
  */
-export function projectFiles(root) {
+function projectFiles(root) {
 	const files = [];
 	const walk = (folder, depth) => {
 		for (const entry of readdirSync(path.join(root, folder), { withFileTypes: true })) {

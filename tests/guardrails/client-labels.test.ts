@@ -1,10 +1,5 @@
 import { assertEquals } from '@std/assert';
-import {
-  attachmentIssueText,
-  CLIENT_LABEL_KEYS,
-  overrideLabels,
-  resetLabels,
-} from '../../mod.ts';
+import { attachmentIssueText, CLIENT_LABEL_KEYS, overrideLabels, resetLabels } from '../../mod.ts';
 import { clientLabels } from '../../src/guardrails/labels.ts';
 import { attachmentIssues } from '../../src/kernel/registry/attachments.ts';
 

@@ -24,7 +24,10 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   decision: { required: true },
   'decision.contract': { required: true },
   models: { required: true },
-  'profile.defaultModel': { required: 'when more than one model is declared', unset: 'The only model' },
+  'profile.defaultModel': {
+    required: 'when more than one model is declared',
+    unset: 'The only model',
+  },
   'profile.allowModelSelect': { unset: 'Off' },
   'profile.maxSteps': { unset: `${DEFAULT_MAX_STEPS} model calls` },
   'models.*.provider': { required: true },

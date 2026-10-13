@@ -2,11 +2,7 @@ import type { z } from 'zod';
 import { TOOL_BOUNDARIES } from '../../guardrails/boundaries.ts';
 import { detectProblem } from '../../guardrails/detectors.ts';
 import { TheoremError } from '../../guardrails/error.ts';
-import {
-  type LabelOverrides,
-  labelText,
-  validateLabelOverrides,
-} from '../../guardrails/labels.ts';
+import { type LabelOverrides, labelText, validateLabelOverrides } from '../../guardrails/labels.ts';
 import {
   BLOCKED_REPLY_ON_BLOCK,
   type BlockedReplySpec,

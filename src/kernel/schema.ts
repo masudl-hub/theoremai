@@ -444,7 +444,8 @@ export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
 /** Turns a key path into its catalog path, replacing host-chosen map keys with `*`. */
 export function catalogPathFor(keys: readonly string[]): string {
   const [first] = keys;
-  if (keys.length === 1 && first !== undefined && isProfileRootField(first)) return `profile.${first}`;
+  if (keys.length === 1 && first !== undefined && isProfileRootField(first))
+    return `profile.${first}`;
   const resolved: string[] = [];
   for (const key of keys) {
     const prefix = resolved.join('.');
@@ -1415,7 +1416,10 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     'string',
     "The tool's id, which profiles list in tools.allow (or a model's builtInTools) and the model calls a custom tool by.",
   ),
-  'registerTool.description': field('string', 'Tells the model what the tool does (custom tools only).'),
+  'registerTool.description': field(
+    'string',
+    'Tells the model what the tool does (custom tools only).',
+  ),
   'registerTool.input': field(
     'ZodSchema',
     "The Zod schema for the tool's arguments, sent to the model and checked on every call.",
@@ -1503,7 +1507,10 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     TOOL_AUTH_TYPES,
     CREDENTIAL_KINDS,
   ),
-  'registerTool.auth.slot': field('string', 'Which of the credentials the turn passes in this tool uses.'),
+  'registerTool.auth.slot': field(
+    'string',
+    'Which of the credentials the turn passes in this tool uses.',
+  ),
   'registerTool.auth.service': field(
     'string',
     'The service the person signs in to, as they know it, named when a turn stops to ask for a credential.',

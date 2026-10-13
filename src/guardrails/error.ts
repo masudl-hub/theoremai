@@ -50,11 +50,7 @@ function kindText(kind: ErrorKind, labels?: LabelOverrides, params?: LabelParams
   return labelText(`error.${kind}`, params, labels);
 }
 
-function wording(
-  kind: ErrorKind,
-  copy: ErrorCopies | undefined,
-  labels?: LabelOverrides,
-): string {
+function wording(kind: ErrorKind, copy: ErrorCopies | undefined, labels?: LabelOverrides): string {
   return copy ? errorCopyText(copy, labels) : kindText(kind, labels);
 }
 

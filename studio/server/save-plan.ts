@@ -526,19 +526,25 @@ class Planner {
         this.note('changed', path, { source, node });
         return;
       }
-      const start = node.getStart(source);
-      // A list's own quotes are for the list that replaces it.
-      const style = this.style(source, start, Array.isArray(after) || !ts.isArrayLiteralExpression(node) ? node : undefined);
-      // A list of plain values on one line stays on one line.
-      const inline = ts.isArrayLiteralExpression(node) && Array.isArray(after) && after.length > 0 &&
-        after.every((item) => item === null || typeof item !== 'object') &&
-        !node.getText(source).includes('\n');
-      const text = inline ? `[${after.map((item) => valueSource(item, style)).join(', ')}]` : valueSource(after, style);
-      this.edit(source, start, node.end, text);
-      this.note('written', path, { source, node });
+      this.write(here, after, path);
       return;
     }
     this.named(here, node.getText(source), before, after, path);
+  }
+
+  /** Writes `after` over the plain value at `at`, in the file's own style. */
+  private write(at: Located, after: unknown, path: string[]): void {
+    const { source, node } = at;
+    const start = node.getStart(source);
+    // A list's own quotes are for the list that replaces it.
+    const style = this.style(source, start, Array.isArray(after) || !ts.isArrayLiteralExpression(node) ? node : undefined);
+    // A list of plain values on one line stays on one line.
+    const inline = ts.isArrayLiteralExpression(node) && Array.isArray(after) && after.length > 0 &&
+      after.every((item) => item === null || typeof item !== 'object') &&
+      !node.getText(source).includes('\n');
+    const text = inline ? `[${after.map((item) => valueSource(item, style)).join(', ')}]` : valueSource(after, style);
+    this.edit(source, start, node.end, text);
+    this.note('written', path, { source, node });
   }
 
   /** Where a key of `shape` is written, or `at` when no property writes it. */

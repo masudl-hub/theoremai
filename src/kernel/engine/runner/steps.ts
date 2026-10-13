@@ -143,7 +143,7 @@ function startProviderCall(
 interface StepOutcome {
   calls: ModelCall[];
   latestStructured?: unknown;
-  resume?: { stop: TurnStop | undefined; failure: TurnEventOf<'error'> | undefined };
+  resume?: { stop: TurnStop; failure: TurnEventOf<'error'> | undefined };
 }
 
 /**
@@ -163,6 +163,79 @@ const REPLY_EVENTS: ReadonlySet<TurnEvent['type']> = new Set([
   'structured',
   'citation',
 ]);
+
+/** What one model call has given so far. */
+interface CallTally {
+  calls: ModelCall[];
+  latestStructured?: unknown;
+  /** The stop the call ended with after gates: a canary block or provider error outranks what the provider reported. */
+  stop?: TurnStop;
+  /** why: A call's failure is the turn's only once the call is not sent again, so it waits for the call's end. */
+  failures: TurnEventOf<'error'>[];
+  replied: boolean;
+}
+
+/** Takes what an event says about the call itself. True when the event goes no further. */
+function tallyCallEvent(
+  event: TurnEvent,
+  tally: CallTally,
+  call: ReturnType<typeof startProviderCall>['call'],
+): boolean {
+  if (event.type === 'error') {
+    tally.failures.push(event);
+    return true;
+  }
+  if (event.type === 'tool') return holdModelCall(tally.calls, event.tool);
+  if (event.type === 'guardrail') call.guardrail(event.guardrail);
+  if (event.type === 'structured') tally.latestStructured = event.structured;
+  if (REPLY_EVENTS.has(event.type)) tally.replied = true;
+  return false;
+}
+
+/** Records an event the call gave. True when the host gets it now. */
+function releasesNow(
+  event: TurnEvent,
+  control: OutboundStreamControl,
+  state: StepExecutionState,
+  buffer: { holdLate: boolean; holdVisible: boolean },
+): boolean {
+  recordStepEvent(event, state);
+  if (control.withholdVisible && isWithheldOnBlock(event)) {
+    // why: Progressive-yield blocked this attempt — keep events for egress/repair only.
+    // Record the decision so the attempt gate knows nothing reached the host.
+    state.withheldVisible = true;
+    return false;
+  }
+  if (event.type === 'text') state.released += event.text;
+  // why: Text and media stream via progressive-yield under egress, thoughts
+  // stream unguarded; holdLate only buffers non-visible events (e.g.
+  // structured) for validation.
+  const isUserVisible =
+    event.type === 'thought' || (!buffer.holdVisible && isWithheldOnBlock(event));
+  return !buffer.holdLate || isUserVisible;
+}
+
+/**
+ * The re-send a finished call is due, if any.
+ *
+ * why: A failed call that gave no reply and no tool call left nothing behind, so sending it again repeats
+ * nothing. A reply cut at `length` is not a failure: the same call would be cut at the same place.
+ */
+function resumeOf(mayResume: boolean, profile: Profile, tally: CallTally): StepOutcome['resume'] {
+  const { stop } = tally;
+  if (!mayResume || tally.replied || tally.calls.length > 0 || !stop) return undefined;
+  if (!isFailedStopKind(stop.kind) || !resendsFailedCall(profile, stop)) return undefined;
+  return { stop, failure: tally.failures[0] };
+}
+
+/** Carries what the call's stream guards still hold into the turn's next call. */
+function keepStreamCarry(state: StepExecutionState, control: OutboundStreamControl): void {
+  state.canaryCarry = control.canaryCarry;
+  state.thoughtCarry = control.thoughtCarry;
+  if (control.promptLeaks) {
+    state.promptLeaks = [...(state.promptLeaks ?? []), ...control.promptLeaks];
+  }
+}
 
 async function* executeAutonomousStep(
   args: {
@@ -187,14 +260,7 @@ async function* executeAutonomousStep(
     state,
     isAnswerOnlyStep(profile, generation, state.stepCount),
   );
-  const calls: ModelCall[] = [];
-  let latestStructured: unknown;
-  // why: The stop this call ended with after gates: a canary block or provider
-  // error outranks what the provider reported.
-  let stop: TurnStop | undefined;
-  // why: A call's failure is the turn's only once the call is not sent again, so it waits for the call's end.
-  const failures: TurnEventOf<'error'>[] = [];
-  let replied = false;
+  const tally: CallTally = { calls: [], failures: [], replied: false };
   const control: OutboundStreamControl = {
     withholdVisible: false,
     ...(state.canaryCarry ? { canaryCarry: state.canaryCarry } : {}),
@@ -215,82 +281,43 @@ async function* executeAutonomousStep(
       canaryGiven: state.canaryGiven,
       ...(state.ownTools ? { ownTools: state.ownTools } : {}),
     })) {
-      if (observeCallEvent(usage, event)) {
-        continue;
-      }
-      if (event.type === 'guardrail') {
-        call.guardrail(event.guardrail);
-      }
-      if (event.type === 'structured') {
-        latestStructured = event.structured;
-      }
+      if (observeCallEvent(usage, event)) continue;
       if (event.type === 'done') {
         state.providerState = event.providerState;
-        stop = event.stop;
+        tally.stop = event.stop;
         state.lastStop = event.stop;
         continue;
       }
-      if (event.type === 'tool' && holdModelCall(calls, event.tool)) {
-        continue;
-      }
-      if (event.type === 'error') {
-        failures.push(event);
-        continue;
-      }
-      if (REPLY_EVENTS.has(event.type)) replied = true;
-      recordStepEvent(event, state);
-      if (control.withholdVisible && isWithheldOnBlock(event)) {
-        // why: Progressive-yield blocked this attempt — keep events for egress/repair only.
-        // Record the decision so the attempt gate knows nothing reached the host.
-        state.withheldVisible = true;
-        continue;
-      }
-      if (event.type === 'text') state.released += event.text;
-      // why: Text and media stream via progressive-yield under egress, thoughts
-      // stream unguarded; holdLate only buffers non-visible events (e.g.
-      // structured) for validation.
-      const isUserVisible =
-        event.type === 'thought' || (!buffer.holdVisible && isWithheldOnBlock(event));
-      const streamNow = !buffer.holdLate || isUserVisible;
-      if (streamNow) {
-        yield event;
-      }
+      if (tallyCallEvent(event, tally, call)) continue;
+      if (releasesNow(event, control, state, buffer)) yield event;
     }
   } catch (err) {
-    call.end(isAbortError(err) ? { stop: { kind: 'cancelled' } } : { stop, thrown: err });
+    call.end(
+      isAbortError(err) ? { stop: { kind: 'cancelled' } } : { stop: tally.stop, thrown: err },
+    );
     throw err;
   }
 
-  state.canaryCarry = control.canaryCarry;
-  state.thoughtCarry = control.thoughtCarry;
-  if (control.promptLeaks) {
-    state.promptLeaks = [...(state.promptLeaks ?? []), ...control.promptLeaks];
-  }
-  // why: A failed call that gave no reply and no tool call left nothing behind, so sending it again repeats
-  // nothing. A reply cut at `length` is not a failure: the same call would be cut at the same place.
-  const resume =
-    args.mayResume &&
-    !replied &&
-    calls.length === 0 &&
-    stop !== undefined &&
-    isFailedStopKind(stop.kind) &&
-    resendsFailedCall(profile, stop)
-      ? { stop, failure: failures[0] }
-      : undefined;
+  keepStreamCarry(state, control);
+  const resume = resumeOf(args.mayResume, profile, tally);
   if (!resume) {
-    for (const failure of failures) {
+    for (const failure of tally.failures) {
       recordStepEvent(failure, state);
       if (!buffer.holdLate) yield failure;
     }
   }
   const tokens = await callTokensEvent(usage, generation, state.mediaFamily);
-  call.end({ tokens: tokens?.tokens, stop });
+  call.end({ tokens: tokens?.tokens, stop: tally.stop });
   if (tokens) {
     recordStepEvent(tokens, state);
     yield tokens;
   }
 
-  return { calls, latestStructured, ...(resume ? { resume } : {}) };
+  return {
+    calls: tally.calls,
+    latestStructured: tally.latestStructured,
+    ...(resume ? { resume } : {}),
+  };
 }
 
 /**
@@ -315,7 +342,7 @@ async function* executeResumedStep(
     state.trace.root.event('theorem.step.resume', {
       step: state.stepCount,
       resume: state.resumes,
-      ...(outcome.resume.stop ? { stop: outcome.resume.stop.kind } : {}),
+      stop: outcome.resume.stop.kind,
       ...(detail ? { error: detail } : {}),
     });
     state.lastStop = undefined;

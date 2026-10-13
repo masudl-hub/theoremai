@@ -27,12 +27,14 @@ import {
 	type CSSProperties,
 	type KeyboardEvent,
 	type PointerEvent as ReactPointerEvent,
+	type RefObject,
 	useEffect,
 	useMemo,
 	useRef,
 	useState,
 } from 'react';
 import {
+	type MapLayout,
 	type MapLink,
 	type MapNode,
 	type MapPlace,
@@ -43,6 +45,7 @@ import {
 	mapNoteLines,
 	type SharedEntry,
 	type StudioWorkspace,
+	type WorkspaceMap,
 	workspaceMap,
 } from '../mod.ts';
 import { FACET_ICON } from './lib/facet-icons.ts';
@@ -151,79 +154,50 @@ function follow(
 	globalThis.addEventListener('pointercancel', end);
 }
 
-export function StudioMap({
-	workspace,
-	shared,
-	selected,
-	onOpen,
-	onClose,
-}: {
-	workspace: StudioWorkspace;
-	shared: readonly SharedEntry[];
-	/** The open node's id; its agent or tool is marked on the map. */
-	selected: string;
-	onOpen: (node: string) => void;
-	onClose: () => void;
-}) {
+/** How the map was left, and what it shows for it: every node, or one node's family. */
+function useKept(whole: WorkspaceMap) {
 	const project = useProject()?.name;
-	const whole = useMemo(() => workspaceMap(workspace, shared), [workspace, shared]);
 	const [kept, setKept] = useState<KeptMap>(() => readKeptMap(project));
 	const keep = (next: KeptMap) => {
 		setKept(next);
 		writeKeptMap(project, next);
 	};
 	const { expanded } = kept;
-	const family = whole.columns.flat().some((group) => group.nodes.some((node) => node.id === kept.family))
-		? kept.family
-		: undefined;
+	const known = whole.columns.flat().some((group) => group.nodes.some((node) => node.id === kept.family));
+	const family = known ? kept.family : undefined;
 	const map = useMemo(() => (family === undefined ? whole : mapFamily(whole, family)), [whole, family]);
 	// A family is laid out afresh from the top. Where its nodes are dragged lasts while it shows.
 	const [lens, setLens] = useState<MapPlaces>({});
 	const places = expanded ? 'detail' : 'tokens';
-	const moved = family === undefined ? kept[places] : lens;
-	/** Puts dragged nodes at `next`. They are kept when a drag ends, not at every step of it. */
-	const put = (next: MapPlaces, ended: boolean) => {
-		if (family !== undefined) setLens(next);
-		else if (ended) keep({ ...kept, [places]: next });
-		else setKept({ ...kept, [places]: next });
+	return {
+		expanded,
+		family,
+		map,
+		moved: family === undefined ? kept[places] : lens,
+		/** Puts dragged nodes at `next`. They are kept when a drag ends, not at every step of it. */
+		put(next: MapPlaces, ended: boolean) {
+			if (family !== undefined) setLens(next);
+			else if (ended) keep({ ...kept, [places]: next });
+			else setKept({ ...kept, [places]: next });
+		},
+		showFamily(id: string | undefined) {
+			setLens({});
+			const { tokens, detail } = kept;
+			keep({ tokens, detail, expanded, ...(id === undefined ? {} : { family: id }) });
+		},
+		expand() {
+			keep({ ...kept, expanded: !expanded });
+		},
 	};
-	const showFamily = (id: string | undefined) => {
-		setLens({});
-		const { tokens, detail } = kept;
-		keep({ tokens, detail, expanded, ...(id === undefined ? {} : { family: id }) });
-	};
+}
 
-	const field = useRef<HTMLDivElement>(null);
-	const sizes = expanded ? DETAIL_SIZES : TOKEN_SIZES;
-	const widths = useTokenWidths(field, expanded ? undefined : map);
-	const layout = useMemo(
-		() => mapLayout(map, sizes, expanded ? { moved, detail: true } : { moved, widths }),
-		[map, sizes, expanded, moved, widths],
-	);
-	const opened = map.columns.flat().flatMap((group) => group.nodes).find((node) => isOpen(node, selected))?.id;
-	const start = useRef({ layout, opened, sizes });
-	start.current = { layout, opened, sizes };
-	// A family, and the map with or without detail, each start from the top left, or as near it as shows what is open.
-	useEffect(() => {
-		const scroller = field.current && scrollerOf(field.current);
-		if (!scroller) return;
-		const { layout, opened, sizes } = start.current;
-		const at = opened === undefined || family !== undefined ? undefined : layout.nodes[opened];
-		const hidden =
-			at !== undefined &&
-			(at.x + sizes.node.width > scroller.clientWidth || at.y + at.height > scroller.clientHeight);
-		scroller.scrollTo({
-			left: hidden ? at.x - sizes.padding : 0,
-			top: hidden ? at.y - sizes.padding - sizes.heading : 0,
-			behavior: 'instant',
-		});
-	}, [family, expanded]);
+type Put = (next: MapPlaces, ended: boolean) => void;
+
+/** What makes a node draggable, and movable with Alt and the arrow keys. */
+function useDrag(layout: MapLayout, moved: MapPlaces, put: Put) {
 	/** A drag just ended on this node: the click that follows it opens nothing. */
 	const dropped = useRef(false);
 	const [dragging, setDragging] = useState<string>();
-	const [panning, setPanning] = useState(false);
-
-	/** What makes `id`'s node draggable, and movable with Alt and the arrow keys. */
 	const draggable = (id: string) => ({
 		onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
 			dropped.current = false;
@@ -262,24 +236,19 @@ export function StudioMap({
 			const place = layout.nodes[id];
 			if (!step || !place) return;
 			event.preventDefault();
-			put(
-				{
-					...moved,
-					[id]: {
-						x: Math.max(place.x + step.x * NUDGE, 0),
-						y: Math.max(place.y + step.y * NUDGE, 0),
-					},
-				},
-				true,
-			);
+			const x = Math.max(place.x + step.x * NUDGE, 0);
+			const y = Math.max(place.y + step.y * NUDGE, 0);
+			put({ ...moved, [id]: { x, y } }, true);
 		},
 	});
+	return { dragging, draggable };
+}
 
-	/** A drag that starts on the field, off every node, pans it. */
+/** A drag that starts on the field, off every node, pans it. */
+function usePan() {
+	const [panning, setPanning] = useState(false);
 	const pan = (event: ReactPointerEvent<HTMLElement>) => {
-		if (!drags(event) || (event.target as Element).closest('[data-map-node]')) {
-			return;
-		}
+		if (!drags(event) || (event.target as Element).closest('[data-map-node]')) return;
 		const scroller = scrollerOf(event.currentTarget);
 		if (!scroller) return;
 		const { scrollLeft, scrollTop } = scroller;
@@ -294,9 +263,11 @@ export function StudioMap({
 			},
 		);
 	};
+	return { panning, pan };
+}
 
-	const nodes = map.columns.flat().flatMap((group) => group.nodes);
-	// The node or section under the pointer or holding focus: its lines, and what they reach, stay lit.
+/** The node or section under the pointer or holding focus: its lines, and what they reach, stay lit. */
+function useLit(layout: MapLayout) {
 	const [lit, setLit] = useState<string>();
 	const [on, onLines] = useMemo(() => {
 		const ids = new Set<string>();
@@ -310,7 +281,6 @@ export function StudioMap({
 		}
 		return [ids, lines];
 	}, [layout, lit]);
-	/** What lights `id` while the pointer or focus is on it. */
 	const lights = (id: string) => ({
 		onPointerEnter: () => {
 			setLit(id);
@@ -325,52 +295,80 @@ export function StudioMap({
 			setLit(undefined);
 		},
 	});
+	return { lit, on, onLines, lights };
+}
 
-	const isMoved = nodes.some((node) => Object.hasOwn(moved, node.id));
-	const tidy = () => {
-		put({}, true);
+/**
+ * A family, and the map with or without detail, each start from the top left, or as near it as
+ * shows the node that is open.
+ */
+function useStart(
+	field: RefObject<HTMLDivElement | null>,
+	view: { family: string | undefined; expanded: boolean },
+	open: { place: MapLayout['nodes'][string] | undefined; sizes: MapSizes },
+) {
+	const latest = useRef(open);
+	latest.current = open;
+	const { family, expanded } = view;
+	useEffect(() => {
+		const scroller = field.current && scrollerOf(field.current);
+		if (!scroller) return;
+		const { place, sizes } = latest.current;
+		const at = family === undefined ? place : undefined;
+		const hidden =
+			at !== undefined &&
+			(at.x + sizes.node.width > scroller.clientWidth || at.y + at.height > scroller.clientHeight);
+		scroller.scrollTo({
+			left: hidden ? at.x - sizes.padding : 0,
+			top: hidden ? at.y - sizes.padding - sizes.heading : 0,
+			behavior: 'instant',
+		});
+	}, [field, family, expanded]);
+}
+
+interface MapActions {
+	family: string | undefined;
+	expanded: boolean;
+	isMoved: boolean;
+	showFamily: (id: string | undefined) => void;
+	expand: () => void;
+	tidy: () => void;
+}
+
+/** What a right click offers: on a node, its family and what it opens; anywhere, the field's own. */
+function menuOf(onNode: MapNode | undefined, onOpen: (node: string) => void, actions: MapActions): ContextMenuOption[] {
+	const { family, expanded, isMoved, showFamily, expand, tidy } = actions;
+	const forNode: ContextMenuOption[] = [];
+	if (onNode && onNode.id !== family) {
+		forNode.push({
+			label: 'Show only its family',
+			icon: IconFocus2,
+			onClick: () => {
+				showFamily(onNode.id);
+			},
+		});
+	}
+	const opens = onNode?.opens;
+	if (opens !== undefined) {
+		forNode.push({
+			label: 'Open',
+			icon: IconExternalLink,
+			onClick: () => {
+				onOpen(opens);
+			},
+		});
+	}
+	if (onNode) forNode.push({ type: 'divider' });
+	const everything: ContextMenuOption = {
+		label: 'Show everything',
+		icon: IconEye,
+		onClick: () => {
+			showFamily(undefined);
+		},
 	};
-	const expand = () => {
-		keep({ ...kept, expanded: !expanded });
-	};
-	/** The node the menu was opened on, if on one. */
-	const [menuOn, setMenuOn] = useState<string>();
-	const onNode = nodes.find((node) => node.id === menuOn);
-	const menu: ContextMenuOption[] = [
-		...(onNode && onNode.id !== family
-			? [
-					{
-						label: 'Show only its family',
-						icon: IconFocus2,
-						onClick: () => {
-							showFamily(onNode.id);
-						},
-					},
-				]
-			: []),
-		...(onNode?.opens === undefined
-			? []
-			: [
-					{
-						label: 'Open',
-						icon: IconExternalLink,
-						onClick: () => {
-							if (onNode.opens !== undefined) onOpen(onNode.opens);
-						},
-					},
-				]),
-		...(onNode ? [{ type: 'divider' as const }] : []),
-		...(family === undefined
-			? []
-			: [
-					{
-						label: 'Show everything',
-						icon: IconEye,
-						onClick: () => {
-							showFamily(undefined);
-						},
-					},
-				]),
+	return [
+		...forNode,
+		...(family === undefined ? [] : [everything]),
 		{
 			label: expanded ? 'Collapse' : 'Expand',
 			icon: expanded ? IconArrowsMinimize : IconArrowsMaximize,
@@ -378,13 +376,250 @@ export function StudioMap({
 		},
 		{ label: 'Tidy', icon: IconLayoutGrid, isDisabled: !isMoved, onClick: tidy },
 	];
+}
+
+/** Over the field's corner: what the right click offers, and Close. */
+function MapTools({ actions, onClose }: { actions: MapActions; onClose: () => void }) {
+	const { family, expanded, isMoved, showFamily, expand, tidy } = actions;
+	return (
+		<div className="studio-map-tools">
+			{family !== undefined && (
+				<Button
+					label="Show everything"
+					variant="secondary"
+					size="sm"
+					icon={<Icon icon={IconEye} size="sm" />}
+					onClick={() => {
+						showFamily(undefined);
+					}}
+				/>
+			)}
+			{isMoved && (
+				<Button
+					label="Tidy"
+					variant="secondary"
+					size="sm"
+					icon={<Icon icon={IconLayoutGrid} size="sm" />}
+					onClick={tidy}
+				/>
+			)}
+			<IconButton
+				label={expanded ? 'Collapse' : 'Expand'}
+				variant="secondary"
+				size="sm"
+				icon={<Icon icon={expanded ? IconArrowsMinimize : IconArrowsMaximize} size="sm" />}
+				tooltip={expanded ? 'Show each node as a token' : 'Show sections and descriptions'}
+				onClick={expand}
+			/>
+			<IconButton
+				label="Close map"
+				variant="secondary"
+				size="sm"
+				icon={<Icon icon={IconX} size="sm" />}
+				tooltip="Close the map"
+				onClick={onClose}
+			/>
+		</div>
+	);
+}
+
+interface NodeProps {
+	node: MapNode;
+	place: MapLayout['nodes'][string];
+	sizes: MapSizes;
+	/** What joins the node to the rest, in words. */
+	joins: string;
+	selected: string;
+	on: ReadonlySet<string>;
+	isDragging: boolean;
+	onOpen: (node: string) => void;
+	lights: ReturnType<typeof useLit>['lights'];
+	drag: ReturnType<ReturnType<typeof useDrag>['draggable']>;
+}
+
+/** What marks a node on the field, whichever way it is drawn. */
+function marks({ node, on, isDragging }: NodeProps) {
+	const isLit = on.has(node.id) || (node.rows ?? []).some((row) => on.has(row.id));
+	return {
+		'data-map-node': node.id,
+		'data-on': isLit ? '' : undefined,
+		'data-dragging': isDragging ? '' : undefined,
+	};
+}
+
+function TokenNode(props: NodeProps) {
+	const { node, place, joins, selected, onOpen, lights, drag } = props;
+	const { opens } = node;
+	const open = isOpen(node, selected);
+	return (
+		<MapToken
+			id={node.id}
+			label={clipped(node.label)}
+			icon={nodeIcon(node)}
+			x={place.x}
+			y={place.y + place.height / 2}
+			color={open ? 'blue' : undefined}
+			description={[node.note, joins].filter(Boolean).join('. ') || undefined}
+			onOpen={
+				opens === undefined
+					? undefined
+					: () => {
+							onOpen(opens);
+						}
+			}
+			title={node.label.length > TOKEN_LABEL ? node.label : undefined}
+			aria-current={open ? 'true' : undefined}
+			{...marks(props)}
+			{...lights(node.id)}
+			{...drag}
+		/>
+	);
+}
+
+/** With detail: a node's icon, name and note, and under a profile's a row for each section. */
+function DetailNode(props: NodeProps) {
+	const { node, place, sizes, joins, selected, on, onOpen, lights, drag } = props;
+	const { opens } = node;
+	const rows = node.rows ?? [];
+	const box = { left: place.x, top: place.y, width: sizes.node.width, height: place.height };
+	const head = (
+		<>
+			<Icon icon={nodeIcon(node)} size="sm" color="secondary" />
+			<span className="studio-map-words">
+				<Text weight="semibold" maxLines={1}>
+					{node.label}
+				</Text>
+				{node.note && (
+					<Text type="supporting" color="secondary" maxLines={rows.length > 0 ? 1 : mapNoteLines(node)}>
+						{node.note}
+					</Text>
+				)}
+			</span>
+		</>
+	);
+	const button = {
+		type: 'button' as const,
+		title: node.note || undefined,
+		'aria-description': joins || undefined,
+		disabled: opens === undefined,
+		onClick: () => {
+			if (opens !== undefined) onOpen(opens);
+		},
+		...lights(node.id),
+	};
+	if (rows.length === 0) {
+		return (
+			<button
+				{...button}
+				{...drag}
+				{...marks(props)}
+				className="studio-map-node"
+				style={box}
+				aria-current={isOpen(node, selected) ? 'true' : undefined}
+			>
+				{head}
+			</button>
+		);
+	}
+	return (
+		<div
+			className="studio-map-card"
+			style={box}
+			data-open={isOpen(node, selected) ? '' : undefined}
+			{...marks(props)}
+			{...drag}
+		>
+			<button
+				{...button}
+				className="studio-map-head"
+				style={{ height: sizes.card.head }}
+				aria-current={selected === node.id ? 'true' : undefined}
+			>
+				{head}
+			</button>
+			{rows.map((row) => (
+				<button
+					key={row.id}
+					type="button"
+					className="studio-map-row"
+					style={{ height: sizes.card.row }}
+					aria-current={selected === row.id ? 'true' : undefined}
+					data-on={on.has(row.id) ? '' : undefined}
+					onClick={() => {
+						onOpen(row.opens);
+					}}
+					{...lights(row.id)}
+				>
+					<Icon icon={rowIcon(row.type)} size="sm" color="secondary" />
+					<Text maxLines={1}>{row.label}</Text>
+					{row.note && (
+						<span className="studio-map-row-note">
+							<Text type="supporting" color="secondary" maxLines={1}>
+								{row.note}
+							</Text>
+						</span>
+					)}
+				</button>
+			))}
+		</div>
+	);
+}
+
+export function StudioMap({
+	workspace,
+	shared,
+	selected,
+	onOpen,
+	onClose,
+}: {
+	workspace: StudioWorkspace;
+	shared: readonly SharedEntry[];
+	/** The open node's id; its agent or tool is marked on the map. */
+	selected: string;
+	onOpen: (node: string) => void;
+	onClose: () => void;
+}) {
+	const whole = useMemo(() => workspaceMap(workspace, shared), [workspace, shared]);
+	const { expanded, family, map, moved, put, showFamily, expand } = useKept(whole);
+	const field = useRef<HTMLDivElement>(null);
+	const sizes = expanded ? DETAIL_SIZES : TOKEN_SIZES;
+	const widths = useTokenWidths(field, expanded ? undefined : map);
+	const layout = useMemo(
+		() => mapLayout(map, sizes, expanded ? { moved, detail: true } : { moved, widths }),
+		[map, sizes, expanded, moved, widths],
+	);
+	const nodes = map.columns.flat().flatMap((group) => group.nodes);
+	const opened = nodes.find((node) => isOpen(node, selected))?.id;
+	useStart(field, { family, expanded }, { place: opened === undefined ? undefined : layout.nodes[opened], sizes });
+	const { dragging, draggable } = useDrag(layout, moved, put);
+	const { panning, pan } = usePan();
+	const { lit, on, onLines, lights } = useLit(layout);
+
+	const actions: MapActions = {
+		family,
+		expanded,
+		isMoved: nodes.some((node) => Object.hasOwn(moved, node.id)),
+		showFamily,
+		expand,
+		tidy: () => {
+			put({}, true);
+		},
+	};
+	/** The node the menu was opened on, if on one. */
+	const [menuOn, setMenuOn] = useState<string>();
+	const menu = menuOf(
+		nodes.find((node) => node.id === menuOn),
+		onOpen,
+		actions,
+	);
+	const Node = expanded ? DetailNode : TokenNode;
 
 	return (
 		<div
 			className="studio-map-frame"
 			onKeyDown={(event) => {
-				// Escape closes an open menu first; that one is not for the family.
 				if (event.key !== 'Escape' || family === undefined) return;
+				// Escape closes an open menu first; that one is not for the family.
 				if ((event.target as Element).closest('[role="menu"]')) return;
 				event.stopPropagation();
 				showFamily(undefined);
@@ -441,179 +676,28 @@ export function StudioMap({
 						))}
 						{nodes.map((node) => {
 							const place = layout.nodes[node.id];
-							if (!place) return null;
-							const { opens } = node;
-							const rows = node.rows ?? [];
-							const isLit = on.has(node.id) || rows.some((row) => on.has(row.id));
-							const open =
-								opens === undefined
-									? undefined
-									: () => {
-											onOpen(opens);
-										};
-							if (!expanded) {
-								return (
-									<MapToken
-										key={node.id}
-										id={node.id}
-										label={clipped(node.label)}
-										icon={nodeIcon(node)}
-										x={place.x}
-										y={place.y + place.height / 2}
-										color={isOpen(node, selected) ? 'blue' : undefined}
-										description={[node.note, mapLinkWords(map, node.id)].filter(Boolean).join('. ') || undefined}
-										onOpen={open}
-										title={node.label.length > TOKEN_LABEL ? node.label : undefined}
-										data-map-node={node.id}
-										aria-current={isOpen(node, selected) ? 'true' : undefined}
-										data-on={isLit ? '' : undefined}
-										data-dragging={dragging === node.id ? '' : undefined}
-										{...lights(node.id)}
-										{...draggable(node.id)}
-									/>
-								);
-							}
-							const head = (
-								<>
-									<Icon icon={nodeIcon(node)} size="sm" color="secondary" />
-									<span className="studio-map-words">
-										<Text weight="semibold" maxLines={1}>
-											{node.label}
-										</Text>
-										{node.note && (
-											<Text
-												type="supporting"
-												color="secondary"
-												maxLines={rows.length > 0 ? 1 : mapNoteLines(node)}
-											>
-												{node.note}
-											</Text>
-										)}
-									</span>
-								</>
-							);
-							const button = {
-								type: 'button' as const,
-								title: node.note || undefined,
-								'aria-description': mapLinkWords(map, node.id) || undefined,
-								disabled: open === undefined,
-								onClick: open,
-								...lights(node.id),
-							};
-							if (rows.length === 0) {
-								return (
-									<button
-										key={node.id}
-										{...button}
-										{...draggable(node.id)}
-										className="studio-map-node"
-										style={{
-											left: place.x,
-											top: place.y,
-											width: sizes.node.width,
-											height: place.height,
-										}}
-										data-map-node={node.id}
-										aria-current={isOpen(node, selected) ? 'true' : undefined}
-										data-on={isLit ? '' : undefined}
-										data-dragging={dragging === node.id ? '' : undefined}
-									>
-										{head}
-									</button>
-								);
-							}
 							return (
-								<div
-									key={node.id}
-									className="studio-map-card"
-									style={{
-										left: place.x,
-										top: place.y,
-										width: sizes.node.width,
-										height: place.height,
-									}}
-									data-map-node={node.id}
-									data-open={isOpen(node, selected) ? '' : undefined}
-									data-on={isLit ? '' : undefined}
-									data-dragging={dragging === node.id ? '' : undefined}
-									{...draggable(node.id)}
-								>
-									<button
-										{...button}
-										className="studio-map-head"
-										style={{ height: sizes.card.head }}
-										aria-current={selected === node.id ? 'true' : undefined}
-									>
-										{head}
-									</button>
-									{rows.map((row) => (
-										<button
-											key={row.id}
-											type="button"
-											className="studio-map-row"
-											style={{ height: sizes.card.row }}
-											aria-current={selected === row.id ? 'true' : undefined}
-											data-on={on.has(row.id) ? '' : undefined}
-											onClick={() => {
-												onOpen(row.opens);
-											}}
-											{...lights(row.id)}
-										>
-											<Icon icon={rowIcon(row.type)} size="sm" color="secondary" />
-											<Text maxLines={1}>{row.label}</Text>
-											{row.note && (
-												<span className="studio-map-row-note">
-													<Text type="supporting" color="secondary" maxLines={1}>
-														{row.note}
-													</Text>
-												</span>
-											)}
-										</button>
-									))}
-								</div>
+								place && (
+									<Node
+										key={node.id}
+										node={node}
+										place={place}
+										sizes={sizes}
+										joins={mapLinkWords(map, node.id)}
+										selected={selected}
+										on={on}
+										isDragging={dragging === node.id}
+										onOpen={onOpen}
+										lights={lights}
+										drag={draggable(node.id)}
+									/>
+								)
 							);
 						})}
 					</div>
 				</ContextMenu>
 			</ScrollableArea>
-			<div className="studio-map-tools">
-				{family !== undefined && (
-					<Button
-						label="Show everything"
-						variant="secondary"
-						size="sm"
-						icon={<Icon icon={IconEye} size="sm" />}
-						onClick={() => {
-							showFamily(undefined);
-						}}
-					/>
-				)}
-				{isMoved && (
-					<Button
-						label="Tidy"
-						variant="secondary"
-						size="sm"
-						icon={<Icon icon={IconLayoutGrid} size="sm" />}
-						onClick={tidy}
-					/>
-				)}
-				<IconButton
-					label={expanded ? 'Collapse' : 'Expand'}
-					variant="secondary"
-					size="sm"
-					icon={<Icon icon={expanded ? IconArrowsMinimize : IconArrowsMaximize} size="sm" />}
-					tooltip={expanded ? 'Show each node as a token' : 'Show sections and descriptions'}
-					onClick={expand}
-				/>
-				<IconButton
-					label="Close map"
-					variant="secondary"
-					size="sm"
-					icon={<Icon icon={IconX} size="sm" />}
-					tooltip="Close the map"
-					onClick={onClose}
-				/>
-			</div>
+			<MapTools actions={actions} onClose={onClose} />
 		</div>
 	);
 }

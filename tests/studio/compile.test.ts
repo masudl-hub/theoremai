@@ -473,7 +473,9 @@ Deno.test('continuing set to Never compiles to an empty allow list, not the kern
     ...text,
     turnBehaviour: { ...text.turnBehaviour, resumeEnabled: false },
   });
-  assertEquals(never.profile.turnBehaviour, { resumption: { allowContinue: [] } });
+  assertEquals(never.profile.turnBehaviour, {
+    resumption: { allowContinue: [], autoContinue: [] },
+  });
   const some = compiled({
     ...text,
     turnBehaviour: {

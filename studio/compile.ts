@@ -990,8 +990,8 @@ function compileOutputs(
 }
 
 function compileResumption(turn: TurnBehaviourDraft, report: Report) {
-  // "Never" is written out: left out, the kernel lets every continue kind be continued.
-  if (!turn.resumeEnabled) return { allowContinue: [] };
+  // "Never" is written out, both lists: left out, the kernel offers every kind and continues two itself.
+  if (!turn.resumeEnabled) return { allowContinue: [], autoContinue: [] };
   checkWhole(report, 'turnBehaviour', 'maxContinues', 'Max continues', turn.maxContinues, 1);
   return {
     // Both always written: left out, the kernel continues all three kinds and

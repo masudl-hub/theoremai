@@ -1303,7 +1303,7 @@ carries the turn's public error text after the `tool.agent_failed` line.
 | `AUTO_CONTINUE_DELAY_MS` | `1500` — the pause before a text turn sends a failed model call again, and the suggested pause before a host's auto-continue |
 | `isContinueStopKind` | Narrow to continue-eligible kinds |
 | `isResumeableStop` | Profile `allowContinue` (`[]` allows none) or, when omitted, the default; always false outside ContinueStopKind |
-| `shouldAutoContinue` | One silent resume under the profile's resumption policy (`autoContinue` and `allowContinue`); never outside ContinueStopKind |
+| `shouldAutoContinue` | One silent resume when the profile's `autoContinue` lists the stop, whatever `allowContinue` offers; never outside ContinueStopKind |
 | `isUserCancelledStop` | `kind === 'cancelled'` |
 | `profileTurnResumption` | Read `turnBehaviour.resumption` |
 | `profileAllowsSteering` | Text + `allowSteering !== false` (interface inject projection) |

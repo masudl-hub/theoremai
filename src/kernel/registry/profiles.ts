@@ -32,11 +32,7 @@ import {
   type ProfileType,
   THINKING_LEVELS,
 } from '../schema.ts';
-import {
-  DEFAULT_ALLOW_CONTINUE,
-  isContinueStopKind,
-  type ProfileTurnResumptionSpec,
-} from '../stop.ts';
+import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
 import { assertSystemPrompt } from '../system-parts.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import { profileToolAllow, profileToolsSpec } from '../tools/resolve.ts';
@@ -364,14 +360,6 @@ function assertResumption(
   if (!resumption) return;
   assertContinueKindList(profileId, 'allowContinue', resumption.allowContinue);
   assertContinueKindList(profileId, 'autoContinue', resumption.autoContinue);
-  const allowed: readonly string[] = resumption.allowContinue ?? DEFAULT_ALLOW_CONTINUE;
-  const unallowed = resumption.autoContinue?.filter((kind) => !allowed.includes(kind)) ?? [];
-  if (unallowed.length) {
-    throw new TheoremError(
-      'config',
-      `Profile ${profileId}: turnBehaviour.resumption.autoContinue continues on its own after ${unallowed.join(', ')}, which allowContinue does not offer Continue for. Add ${unallowed.join(', ')} to allowContinue, or take it out of autoContinue`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1208,7 +1208,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'turnBehaviour.resumption.autoContinue': field(
     'ContinueStopKind[]',
-    'Which early stops are continued without asking; each must also be in allowContinue. When set, a text turn sends a listed failed model call that gave no reply again itself; the host continues the rest.',
+    'Which early stops are continued without asking, whether or not allowContinue offers a Continue for them. When set, a text turn sends a listed failed model call that gave no reply again itself; the host continues the rest.',
     CONTINUE_STOP_KINDS,
     {
       length: 'The reply hit the output token limit.',

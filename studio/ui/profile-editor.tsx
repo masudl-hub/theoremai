@@ -2741,41 +2741,45 @@ interface Resumption {
 	auto: ContinueStopKind[];
 }
 
-/**
- * The picks after one box of the grid changes. Continuing on its own implies it may be continued,
- * so checking Auto checks Offer, and unchecking Offer unchecks Auto.
- */
+/** The picks after one box of the grid changes. The two columns are picked apart. */
 function pickKind(
 	current: Resumption,
 	kind: ContinueStopKind,
 	column: 'offer' | 'auto',
 	checked: boolean,
 ): Resumption {
-	const offer = column === 'offer' ? checked : checked || current.allow.includes(kind);
-	const auto = column === 'auto' ? checked : checked && current.auto.includes(kind);
-	const set = (kinds: ContinueStopKind[], on: boolean) =>
+	const set = (kinds: ContinueStopKind[]) =>
 		CONTINUE_STOP_KINDS.filter((candidate) =>
-			candidate === kind ? on : kinds.includes(candidate),
+			candidate === kind ? checked : kinds.includes(candidate),
 		);
-	return { allow: set(current.allow, offer), auto: set(current.auto, auto) };
+	return column === 'offer'
+		? { ...current, allow: set(current.allow) }
+		: { ...current, auto: set(current.auto) };
+}
+
+/** What a picked stop does, for its token's hover. */
+function resumptionSays({ allow, auto }: Resumption, kind: ContinueStopKind): string {
+	if (!auto.includes(kind)) return 'Offers Continue';
+	return allow.includes(kind) ? 'Continues on its own, and offers Continue' : 'Continues on its own';
 }
 
 /**
- * The trigger's tokens: each stop offered, a bolt on the ones that continue on their own, the
- * first few shown and the rest counted, as the list rows do.
+ * The trigger's tokens: each stop picked in either column, a bolt on the ones that continue on
+ * their own, the first few shown and the rest counted, as the list rows do.
  */
 function ResumptionTokens({ allow, auto }: Resumption) {
 	const maxBadges = useContext(ListBadges);
-	const rest = allow.length - maxBadges;
+	const picked = CONTINUE_STOP_KINDS.filter((kind) => allow.includes(kind) || auto.includes(kind));
+	const rest = picked.length - maxBadges;
 	return (
 		<HStack gap={1} vAlign="center">
-			{allow.slice(0, maxBadges).map((kind) => (
+			{picked.slice(0, maxBadges).map((kind) => (
 				<Token
 					key={kind}
 					size="sm"
 					label={STOP_KIND_LABEL[kind]}
 					icon={auto.includes(kind) ? <Icon icon={IconBolt} size="sm" /> : undefined}
-					description={auto.includes(kind) ? 'Continues on its own' : 'Offers Continue'}
+					description={resumptionSays({ allow, auto }, kind)}
 				/>
 			))}
 			{rest > 0 && <Token size="sm" label={`+${String(rest)}`} />}
@@ -2882,7 +2886,9 @@ function ResumptionRow({
 					size="sm"
 					placement="below"
 					value={value}
-					triggerLabel={value.allow.length ? <ResumptionTokens {...value} /> : undefined}
+					triggerLabel={
+						value.allow.length || value.auto.length ? <ResumptionTokens {...value} /> : undefined
+					}
 					placeholder="Never"
 					onChange={onChange}
 				>
@@ -2910,7 +2916,11 @@ function ResumptionSection({
 						: { allow: [], auto: [] }
 				}
 				onChange={({ allow, auto }) => {
-					set({ resumeEnabled: allow.length > 0, allowContinue: allow, autoContinue: auto });
+					set({
+						resumeEnabled: allow.length > 0 || auto.length > 0,
+						allowContinue: allow,
+						autoContinue: auto,
+					});
 				}}
 			/>
 			{turn.resumeEnabled && (

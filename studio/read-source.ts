@@ -1070,7 +1070,7 @@ function turnOf(turn: Record<string, unknown>): StudioDraft['turnBehaviour'] {
   const allowContinue = Array.isArray(resume?.allowContinue) ? resume.allowContinue : [];
   const autoContinue = Array.isArray(resume?.autoContinue) ? resume.autoContinue : [];
   return {
-    resumeEnabled: resume !== undefined,
+    resumeEnabled: allowContinue.length > 0 || autoContinue.length > 0,
     allowContinue: allowContinue as StudioDraft['turnBehaviour']['allowContinue'],
     autoContinue: autoContinue as StudioDraft['turnBehaviour']['autoContinue'],
     maxContinues: whole(resume?.maxContinues),

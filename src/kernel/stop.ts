@@ -32,7 +32,8 @@ export interface ProfileTurnResumptionSpec {
    */
   allowContinue?: ContinueStopKind[];
   /**
-   * Omit → length / stream_incomplete; `[]` = none. The host sends the `continueFrom` turn
+   * Omit → length / stream_incomplete; `[]` = none. Apart from `allowContinue`: a stop can be
+   * continued without Continue being offered for it. The host sends the `continueFrom` turn
    * with `continuation`. A text turn also sends a failed model call (`provider_error`,
    * `stream_incomplete`) again itself when this list is set and names that stop, and the
    * call gave no reply and no tool call: the turn keeps its history, its step count and
@@ -122,11 +123,11 @@ export function isUserCancelledStop(stop: TurnStop | undefined): boolean {
 /** `policy` is the profile's `profileTurnResumption(profile)`. */
 export function shouldAutoContinue(
   stop: TurnStop | undefined,
-  policy?: Pick<ProfileTurnResumptionSpec, 'allowContinue' | 'autoContinue'>,
+  policy?: Pick<ProfileTurnResumptionSpec, 'autoContinue'>,
 ): boolean {
   if (!stop || !isContinueStopKind(stop.kind)) return false;
-  const auto = policy?.autoContinue ?? DEFAULT_AUTO_CONTINUE;
-  return auto.includes(stop.kind) && isResumeableStop(stop, policy?.allowContinue);
+  // why: Offering Continue (`allowContinue`) is the host's own choice, apart from this one.
+  return (policy?.autoContinue ?? DEFAULT_AUTO_CONTINUE).includes(stop.kind);
 }
 
 /** The profile's resumption policy, or `undefined` for a live profile. */

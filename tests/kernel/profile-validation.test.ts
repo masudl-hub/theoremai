@@ -280,11 +280,11 @@ Deno.test('resumption lists name only continue stop kinds', () => {
   }
   check(said(textProfile({ turnBehaviour: {} })), 'defined', 'no resumption');
 });
-Deno.test('autoContinue names only kinds allowContinue lets through', () => {
+Deno.test('autoContinue and allowContinue are picked apart', () => {
   const resumption = (over: Loose) => textProfile({ turnBehaviour: { resumption: over } });
   check(
     said(resumption({ allowContinue: ['length'], autoContinue: ['length', 'stream_incomplete'] })),
-    'Profile p: turnBehaviour.resumption.autoContinue continues on its own after stream_incomplete, which allowContinue does not offer Continue for. Add stream_incomplete to allowContinue, or take it out of autoContinue',
+    'defined',
     'outside allowContinue',
   );
   check(
@@ -293,7 +293,7 @@ Deno.test('autoContinue names only kinds allowContinue lets through', () => {
     'inside',
   );
   check(said(resumption({ autoContinue: ['provider_error'] })), 'defined', 'default allow');
-  check(said(resumption({ allowContinue: [] })), 'defined', 'default auto is filtered at runtime');
+  check(said(resumption({ allowContinue: [] })), 'defined', 'no Continue offered');
 });
 Deno.test('the blocked-reply count is a non-negative integer', () => {
   const counts: Record<string, (value: number) => Loose> = {

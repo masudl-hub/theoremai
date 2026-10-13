@@ -37,7 +37,8 @@ export interface ProfileTurnResumptionSpec {
    * with `continuation`. A text turn also sends a failed model call (`provider_error`,
    * `stream_incomplete`) again itself when this list is set and names that stop, and the
    * call gave no reply and no tool call: the turn keeps its history, its step count and
-   * what it has read. Omitted, a turn sends nothing again.
+   * what it has read. A failure the same call would meet again (the provider refused the
+   * request) is not sent again. Omitted, a turn sends nothing again.
    */
   autoContinue?: ContinueStopKind[];
   /**

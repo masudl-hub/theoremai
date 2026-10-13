@@ -5,6 +5,7 @@ import { addRequestUrls } from '../../../guardrails/egress-urls.ts';
 import { isAbortError, throwIfAborted } from '../../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { replyIsJudged } from '../../../guardrails/progressive-yield.ts';
+import type { ErrorKind } from '../../../guardrails/theorem-error.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
 import type { TraceAttributes } from '../../../observability/trace-span.ts';
 import { waitDefault } from '../../../providers/shared/retry.ts';
@@ -215,8 +216,19 @@ function releasesNow(
   return !buffer.holdLate || isUserVisible;
 }
 
+// why: Every other kind is the provider's answer to the request itself (it refused a part, a key, a setting); the same call sent again gets the same answer.
+const PASSING_ERROR_KINDS: ReadonlySet<ErrorKind> = new Set([
+  'unavailable',
+  'bad_response',
+  'network',
+  'timeout',
+  'rate_limit',
+]);
+
 /**
  * The re-send a finished call is due, if any.
+ *
+ * A failure the same call would meet again is not sent again (`PASSING_ERROR_KINDS`).
  *
  * why: A failed call that gave no reply and no tool call left nothing behind, so sending it again repeats
  * nothing. A reply cut at `length` is not a failure: the same call would be cut at the same place.
@@ -225,7 +237,9 @@ function resumeOf(mayResume: boolean, profile: Profile, tally: CallTally): StepO
   const { stop } = tally;
   if (!mayResume || tally.replied || tally.calls.length > 0 || !stop) return undefined;
   if (!isFailedStopKind(stop.kind) || !resendsFailedCall(profile, stop)) return undefined;
-  return { stop, failure: tally.failures[0] };
+  const failure = tally.failures[0];
+  if (failure?.errorKind && !PASSING_ERROR_KINDS.has(failure.errorKind)) return undefined;
+  return { stop, failure };
 }
 
 /** Carries what the call's stream guards still hold into the turn's next call. */

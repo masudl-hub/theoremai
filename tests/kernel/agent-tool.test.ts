@@ -4,6 +4,7 @@ import '../fixtures/test-host.ts';
 import { assertRejects, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import type { ErrorKind } from '../../src/guardrails/theorem-error.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { KernelScope } from '../../src/kernel/scope.ts';
@@ -680,7 +681,7 @@ Deno.test('an agent that does not finish fails the call, with its usage', async 
 });
 
 /** The researcher looks something up, then its model is busy `busy` times, then it answers. */
-function busyResearcher(busy: number): ModelProvider {
+function busyResearcher(busy: number, errorKind: ErrorKind = 'unavailable'): ModelProvider {
   let researcherStep = 0;
   return {
     async *complete(req) {
@@ -695,7 +696,7 @@ function busyResearcher(busy: number): ModelProvider {
         return;
       }
       if (researcherStep <= 1 + busy) {
-        yield { type: 'error', errorKind: 'unavailable', errorInternal: 'HTTP 503: busy' };
+        yield { type: 'error', errorKind, errorInternal: 'HTTP 503: busy' };
         return;
       }
       const looked = (req.history ?? []).filter((message) => message.role === 'tool').length;
@@ -739,6 +740,22 @@ Deno.test('a called agent still failing after its re-sends fails the call with t
     failure.message,
     "Tool 'ask_researcher' didn't get a reply from its agent\nSorry, the model isn't available at the moment. Please try again shortly.",
   );
+});
+
+Deno.test('a called agent whose model refuses the request is not sent it again', async () => {
+  const records: TraceRecord[] = [];
+  const events = await collect(
+    scopeWith({}, ['lookup'], KEEPS_GOING),
+    busyResearcher(1, 'unsupported'),
+    undefined,
+    records,
+  );
+  const [error] = toolPhases(events, 'error');
+  assertEquals((error as { failure: { kind: string } }).failure.kind, 'unsupported');
+  const resumed = (records[0]?.spans ?? []).flatMap((span) =>
+    (span.events ?? []).filter((event) => event.name === 'theorem.step.resume'),
+  );
+  assertEquals(resumed, []);
 });
 
 Deno.test('a turn sent again still remembers the outside content it read before the failure', async () => {

@@ -1,8 +1,8 @@
 import type { InputStatus } from '@astryxdesign/core/Field';
 import { FieldStatus } from '@astryxdesign/core/FieldStatus';
 import { HoverCard } from '@astryxdesign/core/HoverCard';
-import { Button } from '@astryxdesign/core/Button';
 import { HStack } from '@astryxdesign/core/HStack';
+import { useClipboard } from '@astryxdesign/core/hooks';
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { MultiSelector } from '@astryxdesign/core/MultiSelector';
@@ -20,9 +20,9 @@ import { Token } from '@astryxdesign/core/Token';
 import { Tokenizer } from '@astryxdesign/core/Tokenizer';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconArrowBackUp } from '@tabler/icons-react';
+import { IconArrowBackUp, IconCheck, IconCode, IconCopy, IconExternalLink } from '@tabler/icons-react';
 import { fieldMeta } from '../../mod.ts';
-import { originLabel, originPlace, STUDIO_PROFILE_TYPES } from '../mod.ts';
+import { originLabel, originPlace, originShortPlace, STUDIO_PROFILE_TYPES } from '../mod.ts';
 import type { SettingOrigin } from '../server/save-wire.ts';
 import { type ReactNode, useContext } from 'react';
 import { tabFills } from './lib/tab-fills.ts';
@@ -69,24 +69,57 @@ export function SetInCode({ children }: { children: ReactNode }) {
 }
 
 /**
- * Under a value the files set in code: what sets it and where, and the way to that line in the
- * builder's editor. The place is text, so it can be copied when no editor opens.
+ * Under a value the files set in code: one quiet line saying what sets it and in which file, and
+ * the way to that line in the builder's editor. Hovering shows the whole of it, with the full
+ * path to copy when no editor opens.
  */
 export function OriginLine({ origin, onOpen }: { origin: SettingOrigin; onOpen: () => void }) {
+	const { copy, isCopied } = useClipboard();
 	const place = originPlace(origin);
+	const short = originShortPlace(origin);
+	const label = originLabel(origin);
 	return (
-		<HStack gap={2} vAlign="center">
-			<StackItem size="fill">
-				<Text type="supporting" color="secondary">
-					{place ? `${originLabel(origin)} · ${place}` : originLabel(origin)}
-				</Text>
-			</StackItem>
+		<div className="inspector-origin">
+			<Icon icon={IconCode} size="sm" />
+			<div className="inspector-origin-text">
+				<HoverCard
+					label={place ? `${label} · ${place}` : label}
+					touchTrigger="tap"
+					content={
+						<VStack gap={1}>
+							<Text type="supporting">{label}</Text>
+							{place && (
+								<HStack gap={2} vAlign="center">
+									<Text type="code" size="sm">
+										{place}
+									</Text>
+									<IconButton
+										label={isCopied ? 'Copied' : 'Copy path'}
+										variant="ghost"
+										size="sm"
+										icon={<Icon icon={isCopied ? IconCheck : IconCopy} size="sm" />}
+										onClick={() => {
+											copy(place);
+										}}
+									/>
+								</HStack>
+							)}
+						</VStack>
+					}
+				>
+					{short ? `${label} · ${short}` : label}
+				</HoverCard>
+			</div>
 			{place && (
-				<StackItem size="static">
-					<Button label="Open" variant="ghost" size="sm" onClick={onOpen} />
-				</StackItem>
+				<IconButton
+					label={`Open ${short ?? place} in your editor`}
+					variant="ghost"
+					size="sm"
+					icon={<Icon icon={IconExternalLink} size="sm" />}
+					onClick={onOpen}
+				/>
 			)}
-		</HStack>
+		</div>
 	);
 }
 

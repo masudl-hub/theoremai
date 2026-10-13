@@ -28,9 +28,10 @@ const projectAddress: Plugin = {
  * What the page may load and call. Scripts, workers and fonts are the studio's own. It calls this
  * machine (the project's server, a local model) and the two providers it lists models from. An
  * image or a video in a reply or a tool's result loads from wherever it is, as the project's own
- * app would show it. Styles are written inline by the editor and the design system.
+ * app would show it. Styles are written inline by the editor and the design system. A browser
+ * takes no IPv6 address in a policy, so this machine is named by `localhost` and `127.0.0.1`.
  */
-const LOCAL = ['127.0.0.1', 'localhost', '[::1]'].flatMap((host) => ['http', 'https', 'ws'].map((scheme) => `${scheme}://${host}:*`));
+const LOCAL = ['127.0.0.1', 'localhost'].flatMap((host) => ['http', 'https', 'ws'].map((scheme) => `${scheme}://${host}:*`));
 const CONTENT_POLICY = [
   "default-src 'none'",
   "script-src 'self'",

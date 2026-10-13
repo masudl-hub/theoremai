@@ -249,6 +249,7 @@ export {
   openOutcome,
   originLabel,
   originPlace,
+  originShortPlace,
   originWay,
   rowOrigin,
 } from './origins.ts';

@@ -105,6 +105,32 @@
 	opacity: 1;
 }
 
+/*
+ * Where a value set in code comes from: the field status's box under the control, in grey since
+ * nothing is wrong, held to one line. The open button sits inside the box's own padding.
+ */
+.inspector-origin {
+	align-items: center;
+	background: var(--color-background-muted);
+	border-radius: var(--radius-element);
+	color: var(--color-text-secondary);
+	display: flex;
+	font-size: var(--text-supporting-size);
+	gap: var(--spacing-1);
+	line-height: var(--text-supporting-leading);
+	min-width: 0;
+	padding-block: var(--spacing-1);
+	padding-inline: var(--spacing-2) var(--spacing-1);
+}
+
+.inspector-origin-text {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 /* An optional section the draft leaves out: in the tree, a step quieter than the rest. */
 .studio-tree-off {
 	color: var(--color-text-secondary);

@@ -140,6 +140,14 @@ export function originPlace(origin: SettingOrigin): string | undefined {
   return origin.line ? `${origin.file}:${String(origin.line)}` : origin.file;
 }
 
+/** Where an origin is, by the file's name: `…/profile.ts:12`. The folders are for whoever asks. */
+export function originShortPlace(origin: SettingOrigin): string | undefined {
+  if (!origin.file) return undefined;
+  const name = origin.file.slice(Math.max(origin.file.lastIndexOf('/'), origin.file.lastIndexOf('\\')) + 1);
+  const short = name === origin.file ? name : `…/${name}`;
+  return origin.line ? `${short}:${String(origin.line)}` : short;
+}
+
 /** What a row says of its origin, before the place: `Set in code · bonsaiInputs()`. */
 export function originLabel(origin: SettingOrigin): string {
   switch (origin.kind) {

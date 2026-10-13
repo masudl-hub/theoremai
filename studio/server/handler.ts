@@ -25,6 +25,7 @@ import {
   registerTool,
 } from '../../mod.ts';
 import { type StudioAsks, studioAsks } from '../asks.ts';
+import type { StudioProvider } from '../providers.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { withoutCredentials } from '../held-credentials.ts';
 import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
@@ -181,6 +182,11 @@ function replySchema(profile: Profile) {
   }
 }
 
+/** The project's providers, each with the adapter it is defined on. */
+function registeredProviders(): StudioProvider[] {
+  return listProviders().map((provider) => ({ id: provider.id, adapter: provider.adapter.id }));
+}
+
 /** One registered profile as the draft the editor shows, read from the source the studio prints for it. */
 function readProfile(
   profile: Profile,
@@ -194,6 +200,7 @@ function readProfile(
       agentId: profile.id,
       profile: withProviderSlots(printableProfile(profile)) as Parameters<typeof studioSource>[0]['profile'],
       customTools: [...tools],
+      providers: registeredProviders(),
       ...(structured ? { structured } : {}),
     });
     const read = readStudioSource(source, createBlankDraft());
@@ -245,7 +252,7 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
   };
   const toolSpecs = [...opened.toolSpecs, ...extra].map(linked);
   // The project's own providers are the ones a model here can name.
-  const providers = listProviders().map((provider) => ({ id: provider.id, adapter: provider.adapter.id }));
+  const providers = registeredProviders();
   return {
     project,
     workspace: {

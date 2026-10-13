@@ -6,6 +6,7 @@
 import { listsPatterns } from '../src/guardrails/host-patterns.ts';
 import type { CompiledStudio } from './compile.ts';
 import type { CompiledWorkspace } from './compile-workspace.ts';
+import { adapterFactory, type StudioProvider } from './providers.ts';
 import type { ToolRegistration } from './registrations.ts';
 import { stubOutputFromSchema } from './stub.ts';
 import { keySource, quoteSource } from './tool-schema.ts';
@@ -120,7 +121,14 @@ function toolSource(tool: ToolRegistration, indent = 0): string {
   return call({ ...functionFields, ...zod, handler });
 }
 
-function providerRegistrations(profiles: readonly CompiledStudio['profile'][]) {
+/**
+ * The registration of each provider a model of `profiles` names. One whose adapter is the project's
+ * own is not the studio's to write: the code says so where its registration belongs.
+ */
+function providerRegistrations(
+  profiles: readonly CompiledStudio['profile'][],
+  providers: readonly StudioProvider[],
+) {
   const ids = new Set(
     profiles.flatMap((profile) =>
       profile.type === 'host'
@@ -131,20 +139,20 @@ function providerRegistrations(profiles: readonly CompiledStudio['profile'][]) {
   const imports = new Set<string>();
   const code: string[] = [];
   for (const id of ids) {
-    const factory =
-      id === 'google'
-        ? 'googleAdapter'
-        : id === 'openrouter'
-          ? 'openRouterAdapter'
-          : id === 'typesafe'
-            ? 'typesafeAdapter'
-            : id === 'local'
-              ? 'openAIChat'
-              : undefined;
-    if (!factory) continue;
+    const provider = providers.find((held) => held.id === id);
+    const factory = provider && adapterFactory(provider.adapter);
+    if (!provider || !factory) {
+      code.push(
+        `// Register the provider ${quoteSource(id)} here, before the agents: its adapter is the project's own.\n`,
+      );
+      continue;
+    }
     imports.add('registerProvider');
     imports.add(factory);
-    const connection = id === 'local' ? "{ baseURL: 'http://localhost:11434/v1' }" : '{}';
+    const held = Object.entries(provider.connection ?? {}).map(
+      ([key, value]) => `${keySource(key)}: ${quoteSource(value)}`,
+    );
+    const connection = held.length ? `{ ${held.join(', ')} }` : '{}';
     code.push(
       `registerProvider({ id: ${quoteSource(id)}, connection: ${connection}, adapter: ${factory}() });\n`,
     );
@@ -154,7 +162,7 @@ function providerRegistrations(profiles: readonly CompiledStudio['profile'][]) {
 
 export function studioSource(compiled: CompiledStudio): string {
   const { profile, customTools, structured } = compiled;
-  const providers = providerRegistrations([profile]);
+  const providers = providerRegistrations([profile], compiled.providers);
   const imports = [
     'defineProfile',
     'registerProfile',
@@ -330,7 +338,10 @@ export function workspaceSource(compiled: CompiledWorkspace): SourceFile[] {
     lines.push(`registerProfile(${name}.profile);\n`);
     return lines.join('\n');
   });
-  const providers = providerRegistrations(agents.map(({ agent }) => agent.profile));
+  const providers = providerRegistrations(
+    agents.map(({ agent }) => agent.profile),
+    agents[0]?.agent.providers ?? [],
+  );
   const theorem = [
     [
       '/**',

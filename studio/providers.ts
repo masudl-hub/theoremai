@@ -21,6 +21,8 @@ export interface StudioProvider {
   id: string;
   /** The id of the adapter it is defined with: `google`, `openrouter`, `openai-chat`, `typesafe`, or a project's own. */
   adapter: string;
+  /** What it connects with, where the studio defines it: the address of the builder's own machine. */
+  connection?: Record<string, string>;
 }
 
 /** The provider the studio reaches on the builder's own machine. */
@@ -30,7 +32,11 @@ export const LOCAL_PROVIDER_ID = 'local';
 export const STUDIO_PROVIDERS: readonly StudioProvider[] = [
   { id: 'google', adapter: 'google' },
   { id: 'openrouter', adapter: 'openrouter' },
-  { id: LOCAL_PROVIDER_ID, adapter: 'openai-chat' },
+  {
+    id: LOCAL_PROVIDER_ID,
+    adapter: 'openai-chat',
+    connection: { baseURL: 'http://localhost:11434/v1' },
+  },
   { id: 'typesafe', adapter: 'typesafe' },
 ];
 
@@ -45,12 +51,17 @@ function asked<C, O, K, S>(adapter: ProviderAdapter<C, O, K, S>): Asked {
 }
 
 // why: an adapter is made once; each answer is its own.
-const ADAPTERS: Record<string, Asked> = {
-  google: asked(googleAdapter()),
-  openrouter: asked(openRouterAdapter()),
-  'openai-chat': asked(openAIChat()),
-  typesafe: asked(typesafeAdapter()),
+const ADAPTERS: Record<string, { asked: Asked; factory: string }> = {
+  google: { asked: asked(googleAdapter()), factory: 'googleAdapter' },
+  openrouter: { asked: asked(openRouterAdapter()), factory: 'openRouterAdapter' },
+  'openai-chat': { asked: asked(openAIChat()), factory: 'openAIChat' },
+  typesafe: { asked: asked(typesafeAdapter()), factory: 'typesafeAdapter' },
 };
+
+/** The kernel export that makes the adapter, for code the studio writes. Undefined for a project's own adapter. */
+export function adapterFactory(adapter: string): string | undefined {
+  return ADAPTERS[adapter]?.factory;
+}
 
 /** The adapter the provider `id` is defined with, among `providers`. */
 export function adapterOf(providers: readonly StudioProvider[], id: string): string | undefined {
@@ -62,7 +73,7 @@ export function adapterOf(providers: readonly StudioProvider[], id: string): str
  * hold, a project's own: the studio then judges nothing about its models.
  */
 export function modelCapabilities(adapter: string | undefined, apiId: string): ProviderCapabilities | undefined {
-  return adapter === undefined ? undefined : ADAPTERS[adapter]?.(apiId.trim());
+  return adapter === undefined ? undefined : ADAPTERS[adapter]?.asked(apiId.trim());
 }
 
 /**

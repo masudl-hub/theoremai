@@ -165,6 +165,8 @@ export interface CompiledStudio {
   structured?: StructuredRegistration;
   /** A decision's questions, by id. */
   questions?: Record<string, DecisionQuestion>;
+  /** The providers its models can name, each with its adapter. */
+  providers: readonly StudioProvider[];
 }
 
 export type StudioCompileResult =
@@ -1824,7 +1826,7 @@ function checkDecisionIdentity(draft: StudioDraft, report: Report): string {
 function compileDecision(
   draft: StudioDraft,
   report: Report,
-): Omit<CompiledStudio, 'agentId'> {
+): Omit<CompiledStudio, 'agentId' | 'providers'> {
   const { decision } = draft;
   const facets = new Set<string>(draftFacets(draft));
   const contract = checkDecisionIdentity(draft, report);
@@ -1910,7 +1912,7 @@ function compileHost(
   report: Report,
   agentIdOf: AgentIdOf,
   agentInputOf: AgentToolInputOf,
-): Omit<CompiledStudio, 'agentId'> {
+): Omit<CompiledStudio, 'agentId' | 'providers'> {
   const facets = new Set<string>(draftFacets(draft));
   const { customTools, tools } = compileTools(draft, false, report, agentIdOf, agentInputOf);
   if (!customTools.length) {
@@ -1936,7 +1938,7 @@ function assemble(
   mode: StudioConnectionMode,
   agentIdOf: AgentIdOf,
   agentInputOf: AgentToolInputOf,
-): Omit<CompiledStudio, 'agentId'> {
+): Omit<CompiledStudio, 'agentId' | 'providers'> {
   const facets = new Set<string>(draftFacets(draft));
   const allows = (path: string) => draftAllows(draft, path);
   const parsedSystem: SystemMarkup =
@@ -2053,5 +2055,5 @@ export function compileStudio(
       issues: [{ nodeId: 'identity', message: err.message }],
     };
   }
-  return { ok: true, agentId: compiled.profile.id, ...compiled };
+  return { ok: true, agentId: compiled.profile.id, providers: draft.providers, ...compiled };
 }

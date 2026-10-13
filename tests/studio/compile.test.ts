@@ -641,6 +641,33 @@ Deno.test('studioSource writes a module that registers the profile', () => {
   assertStringIncludes(source, "name: 'geocode_city',");
   assertStringIncludes(source, 'registerProfile(profile);');
 });
+Deno.test('studioSource registers each provider by its adapter, and says which one is not its to write', () => {
+  const draft = setProfileType(createBlankDraft(), 'text');
+  const named = (provider: string, adapter: string) => {
+    const result = compileStudio(
+      {
+        ...draft,
+        identity: { ...draft.identity, agentId: 'desk', handle: 'Desk' },
+        providers: [{ id: provider, adapter }],
+        modelBindings: draft.modelBindings.map((binding) => ({
+          ...binding,
+          provider,
+          apiId: OPENROUTER_STUDIO_API_ID,
+        })),
+      },
+      'byok',
+    );
+    assert(result.ok, JSON.stringify(!result.ok && result.issues));
+    return studioSource(result);
+  };
+  assertStringIncludes(
+    named('mine', 'openrouter'),
+    "registerProvider({ id: 'mine', connection: {}, adapter: openRouterAdapter() });",
+  );
+  const own = named('theirs', 'acme');
+  assertStringIncludes(own, "// Register the provider 'theirs' here, before the agents");
+  assertEquals(own.includes('registerProvider'), false);
+});
 Deno.test('studioSource writes structured output and function stubs', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
   const source = studioSource(

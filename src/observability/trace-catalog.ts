@@ -1376,6 +1376,16 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
       reason: attr('agent', 'Reason', 'text', 'Why it retried.', RETRY_REASONS),
     },
   },
+  'theorem.step.resume': {
+    label: 'Sent again',
+    doc: 'A model call failed with no reply, and the turn sent it again.',
+    attributes: {
+      step: attr('agent', 'Step', 'number', 'The step whose model call was sent again.'),
+      resume: attr('agent', 'Re-send', 'number', 'How many calls the turn has sent again so far.'),
+      stop: attr('agent', 'Stop', 'text', 'How the failed call ended.'),
+      error: attr('error', 'Detail', 'content', "The provider's internal reason."),
+    },
+  },
   'theorem.compaction': {
     label: 'Compaction',
     doc: 'theorem decided whether to summarize earlier messages.',

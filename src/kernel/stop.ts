@@ -20,7 +20,7 @@ export const DEFAULT_ALLOW_CONTINUE: readonly ContinueStopKind[] = CONTINUE_STOP
 /** Hosts wait briefly, then continue once on their own. */
 export const DEFAULT_AUTO_CONTINUE: readonly ContinueStopKind[] = ['length', 'stream_incomplete'];
 
-/** Pause before the one-shot auto-continue so a flaky tunnel can settle. */
+/** Pause before an auto-continue, the host's or the turn's own, so a flaky tunnel can settle. */
 export const AUTO_CONTINUE_DELAY_MS = 1_500;
 
 /** Which stops a profile offers Continue for, and which the host continues on its own. */
@@ -32,11 +32,17 @@ export interface ProfileTurnResumptionSpec {
    */
   allowContinue?: ContinueStopKind[];
   /**
-   * Omit → length / stream_incomplete; `[]` = none. The kernel does not loop: the host
-   * sends the `continueFrom` turn with `continuation`.
+   * Omit → length / stream_incomplete; `[]` = none. The host sends the `continueFrom` turn
+   * with `continuation`. A text turn also sends a failed model call (`provider_error`,
+   * `stream_incomplete`) again itself when this list is set and names that stop, and the
+   * call gave no reply and no tool call: the turn keeps its history, its step count and
+   * what it has read. Omitted, a turn sends nothing again.
    */
   autoContinue?: ContinueStopKind[];
-  /** Compared against `TurnRequest.continuation`. Omit → no count cap. */
+  /**
+   * Compared against `TurnRequest.continuation`; omit → no count cap. Also how many model
+   * calls one text turn sends again itself; omit → one.
+   */
   maxContinues?: number;
 }
 
@@ -91,6 +97,13 @@ export function isResumeableStop(
   if (!isContinueStopKind(stop.kind)) return false;
   const allow = allowContinue ? new Set(allowContinue) : RESUMEABLE_DEFAULT;
   return allow.has(stop.kind);
+}
+
+const FAILED_STOP_KINDS = new Set<TurnStop['kind']>(['provider_error', 'stream_incomplete']);
+
+/** True for a stop where the model call failed; the rest either finished or were stopped on purpose. */
+export function isFailedStopKind(kind: TurnStop['kind']): boolean {
+  return FAILED_STOP_KINDS.has(kind);
 }
 
 export function stageAbortStop(

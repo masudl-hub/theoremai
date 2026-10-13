@@ -12,6 +12,7 @@ import {
   traceJson,
 } from '../../observability/trace-span.ts';
 import { historyMessageParts } from '../interaction-parts.ts';
+import { isFailedStopKind } from '../stop.ts';
 import type { ToolCallEvent, ToolCallRequest, ToolFailure } from '../tools/types.ts';
 import type {
   InteractionPart,
@@ -983,8 +984,6 @@ function turnSpanOptions(req: TurnRequest): SpanOptions {
   };
 }
 
-/** Stops where the turn failed; the rest either finished or were stopped on purpose. */
-const FAILED_STOPS = new Set<TurnStop['kind']>(['provider_error', 'stream_incomplete']);
 const FINISHED_STOPS = new Set<TurnStop['kind']>(['completed', 'length', 'generation_complete']);
 
 interface TurnEnd {
@@ -1010,7 +1009,7 @@ function endTurnSpan(root: SpanHandle, end: TurnEnd): void {
   const publicError = errorEvent?.error;
   const threw = end.thrown !== undefined;
   if (threw) recordException(root, end.thrown);
-  const failed = threw || (stop !== undefined && FAILED_STOPS.has(stop));
+  const failed = threw || (stop !== undefined && isFailedStopKind(stop));
   const failure = threw ? errorKind(end.thrown) : (errorEvent?.errorKind ?? stop);
   // why: What the host received, beside each call's `output.messages` (what the model produced).
   const delivered: TraceMessage = {

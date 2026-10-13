@@ -7,6 +7,7 @@ import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { KernelScope } from '../../src/kernel/scope.ts';
+import type { ProfileTurnResumptionSpec } from '../../src/kernel/stop.ts';
 import { agentToolOrigin } from '../../src/kernel/tools/agent.ts';
 import type { AgentCall, AgentCallHook, AgentToolDef } from '../../src/kernel/tools/types.ts';
 import type {
@@ -47,6 +48,7 @@ function textProfile(
   system: string,
   allow: string[],
   models = geminiModels('gemini35FlashLite'),
+  resumption?: ProfileTurnResumptionSpec,
 ) {
   return defineProfile({
     type: 'text',
@@ -55,12 +57,17 @@ function textProfile(
     ...models,
     maxSteps: 4,
     tools: { allow },
+    ...(resumption ? { turnBehaviour: { resumption } } : {}),
     inputs: { text: true },
   });
 }
 
 /** A scope where the caller can ask the researcher, which has `researcherTools`. */
-function scopeWith(tool: Partial<AgentToolDef> = {}, researcherTools: string[] = []): KernelScope {
+function scopeWith(
+  tool: Partial<AgentToolDef> = {},
+  researcherTools: string[] = [],
+  researcherResumption?: ProfileTurnResumptionSpec,
+): KernelScope {
   const scope = createKernelScope();
   scope.tools.register({
     type: 'function',
@@ -75,7 +82,9 @@ function scopeWith(tool: Partial<AgentToolDef> = {}, researcherTools: string[] =
     output: z.object({ found: z.string() }),
     handler: () => ({ found: 'fact' }),
   });
-  scope.profiles.register(textProfile(RESEARCHER, RESEARCHER_SYSTEM, researcherTools));
+  scope.profiles.register(
+    textProfile(RESEARCHER, RESEARCHER_SYSTEM, researcherTools, undefined, researcherResumption),
+  );
   scope.tools.register(agentTool(tool));
   scope.profiles.register(textProfile(CALLER, 'You help.', [tool.name ?? 'ask_researcher']));
   return scope;
@@ -664,6 +673,137 @@ Deno.test('an agent that does not finish fails the call, with its usage', async 
   const { failure, tokens } = error as { failure: { code: string }; tokens?: TurnTokens };
   assertEquals(failure.code, 'agent_failed');
   assertEquals(tokens?.total, RESEARCHER_TOKENS.total);
+});
+
+/** The researcher looks something up, then its model is busy `busy` times, then it answers. */
+function busyResearcher(busy: number): ModelProvider {
+  let researcherStep = 0;
+  return {
+    async *complete(req) {
+      await Promise.resolve();
+      if (!isResearcher(req)) {
+        yield* routedProvider().complete(req);
+        return;
+      }
+      researcherStep += 1;
+      if (researcherStep === 1) {
+        yield { type: 'tool', tool: { name: 'lookup', arguments: {}, callId: 'lookup_1' } };
+        return;
+      }
+      if (researcherStep <= 1 + busy) {
+        yield { type: 'error', errorKind: 'unavailable', errorInternal: 'HTTP 503: busy' };
+        return;
+      }
+      const looked = (req.history ?? []).filter((message) => message.role === 'tool').length;
+      yield { type: 'text', text: `answered after ${looked} lookup` };
+    },
+  };
+}
+
+const KEEPS_GOING: ProfileTurnResumptionSpec = {
+  autoContinue: ['provider_error'],
+  maxContinues: 1,
+};
+
+Deno.test('a called agent whose model fails mid-work picks up where it stopped', async () => {
+  const records: TraceRecord[] = [];
+  const events = await collect(
+    scopeWith({}, ['lookup'], KEEPS_GOING),
+    busyResearcher(1),
+    undefined,
+    records,
+  );
+  const [done] = toolPhases(events, 'complete');
+  assertEquals((done as { output?: unknown }).output, { text: 'answered after 1 lookup' });
+  assertEquals(toolPhases(events, 'error'), []);
+  const resumed = (records[0]?.spans ?? []).flatMap((span) =>
+    (span.events ?? []).filter((event) => event.name === 'theorem.step.resume'),
+  );
+  assertEquals(
+    resumed.map((event) => event.attributes),
+    [{ step: 2, resume: 1, stop: 'provider_error', error: 'HTTP 503: busy' }],
+  );
+});
+
+Deno.test('a called agent still failing after its re-sends fails the call with the reason', async () => {
+  const events = await collect(scopeWith({}, ['lookup'], KEEPS_GOING), busyResearcher(2));
+  const [error] = toolPhases(events, 'error');
+  const { failure } = error as { failure: { code: string; kind: string; message: string } };
+  assertEquals(failure.code, 'agent_failed');
+  assertEquals(failure.kind, 'unavailable');
+  assertEquals(
+    failure.message,
+    "Tool 'ask_researcher' didn't get a reply from its agent\nSorry, the model isn't available at the moment. Please try again shortly.",
+  );
+});
+
+Deno.test('a turn sent again still remembers the outside content it read before the failure', async () => {
+  const scope = createKernelScope();
+  scope.tools.register({
+    type: 'function',
+    name: 'lookup',
+    description: 'Look something up.',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ found: z.string() }),
+    handler: () => ({ found: 'fact' }),
+  });
+  scope.tools.register({
+    type: 'function',
+    name: 'save_note',
+    description: 'Save a note.',
+    category: 'test',
+    access: 'read-write',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ saved: z.boolean() }),
+    handler: () => ({ saved: true }),
+  });
+  scope.profiles.register(textProfile(RESEARCHER, RESEARCHER_SYSTEM, ['lookup']));
+  scope.tools.register(agentTool());
+  scope.profiles.register(
+    textProfile(CALLER, 'You help.', ['ask_researcher', 'save_note'], undefined, KEEPS_GOING),
+  );
+  const rulesAfter = async (busy: number): Promise<(string | undefined)[]> => {
+    let callerStep = 0;
+    const provider: ModelProvider = {
+      async *complete(req) {
+        await Promise.resolve();
+        if (isResearcher(req)) {
+          yield { type: 'text', text: 'found it' };
+          return;
+        }
+        callerStep += 1;
+        if (callerStep === 1) {
+          yield {
+            type: 'tool',
+            tool: { name: 'ask_researcher', arguments: { text: 'q' }, callId: 'ask_1' },
+          };
+        } else if (callerStep <= 1 + busy) {
+          yield { type: 'error', errorKind: 'unavailable', errorInternal: 'HTTP 503: busy' };
+        } else if (callerStep === 2 + busy) {
+          yield { type: 'tool', tool: { name: 'save_note', arguments: {}, callId: 'save_1' } };
+        } else {
+          yield { type: 'text', text: 'Done.' };
+        }
+      },
+    };
+    const events = await collect(scope, provider);
+    assertEquals(doneOf(events).stop.kind, 'completed');
+    return events.flatMap((e) =>
+      e.type === 'guardrail' && e.guardrail.stage === 'tool_call'
+        ? e.guardrail.hits.map((hit) => hit.rule)
+        : [],
+    );
+  };
+  assertEquals(await rulesAfter(0), ['tool_call.tainted-turn']);
+  assertEquals(await rulesAfter(1), ['tool_call.tainted-turn']);
 });
 
 Deno.test('fieldText puts the host line on an input field, and refuses a field the profile does not take', () => {

@@ -38,6 +38,8 @@ interface StepExecutionState {
   trace: TurnTraceState;
   currentHistory: TurnHistoryMessage[];
   stepCount: number;
+  /** Model calls sent again this turn under the profile's resumption (`executeResumedStep`). */
+  resumes: number;
   /** Media family of the turn's model binding, for estimating unreported usage. */
   mediaFamily: MediaTokenFamily | undefined;
   allEmittedEvents: TurnEvent[];
@@ -131,6 +133,7 @@ function openTurnState(args: {
     trace: args.trace,
     currentHistory: [...(generation.history ?? [])],
     stepCount: 0,
+    resumes: 0,
     toolResults: [],
     mediaFamily: args.mediaFamily,
     allEmittedEvents: args.allEmittedEvents ?? [],

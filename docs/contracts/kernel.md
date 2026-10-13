@@ -963,7 +963,7 @@ Profile `turnBehaviour` (top-level on chat/image/speech):
 | Field | Effect |
 | --- | --- |
 | `resumption.allowContinue` | Stops after which the host offers the user a Continue (`isResumeableStop`); host UI policy, not enforced on `continueFrom`; omitted → all three; `[]` → none |
-| `resumption.autoContinue` | Stops continued without asking; omitted → length and stream_incomplete, `[]` → none. A text turn sends a failed model call again itself ([Resume policy](#resume-policy)); the host continues the rest once on its own |
+| `resumption.autoContinue` | Stops continued without asking; omitted → length and stream_incomplete, `[]` → none. When set, a text turn sends a listed failed model call again itself ([Resume policy](#resume-policy)); the host continues the rest once on its own |
 | `resumption.maxContinues` | How many times one reply may be continued (enforced); omitted → no cap. Also how many failed model calls one text turn sends again itself; omitted → one |
 | `allowSteering` | **Text and live.** Gates **inject** via `profileAllowsInject` / stages. Stage events always emit. Image/speech must omit |
 | `atStepLimit` | **Text only.** What the last model call under `maxSteps` may do. Omitted or `'stop'`: it may call tools; if it does they run and the turn ends with stop `step_limit` and no answer (no `before_end`, no `done.tools`, no `providerState`). `'answer'`: that call is sent with no function tools and no builtins, so it writes the answer from the turn's history. Rejected with `maxSteps: 1` |
@@ -1275,8 +1275,9 @@ turnBehaviour: {
 ```
 
 A text turn sends a failed model call again itself. The call must have stopped as
-`provider_error` or `stream_incomplete`, the profile's `autoContinue` must list that
-stop, and the call must have given no reply and no tool call. The turn waits
+`provider_error` or `stream_incomplete`, the profile must set `autoContinue` and list
+that stop in it, and the call must have given no reply and no tool call. A profile
+that omits `autoContinue` sends nothing again: the default list advises the host only. The turn waits
 `AUTO_CONTINUE_DELAY_MS`, then sends the same step again. Its history, its step
 count and the record of what it has read are unchanged, so tool results gathered in
 earlier steps are kept. One turn sends at most `maxContinues` calls again, or one

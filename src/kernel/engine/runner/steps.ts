@@ -7,11 +7,19 @@ import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { replyIsJudged } from '../../../guardrails/progressive-yield.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
 import type { TraceAttributes } from '../../../observability/trace-span.ts';
+import { waitDefault } from '../../../providers/shared/retry.ts';
 import { historyToolCalls } from '../../interaction-parts.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
-import { profileAllowsInject, stageAbortStop } from '../../stop.ts';
+import {
+  AUTO_CONTINUE_DELAY_MS,
+  isFailedStopKind,
+  profileAllowsInject,
+  profileTurnResumption,
+  shouldAutoContinue,
+  stageAbortStop,
+} from '../../stop.ts';
 import type { BoundSystem } from '../../system-parts.ts';
 import {
   failedActivity,
@@ -32,6 +40,7 @@ import type {
   Profile,
   ResolvedGeneration,
   TurnEvent,
+  TurnEventOf,
   TurnHistoryMessage,
   TurnRequest,
   TurnStop,
@@ -130,6 +139,31 @@ function startProviderCall(
   return { usage, genForStep, request, call };
 }
 
+/** What a model call left: its tool calls, its structured reply, and whether it is to be sent again. */
+interface StepOutcome {
+  calls: ModelCall[];
+  latestStructured?: unknown;
+  resume?: { stop: TurnStop | undefined; failure: TurnEventOf<'error'> | undefined };
+}
+
+/**
+ * True when the profile itself lists the stop in `turnBehaviour.resumption.autoContinue`.
+ *
+ * why: `DEFAULT_AUTO_CONTINUE` advises a host; a turn spends another model call only where the profile says so.
+ */
+function resendsFailedCall(profile: Profile, stop: TurnStop): boolean {
+  const policy = profileTurnResumption(profile);
+  return policy?.autoContinue !== undefined && shouldAutoContinue(stop, policy);
+}
+
+/** The events that are a model call's reply, as opposed to its thoughts, usage or failure. */
+const REPLY_EVENTS: ReadonlySet<TurnEvent['type']> = new Set([
+  'text',
+  'media',
+  'structured',
+  'citation',
+]);
+
 async function* executeAutonomousStep(
   args: {
     profile: Profile;
@@ -137,13 +171,15 @@ async function* executeAutonomousStep(
     system: BoundSystem;
     provider: ModelProvider;
     signal?: AbortSignal;
+    /** True while the turn has a re-send left under the profile's resumption. */
+    mayResume: boolean;
   },
   state: StepExecutionState,
   buffer: { holdLate: boolean; holdVisible: boolean } = {
     holdLate: false,
     holdVisible: false,
   },
-): AsyncGenerator<TurnEvent, { calls: ModelCall[]; latestStructured?: unknown }> {
+): AsyncGenerator<TurnEvent, StepOutcome> {
   const { profile, generation, system, provider, signal } = args;
   const { usage, genForStep, request, call } = startProviderCall(
     generation,
@@ -156,6 +192,9 @@ async function* executeAutonomousStep(
   // why: The stop this call ended with after gates: a canary block or provider
   // error outranks what the provider reported.
   let stop: TurnStop | undefined;
+  // why: A call's failure is the turn's only once the call is not sent again, so it waits for the call's end.
+  const failures: TurnEventOf<'error'>[] = [];
+  let replied = false;
   const control: OutboundStreamControl = {
     withholdVisible: false,
     ...(state.canaryCarry ? { canaryCarry: state.canaryCarry } : {}),
@@ -194,6 +233,11 @@ async function* executeAutonomousStep(
       if (event.type === 'tool' && holdModelCall(calls, event.tool)) {
         continue;
       }
+      if (event.type === 'error') {
+        failures.push(event);
+        continue;
+      }
+      if (REPLY_EVENTS.has(event.type)) replied = true;
       recordStepEvent(event, state);
       if (control.withholdVisible && isWithheldOnBlock(event)) {
         // why: Progressive-yield blocked this attempt — keep events for egress/repair only.
@@ -222,6 +266,23 @@ async function* executeAutonomousStep(
   if (control.promptLeaks) {
     state.promptLeaks = [...(state.promptLeaks ?? []), ...control.promptLeaks];
   }
+  // why: A failed call that gave no reply and no tool call left nothing behind, so sending it again repeats
+  // nothing. A reply cut at `length` is not a failure: the same call would be cut at the same place.
+  const resume =
+    args.mayResume &&
+    !replied &&
+    calls.length === 0 &&
+    stop !== undefined &&
+    isFailedStopKind(stop.kind) &&
+    resendsFailedCall(profile, stop)
+      ? { stop, failure: failures[0] }
+      : undefined;
+  if (!resume) {
+    for (const failure of failures) {
+      recordStepEvent(failure, state);
+      if (!buffer.holdLate) yield failure;
+    }
+  }
   const tokens = await callTokensEvent(usage, generation, state.mediaFamily);
   call.end({ tokens: tokens?.tokens, stop });
   if (tokens) {
@@ -229,7 +290,37 @@ async function* executeAutonomousStep(
     yield tokens;
   }
 
-  return { calls, latestStructured };
+  return { calls, latestStructured, ...(resume ? { resume } : {}) };
+}
+
+/**
+ * One step of a text turn. A model call that fails (`provider_error`,
+ * `stream_incomplete`) on a kind the profile's own `turnBehaviour.resumption.autoContinue`
+ * lists, having given no reply and no tool call, is sent again in the same turn
+ * after a pause, up to `maxContinues` times a turn (once when the profile sets
+ * none). The turn's history, its step count and what it has read stay as they were.
+ */
+async function* executeResumedStep(
+  args: Omit<Parameters<typeof executeAutonomousStep>[0], 'mayResume'>,
+  state: StepExecutionState,
+  buffer: { holdLate: boolean; holdVisible: boolean },
+): AsyncGenerator<TurnEvent, StepOutcome> {
+  const limit = profileTurnResumption(args.profile)?.maxContinues ?? 1;
+  for (;;) {
+    const mayResume = args.profile.type === 'text' && state.resumes < limit;
+    const outcome = yield* executeAutonomousStep({ ...args, mayResume }, state, buffer);
+    if (!outcome.resume) return outcome;
+    state.resumes += 1;
+    const detail = outcome.resume.failure?.errorInternal ?? outcome.resume.failure?.error;
+    state.trace.root.event('theorem.step.resume', {
+      step: state.stepCount,
+      resume: state.resumes,
+      ...(outcome.resume.stop ? { stop: outcome.resume.stop.kind } : {}),
+      ...(detail ? { error: detail } : {}),
+    });
+    state.lastStop = undefined;
+    await waitDefault(AUTO_CONTINUE_DELAY_MS, args.signal);
+  }
 }
 
 function toolResultMessage(call: ModelCall, result: ModelToolResult): TurnHistoryMessage {
@@ -477,7 +568,7 @@ async function* executeAttempt(args: {
     state.stepCount++;
     // why: Mid-loop inject lives on `post_tool` (after tools). Opening inject is `pre_turn`
     // outside this loop.
-    const stepResult = yield* executeAutonomousStep(
+    const stepResult = yield* executeResumedStep(
       { profile, generation, system, provider, signal: args.safe.signal },
       state,
       { holdLate, holdVisible },

@@ -183,14 +183,15 @@ function agentRunOf(
   const stop = done?.stop.kind;
   if (stop !== 'completed' || reported) {
     const failed = labelText('tool.agent_failed', { tool: toolName }, labels);
+    // why: Reasons the agent's turn named (a file it does not take, a model that is busy) let the caller's model correct the call or say why.
+    const reason = reported?.errorCopy
+      ? errorCopyText(reported.errorCopy, labels)
+      : reported?.error;
     return {
       failure: {
         code: 'agent_failed',
         kind: reported?.errorKind ?? 'failed',
-        // why: Reasons the agent's turn named (a file it does not take) let the caller's model correct the call.
-        message: reported?.errorCopy
-          ? `${failed}\n${errorCopyText(reported.errorCopy, labels)}`
-          : failed,
+        message: reason ? `${failed}\n${reason}` : failed,
         details: {
           agent: profileId,
           ...(stop ? { stop } : {}),

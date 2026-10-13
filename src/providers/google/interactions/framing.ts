@@ -49,12 +49,49 @@ function historyContent(msg: TurnHistoryMessage): Record<string, string>[] {
   return parts.length > 0 ? parts.map(wirePart) : [{ type: 'text', text: '' }];
 }
 
-function functionResultStep(msg: TurnHistoryMessage): Record<string, unknown> {
-  const result = historyContent(msg);
+// why: Google refuses any other part inside a `function_result`: "The value 'document' is not supported for 'type' at 'input[8].result[2]'. Supported values: 'function', 'image', 'text', 'video'." (live, 13/10/2026, gemini-3.5-flash-lite).
+const FUNCTION_RESULT_PART_TYPES: ReadonlySet<InteractionPart['type']> = new Set([
+  'text',
+  'image',
+  'video',
+]);
+
+/** What stands in a `function_result` where a file it cannot hold was. */
+function carriedFileMarker(part: InteractionPart): InteractionPart {
+  return { type: 'text', text: `[${part.type}: sent in the next message]` };
+}
+
+/** What leads the files of one tool result in the `user_input` step that carries them. */
+function carriedFilesLead(msg: TurnHistoryMessage): InteractionPart {
+  const from = msg.name ? `the ${msg.name} result` : 'a tool result';
+  return { type: 'text', text: `Files from ${from}:` };
+}
+
+/**
+ * A tool message as its `function_result` step, and the files that step cannot
+ * hold: each leaves a marker in its place and is carried to the next `user_input`.
+ */
+function functionResultStep(msg: TurnHistoryMessage): {
+  step: Record<string, unknown>;
+  carried: InteractionPart[];
+} {
+  const held: InteractionPart[] = [];
+  const files: InteractionPart[] = [];
+  for (const part of historyMessageParts(msg)) {
+    if (FUNCTION_RESULT_PART_TYPES.has(part.type)) {
+      held.push(part);
+    } else {
+      held.push(carriedFileMarker(part));
+      files.push(part);
+    }
+  }
   return {
-    type: 'function_result',
-    ...historyToolIdentity({ name: msg.name, call_id: msg.tool_call_id }),
-    result,
+    step: {
+      type: 'function_result',
+      ...historyToolIdentity({ name: msg.name, call_id: msg.tool_call_id }),
+      result: held.length > 0 ? held.map(wirePart) : [{ type: 'text', text: '' }],
+    },
+    carried: files.length > 0 ? [carriedFilesLead(msg), ...files] : [],
   };
 }
 
@@ -91,11 +128,7 @@ function textOrPartsStep(
 }
 
 /** Assistant `tool_calls` (often with no `content`) become `function_call` steps, never empty `model_output`. */
-export function historySteps(msg: TurnHistoryMessage): Record<string, unknown>[] {
-  if (msg.role === 'tool') {
-    return [functionResultStep(msg)];
-  }
-
+function nonToolSteps(msg: TurnHistoryMessage): Record<string, unknown>[] {
   if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
     const steps: Record<string, unknown>[] = [];
     if (historyMessageParts(msg).length > 0) {
@@ -112,6 +145,36 @@ export function historySteps(msg: TurnHistoryMessage): Record<string, unknown>[]
   }
 
   return [textOrPartsStep('user', msg)];
+}
+
+/**
+ * History as input steps. The files a run of tool results cannot hold follow the
+ * run in one `user_input` step, so every result of a parallel call stays together.
+ */
+export function historyStepsOf(messages: readonly TurnHistoryMessage[]): Record<string, unknown>[] {
+  const steps: Record<string, unknown>[] = [];
+  let carried: InteractionPart[] = [];
+  const flush = () => {
+    if (carried.length === 0) return;
+    steps.push(userInputStep(carried));
+    carried = [];
+  };
+  for (const msg of messages) {
+    if (msg.role === 'tool') {
+      const result = functionResultStep(msg);
+      steps.push(result.step);
+      carried.push(...result.carried);
+      continue;
+    }
+    flush();
+    steps.push(...nonToolSteps(msg));
+  }
+  flush();
+  return steps;
+}
+
+export function historySteps(msg: TurnHistoryMessage): Record<string, unknown>[] {
+  return historyStepsOf([msg]);
 }
 
 export function historyStep(msg: TurnHistoryMessage): Record<string, unknown> {
@@ -246,12 +309,9 @@ function withToolNames(messages: readonly TurnHistoryMessage[]): TurnHistoryMess
 
 export function inputStepsFromRequest(req: ProviderCompleteRequest): Record<string, unknown>[] {
   if (req.continuation && req.continuation.length > 0) {
-    return withToolNames(req.continuation).flatMap((msg) => historySteps(msg));
+    return historyStepsOf(withToolNames(req.continuation));
   }
-  const inputSteps: Record<string, unknown>[] = [];
-  for (const h of withToolNames(req.history ?? [])) {
-    inputSteps.push(...historySteps(h));
-  }
+  const inputSteps = historyStepsOf(withToolNames(req.history ?? []));
   if (req.input.length > 0 || inputSteps.length === 0) {
     const style = req.speech?.style;
     inputSteps.push(style ? speechInputStep(req.input, style) : userInputStep(req.input));

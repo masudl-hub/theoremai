@@ -536,7 +536,7 @@ Deno.test('historyStep maps tool role content and parts through wirePart', () =>
     parts: [
       { type: 'text', text: '1. palm' },
       { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
-      { type: 'audio', mimeType: 'audio/wav', data: 'UklG' },
+      { type: 'video', mimeType: 'video/mp4', data: 'AAAA' },
     ],
   });
   assertEquals(step, {
@@ -547,9 +547,137 @@ Deno.test('historyStep maps tool role content and parts through wirePart', () =>
       { type: 'text', text: 'shortlist\n{"items":[]}' },
       { type: 'text', text: '1. palm' },
       { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
-      { type: 'audio', mimeType: 'audio/wav', data: 'UklG' },
+      { type: 'video', mimeType: 'video/mp4', data: 'AAAA' },
     ],
   });
+});
+
+Deno.test('a file a function_result cannot hold is carried to the next user_input', () => {
+  const pdf: InteractionPart = {
+    type: 'document',
+    mimeType: 'application/pdf',
+    data: 'JVBE',
+  };
+  const voice: InteractionPart = {
+    type: 'audio',
+    mimeType: 'audio/wav',
+    data: 'UklG',
+  };
+  assertEquals(
+    historySteps({
+      role: 'tool',
+      name: 'recall_message',
+      tool_call_id: 'call_1',
+      content: 'Completed.',
+      parts: [{ type: 'text', text: 'media.1' }, pdf, voice],
+    }),
+    [
+      {
+        type: 'function_result',
+        name: 'recall_message',
+        call_id: 'call_1',
+        result: [
+          { type: 'text', text: 'Completed.' },
+          { type: 'text', text: 'media.1' },
+          { type: 'text', text: '[document: sent in the next message]' },
+          { type: 'text', text: '[audio: sent in the next message]' },
+        ],
+      },
+      {
+        type: 'user_input',
+        content: [
+          { type: 'text', text: 'Files from the recall_message result:' },
+          { type: 'document', mimeType: 'application/pdf', data: 'JVBE' },
+          { type: 'audio', mimeType: 'audio/wav', data: 'UklG' },
+        ],
+      },
+    ],
+  );
+});
+
+Deno.test('carried files follow the whole run of tool results, each led by its tool', () => {
+  const pdf = (data: string): InteractionPart => ({
+    type: 'document',
+    mimeType: 'application/pdf',
+    data,
+  });
+  const call: TurnHistoryMessage = {
+    role: 'assistant',
+    tool_calls: [
+      {
+        id: 'a',
+        type: 'function',
+        function: { name: 'read_a', arguments: '{}' },
+      },
+      {
+        id: 'b',
+        type: 'function',
+        function: { name: 'read_b', arguments: '{}' },
+      },
+    ],
+  };
+  const steps = inputStepsFromRequest(
+    baseReq({
+      continuation: [
+        call,
+        {
+          role: 'tool',
+          name: 'read_a',
+          tool_call_id: 'a',
+          content: 'ok',
+          parts: [pdf('AAAA')],
+        },
+        {
+          role: 'tool',
+          tool_call_id: 'b',
+          content: 'ok',
+          parts: [pdf('BBBB')],
+        },
+      ],
+      input: [],
+    }),
+  );
+  assertEquals(
+    steps.map((step) => step.type),
+    ['function_call', 'function_call', 'function_result', 'function_result', 'user_input'],
+  );
+  assertEquals(steps[4]?.content, [
+    { type: 'text', text: 'Files from the read_a result:' },
+    { type: 'document', mimeType: 'application/pdf', data: 'AAAA' },
+    { type: 'text', text: 'Files from the read_b result:' },
+    { type: 'document', mimeType: 'application/pdf', data: 'BBBB' },
+  ]);
+});
+
+Deno.test('carried files reach the model before the next history message', () => {
+  const steps = inputStepsFromRequest(
+    baseReq({
+      history: [
+        {
+          role: 'tool',
+          tool_call_id: 'x',
+          content: 'ok',
+          parts: [
+            {
+              type: 'document',
+              mimeType: 'application/pdf',
+              data: 'AAAA',
+            },
+          ],
+        },
+        { role: 'assistant', content: 'Read it.' },
+      ],
+      input: [{ type: 'text', text: 'And now?' }],
+    }),
+  );
+  assertEquals(
+    steps.map((step) => step.type),
+    ['function_result', 'user_input', 'model_output', 'user_input'],
+  );
+  assertEquals(steps[1]?.content, [
+    { type: 'text', text: 'Files from a tool result:' },
+    { type: 'document', mimeType: 'application/pdf', data: 'AAAA' },
+  ]);
 });
 
 Deno.test('historySteps maps assistant tool_calls to function_call (no empty text)', () => {

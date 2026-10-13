@@ -59,7 +59,7 @@ import './studio-map.css';
 /** A token's slot: as wide as the longest name it shows in full. */
 const TOKEN_SIZES: MapSizes = {
 	node: { width: 240, height: 24 },
-	card: { head: 48, row: 24, foot: 4 },
+	card: { head: 44, row: 24, foot: 4 },
 	columnGap: 96,
 	rowGap: 6,
 	heading: 24,
@@ -420,7 +420,6 @@ function MapTools({ actions, onClose }: { actions: MapActions; onClose: () => vo
 interface NodeProps {
 	node: MapNode;
 	place: MapLayout['nodes'][string];
-	sizes: MapSizes;
 	/** What joins the node to the rest, in words. */
 	joins: string;
 	selected: string;
@@ -472,23 +471,24 @@ function TokenNode(props: NodeProps) {
 
 /** With detail: a node's icon, name and note, and under a profile's a row for each section. */
 function DetailNode(props: NodeProps) {
-	const { node, place, sizes, joins, selected, on, onOpen, lights, drag } = props;
+	const { node, place, joins, selected, on, onOpen, lights, drag } = props;
 	const { opens } = node;
 	const rows = node.rows ?? [];
-	const box = { left: place.x, top: place.y, width: sizes.node.width, height: place.height };
+	const box = { left: place.x, top: place.y, height: place.height };
 	const head = (
 		<>
-			<Icon icon={nodeIcon(node)} size="sm" color="secondary" />
-			<span className="studio-map-words">
-				<Text type="supporting" maxLines={1}>
-					{node.label}
-				</Text>
-				{node.note && (
-					<Text type="supporting" color="secondary" maxLines={rows.length > 0 ? 1 : mapNoteLines(node)}>
-						{node.note}
-					</Text>
-				)}
+			<span className="studio-map-name">
+				<Icon icon={nodeIcon(node)} size="sm" />
+				<span>{node.label}</span>
 			</span>
+			{node.note && (
+				<span
+					className="studio-map-note"
+					style={{ '--map-note-lines': rows.length > 0 ? 1 : mapNoteLines(node) } as CSSProperties}
+				>
+					{node.note}
+				</span>
+			)}
 		</>
 	);
 	const button = {
@@ -508,6 +508,7 @@ function DetailNode(props: NodeProps) {
 				{...drag}
 				{...marks(props)}
 				className="studio-map-node"
+				data-map-token={node.id}
 				style={box}
 				aria-current={isOpen(node, selected) ? 'true' : undefined}
 			>
@@ -518,6 +519,7 @@ function DetailNode(props: NodeProps) {
 	return (
 		<div
 			className="studio-map-card"
+			data-map-token={node.id}
 			style={box}
 			data-open={isOpen(node, selected) ? '' : undefined}
 			{...marks(props)}
@@ -526,7 +528,6 @@ function DetailNode(props: NodeProps) {
 			<button
 				{...button}
 				className="studio-map-head"
-				style={{ height: sizes.card.head }}
 				aria-current={selected === node.id ? 'true' : undefined}
 			>
 				{head}
@@ -536,7 +537,6 @@ function DetailNode(props: NodeProps) {
 					key={row.id}
 					type="button"
 					className="studio-map-row"
-					style={{ height: sizes.card.row }}
 					aria-current={selected === row.id ? 'true' : undefined}
 					data-on={on.has(row.id) ? '' : undefined}
 					onClick={() => {
@@ -544,17 +544,9 @@ function DetailNode(props: NodeProps) {
 					}}
 					{...lights(row.id)}
 				>
-					<Icon icon={rowIcon(row.type)} size="sm" color="secondary" />
-					<Text type="supporting" maxLines={1}>
-						{row.label}
-					</Text>
-					{row.note && (
-						<span className="studio-map-row-note">
-							<Text type="supporting" color="secondary" maxLines={1}>
-								{row.note}
-							</Text>
-						</span>
-					)}
+					<Icon icon={rowIcon(row.type)} size="sm" />
+					<span>{row.label}</span>
+					{row.note && <span className="studio-map-row-note">{row.note}</span>}
 				</button>
 			))}
 		</div>
@@ -579,9 +571,10 @@ export function StudioMap({
 	const { expanded, family, map, moved, put, showFamily, expand } = useKept(whole);
 	const field = useRef<HTMLDivElement>(null);
 	const sizes = expanded ? DETAIL_SIZES : TOKEN_SIZES;
-	const widths = useTokenWidths(field, expanded ? undefined : map);
+	const drawn = useMemo(() => ({ map, expanded }), [map, expanded]);
+	const widths = useTokenWidths(field, drawn);
 	const layout = useMemo(
-		() => mapLayout(map, sizes, expanded ? { moved, detail: true } : { moved, widths }),
+		() => mapLayout(map, sizes, { moved, widths, detail: expanded }),
 		[map, sizes, expanded, moved, widths],
 	);
 	const nodes = map.columns.flat().flatMap((group) => group.nodes);
@@ -644,6 +637,7 @@ export function StudioMap({
 								'--map-width': `${String(layout.width)}px`,
 								'--map-height': `${String(layout.height)}px`,
 								'--map-slot': `${String(sizes.node.width)}px`,
+								'--map-line': `${String(sizes.card.row)}px`,
 							} as CSSProperties
 						}
 					>
@@ -678,7 +672,6 @@ export function StudioMap({
 										key={node.id}
 										node={node}
 										place={place}
-										sizes={sizes}
 										joins={mapLinkWords(map, node.id)}
 										selected={selected}
 										on={on}

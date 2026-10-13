@@ -78,61 +78,94 @@
 	transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
-/* With detail a node is the token grown: its fill, its corners and its text, and no border. */
+/* With detail a node is its token grown: the token's fill, corners, type and padding, as wide
+   as what it holds up to the slot. Each line of it is as tall as a token. */
 .studio-map-node,
 .studio-map-card {
 	position: absolute;
 	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	width: max-content;
+	max-width: var(--map-slot);
 	overflow: hidden;
+	padding: 0;
 	border: 0;
 	border-radius: var(--radius-inner);
 	background: var(--color-neutral);
+	color: var(--color-text-primary);
+	font-family: inherit;
+	font-size: var(--text-supporting-size);
+	font-weight: var(--font-weight-medium);
+	line-height: var(--text-supporting-leading);
+	text-align: start;
 	transition:
 		background-color var(--duration-fast) var(--ease-standard),
 		opacity var(--duration-fast) var(--ease-standard);
 }
 
-.studio-map-card {
+.studio-map-node,
+.studio-map-head,
+.studio-map-row {
+	cursor: pointer;
+}
+
+.studio-map-head,
+.studio-map-row {
+	box-sizing: border-box;
+	flex: none;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: start;
+}
+
+.studio-map-head {
 	display: flex;
 	flex-direction: column;
 }
 
-.studio-map-node,
-.studio-map-head,
+.studio-map-name,
 .studio-map-row {
-	box-sizing: border-box;
 	display: flex;
 	gap: var(--spacing-1);
-	color: var(--color-text-primary);
-	font: inherit;
-	text-align: start;
-	cursor: pointer;
-}
-
-.studio-map-node,
-.studio-map-head {
-	align-items: flex-start;
-	padding: var(--spacing-1) var(--spacing-2);
-}
-
-.studio-map-head,
-.studio-map-row {
-	flex: none;
-	width: 100%;
-	border: 0;
-	background: none;
-}
-
-.studio-map-row {
 	align-items: center;
-	padding: 0 var(--spacing-2);
+	height: var(--map-line);
+	padding-inline: var(--spacing-2);
+}
+
+.studio-map-name > span,
+.studio-map-row > span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Under the name, from where the name starts: past the icon and its gap. */
+.studio-map-note {
+	display: -webkit-box;
+	overflow: hidden;
+	padding-inline: calc(var(--spacing-2) + 16px + var(--spacing-1)) var(--spacing-2);
+	color: var(--color-text-secondary);
+	font-weight: var(--font-weight-normal);
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: var(--map-note-lines, 1);
+	line-clamp: var(--map-note-lines, 1);
+}
+
+.studio-map-row {
 	transition: background-color var(--duration-fast) var(--ease-standard);
 }
 
-.studio-map-row-note {
-	min-width: 0;
-	max-width: 55%;
-	margin-inline-start: auto;
+.studio-map-row > .studio-map-row-note {
+	flex: 1;
+	padding-inline-start: var(--spacing-3);
+	color: var(--color-text-secondary);
+	font-weight: var(--font-weight-normal);
+	text-align: end;
 }
 
 /* The section under the pointer, and each one a lit line ends on. */
@@ -144,18 +177,6 @@
 /* A provider, and a shared setting nothing here uses, open nothing. */
 .studio-map-node:disabled {
 	cursor: default;
-}
-
-.studio-map-node > :first-child,
-.studio-map-head > :first-child,
-.studio-map-row > :first-child {
-	flex: none;
-}
-
-.studio-map-words {
-	display: flex;
-	flex-direction: column;
-	min-width: 0;
 }
 
 .studio-map-node:focus-visible {

@@ -392,14 +392,17 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
       y += heading;
       for (const each of group.nodes) {
         const rows = detail ? (each.rows ?? []) : [];
-        const head = detail && (rows.length > 0 || mapNoteLines(each) === 1) ? card.head : node.height;
+        // With detail a node's name is one row, as a token is; one with no note is that row alone.
+        const noted = rows.length > 0 || each.note !== '';
+        const full = detail && (rows.length > 0 || mapNoteLines(each) === 1) ? card.head : node.height;
+        const head = detail && !noted ? card.row : full;
         const height = rows.length > 0 ? card.head + rows.length * card.row + card.foot : head;
         const width = Math.min(widths[each.id] ?? node.width, node.width);
         const put = Object.hasOwn(moved, each.id) ? moved[each.id] : undefined;
         const place = put ? { x: Math.max(put.x, 0), y: Math.max(put.y, 0) } : { x, y };
         nodes[each.id] = { ...place, height };
         boxes.push({ id: each.id, ...place, width, height });
-        const port = { left: place.x, right: place.x + width, y: place.y + head / 2 };
+        const port = { left: place.x, right: place.x + width, y: place.y + (detail ? card.row : head) / 2 };
         ports.set(each.id, port);
         (each.rows ?? []).forEach((row, line) =>
           ports.set(row.id, detail ? { ...port, y: place.y + card.head + line * card.row + card.row / 2 } : port),

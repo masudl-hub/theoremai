@@ -72,10 +72,17 @@
 	pointer-events: none;
 }
 
+.studio-map .map-token > * {
+	transition:
+		opacity var(--duration-fast) var(--ease-standard),
+		background-image var(--duration-fast) var(--ease-standard);
+}
+
 .studio-map .map-token {
 	max-width: var(--map-slot);
 	overflow: hidden;
-	transition: opacity var(--duration-fast) var(--ease-standard);
+	border-radius: var(--radius-inner);
+	background: var(--color-background-surface);
 }
 
 /* With detail a node is its token grown: the token's fill, corners, type and padding, as wide
@@ -92,12 +99,10 @@
 	padding: 0;
 	border: 0;
 	border-radius: var(--radius-inner);
-	background: var(--color-neutral);
+	background: linear-gradient(var(--map-fill), var(--map-fill)), var(--color-background-surface);
 	color: var(--color-text-primary);
 	font-family: inherit;
-	font-size: var(--text-supporting-size);
-	font-weight: var(--font-weight-medium);
-	line-height: var(--text-supporting-leading);
+	--map-fill: var(--color-neutral);
 	text-align: start;
 	transition:
 		background-color var(--duration-fast) var(--ease-standard),
@@ -139,22 +144,11 @@
 .studio-map-name > span,
 .studio-map-row > span {
 	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 }
 
 /* Under the name, from where the name starts: past the icon and its gap. */
 .studio-map-note {
-	display: -webkit-box;
-	overflow: hidden;
 	padding-inline: calc(var(--spacing-2) + 16px + var(--spacing-1)) var(--spacing-2);
-	color: var(--color-text-secondary);
-	font-weight: var(--font-weight-normal);
-	line-height: var(--map-line);
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: var(--map-note-lines, 1);
-	line-clamp: var(--map-note-lines, 1);
 }
 
 .studio-map-row {
@@ -164,9 +158,6 @@
 .studio-map-row > .studio-map-row-note {
 	flex: 1;
 	padding-inline-start: var(--spacing-3);
-	color: var(--color-text-secondary);
-	font-weight: var(--font-weight-normal);
-	text-align: end;
 }
 
 :is(.studio-map-node, .studio-map-head):has(> .studio-map-note) {
@@ -197,7 +188,7 @@
 /* The profile or tool open in the editor, and the section of it that is open. */
 .studio-map-node[aria-current],
 .studio-map-card[data-open] {
-	background: var(--color-background-blue);
+	--map-fill: var(--color-background-blue);
 	color: var(--color-text-blue);
 }
 
@@ -235,7 +226,7 @@
 	opacity: 0.45;
 }
 
-.studio-map[data-lit] .map-token:not([data-on]) {
+.studio-map[data-lit] .map-token:not([data-on]) > * {
 	opacity: 0.45;
 }
 
@@ -253,7 +244,7 @@
 	.studio-map-node > *,
 	.studio-map-card > *,
 	.studio-map-row,
-	.studio-map .map-token,
+	.studio-map .map-token > *,
 	.studio-map .map-line {
 		transition: none;
 	}

@@ -479,15 +479,19 @@ function DetailNode(props: NodeProps) {
 		<>
 			<span className="studio-map-name">
 				<Icon icon={nodeIcon(node)} size="sm" />
-				<span>{node.label}</span>
+				<Text type="supporting" color="inherit" weight="medium" maxLines={1} hasTruncateTooltip={false}>
+					{node.label}
+				</Text>
 			</span>
 			{node.note && (
-				<span
+				<Text
+					type="supporting"
+					maxLines={rows.length > 0 ? 1 : mapNoteLines(node)}
+					hasTruncateTooltip={false}
 					className="studio-map-note"
-					style={{ '--map-note-lines': rows.length > 0 ? 1 : mapNoteLines(node) } as CSSProperties}
 				>
 					{node.note}
-				</span>
+				</Text>
 			)}
 		</>
 	);
@@ -545,8 +549,20 @@ function DetailNode(props: NodeProps) {
 					{...lights(row.id)}
 				>
 					<Icon icon={rowIcon(row.type)} size="sm" />
-					<span>{row.label}</span>
-					{row.note && <span className="studio-map-row-note">{row.note}</span>}
+					<Text type="supporting" color="inherit" weight="medium" maxLines={1} hasTruncateTooltip={false}>
+						{row.label}
+					</Text>
+					{row.note && (
+						<Text
+							type="supporting"
+							maxLines={1}
+							justify="end"
+							hasTruncateTooltip={false}
+							className="studio-map-row-note"
+						>
+							{row.note}
+						</Text>
+					)}
 				</button>
 			))}
 		</div>

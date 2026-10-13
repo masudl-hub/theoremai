@@ -49,6 +49,14 @@ const CONTENT_POLICY = [
 ].join('; ');
 
 /**
+ * What of the package the page's code is made of, and so all this server hands out: its sources
+ * and the packages they import. Nothing else in a checkout (its traces, its scratch files, its
+ * tests) is the page's to read, and the project's own files never come through here: they are
+ * the project's server's (`studio/server/serve.ts`).
+ */
+const SERVED = ['studio', 'react', 'src', 'mod.ts', 'package.json', 'node_modules'];
+
+/**
  * Serves the studio as a page of its own, at `/studio/` so a run tab's address is the one the
  * screen opens. The screen's packages are the studio's own install (`studio/node_modules`).
  * The page calls the project's local server (`studio/server/serve.ts`) directly.
@@ -71,6 +79,6 @@ export default defineConfig({
     // The command that starts this names the port; it is never moved to another.
     port: 4984,
     strictPort: true,
-    fs: { allow: [path.resolve(studio, '..')] },
+    fs: { allow: SERVED.map((name) => path.resolve(studio, '..', name)) },
   },
 });

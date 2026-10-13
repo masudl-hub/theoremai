@@ -335,6 +335,6 @@ export async function runStudioDecision(
   }
 }
 
-export { failedDecisionTraces } from '../react/src/client/decision-transport.ts';
+export { failedDecisionTraces, withFailedTraces } from '../react/src/client/decision-transport.ts';
 
 export { studioKeySlots } from './browser-connection.ts';

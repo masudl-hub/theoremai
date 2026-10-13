@@ -26,12 +26,13 @@ import {
 import { type StudioAsks, studioAsks } from '../asks.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { withoutCredentials } from '../held-credentials.ts';
+import { builderReason } from '../builder-reason.ts';
 import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
 import { readStudioSource } from '../read-source.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import { studioSource } from '../source.ts';
 import { createStudioLiveHandler, type StudioUpgrade } from './live.ts';
-import { tracedToPage, withDecisionTraces, withRunTraces } from './run-traces.ts';
+import { replyWith, tracedToPage, withDecisionTraces, withRunTraces } from './run-traces.ts';
 import type { ProjectOrigins, SharedSetting } from './save-wire.ts';
 import {
   addAgent,
@@ -357,6 +358,22 @@ export function questionsFault(profileId: string, questions: unknown): string | 
   return undefined;
 }
 
+/**
+ * Serves a decision with its failure worded for the builder. The package's handler answers a
+ * failure in the visitor's wording; the studio's reader is the builder, who needs the reason.
+ */
+function withBuilderReason(
+  handler: (onError: (err: unknown, ctx: { request: Request }) => void) => Serve,
+): Serve {
+  const reasons = new WeakMap<Request, string>();
+  const serve = handler((err, { request }) => reasons.set(request, builderReason(err)));
+  return async (request) => {
+    const response = await serve(request);
+    const reason = reasons.get(request);
+    return reason === undefined ? response : replyWith(response, { error: reason });
+  };
+}
+
 /** Why a live profile is not run: a voice call needs a socket, and the server was given no way to take one. */
 const NO_SOCKET = 'A live profile runs over a socket, and this server was not given a way to take one (`upgrade`).';
 
@@ -375,7 +392,9 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
     const { vault, fetch } = options.provider ?? {};
     // The page shows a decision's trace, so the profile is served writing its records to the reply.
     return withDecisionTraces(
-      createTheoremDecisionHandler({ profile: tracedToPage(profile), questions, vault, fetch }),
+      withBuilderReason((onError) =>
+        createTheoremDecisionHandler({ profile: tracedToPage(profile), questions, vault, fetch, onError }),
+      ),
     );
   };
   for (const profile of listProfiles()) {

@@ -723,6 +723,8 @@ Deno.test('runDecision reads its key only from the vault slot the profile names'
   for (const vault of [undefined, {}, { slot_b: 'other-key' }, { slot_a: '  ' }]) {
     const err = await assertRejects(() => runDecision(request(), { vault, fetch }), DecisionError);
     assertEquals(err.code, 'authentication');
+    // The normalized failure keeps what stopped it, for the host's own diagnostics.
+    assertEquals((err.cause as { kind?: unknown }).kind, 'auth');
   }
   assertEquals(calls, 0);
 });

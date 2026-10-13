@@ -13,11 +13,14 @@ import {
   type TurnEventSink,
 } from '../react/src/client/transport.ts';
 import { createMemorySteerInbox, steerUnitOf } from '../react/src/server/steer-inbox.ts';
-import { toErrorEvent, withPublicLabels } from '../src/guardrails/error.ts';
+import { errorKind, toErrorEvent, withPublicLabels } from '../src/guardrails/error.ts';
 import type { RunDecisionOptions } from '../src/kernel/engine/decision.ts';
+import { builderReason } from './builder-reason.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import {
+  failedDecisionTraces,
   runStudioDecision,
+  withFailedTraces,
   streamStudioCall,
   streamStudioInvoke,
   streamStudioTurn,
@@ -256,8 +259,17 @@ export function createBrowserStudioDecisionTransport(
           payload.questions ?? {},
         ),
       ),
-    decide: (state, signal) =>
-      runStudioDecision(payload, state, runtime.decision ?? {}, runSignal(runtime, signal)),
+    decide: async (state, signal) => {
+      try {
+        return await runStudioDecision(payload, state, runtime.decision ?? {}, runSignal(runtime, signal));
+      } catch (err) {
+        // The builder's own keys and machine, so the failure says what happened; it keeps its trace.
+        throw withFailedTraces(
+          hostError({ error: builderReason(err), errorKind: errorKind(err) }, 'internal'),
+          failedDecisionTraces(err),
+        );
+      }
+    },
     traces,
   };
 }

@@ -40,14 +40,18 @@ const DECISION_ERROR_KINDS = {
   disclosure_blocked: 'blocked',
 } as const satisfies Record<string, ErrorKind>;
 
-/** A normalized native-decision failure; response bodies are deliberately omitted. */
+/**
+ * A normalized native-decision failure; response bodies are deliberately omitted. What the
+ * provider path threw is its `cause`, for the host's own diagnostics.
+ */
 export class DecisionError extends TheoremError {
   constructor(
     readonly code: keyof typeof DECISION_ERROR_KINDS,
     message: string,
     readonly status?: number,
+    options?: ErrorOptions,
   ) {
-    super(DECISION_ERROR_KINDS[code], message);
+    super(DECISION_ERROR_KINDS[code], message, options);
   }
 }
 
@@ -370,6 +374,7 @@ function decisionProviderError(error: unknown): DecisionError {
     code,
     labelText('provider.decision_failed'),
     isRecord(error) && typeof error.status === 'number' ? error.status : undefined,
+    { cause: error },
   );
 }
 

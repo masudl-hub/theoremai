@@ -103,6 +103,25 @@ Deno.test("a decision is asked the setup's questions about the state the page se
   assertEquals(asked.length, 1);
 });
 
+Deno.test('a decision that fails tells the builder why, not the visitor wording', async () => {
+  const keyless = createStudioHandler({
+    project: 'decisions',
+    pageOrigins: [],
+    listenHost: HOST,
+    questions: { 'triage-desk': questions },
+  });
+  const response = await keyless(
+    new Request(`${BASE}/profiles/triage-desk/decide`, {
+      method: 'POST',
+      headers: { host: HOST, 'content-type': 'application/json' },
+      body: JSON.stringify({ state: { action: 'delete' } }),
+    }),
+  );
+  const reply = await response.json();
+  assertEquals([response.status, reply.errorKind], [401, 'auth']);
+  assertEquals(reply.error, "The vault has no credential in slot 'slot_a'");
+});
+
 Deno.test('a decision profile the setup names no questions for is not run, and says why', async () => {
   const described: StudioDescription = await (await call('')).json();
   assertEquals(

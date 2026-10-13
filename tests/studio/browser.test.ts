@@ -452,3 +452,19 @@ Deno.test('browser host retains dispatch authority and refuses a changed replay 
   );
   assertEquals(effects, 1);
 });
+
+Deno.test('a decision on the builder own keys says why it failed and keeps its trace', async () => {
+  const { createBrowserStudioDecisionTransport } = await import('../../studio/browser.ts');
+  const { compileStudio: compile, createDecisionExampleDraft } = await import(
+    '../../studio/mod.ts'
+  );
+  const { failedDecisionTraces } = await import('../../studio/runtime.ts');
+  const compiled = compile(createDecisionExampleDraft());
+  if (!compiled.ok) throw new Error(JSON.stringify(compiled.issues));
+  const transport = createBrowserStudioDecisionTransport(compiled, { mode: 'byok', decision: {} });
+  const failure = await assertRejects(() => transport.decide({ action: 'delete' }));
+  const { clientFailure } = await import('../../react/src/client/failure.ts');
+  assertEquals(clientFailure(failure).errorKind, 'auth');
+  assert(clientFailure(failure).error.includes('has no credential in slot'));
+  assertEquals(failedDecisionTraces(failure).length, 1);
+});

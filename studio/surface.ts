@@ -45,6 +45,7 @@ import {
   createNarratorExampleDraft,
 } from './example.ts';
 import { type StudioConnectionMode, modelBindingViolation } from './policy.ts';
+import { modelRoute } from './providers.ts';
 import { studioNodeRef, studioTree, type StudioTreeNode } from './tree.ts';
 
 export type StudioExportFormat = 'zip' | 'copy' | 'llm';
@@ -253,6 +254,14 @@ function describeReply(blocks: readonly TranscriptBlock[]) {
 }
 
 /** Each key slot the draft uses, and what uses it. */
+/** `binding` as the run policy reads it: its provider's adapter, and whether the agent decides. */
+function routed(draft: StudioDraft, binding: StudioDraft['modelBindings'][number]) {
+  return {
+    ...modelRoute(draft.providers, draft.identity.profileType, binding),
+    builtInTools: binding.builtInTools,
+  };
+}
+
 function keySlots(draft: StudioDraft): Map<string, string[]> {
   const slots = new Map<string, string[]>();
   const use = (slot: string | undefined, by: string) => {
@@ -407,7 +416,7 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
           },
           node,
         );
-        const violation = modelBindingViolation(binding, host.getMode());
+        const violation = modelBindingViolation(routed(draft(), binding), host.getMode());
         return {
           node,
           rejected: violation ? [{ field: violation.field, why: violation.message }] : [],
@@ -586,7 +595,7 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
         }
         if (facet === 'modelBinding') {
           const binding = draft().modelBindings.find((candidate) => id === `modelBinding:${candidate.key}`);
-          const violation = binding ? modelBindingViolation(binding, host.getMode()) : null;
+          const violation = binding ? modelBindingViolation(routed(draft(), binding), host.getMode()) : null;
           if (violation) rejected.push({ field: violation.field, why: violation.message });
         }
         return { rejected };

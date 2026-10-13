@@ -115,6 +115,7 @@ import {
 	toolSpecKeyOf,
 	sharedAsk,
 	toolSpecNodeId,
+	modelRoute,
 	type WorkspaceCompileResult,
 	type WriteAsk,
 	withAgentDraft,
@@ -1640,7 +1641,12 @@ function useOpenOrigin(project: ProjectSession | null) {
 
 /** Keys are the workspace's: every agent's slots, so a called agent's key is asked for too. */
 function useWorkspaceConnection(workspace: StudioWorkspace): StudioConnectionState {
-	const bindings = workspace.agents.flatMap((agent) => agent.modelBindings);
+	const bindings = workspace.agents.flatMap((agent) =>
+		agent.modelBindings.map((binding) => ({
+			...modelRoute(workspace.providers, agent.identity.profileType, binding),
+			builtInTools: binding.builtInTools,
+		})),
+	);
 	const namedSlots = workspace.agents
 		.flatMap((agent) => [
 			agent.models.key,

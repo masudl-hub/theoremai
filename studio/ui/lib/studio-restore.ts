@@ -42,6 +42,7 @@ function isWorkspace(value: unknown): value is StudioWorkspace {
 	if (!isRecord(value) || value.v !== STUDIO_WORKSPACE_VERSION) return false;
 	const { agents, toolSpecs, selected, chatWith } = value;
 	if (!Array.isArray(agents) || agents.length === 0 || !Array.isArray(toolSpecs)) return false;
+	if (!Array.isArray(value.providers)) return false;
 	if (typeof selected !== 'string' || typeof chatWith !== 'string') return false;
 	if (!isRecord(value.starts) || !isRecord(value.starts.agents) || !isRecord(value.starts.tools))
 		return false;

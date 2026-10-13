@@ -295,15 +295,10 @@ async function registerDraft(
     for (const binding of Object.values(defined.models)) {
       const violation = modelBindingViolation(
         {
-          ...binding,
-          protocol:
-            defined.type === 'decision'
-              ? 'decision'
-              : binding.provider === 'google'
-                ? defined.type === 'live'
-                  ? 'geminiLive'
-                  : 'geminiInteractions'
-                : 'openAi',
+          provider: binding.provider,
+          adapter: scope.providers.require(binding.provider).adapter.id,
+          apiId: binding.apiId,
+          decision: defined.type === 'decision',
           builtInTools: 'builtInTools' in binding ? (binding.builtInTools ?? []) : [],
         },
         runtime.mode,

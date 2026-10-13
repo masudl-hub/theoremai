@@ -29,7 +29,6 @@ function conciergeRun() {
     modelBindings: blank.modelBindings.map((binding) => ({
       ...binding,
       provider: 'openrouter' as const,
-      protocol: 'openAi' as const,
       apiId: OPENROUTER_STUDIO_API_ID,
     })),
   };

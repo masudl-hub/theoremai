@@ -32,7 +32,6 @@ import {
   type ContextSender,
   type ContinueStopKind,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
-  isValidProfileProtocol,
   type KeySlot,
   type LiveActivityHandling,
   type LiveEndSensitivity,
@@ -41,7 +40,6 @@ import {
   PROFILE_TYPES,
   type ProfileGraphFacetId,
   type ProfileType,
-  type Protocol,
   type Provider,
   type SpeechAudioFormat,
   type StepLimitMode,
@@ -56,6 +54,7 @@ import {
   STUDIO_TRACE_DESTINATION,
   servesOtherProfileType,
 } from './policy.ts';
+import { modelRoute, servesProfileType, STUDIO_PROVIDERS, type StudioProvider } from './providers.ts';
 import { DEFAULT_TOOL_INPUT_SCHEMA, DEFAULT_TOOL_OUTPUT_SCHEMA } from './tool-schema.ts';
 import type { StudioToolSpecSeed } from './types.ts';
 
@@ -99,7 +98,7 @@ export interface ModelBindingDraft {
   /** Stable draft key; the model id is editable, so it cannot be the key. */
   key: string;
   modelId: string;
-  protocol: Protocol;
+  /** The provider that serves it, by the id one of the draft's `providers` has. */
   provider: Provider;
   apiId: string;
   /** Decision request timeout; `null` uses the studio timeout. */
@@ -394,6 +393,8 @@ export interface StudioDraft {
   included: ProfileGraphFacetId[];
   models: ModelsDraft;
   modelBindings: ModelBindingDraft[];
+  /** The providers its models pick from: the workspace's. */
+  providers: StudioProvider[];
   tools: ToolsDraft;
   toolSpecs: ToolSpecDraft[];
   inputs: InputsDraft;
@@ -418,7 +419,6 @@ export function defaultModelBinding(partial?: Partial<ModelBindingDraft>): Model
   return {
     key: draftKey('model'),
     modelId: 'fast',
-    protocol: 'openAi',
     provider: 'openrouter',
     apiId: '',
     timeoutMs: null,
@@ -620,6 +620,7 @@ export function createBlankDraft(): StudioDraft {
     included: ['observability', 'labels'],
     models: { defaultModel: '', allowModelSelect: false, maxSteps: null, key: '' },
     modelBindings: [],
+    providers: [...STUDIO_PROVIDERS],
     tools: { t2Loader: '' },
     toolSpecs: [],
     inputs: {
@@ -846,8 +847,10 @@ export function setProfileType(
     return { ...draft, identity: { ...draft.identity, profileType: type } };
   }
   const kept = draft.modelBindings.filter(
-    (binding) =>
-      isValidProfileProtocol(type, binding.protocol) && !servesOtherProfileType(type, binding),
+    (binding) => {
+      const route = modelRoute(draft.providers, type, binding);
+      return servesProfileType(route.adapter, type, route.apiId) && !servesOtherProfileType(type, route);
+    },
   );
   const retyped: StudioDraft = {
     ...draft,

@@ -9,6 +9,7 @@ import {
   draftFacets,
   exampleDecisionDraft,
   JEV_STUDIO_API_ID,
+  modelRoute,
   newCriteria,
   newDecisionQuestion,
   STUDIO_DECISION_MAX_CRITERIA,
@@ -115,7 +116,8 @@ Deno.test('decision ids and criteria labels may match inherited object property 
 });
 
 Deno.test('Span messages reject empty or invalid shapes and accept role/content messages', () => {
-  const binding = createSpanExampleDraft().modelBindings[0];
+  const span = createSpanExampleDraft();
+  const binding = modelRoute(span.providers, 'decision', span.modelBindings[0]);
   for (const state of [
     {},
     { input: null },
@@ -139,7 +141,6 @@ Deno.test('switching to decision loads the original Jev model and tool-call exam
   const example = createExampleDraft();
   const decision = setProfileType(example, 'decision');
   assertEquals(decision.modelBindings.length, 1);
-  assertEquals(decision.modelBindings[0].protocol, 'decision');
   assertEquals(decision.modelBindings[0].provider, 'typesafe');
   assertEquals(decision.modelBindings[0].apiId, 'jev-latest');
   assertEquals(
@@ -168,7 +169,7 @@ Deno.test('switching to decision loads the original Jev model and tool-call exam
     'modelBinding',
   );
   const back = setProfileType(decision, 'text');
-  assertEquals(back.modelBindings[0].protocol, 'geminiInteractions');
+  assertEquals(back.modelBindings[0].provider, 'google');
   assert(compileStudio(back).ok);
 });
 
@@ -287,7 +288,8 @@ Deno.test('Span compatibility errors stay in the studio builder', () => {
 });
 
 Deno.test('Span state policy accepts text or input/output messages', () => {
-  const binding = createSpanExampleDraft().modelBindings[0];
+  const span = createSpanExampleDraft();
+  const binding = modelRoute(span.providers, 'decision', span.modelBindings[0]);
   assertEquals(decisionStateViolation(binding, 'request text'), null);
   assertEquals(decisionStateViolation(binding, { input: 'request', output: 'response' }), null);
   assertStringIncludes(decisionStateViolation(binding, { unrelated: true }) ?? '', 'Span state');

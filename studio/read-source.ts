@@ -730,14 +730,6 @@ function applyLabels(draft: StudioDraft, labels: unknown): void {
   draft.labels = entries;
 }
 
-function bindingProtocol(
-  type: StudioProfileType | '',
-  provider: unknown,
-): ModelBindingDraft['protocol'] {
-  if (type === 'decision') return 'decision';
-  if (provider !== 'google') return 'openAi';
-  return type === 'live' ? 'geminiLive' : 'geminiInteractions';
-}
 function bindingOf(
   modelId: string,
   spec: unknown,
@@ -761,7 +753,6 @@ function bindingOf(
   return {
     ...base,
     modelId,
-    protocol: bindingProtocol(type, spec.provider),
     provider: text(spec.provider, base.provider) as ModelBindingDraft['provider'],
     apiId: text(spec.apiId),
     timeoutMs: timeout === STUDIO_DECISION_TIMEOUT_MS || timeout === null ? null : timeout,

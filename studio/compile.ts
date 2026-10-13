@@ -41,11 +41,8 @@ import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import {
   HTTP_METHODS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
-  isValidPair,
-  isValidProfileProtocol,
   PROFILE_HANDLE_MAX_CHARS,
   PROFILE_ID_MAX_CHARS,
-  protocolsForProfileType,
 } from '../src/kernel/schema.ts';
 import { systemPromptProblem } from '../src/kernel/system-parts.ts';
 import { activityLabelProblem } from '../src/kernel/tools/activity-label.ts';
@@ -100,6 +97,8 @@ import {
 import {
   decisionQuestionViolation,
   GEMINI_STUDIO_LIVE_INPUT_TOKENS,
+  isGoogleRoute,
+  isOpenRouterRoute,
   isProviderBuiltinId,
   modelBindingViolation,
   STUDIO_DECISION_MAX_CRITERIA,
@@ -112,6 +111,13 @@ import {
   STUDIO_DECISION_TIMEOUT_MS,
   type StudioConnectionMode,
 } from './policy.ts';
+import {
+  LOCAL_PROVIDER_ID,
+  type ModelRoute,
+  modelRoute,
+  servesProfileType,
+  type StudioProvider,
+} from './providers.ts';
 import type {
   StudioToolLabels,
   StructuredRegistration,
@@ -223,28 +229,32 @@ function checkIdentity(draft: StudioDraft, report: Report): void {
   }
 }
 
+/** The model's provider is one the workspace has, and its adapter serves this kind of agent with the model. */
 function checkBindingRoute(
   binding: ModelBindingDraft,
-  type: StudioProfileType,
+  type: Exclude<StudioProfileType, 'host'>,
+  providers: readonly StudioProvider[],
   report: Report,
-): string {
+): ModelRoute {
   const nodeId = modelBindingNodeId(binding.key);
-  if (!isValidProfileProtocol(type, binding.protocol)) {
-    const legal = protocolsForProfileType(type).join(' or ');
-    report(nodeId, `${type} profiles can't use ${binding.protocol} — use ${legal}.`, 'protocol');
-  } else if (!isValidPair(binding.protocol, binding.provider)) {
-    report(nodeId, `${binding.protocol} doesn't run on ${binding.provider}.`, 'provider');
+  const route = modelRoute(providers, type, { provider: binding.provider, apiId: binding.apiId.trim() });
+  if (!providers.some((provider) => provider.id === binding.provider)) {
+    report(nodeId, `No provider is defined as ${binding.provider}.`, 'provider');
+  } else if (!servesProfileType(route.adapter, type)) {
+    report(nodeId, `${binding.provider} doesn't serve ${type} agents.`, 'provider');
+  } else if (route.apiId && !servesProfileType(route.adapter, type, route.apiId)) {
+    report(nodeId, `${route.apiId} doesn't serve ${type} agents.`, 'apiId');
   }
-  const apiId = binding.apiId.trim();
-  if (!apiId) {
+  if (!route.apiId) {
     report(nodeId, 'Wire model id is required.', 'apiId');
   }
-  return apiId;
+  return route;
 }
 
 /** The binding's efforts, keyed by alias, and its default; each problem is reported on the binding. */
 function compileEfforts(
   binding: ModelBindingDraft,
+  route: ModelRoute,
   nodeId: string,
   report: Report,
 ): {
@@ -258,13 +268,10 @@ function compileEfforts(
     else if (name in efforts) {
       report(nodeId, `Effort alias '${name}' is used twice.`, 'efforts', index);
     } else efforts[name] = level;
-    if (
-      binding.protocol !== 'openAi' &&
-      !(GOOGLE_THINKING_LEVELS as readonly string[]).includes(level)
-    ) {
+    if (isGoogleRoute(route) && !(GOOGLE_THINKING_LEVELS as readonly string[]).includes(level)) {
       report(
         nodeId,
-        `${binding.protocol} doesn't take the ${level} thinking level.`,
+        `${binding.provider} doesn't take the ${level} thinking level.`,
         'efforts',
         index,
       );
@@ -284,13 +291,16 @@ function compileEfforts(
 
 function compileBinding(
   binding: ModelBindingDraft,
-  type: StudioProfileType,
+  type: Exclude<StudioProfileType, 'host'>,
+  providers: readonly StudioProvider[],
   report: Report,
   agentIdOf: AgentIdOf,
 ): ModelBinding {
   const nodeId = modelBindingNodeId(binding.key);
-  const apiId = checkBindingRoute(binding, type, report);
-  const { efforts, defaultEffort } = compileEfforts(binding, nodeId, report);
+  const route = checkBindingRoute(binding, type, providers, report);
+  const { apiId } = route;
+  const chained = onGoogleInteractions(route, type);
+  const { efforts, defaultEffort } = compileEfforts(binding, route, nodeId, report);
   const effortCount = Object.keys(efforts).length;
   checkWhole(report, nodeId, 'maxOutputTokens', 'Max output tokens', binding.maxOutputTokens, 1);
   if (
@@ -299,12 +309,12 @@ function compileBinding(
   ) {
     report(nodeId, 'Temperature must be zero or more.', 'temperature');
   }
-  if (onGoogleInteractions(binding) && binding.persistViaInteractionId && binding.store === false) {
+  if (chained && binding.persistViaInteractionId && binding.store === false) {
     report(nodeId, 'Chaining needs Google storage on.', 'persistViaInteractionId');
   }
-  const cache = compileCache(binding, nodeId, report);
+  const cache = compileCache(binding, route, nodeId, report);
   const compaction = compileCompaction(binding, type, nodeId, report, agentIdOf);
-  const server = binding.provider === 'local' ? binding.server?.trim() : undefined;
+  const server = binding.provider === LOCAL_PROVIDER_ID ? binding.server?.trim() : undefined;
 
   return {
     provider: binding.provider,
@@ -321,7 +331,7 @@ function compileBinding(
     providerOptions: jsonObjectSchema.parse({
       ...(cache ? { cache } : {}),
       ...(server ? { server } : {}),
-      ...(onGoogleInteractions(binding)
+      ...(chained
         ? {
             ...(binding.store !== null ? { store: binding.store } : {}),
             persistViaInteractionId: binding.persistViaInteractionId,
@@ -335,12 +345,14 @@ function compileBinding(
 /** Prompt caching runs only on OpenRouter's openAi route. */
 function compileCache(
   binding: ModelBindingDraft,
+  route: ModelRoute,
   nodeId: string,
   report: Report,
 ): import('../src/kernel/types.ts').CacheSpec | undefined {
   if (!binding.cacheMode) return undefined;
-  if (binding.provider !== 'openrouter' || binding.protocol !== 'openAi') {
-    report(nodeId, 'Prompt caching runs only on OpenRouter with openAi.', 'cacheMode');
+  // A provider on an adapter the studio does not hold is the project's to judge.
+  if (route.adapter !== undefined && !isOpenRouterRoute(route)) {
+    report(nodeId, 'Prompt caching runs only on OpenRouter.', 'cacheMode');
   }
   return { mode: binding.cacheMode, ...(binding.cacheTtl ? { ttl: binding.cacheTtl } : {}) };
 }
@@ -395,8 +407,9 @@ function compileCompaction(
   };
 }
 
-function onGoogleInteractions(binding: ModelBindingDraft): boolean {
-  return binding.protocol === 'geminiInteractions' && binding.provider === 'google';
+/** A turn model on Google: the kind that can store its interactions and chain from them. */
+function onGoogleInteractions(route: ModelRoute, type: StudioProfileType): boolean {
+  return isGoogleRoute(route) && type !== 'live';
 }
 
 function validateModelPolicy(
@@ -424,7 +437,7 @@ function validateModelPolicy(
 
 function compileModels(
   draft: StudioDraft,
-  type: StudioProfileType,
+  type: Exclude<StudioProfileType, 'host'>,
   report: Report,
   agentIdOf: AgentIdOf,
 ): Pick<
@@ -441,6 +454,7 @@ function compileModels(
         fallbackKeySlot: binding.fallbackKeySlot || policy.fallbackKey || undefined,
       },
       type,
+      draft.providers,
       report,
       agentIdOf,
     );
@@ -1511,13 +1525,13 @@ function compileSpeech(
   if (format) {
     const refused = draft.modelBindings.find(
       (binding) =>
-        binding.protocol !== 'openAi' &&
+        isGoogleRoute(modelRoute(draft.providers, 'speech', binding)) &&
         !(GOOGLE_SPEECH_FORMATS as readonly string[]).includes(format),
     );
     if (refused) {
       report(
         'speech',
-        `${format} output needs every model on openAi; ${refused.modelId} is ${refused.protocol}.`,
+        `Google doesn't make ${format}; ${refused.modelId} is on ${refused.provider}.`,
         'format',
       );
     }
@@ -1820,7 +1834,7 @@ function compileDecision(
   const binding = draft.modelBindings[0];
   const nodeId = binding ? modelBindingNodeId(binding.key) : 'models';
   if (binding) {
-    checkBindingRoute(binding, 'decision', report);
+    checkBindingRoute(binding, 'decision', draft.providers, report);
     if (!binding.modelId.trim()) {
       report(nodeId, 'Model id is required.', 'modelId');
     }
@@ -1855,7 +1869,8 @@ function compileDecision(
   if (binding) {
     decision.questions.forEach((question, index) => {
       const compiled = questions[question.id.trim()];
-      const violation = compiled && decisionQuestionViolation(binding, compiled);
+      const violation =
+        compiled && decisionQuestionViolation(modelRoute(draft.providers, 'decision', binding), compiled);
       if (violation) report('decision', violation, 'questions', index);
     });
   }
@@ -1869,7 +1884,7 @@ function compileDecision(
     models: binding
       ? {
           [binding.modelId.trim()]: {
-            provider: binding.provider === 'openrouter' ? 'openrouter' : 'typesafe',
+            provider: binding.provider,
             apiId: binding.apiId.trim(),
             ...(binding.keySlot || draft.models.key
               ? { keySlot: binding.keySlot || draft.models.key }
@@ -2007,7 +2022,10 @@ export function compileStudio(
   if (draft.identity.profileType !== 'host') {
     for (const binding of draft.modelBindings) {
       if (!binding.apiId.trim()) continue;
-      const violation = modelBindingViolation(binding, mode);
+      const violation = modelBindingViolation(
+        { ...modelRoute(draft.providers, draft.identity.profileType, binding), builtInTools: binding.builtInTools },
+        mode,
+      );
       if (violation) {
         report(modelBindingNodeId(binding.key), violation.message, violation.field);
       }

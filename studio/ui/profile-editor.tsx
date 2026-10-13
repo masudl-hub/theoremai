@@ -124,10 +124,7 @@ import {
 	labelDefault,
 	PROFILE_HANDLE_MAX_CHARS,
 	PROFILE_ID_MAX_CHARS,
-	PROFILE_TYPE_PROTOCOLS,
-	PROTOCOL_PROVIDERS,
 	type ProfileGraphFacetId,
-	type Protocol,
 	type Provider,
 	profileGraphFacet,
 	type StepLimitMode,
@@ -178,8 +175,13 @@ import {
 	includableFacets,
 	includeFacet,
 	inputLimitsRequired,
-	isGoogleTransport,
-	isOpenRouterTransport,
+	adapterOf,
+	isGoogleRoute,
+	isOpenRouterRoute,
+	LOCAL_PROVIDER_ID,
+	modelRoute,
+	servesProfileType,
+	type StudioProvider,
 	JEV_STUDIO_API_ID,
 	keySlotRequired,
 	type ModelBindingDraft,
@@ -216,7 +218,7 @@ import {
 	setProfileType,
 	studioNetworkNote,
 	studioNodeRef,
-	studioRunsTransport,
+	studioRunsProvider,
 	type ToolSpecDraft,
 	takesContinueInstruction,
 	toolSpecNodeId,
@@ -312,23 +314,21 @@ const HISTORY_HOLDER_SEGMENTS: Segment<'host' | 'stateless' | 'provider'>[] = [
 	{ value: 'provider', label: 'Provider', icon: IconServer },
 ];
 
-const PROTOCOL_SEGMENT = {
-	geminiInteractions: {
-		value: 'geminiInteractions',
-		label: 'Gemini Interactions',
-		icon: IconGemini,
-	},
-	geminiLive: { value: 'geminiLive', label: 'Gemini Live', icon: IconGemini },
-	openAi: { value: 'openAi', label: 'OpenAI-compatible', icon: IconOpenAi },
-	decision: { value: 'decision', label: 'Decision', icon: IconGitBranch },
-} satisfies { [P in Protocol]: Segment<P> };
+/** How the studio's own providers are named. A project's provider is named by its id. */
+const PROVIDER_LABEL: Record<string, string> = {
+	google: 'Google',
+	openrouter: 'OpenRouter',
+	[LOCAL_PROVIDER_ID]: 'Local',
+	typesafe: 'TypeSafe',
+};
 
-const PROVIDER_SEGMENT = {
-	google: { value: 'google', label: 'Google', icon: IconGoogle },
-	openrouter: { value: 'openrouter', label: 'OpenRouter', icon: IconOpenRouter },
-	local: { value: 'local', label: 'Local', icon: IconDeviceDesktop },
-	typesafe: { value: 'typesafe', label: 'TypeSafe', icon: IconGitBranch },
-} satisfies { [P in Provider]: Segment<P> };
+/** The mark of the service an adapter talks to. */
+const ADAPTER_ICON: Record<string, Segment<string>['icon']> = {
+	google: IconGoogle,
+	openrouter: IconOpenRouter,
+	'openai-chat': IconOpenAi,
+	typesafe: IconGitBranch,
+};
 
 const LEVEL_SEGMENT = {
 	none: { label: 'None', icon: IconAntennaBarsOff },
@@ -397,26 +397,29 @@ const ATTACHMENT_PICKER = acceptPicker(ATTACHMENT_ACCEPT_MIMES);
 const IMAGE_ATTACHMENT_PICKER = acceptPicker(IMAGE_ATTACHMENT_ACCEPT_MIMES);
 const VOICE_PICKER = acceptPicker(VOICE_ACCEPT_MIMES);
 
-/** The wire model a binding starts on after its transport changes. */
-function defaultApiId(type: StudioTurnProfileType, protocol: Protocol, provider: Provider): string {
-	if (isOpenRouterTransport(protocol, provider)) return OPENROUTER_STUDIO_API_ID;
-	if (!isGoogleTransport(protocol, provider)) return '';
-	const seed = defaultBindingForProfileType(type);
-	return seed.provider === 'google' ? seed.apiId : GEMINI_STUDIO_DEFAULT_API_ID;
+/** The wire model a binding starts on after its provider changes. */
+function defaultApiId(type: ListedProfileType | 'decision', provider: StudioProvider): string {
+	if (type === 'decision')
+		return provider.adapter === 'typesafe'
+			? JEV_STUDIO_API_ID
+			: isOpenRouterRoute(provider)
+				? OPENROUTER_DECISION_MODELS[0].id
+				: '';
+	if (isOpenRouterRoute(provider)) return OPENROUTER_STUDIO_API_ID;
+	if (!isGoogleRoute(provider)) return '';
+	return defaultBindingForProfileType(type).apiId;
 }
 
-/** Moves a binding to a new transport and its default model, dropping builtins that model lacks. */
-function retransport(
+/** Moves a binding to another provider and its default model, dropping builtins that model lacks. */
+function reprovide(
 	binding: ModelBindingDraft,
-	type: StudioTurnProfileType,
-	protocol: Protocol,
-	provider: Provider,
+	type: ListedProfileType | 'decision',
+	provider: StudioProvider,
 ): Partial<ModelBindingDraft> {
-	const apiId = defaultApiId(type, protocol, provider);
+	const apiId = defaultApiId(type, provider);
 	const allowed = new Set(allowedBuiltinsForGemini(apiId));
 	return {
-		protocol,
-		provider,
+		provider: provider.id,
 		apiId,
 		builtInTools: binding.builtInTools.filter((id) => allowed.has(id)),
 	};
@@ -642,7 +645,15 @@ function ModelsEditor({
 }
 
 /** A decision binding's wire model: picked from the demo's list, typed outside the demo. */
-function DecisionApiModelRow({ binding, set }: { binding: ModelBindingDraft; set: SetBinding }) {
+function DecisionApiModelRow({
+	binding,
+	adapter,
+	set,
+}: {
+	binding: ModelBindingDraft;
+	adapter: string | undefined;
+	set: SetBinding;
+}) {
 	const mode = useContext(ConnectionMode);
 	if (mode !== 'demo')
 		return (
@@ -663,7 +674,7 @@ function DecisionApiModelRow({ binding, set }: { binding: ModelBindingDraft; set
 			path="models.*.apiId"
 			field="apiId"
 			value={binding.apiId}
-			options={(binding.provider === 'typesafe'
+			options={(adapter === 'typesafe'
 				? [{ id: JEV_STUDIO_API_ID, label: 'Jev' }]
 				: OPENROUTER_DECISION_MODELS
 			).map((model) => ({
@@ -678,38 +689,7 @@ function DecisionApiModelRow({ binding, set }: { binding: ModelBindingDraft; set
 	);
 }
 
-function DecisionTransportRows({ binding, set }: { binding: ModelBindingDraft; set: SetBinding }) {
-	return (
-		<>
-			<SegmentedRow<Protocol>
-				label="Protocol"
-				path="models.*.provider"
-				field="protocol"
-				value={binding.protocol}
-				segments={[PROTOCOL_SEGMENT.decision]}
-				onChange={(protocol) => {
-					set({ protocol });
-				}}
-			/>
-			<SegmentedRow<Provider>
-				label="Provider"
-				path="models.*.provider"
-				field="provider"
-				value={binding.provider}
-				segments={[PROVIDER_SEGMENT.typesafe, PROVIDER_SEGMENT.openrouter]}
-				onChange={(provider) => {
-					set({
-						provider,
-						apiId: provider === 'typesafe' ? JEV_STUDIO_API_ID : OPENROUTER_DECISION_MODELS[0].id,
-					});
-				}}
-			/>
-			<DecisionApiModelRow binding={binding} set={set} />
-		</>
-	);
-}
-
-/** Decision model binding, using the same protocol/provider/API id symbols as other models. */
+/** Decision model binding, using the same provider and API id rows as other models. */
 function DecisionModelEditor({
 	draft,
 	setDraft,
@@ -736,7 +716,8 @@ function DecisionModelEditor({
 					set({ modelId });
 				}}
 			/>
-			<DecisionTransportRows binding={binding} set={set} />
+			<ProviderRow providers={draft.providers} binding={binding} type="decision" set={set} />
+			<DecisionApiModelRow binding={binding} adapter={adapterOf(draft.providers, binding.provider)} set={set} />
 			<SlotRow
 				label="Key slot"
 				path="models.*.keySlot"
@@ -879,15 +860,16 @@ function bindingProfileType(chosen: StudioDraft['identity']['profileType']): Lis
 
 /** A provider's segment, disabled with the reason when the studio can't run it here. */
 function providerSegment(
-	provider: keyof typeof PROVIDER_SEGMENT,
-	binding: ModelBindingDraft,
-	type: ListedProfileType,
+	provider: StudioProvider,
+	type: ListedProfileType | 'decision',
 	mode: ContextType<typeof ConnectionMode>,
-) {
-	const local = provider === 'local';
+): Segment<string> {
+	const local = provider.id === LOCAL_PROVIDER_ID;
 	return {
-		...PROVIDER_SEGMENT[provider],
-		isDisabled: !studioRunsTransport(type, binding.protocol, provider, local ? 'local' : mode),
+		value: provider.id,
+		label: PROVIDER_LABEL[provider.id] ?? provider.id,
+		icon: local ? IconDeviceDesktop : (ADAPTER_ICON[provider.adapter] ?? IconServer),
+		isDisabled: !studioRunsProvider(type, provider, local ? 'local' : mode),
 		disabledMessage:
 			mode === 'demo' && !local
 				? 'Add your own key under Keys to use it.'
@@ -895,28 +877,32 @@ function providerSegment(
 	};
 }
 
-/** The protocol's providers, each enabled only where the studio runs it. */
+/** The workspace's providers that serve this kind of agent, each enabled only where the studio runs it. */
 function ProviderRow({
+	providers,
 	binding,
 	type,
 	set,
 }: {
+	providers: readonly StudioProvider[];
 	binding: ModelBindingDraft;
-	type: ListedProfileType;
+	type: ListedProfileType | 'decision';
 	set: SetBinding;
 }) {
 	const mode = useContext(ConnectionMode);
+	const serving = providers.filter(
+		(provider) => provider.id === binding.provider || servesProfileType(provider.adapter, type),
+	);
 	return (
-		<SegmentedRow<Provider>
+		<SegmentedRow<string>
 			label="Provider"
 			path="models.*.provider"
 			field="provider"
 			value={binding.provider}
-			segments={PROTOCOL_PROVIDERS[binding.protocol].map((provider) =>
-				providerSegment(provider, binding, type, mode),
-			)}
-			onChange={(provider) => {
-				set(retransport(binding, type, binding.protocol, provider));
+			segments={serving.map((provider) => providerSegment(provider, type, mode))}
+			onChange={(id) => {
+				const provider = providers.find((each) => each.id === id);
+				if (provider) set(reprovide(binding, type, provider));
 			}}
 		/>
 	);
@@ -1141,8 +1127,8 @@ function ModelSection({
 	type: ListedProfileType;
 	set: SetBinding;
 }) {
-	const google = isGoogleTransport(binding.protocol, binding.provider);
-	const local = binding.provider === 'local';
+	const google = isGoogleRoute(modelRoute(draft.providers, type, binding));
+	const local = binding.provider === LOCAL_PROVIDER_ID;
 	return (
 		<InspectorSection path="models.*">
 			<TextRow
@@ -1157,18 +1143,7 @@ function ModelSection({
 					set({ modelId });
 				}}
 			/>
-			<SegmentedRow<Protocol>
-				label="Protocol"
-				path="models.*.provider"
-				field="protocol"
-				value={binding.protocol}
-				segments={PROFILE_TYPE_PROTOCOLS[type].map((protocol) => PROTOCOL_SEGMENT[protocol])}
-				onChange={(protocol) => {
-					const provider = PROTOCOL_PROVIDERS[protocol][0];
-					set(retransport(binding, type, protocol, provider));
-				}}
-			/>
-			<ProviderRow binding={binding} type={type} set={set} />
+			<ProviderRow providers={draft.providers} binding={binding} type={type} set={set} />
 			{local ? <LocalEndpointRows set={set} /> : <KeySlotRows binding={binding} set={set} />}
 			<ApiModelRow draft={draft} binding={binding} type={type} google={google} set={set} />
 
@@ -1393,16 +1368,16 @@ function ModelBindingEditor({
 	const set = (change: Partial<ModelBindingDraft>) => {
 		setDraft((current) => updateModelBinding(current, bindingKey, change));
 	};
-	const google = isGoogleTransport(binding.protocol, binding.provider);
+	const route = modelRoute(draft.providers, type, binding);
 
 	return (
 		<>
 			<ModelSection draft={draft} binding={binding} type={type} set={set} />
 			<GenerationSection binding={binding} set={set} />
-			{google && binding.protocol === 'geminiInteractions' && (
+			{isGoogleRoute(route) && draft.identity.profileType !== 'live' && (
 				<ConversationStateSection binding={binding} set={set} />
 			)}
-			{binding.provider === 'openrouter' && binding.protocol === 'openAi' && (
+			{isOpenRouterRoute(route) && (
 				<PromptCacheSection binding={binding} set={set} />
 			)}
 			{type === 'text' && <CompactionSection binding={binding} set={set} />}
@@ -1889,7 +1864,9 @@ const END_SENSITIVITY_SEGMENTS: Segment<
 function allGoogle(draft: StudioDraft): boolean {
 	return (
 		draft.modelBindings.length > 0 &&
-		draft.modelBindings.every((binding) => isGoogleTransport(binding.protocol, binding.provider))
+		draft.modelBindings.every((binding) =>
+			isGoogleRoute(modelRoute(draft.providers, draft.identity.profileType, binding)),
+		)
 	);
 }
 
@@ -2057,7 +2034,7 @@ function ImageEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDra
 	const openRouter =
 		draft.modelBindings.length > 0 &&
 		draft.modelBindings.every((binding) =>
-			isOpenRouterTransport(binding.protocol, binding.provider),
+			isOpenRouterRoute(modelRoute(draft.providers, 'image', binding)),
 		);
 	const { image } = draft;
 	const set = patch(setDraft, 'image');
@@ -2214,13 +2191,15 @@ function ImageReferencesEditor({
 	);
 }
 
-/** Speech pins. mp3 is only on offer when every model's protocol can make it. */
+/** Speech pins. mp3 is only on offer when every model's provider can make it. */
 function SpeechEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
 	const google = allGoogle(draft);
 	const { speech } = draft;
 	const set = patch(setDraft, 'speech');
-	// Only the OpenAI protocol makes mp3; Gemini refuses it.
-	const mp3 = draft.modelBindings.every((binding) => binding.protocol === 'openAi');
+	// Gemini refuses mp3.
+	const mp3 = draft.modelBindings.every(
+		(binding) => !isGoogleRoute(modelRoute(draft.providers, 'speech', binding)),
+	);
 	return (
 		<InspectorSection path="speech">
 			<PresetRow

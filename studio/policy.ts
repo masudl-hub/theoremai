@@ -4,15 +4,10 @@
  * Which grounding each model's free quota allows is the Google preset's table.
  */
 
-import {
-  isValidPair,
-  isValidProfileProtocol,
-  type Protocol,
-  type Provider,
-} from '../src/kernel/schema.ts';
 import type { DecisionQuestion } from '../src/kernel/types.ts';
 import { GOOGLE_BUILTIN_TOOLS, googleFreeTierBuiltins } from '../src/presets/google.ts';
 import type { ModelBindingDraft, StudioProfileType } from './draft.ts';
+import { LOCAL_PROVIDER_ID, type ModelRoute, servesProfileType } from './providers.ts';
 
 export type StudioConnectionMode = 'demo' | 'byok' | 'local';
 
@@ -60,18 +55,17 @@ export const STUDIO_DECISION_MAX_ID_CHARS = 128;
 /** Default and maximum request timeout on the site's decision keys. */
 export const STUDIO_DECISION_TIMEOUT_MS = 30_000;
 
-type DecisionRoute = Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>;
+export type DecisionRoute = Pick<ModelRoute, 'adapter' | 'apiId' | 'decision'>;
 
 function isSpanDecision(binding: DecisionRoute): boolean {
   return (
-    binding.protocol === 'decision' && binding.provider === 'openrouter' &&
-    binding.apiId.startsWith('respan/')
+    binding.decision && binding.adapter === 'openrouter' && binding.apiId.startsWith('respan/')
   );
 }
 
 /** Provider-specific request shape for the studio's Span binding. */
 export function decisionQuestionViolation(
-  binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>,
+  binding: DecisionRoute,
   question: DecisionQuestion,
 ): string | null {
   if (!isSpanDecision(binding)) return null;
@@ -86,7 +80,7 @@ export function decisionQuestionViolation(
 }
 
 export function decisionStateViolation(
-  binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>,
+  binding: DecisionRoute,
   state: unknown,
 ): string | null {
   if (!isSpanDecision(binding)) return null;
@@ -231,46 +225,43 @@ export function geminiStudioModel(apiId: string): GeminiStudioModel | undefined 
   return GEMINI_BY_ID.get(apiId.trim());
 }
 
-export function isGoogleTransport(protocol: Protocol, provider: Provider): boolean {
-  return (protocol === 'geminiInteractions' || protocol === 'geminiLive') && provider === 'google';
+/** A model served through Google's adapter. */
+export function isGoogleRoute(route: Pick<ModelRoute, 'adapter'>): boolean {
+  return route.adapter === 'google';
 }
 
-export function isOpenRouterTransport(protocol: Protocol, provider: Provider): boolean {
-  return protocol === 'openAi' && provider === 'openrouter';
+/** A model served through OpenRouter's adapter. */
+export function isOpenRouterRoute(route: Pick<ModelRoute, 'adapter'>): boolean {
+  return route.adapter === 'openrouter';
 }
 
-/** Gemini serves every type; OpenRouter's free router routes to chat models, so text only. */
-export function studioRunsTransport(
-  type: StudioProfileType,
-  protocol: Protocol,
-  provider: Provider,
+/**
+ * Whether the studio runs agents of `type` on a provider. On the site's keys Gemini serves every
+ * type, and OpenRouter's free router routes to chat models, so text only. On the builder's own
+ * keys or machine it is the adapter's answer.
+ */
+export function studioRunsProvider(
+  type: Exclude<StudioProfileType, 'host'>,
+  provider: Pick<ModelRoute, 'adapter'>,
   mode: StudioConnectionMode = 'demo',
 ): boolean {
-  if (mode !== 'demo') {
-    return browserRunsTransport(type, protocol, provider);
-  }
-  if (type === 'decision') {
-    return protocol === 'decision' && (provider === 'typesafe' || provider === 'openrouter');
-  }
-  if (isGoogleTransport(protocol, provider)) return true;
-  return isOpenRouterTransport(protocol, provider) && type === 'text';
-}
-
-function browserRunsTransport(type: StudioProfileType, protocol: Protocol, provider: Provider): boolean {
-  return isValidPair(protocol, provider) && isValidProfileProtocol(type, protocol) && (provider !== 'local' || type !== 'image');
+  if (mode !== 'demo') return servesProfileType(provider.adapter, type);
+  if (type === 'decision') return provider.adapter === 'typesafe' || isOpenRouterRoute(provider);
+  if (isGoogleRoute(provider)) return true;
+  return isOpenRouterRoute(provider) && type === 'text';
 }
 
 /** A model the studio doesn't list isn't judged here; `modelBindingViolation` reports it. */
 export function servesOtherProfileType(
   type: StudioProfileType,
-  binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>,
+  route: Pick<ModelRoute, 'adapter' | 'apiId'>,
 ): boolean {
-  if (binding.protocol === 'decision') return type !== 'decision';
-  if (isOpenRouterTransport(binding.protocol, binding.provider)) {
-    return type !== 'text';
+  if (isOpenRouterRoute(route)) {
+    const decides = OPENROUTER_DECISION_MODELS.some((model) => model.id === route.apiId.trim());
+    return decides ? type !== 'decision' : type !== 'text';
   }
-  if (!isGoogleTransport(binding.protocol, binding.provider)) return false;
-  const model = geminiStudioModel(binding.apiId);
+  if (!isGoogleRoute(route)) return false;
+  const model = geminiStudioModel(route.apiId);
   return model !== undefined && model.profileType !== type;
 }
 
@@ -285,40 +276,35 @@ export function allowedBuiltinsForGemini(apiId: string): string[] {
 
 export function defaultBindingForProfileType(
   type: Exclude<StudioProfileType, 'host'>,
-): Pick<ModelBindingDraft, 'modelId' | 'protocol' | 'provider' | 'apiId'> {
+): Pick<ModelBindingDraft, 'modelId' | 'provider' | 'apiId'> {
   switch (type) {
     case 'decision':
       return {
         modelId: 'decision',
-        protocol: 'decision',
         provider: 'typesafe',
         apiId: JEV_STUDIO_API_ID,
       };
     case 'live':
       return {
         modelId: 'live',
-        protocol: 'geminiLive',
         provider: 'google',
         apiId: GEMINI_STUDIO_LIVE_DEFAULT_API_ID,
       };
     case 'speech':
       return {
         modelId: 'voice',
-        protocol: 'geminiInteractions',
         provider: 'google',
         apiId: GEMINI_STUDIO_TTS_DEFAULT_API_ID,
       };
     case 'text':
       return {
         modelId: 'fast',
-        protocol: 'geminiInteractions',
         provider: 'google',
         apiId: GEMINI_STUDIO_DEFAULT_API_ID,
       };
     case 'image':
       return {
         modelId: 'image',
-        protocol: 'geminiInteractions',
         provider: 'google',
         apiId: GEMINI_STUDIO_IMAGE_DEFAULT_API_ID,
       };
@@ -335,11 +321,11 @@ export interface ModelBindingViolation {
  * model suits the profile type is the kernel's call.
  */
 export function modelBindingViolation(
-  binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId' | 'builtInTools'>,
+  binding: ModelRoute & Pick<ModelBindingDraft, 'builtInTools'>,
   mode: StudioConnectionMode = 'demo',
 ): ModelBindingViolation | null {
   if (mode !== 'demo') {
-    if (mode === 'local' && binding.provider !== 'local') {
+    if (mode === 'local' && binding.provider !== LOCAL_PROVIDER_ID) {
       return {
         field: 'provider',
         message: 'Local runs require local models. Switch the model provider to Local.',
@@ -348,16 +334,16 @@ export function modelBindingViolation(
     return null;
   }
   const apiId = binding.apiId.trim();
-  if (binding.protocol === 'decision') {
-    if (binding.provider === 'typesafe') return null;
-    if (binding.provider === 'openrouter') {
+  if (binding.decision) {
+    if (binding.adapter === 'typesafe') return null;
+    if (isOpenRouterRoute(binding)) {
       return OPENROUTER_DECISION_MODELS.some((model) => model.id === apiId)
         ? null
         : { field: 'apiId', message: `${apiId} is not a studio OpenRouter decision model.`,
           };
     }
   }
-  if (isOpenRouterTransport(binding.protocol, binding.provider)) {
+  if (isOpenRouterRoute(binding)) {
     return apiId === OPENROUTER_STUDIO_API_ID
       ? null
       : {
@@ -365,7 +351,7 @@ export function modelBindingViolation(
           message: `OpenRouter models in the studio must use ${OPENROUTER_STUDIO_API_ID}.`,
         };
   }
-  if (!isGoogleTransport(binding.protocol, binding.provider)) {
+  if (!isGoogleRoute(binding)) {
     return {
       field: 'provider',
       message: `The studio runs Google and OpenRouter models only.`,

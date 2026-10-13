@@ -130,7 +130,6 @@ Deno.test('a local export configures the registered adapter URL and keeps host o
   draft.identity.agentId = 'local.test';
   draft.identity.handle = 'Local';
   draft.modelBindings[0].provider = 'local';
-  draft.modelBindings[0].protocol = 'openAi';
   draft.modelBindings[0].apiId = 'local-model';
   const workspace = compileWorkspace(workspaceFromDraft(draft), 'local');
   assert(workspace.ok, JSON.stringify(!workspace.ok && workspace.issues));

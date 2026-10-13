@@ -24,6 +24,7 @@ import {
   includeFacet,
   modelBindingNodeId,
   modelBindingViolation,
+  modelRoute,
   newModelBinding,
   newOwnDetector,
   newPattern,
@@ -192,7 +193,7 @@ Deno.test('a model with several efforts and no default is an issue on its defaul
     [{ nodeId: modelBindingNodeId(fast.key), field: 'defaultEffort' }],
   );
 });
-Deno.test('a thinking level the protocol does not take is an issue on that effort', () => {
+Deno.test('a thinking level the provider does not take is an issue on that effort', () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;
   const result = compileStudio({
@@ -305,7 +306,6 @@ Deno.test('chaining and storage compile only on Gemini Interactions', () => {
   const routed = {
     ...fast,
     provider: 'openrouter' as const,
-    protocol: 'openAi' as const,
     apiId: OPENROUTER_STUDIO_API_ID,
     store: true,
     persistViaInteractionId: true,
@@ -327,7 +327,7 @@ Deno.test('a duplicate tool name is keyed to the second tool', () => {
 Deno.test('setProfileType to live swaps bindings and hides facets live lacks', () => {
   const live = setProfileType(createExampleDraft(), 'live');
   assertEquals(live.modelBindings.length, 1);
-  assertEquals(live.modelBindings[0].protocol, 'geminiLive');
+  assertEquals(live.modelBindings[0].provider, 'google');
   assertEquals(live.modelBindings[0].apiId, GEMINI_STUDIO_LIVE_DEFAULT_API_ID);
   assertEquals(live.models.defaultModel, live.modelBindings[0].modelId);
   assertEquals(live.models.key, createExampleDraft().models.key);
@@ -720,12 +720,18 @@ Deno.test('a new image profile starts on the studio Gemini image model', () => {
   assert(isKeySlotName(draft.models.key));
 });
 Deno.test('modelBindingViolation holds the studio to its free-tier keys', () => {
-  const gemini = setProfileType(createBlankDraft(), 'text').modelBindings[0];
-  assertEquals(modelBindingViolation(gemini), null);
-  assertEquals(modelBindingViolation({ ...gemini, apiId: 'gemini-3-pro' })?.field, 'apiId');
-  const openRouter = { ...gemini, provider: 'openrouter' as const, protocol: 'openAi' as const };
-  assertEquals(modelBindingViolation({ ...openRouter, apiId: 'openai/gpt-5' })?.field, 'apiId');
-  assertEquals(modelBindingViolation({ ...openRouter, apiId: OPENROUTER_STUDIO_API_ID }), null);
+  const draft = setProfileType(createBlankDraft(), 'text');
+  const violation = (changes: { provider?: string; apiId?: string }) => {
+    const binding = { ...draft.modelBindings[0], ...changes };
+    return modelBindingViolation({
+      ...modelRoute(draft.providers, 'text', binding),
+      builtInTools: binding.builtInTools,
+    });
+  };
+  assertEquals(violation({}), null);
+  assertEquals(violation({ apiId: 'gemini-3-pro' })?.field, 'apiId');
+  assertEquals(violation({ provider: 'openrouter', apiId: 'openai/gpt-5' })?.field, 'apiId');
+  assertEquals(violation({ provider: 'openrouter', apiId: OPENROUTER_STUDIO_API_ID }), null);
 });
 Deno.test('zodFromJsonSchema keeps required fields and passes extras', () => {
   const schema = zodFromJsonSchema({

@@ -109,7 +109,6 @@ function exampleTextDraft(
     modelBindings: [
       defaultModelBinding({
         modelId: 'fast',
-        protocol: 'geminiInteractions',
         provider: 'google',
         apiId: GEMINI_STUDIO_DEFAULT_API_ID,
         efforts: [
@@ -122,7 +121,6 @@ function exampleTextDraft(
       }),
       defaultModelBinding({
         modelId: 'smart',
-        protocol: 'geminiInteractions',
         provider: 'google',
         apiId: 'gemini-3.5-flash-lite',
         efforts: [
@@ -135,7 +133,6 @@ function exampleTextDraft(
       }),
       defaultModelBinding({
         modelId: 'open',
-        protocol: 'openAi',
         provider: 'openrouter',
         apiId: OPENROUTER_STUDIO_API_ID,
         efforts: [{ alias: 'default', level: 'minimal' }],

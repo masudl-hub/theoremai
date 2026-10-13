@@ -14,7 +14,8 @@ import {
 } from '@tabler/icons-react';
 import { isKeySlotName } from '../../mod.ts';
 import {
-	type ModelBindingDraft,
+	LOCAL_PROVIDER_ID,
+	type ModelRoute,
 	modelBindingViolation,
 	type StudioConnectionMode,
 	sectionNote,
@@ -88,7 +89,7 @@ function connectionMode(
 	hasLocal: boolean,
 	hasKeys: boolean,
 ): StudioConnectionMode {
-	if (hasLocal && models.every((model) => model.provider === 'local')) return 'local';
+	if (hasLocal && models.every((model) => model.provider === LOCAL_PROVIDER_ID)) return 'local';
 	const hasProvidedModels = models.every(
 		(model) => modelBindingViolation({ ...model, builtInTools: model.builtInTools ?? [] }) === null,
 	);
@@ -162,9 +163,7 @@ function useConnectionRuntime(
 
 /** Models select execution; the vault and connection settings remain in this tab's memory. */
 export function useStudioConnection(
-	models: readonly (Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'> & {
-		builtInTools?: string[];
-	})[],
+	models: readonly (ModelRoute & { builtInTools?: string[] })[],
 	initialBaseUrl = 'http://127.0.0.1:11434',
 	namedSlots: readonly string[] = [],
 ) {
@@ -176,7 +175,7 @@ export function useStudioConnection(
 	const slotNames = [...new Set([...namedSlots, ...Object.keys(vault)])].join('\n');
 	const slots = useMemo(() => (slotNames ? slotNames.split('\n') : []), [slotNames]);
 	const [entries, setEntries] = useKeyEntries(slots);
-	const hasLocal = models.some((model) => model.provider === 'local');
+	const hasLocal = models.some((model) => model.provider === LOCAL_PROVIDER_ID);
 	const localModels = useLocalModels(hasLocal, local);
 	const hasKeys = Object.values(vault).some((key) => Boolean(key?.trim()));
 	const mode = connectionMode(models, hasLocal, hasKeys);

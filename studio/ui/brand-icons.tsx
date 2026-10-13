@@ -6,7 +6,7 @@ import type { SVGProps } from 'react';
  * OpenRouter's old one.
  */
 
-/** Gemini mark, for the Gemini protocols. */
+/** Gemini mark, for a provider on the Google adapter. */
 export function IconGemini(props: SVGProps<SVGSVGElement>) {
 	return (
 		<svg viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" aria-hidden {...props}>
@@ -27,7 +27,7 @@ export function IconGoogle(props: SVGProps<SVGSVGElement>) {
 	);
 }
 
-/** OpenAI mark, for the OpenAI-compatible protocol. */
+/** OpenAI mark, for a provider on the OpenAI-compatible adapter. */
 export function IconOpenAi(props: SVGProps<SVGSVGElement>) {
 	return (
 		<svg viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" aria-hidden {...props}>

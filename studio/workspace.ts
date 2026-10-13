@@ -14,6 +14,7 @@ import {
   type ToolsDraft,
 } from './draft.ts';
 import { canonical } from './canonical.ts';
+import type { StudioProvider } from './providers.ts';
 import {
   type StudioNodeRef,
   studioNodeRef,
@@ -24,7 +25,7 @@ import {
   toolSpecNodes,
 } from './tree.ts';
 
-export const STUDIO_WORKSPACE_VERSION = 3;
+export const STUDIO_WORKSPACE_VERSION = 4;
 
 export interface AgentToolsDraft extends ToolsDraft {
   /** The library tools this agent allows, by `ToolSpecDraft.key`. */
@@ -32,7 +33,7 @@ export interface AgentToolsDraft extends ToolsDraft {
 }
 
 /** One agent: a draft without the tool library, plus its own key and allow list. */
-export interface AgentDraft extends Omit<StudioDraft, 'toolSpecs' | 'tools'> {
+export interface AgentDraft extends Omit<StudioDraft, 'toolSpecs' | 'tools' | 'providers'> {
   key: string;
   tools: AgentToolsDraft;
 }
@@ -53,6 +54,8 @@ export interface StudioWorkspace {
   agents: AgentDraft[];
   /** The tools every agent picks from. */
   toolSpecs: ToolSpecDraft[];
+  /** The providers every agent's models pick from. */
+  providers: StudioProvider[];
   /** The open node's id. */
   selected: string;
   /** The agent the preview chats with, by key. */
@@ -97,26 +100,26 @@ export function workspaceNodeRef(
   const parsed = parseAgentNodeId(id);
   const agent = parsed && workspace.agents.find((candidate) => candidate.key === parsed.key);
   if (!parsed || !agent || toolSpecKeyOf(parsed.inner) !== undefined) return undefined;
-  const ref = studioNodeRef(draftOf(agent, []), parsed.inner);
+  const ref = studioNodeRef(draftOf(agent, [], workspace.providers), parsed.inner);
   return ref ? { agent: agent.key, ref } : undefined;
 }
 
 /** `agent` as a single draft whose tools are the ones it allows from `library`, in library order. */
-function draftOf(agent: AgentDraft, library: ToolSpecDraft[]): StudioDraft {
+function draftOf(agent: AgentDraft, library: ToolSpecDraft[], providers: StudioProvider[]): StudioDraft {
   const { key: _key, tools: { allow, ...tools }, ...rest } = agent;
   const allowed = new Set(allow);
-  return { ...rest, tools, toolSpecs: library.filter((tool) => allowed.has(tool.key)) };
+  return { ...rest, providers, tools, toolSpecs: library.filter((tool) => allowed.has(tool.key)) };
 }
 
 /** One agent as a single draft: its tools are the library's it allows, in library order. */
 export function agentDraft(workspace: StudioWorkspace, key: string): StudioDraft | undefined {
   const agent = workspace.agents.find((candidate) => candidate.key === key);
-  return agent && draftOf(agent, workspace.toolSpecs);
+  return agent && draftOf(agent, workspace.toolSpecs, workspace.providers);
 }
 
 /** A single draft as an agent allowing every tool it holds. */
 function agentFromDraft(draft: StudioDraft, key: string = draftKey('agent')): AgentDraft {
-  const { toolSpecs, tools, ...rest } = draft;
+  const { toolSpecs, tools, providers: _providers, ...rest } = draft;
   return { ...rest, key, tools: { ...tools, allow: toolSpecs.map((tool) => tool.key) } };
 }
 
@@ -197,6 +200,7 @@ export function workspaceFromDraft(draft: StudioDraft, selectedId = 'identity'):
     v: STUDIO_WORKSPACE_VERSION,
     agents: [agent],
     toolSpecs: draft.toolSpecs,
+    providers: draft.providers,
     selected: scopedNodeId(agent.key, selectedId),
     chatWith: agent.key,
     starts: { agents: {}, tools: {} },
@@ -214,7 +218,7 @@ export function createBlankWorkspace(): StudioWorkspace {
  */
 export function libraryDraft(workspace: StudioWorkspace, key: string): StudioDraft | undefined {
   const agent = workspace.agents.find((candidate) => candidate.key === key);
-  return agent && { ...draftOf(agent, []), toolSpecs: workspace.toolSpecs };
+  return agent && { ...draftOf(agent, [], workspace.providers), toolSpecs: workspace.toolSpecs };
 }
 
 /**
@@ -232,7 +236,7 @@ export function withLibraryDraft(
   const known = new Set(workspace.toolSpecs.map((tool) => tool.key));
   const added = draft.toolSpecs.filter((tool) => !known.has(tool.key)).map((tool) => tool.key);
   const keep = (allow: string[]) => allow.filter((toolKey) => kept.has(toolKey));
-  const { toolSpecs: _library, tools, ...rest } = draft;
+  const { toolSpecs: _library, providers: _providers, tools, ...rest } = draft;
   return remembered({
     ...workspace,
     toolSpecs: draft.toolSpecs,
@@ -997,14 +1001,14 @@ export interface WorkspaceTree {
 }
 
 /** Beside other agents, one with no id yet is named as an agent, not by its Identity facet. */
-function agentRoot(agent: AgentDraft): StudioTreeNode {
-  const root = scopeTree(agent.key, studioTree(draftOf(agent, [])));
+function agentRoot(agent: AgentDraft, providers: StudioProvider[]): StudioTreeNode {
+  const root = scopeTree(agent.key, studioTree(draftOf(agent, [], providers)));
   return agent.identity.agentId.trim() ? root : { ...root, label: 'New agent' };
 }
 
 export function workspaceTree(workspace: StudioWorkspace): WorkspaceTree {
   return {
-    agents: workspace.agents.map(agentRoot),
+    agents: workspace.agents.map((agent) => agentRoot(agent, workspace.providers)),
     tools: toolSpecNodes(workspace.toolSpecs),
   };
 }

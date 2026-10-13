@@ -168,7 +168,7 @@ export function workspaceMap(
           id,
           kind: 'model',
           label: binding.modelId || 'New model',
-          note: binding.apiId || binding.protocol,
+          note: binding.apiId,
           opens,
           holds: [opens],
         });

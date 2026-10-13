@@ -81,3 +81,21 @@ export function withRunTraces(
     });
   };
 }
+
+/**
+ * Serves a decision profile with each decision's records in its reply, where the page reads them.
+ * A decision answers in one JSON body, so its records ride in it instead of behind a stream.
+ */
+export function withDecisionTraces(
+  serve: (request: Request) => Promise<Response>,
+): (request: Request) => Promise<Response> {
+  return async (request) => {
+    const records: TraceRecord[] = [];
+    const response = await runs.run(records, () => serve(request));
+    if (records.length === 0 || !response.ok) return response;
+    const reply: unknown = await response.json();
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    return Response.json({ ...(reply as object), traces: records }, { status: response.status, headers });
+  };
+}

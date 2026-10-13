@@ -18,7 +18,11 @@ import {
   printableProfile,
   type StudioDescription,
 } from '../../studio/server/handler.ts';
-import { STUDIO_RUN_TRACES, withRunTraces } from '../../studio/server/run-traces.ts';
+import {
+  STUDIO_RUN_TRACES,
+  withDecisionTraces,
+  withRunTraces,
+} from '../../studio/server/run-traces.ts';
 
 const HOST = '127.0.0.1:4983';
 const BASE = `http://${HOST}/api/studio`;
@@ -206,4 +210,26 @@ Deno.test('what a profile writes as code is left out of what the studio prints',
     tools: { allow: [] },
     guardrails: { detect: 'ignore' },
   } as unknown as Profile);
+});
+
+Deno.test("a decision's trace rides in its reply, and a decision that records nothing is left as it was", async () => {
+  // Any served run registers the destination; a decision profile writes to it the same way.
+  await call('bench-tools', 'one');
+  const record = { content: 'decided' } as unknown as TraceRecord;
+  const traced = withDecisionTraces(async () => {
+    await getTraceDestination(STUDIO_RUN_TRACES)?.write(record, {
+      retainForDays: 0,
+      rotateAfterMiB: 1,
+    });
+    return Response.json({ result: { model: 'm' } });
+  });
+  const request = () => new Request(`${BASE}/profiles/judge/decide`, { method: 'POST' });
+  assertEquals(await (await traced(request())).json(), {
+    result: { model: 'm' },
+    traces: [record],
+  });
+  const quiet = withDecisionTraces(() =>
+    Promise.resolve(Response.json({ result: { model: 'm' } })),
+  );
+  assertEquals(await (await quiet(request())).json(), { result: { model: 'm' } });
 });

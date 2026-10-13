@@ -310,8 +310,11 @@ function SideRun({
 		[type, endpoint, traces, note],
 	);
 	const decision = useMemo(
-		() => (type === 'decision' ? noting(createDecisionTransport({ endpoint }), note) : null),
-		[type, endpoint, note],
+		() =>
+			type === 'decision'
+				? noting({ ...createDecisionTransport({ endpoint }), traces }, note)
+				: null,
+		[type, endpoint, traces, note],
 	);
 	if (chat)
 		return (

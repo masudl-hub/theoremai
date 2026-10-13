@@ -31,7 +31,7 @@ import { readStudioSource } from '../read-source.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import { studioSource } from '../source.ts';
 import { createStudioLiveHandler, type StudioUpgrade } from './live.ts';
-import { tracedToPage, withRunTraces } from './run-traces.ts';
+import { tracedToPage, withDecisionTraces, withRunTraces } from './run-traces.ts';
 import type { ProjectOrigins, SharedSetting } from './save-wire.ts';
 import {
   addAgent,
@@ -373,7 +373,10 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
     // The description already says why a decision with no questions to ask is left out.
     if (!questions || questionsFault(profile.id, questions)) return undefined;
     const { vault, fetch } = options.provider ?? {};
-    return createTheoremDecisionHandler({ profile, questions, vault, fetch });
+    // The page shows a decision's trace, so the profile is served writing its records to the reply.
+    return withDecisionTraces(
+      createTheoremDecisionHandler({ profile: tracedToPage(profile), questions, vault, fetch }),
+    );
   };
   for (const profile of listProfiles()) {
     try {

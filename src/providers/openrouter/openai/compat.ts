@@ -15,6 +15,7 @@ import type {
   TurnHistoryMessage,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
+import { withCarriedToolFiles } from '../../shared/carried-tool-files.ts';
 import { historyToolIdentity } from '../../shared/tool-args.ts';
 import { applyReasoningReplay } from './reasoning-state.ts';
 
@@ -128,6 +129,9 @@ function wireHistoryMessage(msg: TurnHistoryMessage): Record<string, unknown> {
   return wired;
 }
 
+// why: A PDF inside a `role: 'tool'` message was accepted and never read, and was read from the user message after it; a photo inside one was read (live, 13/10/2026, google/gemini-3.5-flash-lite).
+const TOOL_MESSAGE_PART_TYPES: ReadonlySet<InteractionPart['type']> = new Set(['text', 'image']);
+
 /** `includeSystem: false` when the caller passes system text separately (AI SDK `instructions`). */
 function buildChatMessages(
   req: ProviderCompleteRequest,
@@ -138,10 +142,8 @@ function buildChatMessages(
   if (includeSystem && req.system) {
     messages.push({ role: 'system', content: req.system });
   }
-  if (req.history && req.history.length > 0) {
-    for (const h of req.history) {
-      messages.push(wireHistoryMessage(h));
-    }
+  for (const h of withCarriedToolFiles(req.history ?? [], TOOL_MESSAGE_PART_TYPES)) {
+    messages.push(wireHistoryMessage(h));
   }
   if (req.input.length > 0) {
     messages.push({

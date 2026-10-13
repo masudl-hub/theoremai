@@ -57,7 +57,7 @@ Remains the **text** projection for `content` and for adapters that only accept 
 | Adapter | Behavior |
 |---------|----------|
 | **Google Interactions** | `function_result.result` = `parts.map(wireInteractionPart)` (shared with live continuation); if no parts, `[{ type: 'text', text: content }]`. A `function_result` holds only text, image and video (refused live 13/10/2026 for `document`): any other part leaves `[<type>: sent in the next message]` in its place and is carried to one `user_input` step after the run of tool results, led by `Files from the <tool> result:`. |
-| **OpenRouter / AI SDK** | Tool message `output`: multimodal `content` value when `parts` present; else `{ type: 'text', value: content }` |
+| **OpenRouter / AI SDK** | Tool message `output`: multimodal `content` value when `parts` present; else `{ type: 'text', value: content }`. A tool message holds only text and image (a PDF inside one was accepted and never read, live 13/10/2026): any other part is carried to a `role: 'user'` message after the run of tool results, with the same marker and lead as Google (`src/providers/shared/carried-tool-files.ts`). |
 | **OpenAI-compat REST** | Tool `content`: if `parts` present, wire via the same multimodal content mapper as user messages (text / image_url / input_audio / file-equivalent); else string `content` |
 | **Gemini Live** | A `user` turn with one `functionResponse`: text parts newline-joined as `response: { result }`, media as nested `functionResponse.parts[].inlineData` (probed 23/09/2026: the model reads the image). |
 

@@ -106,6 +106,41 @@ Deno.test('buildChatMessages sends only the tool identity history carries', () =
   assertEquals(messages[0], { role: 'tool', content: '42' });
 });
 
+Deno.test('buildChatMessages carries a tool result file to a user message after it', () => {
+  const messages = buildChatMessages(
+    request({
+      input: [],
+      history: [
+        {
+          role: 'tool',
+          name: 'recall_message',
+          tool_call_id: 'call_1',
+          content: 'Completed.',
+          parts: [{ type: 'document', mimeType: 'application/pdf', data: 'JVBERi0=' }],
+        },
+      ],
+    }),
+  );
+  assertEquals(messages, [
+    {
+      role: 'tool',
+      tool_call_id: 'call_1',
+      name: 'recall_message',
+      content: 'Completed.\n[document: sent in the next message]',
+    },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Files from the recall_message result:' },
+        {
+          type: 'file',
+          file: { filename: 'document.bin', file_data: 'data:application/pdf;base64,JVBERi0=' },
+        },
+      ],
+    },
+  ]);
+});
+
 Deno.test('buildChatMessages wires history messages with parts, tool_calls, tool results, and plain text', () => {
   const messages = buildChatMessages(
     request({
@@ -156,9 +191,10 @@ Deno.test('buildChatMessages wires history messages with parts, tool_calls, tool
   ]);
 });
 
-Deno.test('buildChatMessages wires tool results with multimodal parts', () => {
+Deno.test('buildChatMessages keeps a tool result photo in place and carries its document', () => {
   const messages = buildChatMessages(
     request({
+      input: [],
       history: [
         {
           role: 'assistant',
@@ -188,11 +224,18 @@ Deno.test('buildChatMessages wires tool results with multimodal parts', () => {
     { type: 'text', text: 'shortlist' },
     { type: 'text', text: '1. palm' },
     { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,/9j/abc' } },
-    {
-      type: 'file',
-      file: { filename: 'document.bin', file_data: 'data:application/pdf;base64,JVBERi0' },
-    },
+    { type: 'text', text: '[document: sent in the next message]' },
   ]);
+  assertEquals(messages[2], {
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Files from the fetch_stock_media result:' },
+      {
+        type: 'file',
+        file: { filename: 'document.bin', file_data: 'data:application/pdf;base64,JVBERi0' },
+      },
+    ],
+  });
 });
 
 Deno.test('buildChatMessages joins text-only history content and parts into one string', () => {

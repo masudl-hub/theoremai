@@ -7,6 +7,7 @@ import type {
   WireFunctionTool,
 } from '../../../kernel/types.ts';
 import { GOOGLE_SPEECH_FORMATS } from '../../../presets/google-limits.ts';
+import { withCarriedToolFiles } from '../../shared/carried-tool-files.ts';
 import { historyToolArguments, historyToolIdentity } from '../../shared/tool-args.ts';
 import { interactionsBuiltinTool } from '../builtins.ts';
 import { assertGoogleThinkingLevel } from '../thinking.ts';
@@ -56,42 +57,12 @@ const FUNCTION_RESULT_PART_TYPES: ReadonlySet<InteractionPart['type']> = new Set
   'video',
 ]);
 
-/** What stands in a `function_result` where a file it cannot hold was. */
-function carriedFileMarker(part: InteractionPart): InteractionPart {
-  return { type: 'text', text: `[${part.type}: sent in the next message]` };
-}
-
-/** What leads the files of one tool result in the `user_input` step that carries them. */
-function carriedFilesLead(msg: TurnHistoryMessage): InteractionPart {
-  const from = msg.name ? `the ${msg.name} result` : 'a tool result';
-  return { type: 'text', text: `Files from ${from}:` };
-}
-
-/**
- * A tool message as its `function_result` step, and the files that step cannot
- * hold: each leaves a marker in its place and is carried to the next `user_input`.
- */
-function functionResultStep(msg: TurnHistoryMessage): {
-  step: Record<string, unknown>;
-  carried: InteractionPart[];
-} {
-  const held: InteractionPart[] = [];
-  const files: InteractionPart[] = [];
-  for (const part of historyMessageParts(msg)) {
-    if (FUNCTION_RESULT_PART_TYPES.has(part.type)) {
-      held.push(part);
-    } else {
-      held.push(carriedFileMarker(part));
-      files.push(part);
-    }
-  }
+function functionResultStep(msg: TurnHistoryMessage): Record<string, unknown> {
+  const parts = historyMessageParts(msg);
   return {
-    step: {
-      type: 'function_result',
-      ...historyToolIdentity({ name: msg.name, call_id: msg.tool_call_id }),
-      result: held.length > 0 ? held.map(wirePart) : [{ type: 'text', text: '' }],
-    },
-    carried: files.length > 0 ? [carriedFilesLead(msg), ...files] : [],
+    type: 'function_result',
+    ...historyToolIdentity({ name: msg.name, call_id: msg.tool_call_id }),
+    result: parts.length > 0 ? parts.map(wirePart) : [{ type: 'text', text: '' }],
   };
 }
 
@@ -148,29 +119,13 @@ function nonToolSteps(msg: TurnHistoryMessage): Record<string, unknown>[] {
 }
 
 /**
- * History as input steps. The files a run of tool results cannot hold follow the
- * run in one `user_input` step, so every result of a parallel call stays together.
+ * History as input steps. A file a `function_result` cannot hold follows its run
+ * of tool results in a `user_input` step (`withCarriedToolFiles`).
  */
 export function historyStepsOf(messages: readonly TurnHistoryMessage[]): Record<string, unknown>[] {
-  const steps: Record<string, unknown>[] = [];
-  let carried: InteractionPart[] = [];
-  const flush = () => {
-    if (carried.length === 0) return;
-    steps.push(userInputStep(carried));
-    carried = [];
-  };
-  for (const msg of messages) {
-    if (msg.role === 'tool') {
-      const result = functionResultStep(msg);
-      steps.push(result.step);
-      carried.push(...result.carried);
-      continue;
-    }
-    flush();
-    steps.push(...nonToolSteps(msg));
-  }
-  flush();
-  return steps;
+  return withCarriedToolFiles(messages, FUNCTION_RESULT_PART_TYPES).flatMap((msg) =>
+    msg.role === 'tool' ? [functionResultStep(msg)] : nonToolSteps(msg),
+  );
 }
 
 export function historySteps(msg: TurnHistoryMessage): Record<string, unknown>[] {

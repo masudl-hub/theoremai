@@ -771,7 +771,7 @@ collection'`. Each `{path}` is a dot path into the call: the kernel fills it fro
 the input, then the output (`{results.0.name}` steps into a list by position).
 Only text and numbers fill a placeholder. Text collapses its whitespace and is
 shown whole; numbers keep at most two decimals. The kernel does not shorten a
-label. The page that shows it does. The `running` phase carries
+label. A host that needs a shorter label shortens it on its own page. The `running` phase carries
 `activity` filled from the input, and `complete` carries `activityPast` filled from
 the input and output. When a placeholder has no such value, the phase carries no
 label and the transcript names the tool in words instead.

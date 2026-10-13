@@ -42,7 +42,7 @@ const DECISION_ERROR_KINDS = {
 
 /**
  * A normalized native-decision failure; response bodies are deliberately omitted. What the
- * provider path threw is its `cause`, for the host's own diagnostics.
+ * provider path threw is its `cause`, and a failure the framework named reads as that failure.
  */
 export class DecisionError extends TheoremError {
   constructor(
@@ -372,7 +372,8 @@ function decisionProviderError(error: unknown): DecisionError {
       : (codes[kind] ?? 'malformed_response');
   return new DecisionError(
     code,
-    labelText('provider.decision_failed'),
+    // why: A framework failure's message holds no response body, and says what stopped the decision.
+    error instanceof TheoremError ? error.message : labelText('provider.decision_failed'),
     isRecord(error) && typeof error.status === 'number' ? error.status : undefined,
     { cause: error },
   );

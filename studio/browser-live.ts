@@ -1,6 +1,8 @@
 import { browserExecution } from './browser-execution.ts';
 import type { StudioLiveBridgeOptions } from './live-session-bridge.ts';
-import { errorKind, publicError, TheoremError } from '../mod.ts';
+import { TheoremError } from '../mod.ts';
+import { clientError } from '../src/host/mod.ts';
+import { STUDIO_READER } from './reader.ts';
 import type { LiveConnection, LiveSocket } from '../react/src/client/live-messages.ts';
 import type { LiveSession, LabelOverrides } from '../mod.ts';
 import type { StudioTraceRoute } from './traces.ts';
@@ -97,11 +99,7 @@ class BrowserLiveSocket implements LiveSocket {
         } } : {});
     } catch (err) {
       traces.close();
-      this.receive({
-        type: 'error',
-        error: publicError(err, payload.profile.labels),
-        errorKind: errorKind(err),
-      });
+      this.receive({ type: 'error', ...clientError(err, payload.profile.labels, STUDIO_READER) });
       this.close();
     }
   }

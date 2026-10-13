@@ -67,19 +67,30 @@ function recordsBeforeEnd(records: readonly TraceRecord[]): TransformStream<Uint
   );
 }
 
+type Serve = (request: Request) => Promise<Response>;
+
+/** Serves each request as its own run, and hands the reply and the run's records to `reply`. */
+function recorded(
+  serve: Serve,
+  reply: (response: Response, records: TraceRecord[]) => Response | Promise<Response>,
+): Serve {
+  return async (request) => {
+    const records: TraceRecord[] = [];
+    return reply(await runs.run(records, () => serve(request)), records);
+  };
+}
+
 /** Serves a profile with each run's records sent behind its events. */
 export function withRunTraces(
   serve: (request: Request) => Promise<Response>,
 ): (request: Request) => Promise<Response> {
-  return async (request) => {
-    const records: TraceRecord[] = [];
-    const response = await runs.run(records, () => serve(request));
+  return recorded(serve, (response, records) => {
     if (!response.body || !response.headers.get('content-type')?.startsWith(NDJSON)) return response;
     return new Response(response.body.pipeThrough(recordsBeforeEnd(records)), {
       status: response.status,
       headers: response.headers,
     });
-  };
+  });
 }
 
 /**
@@ -89,19 +100,12 @@ export function withRunTraces(
 export function withDecisionTraces(
   serve: (request: Request) => Promise<Response>,
 ): (request: Request) => Promise<Response> {
-  return async (request) => {
-    const records: TraceRecord[] = [];
-    const response = await runs.run(records, () => serve(request));
+  return recorded(serve, async (response, records) => {
     // A failed decision is traced too, so its failure's body carries the records the same way.
     if (records.length === 0 || !response.headers.get('content-type')?.includes('json')) return response;
-    return replyWith(response, { traces: records });
-  };
-}
-
-/** A JSON reply with more fields beside its own. */
-export async function replyWith(response: Response, fields: object): Promise<Response> {
-  const reply: unknown = await response.json();
-  const headers = new Headers(response.headers);
-  headers.delete('content-length');
-  return Response.json({ ...(reply as object), ...fields }, { status: response.status, headers });
+    const reply: unknown = await response.json();
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    return Response.json({ ...(reply as object), traces: records }, { status: response.status, headers });
+  });
 }

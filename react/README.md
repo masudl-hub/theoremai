@@ -415,8 +415,8 @@ const transport = withPageToolDispatch(
 | `credentialStore` | Where tool credentials are kept, by session. Default: process memory. |
 | `authorizationUrl` | Returns the sign-in URL for an OAuth gate. Without it, an OAuth gate has no URL. |
 | `gateTtlMs` | How long a gate waits for an answer. Default: 30 minutes. A later answer fails with `session.gate_expired`. |
-| `clientEvents` | Options for `forClient`, which prepares each event for the browser. |
-| `onError` | Receives each error that the handler catches. The user sees the wording of the profile for that kind of error, never the error. |
+| `clientEvents` | Options for `forClient` and `clientError`, which prepare each event and each caught failure for the browser. `reader: 'builder'` sends the raw reason in place of the wording of the profile. Use it only in a development tool on your own machine. |
+| `onError` | Receives each error that the handler catches. A visitor sees the wording of the profile for that kind of error, never the error. |
 
 ### Share session authority
 

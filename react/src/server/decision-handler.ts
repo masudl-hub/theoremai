@@ -14,16 +14,19 @@ import {
   type DecisionProfile,
   type DecisionQuestion,
   defineProfile,
-  errorKind,
   type KeyVault,
   labelText,
-  publicError,
   registerProfile,
   runDecision,
   type TraceSink,
   z,
 } from '@theoremjs/agents';
-import { caughtStatus, HTTP_METHOD } from '@theoremjs/agents/host';
+import {
+  type ClientTurnOptions,
+  caughtStatus,
+  clientError,
+  HTTP_METHOD,
+} from '@theoremjs/agents/host';
 import type { DecisionProfileDefinition } from '@theoremjs/agents/kernel';
 import { decisionInterface } from '../client/decision-transport.ts';
 import { readBody } from './handler.ts';
@@ -41,6 +44,8 @@ export type TheoremDecisionHandlerOptions = {
   sink?: TraceSink;
   /** Host metadata kept on each decision's trace record, e.g. the signed-in user. */
   metadata?: (request: Request) => Record<string, unknown> | undefined;
+  /** Who reads this host's replies: forwarded to `clientError` for a failure the handler catches. */
+  clientEvents?: ClientTurnOptions;
   /**
    * Called with any error the handler catches, for reporting. Users read the
    * profile's labels wording for the error's kind, never the error itself.
@@ -92,10 +97,10 @@ export function createTheoremDecisionHandler(
       return jsonResponse(200, { result });
     } catch (err) {
       options.onError?.(err, { request });
-      return jsonResponse(caughtStatus(err), {
-        error: publicError(err, profile.labels),
-        errorKind: errorKind(err),
-      });
+      return jsonResponse(
+        caughtStatus(err),
+        clientError(err, profile.labels, options.clientEvents),
+      );
     }
   };
 }

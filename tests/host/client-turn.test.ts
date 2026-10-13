@@ -1,5 +1,6 @@
 import { assertEquals } from '@std/assert';
-import { forClient, forClientEvents } from '../../src/host/client-turn.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
+import { clientError, forClient, forClientEvents } from '../../src/host/client-turn.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
 import { firstOf } from '../fixtures/events.ts';
 
@@ -131,4 +132,44 @@ Deno.test('forClient strips GuardrailHit.match even when present', () => {
   const hit = firstOf([forClient(event)], 'guardrail')?.guardrail.hits[0];
   assertEquals(hit?.rule, 'detect.injection');
   assertEquals(Object.hasOwn(hit ?? {}, 'match'), false);
+});
+
+Deno.test('a builder reads a failure as its raw diagnostic, a visitor as the profile wording', () => {
+  const event: TurnEvent = {
+    type: 'error',
+    errorKind: 'auth',
+    error: "Sorry, the assistant can't connect at the moment.",
+    errorInternal: "The vault has no credential in slot 'openrouter'",
+  };
+  assertEquals(forClient(event, { reader: 'builder' }), {
+    type: 'error',
+    errorKind: 'auth',
+    error: "The vault has no credential in slot 'openrouter'",
+  });
+  assertEquals(firstOf([forClient(event, { reader: 'visitor' })], 'error')?.error, event.error);
+});
+
+Deno.test('a builder keeps the builder-only detail on other events, never a matched substring', () => {
+  const ended: TurnEvent = {
+    type: 'session',
+    session: {
+      kind: 'ended',
+      message: 'The call has ended.',
+      ended: { cause: 'go_away', code: 1008, closedAfterMs: 1 },
+    },
+    errorInternal: 'socket closed (1008)',
+  };
+  assertEquals(forClient(ended, { reader: 'builder' }), ended);
+});
+
+Deno.test('clientError words a caught failure by the same rule as forClient', () => {
+  const err = new TheoremError('auth', "The vault has no credential in slot 'openrouter'");
+  assertEquals(clientError(err), {
+    error: "Sorry, the assistant can't connect at the moment.",
+    errorKind: 'auth',
+  });
+  assertEquals(clientError(err, undefined, { reader: 'builder' }), {
+    error: "The vault has no credential in slot 'openrouter'",
+    errorKind: 'auth',
+  });
 });

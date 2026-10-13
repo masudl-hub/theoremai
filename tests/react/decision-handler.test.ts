@@ -183,8 +183,21 @@ Deno.test('a vault without the profile slot is an auth error, and Jev is never c
   const body = await response.json();
   assertEquals(body.errorKind, 'auth');
   assertEquals(body.error, labelDefault('error.auth'));
-  assertEquals(String(errors[0]).includes('Decision provider failed'), true);
+  // The host is told what stopped it; the visitor is not.
+  assertEquals(String(errors[0]).includes("slot 'slot_a'"), true);
   assertEquals(mock.calls.length, 0);
+});
+Deno.test('a host whose reader is the builder answers a failure with what stopped it', async () => {
+  const handler = createTheoremDecisionHandler({
+    profile: profile(),
+    questions,
+    vault: { slot_b: 'k' },
+    fetch: jev().fetch,
+    clientEvents: { reader: 'builder' },
+  });
+  const body = await (await handler(decide({ action: 'delete' }))).json();
+  assertEquals(body.errorKind, 'auth');
+  assertEquals(body.error.includes("slot 'slot_a'"), true);
 });
 Deno.test('other methods and paths are refused', async () => {
   const handler = createTheoremDecisionHandler({

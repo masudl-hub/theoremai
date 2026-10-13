@@ -29,7 +29,7 @@ slot”).
 | Path | Role |
 | --- | --- |
 | `src/host/reply.ts` | JSON responses + HTTP status constants |
-| `src/host/client-turn.ts` | Strip `errorInternal` (any event, and guardrail decisions) / `evidence.raw` before client transports |
+| `src/host/client-turn.ts` | What a client may read of an event or a caught failure, by who reads it: strips `errorInternal` (any event, and guardrail decisions) / `evidence.raw` for a visitor |
 | `src/host/mint-trace.ts` | Cutout mint trace flush helpers |
 | `src/host/readStreamingJsonStringField.ts` | Incomplete JSON string preview |
 | `src/host/mod.ts` | Public barrel |
@@ -156,12 +156,18 @@ late answer is then refused like any `executeTool` for a settled call.
 
 | Export | Role |
 | --- | --- |
-| `forClient(event, options?)` | Copy one event without `errorInternal` (it rides error events, an ended Live session, a tool call's failure such as a refused OAuth refresh, and guardrail decisions; `errorKind` and the user's `error` stay); strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match` |
+| `forClient(event, options?)` | Copy one event for its reader. For a visitor (the default), without `errorInternal` (it rides error events, an ended Live session, a tool call's failure such as a refused OAuth refresh, and guardrail decisions; `errorKind` and the user's `error` stay); strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match`. With `reader: 'builder'`, an error event's `error` is its `errorInternal`, and the other `errorInternal` fields stay |
 | `forClientEvents(events, options?)` | Batch helper for Live relays and HTTP stream flush |
-| `ClientTurnOptions` | `{ includeEvidenceRaw?: boolean }` |
+| `clientError(err, labels?, options?)` | A caught failure as `{ error, errorKind }`, by the same rule as `forClient`: the profile's wording for a visitor, the raw reason for a builder. The body of an error reply |
+| `ClientTurnOptions` | `{ includeEvidenceRaw?: boolean; reader?: 'visitor' \| 'builder' }` |
 
-HTTP error responses should still use `publicError(err, profile.labels)` —
-`forClient` applies only to turn event payloads.
+`reader` says who reads the copy, and `'visitor'` is the default. `'builder'` is for a
+development tool that runs on the builder's own machine with the builder's own keys, as the
+studio does. Never set it on a page that visitors reach: the raw reason can name slots, hosts
+and tools.
+
+`publicError(err, profile.labels)` is the visitor's wording alone. `clientError` gives the
+same wording with its `errorKind`, and follows `reader`.
 
 ## Cutout mint trace
 
@@ -213,7 +219,7 @@ Does not validate full JSON documents.
 
 Live list: `src/host/mod.ts` (`json`, status constants, `caughtStatus`,
 `flushMintTrace`, `CutoutTape`, `readStreamingJsonStringField`, `forClient`,
-`forClientEvents`, `ClientTurnOptions`).
+`forClientEvents`, `clientError`, `ClientError`, `ClientTurnOptions`).
 
 ```theorem-evidence
 {

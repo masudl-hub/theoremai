@@ -1454,7 +1454,7 @@ hits without a second copy of the secret:
 } }
 ```
 
-`errorInternal` is a block's builder-only reason; `forClient` strips it. `hits`
+`errorInternal` is a block's builder-only reason; `forClient` strips it for a visitor. `hits`
 carry rule identity and severity, plus offsets (`span`) when the detector located
 the match; a hit of a host's own detector carries its `label`, which reaches
 the host stream and the trace; whole-payload rules (tool boundary, taint, arguments, network, canary)

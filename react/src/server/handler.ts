@@ -38,7 +38,6 @@ import {
   authorizeToolReplay,
   defaultKernelScope,
   defineProfile,
-  errorKind,
   type GateReference,
   invokeTool,
   jsonObjectSchema,
@@ -46,7 +45,6 @@ import {
   type Profile,
   type ProfileDefinition,
   type ProviderHostOptions,
-  publicError,
   registerProfile,
   runTurn,
   TheoremError,
@@ -58,8 +56,10 @@ import {
   type z,
 } from '@theoremjs/agents';
 import {
+  type ClientError,
   type ClientTurnOptions,
   caughtStatus,
+  clientError,
   forClient,
   HTTP_METHOD,
 } from '@theoremjs/agents/host';
@@ -191,7 +191,10 @@ export type TheoremHandlerOptions = {
   ) => string | Promise<string>;
   /** Default: in-process memory. Use a shared store when turns and steers can land on different instances. */
   steerInbox?: SteerInbox;
-  /** Forwarded to `forClient` when projecting events for the browser. */
+  /**
+   * Who reads this host's replies, and what an event keeps for them: forwarded to `forClient`
+   * for each event and to `clientError` for a failure the handler catches.
+   */
   clientEvents?: ClientTurnOptions;
   /**
    * Called with any error the handler catches, for reporting. Users read the
@@ -337,10 +340,10 @@ async function sessionOf(ctx: HandlerContext, request: Request): Promise<Session
   return { id };
 }
 
-/** Reports the error to the host, then words it for the user from the profile's labels. */
-function publicMessage(ctx: HandlerContext, err: unknown, request: Request): string {
+/** Reports the error to the host, then words it for whoever reads this host's replies. */
+function caughtError(ctx: HandlerContext, err: unknown, request: Request): ClientError {
   ctx.options.onError?.(err, { request });
-  return publicError(err, ctx.profile.labels);
+  return clientError(err, ctx.profile.labels, ctx.options.clientEvents);
 }
 
 function eventStream(
@@ -358,13 +361,7 @@ function eventStream(
         }
       } catch (err) {
         if (!request.signal.aborted) {
-          controller.enqueue(
-            line({
-              type: 'error',
-              error: publicMessage(ctx, err, request),
-              errorKind: errorKind(err),
-            }),
-          );
+          controller.enqueue(line({ type: 'error', ...caughtError(ctx, err, request) }));
         }
       }
       controller.close();
@@ -1057,9 +1054,8 @@ function serve(
       session = await sessionOf(ctx, request);
       return withSessionCookie(await route(ctx, request, session), session);
     } catch (err) {
-      const error = publicMessage(ctx, err, request);
       return withSessionCookie(
-        jsonResponse(caughtStatus(err), { error, errorKind: errorKind(err) }),
+        jsonResponse(caughtStatus(err), caughtError(ctx, err, request)),
         session,
       );
     }

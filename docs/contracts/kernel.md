@@ -422,14 +422,15 @@ verbatim to browsers or end-user SSE** unless you intend to expose diagnostics.
 | --- | --- | --- |
 | `error` | yes | yes |
 | `errorKind` | yes | yes |
-| `errorInternal` (error events, an ended session, `guardrail.errorInternal`) | yes | **never** |
+| `errorInternal` (error events, an ended session, `guardrail.errorInternal`) | yes | **never** to a visitor |
 | `evidence` parsed fields (`kind`, `code`, `result`, citations) | yes | when useful in UI |
 | `evidence.raw` | yes | only when you explicitly want provider internals |
 | `text`, `media`, `structured`, `grounding` | yes | yes (after egress/canary gates) |
 | `thought` | yes (also in trace when filtered from stream) | only when profile allows |
 
 Use `forClient` / `forClientEvents` from `@theoremjs/agents/host` before WebSocket or SSE
-flush. Pass a trace sink (`memorySink`, `jsonlSink`) as the third argument to
+flush. A development tool on the builder's own machine passes `reader: 'builder'` and reads
+the raw reason instead ([host](host.md)). Pass a trace sink (`memorySink`, `jsonlSink`) as the third argument to
 `runTurn` for wire-level audit (`theorem.upstream.row` and
 `theorem.wire.request` events; see [observability.md](./observability.md)).
 
@@ -931,8 +932,8 @@ Profile `turnBehaviour` (top-level on chat/image/speech):
 | Field | Effect |
 | --- | --- |
 | `resumption.allowContinue` | Stops after which the host offers the user a Continue (`isResumeableStop`); host UI policy, not enforced on `continueFrom`; omitted → all three; `[]` → none |
-| `resumption.autoContinue` | Stops the host continues once on its own; omitted → length and stream_incomplete, `[]` → none |
-| `resumption.maxContinues` | How many times one reply may be continued (enforced); omitted → no cap |
+| `resumption.autoContinue` | Stops continued without asking; omitted → length and stream_incomplete, `[]` → none. A text turn sends a failed model call again itself ([Resume policy](#resume-policy)); the host continues the rest once on its own |
+| `resumption.maxContinues` | How many times one reply may be continued (enforced); omitted → no cap. Also how many failed model calls one text turn sends again itself; omitted → one |
 | `allowSteering` | **Text and live.** Gates **inject** via `profileAllowsInject` / stages. Stage events always emit. Image/speech must omit |
 | `atStepLimit` | **Text only.** What the last model call under `maxSteps` may do. Omitted or `'stop'`: it may call tools; if it does they run and the turn ends with stop `step_limit` and no answer (no `before_end`, no `done.tools`, no `providerState`). `'answer'`: that call is sent with no function tools and no builtins, so it writes the answer from the turn's history. Rejected with `maxSteps: 1` |
 
@@ -1242,12 +1243,31 @@ turnBehaviour: {
 }
 ```
 
+A text turn sends a failed model call again itself. The call must have stopped as
+`provider_error` or `stream_incomplete`, the profile's `autoContinue` must list that
+stop, and the call must have given no reply and no tool call. The turn waits
+`AUTO_CONTINUE_DELAY_MS`, then sends the same step again. Its history, its step
+count and the record of what it has read are unchanged, so tool results gathered in
+earlier steps are kept. One turn sends at most `maxContinues` calls again, or one
+when the profile sets none. The failed call's `error` event is not emitted; the
+turn's trace records `theorem.step.resume` with the step, the count, the stop and
+the provider's reason. When no re-send is left, the turn ends with that `error`
+and stop as before.
+
+A call that gave part of its reply, and a reply cut at `length`, are not sent again
+by the turn: the host continues them with `continueFrom`. A `continueFrom` turn is a
+new turn, so it starts with no record of what the stopped turn read.
+
+An agent tool's called profile follows the same rule under its own
+`turnBehaviour.resumption`. When its turn still fails, the tool's failure message
+carries the turn's public error text after the `tool.agent_failed` line.
+
 | Constant / helper | Value / role |
 | --- | --- |
 | `CONTINUE_STOP_KINDS` | length, stream_incomplete, provider_error |
 | `DEFAULT_ALLOW_CONTINUE` | = `CONTINUE_STOP_KINDS` |
 | `DEFAULT_AUTO_CONTINUE` | length, stream_incomplete |
-| `AUTO_CONTINUE_DELAY_MS` | `1500` — suggested pause before one-shot auto-continue |
+| `AUTO_CONTINUE_DELAY_MS` | `1500` — the pause before a text turn sends a failed model call again, and the suggested pause before a host's auto-continue |
 | `isContinueStopKind` | Narrow to continue-eligible kinds |
 | `isResumeableStop` | Profile `allowContinue` (`[]` allows none) or, when omitted, the default; always false outside ContinueStopKind |
 | `shouldAutoContinue` | One silent resume under the profile's resumption policy (`autoContinue` and `allowContinue`); never outside ContinueStopKind |

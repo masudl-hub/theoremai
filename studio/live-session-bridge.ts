@@ -1,15 +1,16 @@
 import type { PageToolResult } from '../react/src/server/page-dispatch.ts';
-import { errorKind, type LabelOverrides, type LiveSession, type TurnEvent, publicError } from '../mod.ts';
+import type { LabelOverrides, LiveSession, TurnEvent } from '../mod.ts';
 import { parseLiveClientMessage } from '../react/src/server/request-check.ts';
-import { forClient, forClientEvents } from '../src/host/mod.ts';
+import { type ClientError, clientError, forClient, forClientEvents } from '../src/host/mod.ts';
+import { STUDIO_READER } from './reader.ts';
 import { issuedOperationId as requiredOperationId } from '../react/src/client/turn-client.ts';
 import { bytesToBase64 } from '../src/kernel/mod.ts';
 import type { StudioTraceRoute } from './traces.ts';
 
 export type StudioLiveSocket = Pick<WebSocket, 'send' | 'close' | 'addEventListener'>;
 
-function errorBody(err: unknown, labels?: LabelOverrides): { error: string; errorKind: string } {
-  return { error: publicError(err, labels), errorKind: errorKind(err) };
+function errorBody(err: unknown, labels?: LabelOverrides): ClientError {
+  return clientError(err, labels, STUDIO_READER);
 }
 
 function errorEnvelope(err: unknown, labels?: LabelOverrides): string {
@@ -141,8 +142,7 @@ async function pipeSessionToBrowser(
     for await (const event of session.events()) {
       await beforeEvent?.(event);
       if (event.type === 'error') {
-        // The session worded it with the profile's labels; forClient drops the builder detail.
-        serverWs.send(JSON.stringify(forClient(event)));
+        serverWs.send(JSON.stringify(forClient(event, STUDIO_READER)));
         try {
           serverWs.close(1011, 'session error');
         } catch {
@@ -162,7 +162,7 @@ async function pipeSessionToBrowser(
           watch.stop(tool.callId, requiredOperationId(tool));
         }
       }
-      serverWs.send(JSON.stringify({ type: 'events', events: forClientEvents([event]) }));
+      serverWs.send(JSON.stringify({ type: 'events', events: forClientEvents([event], STUDIO_READER) }));
     }
   } catch (err) {
     serverWs.send(errorEnvelope(err, labels));

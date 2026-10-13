@@ -8,14 +8,14 @@ import { type HostTransport, hostInterface } from '../react/src/client/host-tran
 import { createTraceFeed, type TraceFeed } from '../react/src/client/trace-feed.ts';
 import {
   hostError,
-  type HostErrorBody,
+  isTheoremStreamError,
   type TheoremTransport,
   type TurnEventSink,
 } from '../react/src/client/transport.ts';
 import { createMemorySteerInbox, steerUnitOf } from '../react/src/server/steer-inbox.ts';
-import { errorKind, toErrorEvent, withPublicLabels } from '../src/guardrails/error.ts';
+import { clientError, forClient } from '../src/host/mod.ts';
 import type { RunDecisionOptions } from '../src/kernel/engine/decision.ts';
-import { builderReason } from './builder-reason.ts';
+import { STUDIO_READER } from './reader.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import {
   failedDecisionTraces,
@@ -49,12 +49,9 @@ function runSignal(
     : (runtime.signal ?? signal);
 }
 
-/**
- * The builder runs this turn on their own keys and machine, so the failure says what actually
- * happened (a rejected key, an unreachable server) rather than the visitor wording.
- */
-function builderError(event: HostErrorBody): Error {
-  return hostError({ ...event, error: event.errorInternal ?? event.error }, 'internal');
+/** A failure of a run made in the page, as the studio's reader has it. */
+function failed(error: unknown, payload: StudioRunPayload): Error {
+  return hostError(clientError(error, payload.profile.labels, STUDIO_READER), 'internal');
 }
 
 /** Direct streams use the same event and trace routing as the HTTP transport. */
@@ -65,13 +62,12 @@ async function deliver(
 ): Promise<void> {
   try {
     for await (const line of source) {
-      if (line.type === 'error') throw builderError(line);
-      sink(line);
+      const read = line.type === 'trace' || line.type === 'steer_inbox' ? line : forClient(line, STUDIO_READER);
+      if (read.type === 'error') throw hostError(read, 'internal');
+      sink(read);
     }
   } catch (error) {
-    const event = withPublicLabels(toErrorEvent(error), payload.profile.labels);
-    if (event.type === 'error') throw builderError(event);
-    throw error;
+    throw isTheoremStreamError(error) ? error : failed(error, payload);
   }
 }
 
@@ -263,11 +259,8 @@ export function createBrowserStudioDecisionTransport(
       try {
         return await runStudioDecision(payload, state, runtime.decision ?? {}, runSignal(runtime, signal));
       } catch (err) {
-        // The builder's own keys and machine, so the failure says what happened; it keeps its trace.
-        throw withFailedTraces(
-          hostError({ error: builderReason(err), errorKind: errorKind(err) }, 'internal'),
-          failedDecisionTraces(err),
-        );
+        // The failure keeps the trace the kernel left.
+        throw withFailedTraces(failed(err, payload), failedDecisionTraces(err));
       }
     },
     traces,

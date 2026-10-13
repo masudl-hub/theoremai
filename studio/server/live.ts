@@ -7,11 +7,9 @@
  */
 
 import {
-  errorKind,
   type LiveSession,
   type Profile,
   type ProviderHostOptions,
-  publicError,
   resolveObservabilityPolicy,
   runSession,
   TheoremError,
@@ -19,6 +17,8 @@ import {
 } from '../../mod.ts';
 import { createMemorySessionStore, createTheoremSessionBoundary, type TheoremSessionBoundary, parseLiveOpenMessage } from '../../react/src/server/mod.ts';
 import { attachStudioLiveSession } from '../live-session-bridge.ts';
+import { STUDIO_READER } from '../reader.ts';
+import { clientError } from '../../src/host/mod.ts';
 import type { StudioTraceLine } from '../traces.ts';
 
 /** The server's end of the page's socket, and the answer that completes the upgrade. */
@@ -74,7 +74,7 @@ async function relay(socket: WebSocket, profile: Profile, provider: ProviderHost
   } catch (error) {
     if (socket.readyState !== WebSocket.OPEN) return;
     socket.send(
-      JSON.stringify({ type: 'error', error: publicError(error, profile.labels), errorKind: errorKind(error) }),
+      JSON.stringify({ type: 'error', ...clientError(error, profile.labels, STUDIO_READER) }),
     );
     socket.close(1011, 'session error');
     return;

@@ -1,7 +1,18 @@
+import { defineProvider } from '../../src/kernel/provider-contract.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { openRouterAdapter } from '../../src/providers/adapters.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 
 registerFixtureProviders(defaultKernelScope);
+// A provider under the project's own name, on a first-party adapter.
+defaultKernelScope.providers.register(
+  defineProvider({
+    id: 'open-router',
+    connection: {},
+    keySlot: 'slot_a',
+    adapter: openRouterAdapter(),
+  }),
+);
 
 import { assert, assertEquals } from '@std/assert';
 import { defineProfile, registerProfile, registerStructured, registerTool } from '../../mod.ts';
@@ -59,4 +70,12 @@ Deno.test('a project opens with the schema its replies take and the agent each a
   // Nothing the files hold is missing: the project compiles as it opens, so it can be saved.
   const compiled = compileWorkspace(workspace, 'byok');
   assertEquals(compiled.ok ? [] : compiled.issues.map((issue) => issue.message), []);
+});
+
+Deno.test('a project opens with its own providers, each with the adapter it is defined on', async () => {
+  const request = new Request(`http://${HOST}/api/studio`, { headers: { host: HOST } });
+  const { workspace }: StudioDescription = await (await handler(request)).json();
+  const adapters = Object.fromEntries(workspace.providers.map(({ id, adapter }) => [id, adapter]));
+  assertEquals(adapters['open-router'], 'openrouter');
+  assertEquals(adapters.local, 'openai-chat');
 });

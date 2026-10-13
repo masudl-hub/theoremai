@@ -18,6 +18,7 @@ import {
   getProvider,
   getStructured,
   listProfiles,
+  listProviders,
   listTools,
   type Profile,
   type ProviderHostOptions,
@@ -243,10 +244,13 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
     return agentKey ? { ...tool, agentKey } : tool;
   };
   const toolSpecs = [...opened.toolSpecs, ...extra].map(linked);
+  // The project's own providers are the ones a model here can name.
+  const providers = listProviders().map((provider) => ({ id: provider.id, adapter: provider.adapter.id }));
   return {
     project,
     workspace: {
       ...opened,
+      ...(providers.length > 0 ? { providers } : {}),
       toolSpecs,
       starts: { ...opened.starts, tools: Object.fromEntries(toolSpecs.map((tool) => [tool.key, tool])) },
       ...(first ? { selected: agentNodeId(first.key), chatWith: first.key } : {}),

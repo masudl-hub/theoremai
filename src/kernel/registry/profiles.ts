@@ -369,7 +369,7 @@ function assertResumption(
   if (unallowed.length) {
     throw new TheoremError(
       'config',
-      `Profile ${profileId}: turnBehaviour.resumption.autoContinue has ${unallowed.join(', ')}, which allowContinue leaves out`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profileId}: turnBehaviour.resumption.autoContinue continues on its own after ${unallowed.join(', ')}, which allowContinue does not offer Continue for. Add ${unallowed.join(', ')} to allowContinue, or take it out of autoContinue`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }

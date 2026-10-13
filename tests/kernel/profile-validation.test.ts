@@ -284,7 +284,7 @@ Deno.test('autoContinue names only kinds allowContinue lets through', () => {
   const resumption = (over: Loose) => textProfile({ turnBehaviour: { resumption: over } });
   check(
     said(resumption({ allowContinue: ['length'], autoContinue: ['length', 'stream_incomplete'] })),
-    'Profile p: turnBehaviour.resumption.autoContinue has stream_incomplete, which allowContinue leaves out',
+    'Profile p: turnBehaviour.resumption.autoContinue continues on its own after stream_incomplete, which allowContinue does not offer Continue for. Add stream_incomplete to allowContinue, or take it out of autoContinue',
     'outside allowContinue',
   );
   check(

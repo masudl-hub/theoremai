@@ -6,9 +6,9 @@
  */
 
 import { PROFILE_GRAPH, type ProfileGraphFacetId } from '../src/kernel/schema.ts';
-import type { SharedSetting } from './server/save-wire.ts';
-import { modelBindingNodeId } from './tree.ts';
-import { agentNodeId, type StudioWorkspace } from './workspace.ts';
+import type { ProjectOrigins, SharedSetting } from './server/save-wire.ts';
+import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
+import { type AgentDraft, agentNodeId, type StudioWorkspace, workspaceTree } from './workspace.ts';
 
 /** One shared setting, beside the agents of the workspace that share it. */
 export interface SharedEntry {
@@ -20,6 +20,20 @@ export interface SharedEntry {
    * every profile, or a profile that reads it is not open: then it is changed in the builder's editor.
    */
   facet?: ProfileGraphFacetId;
+  /** Where each agent shows the value: the node that holds the field the files set from it, by agent key. */
+  places: Record<string, string>;
+  /** The tool that shows the value, when no agent does. */
+  tool?: string;
+}
+
+/** The node of `agent` that holds the setting at `path`: its model, its section, else the agent. */
+function nodeAt(agent: AgentDraft, path: readonly string[], sections: ReadonlySet<string>): string {
+  const [head, name] = path;
+  const binding = head === 'models' ? agent.modelBindings.find((each) => each.modelId === name) : undefined;
+  if (binding) return agentNodeId(agent.key, modelBindingNodeId(binding.key));
+  const facet = PROFILE_GRAPH.find((each) => each.role === 'spine' && each.profilePath === head)?.id;
+  const section = facet ? agentNodeId(agent.key, facet) : '';
+  return sections.has(section) ? section : agentNodeId(agent.key);
 }
 
 /** The section whose whole value is the profile key `key`. */
@@ -28,19 +42,36 @@ function facetOf(key: string | undefined): ProfileGraphFacetId | undefined {
 }
 
 /** Each shared setting with the agents that share it, as the project opened. */
-export function sharedEntries(workspace: StudioWorkspace, settings: readonly SharedSetting[]): SharedEntry[] {
+export function sharedEntries(
+  workspace: StudioWorkspace,
+  settings: readonly SharedSetting[],
+  sites?: ProjectOrigins['sites'],
+): SharedEntry[] {
+  const sections = new Set(workspaceTree(workspace).agents.flatMap((agent) => agent.children ?? []).map((row) => row.id));
   return settings.map((setting) => {
-    const agents = workspace.agents
-      .filter((agent) => setting.profiles.includes(agent.identity.agentId.trim()))
-      .map((agent) => agent.key);
+    const users = workspace.agents.filter((agent) => setting.profiles.includes(agent.identity.agentId.trim()));
+    const agents = users.map((agent) => agent.key);
     const facet = agents.length === setting.profiles.length ? facetOf(setting.key) : undefined;
-    return { setting, agents, ...(facet ? { facet } : {}) };
+    const written = (held: Record<string, readonly { name?: string; file: string; path: string[] }[]> | undefined, id: string) =>
+      held?.[id]?.find((site) => site.name === setting.name && site.file === setting.file);
+    const places = Object.fromEntries(users.flatMap((agent) => {
+      const site = written(sites?.profiles, agent.identity.agentId.trim());
+      return site ? [[agent.key, nodeAt(agent, site.path, sections)] as const] : [];
+    }));
+    const tool = workspace.toolSpecs.find((spec) => written(sites?.tools, spec.toolName));
+    return { setting, agents, places, ...(facet ? { facet } : {}), ...(tool ? { tool: toolSpecNodeId(tool.key) } : {}) };
   });
 }
 
-/** The node that opens a shared setting on one of its agents. */
+/** The node that opens a shared setting on one of its agents: the field the files set from it. */
 export function sharedNodeId(entry: SharedEntry, agentKey: string): string {
-  return agentNodeId(agentKey, entry.facet ?? 'identity');
+  return entry.places[agentKey] ?? agentNodeId(agentKey, entry.facet ?? 'identity');
+}
+
+/** The node that opens a shared setting: the first agent that shows it, else the tool that does. */
+export function sharedOpens(entry: SharedEntry): string | undefined {
+  const shown = entry.agents.find((key) => entry.places[key] !== undefined) ?? (entry.facet ? entry.agents[0] : undefined);
+  return shown ? sharedNodeId(entry, shown) : entry.tool;
 }
 
 /** The shared setting the open node edits, when it is one. A shared `models` is edited in each binding. */

@@ -217,6 +217,25 @@ Deno.test('the map shows a shared setting over what it sets, and an agent that w
       ?.opens;
   };
   assertEquals([opens(['price']), opens([])], [toolSpecNodeId('price'), undefined]);
+
+  // It opens the field the files set from it: a model's setting opens that model.
+  const [binding] = shop.modelBindings;
+  if (!binding) throw new Error('a model');
+  const key: SharedSetting = { ...setting, name: 'SHOP_KEY', profiles: ['shop'], tools: [] };
+  delete key.key;
+  const site = {
+    path: ['models', binding.modelId, 'keySlot'],
+    site: 1,
+    shared: true,
+    name: 'SHOP_KEY',
+    file: 'setup.ts',
+    line: 4,
+  };
+  const placed = sharedEntries(workspace, [key], { profiles: { shop: [site] }, tools: {} });
+  assertEquals(
+    workspaceMap(workspace, placed).columns[1]?.[0]?.nodes[0]?.opens,
+    agentNodeId(shop.key, modelBindingNodeId(binding.key)),
+  );
 });
 
 Deno.test('the map is laid out in columns, with a line from the side of each node that faces the other', () => {

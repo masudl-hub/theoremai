@@ -5,7 +5,7 @@
  * node and section names the workspace node that opens it.
  */
 import { type MapPlace, mapCurve } from './map-line.ts';
-import { type SharedEntry, sharedNodeId } from './shared-settings.ts';
+import { type SharedEntry, sharedOpens } from './shared-settings.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 import { type AgentDraft, agentNodeId, type StudioWorkspace, workspaceTree } from './workspace.ts';
 
@@ -203,8 +203,8 @@ export function workspaceMap(workspace: StudioWorkspace, shared: readonly Shared
       kind: 'shared',
       label: setting.label,
       note: `${setting.name} · ${setting.file}:${String(setting.line)}`,
-      // It opens where it is changed: its section, else the tool it sets. Any other is changed in its file.
-      opens: facet && users[0] ? sharedNodeId(entry, users[0]) : used[0],
+      // It opens where it is changed: the field the files set from it.
+      opens: sharedOpens(entry) ?? used[0],
       type: facet,
     };
   });

@@ -1395,7 +1395,7 @@ function ExportMenu({
 function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | undefined) {
 	// The settings the project's profiles share, on the agents it opened as: a change to one is
 	// made on each of them.
-	const [shared] = useState(() => sharedEntries(start.workspace, project?.shared ?? []));
+	const [shared] = useState(() => sharedEntries(start.workspace, project?.shared ?? [], project?.origins.sites));
 	// th30's tools read the store synchronously. The editor works on the open agent's draft, with the
 	// whole tool library.
 	const [store] = useState(() =>

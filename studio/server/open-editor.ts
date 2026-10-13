@@ -48,6 +48,16 @@ export function editorCommand(
 }
 
 /**
+ * Where an editor's command is when it is not on the path: inside its macOS app, in the machine's
+ * Applications folder and then the builder's own. Empty for an editor with no known app, and off macOS.
+ */
+export function installedCommands(editor: string, os: string | undefined, home: string | undefined): string[] {
+  const inApp = studioEditor(editorName(editor))?.macCommand;
+  if (os !== 'darwin' || !inApp) return [];
+  return [`/Applications/${inApp}`, ...(home ? [`${home}/Applications/${inApp}`] : [])];
+}
+
+/**
  * The machine's own way to open a file in its default editor, or undefined where it has none that
  * is safe: macOS opens it as text and Linux asks the desktop. Windows is left out, since its
  * default for a script is to run it.
@@ -68,6 +78,8 @@ export interface EditorHost {
   start(command: string, args: string[]): boolean;
   /** The machine's kind, as `defaultOpener` takes it; without one there is no default to fall back on. */
   os?: string;
+  /** The builder's home folder, where an app of their own is installed. */
+  home?: string;
 }
 
 /**
@@ -87,8 +99,9 @@ export function defaultEditor(host: EditorHost): string {
 
 /**
  * Opens the file a request names, in the editor it names or else the one the studio started with.
- * The answer says which editor, or why not and the place to go to by hand. When the editor is not
- * one the studio can start, or did not start, the machine's default editor opens the file instead.
+ * The answer says which editor, or why not and the place to go to by hand. An editor whose command
+ * is not on the path is started from its app. When the editor is not one the studio can start, or
+ * did not start, the machine's default editor opens the file instead.
  */
 export function openInEditor(host: EditorHost, request: OpenRequest): OpenAnswer {
   const path = host.place(request.file);
@@ -98,7 +111,8 @@ export function openInEditor(host: EditorHost, request: OpenRequest): OpenAnswer
   const editor = editorName(named);
   const place = request.line === undefined ? path : `${path}:${request.line}`;
   const run = editorCommand(named, path, request.line);
-  if (run && host.start(run.command, run.args)) return { ok: true, editor };
+  const commands = run ? [run.command, ...installedCommands(named, host.os, host.home)] : [];
+  if (run && commands.some((command) => host.start(command, run.args))) return { ok: true, editor };
   const other = host.os === undefined ? undefined : defaultOpener(host.os, path);
   if (other && host.start(other.command, other.args)) return { ok: true, editor, byDefault: true };
   return { ok: false, reason: run ? 'failed' : 'editor', editor, place };

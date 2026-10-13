@@ -16,11 +16,28 @@ export interface StudioEditor {
   form: EditorLineForm;
   /** One the builder can choose in Settings. The others are started only when the studio command or the environment names them. */
   choice?: true;
+  /**
+   * Where the macOS app keeps its command, from an Applications folder. The app is often installed
+   * without its command on the path, and the studio starts it from here then.
+   */
+  macCommand?: string;
 }
 
 export const STUDIO_EDITORS: readonly StudioEditor[] = [
-  { command: 'code', label: 'VS Code', form: 'goto', choice: true },
-  { command: 'cursor', label: 'Cursor', form: 'goto', choice: true },
+  {
+    command: 'code',
+    label: 'VS Code',
+    form: 'goto',
+    choice: true,
+    macCommand: 'Visual Studio Code.app/Contents/Resources/app/bin/code',
+  },
+  {
+    command: 'cursor',
+    label: 'Cursor',
+    form: 'goto',
+    choice: true,
+    macCommand: 'Cursor.app/Contents/Resources/app/bin/cursor',
+  },
   { command: 'zed', label: 'Zed', form: 'colon' },
   { command: 'windsurf', label: 'Windsurf', form: 'goto' },
   { command: 'webstorm', label: 'WebStorm', form: 'line-flag' },

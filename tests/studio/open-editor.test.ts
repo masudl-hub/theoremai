@@ -7,6 +7,7 @@ import {
   defaultOpener,
   type EditorHost,
   editorCommand,
+  installedCommands,
   openInEditor,
 } from '../../studio/server/open-editor.ts';
 
@@ -173,8 +174,35 @@ Deno.test("when the editor does not start, the machine's default editor opens th
   });
   assertEquals(started, [
     ['code', '-g', '/p/inputs.ts:14'],
+    [
+      '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code',
+      '-g',
+      '/p/inputs.ts:14',
+    ],
     ['open', '-t', '/p/inputs.ts'],
   ]);
+
+  // VS Code is installed, but its command is not on the path: the app's own command is started.
+  const inApp: string[][] = [];
+  const installed = machine({
+    os: 'darwin',
+    home: '/Users/b',
+    start: (command, args) => inApp.push([command, ...args]) > 0 && command.startsWith('/Users/b/'),
+  });
+  assertEquals(openInEditor(installed.host, { file: 'inputs.ts', line: 14 }), {
+    ok: true,
+    editor: 'code',
+  });
+  assertEquals(
+    inApp.map(([command]) => command),
+    [
+      'code',
+      '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code',
+      '/Users/b/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code',
+    ],
+  );
+  assertEquals(installedCommands('zed', 'darwin', '/Users/b'), []);
+  assertEquals(installedCommands('code', 'linux', '/home/b'), []);
   // An editor the studio cannot start on a line goes the same way.
   assertEquals(
     openInEditor(machine({ os: 'darwin', editor: 'vim' }).host, { file: 'inputs.ts' }).ok,

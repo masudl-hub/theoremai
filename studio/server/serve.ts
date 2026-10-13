@@ -307,6 +307,7 @@ const editor: EditorHost = {
   place: (file) => session.place(file),
   start,
   os: Deno.build.os,
+  home: Deno.env.get('HOME'),
 };
 
 /**

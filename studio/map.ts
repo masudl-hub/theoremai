@@ -414,6 +414,8 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
   });
 
   const gap = columnGap / 2;
+  /** How far a line going round keeps from what it goes round. */
+  const clear = Math.max(rowGap / 2, lineGap);
   /** The lanes lines already go round in: the next one keeps `LANE_GAP` clear of each. */
   const laid: Box[] = [];
 
@@ -442,7 +444,7 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
     const start = { x: way > 0 ? a.right + lineGap : a.left - lineGap, y: a.y };
     const end = { x: way > 0 ? b.left - lineGap : b.right + lineGap, y: b.y };
     const curve = mapCurve(start, end);
-    const near = (box: Box, y: number) => y > box.y - rowGap / 2 && y < box.y + box.height + rowGap / 2;
+    const near = (box: Box, y: number) => y > box.y - clear && y < box.y + box.height + clear;
     const crossed =
       Math.abs(end.x - start.x) < 4 * gap
         ? []
@@ -460,8 +462,8 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
       for (;;) {
         const y =
           side < 0
-            ? Math.min(...around.map((box) => box.y)) - rowGap / 2
-            : Math.max(...around.map((box) => box.y + box.height)) + rowGap / 2;
+            ? Math.min(...around.map((box) => box.y)) - clear
+            : Math.max(...around.map((box) => box.y + box.height)) + clear;
         const more = [...others, ...laid].filter(
           (box) => !around.includes(box) && box.x < high && box.x + box.width > low && near(box, y),
         );
@@ -472,7 +474,7 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
     const far = (y: number) => Math.abs(a.y - y) + Math.abs(b.y - y);
     const [over, under] = [lane(-1), lane(1)];
     const y = over >= 0 && far(over) <= far(under) ? over : under;
-    laid.push({ id: '', x: low, y: y - LANE_GAP + rowGap / 2, width: high - low, height: 2 * LANE_GAP - rowGap });
+    laid.push({ id: '', x: low, y: y - LANE_GAP + clear, width: high - low, height: 2 * (LANE_GAP - clear) });
     bottom = Math.max(bottom, y);
     const out = start.x + way * gap;
     const back = end.x - way * gap;

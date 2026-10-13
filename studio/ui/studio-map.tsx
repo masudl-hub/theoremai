@@ -200,14 +200,23 @@ export function StudioMap({
 		() => mapLayout(map, sizes, expanded ? { moved, detail: true } : { moved, widths }),
 		[map, sizes, expanded, moved, widths],
 	);
-	// A family, and the map with or without detail, each start from the top left; the whole map with what is open in view.
+	const opened = map.columns.flat().flatMap((group) => group.nodes).find((node) => isOpen(node, selected))?.id;
+	const start = useRef({ layout, opened, sizes });
+	start.current = { layout, opened, sizes };
+	// A family, and the map with or without detail, each start from the top left, or as near it as shows what is open.
 	useEffect(() => {
-		const root = field.current;
-		if (!root) return;
-		scrollerOf(root)?.scrollTo({ left: 0, top: 0, behavior: 'instant' });
-		if (family === undefined) {
-			root.querySelector('[aria-current], [data-open]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-		}
+		const scroller = field.current && scrollerOf(field.current);
+		if (!scroller) return;
+		const { layout, opened, sizes } = start.current;
+		const at = opened === undefined || family !== undefined ? undefined : layout.nodes[opened];
+		const hidden =
+			at !== undefined &&
+			(at.x + sizes.node.width > scroller.clientWidth || at.y + at.height > scroller.clientHeight);
+		scroller.scrollTo({
+			left: hidden ? at.x - sizes.padding : 0,
+			top: hidden ? at.y - sizes.padding - sizes.heading : 0,
+			behavior: 'instant',
+		});
 	}, [family, expanded]);
 	/** A drag just ended on this node: the click that follows it opens nothing. */
 	const dropped = useRef(false);
@@ -389,7 +398,7 @@ export function StudioMap({
 				height="100%"
 				overscroll="allow"
 			>
-				<ContextMenu items={menu} label="Map" data-map-field="">
+				<ContextMenu items={menu} label="Map actions" data-map-field="">
 					<div
 						ref={field}
 						className="studio-map"

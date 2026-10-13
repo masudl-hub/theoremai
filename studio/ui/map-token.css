@@ -1,5 +1,3 @@
-/* What every map is drawn with: a token for a node, placed by the middle of its left side, and the
-   line between two. */
 .map-token {
 	position: absolute;
 	translate: 0 -50%;

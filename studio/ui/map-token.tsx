@@ -1,4 +1,3 @@
-/** A map's node as a token, and how wide each one came out, which is where its lines leave from. */
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { Token, type TokenColor } from '@astryxdesign/core/Token';
 import { type HTMLAttributes, type RefObject, useLayoutEffect, useState } from 'react';
@@ -13,7 +12,6 @@ export interface MapTokenProps extends Omit<HTMLAttributes<HTMLDivElement>, 'id'
 	y: number;
 	color?: TokenColor | undefined;
 	description?: string | undefined;
-	/** With it the token is a button. */
 	onOpen?: (() => void) | undefined;
 }
 

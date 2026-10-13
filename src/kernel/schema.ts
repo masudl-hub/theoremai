@@ -1233,6 +1233,26 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
       answer: 'It is sent without tools, so it writes the answer from what the turn has gathered.',
     },
   ),
+  'done.stop.kind': field(
+    'TurnStopKind',
+    'Why the turn ended, on the done event: its stop.kind.',
+    TURN_STOP_KINDS,
+    {
+      completed: 'The model finished its reply.',
+      length: 'The model reached its token limit.',
+      tool: 'The model called tools and the turn hands them to the host, in done.tools.',
+      gate: 'A pre_tool stage held a tool call. The host resumes it with invokeTool, not continueFrom.',
+      filtered: 'The provider filtered the reply, or the egress guardrail withheld it.',
+      provider_error: 'The provider failed or reported an error.',
+      cancelled: 'The turn was cancelled, by the user or by a stage that aborted it.',
+      stream_incomplete: 'The stream ended without the provider reporting a final status.',
+      step_limit:
+        'The last model call maxSteps allows asked for tools, so the turn ended with no answer.',
+      interrupted: 'A live utterance was cut off by an interruption.',
+      generation_complete:
+        'Live: the model finished generating audio or text for this utterance. The turn may still be open.',
+    },
+  ),
   guardrails: field('ProfileGuardrailsSpec', "Protections for this profile's turns."),
   'guardrails.quota': field(
     'QuotaGuardrailSpec',

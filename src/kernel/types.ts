@@ -531,7 +531,7 @@ export interface ProfileModelFields {
   models: Record<ModelId, ModelBinding>;
   /** The model a turn runs when it names none; registration fills it with the only key when there is one. */
   defaultModel: ModelId;
-  /** Turn may pass `{ model: "<id>" }`. Requires two or more `models` keys. */
+  /** Turn may pass `{ model: "<id>" }`; a name that is not a key of `models` is refused. */
   allowModelSelect?: boolean;
   /** Tool-loop ceiling. Omit = `DEFAULT_MAX_STEPS`; `1` = one-shot; `> 1` = hard cap. */
   maxSteps?: number;

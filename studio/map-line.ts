@@ -25,3 +25,12 @@ export function mapCurve(from: MapPlace, to: MapPlace, via = (from.x + to.x) / 2
     },
   };
 }
+
+/** The most dots a line carries. */
+export const MAP_DOTS = 8;
+
+/** `count` dots, no more than a line carries, spread evenly along `at` and clear of both its ends. */
+export function mapDots(at: (t: number) => MapPlace, count: number): MapPlace[] {
+  const dots = Math.min(count, MAP_DOTS);
+  return Array.from({ length: dots }, (_, index) => at((index + 1) / (dots + 1)));
+}

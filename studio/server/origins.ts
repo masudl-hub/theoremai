@@ -264,16 +264,18 @@ export function sourceOrigins(project: ProjectSource, decisions: readonly string
   const read = (kind: 'profile' | 'tool', targets: Map<string, SourceTarget[]>) => {
     const origins: Record<string, SettingOrigin[]> = {};
     const written: Record<string, Written[]> = {};
+    const files: Record<string, string[]> = {};
     for (const [name, held] of targets) {
       const found = originsOf(project, kind, held);
       if (found.origins.length) origins[name] = found.origins;
       written[name] = found.written;
+      files[name] = [...new Set([...held.map((target) => target.file), ...found.written.map(({ at }) => at.source.fileName)])];
       for (const { at } of found.written) {
         const place = places.get(at.node) ?? { site: places.size + 1, held: 0 };
         places.set(at.node, { ...place, held: place.held + 1 });
       }
     }
-    return { origins, written };
+    return { origins, written, files };
   };
   const [profiles, tools] = [read('profile', project.profiles), read('tool', project.tools)];
   for (const id of decisions) profiles.origins[id] = [...(profiles.origins[id] ?? []), questionsOrigin(project, id)];
@@ -300,5 +302,10 @@ export function sourceOrigins(project: ProjectSource, decisions: readonly string
   };
   const held = { profiles: sites(profiles.written), tools: sites(tools.written) };
   const some = Object.keys(held.profiles).length + Object.keys(held.tools).length > 0;
-  return { profiles: profiles.origins, tools: tools.origins, ...(some ? { sites: held } : {}) };
+  return {
+    profiles: profiles.origins,
+    tools: tools.origins,
+    ...(some ? { sites: held } : {}),
+    files: { profiles: profiles.files, tools: tools.files },
+  };
 }

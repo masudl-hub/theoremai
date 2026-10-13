@@ -124,7 +124,18 @@ Deno.test('a profile the files define twice is one origin, and a plain one has n
   const twice = `defineProfile({ id: 'desk', maxSteps: 1 });\ndefineProfile({ id: 'desk', maxSteps: 2 });\n`;
   assertEquals(read({ 'setup.ts': twice }), ['(all) | twice |  | setup.ts:1']);
   const plain = `defineProfile({ id: 'desk', maxSteps: 1, tools: { allow: ['a'] } });\n`;
-  assertEquals(sourceOrigins(project({ 'setup.ts': plain })), { profiles: {}, tools: {} });
+  assertEquals(sourceOrigins(project({ 'setup.ts': plain })), {
+    profiles: {},
+    tools: {},
+    files: { profiles: { desk: ['/project/setup.ts'] }, tools: {} },
+  });
+});
+
+Deno.test('a profile and a tool name the files that write them: the one that makes each, then each a name led to', () => {
+  assertEquals(sourceOrigins(project(FILES)).files, {
+    profiles: { desk: ['/project/setup.ts', '/project/shared.ts'] },
+    tools: { list: ['/project/setup.ts', '/project/shared.ts'] },
+  });
 });
 
 Deno.test('Save refuses a change wherever the reader finds an origin, and writes one where it finds none', () => {

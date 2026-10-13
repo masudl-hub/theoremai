@@ -9,3 +9,7 @@
 	stroke: var(--color-border-emphasized);
 	stroke-width: 1.5;
 }
+
+.map-dot {
+	fill: var(--color-text-secondary);
+}

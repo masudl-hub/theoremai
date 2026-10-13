@@ -421,6 +421,7 @@ Deno.test('the page reads what the files set in code, with each file from the pr
       'garden-desk': [{ path: ['inputs'], kind: 'code' as const, file: `${ROOT}/a.ts`, line: 2 }],
     },
     tools: {},
+    files: { profiles: { 'garden-desk': [`${ROOT}/a.ts`, `${ROOT}/lib/b.ts`] }, tools: {} },
   };
   assertEquals(
     pageOrigins(found, names, defined, (file) => file.replace(`${ROOT}/`, '')),
@@ -430,6 +431,7 @@ Deno.test('the page reads what the files set in code, with each file from the pr
         'made-in-a-loop': [{ path: [], kind: 'unfound' }],
       },
       tools: { remove_plant: [{ path: [], kind: 'unfound' }] },
+      files: { profiles: { 'garden-desk': ['a.ts', 'lib/b.ts'] }, tools: {} },
     },
   );
 });

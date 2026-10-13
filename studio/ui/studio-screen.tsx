@@ -2962,6 +2962,7 @@ function Studio({ opened }: { opened: StudioOpened }) {
 										<StudioMap
 											workspace={state.workspace}
 											shared={state.shared}
+											files={state.origins?.files}
 											selected={view.keysOpen ? '' : selected}
 											onOpen={view.open}
 											onClose={closeMap}

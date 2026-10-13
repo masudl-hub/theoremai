@@ -56,14 +56,16 @@
 	pointer-events: none;
 }
 
+.studio-map-lines g {
+	transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
 .studio-map-lines .map-line {
-	transition:
-		opacity var(--duration-fast) var(--ease-standard),
-		stroke var(--duration-fast) var(--ease-standard);
+	transition: stroke var(--duration-fast) var(--ease-standard);
 }
 
 /* A tool asking a profile and a profile summarised by another run against the columns: dashed. */
-.studio-map-lines .map-line:is([data-kind='asks'], [data-kind='summarised']) {
+.studio-map-lines :is([data-kind='asks'], [data-kind='summarised']) .map-line {
 	stroke-dasharray: 4 4;
 }
 
@@ -224,12 +226,16 @@
 	opacity: 0.45;
 }
 
-.studio-map[data-lit] .map-line:not([data-on]) {
+.studio-map[data-lit] .studio-map-lines g:not([data-on]) {
 	opacity: 0.25;
 }
 
-.studio-map .map-line[data-on] {
+.studio-map [data-on] > .map-line {
 	stroke: var(--color-accent);
+}
+
+.studio-map [data-on] > .map-dot {
+	fill: var(--color-accent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -239,6 +245,7 @@
 	.studio-map-card > *,
 	.studio-map-row,
 	.studio-map .map-token,
+	.studio-map-lines g,
 	.studio-map .map-line {
 		transition: none;
 	}

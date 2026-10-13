@@ -48,6 +48,7 @@ import {
 	type WorkspaceMap,
 	workspaceMap,
 } from '../mod.ts';
+import type { ProjectFiles } from '../server/save-wire.ts';
 import { FACET_ICON } from './lib/facet-icons.ts';
 import { type KeptMap, type MapPlaces, readKeptMap, writeKeptMap } from './lib/studio-map-kept.ts';
 import { useProject } from './lib/studio-project.ts';
@@ -568,18 +569,21 @@ function DetailNode(props: NodeProps) {
 export function StudioMap({
 	workspace,
 	shared,
+	files,
 	selected,
 	onOpen,
 	onClose,
 }: {
 	workspace: StudioWorkspace;
 	shared: readonly SharedEntry[];
+	/** The project files that write each agent and tool, as they were last read. */
+	files: ProjectFiles | undefined;
 	/** The open node's id; its agent or tool is marked on the map. */
 	selected: string;
 	onOpen: (node: string) => void;
 	onClose: () => void;
 }) {
-	const whole = useMemo(() => workspaceMap(workspace, shared), [workspace, shared]);
+	const whole = useMemo(() => workspaceMap(workspace, shared, files), [workspace, shared, files]);
 	const { expanded, family, map, moved, put, showFamily, expand } = useKept(whole);
 	const field = useRef<HTMLDivElement>(null);
 	const sizes = expanded ? DETAIL_SIZES : TOKEN_SIZES;
@@ -657,14 +661,17 @@ export function StudioMap({
 							height={layout.height}
 							aria-hidden="true"
 						>
-							{layout.lines.map(({ link, d }) => (
-								<path
+							{layout.lines.map(({ link, d, dots }) => (
+								<g
 									key={`${link.kind}:${link.from}:${link.to}`}
-									className="map-line"
-									d={d}
 									data-kind={link.kind}
 									data-on={onLines.has(link) ? '' : undefined}
-								/>
+								>
+									<path className="map-line" d={d} />
+									{dots.map(({ file, x, y }) => (
+										<circle key={file} className="map-dot" cx={x} cy={y} r={2.5} />
+									))}
+								</g>
 							))}
 						</svg>
 						{layout.headings.map(({ label, x, y }) => (

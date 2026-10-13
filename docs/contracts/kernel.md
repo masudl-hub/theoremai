@@ -589,9 +589,10 @@ order, so calls can't loop.
 input, hostInput?, caller, depth, metadata?, signal? }`. It returns nothing to run the call
 as is, `{ refuse }` to fail it (`refused_by_host`, `declined`, the model reads
 `refuse`), or fields for the called agent's request: `input`, `speech`,
-`model`, `effort`, `builtInArgs`, `metadata`, `onStage`, `conversationId`, `provider`. The
+`model`, `effort`, `builtInArgs`, `metadata`, `onStage`, `conversationId`, `host`, `provider`. The
 hook's `input` replaces what the model sent; its `speech` replaces the
-model's. The hook passes
+model's. The hook's `host` is what the called agent's tools read as `ctx.host`.
+The caller's `host` is not passed down: without the hook's, those tools read none. The hook passes
 down to the called agent's own calls, with `depth` counting up from 1.
 A hook that throws ends the caller's turn with that error: what the model should
 read instead is the hook's to catch and return as `refuse`.

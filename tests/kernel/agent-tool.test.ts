@@ -67,6 +67,7 @@ function scopeWith(
   tool: Partial<AgentToolDef> = {},
   researcherTools: string[] = [],
   researcherResumption?: ProfileTurnResumptionSpec,
+  onLookup?: (host: unknown) => void,
 ): KernelScope {
   const scope = createKernelScope();
   scope.tools.register({
@@ -80,7 +81,10 @@ function scopeWith(
     permission: 'auto',
     input: z.object({}),
     output: z.object({ found: z.string() }),
-    handler: () => ({ found: 'fact' }),
+    handler: (_input, ctx) => {
+      onLookup?.(ctx.host);
+      return { found: 'fact' };
+    },
   });
   scope.profiles.register(
     textProfile(RESEARCHER, RESEARCHER_SYSTEM, researcherTools, undefined, researcherResumption),
@@ -913,4 +917,29 @@ Deno.test("a hook that throws ends the caller's turn with its error", async () =
     Error,
     'storage read failed',
   );
+});
+
+/** What the researcher's `lookup` read as `ctx.host`, on a turn whose own host is set. */
+async function hostSeenByAgentTools(onAgentCall?: AgentCallHook): Promise<unknown[]> {
+  const seen: unknown[] = [];
+  const scope = scopeWith({}, ['lookup'], undefined, (host) => seen.push(host));
+  const req = {
+    profile: CALLER,
+    input: { text: 'Help' },
+    host: 'the caller host',
+    ...(onAgentCall ? { onAgentCall } : {}),
+  };
+  for await (const _ of runScopedTurn(scope, req, busyResearcher(0))) {
+    // why: The turn runs to its end; only what the tool read is checked.
+  }
+  return seen;
+}
+
+Deno.test("a called agent's tools read the host the hook gives", async () => {
+  assertEquals(await hostSeenByAgentTools(() => ({ host: 'the agent host' })), ['the agent host']);
+});
+
+Deno.test("a called agent's tools read no host when the hook gives none", async () => {
+  assertEquals(await hostSeenByAgentTools(), [undefined]);
+  assertEquals(await hostSeenByAgentTools(() => ({})), [undefined]);
 });

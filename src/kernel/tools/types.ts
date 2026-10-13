@@ -344,12 +344,21 @@ export interface AgentCall {
  * What the host sets on the called agent's turn. The kernel fixes its profile,
  * signal, trace parent and hook. `provider` runs the turn; omit it to use the
  * caller's, which works only when both are on the same provider and protocol.
+ * `host` is what the called agent's tools read as `ctx.host`; omit it and they
+ * read none, because the caller's is not passed down.
  */
 export interface AgentCallRequest
   extends Partial<
     Pick<
       TurnRequest,
-      'input' | 'speech' | 'effort' | 'builtInArgs' | 'metadata' | 'onStage' | 'conversationId'
+      | 'input'
+      | 'speech'
+      | 'effort'
+      | 'builtInArgs'
+      | 'metadata'
+      | 'onStage'
+      | 'conversationId'
+      | 'host'
     >
   > {
   model?: ModelId;

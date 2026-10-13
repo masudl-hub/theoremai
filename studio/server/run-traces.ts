@@ -92,7 +92,8 @@ export function withDecisionTraces(
   return async (request) => {
     const records: TraceRecord[] = [];
     const response = await runs.run(records, () => serve(request));
-    if (records.length === 0 || !response.ok) return response;
+    // A failed decision is traced too, so its failure's body carries the records the same way.
+    if (records.length === 0 || !response.headers.get('content-type')?.includes('json')) return response;
     const reply: unknown = await response.json();
     const headers = new Headers(response.headers);
     headers.delete('content-length');

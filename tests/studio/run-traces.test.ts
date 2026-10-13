@@ -3,7 +3,7 @@ import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 
 registerFixtureProviders(defaultKernelScope);
 
-import { assertEquals } from '@std/assert';
+import { assertEquals, assertRejects } from '@std/assert';
 import { z } from 'zod';
 import {
   getTraceDestination,
@@ -13,6 +13,10 @@ import {
   registerTraceDestination,
   type TraceRecord,
 } from '../../mod.ts';
+import {
+  createDecisionTransport,
+  failedDecisionTraces,
+} from '../../react/src/client/decision-transport.ts';
 import {
   createStudioHandler,
   printableProfile,
@@ -94,6 +98,10 @@ const handler = createStudioHandler({
   },
 });
 
+/** Writes a record the way a served profile does, into the run in progress. */
+const writeToRun = (record: TraceRecord) =>
+  getTraceDestination(STUDIO_RUN_TRACES)?.write(record, { retainForDays: 0, rotateAfterMiB: 1 });
+
 type Line = { type: string; record?: { content?: unknown } };
 
 /** Posts to a profile and gives the lines it streamed. */
@@ -156,10 +164,7 @@ Deno.test("a chat turn's trace reaches the page behind its events", async () => 
 Deno.test('a stream that ends in a failure sends its trace ahead of it, so the page reads it', async () => {
   const record = (await call('bench-tools', 'one')).find((line) => line.type === 'trace')?.record;
   const serve = withRunTraces(async () => {
-    await getTraceDestination(STUDIO_RUN_TRACES)?.write(record as TraceRecord, {
-      retainForDays: 0,
-      rotateAfterMiB: 1,
-    });
+    await writeToRun(record as TraceRecord);
     return new Response('{"type":"stage"}\n{"type":"error","error":"no"}', {
       headers: { 'content-type': 'application/x-ndjson; charset=utf-8' },
     });
@@ -217,10 +222,7 @@ Deno.test("a decision's trace rides in its reply, and a decision that records no
   await call('bench-tools', 'one');
   const record = { content: 'decided' } as unknown as TraceRecord;
   const traced = withDecisionTraces(async () => {
-    await getTraceDestination(STUDIO_RUN_TRACES)?.write(record, {
-      retainForDays: 0,
-      rotateAfterMiB: 1,
-    });
+    await writeToRun(record);
     return Response.json({ result: { model: 'm' } });
   });
   const request = () => new Request(`${BASE}/profiles/judge/decide`, { method: 'POST' });
@@ -232,4 +234,20 @@ Deno.test("a decision's trace rides in its reply, and a decision that records no
     Promise.resolve(Response.json({ result: { model: 'm' } })),
   );
   assertEquals(await (await quiet(request())).json(), { result: { model: 'm' } });
+});
+
+Deno.test("a failed decision's trace reaches the page on the failure thrown for it", async () => {
+  const record = (await call('bench-tools', 'one')).find((line) => line.type === 'trace')
+    ?.record as TraceRecord;
+  const serve = withDecisionTraces(async () => {
+    await writeToRun(record);
+    return Response.json({ error: 'The model did not answer.' }, { status: 502 });
+  });
+  const transport = createDecisionTransport({
+    endpoint: `${BASE}/profiles/judge`,
+    fetch: (input, init) => serve(new Request(input, init)),
+  });
+  const failure = await assertRejects(() => transport.decide({ note: 'one' }));
+  assertEquals(failedDecisionTraces(failure), [record]);
+  assertEquals(failedDecisionTraces(new Error('unrelated')), []);
 });

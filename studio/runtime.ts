@@ -5,7 +5,10 @@ import {
   TheoremError,
   z,
 } from '../mod.ts';
-import type { DecisionTransport } from '../react/src/client/decision-transport.ts';
+import {
+  type DecisionTransport,
+  withFailedTraces,
+} from '../react/src/client/decision-transport.ts';
 import type { TheoremHostCallRequest } from '../react/src/client/host-transport.ts';
 import type {
   TheoremInvokeRequest,
@@ -314,28 +317,24 @@ export async function runStudioDecision(
   const records = profile.observability
     ? resolveObservabilityPolicy(profile.observability).record
     : false;
-  const result = await scope.runDecision(
-    {
-      profile: profile.id,
-      state,
-      questions: payload.questions ?? {},
-      signal,
+  const sink = {
+    write: (record: TraceRecord) => {
+      traces.push(record);
+      return Promise.resolve();
     },
-    {
-      ...options,
-      ...(records
-        ? {
-            sink: {
-              write: (record: TraceRecord) => {
-                traces.push(record);
-                return Promise.resolve();
-              },
-            },
-          }
-        : {}),
-    },
-  );
-  return { result, traces };
+  };
+  try {
+    const result = await scope.runDecision(
+      { profile: profile.id, state, questions: payload.questions ?? {}, signal },
+      { ...options, ...(records ? { sink } : {}) },
+    );
+    return { result, traces };
+  } catch (err) {
+    // The kernel traces a decision however it ends; the failure carries what it left.
+    throw withFailedTraces(err, traces);
+  }
 }
+
+export { failedDecisionTraces } from '../react/src/client/decision-transport.ts';
 
 export { studioKeySlots } from './browser-connection.ts';

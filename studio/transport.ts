@@ -18,12 +18,11 @@ import {
 import {
   decisionInterface,
   type DecisionTransport,
-  readDecisionReply,
+  postDecision,
 } from '../react/src/client/decision-transport.ts';
 import { hostInterface, type HostTransport } from '../react/src/client/host-transport.ts';
 import { createTraceFeed, type TraceFeed } from '../react/src/client/trace-feed.ts';
 import {
-  fetchJson,
   type HttpOptions,
   postJson,
   postNdjson,
@@ -187,13 +186,12 @@ export function createStudioDecisionTransport(
   return {
     describe: () =>
       Promise.resolve(decisionInterface(defineProfile(payload.profile) as DecisionProfile, questions)),
-    decide: async (state, signal) =>
-      readDecisionReply(
-        await fetchJson(
-          '/api/studio/decide',
-          { body: { profile: payload.profile, questions, state }, signal },
-          options,
-        ),
+    decide: (state, signal) =>
+      postDecision(
+        '/api/studio/decide',
+        { profile: payload.profile, questions, state },
+        signal,
+        options,
       ),
     traces,
   };

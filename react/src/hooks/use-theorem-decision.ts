@@ -1,6 +1,10 @@
 import type { DecisionJson, DecisionResult } from '@theoremjs/agents';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DecisionInterface, DecisionTransport } from '../client/decision-transport.ts';
+import {
+  type DecisionInterface,
+  type DecisionTransport,
+  failedDecisionTraces,
+} from '../client/decision-transport.ts';
 import { type ClientFailure, clientFailure } from '../client/failure.ts';
 import { useDescribed } from './use-described.ts';
 
@@ -84,6 +88,7 @@ export function useTheoremDecision(transport: DecisionTransport): TheoremDecisio
         });
       } catch (err) {
         if (controller.signal.aborted) return;
+        for (const record of failedDecisionTraces(err)) transport.traces?.push(record);
         setRun((previous) => ({ ...previous, status: 'error', failure: clientFailure(err) }));
       } finally {
         if (running.current === controller) running.current = null;

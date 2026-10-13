@@ -121,6 +121,41 @@ const replySchema = z.object({
   traces: z.array(traceRecordSchema).optional(),
 });
 
+/** The trace records a failed decision left, by the failure thrown for it. */
+const failedTraces = new WeakMap<object, readonly TraceRecord[]>();
+
+/** Marks a decision's failure with the trace records it left, for the page's inspector. */
+export function withFailedTraces(err: unknown, traces: readonly TraceRecord[]): unknown {
+  if (traces.length > 0 && typeof err === 'object' && err !== null) failedTraces.set(err, traces);
+  return err;
+}
+
+/** The trace records a failed decision left; none when its host sent none. */
+export function failedDecisionTraces(err: unknown): readonly TraceRecord[] {
+  return (typeof err === 'object' && err !== null && failedTraces.get(err)) || [];
+}
+
+const failedBody = z.object({ traces: z.array(traceRecordSchema) });
+
+/** POSTs a decision and reads its reply; a failure keeps the trace records its body carried. */
+export async function postDecision(
+  url: string,
+  body: unknown,
+  signal: AbortSignal | undefined,
+  options: HttpOptions = {},
+): Promise<DecisionReply> {
+  let traces: readonly TraceRecord[] = [];
+  const failed = (raw: unknown) => {
+    const read = failedBody.safeParse(raw);
+    if (read.success) traces = read.data.traces;
+  };
+  try {
+    return readDecisionReply(await fetchJson(url, { body, signal, failed }, options));
+  } catch (err) {
+    throw withFailedTraces(err, traces);
+  }
+}
+
 /** A host's decide reply, checked: the answers, and any trace records it delivers. */
 export function readDecisionReply(raw: unknown): DecisionReply {
   // labels-exempt: internal diagnostic; the user reads error.bad_response
@@ -156,7 +191,6 @@ export function createDecisionTransport(
         'the decision description', // labels-exempt: internal diagnostic; the user reads error.bad_response
       ).interface;
     },
-    decide: async (state, signal) =>
-      readDecisionReply(await fetchJson(`${base}/decide`, { body: { state }, signal }, options)),
+    decide: (state, signal) => postDecision(`${base}/decide`, { state }, signal, options),
   };
 }

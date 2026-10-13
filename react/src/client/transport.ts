@@ -366,11 +366,15 @@ async function resolveHeaders(options: HttpOptions): Promise<Headers> {
  * kind. A body that is not JSON (a proxy's page) leaves the status to speak; a
  * JSON body that fails the error body's schema is `bad_response`.
  */
-async function failureFromResponse(response: Response): Promise<TheoremError | TheoremStreamError> {
+async function failureFromResponse(
+  response: Response,
+  failed?: (body: unknown) => void,
+): Promise<TheoremError | TheoremStreamError> {
   const text = await response.text();
   let raw: unknown;
   try {
     raw = JSON.parse(text);
+    failed?.(raw);
   } catch {
     return hostError(
       { errorInternal: `HTTP ${String(response.status)}` },
@@ -443,10 +447,13 @@ export async function postJson(
   await jsonPostResponse(url, body, options);
 }
 
-/** GET, or POST `body` as JSON, and read the JSON reply; a non-OK reply throws its failure. */
+/**
+ * GET, or POST `body` as JSON, and read the JSON reply; a non-OK reply throws its failure, after
+ * `failed` has read whatever else its JSON body carries.
+ */
 export async function fetchJson(
   url: string,
-  init: { body?: unknown; signal?: AbortSignal },
+  init: { body?: unknown; signal?: AbortSignal; failed?: (body: unknown) => void },
   options: HttpOptions = {},
 ): Promise<unknown> {
   const method =
@@ -454,7 +461,7 @@ export async function fetchJson(
       ? { method: 'GET' }
       : { method: 'POST', body: JSON.stringify(init.body) };
   const response = await request(url, { ...method, signal: init.signal }, options);
-  if (!response.ok) throw await failureFromResponse(response);
+  if (!response.ok) throw await failureFromResponse(response, init.failed);
   return parseWireJson(await response.text());
 }
 

@@ -1638,32 +1638,32 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   'registerTool.category': field('string', 'A label for grouping tools; nothing reads it yet.'),
   'registerTool.labels': field(
     'ToolLabels',
-    'Transcript text for a call. {path} reads a value from the call. {results.0.name} reads a list item. {path|text} shows the text when the value is unusable. With no fallback, the label is dropped.',
+    "Transcript text for a call. {path} reads a value from the call. {results.0.name} reads a list item. {path|text} shows the text when the value is unusable. With no fallback, the label is dropped. A label is one line, or a list read top to bottom: the first line that fits is shown. A line fits when each {path} has a value and its condition holds, as in 'when status is archived: archiving {title}'. Neighbouring lines that open with '+ ' show together, joined in words. The last line of a list must always fit.",
   ),
   'registerTool.labels.activity': {
     ...field(
-      'string',
+      'string | string[]',
       "Transcript text while a call runs, e.g. 'Saving {title} to your collection'. {path} reads the call's input.",
     ),
     unset: 'The tool name, in words',
   },
   'registerTool.labels.activityPast': {
     ...field(
-      'string',
+      'string | string[]',
       "What the transcript says once a call completes, e.g. 'Found {results.0.name}'. Each {path} is filled from the call's input, then its output.",
     ),
     unset: 'The tool name, in words',
   },
   'registerTool.labels.activityFailed': {
     ...field(
-      'string',
+      'string | string[]',
       "What the transcript says when a call fails or the host labels it failed, e.g. 'Couldn't save {title}'. Each {path} is filled from the call's input.",
     ),
     unset: "Couldn't complete, then the tool name in words",
   },
   'registerTool.labels.request': {
     ...field(
-      'string',
+      'string | string[]',
       "What the approval card says the agent wants to do, e.g. 'check the weather in {city}'. Each {path} is filled from the call's input.",
     ),
     unset: 'The tool name, in words',

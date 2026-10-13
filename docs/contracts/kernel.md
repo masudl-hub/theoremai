@@ -769,11 +769,42 @@ These claims prevent automatic duplicate dispatch. Destination idempotency and r
 a call is doing and what it did, in the tool's words: `'Saving {title} to your
 collection'`. Each `{path}` is a dot path into the call: the kernel fills it from
 the input, then the output (`{results.0.name}` steps into a list by position).
-Only text and numbers fill a placeholder. Text collapses its whitespace and is cut
-at 40 characters; numbers keep at most two decimals. The `running` phase carries
+Only text and numbers fill a placeholder. Text collapses its whitespace and is
+shown whole; numbers keep at most two decimals. The kernel does not shorten a
+label. The page that shows it does. The `running` phase carries
 `activity` filled from the input, and `complete` carries `activityPast` filled from
 the input and output. When a placeholder has no such value, the phase carries no
 label and the transcript names the tool in words instead.
+
+A label is one line, or a **list label**: a list of lines that the kernel reads
+from the top. The kernel shows the first line that fits. A line fits when each
+`{path}` has a value or a fallback, and its condition holds.
+
+```ts
+labels: {
+  activity: [
+    'when status is archived: archiving {title}',
+    '+ renaming {title} to {new_title}',
+    '+ moving {title} to {shelf}',
+    'saving an item',
+  ],
+}
+```
+
+- A condition opens the line: `when <path> is <value>:`. It compares the
+  input the model sent. The words are `is`, `is not`, `is null` and `and`.
+- `is null` holds only when the model sent `null`. `is not` is the opposite of
+  `is`, so it holds for a field the model did not send.
+- Neighbouring lines that open with `+ ` show together. The kernel joins each
+  line that fits: "renaming A to B and moving A to C".
+- The last line must always fit: no condition, and a fallback on each `{path}`.
+
+`registerTool` throws a `config` error for a list label that cannot work. It
+names the line. The causes are: a last line that does not always fit, a line
+below one that always fits, a condition that names no input field, a condition
+that compares a value the schema never allows, and a line that opens with
+`when` and has no readable condition. A one-line label can also open with a
+condition. When the condition does not hold, the transcript names the tool.
 
 `labels.activityFailed` says a call did not happen: `'Couldn't save {title}'`,
 filled from the input as the model sent it. Every `error` phase carries it in

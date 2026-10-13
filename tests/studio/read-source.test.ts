@@ -39,6 +39,26 @@ Deno.test('the concierge file reads back into the same file', () => {
   roundTrip(createExampleDraft());
 });
 
+Deno.test('a list label reads back from the file as a line each', () => {
+  const draft = createExampleDraft();
+  const list = 'when name is Paris: Finding the capital\n+ Finding {name}\nFinding a place';
+  const withList = {
+    ...draft,
+    toolSpecs: draft.toolSpecs.map((tool) =>
+      tool.toolName === 'geocode_city' ? { ...tool, activity: list } : tool,
+    ),
+  };
+  roundTrip(withList);
+  const compiled = compileStudio(withList);
+  assert(compiled.ok);
+  const read = readStudioSource(studioSource(compiled), draft);
+  assert(read.ok);
+  assertEquals(
+    read.draft.toolSpecs.find((tool) => tool.toolName === 'geocode_city')?.activity,
+    list,
+  );
+});
+
 Deno.test('the decision example file reads back into the same file', () => {
   roundTrip(createDecisionExampleDraft());
 });

@@ -5060,46 +5060,70 @@ function ContractSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 	);
 }
 
+/** One label: a line of wording, or a list with a line each, read top to bottom. */
+function ActivityLabelRow({
+	label,
+	field,
+	value,
+	schemas,
+	onChange,
+}: {
+	label: string;
+	field: 'activity' | 'activityPast' | 'activityFailed' | 'request';
+	value: string | undefined;
+	schemas: string[];
+	onChange: (next: string) => void;
+}) {
+	const text = value ?? '';
+	return (
+		<TextAreaRow
+			label={label}
+			path={`registerTool.labels.${field}`}
+			field={field}
+			value={text}
+			rows={Math.max(1, text.split('\n').length)}
+			hint={placeholderHint(schemas)}
+			onChange={onChange}
+		/>
+	);
+}
+
 /** What the chat says while the tool runs, once it's done, when it fails and when it asks. */
 function ActivitySection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 	return (
 		<InspectorSection title="Activity" path="registerTool.labels">
-			<TextRow
+			<ActivityLabelRow
 				label="Running"
-				path="registerTool.labels.activity"
 				field="activity"
-				value={tool.activity ?? ''}
-				hint={placeholderHint([tool.inputJson])}
+				value={tool.activity}
+				schemas={[tool.inputJson]}
 				onChange={(activity) => {
 					set({ activity });
 				}}
 			/>
-			<TextRow
+			<ActivityLabelRow
 				label="Done"
-				path="registerTool.labels.activityPast"
 				field="activityPast"
-				value={tool.activityPast ?? ''}
-				hint={placeholderHint([tool.inputJson, tool.outputJson])}
+				value={tool.activityPast}
+				schemas={[tool.inputJson, tool.outputJson]}
 				onChange={(activityPast) => {
 					set({ activityPast });
 				}}
 			/>
-			<TextRow
+			<ActivityLabelRow
 				label="Failed"
-				path="registerTool.labels.activityFailed"
 				field="activityFailed"
-				value={tool.activityFailed ?? ''}
-				hint={placeholderHint([tool.inputJson])}
+				value={tool.activityFailed}
+				schemas={[tool.inputJson]}
 				onChange={(activityFailed) => {
 					set({ activityFailed });
 				}}
 			/>
-			<TextRow
+			<ActivityLabelRow
 				label="Asking"
-				path="registerTool.labels.request"
 				field="request"
-				value={tool.request ?? ''}
-				hint={placeholderHint([tool.inputJson])}
+				value={tool.request}
+				schemas={[tool.inputJson]}
 				onChange={(request) => {
 					set({ request });
 				}}

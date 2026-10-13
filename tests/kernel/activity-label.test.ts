@@ -5,7 +5,7 @@ import { toolCallsOf } from '../../src/interface/tool-calls.ts';
 import { registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import { fillActivityLabel } from '../../src/kernel/tools/activity-label.ts';
+import { activityLabelProblem, fillActivityLabel } from '../../src/kernel/tools/activity-label.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
 
@@ -76,11 +76,10 @@ Deno.test('an activity label fills from the input, then the output', () => {
   assertEquals(fillActivityLabel('Checking the docs', { input: {} }), 'Checking the docs');
 });
 
-Deno.test('a filled value is one printable line, cut whole characters at a time', () => {
+Deno.test('a filled value is one printable line', () => {
   const fill = (s: string) => fillActivityLabel('{s}', { input: { s } });
   assertEquals(fill('Paris\u202Eecnarf\u0007'), 'Paris ecnarf');
   assertEquals(fill('Paris\n\n  France'), 'Paris France');
-  assertEquals(fill(`${'a'.repeat(38)}😀😀😀`), `${'a'.repeat(38)}😀…`);
   assertEquals(fillActivityLabel('{n}', { input: { n: Number.NaN } }), undefined);
 });
 
@@ -95,10 +94,10 @@ Deno.test('an activity label with a value it cannot show is not filled', () => {
   assertEquals(fillActivityLabel('  ', { input: {} }), undefined);
 });
 
-Deno.test('a long value is cut, and whitespace in it collapses', () => {
+Deno.test('a long value is shown whole, and whitespace in it collapses', () => {
   assertEquals(
-    fillActivityLabel('Reading {title}', { input: { title: `${'x'.repeat(60)}` } }),
-    `Reading ${'x'.repeat(39)}…`,
+    fillActivityLabel('Reading {title}', { input: { title: `${'x'.repeat(60)}😀` } }),
+    `Reading ${'x'.repeat(60)}😀`,
   );
   assertEquals(
     fillActivityLabel('Reading {title}', { input: { title: 'Paris\n  France' } }),
@@ -455,5 +454,177 @@ Deno.test('operation identity refuses a phase with different call correlation', 
         },
       ]),
     TheoremError,
+  );
+});
+
+const PLANT_LABEL = [
+  'when status is inactive: archiving {plant_identifier}',
+  'adding {nickname}',
+  '+ renaming {plant_identifier} to {nickname}',
+  '+ moving {plant_identifier} to {location}',
+  '+ when in_bloom is true: marking {plant_identifier} in bloom',
+  'saving a plant',
+];
+
+const PLANT_INPUT = {
+  type: 'object',
+  properties: {
+    plant_identifier: { type: 'string' },
+    nickname: { type: 'string' },
+    location: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    status: { type: 'string', enum: ['active', 'inactive'] },
+    in_bloom: { type: 'boolean' },
+    count: { type: 'number' },
+    tags: { type: 'array', items: { type: 'string' } },
+  },
+};
+
+Deno.test('a list label shows its first line that fits', () => {
+  const fill = (input: unknown) => fillActivityLabel(PLANT_LABEL, { input });
+  assertEquals(
+    fill({ plant_identifier: 'Fern', status: 'inactive', nickname: 'Fernanda' }),
+    'archiving Fern',
+  );
+  assertEquals(fill({ nickname: 'Fernanda' }), 'adding Fernanda');
+  assertEquals(fill({ plant_identifier: 'Fern', status: 'active' }), 'saving a plant');
+  assertEquals(fill({}), 'saving a plant');
+});
+
+Deno.test('neighbouring + lines that fit are joined in words', () => {
+  const lines = PLANT_LABEL.slice(2);
+  const fill = (input: unknown) => fillActivityLabel(lines, { input });
+  assertEquals(fill({ plant_identifier: 'Fern', location: 'the hall' }), 'moving Fern to the hall');
+  assertEquals(
+    fill({ plant_identifier: 'Fern', nickname: 'Fernanda', location: 'the hall' }),
+    'renaming Fern to Fernanda and moving Fern to the hall',
+  );
+  assertEquals(
+    fill({ plant_identifier: 'Fern', nickname: 'Fernanda', location: 'the hall', in_bloom: true }),
+    'renaming Fern to Fernanda, moving Fern to the hall and marking Fern in bloom',
+  );
+  assertEquals(fill({ plant_identifier: 'Fern', in_bloom: false }), 'saving a plant');
+});
+
+Deno.test('a + run split by a plain line is two runs', () => {
+  const lines = ['+ naming it {a}', 'moving it to {b}', '+ lighting it {c}', 'saving'];
+  assertEquals(fillActivityLabel(lines, { input: { a: 'x', c: 'z' } }), 'naming it x');
+  assertEquals(fillActivityLabel(lines, { input: { b: 'y', c: 'z' } }), 'moving it to y');
+  assertEquals(fillActivityLabel(lines, { input: { c: 'z' } }), 'lighting it z');
+});
+
+Deno.test('a when compares what the model sent: is, is not, is null and and', () => {
+  const fits = (when: string, input: unknown) =>
+    fillActivityLabel([`when ${when}: yes`, 'no'], { input });
+  assertEquals(fits('status is inactive', { status: 'inactive' }), 'yes');
+  assertEquals(fits('status is inactive', { status: 'active' }), 'no');
+  assertEquals(fits('status is inactive', {}), 'no');
+  assertEquals(fits('status is not inactive', { status: 'active' }), 'yes');
+  assertEquals(fits('status is not inactive', {}), 'yes');
+  assertEquals(fits('status is not inactive', { status: 'inactive' }), 'no');
+  assertEquals(fits('location is null', { location: null }), 'yes');
+  assertEquals(fits('location is null', {}), 'no');
+  assertEquals(fits('location is null', { location: 'hall' }), 'no');
+  assertEquals(fits('location is not null', { location: 'hall' }), 'yes');
+  assertEquals(fits('location is not null', { location: null }), 'no');
+  assertEquals(fits('in_bloom is true', { in_bloom: true }), 'yes');
+  assertEquals(fits('count is 1200', { count: 1200 }), 'yes');
+  assertEquals(fits('place.room is the hall', { place: { room: 'the hall' } }), 'yes');
+  assertEquals(fits('status is inactive and in_bloom is false', { status: 'inactive' }), 'no');
+  assertEquals(
+    fits('status is inactive and in_bloom is false', { status: 'inactive', in_bloom: false }),
+    'yes',
+  );
+});
+
+Deno.test('a one-line label takes a when, and names the tool when it does not hold', () => {
+  const label = 'when status is inactive: archiving {plant_identifier}';
+  assertEquals(
+    fillActivityLabel(label, { input: { status: 'inactive', plant_identifier: 'Fern' } }),
+    'archiving Fern',
+  );
+  assertEquals(fillActivityLabel(label, { input: { plant_identifier: 'Fern' } }), undefined);
+  assertEquals(activityLabelProblem(label, { input: PLANT_INPUT }), undefined);
+  assertEquals(activityLabelProblem('Saving {nickname}', { input: PLANT_INPUT }), undefined);
+});
+
+Deno.test('a list label that cannot work is refused, with its line', () => {
+  const problem = (lines: string[]) => activityLabelProblem(lines, { input: PLANT_INPUT });
+  assertEquals(problem(PLANT_LABEL), undefined);
+  assertEquals(problem(['when location is null: clearing its place', 'saving']), undefined);
+  assertEquals(problem(['when count is 3: saving three', 'saving {nickname|a plant}']), undefined);
+  assertEquals(
+    problem(['adding {nickname}']),
+    'The last line must always fit, so every call gets a label: no "when", and a fallback on every {value}, like "saving the item".',
+  );
+  assertEquals(problem([]), problem(['adding {nickname}']));
+  assertEquals(problem(['+ adding {nickname}', '+ moving to {location}']), problem([]));
+  assertEquals(
+    problem(['adding {nickname}', 'saving a plant', 'moving to {location}', 'saving']),
+    'Line 2 always fits, so the lines below it are never read. Move it to the end.',
+  );
+  assertEquals(
+    problem(['when staus is inactive: archiving', 'saving']),
+    'Line 1: "staus" in the "when" is not a field of this tool\'s input. Try "plant_identifier", "nickname", "location" or "status".',
+  );
+  assertEquals(
+    problem(['adding {nickname}', 'when status is inactiv: archiving', 'saving']),
+    'Line 2: "status" is never "inactiv". It is "active" or "inactive".',
+  );
+  assertEquals(
+    problem(['when in_bloom is yes: blooming', 'saving']),
+    'Line 1: "in_bloom" is never "yes". It is "true" or "false".',
+  );
+  assertEquals(
+    problem(['when nickname is null: clearing', 'saving']),
+    'Line 1: "nickname" is never null.',
+  );
+  assertEquals(
+    problem(['when tags is red: tagging', 'saving']),
+    'Line 1: "tags" in the "when" is a list or group; a "when" compares text, a number, or true or false.',
+  );
+  assertEquals(
+    problem(['when output.saved is true: saved', 'saving']),
+    'Line 1: A "when" reads what the model sent; "output.saved" is only there once the call is done.',
+  );
+  const unreadable =
+    'Line 1: A line that opens with "when" needs a condition and a colon, like "when status is archived: archiving {name}". A condition uses "is", "is not", "is null" and "and".';
+  assertEquals(problem(['when it rains', 'saving']), unreadable);
+  assertEquals(problem(['when status equals inactive: archiving', 'saving']), unreadable);
+  assertEquals(
+    problem(['when status is inactive:', 'saving']),
+    'Line 1: It has no wording to show.',
+  );
+  assertEquals(problem(['', 'saving']), 'Line 1: It has no wording to show.');
+  assertEquals(
+    problem(['adding {nicknam}', 'saving']),
+    "Line 1: {nicknam} is not a field of this tool's input. Try {plant_identifier}, {nickname}, {location} or {status}.",
+  );
+});
+
+Deno.test('a tool whose list label cannot work is refused at registration', () => {
+  const tool = (activity: string[]) => ({
+    type: 'function' as const,
+    name: 'list_label_checked',
+    description: 'Checks its list labels',
+    category: 'test',
+    access: 'read-only' as const,
+    paths: ['*'],
+    loadTier: 'T0' as const,
+    permission: 'auto' as const,
+    labels: { activity },
+    input: z.object({ title: z.string().optional(), status: z.enum(['kept', 'archived']) }),
+    output: z.object({ saved: z.boolean() }),
+    handler: () => Promise.resolve({ saved: true }),
+  });
+  registerTool(tool(['when status is archived: archiving {title}', 'saving {title|an item}']));
+  assertThrows(
+    () => registerTool(tool(['when status is gone: archiving {title}', 'saving'])),
+    TheoremError,
+    'Tool "list_label_checked" activity label: Line 1: "status" is never "gone". It is "kept" or "archived".',
+  );
+  assertThrows(
+    () => registerTool(tool(['saving {title}'])),
+    TheoremError,
+    'The last line must always fit',
   );
 });

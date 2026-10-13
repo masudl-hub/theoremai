@@ -861,6 +861,43 @@ Deno.test('a tool compiles its activity labels, each placeholder checked against
   assert(withLabels('Finding {{name}}', 'Found {results.length}, first {results.-1.name|none}').ok);
   assertEquals(issue(`Finding ${'x'.repeat(121)}`, 'Found it').field, 'activity');
 });
+Deno.test('a label box with a line each compiles to a list label, checked as one', () => {
+  const draft = createExampleDraft();
+  const withActivity = (activity: string) =>
+    compileStudio({
+      ...draft,
+      toolSpecs: draft.toolSpecs.map((tool) =>
+        tool.toolName === 'geocode_city' ? { ...tool, activity } : tool,
+      ),
+    });
+  const ok = withActivity(
+    '  when name is Paris: Finding the capital\n\n+ Finding {name}\nFinding a place\n',
+  );
+  assert(ok.ok);
+  assertEquals(ok.customTools.find((tool) => tool.name === 'geocode_city')?.labels?.activity, [
+    'when name is Paris: Finding the capital',
+    '+ Finding {name}',
+    'Finding a place',
+  ]);
+  const issue = (activity: string) => {
+    const result = withActivity(activity);
+    assert(!result.ok);
+    return { field: result.issues[0].field, message: result.issues[0].message };
+  };
+  assertEquals(issue('Finding {name}\nwhen nmae is Paris: Finding the capital'), {
+    field: 'activity',
+    message: 'Line 2: "nmae" in the "when" is not a field of this tool\'s input. Try "name".',
+  });
+  assertEquals(
+    issue('Finding a place\nFinding {name}').message,
+    'Line 1 always fits, so the lines below it are never read. Move it to the end.',
+  );
+  assertEquals(
+    issue(`Finding {name}\nFinding ${'x'.repeat(121)}`).message,
+    'Each line of an activity label is limited to 120 characters.',
+  );
+  assert(withActivity(`Finding {name}\n+ Finding {name} ${'x'.repeat(100)}\nFinding a place`).ok);
+});
 Deno.test('a tool request label reads only the call input', () => {
   const draft = createExampleDraft();
   const withRequest = (request: string) =>

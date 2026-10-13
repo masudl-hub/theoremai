@@ -649,6 +649,14 @@ type ToolCommon = ReturnType<typeof toolCommon>;
 
 const MAX_ACTIVITY_LABEL_CHARS = 120;
 
+/** The lines of a label as its box holds them: one line of wording, or a list with a line each. */
+function labelLines(label: string | undefined): string[] {
+  return (label ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 function toolLabels(
   tool: ToolSpecDraft,
   common: ToolCommon,
@@ -662,12 +670,17 @@ function toolLabels(
     request: { input: common.inputSchema },
   };
   for (const field of ['activity', 'activityPast', 'activityFailed', 'request'] as const) {
-    const label = tool[field]?.trim();
-    if (!label) continue;
-    if (label.length > MAX_ACTIVITY_LABEL_CHARS) {
-      fail(`Activity labels are limited to ${MAX_ACTIVITY_LABEL_CHARS} characters.`, field);
+    const lines = labelLines(tool[field]);
+    const [only] = lines;
+    if (only === undefined) continue;
+    if (lines.some((line) => line.length > MAX_ACTIVITY_LABEL_CHARS)) {
+      fail(
+        `Each line of an activity label is limited to ${MAX_ACTIVITY_LABEL_CHARS} characters.`,
+        field,
+      );
       continue;
     }
+    const label = lines.length === 1 ? only : lines;
     const problem = activityLabelProblem(label, schemas[field]);
     if (problem) {
       fail(problem, field);

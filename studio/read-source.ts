@@ -610,6 +610,11 @@ function filled(value: unknown): string | undefined {
   return text(value) || undefined;
 }
 
+/** A label as its box holds it: a list the file wrote has a line each. */
+function labelText(value: unknown): string | undefined {
+  return Array.isArray(value) ? strings(value).join('\n') || undefined : filled(value);
+}
+
 /** A section of the profile, read when the file has it and kept as it was when not. */
 function section<T>(value: unknown, read: (spec: Record<string, unknown>) => T, kept: T): T {
   return isRecord(value) ? read(value) : kept;
@@ -845,10 +850,10 @@ function toolOf(
     paths: listed(spec.paths) ?? ['*'],
     inputJson: spec.input === undefined ? base.inputJson : schemaText(spec.input),
     outputJson: spec.output === undefined ? base.outputJson : schemaText(spec.output),
-    activity: filled(labels.activity),
-    activityPast: filled(labels.activityPast),
-    activityFailed: filled(labels.activityFailed),
-    request: filled(labels.request),
+    activity: labelText(labels.activity),
+    activityPast: labelText(labels.activityPast),
+    activityFailed: labelText(labels.activityFailed),
+    request: labelText(labels.request),
     // A page tool's source has no handler: its stub is the studio's own, so it is kept.
     stubOutputJson: page ? current?.stubOutputJson : stubOf(type, spec),
     answeredBy: page ? 'page' : undefined,

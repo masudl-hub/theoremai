@@ -39,6 +39,7 @@ import type {
   TurnSpeech,
   TurnTraceLink,
 } from '../types.ts';
+import type { LabelTemplate } from './activity-label.ts';
 import type { PageToolExecution, ToolExecutionCoordinator } from './operation.ts';
 import type { UncheckedOutput } from './unchecked-output.ts';
 
@@ -61,10 +62,10 @@ export type {
 };
 
 export interface ToolLabels {
-  activity?: string;
-  activityPast?: string;
-  activityFailed?: string;
-  request?: string;
+  activity?: LabelTemplate;
+  activityPast?: LabelTemplate;
+  activityFailed?: LabelTemplate;
+  request?: LabelTemplate;
   hiddenFromSettings?: boolean;
 }
 

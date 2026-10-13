@@ -107,11 +107,12 @@ export function workspaceNodeRef(
 /** `agent` as a single draft whose tools are the ones it allows from `library`, in library order. */
 function draftOf(agent: AgentDraft, library: ToolSpecDraft[], providers: StudioProvider[]): StudioDraft {
   const { key: _key, tools: { allow, ...tools }, ...rest } = agent;
-  const allowed = new Set(allow);
-  return { ...rest, providers, tools, toolSpecs: library.filter((tool) => allowed.has(tool.key)) };
+  const held = new Map(library.map((tool) => [tool.key, tool]));
+  // In the order the agent allows them: that is the order its model is offered them in.
+  return { ...rest, providers, tools, toolSpecs: allow.flatMap((key) => held.get(key) ?? []) };
 }
 
-/** One agent as a single draft: its tools are the library's it allows, in library order. */
+/** One agent as a single draft: its tools are the library's it allows, in the order it allows them. */
 export function agentDraft(workspace: StudioWorkspace, key: string): StudioDraft | undefined {
   const agent = workspace.agents.find((candidate) => candidate.key === key);
   return agent && draftOf(agent, workspace.toolSpecs, workspace.providers);

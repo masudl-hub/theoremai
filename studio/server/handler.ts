@@ -15,6 +15,7 @@
 
 import {
   type DecisionQuestion,
+  defineProfile,
   getProvider,
   getStructured,
   listProfiles,
@@ -29,6 +30,9 @@ import type { StudioProvider } from '../providers.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { withoutCredentials } from '../held-credentials.ts';
 import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
+import { differingSettings } from '../agreement.ts';
+import { uncompiled } from '../compile.ts';
+import { compileWorkspace } from '../compile-workspace.ts';
 import { readStudioSource } from '../read-source.ts';
 import { STUDIO_READER } from '../reader.ts';
 import type { ToolRegistration } from '../registrations.ts';
@@ -55,12 +59,17 @@ const STUDIO_SESSION = 'theorem-studio-local';
 /** A profile the page could not show or run, and why. */
 export type StudioProblem = { profile: string; message: string };
 
+/** A profile the studio shows differently from the project, and each setting it differs in, by path. */
+export type StudioDifference = { profile: string; settings: string[] };
+
 /** What the page opens. */
 export type StudioDescription = {
   project: string;
   /** The project as the studio holds one: an agent per profile, and the tools they share. */
   workspace: StudioWorkspace;
   problems: StudioProblem[];
+  /** Where what the studio shows is not what the project registered. None when they agree. */
+  differences?: StudioDifference[];
   /** The settings several profiles share. The studio command reads them from the project's files. */
   shared?: SharedSetting[];
   /** The settings the project's files set in code, which the studio shows and does not change. */
@@ -211,6 +220,32 @@ function readProfile(
   }
 }
 
+/**
+ * Each opened profile that is not the one the project registered: what the workspace compiles to
+ * for it, beside the registered profile. One the workspace cannot compile is not compared.
+ */
+function disagreements(workspace: StudioWorkspace): StudioDifference[] {
+  const compiled = compileWorkspace(workspace, 'byok');
+  if (!compiled.ok) return [];
+  const registered = new Map(listProfiles().map((profile) => [profile.id as string, profile]));
+  return compiled.agents.flatMap((agent) => {
+    const profile = registered.get(agent.agentId);
+    if (!profile) return [];
+    const shown = plainSetting(defineProfile(uncompiled(agent.profile)));
+    const settings = differingSettings(plainSetting(printableProfile(profile)), shown);
+    return settings.length ? [{ profile: agent.agentId, settings }] : [];
+  });
+}
+
+/** The agent that writes each model's summaries, by the model's name, where a profile names one. */
+function compactors(profile: Profile): Record<string, string> {
+  const models = 'models' in profile && isRecord(profile.models) ? profile.models : {};
+  return Object.fromEntries(Object.entries(models).flatMap(([name, model]) => {
+    const writer = isRecord(model) && isRecord(model.compaction) ? model.compaction.profile : undefined;
+    return typeof writer === 'string' ? [[name, writer] as const] : [];
+  }));
+}
+
 /** The tools of `registered` the workspace does not hold yet, by name. */
 function unlisted(workspace: StudioWorkspace, registered: ToolSpecDraft[]): ToolSpecDraft[] {
   const held = new Set(workspace.toolSpecs.map((tool) => tool.toolName));
@@ -251,18 +286,40 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
     return agentKey ? { ...tool, agentKey } : tool;
   };
   const toolSpecs = [...opened.toolSpecs, ...extra].map(linked);
+  // A model's summaries are written by an agent it names by id, found the same way.
+  const writers = new Map(listProfiles().map((profile) => [profile.id as string, compactors(profile)]));
+  const agents = opened.agents.map((agent) => {
+    const named = writers.get(agent.identity.agentId);
+    const modelBindings = agent.modelBindings.map((binding) => {
+      const id = binding.compactWith ? undefined : named?.[binding.modelId];
+      const key = id && opened.agents.find((each) => each.identity.agentId === id)?.key;
+      return key ? { ...binding, compactWith: key } : binding;
+    });
+    return modelBindings.some((binding, index) => binding !== agent.modelBindings[index])
+      ? { ...agent, modelBindings }
+      : agent;
+  });
   // The project's own providers are the ones a model here can name.
   const providers = registeredProviders();
+  const whole: StudioWorkspace = {
+    ...opened,
+    ...(providers.length > 0 ? { providers } : {}),
+    agents,
+    toolSpecs,
+    // What opened is what the files hold: nothing here is a change yet.
+    starts: {
+      ...opened.starts,
+      agents: Object.fromEntries(agents.map((agent) => [agent.key, agent])),
+      tools: Object.fromEntries(toolSpecs.map((tool) => [tool.key, tool])),
+    },
+    ...(first ? { selected: agentNodeId(first.key), chatWith: first.key } : {}),
+  };
+  const differences = disagreements(whole);
   return {
     project,
-    workspace: {
-      ...opened,
-      ...(providers.length > 0 ? { providers } : {}),
-      toolSpecs,
-      starts: { ...opened.starts, tools: Object.fromEntries(toolSpecs.map((tool) => [tool.key, tool])) },
-      ...(first ? { selected: agentNodeId(first.key), chatWith: first.key } : {}),
-    },
+    workspace: whole,
     problems,
+    ...(differences.length ? { differences } : {}),
     asks: { asked: [], inside: [] },
   };
 }

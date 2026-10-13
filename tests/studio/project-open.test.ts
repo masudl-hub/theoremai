@@ -15,6 +15,7 @@ defaultKernelScope.providers.register(
 );
 
 import { assert, assertEquals } from '@std/assert';
+import { z } from 'zod';
 import { defineProfile, registerProfile, registerStructured, registerTool } from '../../mod.ts';
 import { compileStudio } from '../../studio/compile.ts';
 import { compileWorkspace } from '../../studio/compile-workspace.ts';
@@ -55,6 +56,24 @@ registerTool({
   permission: 'auto',
 });
 registerProfile(defineProfile({ type: 'host', id: 'open-desk', tools: { allow: ['open_think'] } }));
+// A second tool, and a profile that allows the two in the other order than they were registered in.
+registerTool({
+  type: 'http',
+  name: 'open_fetch',
+  description: 'Fetches a page.',
+  method: 'GET',
+  endpoint: 'https://example.com/page',
+  input: z.object({}),
+  output: z.object({ page: z.string() }),
+  access: 'read-only',
+  category: 'studio',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+});
+registerProfile(
+  defineProfile({ type: 'host', id: 'open-shelf', tools: { allow: ['open_fetch', 'open_think'] } }),
+);
 // A profile of a type that takes no tools.
 const speaker = compileStudio(
   {
@@ -101,4 +120,10 @@ Deno.test('a profile with no tools opens allowing none, whatever the project reg
   const agent = workspace.agents.find((held) => held.identity.agentId === 'open-speaker');
   assert(agent);
   assertEquals(agent.tools.allow, []);
+});
+
+Deno.test('a project opens as the profiles it registered, but for what studio policy sets', async () => {
+  const request = new Request(`http://${HOST}/api/studio`, { headers: { host: HOST } });
+  const { differences }: StudioDescription = await (await handler(request)).json();
+  assertEquals(differences, undefined);
 });

@@ -11,7 +11,9 @@ export {
   type DecisionReply,
   type DecisionTransport,
   decisionInterface,
+  postDecision,
   readDecisionReply,
+  withFailedTraces,
 } from './decision-transport.ts';
 export { type ComposerDraftFields, composerFieldsFromDraft } from './decode-composer-draft.ts';
 export { encodeComposerDraft } from './encode-composer-draft.ts';
@@ -36,6 +38,7 @@ export {
 } from './live/live-state.ts';
 export type { LiveToolGatePrompt } from './live/live-tool.ts';
 export { LiveSessionClient } from './live-client.ts';
+export type { LiveSocket } from './live-messages.ts';
 export { isOAuthComplete, notifyOAuthComplete } from './oauth-popup.ts';
 export { type PageDispatchResult, withPageToolDispatch } from './page-dispatch.ts';
 export {
@@ -79,6 +82,7 @@ export {
   type HostErrorBody,
   type HttpOptions,
   type HttpTransportOptions,
+  hostError,
   isTheoremStreamError,
   type MalformedEvent,
   postJson,
@@ -98,6 +102,7 @@ export {
 export {
   buildInvokeRequest,
   buildTurnRequest,
+  issuedOperationId,
   type RunScope,
   type WalkAway,
 } from './turn-client.ts';

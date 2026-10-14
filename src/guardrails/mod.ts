@@ -70,6 +70,7 @@ export type {
   UrlDetector,
 } from './detectors.ts';
 export {
+  actionAt,
   DETECT_ACTION_META,
   DETECT_ACTIONS,
   DETECT_DEFAULTS,
@@ -79,9 +80,12 @@ export {
   DETECTOR_META,
   DETECTORS,
   detectProblem,
+  detects,
   HOST_FIND_HOLD,
   HOST_FIND_HOLD_LIVE,
+  hintProblem,
   PATTERN_DETECTORS,
+  resolveAllow,
   resolveDetect,
 } from './detectors.ts';
 export { hitRules } from './egress.ts';
@@ -112,7 +116,12 @@ export {
   projectGuardrailEvent,
 } from './hits.ts';
 export type { CompiledPatterns, HostPattern } from './host-patterns.ts';
-export { MAX_PATTERN_LENGTH, MAX_PATTERNS } from './host-patterns.ts';
+export {
+  listsPatterns,
+  MAX_PATTERN_LENGTH,
+  MAX_PATTERNS,
+  patternListProblem,
+} from './host-patterns.ts';
 export { injectionSpans } from './injection.ts';
 export type { ClientLabelKey, LabelKey, LabelOverrides, LabelParams } from './labels.ts';
 export {
@@ -123,6 +132,7 @@ export {
   labelText,
   overrideLabels,
   resetLabels,
+  validateLabelOverrides,
 } from './labels.ts';
 export type {
   LiveHeldOutput,

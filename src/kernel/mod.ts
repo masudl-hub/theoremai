@@ -81,6 +81,8 @@ export {
   profileGraphFacet,
   spineFacetsForProfileType,
 } from './profile-graph.ts';
+export { unsetValue } from './profile-presence.ts';
+export { outOfScopeFields, profileTypesForField } from './profile-scope.ts';
 export type {
   CapabilitySupport,
   CredentialContext,
@@ -160,6 +162,7 @@ export { createProfileRegistry, defineProfile } from './registry/profiles.ts';
 export { projectProfileObject, requireModelProfile } from './registry/resolve.ts';
 export type { SchemaRegistry } from './registry/schemas.ts';
 export { createSchemaRegistry } from './registry/schemas.ts';
+export { resolveKeySlot } from './registry/vault.ts';
 export type {
   AuthUnauthenticatedPolicy,
   CustomToolType,
@@ -259,6 +262,7 @@ export type {
 } from './stop.ts';
 export {
   AUTO_CONTINUE_DELAY_MS,
+  CONTINUE_INSTRUCTION_TYPES,
   DEFAULT_ALLOW_CONTINUE,
   DEFAULT_AUTO_CONTINUE,
   GenerationStopError,
@@ -274,6 +278,9 @@ export {
   turnStopFromInteractionStatus,
   turnStopFromOpenAiFinishReason,
 } from './stop.ts';
+export { systemPromptProblem } from './system-parts.ts';
+export { activityLabelProblem } from './tools/activity-label.ts';
+export { agentToolInputFor, agentToolOutput } from './tools/agent.ts';
 export {
   type AnsweredGate,
   answerGatedCall,
@@ -329,8 +336,15 @@ export {
   toolInvocationHash,
   toolOperationOutcomeSchema,
 } from './tools/operation.ts';
+export { jsonSchemaFromZod } from './tools/schema.ts';
 export { CredentialRefusedError } from './tools/signed-in-fetch.ts';
-export type { ModelToolResult, PageAnswer, ToolContext } from './tools/types.ts';
+export type {
+  ModelToolResult,
+  PageAnswer,
+  ToolAuthConfig,
+  ToolContext,
+  ToolLabels,
+} from './tools/types.ts';
 export {
   awaitingUserInputSchema,
   type GateReference,

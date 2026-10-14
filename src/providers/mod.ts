@@ -54,7 +54,13 @@ export {
   resolveProviderLimits,
 } from '../kernel/provider-contract.ts';
 export type { KeyVault } from '../kernel/types.ts';
-export { googleAdapter, openAIChat, openRouterAdapter, typesafeAdapter } from './adapters.ts';
+export {
+  googleAdapter,
+  openAIChat,
+  openRouterAdapter,
+  translateProviderEvent,
+  typesafeAdapter,
+} from './adapters.ts';
 export { isTransientHttp, isTransientThrown, retryTransient, waitDefault } from './shared/retry.ts';
 export { parseSseStream, readSseChunks } from './shared/sse.ts';
 export { historyToolArguments, parseToolArgumentsObject } from './shared/tool-args.ts';

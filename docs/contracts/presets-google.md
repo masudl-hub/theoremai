@@ -100,6 +100,7 @@ Kernel types stay stringly; these packs make Google hosts typed when they opt in
 | Export | Role |
 | --- | --- |
 | `registerGooglePreset` | Register builtins into catalog |
+| `GEMINI_MODELS_URL` | The Gemini API's model list, which a connection check reads with a key |
 | `googleEfforts`, `GoogleThinkingLevel` | A Gemini binding's `efforts`, typed to `GOOGLE_THINKING_LEVELS`; throws `config` on any other level when the binding is built |
 | `GOOGLE_BUILTIN_TOOLS` | Static catalog entries |
 | `GOOGLE_SINGLE_TURN_API_IDS` | TTS models that can't take compaction |

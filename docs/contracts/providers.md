@@ -363,7 +363,7 @@ Failed or discarded output does not commit a usable history prefix or authorize 
 The providers barrel exports all provider contracts and schemas, `KeyVault`, `googleAdapter`,
 `openRouterAdapter`, `openAIChat`, `typesafeAdapter`, `parseSseStream`, `readSseChunks`,
 `retryTransient`, `waitDefault`, `isTransientHttp`, `isTransientThrown`,
-`parseToolArgumentsObject`, `historyToolArguments`, `tapFetch`, `tapeHeaders` and `networkFetch`.
+`parseToolArgumentsObject`, `historyToolArguments`, `translateProviderEvent`, `tapFetch`, `tapeHeaders` and `networkFetch`.
 The low-level live subpath exports `openGoogleLiveSession`, `GoogleLiveConnection`
 and `OpenLiveWebSocket`.
 

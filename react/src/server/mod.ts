@@ -51,8 +51,10 @@ export {
   type PageToolBroker,
   type PageToolResult,
   pageToolResultSchema,
+  sessionPageDispatch,
 } from './page-dispatch.ts';
 export { checkRequest, parseLiveClientMessage, parseLiveOpenMessage } from './request-check.ts';
+export { sessionStateStore } from './session-authority.ts';
 export {
   createTheoremSessionBoundary,
   type PreparedLiveOpen,
@@ -60,8 +62,10 @@ export {
   type TheoremSessionBoundary,
 } from './session-boundary.ts';
 export type { TheoremSessionLimits } from './session-limits.ts';
+export { resolveSessionLimits } from './session-limits.ts';
 export {
   createMemorySessionStore,
+  DEFAULT_OPERATION_RETENTION_MS,
   type MemorySessionStoreOptions,
   type PendingToolGate,
   type SessionSnapshot,
@@ -78,4 +82,6 @@ export {
   steerStage,
   steerUnitOf,
 } from './steer-inbox.ts';
+export { sessionToolCoordinator } from './tool-operations.ts';
+export { kernelTurnInput, liveSessionOpen } from './turn-input.ts';
 export { checkWalkAway, type WalkedAwayCall, walkAway } from './walk-away.ts';

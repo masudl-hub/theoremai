@@ -292,3 +292,4 @@ export {
   googleFreeTierBuiltins,
   registerGooglePreset,
 };
+export { GEMINI_MODELS_URL } from '../providers/google/urls.ts';

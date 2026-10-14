@@ -33,6 +33,7 @@ export { theoremTheme } from './built/theorem.js';
 export {
   ChatComposerBar,
   type ChatComposerBarProps,
+  EFFORT_ICON,
   type LiveComposerBarProps,
 } from './ChatComposerBar.tsx';
 export { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';

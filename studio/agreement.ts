@@ -6,6 +6,7 @@
  * @module
  */
 
+import { unsetValue } from '../src/kernel/profile-presence.ts';
 import { STUDIO_POLICY_PATHS } from './policy.ts';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -21,19 +22,21 @@ function isPolicy(path: readonly string[]): boolean {
 }
 
 /**
- * Each setting `studio` holds differently from `project`, by its path. Nothing is taken as equal
- * but the same value: a default written out and a setting left out are two things here, because
- * what a setting left out means is the kernel's to say.
+ * Each setting `studio` holds differently from `project`, by its path. A setting left out is the
+ * value the kernel says leaving it out stands for, and where the kernel names no such value,
+ * left out and written are two things.
  */
 export function differingSettings(project: unknown, studio: unknown): string[] {
   const found: string[] = [];
   const walk = (ours: unknown, theirs: unknown, path: string[]) => {
-    if (JSON.stringify(ours) === JSON.stringify(theirs) || isPolicy(path)) return;
-    if (!isRecord(ours) || !isRecord(theirs)) {
+    if (isPolicy(path)) return;
+    const [mine, yours] = [ours ?? unsetValue(path), theirs ?? unsetValue(path)];
+    if (JSON.stringify(mine) === JSON.stringify(yours)) return;
+    if (!isRecord(mine) || !isRecord(yours)) {
       found.push(path.join('.'));
       return;
     }
-    for (const key of new Set([...Object.keys(ours), ...Object.keys(theirs)])) walk(ours[key], theirs[key], [...path, key]);
+    for (const key of new Set([...Object.keys(mine), ...Object.keys(yours)])) walk(mine[key], yours[key], [...path, key]);
   };
   walk(project, studio, []);
   return found;

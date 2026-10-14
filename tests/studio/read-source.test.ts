@@ -180,6 +180,7 @@ Deno.test('a structured output with streaming and repair settings reads back', (
     streamThoughts: false,
     validationEnabled: true,
     maxRetries: 2,
+    itemRules: { stops: 'fix' },
     repairGuidance: 'Return the plan as JSON.',
   };
   roundTrip(draft);
@@ -192,7 +193,22 @@ Deno.test('a structured output with streaming and repair settings reads back', (
   assertEquals(read.draft.outputs.streamThoughts, false);
   assertEquals(read.draft.outputs.validationEnabled, true);
   assertEquals(read.draft.outputs.maxRetries, 2);
+  assertEquals(read.draft.outputs.itemRules, { stops: 'fix' });
   assertEquals(read.draft.outputs.repairGuidance, 'Return the plan as JSON.');
+});
+
+Deno.test('a continue list the file leaves out opens as the kernel reads it, not as none', () => {
+  const compiled = compileStudio(createExampleDraft());
+  assert(compiled.ok);
+  const source = studioSource(compiled).replace(/\n\s*allowContinue: \[[^\]]*\],/, '');
+  const read = readStudioSource(source, createExampleDraft());
+  assert(read.ok);
+  assertEquals(read.draft.turnBehaviour.allowContinue, [
+    'length',
+    'stream_incomplete',
+    'provider_error',
+  ]);
+  assertEquals(read.draft.turnBehaviour.resumeEnabled, true);
 });
 
 Deno.test('a live profile’s session settings read back', () => {

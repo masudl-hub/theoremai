@@ -56,6 +56,7 @@ import type {
   ProfileImageSpec,
   ProfileInputsSpec,
   ProfileLiveSpec,
+  ProfileItemRule,
   ProfileOutputsSpec,
   ProfileSpeechSpec,
   SystemPrompt,
@@ -999,8 +1000,16 @@ function compileOutputs(
   if (validationEnabled) {
     checkWhole(report, 'outputs', 'maxRetries', 'Validation max retries', outputs.maxRetries, 0);
   }
-  const validation =
-    validationEnabled && outputs.maxRetries !== null ? { maxRetries: outputs.maxRetries } : {};
+  // why: a rule's check is the project's code; a run and Save lay this over the rule as registered.
+  const items = Object.fromEntries(
+    Object.entries(outputs.itemRules).map(([list, onFail]) => [list, { onFail } as ProfileItemRule]),
+  );
+  const validation = validationEnabled
+    ? {
+        ...(outputs.maxRetries !== null ? { maxRetries: outputs.maxRetries } : {}),
+        ...(Object.keys(items).length ? { items } : {}),
+      }
+    : {};
   const streaming = {
     ...(outputs.streamMode ? { mode: outputs.streamMode } : {}),
     ...(outputs.streamThoughts ? {} : { streamThoughts: false }),

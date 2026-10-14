@@ -44,6 +44,7 @@ export {
   newPattern,
   newToolSpec,
   type ObservabilityDraft,
+  type ItemRuleOnFail,
   type OutputsDraft,
   type OwnDetectorDraft,
   type PatternDraft,

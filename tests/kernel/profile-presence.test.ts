@@ -1,5 +1,11 @@
 import { assert, assertEquals } from '@std/assert';
-import { PROFILE_FIELD_PRESENCE } from '../../src/kernel/profile-presence.ts';
+import { liveIngressChannelDefault } from '../../src/kernel/engine/live-ingress.ts';
+import {
+  DEFAULT_MAX_STEPS,
+  PROFILE_FIELD_PRESENCE,
+  unsetValue,
+} from '../../src/kernel/profile-presence.ts';
+import { DEFAULT_ALLOW_CONTINUE, DEFAULT_AUTO_CONTINUE } from '../../src/kernel/stop.ts';
 import { fieldMeta } from '../../src/kernel/schema.ts';
 import type { ModelBinding } from '../../src/kernel/types.ts';
 
@@ -35,4 +41,24 @@ Deno.test("a model binding's always-required fields are the ones its type requir
     .map(([path]) => path.slice('models.*.'.length))
     .sort();
   assertEquals(marked, [...required]);
+});
+
+Deno.test('the value a field left out stands for is the one the engine reads', () => {
+  assertEquals(unsetValue(['turnBehaviour', 'resumption', 'allowContinue']), [
+    ...DEFAULT_ALLOW_CONTINUE,
+  ]);
+  assertEquals(unsetValue(['turnBehaviour', 'resumption', 'autoContinue']), [
+    ...DEFAULT_AUTO_CONTINUE,
+  ]);
+  assertEquals(unsetValue(['maxSteps']), DEFAULT_MAX_STEPS);
+  for (const channel of ['audio', 'video', 'text'] as const) {
+    assertEquals(
+      unsetValue(['live', 'ingress', channel]),
+      liveIngressChannelDefault(channel),
+      channel,
+    );
+  }
+  // Any binding's field, and nothing where no one value says it.
+  assertEquals(unsetValue(['models', 'main', 'builtInTools']), []);
+  assertEquals(unsetValue(['models', 'main', 'temperature']), undefined);
 });

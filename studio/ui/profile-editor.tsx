@@ -196,6 +196,7 @@ import {
 	type ObservabilityDraft,
 	OPENROUTER_DECISION_MODELS,
 	OPENROUTER_STUDIO_API_ID,
+	type ItemRuleOnFail,
 	type OutputsDraft,
 	type OwnDetectorDraft,
 	type PatternDraft,
@@ -2635,6 +2636,12 @@ function OutputShapeSection({
 	);
 }
 
+/** What a list's check does with an item it refuses. The check is the project's code. */
+const ITEM_RULE_SEGMENTS: Segment<ItemRuleOnFail>[] = [
+	{ value: 'drop', label: 'Remove', icon: IconTrash },
+	{ value: 'fix', label: 'Rewrite', icon: IconRefresh },
+];
+
 function OutputRepairSection({ outputs, set }: OutputsSectionProps) {
 	return (
 		<InspectorSection title="Repair" path="outputs.validation">
@@ -2660,6 +2667,18 @@ function OutputRepairSection({ outputs, set }: OutputsSectionProps) {
 							set({ maxRetries });
 						}}
 					/>
+					{Object.entries(outputs.itemRules).map(([list, onFail]) => (
+						<SegmentedRow
+							key={list}
+							label={`A refused item of ${list}`}
+							path="outputs.validation.items.*.onFail"
+							value={onFail}
+							segments={ITEM_RULE_SEGMENTS}
+							onChange={(next) => {
+								set({ itemRules: { ...outputs.itemRules, [list]: next } });
+							}}
+						/>
+					))}
 					<TextAreaRow
 						label="Guidance"
 						path="labels.repair.default_guidance"

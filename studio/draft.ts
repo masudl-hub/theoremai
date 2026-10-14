@@ -56,6 +56,7 @@ import {
 } from './policy.ts';
 import { modelRoute, servesProfileType, STUDIO_PROVIDERS, type StudioProvider } from './providers.ts';
 import { DEFAULT_TOOL_INPUT_SCHEMA, DEFAULT_TOOL_OUTPUT_SCHEMA } from './tool-schema.ts';
+import type { ProfileItemRule } from '../src/kernel/types.ts';
 import type { StudioToolSpecSeed } from './types.ts';
 
 export type StudioProfileType = ProfileType;
@@ -186,8 +187,12 @@ export interface OutputsDraft {
   streamThoughts: boolean;
   validationEnabled: boolean;
   maxRetries: number | null;
+  /** What a refused item of a list does, by the list's path. The check on the item is code. */
+  itemRules: Record<string, ItemRuleOnFail>;
   repairGuidance: string;
 }
+
+export type ItemRuleOnFail = ProfileItemRule['onFail'];
 
 export interface TurnBehaviourDraft {
   resumeEnabled: boolean;
@@ -643,6 +648,7 @@ export function createBlankDraft(): StudioDraft {
       streamThoughts: true,
       validationEnabled: false,
       maxRetries: null,
+      itemRules: {},
       repairGuidance: '',
     },
     turnBehaviour: {

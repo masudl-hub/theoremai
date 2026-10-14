@@ -6,7 +6,7 @@
  * error at that spot, and the draft is left alone.
  */
 
-import { type LabelKey, liveIngressChannelDefault } from '../mod.ts';
+import { DEFAULT_ALLOW_CONTINUE, DEFAULT_AUTO_CONTINUE, type LabelKey, liveIngressChannelDefault } from '../mod.ts';
 import { BOUNDARIES, type Boundary, recordOf } from '../src/guardrails/boundaries.ts';
 import { type DetectAction, DETECTORS, type Detector } from '../src/guardrails/detectors.ts';
 import { PROFILE_GRAPH } from '../src/kernel/profile-graph.ts';
@@ -1037,6 +1037,12 @@ function inputsOf(inputs: Record<string, unknown>): StudioDraft['inputs'] {
   };
 }
 
+function itemRulesOf(items: Record<string, unknown> | undefined): StudioDraft['outputs']['itemRules'] {
+  return Object.fromEntries(
+    Object.entries(items ?? {}).map(([list, rule]) => [list, record(rule)?.onFail === 'fix' ? 'fix' : 'drop']),
+  );
+}
+
 function outputsOf(
   outputs: Record<string, unknown> | undefined,
   structured: ParsedModule['structured'],
@@ -1052,20 +1058,21 @@ function outputsOf(
     streamThoughts: streaming?.streamThoughts !== false,
     validationEnabled: validation !== undefined,
     maxRetries: whole(validation?.maxRetries),
+    itemRules: itemRulesOf(record(validation?.items)),
     repairGuidance: '',
   };
 }
 
 function turnOf(turn: Record<string, unknown>): StudioDraft['turnBehaviour'] {
   const resumption = record(turn.resumption);
-  const resume = resumption && 'autoContinue' in resumption ? resumption : undefined;
-  const allowContinue = Array.isArray(resume?.allowContinue) ? resume.allowContinue : [];
-  const autoContinue = Array.isArray(resume?.autoContinue) ? resume.autoContinue : [];
+  // A list left out is the kernel's own, not none.
+  const allowContinue = Array.isArray(resumption?.allowContinue) ? resumption.allowContinue : [...DEFAULT_ALLOW_CONTINUE];
+  const autoContinue = Array.isArray(resumption?.autoContinue) ? resumption.autoContinue : [...DEFAULT_AUTO_CONTINUE];
   return {
     resumeEnabled: allowContinue.length > 0 || autoContinue.length > 0,
     allowContinue: allowContinue as StudioDraft['turnBehaviour']['allowContinue'],
     autoContinue: autoContinue as StudioDraft['turnBehaviour']['autoContinue'],
-    maxContinues: whole(resume?.maxContinues),
+    maxContinues: whole(resumption?.maxContinues),
     continueInstruction: '',
     allowSteering: turn.allowSteering !== false,
     atStepLimit: turn.atStepLimit === 'answer' ? 'answer' : 'stop',

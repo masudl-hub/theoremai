@@ -319,8 +319,17 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
     const named = writers.get(agent.identity.agentId);
     const modelBindings = agent.modelBindings.map((binding) => {
       const id = binding.compactWith ? undefined : named?.[binding.modelId];
-      const key = id && opened.agents.find((each) => each.identity.agentId === id)?.key;
-      return key ? { ...binding, compactWith: key } : binding;
+      if (!id) return binding;
+      const key = opened.agents.find((each) => each.identity.agentId === id)?.key;
+      // A blank writer is the agent itself, so a writer this project does not open is said, not dropped.
+      if (!key) {
+        problems.push({
+          profile: agent.identity.agentId,
+          message: `Model '${binding.modelId}' has '${id}' write its summaries, and this project registers no agent '${id}'.`,
+        });
+        return binding;
+      }
+      return { ...binding, compactWith: key };
     });
     return modelBindings.some((binding, index) => binding !== agent.modelBindings[index])
       ? { ...agent, modelBindings }

@@ -379,3 +379,34 @@ Deno.test("a provider's file keeps its id, a kernel adapter and only what a prov
   const draft = createExampleDraft();
   assertEquals(readStudioSource(source, draft).ok, false);
 });
+
+/** The line of `source` where `text` is, counted from 1. */
+function lineOf(source: string, text: string): number {
+  return source.slice(0, source.indexOf(text)).split('\n').length;
+}
+
+Deno.test('a setting the kernel lists, set to another value, fails where it is written', () => {
+  const { draft, source } = exampleFile();
+  const written = source.replace('turnBehaviour: {', "turnBehaviour: {\n    atStepLimit: 'answr',");
+  const read = readStudioSource(written, draft);
+  assert(!read.ok);
+  assertEquals(read.errors[0]?.message, `"answr" is not one of 'stop', 'answer'.`);
+  assertEquals(read.errors[0]?.line, lineOf(written, "atStepLimit: 'answr'"));
+});
+
+Deno.test('a summary writer no agent here has fails where it is written, not as the agent itself', () => {
+  const { draft, source } = exampleFile();
+  const model = draft.modelBindings[0]?.modelId;
+  assert(model);
+  const at = source.indexOf(`${model}: {`, source.indexOf('models: {'));
+  assert(at > 0);
+  const opening = `${model}: {`;
+  const written = `${source.slice(0, at)}${opening}\n      compaction: { timing: 'before', maxTokens: 1000, profile: 'sumarizer' },${source.slice(at + opening.length)}`;
+  const read = readStudioSource(written, draft, () => undefined);
+  assert(!read.ok);
+  assertEquals(
+    read.errors[0]?.message,
+    "'sumarizer' is not an agent here, so it can't write this model's summaries.",
+  );
+  assertEquals(read.errors[0]?.line, lineOf(written, "profile: 'sumarizer'"));
+});

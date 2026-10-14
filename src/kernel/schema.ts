@@ -173,6 +173,8 @@ export const TURN_STOP_KINDS = [
 export type TurnStopKind = (typeof TURN_STOP_KINDS)[number];
 /** What a text turn's last allowed model call may do, as `turnBehaviour.atStepLimit` sets it. */
 export const STEP_LIMIT_MODES = ['stop', 'answer'] as const;
+/** What happens to a list item its check refuses, as `outputs.validation.items.*.onFail` sets it. */
+export const ITEM_FAIL_ACTIONS = ['drop', 'fix'] as const;
 /** One of {@linkcode STEP_LIMIT_MODES}. */
 export type StepLimitMode = (typeof STEP_LIMIT_MODES)[number];
 /** Every other stop resumes by another host path, or not at all. */
@@ -1165,6 +1167,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'outputs.validation.items.*.onFail': field(
     "'drop' | 'fix'",
     'drop removes a refused item. fix first asks the model to rewrite the refused items alone, once and while retries remain, then removes any refused again. Removed items leave on the structured event as removed.',
+    ITEM_FAIL_ACTIONS,
   ),
   'outputs.validation.maxRetries': field(
     'number',

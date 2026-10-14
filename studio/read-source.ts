@@ -10,7 +10,7 @@ import { DEFAULT_ALLOW_CONTINUE, DEFAULT_AUTO_CONTINUE, type LabelKey, liveIngre
 import { BOUNDARIES, type Boundary, recordOf } from '../src/guardrails/boundaries.ts';
 import { type DetectAction, DETECTORS, type Detector } from '../src/guardrails/detectors.ts';
 import { PROFILE_GRAPH } from '../src/kernel/profile-graph.ts';
-import { CONTEXT_SENDERS, type ContextSender, type ProfileType } from '../src/kernel/schema.ts';
+import { CONTEXT_SENDERS, type ContextSender, fieldMeta, type ProfileType } from '../src/kernel/schema.ts';
 import {
   createBlankDraft,
   defaultModelBinding,
@@ -64,7 +64,6 @@ export type ProviderSourceRead =
 /** `agentId` is the id an agent tool or a compactor names; the workspace knows its key. */
 export type AgentKeyOf = (agentId: string) => string | undefined;
 
-const NO_AGENT: AgentKeyOf = () => undefined;
 
 class ReadFail extends Error {
   constructor(
@@ -780,7 +779,8 @@ function bindingOf(
   modelId: string,
   spec: unknown,
   current: ModelBindingDraft | undefined,
-  agentKeyOf: AgentKeyOf,
+  agentKeyOf: AgentKeyOf | undefined,
+  spans: readonly StudioSourceSpan[],
 ): ModelBindingDraft {
   const base = current ?? defaultModelBinding({ modelId });
   if (!isRecord(spec)) return { ...base, modelId };
@@ -822,8 +822,23 @@ function bindingOf(
     compactAt: typeof compaction?.compactAt === 'number' ? compaction.compactAt : undefined,
     compactKeep: whole(compaction?.previousExchanges),
     compactMeter: text(compaction?.meter) as ModelBindingDraft['compactMeter'],
-    compactWith: compactWith ? (agentKeyOf(compactWith) ?? '') : '',
+    compactWith: compactWith ? compactorKey(compactWith, agentKeyOf, `models.${modelId}.compaction.profile`, spans) : '',
   };
+}
+
+/**
+ * The key of the agent `id` names to write a model's summaries. Without `agentKeyOf` the caller
+ * links it once every agent is read, so it is left blank here; with it, an id no agent has is
+ * refused where it is written, since a blank one means the agent itself.
+ */
+function compactorKey(
+  id: string,
+  agentKeyOf: AgentKeyOf | undefined,
+  path: string,
+  spans: readonly StudioSourceSpan[],
+): string {
+  if (!agentKeyOf) return '';
+  return agentKeyOf(id) ?? failAt(spans, path, `'${id}' is not an agent here, so it can't write this model's summaries.`);
 }
 
 /** The canned reply a function tool returns, when the file wrote its own. */
@@ -866,7 +881,7 @@ function toolAuth(spec: Record<string, unknown>) {
 function toolOf(
   spec: Record<string, unknown>,
   current: ToolSpecDraft | undefined,
-  agentKeyOf: AgentKeyOf,
+  agentKeyOf: AgentKeyOf | undefined,
 ): ToolSpecDraft {
   const base = current ?? defaultToolSpec();
   const type = text(spec.type, base.toolType) as ToolSpecDraft['toolType'];
@@ -894,7 +909,7 @@ function toolOf(
     stubOutputJson: page ? current?.stubOutputJson : stubOf(type, spec),
     answeredBy: page ? 'page' : undefined,
     ...toolRoute(spec),
-    agentKey: agentId ? agentKeyOf(agentId) : undefined,
+    agentKey: agentId ? agentKeyOf?.(agentId) : undefined,
     maxCallsPerTurn: whole(spec.maxCallsPerTurn),
     ...toolAuth(spec),
   };
@@ -974,7 +989,7 @@ function includedOf(
 function registerTools(
   calls: Record<string, unknown>[],
   byToolName: Map<string, ToolSpecDraft>,
-  agentKeyOf: AgentKeyOf,
+  agentKeyOf: AgentKeyOf | undefined,
   spans: readonly StudioSourceSpan[],
 ): ToolSpecDraft[] {
   const registered: ToolSpecDraft[] = [];
@@ -1230,16 +1245,41 @@ function profileTypeOf(profile: Record<string, unknown>): StudioProfileType | ''
   return type as StudioProfileType | '';
 }
 
+/** The settings a reader below would otherwise take as their default when set to anything else. */
+const LISTED_SETTINGS = ['turnBehaviour.atStepLimit', 'outputs.validation.items.*.onFail'] as const;
+
+/** Refuses, where it is written, a listed setting set to a value the kernel's table does not list. */
+function refuseUnlisted(profile: Record<string, unknown>, spans: readonly StudioSourceSpan[]): void {
+  for (const setting of LISTED_SETTINGS) {
+    const options = fieldMeta(setting)?.options ?? [];
+    for (const [path, value] of valuesAt(profile, setting.split('.'), [])) {
+      if (value !== undefined && !options.includes(value as string)) {
+        failAt(spans, path, `${JSON.stringify(value)} is not one of ${options.map((option) => `'${option}'`).join(', ')}.`);
+      }
+    }
+  }
+}
+
+/** Each value at `keys` in `value`, `*` standing for every key, with its path as written. */
+function valuesAt(value: unknown, keys: readonly string[], at: readonly string[]): [string, unknown][] {
+  const [key, ...rest] = keys;
+  if (key === undefined) return [[at.join('.'), value]];
+  if (!isRecord(value)) return [];
+  const next = key === '*' ? Object.keys(value) : [key];
+  return next.flatMap((each) => valuesAt(value[each], rest, [...at, each]));
+}
+
 function draftFrom(
   parsed: ParsedModule,
   current: StudioDraft,
-  agentKeyOf: AgentKeyOf,
+  agentKeyOf: AgentKeyOf | undefined,
 ): {
   draft: StudioDraft;
   registered: ToolSpecDraft[];
 } {
   const profile = parsed.profile ?? {};
   const type = profileTypeOf(profile);
+  refuseUnlisted(profile, parsed.spans);
   const byModelId = new Map(current.modelBindings.map((binding) => [binding.modelId, binding]));
   const byToolName = new Map(current.toolSpecs.map((tool) => [tool.toolName, tool]));
   const tools = record(profile.tools) ?? {};
@@ -1251,7 +1291,7 @@ function draftFrom(
     included: includedOf(type, profile),
     models: modelsOf(profile),
     modelBindings: Object.entries(record(profile.models) ?? {}).map(([modelId, spec]) =>
-      bindingOf(modelId, spec, byModelId.get(modelId), agentKeyOf),
+      bindingOf(modelId, spec, byModelId.get(modelId), agentKeyOf, parsed.spans),
     ),
     tools: { t2Loader: text(tools.t2Loader) },
     toolSpecs: [],
@@ -1291,7 +1331,7 @@ function draftFrom(
 export function readStudioSource(
   source: string,
   current: StudioDraft,
-  agentKeyOf: AgentKeyOf = NO_AGENT,
+  agentKeyOf?: AgentKeyOf,
 ): StudioSourceRead {
   try {
     const parsed = parseModule(source);

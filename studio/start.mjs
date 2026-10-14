@@ -103,13 +103,13 @@ if (setup !== wanted) console.log(`theorem studio: opening ${setup}`);
 const ownConfig = ['deno.json', 'deno.jsonc'].map((name) => path.join(from, name)).find(existsSync);
 const projectConfig = given['--deno-config']
 	? path.resolve(from, given['--deno-config'])
-	: (ownConfig ?? path.join(here, '../deno.json'));
+	: (ownConfig ?? path.join(here, 'deno.json'));
 const server = spawn(
 	'deno',
 	[
 		'run',
 		'--config',
-		path.join(here, '../deno.json'),
+		path.join(here, 'deno.json'),
 		'-A',
 		path.join(here, 'server/serve.ts'),
 		path.resolve(from, setup),

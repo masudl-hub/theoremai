@@ -20,6 +20,7 @@
   "dependencies": {
     "@fontsource/figtree": "^5.3.0",
     "@tabler/icons-react": "^3.46.0",
+    "@types/node": "^20.19.43",
     "fflate": "^0.8.2",
     "monaco-editor": "^0.57.0"
   },

@@ -1496,6 +1496,7 @@
       "npm:intl-messageformat@^11.2.9",
       "npm:refa@0.12.1",
       "npm:scslre@0.3.0",
+      "npm:typescript@^6.0.3",
       "npm:zod@^4.6.5"
     ],
     "packageJson": {

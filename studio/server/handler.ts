@@ -252,13 +252,14 @@ function providerDifferences(workspace: StudioWorkspace): StudioDifference[] {
     const held = registered.get(provider.id);
     if (!held) return [];
     const connects = adapterFactory(provider.adapter) !== undefined;
-    let settings: string[];
+    let shown: RegisteredProvider;
     try {
-      settings = differingSettings(read(held, connects), read(providerDefinition(provider), connects));
+      shown = providerDefinition(provider);
     } catch {
       // The kernel took a connection the studio cannot define again: all of it is shown differently.
-      settings = ['connection'];
+      return [{ kind: 'provider', of: provider.id, settings: ['connection'] }];
     }
+    const settings = differingSettings(read(held, connects), read(shown, connects));
     return settings.length ? [{ kind: 'provider', of: provider.id, settings }] : [];
   });
 }

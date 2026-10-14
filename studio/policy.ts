@@ -49,6 +49,37 @@ export const STUDIO_POLICY_UNSET: Readonly<Record<string, unknown>> = {
   'observability.writeTo': STUDIO_TRACE_DESTINATION,
 };
 
+/**
+ * `profile` as a file holds it: each value the studio fills in (`STUDIO_POLICY_UNSET`) is taken
+ * out, and a section left empty by that goes too. Writing a profile never writes the studio's own.
+ */
+export function withoutStudioFills<P extends object>(profile: P): P {
+  return Object.entries(STUDIO_POLICY_UNSET).reduce<Record<string, unknown>>(
+    (held, [path, fill]) => withoutFill(held, path.split('.'), fill),
+    profile as Record<string, unknown>,
+  ) as P;
+}
+
+function withoutFill(
+  value: Record<string, unknown>,
+  [key, ...rest]: string[],
+  fill: unknown,
+): Record<string, unknown> {
+  if (key === undefined || !Object.hasOwn(value, key)) return value;
+  const inner = value[key];
+  if (!rest.length) {
+    return inner === fill ? Object.fromEntries(Object.entries(value).filter(([at]) => at !== key)) : value;
+  }
+  if (typeof inner !== 'object' || inner === null || Array.isArray(inner)) return value;
+  const kept = withoutFill(inner as Record<string, unknown>, rest, fill);
+  if (kept === inner) return value;
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([at, held]) =>
+      at !== key ? [[at, held]] : Object.keys(kept).length ? [[at, kept]] : [],
+    ),
+  );
+}
+
 /** The only free Decisions API model offered by the public studio. */
 export const OPENROUTER_DECISION_MODELS = [
   { id: 'respan/span-01-lite:free', label: 'Span 01 Lite Free' },

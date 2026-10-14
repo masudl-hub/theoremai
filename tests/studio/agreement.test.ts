@@ -1,5 +1,9 @@
 import { assertEquals } from '@std/assert';
 import { differingSettings } from '../../studio/agreement.ts';
+import { compileStudio } from '../../studio/compile.ts';
+import { createExampleDraft } from '../../studio/example.ts';
+import { withoutStudioFills } from '../../studio/policy.ts';
+import { agentModule } from '../../studio/source.ts';
 
 Deno.test('a profile differs in each setting that is not the same value, but for what the kernel reads a setting left out as, and studio policy', () => {
   const project = {
@@ -65,4 +69,21 @@ Deno.test('a section left out is one written empty, read setting by setting', ()
     differingSettings({}, { turnBehaviour: { resumption: { ...resumption, autoContinue: [] } } }),
     ['turnBehaviour.resumption.autoContinue'],
   );
+});
+
+Deno.test("a profile as a file holds it leaves out the studio's own trace store", () => {
+  const filled = { id: 'desk', observability: { writeTo: 'studio' }, labels: {} };
+  assertEquals(withoutStudioFills(filled), { id: 'desk', labels: {} });
+  const sampled = { id: 'desk', observability: { writeTo: 'studio', sampleRate: 0.5 } };
+  assertEquals(withoutStudioFills(sampled), { id: 'desk', observability: { sampleRate: 0.5 } });
+  const own = { id: 'desk', observability: { writeTo: 'traces' } };
+  assertEquals(withoutStudioFills(own), own);
+  const off = { id: 'desk', observability: { writeTo: false } };
+  assertEquals(withoutStudioFills(off), off);
+});
+
+Deno.test("a new agent's file names no trace store of the studio's", () => {
+  const compiled = compileStudio(createExampleDraft(), 'byok');
+  if (!compiled.ok) throw new Error('the example compiles');
+  assertEquals(agentModule(compiled).includes("'studio'"), false);
 });

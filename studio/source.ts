@@ -6,6 +6,7 @@
 import { listsPatterns } from '../src/guardrails/host-patterns.ts';
 import type { CompiledStudio } from './compile.ts';
 import type { CompiledWorkspace } from './compile-workspace.ts';
+import { withoutStudioFills } from './policy.ts';
 import { adapterFactory, kernelAdapters, type StudioProvider } from './providers.ts';
 import type { ToolRegistration } from './registrations.ts';
 import type { ProjectOrigins, ProviderPlace } from './server/save-wire.ts';
@@ -336,7 +337,7 @@ export function agentModule(
 ): string {
   const { profile, structured, questions } = compiled;
   const imports = [...(questions ? ['type DecisionQuestion'] : []), 'defineProfile'];
-  const defined = profileSource(checks ? withItemChecks(profile, checks) : profile);
+  const defined = profileSource(withoutStudioFills(checks ? withItemChecks(profile, checks) : profile));
   const blocks = [
     `import { ${imports.join(', ')} } from ${quoteSource(from)};\n${
       defined.compiles ? `${COMPILE_IMPORT}\n` : ''

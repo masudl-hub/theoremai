@@ -13,6 +13,7 @@ import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
 import type { CompiledStudio } from '../compile.ts';
 import { unheldConnection, unheldProblem } from '../held-credentials.ts';
+import { withoutStudioFills } from '../policy.ts';
 import type { StudioProvider } from '../providers.ts';
 import type { NewSubjects } from './save-new.ts';
 import type { Removed } from './save-remove.ts';
@@ -59,7 +60,8 @@ function compiled(workspace: StudioWorkspace): Compiled | string[] {
   if (!result.ok) return result.issues.map((issue) => issue.message);
   const tools = new Map<string, ToolRegistration>();
   for (const agent of result.agents) for (const tool of agent.customTools) tools.set(tool.name, tool);
-  const profiles = new Map(result.agents.map((agent) => [agent.agentId, agent.profile]));
+  // A file holds the profile without the studio's own fill-ins, so Save never writes them.
+  const profiles = new Map(result.agents.map((agent) => [agent.agentId, withoutStudioFills(agent.profile)]));
   const asked = new Map(result.agents.map((agent) => [agent.agentId, agent.questions]));
   const providers = new Map(workspace.providers.map((provider) => [provider.id, providerSettings(provider)]));
   return { agents: result.agents, profiles, asked, tools, providers };

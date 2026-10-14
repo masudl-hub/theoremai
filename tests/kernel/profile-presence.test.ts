@@ -5,8 +5,8 @@ import {
   PROFILE_FIELD_PRESENCE,
   unsetValue,
 } from '../../src/kernel/profile-presence.ts';
-import { DEFAULT_ALLOW_CONTINUE, DEFAULT_AUTO_CONTINUE } from '../../src/kernel/stop.ts';
 import { fieldMeta } from '../../src/kernel/schema.ts';
+import { DEFAULT_ALLOW_CONTINUE, DEFAULT_AUTO_CONTINUE } from '../../src/kernel/stop.ts';
 import type { ModelBinding } from '../../src/kernel/types.ts';
 
 /** The keys of `T` an object can't leave out. */

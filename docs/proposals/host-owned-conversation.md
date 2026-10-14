@@ -1,6 +1,6 @@
 # Host-owned conversation
 
-Status: proposal. Nothing here is built. Section 8 lists the decisions Masud makes before work starts.
+Status: proposal. Nothing here is built. Section 9 records the decisions, and the one still open.
 
 **Reader:** a Theorem maintainer, and Masud.
 **Job:** decide where a chat's conversation lives, and what changes if the host owns it.
@@ -128,8 +128,8 @@ type TheoremConversationStore = {
 | `run-commit.ts` history building | Browser builds the next history | Moves to the server |
 | `handleBranch` | Browser cuts its own history | A request: rewind to message N |
 | Live `history` in the open message | Browser sends it when it reopens | Server reads it from the store |
-| Studio `studio-conversation.ts` | `sessionStorage` copy of the snapshot | Studio's server holds it; see 8.3 |
-| `TheoremReplay` (Studio's browser-held state) | For hosts whose profile runs in the browser | See 8.3 |
+| Studio `studio-conversation.ts` | `sessionStorage` copy of the snapshot | Studio's server holds it (section 9) |
+| `TheoremReplay` (Studio's browser-held state) | For hosts whose profile runs in the browser | Studio's server holds it (section 9) |
 | Contracts | `docs/contracts/host.md`, `surface.md` | Rewritten for the new owner |
 
 ## 6. What it makes possible
@@ -141,30 +141,45 @@ type TheoremConversationStore = {
 ## 7. Risks
 
 - **It breaks every page that uses `initialChat` or `onChatChange`.** This is a major version change for `@theoremjs/react`.
-- **A host that keeps nothing now needs a store.** Section 8.1 decides the default.
+- **A host that keeps nothing now needs a store.** It uses the sealed store (section 8) and a secret key.
 - **More server writes.** Each turn writes the conversation once. A paused call already writes the session.
 - **Media.** The browser sends attachments as base64 today. A stored conversation must hold them, or hold a reference. Studio already drops media past `CHAT_BUDGET`.
 
-## 8. Decisions before work starts
+## 8. A host with no storage: the sealed store
 
-### 8.1 A host that names no conversation store
+Some hosts keep nothing on the server. ml_deno's apps are the first case. They still need a chat that remembers. The browser must carry the conversation for them.
 
-- **A.** The handler refuses to start. Every host names a store. This follows "explicit, not ambient".
-- **B.** The handler keeps the conversation in the server's memory, as `sessionStore` does by default (`createMemorySessionStore`). It is lost on restart, and two servers do not share it.
+The browser can carry it without owning it. The **sealed store** is one kind of conversation store:
 
-### 8.2 The browser-held mode
+1. After each turn, the server encrypts the conversation and signs it with the host's secret key. The result is the **seal**.
+2. The server sends the seal to the browser. The browser keeps it and cannot read or change it.
+3. With the next message, the browser sends the seal back.
+4. The server checks the signature. If the seal changed, the server refuses the turn. Then it decrypts the conversation and runs the turn.
 
-- **A.** It goes away. Every host owns its conversation.
-- **B.** It stays as an option the host turns on, for hosts like ml_deno. The forged-history risk in 1.1 stays for those hosts.
+```
+ Browser                          Server (sealed store, host's secret key)
+ ─────────────────────            ───────────────────────────────────────
+ keeps the seal                    open(seal)  → conversation, or refuse
+ POST /turn { text, seal } ──►     runs the turn
+                           ◄──     seal(next) → the new seal
+```
 
-### 8.3 Studio
+Encryption keeps tool results and other server-side text unreadable in the browser. The signature stops the forgery in 1.1. Web Crypto (AES-GCM) does both, with no new dependency.
 
-Studio runs profiles in the browser in some modes (`TheoremReplay`).
+What the sealed store cannot do:
 
-- **A.** Studio's own server holds each preview conversation.
-- **B.** Studio stays browser-held, as a builder tool on the builder's own machine.
+- **Stop an older seal.** The server keeps nothing, so it cannot know which seal is the newest. A browser can send an older seal back. This is the same as a rewind: it can only return a conversation the server wrote.
+- **Show the chat on a second device.** Only the browser that has the seal has the conversation.
 
-### 8.4 Order
+The host chooses the store. There is one code path: the handler always reads from a store and writes to a store. The sealed store and a database store are two implementations of the same interface.
 
-- **A.** Build this first, then try again on top of it.
-- **B.** Build try again first on today's shape, then move it.
+## 9. Decisions
+
+| Question | Decision | From |
+| --- | --- | --- |
+| A host that names no conversation store | The handler refuses to start. There is no default store. | "Explicit, not ambient" |
+| A host with no storage | It uses the sealed store (section 8). The plain browser-held mode goes away. | Masud, 14 Oct: ml_deno's apps need a browser-carried chat |
+| Studio | Studio's server holds each preview conversation. | "The UI never holds or controls state" (Masud, 14 Oct) |
+| Order | This is built first. Try again is built on top of it. | Masud, 14 Oct |
+
+Open: Masud's go-ahead to build. The change breaks every page that uses `initialChat` or `onChatChange`. It needs a new major version of `@theoremjs/react`, which Masud publishes.

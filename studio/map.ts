@@ -33,6 +33,8 @@ export interface MapNode {
   opens?: string;
   /** A model: every workspace node it stands for, one for each profile that runs it. */
   holds?: string[];
+  /** A model whose label another model has too: its label with what tells the two apart. */
+  long?: string;
   /** An agent's profile type, a tool's type, or the section a shared setting fills. */
   type?: string;
   /** A profile's sections, in the tree's order. */
@@ -215,6 +217,10 @@ export function workspaceMap(workspace: StudioWorkspace, shared: readonly Shared
       [agent.id, ...(agent.rows ?? []).map((each) => each.id)].map((id) => [id, row] as const),
     ),
   );
+  for (const model of models.values()) {
+    const twin = [...models.values()].some((other) => other !== model && other.label === model.label);
+    if (twin && model.note) model.long = `${model.label} · ${model.note}`;
+  }
   const ordered = byRows([...models.values()], links, rows);
   const modelRows = new Map(ordered.map((model, row) => [model.id, row]));
   const groups = (...all: MapGroup[]) => all.filter((group) => group.nodes.length > 0);
@@ -423,6 +429,8 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
   const clear = Math.max(rowGap / 2, lineGap);
   /** The lanes lines already go round in: the next one keeps `LANE_GAP` clear of each. */
   const laid: Box[] = [];
+  /** The lane the lines of one end take round a column: they go round as one. */
+  const lanes = new Map<string, number>();
   /** How many lines leave each end towards a side, and arrive at each from one: the busier end of a line keeps the trunk. */
   const fans = new Map<string, number>();
   const fan = (id: string, way: number) => `${id}:${String(way)}`;
@@ -492,9 +500,15 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
       }
     };
     const far = (y: number) => Math.abs(a.y - y) + Math.abs(b.y - y);
-    const [over, under] = [lane(-1), lane(1)];
-    const y = over >= 0 && far(over) <= far(under) ? over : under;
-    laid.push({ id: '', x: low, y: y - LANE_GAP + clear, width: high - low, height: 2 * (LANE_GAP - clear) });
+    const shared = `${leaves ? fan(link.from, way) : fan(link.to, -way)}:${String(leaves ? toSide : fromSide)}`;
+    const pick = () => {
+      const [over, under] = [lane(-1), lane(1)];
+      const y = over >= 0 && far(over) <= far(under) ? over : under;
+      laid.push({ id: '', x: low, y: y - LANE_GAP + clear, width: high - low, height: 2 * (LANE_GAP - clear) });
+      lanes.set(shared, y);
+      return y;
+    };
+    const y = lanes.get(shared) ?? pick();
     bottom = Math.max(bottom, y);
     const out = start.x + way * gap;
     const back = end.x - way * gap;

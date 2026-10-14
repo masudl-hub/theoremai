@@ -57,10 +57,8 @@
 }
 
 .studio-map-lines .map-line {
-	opacity: 0.6;
-	transition:
-		opacity var(--duration-fast) var(--ease-standard),
-		stroke var(--duration-fast) var(--ease-standard);
+	stroke: color-mix(in srgb, var(--color-border-emphasized) 60%, var(--color-background-surface));
+	transition: stroke var(--duration-fast) var(--ease-standard);
 }
 
 /* A tool asking a profile and a profile summarised by another run against the columns: dashed. */
@@ -233,17 +231,15 @@
 }
 
 .studio-map[data-lit] .map-line:not([data-on]) {
-	opacity: 0.3;
+	stroke: color-mix(in srgb, var(--color-border-emphasized) 30%, var(--color-background-surface));
 }
 
 .studio-map .map-line[data-open] {
 	stroke: var(--color-text-secondary);
-	opacity: 1;
 }
 
 .studio-map .map-line[data-on] {
 	stroke: var(--color-accent);
-	opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {

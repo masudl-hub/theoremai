@@ -447,7 +447,7 @@ function TokenNode(props: NodeProps) {
 	return (
 		<MapToken
 			id={node.id}
-			label={clipped(node.label)}
+			label={clipped(node.long ?? node.label)}
 			icon={nodeIcon(node)}
 			x={place.x}
 			y={place.y + place.height / 2}
@@ -460,7 +460,7 @@ function TokenNode(props: NodeProps) {
 							onOpen(opens);
 						}
 			}
-			title={node.label.length > TOKEN_LABEL ? node.label : undefined}
+			title={(node.long ?? node.label).length > TOKEN_LABEL ? (node.long ?? node.label) : undefined}
 			aria-current={open ? 'true' : undefined}
 			{...marks(props)}
 			{...lights(node.id)}
@@ -619,6 +619,10 @@ export function StudioMap({
 	);
 	const Node = expanded ? DetailNode : TokenNode;
 	const open = nodes.find((node) => isOpen(node, selected))?.id;
+	// The open node's lines are drawn over the rest, and the lit ones over those.
+	const over = (line: MapLayout['lines'][number]) =>
+		onLines.has(line.link) ? 2 : line.from === open || line.to === open ? 1 : 0;
+	const lines = [...layout.lines].sort((a, b) => over(a) - over(b));
 
 	return (
 		<div
@@ -664,7 +668,7 @@ export function StudioMap({
 							height={layout.height}
 							aria-hidden="true"
 						>
-							{layout.lines.map(({ link, from, to, d }) => (
+							{lines.map(({ link, from, to, d }) => (
 								<path
 									key={`${link.kind}:${link.from}:${link.to}`}
 									className="map-line"

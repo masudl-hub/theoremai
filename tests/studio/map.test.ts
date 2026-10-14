@@ -481,3 +481,41 @@ Deno.test('a model two profiles run stands for the model of each', () => {
     ],
   );
 });
+
+Deno.test('the lines of one end go round a column as one', () => {
+  const workspace = opened();
+  const map = workspaceMap(workspace);
+  const tools = agentNodeId(workspace.agents[0]?.key ?? '', 'tools');
+  const model = map.columns[1]?.[0]?.nodes[0]?.id ?? '';
+  const moved = {
+    [toolSpecNodeId('find')]: { x: 20, y: 50 },
+    [toolSpecNodeId('ask_shop')]: { x: 20, y: 200 },
+    [model]: { x: 320, y: 110 },
+  };
+  const layout = mapLayout(map, SIZES, { ...DETAIL, moved });
+  const lanes = layout.lines
+    .filter(({ link }) => link.from === tools)
+    .map(({ d }) => /L \d+ (\d+)/.exec(d)?.[1]);
+  assertEquals(lanes, ['105', '105']);
+});
+
+Deno.test('two models with one label each say what tells them apart', () => {
+  const start = opened();
+  const [desk, shop] = start.agents;
+  if (!desk || !shop) throw new Error('two agents');
+  const through = (agent: typeof desk, apiId: string) => ({
+    ...agent,
+    modelBindings: agent.modelBindings.map((binding) => ({ ...binding, apiId })),
+  });
+  const map = workspaceMap({
+    ...start,
+    agents: [through(desk, 'first/small'), through(shop, 'other/small')],
+  });
+  const models = map.columns[1]?.[0]?.nodes ?? [];
+  assertEquals(
+    models.map((node) => node.long),
+    ['small-model · first/small', 'small-model · other/small'],
+  );
+  // One alone keeps its label.
+  assertEquals(workspaceMap(start).columns[1]?.[0]?.nodes[0]?.long, undefined);
+});

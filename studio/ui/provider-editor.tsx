@@ -59,8 +59,15 @@ export function ProviderEditor({
 	issues: readonly StudioIssue[];
 	onChange?: (next: StudioProvider) => void;
 }) {
-	const fields = connectionFields(provider.adapter);
+	const held = connectionFields(provider.adapter);
 	const set = onChange ?? (() => undefined);
+	// A setting its adapter does not take still gets a row, so its issue shows and it can be cleared.
+	const extra = Object.keys(provider.connection ?? {})
+		.filter((name) => !held?.some((field) => field.name === name))
+		.map((name) => ({ name, required: false, url: false }));
+	// The studio's own show only what they are set with: a blank row would say more than the studio knows.
+	const fields = held && [...held, ...extra].filter((field) => onChange || provider.connection?.[field.name]);
+	const slots = (['keySlot', 'fallbackKeySlot'] as const).filter((slot) => onChange || provider[slot]);
 	const rows = (
 		<>
 			{fields === undefined ? (
@@ -90,29 +97,25 @@ export function ProviderEditor({
 					</InspectorSection>
 				)
 			)}
-			<InspectorSection
-				title="Keys"
-				note="The slots its models read their key from, unless a model names its own."
-			>
-				<SlotRow
-					label="Key slot"
-					path="keySlot"
-					field="keySlot"
-					value={provider.keySlot ?? ''}
-					onChange={(slot) => {
-						set(withText(provider, 'keySlot', slot));
-					}}
-				/>
-				<SlotRow
-					label="Fallback slot"
-					path="fallbackKeySlot"
-					field="fallbackKeySlot"
-					value={provider.fallbackKeySlot ?? ''}
-					onChange={(slot) => {
-						set(withText(provider, 'fallbackKeySlot', slot));
-					}}
-				/>
-			</InspectorSection>
+			{slots.length > 0 && (
+				<InspectorSection
+					title="Keys"
+					note="The slots its models read their key from, unless a model names its own."
+				>
+					{slots.map((slot) => (
+						<SlotRow
+							key={slot}
+							label={slot === 'keySlot' ? 'Key slot' : 'Fallback slot'}
+							path={slot}
+							field={slot}
+							value={provider[slot] ?? ''}
+							onChange={(next) => {
+								set(withText(provider, slot, next));
+							}}
+						/>
+					))}
+				</InspectorSection>
+			)}
 		</>
 	);
 	return (
@@ -133,7 +136,8 @@ export function ProviderEditor({
 					<>
 						<Section variant="transparent" padding={3}>
 							<Text type="supporting" color="secondary">
-								The studio's own provider. A project's providers are changed here.
+								The studio's own provider: the studio decides what it connects with. A project's
+								providers are changed here.
 							</Text>
 						</Section>
 						<SetInCode>{rows}</SetInCode>

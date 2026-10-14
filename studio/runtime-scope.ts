@@ -36,7 +36,7 @@ export interface StudioProviderOptions extends ProviderHostOptions {
 }
 import { STUDIO_KEY_SLOT_CAP, studioKeySlots } from './browser-connection.ts';
 import { modelBindingViolation } from './policy.ts';
-import { EVERY_MEDIA_KIND, standInAdapter } from './providers.ts';
+import { EVERY_MEDIA_KIND, localProviderAddress, standInAdapter } from './providers.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import { registerStudioTools } from './tools.ts';
 
@@ -150,9 +150,7 @@ function registerRuntimeProviders(scope: KernelScope, runtime?: StudioRuntime) {
   scope.providers.register(
     defineProvider({
       id: 'local',
-      connection: {
-        baseURL: `${(options?.local?.baseUrl ?? 'http://localhost:11434').replace(/\/$/, '')}/v1`,
-      },
+      connection: { baseURL: localProviderAddress(options?.local?.baseUrl) },
       adapter: openAIChat(),
     }),
   );

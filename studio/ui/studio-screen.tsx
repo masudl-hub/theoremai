@@ -92,6 +92,8 @@ import {
 	resetAll,
 	resetLibraryTool,
 	resetProvider,
+	LOCAL_PROVIDER_ID,
+	localProviderAddress,
 	providerIdOf,
 	providerNodeId,
 	withProvider,
@@ -2604,7 +2606,12 @@ function EditorBody({
 	const { workspace, draft, focus, setDraft, update } = state;
 	const workspaceContext = useWorkspaceContext(workspace.agents, focus, update);
 	const project = useProject();
-	const provider = workspace.providers.find((each) => each.id === providerIdOf(editing));
+	const held = workspace.providers.find((each) => each.id === providerIdOf(editing));
+	// The studio's own local provider is reached where the local connection says, as a run reaches it.
+	const provider =
+		held && !project && held.id === LOCAL_PROVIDER_ID
+			? { ...held, connection: { baseURL: localProviderAddress(connection.local.baseUrl) } }
+			: held;
 	return (
 		<ScrollableArea key={selected} label="Editor" height="100%" ref={editorRef}>
 			<ListBadges value={listBadges}>

@@ -116,6 +116,7 @@ export {
   connectionFields,
   modelSlots,
   LOCAL_PROVIDER_ID,
+  localProviderAddress,
   type ModelRoute,
   modelCapabilities,
   modelRoute,

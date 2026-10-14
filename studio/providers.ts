@@ -45,6 +45,11 @@ export interface StudioProvider {
 /** The provider the studio reaches on the builder's own machine. */
 export const LOCAL_PROVIDER_ID = 'local';
 
+/** Where the studio's local provider is reached, for a local server at `baseUrl`. */
+export function localProviderAddress(baseUrl = 'http://localhost:11434'): string {
+  return `${baseUrl.replace(/\/$/, '')}/v1`;
+}
+
 /** The providers the studio defines itself, for a workspace no project defines them for. */
 export const STUDIO_PROVIDERS: readonly StudioProvider[] = [
   { id: 'google', adapter: 'google' },
@@ -52,7 +57,7 @@ export const STUDIO_PROVIDERS: readonly StudioProvider[] = [
   {
     id: LOCAL_PROVIDER_ID,
     adapter: 'openai-chat',
-    connection: { baseURL: 'http://localhost:11434/v1' },
+    connection: { baseURL: localProviderAddress() },
   },
   { id: 'typesafe', adapter: 'typesafe' },
 ];

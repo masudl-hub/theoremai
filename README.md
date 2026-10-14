@@ -412,7 +412,7 @@ Import from the narrowest entrypoint that has what you need. Each row gives the 
 | `jsr:@theoremjs/agents/schema` / `@theoremjs/agents/schema` | Profile vocabulary and field catalog (closed unions, field metadata) for host UIs and docs; no Deno APIs. |
 | `jsr:@theoremjs/agents/providers/google/live` / `@theoremjs/agents/providers/google/live` | Gemini Live framing and session helpers (`openGoogleLiveSession`); live runs through `runSession`. |
 
-Demo fixtures, such as the travel concierge seeds and local handlers, live in the **repo-private** `@theoremjs/studio` package under `studio/`. Theorem never publishes it with the kernel. A host that needs the fixtures links `file:../theoremai/studio`.
+The studio is a separate package, `@theoremjs/studio`. It is never part of the kernel package. Install it beside the kernel to open your project's agents in a local studio: `npm install -D @theoremjs/studio`, then `npx theorem-studio`. It needs Deno. Demo fixtures, such as the travel concierge seeds and local handlers, are only in the repo: a host that needs them links `file:../theoremai/studio`.
 
 Internal files stay in the source for maintainability. Package consumers should use the public entrypoints above.
 

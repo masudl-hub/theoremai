@@ -1,4 +1,16 @@
-# @theoremjs/studio (repo-private)
+# @theoremjs/studio
+
+Open your project's agents in a local studio: edit them, run them, and save the edits back to your files.
+
+```sh
+npm install -D @theoremjs/studio
+npx theorem-studio
+```
+
+The command needs Deno. It opens the project's setup file: `studio.setup.ts` or `<name>.studio.setup.ts`. Add `"studio": "theorem-studio"` to your scripts to run it as `npm run studio`. The installed version must match `@theoremjs/agents` and `@theoremjs/react` exactly.
+
+## In the repo
+
 
 The studio's authoring logic and demo fixtures: the editable profile draft,
 its tree, the compiler that turns it into a kernel profile, TypeScript source
@@ -43,10 +55,12 @@ For a custom protocol in a host-supplied authoring runtime, pass definitions thr
 The runtime registers these definitions before profiles. They remain host code and never enter saved profile JSON.
 The public demo retains its separate provider policy.
 
-This package is **never published**. The kernel's boundary rule — "Host
-decides, Theorem runs" — forbids bundled assistants and demo product in the
-`@theoremjs/agents` package; `scripts/verify-publish-bundle.ts` asserts `studio/`
-stays out of every npm/JSR artifact. Consumers link it directly, e.g.
+The kernel's boundary rule, "Host decides, Theorem runs", keeps assistants and
+demo product out of the `@theoremjs/agents` package.
+`scripts/verify-publish-bundle.ts` checks that `studio/` stays out of the
+kernel's npm and JSR packages. The npm package `@theoremjs/studio` holds only the
+`theorem-studio` command (`npm run build:npm:studio`). The surface below stays
+in the repo. Consumers link it directly, for example:
 
 ```json
 { "@theoremjs/studio": "file:../theoremai/studio" }

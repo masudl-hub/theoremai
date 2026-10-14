@@ -4,8 +4,9 @@ Breaking cut. No deprecation aliases.
 
 ## Removed: studio entrypoint
 
-Demo fixtures moved to the **repo-private** package `@theoremjs/studio`
-(`studio/` in the repo). It is never published.
+Demo fixtures moved to the package `@theoremjs/studio` (`studio/` in the repo).
+The kernel package never contains it. Its npm package holds only the
+`theorem-studio` command; the fixtures stay in the repo.
 
 ```diff
 - import { demoToolSpecs } from '@theoremjs/studio';

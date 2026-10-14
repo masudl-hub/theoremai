@@ -225,6 +225,12 @@ export interface ToolAuthConfig {
   service: string;
   headerName?: string;
   headerPrefix?: string;
+  /**
+   * For a service that takes its API key in the URL (`?key=…`): the query parameter the key
+   * goes in, in place of a header. Only an `api_key` tool sets it, with no `headerName` or
+   * `headerPrefix`.
+   */
+  queryParam?: string;
   onUnauthenticated?: AuthUnauthenticatedPolicy;
   /** Named on the auth gate for the host's OAuth flow. */
   preResolved?: Partial<OAuthEndpoints & { resource: string }>;

@@ -58,6 +58,8 @@ export type StudioToolSpecSeed = {
   authService?: string;
   authHeaderName?: string;
   authHeaderPrefix?: string;
+  /** An API key's query parameter: set, the key goes in the URL and in no header. */
+  authQueryParam?: string;
   authUnauthenticated?: AuthUnauthenticatedPolicy;
   authScopes?: string[];
   authClientId?: string;

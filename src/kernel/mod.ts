@@ -286,12 +286,18 @@ export {
   sessionPermissionsAfterApproval,
   type ToolGateAuth,
 } from './tools/gate-answer.ts';
-export type { McpProtocolVersion, McpRpcResponse, ToolRegistry } from './tools/mod.ts';
+export type {
+  CredentialQuery,
+  McpProtocolVersion,
+  McpRpcResponse,
+  ToolRegistry,
+} from './tools/mod.ts';
 export {
   askUserTool,
   authorizeToolReplay,
   coerceToolResultParts,
   createToolRegistry,
+  credentialPlacement,
   executeHttpTool,
   executeMcpTool,
   executeRegisteredTool,
@@ -304,6 +310,7 @@ export {
   projectForModel,
   registerHarnessTools,
   resolveToolAuth,
+  withCredentialQuery,
 } from './tools/mod.ts';
 export type {
   BeginToolOperationResult,

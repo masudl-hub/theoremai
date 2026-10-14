@@ -2,6 +2,7 @@ export {
   type CompiledStudio,
   compileStudio,
   credentialHeaderProblem,
+  credentialUrlProblem,
   type StudioCompileResult,
   type StudioIssue,
   type StudioProfileDefinition,

@@ -58,6 +58,7 @@ import {
 } from './permission.ts';
 import type { ToolRegistry } from './registry.ts';
 import {
+  type CredentialQuery,
   executeHttpTool,
   executeMcpTool,
   failureWithoutSecret,
@@ -640,7 +641,7 @@ function makeReproject(
 
 type FunctionSignIn = {
   /** Set when the tool signs in and its credential resolved. */
-  prepared?: { authHeaders: Record<string, string>; audience?: string };
+  prepared?: { authHeaders: Record<string, string>; query?: CredentialQuery; audience?: string };
   secret?: string;
   /** Set when the call settles here: a gate, the model told it is not signed in, or a failure. */
   outcome?: ToolBodyOutcome;
@@ -659,6 +660,7 @@ async function* resolveFunctionSignIn(
   return {
     prepared: {
       authHeaders: resolved.headers,
+      ...(resolved.query ? { query: resolved.query } : {}),
       ...(resolved.audience ? { audience: resolved.audience } : {}),
     },
     ...(resolved.secret ? { secret: resolved.secret } : {}),
@@ -811,7 +813,7 @@ export async function* executeFunction(
       const refused = yield* refusedCredentialOutcome(
         tool,
         err.refusal,
-        signedIn.prepared.authHeaders,
+        signedIn.secret !== undefined,
         ctx,
         base,
       );

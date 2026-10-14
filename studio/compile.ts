@@ -571,12 +571,21 @@ function compileAuth(
   const service = tool.authService?.trim() ?? '';
   if (!service) fail('Service is required.', 'authService');
   const scopes = cleanList(tool.authScopes);
+  const queryParam = tool.authType === 'api_key' ? tool.authQueryParam?.trim() : undefined;
+  if (queryParam && cleanList(tool.queryParams).includes(queryParam)) {
+    fail(`${queryParam} is also one of the query parameters the model fills.`, 'authQueryParam');
+  }
+  const placement = queryParam
+    ? { queryParam }
+    : {
+        ...(tool.authHeaderName?.trim() ? { headerName: tool.authHeaderName.trim() } : {}),
+        ...(tool.authHeaderPrefix !== undefined ? { headerPrefix: tool.authHeaderPrefix } : {}),
+      };
   return {
     slot: tool.authSlot?.trim() || 'default',
     type: tool.authType,
     service,
-    ...(tool.authHeaderName?.trim() ? { headerName: tool.authHeaderName.trim() } : {}),
-    ...(tool.authHeaderPrefix !== undefined ? { headerPrefix: tool.authHeaderPrefix } : {}),
+    ...placement,
     onUnauthenticated: tool.authUnauthenticated ?? 'gate',
     ...(scopes.length ? { scopes } : {}),
     ...(tool.authClientId?.trim() ? { clientId: tool.authClientId.trim() } : {}),
@@ -709,6 +718,20 @@ export function credentialHeaderProblem(
     : undefined;
 }
 
+/**
+ * Why a tool's URL can't be saved, when a query parameter in it looks like a credential. A masked
+ * one is the project's own; a new one goes under Auth, which can send an API key in the URL.
+ */
+export function credentialUrlProblem(url: string | undefined): string | undefined {
+  if (!url || !URL.canParse(url)) return undefined;
+  const name = [...new URL(url).searchParams].find(
+    ([param, value]) => isCredentialName(param) && value && value !== MASK,
+  )?.[0];
+  return name
+    ? `${name} in the URL looks like a credential. Put it under Auth instead, as an API key with ${name} as its query parameter: Auth asks for it when a call runs and nothing saves it.` // labels-exempt: builder diagnostic
+    : undefined;
+}
+
 function remoteToolFields(tool: ToolSpecDraft, fail: Fail) {
   const headers = parseHeaders(tool.headersJson);
   if (headers === null) {
@@ -719,6 +742,9 @@ function remoteToolFields(tool: ToolSpecDraft, fail: Fail) {
   }
   const credential = credentialHeaderProblem(headers ?? undefined);
   if (credential) fail(credential, 'headersJson');
+  const field = tool.toolType === 'mcp' ? 'serverUrl' : 'endpoint';
+  const inUrl = credentialUrlProblem(tool[field]?.trim());
+  if (inUrl) fail(inUrl, field);
   const auth = compileAuth(tool, fail);
   return { ...(headers ? { headers } : {}), ...(auth ? { auth } : {}) };
 }

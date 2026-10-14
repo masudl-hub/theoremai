@@ -463,11 +463,17 @@ export {
 } from './src/kernel/stop.ts';
 export { authorizeToolReplay } from './src/kernel/tools/execute.ts';
 export { GATE_DECISIONS, type GateDecision } from './src/kernel/tools/gate-answer.ts';
-export type { McpProtocolVersion, McpRpcResponse, ToolRegistry } from './src/kernel/tools/mod.ts';
+export type {
+  CredentialQuery,
+  McpProtocolVersion,
+  McpRpcResponse,
+  ToolRegistry,
+} from './src/kernel/tools/mod.ts';
 export {
   askUserTool,
   buildHttpToolTarget,
   createToolRegistry,
+  credentialPlacement,
   executeHttpTool,
   executeMcpTool,
   formatToolResult,
@@ -479,6 +485,7 @@ export {
   resolveToolAuth,
   UncheckedOutput,
   uncheckedOutput,
+  withCredentialQuery,
 } from './src/kernel/tools/mod.ts';
 export type {
   BeginToolOperationResult,

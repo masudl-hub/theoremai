@@ -11,9 +11,11 @@ import type { RequestChecks } from './events.ts';
 import { toolNetworkPolicy } from './events.ts';
 import {
   audienceMismatch,
+  type CredentialQuery,
   type CredentialRefusal,
   credentialRefusal,
   refusalAsksForSignIn,
+  withCredentialQuery,
 } from './remote.ts';
 import type { SignedInFetch, ToolContext } from './types.ts';
 
@@ -29,7 +31,7 @@ export class CredentialRefusedError extends Error {
 }
 
 export function signedInFetch(
-  prepared: { authHeaders: Record<string, string>; audience?: string },
+  prepared: { authHeaders: Record<string, string>; query?: CredentialQuery; audience?: string },
   ctx: ToolContext,
   checks: RequestChecks,
 ): SignedInFetch {
@@ -38,7 +40,7 @@ export function signedInFetch(
     const mismatch = audienceMismatch(prepared.audience, target);
     if (mismatch) throw new TheoremError('config', mismatch);
     const response = await fetchGuarded(
-      target.href,
+      withCredentialQuery(target, prepared.query).href,
       {
         method: request.method ?? 'GET',
         headers: request.headers,

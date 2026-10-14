@@ -58,6 +58,30 @@ function assertAuthService(name: string, auth: ToolAuthConfig | undefined): void
   }
 }
 
+/** A key in the URL goes in one named query parameter, and nowhere a header or the model's input could also put it. */
+function assertQueryParam(
+  name: string,
+  auth: ToolAuthConfig | undefined,
+  inputQueryParams: readonly string[] = [],
+): void {
+  if (auth?.queryParam === undefined) return;
+  const problem = !auth.queryParam.trim()
+    ? 'is blank'
+    : auth.type !== 'api_key'
+      ? `is set on a '${auth.type}' sign-in; only an API key goes in the URL` // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      : auth.headerName !== undefined || auth.headerPrefix !== undefined
+        ? 'is set with headerName or headerPrefix; the key goes in one place' // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        : inputQueryParams.includes(auth.queryParam)
+          ? `"${auth.queryParam}" is also one of mapping.queryParams` // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          : undefined;
+  if (problem) {
+    throw new TheoremError(
+      'config',
+      `Tool "${name}" auth.queryParam ${problem}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
 function normalizeHttp<TIn = unknown, TOut = unknown>(
   def: Omit<HttpToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
     input: z.ZodType<TIn>;
@@ -66,6 +90,7 @@ function normalizeHttp<TIn = unknown, TOut = unknown>(
 ): HttpToolDef<TIn, TOut> {
   assertFixedEndpointOrigin(def.endpoint);
   assertAuthService(def.name, def.auth);
+  assertQueryParam(def.name, def.auth, def.mapping?.queryParams);
   return { ...def, type: 'http', ...schemasFromZod(def) };
 }
 
@@ -76,6 +101,7 @@ function normalizeMcp<TIn = unknown, TOut = unknown>(
   },
 ): McpToolDef<TIn, TOut> {
   assertAuthService(def.name, def.auth);
+  assertQueryParam(def.name, def.auth);
   return { ...def, type: 'mcp', ...schemasFromZod(def) };
 }
 
@@ -83,6 +109,7 @@ function normalizeFunction<TIn = unknown, TOut = unknown>(
   def: FunctionToolInput<TIn, TOut>,
 ): FunctionToolDef<TIn, TOut> {
   assertAuthService(def.name, def.auth);
+  assertQueryParam(def.name, def.auth);
   const handler =
     def.answeredBy === 'page'
       ? (pageAnswerHandler(def.name) as ToolHandler<TIn, NoInfer<TOut>>)

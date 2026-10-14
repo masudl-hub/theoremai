@@ -7,7 +7,13 @@ import type { SpanHandle } from '../../observability/trace-span.ts';
 import type { ToolCredentialSource } from '../auth/credential-source.ts';
 import { refreshOAuthToken, tokenAudienceCovers } from '../auth/oauth.ts';
 import type { AuthScopeRefused } from '../auth/scope-refusal.ts';
-import type { OAuth2Credential, OAuthTransportOptions, ToolCredential } from '../auth/types.ts';
+import type {
+  ApiKeyCredential,
+  BearerCredential,
+  OAuth2Credential,
+  OAuthTransportOptions,
+  ToolCredential,
+} from '../auth/types.ts';
 import { mapStrings } from '../engine/tree.ts';
 import type { AuthUnauthenticatedPolicy } from '../schema.ts';
 import type { InteractionPart, ToolWarning } from '../turn-events.ts';
@@ -49,6 +55,8 @@ import type {
 
 export type AuthResolveResult = {
   headers: Record<string, string>;
+  /** An API key the URL carries in place of a header: the tool's `auth.queryParam` and the key. */
+  query?: CredentialQuery;
   /** The response is stripped of this before anyone reads it. */
   secret?: string;
   /** RFC 8707 resource an OAuth token was issued for; it goes nowhere else. */
@@ -58,8 +66,19 @@ export type AuthResolveResult = {
   gate?: ToolGate;
 };
 
+/** A credential that goes in a query parameter of the URL a call is sent to. */
+export type CredentialQuery = { name: string; value: string };
+
+/** `url` with the credential set in its query parameter; `url` itself is left as it was. */
+export function withCredentialQuery(url: URL, query: CredentialQuery | undefined): URL {
+  if (!query) return url;
+  const signed = new URL(url);
+  signed.searchParams.set(query.name, query.value);
+  return signed;
+}
+
 function authHeaderPair(
-  authConfig: ToolAuthConfig,
+  authConfig: Pick<ToolAuthConfig, 'headerName' | 'headerPrefix'>,
   value: string,
   defaults: { headerName: string; headerPrefix: string },
 ): Record<string, string> {
@@ -104,28 +123,39 @@ function unauthenticatedResult(
   return { headers: {}, unauthenticated: true, modelMessage: message };
 }
 
+/**
+ * Where a token or API key goes on a tool's requests: the query parameter the tool names, or a
+ * header, `Authorization: Bearer …` for a token and `Authorization: …` for a key unless the tool
+ * or the key names another.
+ */
+export function credentialPlacement(
+  authConfig: Pick<ToolAuthConfig, 'headerName' | 'headerPrefix' | 'queryParam'>,
+  credential: BearerCredential | ApiKeyCredential,
+): { headers: Record<string, string>; query?: CredentialQuery } {
+  const value = credential.type === 'bearer' ? credential.token : credential.key;
+  if (authConfig.queryParam !== undefined) {
+    return { headers: {}, query: { name: authConfig.queryParam, value } };
+  }
+  if (credential.type === 'bearer') {
+    return {
+      headers: authHeaderPair(authConfig, value, {
+        headerName: 'Authorization',
+        headerPrefix: 'Bearer ',
+      }),
+    };
+  }
+  const headerName = credential.headerName ?? authConfig.headerName ?? 'Authorization';
+  const headerPrefix = credential.headerPrefix ?? authConfig.headerPrefix ?? '';
+  return { headers: { [headerName]: `${headerPrefix}${value}` } };
+}
+
 function resolveStaticCredential(
   credential: ToolCredential,
   authConfig: ToolAuthConfig,
 ): AuthResolveResult | undefined {
-  if (credential.type === 'bearer') {
-    return {
-      headers: authHeaderPair(authConfig, credential.token, {
-        headerName: 'Authorization',
-        headerPrefix: 'Bearer ',
-      }),
-      secret: credential.token,
-    };
-  }
-  if (credential.type === 'api_key') {
-    const headerName = credential.headerName ?? authConfig.headerName ?? 'Authorization';
-    const headerPrefix = credential.headerPrefix ?? authConfig.headerPrefix ?? '';
-    return {
-      headers: { [headerName]: `${headerPrefix}${credential.key}` },
-      secret: credential.key,
-    };
-  }
-  return undefined;
+  if (credential.type !== 'bearer' && credential.type !== 'api_key') return undefined;
+  const secret = credential.type === 'bearer' ? credential.token : credential.key;
+  return { ...credentialPlacement(authConfig, credential), secret };
 }
 
 /**
@@ -483,17 +513,18 @@ export function refusalAsksForSignIn(refusal: CredentialRefusal): boolean {
  * the person signs in again. A 403 `insufficient_scope` asks for more access: a
  * sign-in can grant scopes the tool declares, and nothing else, so a request
  * outside them fails with `sign_in.out_of_scope` and the trace records what was
- * asked against what is declared. Any other refusal is the call's failure.
+ * asked against what is declared. Any other refusal is the call's failure. `carried` says the
+ * request went with a credential, in a header or in the URL.
  */
 export function* refusedCredentialOutcome(
   tool: { name: string; auth?: ToolAuthConfig },
   refusal: CredentialRefusal | undefined,
-  authHeaders: Record<string, string>,
+  carried: boolean,
   ctx: ToolContext,
   base: ToolCallBase,
 ): Generator<TurnEvent, ToolBodyOutcome | undefined> {
   const auth = tool.auth;
-  if (!auth || !refusal || Object.keys(authHeaders).length === 0) return undefined;
+  if (!auth || !refusal || !carried) return undefined;
   const policy = auth.onUnauthenticated ?? 'gate';
   if (refusal.status === 401) {
     const message = `The credential for '${tool.name}' (slot: '${auth.slot}') was refused.`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -536,6 +567,7 @@ async function* remoteAuthAndPreBody(args: {
       ok: true;
       input: unknown;
       authHeaders: Record<string, string>;
+      query?: CredentialQuery;
       secret?: string;
       audience?: string;
     }
@@ -557,6 +589,7 @@ async function* remoteAuthAndPreBody(args: {
     ok: true,
     input: preBody.input,
     authHeaders: authRes.headers ?? {},
+    ...(authRes.query ? { query: authRes.query } : {}),
     ...(authRes.secret ? { secret: authRes.secret } : {}),
     ...(authRes.audience ? { audience: authRes.audience } : {}),
   };
@@ -665,11 +698,14 @@ export function audienceMismatch(audience: string | undefined, url: URL): string
   return `The OAuth token for "${audience}" cannot be sent to "${url.origin}${url.pathname}"`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 }
 
-/** An OAuth token goes only to the resource it was issued for (RFC 8707); any other target gets no request. */
+/**
+ * An OAuth token goes only to the resource it was issued for (RFC 8707); any other target gets no
+ * request. `send` gets the URL with any key the tool puts in the query, after the target's checks.
+ */
 async function* sendWithCredential(
-  prepared: { audience?: string; secret?: string },
+  prepared: { audience?: string; secret?: string; query?: CredentialQuery },
   url: URL,
-  send: () => AsyncGenerator<TurnEvent, ToolBodyOutcome>,
+  send: (url: URL) => AsyncGenerator<TurnEvent, ToolBodyOutcome>,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
   const mismatch = audienceMismatch(prepared.audience, url);
   if (mismatch) {
@@ -678,7 +714,7 @@ async function* sendWithCredential(
       true,
     );
   }
-  return withoutSecret(yield* send(), prepared.secret);
+  return withoutSecret(yield* send(withCredentialQuery(url, prepared.query)), prepared.secret);
 }
 
 /** Order: schema → permission → auth → preTool/host stages → body. */
@@ -718,16 +754,19 @@ export async function* executeHttpTool(
   const guarded = yield* guardToolTarget(target.url, ctx, stages?.span);
   if (!guarded.ok) return failureOutcome(guarded.failure, true);
   yield* dispatchToolBody(tool, input, ctx, base, beginBody);
-  return yield* sendWithCredential(prepared, guarded.url, () =>
-    sendHttpRequest(tool, guarded.url, target.body, prepared.authHeaders, ctx, base, stages?.span),
+  return yield* sendWithCredential(prepared, guarded.url, (url) =>
+    sendHttpRequest(tool, url, target.body, prepared, ctx, base, stages?.span),
   );
 }
+
+/** What a call sends its credential with: the headers, and the secret, set whenever one went. */
+type SentCredential = { authHeaders: Record<string, string>; secret?: string };
 
 async function* sendHttpRequest(
   tool: HttpToolDef,
   targetUrl: URL,
   body: string | undefined,
-  authHeaders: Record<string, string>,
+  { authHeaders, secret }: SentCredential,
   ctx: ToolContext,
   base: ToolCallBase,
   span: SpanHandle | undefined,
@@ -758,7 +797,7 @@ async function* sendHttpRequest(
       const refused = yield* refusedCredentialOutcome(
         tool,
         credentialRefusal(response),
-        authHeaders,
+        secret !== undefined,
         ctx,
         base,
       );
@@ -1336,12 +1375,12 @@ export async function* executeMcpTool(
   const prepared = yield* remoteAuthAndPreBody({ tool, input: permitted.input, ctx, base, stages });
   if (!('ok' in prepared)) return prepared;
   yield* dispatchToolBody(tool, prepared.input, ctx, base, beginBody);
-  return yield* sendWithCredential(prepared, guarded.url, () =>
+  return yield* sendWithCredential(prepared, guarded.url, (url) =>
     sendMcpRequest(
       tool,
-      guarded.url,
+      url,
       prepared.input,
-      prepared.authHeaders,
+      prepared,
       ctx,
       base,
       stages?.span,
@@ -1354,7 +1393,7 @@ async function* sendMcpRequest(
   tool: McpToolDef,
   url: URL,
   input: unknown,
-  authHeaders: Record<string, string>,
+  { authHeaders, secret }: SentCredential,
   ctx: ToolContext,
   base: ToolCallBase,
   span: SpanHandle | undefined,
@@ -1392,7 +1431,7 @@ async function* sendMcpRequest(
     const refused = yield* refusedCredentialOutcome(
       tool,
       negotiated.refusal,
-      authHeaders,
+      secret !== undefined,
       ctx,
       base,
     );

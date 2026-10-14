@@ -1552,6 +1552,13 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     ),
     unset: '"Bearer " for tokens, nothing for API keys',
   },
+  'registerTool.auth.queryParam': {
+    ...field(
+      'string',
+      'For a service that takes its API key in the URL: the query parameter the key goes in, in place of a header.',
+    ),
+    unset: 'The key goes in a header',
+  },
   'registerTool.auth.onUnauthenticated': {
     ...field(
       unionType(AUTH_UNAUTHENTICATED_POLICIES),

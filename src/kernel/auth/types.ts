@@ -61,7 +61,9 @@ export interface BearerCredential {
 export interface ApiKeyCredential {
   type: 'api_key';
   key: string;
+  /** The header the key goes in; a tool whose `auth.queryParam` puts it in the URL ignores it. */
   headerName?: string;
+  /** Text put before the key in the header; ignored as `headerName` is. */
   headerPrefix?: string;
 }
 

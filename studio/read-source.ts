@@ -870,6 +870,7 @@ function toolAuth(spec: Record<string, unknown>) {
     authService: filled(auth.service),
     authHeaderName: filled(auth.headerName),
     authHeaderPrefix: typeof auth.headerPrefix === 'string' ? auth.headerPrefix : undefined,
+    authQueryParam: filled(auth.queryParam),
     authUnauthenticated: text(auth.onUnauthenticated) as ToolSpecDraft['authUnauthenticated'],
     authScopes: listed(auth.scopes),
     authClientId: filled(auth.clientId),

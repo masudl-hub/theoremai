@@ -7,6 +7,8 @@ import { assert, assertEquals, assertStringIncludes } from '@std/assert';
 import { isKeySlotName, registerProfile } from '../../mod.ts';
 import { BOUNDARIES, recordOf } from '../../src/guardrails/boundaries.ts';
 import { DETECTOR_BOUNDARIES } from '../../src/guardrails/detectors.ts';
+import { MASK } from '../../src/surface/mod.ts';
+import { ON_OWN_KEYS, type StudioRunsOn } from '../../studio/lent-keys.ts';
 import {
   COMPACTION_DRAFT_DEFAULTS,
   compileStudio,
@@ -36,7 +38,6 @@ import {
   zodFromJsonSchema,
 } from '../../studio/mod.ts';
 import { parseJsonSchema, quoteSource } from '../../studio/tool-schema.ts';
-import { ON_OWN_KEYS, type StudioRunsOn } from '../../studio/lent-keys.ts';
 import { ON_TEST_KEYS, TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 Deno.test('renaming a binding preserves the selected default and leaves other bindings alone', () => {
@@ -955,6 +956,49 @@ Deno.test('a header that looks like a credential is refused; Auth holds secrets'
     assertStringIncludes(result.issues[0].message, `${name} looks like a credential`);
   }
   assert(withHeaders({ 'User-Agent': 'demo', Accept: 'application/json' }).ok);
+});
+Deno.test('a key typed into a URL is refused; Auth sends an API key in the query', () => {
+  const draft = createExampleDraft();
+  const geocode = draft.toolSpecs.find((tool) => tool.toolName === 'geocode_city');
+  assert(geocode?.endpoint);
+  const withTool = (over: Partial<typeof geocode>) =>
+    compileStudio(
+      {
+        ...draft,
+        toolSpecs: draft.toolSpecs.map((tool) =>
+          tool.key === geocode.key ? { ...tool, ...over } : tool,
+        ),
+      },
+      ON_OWN_KEYS,
+    );
+  const url = new URL(geocode.endpoint);
+  url.searchParams.set('api_key', 'typed');
+  const typed = withTool({ endpoint: url.href });
+  assert(!typed.ok);
+  assertEquals(typed.issues[0].field, 'endpoint');
+  assertStringIncludes(typed.issues[0].message, 'api_key in the URL looks like a credential');
+  // A masked key is the project's own, which it fills in.
+  url.searchParams.set('api_key', MASK);
+  assert(withTool({ endpoint: url.href }).ok);
+
+  const inQuery = {
+    authType: 'api_key' as const,
+    authService: 'Geo',
+    authQueryParam: 'api_key',
+    authHeaderName: 'X-Key',
+  };
+  const signed = withTool(inQuery);
+  assert(signed.ok);
+  assertEquals(signed.customTools.find((tool) => tool.name === 'geocode_city')?.auth, {
+    slot: 'default',
+    type: 'api_key',
+    service: 'Geo',
+    queryParam: 'api_key',
+    onUnauthenticated: 'gate',
+  });
+  const clash = withTool({ ...inQuery, queryParams: ['name', 'api_key'] });
+  assert(!clash.ok);
+  assertEquals(clash.issues[0].field, 'authQueryParam');
 });
 Deno.test('a tool compiles its activity labels, each placeholder checked against its schemas', () => {
   const draft = createExampleDraft();

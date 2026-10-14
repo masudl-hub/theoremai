@@ -4785,6 +4785,7 @@ function probeTarget(tool: ToolSpecDraft, method: string): string {
 		tool.authType,
 		tool.authHeaderName,
 		tool.authHeaderPrefix,
+		tool.authQueryParam,
 	]);
 }
 
@@ -5354,6 +5355,7 @@ function AuthCredentialRows({
 	authType: Exclude<NonNullable<ToolSpecDraft['authType']>, 'none'>;
 	set: SetTool;
 }) {
+	const inUrl = authType === 'api_key' && Boolean(tool.authQueryParam?.trim());
 	return (
 		<>
 			<TextRow
@@ -5366,28 +5368,48 @@ function AuthCredentialRows({
 					set({ authSlot });
 				}}
 			/>
-			<TextRow
-				label="Header"
-				path="registerTool.auth.headerName"
-				field="authHeaderName"
-				value={tool.authHeaderName ?? ''}
-				placeholder="Authorization"
-				onChange={(authHeaderName) => {
-					set({ authHeaderName });
-				}}
-			/>
-			<TextRow
-				label="Prefix"
-				path="registerTool.auth.headerPrefix"
-				field="authHeaderPrefix"
-				value={tool.authHeaderPrefix ?? ''}
-				placeholder={AUTH_HEADER_PREFIX[authType] || undefined}
-				hint="None"
-				onChange={(prefix) => {
-					// Blank is the kernel's prefix for the type, which the placeholder shows.
-					set({ authHeaderPrefix: prefix || undefined });
-				}}
-			/>
+			{authType === 'api_key' ? (
+				<TextRow
+					label="Query parameter"
+					path="registerTool.auth.queryParam"
+					field="authQueryParam"
+					value={tool.authQueryParam ?? ''}
+					onChange={(queryParam) => {
+						// The key goes in one place: in the URL, the header rows have nothing to say.
+						set(
+							queryParam
+								? { authQueryParam: queryParam, authHeaderName: undefined, authHeaderPrefix: undefined }
+								: { authQueryParam: undefined },
+						);
+					}}
+				/>
+			) : null}
+			{inUrl ? null : (
+				<>
+					<TextRow
+						label="Header"
+						path="registerTool.auth.headerName"
+						field="authHeaderName"
+						value={tool.authHeaderName ?? ''}
+						placeholder="Authorization"
+						onChange={(authHeaderName) => {
+							set({ authHeaderName });
+						}}
+					/>
+					<TextRow
+						label="Prefix"
+						path="registerTool.auth.headerPrefix"
+						field="authHeaderPrefix"
+						value={tool.authHeaderPrefix ?? ''}
+						placeholder={AUTH_HEADER_PREFIX[authType] || undefined}
+						hint="None"
+						onChange={(prefix) => {
+							// Blank is the kernel's prefix for the type, which the placeholder shows.
+							set({ authHeaderPrefix: prefix || undefined });
+						}}
+					/>
+				</>
+			)}
 			<SegmentedRow
 				label="Signed out"
 				path="registerTool.auth.onUnauthenticated"

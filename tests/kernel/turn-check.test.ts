@@ -77,3 +77,60 @@ Deno.test('a model its provider can run, and an unknown agent, have no shortfall
   );
   assertEquals(scope.turnShortfalls('nobody'), []);
 });
+
+Deno.test('an image agent that takes no text is still checked', () => {
+  const scope = scoped('unknown');
+  scope.providers.register(
+    defineProvider({
+      id: 'painter',
+      connection: {},
+      adapter: {
+        apiVersion: 1,
+        id: 'painter',
+        connectionSchema: z.object({}),
+        optionsSchema: z.object({}),
+        credentialSchema: z.string(),
+        capabilities: () => ({
+          profileTypes: ['image'],
+          inputKinds: ['text', 'image'],
+          outputKinds: ['text', 'image'],
+          builtins: [],
+          features: {
+            streaming: 'supported',
+            clientTools: 'unknown',
+            parallelTools: 'unknown',
+            structuredOutput: 'unknown',
+            thinking: 'unknown',
+            summaries: 'unknown',
+            storedContinuation: 'unsupported',
+          },
+        }),
+        validateRequest() {},
+        create: () => Promise.resolve({}),
+      },
+    }),
+  );
+  scope.profiles.register(
+    defineProfile({
+      id: 'studio',
+      type: 'image',
+      identity: { handle: 'Studio' },
+      models: { paint: { provider: 'painter', apiId: 'painter/model' } },
+      defaultModel: 'paint',
+      image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/png', includeText: false },
+      tools: { allow: ['look'] },
+      inputs: {
+        text: false,
+        attachments: { accept: ['image/png'] },
+        maxFiles: 1,
+        maxBytes: 1_000_000,
+        maxTurnBytes: 1_000_000,
+      },
+      outputs: { structured: null },
+    }),
+  );
+  assertEquals(
+    scope.turnShortfalls('studio').map((shortfall) => shortfall.model),
+    ['paint'],
+  );
+});

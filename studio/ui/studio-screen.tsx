@@ -25,7 +25,6 @@ import {
 	IconAdjustmentsHorizontal,
 	IconArrowBarToDown,
 	IconArrowLeft,
-	IconBrain,
 	IconBrowserShare,
 	IconCheck,
 	IconCode,
@@ -60,6 +59,7 @@ import {
 	type TheoremChatHandle,
 	useDisclosureMotion,
 } from '../../react/src/ui/index.ts';
+import { EFFORT_ICON } from '../../react/src/ui/ChatComposerBar.tsx';
 import {
 	adapterFactory,
 	addAgent,
@@ -693,7 +693,7 @@ function WorkspaceListToggle({
 
 /** The sidebar's lists, as icons: a name and its count would not fit the nav's width. */
 const WORKSPACE_LISTS: readonly { value: WorkspaceList; name: string; icon: IconType }[] = [
-	{ value: 'agents', name: 'Agents', icon: IconBrain },
+	{ value: 'agents', name: 'Agents', icon: EFFORT_ICON },
 	{ value: 'tools', name: 'Tools', icon: IconTool },
 	{ value: 'shared', name: 'Shared', icon: IconLibrary },
 ];

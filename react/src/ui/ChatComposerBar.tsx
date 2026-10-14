@@ -75,6 +75,9 @@ import { VoiceNote } from './VoiceNote.tsx';
 const NO_FOCUS_RING = { '--focus-outline-width': '0px' } as React.CSSProperties;
 
 /** A slot the profile declares: its allowed values, the one chosen, and how to choose another. */
+/** The effort selector's icon. The studio's Agents list shows the same one. */
+export const EFFORT_ICON = IconBrain;
+
 export type SlotChoices = {
   declared: Readonly<Record<string, readonly string[]>>;
   values: Readonly<Record<string, string>>;
@@ -292,7 +295,7 @@ function EffortSelector(props: {
       isLabelHidden
       size="sm"
       variant="ghost"
-      startIcon={<IconBrain size={14} />}
+      startIcon={<EFFORT_ICON size={14} />}
       placement="above"
       isDisabled={props.isDisabled}
       value={props.value ?? ''}

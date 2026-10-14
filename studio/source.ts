@@ -187,7 +187,7 @@ export function providerModule(provider: StudioProvider, name: string, from = AG
 
 /** A provider as the code view shows it: its definition, or why the studio writes none. */
 export function providerSource(provider: StudioProvider): string {
-  return providerModule(provider, agentIdentifier(provider.id, new Set())) ??
+  return providerModule(provider, agentIdentifier(provider.id, new Set(), 'provider')) ??
     `// The provider ${quoteSource(provider.id)} is defined on your own adapter ${quoteSource(provider.adapter)}, so its definition stays in your code.\n`;
 }
 
@@ -311,13 +311,13 @@ const UNNAMEABLE = new Set([
   ...kernelAdapters().flatMap((adapter) => adapterFactory(adapter) ?? []),
 ]);
 
-/** A camelCase identifier for an agent id, unique among `taken`. */
-export function agentIdentifier(agentId: string, taken: Set<string>): string {
+/** A camelCase identifier for an id, unique among `taken`; `kind` leads one that starts with a digit. */
+export function agentIdentifier(agentId: string, taken: Set<string>, kind = 'agent'): string {
   const words = agentId.split(/[^A-Za-z0-9]+/).filter(Boolean);
   const joined = words
     .map((word, index) => (index ? word[0].toUpperCase() + word.slice(1) : word.toLowerCase()))
     .join('');
-  const base = /^[A-Za-z_$]/.test(joined) ? joined : `agent${joined}`;
+  const base = /^[A-Za-z_$]/.test(joined) ? joined : `${kind}${joined}`;
   let name = base;
   for (let n = 2; taken.has(name) || UNNAMEABLE.has(name); n++) name = `${base}${n}`;
   taken.add(name);

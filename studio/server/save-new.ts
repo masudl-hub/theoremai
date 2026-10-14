@@ -392,7 +392,7 @@ class NewPlan {
   /** A provider's file, and the setup's line that registers it before every profile. */
   private provider(provider: StudioProvider) {
     const { agents, source } = this.ground;
-    const name = agentIdentifier(provider.id, this.taken);
+    const name = agentIdentifier(provider.id, this.taken, 'provider');
     const made = this.create(
       'provider',
       provider.id,

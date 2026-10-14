@@ -549,7 +549,7 @@ export default function register() {
   });
 });
 
-Deno.test('a new provider whose id is a reserved word or a name its file imports is named apart from it', () => {
+Deno.test('a new provider whose id is a reserved word, a name its file imports or a number is named apart from it', () => {
   const { written } = planned(
     { 'setup.ts': INLINE },
     {
@@ -559,6 +559,7 @@ Deno.test('a new provider whose id is a reserved word or a name its file imports
       providers: [
         { id: 'class', adapter: 'openrouter', keySlot: 'K' },
         { id: 'google-adapter', adapter: 'google', keySlot: 'K' },
+        { id: '9lives', adapter: 'openrouter', keySlot: 'K' },
       ],
     },
   );
@@ -566,7 +567,7 @@ Deno.test('a new provider whose id is a reserved word or a name its file imports
     Object.values(written).flatMap((text) =>
       [...text.matchAll(/export const (\w+)/g)].map((match) => match[1]),
     ),
-    ['class2', 'googleAdapter2'],
+    ['class2', 'googleAdapter2', 'provider9lives'],
   );
   assertEquals(
     written['setup.ts']?.includes('registerProvider(class2);\n  registerProvider(googleAdapter2);'),

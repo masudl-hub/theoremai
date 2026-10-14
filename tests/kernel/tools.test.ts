@@ -1997,7 +1997,7 @@ Deno.test('a tool the loader loads in a step can be called from the next step, n
       id: 'loader_beside_bot',
       ...geminiModels('gemini35FlashLite'),
       maxSteps: 3,
-      tools: { allow: ['load_tools', 'record_lookup'], t2Loader: 'load_tools', parallel: true },
+      tools: { allow: ['load_tools', 'record_lookup'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
     }),
@@ -2028,18 +2028,8 @@ Deno.test('a tool the loader loads in a step can be called from the next step, n
     },
   };
   const events = await Array.fromAsync(
-    runTurn(
-      {
-        profile: 'loader_beside_bot',
-        input: { text: 'go' },
-        // why: The loader settles first, so the refusal comes from the step-start tools, not from timing.
-        onStage: ({ stage, tool }) =>
-          stage === 'pre_tool' && tool === 'record_lookup' && step === 1
-            ? { waitFor: ['c1'] }
-            : undefined,
-      },
-      provider,
-    ),
+    // why: One at a time, the loader has settled before c2 starts, so only the step-start tools refuse it.
+    runTurn({ profile: 'loader_beside_bot', input: { text: 'go' } }, provider),
   );
   assertEquals(failureCode(events, 'c2'), 'not_loaded');
   assertEquals(

@@ -6,7 +6,7 @@ type WaitKind = 'asked' | 'after';
 
 /** One step's calls: when each may start, and who waits for whom. */
 export interface StepOrder {
-  /** Resolves when the call may start: at once side by side, once the call before it settles one at a time. */
+  /** Resolves when the call may start: at once side by side, once every call before it settles one at a time. */
   start(callId: string): Promise<void>;
   /** Marks the call settled; what waits for it goes on. */
   settle(callId: string): void;
@@ -15,7 +15,7 @@ export interface StepOrder {
 
 /**
  * The order of a step's calls. Side by side, every call starts at once. One at a time,
- * each starts when the call before it settles. A call whose `pre_tool` answers `waitFor`
+ * each starts when every call before it has settled. A call whose `pre_tool` answers `waitFor`
  * is held until those calls settle. A wait on a call outside the step fails; so does a wait
  * that can never end, because the call waited for waits for this one or runs after it. Every
  * call whose own wait closes such a loop fails.
@@ -29,11 +29,11 @@ export function stepOrder(
   const done = new Map(callIds.map((id) => [id, Promise.withResolvers<void>()]));
   const waits = new Map<string, Map<string, WaitKind>>();
   const held = new Map<string, (outcome: StepWaitOutcome) => void>();
-  if (!parallel) {
-    callIds.forEach((id, index) => {
-      const before = callIds[index - 1];
-      if (before !== undefined) waits.set(id, new Map([[before, 'after']]));
-    });
+  const unhook = new Map<string, () => void>();
+  const earlier = (callId: string) => (parallel ? [] : callIds.slice(0, callIds.indexOf(callId)));
+  for (const id of callIds) {
+    const before = earlier(id);
+    if (before.length > 0) waits.set(id, new Map(before.map((target) => [target, 'after'])));
   }
 
   /** The calls from `from` to `to` along unsettled waits, or `undefined` when none leads there. */
@@ -51,6 +51,8 @@ export function stepOrder(
   const release = (id: string, outcome: StepWaitOutcome) => {
     held.get(id)?.(outcome);
     held.delete(id);
+    unhook.get(id)?.();
+    unhook.delete(id);
     for (const [target, kind] of waits.get(id) ?? []) {
       if (kind === 'asked') waits.get(id)?.delete(target);
     }
@@ -60,8 +62,7 @@ export function stepOrder(
 
   return {
     start: async (callId) => {
-      const before = parallel ? undefined : callIds[callIds.indexOf(callId) - 1];
-      if (before !== undefined) await doneOf(before);
+      await Promise.all(earlier(callId).map(doneOf));
       throwIfAborted(signal);
     },
     settle: (callId) => {
@@ -104,7 +105,10 @@ export function stepOrder(
       held.set(callId, outcome.resolve);
       Promise.all(pending.map(doneOf)).then(() => release(callId, { ok: true }));
       const aborted = new Promise<never>((_, reject) => {
-        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        if (!signal) return;
+        const onAbort = () => reject(signal.reason);
+        signal.addEventListener('abort', onAbort, { once: true });
+        unhook.set(callId, () => signal.removeEventListener('abort', onAbort));
       });
       // why: An aborted turn ends the wait with the abort; the call settles as aborted.
       aborted.catch(() => {});

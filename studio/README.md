@@ -61,7 +61,7 @@ stays out of every npm/JSR artifact. Consumers link it directly, e.g.
 | `studioTree()`, `studioNodeRef()`, `modelBindingNodeId()`, `toolSpecNodeId()` | The draft as a tree; node ids that issues point at |
 | `compileStudio()` | Draft → profile definition, custom tools, structured schema; or issues keyed by node |
 | `studioSource()` | Compiled draft as a TypeScript module (`registerTool`, `defineProfile`, `registerProfile`) |
-| `LentKeys`, `StudioRunsOn`, `ON_OWN_KEYS`, `modelBindingViolation()` | What a studio runs on: a page's lent keys (which models, built-ins and decision sizes they allow), or the builder's own keys or machine |
+| `LentKeys`, `LentHolds`, `StudioRunsOn`, `ON_OWN_KEYS`, `modelBindingViolation()` | What a studio runs on: a page's lent keys (which models, built-ins and decision sizes they allow, and what runs on them keep to whatever a profile says), or the builder's own keys or machine, where a profile runs as written |
 | `zodFromJsonSchema()`, `parseJsonSchema()` | Authored JSON Schema → Zod for registration |
 | run-payload helpers, `studioRunDefines()`, `clearStaleStudioRuns()` | Handoff of a compiled draft to the run tab, whether a kept run still defines on this package, and clearing the ones that do not |
 | `createStudioTransport()`, `studioInterface()` | The run tab's transport for a compiled draft; its `traces` feed receives the records each run writes |

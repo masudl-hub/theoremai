@@ -6,6 +6,7 @@
  * @module
  */
 
+import type { TaintGate } from '../src/guardrails/types.ts';
 import type { DecisionQuestion } from '../src/kernel/types.ts';
 import type { ModelBindingDraft, StudioProfileType } from './draft.ts';
 import type { ModelRoute } from './providers.ts';
@@ -49,6 +50,14 @@ export interface LentDecisionLimits {
   timeoutMs: number;
 }
 
+/** What runs on lent keys keep to, whatever a profile says. The editor notes each where it is set. */
+export interface LentHolds {
+  /** Runs reach public hosts only: a profile's network rules give way to the kernel's default. */
+  publicHostsOnly: boolean;
+  /** The calls a turn refuses once it has read a remote result. A profile that refuses more keeps its own. */
+  afterRemoteRead: TaintGate;
+}
+
 /** A page's lent keys, and what runs on them. */
 export interface LentKeys {
   /** The models a binding of `type` may pick on a provider with `adapter`, in order. */
@@ -67,6 +76,8 @@ export interface LentKeys {
   questionViolation(binding: ModelRoute, question: DecisionQuestion): string | null;
   /** The most input tokens a Live session holds on the keys. Compression starts below it. */
   liveInputTokens: number;
+  /** What runs on the keys keep to, whatever a profile says. */
+  holds: LentHolds;
 }
 
 /**
@@ -77,6 +88,20 @@ export type StudioRunsOn =
   | { mode: 'demo'; keys: LentKeys }
   | { mode: 'byok' }
   | { mode: 'local' };
+
+/**
+ * The compression sizes a Live session runs with on lent keys: those the profile sets, and for a
+ * blank one Gemini's rule (start at 80% of the window, keep half the start), applied to what a
+ * session holds on the keys. Gemini would apply it to the model's whole window, past what the keys
+ * hold, so the session would be cut before compression started.
+ */
+export function lentCompression(
+  keys: Pick<LentKeys, 'liveInputTokens'>,
+  set: { triggerTokens?: number; targetTokens?: number },
+): { triggerTokens: number; targetTokens: number } {
+  const triggerTokens = set.triggerTokens ?? Math.round(keys.liveInputTokens * 0.8);
+  return { triggerTokens, targetTokens: set.targetTokens ?? Math.round(triggerTokens / 2) };
+}
 
 /** The builder's own keys. */
 export const ON_OWN_KEYS: StudioRunsOn = { mode: 'byok' };

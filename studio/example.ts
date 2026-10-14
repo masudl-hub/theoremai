@@ -27,8 +27,9 @@ import { addAgent, agentNodeId, markAgentStart, type StudioWorkspace, workspaceF
 import type { ModelPicks } from './lent-keys.ts';
 
 /**
- * Where each example's models start: the site's free models. The examples list no models, so a
- * type switch keeps whatever the kernel says serves the new type.
+ * Where each example's models start: Google's Flash models and TypeSafe's Jev, which free keys
+ * run. The examples list no models, so a type switch keeps whatever the kernel says serves the
+ * new type.
  */
 const EXAMPLE_PICKS: ModelPicks = {
   models: () => [],

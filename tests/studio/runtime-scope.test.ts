@@ -1,17 +1,22 @@
 import '../fixtures/test-host.ts';
 import { assert, assertEquals, assertRejects } from '@std/assert';
-import { defineProvider, memorySink, openAIChat } from '../../mod.ts';
-import { compileStudio, createExampleDraft } from '../../studio/mod.ts';
+import { defineProfile, defineProvider, memorySink, openAIChat } from '../../mod.ts';
 import {
-  STUDIO_TAINT_NOTE,
+  compileStudio,
+  createExampleDraft,
+  createLiveExampleDraft,
+  lentCompression,
+} from '../../studio/mod.ts';
+import {
   type StudioRuntime,
   studioNetworkNote,
   studioScope,
+  studioTaintNote,
 } from '../../studio/runtime-scope.ts';
 import { PrototypeAdapter } from '../fixtures/prototype-adapter.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
-import { ON_TEST_KEYS } from '../fixtures/lent-keys.ts';
+import { ON_TEST_KEYS, TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 function afterRemoteRead(guardrails: object | undefined): unknown {
   return guardrails && 'taint' in guardrails
@@ -19,11 +24,16 @@ function afterRemoteRead(guardrails: object | undefined): unknown {
     : undefined;
 }
 
-async function runOn(runtime: StudioRuntime) {
+function compiledExample(edit: (draft: ReturnType<typeof createExampleDraft>) => void = () => {}) {
   const draft = createExampleDraft();
   draft.guardrails.allowPrivateNetworks = true;
+  edit(draft);
   const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok, JSON.stringify(!compiled.ok && compiled.issues));
+  return compiled;
+}
+
+async function runOn(runtime: StudioRuntime, compiled = compiledExample()) {
   const { profile } = await studioScope(
     compiled.profile,
     compiled.customTools,
@@ -33,14 +43,27 @@ async function runOn(runtime: StudioRuntime) {
   return { guardrails: profile.guardrails, note: studioNetworkNote(runtime) };
 }
 
-Deno.test("the Network note says what the studio's runtime does with the rules", async () => {
-  const demo = await runOn(ON_TEST_KEYS);
-  assertEquals(demo.guardrails?.network, undefined);
-  assertEquals(demo.note, 'Studio server: public hosts only.');
+Deno.test("on the builder's own keys a profile runs with the guardrails it was given", async () => {
+  const compiled = compiledExample((draft) => {
+    draft.guardrails.taintAfterRemoteRead = '';
+  });
+  const own = await runOn(ON_OWN_KEYS, compiled);
+  assertEquals(own.guardrails, defineProfile(compiled.profile).guardrails);
+  assertEquals(own.note, undefined);
+  assertEquals(studioTaintNote(ON_OWN_KEYS), undefined);
+});
 
-  const browser = await runOn({ mode: 'byok' });
-  assertEquals(browser.guardrails?.network?.allowPrivateNetworks, true);
-  assertEquals(browser.note, 'Browser runs: rules as written.');
+Deno.test("the Network note says what the studio's runtime does with the rules", async () => {
+  const lent = await runOn(ON_TEST_KEYS);
+  assertEquals(lent.guardrails?.network, undefined);
+  assertEquals(lent.note, "This page's keys reach public hosts only.");
+
+  const unheld = {
+    mode: 'demo',
+    keys: { ...TEST_KEYS, holds: { ...TEST_KEYS.holds, publicHostsOnly: false } },
+  } as const;
+  assertEquals((await runOn(unheld)).guardrails?.network?.allowPrivateNetworks, true);
+  assertEquals(studioNetworkNote(unheld), undefined);
 
   const local = { baseUrl: 'http://127.0.0.1:11434' };
   const offline = await runOn({ mode: 'byok', providers: { local }, remoteTools: false });
@@ -49,25 +72,59 @@ Deno.test("the Network note says what the studio's runtime does with the rules",
 
   const online = await runOn({ mode: 'byok', providers: { local }, remoteTools: true });
   assertEquals(online.guardrails?.network?.allowPrivateNetworks, true);
-  assertEquals(online.note, browser.note);
+  assertEquals(online.note, undefined);
 });
 
-Deno.test('the Taint note says studio runs refuse destructive calls after a remote read', async () => {
-  assertEquals(afterRemoteRead((await runOn(ON_TEST_KEYS)).guardrails), 'destructive');
-  assert(STUDIO_TAINT_NOTE.includes('refuse destructive calls'));
-
-  const draft = createExampleDraft();
-  draft.guardrails.taintAfterRemoteRead = 'write';
-  const compiled = compileStudio(draft, ON_OWN_KEYS);
-  assert(compiled.ok);
-  const { profile } = await studioScope(
-    compiled.profile,
-    compiled.customTools,
-    compiled.structured,
-    ON_TEST_KEYS,
+Deno.test('lent keys refuse what they hold after a remote read, and a stricter profile keeps its own', async () => {
+  const unset = compiledExample((draft) => {
+    draft.guardrails.taintAfterRemoteRead = '';
+  });
+  assertEquals(afterRemoteRead((await runOn(ON_TEST_KEYS, unset)).guardrails), 'destructive');
+  assertEquals(
+    studioTaintNote(ON_TEST_KEYS),
+    "This page's keys refuse destructive calls after a remote read. Stricter settings hold.",
   );
-  assertEquals(afterRemoteRead(profile.guardrails), 'write');
-  assert(STUDIO_TAINT_NOTE.includes('Stricter settings hold'));
+
+  const stricter = compiledExample((draft) => {
+    draft.guardrails.taintAfterRemoteRead = 'write';
+  });
+  assertEquals(afterRemoteRead((await runOn(ON_TEST_KEYS, stricter)).guardrails), 'write');
+
+  const open = {
+    mode: 'demo',
+    keys: { ...TEST_KEYS, holds: { ...TEST_KEYS.holds, afterRemoteRead: 'off' } },
+  } as const;
+  assertEquals(afterRemoteRead((await runOn(open, unset)).guardrails), undefined);
+  assertEquals(studioTaintNote(open), undefined);
+});
+
+Deno.test('a Live session on lent keys compresses where the editor shows, and as written on own keys', async () => {
+  const draft = createLiveExampleDraft();
+  draft.live = {
+    ...draft.live,
+    contextCompression: true,
+    compressionTriggerTokens: null,
+    compressionTargetTokens: null,
+  };
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
+  assert(compiled.ok, JSON.stringify(!compiled.ok && compiled.issues));
+  const compression = async (runtime: StudioRuntime) => {
+    const { profile } = await studioScope(
+      compiled.profile,
+      compiled.customTools,
+      compiled.structured,
+      runtime,
+    );
+    return profile.type === 'live' ? profile.live.contextCompression : undefined;
+  };
+  const shown = lentCompression(TEST_KEYS, {});
+  assertEquals(shown, { triggerTokens: 52_429, targetTokens: 26_215 });
+  assertEquals(await compression(ON_TEST_KEYS), {
+    triggerTokens: shown.triggerTokens,
+    slidingWindow: { targetTokens: shown.targetTokens },
+  });
+  assertEquals(await compression(ON_OWN_KEYS), { slidingWindow: {} });
+  assertEquals(lentCompression(TEST_KEYS, { triggerTokens: 20_000 }).targetTokens, 10_000);
 });
 
 Deno.test('Studio compiled profiles run through a class adapter in their isolated scope', async () => {

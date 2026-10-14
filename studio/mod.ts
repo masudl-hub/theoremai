@@ -88,8 +88,10 @@ export {
 export {
   type LentBinding,
   type LentDecisionLimits,
+  type LentHolds,
   type LentKeys,
   type LentModel,
+  lentCompression,
   type ModelBindingViolation,
   type ModelProfileType,
   type ModelPicks,
@@ -307,7 +309,7 @@ export {
   runGuardrailProbes,
 } from './guardrail-probe.ts';
 export { PROBE_BATTERY, type ProbeBatteryCase } from './probe-battery.ts';
-export { STUDIO_TAINT_NOTE, studioNetworkNote } from './runtime-scope.ts';
+export { studioNetworkNote, studioTaintNote } from './runtime-scope.ts';
 export { sectionNote } from './section-notes.ts';
 export { sampleToolInput, stubOutputFromSchema } from './stub.ts';
 export type { StudioInputsSpec, StudioToolSeed, StudioToolSpecSeed } from './types.ts';

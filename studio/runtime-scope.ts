@@ -15,7 +15,7 @@ import {
 import type { DetectSpec } from '../src/guardrails/detectors.ts';
 import { listsPatterns } from '../src/guardrails/host-patterns.ts';
 import type { ResolveHost } from '../src/guardrails/network.ts';
-import type { TaintGate } from '../src/guardrails/types.ts';
+import { TAINT_GATES, type TaintGate } from '../src/guardrails/types.ts';
 import type { AgentCall, AgentCallHook, ModelProvider } from '../src/kernel/types.ts';
 import {
   defineProvider,
@@ -35,7 +35,7 @@ export interface StudioProviderOptions extends ProviderHostOptions {
   local?: { baseUrl: string; fetch?: typeof fetch };
 }
 import { STUDIO_KEY_SLOT_CAP, studioKeySlots } from './browser-connection.ts';
-import type { StudioRunsOn } from './lent-keys.ts';
+import { lentCompression, type StudioRunsOn } from './lent-keys.ts';
 import { modelBindingViolation } from './policy.ts';
 import { EVERY_MEDIA_KIND, localProviderAddress, standInAdapter } from './providers.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
@@ -180,47 +180,56 @@ export function agentCallHook(scope: KernelScope, runtime: StudioRuntime): Agent
 type RuntimeNetwork = 'public' | 'asWritten' | 'none';
 
 /** The parts of a runtime that decide its network. */
-export type NetworkRuntime = Pick<StudioRuntime, 'mode' | 'remoteTools'> & {
-  providers?: { local?: unknown };
-};
+export type NetworkRuntime = StudioRunsOn &
+  Pick<StudioRuntimeBase, 'remoteTools'> & { providers?: { local?: unknown } };
 
 /**
- * The studio's own server drops the draft's network exemptions, which are for the host the
- * profile is exported to. A local model with remote tools off reaches no host.
+ * Lent keys that hold runs to public hosts drop the draft's network rules. A local model with
+ * remote tools off reaches no host. Otherwise the rules run as written.
  */
 function runtimeNetwork(runtime: NetworkRuntime): RuntimeNetwork {
-  if (runtime.mode === 'demo') return 'public';
+  if (runtime.mode === 'demo') return runtime.keys.holds.publicHostsOnly ? 'public' : 'asWritten';
   return (runtime.mode === 'local' || runtime.providers?.local) && !runtime.remoteTools
     ? 'none'
     : 'asWritten';
 }
 
-const NETWORK_NOTES: Record<RuntimeNetwork, string> = {
-  public: 'Studio server: public hosts only.',
-  asWritten: 'Browser runs: rules as written.',
+const NETWORK_NOTES: Record<RuntimeNetwork, string | undefined> = {
+  public: "This page's keys reach public hosts only.",
+  asWritten: undefined,
   none: 'Remote tools off: no host reached.',
 };
 
-/** What the studio does with the Network section on `runtime`. */
-function studioNetworkNote(runtime: NetworkRuntime): string {
+/** What the studio does with the Network section on `runtime`; nothing when it runs as written. */
+export function studioNetworkNote(runtime: NetworkRuntime): string | undefined {
   return NETWORK_NOTES[runtimeNetwork(runtime)];
 }
 
-/**
- * Once a turn has read a remote tool's result, a destructive call is refused: fetched text can't
- * steer the agent into deleting or overwriting. A draft that asks for stricter keeps it.
- */
-const STUDIO_TAINT_NOTE =
-  'Studio runs refuse destructive calls after a remote read. Stricter settings hold.';
+/** What lent keys refuse after a remote read; nothing when the profile's own setting runs. */
+export function studioTaintNote(on: StudioRunsOn): string | undefined {
+  const gate = on.mode === 'demo' ? on.keys.holds.afterRemoteRead : 'off';
+  if (gate === 'off') return undefined;
+  const refused = gate === 'write' ? 'writes' : 'destructive calls';
+  return `This page's keys refuse ${refused} after a remote read. Stricter settings hold.`;
+}
 
-function withRemoteReadGate<G extends { taint?: { afterRemoteRead?: TaintGate } }>(
+/** The stricter of two gates. */
+function stricterGate(a: TaintGate | undefined, b: TaintGate): TaintGate {
+  return TAINT_GATES.indexOf(a ?? 'off') > TAINT_GATES.indexOf(b) ? (a as TaintGate) : b;
+}
+
+/** `guardrails` held to what lent keys refuse after a remote read. */
+function withHeldTaint<G extends { taint?: { afterRemoteRead?: TaintGate } }>(
   guardrails: G,
+  runtime: StudioRuntime,
 ): G {
-  if (guardrails.taint?.afterRemoteRead === 'write') return guardrails;
-  return {
-    ...guardrails,
-    taint: { ...guardrails.taint, afterRemoteRead: 'destructive' },
-  };
+  if (runtime.mode !== 'demo' || runtime.keys.holds.afterRemoteRead === 'off') return guardrails;
+  const afterRemoteRead = stricterGate(
+    guardrails.taint?.afterRemoteRead,
+    runtime.keys.holds.afterRemoteRead,
+  );
+  if (afterRemoteRead === guardrails.taint?.afterRemoteRead) return guardrails;
+  return { ...guardrails, taint: { ...guardrails.taint, afterRemoteRead } };
 }
 
 function runtimeGuardrails<G extends { network?: unknown }>(
@@ -245,7 +254,7 @@ function runtimeProfileDefinition(
   if (def.type === 'speech') {
     return {
       ...def,
-      guardrails: withRemoteReadGate(runtimeGuardrails(def.guardrails ?? {}, runtime)),
+      guardrails: withHeldTaint(runtimeGuardrails(def.guardrails ?? {}, runtime), runtime),
     };
   }
   // A host runs one tool per call, so a turn never reads before it acts; the kernel refuses taint there.
@@ -257,8 +266,30 @@ function runtimeProfileDefinition(
   }
   if (def.type === 'decision') return def;
   return {
+    ...withLentCompression(def, runtime),
+    guardrails: withHeldTaint(runtimeGuardrails(def.guardrails ?? {}, runtime), runtime),
+  };
+}
+
+/** A Live profile on lent keys runs with the compression sizes the editor shows for them. */
+function withLentCompression<D extends ProfileDefinition>(def: D, runtime: StudioRuntime): D {
+  if (def.type !== 'live' || runtime.mode !== 'demo') return def;
+  const compression = def.live?.contextCompression;
+  if (!compression) return def;
+  const sizes = lentCompression(runtime.keys, {
+    triggerTokens: compression.triggerTokens,
+    targetTokens: compression.slidingWindow.targetTokens,
+  });
+  return {
     ...def,
-    guardrails: withRemoteReadGate(runtimeGuardrails(def.guardrails ?? {}, runtime)),
+    live: {
+      ...def.live,
+      contextCompression: {
+        ...compression,
+        triggerTokens: sizes.triggerTokens,
+        slidingWindow: { ...compression.slidingWindow, targetTokens: sizes.targetTokens },
+      },
+    },
   };
 }
 
@@ -432,5 +463,3 @@ export async function writtenScope(drafts: readonly StudioDependency[]): Promise
   }
   return { scope, profile };
 }
-
-export { STUDIO_TAINT_NOTE, studioNetworkNote };

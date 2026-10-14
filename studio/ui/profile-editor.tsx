@@ -173,6 +173,7 @@ import {
 	isGoogleRoute,
 	isOpenRouterRoute,
 	type LentKeys,
+	lentCompression,
 	LOCAL_PROVIDER_ID,
 	modelRoute,
 	onStudioLocal,
@@ -198,7 +199,6 @@ import {
 	type PatternSourceDraft,
 	plantsCanary,
 	removeModelBinding,
-	STUDIO_TAINT_NOTE,
 	STUDIO_TRACE_DESTINATION,
 	type StudioAsks,
 	type StudioDraft,
@@ -208,6 +208,7 @@ import {
 	sectionNote,
 	setProfileType,
 	studioNetworkNote,
+	studioTaintNote,
 	studioNodeRef,
 	studioRunsProvider,
 	type ToolSpecDraft,
@@ -2266,15 +2267,6 @@ function SpeechEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDr
 /** Compression sliders move in steps of 1,024 tokens, which divides the free key's cap. */
 const COMPRESSION_STEP = 1024;
 
-/**
- * Google's sliding window when left blank: it triggers at 80% of the context window and keeps half
- * of that. Shown against `held`, the most a session holds on the lent keys.
- */
-function compressionDefaults(held: number) {
-	const trigger = Math.round(held * 0.8);
-	return { trigger, target: Math.round(trigger / 2) };
-}
-
 /** The live slice of the draft and its setter, for each live section. */
 interface LiveSectionProps {
 	live: StudioDraft['live'];
@@ -2404,7 +2396,7 @@ function LiveCompressionSection({ live, set }: LiveSectionProps) {
 			/>
 			{live.contextCompression &&
 				(keys ? (
-					<CompressionSliderRows live={live} set={set} held={keys.liveInputTokens} />
+					<CompressionSliderRows live={live} set={set} keys={keys} />
 				) : (
 					<CompressionNumberRows live={live} set={set} />
 				))}
@@ -2412,8 +2404,13 @@ function LiveCompressionSection({ live, set }: LiveSectionProps) {
 	);
 }
 
-function CompressionSliderRows({ live, set, held }: LiveSectionProps & { held: number }) {
-	const fallback = compressionDefaults(held);
+/** A blank size sits where a run on the keys puts it. */
+function CompressionSliderRows({ live, set, keys }: LiveSectionProps & { keys: LentKeys }) {
+	const held = keys.liveInputTokens;
+	const fallback = lentCompression(keys, {
+		triggerTokens: live.compressionTriggerTokens ?? undefined,
+		targetTokens: live.compressionTargetTokens ?? undefined,
+	});
 	return (
 		<>
 			<SliderRow
@@ -2421,7 +2418,7 @@ function CompressionSliderRows({ live, set, held }: LiveSectionProps & { held: n
 				path="live.contextCompression.triggerTokens"
 				field="compressionTriggerTokens"
 				value={live.compressionTriggerTokens}
-				fallback={fallback.trigger}
+				fallback={fallback.triggerTokens}
 				min={COMPRESSION_STEP}
 				max={held}
 				step={COMPRESSION_STEP}
@@ -2434,7 +2431,7 @@ function CompressionSliderRows({ live, set, held }: LiveSectionProps & { held: n
 				path="live.contextCompression.slidingWindow.targetTokens"
 				field="compressionTargetTokens"
 				value={live.compressionTargetTokens}
-				fallback={fallback.target}
+				fallback={fallback.targetTokens}
 				min={COMPRESSION_STEP}
 				max={held - COMPRESSION_STEP}
 				step={COMPRESSION_STEP}
@@ -3176,8 +3173,8 @@ function BlockedReplySection({
 }
 
 function NetworkSection({ guardrails, set }: GuardrailsSectionProps) {
-	const { mode } = useContext(RunsOn);
-	const runtime = useContext(LocalConnection)?.runtime ?? { mode };
+	const on = useContext(RunsOn);
+	const runtime = useContext(LocalConnection)?.runtime ?? on;
 	return (
 		<InspectorSection title="Network" path="guardrails.network" note={studioNetworkNote(runtime)}>
 			<SwitchRow
@@ -4176,6 +4173,7 @@ async function fadeOut(node: HTMLElement): Promise<void> {
 function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
 	const { guardrails } = draft;
 	const set = patch(setDraft, 'guardrails');
+	const on = useContext(RunsOn);
 	const boundaries = draft.identity.profileType === 'host' ? TOOL_BOUNDARIES : BOUNDARIES;
 	const [open, setOpen] = useState<OpenDetector | null>(null);
 	const view = useRef<HTMLDivElement>(null);
@@ -4229,7 +4227,7 @@ function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: S
 				<InspectorSection
 					title="After a remote read"
 					path="guardrails.taint"
-					note={STUDIO_TAINT_NOTE}
+					note={studioTaintNote(on)}
 				>
 					<SegmentedRow
 						label="Refuse calls"

@@ -158,7 +158,7 @@ Deno.test('a provider the builder changed runs as edited, with everything else a
           after: providerSettings(providerOf(edited)),
         },
       ],
-      added: { agents: [], profiles: [], tools: [] },
+      added: { agents: [], profiles: [], tools: [], providers: [] },
     };
     await registerEdits(defaultKernelScope, subjects);
     const now = defaultKernelScope.providers.require('house');
@@ -166,6 +166,22 @@ Deno.test('a provider the builder changed runs as edited, with everything else a
     assertEquals(now.adapter, registered.adapter);
     assertEquals(now.connection, { baseURL: 'https://other.example/v1' });
     assertEquals(providerOf((await described()).workspace), providerOf(edited));
+  } finally {
+    defaultKernelScope.providers.reset();
+  }
+});
+
+Deno.test('a provider the builder added is registered for the run', async () => {
+  try {
+    const added = {
+      agents: [],
+      profiles: [],
+      tools: [],
+      providers: [{ id: 'spare-house', adapter: 'openrouter', connection: {}, keySlot: 'spare' }],
+    };
+    await registerEdits(defaultKernelScope, { subjects: [], added });
+    const now = defaultKernelScope.providers.require('spare-house');
+    assertEquals([now.adapter.id, now.keySlot], ['openrouter', 'spare']);
   } finally {
     defaultKernelScope.providers.reset();
   }

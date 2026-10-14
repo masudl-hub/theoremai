@@ -9,7 +9,7 @@ const ROOT = '/project';
 function planned(files: Record<string, string>, removed: Partial<Removed>, entry = 'setup.ts') {
   const held = new Map(Object.entries(files).map(([path, text]) => [`${ROOT}/${path}`, text]));
   const source = readProjectSource(`${ROOT}/${entry}`, ROOT, (path) => held.get(path));
-  const plan = planRemoved(source, { profiles: [], tools: [], ...removed });
+  const plan = planRemoved(source, { profiles: [], tools: [], providers: [], ...removed });
   const written: Record<string, string> = {};
   for (const [file, edits] of Map.groupBy(plan.edits, (edit) => edit.file)) {
     written[file.replace(`${ROOT}/`, '')] = applyEdits(held.get(file) ?? '', edits);
@@ -306,4 +306,46 @@ Deno.test('entries on one line leave the commas the list needs', () => {
   assertEquals(left(['c']), 'export const questions = { a, b };');
   assertEquals(left(['b', 'c']), 'export const questions = { a };');
   assertEquals(left(['a', 'b']), 'export const questions = { c };');
+});
+
+Deno.test('a provider goes where it is registered, and one registered in a list is named instead', () => {
+  const setup = lines(
+    "import { defineProvider, googleAdapter, registerProvider } from '@theoremjs/agents';",
+    "import { spare } from './spare.ts';",
+    '',
+    "registerProvider({ id: 'inline', adapter: googleAdapter });",
+    "const named = defineProvider({ id: 'named', adapter: googleAdapter });",
+    'registerProvider(named);',
+    'registerProvider(spare);',
+    "registerProvider({ id: 'kept', adapter: googleAdapter });",
+  );
+  const spare = lines(
+    "import { defineProvider, googleAdapter } from '@theoremjs/agents';",
+    "export const spare = defineProvider({ id: 'spare', adapter: googleAdapter });",
+  );
+  const plan = planned(
+    { 'setup.ts': setup, 'spare.ts': spare },
+    { providers: ['inline', 'named', 'spare'] },
+  );
+  assertEquals(plan.statuses, [
+    ['inline', 'written'],
+    ['named', 'written'],
+    ['spare', 'written'],
+  ]);
+  assertEquals(plan.gone, ['spare.ts']);
+  assertEquals(plan.written, {
+    'setup.ts': lines(
+      "import { defineProvider, googleAdapter, registerProvider } from '@theoremjs/agents';",
+      '',
+      "registerProvider({ id: 'kept', adapter: googleAdapter });",
+    ),
+  });
+
+  const listed = lines(
+    "import { defineProvider, googleAdapter, registerProviders } from '@theoremjs/agents';",
+    "const house = defineProvider({ id: 'house', adapter: googleAdapter });",
+    'registerProviders([house]);',
+  );
+  const list = planned({ 'setup.ts': listed }, { providers: ['house'] });
+  assertEquals([list.statuses, list.written, list.gone], [[['house', 'removed']], {}, []]);
 });

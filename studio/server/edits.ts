@@ -13,6 +13,7 @@ import type { RegisteredTool } from '../../src/kernel/tools/types.ts';
 import type { CompiledStudio } from '../compile.ts';
 import { heldSetting, unheldProblem } from '../held-credentials.ts';
 import type { ToolRegistration } from '../registrations.ts';
+import { providerDefinition } from '../providers.ts';
 import type { ProjectQuestions } from './handler.ts';
 import { withCompiledPatterns } from '../runtime-scope.ts';
 import { registerCustomTool } from '../tools.ts';
@@ -171,6 +172,7 @@ function registerProvider(scope: KernelScope, subject: SaveSubject): void {
  * order the kernel checks them in.
  */
 export async function registerEdits(scope: KernelScope, edits: ProjectEdits): Promise<void> {
+  for (const provider of edits.added.providers) scope.providers.register(providerDefinition(provider));
   for (const held of edits.subjects) if (held.kind === 'provider') registerProvider(scope, held);
   const subject = (kind: SaveSubject['kind'], named: (after: Json) => unknown, name: string) =>
     edits.subjects.find((held) => held.kind === kind && named(held.after as Json) === name);

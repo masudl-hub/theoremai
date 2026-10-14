@@ -182,6 +182,7 @@ export {
 export type { StudioDependency } from './runtime-scope.ts';
 export {
   addAgent,
+  addProvider,
   type AgentDraft,
   agentDraft,
   agentNodeId,
@@ -203,6 +204,8 @@ export {
   resetAll,
   resetLibraryTool,
   providersAtStart,
+  providerUse,
+  removeProvider,
   resetProvider,
   scopedNodeId,
   setToolAllowed,

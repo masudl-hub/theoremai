@@ -19,10 +19,11 @@ import {
 import type { SavePlan, SourceEdit } from './save-plan.ts';
 import type { SaveChange } from './save-wire.ts';
 
-/** What the studio took away: the ids of profiles and the names of tools the project has. */
+/** What the studio took away: the ids of profiles and providers and the names of tools the project has. */
 export interface Removed {
   profiles: readonly string[];
   tools: readonly string[];
+  providers: readonly string[];
 }
 
 export interface RemovalPlan extends SavePlan {
@@ -30,8 +31,8 @@ export interface RemovalPlan extends SavePlan {
   gone: string[];
 }
 
-/** The calls that register what a profile's module holds. */
-const REGISTERS = new Set(['registerProfile', 'registerStructured']);
+/** The calls that register what a profile's or a provider's module holds. */
+const REGISTERS = new Set(['registerProfile', 'registerStructured', 'registerProvider']);
 
 /** Something a file writes that can be taken out whole. */
 type Part = ts.Statement | ts.ObjectLiteralElementLike | ts.ImportSpecifier;
@@ -241,24 +242,41 @@ class Removal {
     if (alone) this.cut.set(statement, source);
   }
 
-  profile(id: string) {
-    const targets = this.project.profiles.get(id) ?? [];
+  /**
+   * Takes out a profile or a provider that `register` registers: the statement that registers it
+   * where it is written, or its named definition and each statement that registers the name.
+   * True when it went; a way of registering the studio cannot follow is noted instead.
+   */
+  private defined(kind: 'profile' | 'provider', id: string, register: string): boolean {
+    const targets = (kind === 'profile' ? this.project.profiles : this.project.providers).get(id) ?? [];
     const [target] = targets;
-    if (!target) return this.note('profile', id, 'removed');
+    const unfollowed = (place?: { node: ts.Node; source: ts.SourceFile }) => {
+      this.note(kind, id, 'removed', place);
+      return false;
+    };
+    if (!target) return unfollowed();
     const at = { node: target.options, source: target.source };
     // Written twice: the studio cannot tell which one runs.
-    if (targets.length > 1) return this.note('profile', id, 'removed', at);
+    if (targets.length > 1) return unfollowed(at);
     const defined = wrapped(target.options).parent;
     const outer = wrapped(defined).parent;
-    // Registered where it is written: with `defineProfile` inside the call, or without it.
-    const registers = [defined, outer].find((call) => ts.isCallExpression(call) && calleeName(call) === 'registerProfile');
+    // Registered where it is written: with its `define` call inside the call, or without it.
+    const registers = [defined, outer].find((call) => ts.isCallExpression(call) && calleeName(call) === register);
     const inline = registers && statementOf(registers);
     const named = inline ? undefined : declared(defined, target.source);
     if (inline) this.cut.set(inline, target.source);
-    else if (!named || !this.named(named)) return this.note('profile', id, 'removed', at);
+    else if (!named || !this.named(named)) return unfollowed(at);
     this.homes.add(target.source);
-    this.unasked(id);
-    this.note('profile', id, 'written', at);
+    this.note(kind, id, 'written', at);
+    return true;
+  }
+
+  profile(id: string) {
+    if (this.defined('profile', id, 'registerProfile')) this.unasked(id);
+  }
+
+  provider(id: string) {
+    this.defined('provider', id, 'registerProvider');
   }
 
   /** A removed decision's entry in the setup's `questions`, under its id. */
@@ -425,10 +443,11 @@ function cutsOf(parts: readonly Part[], source: ts.SourceFile): Cut[] {
   return joined.map((cut) => closed(cut, source.text));
 }
 
-/** Plans the removal of each profile and tool the studio took away. */
+/** Plans the removal of each profile, tool and provider the studio took away. */
 export function planRemoved(project: ProjectSource, removed: Removed): RemovalPlan {
   const removal = new Removal(project);
   for (const id of removed.profiles) removal.profile(id);
   for (const name of removed.tools) removal.tool(name);
+  for (const id of removed.providers) removal.provider(id);
   return removal.build();
 }

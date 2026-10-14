@@ -3,6 +3,7 @@ import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
 	connectionFields,
+	providerUse,
 	type StudioIssue,
 	type StudioProvider,
 	type StudioWorkspace,
@@ -21,11 +22,7 @@ function settingLabel(name: string): string {
 
 /** How many models run on the provider, and across how many agents. */
 function usedBy(workspace: StudioWorkspace, id: string): string {
-	const counts = workspace.agents.map(
-		(agent) => agent.modelBindings.filter((binding) => binding.provider === id).length,
-	);
-	const models = counts.reduce((sum, count) => sum + count, 0);
-	const agents = counts.filter((count) => count > 0).length;
+	const { models, agents } = providerUse(workspace, id);
 	if (models === 0) return 'No model runs on it.';
 	const plural = (count: number, word: string) => `${String(count)} ${word}${count === 1 ? '' : 's'}`;
 	return `${plural(models, 'model')} in ${plural(agents, 'agent')} ${models === 1 ? 'runs' : 'run'} on it.`;

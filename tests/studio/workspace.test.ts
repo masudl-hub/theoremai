@@ -1,6 +1,7 @@
 import { assert, assertEquals } from '@std/assert';
 import {
   addAgent,
+  addProvider,
   agentDraft,
   agentNodeId,
   agentToolTarget,
@@ -13,8 +14,13 @@ import {
   libraryDraft,
   modelBindingNodeId,
   newToolSpec,
+  providerNodeId,
+  providerUse,
   removeAgent,
   removeLibraryTool,
+  removeProvider,
+  resetAgent,
+  resetAll,
   type StudioTreeNode,
   type StudioWorkspace,
   setToolAllowed,
@@ -229,4 +235,57 @@ Deno.test("picking an agent tool's agent fills a stub description, never one the
     ),
     { agentKey: 'k' },
   );
+});
+
+Deno.test('a provider is added for every agent, and removed only once no model runs on it', () => {
+  const start = workspaceFromDraft(createExampleDraft());
+  const house = {
+    id: 'house',
+    adapter: 'openai-chat',
+    connection: { baseURL: 'https://models.example/v1' },
+  };
+  const added = addProvider(start, house);
+  assertEquals(added.providers.at(-1), house);
+  assertEquals(added.selected, providerNodeId('house'));
+  assertEquals(providerUse(added, 'house'), { models: 0, agents: 0 });
+  // An id that is taken is not added twice.
+  assertEquals(addProvider(added, { ...house, adapter: 'google' }), added);
+  const removed = removeProvider(added, 'house');
+  assertEquals(removed.providers, start.providers);
+  assertEquals(removed.starts.providers.house, undefined);
+  assert(workspaceNodeRef(removed, removed.selected));
+
+  // A model has no provider to fall to: the one it runs on stays.
+  const [agent] = start.agents;
+  const used = must(must(agent).modelBindings[0]).provider;
+  assert(providerUse(start, used).models > 0);
+  assertEquals(removeProvider(start, used), start);
+});
+
+Deno.test('an agent put back to its start brings back the provider its models started on', () => {
+  const start = addProvider(workspaceFromDraft(createExampleDraft()), {
+    id: 'house',
+    adapter: 'google',
+  });
+  const [agent] = start.agents;
+  const key = must(agent).key;
+  const used = must(must(agent).modelBindings[0]).provider;
+  const moved = {
+    ...start,
+    agents: start.agents.map((each) => ({
+      ...each,
+      modelBindings: each.modelBindings.map((binding) => ({ ...binding, provider: 'house' })),
+    })),
+  };
+  const without = removeProvider(moved, used);
+  assert(!without.providers.some((provider) => provider.id === used));
+  // Its start is kept while an agent's start has a model on it.
+  assert(without.starts.providers[used]);
+  for (const reset of [resetAgent(without, key), resetAll(without)]) {
+    assertEquals(
+      reset.providers.find((provider) => provider.id === used),
+      start.starts.providers[used],
+    );
+    assertEquals(must(reset.agents[0]).modelBindings, must(agent).modelBindings);
+  }
 });

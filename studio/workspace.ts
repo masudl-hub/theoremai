@@ -17,6 +17,7 @@ import { canonical } from './canonical.ts';
 import type { StudioProvider } from './providers.ts';
 import {
   providerIdOf,
+  providerNodeId,
   type StudioNodeRef,
   studioNodeRef,
   studioTree,
@@ -156,7 +157,8 @@ const byId = (provider: StudioProvider) => provider.id;
 
 /**
  * Gives a start to each agent, tool and provider that has none, and forgets the starts nothing can
- * reach: a removed agent's or provider's, and a tool's that is in no library and no agent's start.
+ * reach: a removed agent's, a tool's that is in no library and no agent's start, and a provider's
+ * that is not held and that no agent's start has a model on.
  */
 function remembered(workspace: StudioWorkspace): StudioWorkspace {
   const agents = Object.fromEntries(
@@ -172,7 +174,27 @@ function remembered(workspace: StudioWorkspace): StudioWorkspace {
   const providers = Object.fromEntries(
     workspace.providers.map((provider) => [provider.id, workspace.starts.providers[provider.id] ?? provider]),
   );
+  for (const id of Object.values(agents).flatMap(providersOf)) {
+    const start = workspace.starts.providers[id];
+    if (start && !(id in providers)) providers[id] = start;
+  }
   return { ...workspace, starts: { agents, tools, providers } };
+}
+
+/** The providers an agent's models run on. */
+const providersOf = (agent: AgentDraft): string[] => agent.modelBindings.map((binding) => binding.provider);
+
+/**
+ * `providers` with each one `agents` started on that is no longer held, as it started. A model
+ * has no provider to fall to, so an agent put back to its start brings its providers with it.
+ */
+function withStartProviders(workspace: StudioWorkspace, agents: readonly AgentDraft[]): StudioProvider[] {
+  const held = new Set(workspace.providers.map(byId));
+  const back = [...new Set(agents.flatMap(providersOf))].flatMap((id) => {
+    const start = workspace.starts.providers[id];
+    return start && !held.has(id) ? [start] : [];
+  });
+  return back.length ? [...workspace.providers, ...back] : workspace.providers;
 }
 
 /** Makes what an agent holds now its start: for an example that links its agents after adding them. */
@@ -446,7 +468,8 @@ export function resetAgent(workspace: StudioWorkspace, key: string): StudioWorks
   const others = workspace.agents.filter((agent) => agent.key !== key).map((agent) => agent.identity.agentId);
   const agent = fitted(start, id && freeName(id, others, (n) => `${id}_${n}`), held, here);
   if (back.length === 0 && same(agent, now)) return workspace;
-  const next = { ...workspace, agents: mapAgent(workspace, key, () => agent), toolSpecs };
+  const providers = withStartProviders(workspace, [start]);
+  const next = { ...workspace, agents: mapAgent(workspace, key, () => agent), toolSpecs, providers };
   return workspaceNodeRef(next, next.selected) ? next : { ...next, selected: agentNodeId(key) };
 }
 
@@ -483,7 +506,7 @@ export function resetAll(workspace: StudioWorkspace): StudioWorkspace {
     ids.push(agentId);
     return fitted(start, agentId, library, here);
   });
-  const providers = workspace.providers.map((provider) => starts.providers[provider.id] ?? provider);
+  const providers = withStartProviders(workspace, agents).map((provider) => starts.providers[provider.id] ?? provider);
   if (same(agents, workspace.agents) && same(toolSpecs, workspace.toolSpecs) && same(providers, workspace.providers)) {
     return workspace;
   }
@@ -1041,6 +1064,38 @@ export function withProvider(workspace: StudioWorkspace, provider: StudioProvide
   const now = workspace.providers.find((each) => each.id === provider.id);
   if (!now || same(now, provider)) return workspace;
   return { ...workspace, providers: workspace.providers.map((each) => (each.id === provider.id ? provider : each)) };
+}
+
+/** How many models run on the provider `id`, and across how many agents. */
+export function providerUse(workspace: StudioWorkspace, id: string): { models: number; agents: number } {
+  const counts = workspace.agents.map((agent) => providersOf(agent).filter((held) => held === id).length);
+  return { models: counts.reduce((sum, count) => sum + count, 0), agents: counts.filter((count) => count > 0).length };
+}
+
+/** Adds a provider for every agent's models to pick, and opens it. One whose id is taken changes nothing. */
+export function addProvider(workspace: StudioWorkspace, provider: StudioProvider): StudioWorkspace {
+  if (workspace.providers.some((each) => each.id === provider.id)) return workspace;
+  return remembered({
+    ...workspace,
+    providers: [...workspace.providers, provider],
+    selected: providerNodeId(provider.id),
+  });
+}
+
+/**
+ * Removes a provider no model runs on. One a model runs on stays: a model has no provider to fall
+ * to, so its models move first.
+ */
+export function removeProvider(workspace: StudioWorkspace, id: string): StudioWorkspace {
+  const held = workspace.providers.some((each) => each.id === id);
+  if (!held || providerUse(workspace, id).models > 0) return workspace;
+  return remembered({
+    ...workspace,
+    providers: workspace.providers.filter((each) => each.id !== id),
+    selected: workspace.selected === providerNodeId(id)
+      ? agentNodeId(workspace.agents[0]?.key ?? '')
+      : workspace.selected,
+  });
 }
 
 /** The providers that are as they started: the ones the project's files still say. */

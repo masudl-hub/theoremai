@@ -16,7 +16,7 @@ import {
   planSave,
   type SaveSubject,
 } from '../../studio/server/save-plan.ts';
-import { setToolAllowed, startedHere } from '../../studio/workspace.ts';
+import { addProvider, setToolAllowed, startedHere } from '../../studio/workspace.ts';
 
 const ROOT = '/project';
 
@@ -504,7 +504,21 @@ Deno.test('a profile the studio added is one to write, and one it removed is one
   });
   assertEquals(subjects.ok && [subjects.added.profiles, subjects.removed, subjects.changes], [
     ['garden-desk'],
-    { profiles: ['other'], tools: [] },
+    { profiles: ['other'], tools: [], providers: [] },
+    [],
+  ]);
+});
+
+Deno.test('a provider the studio added is one to write, and one it removed is one to take out', () => {
+  const house = { id: 'house', adapter: 'openrouter', connection: {}, keySlot: 'HOUSE_KEY' };
+  const names = projectNames(opened.workspace);
+  const subjects = saveSubjects(addProvider(opened.workspace, house), {
+    ...names,
+    providers: [...names.providers, 'gone'],
+  });
+  assertEquals(subjects.ok && [subjects.added.providers, subjects.removed, subjects.changes], [
+    [house],
+    { profiles: [], tools: [], providers: ['gone'] },
     [],
   ]);
 });

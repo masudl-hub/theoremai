@@ -8,10 +8,13 @@ import { applyEdits } from '../../studio/server/save-plan.ts';
 const ROOT = '/project';
 
 /** Plans what was added to a project held in memory, and returns each file as Save would write it. */
-function planned(files: Record<string, string>, added: NewSubjects, entry = 'setup.ts') {
+/** What the studio added, with no provider unless the test names one. */
+type Added = Omit<NewSubjects, 'providers'> & Partial<Pick<NewSubjects, 'providers'>>;
+
+function planned(files: Record<string, string>, added: Added, entry = 'setup.ts') {
   const held = new Map(Object.entries(files).map(([path, text]) => [`${ROOT}/${path}`, text]));
   const source = readProjectSource(`${ROOT}/${entry}`, ROOT, (path) => held.get(path));
-  const plan = planNew(source, added, (path) => held.has(path));
+  const plan = planNew(source, { providers: [], ...added }, (path) => held.has(path));
   const written: Record<string, string> = {};
   for (const [file, edits] of Map.groupBy(plan.edits, (edit) => edit.file)) {
     written[file.replace(`${ROOT}/`, '')] = applyEdits(held.get(file) ?? '', edits);
@@ -508,5 +511,33 @@ Deno.test('a new agent with an item rule is not written: its check is code the s
   assertEquals(planned({ 'setup.ts': INLINE }, { agents: [ruled], profiles: ['a'], tools: [] }), {
     written: {},
     statuses: [['a', 'owed', undefined]],
+  });
+});
+
+Deno.test('a new provider is a file, registered before every agent', () => {
+  const { written, statuses } = planned(
+    { 'setup.ts': INLINE },
+    {
+      agents: [host('desk', ['list'])],
+      profiles: [],
+      tools: [],
+      providers: [{ id: 'house', adapter: 'openrouter', keySlot: 'HOUSE_KEY' }],
+    },
+  );
+  assertEquals(statuses, [['house', 'written', 'house.ts']]);
+  assertEquals(written, {
+    'house.ts': `import { defineProvider, openRouterAdapter } from '@theoremjs/agents';
+
+export const house = defineProvider({ id: 'house', connection: {}, keySlot: 'HOUSE_KEY', adapter: openRouterAdapter() });
+`,
+    'setup.ts': `import { defineProfile, registerProfile, registerTool, z, registerProvider } from '@theoremjs/agents';
+import { house } from './house';
+
+export default function register() {
+  ${LIST}
+  registerProvider(house);
+  registerProfile(${DESK});
+}
+`,
   });
 });

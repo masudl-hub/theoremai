@@ -160,6 +160,31 @@ function toolSource(tool: ToolRegistration, indent = 0): string {
   return call({ ...functionFields, ...zod, handler });
 }
 
+/** What `defineProvider` and `registerProvider` take for `provider`, with the adapter `factory` makes. */
+function providerOptions(provider: StudioProvider, factory: string): string {
+  const held = Object.entries(provider.connection ?? {}).map(
+    ([key, value]) => `${keySource(key)}: ${quoteSource(value)}`,
+  );
+  const connection = held.length ? `{ ${held.join(', ')} }` : '{}';
+  const slots = (['keySlot', 'fallbackKeySlot'] as const).flatMap((slot) =>
+    provider[slot] === undefined ? [] : [` ${slot}: ${quoteSource(provider[slot])},`]
+  );
+  return `{ id: ${quoteSource(provider.id)}, connection: ${connection},${slots.join('')} adapter: ${factory}() }`;
+}
+
+/**
+ * A provider's module: its definition under `name`, for the setup to register. `from` is where the
+ * module imports the kernel from. None for an adapter that is the project's own.
+ */
+export function providerModule(provider: StudioProvider, name: string, from = AGENTS_PACKAGE): string | undefined {
+  const factory = adapterFactory(provider.adapter);
+  if (!factory) return undefined;
+  return [
+    `import { defineProvider, ${factory} } from ${quoteSource(from)};\n`,
+    `export const ${name} = defineProvider(${providerOptions(provider, factory)});\n`,
+  ].join('\n');
+}
+
 /**
  * The registration of each provider a model of `profiles` names. One the project's files define
  * (`places`) is imported under its own name, by its path from the project's folder, or named by
@@ -206,16 +231,7 @@ function providerRegistrations(
     }
     imports.add('registerProvider');
     imports.add(factory);
-    const held = Object.entries(provider.connection ?? {}).map(
-      ([key, value]) => `${keySource(key)}: ${quoteSource(value)}`,
-    );
-    const connection = held.length ? `{ ${held.join(', ')} }` : '{}';
-    const slots = (['keySlot', 'fallbackKeySlot'] as const).flatMap((slot) =>
-      provider[slot] === undefined ? [] : [` ${slot}: ${quoteSource(provider[slot])},`]
-    );
-    code.push(
-      `registerProvider({ id: ${quoteSource(id)}, connection: ${connection},${slots.join('')} adapter: ${factory}() });\n`,
-    );
+    code.push(`registerProvider(${providerOptions(provider, factory)});\n`);
   }
   return {
     imports: [...imports],

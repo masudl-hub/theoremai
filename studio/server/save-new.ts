@@ -11,8 +11,9 @@
 import ts from 'typescript';
 import { dirname, relative, resolve } from 'node:path';
 import type { CompiledStudio } from '../compile.ts';
+import type { StudioProvider } from '../providers.ts';
 import type { ToolRegistration } from '../registrations.ts';
-import { AGENTS_PACKAGE, agentIdentifier, agentModule, toolModule } from '../source.ts';
+import { AGENTS_PACKAGE, agentIdentifier, agentModule, providerModule, toolModule } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
 import {
   calleeName,
@@ -28,13 +29,15 @@ import {
 import { indentAt, indentUnit, type SavePlan, type SourceEdit } from './save-plan.ts';
 import type { SaveChange } from './save-wire.ts';
 
-/** A profile or tool the studio added, as it compiles. `agents` is every agent of the workspace, in the order a scope registers them. */
+/** A profile, tool or provider the studio added, as it compiles. `agents` is every agent of the workspace, in the order a scope registers them. */
 export interface NewSubjects {
   agents: readonly CompiledStudio[];
   /** The ids of the agents that are new. */
   profiles: readonly string[];
   /** The tools that are new, each once. */
   tools: readonly ToolRegistration[];
+  /** The providers that are new. */
+  providers: readonly StudioProvider[];
 }
 
 /** A file name is the id or name itself, so it holds only what every file system takes. */
@@ -341,6 +344,7 @@ class NewPlan {
     const { entry } = this.ground.project;
     for (const id of this.added.profiles) this.refuse('profile', id, 'setup', entry);
     for (const tool of this.added.tools) this.refuse('tool', tool.name, 'setup', entry);
+    for (const provider of this.added.providers) this.refuse('provider', provider.id, 'setup', entry);
     return this.plan;
   }
 
@@ -376,6 +380,21 @@ class NewPlan {
     this.setup.import(imports(specifierTo(source.fileName, file, this.extension)));
     this.plan.changes.push({ kind, of, setting: '', status: 'written', file, line: 1 });
     return true;
+  }
+
+  /** A provider's file, and the setup's line that registers it before every profile. */
+  private provider(provider: StudioProvider) {
+    const { agents, source } = this.ground;
+    const name = agentIdentifier(provider.id, this.taken);
+    const made = this.create(
+      'provider',
+      provider.id,
+      (file) => providerModule(provider, name, this.from(file).agents),
+      (specifier) => `import { ${name} } from '${specifier}';`,
+    );
+    if (!made) return;
+    this.setup.needs('registerProvider', carried(agents.specifier, agents.file, source.fileName));
+    this.setup.beforeProfiles(`registerProvider(${name});`);
   }
 
   /** A tool's file, and the setup's call of the function in it that registers the tool. */
@@ -499,6 +518,7 @@ class NewPlan {
 
   build(): SavePlan {
     if (!this.setup.plain) return this.unplaced();
+    for (const provider of this.added.providers) this.provider(provider);
     const calls = this.tools();
     for (const agent of this.added.agents) {
       if (this.isNew.has(agent.agentId)) this.agent(agent, calls);
@@ -513,13 +533,14 @@ class NewPlan {
  * taken. A change it cannot write says why, and nothing is planned for it.
  */
 export function planNew(project: ProjectSource, added: NewSubjects, exists: (path: string) => boolean): SavePlan {
-  if (!added.profiles.length && !added.tools.length) return { changes: [], edits: [] };
+  if (!added.profiles.length && !added.tools.length && !added.providers.length) return { changes: [], edits: [] };
   const source = registeringFile(project);
   const agents = importedFrom(project, ['defineProfile', 'registerProfile', 'registerTool']);
   if (!source || !agents) {
     const changes = [
       ...added.profiles.map((of) => ({ kind: 'profile' as const, of })),
       ...added.tools.map(({ name }) => ({ kind: 'tool' as const, of: name })),
+      ...added.providers.map(({ id }) => ({ kind: 'provider' as const, of: id })),
     ].map((change): SaveChange => ({ ...change, setting: '', status: 'setup', file: project.entry }));
     return { changes, edits: [] };
   }

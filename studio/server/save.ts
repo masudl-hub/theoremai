@@ -78,7 +78,7 @@ function atStart(workspace: StudioWorkspace, names: ProjectNames): StudioWorkspa
   const { starts } = workspace;
   const agents = Object.values(starts.agents).filter((agent) => names.profiles.includes(agent.identity.agentId));
   const toolSpecs = Object.values(starts.tools).filter((tool) => names.tools.includes(tool.toolName));
-  const providers = workspace.providers.map((provider) => starts.providers[provider.id] ?? provider);
+  const providers = Object.values(starts.providers).filter((provider) => names.providers.includes(provider.id));
   return { ...workspace, agents, toolSpecs, providers };
 }
 
@@ -97,7 +97,7 @@ export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): S
 
   const subjects: SaveSubject[] = [];
   const changes: SaveChange[] = [];
-  const added = { profiles: [] as string[], tools: [] as ToolRegistration[] };
+  const added = { profiles: [] as string[], tools: [] as ToolRegistration[], providers: [] as StudioProvider[] };
   const seen = { profile: new Set<string>(), tool: new Set<string>() };
   const add = (
     kind: 'profile' | 'tool',
@@ -134,12 +134,14 @@ export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): S
     add('tool', start?.toolName, tool.toolName, names.tools, canonical(start) !== canonical(tool));
   }
   for (const provider of workspace.providers) {
+    // One the project does not have was added here: Save writes its definition.
+    if (!names.providers.includes(provider.id)) {
+      added.providers.push(provider);
+      continue;
+    }
     const start = before.providers.get(provider.id);
-    // One the project does not register has no definition for Save to write.
-    if (!start || !names.providers.includes(provider.id)) {
-      if (canonical(start) !== canonical(provider)) {
-        changes.push({ kind: 'provider', of: provider.id, setting: '', status: 'unfound' });
-      }
+    if (!start) {
+      changes.push({ kind: 'provider', of: provider.id, setting: '', status: 'unfound' });
       continue;
     }
     if (canonical(start) === canonical(provider)) continue;
@@ -162,6 +164,7 @@ export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): S
   const removed = {
     profiles: names.profiles.filter((id) => !seen.profile.has(id)),
     tools: names.tools.filter((name) => !seen.tool.has(name)),
+    providers: names.providers.filter((id) => !workspace.providers.some((provider) => provider.id === id)),
   };
   return { ok: true, subjects, added: { agents: after.agents, ...added }, removed, changes };
 }
@@ -187,6 +190,7 @@ export function withoutRemoved(loaded: StudioWorkspace, removed: Removed): Studi
     ...loaded,
     agents: loaded.agents.filter((agent) => !removed.profiles.includes(agent.identity.agentId)),
     toolSpecs: loaded.toolSpecs.filter((tool) => !removed.tools.includes(tool.toolName)),
+    providers: loaded.providers.filter((provider) => !removed.providers.includes(provider.id)),
   };
 }
 

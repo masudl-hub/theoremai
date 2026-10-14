@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import { bindingSlots, createExampleDraft, keySlotRequired, modelSlots } from '../../studio/mod.ts';
+import { bindingSlots, createExampleDraft, keySlotUnset, modelSlots } from '../../studio/mod.ts';
 import type { StudioProvider } from '../../studio/providers.ts';
 
 const providers: StudioProvider[] = [
@@ -46,7 +46,7 @@ Deno.test("a profile asks for no key slot when each model's provider gives one",
       fallbackKeySlot: '' as const,
     })),
   };
-  assertEquals(keySlotRequired(draft), false);
+  assertEquals(keySlotUnset(draft), false);
   const [first] = draft.modelBindings;
   // The slot is the provider's: the keys panel asks for it, and the profile does not write it.
   assertEquals(bindingSlots(draft, first), {

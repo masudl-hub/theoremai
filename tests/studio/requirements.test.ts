@@ -4,7 +4,7 @@ import {
   defaultEffortRequired,
   defaultModelRequired,
   inputLimitsRequired,
-  keySlotRequired,
+  keySlotUnset,
 } from '../../studio/mod.ts';
 
 Deno.test('the default model is required only with more than one model', () => {
@@ -14,13 +14,13 @@ Deno.test('the default model is required only with more than one model', () => {
   assertEquals(defaultModelRequired(one), false);
 });
 
-Deno.test('a key slot is required for every model but a local one, unless it names its own', () => {
+Deno.test("every model but a local one reads no key until a slot is set: its own, its provider's or the profile's", () => {
   const draft = createExampleDraft();
-  assertEquals(keySlotRequired(draft), true);
+  assertEquals(keySlotUnset(draft), true);
   const own = draft.modelBindings.map((binding) => ({ ...binding, keySlot: 'slot_b' }));
-  assertEquals(keySlotRequired({ ...draft, modelBindings: own }), false);
+  assertEquals(keySlotUnset({ ...draft, modelBindings: own }), false);
   const local = draft.modelBindings.map((binding) => ({ ...binding, provider: 'local' as const }));
-  assertEquals(keySlotRequired({ ...draft, modelBindings: local }), false);
+  assertEquals(keySlotUnset({ ...draft, modelBindings: local }), false);
 });
 
 Deno.test('a default effort is required only with more than one distinct alias', () => {

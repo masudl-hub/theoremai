@@ -124,7 +124,7 @@ export {
   defaultEffortRequired,
   defaultModelRequired,
   inputLimitsRequired,
-  keySlotRequired,
+  keySlotUnset,
 } from './requirements.ts';
 export {
   type AgentKeyOf,

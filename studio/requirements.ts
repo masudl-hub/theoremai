@@ -7,8 +7,11 @@ export function defaultModelRequired(draft: StudioDraft): boolean {
   return draft.modelBindings.length > 1;
 }
 
-/** Every model but a local one reads a vault slot: its own, its provider's, or the profile's. */
-export function keySlotRequired(draft: StudioDraft): boolean {
+/**
+ * Whether a model other than a local one reads no vault slot: not its own, its provider's, or the
+ * profile's. The kernel runs it without a key, so a provider that needs one refuses the run.
+ */
+export function keySlotUnset(draft: StudioDraft): boolean {
   return draft.modelBindings.some(
     (binding) => binding.provider !== 'local' && !modelSlots(draft.providers, binding).keySlot,
   );

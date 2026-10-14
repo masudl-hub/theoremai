@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { DecisionQuestion, ProfileDefinition } from '../mod.ts';
 import type { StudioConnectionMode } from './policy.ts';
 import type { StudioProvider } from './providers.ts';
@@ -54,6 +55,16 @@ export type StudioRunPayload = {
 	dependencies?: StudioDependency[];
 };
 
+const kept = z.looseObject({
+	profile: z.looseObject({ id: z.string() }),
+	customTools: z.array(z.looseObject({ name: z.string() })),
+});
+/** The outline of a run kept in this browser, which an older or other package may have written. */
+const keptRun = kept.extend({
+	agentId: z.string(),
+	dependencies: z.array(kept).optional(),
+});
+
 /** `localStorage`, not `sessionStorage`: session storage is per-tab, so a `window.open` handoff would lose it. */
 export function saveStudioRunPayload(
 	payload: StudioRunPayload,
@@ -68,7 +79,8 @@ export function loadStudioRunPayload(
 	storeOverride?: Storage | null,
 ): StudioRunPayload | null {
 	const raw = loadStudioRunPayloadRecord(runId, storeOverride);
-	if (!raw) return null;
+	// Only the outline is checked here; `defineProfile` checks the profiles when the run opens.
+	if (!raw || !keptRun.safeParse(raw).success) return null;
 	return raw as unknown as StudioRunPayload;
 }
 

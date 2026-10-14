@@ -35,7 +35,11 @@ import {
   type UrlDetector,
 } from '../src/guardrails/detectors.ts';
 import { type HostPattern, patternListProblem } from '../src/guardrails/host-patterns.ts';
-import type { DecisionProfileDefinition, HostProfileDefinition } from '../src/kernel/mod.ts';
+import type {
+  DecisionProfileDefinition,
+  HostProfileDefinition,
+  ProfileDefinition,
+} from '../src/kernel/mod.ts';
 import { outOfScopeFields } from '../src/kernel/profile-scope.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import {
@@ -1303,13 +1307,13 @@ function withoutPatterns(detect: DetectSpec | undefined): DetectSpec | undefined
 }
 
 /** `profile` as it can be defined here, before the run's server compiles its patterns. */
-export function uncompiled(profile: StudioProfileDefinition): StudioProfileDefinition {
+export function uncompiled<P extends ProfileDefinition>(profile: P): P {
   const { guardrails } = profile;
   if (!guardrails || !('detect' in guardrails) || guardrails.detect === undefined) return profile;
   return {
     ...profile,
     guardrails: { ...guardrails, detect: withoutPatterns(guardrails.detect) },
-  } as StudioProfileDefinition;
+  };
 }
 
 /**

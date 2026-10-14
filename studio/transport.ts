@@ -40,21 +40,25 @@ import {
   loadStudioRunPayload,
   type StudioRunPayload,
 } from './run-payload.ts';
+import { uncompiled } from './compile.ts';
 import { registerStudioTools } from './tools.ts';
 import type { Equals } from '../src/kernel/util/exact-type.ts';
 import type { StudioTraceLine } from './traces.ts';
 
-/** The agents the payload's agent names come first, so its agent tools find them. */
+/**
+ * The agents the payload's agent names come first, so its agent tools find them. The patterns
+ * are left out, as `compileStudio` checks them: only the run's server compiles them.
+ */
 function defineStudioRun(payload: StudioRunPayload) {
   const profiles = new Map<string, Profile>();
   const tools = createToolRegistry((id) => profiles.get(id));
   for (const dependency of payload.dependencies ?? []) {
     registerStudioTools(tools, dependency.customTools);
-    const profile = defineProfile(dependency.profile);
+    const profile = defineProfile(uncompiled(dependency.profile));
     profiles.set(profile.id, profile);
   }
   registerStudioTools(tools, payload.customTools);
-  return { profile: defineProfile(payload.profile), tools };
+  return { profile: defineProfile(uncompiled(payload.profile)), tools };
 }
 
 export function studioInterface(payload: StudioRunPayload): ProfileInterface {
@@ -67,8 +71,9 @@ export function studioRunDefines(payload: StudioRunPayload): boolean {
   try {
     defineStudioRun(payload);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    if (err instanceof TheoremError) return false;
+    throw err;
   }
 }
 

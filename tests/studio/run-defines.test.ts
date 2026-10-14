@@ -6,6 +6,7 @@ import {
   keptStudioRunIds,
   type StudioRunPayload,
   saveStudioRunPayload,
+  studioInterface,
   studioRunDefines,
   studioRunPayloadKey,
 } from '../../studio/mod.ts';
@@ -18,6 +19,24 @@ function exampleRun(): StudioRunPayload {
 
 Deno.test('a run this package compiled defines', () => {
   assertEquals(studioRunDefines(exampleRun()), true);
+});
+
+Deno.test("a run with the builder's own patterns defines, and its interface opens", () => {
+  const draft = createExampleDraft();
+  const ids = {
+    theorem: true,
+    hint: '',
+    patterns: [
+      { name: 'order', kind: 'pattern' as const, pattern: 'ORD-\\d{6}', flags: 'i', words: [] },
+    ],
+  };
+  const result = compileStudio({
+    ...draft,
+    guardrails: { ...draft.guardrails, sources: { ...draft.guardrails.sources, ids } },
+  });
+  if (!result.ok) throw new Error(JSON.stringify(result.issues));
+  assertEquals(studioRunDefines(result), true);
+  assertEquals(studioInterface(result).type, result.profile.type);
 });
 
 Deno.test('a run kept with a setting this package no longer takes does not define', () => {

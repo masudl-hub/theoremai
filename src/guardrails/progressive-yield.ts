@@ -9,6 +9,7 @@ import { type Detection, type DetectScope, detectReads, scopeOf } from './detect
 import { createDetectStream } from './detect-stream.ts';
 import type { DetectAction, ResolvedDetect } from './detectors.ts';
 import { promptEchoHits } from './egress.ts';
+import { loadEgressAutomata } from './egress-stream.ts';
 import { CANARY_HIT } from './hits.ts';
 import { promptEchoHoldFrom, promptEchoScanFrom } from './prompt-echo.ts';
 import type { GuardrailContext, GuardrailHit, ResolvedGuardrailPolicy } from './types.ts';
@@ -80,7 +81,15 @@ interface ProgressiveYieldGate {
 }
 
 /** Call `flush` when the stream ends to release the held tail. */
-function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): ProgressiveYieldGate {
+async function createProgressiveYieldGate(
+  options: ProgressiveYieldGateOptions,
+): Promise<ProgressiveYieldGate> {
+  if (options.detect) await loadEgressAutomata();
+  return progressiveYieldGate(options);
+}
+
+/** `createProgressiveYieldGate`, once the automata are loaded: a Live cycle opens its next gate mid-stream. */
+function progressiveYieldGate(options: ProgressiveYieldGateOptions): ProgressiveYieldGate {
   const { context } = options;
   const reads = options.detect;
   const detecting = reads
@@ -281,7 +290,19 @@ function replyIsJudged(
  * `boundary`. `context.canary` is set only while `canary_leak` is above
  * `ignore` somewhere, and `context.privateSystem` while `prompt_leak` is.
  */
-function createOutboundProgressiveGate(
+async function createOutboundProgressiveGate(
+  policy: ResolvedGuardrailPolicy,
+  context: GuardrailContext,
+  boundary: ReplyBoundary,
+  carry?: string,
+): Promise<ProgressiveYieldGate | null> {
+  if (!replyIsJudged(policy, [boundary], context)) return null;
+  await loadEgressAutomata();
+  return outboundProgressiveGate(policy, context, boundary, carry);
+}
+
+/** `createOutboundProgressiveGate`, once the automata are loaded. */
+function outboundProgressiveGate(
   policy: ResolvedGuardrailPolicy,
   context: GuardrailContext,
   boundary: ReplyBoundary,
@@ -290,7 +311,7 @@ function createOutboundProgressiveGate(
   if (!replyIsJudged(policy, [boundary], context)) {
     return null;
   }
-  return createProgressiveYieldGate({
+  return progressiveYieldGate({
     context,
     detect: {
       matrix: policy.detect,
@@ -303,4 +324,9 @@ function createOutboundProgressiveGate(
 }
 
 export type { ProgressiveYieldGate };
-export { createOutboundProgressiveGate, createProgressiveYieldGate, replyIsJudged };
+export {
+  createOutboundProgressiveGate,
+  createProgressiveYieldGate,
+  outboundProgressiveGate,
+  replyIsJudged,
+};

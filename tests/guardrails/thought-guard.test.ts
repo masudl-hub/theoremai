@@ -1,5 +1,6 @@
 import { canaryLeakRanges, mintCanary } from '../../src/guardrails/canary.ts';
 import type { Detector } from '../../src/guardrails/detectors.ts';
+import { loadEgressAutomata } from '../../src/guardrails/egress-stream.ts';
 import { givenUrlSets } from '../../src/guardrails/egress-urls.ts';
 import { labelDefault } from '../../src/guardrails/labels.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
@@ -10,6 +11,8 @@ import {
 } from '../../src/guardrails/thought-guard.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { replyHits } from '../fixtures/detect.ts';
+
+await loadEgressAutomata();
 
 const OMIT_IMAGE = labelDefault('thought.omitted_image');
 const OMIT_LINK = labelDefault('thought.omitted_link');
@@ -342,7 +345,7 @@ for (const [kind, sentence] of [
     '\n[r]: https://example.com/r\n![a][r] ![b](https://example.com/b.png) <b>x</b> <img src=x.png> ',
   ],
 ]) {
-  Deno.test(`a thought of ${kind} is guarded in time linear in its length`, () => {
+  Deno.test(`a thought of ${kind} is guarded in time linear in its length`, async () => {
     const time = (length: number): number => {
       const text = sentence.repeat(Math.ceil(length / sentence.length)).slice(0, length);
       const runs: number[] = [];
@@ -361,8 +364,8 @@ for (const [kind, sentence] of [
       }
       return runs.sort((a, b) => a - b)[1] as number;
     };
-    time(5_000);
-    const ratio = time(40_000) / time(10_000);
+    await time(5_000);
+    const ratio = (await time(40_000)) / (await time(10_000));
     // A rescan of the whole thought at each step is sixteen times.
     assertEquals(ratio < 8 ? 'linear' : `40k/10k took ${ratio.toFixed(1)}x`, 'linear');
   });

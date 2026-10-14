@@ -217,7 +217,7 @@ async function runLiveBatchChannel(
   attack: CanaryEgressAttack,
   canary: string,
 ): Promise<ChannelResult> {
-  const session = createLiveOutboundGateSession(getProfile(FUZZ_PROFILE_ID), canary, [
+  const session = await createLiveOutboundGateSession(getProfile(FUZZ_PROFILE_ID), canary, [
     bindCanary(FUZZ_SYSTEM, canary),
   ]);
   const events: TurnEvent[] = [];

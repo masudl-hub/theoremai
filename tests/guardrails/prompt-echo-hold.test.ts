@@ -104,7 +104,7 @@ async function holdLeaks(
       ? Math.min(...ranges.map(([from]) => from))
       : Number.POSITIVE_INFINITY;
     if (ranges.length) echoes++;
-    const gate = createProgressiveYieldGate({ context });
+    const gate = await createProgressiveYieldGate({ context });
     const size = [1, 3, 7, 24][rnd(4)] as number;
     let released = 0;
     let blocked = false;

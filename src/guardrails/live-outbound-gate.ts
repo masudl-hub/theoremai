@@ -10,6 +10,7 @@ import { guardrailFromHits, guardrailTurnEvent } from './events.ts';
 import { resolveGuardrailPolicy } from './policy.ts';
 import {
   createOutboundProgressiveGate,
+  outboundProgressiveGate,
   type ProgressiveYieldGate,
   type ProgressiveYieldResult,
 } from './progressive-yield.ts';
@@ -54,13 +55,13 @@ export type LiveOutboundBatchResult =
 const UNTRANSCRIBED_HIT: GuardrailHit = { rule: 'live.untranscribed-audio', severity: 'high' };
 
 /** The canary and the system instruction are read for only while their detectors read somewhere (`scopeOf`). */
-function createLiveOutboundGateSession(
+async function createLiveOutboundGateSession(
   profile: Profile,
   canary?: string,
   privateSystem?: readonly string[],
   givenUrls?: GivenUrls,
   ownTools?: OwnTools,
-): LiveOutboundGateSession {
+): Promise<LiveOutboundGateSession> {
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const context: GuardrailContext = {
     stage: 'live_outbound',
@@ -71,11 +72,11 @@ function createLiveOutboundGateSession(
     ...(givenUrls ? { givenUrls } : {}),
     ...(ownTools ? { ownTools } : {}),
   };
-  const thoughts = thoughtGuardFor(policy, context);
+  const thoughts = await thoughtGuardFor(policy, context);
   return {
     policy,
     context,
-    gate: createOutboundProgressiveGate(policy, context, 'live_reply'),
+    gate: await createOutboundProgressiveGate(policy, context, 'live_reply'),
     held: [],
     releasedTo: 0,
     withholdVisible: false,
@@ -85,7 +86,7 @@ function createLiveOutboundGateSession(
 
 function resetCycle(session: LiveOutboundGateSession): void {
   const carry = session.gate?.carryOut();
-  session.gate = createOutboundProgressiveGate(
+  session.gate = outboundProgressiveGate(
     session.policy,
     session.context,
     'live_reply',

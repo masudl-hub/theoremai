@@ -1510,7 +1510,7 @@ async function openTracedSession(
   const destinations = turnDestinations();
   addRequestDestinations(destinations, completeReq, givenUrls.own);
   addHistoryDestinations(destinations, req.history ?? [], givenUrls.own);
-  const gate = createLiveOutboundGateSession(
+  const gate = await createLiveOutboundGateSession(
     profile,
     generation.canary || undefined,
     system.private,

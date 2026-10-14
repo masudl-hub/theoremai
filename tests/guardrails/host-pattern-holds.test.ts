@@ -1,10 +1,16 @@
 import type { Detector } from '../../src/guardrails/detectors.ts';
 import { compilePatterns } from '../../src/guardrails/egress-compiler.ts';
-import { createEgressStream, type EgressStream } from '../../src/guardrails/egress-stream.ts';
+import {
+  createEgressStream,
+  type EgressStream,
+  loadEgressAutomata,
+} from '../../src/guardrails/egress-stream.ts';
 import { type HostPattern, matchersOf } from '../../src/guardrails/host-patterns.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { replyHits } from '../fixtures/detect.ts';
 import { referenceMatchStart } from './egress-reference.ts';
+
+await loadEgressAutomata();
 
 /** The detectors of a reply's text that block by default, read in the same stream. */
 const DEFAULT_BLOCKING: readonly Detector[] = ['marker_leak', 'ungiven_images'];

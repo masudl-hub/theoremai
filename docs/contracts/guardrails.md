@@ -342,7 +342,11 @@ release cursor (`drainUnreleased`), so a later flush cannot re-record the same r
 Outbound streaming uses **progressive yield** (`createProgressiveYieldGate` /
 `createOutboundProgressiveGate`): cleared prefixes release while a lookback
 window stays held for split-token matches. The window is what the scan can
-detect. The canary scan reads text after Unicode compatibility folding
+detect. The gate factories (`createProgressiveYieldGate`,
+`createOutboundProgressiveGate`, `createLiveOutboundGateSession`) are async: the
+first one that will read a reply loads the pattern automata (`egress-automata.ts`,
+most of the kernel's size), so an app that never streams a judged reply never
+loads them. The canary scan reads text after Unicode compatibility folding
 (fullwidth and mathematical digits) and folds lookalike letters (Cyrillic,
 Greek) to the Latin ones they imitate. Each leak form is read two ways:
 character by character, keeping only the characters the form is written with,

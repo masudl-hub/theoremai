@@ -348,7 +348,7 @@ Deno.test('a tool call that carries the system prompt is refused where prompt_le
   assertEquals(replyText(events), 'Done.');
 });
 Deno.test('processLiveOutboundBatch withholds a spoken dump of the system prompt across cycles', async () => {
-  const s = createLiveOutboundGateSession(getProfile('chat'), mintCanary(), [SYSTEM]);
+  const s = await createLiveOutboundGateSession(getProfile('chat'), mintCanary(), [SYSTEM]);
   const said = (text: string): TurnEvent => ({
     type: 'evidence',
     text,

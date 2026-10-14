@@ -8,7 +8,6 @@
  */
 
 import { type Detector, NO_ALLOW, type ResolvedAllow } from '../../src/guardrails/detectors.ts';
-import { REVERSED_INJECTION_PATTERNS } from '../../src/guardrails/egress-automata.ts';
 import { EGRESS_PATTERNS, type EgressPattern } from '../../src/guardrails/egress-patterns.ts';
 import {
   type GivenUrls,
@@ -23,6 +22,7 @@ import {
   tryRot13,
   typoFolded,
 } from '../../src/guardrails/injection.ts';
+import { REVERSED_INJECTION_PATTERNS } from '../../src/guardrails/injection-reversed.ts';
 import { normalizeCodePoint, normalizeForDetection } from '../../src/guardrails/normalize.ts';
 import { cardHit, SENSITIVE_PATTERNS } from '../../src/guardrails/sensitive.ts';
 import { REPLY_DETECTORS } from '../fixtures/detect.ts';

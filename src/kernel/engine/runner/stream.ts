@@ -191,13 +191,13 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const context = streamContext(args, policy);
   const { canaryCarry, thoughtCarry } = control ?? {};
-  const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(
+  const gate: ProgressiveYieldGate | null = await createOutboundProgressiveGate(
     policy,
     context,
     'reply',
     canaryCarry,
   );
-  const thoughts = thoughtGuardFor(policy, context, thoughtCarry);
+  const thoughts = await thoughtGuardFor(policy, context, thoughtCarry);
   /** The streamed event whose reply sits in the gate's lookback; released tails keep its shape. */
   let pendingStream: StreamedReplyEvent | null = null;
   let withholdVisible = false;

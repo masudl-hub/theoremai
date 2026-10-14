@@ -40,7 +40,7 @@ function egressCorpus(): Array<{ name: string; text: string; start: number }> {
 
 /** How much from `start` on reached the host before the gate blocked, or `-1` if it never did. */
 async function exposed(text: string, start: number, chunk: number): Promise<number> {
-  const gate = replyGate(CONTEXT);
+  const gate = await replyGate(CONTEXT);
   let released = 0;
   for (let at = 0; at < text.length; at += chunk) {
     const result = await gate.process(text.slice(at, at + chunk));

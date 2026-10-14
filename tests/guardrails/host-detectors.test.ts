@@ -187,7 +187,7 @@ async function streamed(
 ): Promise<{ shown: string; blocked: boolean; most: number }> {
   const policy = resolveGuardrailPolicy({ detect: compileDetect(spec) });
   const context = { stage: 'output_final', trust: 'untrusted', profileId: 'chat' } as const;
-  const gate = createOutboundProgressiveGate(policy, context, 'reply');
+  const gate = await createOutboundProgressiveGate(policy, context, 'reply');
   if (!gate) return { shown: reply, blocked: false, most: 0 };
   let shown = '';
   let read = 0;

@@ -3,10 +3,13 @@ import { z } from 'zod';
 import { detectAt, scopeOf } from '../../src/guardrails/detect-at.ts';
 import { createDetectStream } from '../../src/guardrails/detect-stream.ts';
 import { type DetectSpec, detectProblem, resolveDetect } from '../../src/guardrails/detectors.ts';
+import { loadEgressAutomata } from '../../src/guardrails/egress-stream.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import type { OwnTools } from '../../src/guardrails/tool-leak.ts';
 import { ownToolsOf } from '../../src/kernel/tools/project.ts';
 import { createToolRegistry } from '../../src/kernel/tools/registry.ts';
+
+await loadEgressAutomata();
 
 const OWN: OwnTools = { names: ['get_weather', 'search'], params: ['city', 'units'] };
 
@@ -76,7 +79,7 @@ Deno.test('allow on tool_leak takes names only', () => {
   assertEquals(resolveDetect({ tool_leak: { allow: { names: ['search'] } } }).innocent, ['search']);
 });
 
-Deno.test('a streamed reply holds a name until it is one, and reads as the whole reply does', () => {
+Deno.test('a streamed reply holds a name until it is one, and reads as the whole reply does', async () => {
   const redact: DetectSpec = { tool_leak: 'redact' };
   for (const text of [
     'I called get_weather for you, then search.',
@@ -84,9 +87,9 @@ Deno.test('a streamed reply holds a name until it is one, and reads as the whole
     'It ends on get_weather',
     'nothing here at all',
   ]) {
-    assertEquals(streamed(text, redact).out, read(text).text, text);
+    assertEquals((await streamed(text, redact)).out, read(text).text, text);
   }
-  const blocked = streamed('I called get_weather for you.', { tool_leak: 'block' });
+  const blocked = await streamed('I called get_weather for you.', { tool_leak: 'block' });
   assertEquals(blocked.actions.at(-1), 'block');
   assert(!blocked.out.includes('get_weather'), blocked.out);
 });

@@ -1,7 +1,11 @@
 import { assertEquals } from '@std/assert';
 import { type Detection, detectAt, detectorsAt } from '../../src/guardrails/detect-at.ts';
 import { type DetectSpec, detectProblem } from '../../src/guardrails/detectors.ts';
-import { createEgressStream, type EgressStream } from '../../src/guardrails/egress-stream.ts';
+import {
+  createEgressStream,
+  type EgressStream,
+  loadEgressAutomata,
+} from '../../src/guardrails/egress-stream.ts';
 import {
   addRequestUrls,
   addSeenUrls,
@@ -12,6 +16,8 @@ import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import type { ResolvedGuardrailPolicy } from '../../src/guardrails/types.ts';
 import { referenceMatchStart } from './egress-reference.ts';
+
+await loadEgressAutomata();
 
 /** What reads a reply: a profile's detectors, and what the URL ones let through. */
 type Reading = Pick<ResolvedGuardrailPolicy, 'detect' | 'allow'>;

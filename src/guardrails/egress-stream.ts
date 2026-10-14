@@ -20,11 +20,6 @@
 
 import type { Detector, ResolvedAllow } from './detectors.ts';
 import {
-  FORWARD_AUTOMATON,
-  REVERSED_AUTOMATON,
-  REVERSED_INJECTION_PATTERNS,
-} from './egress-automata.ts';
-import {
   EGRESS_PATTERNS,
   type EgressPattern,
   type EgressPatternKind,
@@ -47,6 +42,7 @@ import {
   tryRot13,
   typoNormalize,
 } from './injection.ts';
+import { REVERSED_INJECTION_PATTERNS } from './injection-reversed.ts';
 import { isEmoji, normalizeCodePoint } from './normalize.ts';
 import { detectRule } from './rules.ts';
 import { cardHit, SENSITIVE_PATTERNS } from './sensitive.ts';
@@ -112,8 +108,27 @@ function compile(data: AutomatonData): Automaton {
   return { classOf, has, pattern, final, edges, initials: data.initials, leads: data.leads, size };
 }
 
+/** Theorem's automata, once `loadEgressAutomata` has read them. */
+let bundled: { forward: AutomatonData; reversed: AutomatonData } | undefined;
 let forward: Automaton | undefined;
 let backward: Automaton | undefined;
+
+/**
+ * Reads Theorem's automata, the most of the kernel's size, the first time a stream needs them.
+ * Every gate's constructor waits for this, so an app that never streams a reply never loads them.
+ */
+async function loadEgressAutomata(): Promise<void> {
+  if (bundled) return;
+  const { FORWARD_AUTOMATON, REVERSED_AUTOMATON } = await import('./egress-automata.ts');
+  bundled = { forward: FORWARD_AUTOMATON, reversed: REVERSED_AUTOMATON };
+}
+
+function loaded(): { forward: AutomatonData; reversed: AutomatonData } {
+  if (!bundled) {
+    throw new Error('A stream was opened before loadEgressAutomata() finished.'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  return bundled;
+}
 
 /** The code units a case-insensitive regex reads as each one: ES `Canonicalize` without `u`. */
 let caseUnits: Map<number, number[]> | undefined;
@@ -861,12 +876,12 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
   const detectors = options.detect ?? [];
   const forwardScan = forwardPatterns(detectors, options);
   if (forwardScan.length > 0) {
-    forward ??= compile(FORWARD_AUTOMATON);
+    forward ??= compile(loaded().forward);
     scans.push(scan(raw, forward, forwardScan));
   }
   if (detectors.includes('injection')) {
-    forward ??= compile(FORWARD_AUTOMATON);
-    backward ??= compile(REVERSED_AUTOMATON);
+    forward ??= compile(loaded().forward);
+    backward ??= compile(loaded().reversed);
     const normalized = normalizedReplyView(reply);
     const injection = injectionPatterns();
     scans.push(
@@ -921,4 +936,4 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
 }
 
 export type { EgressStream, EgressStreamHit, EgressStreamOptions, Grown, MappedView, View };
-export { createEgressStream, normalizedReplyView, typoView, urlView };
+export { createEgressStream, loadEgressAutomata, normalizedReplyView, typoView, urlView };

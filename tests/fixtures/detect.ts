@@ -19,6 +19,7 @@ import {
   createEgressStream,
   type EgressStream,
   type EgressStreamOptions,
+  loadEgressAutomata,
 } from '../../src/guardrails/egress-stream.ts';
 import type { GuardrailHit } from '../../src/guardrails/event-schemas.ts';
 import { labelDefault } from '../../src/guardrails/labels.ts';
@@ -30,6 +31,8 @@ import {
 import type { GuardrailContext } from '../../src/guardrails/types.ts';
 import { sanitizeTurnBlobs } from '../../src/kernel/registry/attachments.ts';
 import type { Profile } from '../../src/kernel/types.ts';
+
+await loadEgressAutomata();
 
 /** `text` with every detector's matches replaced by its placeholder. */
 export function redactAll(text: string): string {
@@ -97,12 +100,12 @@ export function blockNaming(term: string): DetectSpec {
 }
 
 /** The stream gate with `detectors` set to `block` at `reply`. */
-export function replyGate(
+export async function replyGate(
   context: GuardrailContext,
   detectors: readonly Detector[] = REPLY_DETECTORS,
 ): ProgressiveYieldGate {
   const matrix = resolveDetect(blockingAtReply(detectors));
-  return createProgressiveYieldGate({
+  return await createProgressiveYieldGate({
     context,
     detect: {
       matrix,

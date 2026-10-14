@@ -2,11 +2,7 @@ import { inboundFuzzPayloads } from '../../src/guardrails/corpus/inbound-payload
 import * as secrets from '../../src/guardrails/corpus/secrets.ts';
 import * as strings from '../../src/guardrails/corpus/strings.ts';
 import { type Detector, type DetectSpec, resolveAllow } from '../../src/guardrails/detectors.ts';
-import {
-  FORWARD_AUTOMATON,
-  REVERSED_AUTOMATON,
-  REVERSED_INJECTION_PATTERNS,
-} from '../../src/guardrails/egress-automata.ts';
+import { FORWARD_AUTOMATON, REVERSED_AUTOMATON } from '../../src/guardrails/egress-automata.ts';
 import { bundledEgressAutomata } from '../../src/guardrails/egress-compiler.ts';
 import { EGRESS_PATTERNS } from '../../src/guardrails/egress-patterns.ts';
 import { normalizedReplyView, typoView, urlView } from '../../src/guardrails/egress-stream.ts';
@@ -16,6 +12,7 @@ import {
   tryRot13,
   typoNormalize,
 } from '../../src/guardrails/injection.ts';
+import { REVERSED_INJECTION_PATTERNS } from '../../src/guardrails/injection-reversed.ts';
 import { normalizeForDetection } from '../../src/guardrails/normalize.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import type { GuardrailContext } from '../../src/guardrails/types.ts';
@@ -192,7 +189,7 @@ function fuzzChunks(text: string, rnd: (n: number) => number): string[] {
   return chunks;
 }
 
-Deno.test('egress-automata.ts is what the generator writes from the patterns now', () => {
+Deno.test('egress-automata.ts and injection-reversed.ts are what the generator writes from the patterns now', () => {
   const fresh = bundledEgressAutomata();
   assertEquals(REVERSED_INJECTION_PATTERNS.map(String), fresh.reversedPatterns.map(String));
   assertEquals(JSON.stringify(FORWARD_AUTOMATON), JSON.stringify(fresh.forward));
@@ -396,7 +393,7 @@ async function assertLinear(sentence: string, context: GuardrailContext): Promis
     const text = sentence.repeat(Math.ceil(length / sentence.length)).slice(0, length);
     const runs: number[] = [];
     for (let run = 0; run < 3; run++) {
-      const gate = replyGate(context);
+      const gate = await replyGate(context);
       const started = performance.now();
       for (let at = 0; at < text.length; at += 4) await gate.process(text.slice(at, at + 4));
       await gate.flush();

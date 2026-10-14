@@ -23,6 +23,7 @@ import {
   type Detection,
   type DetectOutcome,
   type DetectScope,
+  detectReads,
   scopeOf,
   stronger,
 } from './detect-at.ts';
@@ -30,7 +31,7 @@ import { createDetectStream } from './detect-stream.ts';
 import type { DetectAction, Detector, ResolvedDetect, UrlAllow } from './detectors.ts';
 import { boundaryNote, type LeakScope } from './egress.ts';
 import { notePattern, SYSTEM_BOUNDARY } from './egress-patterns.ts';
-import { createEgressStream, type EgressStream } from './egress-stream.ts';
+import { createEgressStream, type EgressStream, loadEgressAutomata } from './egress-stream.ts';
 import { type GivenUrls, imageLeakSpans, linkLeakSpans } from './egress-urls.ts';
 import { CANARY_HIT, PROMPT_ECHO_HIT } from './hits.ts';
 import { type LabelOverrides, labelText } from './labels.ts';
@@ -720,17 +721,19 @@ function reportingLeaks(
  * omits a match, `block` ends what is shown of the thought there, and `flag`
  * reports it and shows it.
  */
-function thoughtGuardFor(
+async function thoughtGuardFor(
   policy: Pick<ResolvedGuardrailPolicy, 'detect' | 'allow'>,
   context: GuardrailContext,
   carry?: string,
-): ThoughtGuard | undefined {
+): Promise<ThoughtGuard | undefined> {
   const { detect } = policy;
   const own = TEXT_LEAKS.filter((detector) => omitsThought(detect, detector));
   const omitted = leakScopeAt(detect, context, omitsThought);
   const flagged = leakScopeAt(detect, context, (set, detector) => set[detector].thought === 'flag');
-  const guard =
-    own.length > 0 || scoped(omitted) || scoped(flagged)
+  const guarded = own.length > 0 || scoped(omitted) || scoped(flagged);
+  const scope = scopeOf(policy, context);
+  if (guarded || detectReads(['thought'], detect, scope)) await loadEgressAutomata();
+  const guard = guarded
       ? createThoughtGuard({
           omit: thoughtOmits(policy),
           ...omitted,
@@ -740,7 +743,7 @@ function thoughtGuardFor(
         })
       : undefined;
   const leaks = guard && reportingLeaks(guard, detect, flagged, context.canary);
-  return detectingThoughts(leaks, detect, scopeOf(policy, context), own);
+  return detectingThoughts(leaks, detect, scope, own);
 }
 
 /** Whether `detector` takes its matches out of a thought. */

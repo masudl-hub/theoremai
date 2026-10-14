@@ -1,5 +1,3 @@
-/** Covers the JSON Schema subset the editor writes: objects, arrays, and primitives. */
-
 import { z, type ZodType } from 'zod';
 import { type JsonSchema, sampleFromSchema } from '../react/src/client/schema-fields.ts';
 
@@ -21,77 +19,12 @@ export const DEFAULT_TOOL_OUTPUT_SCHEMA = `{
 
 export type { JsonSchema };
 
-function schemaFields(schema: JsonSchema): {
-  props: Record<string, JsonSchema>;
-  required: Set<string>;
-} {
-  const props = (schema.properties ?? {}) as Record<string, JsonSchema>;
-  const required = new Set(
-    Array.isArray(schema.required)
-      ? schema.required.filter((key): key is string => typeof key === 'string')
-      : [],
-  );
-  return { props, required };
-}
-
-type SchemaKind = 'string' | 'number' | 'boolean' | 'array' | 'object' | 'unknown';
-
-function nonNullTypes(prop: JsonSchema): unknown[] {
-  return (Array.isArray(prop.type) ? prop.type : [prop.type]).filter((type) => type !== 'null');
-}
-
-function schemaKind(prop: JsonSchema): SchemaKind {
-  const types = nonNullTypes(prop);
-  const t = types.length === 1 ? types[0] : undefined;
-  if (t === 'string') return 'string';
-  if (t === 'number' || t === 'integer') return 'number';
-  if (t === 'boolean') return 'boolean';
-  if (t === 'array') return 'array';
-  if (t === 'object' || prop.properties) return 'object';
-  return 'unknown';
-}
-
-function arrayItems(prop: JsonSchema): JsonSchema | undefined {
-  const items = prop.items;
-  return items && typeof items === 'object' && !Array.isArray(items)
-    ? (items as JsonSchema)
-    : undefined;
-}
-
-function propToZod(prop: JsonSchema): ZodType {
-  const zod = kindToZod(prop);
-  return Array.isArray(prop.type) && prop.type.includes('null') ? zod.nullable() : zod;
-}
-
-function kindToZod(prop: JsonSchema): ZodType {
-  switch (schemaKind(prop)) {
-    case 'string':
-      return z.string();
-    case 'number':
-      return z.number();
-    case 'boolean':
-      return z.boolean();
-    case 'array': {
-      const items = arrayItems(prop);
-      return z.array(items ? propToZod(items) : z.unknown());
-    }
-    case 'object':
-      return zodFromJsonSchema(prop);
-    case 'unknown':
-      return z.unknown();
-  }
-}
-
+/**
+ * A tool's zod schema, read from its JSON Schema exactly as a file Save writes reads it, so a
+ * studio run checks a tool's input and output by the same contract the saved code does.
+ */
 export function zodFromJsonSchema(schema: JsonSchema): ZodType {
-  // A tool can answer with a bare list, text or number, not only a record.
-  if (schema.type !== undefined && schema.type !== 'object') return propToZod(schema);
-  const { props, required } = schemaFields(schema);
-  const shape: Record<string, ZodType> = {};
-  for (const [key, prop] of Object.entries(props)) {
-    const field = propToZod(prop);
-    shape[key] = required.has(key) ? field : field.optional();
-  }
-  return z.looseObject(shape);
+  return z.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0]);
 }
 
 /** Required fields, and optional ones with an example; the package's form fills a tool's request the same way. */
@@ -132,6 +65,12 @@ export function parseJsonSchema(
     const parsed: unknown = JSON.parse(trimmed);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return { ok: false, error: `${label} JSON Schema must be an object.` };
+    }
+    // Read here as the saved file reads it, so a schema zod can't read is this field's issue.
+    try {
+      zodFromJsonSchema(parsed as JsonSchema);
+    } catch (err) {
+      return { ok: false, error: `${label} JSON Schema can't be read: ${(err as Error).message}.` };
     }
     return { ok: true, schema: parsed as JsonSchema };
   } catch {

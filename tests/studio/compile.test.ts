@@ -41,7 +41,7 @@ import {
   updateModelBinding,
   zodFromJsonSchema,
 } from '../../studio/mod.ts';
-import { quoteSource } from '../../studio/tool-schema.ts';
+import { parseJsonSchema, quoteSource } from '../../studio/tool-schema.ts';
 
 Deno.test('renaming a binding preserves the selected default and leaves other bindings alone', () => {
   const draft = createExampleDraft();
@@ -810,6 +810,24 @@ Deno.test('zodFromJsonSchema keeps a text answer as text and a nullable field nu
   assertEquals(schema.parse({ content: null }), { content: null });
   assert(!schema.safeParse({ content: 1 }).success);
 });
+Deno.test('zodFromJsonSchema holds what the saved file holds: enums, bounds, integers, closed objects', () => {
+  const schema = zodFromJsonSchema({
+    type: 'object',
+    properties: { mode: { enum: ['a', 'b'] }, n: { type: 'integer', minimum: 0 } },
+    required: ['mode', 'n'],
+    additionalProperties: false,
+  });
+  assert(schema.safeParse({ mode: 'a', n: 2 }).success);
+  assert(!schema.safeParse({ mode: 'zzz', n: 2 }).success);
+  assert(!schema.safeParse({ mode: 'a', n: -1.5 }).success);
+  assert(!schema.safeParse({ mode: 'a', n: 2, extra: 1 }).success);
+});
+Deno.test('a schema zod cannot read is reported on its field', () => {
+  assertEquals(parseJsonSchema('{"type":"strnig"}', 'Input'), {
+    ok: false,
+    error: "Input JSON Schema can't be read: Unsupported type: strnig.",
+  });
+});
 Deno.test('quoteSource writes a string that evaluates back to itself, script-safe', () => {
   const text = `it's "quoted" \\ </script> \u2028\u2029 done`;
   const quoted = quoteSource(text);
@@ -1008,7 +1026,10 @@ Deno.test('an activity label follows nullable, union and referenced schemas', ()
   const union = { anyOf: [place, { type: 'null' }] };
   assert(compile({ type: 'object', properties: { p: union } }, 'Found {p.name}').ok);
   const referenced = { $ref: '#/$defs/place' };
-  assert(compile({ type: 'object', properties: { p: referenced } }, 'Found {p.name}').ok);
+  assert(
+    compile({ type: 'object', properties: { p: referenced }, $defs: { place } }, 'Found {p.name}')
+      .ok,
+  );
   const flag = compile({ type: 'object', properties: { ok: { type: 'boolean' } } }, 'Done: {ok}');
   assert(!flag.ok);
   assertEquals(flag.issues[0].message, '{ok} is true or false; a label shows text or a number.');

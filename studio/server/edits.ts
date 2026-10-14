@@ -7,7 +7,6 @@
  * @module
  */
 
-import { z } from 'zod';
 import { defineProfile, type KernelScope, type ProfileDefinition } from '../../mod.ts';
 import type { RegisteredTool } from '../../src/kernel/tools/types.ts';
 import type { CompiledStudio } from '../compile.ts';
@@ -16,6 +15,7 @@ import type { ToolRegistration } from '../registrations.ts';
 import { providerDefinition, type StudioProvider } from '../providers.ts';
 import type { ProjectQuestions } from './handler.ts';
 import { withCompiledPatterns } from '../runtime-scope.ts';
+import { zodFromJsonSchema, type JsonSchema } from '../tool-schema.ts';
 import { registerCustomTool } from '../tools.ts';
 import type { NewSubjects } from './save-new.ts';
 import { canonical } from '../canonical.ts';
@@ -109,7 +109,7 @@ function editedTool(registered: RegisteredTool, before: ToolRegistration, after:
     const [was, is] = [(before as Json)[key], (after as Json)[key]];
     if (STUDIO_ONLY.has(key) || canonical(was) === canonical(is)) continue;
     const schema = SCHEMAS[key];
-    if (schema) Object.assign(edited, { [schema]: asFileReads(is) });
+    if (schema) Object.assign(edited, { [schema]: zodFromJsonSchema(is as JsonSchema) });
     else if (is === undefined) Reflect.deleteProperty(edited, key);
     // A credential the page holds masked is the project's own: the edit beside it keeps it.
     else Object.assign(edited, { [key]: heldSetting(key, is, (registered as unknown as Json)[key]) });
@@ -117,11 +117,8 @@ function editedTool(registered: RegisteredTool, before: ToolRegistration, after:
   return held(edited);
 }
 
-/** A schema as a file Save writes holds it: read by zod from the JSON the builder wrote. */
-const asFileReads = (schema: unknown) => z.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0]);
-
 function registerNew(scope: KernelScope, tool: ToolRegistration): void {
-  registerCustomTool(scope.tools, held(tool), asFileReads);
+  registerCustomTool(scope.tools, held(tool));
 }
 
 function registerTool(scope: KernelScope, tool: ToolRegistration, subject: SaveSubject | undefined): void {

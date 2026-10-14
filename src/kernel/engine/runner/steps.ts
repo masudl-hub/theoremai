@@ -472,20 +472,70 @@ function* applyToolSettlement(
 }
 
 /**
- * Run the model's calls in order. Each reaches the host as its raw call first,
- * then its phases. A call that gates waits for its own approval; the step's
- * other calls still run. After the step, any gate stops the turn.
+ * Runs tools side by side and passes on each event as it comes. Returns each run's
+ * settlement by its place in `runs`, `undefined` where there was no run.
+ *
+ * why: One run that throws ends them all; the rest are closed so none keeps running unseen.
+ */
+async function* runSideBySide<T>(
+  runs: (AsyncGenerator<TurnEvent, T | undefined> | undefined)[],
+): AsyncGenerator<TurnEvent, (T | undefined)[]> {
+  const settled: (T | undefined)[] = runs.map(() => undefined);
+  const waiting = new Map<
+    number,
+    Promise<{ index: number; next: IteratorResult<TurnEvent, T | undefined> }>
+  >();
+  const pull = (index: number, run: AsyncGenerator<TurnEvent, T | undefined>) => {
+    const next = run.next().then((result) => ({ index, next: result }));
+    // why: A run that fails after another already threw is closed below; its failure has nowhere to go.
+    next.catch(() => {});
+    waiting.set(index, next);
+  };
+  runs.forEach((run, index) => {
+    if (run) pull(index, run);
+  });
+  try {
+    while (waiting.size > 0) {
+      const { index, next } = await Promise.race(waiting.values());
+      waiting.delete(index);
+      const run = runs[index];
+      if (next.done || !run) {
+        if (next.done) settled[index] = next.value;
+        continue;
+      }
+      yield next.value;
+      pull(index, run);
+    }
+  } finally {
+    for (const index of waiting.keys()) {
+      runs[index]?.return(undefined).catch(() => {});
+    }
+  }
+  return settled;
+}
+
+/**
+ * Run the model's calls side by side. Each reaches the host as its raw call first,
+ * all of them before any runs; their phases then arrive as each tool gives them. A call
+ * the provider handed over already failed does not run. A call reads the turn's taint
+ * and destinations as they stood when the step began: the model chose every call in
+ * the step before any of their results came back.
+ *
+ * Results are recorded in the order the model made the calls, each followed by its
+ * `post_tool` inject. A call that gates waits for its own approval while the others run.
+ * After the step, any gate stops the turn. A call a stage cancelled stops the turn too,
+ * once every result that did come back is recorded.
  */
 async function* handleModelCalls(
-  calls: ModelCall[],
+  upstreamCalls: ModelCall[],
   generation: ResolvedGeneration,
   profile: Profile,
   state: StepExecutionState,
   system: BoundSystem,
   { onStage, signal, credentials, resolveHost }: Partial<TurnRequest> = {},
 ): AsyncGenerator<TurnEvent, boolean> {
-  if (calls.length > 0) {
-    state.currentHistory.push(historyToolCalls(calls));
+  if (upstreamCalls.length > 0) {
+    state.currentHistory.push(historyToolCalls(upstreamCalls));
   }
   const stepId = crypto.randomUUID();
   const leakScope = {
@@ -511,11 +561,63 @@ async function* handleModelCalls(
     state.allEmittedEvents.push(request);
     return request;
   };
-  let gated = false;
-  for (const upstreamCall of calls) {
-    const call = { ...upstreamCall, operationId: crypto.randomUUID() };
-    yield announce(call);
+  const calls = upstreamCalls.map((call) => ({ ...call, operationId: crypto.randomUUID() }));
+  for (const call of calls) yield announce(call);
 
+  const stages: ToolStageSupport = {
+    handlers: onStage ? [onStage] : [],
+    profile,
+    step: state.stepCount,
+    history: () => state.currentHistory,
+    injectAllowed: profileAllowsInject(profile),
+    injectWouldExceedMaxSteps: injectWouldExceedMaxSteps(state.stepCount, generation.maxSteps),
+    host: generation.host,
+    signal,
+  };
+  const turn = { step: state.stepCount, taint: state.taint, destinations: state.destinations };
+  const settlements = yield* runSideBySide(
+    calls.map((call) =>
+      call.failure
+        ? undefined
+        : forwardToolEvents(
+            executeRegisteredTool({
+              tools: state.tools,
+              execution: generation.execution,
+              invocation: {
+                model: generation.model,
+                input: generation.input,
+                history: generation.history,
+              },
+              ...(state.agents ? { agents: state.agents } : {}),
+              profile,
+              name: call.name,
+              input: call.arguments,
+              callId: call.callId,
+              ctx: {
+                operationId: call.operationId,
+                pageExecution: generation.pageExecution,
+                sessionPermissions: generation.sessionPermissions,
+                path: generation.tools.path,
+                turn,
+                credentials,
+                resolveHost,
+                host: generation.host,
+                resume: undefined,
+                signal,
+              },
+              snapshot: generation.tools,
+              stages,
+              scope: leakScope,
+              openSpan: toolSpanOpener(state),
+            }),
+            state,
+          ),
+    ),
+  );
+
+  let gated = false;
+  let cancelled = false;
+  for (const [index, call] of calls.entries()) {
     if (call.failure) {
       yield recordProviderToolFailure(
         state,
@@ -524,56 +626,13 @@ async function* handleModelCalls(
       );
       continue;
     }
-
-    const stages: ToolStageSupport = {
-      handlers: onStage ? [onStage] : [],
-      profile,
-      step: state.stepCount,
-      history: () => state.currentHistory,
-      injectAllowed: profileAllowsInject(profile),
-      injectWouldExceedMaxSteps: injectWouldExceedMaxSteps(state.stepCount, generation.maxSteps),
-      host: generation.host,
-      signal,
-    };
-
-    const settlement = yield* forwardToolEvents(
-      executeRegisteredTool({
-        tools: state.tools,
-        execution: generation.execution,
-        invocation: {
-          model: generation.model,
-          input: generation.input,
-          history: generation.history,
-        },
-        ...(state.agents ? { agents: state.agents } : {}),
-        profile,
-        name: call.name,
-        input: call.arguments,
-        callId: call.callId,
-        ctx: {
-          operationId: call.operationId,
-          pageExecution: generation.pageExecution,
-          sessionPermissions: generation.sessionPermissions,
-          path: generation.tools.path,
-          turn: { step: state.stepCount, taint: state.taint, destinations: state.destinations },
-          credentials,
-          resolveHost,
-          host: generation.host,
-          resume: undefined,
-          signal,
-        },
-        snapshot: generation.tools,
-        stages,
-        scope: leakScope,
-        openSpan: toolSpanOpener(state),
-      }),
-      state,
-    );
-
+    const settlement = settlements[index];
+    if (!settlement) continue;
     const outcome = yield* applyToolSettlement(settlement, state, call);
-    if (outcome === 'stop_cancelled') return false;
+    if (outcome === 'stop_cancelled') cancelled = true;
     if (outcome === 'gated') gated = true;
   }
+  if (cancelled) return false;
   if (gated) {
     state.lastStop = { kind: 'gate' };
     return false;

@@ -345,3 +345,60 @@ Deno.test('a Live call to an address the page named is refused in that cycle and
     ['remote_destination', undefined],
   );
 });
+Deno.test('a write chosen beside a remote read runs; one chosen after it is refused', async () => {
+  resetTools();
+  const restore = registerReadThenWrite();
+  try {
+    registerProfile(
+      defineProfile({
+        type: 'text',
+        id: 'deputy_beside',
+        identity: { handle: 'deputy' },
+        ...geminiModels('gemini35FlashLite'),
+        maxSteps: 3,
+        tools: { allow: ['web_fetch', 'send_email'] },
+        inputs: { text: true },
+        outputs: {},
+        guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: 'destructive' } },
+      }),
+    );
+    let step = 0;
+    const provider: ModelProvider = {
+      async *complete() {
+        step++;
+        if (step === 1) {
+          yield {
+            type: 'tool',
+            tool: {
+              name: 'web_fetch',
+              callId: 'c1',
+              arguments: { url: 'https://api.example.com/page' },
+            },
+          };
+          yield {
+            type: 'tool',
+            tool: { name: 'send_email', callId: 'c2', arguments: { to: 'friend@example.com' } },
+          };
+          return;
+        }
+        if (step === 2) {
+          yield {
+            type: 'tool',
+            tool: { name: 'send_email', callId: 'c3', arguments: { to: 'friend@example.com' } },
+          };
+          return;
+        }
+        yield { type: 'text', text: 'done' };
+      },
+    };
+    const events = await Array.fromAsync(
+      runTurn({ profile: 'deputy_beside', input: { text: 'summarise' } }, provider),
+    );
+    const refused = toolEventsOf(events, 'error').map((e) => [e.callId, e.failure.code]);
+    assertEquals(refused, [['c3', 'tainted_turn']]);
+    const sent = toolEventsOf(events, 'complete').map((e) => e.callId);
+    assertEquals(sent.includes('c2'), true);
+  } finally {
+    restore();
+  }
+});

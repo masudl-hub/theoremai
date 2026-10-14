@@ -325,7 +325,9 @@ OpenRouter, AI SDK, Gemini Live tool responses.
 
 ### Same-round batch rules
 
-1. Run pending calls **in order**.
+1. Run pending calls **side by side**: each starts at once, and the batch ends when
+   every call has settled (complete, error, gate or awaiting). Results and each
+   call's `post_tool` inject are recorded in the order the model made the calls.
 2. On **gate**: emit gate wire for that call; **do not** start its body;
    **continue** siblings — a gate holds only its own call, and a sibling that
    gates waits too. After the batch, end with `done.stop.kind: 'gate'` +

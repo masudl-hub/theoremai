@@ -1914,3 +1914,72 @@ Deno.test('pre_tool: tool-local preTool is skipped on a granted resume but host 
   assertEquals(settlement.outputRaw, { finding: 'ran' });
 });
 catalogGate();
+
+Deno.test('a step runs its calls side by side and records their results in the order made', async () => {
+  let besideStarted = () => {};
+  const started = new Promise<void>((resolve) => {
+    besideStarted = resolve;
+  });
+  const tool = (name: string, handler: () => { finding: string } | Promise<{ finding: string }>) =>
+    registerTool({
+      type: 'function',
+      name,
+      description: name,
+      category: 'test',
+      access: 'read-only',
+      paths: ['*'],
+      loadTier: 'T0',
+      permission: 'auto',
+      input: z.object({}),
+      output: z.object({ finding: z.string() }),
+      handler,
+    });
+  tool('waits_for_beside', async () => {
+    let timer = 0;
+    const alone = new Promise<string>((resolve) => {
+      timer = setTimeout(() => resolve('alone'), 1000);
+    });
+    const finding = await Promise.race([started.then(() => 'beside'), alone]);
+    clearTimeout(timer);
+    return { finding };
+  });
+  tool('beside', () => {
+    besideStarted();
+    return { finding: 'ran' };
+  });
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'side_by_side_bot',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 2,
+      tools: { allow: ['waits_for_beside', 'beside'] },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  let resultOrder: (string | undefined)[] = [];
+  let step = 0;
+  const provider: ModelProvider = {
+    async *complete(request: ProviderCompleteRequest) {
+      if (step++ === 0) {
+        yield { type: 'tool', tool: { name: 'waits_for_beside', arguments: {}, callId: 'c1' } };
+        yield { type: 'tool', tool: { name: 'beside', arguments: {}, callId: 'c2' } };
+        return;
+      }
+      resultOrder = (request.history ?? []).flatMap((message) =>
+        message.role === 'tool' ? [message.tool_call_id] : [],
+      );
+      yield { type: 'text', text: 'done' };
+    },
+  };
+  const events = await Array.fromAsync(
+    runTurn({ profile: 'side_by_side_bot', input: { text: 'go' } }, provider),
+  );
+  const waited = toolEventsOf(events, 'complete').find((e) => e.callId === 'c1');
+  assertEquals(waited?.output, { finding: 'beside' });
+  assertEquals(resultOrder, ['c1', 'c2']);
+  const shape = events.flatMap((e) => (e.type === 'tool' ? [e.tool.phase ?? 'call'] : []));
+  assertEquals(shape.slice(0, 2), ['call', 'call']);
+});

@@ -2,6 +2,7 @@
  * The shell the studio sits in: the icon rail on the black base, and the page beside it. The
  * website frames every page with these; the studio on its own frames its one page the same way.
  */
+import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { SideNav, SideNavHeading, SideNavItem, SideNavSection } from '@astryxdesign/core/SideNav';
 import { type DefinedTheme, Theme } from '@astryxdesign/core/theme';
 import { IconBook2, IconBrandGithub, IconBrandNpm, IconPlayerPlay } from '@tabler/icons-react';
@@ -35,6 +36,11 @@ function NewTabLink({ to: _to, ...props }: ComponentProps<'a'> & { to?: string }
 export const PAGE_ICONS = { Studio: IconPlayerPlay, Docs: IconBook2 } as const;
 export const PACKAGE_ICONS = { GitHub: IconBrandGithub, JSR: IconJsr, npm: IconBrandNpm } as const;
 
+/** A rail row's icon, a size up from the rail's own, so the marks read on a large screen. */
+function railIcon(icon: IconType, isSelected = false) {
+	return <Icon icon={icon} size="md" color={isSelected ? 'inherit' : 'secondary'} />;
+}
+
 export interface StudioRailProps {
 	/** The theme the page is drawn in. The rail is always its dark mode, so its icons read on black. */
 	theme: DefinedTheme;
@@ -61,21 +67,25 @@ export function StudioRail({ theme, pathname, packages, site, footerIcons }: Stu
 		<Theme theme={theme} mode="dark">
 			<SideNav
 				collapsible={{ isCollapsed: true, hasButton: false }}
-				header={<SideNavHeading heading="theorem" headingHref={at('/')} icon={<IconTheorem width="1em" height="1em" />} />}
+				header={<SideNavHeading heading="theorem" headingHref={at('/')} icon={railIcon(IconTheorem, true)} />}
 				footerIcons={footerIcons}
 			>
 				<SideNavSection title="Site" isHeaderHidden>
-					{SITE_PAGES.map(({ label, href }) => (
-						<SideNavItem
-							key={href}
-							label={label}
-							href={at(href)}
-							icon={PAGE_ICONS[label]}
-							as={site !== undefined && href !== '/studio' ? NewTabLink : undefined}
-							isSelected={pathname === href || pathname.startsWith(`${href}/`)}
-							data-home-nav-anchor={href}
-						/>
-					))}
+					{SITE_PAGES.map(({ label, href }) => {
+						const isSelected = pathname === href || pathname.startsWith(`${href}/`);
+						return (
+							<SideNavItem
+								key={href}
+								label={label}
+								href={at(href)}
+								size="lg"
+								icon={railIcon(PAGE_ICONS[label], isSelected)}
+								as={site !== undefined && href !== '/studio' ? NewTabLink : undefined}
+								isSelected={isSelected}
+								data-home-nav-anchor={href}
+							/>
+						);
+					})}
 				</SideNavSection>
 				<SideNavSection title="Packages" isHeaderHidden>
 					{packages.map(({ label, href }) => (
@@ -83,7 +93,8 @@ export function StudioRail({ theme, pathname, packages, site, footerIcons }: Stu
 							key={href}
 							label={label}
 							href={href}
-							icon={PACKAGE_ICONS[label]}
+							size="lg"
+							icon={railIcon(PACKAGE_ICONS[label])}
 							as={NewTabLink}
 							data-home-nav-anchor={href}
 						/>

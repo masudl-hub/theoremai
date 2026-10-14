@@ -86,6 +86,7 @@ export function SettingsRailButton() {
 		<IconButton
 			label="Settings"
 			variant="ghost"
+			size="lg"
 			icon={<Icon icon={IconSettings} />}
 			tooltip={door.open ? 'Back to the studio' : 'Settings'}
 			aria-pressed={door.open}

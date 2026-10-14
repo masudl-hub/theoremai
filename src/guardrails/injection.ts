@@ -1,5 +1,4 @@
 import { blobAt, mergeSpans, type RedactSpan, spansFromPatterns } from '../observability/spans.ts';
-import { REVERSED_INJECTION_PATTERNS } from './injection-reversed.ts';
 import {
   BASE64_BLOB,
   HEX_BLOB,
@@ -7,6 +6,7 @@ import {
   PIPE_SEPARATED,
   SPACED_LETTERS,
 } from './injection-patterns.ts';
+import { REVERSED_INJECTION_PATTERNS } from './injection-reversed.ts';
 import { normalizedView, normalizeForDetection } from './normalize.ts';
 
 const TYPO_TARGETS = [

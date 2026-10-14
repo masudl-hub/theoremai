@@ -1,6 +1,7 @@
 import '../fixtures/test-host.ts';
 import { assert, assertEquals, assertRejects, assertStringIncludes } from '@std/assert';
 import { TheoremError } from '../../mod.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   compileStudio,
   createBlankDraft,
@@ -11,7 +12,6 @@ import {
   studioSource,
 } from '../../studio/mod.ts';
 import { studioScope } from '../../studio/runtime-scope.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import { ON_TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 type Guardrails = StudioDraft['guardrails'];
@@ -33,10 +33,13 @@ const CODENAMES: PatternDraft = {
 
 function compiled(change: (guardrails: Guardrails) => Partial<Guardrails>) {
   const { guardrails } = createBlankDraft();
-  return compileStudio({
-    ...createExampleDraft(),
-    guardrails: { ...guardrails, ...change(guardrails) },
-  }, ON_OWN_KEYS);
+  return compileStudio(
+    {
+      ...createExampleDraft(),
+      guardrails: { ...guardrails, ...change(guardrails) },
+    },
+    ON_OWN_KEYS,
+  );
 }
 
 function detectOf(change: (guardrails: Guardrails) => Partial<Guardrails>) {
@@ -166,7 +169,12 @@ Deno.test('exported code compiles the patterns as the host starts', () => {
 Deno.test('a run compiles the patterns where it runs, and refuses one that could hang', async () => {
   const result = compiled(ids({ theorem: false, hint: '', patterns: [ORDER] }));
   assert(result.ok, JSON.stringify(!result.ok && result.issues));
-  const { profile } = await studioScope(result.profile, result.customTools, result.structured, ON_TEST_KEYS);
+  const { profile } = await studioScope(
+    result.profile,
+    result.customTools,
+    result.structured,
+    ON_TEST_KEYS,
+  );
   const detect =
     profile.guardrails && 'detect' in profile.guardrails
       ? (profile.guardrails.detect as Record<string, { compiled?: { patterns: unknown } }>)
@@ -196,7 +204,10 @@ Deno.test("a run refuses a tool schema's pattern that could hang on what the mod
             ...tool,
             inputSchema: {
               ...tool.inputSchema,
-              properties: { ...tool.inputSchema.properties, code: { type: 'string', pattern } },
+              properties: {
+                ...(tool.inputSchema.properties as Record<string, unknown>),
+                code: { type: 'string', pattern },
+              },
             },
           }
         : tool,

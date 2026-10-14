@@ -2,13 +2,13 @@ import { assert, assertEquals, assertStringIncludes } from '@std/assert';
 import { createSurfaceRuntime } from '../../src/surface/runtime.ts';
 import { createBlankDraft, type StudioDraft, setProfileType } from '../../studio/draft.ts';
 import { createExampleDraft } from '../../studio/example.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   type StudioDraftChange,
   type StudioSurfaceHost,
   studioSurface,
 } from '../../studio/surface.ts';
 import { TEST_KEYS } from '../fixtures/lent-keys.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 const KEY = ['AIzaSy', 'TESTONLY0000000000000000000000000'].join('');
 

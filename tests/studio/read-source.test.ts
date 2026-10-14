@@ -1,4 +1,5 @@
 import { assert, assertEquals } from '@std/assert';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   agentDraft,
   compileStudio,
@@ -13,7 +14,6 @@ import {
   withAgentDraft,
   workspaceFromDraft,
 } from '../../studio/mod.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import { TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 /** The file the printer emits, read back, prints as the same file. */

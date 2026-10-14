@@ -989,7 +989,9 @@ Deno.test('a key typed into a URL is refused; Auth sends an API key in the query
   };
   const signed = withTool(inQuery);
   assert(signed.ok);
-  assertEquals(signed.customTools.find((tool) => tool.name === 'geocode_city')?.auth, {
+  const signedTool = signed.customTools.find((tool) => tool.name === 'geocode_city');
+  assert(signedTool?.type === 'http');
+  assertEquals(signedTool.auth, {
     slot: 'default',
     type: 'api_key',
     service: 'Geo',

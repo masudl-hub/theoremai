@@ -86,12 +86,7 @@ async function createLiveOutboundGateSession(
 
 function resetCycle(session: LiveOutboundGateSession): void {
   const carry = session.gate?.carryOut();
-  session.gate = outboundProgressiveGate(
-    session.policy,
-    session.context,
-    'live_reply',
-    carry,
-  );
+  session.gate = outboundProgressiveGate(session.policy, session.context, 'live_reply', carry);
   session.held = [];
   session.releasedTo = 0;
   session.withholdVisible = false;

@@ -258,6 +258,7 @@ function registerGooglePreset(): void {
   registerTools(GOOGLE_BUILTIN_TOOLS);
 }
 
+export { GEMINI_MODELS_URL } from '../providers/google/urls.ts';
 export type {
   GoogleBindingViolation,
   GoogleFreeTierGrounding,
@@ -292,4 +293,3 @@ export {
   googleFreeTierBuiltins,
   registerGooglePreset,
 };
-export { GEMINI_MODELS_URL } from '../providers/google/urls.ts';

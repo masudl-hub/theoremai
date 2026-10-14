@@ -1,6 +1,7 @@
 import '../fixtures/test-host.ts';
 import { assert, assertEquals, assertRejects } from '@std/assert';
 import { defineProfile, defineProvider, memorySink, openAIChat } from '../../mod.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   compileStudio,
   createExampleDraft,
@@ -13,10 +14,9 @@ import {
   studioScope,
   studioTaintNote,
 } from '../../studio/runtime-scope.ts';
+import { ON_TEST_KEYS, TEST_KEYS } from '../fixtures/lent-keys.ts';
 import { PrototypeAdapter } from '../fixtures/prototype-adapter.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
-import { ON_TEST_KEYS, TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 function afterRemoteRead(guardrails: object | undefined): unknown {
   return guardrails && 'taint' in guardrails

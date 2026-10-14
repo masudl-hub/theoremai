@@ -1,4 +1,5 @@
 import { assert, assertEquals } from '@std/assert';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   addAgent,
   addProvider,
@@ -31,7 +32,6 @@ import {
   workspaceNodeRef,
   workspaceTree,
 } from '../../studio/mod.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 function must<T>(value: T | undefined): T {
   assert(value !== undefined);

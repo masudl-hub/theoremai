@@ -1,4 +1,5 @@
 import { assert, assertEquals } from '@std/assert';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   addAgent,
   agentDraft,
@@ -28,7 +29,6 @@ import {
   workspaceSource,
 } from '../../studio/mod.ts';
 import { studioScope } from '../../studio/runtime.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import { ON_TEST_KEYS, TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 function must<T>(value: T | undefined): T {
@@ -344,7 +344,8 @@ Deno.test('an agent whose reply follows a schema compiles, with the schema besid
         schemaJson:
           '{"type":"object","properties":{"reply":{"type":"string"}},"required":["reply"]}',
       },
-    }), ON_OWN_KEYS,
+    }),
+    ON_OWN_KEYS,
   );
   assert(result.ok, result.ok ? '' : must(result.issues[0]).message);
   assertEquals(must(result.agents[0]).structured?.id, 'helper.reply');

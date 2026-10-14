@@ -1,5 +1,6 @@
 import { relative } from 'node:path';
 import { assertEquals } from '@std/assert';
+import { newConversationKey } from '../../studio/conversation-key.ts';
 import type { ReadStep } from '../../studio/read-steps.ts';
 import registerExample from '../../studio/server/example.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
@@ -24,6 +25,7 @@ const opened: StudioDescription = await (
     project: 'garden',
     pageOrigins: ['http://localhost:5174'],
     listenHost: '127.0.0.1:4983',
+    conversationKey: newConversationKey(),
   })(new Request('http://127.0.0.1:4983/api/studio', { headers: { host: '127.0.0.1:4983' } }))
 ).json();
 
@@ -326,10 +328,7 @@ Deno.test('an agent added in the studio is a new file beside the others, registe
       [
         'example.ts',
         undefined,
-        [
-          "import * as secondDesk from './second-desk';",
-          '  registerProfile(secondDesk.profile);',
-        ],
+        ["import * as secondDesk from './second-desk';", '  registerProfile(secondDesk.profile);'],
       ],
     ],
   );

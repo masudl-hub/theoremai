@@ -2,9 +2,9 @@ import { assertEquals } from '@std/assert';
 import { differingSettings } from '../../studio/agreement.ts';
 import { compileStudio } from '../../studio/compile.ts';
 import { createExampleDraft } from '../../studio/example.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import { withoutStudioFills } from '../../studio/policy.ts';
 import { agentModule } from '../../studio/source.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 Deno.test('a profile differs in each setting that is not the same value, but for what the kernel reads a setting left out as, and studio policy', () => {
   const project = {
@@ -75,9 +75,12 @@ Deno.test('a section left out is one written empty, read setting by setting', ()
 
 Deno.test("a profile as a file holds it leaves out the studio's own trace store", () => {
   const filled = { id: 'desk', observability: { writeTo: 'studio' }, labels: {} };
-  assertEquals(withoutStudioFills(filled), { id: 'desk', labels: {} });
+  assertEquals<unknown>(withoutStudioFills(filled), { id: 'desk', labels: {} });
   const sampled = { id: 'desk', observability: { writeTo: 'studio', sampleRate: 0.5 } };
-  assertEquals(withoutStudioFills(sampled), { id: 'desk', observability: { sampleRate: 0.5 } });
+  assertEquals<unknown>(withoutStudioFills(sampled), {
+    id: 'desk',
+    observability: { sampleRate: 0.5 },
+  });
   const own = { id: 'desk', observability: { writeTo: 'traces' } };
   assertEquals(withoutStudioFills(own), own);
   const off = { id: 'desk', observability: { writeTo: false } };

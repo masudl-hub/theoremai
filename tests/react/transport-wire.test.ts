@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from '@std/assert';
 import { TheoremError, TURN_EVENT_SCHEMAS, z } from '../../mod.ts';
 import {
+  type ChatLine,
   type ClientTurnEvent,
   createHttpTransport,
   postNdjson,
@@ -23,8 +24,8 @@ function transportReplying(body: string, status = 200) {
 
 const ndjson = (...lines: unknown[]) => lines.map((line) => JSON.stringify(line)).join('\n');
 
-async function turnLines(body: string, status = 200): Promise<ClientTurnEvent[]> {
-  const events: ClientTurnEvent[] = [];
+async function turnLines(body: string, status = 200): Promise<ChatLine[]> {
+  const events: ChatLine[] = [];
   await transportReplying(body, status).turn({ input: { text: 'hi' } }, (event) =>
     events.push(event),
   );

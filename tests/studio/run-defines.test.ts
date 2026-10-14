@@ -1,4 +1,5 @@
 import { assertEquals } from '@std/assert';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   clearStaleStudioRuns,
   compileStudio,
@@ -10,7 +11,6 @@ import {
   studioRunDefines,
   studioRunPayloadKey,
 } from '../../studio/mod.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 function exampleRun(): StudioRunPayload {
   const result = compileStudio(createExampleDraft(), ON_OWN_KEYS);
@@ -31,10 +31,13 @@ Deno.test("a run with the builder's own patterns defines, and its interface open
       { name: 'order', kind: 'pattern' as const, pattern: 'ORD-\\d{6}', flags: 'i', words: [] },
     ],
   };
-  const result = compileStudio({
-    ...draft,
-    guardrails: { ...draft.guardrails, sources: { ...draft.guardrails.sources, ids } },
-  }, ON_OWN_KEYS);
+  const result = compileStudio(
+    {
+      ...draft,
+      guardrails: { ...draft.guardrails, sources: { ...draft.guardrails.sources, ids } },
+    },
+    ON_OWN_KEYS,
+  );
   if (!result.ok) throw new Error(JSON.stringify(result.issues));
   assertEquals(studioRunDefines(result), true);
   assertEquals(studioInterface(result).type, result.profile.type);

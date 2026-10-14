@@ -67,7 +67,10 @@ Deno.test('a guardrail set to block refuses the blocks, and nothing is stored', 
     sessionId: 'session-a',
     store: {
       read: base.read,
-      write: (...args: Parameters<typeof base.write>) => (written.push(args), base.write(...args)),
+      write: (...args: Parameters<typeof base.write>) => {
+        written.push(args);
+        return base.write(...args);
+      },
     },
   };
   const error = await assertRejects(

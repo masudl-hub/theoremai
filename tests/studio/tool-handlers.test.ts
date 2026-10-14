@@ -1,5 +1,6 @@
 import { assert, assertEquals } from '@std/assert';
 import { createToolRegistry } from '../../src/kernel/tools/registry.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   compileStudio,
   createExampleDraft,
@@ -7,7 +8,6 @@ import {
   type StudioToolHandlers,
   type ToolRegistration,
 } from '../../studio/mod.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 /** A function tool from the example, named `name`, with no sample reply. */
 function functionTool(name: string, stubResponse?: Record<string, unknown>): ToolRegistration {

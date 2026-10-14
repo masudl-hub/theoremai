@@ -1,4 +1,5 @@
 import { assert, assertEquals } from '@std/assert';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   addArchitectExample,
   compileStudio,
@@ -25,7 +26,6 @@ import {
   withLibraryDraft,
   workspaceFromDraft,
 } from '../../studio/mod.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 function compiled(workspace: StudioWorkspace) {
   const result = compileWorkspace(workspace, ON_OWN_KEYS);
@@ -287,7 +287,10 @@ Deno.test("the narrator's style and a speed reach its profile as written", () =>
   assert(result.ok && result.profile.type === 'speech');
   assertEquals(result.profile.speech, { style: narrator.speech.style });
 
-  const fast = compileStudio({ ...narrator, speech: { ...narrator.speech, speed: 1.2 } }, ON_OWN_KEYS);
+  const fast = compileStudio(
+    { ...narrator, speech: { ...narrator.speech, speed: 1.2 } },
+    ON_OWN_KEYS,
+  );
   assert(fast.ok && fast.profile.type === 'speech');
   assertEquals(fast.profile.speech.speed, 1.2);
 });

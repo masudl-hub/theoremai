@@ -1,21 +1,24 @@
 import { assertEquals } from '@std/assert';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   compileStudio,
   createBlankDraft,
   createExampleDraft,
   type StudioDraft,
 } from '../../studio/mod.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 type Guardrails = StudioDraft['guardrails'];
 
 /** The guardrails the example compiles to with a blank draft's guardrails and `change` made to them. */
 function guardrailsOf(change: (guardrails: Guardrails) => Partial<Guardrails>) {
   const { guardrails } = createBlankDraft();
-  const result = compileStudio({
-    ...createExampleDraft(),
-    guardrails: { ...guardrails, ...change(guardrails) },
-  }, ON_OWN_KEYS);
+  const result = compileStudio(
+    {
+      ...createExampleDraft(),
+      guardrails: { ...guardrails, ...change(guardrails) },
+    },
+    ON_OWN_KEYS,
+  );
   if (!result.ok) throw new Error(result.issues.map((issue) => issue.message).join('; '));
   if (result.profile.type !== 'text') throw new Error('expected a text profile');
   return result.profile.guardrails;

@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
+import { type LentKeys, ON_OWN_KEYS, type StudioRunsOn } from '../../studio/lent-keys.ts';
 import {
   compileStudio,
   createDecisionExampleDraft,
@@ -15,7 +16,6 @@ import {
   studioSource,
   studioTree,
 } from '../../studio/mod.ts';
-import { type LentKeys, ON_OWN_KEYS, type StudioRunsOn } from '../../studio/lent-keys.ts';
 import { ON_TEST_KEYS, TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 function withQuestions(

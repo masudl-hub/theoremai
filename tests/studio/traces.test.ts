@@ -1,9 +1,10 @@
 import { assertEquals } from '@std/assert';
 import { parseLiveServerEnvelope } from '../../react/src/client/live-messages.ts';
 import { createTraceFeed } from '../../react/src/client/trace-feed.ts';
-import type { ClientTurnEvent } from '../../react/src/client/transport.ts';
+import type { ChatLine } from '../../react/src/client/transport.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   compileStudio,
   createExampleDraft,
@@ -13,7 +14,6 @@ import {
 } from '../../studio/mod.ts';
 import { assertMalformed } from '../fixtures/malformed.ts';
 import { STUB_WRITE, stubRecord, stubSpan } from '../fixtures/trace-record.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 function recordFor(metadata: Record<string, unknown> | undefined): TraceRecord {
   return { ...stubRecord(), ...(metadata ? { metadata } : {}), spans: [stubSpan()] };
@@ -67,7 +67,7 @@ Deno.test('a studio run stream sends turn events to the turn and trace lines to 
   const transport = createStudioTransport(compiled, {
     fetch: () => Promise.resolve(new Response(body)),
   });
-  const events: ClientTurnEvent[] = [];
+  const events: ChatLine[] = [];
   await transport.turn({ input: { text: 'hello' } }, (event) => events.push(event));
   assertEquals(events, [text]);
   assertEquals(transport.traces?.records(), [record]);

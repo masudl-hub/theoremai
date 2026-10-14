@@ -1376,16 +1376,7 @@ export async function* executeMcpTool(
   if (!('ok' in prepared)) return prepared;
   yield* dispatchToolBody(tool, prepared.input, ctx, base, beginBody);
   return yield* sendWithCredential(prepared, guarded.url, (url) =>
-    sendMcpRequest(
-      tool,
-      url,
-      prepared.input,
-      prepared,
-      ctx,
-      base,
-      stages?.span,
-      sessions,
-    ),
+    sendMcpRequest(tool, url, prepared.input, prepared, ctx, base, stages?.span, sessions),
   );
 }
 

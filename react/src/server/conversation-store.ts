@@ -142,32 +142,33 @@ export function createMemoryConversationStore(
     }
     return entry.snapshot;
   };
+  const written = (
+    ...[sessionId, ref, expectedRevision, next]: Parameters<TheoremConversationStore['write']>
+  ): ConversationWriteResult => {
+    const snapshot = ref === null ? undefined : current(sessionId, ref);
+    // invariant: A ref this session cannot read takes no write, so no session overwrites another's conversation.
+    if (ref !== null && snapshot === undefined) return { written: false };
+    if ((snapshot?.revision ?? null) !== expectedRevision) return { written: false };
+    const conversation = storedConversation.parse(next);
+    const key = ref ?? crypto.randomUUID();
+    const revision = crypto.randomUUID();
+    conversations.delete(key);
+    conversations.set(key, {
+      sessionId,
+      snapshot: { revision, conversation: structuredClone(conversation) },
+      touched: Date.now(),
+    });
+    while (conversations.size > maxSessions) {
+      const oldest = conversations.keys().next().value;
+      if (oldest === undefined) break;
+      conversations.delete(oldest);
+    }
+    return { written: true, ref: key, revision };
+  };
   return {
-    // why: Async, so a refused write rejects like any store's rather than throwing at the call.
-    async read(sessionId, ref) {
-      return structuredClone(current(sessionId, ref));
-    },
-    async write(sessionId, ref, expectedRevision, next) {
-      const snapshot = ref === null ? undefined : current(sessionId, ref);
-      // invariant: A ref this session cannot read takes no write, so no session overwrites another's conversation.
-      if (ref !== null && snapshot === undefined) return { written: false };
-      if ((snapshot?.revision ?? null) !== expectedRevision) return { written: false };
-      const conversation = storedConversation.parse(next);
-      const key = ref ?? crypto.randomUUID();
-      const revision = crypto.randomUUID();
-      conversations.delete(key);
-      conversations.set(key, {
-        sessionId,
-        snapshot: { revision, conversation: structuredClone(conversation) },
-        touched: Date.now(),
-      });
-      while (conversations.size > maxSessions) {
-        const oldest = conversations.keys().next().value;
-        if (oldest === undefined) break;
-        conversations.delete(oldest);
-      }
-      return { written: true, ref: key, revision };
-    },
+    read: (sessionId, ref) => Promise.resolve(structuredClone(current(sessionId, ref))),
+    // why: A write that fails its check rejects, as any store's does, rather than throwing at the call.
+    write: (...args) => new Promise((resolve) => resolve(written(...args))),
   };
 }
 

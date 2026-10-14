@@ -734,14 +734,14 @@ async function thoughtGuardFor(
   const scope = scopeOf(policy, context);
   if (guarded || detectReads(['thought'], detect, scope)) await loadEgressAutomata();
   const guard = guarded
-      ? createThoughtGuard({
-          omit: thoughtOmits(policy),
-          ...omitted,
-          ...thoughtEnds(detect),
-          ...thoughtTurn(context),
-          ...(carry ? { carry } : {}),
-        })
-      : undefined;
+    ? createThoughtGuard({
+        omit: thoughtOmits(policy),
+        ...omitted,
+        ...thoughtEnds(detect),
+        ...thoughtTurn(context),
+        ...(carry ? { carry } : {}),
+      })
+    : undefined;
   const leaks = guard && reportingLeaks(guard, detect, flagged, context.canary);
   return detectingThoughts(leaks, detect, scope, own);
 }

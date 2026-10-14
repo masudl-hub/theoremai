@@ -893,7 +893,7 @@ function constant(source: ts.SourceFile, name: string): ts.Expression | undefine
 }
 
 /** Where a file imports `name` from, and what it is called there. */
-export function importOf(source: ts.SourceFile, name: string): { specifier: string; name: string } | undefined {
+function importOf(source: ts.SourceFile, name: string): { specifier: string; name: string } | undefined {
   for (const statement of source.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
     const bindings = statement.importClause?.namedBindings;

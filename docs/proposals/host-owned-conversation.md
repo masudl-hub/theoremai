@@ -1,6 +1,6 @@
 # Host-owned conversation
 
-Status: proposal. Nothing here is built. Section 9 records the decisions, and the one still open.
+Status: approved, not yet built. Section 9 records the decisions.
 
 **Reader:** a Theorem maintainer, and Masud.
 **Job:** decide where a chat's conversation lives, and what changes if the host owns it.
@@ -44,7 +44,7 @@ A plain turn with no `providerState` goes through neither check.
 
 ## 2. Why it is this way
 
-The first project on the package was ml_deno, in the model-sculpt-studio repo. Its servers keep nothing between requests. Each request carries the conversation history from the browser (for example endpoints/gemini-mermaid/index.ts in that repo). Theorem's chat took the same shape.
+The first project on the package was ml_deno, in the model-sculpt-studio repo. Its servers keep nothing between requests. Each request carries the conversation history from the browser (for example endpoints/gemini-mermaid/index.ts in that repo). ml_deno has its own browser client and calls `runTurn` directly. It does not use `@theoremjs/react`. Theorem's chat copied the shape, not the code.
 
 The intent was **host-owned**: the host decides where the conversation comes from. A host that keeps nothing chose the browser. That choice moved into the package and became the only choice.
 
@@ -107,12 +107,19 @@ A sketch of the store. These names do not exist yet.
 
 ```ts
 type TheoremConversationStore = {
-  read(sessionId: string): Promise<StoredConversation | null>;
-  compareAndSwap(sessionId: string, expectedRevision: string | null, next: StoredConversation): Promise<WriteResult>;
+  read(ref: string): Promise<{ conversation: StoredConversation; revision: string } | null>;
+  write(ref: string | null, expectedRevision: string | null, next: StoredConversation): Promise<{ ref: string } | 'conflict'>;
 };
 ```
 
-`expectedRevision` stops two tabs from writing over each other's turns. The session store already writes this way (`compareAndSwap` in `react/src/server/session-store.ts`).
+The **ref** is an opaque string that the store issues. The browser keeps it and sends it with each request. The handler never reads it. So a database store and the sealed store fit one interface, and the handler has no branch for the kind of store:
+
+| Store | The ref is | `write` returns |
+| --- | --- | --- |
+| A database store | The conversation's id | The same id |
+| The sealed store | The seal | A new seal |
+
+`expectedRevision` stops two tabs from writing over each other's turns. The session store already writes this way (`compareAndSwap` in `react/src/server/session-store.ts`). The sealed store cannot detect this case (section 8).
 
 ## 5. What changes
 
@@ -140,7 +147,7 @@ type TheoremConversationStore = {
 
 ## 7. Risks
 
-- **It breaks every page that uses `initialChat` or `onChatChange`.** This is a major version change for `@theoremjs/react`.
+- **It breaks every page that uses `initialChat` or `onChatChange`.** No host outside this repo uses them. ml_deno has its own browser client and calls `runTurn` directly, so the handler change does not touch it. The release is not a major version.
 - **A host that keeps nothing now needs a store.** It uses the sealed store (section 8) and a secret key.
 - **More server writes.** Each turn writes the conversation once. A paused call already writes the session.
 - **Media.** The browser sends attachments as base64 today. A stored conversation must hold them, or hold a reference. Studio already drops media past `CHAT_BUDGET`.
@@ -181,5 +188,11 @@ The host chooses the store. There is one code path: the handler always reads fro
 | A host with no storage | It uses the sealed store (section 8). The plain browser-held mode goes away. | Masud, 14 Oct: ml_deno's apps need a browser-carried chat |
 | Studio | Studio's server holds each preview conversation. | "The UI never holds or controls state" (Masud, 14 Oct) |
 | Order | This is built first. Try again is built on top of it. | Masud, 14 Oct |
+| Go-ahead | Approved. | Masud, 14 Oct |
+| Version | Not a major version. No host outside this repo uses the chat's snapshot props. | Masud, 14 Oct; ml_deno's shape from its maintainer, 14 Oct |
+| Where the store is required | Only in `createTheoremHandler`. `runTurn` keeps taking history from its caller. | "The host decides, Theorem runs" |
+| A host that calls `runTurn` directly | The sealed store is exported on its own, so such a host can seal and open its conversation without the handler. | ml_deno's case |
 
-Open: Masud's go-ahead to build. The change breaks every page that uses `initialChat` or `onChatChange`. It needs a new major version of `@theoremjs/react`, which Masud publishes.
+Found on 14 Oct: the chat ignores the history in a `compaction` event. `appendAssistantEventsToHistory` in `react/src/client/run-commit.ts` appends to the old history, and `applyTurnEventsToSession` keeps only the token count. So the browser keeps sending the uncompacted history. When the server owns the history, the server writes the compacted history, and this bug goes away.
+
+Open, not part of this build: ml_deno asks Theorem to count `input.context` in the compaction meter. That is a separate change.

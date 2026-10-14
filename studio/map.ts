@@ -6,7 +6,7 @@
  */
 import { type MapPlace, mapCurve, mapRail } from './map-line.ts';
 import { type SharedEntry, sharedOpens } from './shared-settings.ts';
-import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
+import { modelBindingNodeId, providerNodeId, toolSpecNodeId } from './tree.ts';
 import { type AgentDraft, agentNodeId, type StudioWorkspace, workspaceTree } from './workspace.ts';
 
 export type MapNodeKind = 'provider' | 'shared' | 'model' | 'agent' | 'tool';
@@ -132,21 +132,22 @@ export function workspaceMap(workspace: StudioWorkspace, shared: readonly Shared
   };
 
   const providers = new Map<string, MapNode>();
+  const defined = new Set(workspace.providers.map((provider) => provider.id));
   const models = new Map<string, MapNode>();
   for (const agent of workspace.agents) {
     const to = at(agent.key, 'models');
     for (const binding of agent.modelBindings) {
       // Two agents share a model's node when they name it alike and reach the same model.
       const id = `model:${binding.provider}:${binding.apiId}:${binding.modelId}`;
-      const provider = `provider:${binding.provider}`;
+      const provider = providerNodeId(binding.provider);
       if (!providers.has(provider)) {
-        // A provider is chosen on a model: it opens the first one it serves.
+        // A provider the workspace does not define opens the first model it serves.
         providers.set(provider, {
           id: provider,
           kind: 'provider',
           label: binding.provider,
           note: '',
-          opens: agentNodeId(agent.key, modelBindingNodeId(binding.key)),
+          opens: defined.has(binding.provider) ? provider : agentNodeId(agent.key, modelBindingNodeId(binding.key)),
         });
       }
       const opens = agentNodeId(agent.key, modelBindingNodeId(binding.key));

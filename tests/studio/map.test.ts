@@ -15,7 +15,7 @@ import {
 } from '../../studio/map.ts';
 import type { SharedSetting } from '../../studio/server/save-wire.ts';
 import { sharedEntries } from '../../studio/shared-settings.ts';
-import { modelBindingNodeId, toolSpecNodeId } from '../../studio/tree.ts';
+import { modelBindingNodeId, providerNodeId, toolSpecNodeId } from '../../studio/tree.ts';
 import {
   addAgent,
   agentNodeId,
@@ -124,8 +124,13 @@ Deno.test('the map holds every profile, tool, model and provider, joined as the 
   );
   assertEquals(
     providers?.map((node) => [node.label, node.opens]),
-    // A provider opens the first model it serves.
-    [[binding?.provider, models?.[0]?.opens]],
+    // A provider the workspace defines opens itself.
+    [[binding?.provider, providerNodeId(binding?.provider ?? '')]],
+  );
+  assertEquals(
+    // One it does not define opens the first model it serves.
+    workspaceMap({ ...workspace, providers: [] }).columns[0]?.[0]?.nodes.map((node) => node.opens),
+    [models?.[0]?.opens],
   );
   assertEquals(
     map.links.filter((link) => link.kind === 'serves'),

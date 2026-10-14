@@ -13,7 +13,7 @@ import type { RegisteredTool } from '../../src/kernel/tools/types.ts';
 import type { CompiledStudio } from '../compile.ts';
 import { heldSetting, unheldProblem } from '../held-credentials.ts';
 import type { ToolRegistration } from '../registrations.ts';
-import { providerDefinition } from '../providers.ts';
+import { providerDefinition, type StudioProvider } from '../providers.ts';
 import type { ProjectQuestions } from './handler.ts';
 import { withCompiledPatterns } from '../runtime-scope.ts';
 import { registerCustomTool } from '../tools.ts';
@@ -146,11 +146,17 @@ async function registerAgent(scope: KernelScope, agent: CompiledStudio, subject:
 
 /**
  * A provider with the builder's edits over the one the project registered. What the page was not
- * shown stays as registered: the adapter, and anything it connects with that is not text.
+ * shown stays as registered: anything it connects with that is not text. Moved to another kernel
+ * adapter, it is that adapter with what the page holds.
  */
 function registerProvider(scope: KernelScope, subject: SaveSubject): void {
   const { model: _model, ...registered } = scope.providers.require(subject.of);
   const [before, after] = [subject.before as Json, subject.after as Json];
+  if (after.adapter !== before.adapter) {
+    // On another adapter, nothing the project connected with before carries over.
+    scope.providers.register(providerDefinition({ ...(after as Omit<StudioProvider, 'id'>), id: subject.of }));
+    return;
+  }
   const [shown, edited] = [isRecord(before.connection) ? before.connection : {}, isRecord(after.connection) ? after.connection : {}];
   const connection: Json = { ...(isRecord(registered.connection) ? registered.connection : {}) };
   for (const key of new Set([...Object.keys(shown), ...Object.keys(edited)])) {

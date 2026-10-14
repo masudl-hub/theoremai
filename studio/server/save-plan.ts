@@ -16,6 +16,7 @@ import { MASK, unmaskUrl } from '../../src/surface/mod.ts';
 import { type SourceStyle, valueSource } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
 import { canonical } from '../canonical.ts';
+import { adapterFactory } from '../providers.ts';
 import {
   declares,
   definedAs,
@@ -605,7 +606,8 @@ class Planner {
     const { open, own } = shape;
     const { property, value } = entry;
     const place = this.placeIn(shape, at, key);
-    if (entry.receiver && !(open && !open.after.has(key))) this.reprovide(entry.receiver, value, change);
+    if (this.subject.kind === 'provider' && here.length === 1 && key === 'adapter') this.readapt(value, change, place);
+    else if (entry.receiver && !(open && !open.after.has(key))) this.reprovide(entry.receiver, value, change);
     else if (!value || (open && !open.after.has(key))) this.note('code', here, place);
     else if (property && ts.isShorthandPropertyAssignment(property)) this.named(value, key, before, after, here);
     else if (after === undefined) {
@@ -634,6 +636,41 @@ class Planner {
     const name = this.brought(receiver.source, to);
     if (!name) return this.note('code', here, place);
     this.edit(receiver.source, node.getStart(receiver.source), node.end, name);
+    this.note('written', here, place);
+  }
+
+  /**
+   * A provider's adapter, changed by calling the other kernel factory where its definition calls
+   * this one. The new factory is imported beside the old, in place of it when nothing else in the
+   * file reads the old one. An adapter made any other way is code's to change.
+   */
+  private readapt(at: Located | undefined, { before, after, here }: KeyChange, place: Place) {
+    const from = typeof before === 'string' ? adapterFactory(before) : undefined;
+    const to = typeof after === 'string' ? adapterFactory(after) : undefined;
+    const call = at && unwrapped(at.node);
+    if (
+      !at || !from || !to || !call || !ts.isCallExpression(call) || call.arguments.length > 0 ||
+      !ts.isIdentifier(call.expression)
+    ) return this.note('code', here, place);
+    const { source } = at;
+    const imported = namedImports(source);
+    const callee = call.expression;
+    const old = imported.find((element) => element.name.text === callee.text);
+    if (!old) return this.note('code', here, place);
+    if ((old.propertyName ?? old.name).text !== from) return this.note('changed', here, place);
+    const held = imported.find((element) => (element.propertyName ?? element.name).text === to);
+    let name = held?.name.text;
+    if (!name) {
+      name = to;
+      if (declares(source, to)) return this.note('code', here, place);
+      // The import of the old factory is the only other place that reads it: the new one takes its place.
+      if (reads(source, callee.text) === 2) this.edit(source, old.getStart(source), old.end, to);
+      else {
+        const last = (old.parent as ts.NamedImports).elements.at(-1) ?? old;
+        this.edit(source, last.end, last.end, `, ${to}`);
+      }
+    }
+    this.edit(source, callee.getStart(source), callee.end, name);
     this.note('written', here, place);
   }
 
@@ -1073,4 +1110,24 @@ export function diffHunks(text: string, edits: readonly SourceEdit[]): DiffHunk[
       trail: lines.slice(after, after + CONTEXT_LINES),
     }];
   });
+}
+
+/** Each name the file imports by name, as values. */
+function namedImports(source: ts.SourceFile): ts.ImportSpecifier[] {
+  return source.statements.flatMap((statement) => {
+    if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) return [];
+    const bindings = statement.importClause?.namedBindings;
+    return bindings && ts.isNamedImports(bindings) ? bindings.elements.filter((element) => !element.isTypeOnly) : [];
+  });
+}
+
+/** How many times the file names `name`, its import included. */
+function reads(source: ts.SourceFile, name: string): number {
+  let count = 0;
+  const visit = (node: ts.Node) => {
+    if (ts.isIdentifier(node) && node.text === name) count += 1;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return count;
 }

@@ -1,6 +1,7 @@
 import { assertEquals } from '@std/assert';
 import { defaultKernelScope, openAIChat } from '../../mod.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
+import { providerDefinition } from '../../studio/providers.ts';
 import {
   changedSettings,
   editedQuestions,
@@ -182,6 +183,39 @@ Deno.test('a provider the builder added is registered for the run', async () => 
     await registerEdits(defaultKernelScope, { subjects: [], added });
     const now = defaultKernelScope.providers.require('spare-house');
     assertEquals([now.adapter.id, now.keySlot], ['openrouter', 'spare']);
+  } finally {
+    defaultKernelScope.providers.reset();
+  }
+});
+
+Deno.test('a provider the builder moved to another adapter runs on it', async () => {
+  defaultKernelScope.providers.register(
+    providerDefinition({
+      id: 'moved',
+      adapter: 'openai-chat',
+      connection: { baseURL: 'https://one.example/v1' },
+      keySlot: 'team',
+    }),
+  );
+  try {
+    const before = {
+      adapter: 'openai-chat',
+      connection: { baseURL: 'https://one.example/v1' },
+      keySlot: 'team',
+    };
+    await registerEdits(defaultKernelScope, {
+      subjects: [
+        {
+          kind: 'provider',
+          of: 'moved',
+          before,
+          after: { adapter: 'openrouter', connection: {}, keySlot: 'team' },
+        },
+      ],
+      added: { agents: [], profiles: [], tools: [], providers: [] },
+    });
+    const now = defaultKernelScope.providers.require('moved');
+    assertEquals([now.adapter.id, now.connection, now.keySlot], ['openrouter', {}, 'team']);
   } finally {
     defaultKernelScope.providers.reset();
   }

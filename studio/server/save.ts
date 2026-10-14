@@ -44,11 +44,11 @@ interface Compiled {
 }
 
 /**
- * What Save writes of a provider: what it connects with and its key slots, as the fields its
- * definition holds them in. Its id and its adapter are not the studio's to change here.
+ * What Save writes of a provider: its adapter, what it connects with and its key slots, as the
+ * fields its definition holds them in. Its id is what code and models name it by, so it stays.
  */
-export function providerSettings(provider: StudioProvider): Omit<StudioProvider, 'id' | 'adapter'> {
-  const { id: _id, adapter: _adapter, ...settings } = provider;
+export function providerSettings(provider: StudioProvider): Omit<StudioProvider, 'id'> {
+  const { id: _id, ...settings } = provider;
   return settings;
 }
 

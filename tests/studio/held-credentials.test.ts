@@ -241,7 +241,7 @@ Deno.test('a provider the builder changed is a Save subject over what its defini
       after: { ...settings, keySlot: 'team' },
     },
   ]);
-  assertEquals('id' in settings || 'adapter' in settings, false);
+  assertEquals(['id' in settings, settings.adapter], [false, provider.adapter]);
 
   const masked = saveSubjects(
     withProvider(workspace, {

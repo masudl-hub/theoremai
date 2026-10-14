@@ -3,13 +3,14 @@ import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
 	connectionFields,
+	kernelAdapters,
 	providerUse,
 	type StudioIssue,
 	type StudioProvider,
 	type StudioWorkspace,
 } from '../mod.ts';
 import { NodeIssues } from './inspector-context.ts';
-import { InspectorRow, InspectorSection, SetInCode, TextRow } from './inspector.tsx';
+import { ChoiceRow, InspectorRow, InspectorSection, SetInCode, TextRow } from './inspector.tsx';
 import { IssueBanners, SlotRow } from './profile-editor.tsx';
 
 /** A connection setting's name as a row labels it: `baseURL` is Base URL. */
@@ -39,11 +40,18 @@ function withConnection(provider: StudioProvider, name: string, value: string): 
 	return { ...provider, connection: value ? { ...rest, [name]: value } : rest };
 }
 
+/** `provider` on the kernel adapter `adapter`, keeping what it connects with that the adapter also takes. */
+function withAdapter(provider: StudioProvider, adapter: string): StudioProvider {
+	const takes = new Set(connectionFields(adapter)?.map((field) => field.name));
+	const kept = Object.entries(provider.connection ?? {}).filter(([name]) => takes.has(name));
+	return { ...provider, adapter, connection: Object.fromEntries(kept) };
+}
+
 /**
- * The editor for one provider: what it connects with, as its adapter takes it, and the key slots
- * its models read. Its id and adapter are what code names it by, so they show and take no edit.
- * `onChange` is left out where the providers are the studio's own: every row then shows its value
- * and takes no edit.
+ * The editor for one provider: its adapter, what it connects with, as its adapter takes it, and
+ * the key slots its models read. Its id is what code and models name it by, so it takes no edit,
+ * and an adapter the project made itself stays its code's. `onChange` is left out where the
+ * providers are the studio's own: every row then shows its value and takes no edit.
  */
 export function ProviderEditor({
 	workspace,
@@ -123,9 +131,23 @@ export function ProviderEditor({
 					<InspectorRow label="Id" path="id">
 						<Text>{provider.id}</Text>
 					</InspectorRow>
-					<InspectorRow label="Adapter" path="adapter">
-						<Text>{provider.adapter}</Text>
-					</InspectorRow>
+					{onChange && held ? (
+						<ChoiceRow
+							label="Adapter"
+							path="adapter"
+							field="adapter"
+							isRequired
+							value={provider.adapter}
+							options={kernelAdapters()}
+							onChange={(next) => {
+								if (next && next !== provider.adapter) onChange(withAdapter(provider, next));
+							}}
+						/>
+					) : (
+						<InspectorRow label="Adapter" path="adapter">
+							<Text>{provider.adapter}</Text>
+						</InspectorRow>
+					)}
 				</InspectorSection>
 				{onChange ? (
 					rows

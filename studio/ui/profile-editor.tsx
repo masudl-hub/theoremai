@@ -125,7 +125,6 @@ import {
 	PROFILE_HANDLE_MAX_CHARS,
 	PROFILE_ID_MAX_CHARS,
 	type ProfileGraphFacetId,
-	type Provider,
 	profileGraphFacet,
 	type StepLimitMode,
 	type StudioAuthType,
@@ -179,6 +178,7 @@ import {
 	isOpenRouterRoute,
 	LOCAL_PROVIDER_ID,
 	modelRoute,
+	onStudioLocal,
 	servesProfileType,
 	bindingSlots,
 	type StudioProvider,
@@ -282,6 +282,7 @@ import {
 	WorkspaceContext,
 } from './inspector-context.ts';
 import { PROFILE_TYPE_ICON, TOOL_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
+import { useProject } from './lib/studio-project.ts';
 import { slotDescription, useProviderModels } from './studio-connection.tsx';
 import { IconTheorem } from './theorem-mark.tsx';
 
@@ -806,20 +807,20 @@ export function SlotRow({
  * is typed.
  */
 function ProviderModelRow({
-	provider,
+	adapter,
 	type,
 	slot,
 	value,
 	onChange,
 }: {
-	provider: Provider;
+	adapter: string | undefined;
 	type: ListedProfileType;
 	slot: string;
 	value: string;
 	onChange: (apiId: string) => void;
 }) {
 	const connection = useContext(LocalConnection);
-	const listed = provider === 'google' || provider === 'openrouter' ? provider : undefined;
+	const listed = adapter === 'google' || adapter === 'openrouter' ? adapter : undefined;
 	const models = useProviderModels(listed, type, slot ? connection?.vault[slot] : undefined);
 	if (models.status === 'idle' || models.status === 'error')
 		return (
@@ -867,8 +868,9 @@ function providerSegment(
 	provider: StudioProvider,
 	type: ListedProfileType | 'decision',
 	mode: ContextType<typeof ConnectionMode>,
+	inProject: boolean,
 ): Segment<string> {
-	const local = provider.id === LOCAL_PROVIDER_ID;
+	const local = onStudioLocal(provider.id, inProject);
 	return {
 		value: provider.id,
 		label: PROVIDER_LABEL[provider.id] ?? provider.id,
@@ -894,6 +896,7 @@ function ProviderRow({
 	set: SetBinding;
 }) {
 	const mode = useContext(ConnectionMode);
+	const inProject = useProject() !== null;
 	const serving = providers.filter(
 		(provider) => provider.id === binding.provider || servesProfileType(provider.adapter, type),
 	);
@@ -903,7 +906,7 @@ function ProviderRow({
 			path="models.*.provider"
 			field="provider"
 			value={binding.provider}
-			segments={serving.map((provider) => providerSegment(provider, type, mode))}
+			segments={serving.map((provider) => providerSegment(provider, type, mode, inProject))}
 			onChange={(id) => {
 				const provider = providers.find((each) => each.id === id);
 				if (provider) set(reprovide(binding, type, provider));
@@ -1068,13 +1071,14 @@ function ApiModelRow({
 }) {
 	const mode = useContext(ConnectionMode);
 	const localConnection = useContext(LocalConnection);
-	if (binding.provider === 'local' && localConnection)
+	const inProject = useProject() !== null;
+	if (onStudioLocal(binding.provider, inProject) && localConnection)
 		return <LocalApiModelRow binding={binding} localConnection={localConnection} set={set} />;
 	if (mode === 'demo')
 		return <DemoApiModelRow binding={binding} type={type} google={google} set={set} />;
 	return (
 		<ProviderModelRow
-			provider={binding.provider}
+			adapter={modelRoute(draft.providers, type, binding).adapter}
 			type={type}
 			slot={bindingSlots(draft, binding).keySlot ?? ''}
 			value={binding.apiId}
@@ -1146,7 +1150,7 @@ function ModelSection({
 	set: SetBinding;
 }) {
 	const google = isGoogleRoute(modelRoute(draft.providers, type, binding));
-	const local = binding.provider === LOCAL_PROVIDER_ID;
+	const local = onStudioLocal(binding.provider, useProject() !== null);
 	return (
 		<InspectorSection path="models.*">
 			<TextRow

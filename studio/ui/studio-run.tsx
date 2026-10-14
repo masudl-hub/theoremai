@@ -6,7 +6,7 @@ import { useState, useSyncExternalStore } from 'react';
 import type { ModelBinding } from '../../mod.ts';
 import { TheoremThemeProvider, TracePlacement } from '../../react/src/ui/index.ts';
 import { studioKeySlots } from '../browser.ts';
-import { modelRoute, modelSlots, STUDIO_PROVIDERS, type StudioRunPayload } from '../mod.ts';
+import { modelRoute, modelSlots, onStudioLocal, STUDIO_PROVIDERS, type StudioRunPayload } from '../mod.ts';
 import { recordsTraces } from './lib/project-traces.ts';
 import { ProjectContext } from './lib/studio-project.ts';
 import type { StudioRunOpened } from './lib/studio-run-open.ts';
@@ -147,6 +147,7 @@ export function StudioRunScreen({ opened }: { opened: StudioRunOpened }) {
 					(binding): ConnectionModel => ({
 						...modelRoute(providersOf(payload), profile.type, binding),
 						builtInTools: binding.builtInTools,
+						local: onStudioLocal(binding.provider, payload.providers !== undefined),
 					}),
 				),
 	);

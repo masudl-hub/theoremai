@@ -119,6 +119,7 @@ export {
   modelSlots,
   LOCAL_PROVIDER_ID,
   localProviderAddress,
+  onStudioLocal,
   type ModelRoute,
   modelCapabilities,
   modelRoute,

@@ -99,8 +99,8 @@ import {
 	resetAll,
 	resetLibraryTool,
 	resetProvider,
-	LOCAL_PROVIDER_ID,
 	localProviderAddress,
+	onStudioLocal,
 	providerIdOf,
 	providerNodeId,
 	providerUse,
@@ -1800,10 +1800,12 @@ function useOpenOrigin(project: ProjectSession | null) {
 
 /** Keys are the workspace's: every agent's slots, so a called agent's key is asked for too. */
 function useWorkspaceConnection(workspace: StudioWorkspace): StudioConnectionState {
+	const inProject = useProject() !== null;
 	const bindings = workspace.agents.flatMap((agent) =>
 		agent.modelBindings.map((binding) => ({
 			...modelRoute(workspace.providers, agent.identity.profileType, binding),
 			builtInTools: binding.builtInTools,
+			local: onStudioLocal(binding.provider, inProject),
 		})),
 	);
 	const namedSlots = workspace.agents
@@ -3530,7 +3532,7 @@ function shownProvider(
 ): StudioProvider | undefined {
 	const held = workspace.providers.find((each) => each.id === providerIdOf(editing));
 	// The studio's own local provider is reached where the local connection says, as a run reaches it.
-	return held && !inProject && held.id === LOCAL_PROVIDER_ID
+	return held && onStudioLocal(held.id, inProject)
 		? { ...held, connection: { baseURL: localProviderAddress(connection.local.baseUrl) } }
 		: held;
 }

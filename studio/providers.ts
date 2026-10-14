@@ -45,6 +45,14 @@ export interface StudioProvider {
 /** The provider the studio reaches on the builder's own machine. */
 export const LOCAL_PROVIDER_ID = 'local';
 
+/**
+ * Whether a model on `provider` runs on the studio's own local provider, which the tab's local
+ * connection reaches. A project's providers are its own, whatever their ids.
+ */
+export function onStudioLocal(provider: string, inProject: boolean): boolean {
+  return !inProject && provider === LOCAL_PROVIDER_ID;
+}
+
 /** Where the studio's local provider is reached, for a local server at `baseUrl`. */
 export function localProviderAddress(baseUrl = 'http://localhost:11434'): string {
   return `${baseUrl.replace(/\/$/, '')}/v1`;

@@ -519,7 +519,8 @@ Deno.test('the continue instruction and canary bind note compile into the profil
       },
     },
   });
-  assertEquals(off.profile.labels, undefined);
+  // A line stays as worded while its setting is off: the kernel holds it either way.
+  assertEquals(off.profile.labels, profile.labels);
 });
 Deno.test('Labels compile into the profile labels; lines edited beside their setting come from there', () => {
   const draft = {

@@ -5826,7 +5826,7 @@ function SharedLabelRow({
 			/>
 			{!shared.isOn(draft) && (
 				<HStack gap={1} align="center">
-					<Text type="supporting">Used once {shared.setting} is on.</Text>
+					<Text type="supporting">{shared.setting} is off.</Text>
 					<Button
 						label={`Open ${profileGraphFacet(facet)?.label ?? facet}`}
 						variant="ghost"

@@ -92,7 +92,6 @@ import {
   draftAllows,
   draftFacets,
   INLINE_LABELS,
-  plantsCanary,
   takesContinueInstruction,
 } from './draft.ts';
 import {
@@ -1052,7 +1051,11 @@ function compileTurnBehaviour(
   return Object.keys(spec).length ? spec : undefined;
 }
 
-/** Each line is checked by the kernel's labels rules and reported on the node that owns it. */
+/**
+ * Each line is checked by the kernel's labels rules and reported on the node that owns it. A line
+ * edited beside a setting is written whenever it is worded and the profile's type takes it, with
+ * the setting on or off: the kernel holds it either way, and so does a project's file.
+ */
 function compileLabels(
   draft: StudioDraft,
   facets: ReadonlySet<string>,
@@ -1060,55 +1063,27 @@ function compileLabels(
   report: Report,
 ): LabelOverrides | undefined {
   const entries: Array<[nodeId: string, field: string, key: LabelKey, template: string]> = [];
-  const turn = draft.turnBehaviour;
-  if (facets.has('turnBehaviour') && takesContinueInstruction(draft) && turn.resumeEnabled) {
-    entries.push([
-      'turnBehaviour',
-      'continueInstruction',
-      'continue.instruction',
-      turn.continueInstruction.trim(),
-    ]);
+  const shown = (facet: string) => facets.has(facet) || facets.has('labels');
+  const { turnBehaviour: turn, guardrails, outputs } = draft;
+  if (shown('turnBehaviour') && takesContinueInstruction(draft)) {
+    entries.push(['turnBehaviour', 'continueInstruction', 'continue.instruction', turn.continueInstruction.trim()]);
   }
-  const { guardrails } = draft;
-  if (facets.has('guardrails') && plantsCanary(draft)) {
-    entries.push([
-      'guardrails',
-      'canaryBindNote',
-      'canary.bind_note',
-      guardrails.canaryBindNote.trim(),
-    ]);
+  if (shown('guardrails') && allows('identity.system')) {
+    entries.push(['guardrails', 'canaryBindNote', 'canary.bind_note', guardrails.canaryBindNote.trim()]);
   }
-  if (facets.has('guardrails') && allows('guardrails.quota') && guardrails.quotaEnabled) {
+  if (shown('guardrails') && allows('guardrails.quota')) {
     entries.push(['guardrails', 'quotaMessage', 'quota.exhausted', guardrails.quotaMessage.trim()]);
   }
-  const { outputs } = draft;
-  if (facets.has('outputs') && allows('outputs.validation') && outputs.validationEnabled) {
-    entries.push([
-      'outputs',
-      'repairGuidance',
-      'repair.default_guidance',
-      outputs.repairGuidance.trim(),
-    ]);
+  if (shown('outputs') && allows('outputs.validation')) {
+    entries.push(['outputs', 'repairGuidance', 'repair.default_guidance', outputs.repairGuidance.trim()]);
   }
-  if (facets.has('guardrails') && allows('guardrails.blockedReply')) {
-    entries.push([
-      'guardrails',
-      'egressRepairGuidance',
-      'egress.default_repair_guidance',
-      guardrails.egressRepairGuidance.trim(),
-    ]);
-    entries.push([
-      'guardrails',
-      'egressRefusal',
-      'egress.refusal',
-      guardrails.egressRefusal.trim(),
-    ]);
+  if (shown('guardrails') && allows('guardrails.blockedReply')) {
+    entries.push(['guardrails', 'egressRepairGuidance', 'egress.default_repair_guidance', guardrails.egressRepairGuidance.trim()]);
+    entries.push(['guardrails', 'egressRefusal', 'egress.refusal', guardrails.egressRefusal.trim()]);
   }
   if (facets.has('labels')) {
     for (const [key, template] of Object.entries(draft.labels) as [LabelKey, string][]) {
-      if (!INLINE_LABELS[key]) {
-        entries.push(['labels', key, key, template.trim()]);
-      }
+      if (!INLINE_LABELS[key]) entries.push(['labels', key, key, template.trim()]);
     }
   }
   const labels: LabelOverrides = {};

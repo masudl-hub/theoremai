@@ -8,6 +8,7 @@ import {
   registerTool,
 } from '../../mod.ts';
 import { compileDetect } from '../../src/guardrails/compile-egress.ts';
+import { LABEL_KEYS, labelPlaceholders } from '../../src/guardrails/labels.ts';
 import { catalogPathFor } from '../../src/kernel/schema.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { STUDIO_POLICY_PATHS } from '../../studio/policy.ts';
@@ -150,6 +151,24 @@ const PROFILES = [
     defaultModel: 'main',
     inputs: {},
     tools: { allow: [] },
+  } as never),
+  // Every message a profile can word, on a profile that turns on nothing a message belongs to.
+  defineProfile({
+    type: 'text',
+    id: 'every-label',
+    identity: { handle: 'worded' },
+    models: { main: { provider: 'google', apiId: 'gemini-3.5-flash' } },
+    defaultModel: 'main',
+    inputs: {},
+    tools: { allow: [] },
+    labels: Object.fromEntries(
+      LABEL_KEYS.map((key) => [
+        key,
+        `Worded for ${key}. ${labelPlaceholders(key)
+          .map((name) => `{${name}}`)
+          .join(' ')}`.trim(),
+      ]),
+    ),
   } as never),
   defineProfile({
     type: 'text',

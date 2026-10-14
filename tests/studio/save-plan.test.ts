@@ -664,6 +664,29 @@ Deno.test("a provider's adapter is the other kernel factory, called and imported
     ),
   );
 
+  // A comment that leads what goes, goes with it, and the object is left `{}`.
+  const commented = planSave(
+    project({
+      'setup.ts': "import { house } from './providers.ts';\nregisterProviders([house]);\n",
+      'providers.ts': PROVIDERS.replace('{ baseURL:', '{\n    // where it listens\n    baseURL:'),
+    }),
+    [
+      {
+        kind: 'provider',
+        of: 'house',
+        before,
+        after: { adapter: 'google', connection: {}, keySlot: 'team' },
+      },
+    ],
+  );
+  assertEquals(
+    applyEdits(
+      PROVIDERS.replace('{ baseURL:', '{\n    // where it listens\n    baseURL:'),
+      commented.edits,
+    ),
+    google.text,
+  );
+
   const unknown = savedProvider(before, { ...before, adapter: 'house-made' });
   assertEquals(unknown.statuses, ['adapter: code']);
   assertEquals(unknown.text, PROVIDERS);

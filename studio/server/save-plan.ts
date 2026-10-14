@@ -963,10 +963,9 @@ class Planner {
     });
   }
 
-  /** Takes a property out, with its comma. */
   /**
-   * An object every property leaves and none comes to, written `{}`. Not when it holds a comment,
-   * which would go with it.
+   * An object every property leaves and none comes to, written `{}`. Not when it holds a comment
+   * no property takes with it, which would go too.
    */
   private emptied(
     node: ts.ObjectLiteralExpression,
@@ -977,12 +976,13 @@ class Planner {
     if (inserts.length || removed.length !== node.properties.length) return false;
     const start = node.getStart(source);
     let rest = source.text.slice(start + 1, node.end - 1);
-    for (const property of node.properties) rest = rest.replace(property.getText(source), '');
+    for (const property of node.properties) rest = rest.replace(property.getFullText(source), '');
     if (!/^[\s,]*$/.test(rest)) return false;
     this.edit(source, start, node.end, '{}');
     return true;
   }
 
+  /** Takes a property out, with its comma and the comment that leads it. */
   private remove(property: ts.ObjectLiteralElementLike, source: ts.SourceFile) {
     const { text } = source;
     let start = property.getFullStart();

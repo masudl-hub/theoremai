@@ -242,6 +242,17 @@ Deno.test('a provider the builder changed is a Save subject over what its defini
     },
   ]);
   assertEquals(['id' in settings, settings.adapter], [false, provider.adapter]);
+  // Every definition holds a connection: one left out and one emptied are the same, and no change.
+  const { connection: _, ...unconnected } = provider;
+  assertEquals(providerSettings(unconnected).connection, {});
+  const emptied = saveSubjects(withProvider(workspace, { ...provider, connection: {} }), names);
+  const bare = saveSubjects(withProvider(workspace, unconnected), names);
+  assertEquals(
+    [emptied, bare].map(
+      (each) => each.ok && each.subjects.filter((subject) => subject.kind === 'provider').length,
+    ),
+    provider.connection && Object.keys(provider.connection).length ? [1, 1] : [0, 0],
+  );
 
   const masked = saveSubjects(
     withProvider(workspace, {

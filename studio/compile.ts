@@ -348,7 +348,8 @@ function compileBinding(
       ...(chained
         ? {
             ...(binding.store !== null ? { store: binding.store } : {}),
-            persistViaInteractionId: binding.persistViaInteractionId,
+            // Unset is off to the kernel, so only on is written.
+            ...(binding.persistViaInteractionId ? { persistViaInteractionId: true } : {}),
           }
         : {}),
     }),

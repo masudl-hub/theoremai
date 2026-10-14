@@ -40,16 +40,17 @@ interface Compiled {
   /** What each decision profile is asked, by profile id. */
   asked: Map<string, CompiledStudio['questions']>;
   tools: Map<string, ToolRegistration>;
-  providers: Map<string, StudioProvider>;
+  providers: Map<string, ReturnType<typeof providerSettings>>;
 }
 
 /**
  * What Save writes of a provider: its adapter, what it connects with and its key slots, as the
  * fields its definition holds them in. Its id is what code and models name it by, so it stays.
+ * Every definition holds a connection, so one the page leaves out is written as an empty one.
  */
 export function providerSettings(provider: StudioProvider): Omit<StudioProvider, 'id'> {
-  const { id: _id, ...settings } = provider;
-  return settings;
+  const { id: _id, connection = {}, ...settings } = provider;
+  return { ...settings, connection };
 }
 
 function compiled(workspace: StudioWorkspace): Compiled | string[] {
@@ -60,7 +61,7 @@ function compiled(workspace: StudioWorkspace): Compiled | string[] {
   for (const agent of result.agents) for (const tool of agent.customTools) tools.set(tool.name, tool);
   const profiles = new Map(result.agents.map((agent) => [agent.agentId, agent.profile]));
   const asked = new Map(result.agents.map((agent) => [agent.agentId, agent.questions]));
-  const providers = new Map(workspace.providers.map((provider) => [provider.id, provider]));
+  const providers = new Map(workspace.providers.map((provider) => [provider.id, providerSettings(provider)]));
   return { agents: result.agents, profiles, asked, tools, providers };
 }
 
@@ -144,13 +145,9 @@ export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): S
       changes.push({ kind: 'provider', of: provider.id, setting: '', status: 'unfound' });
       continue;
     }
-    if (canonical(start) === canonical(provider)) continue;
-    subjects.push({
-      kind: 'provider',
-      of: provider.id,
-      before: providerSettings(start),
-      after: providerSettings(provider),
-    });
+    const after = providerSettings(provider);
+    if (canonical(start) === canonical(after)) continue;
+    subjects.push({ kind: 'provider', of: provider.id, before: start, after });
   }
   // A mask the page sends that it was not given has no value to run or to save with.
   const unheld = [

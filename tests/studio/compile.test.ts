@@ -273,7 +273,7 @@ Deno.test('summaries compile on, off, or left to the provider', () => {
   assertEquals(summaries(false), false);
   assertEquals(summaries(null), undefined);
 });
-Deno.test('a Gemini Interactions binding always compiles its chaining, and storage only when set', () => {
+Deno.test('a Gemini Interactions binding compiles chaining only when on, and storage only when set', () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;
   const model = (patch: Partial<typeof fast>) =>
@@ -281,7 +281,7 @@ Deno.test('a Gemini Interactions binding always compiles its chaining, and stora
       fast.modelId
     ];
   const unset = model({});
-  assertEquals(unset.providerOptions?.persistViaInteractionId, false);
+  assertEquals(unset.providerOptions?.persistViaInteractionId, undefined);
   assertEquals(unset.providerOptions?.store, undefined);
   const chained = model({ store: true, persistViaInteractionId: true });
   assertEquals(

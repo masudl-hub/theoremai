@@ -6,7 +6,7 @@
 import { listsPatterns } from '../src/guardrails/host-patterns.ts';
 import type { CompiledStudio } from './compile.ts';
 import type { CompiledWorkspace } from './compile-workspace.ts';
-import { adapterFactory, type StudioProvider } from './providers.ts';
+import { adapterFactory, kernelAdapters, type StudioProvider } from './providers.ts';
 import type { ToolRegistration } from './registrations.ts';
 import type { ProjectOrigins, ProviderPlace } from './server/save-wire.ts';
 import { stubOutputFromSchema } from './stub.ts';
@@ -299,6 +299,18 @@ export function importSpecifier(path: string): string {
   return `./${path.replace(/\.tsx?$/, '')}`;
 }
 
+/**
+ * What no identifier the studio writes may be: a word JavaScript keeps for itself, and a name the
+ * modules it writes import beside one, which the identifier would hide.
+ */
+const UNNAMEABLE = new Set([
+  ...'arguments await break case catch class const continue debugger default delete do else enum eval export extends false finally for function if implements import in instanceof interface let new null package private protected public return static super switch this throw true try typeof undefined var void while with yield'
+    .split(' '),
+  ...'compileDetect DecisionQuestion defineProfile defineProvider registerProfile registerProvider registerProviders registerStructured registerTool registerToolLibrary z'
+    .split(' '),
+  ...kernelAdapters().flatMap((adapter) => adapterFactory(adapter) ?? []),
+]);
+
 /** A camelCase identifier for an agent id, unique among `taken`. */
 export function agentIdentifier(agentId: string, taken: Set<string>): string {
   const words = agentId.split(/[^A-Za-z0-9]+/).filter(Boolean);
@@ -307,7 +319,7 @@ export function agentIdentifier(agentId: string, taken: Set<string>): string {
     .join('');
   const base = /^[A-Za-z_$]/.test(joined) ? joined : `agent${joined}`;
   let name = base;
-  for (let n = 2; taken.has(name); n++) name = `${base}${n}`;
+  for (let n = 2; taken.has(name) || UNNAMEABLE.has(name); n++) name = `${base}${n}`;
   taken.add(name);
   return name;
 }

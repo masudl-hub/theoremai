@@ -546,3 +546,28 @@ export default function register() {
 `,
   });
 });
+
+Deno.test('a new provider whose id is a reserved word or a name its file imports is named apart from it', () => {
+  const { written } = planned(
+    { 'setup.ts': INLINE },
+    {
+      agents: [host('desk', ['list'])],
+      profiles: [],
+      tools: [],
+      providers: [
+        { id: 'class', adapter: 'openrouter', keySlot: 'K' },
+        { id: 'google-adapter', adapter: 'google', keySlot: 'K' },
+      ],
+    },
+  );
+  assertEquals(
+    Object.values(written).flatMap((text) =>
+      [...text.matchAll(/export const (\w+)/g)].map((match) => match[1]),
+    ),
+    ['class2', 'googleAdapter2'],
+  );
+  assertEquals(
+    written['setup.ts']?.includes('registerProvider(class2);\n  registerProvider(googleAdapter2);'),
+    true,
+  );
+});

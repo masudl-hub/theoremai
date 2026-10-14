@@ -52,6 +52,7 @@ import { startToolTrace } from '../tool-trace.ts';
 import { startCallTrace } from '../turn-trace.ts';
 import { applyStageInjects } from './stages.ts';
 import { recordStepEvent, type StepExecutionState } from './state.ts';
+import { stepOrder } from './step-order.ts';
 import { isWithheldOnBlock, type OutboundStreamControl, yieldProviderEvents } from './stream.ts';
 import { callTokensEvent, observeCallEvent, startCallUsage } from './usage.ts';
 
@@ -516,13 +517,13 @@ async function* runSideBySide<T>(
 }
 
 /**
- * Run the model's calls side by side. Each reaches the host as its raw call first,
- * all of them before any runs; their phases then arrive as each tool gives them. A call
- * to the profile's `tools.t2Loader` runs and settles before the others start, so the
- * tools it loads can run in the same step. A call
- * the provider handed over already failed does not run. A call reads the turn's taint
- * and destinations as they stood when the step began: the model chose every call in
- * the step before any of their results came back.
+ * Run the model's calls. Each reaches the host as its raw call first, all of them before
+ * any runs; their phases then arrive as each tool gives them. With `tools.parallel` they
+ * run side by side; otherwise one at a time, in the order the model made them. A call
+ * whose `pre_tool` answers `waitFor` starts its body once those calls settle
+ * (`step-order.ts`). A call the provider handed over already failed does not run. A call
+ * reads the turn's taint, destinations and visible tools as they stood when the step
+ * began: the model chose every call in the step before any of their results came back.
  *
  * Results are recorded in the order the model made the calls, each followed by its
  * `post_tool` inject. A call that gates waits for its own approval while the others run.
@@ -546,9 +547,11 @@ async function* handleModelCalls(
     canaryGiven: state.canaryGiven,
     privateSystem: system.private,
   };
-  const announce = (call: ModelCall): TurnEvent => {
-    // why: The host is shown the call as its tool gets it; a failed call never reaches a tool.
-    const shown = call.failure
+  const calls = upstreamCalls.map((call) => ({
+    ...call,
+    operationId: crypto.randomUUID(),
+    // why: The host and every `pre_tool` see the call as its tool gets it; a failed call never reaches a tool.
+    shown: call.failure
       ? call.arguments
       : shownToolArguments({
           tools: state.tools,
@@ -556,16 +559,21 @@ async function* handleModelCalls(
           name: call.name,
           input: call.arguments,
           scope: leakScope,
-        });
-    const request = toolCallRequestEvent(call, shown, {
+        }),
+  }));
+  for (const call of calls) {
+    const request = toolCallRequestEvent(call, call.shown, {
       thoughtSignature: call.thoughtSignature,
       stepId,
     });
     state.allEmittedEvents.push(request);
-    return request;
-  };
-  const calls = upstreamCalls.map((call) => ({ ...call, operationId: crypto.randomUUID() }));
-  for (const call of calls) yield announce(call);
+    yield request;
+  }
+  const order = stepOrder(
+    calls.map((call) => call.callId),
+    profileToolsSpec(profile)?.parallel === true,
+    signal,
+  );
 
   const stages: ToolStageSupport = {
     handlers: onStage ? [onStage] : [],
@@ -576,54 +584,62 @@ async function* handleModelCalls(
     injectWouldExceedMaxSteps: injectWouldExceedMaxSteps(state.stepCount, generation.maxSteps),
     host: generation.host,
     signal,
+    stepCalls: calls.map((call) => ({ callId: call.callId, tool: call.name, input: call.shown })),
+    wait: order.wait,
   };
-  const turn = { step: state.stepCount, taint: state.taint, destinations: state.destinations };
-  const run = (call: (typeof calls)[number]) =>
-    call.failure
-      ? undefined
-      : forwardToolEvents(
-          executeRegisteredTool({
-            tools: state.tools,
-            execution: generation.execution,
-            invocation: {
-              model: generation.model,
-              input: generation.input,
-              history: generation.history,
-            },
-            ...(state.agents ? { agents: state.agents } : {}),
-            profile,
-            name: call.name,
-            input: call.arguments,
-            callId: call.callId,
-            ctx: {
-              operationId: call.operationId,
-              pageExecution: generation.pageExecution,
-              sessionPermissions: generation.sessionPermissions,
-              path: generation.tools.path,
-              turn,
-              credentials,
-              resolveHost,
-              host: generation.host,
-              resume: undefined,
-              signal,
-            },
-            snapshot: generation.tools,
-            stages,
-            scope: leakScope,
-            openSpan: toolSpanOpener(state),
-          }),
-          state,
-        );
-  // why: The profile's `tools.t2Loader` changes which tools the step's other calls may run, so it settles first.
-  const loader = profileToolsSpec(profile)?.t2Loader;
-  const loads = yield* runSideBySide(
-    calls.map((call) => (call.name === loader ? run(call) : undefined)),
-  );
-  const rest = yield* runSideBySide(
-    calls.map((call) => (call.name === loader ? undefined : run(call))),
-  );
-  const settlements = calls.map((call, index) =>
-    call.name === loader ? loads[index] : rest[index],
+  const turn = {
+    step: state.stepCount,
+    taint: state.taint,
+    destinations: state.destinations,
+    visible: [...generation.tools.visible],
+  };
+  const execute = (call: (typeof calls)[number]) =>
+    forwardToolEvents(
+      executeRegisteredTool({
+        tools: state.tools,
+        execution: generation.execution,
+        invocation: {
+          model: generation.model,
+          input: generation.input,
+          history: generation.history,
+        },
+        ...(state.agents ? { agents: state.agents } : {}),
+        profile,
+        name: call.name,
+        input: call.arguments,
+        callId: call.callId,
+        ctx: {
+          operationId: call.operationId,
+          pageExecution: generation.pageExecution,
+          sessionPermissions: generation.sessionPermissions,
+          path: generation.tools.path,
+          turn,
+          credentials,
+          resolveHost,
+          host: generation.host,
+          resume: undefined,
+          signal,
+        },
+        snapshot: generation.tools,
+        stages,
+        scope: leakScope,
+        openSpan: toolSpanOpener(state),
+      }),
+      state,
+    );
+  async function* run(call: (typeof calls)[number]) {
+    try {
+      await order.start(call.callId);
+      return yield* execute(call);
+    } finally {
+      order.settle(call.callId);
+    }
+  }
+  for (const call of calls) {
+    if (call.failure) order.settle(call.callId);
+  }
+  const settlements = yield* runSideBySide(
+    calls.map((call) => (call.failure ? undefined : run(call))),
   );
 
   let gated = false;

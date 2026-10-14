@@ -58,7 +58,7 @@ import {
 import type { ModelPicks, ModelProfileType, ModelStart } from './lent-keys.ts';
 import { STUDIO_TRACE_DESTINATION, startingBinding } from './policy.ts';
 import { modelRoute, servesProfileType, STUDIO_PROVIDERS, type StudioProvider } from './providers.ts';
-import { keySlotRequired } from './requirements.ts';
+import { keySlotUnset } from './requirements.ts';
 import { DEFAULT_TOOL_INPUT_SCHEMA, DEFAULT_TOOL_OUTPUT_SCHEMA } from './tool-schema.ts';
 import type { StudioToolSpecSeed } from './types.ts';
 
@@ -165,6 +165,8 @@ export const COMPACTION_DRAFT_DEFAULTS = {
 export interface ToolsDraft {
   /** Function tool that promotes T2 tools; empty omits it. */
   t2Loader: string;
+  /** True: a step's calls run side by side. False omits it: one at a time. */
+  parallel: boolean;
 }
 
 /** One custom tool: compiles to `registerTool` plus a `tools.allow` entry. */
@@ -638,7 +640,7 @@ export function createBlankDraft(): StudioDraft {
     models: { defaultModel: '', allowModelSelect: false, maxSteps: null, key: '' },
     modelBindings: [],
     providers: [...STUDIO_PROVIDERS],
-    tools: { t2Loader: '' },
+    tools: { t2Loader: '', parallel: false },
     toolSpecs: [],
     inputs: {
       text: true,
@@ -878,7 +880,7 @@ export function setProfileType(
     modelBindings: kept,
   };
   const modelBindings = kept.length ? kept : [newModelBinding(retyped, keys?.start)];
-  const needsKey = !draft.models.key && keySlotRequired({ ...retyped, modelBindings });
+  const needsKey = !draft.models.key && keySlotUnset({ ...retyped, modelBindings });
   return {
     ...retyped,
     inputs: type === 'image' ? imageInputs(draft.inputs) : draft.inputs,

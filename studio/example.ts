@@ -190,7 +190,7 @@ function exampleTextDraft(
 export function createExampleDraft(): StudioDraft {
   return exampleTextDraft(
     { agentId: 'travel.concierge', handle: 'concierge', system: DEMO_CONCIERGE_SYSTEM },
-    { tools: { t2Loader: 'discover_tools' }, toolSpecs: exampleTools(DEMO_CONCIERGE_TOOLS) },
+    { tools: { t2Loader: 'discover_tools', parallel: false }, toolSpecs: exampleTools(DEMO_CONCIERGE_TOOLS) },
   );
 }
 
@@ -231,7 +231,7 @@ export function createConsoleExampleDraft(): StudioDraft {
 function architectDraft(): StudioDraft {
   return exampleTextDraft(
     { agentId: 'code.architect', handle: 'architect', system: DEMO_ARCHITECT_SYSTEM },
-    { tools: { t2Loader: '' }, toolSpecs: exampleTools(DEMO_ARCHITECT_TOOLS) },
+    { tools: { t2Loader: '', parallel: false }, toolSpecs: exampleTools(DEMO_ARCHITECT_TOOLS) },
   );
 }
 

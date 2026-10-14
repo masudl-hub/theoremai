@@ -358,6 +358,7 @@ const AFFORDANCES: Readonly<Record<StageAffordance, TraceOptionMeta>> = {
     label: 'Labelled failed',
     doc: "Showed the tool's failed label for a call that completed.",
   },
+  waitFor: { label: 'Waited', doc: 'Held a tool call until other calls in its step settled.' },
 };
 
 const GUARDRAIL_STAGE_OPTIONS: Readonly<Record<GuardrailStage, TraceOptionMeta>> = {

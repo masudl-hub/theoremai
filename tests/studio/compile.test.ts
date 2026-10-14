@@ -495,7 +495,10 @@ Deno.test('a draft compiles only the fields its type takes in the schema', () =>
   assertEquals(profile.turnBehaviour, { resumption: { allowContinue: [], autoContinue: [] } });
   assertEquals(profile.labels, undefined);
   const live = setProfileType(image, 'live', TEST_KEYS);
-  const liveProfile = compiled({ ...live, tools: { t2Loader: 'not_checked' } }).profile;
+  const liveProfile = compiled({
+    ...live,
+    tools: { t2Loader: 'not_checked', parallel: true },
+  }).profile;
   assert(liveProfile.type === 'live');
   assertEquals(Object.keys(liveProfile.tools), ['allow']);
 });
@@ -1385,7 +1388,11 @@ Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () =
 });
 Deno.test('compaction compiles as the agent compacting itself, and registers', () => {
   // No tools, so the profile registers without them.
-  const plain = { ...createExampleDraft(), toolSpecs: [], tools: { t2Loader: '' } };
+  const plain = {
+    ...createExampleDraft(),
+    toolSpecs: [],
+    tools: { t2Loader: '', parallel: false },
+  };
   const draft = updateModelBinding(plain, plain.modelBindings[0].key, {
     ...COMPACTION_DRAFT_DEFAULTS,
     compactTiming: 'before',

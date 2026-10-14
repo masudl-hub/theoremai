@@ -181,7 +181,6 @@ import {
 	servesProfileType,
 	bindingSlots,
 	type StudioProvider,
-	keySlotRequired,
 	modelSlots,
 	type ModelBindingDraft,
 	modelBindingNodeId,
@@ -586,7 +585,6 @@ function ModelPolicySection({ draft, set }: { draft: StudioDraft; set: SetSectio
 				path="models.*.keySlot"
 				field="key"
 				value={models.key}
-				isRequired={keySlotRequired(draft)}
 				onChange={(key) => {
 					set({ key });
 				}}
@@ -4729,6 +4727,19 @@ function ToolsEditor({
 			)}
 			{draftAllows(draft, 'tools.t2Loader') && (
 				<ToolLoadingSection value={draft.tools.t2Loader} loaders={loaders} set={set} />
+			)}
+			{draftAllows(draft, 'tools.parallel') && (
+				<InspectorSection path="tools.parallel">
+					<SwitchRow
+						label="Parallel"
+						path="tools.parallel"
+						field="parallel"
+						value={draft.tools.parallel}
+						onChange={(parallel) => {
+							set({ parallel });
+						}}
+					/>
+				</InspectorSection>
 			)}
 		</>
 	);

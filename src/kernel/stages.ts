@@ -19,7 +19,10 @@ import { isRecord } from './util/record.ts';
 
 export type { AwaitingUserInput, ToolGate };
 
-/** What a stage handler can ask for: inject messages, abort, deny a tool call, ask for confirmation, mutate it or label it failed. */
+/**
+ * What a stage handler can ask for: inject messages, abort, deny a tool call, ask for
+ * confirmation, mutate it, label it failed, or have it wait for other calls in its step.
+ */
 export const STAGE_AFFORDANCES = [
   'inject',
   'abort',
@@ -27,6 +30,7 @@ export const STAGE_AFFORDANCES = [
   'confirm',
   'mutate',
   'labelFailed',
+  'waitFor',
 ] as const;
 /** One of {@linkcode STAGE_AFFORDANCES}. */
 export type StageAffordance = (typeof STAGE_AFFORDANCES)[number];
@@ -35,7 +39,7 @@ export type StageAffordance = (typeof STAGE_AFFORDANCES)[number];
 export const STAGE_AFFORDANCE_MATRIX: Readonly<Record<TurnStage, readonly StageAffordance[]>> =
   Object.freeze({
     pre_turn: Object.freeze(['inject', 'abort'] as const),
-    pre_tool: Object.freeze(['abort', 'deny', 'confirm', 'mutate'] as const),
+    pre_tool: Object.freeze(['abort', 'deny', 'confirm', 'mutate', 'waitFor'] as const),
     post_tool: Object.freeze(['inject', 'abort', 'deny', 'mutate', 'labelFailed'] as const),
     before_end: Object.freeze(['inject', 'abort'] as const),
     post_turn: Object.freeze([] as const),
@@ -43,10 +47,19 @@ export const STAGE_AFFORDANCE_MATRIX: Readonly<Record<TurnStage, readonly StageA
 
 const STAGE_RESULT_KEYS = new Set<string>([...STAGE_AFFORDANCES, 'injectId']);
 
+/** A call the model made in this step, as the host was shown it. */
+export interface StepCall {
+  callId: string;
+  tool: string;
+  input: unknown;
+}
+
 export type StageCallBag = {
   callId?: string;
   tool?: string;
   input?: unknown;
+  /** `pre_tool` in a turn's step: every call the model made in the step, in the order it made them. */
+  stepCalls?: readonly StepCall[];
   callNotStarted?: boolean;
   outputRaw?: unknown;
   outputModel?: ModelToolResult;
@@ -90,6 +103,11 @@ export interface StageResult {
    * terminal `tool` event. The result and the phase stay as they are.
    */
   labelFailed?: true;
+  /**
+   * `pre_tool` only: the call ids in `stepCalls` whose calls must settle before this call's body
+   * starts. A call held for confirmation is held at once and does not wait.
+   */
+  waitFor?: string[];
 }
 
 /** A rewrite of a tool call's input or output. */
@@ -129,6 +147,7 @@ export interface StageApplyOutput {
   confirm?: { summary?: string };
   mutate?: StageMutate;
   labelFailed?: true;
+  waitFor?: string[];
   warnings: StageApplyWarning[];
 }
 
@@ -418,6 +437,34 @@ function applyConfirmField(
   }
 }
 
+function applyWaitForField(
+  result: Record<string, unknown>,
+  stage: TurnStage,
+  out: StageApplyOutput,
+): void {
+  if (!('waitFor' in result) || result.waitFor === undefined) return;
+  if (!stageAllowsAffordance(stage, 'waitFor')) {
+    warn(
+      out.warnings,
+      'affordance_not_allowed',
+      'waitFor',
+      `waitFor is not allowed at stage ${stage}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  } else if (
+    !Array.isArray(result.waitFor) ||
+    !result.waitFor.every((id): id is string => typeof id === 'string' && id.trim() !== '')
+  ) {
+    warn(
+      out.warnings,
+      'wait_for_invalid',
+      'waitFor',
+      'waitFor must be an array of call ids', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  } else if (result.waitFor.length > 0) {
+    out.waitFor = [...new Set(result.waitFor)];
+  }
+}
+
 const MUTATE_SUBJECT = { pre_tool: 'input', post_tool: 'output' } as const satisfies Partial<
   Record<TurnStage, 'input' | 'output'>
 >;
@@ -502,6 +549,7 @@ export function applyStageResult(input: StageApplyInput): StageApplyOutput {
   applyConfirmField(result, stage, out);
   applyMutateField(result, input, out);
   applyLabelFailedField(result, stage, out);
+  applyWaitForField(result, stage, out);
 
   if (out.deny && out.confirm) {
     warn(warnings, 'confirm_invalid', 'confirm', 'confirm ignored because deny is set'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -596,8 +644,8 @@ function appliedAffordance(applied: RunStageOutput, key: StageAffordance): boole
 
 /**
  * Merge per-handler applied outputs in call order. Later scalars win, `inject`
- * lists concatenate, warnings accumulate. `deny` beats `confirm` across handlers
- * exactly as it does within one return.
+ * lists concatenate, `waitFor` ids join, warnings accumulate. `deny` beats `confirm`
+ * across handlers exactly as it does within one return.
  */
 function mergeApplied(parts: readonly StageApplyOutput[]): RunStageOutput {
   const out: RunStageOutput = { warnings: parts.flatMap((part) => part.warnings), inject: [] };
@@ -607,6 +655,7 @@ function mergeApplied(parts: readonly StageApplyOutput[]): RunStageOutput {
     if (part.confirm) out.confirm = part.confirm;
     if (part.mutate) out.mutate = part.mutate;
     if (part.labelFailed) out.labelFailed = true;
+    if (part.waitFor) out.waitFor = [...new Set([...(out.waitFor ?? []), ...part.waitFor])];
     if (part.inject) out.inject.push(part.inject);
   }
   if (out.deny && out.confirm) {

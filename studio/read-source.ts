@@ -1303,7 +1303,7 @@ function draftFrom(
     modelBindings: Object.entries(record(profile.models) ?? {}).map(([modelId, spec]) =>
       bindingOf(modelId, spec, byModelId.get(modelId), agentKeyOf, parsed.spans),
     ),
-    tools: { t2Loader: text(tools.t2Loader) },
+    tools: { t2Loader: text(tools.t2Loader), parallel: tools.parallel === true },
     toolSpecs: [],
     inputs: inputs && type !== 'decision' ? inputsOf(inputs) : current.inputs,
     outputs: outputs || parsed.structured ? outputsOf(outputs, parsed.structured) : current.outputs,

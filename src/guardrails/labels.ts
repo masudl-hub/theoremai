@@ -169,6 +169,8 @@ export const LABEL_KEYS = [
   'tool.page_timed_out',
   'tool.output_invalid',
   'tool.not_loaded_t2',
+  'tool.wait_unknown',
+  'tool.wait_cycle',
   'tool.not_visible',
   'tool.builtin_not_enabled',
   'tool.provider_native',
@@ -474,6 +476,8 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'tool.page_timed_out': "The page didn't answer",
   'tool.output_invalid': 'Tool output validation failed',
   'tool.not_loaded_t2': "Tool '{tool}' is not loaded — call {loader} to load it first",
+  'tool.wait_unknown': "Tool '{tool}' waits for calls that are not in this step: {calls}",
+  'tool.wait_cycle': "Tool '{tool}' waits for calls that cannot finish before it: {calls}",
   'tool.not_visible': "Tool '{tool}' is not visible this turn",
   'tool.builtin_not_enabled': "Builtin '{tool}' is not enabled this turn",
   'tool.provider_native':
@@ -750,6 +754,10 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'tool.output_invalid': "Told to the model when a tool's output fails the tool's output schema.",
   'tool.not_loaded_t2':
     'Told to the model when it calls a T2 tool the T2 loader has not loaded yet. Takes {tool} and {loader}, the loader tool.',
+  'tool.wait_unknown':
+    "Told to the model when a call's pre_tool waitFor names calls that are not in its step. Takes {tool} and {calls}.",
+  'tool.wait_cycle':
+    "Told to the model when a call's pre_tool waitFor names calls that cannot settle before it, because they wait for it or run after it. Takes {tool} and {calls}.",
   'tool.not_visible':
     'Told to the model when it calls a tool it cannot see this turn. Takes {tool}.',
   'tool.builtin_not_enabled':
@@ -818,6 +826,8 @@ const LABEL_PLACEHOLDERS: Partial<Record<LabelKey, readonly string[]>> = {
   'tool.t2_loader_shape': TOOL,
   'tool.page_no_answer': TOOL,
   'tool.not_loaded_t2': ['tool', 'loader'],
+  'tool.wait_unknown': ['tool', 'calls'],
+  'tool.wait_cycle': ['tool', 'calls'],
   'tool.not_visible': TOOL,
   'tool.builtin_not_enabled': TOOL,
   'tool.provider_native': TOOL,

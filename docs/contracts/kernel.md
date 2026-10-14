@@ -68,7 +68,7 @@ A `Profile` binds:
 | `type` | Wire archetype discriminator: `'text'`, `'image'`, `'speech'`, `'live'`, `'host'`, `'decision'` (`PROFILE_TYPES`) |
 | `identity` | `handle`, optional `system` / `systemByRole` — absent on `host`; `handle` only on `speech` and `decision` |
 | `models` | Host-named `ModelBinding`s (each carries a registered `provider` ID and `apiId`), `defaultModel` (registration always sets it: the declared one, else the only key), optional `allowModelSelect` / `maxSteps` — absent on `host`; `decision` binds exactly one model and never selects |
-| `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host`; absent on `speech` and `decision`. Tier loading (`t1Policy`, `t2Loader`) is declared only on `text` and `image` |
+| `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host`; absent on `speech` and `decision`. Tier loading (`t1Policy`, `t2Loader`) and `parallel` are declared only on `text` and `image` |
 | `inputs` | Text / attachments / voice / slots / context / per-mime limits — present on `text`, `image`; `live` takes `slots` and `context` only, and may leave `inputs` out (its channels are `live.ingress`); absent on `speech`; `decision` carries its own `DecisionInputsSpec`, not turn inputs. `{name}` in `identity.system` becomes the value the request chose for slot `name`; a prompt that uses a slot the request left unfilled is a `request` error; a `{name}` that is no slot stays as written |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
@@ -280,10 +280,12 @@ Live sessions emit the same stage names around utterance cycles and
    tool steps is one match.
 7. **Tool loop** — while under `maxSteps` (20 model calls when the profile sets none), tool calls execute via `executeRegisteredTool`
    (shared with `invokeTool`), threading the host's `credentials` source (`ToolCredentialSource`, read one slot at a time as a signed-in tool runs) for authenticated HTTP/MCP tools and the opaque `host` context slot; `pre_tool` / `post_tool` stages + `preTool` run on that path.
-   A step's calls run side by side: every call is announced first, then all run at once, and
-   the step ends when each has settled. A call to the profile's `tools.t2Loader` settles before
-   the others start, so the tools it loads can run in the same step. Each reads the turn's taint and destinations as they
-   stood when the step began. After the step, each call's result is recorded in the order the
+   Every call of a step is announced first. With `tools.parallel: true` they then run side
+   by side; left out or false, one at a time in the order the model made them. A call whose
+   `pre_tool` answers `waitFor` starts its body once those calls settle
+   ([stages.md](./stages.md#same-round-batch-rules)). The step ends when each has settled.
+   Each reads the turn's taint, destinations and visible tools as they stood when the step
+   began, so a tool the `tools.t2Loader` loads can be called from the next step. After the step, each call's result is recorded in the order the
    model made the calls, and its `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch.
    The runner records tool calls and results in portable history.
    The registered adapter validates native state and encodes the next request.

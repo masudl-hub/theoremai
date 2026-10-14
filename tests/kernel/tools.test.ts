@@ -14,6 +14,7 @@ import {
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import type { StageHandler } from '../../src/kernel/stages.ts';
 import { executeRegisteredTool, formatToolResult } from '../../src/kernel/tools/mod.ts';
 import {
   expandT1Policy,
@@ -1958,7 +1959,7 @@ Deno.test('a step runs its calls side by side and records their results in the o
       id: 'side_by_side_bot',
       ...geminiModels('gemini35FlashLite'),
       maxSteps: 2,
-      tools: { allow: ['waits_for_beside', 'beside'] },
+      tools: { allow: ['waits_for_beside', 'beside'], parallel: true },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
     }),
@@ -1988,43 +1989,210 @@ Deno.test('a step runs its calls side by side and records their results in the o
   assertEquals(shape.slice(0, 2), ['call', 'call']);
 });
 
-Deno.test('the profile loader settles before the step’s other calls, whatever their order', async () => {
+Deno.test('a tool the loader loads in a step can be called from the next step, not the same one', async () => {
   registerProfile(
     defineProfile({
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'loader_beside_bot',
       ...geminiModels('gemini35FlashLite'),
-      maxSteps: 2,
-      tools: { allow: ['load_tools', 'record_lookup'], t2Loader: 'load_tools' },
+      maxSteps: 3,
+      tools: { allow: ['load_tools', 'record_lookup'], t2Loader: 'load_tools', parallel: true },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
     }),
   );
-  let resultOrder: (string | undefined)[] = [];
   let step = 0;
   const provider: ModelProvider = {
-    async *complete(request: ProviderCompleteRequest) {
-      if (step++ === 0) {
+    async *complete() {
+      step += 1;
+      if (step === 1) {
         yield {
           type: 'tool',
-          tool: { name: 'record_lookup', arguments: { q: 'record' }, callId: 'c1' },
+          tool: { name: 'load_tools', arguments: { names: ['record_lookup'] }, callId: 'c1' },
         };
         yield {
           type: 'tool',
-          tool: { name: 'load_tools', arguments: { names: ['record_lookup'] }, callId: 'c2' },
+          tool: { name: 'record_lookup', arguments: { q: 'record' }, callId: 'c2' },
         };
         return;
       }
-      resultOrder = (request.history ?? []).flatMap((message) =>
-        message.role === 'tool' ? [message.tool_call_id] : [],
-      );
+      if (step === 2) {
+        yield {
+          type: 'tool',
+          tool: { name: 'record_lookup', arguments: { q: 'record' }, callId: 'c3' },
+        };
+        return;
+      }
       yield { type: 'text', text: 'done' };
     },
   };
   const events = await Array.fromAsync(
-    runTurn({ profile: 'loader_beside_bot', input: { text: 'go' } }, provider),
+    runTurn(
+      {
+        profile: 'loader_beside_bot',
+        input: { text: 'go' },
+        // why: The loader settles first, so the refusal comes from the step-start tools, not from timing.
+        onStage: ({ stage, tool }) =>
+          stage === 'pre_tool' && tool === 'record_lookup' && step === 1
+            ? { waitFor: ['c1'] }
+            : undefined,
+      },
+      provider,
+    ),
   );
-  assertEquals(lastTool(events, 'record_lookup')?.phase, 'complete');
-  assertEquals(resultOrder, ['c1', 'c2']);
+  assertEquals(failureCode(events, 'c2'), 'not_loaded');
+  assertEquals(
+    toolEventsOf(events, 'complete').map((call) => call.callId),
+    ['c1', 'c3'],
+  );
+});
+
+/** Two tools that log when their bodies start and end, for the step-order tests. */
+function orderProbe(prefix: string) {
+  const log: string[] = [];
+  for (const name of ['first', 'second']) {
+    registerTool({
+      type: 'function',
+      name: `${prefix}_${name}`,
+      description: name,
+      category: 'test',
+      access: 'read-only',
+      paths: ['*'],
+      loadTier: 'T0',
+      permission: 'auto',
+      input: z.object({}),
+      output: z.object({ finding: z.string() }),
+      handler: async () => {
+        log.push(`${name} start`);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        log.push(`${name} end`);
+        return { finding: name };
+      },
+    });
+  }
+  const run = async (
+    parallel: boolean | undefined,
+    onStage?: StageHandler,
+  ): Promise<TurnEvent[]> => {
+    const id = `${prefix}_${String(parallel)}_bot`;
+    registerProfile(
+      defineProfile({
+        type: 'text',
+        identity: { handle: 'test', system: 'test' },
+        id,
+        ...geminiModels('gemini35FlashLite'),
+        maxSteps: 2,
+        tools: {
+          allow: [`${prefix}_first`, `${prefix}_second`],
+          ...(parallel === undefined ? {} : { parallel }),
+        },
+        inputs: { text: true },
+        guardrails: { quota: { perDay: 10 } },
+      }),
+    );
+    log.length = 0;
+    let step = 0;
+    const provider: ModelProvider = {
+      async *complete() {
+        if (step++ === 0) {
+          yield { type: 'tool', tool: { name: `${prefix}_first`, arguments: {}, callId: 'c1' } };
+          yield { type: 'tool', tool: { name: `${prefix}_second`, arguments: {}, callId: 'c2' } };
+          return;
+        }
+        yield { type: 'text', text: 'done' };
+      },
+    };
+    return await Array.fromAsync(
+      runTurn({ profile: id, input: { text: 'go' }, ...(onStage ? { onStage } : {}) }, provider),
+    );
+  };
+  return { log, run };
+}
+
+/** `waitFor` answered at `pre_tool` for the named call. */
+function waitAt(waits: Record<string, string[]>): StageHandler {
+  return ({ stage, callId }) =>
+    stage === 'pre_tool' && callId && waits[callId] ? { waitFor: waits[callId] } : undefined;
+}
+
+function failureCode(events: TurnEvent[], callId: string): string | undefined {
+  return toolEventsOf(events, 'error').find((call) => call.callId === callId)?.failure.code;
+}
+
+Deno.test('a step runs its calls one at a time, in order, when the profile leaves parallel out', async () => {
+  const probe = orderProbe('order_default');
+  await probe.run(undefined);
+  assertEquals(probe.log, ['first start', 'first end', 'second start', 'second end']);
+  await probe.run(false);
+  assertEquals(probe.log, ['first start', 'first end', 'second start', 'second end']);
+  await probe.run(true);
+  assertEquals(probe.log.slice(0, 2), ['first start', 'second start']);
+});
+
+Deno.test('pre_tool sees the step calls, and waitFor holds a body until the named call settles', async () => {
+  const probe = orderProbe('order_wait');
+  const seen: unknown[] = [];
+  await probe.run(true, (ctx) => {
+    if (ctx.stage === 'pre_tool') seen.push(ctx.stepCalls?.map((call) => call.callId));
+    return ctx.stage === 'pre_tool' && ctx.callId === 'c1' ? { waitFor: ['c2'] } : undefined;
+  });
+  assertEquals(probe.log, ['second start', 'second end', 'first start', 'first end']);
+  assertEquals(seen, [
+    ['c1', 'c2'],
+    ['c1', 'c2'],
+  ]);
+});
+
+Deno.test('calls that wait for each other both fail as a wait that cannot end', async () => {
+  const probe = orderProbe('order_cycle');
+  const events = await probe.run(true, waitAt({ c1: ['c2'], c2: ['c1'] }));
+  assertEquals(probe.log, []);
+  assertEquals(failureCode(events, 'c1'), 'wait_cycle');
+  assertEquals(failureCode(events, 'c2'), 'wait_cycle');
+});
+
+Deno.test('a wait for a call outside the step, or for itself, fails the call', async () => {
+  const probe = orderProbe('order_unknown');
+  const events = await probe.run(true, waitAt({ c1: ['nope'], c2: ['c2'] }));
+  assertEquals(probe.log, []);
+  assertEquals(failureCode(events, 'c1'), 'wait_unknown');
+  assertEquals(failureCode(events, 'c2'), 'wait_cycle');
+});
+
+Deno.test('one at a time, a wait for a later call fails and the later call still runs', async () => {
+  const probe = orderProbe('order_later');
+  const events = await probe.run(undefined, waitAt({ c1: ['c2'] }));
+  assertEquals(failureCode(events, 'c1'), 'wait_cycle');
+  assertEquals(probe.log, ['second start', 'second end']);
+});
+
+Deno.test('one at a time, a wait for an earlier call is already met', async () => {
+  const probe = orderProbe('order_earlier');
+  const events = await probe.run(undefined, waitAt({ c2: ['c1'] }));
+  assertEquals(failureCode(events, 'c2'), undefined);
+  assertEquals(probe.log, ['first start', 'first end', 'second start', 'second end']);
+});
+
+Deno.test('a waitFor outside a turn step fails the call as unknown', async () => {
+  const probe = orderProbe('order_invoke');
+  const exec = executeRegisteredTool({
+    tools: defaultKernelScope.tools,
+    profile: postToolProfile('order_invoke_bot', 'order_invoke_first'),
+    name: 'order_invoke_first',
+    input: {},
+    callId: 'i1',
+    ctx: {},
+    stages: {
+      handlers: [waitAt({ i1: ['c9'] })],
+      profile: postToolProfile('order_invoke_bot', 'order_invoke_first'),
+      step: 1,
+      history: () => [],
+      injectAllowed: false,
+    },
+  });
+  let next = await exec.next();
+  while (!next.done) next = await exec.next();
+  assertEquals(next.value.failure?.code, 'wait_unknown');
+  assertEquals(probe.log, []);
 });

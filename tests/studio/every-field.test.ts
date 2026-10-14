@@ -247,7 +247,7 @@ const PROFILES = [
     allowModelSelect: true,
     maxSteps: 12,
     providerContinuation: { onMismatch: 'error', history: 'provider' },
-    tools: { allow: ['every_fetch', 'every_load'], t2Loader: 'every_load' },
+    tools: { allow: ['every_fetch', 'every_load'], t2Loader: 'every_load', parallel: true },
     inputs: {
       text: false,
       attachments: { accept: ['image/png'] },

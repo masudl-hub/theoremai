@@ -131,6 +131,11 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     reason:
       'live function declarations are fixed at session setup, and a host profile can execute every allowed tool',
   },
+  'tools.parallel': {
+    profileTypes: ['text', 'image'],
+    reason:
+      'a live session and a host profile run each call on its own, so there is no step of calls to run together',
+  },
   inputs: {
     profileTypes: ['text', 'image', 'live', 'decision'],
     reason: 'speech input is the transcript, and a host profile takes no turns',

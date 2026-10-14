@@ -49,10 +49,13 @@ Deno.test('TURN_INJECT_STAGES excludes tool gates and post_turn', () => {
 Deno.test('STAGE_AFFORDANCE_MATRIX matches the contract table', () => {
   assertEquals(
     [...STAGE_AFFORDANCES],
-    ['inject', 'abort', 'deny', 'confirm', 'mutate', 'labelFailed'],
+    ['inject', 'abort', 'deny', 'confirm', 'mutate', 'labelFailed', 'waitFor'],
   );
   assertEquals([...STAGE_AFFORDANCE_MATRIX.pre_turn], ['inject', 'abort']);
-  assertEquals([...STAGE_AFFORDANCE_MATRIX.pre_tool], ['abort', 'deny', 'confirm', 'mutate']);
+  assertEquals(
+    [...STAGE_AFFORDANCE_MATRIX.pre_tool],
+    ['abort', 'deny', 'confirm', 'mutate', 'waitFor'],
+  );
   assertEquals(
     [...STAGE_AFFORDANCE_MATRIX.post_tool],
     ['inject', 'abort', 'deny', 'mutate', 'labelFailed'],
@@ -205,6 +208,17 @@ Deno.test('applyStageResult: deny / mutate on pre_tool and post_tool, confirm on
   assertEquals(labelFailed('post_tool', 'yes').warnings[0]?.code, 'label_failed_invalid');
   assertEquals(labelFailed('pre_tool', true).labelFailed, undefined);
   assertEquals(labelFailed('pre_tool', true).warnings[0]?.code, 'affordance_not_allowed');
+
+  const waitFor = (stage: 'pre_tool' | 'post_tool', value: unknown) =>
+    applyStageResult({ stage, injectAllowed: true, result: { waitFor: value } });
+  assertEquals(waitFor('pre_tool', ['c1', 'c2', 'c1']).waitFor, ['c1', 'c2']);
+  assertEquals(waitFor('pre_tool', []).waitFor, undefined);
+  assertEquals(waitFor('pre_tool', []).warnings, []);
+  assertEquals(waitFor('pre_tool', 'c1').warnings[0]?.code, 'wait_for_invalid');
+  assertEquals(waitFor('pre_tool', ['c1', '']).warnings[0]?.code, 'wait_for_invalid');
+  assertEquals(waitFor('pre_tool', ['c1', 7]).waitFor, undefined);
+  assertEquals(waitFor('post_tool', ['c1']).waitFor, undefined);
+  assertEquals(waitFor('post_tool', ['c1']).warnings[0]?.code, 'affordance_not_allowed');
 
   const confirmPostTool = applyStageResult({
     stage: 'post_tool',
@@ -888,4 +902,34 @@ Deno.test('injectedStageEvent names only the injects the host named', () => {
     injected: [{ id: 'a' }],
   });
   assertEquals(injectedStageEvent('pre_turn', [units[1] ?? { messages: [] }]), undefined);
+});
+
+Deno.test('runStage: pre_tool sees the step calls and joins every handler waitFor', async () => {
+  const stepCalls = [
+    { callId: 'c1', tool: 'a', input: {} },
+    { callId: 'c2', tool: 'b', input: {} },
+    { callId: 'c3', tool: 'c', input: {} },
+  ];
+  const seen: unknown[] = [];
+  const gen = runStage({
+    stage: 'pre_tool',
+    step: 1,
+    history: [],
+    handlers: [
+      (ctx) => {
+        seen.push(ctx.stepCalls);
+        return { waitFor: ['c1', 'c2'] };
+      },
+      () => ({ waitFor: ['c2', 'c3'] }),
+    ],
+    guardrails: undefined,
+    injectAllowed: false,
+    callId: 'c4',
+    tool: 'd',
+    stepCalls,
+  });
+  let next = await gen.next();
+  while (!next.done) next = await gen.next();
+  assertEquals(seen, [stepCalls]);
+  assertEquals(next.value.waitFor, ['c1', 'c2', 'c3']);
 });

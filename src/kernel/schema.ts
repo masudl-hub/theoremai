@@ -234,6 +234,7 @@ export const STAGE_APPLY_WARNING_CODES = [
   'mutate_invalid',
   'label_failed_invalid',
   'abort_invalid',
+  'wait_for_invalid',
   'unknown_field',
   'result_invalid',
 ] as const;
@@ -902,7 +903,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'The most model calls one turn may make while using tools, counted afresh for each rewrite; 1 runs the tools asked for but never sends their results back. Live sessions ignore it.',
   ),
   tools: field(
-    '{ allow: ToolId[]; t1Policy?; t2Loader? }',
+    '{ allow: ToolId[]; t1Policy?; t2Loader?; parallel? }',
     'The registered tools this profile may use, and how they load. Built-in tools are set per model.',
   ),
   'tools.allow': field(
@@ -915,7 +916,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'tools.t2Loader': field(
     'ToolId',
-    "The function tool that loads T2 tools. It must be in allow and return { loaded: ToolId[] }. One forbidden id fails the load. Ids off the turn path are skipped. In a step, a call to it settles before the step's other calls start, so the tools it loads can run in the same step.",
+    "The function tool that loads T2 tools. It must be in allow and return { loaded: ToolId[] }. One forbidden id fails the load. Ids off the turn path are skipped. The tools it loads can be called from the next step: a step's calls see the tools as they stood when the step began.",
+  ),
+  'tools.parallel': field(
+    'boolean',
+    'true: the calls the model makes in one step run side by side, and a call whose pre_tool answers waitFor starts its body once those calls settle. Left out or false: they run one at a time, in the order the model made them.',
   ),
   inputs: field(
     'ProfileInputsSpec | DecisionInputsSpec',

@@ -22,7 +22,7 @@ import {
 import { jsonObjectSchema } from '../provider-contract.ts';
 import { type InjectUnit, isAwaitingUserInput } from '../stages.ts';
 import type { Source } from '../turn-events.ts';
-import type { InteractionPart, Profile, TurnEvent, TurnTokens } from '../types.ts';
+import type { InteractionPart, Profile, ToolId, TurnEvent, TurnTokens } from '../types.ts';
 import { isRecord } from '../util/record.ts';
 import { fillActivityLabel } from './activity-label.ts';
 import { type AgentCaller, AgentCallFailed, agentToolOrigin } from './agent.ts';
@@ -923,6 +923,8 @@ function registeredEligibilityFailure(args: {
   name: string;
   resume: ToolContext['resume'];
   snapshot?: TurnToolSnapshot;
+  /** The tools visible when the call's step began; a tool loaded later in the step is not among them. */
+  visible?: readonly ToolId[];
 }): ToolFailure | undefined {
   const { tool, profile, name, resume, snapshot } = args;
   if (!profileToolAllow(profile).includes(name)) {
@@ -941,7 +943,7 @@ function registeredEligibilityFailure(args: {
       message: labelText('tool.not_eligible', { tool: name }, profile.labels),
     };
   }
-  if (!snapshot.visible.includes(name)) {
+  if (!(args.visible ?? snapshot.visible).includes(name)) {
     const skipLoadCheck = continuing && tool.loadTier === 'T0';
     if (!skipLoadCheck) {
       return {
@@ -1320,6 +1322,7 @@ async function* runRegisteredTool(
     name,
     resume: ctx.resume,
     snapshot,
+    visible: ctx.turn?.visible,
   });
   if (eligibility) {
     yield failureEvent(base, eligibility);

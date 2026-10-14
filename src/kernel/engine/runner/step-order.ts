@@ -1,0 +1,114 @@
+import { throwIfAborted } from '../../../guardrails/error.ts';
+import type { StepWait, StepWaitOutcome } from '../../tools/stage-run.ts';
+
+/** Why one call is held for another: its `pre_tool` asked, or one at a time puts it after. */
+type WaitKind = 'asked' | 'after';
+
+/** One step's calls: when each may start, and who waits for whom. */
+export interface StepOrder {
+  /** Resolves when the call may start: at once side by side, once the call before it settles one at a time. */
+  start(callId: string): Promise<void>;
+  /** Marks the call settled; what waits for it goes on. */
+  settle(callId: string): void;
+  wait: StepWait;
+}
+
+/**
+ * The order of a step's calls. Side by side, every call starts at once. One at a time,
+ * each starts when the call before it settles. A call whose `pre_tool` answers `waitFor`
+ * is held until those calls settle. A wait on a call outside the step fails; so does a wait
+ * that can never end, because the call waited for waits for this one or runs after it. Every
+ * call whose own wait closes such a loop fails.
+ */
+export function stepOrder(
+  callIds: readonly string[],
+  parallel: boolean,
+  signal?: AbortSignal,
+): StepOrder {
+  const settled = new Set<string>();
+  const done = new Map(callIds.map((id) => [id, Promise.withResolvers<void>()]));
+  const waits = new Map<string, Map<string, WaitKind>>();
+  const held = new Map<string, (outcome: StepWaitOutcome) => void>();
+  if (!parallel) {
+    callIds.forEach((id, index) => {
+      const before = callIds[index - 1];
+      if (before !== undefined) waits.set(id, new Map([[before, 'after']]));
+    });
+  }
+
+  /** The calls from `from` to `to` along unsettled waits, or `undefined` when none leads there. */
+  const pathTo = (from: string, to: string, seen = new Set<string>()): string[] | undefined => {
+    if (from === to) return [to];
+    if (seen.has(from) || settled.has(from)) return undefined;
+    seen.add(from);
+    for (const next of waits.get(from)?.keys() ?? []) {
+      const rest = pathTo(next, to, seen);
+      if (rest) return [from, ...rest];
+    }
+    return undefined;
+  };
+
+  const release = (id: string, outcome: StepWaitOutcome) => {
+    held.get(id)?.(outcome);
+    held.delete(id);
+    for (const [target, kind] of waits.get(id) ?? []) {
+      if (kind === 'asked') waits.get(id)?.delete(target);
+    }
+  };
+
+  const doneOf = (id: string) => done.get(id)?.promise ?? Promise.resolve();
+
+  return {
+    start: async (callId) => {
+      const before = parallel ? undefined : callIds[callIds.indexOf(callId) - 1];
+      if (before !== undefined) await doneOf(before);
+      throwIfAborted(signal);
+    },
+    settle: (callId) => {
+      settled.add(callId);
+      waits.delete(callId);
+      done.get(callId)?.resolve();
+    },
+    wait: (callId, waitFor) => {
+      const unknown = waitFor.filter((id) => !done.has(id));
+      if (unknown.length > 0) {
+        return Promise.resolve({ ok: false, reason: 'unknown', callIds: unknown });
+      }
+      const pending = waitFor.filter((id) => !settled.has(id));
+      if (pending.length === 0) return Promise.resolve({ ok: true });
+      const own = waits.get(callId) ?? new Map<string, WaitKind>();
+      waits.set(callId, own);
+      for (const id of pending) own.set(id, 'asked');
+      const loops = pending.flatMap((id) => {
+        const path = pathTo(id, callId);
+        return path ? [{ id, path }] : [];
+      });
+      if (loops.length > 0) {
+        // why: Every call whose own wait is part of the loop is held for nothing that can come; each fails.
+        for (const { path } of loops) {
+          for (const [index, id] of path.entries()) {
+            const next = path[index + 1];
+            if (next !== undefined && id !== callId && waits.get(id)?.get(next) === 'asked') {
+              release(id, { ok: false, reason: 'cycle', callIds: [next] });
+            }
+          }
+        }
+        release(callId, { ok: false, reason: 'cycle', callIds: loops.map(({ id }) => id) });
+        return Promise.resolve({
+          ok: false,
+          reason: 'cycle',
+          callIds: loops.map(({ id }) => id),
+        });
+      }
+      const outcome = Promise.withResolvers<StepWaitOutcome>();
+      held.set(callId, outcome.resolve);
+      Promise.all(pending.map(doneOf)).then(() => release(callId, { ok: true }));
+      const aborted = new Promise<never>((_, reject) => {
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+      // why: An aborted turn ends the wait with the abort; the call settles as aborted.
+      aborted.catch(() => {});
+      return Promise.race([outcome.promise, aborted]);
+    },
+  };
+}

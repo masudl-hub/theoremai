@@ -128,7 +128,16 @@ export interface ToolContext {
   sessionPermissions?: string[];
   path?: string;
   signal?: AbortSignal;
-  turn?: { step: number; taint?: TurnTaint; destinations?: TurnDestinations };
+  /**
+   * The turn as it stood when the step began. `visible`: the tools a call in this step may use;
+   * a tool loaded during the step is callable from the next one.
+   */
+  turn?: {
+    step: number;
+    taint?: TurnTaint;
+    destinations?: TurnDestinations;
+    visible?: readonly ToolId[];
+  };
   resume?: InvokeToolResume;
   credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;
@@ -488,9 +497,14 @@ export interface ProfileToolsSpec {
   t1Policy?: ToolPolicy;
   /**
    * Must be in `allow`; completing with `{ loaded: string[] }` promotes those T2 ids. Not on `type: 'live'`.
-   * In a step, a call to it settles before the step's other calls start.
+   * The tools it loads can be called from the next step.
    */
   t2Loader?: ToolId;
+  /**
+   * `true`: a step's calls run side by side, each body starting once the calls its `pre_tool`
+   * `waitFor` names have settled. Left out or `false`: one at a time, in the order the model made them.
+   */
+  parallel?: boolean;
 }
 
 /** Live declarations cannot be added mid-session, so every allowed tool is wired at setup as if T0. */

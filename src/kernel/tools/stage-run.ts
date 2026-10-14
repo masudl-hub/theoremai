@@ -8,6 +8,7 @@ import {
   runStage,
   type StageHandler,
   type StageResult,
+  type StepCall,
   stageEventFields,
 } from '../stages.ts';
 import type { Profile, TurnEvent, TurnHistoryMessage } from '../types.ts';
@@ -16,6 +17,14 @@ import { operationWireValue } from './operation.ts';
 import { type GateDetails, gateDetails, isGateResumeGranted } from './permission.ts';
 import { plainToolInput } from './schema.ts';
 import type { ModelToolResult, ToolContext, ToolFailure, ToolGate, ToolLabels } from './types.ts';
+
+/** How a call's wait for other calls in its step ended: they settled, or the wait cannot end. */
+export type StepWaitOutcome =
+  | { ok: true }
+  | { ok: false; reason: 'unknown' | 'cycle'; callIds: string[] };
+
+/** Holds `callId` until the calls it names have settled. */
+export type StepWait = (callId: string, waitFor: readonly string[]) => Promise<StepWaitOutcome>;
 
 export interface ToolStageSupport {
   /** In order: request `onStage`, then turn/session ambient. */
@@ -29,6 +38,10 @@ export interface ToolStageSupport {
   host?: unknown;
   signal?: AbortSignal;
   span?: SpanHandle;
+  /** The step's calls, shown to `pre_tool`. Unset outside a turn's step. */
+  stepCalls?: readonly StepCall[];
+  /** Holds a call for the calls its `pre_tool` `waitFor` names. Unset outside a turn's step. */
+  wait?: StepWait;
 }
 
 function defaultToolStageSupport(ctx: ToolContext): ToolStageSupport {
@@ -137,9 +150,8 @@ export async function* runPreToolPipeline(args: {
     }
     return pre;
   }
-  if (!pre.mutated) return { ok: true, input: pre.input };
-  const reparsed = tool.input.safeParse(plainToolInput(pre.input));
-  if (!reparsed.success) {
+  const reparsed = pre.mutated ? tool.input.safeParse(plainToolInput(pre.input)) : undefined;
+  if (reparsed && !reparsed.success) {
     return {
       ok: false,
       kind: 'failed',
@@ -151,7 +163,15 @@ export async function* runPreToolPipeline(args: {
       },
     };
   }
-  return { ok: true, input: reparsed.data };
+  const waitFailure = await waitForStepCalls(
+    stages,
+    base.callId,
+    tool.name,
+    pre.waitFor,
+    ctx.profile.labels,
+  );
+  if (waitFailure) return { ok: false, kind: 'failed', failure: waitFailure };
+  return { ok: true, input: reparsed ? reparsed.data : pre.input };
 }
 
 async function* runPreToolStages(args: {
@@ -163,7 +183,8 @@ async function* runPreToolStages(args: {
   details: GateDetails;
 }): AsyncGenerator<
   TurnEvent,
-  Exclude<PreBodyOutcome, { ok: true }> | { ok: true; input: unknown; mutated: boolean }
+  | Exclude<PreBodyOutcome, { ok: true }>
+  | { ok: true; input: unknown; mutated: boolean; waitFor?: string[] }
 > {
   const { stages, toolName, callId, input, toolPreTool, details } = args;
   const applied = yield* runStage({
@@ -179,6 +200,7 @@ async function* runPreToolStages(args: {
     callId,
     tool: toolName,
     input,
+    ...(stages.stepCalls ? { stepCalls: stages.stepCalls } : {}),
   });
 
   if (applied.abort) {
@@ -206,10 +228,35 @@ async function* runPreToolStages(args: {
       ...(applied.mutate && 'input' in applied.mutate ? { input: applied.mutate.input } : {}),
     };
   }
+  const waitFor = applied.waitFor ? { waitFor: applied.waitFor } : {};
   if (applied.mutate && 'input' in applied.mutate) {
-    return { ok: true, input: applied.mutate.input, mutated: true };
+    return { ok: true, input: applied.mutate.input, mutated: true, ...waitFor };
   }
-  return { ok: true, input, mutated: false };
+  return { ok: true, input, mutated: false, ...waitFor };
+}
+
+/** Holds the call for the calls its `pre_tool` named; a wait that cannot end fails the call. */
+async function waitForStepCalls(
+  stages: ToolStageSupport | undefined,
+  callId: string,
+  toolName: string,
+  waitFor: readonly string[] | undefined,
+  labels: LabelOverrides | undefined,
+): Promise<ToolFailure | undefined> {
+  if (!waitFor) return undefined;
+  const outcome = stages?.wait
+    ? await stages.wait(callId, waitFor)
+    : { ok: false as const, reason: 'unknown' as const, callIds: [...waitFor] };
+  if (outcome.ok) return undefined;
+  return {
+    code: outcome.reason === 'unknown' ? 'wait_unknown' : 'wait_cycle',
+    kind: 'request',
+    message: labelText(
+      outcome.reason === 'unknown' ? 'tool.wait_unknown' : 'tool.wait_cycle',
+      { tool: toolName, calls: outcome.callIds.join(', ') },
+      labels,
+    ),
+  };
 }
 
 export async function* runPostToolStages(args: {

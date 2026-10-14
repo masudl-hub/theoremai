@@ -58,7 +58,7 @@ ceiling on host side effects.
 | Stage | Fires | Inject? | Other affordances |
 | --- | --- | --- | --- |
 | `pre_turn` | Once per user turn / live utterance cycle, before model work for that cycle | if inject allowed | `abort` |
-| `pre_tool` | Per `callId`, after chosen, before body | no | `deny`, `confirm` (gate), `mutate`, `abort` |
+| `pre_tool` | Per `callId`, after chosen, before body | no | `deny`, `confirm` (gate), `mutate`, `waitFor`, `abort` |
 | `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event | if inject allowed | `deny`, `mutate`, `labelFailed`, `abort` |
 | `before_end` | About to end the turn / utterance cycle; host may extend | if inject allowed | `abort` |
 | `post_turn` | After cycle-ending `done` | **never** (ignored) | observe only |
@@ -95,6 +95,8 @@ interface StageContext {
   callId?: string;
   tool?: string;
   input?: unknown;
+  /** pre_tool in a turn's step: every call the model made in the step, in its order, as the host was shown it. */
+  stepCalls?: readonly { callId: string; tool: string; input: unknown }[];
   /** True when pre_tool settled without running the body (deny or gate). */
   callNotStarted?: boolean;
   outputRaw?: unknown;
@@ -123,6 +125,8 @@ interface StageResult {
   mutate?: { input: unknown } | { output: unknown };
   /** post_tool only: the call completed, but the terminal event shows its failed label. */
   labelFailed?: true;
+  /** pre_tool only: call ids from `stepCalls` that must settle before this call's body starts. */
+  waitFor?: string[];
 }
 
 type StageHandler = (
@@ -141,6 +145,7 @@ type StageHandler = (
 | `confirm` | no | yes | no | no | no |
 | `mutate` | no | yes | yes | no | no |
 | `labelFailed` | no | no | yes | no | no |
+| `waitFor` | no | yes | no | no | no |
 
 \*Only when `profileAllowsInject` / session inject gate is true; otherwise no-op.
 
@@ -161,7 +166,7 @@ Every stage run records one `theorem.stage` span event —
 `{ stage, affordance, hook_ms?, warnings? }` — on the span it belongs to:
 turn stages on the `invoke_agent` root, Live cycle stages on the session root,
 `pre_tool` / `post_tool` on that call's `execute_tool` span. `affordance` lists
-what the handlers applied (`inject`, `abort`, `deny`, `confirm`, `mutate`, `labelFailed`;
+what the handlers applied (`inject`, `abort`, `deny`, `confirm`, `mutate`, `labelFailed`, `waitFor`;
 `[]` when nothing, or no handler ran); `hook_ms` is present only when handlers
 ran; `warnings` lists warning codes. See
 [observability.md](./observability.md#trace-records).
@@ -234,7 +239,8 @@ Applies to function, HTTP, and MCP tools on every execute path
 6. Tool `preTool?(input, ctx)` if registered (returns `StageResult`-compatible
    deny / confirm / mutate / void).
 7. Host `onStage({ stage: 'pre_tool', … })` (request then turn/session).
-8. Apply `mutate` → **re-parse** schema; fail → error settle.
+8. Apply `mutate` → **re-parse** schema; fail → error settle. Then `waitFor` → hold
+   the body until the named calls settle (see **Same-round batch rules**).
 9. Body (function handler / HTTP / MCP).
 10. T2 loader promotion when applicable (**before** projection).
 11. `projectForModel` → guard (fence, redaction, provenance) → model result.
@@ -325,10 +331,21 @@ OpenRouter, AI SDK, Gemini Live tool responses.
 
 ### Same-round batch rules
 
-1. Run pending calls **side by side**: each starts at once, and the batch ends when
-   every call has settled (complete, error, gate or awaiting). A call to the
-   profile's `tools.t2Loader` settles first, then the rest start. Results and each
-   call's `post_tool` inject are recorded in the order the model made the calls.
+1. With `tools.parallel: true` the pending calls run **side by side**: each starts at
+   once. Left out or false, they run **one at a time**, in the order the model made
+   them. The batch ends when every call has settled (complete, error, gate or
+   awaiting). Results and each call's `post_tool` inject are recorded in the order the
+   model made the calls. Every call sees the visible tools as they stood when the
+   step began, so a tool the `tools.t2Loader` loads can be called from the next step.
+
+   `pre_tool` sees the step's calls in `stepCalls` and may answer `waitFor` with
+   their call ids. The `waitFor` lists of all handlers are joined. The call's body
+   starts once each named call has settled; how it settled is not looked at, and a
+   gate is a settlement. A `confirm` holds the call at once, without waiting. An id
+   that is not in the step fails the call (`wait_unknown`); outside a turn's step
+   every id is unknown. A wait that can never end — on the call itself, on a call that
+   waits for this one, or on one that runs after it one at a time — fails the call
+   (`wait_cycle`), and so does every call whose own wait is part of that loop.
 2. On **gate**: emit gate wire for that call; **do not** start its body;
    **continue** siblings — a gate holds only its own call, and a sibling that
    gates waits too. After the batch, end with `done.stop.kind: 'gate'` +

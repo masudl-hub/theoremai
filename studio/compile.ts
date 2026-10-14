@@ -121,7 +121,6 @@ import {
   defaultEffortRequired,
   defaultModelRequired,
   inputLimitsRequired,
-  keySlotRequired,
 } from './requirements.ts';
 import { parseSystemMarkup, type SystemMarkup } from './system-markup.ts';
 import { parseJsonSchema } from './tool-schema.ts';
@@ -435,10 +434,6 @@ function validateModelPolicy(
   if (policy.maxSteps !== null && !Number.isInteger(policy.maxSteps)) {
     report('models', 'Max steps must be a whole number.', 'maxSteps');
   }
-  if (keySlotRequired(draft) && !policy.key) {
-    report('models', 'Choose a key slot.', 'key');
-  }
-
   return defaultModel;
 }
 
@@ -868,6 +863,7 @@ function compileTool(
 function compileTools(
   draft: StudioDraft,
   withLoader: boolean,
+  withParallel: boolean,
   report: Report,
   agentIdOf: AgentIdOf,
   agentInputOf: AgentToolInputOf,
@@ -889,7 +885,11 @@ function compileTools(
   if (t2Loader && !names.has(t2Loader)) {
     report('tools', `T2 loader '${t2Loader}' must be one of the custom tools.`, 't2Loader');
   }
-  return { customTools, tools: { allow, ...(t2Loader ? { t2Loader } : {}) } };
+  const parallel = withParallel && draft.tools.parallel;
+  return {
+    customTools,
+    tools: { allow, ...(t2Loader ? { t2Loader } : {}), ...(parallel ? { parallel } : {}) },
+  };
 }
 
 function compileInputs(
@@ -1864,9 +1864,6 @@ function compileDecision(
   checkWhole(report, 'decision', 'maxStateBytes', 'Max state', decision.maxStateBytes, 1);
   const questions = compileQuestions(decision, report);
   if (on.mode === 'demo') checkLentDecision(draft, questions, on.keys, report);
-  if (keySlotRequired(draft) && !draft.models.key) {
-    report('models', 'Choose a key slot.', 'key');
-  }
   const profile: DecisionProfileDefinition = {
     type: 'decision',
     id: draft.identity.agentId.trim(),
@@ -1902,7 +1899,7 @@ function compileHost(
   agentInputOf: AgentToolInputOf,
 ): Omit<CompiledStudio, 'agentId' | 'providers'> {
   const facets = new Set<string>(draftFacets(draft));
-  const { customTools, tools } = compileTools(draft, false, report, agentIdOf, agentInputOf);
+  const { customTools, tools } = compileTools(draft, false, false, report, agentIdOf, agentInputOf);
   if (!customTools.length) {
     report('tools', 'Add at least one tool: a host runs only its tools.');
   }
@@ -1943,7 +1940,14 @@ function assemble(
     ? compileOutputs(draft.outputs, allows('outputs.structured'), report)
     : {};
   const { customTools, tools } = facets.has('tools')
-    ? compileTools(draft, allows('tools.t2Loader'), report, agentIdOf, agentInputOf)
+    ? compileTools(
+        draft,
+        allows('tools.t2Loader'),
+        allows('tools.parallel'),
+        report,
+        agentIdOf,
+        agentInputOf,
+      )
     : { customTools: [] };
   const turnBehaviour = facets.has('turnBehaviour')
     ? compileTurnBehaviour(draft.turnBehaviour, allows('turnBehaviour.resumption'), report)

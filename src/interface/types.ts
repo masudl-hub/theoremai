@@ -89,7 +89,9 @@ export interface ProfileInputsInterface {
  * A tool's definition (handler, schemas, endpoint, headers) stays on the host; `t1Policy` too.
  * `page` names the tools the page answers (`answeredBy: 'page'`): the page needs a function for each.
  */
-export type ProfileToolsView = Pick<ProfileToolsSpec, 'allow' | 't2Loader'> & { page: string[] };
+export type ProfileToolsView = Pick<ProfileToolsSpec, 'allow' | 't2Loader' | 'parallel'> & {
+  page: string[];
+};
 
 /** A model binding as the interface carries it: a compaction `trigger` is a host function. */
 export type ModelBindingView = Omit<ModelBinding, 'compaction'> & {

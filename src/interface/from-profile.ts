@@ -107,8 +107,13 @@ function toolsView(projected: ProjectedProfile, profile?: ModelProfile): Profile
     .filter((tool) => 'type' in tool && tool.type === 'function' && tool.answeredBy === 'page')
     .map((tool) => tool.name);
   if (profile) {
-    const t2Loader = profileToolsSpec(profile)?.t2Loader;
-    return { allow: [...profileToolAllow(profile)], page, ...(t2Loader ? { t2Loader } : {}) };
+    const spec = profileToolsSpec(profile);
+    return {
+      allow: [...profileToolAllow(profile)],
+      page,
+      ...(spec?.t2Loader ? { t2Loader: spec.t2Loader } : {}),
+      ...(spec?.parallel !== undefined ? { parallel: spec.parallel } : {}),
+    };
   }
   const allow = projected.tools
     .filter((tool) => !('type' in tool && tool.type === 'builtin'))

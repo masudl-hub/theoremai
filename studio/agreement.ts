@@ -8,7 +8,7 @@
 
 import { type DetectSpec, resolveAllow, resolveDetect } from '../src/guardrails/detectors.ts';
 import { unsetValue } from '../src/kernel/profile-presence.ts';
-import { STUDIO_POLICY_PATHS } from './policy.ts';
+import { STUDIO_POLICY_PATHS, STUDIO_POLICY_UNSET } from './policy.ts';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -20,6 +20,11 @@ function isPolicy(path: readonly string[]): boolean {
     const keys = held.split('.');
     return keys.length === path.length && keys.every((key, index) => key === '*' || key === path[index]);
   });
+}
+
+/** Whether the studio holds `theirs` at `path` only because the project left it out: its policy fills it in. */
+function isPolicyFill(path: readonly string[], ours: unknown, theirs: unknown): boolean {
+  return ours === undefined && theirs !== undefined && STUDIO_POLICY_UNSET[path.join('.')] === theirs;
 }
 
 /** `held` without the table the kernel works out from its patterns. */
@@ -59,7 +64,7 @@ function asRead(profile: unknown): unknown {
 export function differingSettings(project: unknown, studio: unknown): string[] {
   const found: string[] = [];
   const walk = (ours: unknown, theirs: unknown, path: string[]) => {
-    if (isPolicy(path)) return;
+    if (isPolicy(path) || isPolicyFill(path, ours, theirs)) return;
     let [mine, yours] = [ours ?? unsetValue(path), theirs ?? unsetValue(path)];
     if (mine === undefined && isRecord(yours)) mine = {};
     if (yours === undefined && isRecord(mine)) yours = {};

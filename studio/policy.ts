@@ -13,10 +13,10 @@ export type StudioConnectionMode = 'demo' | 'byok' | 'local';
 
 /**
  * The settings the studio sets for itself on a profile it opens, by path (`*` is any one key): a
- * decision takes the studio's state limit, and a run's records go to the page, since a run in the
- * studio is a test. A profile in the studio differs from the project's in these and in nothing else.
+ * decision takes the studio's state limit. A profile in the studio differs from the project's in
+ * these and in nothing else.
  */
-export const STUDIO_POLICY_PATHS: readonly string[] = ['inputs.maxStateBytes', 'observability.writeTo'];
+export const STUDIO_POLICY_PATHS: readonly string[] = ['inputs.maxStateBytes'];
 
 /** The only OpenRouter model the studio key may call. */
 export const OPENROUTER_STUDIO_API_ID = 'openrouter/free';
@@ -39,6 +39,15 @@ export const GEMINI_STUDIO_LIVE_INPUT_TOKENS = 65_536;
 
 /** Each record goes back to the run tab's inspector; the server keeps nothing. */
 export const STUDIO_TRACE_DESTINATION = 'studio';
+
+/**
+ * What the studio fills in where a profile leaves a setting out, by path: a profile that names no
+ * place for its records is recorded to the studio, so a test run's trace shows. Written, the
+ * setting is the profile's, and any other value is a difference.
+ */
+export const STUDIO_POLICY_UNSET: Readonly<Record<string, unknown>> = {
+  'observability.writeTo': STUDIO_TRACE_DESTINATION,
+};
 
 /** The only free Decisions API model offered by the public studio. */
 export const OPENROUTER_DECISION_MODELS = [

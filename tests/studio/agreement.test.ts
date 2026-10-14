@@ -38,15 +38,26 @@ Deno.test('a section left out is one written empty, read setting by setting', ()
     autoContinue: ['length', 'stream_incomplete'],
   };
   assertEquals(differingSettings({ turnBehaviour: {} }, { turnBehaviour: { resumption } }), []);
-  // Where a run's records go is studio policy; whether it is set to something else is not hidden under it.
+  // A profile that names no place for its records is recorded to the studio. Named, the place is
+  // the profile's, and any other is a difference.
   assertEquals(differingSettings({}, { observability: { writeTo: 'studio' } }), []);
   assertEquals(
     differingSettings(
-      { observability: {} },
-      { observability: { writeTo: 'studio', sampleRate: 0.5 } },
+      { observability: { writeTo: false } },
+      { observability: { writeTo: 'studio' } },
     ),
-    ['observability.sampleRate'],
+    ['observability.writeTo'],
   );
+  assertEquals(
+    differingSettings(
+      { observability: { writeTo: 'traces' } },
+      { observability: { writeTo: 'studio' } },
+    ),
+    ['observability.writeTo'],
+  );
+  assertEquals(differingSettings({ observability: {} }, { observability: { sampleRate: 0.5 } }), [
+    'observability.sampleRate',
+  ]);
   assertEquals(differingSettings({ labels: {} }, { labels: { 'tool.output_invalid': 'x' } }), [
     'labels.tool.output_invalid',
   ]);

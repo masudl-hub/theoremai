@@ -438,7 +438,17 @@ function parseArrow(src: Src, path: string, spans: StudioSourceSpan[]): unknown 
   src.expect('(');
   if (!src.eat(')')) src.fail('A handler here takes no arguments. It returns a fixed value.');
   src.expect('=>');
-  return parseExpr(src, path, spans);
+  return parseValue(src, path, spans);
+}
+
+/** A name as written: what is called or read from, or, standing alone, a value set elsewhere. */
+class Name {
+  constructor(readonly name: string) {}
+}
+
+/** `value`, with a name in it read as the text of the name. */
+function named(value: unknown): unknown {
+  return value instanceof Name ? value.name : value;
 }
 
 function parseExpr(src: Src, path: string, spans: StudioSourceSpan[]): unknown {
@@ -465,7 +475,7 @@ function parseAtom(src: Src, path: string, spans: StudioSourceSpan[]): unknown {
   if (name === 'false') return false;
   if (name === 'null') return null;
   if (name === undefined) src.fail('Expected a value.');
-  return name;
+  return new Name(name);
 }
 
 /**
@@ -475,11 +485,10 @@ function parseAtom(src: Src, path: string, spans: StudioSourceSpan[]): unknown {
 function parseValue(src: Src, path: string, spans: StudioSourceSpan[]): unknown {
   src.skip();
   const at = src.pos();
-  const named = src.peekIdent();
   const value = parseExpr(src, path, spans);
-  if (named === undefined || value !== named) return value;
-  if (named === 'undefined') return undefined;
-  throw new ReadFail(`'${named}' is set somewhere else. Write its value here.`, at.line, at.column);
+  if (!(value instanceof Name)) return value;
+  if (value.name === 'undefined') return undefined;
+  throw new ReadFail(`'${value.name}' is set somewhere else. Write its value here.`, at.line, at.column);
 }
 
 function parsePostfix(
@@ -492,18 +501,18 @@ function parsePostfix(
   for (;;) {
     if (src.eat('.')) {
       const name = src.expectIdent();
-      current = asMember(current, name);
+      current = asMember(named(current), name);
       continue;
     }
     if (src.eat('(')) {
       const from = spans.length;
       const args: unknown[] = [];
       while (!src.eat(')')) {
-        args.push(parseExpr(src, path, spans));
+        args.push(named(parseExpr(src, path, spans)));
         src.eat(',');
         if (src.done) src.fail('This call never closes.');
       }
-      current = callExpr(current, args, src, spans.slice(from));
+      current = callExpr(named(current), args, src, spans.slice(from));
       continue;
     }
     if (isMember(current)) src.fail("This file doesn't stop on a property.");

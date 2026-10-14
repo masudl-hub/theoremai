@@ -45,3 +45,29 @@ export function mapTrunk(from: MapPlace, to: MapPlace, turn: { from: number; to:
     },
   };
 }
+
+/**
+ * A line that runs level from `from` to `rail`, straight up or down it, and level to `to`, its two
+ * corners rounded by `radius`. Lines that share an end and a rail are one line along both.
+ */
+export function mapRail(from: MapPlace, to: MapPlace, rail: number, radius: number): MapCurve {
+  const lead = Math.abs(rail - from.x);
+  const rise = Math.abs(to.y - from.y);
+  const tail = Math.abs(to.x - rail);
+  const length = lead + rise + tail;
+  const along = Math.sign(to.x - from.x);
+  const up = Math.sign(to.y - from.y);
+  const round = Math.min(radius, rise / 2, lead, tail);
+  const corners =
+    ` L ${rail - along * round} ${from.y} Q ${rail} ${from.y}, ${rail} ${from.y + up * round}` +
+    ` L ${rail} ${to.y - up * round} Q ${rail} ${to.y}, ${rail + along * round} ${to.y}`;
+  return {
+    d: `M ${from.x} ${from.y}${round > 0 ? corners : ''} L ${to.x} ${to.y}`,
+    at(t) {
+      const run = t * length;
+      if (run < lead) return { x: from.x + along * run, y: from.y };
+      if (run > lead + rise) return { x: to.x - along * (length - run), y: to.y };
+      return { x: rail, y: from.y + up * (run - lead) };
+    },
+  };
+}

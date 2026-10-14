@@ -262,10 +262,11 @@ Deno.test('the map is laid out in columns, with a line from the side of each nod
     layout.lines.find(({ link }) => link.from === from && link.to === to)?.d;
   const tools = agentNodeId(workspace.agents[0]?.key ?? '', 'tools');
   // Left to right: out of the card's right side, level with its Tools section, into the tool's left,
-  // level with its name: the first row of it. Its lines run as one for half the way, then part.
+  // level with its name: the first row of it. Its lines run as one to a rail 16 short of the tools,
+  // and part along it.
   assertEquals(
     line(tools, toolSpecNodeId('find')),
-    'M 820 120 L 870 120 C 895 120, 895 60, 920 60',
+    'M 820 120 L 896 120 Q 904 120, 904 112 L 904 68 Q 904 60, 912 60 L 920 60',
   );
   // Right to left: out of the tool's left side, into the card's right, level with its name.
   assertEquals(
@@ -373,7 +374,7 @@ Deno.test('a line that would pass behind a node between its ends goes round it',
   // The model stands between the tool and its profile, from 110 down to 130: the line goes over it.
   assertEquals(
     layout.lines.find(({ link }) => link.to === find)?.d,
-    'M 620 120 C 570 120, 570 105, 520 105 L 320 105 C 270 105, 270 60, 220 60',
+    'M 620 120 L 611.5 120 Q 604 120, 604 112.5 L 604 112.5 Q 604 105, 596.5 105 L 420 105 L 244 105 Q 236 105, 236 97 L 236 68 Q 236 60, 228 60 L 220 60',
   );
   // A line with nothing in its way is left as it was.
   const price = toolSpecNodeId('price');
@@ -393,7 +394,7 @@ Deno.test('a line that goes round stays beside what it goes round, however far i
   // The provider put past the tools: its line comes back over the profiles and the tools.
   const layout = mapLayout(map, SIZES, { ...DETAIL, moved: { [provider.id]: { x: 1400, y: 60 } } });
   const line = layout.lines.find(({ from }) => from === provider.id);
-  const lane = Number(/L \d+ (\d+)/.exec(line?.d ?? '')?.[1]);
+  const lane = Number(/L [\d.]+ ([\d.]+) L/.exec(line?.d ?? '')?.[1]);
   // Both columns start under their headings at 50; the lane runs just over the headings at 20.
   assertEquals(lane, 15);
 });
@@ -411,13 +412,10 @@ Deno.test('without detail every node is one token, and a line leaves the side of
   // From the profile's token, 80 wide, level with its middle, to the tool's left: each 5 short.
   const tools = agentNodeId(workspace.agents[0]?.key ?? '', 'tools');
   const line = layout.lines.find(({ link }) => link.from === tools && link.to === find);
-  assertEquals(line?.d, 'M 705 60 L 865 60 C 890 60, 890 60, 915 60');
+  assertEquals(line?.d, 'M 705 60 L 915 60');
   // A width past the slot is the slot's.
   const wide = mapLayout(map, sizes, { widths: { [desk ?? '']: 900 } });
-  assertEquals(
-    wide.lines.find(({ link }) => link.to === find)?.d,
-    'M 825 60 L 865 60 C 890 60, 890 60, 915 60',
-  );
+  assertEquals(wide.lines.find(({ link }) => link.to === find)?.d, 'M 825 60 L 915 60');
 });
 
 Deno.test("a node's family is what feeds it and what it feeds, however far, and nothing beside it", () => {
@@ -495,8 +493,29 @@ Deno.test('the lines of one end go round a column as one', () => {
   const layout = mapLayout(map, SIZES, { ...DETAIL, moved });
   const lanes = layout.lines
     .filter(({ link }) => link.from === tools)
-    .map(({ d }) => /L \d+ (\d+)/.exec(d)?.[1]);
+    .map(({ d }) => /L [\d.]+ ([\d.]+) L/.exec(d)?.[1]);
   assertEquals(lanes, ['105', '105']);
+});
+
+Deno.test('two ends whose lines part between the same two columns each have a rail, in room made for both', () => {
+  const start = opened();
+  const [desk, shop] = start.agents;
+  if (!desk || !shop) throw new Error('two agents');
+  const workspace = {
+    ...start,
+    agents: [desk, { ...shop, tools: { ...shop.tools, allow: ['price', 'spare'] } }],
+  };
+  const layout = mapLayout(workspaceMap(workspace), SIZES, DETAIL);
+  const turns = (agent: typeof desk) =>
+    layout.lines
+      .filter(({ link }) => link.from === agentNodeId(agent.key, 'tools'))
+      .map(({ d }) => /Q (\d+) /.exec(d)?.[1]);
+
+  assertEquals(layout.width, 20 + 4 * 200 + 3 * 100 + 16 + 20);
+  assertEquals(layout.headings.at(-1), { label: 'Tools', x: 936, y: 20 });
+  // What they join is higher than they are, so the lower one's rail is nearest the tools: 16 short, the other 16 before.
+  assertEquals(turns(desk), ['904', '904']);
+  assertEquals(turns(shop), ['920', '920']);
 });
 
 Deno.test('two models with one label each say what tells them apart', () => {

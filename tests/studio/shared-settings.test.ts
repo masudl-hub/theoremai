@@ -68,3 +68,20 @@ Deno.test('a shared setting is edited in the section its key fills, on the agent
   assertEquals(sharedAt(entries, `agent:${desk}`), undefined);
   assertEquals(sharedAt(entries, `agent:${agent(workspace, 'yard').key}/guardrails`), undefined);
 });
+
+Deno.test('a shared setting names the profiles and tools that read it and are not registered', () => {
+  const workspace = opened();
+  const idle = [
+    { kind: 'profile' as const, name: 'gone', file: 'gone.ts', line: 4 },
+    { kind: 'tool' as const, name: 'gone', file: 'tools.ts', line: 9 },
+  ];
+  const [entry] = sharedEntries(
+    workspace,
+    [setting({ profiles: ['desk', 'gone'] })],
+    undefined,
+    idle,
+  );
+  // The tool of the same name does not read the setting, so only the profile is named.
+  assertEquals(entry?.idle, [idle[0]]);
+  assertEquals(sharedEntries(workspace, [setting({})])[0]?.idle, []);
+});

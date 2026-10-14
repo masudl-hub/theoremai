@@ -275,9 +275,13 @@ function RefusalBody({ refusal }: { refusal: SaveRefusal }) {
  * that it cannot run. A count that shows each one's reason on hover. Nothing while there are none.
  */
 function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloaded?: string }) {
-	const { problems, differences, unheld } = project;
+	const { problems, differences, unheld, unregistered } = project;
 	const count =
-		problems.length + differences.length + (unheld.length ? 1 : 0) + (unloaded === undefined ? 0 : 1);
+		problems.length +
+		differences.length +
+		(unheld.length ? 1 : 0) +
+		(unregistered.length ? 1 : 0) +
+		(unloaded === undefined ? 0 : 1);
 	if (!count) return null;
 	return (
 		<HoverCard
@@ -307,6 +311,14 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
 							</Text>
 						</VStack>
 					))}
+					{unregistered.length > 0 && (
+						<VStack gap={1}>
+							<Text weight="semibold">Your project did not register everything its files define.</Text>
+							<Text type="supporting" color="secondary">
+								{`Not loaded, so not shown: ${unregistered.map((each) => each.name).join(', ')}. The studio shows what your project registers when it starts.`}
+							</Text>
+						</VStack>
+					)}
 					{unheld.length > 0 && (
 						<VStack gap={1}>
 							<Text weight="semibold">The studio cannot check what it shows against your files.</Text>

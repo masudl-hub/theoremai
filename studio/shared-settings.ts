@@ -6,7 +6,7 @@
  */
 
 import { PROFILE_GRAPH, type ProfileGraphFacetId } from '../src/kernel/schema.ts';
-import type { ProjectOrigins, SharedSetting } from './server/save-wire.ts';
+import type { ProjectOrigins, SharedSetting, Unregistered } from './server/save-wire.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 import { type AgentDraft, agentNodeId, type StudioWorkspace, workspaceTree } from './workspace.ts';
 
@@ -24,6 +24,8 @@ export interface SharedEntry {
   places: Record<string, string>;
   /** The tool that shows the value, when no agent does. */
   tool?: string;
+  /** The profiles and tools that read it and that the project did not register, so nothing opens them. */
+  idle: Unregistered[];
 }
 
 /** The node of `agent` that holds the setting at `path`: its model, its section, else the agent. */
@@ -46,6 +48,7 @@ export function sharedEntries(
   workspace: StudioWorkspace,
   settings: readonly SharedSetting[],
   sites?: ProjectOrigins['sites'],
+  unregistered: readonly Unregistered[] = [],
 ): SharedEntry[] {
   const sections = new Set(workspaceTree(workspace).agents.flatMap((agent) => agent.children ?? []).map((row) => row.id));
   return settings.map((setting) => {
@@ -59,7 +62,8 @@ export function sharedEntries(
       return site ? [[agent.key, nodeAt(agent, site.path, sections)] as const] : [];
     }));
     const tool = workspace.toolSpecs.find((spec) => written(sites?.tools, spec.toolName));
-    return { setting, agents, places, ...(facet ? { facet } : {}), ...(tool ? { tool: toolSpecNodeId(tool.key) } : {}) };
+    const idle = unregistered.filter(({ kind, name }) => (kind === 'profile' ? setting.profiles : setting.tools).includes(name));
+    return { setting, agents, places, idle, ...(facet ? { facet } : {}), ...(tool ? { tool: toolSpecNodeId(tool.key) } : {}) };
   });
 }
 

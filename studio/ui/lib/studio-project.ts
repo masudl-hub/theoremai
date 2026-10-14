@@ -13,6 +13,7 @@ import type {
 	SaveRefusal,
 	SaveReview,
 	SharedSetting,
+	Unregistered,
 } from '../../server/save-wire.ts';
 import { createContext, useContext } from 'react';
 import { getPref } from './studio-prefs.ts';
@@ -34,6 +35,8 @@ export interface ProjectSession {
 	unheld: string[];
 	/** The settings several profiles share, as the project's files set them. */
 	shared: SharedSetting[];
+	/** The profiles and tools the files define that the project did not register. */
+	unregistered: Unregistered[];
 	/** The settings the project's files set in code, by profile id and tool name. */
 	origins: ProjectOrigins;
 	/** The tools that write: the ones the studio makes ask, and the ones it cannot. */
@@ -68,6 +71,7 @@ export function projectSession(name: string): ProjectSession {
 		differences: [],
 		unheld: [],
 		shared: [],
+		unregistered: [],
 		origins: NO_ORIGINS,
 		asks: NO_ASKS,
 		print: '',
@@ -141,6 +145,7 @@ interface Opened {
 	differences?: ProjectSession['differences'];
 	unheld?: string[];
 	shared?: SharedSetting[];
+	unregistered?: Unregistered[];
 	origins?: ProjectOrigins;
 	asks?: StudioAsks;
 	unloaded?: string;
@@ -226,6 +231,7 @@ export async function openProject(said?: (step: ReadStep) => void): Promise<{
 			endpoint: projectEndpoint(),
 			name: opened.project,
 			shared: opened.shared ?? [],
+			unregistered: opened.unregistered ?? [],
 			...(opened.editor === undefined ? {} : { editor: opened.editor }),
 			...(opened.setup === undefined ? {} : { setup: opened.setup }),
 			...filesOf(opened),

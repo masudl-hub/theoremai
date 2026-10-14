@@ -532,3 +532,16 @@ Deno.test('a file left with nothing of its own is taken away, and comes back on 
   assertEquals(await session.undo(), { ok: true, written: ['example.ts', 'removal.ts'] });
   assertEquals([text(), files.get(OWN)], [SPLIT, MOVED]);
 });
+
+Deno.test('a tool the files define and the project did not register is named, with where it is defined', async () => {
+  assertEquals((await project().session.read()).unregistered, []);
+  const removal = opened.workspace.toolSpecs.find((tool) => tool.toolName === 'remove_plant');
+  if (!removal) throw new Error('The example changed.');
+  // The project loaded without the tool, as one that registers it only on a condition does.
+  const loaded = removeLibraryTool(opened.workspace, removal.key);
+  const { session } = project({ opened: () => loaded });
+  const [idle, ...rest] = (await session.read()).unregistered;
+  assertEquals(rest, []);
+  assertEquals([idle?.kind, idle?.name, idle?.file], ['tool', 'remove_plant', 'example.ts']);
+  assertEquals(TEXT.split('\n')[(idle?.line ?? 0) - 1]?.includes('registerTool('), true);
+});

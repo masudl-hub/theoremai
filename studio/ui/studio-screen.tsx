@@ -344,6 +344,8 @@ interface WorkspaceTreeState {
 	/** The list the sidebar shows: agents, tools, or the settings the project's profiles share. */
 	list: WorkspaceList;
 	shared: readonly SharedEntry[];
+	/** Shows where the files define a profile or tool the project did not register. */
+	openFile: (at: { file: string; line: number }) => void;
 	setList: (next: WorkspaceList) => void;
 	onSelect: (id: string) => void;
 	update: (change: (workspace: StudioWorkspace) => StudioWorkspace) => void;
@@ -446,7 +448,7 @@ function SharedHead({ entry: { setting, facet } }: { entry: SharedEntry }) {
  * The settings the project's profiles share, each over the profiles and tools that use it. A row
  * opens the setting on that profile; one the studio does not edit says so, and opens the profile.
  */
-function sharedItems({ workspace, shared, selectedId, onSelect }: WorkspaceTreeState) {
+function sharedItems({ workspace, shared, selectedId, onSelect, openFile }: WorkspaceTreeState) {
 	const open = sharedAt(shared, selectedId);
 	return shared.map((entry): TreeListItemData => {
 		const { setting, facet, agents } = entry;
@@ -488,6 +490,22 @@ function sharedItems({ workspace, shared, selectedId, onSelect }: WorkspaceTreeS
 				},
 			];
 		});
+		// One the project did not register opens nowhere in the studio: its row says so and shows the file.
+		const idle = entry.idle.map(
+			(each): TreeListItemData => ({
+				id: `${id}:idle:${each.kind}:${each.name}`,
+				label: each.name,
+				startContent: <Icon icon={IconCode} size="sm" color="secondary" />,
+				endContent: (
+					<Text type="supporting" color="secondary">
+						Not loaded
+					</Text>
+				),
+				onClick: () => {
+					openFile(each);
+				},
+			}),
+		);
 		return {
 			id,
 			label: <SharedHead entry={entry} />,
@@ -499,7 +517,7 @@ function sharedItems({ workspace, shared, selectedId, onSelect }: WorkspaceTreeS
 				/>
 			),
 			isExpanded: true,
-			children: [...users, ...tools],
+			children: [...users, ...tools, ...idle],
 		};
 	});
 }
@@ -1395,7 +1413,9 @@ function ExportMenu({
 function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | undefined) {
 	// The settings the project's profiles share, on the agents it opened as: a change to one is
 	// made on each of them.
-	const [shared] = useState(() => sharedEntries(start.workspace, project?.shared ?? [], project?.origins.sites));
+	const [shared] = useState(() =>
+		sharedEntries(start.workspace, project?.shared ?? [], project?.origins.sites, project?.unregistered),
+	);
 	// th30's tools read the store synchronously. The editor works on the open agent's draft, with the
 	// whole tool library.
 	const [store] = useState(() =>
@@ -2916,7 +2936,8 @@ function Studio({ opened }: { opened: StudioOpened }) {
 	const { state, connection, view, frame, selected, editing, issueReveal, compile } = page;
 	const { sheet, setSheet, run, copy, chatRef, title, asking } = page;
 	const { store, draft } = state;
-	const tree = useWorkspaceTree(state, view, selected, setSheet);
+	const openOrigin = useOpenOrigin(opened.project ?? null);
+	const tree = useWorkspaceTree(state, view, selected, setSheet, openOrigin);
 	const chatAgents = useChatAgents(state.workspace.agents);
 	const addAgentFrom = useAddAgent(store, state.update, view.open);
 	const { setList } = tree;
@@ -3083,6 +3104,7 @@ function useWorkspaceTree(
 	view: EditorViewState,
 	selected: string,
 	setSheet: (sheet: Sheet) => void,
+	openOrigin: (origin: SettingOrigin) => void,
 ): WorkspaceTreeState {
 	const { workspace, focus, update, setDraft, shared } = state;
 	const { open } = view;
@@ -3095,6 +3117,9 @@ function useWorkspaceTree(
 			selectedId,
 			list,
 			shared,
+			openFile: (at) => {
+				openOrigin({ path: [], kind: 'code', ...at });
+			},
 			setList,
 			onSelect: (id) => {
 				open(id);
@@ -3103,7 +3128,7 @@ function useWorkspaceTree(
 			update,
 			setDraft,
 		}),
-		[workspace, focus, selectedId, list, shared, setList, open, setSheet, update, setDraft],
+		[workspace, focus, selectedId, list, shared, openOrigin, setList, open, setSheet, update, setDraft],
 	);
 }
 

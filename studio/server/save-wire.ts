@@ -30,6 +30,20 @@ export interface SharedSetting {
 }
 
 /**
+ * A profile or tool the project's files define that the project did not register when it loaded:
+ * one it registers only on a condition that did not hold. The studio shows what is registered, so
+ * it names these and does not open them.
+ */
+export interface Unregistered {
+  kind: 'profile' | 'tool';
+  /** The profile's id, or the tool's name. */
+  name: string;
+  /** Where the files define it: the path and the one-based line. */
+  file: string;
+  line: number;
+}
+
+/**
  * A setting the project's files do not write out as a plain value, so the studio shows it and
  * does not change it.
  * - `code`: code computes it: a call, a name the studio cannot follow, a method.

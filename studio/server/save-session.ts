@@ -25,6 +25,7 @@ import type {
   SettingOrigin,
   SettingSite,
   SharedSetting,
+  Unregistered,
 } from './save-wire.ts';
 
 /** What Save needs from the machine. `Loaded` is one load of the project. */
@@ -56,6 +57,8 @@ export interface FilesRead {
   shared: SharedSetting[];
   /** The settings the files set in code. */
   origins: ProjectOrigins;
+  /** The profiles and tools the files define that the project did not register. */
+  unregistered: Unregistered[];
   /** What the project printed when the files did not load. */
   unloaded?: string;
 }
@@ -125,6 +128,21 @@ export async function answerSave<Loaded>(
   if (path !== base) return undefined;
   const body: unknown = await request.json().catch(() => null);
   return isSaveRequest(body) ? { status: 200, body: await session.save(body) } : { status: 400, body: {} };
+}
+
+/** Each profile and tool the files define that the project did not register, in the files' order. */
+function unregisteredIn(
+  source: Pick<ProjectSource, 'profiles' | 'tools'>,
+  names: ProjectNames,
+  inRoot: (file: string) => string,
+): Unregistered[] {
+  const idle = (kind: Unregistered['kind'], defined: ProjectSource['profiles'], registered: readonly string[]) =>
+    [...defined].flatMap(([name, [at]]): Unregistered[] => {
+      if (!at || registered.includes(name)) return [];
+      const { line } = at.source.getLineAndCharacterOfPosition(at.options.getStart(at.source));
+      return [{ kind, name, file: inRoot(at.file), line: line + 1 }];
+    });
+  return [...idle('profile', source.profiles, names.profiles), ...idle('tool', source.tools, names.tools)];
 }
 
 /**
@@ -300,6 +318,7 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     return {
       shared: sharedSettings(files).map((setting) => ({ ...setting, file: inRoot(setting.file) })),
       origins: pageOrigins(sourceOrigins(files, decisions), projectNames(opened), files, inRoot),
+      unregistered: unregisteredIn(files, projectNames(opened), inRoot),
       ...(unloaded === undefined ? {} : { unloaded: unloaded.printed }),
     };
   };

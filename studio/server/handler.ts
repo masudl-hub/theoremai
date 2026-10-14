@@ -221,14 +221,12 @@ function readProfile(
  * kernel took and the studio does not: that is said whole, in the studio's own words.
  */
 function disagreements(workspace: StudioWorkspace): { differences: StudioDifference[]; unheld: string[] } {
-  // deepcode ignore reDOS: guardrail patterns are only parsed here; compilePatterns refuses any that could run away
   const compiled = compileWorkspace(workspace, 'byok');
   if (!compiled.ok) return { differences: [], unheld: compiled.issues.map((issue) => issue.message) };
   const registered = new Map(listProfiles().map((profile) => [profile.id as string, profile]));
   const differences = compiled.agents.flatMap((agent): StudioDifference[] => {
     const profile = registered.get(agent.agentId);
     if (!profile) return [];
-    // deepcode ignore reDOS: guardrail patterns are only parsed here; compilePatterns refuses any that could run away
     const shown = plainSetting(defineProfile(withPatterns(agent.profile, compileDetect)));
     const settings = differingSettings(plainSetting(printableProfile(profile)), shown);
     return settings.length ? [{ kind: 'profile', of: agent.agentId, settings }] : [];

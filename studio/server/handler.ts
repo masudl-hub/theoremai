@@ -39,7 +39,7 @@ import type { ToolRegistration } from '../registrations.ts';
 import { studioSource } from '../source.ts';
 import { createStudioLiveHandler, type StudioUpgrade } from './live.ts';
 import { tracedToPage, withDecisionTraces, withRunTraces } from './run-traces.ts';
-import type { ProjectOrigins, SharedSetting, Unregistered } from './save-wire.ts';
+import type { ProjectOrigins, ProviderPlace, SharedSetting, Unregistered } from './save-wire.ts';
 import {
   addAgent,
   agentNodeId,
@@ -78,6 +78,8 @@ export type StudioDescription = {
   origins?: ProjectOrigins;
   /** The profiles and tools the files define that the project did not register. */
   unregistered?: Unregistered[];
+  /** Where the files define each provider the project registered. */
+  providerPlaces?: ProviderPlace[];
   /** The tools that write: the ones the studio makes ask before each run, and the ones it cannot. */
   asks: StudioAsks;
   /** What the project printed when its files stopped loading. The page then shows the last load that did. */

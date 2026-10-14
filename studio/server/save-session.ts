@@ -10,7 +10,7 @@ import { relative, resolve } from 'node:path';
 import type { StudioWorkspace } from '../workspace.ts';
 import { sourceOrigins } from './origins.ts';
 import type { ReadStep } from '../read-steps.ts';
-import { type ProjectSource, projectOf, readProjectSource, sharedSettings, walkProject, writtenType } from './project-source.ts';
+import { type ProjectSource, projectOf, providerNamed, readProjectSource, sharedSettings, walkProject, writtenType } from './project-source.ts';
 import { planNew } from './save-new.ts';
 import { planRemoved } from './save-remove.ts';
 import { applyEdits, diffHunks, planSave, type SourceEdit } from './save-plan.ts';
@@ -25,6 +25,7 @@ import type {
   SettingOrigin,
   SettingSite,
   SharedSetting,
+  ProviderPlace,
   Unregistered,
 } from './save-wire.ts';
 
@@ -59,6 +60,8 @@ export interface FilesRead {
   origins: ProjectOrigins;
   /** The profiles and tools the files define that the project did not register. */
   unregistered: Unregistered[];
+  /** Where the files define each provider the project registered. */
+  providerPlaces: ProviderPlace[];
   /** What the project printed when the files did not load. */
   unloaded?: string;
 }
@@ -145,6 +148,23 @@ function unregisteredIn(
   return [...idle('profile', source.profiles, names.profiles), ...idle('tool', source.tools, names.tools)];
 }
 
+/** Where the files define each provider the project registered: one written once, in the files' order. */
+function providerPlaces(source: ProjectSource, names: ProjectNames, inRoot: (file: string) => string): ProviderPlace[] {
+  return [...source.providers].flatMap(([id, targets]): ProviderPlace[] => {
+    const [at] = targets;
+    if (!at || targets.length > 1 || !names.providers.includes(id)) return [];
+    const named = providerNamed(source, id);
+    const { line } = at.source.getLineAndCharacterOfPosition(at.options.getStart(at.source));
+    return [{
+      id,
+      ...(named ? { name: named.name } : {}),
+      ...(named?.exported ? { exported: true as const } : {}),
+      file: inRoot(at.file),
+      line: line + 1,
+    }];
+  });
+}
+
 /**
  * A project's origins as the page reads them: each file from the project's folder, and each
  * profile and tool the project registers that no file defines marked as one the studio cannot find.
@@ -152,7 +172,7 @@ function unregisteredIn(
 export function pageOrigins(
   found: ProjectOrigins,
   names: ProjectNames,
-  source: Pick<ProjectSource, 'profiles' | 'tools'>,
+  source: Pick<ProjectSource, 'profiles' | 'tools' | 'providers'>,
   inRoot: (file: string) => string,
 ): ProjectOrigins {
   const read = (origins: Record<string, SettingOrigin[]>, registered: readonly string[], defined: Map<string, unknown>) => {
@@ -178,6 +198,7 @@ export function pageOrigins(
   return {
     profiles: read(found.profiles, names.profiles, source.profiles),
     tools: read(found.tools, names.tools, source.tools),
+    providers: read(found.providers, names.providers, source.providers),
     ...(found.sites ? { sites: { profiles: placed(found.sites.profiles), tools: placed(found.sites.tools) } } : {}),
   };
 }
@@ -319,6 +340,7 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
       shared: sharedSettings(files).map((setting) => ({ ...setting, file: inRoot(setting.file) })),
       origins: pageOrigins(sourceOrigins(files, decisions), projectNames(opened), files, inRoot),
       unregistered: unregisteredIn(files, projectNames(opened), inRoot),
+      providerPlaces: providerPlaces(files, projectNames(opened), inRoot),
       ...(unloaded === undefined ? {} : { unloaded: unloaded.printed }),
     };
   };

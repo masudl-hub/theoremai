@@ -320,7 +320,11 @@ class NewPlan {
     this.taken = namesIn(source);
     this.extension = importExtension(project, agents.specifier);
     this.zod = importedFrom(project, ['z']) ?? { specifier: 'zod', file: project.entry };
-    this.folders = { profile: folder(project.profiles), tool: folder(project.tools) };
+    this.folders = {
+      profile: folder(project.profiles),
+      tool: folder(project.tools),
+      provider: folder(project.providers),
+    };
     this.isNew = new Set(added.profiles);
   }
 

@@ -41,6 +41,17 @@ export interface ProjectSource {
   profiles: Map<string, SourceTarget[]>;
   /** The `registerTool` calls, by tool name. */
   tools: Map<string, SourceTarget[]>;
+  /** The providers written out, in `defineProvider` or straight into `registerProvider`, by provider id. */
+  providers: Map<string, SourceTarget[]>;
+}
+
+/** What the studio reads in a project's files and Save writes: a profile, a tool or a provider. */
+export type SubjectKind = 'profile' | 'tool' | 'provider';
+
+/** Where the project's files write each thing of `kind`. */
+export function definedAs(project: ProjectSource, kind: SubjectKind): Map<string, SourceTarget[]> {
+  if (kind === 'profile') return project.profiles;
+  return kind === 'tool' ? project.tools : project.providers;
 }
 
 /** An expression in the file that holds it. */
@@ -134,6 +145,8 @@ export function calleeName(call: ts.CallExpression): string | undefined {
 
 /** The calls a profile's options are written in: where it is defined, or where it is registered without being defined first. */
 const PROFILE_CALLS = new Set(['defineProfile', 'registerProfile']);
+/** The calls a provider is written out in. */
+const PROVIDER_CALLS = new Set(['defineProvider', 'registerProvider']);
 
 /** Whether a call is one a profile's options may be written straight into. */
 function takesProfile(call: ts.CallExpression): boolean {
@@ -608,22 +621,31 @@ export interface NamedProvider {
   exported: boolean;
 }
 
-/** The constant the provider `id` is defined under, the first of the project's files that defines it. */
+/**
+ * The constant the provider `id` is defined under: the top-level `const` its one definition is
+ * set to. None for a provider written straight into its registration, or written twice.
+ */
 export function providerNamed(project: ProjectSource, id: string): NamedProvider | undefined {
-  for (const source of project.files.values()) {
-    for (const statement of source.statements) {
-      if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
-      for (const { name, initializer } of statement.declarationList.declarations) {
-        if (!initializer || !ts.isIdentifier(name)) continue;
-        const written = providerId(project, { node: name, source }, 0);
-        const held = written && followed(project, written).node;
-        if (!held || !ts.isStringLiteralLike(held) || held.text !== id) continue;
-        const exported = statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false;
-        return { name: name.text, source, exported };
-      }
-    }
-  }
-  return undefined;
+  const targets = project.providers.get(id) ?? [];
+  const [target] = targets;
+  if (!target || targets.length > 1) return undefined;
+  const call = target.options.parent;
+  const declaration = ts.isCallExpression(call) ? unwrappedParent(call) : undefined;
+  if (!declaration || !ts.isVariableDeclaration(declaration) || !ts.isIdentifier(declaration.name)) return undefined;
+  const statement = declaration.parent.parent;
+  const top = ts.isVariableStatement(statement) && ts.isSourceFile(statement.parent) &&
+    (declaration.parent.flags & ts.NodeFlags.Const) !== 0;
+  if (!top) return undefined;
+  const exported = statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+  return { name: declaration.name.text, source: target.source, exported };
+}
+
+/** What holds an expression once the wrappers that leave its value alone are passed: `as`, `satisfies`, brackets. */
+function unwrappedParent(node: ts.Expression): ts.Node {
+  const { parent } = node;
+  const wraps = ts.isParenthesizedExpression(parent) || ts.isAsExpression(parent) || ts.isSatisfiesExpression(parent) ||
+    ts.isNonNullExpression(parent);
+  return wraps ? unwrappedParent(parent) : parent;
 }
 
 /** Whether the top level of `source` already gives `name` a meaning: a declaration, or an import. */
@@ -666,8 +688,8 @@ export function specifierTo(from: string, to: string, extension: string): string
  * Whether a value other code reads is a name that code knows something by: a profile's id, or the
  * id a provider is defined with. The studio does not rename those.
  */
-export function isHeldId(kind: 'profile' | 'tool', path: readonly string[], at: Located): boolean {
-  if (kind === 'profile' && path.length === 1 && path[0] === 'id') return true;
+export function isHeldId(kind: SubjectKind, path: readonly string[], at: Located): boolean {
+  if (kind !== 'tool' && path.length === 1 && path[0] === 'id') return true;
   const property = at.node.parent;
   const call = property.parent.parent;
   return ts.isPropertyAssignment(property) && propertyName(property) === 'id' &&
@@ -896,7 +918,7 @@ export function readProjectSource(entry: string, root: string, read: ReadFile): 
 
 /** The project the walked `files` hold: its profiles and tools, where each is made. */
 export function projectOf(files: Map<string, ts.SourceFile>, entry: string, root: string): ProjectSource {
-  const project: ProjectSource = { root, entry: resolve(entry), files, profiles: new Map(), tools: new Map() };
+  const project: ProjectSource = { root, entry: resolve(entry), files, profiles: new Map(), tools: new Map(), providers: new Map() };
   const calls: Array<{ into: Map<string, SourceTarget[]>; key: string; target: SourceTarget }> = [];
   for (const [file, source] of project.files) {
     const visit = (node: ts.Node) => {
@@ -907,6 +929,7 @@ export function projectOf(files: Map<string, ts.SourceFile>, entry: string, root
           const target = { file, source, options };
           if (takesProfile(node)) calls.push({ into: project.profiles, key: 'id', target });
           if (name === 'registerTool') calls.push({ into: project.tools, key: 'name', target });
+          if (name && PROVIDER_CALLS.has(name)) calls.push({ into: project.providers, key: 'id', target });
         }
       }
       ts.forEachChild(node, visit);

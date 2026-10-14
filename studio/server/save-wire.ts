@@ -92,12 +92,26 @@ export interface SourcePlace {
   line: number;
 }
 
-/** Each profile's and tool's settings that are set in code, by profile id and tool name. */
+/** Each profile's, tool's and provider's settings that are set in code, by profile id, tool name and provider id. */
 export interface ProjectOrigins {
   profiles: Record<string, SettingOrigin[]>;
   tools: Record<string, SettingOrigin[]>;
+  providers: Record<string, SettingOrigin[]>;
   /** Where each value others read too is written, by profile id and tool name. Only those that hold one are listed. */
   sites?: { profiles: Record<string, SettingSite[]>; tools: Record<string, SettingSite[]> };
+}
+
+/**
+ * Where the project's files define a provider. `name` is the constant it is defined under, when
+ * it has one; `exported` says another file can import that name.
+ */
+export interface ProviderPlace {
+  id: string;
+  name?: string;
+  exported?: true;
+  /** The path and the one-based line. */
+  file: string;
+  line: number;
 }
 
 /** What the page asks to see in the builder's editor: a project file, from the project's folder. */
@@ -143,8 +157,8 @@ export type SaveStatus =
   | 'removed';
 
 export interface SaveChange {
-  kind: 'profile' | 'tool';
-  /** The profile's id or the tool's name, as the project has it. */
+  kind: 'profile' | 'tool' | 'provider';
+  /** The profile's id, the tool's name or the provider's id, as the project has it. */
   of: string;
   /** The setting, as a path: `tools.allow`. Empty for the whole profile or tool. */
   setting: string;

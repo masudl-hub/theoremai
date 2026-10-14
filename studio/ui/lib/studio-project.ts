@@ -9,6 +9,7 @@ import type {
 	OpenAnswer,
 	OpenRequest,
 	ProjectOrigins,
+	ProviderPlace,
 	SaveDone,
 	SaveRefusal,
 	SaveReview,
@@ -37,8 +38,10 @@ export interface ProjectSession {
 	shared: SharedSetting[];
 	/** The profiles and tools the files define that the project did not register. */
 	unregistered: Unregistered[];
-	/** The settings the project's files set in code, by profile id and tool name. */
+	/** The settings the project's files set in code, by profile id, tool name and provider id. */
 	origins: ProjectOrigins;
+	/** Where the files define each provider the project registered. */
+	providerPlaces: ProviderPlace[];
 	/** The tools that write: the ones the studio makes ask, and the ones it cannot. */
 	asks: StudioAsks;
 	/** The files as the server read them, as a short text that changes when they do. */
@@ -52,7 +55,7 @@ export interface ProjectSession {
 }
 
 export const NO_ASKS: StudioAsks = { asked: [], inside: [] };
-const NO_ORIGINS: ProjectOrigins = { profiles: {}, tools: {} };
+const NO_ORIGINS: ProjectOrigins = { profiles: {}, tools: {}, providers: {} };
 
 /** Set while the page has a project open; `null` on the website's own page. */
 export const ProjectContext = createContext<ProjectSession | null>(null);
@@ -73,6 +76,7 @@ export function projectSession(name: string): ProjectSession {
 		shared: [],
 		unregistered: [],
 		origins: NO_ORIGINS,
+		providerPlaces: [],
 		asks: NO_ASKS,
 		print: '',
 	};
@@ -147,6 +151,7 @@ interface Opened {
 	shared?: SharedSetting[];
 	unregistered?: Unregistered[];
 	origins?: ProjectOrigins;
+	providerPlaces?: ProviderPlace[];
 	asks?: StudioAsks;
 	unloaded?: string;
 	editor?: string;
@@ -190,7 +195,15 @@ async function describeSaying(said: (step: ReadStep) => void): Promise<Opened> {
 /** What a project's files say, which a Save or an edit in the builder's editor changes. */
 export type ProjectFiles = Pick<
 	ProjectSession,
-	'profiles' | 'problems' | 'differences' | 'unheld' | 'origins' | 'asks' | 'print' | 'unloaded'
+	| 'profiles'
+	| 'problems'
+	| 'differences'
+	| 'unheld'
+	| 'origins'
+	| 'providerPlaces'
+	| 'asks'
+	| 'print'
+	| 'unloaded'
 >;
 
 /** What the files say, of a project as the server describes it. */
@@ -201,6 +214,7 @@ function filesOf(opened: Opened): ProjectFiles {
 		differences: opened.differences ?? [],
 		unheld: opened.unheld ?? [],
 		origins: opened.origins ?? NO_ORIGINS,
+		providerPlaces: opened.providerPlaces ?? [],
 		asks: opened.asks ?? NO_ASKS,
 		print: filesPrint(opened.workspace),
 		...(opened.unloaded === undefined ? {} : { unloaded: opened.unloaded }),

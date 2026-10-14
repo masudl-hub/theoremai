@@ -23,6 +23,7 @@ import {
   questionsExport,
   shapeOf,
   type SourceTarget,
+  type SubjectKind,
   unwrapped,
   usersOf,
 } from './project-source.ts';
@@ -67,7 +68,7 @@ class Reader {
 
   constructor(
     private readonly project: ProjectSource,
-    private readonly kind: 'profile' | 'tool',
+    private readonly kind: SubjectKind,
     private readonly target: SourceTarget,
   ) {}
 
@@ -228,7 +229,7 @@ interface Read {
   written: Written[];
 }
 
-function originsOf(project: ProjectSource, kind: 'profile' | 'tool', targets: readonly SourceTarget[]): Read {
+function originsOf(project: ProjectSource, kind: SubjectKind, targets: readonly SourceTarget[]): Read {
   const [target] = targets;
   if (!target) return { origins: [], written: [] };
   if (targets.length > 1) {
@@ -259,13 +260,13 @@ function questionsOrigin(project: ProjectSource, profileId: string): SettingOrig
 }
 
 /**
- * The settings the project's files set in code, for each profile and tool the files define. A
- * profile or tool with none is left out. `decisions` names the decision profiles the studio
+ * The settings the project's files set in code, for each profile, tool and provider the files
+ * define. One with none is left out. `decisions` names the decision profiles the studio
  * shows: each one's questions are set in the setup module.
  */
 export function sourceOrigins(project: ProjectSource, decisions: readonly string[] = []): ProjectOrigins {
   const places = new Map<ts.Node, { site: number; held: number }>();
-  const read = (kind: 'profile' | 'tool', targets: Map<string, SourceTarget[]>) => {
+  const read = (kind: SubjectKind, targets: Map<string, SourceTarget[]>) => {
     const origins: Record<string, SettingOrigin[]> = {};
     const written: Record<string, Written[]> = {};
     for (const [name, held] of targets) {
@@ -280,6 +281,7 @@ export function sourceOrigins(project: ProjectSource, decisions: readonly string
     return { origins, written };
   };
   const [profiles, tools] = [read('profile', project.profiles), read('tool', project.tools)];
+  const providers = read('provider', project.providers);
   for (const id of decisions) profiles.origins[id] = [...(profiles.origins[id] ?? []), questionsOrigin(project, id)];
   /** The places something else reads too, and under each of them the ones a setting has to itself. */
   const sites = (written: Record<string, Written[]>) => {
@@ -304,5 +306,5 @@ export function sourceOrigins(project: ProjectSource, decisions: readonly string
   };
   const held = { profiles: sites(profiles.written), tools: sites(tools.written) };
   const some = Object.keys(held.profiles).length + Object.keys(held.tools).length > 0;
-  return { profiles: profiles.origins, tools: tools.origins, ...(some ? { sites: held } : {}) };
+  return { profiles: profiles.origins, tools: tools.origins, providers: providers.origins, ...(some ? { sites: held } : {}) };
 }

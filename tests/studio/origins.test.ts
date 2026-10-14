@@ -11,7 +11,7 @@ import {
   settingPath,
 } from '../../studio/origins.ts';
 import { sourceOrigins } from '../../studio/server/origins.ts';
-import { readProjectSource } from '../../studio/server/project-source.ts';
+import { providerNamed, readProjectSource } from '../../studio/server/project-source.ts';
 import { planSave } from '../../studio/server/save-plan.ts';
 import type { SettingOrigin } from '../../studio/server/save-wire.ts';
 import { modelBindingNodeId, toolSpecNodeId } from '../../studio/tree.ts';
@@ -26,7 +26,11 @@ function project(files: Record<string, string>) {
 }
 
 /** Each origin as `path kind text @file:line`, with the file from the project's folder. */
-function read(files: Record<string, string>, kind: 'profiles' | 'tools' = 'profiles', of = 'desk') {
+function read(
+  files: Record<string, string>,
+  kind: 'profiles' | 'tools' | 'providers' = 'profiles',
+  of = 'desk',
+) {
   return (sourceOrigins(project(files))[kind][of] ?? []).map((origin) =>
     [
       origin.path.join('.') || '(all)',
@@ -124,7 +128,32 @@ Deno.test('a profile the files define twice is one origin, and a plain one has n
   const twice = `defineProfile({ id: 'desk', maxSteps: 1 });\ndefineProfile({ id: 'desk', maxSteps: 2 });\n`;
   assertEquals(read({ 'setup.ts': twice }), ['(all) | twice |  | setup.ts:1']);
   const plain = `defineProfile({ id: 'desk', maxSteps: 1, tools: { allow: ['a'] } });\n`;
-  assertEquals(sourceOrigins(project({ 'setup.ts': plain })), { profiles: {}, tools: {} });
+  assertEquals(sourceOrigins(project({ 'setup.ts': plain })), {
+    profiles: {},
+    tools: {},
+    providers: {},
+  });
+});
+
+Deno.test('a provider is read where it is defined: what code sets, and the constant it is under', () => {
+  const files = {
+    'setup.ts': `import { house, SLOT } from './providers.ts';\nregisterProviders([house]);\nregisterProvider({ id: 'inline', connection: {}, adapter: googleAdapter() });\n`,
+    'providers.ts': `export const SLOT = 'team';\nexport const house = defineProvider({\n  id: 'house',\n  connection: { baseURL: address() },\n  keySlot: SLOT,\n  adapter: openAIChat(),\n});\nconst spare = defineProvider({ id: 'spare', connection: {}, adapter: googleAdapter() });\n`,
+  };
+  assertEquals(read(files, 'providers', 'house'), [
+    'adapter | code | openAIChat() | providers.ts:6',
+    'connection.baseURL | code | address() | providers.ts:4',
+  ]);
+  const source = project(files);
+  assertEquals([...source.providers.keys()].sort(), ['house', 'inline', 'spare']);
+  const named = (id: string) => {
+    const held = providerNamed(source, id);
+    return held && [held.name, held.exported];
+  };
+  assertEquals(
+    [named('house'), named('spare'), named('inline')],
+    [['house', true], ['spare', false], undefined],
+  );
 });
 
 Deno.test('Save refuses a change wherever the reader finds an origin, and writes one where it finds none', () => {
@@ -297,6 +326,7 @@ Deno.test('the open node reads the origins of the profile or tool it started as,
       ],
     },
     tools: {},
+    providers: {},
   };
   const at = (inner: string, workspace = opened) =>
     nodeOrigins(workspace, origins, agentNodeId(agent.key, inner));
@@ -355,6 +385,7 @@ Deno.test('a whole profile or tool the studio cannot write says so over every se
   const twice = origin('', { kind: 'twice', text: undefined });
   const origins = {
     profiles: { desk: [twice] },
+    providers: {},
     tools: tool
       ? {
           [tool.toolName]: [

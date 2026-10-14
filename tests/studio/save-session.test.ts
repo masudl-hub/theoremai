@@ -414,13 +414,22 @@ Deno.test('the page reads what the files set in code, with each file from the pr
     [SETUP, undefined, undefined],
   );
 
-  const names = { profiles: ['garden-desk', 'made-in-a-loop'], tools: ['remove_plant'] };
-  const defined = { profiles: new Map([['garden-desk', []]]), tools: new Map() };
+  const names = {
+    profiles: ['garden-desk', 'made-in-a-loop'],
+    tools: ['remove_plant'],
+    providers: ['house'],
+  };
+  const defined = {
+    profiles: new Map([['garden-desk', []]]),
+    tools: new Map(),
+    providers: new Map(),
+  };
   const found = {
     profiles: {
       'garden-desk': [{ path: ['inputs'], kind: 'code' as const, file: `${ROOT}/a.ts`, line: 2 }],
     },
     tools: {},
+    providers: {},
   };
   assertEquals(
     pageOrigins(found, names, defined, (file) => file.replace(`${ROOT}/`, '')),
@@ -430,6 +439,7 @@ Deno.test('the page reads what the files set in code, with each file from the pr
         'made-in-a-loop': [{ path: [], kind: 'unfound' }],
       },
       tools: { remove_plant: [{ path: [], kind: 'unfound' }] },
+      providers: { house: [{ path: [], kind: 'unfound' }] },
     },
   );
 });

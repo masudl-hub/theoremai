@@ -20,10 +20,11 @@ import { canonical } from '../canonical.ts';
 import type { SaveSubject } from './save-plan.ts';
 import type { SaveChange } from './save-wire.ts';
 
-/** What the project registers: the ids of its profiles and the names of its tools. */
+/** What the project registers: the ids of its profiles and providers, and the names of its tools. */
 export interface ProjectNames {
   profiles: readonly string[];
   tools: readonly string[];
+  providers: readonly string[];
 }
 
 export type SaveSubjects =
@@ -55,6 +56,7 @@ export function projectNames(opened: StudioWorkspace): ProjectNames {
   return {
     profiles: opened.agents.map((agent) => agent.identity.agentId),
     tools: opened.toolSpecs.map((tool) => tool.toolName),
+    providers: opened.providers.map((provider) => provider.id),
   };
 }
 

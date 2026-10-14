@@ -18,6 +18,7 @@ import { keySource } from '../tool-schema.ts';
 import { canonical } from '../canonical.ts';
 import {
   declares,
+  definedAs,
   followed,
   holderOf,
   importExtension,
@@ -30,6 +31,7 @@ import {
   type ProjectSource,
   propertyName,
   providerNamed,
+  type SubjectKind,
   shapeOf,
   type SourceTarget,
   type ShapeEntry,
@@ -54,9 +56,9 @@ import {
   zodSource,
 } from './zod-edit.ts';
 
-/** A profile or tool that changed: its values before and after, as the studio compiles them. */
+/** A profile, tool or provider that changed: its values before and after, as the studio holds them. */
 export interface SaveSubject {
-  kind: 'profile' | 'tool';
+  kind: SubjectKind;
   of: string;
   before: unknown;
   after: unknown;
@@ -968,7 +970,7 @@ export function planSave(project: ProjectSource, subjects: readonly SaveSubject[
   const shared: SharedChange[] = [];
   for (const subject of subjects) {
     if (same(subject.before, subject.after)) continue;
-    const defined = subject.kind === 'profile' ? project.profiles : project.tools;
+    const defined = definedAs(project, subject.kind);
     const targets = defined.get(subject.of) ?? [];
     const whole = { kind: subject.kind, of: subject.of, setting: '' };
     const [target] = targets;

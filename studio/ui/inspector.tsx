@@ -742,7 +742,8 @@ export type ChoiceRowProps<T extends string> = {
 
 /**
  * A choice from a list, `''` when none is chosen. An optional one can be cleared, and shows what
- * leaving it out does while blank. `hasSearch` filters a long list.
+ * leaving it out does while blank. `hasSearch` filters a long list. A value the list leaves out
+ * shows as itself, marked "Not in the list", so a list never hides or rewrites what the file says.
  */
 export function ChoiceRow<T extends string>({
 	label,
@@ -761,9 +762,12 @@ export function ChoiceRow<T extends string>({
 }: ChoiceRowProps<T>) {
 	const status = useFieldStatus()(field) ?? given;
 	const { required, unset } = presence(path, isRequired);
+	const listed = options.some((option) => (typeof option === 'string' ? option : option.value) === value);
+	const held: readonly Choice<T>[] =
+		value && !listed ? [{ value, label: value, description: 'Not in the list' }, ...options] : options;
 	// The Selector hands back a plain string; take the option's own value for it.
 	const choose = (next: string | null) => {
-		const chosen = options
+		const chosen = held
 			.map((option) => (typeof option === 'string' ? option : option.value))
 			.find((candidate) => candidate === next);
 		onChange(chosen ?? '');
@@ -773,7 +777,7 @@ export function ChoiceRow<T extends string>({
 		status,
 		isLabelHidden: true,
 		size: 'sm' as const,
-		options: [...options],
+		options: [...held],
 		placement: 'below' as const,
 		isDisabled,
 		hasSearch,

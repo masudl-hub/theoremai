@@ -839,9 +839,6 @@ function ProviderModelRow({
 		label: model.label,
 		description: model.id,
 	}));
-	// A model the list leaves out stays chosen, so a list never rewrites the profile.
-	if (value && !models.models.some((model) => model.id === value))
-		options.unshift({ value, label: value, description: 'Not in the list' });
 	return (
 		<ChoiceRow
 			label="API model"

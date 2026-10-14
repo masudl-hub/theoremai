@@ -3,6 +3,7 @@ import {
 	type CompiledStudio,
 	type CompiledWorkspace,
 	importSpecifier,
+	type ProjectCode,
 	type SourceFile,
 	workspaceSource,
 } from '../../mod.ts';
@@ -293,9 +294,14 @@ function readme(files: readonly SourceFile[], agent: CompiledStudio, entry: Entr
 /**
  * The workspace as files: the README, the tools, one module per agent and the
  * registration, then the route and component for `agent`, the one being chatted with.
+ * On a project, `project` is what its files hold that the code names and does not write again.
  */
-export function exportFiles(workspace: CompiledWorkspace, agent: CompiledStudio): SourceFile[] {
-	const source = workspaceSource(workspace).map((file) =>
+export function exportFiles(
+	workspace: CompiledWorkspace,
+	agent: CompiledStudio,
+	project?: ProjectCode,
+): SourceFile[] {
+	const source = workspaceSource(workspace, project).map((file) =>
 		file.path !== 'theorem.ts'
 			? file
 			: {
@@ -363,8 +369,12 @@ function briefQuestions(agent: CompiledStudio, tools: string[]): string[] {
 }
 
 /** The files with a brief for a coding agent: what to ask, what to install, where each file goes. */
-export function llmBrief(workspace: CompiledWorkspace, agent: CompiledStudio): string {
-	const files = exportFiles(workspace, agent);
+export function llmBrief(
+	workspace: CompiledWorkspace,
+	agent: CompiledStudio,
+	project?: ProjectCode,
+): string {
+	const files = exportFiles(workspace, agent, project);
 	const stubs = [
 		...new Set(
 			workspace.agents.flatMap((each) =>

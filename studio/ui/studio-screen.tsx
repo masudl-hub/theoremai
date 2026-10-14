@@ -65,6 +65,7 @@ import {
 	agentNodeId,
 	type CompiledStudio,
 	type CompiledWorkspace,
+	type ProjectCode,
 	compileWorkspace,
 	createBlankDraft,
 	createConsoleExampleDraft,
@@ -172,6 +173,7 @@ import {
 	type ProjectFiles,
 	type ProjectSession,
 	readFiles,
+	projectCode,
 	useProject,
 } from './lib/studio-project.ts';
 import { getPref, setPref } from './lib/studio-prefs.ts';
@@ -1316,12 +1318,13 @@ function runMembers(
 			const result = compileWorkspace(workspace, page.current.mode);
 			const agent = result.ok ? compiledAgent(result, workspace, workspace.chatWith) : undefined;
 			if (!result.ok || !agent) return Promise.resolve(false);
+			const code = projectCode(page.current.project, workspace);
 			if (format === 'zip') {
-				downloadExport(exportFiles(result, agent), agent.agentId);
+				downloadExport(exportFiles(result, agent, code), agent.agentId);
 			} else if (format === 'copy') {
-				page.current.copy(exportText(exportFiles(result, agent)), 'the files');
+				page.current.copy(exportText(exportFiles(result, agent, code)), 'the files');
 			} else {
-				page.current.copy(llmBrief(result, agent), 'the files and their brief');
+				page.current.copy(llmBrief(result, agent, code), 'the files and their brief');
 			}
 			return Promise.resolve(true);
 		},
@@ -1384,6 +1387,7 @@ function useLeftIssues(issues: readonly StudioIssue[], page: string, revealed: u
 
 /** Get code (a .zip, or copied) and open in a new tab, for the agent being chatted with; off while the workspace has issues. */
 function ExportActions({
+	store,
 	compiled,
 	chatted,
 	chattedId,
@@ -1391,6 +1395,7 @@ function ExportActions({
 	copy,
 	connection,
 }: {
+	store: StudioStore;
 	compiled: CompiledWorkspace | undefined;
 	chatted: CompiledStudio | undefined;
 	chattedId: string;
@@ -1412,18 +1417,28 @@ function ExportActions({
 					if (run) openInNewTab({ ...runPayload(run), ...connection }, project);
 				}}
 			/>
-			<ExportMenu compiled={compiled} chatted={chatted} blocked={blocked} copy={copy} />
+			<ExportMenu
+				code={() => projectCode(project, store.getWorkspace())}
+				compiled={compiled}
+				chatted={chatted}
+				blocked={blocked}
+				copy={copy}
+			/>
 		</>
 	);
 }
 
 /** Get code: a .zip, Copy, or Copy for LLM. */
 function ExportMenu({
+	code,
 	compiled,
 	chatted,
 	blocked,
 	copy,
-}: Omit<Parameters<typeof ExportActions>[0], 'chattedId' | 'connection'>) {
+}: Omit<Parameters<typeof ExportActions>[0], 'chattedId' | 'connection' | 'store'> & {
+	/** What the project's files hold that the code names, read when the builder asks for the code. */
+	code: () => ProjectCode | undefined;
+}) {
 	return (
 		<DropdownMenu
 			button={{
@@ -1448,7 +1463,7 @@ function ExportMenu({
 					icon: <Icon icon={IconFileZip} size="sm" />,
 					onClick: () => {
 						if (compiled && chatted) {
-							downloadExport(exportFiles(compiled, chatted), chatted.agentId);
+							downloadExport(exportFiles(compiled, chatted, code()), chatted.agentId);
 						}
 					},
 				},
@@ -1459,7 +1474,7 @@ function ExportMenu({
 					icon: <Icon icon={IconCopy} size="sm" />,
 					onClick: () => {
 						if (compiled && chatted) {
-							copy(exportText(exportFiles(compiled, chatted)), 'the files');
+							copy(exportText(exportFiles(compiled, chatted, code())), 'the files');
 						}
 					},
 				},
@@ -1471,7 +1486,9 @@ function ExportMenu({
 					),
 					icon: <Icon icon={IconSparkles} size="sm" />,
 					onClick: () => {
-						if (compiled && chatted) copy(llmBrief(compiled, chatted), 'the files and their brief');
+						if (compiled && chatted) {
+							copy(llmBrief(compiled, chatted, code()), 'the files and their brief');
+						}
 					},
 				},
 			]}
@@ -2776,6 +2793,7 @@ function PreviewHeader({
 							/>
 						)}
 						<ExportActions
+							store={store}
 							compiled={compiled.ok ? compiled : undefined}
 							chatted={compile.chatted}
 							chattedId={compile.chattedId}

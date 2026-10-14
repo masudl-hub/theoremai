@@ -1043,6 +1043,14 @@ export function withProvider(workspace: StudioWorkspace, provider: StudioProvide
   return { ...workspace, providers: workspace.providers.map((each) => (each.id === provider.id ? provider : each)) };
 }
 
+/** The providers that are as they started: the ones the project's files still say. */
+export function providersAtStart(workspace: StudioWorkspace): string[] {
+  return workspace.providers.flatMap((provider) => {
+    const start = workspace.starts.providers[provider.id];
+    return start && same(start, provider) ? [provider.id] : [];
+  });
+}
+
 /** Puts one provider back to its start. A provider already at its start returns the same workspace. */
 export function resetProvider(workspace: StudioWorkspace, id: string): StudioWorkspace {
   const start = workspace.starts.providers[id];

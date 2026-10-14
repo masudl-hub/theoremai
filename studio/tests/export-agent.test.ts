@@ -146,3 +146,72 @@ Deno.test('a local export configures the registered adapter URL and keeps host o
   });
   assertEquals(emitted.diagnostics, []);
 });
+
+Deno.test('on a project, an export imports the providers its files export and names the ones they do not', () => {
+  const workspace = compiled(conciergeAndHelper());
+  const [id] = new Set(
+    workspace.agents.flatMap((each) =>
+      each.profile.type === 'host' ? [] : Object.values(each.profile.models).map((model) => model.provider)
+    ),
+  );
+  assert(id);
+  const place = { id, name: 'houseProvider', file: 'server/providers.ts', line: 12 };
+  const setup = (project: Parameters<typeof exportFiles>[2]) => {
+    const file = exportFiles(workspace, agent(workspace, 'travel.concierge'), project)
+      .find((each) => each.path === 'theorem.ts');
+    assert(file);
+    return file.code;
+  };
+  const imported = setup({ providers: [{ ...place, exported: true }], origins: {} });
+  assertMatch(imported, /import \{ houseProvider \} from '\.\/server\/providers';/);
+  assertMatch(imported, /registerProvider\(houseProvider\);/);
+  assert(!imported.includes(`registerProvider({ id: '${id}'`));
+  const named = setup({ providers: [place], origins: {} });
+  assertMatch(named, /\/\/ Register the provider '[^']+' here, before the agents: server\/providers\.ts:12 defines it/);
+  assertNotMatch(named, /houseProvider/);
+  // A provider the builder changed has no place: the code writes it as the studio holds it.
+  assert(setup({ providers: [], origins: {} }).includes(`registerProvider({ id: '${id}'`));
+});
+
+Deno.test('an export writes the check of an item rule as the files write it, and says so when it has none', () => {
+  const start = conciergeAndHelper();
+  const [concierge] = start.agents;
+  assert(concierge);
+  const draft = agentDraft(start, concierge.key);
+  assert(draft);
+  const workspace = compiled(
+    withAgentDraft(start, concierge.key, {
+      ...draft,
+      outputs: {
+        ...draft.outputs,
+        mode: 'structured',
+        schemaId: 'trip_plan',
+        schemaJson: JSON.stringify({
+          type: 'object',
+          properties: { stops: { type: 'array', items: { type: 'string' } } },
+          required: ['stops'],
+        }),
+        validationEnabled: true,
+        itemRules: { stops: 'fix' },
+      },
+    }),
+  );
+  const module = (project: Parameters<typeof exportFiles>[2]) => {
+    const file = exportFiles(workspace, agent(workspace, 'travel.concierge'), project)
+      .find((each) => each.path === 'agents/travel.concierge.ts');
+    assert(file);
+    return file.code;
+  };
+  const origin = {
+    path: ['outputs', 'validation', 'items', 'stops', 'check'],
+    kind: 'code' as const,
+    text: 'checkStop',
+    file: 'server/concierge.ts',
+    line: 40,
+  };
+  assertMatch(
+    module({ providers: [], origins: { 'travel.concierge': [origin] } }),
+    /check: checkStop \/\* server\/concierge\.ts:40 \*\/,\n\s+onFail: 'fix',/,
+  );
+  assertMatch(module(undefined), /check: undefined \/\* The check of each item of 'stops' is your own code: name it here\. \*\//);
+});

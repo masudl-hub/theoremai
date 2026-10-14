@@ -8,6 +8,7 @@ import type { CompiledStudio } from './compile.ts';
 import type { CompiledWorkspace } from './compile-workspace.ts';
 import { adapterFactory, type StudioProvider } from './providers.ts';
 import type { ToolRegistration } from './registrations.ts';
+import type { ProjectOrigins, ProviderPlace } from './server/save-wire.ts';
 import { stubOutputFromSchema } from './stub.ts';
 import { keySource, quoteSource } from './tool-schema.ts';
 
@@ -85,7 +86,7 @@ const COMPILE_IMPORT = `import { compileDetect } from '${AGENTS_PACKAGE}/guardra
  * `detect` is wrapped in `compileDetect`, which compiles them as the host starts; `compiles`
  * says the module needs its import.
  */
-function profileSource(profile: CompiledStudio['profile']): {
+function profileSource(profile: PrintedProfile): {
   code: string;
   compiles: boolean;
 } {
@@ -97,6 +98,44 @@ function profileSource(profile: CompiledStudio['profile']): {
   const compiled = new Expr(`compileDetect(${literal(detect, 2)})`);
   const written = { ...profile, guardrails: { ...guardrails, detect: compiled } };
   return { code: `defineProfile(${literal(written, 0)})`, compiles: true };
+}
+
+/** A profile as it is printed: its own settings, with code standing where the studio holds none. */
+type PrintedProfile = CompiledStudio['profile'] | (Record<string, unknown> & Pick<CompiledStudio['profile'], 'guardrails'>);
+
+/**
+ * What a project's files hold that an export names where it stands, since the studio does not
+ * hold it: each provider's definition, and the settings its profiles set in code.
+ */
+export interface ProjectCode {
+  /** Where the files define each provider that is still as they define it. */
+  providers: readonly ProviderPlace[];
+  /** The settings set in code, by profile id. */
+  origins: ProjectOrigins['profiles'];
+}
+
+/**
+ * The profile with the check of each list's item rule as the project's files write it. A check is
+ * code, so the studio holds none: a rule the files do not place gets a line that says what is owed.
+ */
+function withItemChecks(profile: CompiledStudio['profile'], checks: ProjectOrigins['profiles']): PrintedProfile {
+  if (!('outputs' in profile)) return profile;
+  const validation = profile.outputs?.validation;
+  if (!validation?.items) return profile;
+  const origins = checks[profile.id] ?? [];
+  const items = Object.fromEntries(
+    Object.entries(validation.items).map(([list, rule]) => {
+      const path = ['outputs', 'validation', 'items', list, 'check'];
+      const at = origins.find(
+        (origin) => origin.kind === 'code' && origin.text !== undefined && origin.path.join('\n') === path.join('\n'),
+      );
+      const check = at?.text !== undefined
+        ? `${at.text} /* ${String(at.file)}:${String(at.line)} */`
+        : `undefined /* The check of each item of ${quoteSource(list)} is your own code: name it here. */`;
+      return [list, { check: new Expr(check), onFail: rule.onFail }];
+    }),
+  );
+  return { ...profile, outputs: { ...profile.outputs, validation: { ...validation, items } } };
 }
 
 /** A tool's registration, as a call; `indent` places it in a function body. */
@@ -122,12 +161,15 @@ function toolSource(tool: ToolRegistration, indent = 0): string {
 }
 
 /**
- * The registration of each provider a model of `profiles` names. One whose adapter is the project's
- * own is not the studio's to write: the code says so where its registration belongs.
+ * The registration of each provider a model of `profiles` names. One the project's files define
+ * (`places`) is imported under its own name, by its path from the project's folder, or named by
+ * its line when the files do not export it. One whose adapter is the project's own is not the
+ * studio's to write: the code says so where its registration belongs.
  */
 function providerRegistrations(
   profiles: readonly CompiledStudio['profile'][],
   providers: readonly StudioProvider[],
+  places: readonly ProviderPlace[] = [],
 ) {
   const ids = new Set(
     profiles.flatMap((profile) =>
@@ -137,8 +179,23 @@ function providerRegistrations(
     ),
   );
   const imports = new Set<string>();
+  const own = new Map<string, string[]>();
   const code: string[] = [];
   for (const id of ids) {
+    const place = places.find((held) => held.id === id);
+    if (place?.name !== undefined && place.exported) {
+      imports.add('registerProvider');
+      const from = importSpecifier(place.file);
+      own.set(from, [...(own.get(from) ?? []), place.name]);
+      code.push(`registerProvider(${place.name});\n`);
+      continue;
+    }
+    if (place) {
+      code.push(
+        `// Register the provider ${quoteSource(id)} here, before the agents: ${place.file}:${String(place.line)} defines it and does not export it.\n`,
+      );
+      continue;
+    }
     const provider = providers.find((held) => held.id === id);
     const factory = provider && adapterFactory(provider.adapter);
     if (!provider || !factory) {
@@ -160,7 +217,11 @@ function providerRegistrations(
       `registerProvider({ id: ${quoteSource(id)}, connection: ${connection},${slots.join('')} adapter: ${factory}() });\n`,
     );
   }
-  return { imports: [...imports], code };
+  return {
+    imports: [...imports],
+    own: [...own].map(([from, names]) => `import { ${names.join(', ')} } from ${quoteSource(from)};`),
+    code,
+  };
 }
 
 export function studioSource(compiled: CompiledStudio): string {
@@ -231,12 +292,17 @@ export function agentIdentifier(agentId: string, taken: Set<string>): string {
 
 /**
  * An agent's module: its profile, and its structured reply and questions when it has them.
- * Registers nothing. `from` is where the module imports the kernel from.
+ * Registers nothing. `from` is where the module imports the kernel from. With `checks` (the
+ * settings set in code, by profile id), each item rule is written with its check.
  */
-export function agentModule(compiled: CompiledStudio, from = AGENTS_PACKAGE): string {
+export function agentModule(
+  compiled: CompiledStudio,
+  from = AGENTS_PACKAGE,
+  checks?: ProjectOrigins['profiles'],
+): string {
   const { profile, structured, questions } = compiled;
   const imports = [...(questions ? ['type DecisionQuestion'] : []), 'defineProfile'];
-  const defined = profileSource(profile);
+  const defined = profileSource(checks ? withItemChecks(profile, checks) : profile);
   const blocks = [
     `import { ${imports.join(', ')} } from ${quoteSource(from)};\n${
       defined.compiles ? `${COMPILE_IMPORT}\n` : ''
@@ -307,7 +373,7 @@ function libraryModule(tools: readonly ToolRegistration[]): string {
  * after the agents it names, and each agent tool after the agent it runs, so the
  * order is the one a scope needs and reads in one place.
  */
-export function workspaceSource(compiled: CompiledWorkspace): SourceFile[] {
+export function workspaceSource(compiled: CompiledWorkspace, project?: ProjectCode): SourceFile[] {
   const library = new Map<string, ToolRegistration>();
   for (const tool of compiled.agents.flatMap((agent) => agent.customTools)) {
     if (tool.type !== 'agent' && !library.has(tool.name)) library.set(tool.name, tool);
@@ -317,6 +383,7 @@ export function workspaceSource(compiled: CompiledWorkspace): SourceFile[] {
     'registerStructured',
     'registerTool',
     'registerToolLibrary',
+    ...(project?.providers ?? []).flatMap((place) => (place.name === undefined ? [] : [place.name])),
   ]);
   const agents = compiled.agents.map((agent) => ({
     agent,
@@ -344,6 +411,7 @@ export function workspaceSource(compiled: CompiledWorkspace): SourceFile[] {
   const providers = providerRegistrations(
     agents.map(({ agent }) => agent.profile),
     agents[0]?.agent.providers ?? [],
+    project?.providers,
   );
   const theorem = [
     [
@@ -362,6 +430,9 @@ export function workspaceSource(compiled: CompiledWorkspace): SourceFile[] {
         .join('\n')}\n} from '@theoremjs/agents';`,
       ...(library.size ? [`import { registerToolLibrary } from './tools';`] : []),
       ...agents.map(({ path, name }) => `import * as ${name} from '${importSpecifier(path)}';`),
+      ...(providers.own.length
+        ? ["// The project's own providers, each by its path from the project's folder.", ...providers.own]
+        : []),
       '',
     ].join('\n'),
     ...providers.code,
@@ -370,7 +441,10 @@ export function workspaceSource(compiled: CompiledWorkspace): SourceFile[] {
   ];
   return [
     ...(library.size ? [{ path: 'tools.ts', code: libraryModule([...library.values()]) }] : []),
-    ...agents.map(({ agent, path }) => ({ path, code: agentModule(agent) })),
+    ...agents.map(({ agent, path }) => ({
+      path,
+      code: agentModule(agent, AGENTS_PACKAGE, project?.origins ?? {}),
+    })),
     { path: 'theorem.ts', code: theorem.join('\n') },
   ];
 }

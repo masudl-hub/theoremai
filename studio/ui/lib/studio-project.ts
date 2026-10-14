@@ -3,7 +3,13 @@
  * the page the project's registered profiles and tools as a workspace, and runs each profile's
  * own code.
  */
-import { filesPrint, type StudioAsks, type StudioWorkspace } from '../../mod.ts';
+import {
+	filesPrint,
+	type ProjectCode,
+	providersAtStart,
+	type StudioAsks,
+	type StudioWorkspace,
+} from '../../mod.ts';
 import type {
 	EditedAnswer,
 	OpenAnswer,
@@ -52,6 +58,22 @@ export interface ProjectSession {
 	editor?: string;
 	/** The setup file the studio command was started on, from the folder it ran in. */
 	setup?: string;
+}
+
+/**
+ * What the project's files hold that exported code names and does not write again. A provider the
+ * builder changed is left out, so the code writes it as the studio holds it.
+ */
+export function projectCode(
+	project: ProjectSession | null,
+	workspace: StudioWorkspace,
+): ProjectCode | undefined {
+	if (!project) return undefined;
+	const kept = new Set(providersAtStart(workspace));
+	return {
+		providers: project.providerPlaces.filter((place) => kept.has(place.id)),
+		origins: project.origins.profiles,
+	};
 }
 
 export const NO_ASKS: StudioAsks = { asked: [], inside: [] };

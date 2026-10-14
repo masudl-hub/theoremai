@@ -143,6 +143,7 @@ export {
 export {
   agentModulePath,
   importSpecifier,
+  type ProjectCode,
   studioSource,
   type SourceFile,
   workspaceSource,
@@ -201,6 +202,7 @@ export {
   resetAgent,
   resetAll,
   resetLibraryTool,
+  providersAtStart,
   resetProvider,
   scopedNodeId,
   setToolAllowed,

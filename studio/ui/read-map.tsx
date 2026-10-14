@@ -21,6 +21,8 @@ const STEP_MS = 70;
 const LAG_MS = 500;
 /** Once the project has arrived, the rest is drawn within this long. */
 const CATCH_UP_MS = 900;
+/** The map shows for at least this long, so a quick read can still be seen. */
+const SHOWN_MS = 2000;
 
 /** The panel's own padding, step 4. */
 const PAD = 16;
@@ -63,19 +65,20 @@ function useDrawn(reading: Reading, onDrawn: () => void) {
 	told.current = onDrawn;
 	useEffect(() => {
 		let frame = 0;
-		let at = performance.now();
+		const start = performance.now();
+		let at = start;
 		let cursor = 0;
 		let pace: number | undefined;
 		const tick = (now: number) => {
 			const known = reading.steps().length;
 			const left = known - cursor;
-			if (reading.done()) pace ??= Math.max(1 / STEP_MS, left / CATCH_UP_MS);
+			if (reading.done()) pace ??= Math.max(1 / STEP_MS, left / Math.max(CATCH_UP_MS, SHOWN_MS - (now - start)));
 			const rate = pace ?? Math.max(1 / STEP_MS, left / LAG_MS);
 			cursor = Math.min(known, cursor + (now - at) * rate);
 			at = now;
 			const steps = Math.floor(cursor);
 			setDrawn((last) => (last.steps === steps && last.known === known ? last : { steps, known }));
-			if (reading.done() && cursor >= known) {
+			if (reading.done() && cursor >= known && now - start >= SHOWN_MS) {
 				told.current();
 				return;
 			}

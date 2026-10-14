@@ -366,6 +366,7 @@ function ChatBody({
                     delivery={chat.delivery}
                     answering={chat.answering}
                     usage={usage}
+                    labels={iface.labels}
                     imageOutput={
                       iface.type === 'image'
                         ? { ratio: parseAspectRatio(iface.image.aspectRatio) }

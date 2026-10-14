@@ -61,14 +61,6 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'More send options',
     description: 'Menu button beside send.',
   },
-  '@theorem.composer.model': {
-    defaultMessage: 'Model',
-    description: 'Model selector (screen readers).',
-  },
-  '@theorem.composer.effort': {
-    defaultMessage: 'Effort',
-    description: 'Effort selector (screen readers).',
-  },
   '@theorem.composer.menu.queue': { defaultMessage: 'Queue', description: 'Send menu item.' },
   '@theorem.composer.menu.queue.description': {
     defaultMessage: 'Send it once this reply finishes.',
@@ -186,10 +178,6 @@ export const THEOREM_UI_CATALOG = {
   '@theorem.transcript.now': {
     defaultMessage: 'now',
     description: 'Message time during its first minute.',
-  },
-  '@theorem.transcript.interrupted': {
-    defaultMessage: 'interrupted',
-    description: 'Message status: the person stopped its turn.',
   },
   '@theorem.transcript.failed': {
     defaultMessage: 'failed',

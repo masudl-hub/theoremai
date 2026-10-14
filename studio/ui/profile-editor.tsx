@@ -83,6 +83,7 @@ import {
 	IconPencil,
 	IconPlayerPause,
 	IconPlayerPlay,
+	IconPlayerStop,
 	IconPlayerTrackNext,
 	IconPlugConnected,
 	IconPlus,
@@ -5617,6 +5618,20 @@ const LABEL_AREAS: readonly {
 		title: 'Session',
 		note: 'Waits, approvals, and signing in.',
 		icon: IconHourglass,
+		audience: 'visitor',
+	},
+	{
+		prefix: 'stop',
+		title: 'Stops',
+		note: 'Why a reply ended short.',
+		icon: IconPlayerStop,
+		audience: 'visitor',
+	},
+	{
+		prefix: 'composer',
+		title: 'Composer',
+		note: 'The model and effort pickers.',
+		icon: IconAdjustmentsHorizontal,
 		audience: 'visitor',
 	},
 	{

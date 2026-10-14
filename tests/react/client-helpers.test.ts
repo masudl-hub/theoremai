@@ -391,7 +391,7 @@ Deno.test('groupTranscriptBlocks closes a message whose turn was stopped', () =>
     { id: 'd', kind: 'turn-done', stop: { kind: 'completed' }, workedMs: 5, endedAt: 9 },
   ]);
   assertEquals(
-    groups.map((group) => [group.key, group.kind === 'user' && group.interrupted === true]),
+    groups.map((group) => [group.key, group.kind === 'user' && group.stop?.kind === 'cancelled']),
     [
       ['a', true],
       ['b', false],
@@ -399,6 +399,7 @@ Deno.test('groupTranscriptBlocks closes a message whose turn was stopped', () =>
     ],
   );
   assertEquals(groups[2]?.kind === 'assistant' && groups[2].workedMs, 5);
+  assertEquals(groups[2]?.kind === 'assistant' && groups[2].stop, { kind: 'completed' });
 });
 
 Deno.test('inkWaveDriver and computeInkBarTargets calculate animations', () => {

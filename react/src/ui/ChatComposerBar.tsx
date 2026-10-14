@@ -33,7 +33,7 @@ import {
   IconStack2,
   IconX,
 } from '@tabler/icons-react';
-import { attachmentIssueText, type LabelOverrides } from '@theoremjs/agents';
+import { attachmentIssueText, type LabelOverrides, labelText } from '@theoremjs/agents';
 import {
   type AttachmentValidationIssue,
   type ComposerMenuAction,
@@ -254,16 +254,16 @@ function generationOptions(iface: ComposerProfileInterface, selectedModel?: stri
 }
 
 function ModelSelector(props: {
+  label: string;
   models: readonly ModelOption[];
   value?: string;
   isDisabled: boolean;
   onChange: (modelId: string) => void;
 }) {
-  const t = useLabels();
   if (props.models.length === 0) return null;
   return (
     <Selector
-      label={t('@theorem.composer.model')}
+      label={props.label}
       isLabelHidden
       size="sm"
       variant="ghost"
@@ -282,16 +282,16 @@ function ModelSelector(props: {
 }
 
 function EffortSelector(props: {
+  label: string;
   efforts: readonly EffortOption[];
   value?: string;
   isDisabled: boolean;
   onChange: (effort: string) => void;
 }) {
-  const t = useLabels();
   if (props.efforts.length === 0) return null;
   return (
     <Selector
-      label={t('@theorem.composer.effort')}
+      label={props.label}
       isLabelHidden
       size="sm"
       variant="ghost"
@@ -339,12 +339,14 @@ function GenerationSelect(props: {
   return (
     <HStack gap={1}>
       <ModelSelector
+        label={labelText('composer.model', {}, props.iface.labels)}
         models={models}
         value={props.selectedModel}
         isDisabled={props.isDisabled}
         onChange={(modelId) => props.onChange({ modelId })}
       />
       <EffortSelector
+        label={labelText('composer.effort', {}, props.iface.labels)}
         efforts={efforts}
         value={props.selectedEffort}
         isDisabled={props.isDisabled}

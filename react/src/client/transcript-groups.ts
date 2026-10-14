@@ -4,7 +4,8 @@
  * (Seance-style), not as separate messages.
  */
 
-import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import type { TurnStop } from '@theoremjs/agents';
+import { type TranscriptBlock, WORDED_STOP_KINDS } from '@theoremjs/agents/interface';
 import { humanize } from './shaped-data.ts';
 
 /** What a reply or a called agent used: its tokens, and its cost when the provider gave one. */
@@ -25,8 +26,8 @@ export type TranscriptTurnGroup =
       kind: 'user';
       key: string;
       blocks: TranscriptBlock[];
-      /** The person stopped its turn before any reply. */
-      interrupted?: true;
+      /** How its turn stopped short before any reply. A message with a stop is closed. */
+      stop?: TurnStop;
     }
   | {
       kind: 'assistant';
@@ -37,6 +38,8 @@ export type TranscriptTurnGroup =
       endedAt?: number;
       /** What the reply used, summed over its runs: a reply resumed at a gate has several. */
       usage?: TurnUsage;
+      /** How its latest run stopped. */
+      stop?: TurnStop;
     };
 
 export type TraceItem =
@@ -55,6 +58,8 @@ export type ComposedAssistantTurn = {
   hasTrace: boolean;
 };
 
+const WORDED: ReadonlySet<string> = new Set(WORDED_STOP_KINDS);
+
 const USER_KINDS = new Set(['user-text', 'user-attachment', 'user-voice']);
 
 function isUserTranscriptBlock(block: TranscriptBlock): boolean {
@@ -72,7 +77,7 @@ function closeTurn(
   done: Extract<TranscriptBlock, { kind: 'turn-done' }>,
 ): void {
   if (last?.kind === 'user') {
-    if (done.stop?.kind === 'cancelled') last.interrupted = true;
+    if (done.stop && WORDED.has(done.stop.kind)) last.stop = done.stop;
     return;
   }
   if (!last) return;
@@ -81,17 +86,18 @@ function closeTurn(
     last.endedAt = done.endedAt;
   }
   if (done.tokens) last.usage = addUsage(last.usage, done.tokens);
+  if (done.stop) last.stop = done.stop;
 }
 
 /** Whether `block` joins the turn before it: the same side, and that turn still open. */
 function joinsTurn(last: TranscriptTurnGroup | undefined, isUser: boolean): boolean {
   if (!last || last.kind !== (isUser ? 'user' : 'assistant')) return false;
-  return !(last.kind === 'user' && last.interrupted);
+  return !(last.kind === 'user' && last.stop);
 }
 
 /**
  * Blocks as turns: neighbours from the same side share one, unless a block is
- * in `breaks`, which always starts its own. A message whose turn was stopped
+ * in `breaks`, which always starts its own. A message whose turn stopped short
  * is closed: the next message starts its own turn.
  */
 export function groupTranscriptBlocks(

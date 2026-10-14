@@ -94,6 +94,8 @@ export {
   gatedToolFromEvents,
   gatedToolsFromEvents,
 } from './session.ts';
+export type { WordedStopKind } from './stop.ts';
+export { stopText, WORDED_STOP_KINDS } from './stop.ts';
 export type { SettledToolCallEvent } from './tool-calls.ts';
 export { settlesToolCall, toolCallRanWith, toolCallsOf } from './tool-calls.ts';
 export { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';

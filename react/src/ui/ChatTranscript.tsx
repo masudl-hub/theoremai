@@ -27,7 +27,8 @@ import { Token } from '@astryxdesign/core/Token';
 import { Tooltip as HoverTip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
-import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import type { LabelOverrides } from '@theoremjs/agents';
+import { stopText, type TranscriptBlock } from '@theoremjs/agents/interface';
 import {
   type CSSProperties,
   createContext,
@@ -97,6 +98,8 @@ export type ChatTranscriptProps = {
    * on an agent tool's call row what the agent it ran used. Off by default.
    */
   usage?: boolean;
+  /** The profile's labels (`iface.labels`): a stopped turn says why in its words. */
+  labels?: LabelOverrides;
 };
 
 /** Whether the transcript shows usage (`ChatTranscriptProps.usage`). */
@@ -205,9 +208,8 @@ function Usage({ tokens }: { tokens: TurnUsage }) {
   return usageLine(useLabels(), useLocale(), tokens);
 }
 
-/** A stopped message's status, drawn as the delivery statuses are. */
-function Interrupted() {
-  const label = useLabels()('@theorem.transcript.interrupted');
+/** Why a turn stopped short, drawn as the delivery statuses are. */
+function Stopped({ label }: { label: string }) {
   return (
     <HStack gap={1} vAlign="center">
       <Icon icon="stop" size="xsm" color="inherit" />
@@ -247,8 +249,8 @@ function MessageChrome(props: {
   at: number;
   copyText: string;
   status?: ChatMessageStatus;
-  /** The person stopped its turn: it says so where its status goes. */
-  interrupted?: boolean;
+  /** Why its turn stopped short, worded: it says so where its status goes. */
+  stopped?: string;
   error?: string;
   /** What the reply used, when the transcript shows usage. */
   usage?: TurnUsage;
@@ -257,8 +259,8 @@ function MessageChrome(props: {
   const aside =
     props.error !== undefined ? (
       <Failed reason={props.error} />
-    ) : props.interrupted ? (
-      <Interrupted />
+    ) : props.stopped !== undefined ? (
+      <Stopped label={props.stopped} />
     ) : (
       usage
     );
@@ -268,7 +270,7 @@ function MessageChrome(props: {
       timestamp={<CopyAndTime sender={props.sender} at={props.at} copyText={props.copyText} />}
       // why: Astryx's statuses are a closed set, so these ride the footer.
       footer={aside}
-      status={props.error !== undefined || props.interrupted ? undefined : props.status}
+      status={props.error !== undefined || props.stopped !== undefined ? undefined : props.status}
     />
   );
 }
@@ -806,6 +808,8 @@ function AssistantTurn(props: {
   imageOutput?: ImageOutput;
   /** Why the turn failed, if it did. */
   error?: string;
+  /** Why the turn stopped short, worded. */
+  stopped?: string;
   /** What the reply used; shown when the transcript shows usage. */
   usage?: TurnUsage;
 }) {
@@ -831,6 +835,7 @@ function AssistantTurn(props: {
             at={props.at}
             copyText={copyText}
             error={props.error}
+            stopped={props.stopped}
             usage={showUsage ? props.usage : undefined}
           />
         )
@@ -863,8 +868,8 @@ function UserTurn(props: {
   blocks: TranscriptBlock[];
   at: number;
   status?: ChatMessageStatus;
-  /** The person stopped its turn before any reply. */
-  interrupted?: boolean;
+  /** Why its turn stopped short before any reply, worded. */
+  stopped?: string;
   /** Why the turn failed before any reply. */
   error?: string;
 }) {
@@ -879,7 +884,7 @@ function UserTurn(props: {
       at={props.at}
       copyText={copyText}
       status={props.status}
-      interrupted={props.interrupted}
+      stopped={props.stopped}
       error={props.error}
     />
   );
@@ -932,6 +937,7 @@ function ChatTranscriptBody({
   emptyState,
   dividers,
   imageOutput,
+  labels,
 }: ChatTranscriptProps) {
   const groups = useMemo(
     () => groupTranscriptBlocks(blocks, dividers && new Set(Object.keys(dividers))),
@@ -964,7 +970,7 @@ function ChatTranscriptBody({
         blocks={group.blocks}
         at={promptTime(groups, index, timeOf)}
         status={status}
-        interrupted={group.interrupted}
+        stopped={stopText(group.stop, group.blocks, labels)}
         error={error}
       />
     );
@@ -991,6 +997,7 @@ function ChatTranscriptBody({
         streaming={live}
         at={at}
         error={failureOf(group)}
+        stopped={stopText(group.stop, group.blocks, labels)}
         usage={group.usage}
       />
     );

@@ -53,13 +53,16 @@ function asRead(profile: unknown): unknown {
 /**
  * Each setting `studio` holds differently from `project`, by its path. A setting left out is the
  * value the kernel says leaving it out stands for, and where the kernel names no such value,
- * left out and written are two things.
+ * left out and written are two things. A section left out is one written with nothing in it: each
+ * setting in it is then read as left out, and a difference is named where it is.
  */
 export function differingSettings(project: unknown, studio: unknown): string[] {
   const found: string[] = [];
   const walk = (ours: unknown, theirs: unknown, path: string[]) => {
     if (isPolicy(path)) return;
-    const [mine, yours] = [ours ?? unsetValue(path), theirs ?? unsetValue(path)];
+    let [mine, yours] = [ours ?? unsetValue(path), theirs ?? unsetValue(path)];
+    if (mine === undefined && isRecord(yours)) mine = {};
+    if (yours === undefined && isRecord(mine)) yours = {};
     if (JSON.stringify(mine) === JSON.stringify(yours)) return;
     if (!isRecord(mine) || !isRecord(yours)) {
       found.push(path.join('.'));

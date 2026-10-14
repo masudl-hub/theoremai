@@ -40,8 +40,14 @@ export interface NewSubjects {
   providers: readonly StudioProvider[];
 }
 
-/** A file name is the id or name itself, so it holds only what every file system takes. */
-const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/**
+ * The file an id or name is written to: the id itself, with each run of what not every file system
+ * takes made one `-`. None when nothing of it is left.
+ */
+function fileNameOf(of: string): string | undefined {
+  const name = of.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[._-]+|-+$/g, '');
+  return name || undefined;
+}
 
 /** A statement of the setup that registers something, and what it calls. */
 interface Registration {
@@ -365,8 +371,9 @@ class NewPlan {
     imports: (specifier: string) => string,
   ): boolean {
     const { project, source, exists } = this.ground;
-    const file = resolve(this.folders[kind], `${of}.ts`);
-    const code = FILE_NAME.test(of) && isInside(project.root, file) ? text(file) : undefined;
+    const name = fileNameOf(of);
+    const file = resolve(this.folders[kind], `${name}.ts`);
+    const code = name && isInside(project.root, file) ? text(file) : undefined;
     if (code === undefined) {
       this.refuse(kind, of, 'setup', project.entry);
       return false;

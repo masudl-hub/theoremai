@@ -395,7 +395,8 @@ Deno.test('what has no safe place is named and nothing is planned for it', () =>
   assertEquals(planned({ 'setup.ts': looped }, added(['a'])).statuses, [
     ['a', 'setup', 'setup.ts'],
   ]);
-  // A file already there, a name that is not a file name, and a name the setup already uses.
+  // A file already there, a name with nothing a file name can hold, one written to a file name made
+  // from it, and a name the setup already uses.
   const mixed = planned(
     { 'setup.ts': INLINE, 'second-desk.ts': '// mine\n' },
     added(['a/b', 'second-desk', 'register'], [counts('..'), counts('list')]),
@@ -403,12 +404,13 @@ Deno.test('what has no safe place is named and nothing is planned for it', () =>
   assertEquals(mixed.statuses, [
     ['..', 'setup', 'setup.ts'],
     ['list', 'written', 'list.ts'],
-    ['a/b', 'setup', 'setup.ts'],
+    ['a/b', 'written', 'a-b.ts'],
     ['second-desk', 'taken', 'second-desk.ts'],
     ['register', 'written', 'register.ts'],
   ]);
-  assertEquals(mixed.written['setup.ts']?.split('\n').slice(1, 3), [
+  assertEquals(mixed.written['setup.ts']?.split('\n').slice(1, 4), [
     "import { registerList } from './list';",
+    "import * as aB from './a-b';",
     "import * as register3 from './register';",
   ]);
   assertEquals(planned({ 'setup.ts': INLINE }, added([])), { written: {}, statuses: [] });

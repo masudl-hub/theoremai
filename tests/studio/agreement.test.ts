@@ -23,7 +23,35 @@ Deno.test('a profile differs in each setting that is not the same value, but for
     'models.main.keySlot',
     'tools.allow',
     'turnBehaviour.resumption.allowContinue',
-    'observability',
+    'observability.sampleRate',
   ]);
   assertEquals(differingSettings(project, project), []);
+});
+
+Deno.test('a section left out is one written empty, read setting by setting', () => {
+  const empty = { outputs: {}, guardrails: {}, labels: {}, turnBehaviour: {}, observability: {} };
+  assertEquals(differingSettings(empty, {}), []);
+  assertEquals(differingSettings({}, empty), []);
+  // The kernel's own lists, written out, are the lists it reads a section left out as.
+  const resumption = {
+    allowContinue: ['length', 'stream_incomplete', 'provider_error'],
+    autoContinue: ['length', 'stream_incomplete'],
+  };
+  assertEquals(differingSettings({ turnBehaviour: {} }, { turnBehaviour: { resumption } }), []);
+  // Where a run's records go is studio policy; whether it is set to something else is not hidden under it.
+  assertEquals(differingSettings({}, { observability: { writeTo: 'studio' } }), []);
+  assertEquals(
+    differingSettings(
+      { observability: {} },
+      { observability: { writeTo: 'studio', sampleRate: 0.5 } },
+    ),
+    ['observability.sampleRate'],
+  );
+  assertEquals(differingSettings({ labels: {} }, { labels: { 'tool.output_invalid': 'x' } }), [
+    'labels.tool.output_invalid',
+  ]);
+  assertEquals(
+    differingSettings({}, { turnBehaviour: { resumption: { ...resumption, autoContinue: [] } } }),
+    ['turnBehaviour.resumption.autoContinue'],
+  );
 });

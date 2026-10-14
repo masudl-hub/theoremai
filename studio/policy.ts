@@ -13,10 +13,10 @@ export type StudioConnectionMode = 'demo' | 'byok' | 'local';
 
 /**
  * The settings the studio sets for itself on a profile it opens, by path (`*` is any one key): a
- * decision takes the studio's state limit. A profile in the studio differs from the project's in
- * these and in nothing else.
+ * decision takes the studio's state limit, and a run's records go to the page, since a run in the
+ * studio is a test. A profile in the studio differs from the project's in these and in nothing else.
  */
-export const STUDIO_POLICY_PATHS: readonly string[] = ['inputs.maxStateBytes'];
+export const STUDIO_POLICY_PATHS: readonly string[] = ['inputs.maxStateBytes', 'observability.writeTo'];
 
 /** The only OpenRouter model the studio key may call. */
 export const OPENROUTER_STUDIO_API_ID = 'openrouter/free';

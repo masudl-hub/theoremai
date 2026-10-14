@@ -283,6 +283,41 @@ export function withPatterns<D extends ProfileDefinition>(
   return { ...def, guardrails: { ...guardrails, detect: compile(guardrails.detect) } };
 }
 
+/**
+ * Refuses a tool schema a browser sent whose `pattern` could hang on text a model writes: zod
+ * runs it on every call, here on the run's server. It is the check the kernel makes of a
+ * detector's patterns, and loads only for a draft whose schemas have patterns.
+ */
+async function refuseSlowSchemaPatterns(tools: readonly ToolRegistration[]): Promise<void> {
+  const found = tools.flatMap((tool) =>
+    (['input', 'output'] as const).flatMap((side) =>
+      schemaPatterns((tool as { inputSchema?: unknown; outputSchema?: unknown })[`${side}Schema`]).map(
+        (source) => ({ tool: tool.name, side, source }),
+      ),
+    ),
+  );
+  if (!found.length) return;
+  const { slowPatternProblem } = await import('../src/guardrails/egress-compiler.ts');
+  for (const { tool, side, source } of found) {
+    const slow = slowPatternProblem(source);
+    if (slow) {
+      // labels-exempt: builder diagnostic
+      throw new TheoremError('config', `${tool}: the pattern /${source}/ in its ${side} schema ${slow}`);
+    }
+  }
+}
+
+/** Every regular expression a JSON Schema holds: each `pattern`, and each `patternProperties` key. */
+function schemaPatterns(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(schemaPatterns);
+  if (!value || typeof value !== 'object') return [];
+  return Object.entries(value).flatMap(([key, inner]) => [
+    ...(key === 'pattern' && typeof inner === 'string' ? [inner] : []),
+    ...(key === 'patternProperties' && inner && typeof inner === 'object' ? Object.keys(inner) : []),
+    ...schemaPatterns(inner),
+  ]);
+}
+
 /** Registers the draft's tools, schema, and profile into `scope`, as the runtime runs it. */
 async function registerDraft(
   scope: KernelScope,
@@ -294,6 +329,7 @@ async function registerDraft(
   if (studioKeySlots(profile).length > STUDIO_KEY_SLOT_CAP) {
     throw new TheoremError('config', 'The studio supports up to 32 key slots.'); // labels-exempt: builder diagnostic
   }
+  await refuseSlowSchemaPatterns(customTools);
   const defined = defineProfile(
     runtimeProfileDefinition(await withCompiledPatterns(profile), runtime),
   );
@@ -379,6 +415,7 @@ export async function writtenScope(drafts: readonly StudioDependency[]): Promise
   registerRuntimeProviders(scope);
   let profile: Profile | undefined;
   for (const draft of drafts) {
+    await refuseSlowSchemaPatterns(draft.customTools);
     profile = registerDefined(
       scope,
       defineProfile(await withCompiledPatterns(draft.profile)),

@@ -378,6 +378,20 @@ function slowProblem(pattern: RegExp): string | undefined {
 }
 
 /**
+ * What makes `source` slow on hostile text, or `undefined`. A source that does not parse is
+ * not this check's to report: whatever reads it says so.
+ */
+function slowPatternProblem(source: string, flags = ''): string | undefined {
+  let regex: RegExp;
+  try {
+    regex = new RegExp(source, flags);
+  } catch {
+    return undefined;
+  }
+  return slowProblem(regex);
+}
+
+/**
  * The table a detector needs for the host's `patterns`: each checked, and their automaton. A
  * pattern is refused when it does not compile, matches the empty text, is sticky, could hang
  * or get slow on long text (`slowProblem`), or has no automaton the stream can hold by (a
@@ -468,4 +482,5 @@ export {
   compileDetectTables,
   compiledDetectModule,
   compilePatterns,
+  slowPatternProblem,
 };

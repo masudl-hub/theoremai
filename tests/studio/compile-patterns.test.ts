@@ -185,3 +185,26 @@ Deno.test('a run compiles the patterns where it runs, and refuses one that could
     'slow',
   );
 });
+
+Deno.test("a run refuses a tool schema's pattern that could hang on what the model writes", async () => {
+  const run = compileStudio(createExampleDraft());
+  assert(run.ok, JSON.stringify(!run.ok && run.issues));
+  const withPattern = (pattern: string) =>
+    run.customTools.map((tool, at) =>
+      at === 0 && 'inputSchema' in tool
+        ? {
+            ...tool,
+            inputSchema: {
+              ...tool.inputSchema,
+              properties: { ...tool.inputSchema.properties, code: { type: 'string', pattern } },
+            },
+          }
+        : tool,
+    );
+  await studioScope(run.profile, withPattern('^ORD-\\d{6}$'), run.structured, { mode: 'demo' });
+  await assertRejects(
+    () => studioScope(run.profile, withPattern('^(a+)+$'), run.structured, { mode: 'demo' }),
+    TheoremError,
+    'can hang',
+  );
+});

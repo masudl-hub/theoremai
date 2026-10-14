@@ -13,7 +13,7 @@ import { useMediaQuery } from '@astryxdesign/core/hooks';
 import { Field } from '@astryxdesign/core/Field';
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
-import { Layout, LayoutContent, LayoutHeader, LayoutPanel } from '@astryxdesign/core/Layout';
+import { Layout, LayoutContent } from '@astryxdesign/core/Layout';
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
 import { RadioList, RadioListItem } from '@astryxdesign/core/RadioList';
 import { Section } from '@astryxdesign/core/Section';
@@ -28,6 +28,7 @@ import { IconBrandVscode, IconSearch, IconSettings, IconWand, IconX } from '@tab
 import { type ReactNode, useId, useState } from 'react';
 import { editorLabel, STUDIO_EDITORS } from '../editors.ts';
 import { IconCursor } from './brand-icons.tsx';
+import { NAV_WIDTH } from './studio-nav.ts';
 import { setPref, type StudioPrefs, usePref } from './lib/studio-prefs.ts';
 import type { ProjectSession } from './lib/studio-project.ts';
 import {
@@ -365,35 +366,30 @@ function SectionBody({ section, ...props }: StudioSettingsProps & { section: Set
 const isSection = (value: string): value is SettingsSection =>
 	(SETTINGS_SECTIONS as readonly string[]).includes(value);
 
-function SettingsHeader() {
+/** The nav's head, as the studio's tree and the docs head theirs: the name, what is open, then the search. */
+function SettingsNavHead({ project, version }: { project: ProjectSession; version: string }) {
 	return (
-		<LayoutHeader padding={4}>
-			<HStack vAlign="center" gap={2}>
-				<StackItem size="fill">
-					<Heading level={1}>Settings</Heading>
-				</StackItem>
-				<Typeahead
-					label="Search"
-					isLabelHidden
-					placeholder="Search settings..."
-					searchSource={settingsSource}
-					value={null}
-					onChange={(item) => {
-						const found = SETTINGS.find((setting) => setting.id === item?.id);
-						if (found) showSettingsSection(found.section);
-					}}
-					hasEntriesOnFocus
-					startIcon={IconSearch}
-				/>
-				<IconButton
-					label="Close settings"
-					variant="ghost"
-					icon={<Icon icon={IconX} size="sm" />}
-					tooltip="Back to the studio"
-					onClick={closeSettings}
-				/>
-			</HStack>
-		</LayoutHeader>
+		<VStack gap={4}>
+			<VStack gap={1}>
+				<Heading level={3}>studio settings</Heading>
+				<Text type="supporting" color="secondary">
+					{`${project.name} · @theoremjs/agents ${version}`}
+				</Text>
+			</VStack>
+			<Typeahead
+				label="Search"
+				isLabelHidden
+				placeholder="Search settings..."
+				searchSource={settingsSource}
+				value={null}
+				onChange={(item) => {
+					const found = SETTINGS.find((setting) => setting.id === item?.id);
+					if (found) showSettingsSection(found.section);
+				}}
+				hasEntriesOnFocus
+				startIcon={IconSearch}
+			/>
+		</VStack>
 	);
 }
 
@@ -406,28 +402,31 @@ export function StudioSettings(props: StudioSettingsProps) {
 			<Layout
 				height="fill"
 				contentWidth={1440}
-				header={<SettingsHeader />}
 				start={
 					isNarrow ? undefined : (
-						<LayoutPanel hasDivider={false} width={260} padding={2}>
-							<TreeList
-								density="compact"
-								aria-label="Settings"
-								items={SETTINGS_SECTIONS.map((each) => ({
-									id: each,
-									label: SECTION_LABELS[each],
-									isSelected: section === each,
-									onClick: () => {
-										showSettingsSection(each);
-									},
-								}))}
-							/>
-						</LayoutPanel>
+						<Section variant="transparent" width={NAV_WIDTH} height="100%" padding={4} dividers={['end']}>
+							<VStack gap={4} height="100%">
+								<SettingsNavHead project={props.project} version={props.version} />
+								<TreeList
+									density="compact"
+									aria-label="Settings"
+									items={SETTINGS_SECTIONS.map((each) => ({
+										id: each,
+										label: SECTION_LABELS[each],
+										isSelected: section === each,
+										onClick: () => {
+											showSettingsSection(each);
+										},
+									}))}
+								/>
+							</VStack>
+						</Section>
 					)
 				}
 				content={
 					<LayoutContent padding={4}>
 						<VStack gap={4}>
+							{isNarrow && <SettingsNavHead project={props.project} version={props.version} />}
 							{isNarrow && (
 								<VStack hAlign="center">
 									<TabList
@@ -442,6 +441,18 @@ export function StudioSettings(props: StudioSettingsProps) {
 									</TabList>
 								</VStack>
 							)}
+							<HStack gap={2} vAlign="center">
+								<StackItem size="fill">
+									<Heading level={1}>{SECTION_LABELS[section]}</Heading>
+								</StackItem>
+								<IconButton
+									label="Close settings"
+									variant="ghost"
+									icon={<Icon icon={IconX} size="sm" />}
+									tooltip="Back to the studio"
+									onClick={closeSettings}
+								/>
+							</HStack>
 							<SectionBody section={section} {...props} />
 						</VStack>
 					</LayoutContent>

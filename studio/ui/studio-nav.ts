@@ -1,6 +1,9 @@
 /** Where the website is. A studio running on its own sends its other pages there. */
 export const THEOREM_SITE = 'https://theorem.masudlewis.com';
 
+/** The width of the studio's side nav: the tree's, and Settings' sections. */
+export const NAV_WIDTH = 224;
+
 /** The website's pages, in the rail's order. */
 export const SITE_PAGES = [
 	{ label: 'Studio', href: '/studio' },

@@ -235,6 +235,7 @@ import {
 	type StudioReport,
 	useStudioHost,
 } from './studio-host.ts';
+import { NAV_WIDTH } from './studio-nav.ts';
 import { StudioSettings } from './studio-settings.tsx';
 
 /** A node's icon; Identity shows the profile type's once one is picked. */
@@ -1124,7 +1125,7 @@ const measureWidth = (node: HTMLElement) => node.clientWidth;
 /** The side panel's default share of the layout, the tree beside the editor: the golden split. */
 const SIDE_DEFAULT_PERCENT = 38.2;
 /** The profile tree's width inside the side panel; the editor takes the rest. */
-const TREE_WIDTH = 224;
+const TREE_WIDTH = NAV_WIDTH;
 
 /**
  * The frame's class; on a phone it names the sheet open over the editor. While the map is open the

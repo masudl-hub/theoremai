@@ -527,6 +527,8 @@ Deno.test('a schema the studio has no Zod for is not written', () => {
     { type: 'string', format: 'date' },
     { not: { type: 'string' } },
     { type: 'string', format: 'email', pattern: 'x' },
+    // A pattern that could hang on what it reads is never compiled into a check.
+    { type: 'string', pattern: '^(a+)+$' },
   ]) {
     assertEquals(zodSource(schema, false, 'input', 'z'), undefined);
   }

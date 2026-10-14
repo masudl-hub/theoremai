@@ -8,6 +8,7 @@
 
 import ts from 'typescript';
 import { z } from 'zod';
+import { slowPatternProblem } from '@theoremjs/agents/guardrails/compile';
 import { jsonSchemaFromZod } from '@theoremjs/agents/kernel';
 import { type SourceStyle, valueSource } from '../source.ts';
 import { keySource, quoteSource } from '../tool-schema.ts';
@@ -416,6 +417,8 @@ class Writer {
     if (typeof maxLength === 'number') draft = { text: `${draft.text}.max(${String(maxLength)})`, live: draft.live.max(maxLength) };
     // A format brings its own pattern: the check below says whether this one is it.
     if (typeof pattern === 'string' && format === undefined) {
+      // invariant: A pattern that could hang on what it reads never becomes a live check; the schema stays as it was written.
+      if (slowPatternProblem(pattern) !== undefined) return undefined;
       let held: RegExp;
       try {
         held = new RegExp(pattern);

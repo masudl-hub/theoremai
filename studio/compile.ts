@@ -242,7 +242,7 @@ function checkBindingRoute(
     report(nodeId, `${route.apiId} doesn't serve ${type} agents.`, 'apiId');
   }
   if (!route.apiId) {
-    report(nodeId, 'Wire model id is required.', 'apiId');
+    report(nodeId, 'API model is required.', 'apiId');
   }
   return route;
 }

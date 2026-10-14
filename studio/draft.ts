@@ -303,7 +303,7 @@ export interface ObservabilityDraft {
 /** A pinned reference image: a file's bytes, or a link to one. */
 export type ImageReferenceDraft =
   | { key: string; name: string; mimeType: string; data: string }
-  | { key: string; uri: string };
+  | { key: string; uri: string; name?: string };
 
 export interface ImageDraft {
   aspectRatio: string;
@@ -520,7 +520,8 @@ function defaultGuardrails(): GuardrailsDraft {
 }
 
 function defaultObservability(): ObservabilityDraft {
-  const resolved = resolveObservabilityPolicy(undefined);
+  // why: every draft writes this block, and the kernel reads one that is written with these.
+  const resolved = resolveObservabilityPolicy({});
   return {
     writeTo: STUDIO_TRACE_DESTINATION,
     destination: STUDIO_TRACE_DESTINATION,

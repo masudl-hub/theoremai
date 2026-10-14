@@ -30,6 +30,8 @@ export interface ProjectSession {
 	problems: { profile: string; message: string }[];
 	/** The settings the studio holds differently from the files, by profile. None is the rule. */
 	differences: { profile: string; settings: string[] }[];
+	/** What the files hold that the studio cannot, which stops it comparing any profile. */
+	unheld: string[];
 	/** The settings several profiles share, as the project's files set them. */
 	shared: SharedSetting[];
 	/** The settings the project's files set in code, by profile id and tool name. */
@@ -64,6 +66,7 @@ export function projectSession(name: string): ProjectSession {
 		profiles: [],
 		problems: [],
 		differences: [],
+		unheld: [],
 		shared: [],
 		origins: NO_ORIGINS,
 		asks: NO_ASKS,
@@ -136,6 +139,7 @@ interface Opened {
 	workspace: StudioWorkspace;
 	problems: ProjectSession['problems'];
 	differences?: ProjectSession['differences'];
+	unheld?: string[];
 	shared?: SharedSetting[];
 	origins?: ProjectOrigins;
 	asks?: StudioAsks;
@@ -181,7 +185,7 @@ async function describeSaying(said: (step: ReadStep) => void): Promise<Opened> {
 /** What a project's files say, which a Save or an edit in the builder's editor changes. */
 export type ProjectFiles = Pick<
 	ProjectSession,
-	'profiles' | 'problems' | 'differences' | 'origins' | 'asks' | 'print' | 'unloaded'
+	'profiles' | 'problems' | 'differences' | 'unheld' | 'origins' | 'asks' | 'print' | 'unloaded'
 >;
 
 /** What the files say, of a project as the server describes it. */
@@ -190,6 +194,7 @@ function filesOf(opened: Opened): ProjectFiles {
 		profiles: opened.workspace.agents.map((agent) => agent.identity.agentId),
 		problems: opened.problems,
 		differences: opened.differences ?? [],
+		unheld: opened.unheld ?? [],
 		origins: opened.origins ?? NO_ORIGINS,
 		asks: opened.asks ?? NO_ASKS,
 		print: filesPrint(opened.workspace),

@@ -1424,7 +1424,8 @@ function compileObservability(
   observability: ObservabilityDraft,
   report: Report,
 ): ProfileObservabilitySpec | undefined {
-  const defaults = resolveObservabilityPolicy(undefined);
+  // why: a profile that writes this block is read with the kernel's defaults for one that does.
+  const defaults = resolveObservabilityPolicy({});
   const { writeTo } = observability;
   const { sampleRate } = observability;
   if (!(Number.isFinite(sampleRate) && sampleRate >= 0 && sampleRate <= 1)) {
@@ -1503,7 +1504,7 @@ function compileReferences(
     }
     const uri = reference.uri.trim();
     const mimeType = referenceLinkMime(uri);
-    if (mimeType) return [{ mimeType, uri }];
+    if (mimeType) return [{ mimeType, uri, ...(reference.name ? { name: reference.name } : {}) }];
     report(
       'image',
       uri

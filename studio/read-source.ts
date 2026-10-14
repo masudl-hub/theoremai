@@ -894,7 +894,8 @@ function referencesOf(value: unknown): ImageReferenceDraft[] {
   for (const reference of value) {
     if (!isRecord(reference)) continue;
     if (typeof reference.uri === 'string') {
-      references.push({ key: draftKey('reference'), uri: reference.uri });
+      const name = text(reference.name);
+      references.push({ key: draftKey('reference'), uri: reference.uri, ...(name ? { name } : {}) });
     } else if (typeof reference.data === 'string') {
       references.push({
         key: draftKey('reference'),

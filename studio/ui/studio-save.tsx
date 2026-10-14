@@ -275,8 +275,9 @@ function RefusalBody({ refusal }: { refusal: SaveRefusal }) {
  * that it cannot run. A count that shows each one's reason on hover. Nothing while there are none.
  */
 function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloaded?: string }) {
-	const { problems, differences } = project;
-	const count = problems.length + differences.length + (unloaded === undefined ? 0 : 1);
+	const { problems, differences, unheld } = project;
+	const count =
+		problems.length + differences.length + (unheld.length ? 1 : 0) + (unloaded === undefined ? 0 : 1);
 	if (!count) return null;
 	return (
 		<HoverCard
@@ -306,6 +307,14 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
 							</Text>
 						</VStack>
 					))}
+					{unheld.length > 0 && (
+						<VStack gap={1}>
+							<Text weight="semibold">The studio cannot check what it shows against your files.</Text>
+							<Text type="supporting" color="secondary">
+								{`A run and Save still use your files. ${unheld.join(' ')}`}
+							</Text>
+						</VStack>
+					)}
 					{differences.map((difference) => (
 						<VStack key={difference.profile} gap={1}>
 							<Text weight="semibold">{`The studio shows ${difference.profile} differently from your files.`}</Text>

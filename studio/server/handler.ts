@@ -31,7 +31,9 @@ import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft
 import { withoutCredentials } from '../held-credentials.ts';
 import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
 import { differingSettings } from '../agreement.ts';
-import { uncompiled } from '../compile.ts';
+import { compileDetect } from '../../src/guardrails/compile-egress.ts';
+import { listsPatterns } from '../../src/guardrails/host-patterns.ts';
+import type { StudioProfileDefinition } from '../compile.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
 import { readStudioSource } from '../read-source.ts';
 import { STUDIO_READER } from '../reader.ts';
@@ -70,6 +72,8 @@ export type StudioDescription = {
   problems: StudioProblem[];
   /** Where what the studio shows is not what the project registered. None when they agree. */
   differences?: StudioDifference[];
+  /** Why the project does not compile as the studio opened it, when it does not. */
+  unheld?: string[];
   /** The settings several profiles share. The studio command reads them from the project's files. */
   shared?: SharedSetting[];
   /** The settings the project's files set in code, which the studio shows and does not change. */
@@ -220,21 +224,32 @@ function readProfile(
   }
 }
 
+/** `profile` with its detectors' patterns compiled, as a run compiles them before it registers. */
+function withPatterns<D extends StudioProfileDefinition>(profile: D): D {
+  const { guardrails } = profile;
+  if (!guardrails || !('detect' in guardrails)) return profile;
+  const { detect } = guardrails;
+  if (typeof detect !== 'object' || !listsPatterns(detect)) return profile;
+  return { ...profile, guardrails: { ...guardrails, detect: compileDetect(detect) } };
+}
+
 /**
  * Each opened profile that is not the one the project registered: what the workspace compiles to
- * for it, beside the registered profile. One the workspace cannot compile is not compared.
+ * for it, beside the registered profile. A workspace that does not compile holds something the
+ * kernel took and the studio does not: that is said whole, in the studio's own words.
  */
-function disagreements(workspace: StudioWorkspace): StudioDifference[] {
+function disagreements(workspace: StudioWorkspace): { differences: StudioDifference[]; unheld: string[] } {
   const compiled = compileWorkspace(workspace, 'byok');
-  if (!compiled.ok) return [];
+  if (!compiled.ok) return { differences: [], unheld: compiled.issues.map((issue) => issue.message) };
   const registered = new Map(listProfiles().map((profile) => [profile.id as string, profile]));
-  return compiled.agents.flatMap((agent) => {
+  const differences = compiled.agents.flatMap((agent): StudioDifference[] => {
     const profile = registered.get(agent.agentId);
     if (!profile) return [];
-    const shown = plainSetting(defineProfile(uncompiled(agent.profile)));
+    const shown = plainSetting(defineProfile(withPatterns(agent.profile)));
     const settings = differingSettings(plainSetting(printableProfile(profile)), shown);
     return settings.length ? [{ profile: agent.agentId, settings }] : [];
   });
+  return { differences, unheld: [] };
 }
 
 /** The agent that writes each model's summaries, by the model's name, where a profile names one. */
@@ -314,12 +329,13 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
     },
     ...(first ? { selected: agentNodeId(first.key), chatWith: first.key } : {}),
   };
-  const differences = disagreements(whole);
+  const { differences, unheld } = disagreements(whole);
   return {
     project,
     workspace: whole,
     problems,
     ...(differences.length ? { differences } : {}),
+    ...(unheld.length ? { unheld } : {}),
     asks: { asked: [], inside: [] },
   };
 }

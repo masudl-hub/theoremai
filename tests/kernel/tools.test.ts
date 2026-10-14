@@ -1983,3 +1983,44 @@ Deno.test('a step runs its calls side by side and records their results in the o
   const shape = events.flatMap((e) => (e.type === 'tool' ? [e.tool.phase ?? 'call'] : []));
   assertEquals(shape.slice(0, 2), ['call', 'call']);
 });
+
+Deno.test('the profile loader settles before the step’s other calls, whatever their order', async () => {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'loader_beside_bot',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 2,
+      tools: { allow: ['load_tools', 'record_lookup'], t2Loader: 'load_tools' },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  let resultOrder: (string | undefined)[] = [];
+  let step = 0;
+  const provider: ModelProvider = {
+    async *complete(request: ProviderCompleteRequest) {
+      if (step++ === 0) {
+        yield {
+          type: 'tool',
+          tool: { name: 'record_lookup', arguments: { q: 'record' }, callId: 'c1' },
+        };
+        yield {
+          type: 'tool',
+          tool: { name: 'load_tools', arguments: { names: ['record_lookup'] }, callId: 'c2' },
+        };
+        return;
+      }
+      resultOrder = (request.history ?? []).flatMap((message) =>
+        message.role === 'tool' ? [message.tool_call_id] : [],
+      );
+      yield { type: 'text', text: 'done' };
+    },
+  };
+  const events = await Array.fromAsync(
+    runTurn({ profile: 'loader_beside_bot', input: { text: 'go' } }, provider),
+  );
+  assertEquals(lastTool(events, 'record_lookup')?.phase, 'complete');
+  assertEquals(resultOrder, ['c1', 'c2']);
+});

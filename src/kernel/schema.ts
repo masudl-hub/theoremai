@@ -915,7 +915,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'tools.t2Loader': field(
     'ToolId',
-    'The function tool that loads T2 tools. It must be in allow and return { loaded: ToolId[] }. One forbidden id fails the load. Ids off the turn path are skipped.',
+    "The function tool that loads T2 tools. It must be in allow and return { loaded: ToolId[] }. One forbidden id fails the load. Ids off the turn path are skipped. In a step, a call to it settles before the step's other calls start, so the tools it loads can run in the same step.",
   ),
   inputs: field(
     'ProfileInputsSpec | DecisionInputsSpec',

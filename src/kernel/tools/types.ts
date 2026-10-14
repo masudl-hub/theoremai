@@ -486,7 +486,10 @@ export interface ProfileToolsSpec {
   allow: ToolId[];
   /** Returns ids already allowed with `loadTier: 'T2'` to load at turn start. Not supported on `type: 'live'`. */
   t1Policy?: ToolPolicy;
-  /** Must be in `allow`; completing with `{ loaded: string[] }` promotes those T2 ids. Not on `type: 'live'`. */
+  /**
+   * Must be in `allow`; completing with `{ loaded: string[] }` promotes those T2 ids. Not on `type: 'live'`.
+   * In a step, a call to it settles before the step's other calls start.
+   */
   t2Loader?: ToolId;
 }
 

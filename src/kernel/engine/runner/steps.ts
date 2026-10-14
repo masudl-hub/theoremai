@@ -35,6 +35,7 @@ import {
   type ToolStageSupport,
 } from '../../tools/execute.ts';
 import { formatToolFailureForModel, formatToolResult } from '../../tools/model-text.ts';
+import { profileToolsSpec } from '../../tools/resolve.ts';
 import type { ModelToolResult, ToolCallEvent, ToolFailure } from '../../tools/types.ts';
 import type {
   ModelProvider,
@@ -517,6 +518,8 @@ async function* runSideBySide<T>(
 /**
  * Run the model's calls side by side. Each reaches the host as its raw call first,
  * all of them before any runs; their phases then arrive as each tool gives them. A call
+ * to the profile's `tools.t2Loader` runs and settles before the others start, so the
+ * tools it loads can run in the same step. A call
  * the provider handed over already failed does not run. A call reads the turn's taint
  * and destinations as they stood when the step began: the model chose every call in
  * the step before any of their results came back.
@@ -575,44 +578,52 @@ async function* handleModelCalls(
     signal,
   };
   const turn = { step: state.stepCount, taint: state.taint, destinations: state.destinations };
-  const settlements = yield* runSideBySide(
-    calls.map((call) =>
-      call.failure
-        ? undefined
-        : forwardToolEvents(
-            executeRegisteredTool({
-              tools: state.tools,
-              execution: generation.execution,
-              invocation: {
-                model: generation.model,
-                input: generation.input,
-                history: generation.history,
-              },
-              ...(state.agents ? { agents: state.agents } : {}),
-              profile,
-              name: call.name,
-              input: call.arguments,
-              callId: call.callId,
-              ctx: {
-                operationId: call.operationId,
-                pageExecution: generation.pageExecution,
-                sessionPermissions: generation.sessionPermissions,
-                path: generation.tools.path,
-                turn,
-                credentials,
-                resolveHost,
-                host: generation.host,
-                resume: undefined,
-                signal,
-              },
-              snapshot: generation.tools,
-              stages,
-              scope: leakScope,
-              openSpan: toolSpanOpener(state),
-            }),
-            state,
-          ),
-    ),
+  const run = (call: (typeof calls)[number]) =>
+    call.failure
+      ? undefined
+      : forwardToolEvents(
+          executeRegisteredTool({
+            tools: state.tools,
+            execution: generation.execution,
+            invocation: {
+              model: generation.model,
+              input: generation.input,
+              history: generation.history,
+            },
+            ...(state.agents ? { agents: state.agents } : {}),
+            profile,
+            name: call.name,
+            input: call.arguments,
+            callId: call.callId,
+            ctx: {
+              operationId: call.operationId,
+              pageExecution: generation.pageExecution,
+              sessionPermissions: generation.sessionPermissions,
+              path: generation.tools.path,
+              turn,
+              credentials,
+              resolveHost,
+              host: generation.host,
+              resume: undefined,
+              signal,
+            },
+            snapshot: generation.tools,
+            stages,
+            scope: leakScope,
+            openSpan: toolSpanOpener(state),
+          }),
+          state,
+        );
+  // why: The profile's `tools.t2Loader` changes which tools the step's other calls may run, so it settles first.
+  const loader = profileToolsSpec(profile)?.t2Loader;
+  const loads = yield* runSideBySide(
+    calls.map((call) => (call.name === loader ? run(call) : undefined)),
+  );
+  const rest = yield* runSideBySide(
+    calls.map((call) => (call.name === loader ? undefined : run(call))),
+  );
+  const settlements = calls.map((call, index) =>
+    call.name === loader ? loads[index] : rest[index],
   );
 
   let gated = false;

@@ -281,7 +281,8 @@ Live sessions emit the same stage names around utterance cycles and
 7. **Tool loop** — while under `maxSteps` (20 model calls when the profile sets none), tool calls execute via `executeRegisteredTool`
    (shared with `invokeTool`), threading the host's `credentials` source (`ToolCredentialSource`, read one slot at a time as a signed-in tool runs) for authenticated HTTP/MCP tools and the opaque `host` context slot; `pre_tool` / `post_tool` stages + `preTool` run on that path.
    A step's calls run side by side: every call is announced first, then all run at once, and
-   the step ends when each has settled. Each reads the turn's taint and destinations as they
+   the step ends when each has settled. A call to the profile's `tools.t2Loader` settles before
+   the others start, so the tools it loads can run in the same step. Each reads the turn's taint and destinations as they
    stood when the step began. After the step, each call's result is recorded in the order the
    model made the calls, and its `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch.
    The runner records tool calls and results in portable history.

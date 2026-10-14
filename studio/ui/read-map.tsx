@@ -5,7 +5,7 @@
  */
 import type { IconType } from '@astryxdesign/core/Icon';
 import { Text } from '@astryxdesign/core/Text';
-import { IconFileCode, IconFolder, IconRobot } from '@tabler/icons-react';
+import { IconBrain, IconFileCode, IconFolder } from '@tabler/icons-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { mapCurve } from '../map-line.ts';
 import type { ReadStep } from '../read-steps.ts';
@@ -37,7 +37,7 @@ const LABEL = 30;
 const NODE_ICON: Record<ReadNodeKind, IconType | undefined> = {
 	entry: IconFileCode,
 	folder: IconFolder,
-	profile: IconRobot,
+	profile: IconBrain,
 	tool: undefined,
 	more: undefined,
 };

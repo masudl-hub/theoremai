@@ -23,9 +23,9 @@ import { VStack } from '@astryxdesign/core/VStack';
 import {
 	IconActivity,
 	IconAdjustmentsHorizontal,
-	IconAffiliate,
 	IconArrowBarToDown,
 	IconArrowLeft,
+	IconBrain,
 	IconBrowserShare,
 	IconCheck,
 	IconCode,
@@ -35,12 +35,12 @@ import {
 	IconFileZip,
 	IconCloud,
 	IconKey,
+	IconLibrary,
 	IconMenu2,
 	IconPlayerPlay,
 	IconPlaylistX,
 	IconPlus,
 	IconRestore,
-	IconRobot,
 	IconRotateClockwise,
 	IconSearch,
 	IconShieldSearch,
@@ -693,9 +693,9 @@ function WorkspaceListToggle({
 
 /** The sidebar's lists, as icons: a name and its count would not fit the nav's width. */
 const WORKSPACE_LISTS: readonly { value: WorkspaceList; name: string; icon: IconType }[] = [
-	{ value: 'agents', name: 'Agents', icon: IconRobot },
+	{ value: 'agents', name: 'Agents', icon: IconBrain },
 	{ value: 'tools', name: 'Tools', icon: IconTool },
-	{ value: 'shared', name: 'Shared', icon: IconAffiliate },
+	{ value: 'shared', name: 'Shared', icon: IconLibrary },
 ];
 
 interface ExampleEntry {

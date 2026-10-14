@@ -25,7 +25,7 @@ import {
   streamStudioInvoke,
   streamStudioTurn,
 } from './runtime.ts';
-import type { StudioRuntime } from './runtime-scope.ts';
+import type { StudioRuntimeBase } from './runtime-scope.ts';
 import type { StudioTraceLine } from './traces.ts';
 import {
   type StudioSteerLine,
@@ -33,7 +33,8 @@ import {
   routeStudioLines,
 } from './transport.ts';
 
-export interface StudioBrowserRuntime extends StudioRuntime {
+/** A run in the page: on the builder's own keys or machine, never on lent keys. */
+export interface StudioBrowserRuntime extends StudioRuntimeBase {
   mode: 'byok' | 'local';
   decision?: Pick<RunDecisionOptions, 'vault' | 'fetch'>;
   /** Disconnecting aborts active requests, without retaining the vault in a saved payload. */

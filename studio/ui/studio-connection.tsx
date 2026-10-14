@@ -14,9 +14,12 @@ import {
 } from '@tabler/icons-react';
 import { isKeySlotName } from '../../mod.ts';
 import {
+	type LentKeys,
 	type ModelRoute,
-	modelBindingViolation,
+	ON_OWN_KEYS,
 	type StudioConnectionMode,
+	type StudioRunsOn,
+	type StudioToolHandlers,
 	sectionNote,
 } from '../mod.ts';
 import {
@@ -35,6 +38,7 @@ import {
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from 'react';
 import { IconGemini, IconOpenRouter } from './brand-icons.tsx';
 import { InspectorSection } from './inspector.tsx';
+import type { StudioSupplies } from './studio-host.ts';
 
 type BrowserKeyVault = Readonly<Record<string, string | undefined>>;
 const withoutSlot = (vault: BrowserKeyVault, slot: string): BrowserKeyVault =>
@@ -82,17 +86,22 @@ function useLocalModels(hasLocal: boolean, local: StudioBrowserConnection['local
 	return localModels;
 }
 
-/** Local when every model is local; your keys when any is local, keyed or not hosted; else the demo. */
-function connectionMode(
+/**
+ * Local when every model is local. The page's lent keys when it lends some, nothing is local or
+ * keyed, and every model runs on them. Otherwise the builder's own keys.
+ */
+function runsOn(
 	models: Parameters<typeof useStudioConnection>[0],
 	hasLocal: boolean,
 	hasKeys: boolean,
-): StudioConnectionMode {
-	if (hasLocal && models.every((model) => model.local)) return 'local';
-	const hasProvidedModels = models.every(
-		(model) => modelBindingViolation({ ...model, builtInTools: model.builtInTools ?? [] }) === null,
+	keys: LentKeys | undefined,
+): StudioRunsOn {
+	if (hasLocal && models.every((model) => model.local)) return { mode: 'local' };
+	if (!keys || hasLocal || hasKeys) return ON_OWN_KEYS;
+	const lent = models.every(
+		(model) => keys.violation({ ...model, builtInTools: model.builtInTools ?? [] }) === null,
 	);
-	return hasLocal || hasKeys || !hasProvidedModels ? 'byok' : 'demo';
+	return lent ? { mode: 'demo', keys } : ON_OWN_KEYS;
 }
 
 /** The local server's config; an invalid edit refuses execution rather than falling back to the hosted demo. */
@@ -134,6 +143,7 @@ function useConnectionRuntime(
 	local: StudioBrowserConnection['local'],
 	remoteTools: boolean,
 	slots: readonly string[],
+	toolHandlers: StudioToolHandlers | undefined,
 ): StudioBrowserRuntime | null {
 	const connection = useMemo(() => {
 		if (mode === 'demo') return null;
@@ -148,9 +158,10 @@ function useConnectionRuntime(
 				remoteTools: hasLocal ? remoteTools : true,
 				providers: { vault: slotted, ...(localConfig ? { local: localConfig } : {}) },
 				decision: { vault: slotted },
+				toolHandlers,
 			} satisfies StudioBrowserRuntime,
 		};
-	}, [mode, hasLocal, vault, local, remoteTools, slots]);
+	}, [mode, hasLocal, vault, local, remoteTools, slots, toolHandlers]);
 	useEffect(
 		() => () => {
 			connection?.controller.abort();
@@ -165,6 +176,7 @@ export function useStudioConnection(
 	models: readonly (ModelRoute & { builtInTools?: string[]; local: boolean })[],
 	initialBaseUrl = 'http://127.0.0.1:11434',
 	namedSlots: readonly string[] = [],
+	{ lentKeys: keys, toolHandlers }: StudioSupplies = {},
 ) {
 	const [vault, setVault] = useState<BrowserKeyVault>({});
 	const [local, setLocal] = useState<StudioBrowserConnection['local']>({
@@ -177,8 +189,14 @@ export function useStudioConnection(
 	const hasLocal = models.some((model) => model.local);
 	const localModels = useLocalModels(hasLocal, local);
 	const hasKeys = Object.values(vault).some((key) => Boolean(key?.trim()));
-	const mode = connectionMode(models, hasLocal, hasKeys);
-	const runtime = useConnectionRuntime(mode, hasLocal, vault, local, remoteTools, slots);
+	const mode = runsOn(models, hasLocal, hasKeys, keys).mode;
+	// One value per mode, so a render that keeps the mode keeps it too.
+	const on = useMemo(
+		(): StudioRunsOn =>
+			mode === 'demo' && keys ? { mode, keys } : mode === 'local' ? { mode } : ON_OWN_KEYS,
+		[mode, keys],
+	);
+	const runtime = useConnectionRuntime(mode, hasLocal, vault, local, remoteTools, slots, toolHandlers);
 	// One object while nothing in it changes, so panes that only read the connection can sit out a render.
 	return useMemo(
 		() => ({
@@ -186,6 +204,7 @@ export function useStudioConnection(
 			setEntries,
 			localModels,
 			mode,
+			on,
 			runtime,
 			vault,
 			setVault,
@@ -195,7 +214,7 @@ export function useStudioConnection(
 			remoteTools,
 			setRemoteTools,
 		}),
-		[entries, setEntries, localModels, mode, runtime, vault, slots, local, remoteTools],
+		[entries, setEntries, localModels, mode, on, runtime, vault, slots, local, remoteTools],
 	);
 }
 

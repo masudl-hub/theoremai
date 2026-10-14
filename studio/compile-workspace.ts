@@ -14,7 +14,7 @@ import {
   type StudioIssue,
   uncompiled,
 } from './compile.ts';
-import type { StudioConnectionMode } from './policy.ts';
+import type { StudioRunsOn } from './lent-keys.ts';
 import { providerDefinition, providerProblems } from './providers.ts';
 import { type StudioDependency, registerDefined } from './runtime-scope.ts';
 import { modelBindingNodeId, providerNodeId, toolSpecNodeId } from './tree.ts';
@@ -195,7 +195,7 @@ function wrongTypeMessage(ref: Reference, target: AgentDraft | undefined): strin
 function compileAgents(
   workspace: StudioWorkspace,
   agents: readonly AgentDraft[],
-  mode: StudioConnectionMode,
+  on: StudioRunsOn,
   agentIdOf: AgentIdOf,
   report: Report,
 ): { key: string; agent: CompiledStudio }[] {
@@ -206,7 +206,7 @@ function compileAgents(
   const compiled: { key: string; agent: CompiledStudio }[] = [];
   for (const agent of agents) {
     const draft = agentDraft(workspace, agent.key);
-    const result = draft && compileStudio(draft, mode, agentIdOf, agentInputOf);
+    const result = draft && compileStudio(draft, on, agentIdOf, agentInputOf);
     if (!result) continue;
     if (result.ok) {
       const { ok: _ok, ...rest } = result;
@@ -258,7 +258,7 @@ function kernelIssue(
 /** Every issue across the workspace is reported, each once. */
 export function compileWorkspace(
   workspace: StudioWorkspace,
-  mode: StudioConnectionMode = 'demo',
+  on: StudioRunsOn,
 ): WorkspaceCompileResult {
   const issues = new Map<string, StudioIssue>();
   const report: Report = (issue) => {
@@ -286,7 +286,7 @@ export function compileWorkspace(
     if (path) report({ nodeId: ref.nodeId, field: ref.field, message: circleMessage(ref, path, agentIdOf) });
   }
 
-  const compiled = compileAgents(workspace, [...ordered, ...looped], mode, agentIdOf, report);
+  const compiled = compileAgents(workspace, [...ordered, ...looped], on, agentIdOf, report);
   if (issues.size) return { ok: false, issues: [...issues.values()] };
   const refused = kernelIssue(workspace, compiled);
   if (refused) return { ok: false, issues: [refused] };

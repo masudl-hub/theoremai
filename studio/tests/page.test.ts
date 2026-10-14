@@ -6,15 +6,17 @@ import {
   setProfileType,
 } from '../mod.ts';
 import { pageInputsOf, sentPageValues } from '../ui/lib/studio-page.ts';
+import { ON_OWN_KEYS } from '../lent-keys.ts';
+import { TEST_KEYS } from '../../tests/fixtures/lent-keys.ts';
 
 function payloadOf(draft: ReturnType<typeof createExampleDraft>): StudioRunPayload {
-  const compiled = compileStudio(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   if (!compiled.ok) throw new Error(JSON.stringify(compiled.issues));
   return { agentId: 'agent', profile: compiled.profile, customTools: compiled.customTools };
 }
 
 function withPage(type: 'text' | 'live') {
-  const draft = setProfileType(createExampleDraft(), type);
+  const draft = setProfileType(createExampleDraft(), type, TEST_KEYS);
   draft.inputs = {
     ...draft.inputs,
     slotsJson: '{"language":["en","fr"]}',

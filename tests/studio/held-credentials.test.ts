@@ -11,6 +11,7 @@ import { readProjectSource } from '../../studio/server/project-source.ts';
 import { projectNames, providerSettings, saveSubjects } from '../../studio/server/save.ts';
 import { applyEdits, planSave } from '../../studio/server/save-plan.ts';
 import { type StudioWorkspace, setToolAllowed, withProvider } from '../../studio/workspace.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 const ENDPOINT = 'https://gardener:trowel@soil.example/v1/{bed}/read?api_key=soil-key-1&unit=ph';
 const HEADERS = { Authorization: 'Bearer soil-token-1', 'X-Tenant': 'garden' };
@@ -107,11 +108,11 @@ Deno.test('the page gets a tool with the credentials in its URL and headers mask
 });
 
 Deno.test("a tool whose credential header is the project's own compiles, masked as the page holds it", () => {
-  const result = compileWorkspace(edited(), 'byok');
+  const result = compileWorkspace(edited(), ON_OWN_KEYS);
   assertEquals(result.ok, true);
   const typed = compileWorkspace(
     edited((tool) => ({ ...tool, headersJson: '{"Authorization":"Bearer typed"}' })),
-    'byok',
+    ON_OWN_KEYS,
   );
   assertEquals(typed.ok, false);
 });

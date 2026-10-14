@@ -155,18 +155,14 @@ import {
 	type AcceptSection,
 	acceptSections,
 	agentToolTarget,
-	allowedBuiltinsForGemini,
 	COMPACTION_DRAFT_DEFAULTS,
 	type DecisionQuestionDraft,
 	type DecisionQuestionType,
-	defaultBindingForProfileType,
 	defaultEffortRequired,
 	defaultModelRequired,
 	draftAllows,
 	draftKey,
 	expandAccept,
-	GEMINI_STUDIO_LIVE_INPUT_TOKENS,
-	GEMINI_STUDIO_MODELS,
 	type GuardrailsDraft,
 	type ImageReferenceDraft,
 	INLINE_LABELS,
@@ -176,13 +172,13 @@ import {
 	adapterOf,
 	isGoogleRoute,
 	isOpenRouterRoute,
+	type LentKeys,
 	LOCAL_PROVIDER_ID,
 	modelRoute,
 	onStudioLocal,
 	servesProfileType,
 	bindingSlots,
 	type StudioProvider,
-	JEV_STUDIO_API_ID,
 	keySlotRequired,
 	modelSlots,
 	type ModelBindingDraft,
@@ -195,8 +191,6 @@ import {
 	newToolSpec,
 	nextAccept,
 	type ObservabilityDraft,
-	OPENROUTER_DECISION_MODELS,
-	OPENROUTER_STUDIO_API_ID,
 	type ItemRuleOnFail,
 	type OutputsDraft,
 	type OwnDetectorDraft,
@@ -204,10 +198,6 @@ import {
 	type PatternSourceDraft,
 	plantsCanary,
 	removeModelBinding,
-	STUDIO_DECISION_MAX_CRITERIA,
-	STUDIO_DECISION_MAX_QUESTIONS,
-	STUDIO_DECISION_MAX_STATE_BYTES,
-	STUDIO_DECISION_TIMEOUT_MS,
 	STUDIO_TAINT_NOTE,
 	STUDIO_TRACE_DESTINATION,
 	type StudioAsks,
@@ -267,7 +257,7 @@ import {
 } from './inspector.tsx';
 import {
 	ConfirmWrite,
-	ConnectionMode,
+	RunsOn,
 	ISSUE_ROW_ATTRIBUTE,
 	LeavePage,
 	ListBadges,
@@ -399,27 +389,30 @@ const ATTACHMENT_PICKER = acceptPicker(ATTACHMENT_ACCEPT_MIMES);
 const IMAGE_ATTACHMENT_PICKER = acceptPicker(IMAGE_ATTACHMENT_ACCEPT_MIMES);
 const VOICE_PICKER = acceptPicker(VOICE_ACCEPT_MIMES);
 
-/** The wire model a binding starts on after its provider changes. */
-function defaultApiId(type: ListedProfileType | 'decision', provider: StudioProvider): string {
-	if (type === 'decision')
-		return provider.adapter === 'typesafe'
-			? JEV_STUDIO_API_ID
-			: isOpenRouterRoute(provider)
-				? OPENROUTER_DECISION_MODELS[0].id
-				: '';
-	if (isOpenRouterRoute(provider)) return OPENROUTER_STUDIO_API_ID;
-	if (!isGoogleRoute(provider)) return '';
-	return defaultBindingForProfileType(type).apiId;
+/** The page's lent keys, while the studio runs on them. */
+function useLentKeys(): LentKeys | undefined {
+	const on = useContext(RunsOn);
+	return on.mode === 'demo' ? on.keys : undefined;
 }
 
-/** Moves a binding to another provider and its default model, dropping builtins that model lacks. */
+/**
+ * Moves a binding to another provider. On lent keys it takes their first model there and keeps the
+ * built-ins that model may use; otherwise the builder picks the model, and only Google keeps them.
+ */
 function reprovide(
 	binding: ModelBindingDraft,
 	type: ListedProfileType | 'decision',
 	provider: StudioProvider,
+	keys: LentKeys | undefined,
 ): Partial<ModelBindingDraft> {
-	const apiId = defaultApiId(type, provider);
-	const allowed = new Set(allowedBuiltinsForGemini(apiId));
+	const apiId = keys?.models(type, provider.adapter)[0]?.id ?? '';
+	const allowed = new Set(
+		keys
+			? keys.builtins(apiId)
+			: isGoogleRoute(provider)
+				? GOOGLE_BUILTIN_TOOLS.map((tool) => tool.name)
+				: [],
+	);
 	return {
 		provider: provider.id,
 		apiId,
@@ -475,6 +468,7 @@ function SystemPromptSection({
 }
 
 function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
+	const keys = useLentKeys();
 	const { identity } = draft;
 	const set = patch(setDraft, 'identity');
 	return (
@@ -499,7 +493,7 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
 					segments={PROFILE_TYPE_SEGMENTS}
 					onChange={(type) => {
 						if (type)
-							setDraft((current) => withNewSections(current, setProfileType(current, type)));
+							setDraft((current) => withNewSections(current, setProfileType(current, type, keys)));
 					}}
 				/>
 				{/* A host runs no model: nothing speaks, so it has no handle. */}
@@ -618,8 +612,9 @@ function ModelsEditor({
 	onSelect: (id: string) => void;
 }) {
 	const set = patch(setDraft, 'models');
+	const start = useLentKeys()?.start;
 	const addModel = () => {
-		const binding = newModelBinding(draft);
+		const binding = newModelBinding(draft, start);
 		setDraft((current) => ({ ...current, modelBindings: [...current.modelBindings, binding] }));
 		onSelect(modelBindingNodeId(binding.key));
 	};
@@ -656,8 +651,8 @@ function DecisionApiModelRow({
 	adapter: string | undefined;
 	set: SetBinding;
 }) {
-	const mode = useContext(ConnectionMode);
-	if (mode !== 'demo')
+	const keys = useLentKeys();
+	if (!keys)
 		return (
 			<TextRow
 				label="API model"
@@ -676,10 +671,7 @@ function DecisionApiModelRow({
 			path="models.*.apiId"
 			field="apiId"
 			value={binding.apiId}
-			options={(adapter === 'typesafe'
-				? [{ id: JEV_STUDIO_API_ID, label: 'Jev' }]
-				: OPENROUTER_DECISION_MODELS
-			).map((model) => ({
+			options={keys.models('decision', adapter).map((model) => ({
 				value: model.id,
 				label: model.label,
 				description: model.id,
@@ -701,6 +693,7 @@ function DecisionModelEditor({
 	setDraft: SetDraft;
 	bindingKey: string;
 }) {
+	const keys = useLentKeys();
 	const binding = draft.modelBindings.find((candidate) => candidate.key === bindingKey);
 	if (!binding) return null;
 	const set = (change: Partial<ModelBindingDraft>) => {
@@ -735,8 +728,7 @@ function DecisionModelEditor({
 				field="timeoutMs"
 				value={binding.timeoutMs}
 				min={1}
-				max={STUDIO_DECISION_TIMEOUT_MS}
-				hint={`${String(STUDIO_DECISION_TIMEOUT_MS)} by default`}
+				max={keys?.decision.timeoutMs}
 				isIntegerOnly
 				onChange={(timeoutMs) => {
 					set({ timeoutMs });
@@ -867,7 +859,7 @@ function bindingProfileType(chosen: StudioDraft['identity']['profileType']): Lis
 function providerSegment(
 	provider: StudioProvider,
 	type: ListedProfileType | 'decision',
-	mode: ContextType<typeof ConnectionMode>,
+	on: ContextType<typeof RunsOn>,
 	inProject: boolean,
 ): Segment<string> {
 	const local = onStudioLocal(provider.id, inProject);
@@ -875,9 +867,9 @@ function providerSegment(
 		value: provider.id,
 		label: PROVIDER_LABEL[provider.id] ?? provider.id,
 		icon: local ? IconDeviceDesktop : (ADAPTER_ICON[provider.adapter] ?? IconServer),
-		isDisabled: !studioRunsProvider(type, provider, local ? 'local' : mode),
+		isDisabled: !studioRunsProvider(type, provider, local ? { mode: 'local' } : on),
 		disabledMessage:
-			mode === 'demo' && !local
+			on.mode === 'demo' && !local
 				? 'Add your own key under Keys to use it.'
 				: `It doesn't run ${type} agents.`,
 	};
@@ -895,7 +887,8 @@ function ProviderRow({
 	type: ListedProfileType | 'decision';
 	set: SetBinding;
 }) {
-	const mode = useContext(ConnectionMode);
+	const on = useContext(RunsOn);
+	const keys = on.mode === 'demo' ? on.keys : undefined;
 	const inProject = useProject() !== null;
 	const serving = providers.filter(
 		(provider) => provider.id === binding.provider || servesProfileType(provider.adapter, type),
@@ -906,10 +899,10 @@ function ProviderRow({
 			path="models.*.provider"
 			field="provider"
 			value={binding.provider}
-			segments={serving.map((provider) => providerSegment(provider, type, mode, inProject))}
+			segments={serving.map((provider) => providerSegment(provider, type, on, inProject))}
 			onChange={(id) => {
 				const provider = providers.find((each) => each.id === id);
-				if (provider) set(reprovide(binding, type, provider));
+				if (provider) set(reprovide(binding, type, provider, keys));
 			}}
 		/>
 	);
@@ -1018,26 +1011,18 @@ function LocalApiModelRow({
 	);
 }
 
-/** The demo's models for the transport: its Gemini models for the type, or OpenRouter's one. */
-function demoModelOptions(google: boolean, type: ListedProfileType) {
-	if (!google) return [OPENROUTER_STUDIO_API_ID];
-	return GEMINI_STUDIO_MODELS.filter((model) => model.profileType === type).map((model) => ({
-		value: model.id,
-		label: model.label,
-		description: model.id,
-	}));
-}
-
-/** A demo model, from the demo's own list; built-ins the model doesn't allow are dropped. */
-function DemoApiModelRow({
+/** A model the lent keys offer here; built-ins the model may not use on them are dropped. */
+function LentApiModelRow({
 	binding,
 	type,
-	google,
+	adapter,
+	keys,
 	set,
 }: {
 	binding: ModelBindingDraft;
 	type: ListedProfileType;
-	google: boolean;
+	adapter: string | undefined;
+	keys: LentKeys;
 	set: SetBinding;
 }) {
 	return (
@@ -1046,39 +1031,42 @@ function DemoApiModelRow({
 			path="models.*.apiId"
 			field="apiId"
 			value={binding.apiId}
-			options={demoModelOptions(google, type)}
+			options={keys.models(type, adapter).map((model) => ({
+				value: model.id,
+				label: model.label,
+				description: model.id,
+			}))}
 			onChange={(apiId) => {
-				const allowed = new Set(allowedBuiltinsForGemini(apiId));
+				const allowed = new Set(keys.builtins(apiId));
 				set({ apiId, builtInTools: binding.builtInTools.filter((id) => allowed.has(id)) });
 			}}
 		/>
 	);
 }
 
-/** The model's API id: from the local endpoint, the demo's list, or the provider's list. */
+/** The model's API id: from the local endpoint, the lent keys' list, or the provider's list. */
 function ApiModelRow({
 	draft,
 	binding,
 	type,
-	google,
 	set,
 }: {
 	draft: StudioDraft;
 	binding: ModelBindingDraft;
 	type: ListedProfileType;
-	google: boolean;
 	set: SetBinding;
 }) {
-	const mode = useContext(ConnectionMode);
+	const keys = useLentKeys();
 	const localConnection = useContext(LocalConnection);
 	const inProject = useProject() !== null;
+	const { adapter } = modelRoute(draft.providers, type, binding);
 	if (onStudioLocal(binding.provider, inProject) && localConnection)
 		return <LocalApiModelRow binding={binding} localConnection={localConnection} set={set} />;
-	if (mode === 'demo')
-		return <DemoApiModelRow binding={binding} type={type} google={google} set={set} />;
+	if (keys)
+		return <LentApiModelRow binding={binding} type={type} adapter={adapter} keys={keys} set={set} />;
 	return (
 		<ProviderModelRow
-			adapter={modelRoute(draft.providers, type, binding).adapter}
+			adapter={adapter}
 			type={type}
 			slot={bindingSlots(draft, binding).keySlot ?? ''}
 			value={binding.apiId}
@@ -1116,13 +1104,12 @@ function LocalServerRows({ binding, set }: { binding: ModelBindingDraft; set: Se
 	);
 }
 
-/** A Google model's built-ins: in the demo, those its model allows. */
+/** A Google model's built-ins: on lent keys, those its model may use on them. */
 function BuiltinsRow({ binding, set }: { binding: ModelBindingDraft; set: SetBinding }) {
-	const mode = useContext(ConnectionMode);
-	const builtins =
-		mode === 'demo'
-			? allowedBuiltinsForGemini(binding.apiId)
-			: GOOGLE_BUILTIN_TOOLS.map((tool) => tool.name);
+	const keys = useLentKeys();
+	const builtins = keys
+		? [...keys.builtins(binding.apiId)]
+		: GOOGLE_BUILTIN_TOOLS.map((tool) => tool.name);
 	return (
 		<ListRow
 			label="Built-ins"
@@ -1167,7 +1154,7 @@ function ModelSection({
 			/>
 			<ProviderRow providers={draft.providers} binding={binding} type={type} set={set} />
 			{local ? <LocalEndpointRows /> : <KeySlotRows providers={draft.providers} binding={binding} set={set} />}
-			<ApiModelRow draft={draft} binding={binding} type={type} google={google} set={set} />
+			<ApiModelRow draft={draft} binding={binding} type={type} set={set} />
 
 			{local && <LocalServerRows binding={binding} set={set} />}
 
@@ -2281,10 +2268,12 @@ const COMPRESSION_STEP = 1024;
 
 /**
  * Google's sliding window when left blank: it triggers at 80% of the context window and keeps half
- * of that. Shown against the free key's cap, since that is the window a studio session has.
+ * of that. Shown against `held`, the most a session holds on the lent keys.
  */
-const COMPRESSION_TRIGGER_DEFAULT = Math.round(GEMINI_STUDIO_LIVE_INPUT_TOKENS * 0.8);
-const COMPRESSION_TARGET_DEFAULT = Math.round(COMPRESSION_TRIGGER_DEFAULT / 2);
+function compressionDefaults(held: number) {
+	const trigger = Math.round(held * 0.8);
+	return { trigger, target: Math.round(trigger / 2) };
+}
 
 /** The live slice of the draft and its setter, for each live section. */
 interface LiveSectionProps {
@@ -2400,9 +2389,9 @@ function LiveGreetingSection({ live, set }: LiveSectionProps) {
 	);
 }
 
-/** The sliding window: in the demo its sizes are sliders, capped at the free key's window. */
+/** The sliding window: on lent keys its sizes are sliders, capped at what a session holds on them. */
 function LiveCompressionSection({ live, set }: LiveSectionProps) {
-	const mode = useContext(ConnectionMode);
+	const keys = useLentKeys();
 	return (
 		<InspectorSection path="live.contextCompression">
 			<SwitchRow
@@ -2414,8 +2403,8 @@ function LiveCompressionSection({ live, set }: LiveSectionProps) {
 				}}
 			/>
 			{live.contextCompression &&
-				(mode === 'demo' ? (
-					<CompressionSliderRows live={live} set={set} />
+				(keys ? (
+					<CompressionSliderRows live={live} set={set} held={keys.liveInputTokens} />
 				) : (
 					<CompressionNumberRows live={live} set={set} />
 				))}
@@ -2423,7 +2412,8 @@ function LiveCompressionSection({ live, set }: LiveSectionProps) {
 	);
 }
 
-function CompressionSliderRows({ live, set }: LiveSectionProps) {
+function CompressionSliderRows({ live, set, held }: LiveSectionProps & { held: number }) {
+	const fallback = compressionDefaults(held);
 	return (
 		<>
 			<SliderRow
@@ -2431,9 +2421,9 @@ function CompressionSliderRows({ live, set }: LiveSectionProps) {
 				path="live.contextCompression.triggerTokens"
 				field="compressionTriggerTokens"
 				value={live.compressionTriggerTokens}
-				fallback={COMPRESSION_TRIGGER_DEFAULT}
+				fallback={fallback.trigger}
 				min={COMPRESSION_STEP}
-				max={GEMINI_STUDIO_LIVE_INPUT_TOKENS}
+				max={held}
 				step={COMPRESSION_STEP}
 				onChange={(compressionTriggerTokens) => {
 					set({ compressionTriggerTokens });
@@ -2444,9 +2434,9 @@ function CompressionSliderRows({ live, set }: LiveSectionProps) {
 				path="live.contextCompression.slidingWindow.targetTokens"
 				field="compressionTargetTokens"
 				value={live.compressionTargetTokens}
-				fallback={COMPRESSION_TARGET_DEFAULT}
+				fallback={fallback.target}
 				min={COMPRESSION_STEP}
-				max={GEMINI_STUDIO_LIVE_INPUT_TOKENS - COMPRESSION_STEP}
+				max={held - COMPRESSION_STEP}
 				step={COMPRESSION_STEP}
 				onChange={(compressionTargetTokens) => {
 					set({ compressionTargetTokens });
@@ -3186,7 +3176,7 @@ function BlockedReplySection({
 }
 
 function NetworkSection({ guardrails, set }: GuardrailsSectionProps) {
-	const mode = useContext(ConnectionMode);
+	const { mode } = useContext(RunsOn);
 	const runtime = useContext(LocalConnection)?.runtime ?? { mode };
 	return (
 		<InspectorSection title="Network" path="guardrails.network" note={studioNetworkNote(runtime)}>
@@ -6282,6 +6272,7 @@ function CriteriaList({
 	question: DecisionQuestionDraft;
 	onChange: (change: Partial<DecisionQuestionDraft>) => void;
 }) {
+	const keys = useLentKeys();
 	const copy = CRITERIA_COPY[question.type];
 	const setCriteria = (criteria: DecisionQuestionDraft['criteria']) => {
 		onChange({ criteria });
@@ -6311,7 +6302,7 @@ function CriteriaList({
 					variant="ghost"
 					size="sm"
 					icon={<Icon icon={IconPlus} size="sm" />}
-					isDisabled={question.criteria.length >= STUDIO_DECISION_MAX_CRITERIA}
+					isDisabled={question.criteria.length >= (keys?.decision.criteria ?? Infinity)}
 					onClick={() => {
 						setCriteria([...question.criteria, ...newCriteria('score').slice(0, 1)]);
 					}}
@@ -6345,6 +6336,7 @@ function DecisionContractSection({ decision, set }: DecisionSectionProps) {
 }
 
 function DecisionStateSection({ decision, set }: DecisionSectionProps) {
+	const keys = useLentKeys();
 	return (
 		<InspectorSection note={sectionNote('decision.state')}>
 			<NumberRow
@@ -6354,8 +6346,7 @@ function DecisionStateSection({ decision, set }: DecisionSectionProps) {
 				field="maxStateBytes"
 				value={decision.maxStateBytes}
 				min={1}
-				max={STUDIO_DECISION_MAX_STATE_BYTES}
-				hint={`${String(STUDIO_DECISION_MAX_STATE_BYTES)} by default`}
+				max={keys?.decision.stateBytes}
 				isIntegerOnly
 				onChange={(maxStateBytes) => {
 					set({ maxStateBytes });
@@ -6429,8 +6420,9 @@ function DecisionEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
 	);
 }
 
-/** Adds a question, up to the most a decision takes. */
+/** Adds a question, up to the most a decision takes on lent keys. */
 function AddQuestionSection({ count, setDraft }: { count: number; setDraft: SetDraft }) {
+	const keys = useLentKeys();
 	return (
 		<Section variant="transparent" padding={3}>
 			<HStack>
@@ -6439,7 +6431,7 @@ function AddQuestionSection({ count, setDraft }: { count: number; setDraft: SetD
 					variant="ghost"
 					size="sm"
 					icon={<Icon icon={IconPlus} size="sm" />}
-					isDisabled={count >= STUDIO_DECISION_MAX_QUESTIONS}
+					isDisabled={count >= (keys?.decision.questions ?? Infinity)}
 					onClick={() => {
 						setDraft((current) => ({
 							...current,

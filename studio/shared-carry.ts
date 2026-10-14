@@ -7,6 +7,7 @@
  */
 
 import { agentToolInputSchema, compileStudio } from './compile.ts';
+import { ON_OWN_KEYS } from './lent-keys.ts';
 import { draftKey, type ModelBindingDraft, type ToolSpecDraft } from './draft.ts';
 import type { SettingSite, SourcePlace } from './server/save-wire.ts';
 import { type AgentDraft, agentDraft, type StudioWorkspace } from './workspace.ts';
@@ -94,7 +95,7 @@ function compiledOf(workspace: StudioWorkspace, key: string): Compiled | undefin
     const called = agentDraft(workspace, other);
     return called && agentToolInputSchema(called);
   };
-  const result = draft && compileStudio(draft, 'byok', idOf, inputOf);
+  const result = draft && compileStudio(draft, ON_OWN_KEYS, idOf, inputOf);
   known.set(key, result);
   return result;
 }

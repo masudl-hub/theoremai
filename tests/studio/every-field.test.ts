@@ -15,7 +15,6 @@ import { compileDetect } from '../../src/guardrails/compile-egress.ts';
 import { LABEL_KEYS, labelPlaceholders } from '../../src/guardrails/labels.ts';
 import { catalogPathFor } from '../../src/kernel/schema.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
-import { STUDIO_POLICY_PATHS } from '../../studio/policy.ts';
 import { connectionFields, kernelAdapters } from '../../studio/providers.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
@@ -384,14 +383,12 @@ Deno.test('the profiles here set every profile field the kernel has, but for wha
   assertEquals(missing, []);
 });
 
-Deno.test('every field opens in the studio as the project wrote it, but for what studio policy sets', async () => {
+Deno.test('every field opens in the studio as the project wrote it', async () => {
   const handler = createStudioHandler({ project: 'every', pageOrigins: [], listenHost: HOST });
   const request = new Request(`http://${HOST}/api/studio`, { headers: { host: HOST } });
   const { differences, unheld }: StudioDescription = await (await handler(request)).json();
   assertEquals(unheld, undefined);
   assertEquals(differences, undefined);
-  // The policy list stays the only way to differ.
-  assertEquals(STUDIO_POLICY_PATHS, ['inputs.maxStateBytes']);
 });
 
 async function described(): Promise<StudioDescription> {

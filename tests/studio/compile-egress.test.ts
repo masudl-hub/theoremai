@@ -5,6 +5,7 @@ import {
   createExampleDraft,
   type StudioDraft,
 } from '../../studio/mod.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 type Guardrails = StudioDraft['guardrails'];
 
@@ -14,7 +15,7 @@ function guardrailsOf(change: (guardrails: Guardrails) => Partial<Guardrails>) {
   const result = compileStudio({
     ...createExampleDraft(),
     guardrails: { ...guardrails, ...change(guardrails) },
-  });
+  }, ON_OWN_KEYS);
   if (!result.ok) throw new Error(result.issues.map((issue) => issue.message).join('; '));
   if (result.profile.type !== 'text') throw new Error('expected a text profile');
   return result.profile.guardrails;

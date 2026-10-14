@@ -35,24 +35,30 @@ export interface StudioProviderOptions extends ProviderHostOptions {
   local?: { baseUrl: string; fetch?: typeof fetch };
 }
 import { STUDIO_KEY_SLOT_CAP, studioKeySlots } from './browser-connection.ts';
+import type { StudioRunsOn } from './lent-keys.ts';
 import { modelBindingViolation } from './policy.ts';
 import { EVERY_MEDIA_KIND, localProviderAddress, standInAdapter } from './providers.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
-import { registerStudioTools } from './tools.ts';
+import { registerStudioTools, type StudioToolHandlers } from './tools.ts';
 
-export interface StudioRuntime {
+/** What a run holds besides what it runs on. */
+export interface StudioRuntimeBase {
   providerDefinitions?: readonly ProviderDefinition[];
   execution?: ToolExecutionCoordinator;
   pageExecution?: import('../mod.ts').PageToolExecution;
-  mode: 'demo' | 'byok' | 'local';
   providers?: StudioProviderOptions;
   hostOptions?: (profile: Profile, model?: string) => ProviderHostOptions;
   provider?: (profile: Profile, model?: string) => ModelProvider;
   resolveHost?: ResolveHost;
   remoteTools?: boolean;
+  /** Handlers the host runs for function tools, by name. A tool with none answers with its stub. */
+  toolHandlers?: StudioToolHandlers;
   /** Before each agent tool call runs its agent: return `refuse` to stop it. */
   onAgentCall?: (call: AgentCall) => { refuse: string } | void | Promise<{ refuse: string } | void>;
 }
+
+/** A run, and what it runs on: a run on lent keys carries the keys it is held to. */
+export type StudioRuntime = StudioRuntimeBase & StudioRunsOn;
 
 /** The provider a profile's turn runs on: the runtime's own, or one from its vault. */
 export function runtimeProvider(
@@ -343,12 +349,12 @@ async function registerDraft(
           decision: defined.type === 'decision',
           builtInTools: 'builtInTools' in binding ? (binding.builtInTools ?? []) : [],
         },
-        runtime.mode,
+        runtime,
       );
       if (violation) throw new TheoremError('config', violation.message); // labels-exempt: builder connection diagnostic
     }
   }
-  return registerDefined(scope, defined, customTools, structured);
+  return registerDefined(scope, defined, customTools, structured, runtime.toolHandlers);
 }
 
 /** Registers a draft's tools and schema, then its profile, into `scope`. */
@@ -357,8 +363,9 @@ export function registerDefined(
   profile: Profile,
   customTools: readonly ToolRegistration[],
   structured: StructuredRegistration | undefined,
+  handlers?: StudioToolHandlers,
 ): Profile {
-  registerStudioTools(scope.tools, customTools);
+  registerStudioTools(scope.tools, customTools, handlers);
   if (structured && profile.type !== 'live') {
     scope.schemas.register(structured.id, structured.spec);
   }

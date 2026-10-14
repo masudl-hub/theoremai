@@ -15,9 +15,10 @@ import {
 import { compileStudio, createExampleDraft, createStudioTransport } from '../../studio/mod.ts';
 import { streamStudioTurn } from '../../studio/runtime.ts';
 import { replyText } from '../fixtures/reply.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 function payload() {
-  const result = compileStudio(createExampleDraft());
+  const result = compileStudio(createExampleDraft(), ON_OWN_KEYS);
   if (!result.ok) throw new Error(JSON.stringify(result.issues));
   return result;
 }
@@ -116,7 +117,7 @@ Deno.test('named primary and fallback slots include model overrides and isolate 
   draft.models.fallbackKey = 'backup';
   draft.modelBindings[0].keySlot = 'fast-key';
   draft.modelBindings[0].fallbackKeySlot = 'fast-backup';
-  const compiled = compileStudio(draft, 'byok');
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok && compiled.profile.type === 'text');
   assertEquals(
     compiled.profile.models[
@@ -459,7 +460,7 @@ Deno.test('a decision on the builder own keys says why it failed and keeps its t
     '../../studio/mod.ts'
   );
   const { failedDecisionTraces } = await import('../../studio/runtime.ts');
-  const compiled = compile(createDecisionExampleDraft());
+  const compiled = compile(createDecisionExampleDraft(), ON_OWN_KEYS);
   if (!compiled.ok) throw new Error(JSON.stringify(compiled.issues));
   const transport = createBrowserStudioDecisionTransport(compiled, { mode: 'byok', decision: {} });
   const failure = await assertRejects(() => transport.decide({ action: 'delete' }));

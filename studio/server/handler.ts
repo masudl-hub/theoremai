@@ -33,6 +33,7 @@ import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
 import { differingSettings } from '../agreement.ts';
 import { compileDetect } from '../../src/guardrails/compile-egress.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
+import { ON_OWN_KEYS } from '../lent-keys.ts';
 import { readStudioSource } from '../read-source.ts';
 import { withPatterns } from '../runtime-scope.ts';
 import { STUDIO_READER } from '../reader.ts';
@@ -221,7 +222,7 @@ function readProfile(
  * kernel took and the studio does not: that is said whole, in the studio's own words.
  */
 function disagreements(workspace: StudioWorkspace): { differences: StudioDifference[]; unheld: string[] } {
-  const compiled = compileWorkspace(workspace, 'byok');
+  const compiled = compileWorkspace(workspace, ON_OWN_KEYS);
   if (!compiled.ok) return { differences: [], unheld: compiled.issues.map((issue) => issue.message) };
   const registered = new Map(listProfiles().map((profile) => [profile.id as string, profile]));
   const differences = compiled.agents.flatMap((agent): StudioDifference[] => {

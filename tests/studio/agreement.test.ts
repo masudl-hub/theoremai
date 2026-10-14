@@ -4,6 +4,7 @@ import { compileStudio } from '../../studio/compile.ts';
 import { createExampleDraft } from '../../studio/example.ts';
 import { withoutStudioFills } from '../../studio/policy.ts';
 import { agentModule } from '../../studio/source.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 Deno.test('a profile differs in each setting that is not the same value, but for what the kernel reads a setting left out as, and studio policy', () => {
   const project = {
@@ -14,7 +15,7 @@ Deno.test('a profile differs in each setting that is not the same value, but for
     observability: { sampleRate: 0.5 },
   };
   const studio = {
-    // The studio's state limit is policy. A key slot the project's model does not name is not.
+    // A key slot the project's model does not name is a difference, and so is a state limit.
     models: { main: { apiId: 'a', keySlot: 'slot', compaction: {} } },
     tools: { allow: ['two', 'one'] },
     // Left out is the kernel's default: text accepted, no built-in tools.
@@ -26,6 +27,7 @@ Deno.test('a profile differs in each setting that is not the same value, but for
     'models.main.compaction.profile',
     'models.main.keySlot',
     'tools.allow',
+    'inputs.maxStateBytes',
     'turnBehaviour.resumption.allowContinue',
     'observability.sampleRate',
   ]);
@@ -83,7 +85,7 @@ Deno.test("a profile as a file holds it leaves out the studio's own trace store"
 });
 
 Deno.test("a new agent's file names no trace store of the studio's", () => {
-  const compiled = compileStudio(createExampleDraft(), 'byok');
+  const compiled = compileStudio(createExampleDraft(), ON_OWN_KEYS);
   if (!compiled.ok) throw new Error('the example compiles');
   assertEquals(agentModule(compiled).includes("'studio'"), false);
 });

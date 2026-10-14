@@ -29,12 +29,14 @@ import { compileStudio } from '../../studio/compile.ts';
 import { compileWorkspace } from '../../studio/compile-workspace.ts';
 import { createBlankDraft, setProfileType } from '../../studio/draft.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
+import { TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 const HOST = '127.0.0.1:4983';
 const SCHEMA = { type: 'object', properties: { note: { type: 'string' } }, required: ['note'] };
 
 // An agent whose replies take a schema, a tool that runs it, and a profile that allows the tool.
-const example = setProfileType(createBlankDraft(), 'text');
+const example = setProfileType(createBlankDraft(), 'text', TEST_KEYS);
 const thinker = compileStudio(
   {
     ...example,
@@ -47,7 +49,7 @@ const thinker = compileStudio(
       schemaJson: JSON.stringify(SCHEMA),
     },
   },
-  'byok',
+  ON_OWN_KEYS,
 );
 assert(thinker.ok && thinker.structured);
 registerStructured(thinker.structured.id, thinker.structured.spec);
@@ -85,7 +87,7 @@ registerProfile(
 // A profile of a type that takes no tools.
 const speaker = compileStudio(
   {
-    ...setProfileType(createBlankDraft(), 'speech'),
+    ...setProfileType(createBlankDraft(), 'speech', TEST_KEYS),
     identity: {
       ...example.identity,
       agentId: 'open-speaker',
@@ -93,7 +95,7 @@ const speaker = compileStudio(
       profileType: 'speech',
     },
   },
-  'byok',
+  ON_OWN_KEYS,
 );
 assert(speaker.ok);
 registerProfile(speaker.profile);
@@ -110,7 +112,7 @@ Deno.test('a project opens with the schema its replies take and the agent each a
   assert(tool);
   assertEquals([tool.agentKey, workspace.starts.tools[tool.key]], [agent.key, tool]);
   // Nothing the files hold is missing: the project compiles as it opens, so it can be saved.
-  const compiled = compileWorkspace(workspace, 'byok');
+  const compiled = compileWorkspace(workspace, ON_OWN_KEYS);
   assertEquals(compiled.ok ? [] : compiled.issues.map((issue) => issue.message), []);
 });
 

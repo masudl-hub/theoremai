@@ -11,11 +11,13 @@ import {
 } from '../mod.ts';
 import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
 import { createStudioStore } from '../ui/lib/studio-store.ts';
+import { TEST_KEYS } from '../../tests/fixtures/lent-keys.ts';
+import { ON_OWN_KEYS } from '../lent-keys.ts';
 
 const KEY = ['AIzaSy', 'TESTONLY0000000000000000000000000'].join('');
 
 function setup(
-  draft: StudioDraft = setProfileType(createBlankDraft(), 'text'),
+  draft: StudioDraft = setProfileType(createBlankDraft(), 'text', TEST_KEYS),
   workspace: StudioWorkspace = workspaceFromDraft(draft),
 ) {
   const store = createStudioStore({ workspace, revision: 0 });
@@ -23,7 +25,7 @@ function setup(
   const host: StudioSurfaceHost = {
     getDraft: store.getDraft,
     getRevision: store.getRevision,
-    getMode: () => 'byok',
+    getRunsOn: () => ON_OWN_KEYS,
     update: (next) => {
       store.updateDraft(next, 'th30');
       return store.getPending() && 'The person is being asked.';

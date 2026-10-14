@@ -15,6 +15,7 @@ import {
 } from '../../studio/server/handler.ts';
 import { projectDiffers } from '../../studio/server/save.ts';
 import { workspaceFromDraft } from '../../studio/workspace.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 const HOST = '127.0.0.1:4983';
 const BASE = `http://${HOST}/api/studio`;
@@ -159,7 +160,7 @@ Deno.test('questions a setup file wrote wrongly are named, not run', () => {
 
 Deno.test('a decision made in the studio loads from its files as what was tested', async () => {
   const tested = workspaceFromDraft(createDecisionExampleDraft());
-  const compiled = compileWorkspace(tested);
+  const compiled = compileWorkspace(tested, ON_OWN_KEYS);
   if (!compiled.ok) throw new Error(compiled.issues.map((issue) => issue.message).join(' '));
   const [made] = compiled.agents;
   // What Save writes: the profile registered, and its questions under its id in the setup's export.

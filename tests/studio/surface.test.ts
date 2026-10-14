@@ -7,10 +7,12 @@ import {
   type StudioSurfaceHost,
   studioSurface,
 } from '../../studio/surface.ts';
+import { TEST_KEYS } from '../fixtures/lent-keys.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 const KEY = ['AIzaSy', 'TESTONLY0000000000000000000000000'].join('');
 
-function setup(start: StudioDraft = setProfileType(createBlankDraft(), 'text')) {
+function setup(start: StudioDraft = setProfileType(createBlankDraft(), 'text', TEST_KEYS)) {
   let draft = start;
   let revision = 1;
   let changes: StudioDraftChange[] = [];
@@ -34,7 +36,7 @@ function setup(start: StudioDraft = setProfileType(createBlankDraft(), 'text')) 
   const host: StudioSurfaceHost = {
     getDraft: () => draft,
     getRevision: () => revision,
-    getMode: () => 'byok',
+    getRunsOn: () => ON_OWN_KEYS,
     update: (next) => {
       commit(next, 'agent');
       return undefined;

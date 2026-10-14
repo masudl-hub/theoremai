@@ -6,11 +6,18 @@ import { useState, useSyncExternalStore } from 'react';
 import type { ModelBinding } from '../../mod.ts';
 import { TheoremThemeProvider, TracePlacement } from '../../react/src/ui/index.ts';
 import { studioKeySlots } from '../browser.ts';
-import { modelRoute, modelSlots, onStudioLocal, STUDIO_PROVIDERS, type StudioRunPayload } from '../mod.ts';
+import {
+	modelRoute,
+	modelSlots,
+	onStudioLocal,
+	STUDIO_PROVIDERS,
+	type StudioRunPayload,
+} from '../mod.ts';
 import { recordsTraces } from './lib/project-traces.ts';
 import { ProjectContext } from './lib/studio-project.ts';
 import type { StudioRunOpened } from './lib/studio-run-open.ts';
 import { StudioKeys, useStudioConnection } from './studio-connection.tsx';
+import type { StudioSupplies } from './studio-host.ts';
 import { StudioRunner } from './studio-runner.tsx';
 import './studio-run.css';
 
@@ -133,7 +140,14 @@ function KeysPopover({
  * An agent opened in a tab of its own: the runner fills the page, with View trace and Keys above it.
  * `opened` is what `openStudioRun` returned for this tab.
  */
-export function StudioRunScreen({ opened }: { opened: StudioRunOpened }) {
+export function StudioRunScreen({
+	opened,
+	supplies,
+}: {
+	opened: StudioRunOpened;
+	/** What the page gives the run, as it gives the studio. */
+	supplies?: StudioSupplies;
+}) {
 	const [payload, setPayload] = useState(opened.payload);
 	// The agent and the agents it calls each read their own key slots.
 	const profiles = [
@@ -164,6 +178,7 @@ export function StudioRunScreen({ opened }: { opened: StudioRunOpened }) {
 						),
 			),
 		],
+		supplies,
 	);
 	const [keysOpen, setKeysOpen] = useState(payload.connectionMode === 'byok');
 	const traced = recordsTraces(payload);

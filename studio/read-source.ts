@@ -29,7 +29,6 @@ import {
 } from './draft.ts';
 import { canonical } from './canonical.ts';
 import { adapterOfFactory, type StudioProvider } from './providers.ts';
-import { STUDIO_DECISION_MAX_STATE_BYTES, STUDIO_DECISION_TIMEOUT_MS } from './policy.ts';
 import { stubOutputFromSchema } from './stub.ts';
 import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
 
@@ -800,7 +799,7 @@ function bindingOf(
     modelId,
     provider: text(spec.provider, base.provider) as ModelBindingDraft['provider'],
     apiId: text(spec.apiId),
-    timeoutMs: timeout === STUDIO_DECISION_TIMEOUT_MS || timeout === null ? null : timeout,
+    timeoutMs: timeout,
     efforts,
     defaultEffort: text(spec.defaultEffort),
     allowEffortSelect: spec.allowEffortSelect === true,
@@ -1226,15 +1225,9 @@ function decisionOf(
   const maxState = whole(record(parsed.profile?.inputs)?.maxStateBytes);
   return {
     contract: text(decision.contract),
-    maxStateBytes: maxState === STUDIO_DECISION_MAX_STATE_BYTES ? null : maxState,
+    maxStateBytes: maxState,
     questions: parsed.questions ? questionsOf(parsed.questions, current) : [],
   };
-}
-
-/** A decision's printed timeout is the studio's own, so it reads back as unset. */
-function withoutDecisionTimeout(binding: ModelBindingDraft): ModelBindingDraft {
-  if (binding.timeoutMs !== STUDIO_DECISION_TIMEOUT_MS) return binding;
-  return { ...binding, timeoutMs: null };
 }
 
 function profileTypeOf(profile: Record<string, unknown>): StudioProfileType | '' {
@@ -1318,9 +1311,6 @@ function draftFrom(
     draft.tools = { ...draft.tools, t2Loader: '' };
   }
   applyLabels(draft, profile.labels);
-  if (type === 'decision' && isRecord(profile.models)) {
-    draft.modelBindings = draft.modelBindings.map(withoutDecisionTimeout);
-  }
   return { draft, registered };
 }
 

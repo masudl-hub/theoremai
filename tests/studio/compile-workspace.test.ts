@@ -28,6 +28,8 @@ import {
   workspaceSource,
 } from '../../studio/mod.ts';
 import { studioScope } from '../../studio/runtime.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
+import { ON_TEST_KEYS, TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 function must<T>(value: T | undefined): T {
   assert(value !== undefined);
@@ -35,7 +37,7 @@ function must<T>(value: T | undefined): T {
 }
 
 function helperDraft(agentId = 'travel.helper'): StudioDraft {
-  const draft = setProfileType(createBlankDraft(), 'text');
+  const draft = setProfileType(createBlankDraft(), 'text', TEST_KEYS);
   return { ...draft, identity: { ...draft.identity, agentId, handle: 'helper' } };
 }
 
@@ -63,13 +65,13 @@ function conciergeCallingHelper(helper = helperDraft()): StudioWorkspace {
 }
 
 function issuesOf(workspace: StudioWorkspace): StudioIssue[] {
-  const result = compileWorkspace(workspace);
+  const result = compileWorkspace(workspace, ON_OWN_KEYS);
   assert(!result.ok, 'expected issues');
   return result.issues;
 }
 
 Deno.test('an agent is registered after the agent its tool runs, whatever the tree order', () => {
-  const result = compileWorkspace(conciergeCallingHelper());
+  const result = compileWorkspace(conciergeCallingHelper(), ON_OWN_KEYS);
   assert(result.ok, JSON.stringify(!result.ok && result.issues));
   assertEquals(
     result.agents.map((agent) => agent.agentId),
@@ -81,7 +83,7 @@ Deno.test('an agent is registered after the agent its tool runs, whatever the tr
 });
 
 Deno.test('a run carries the agents its agent needs, and registers them first', async () => {
-  const result = compileWorkspace(conciergeCallingHelper());
+  const result = compileWorkspace(conciergeCallingHelper(), ON_OWN_KEYS);
   assert(result.ok);
   const concierge = must(workspaceRunAgent(result, 'travel.concierge'));
   assertEquals(
@@ -94,7 +96,7 @@ Deno.test('a run carries the agents its agent needs, and registers them first', 
     concierge.profile,
     concierge.customTools,
     concierge.structured,
-    { mode: 'demo' },
+    ON_TEST_KEYS,
     concierge.dependencies,
   );
   assertEquals(profile.id, 'travel.concierge');
@@ -105,7 +107,7 @@ Deno.test('a run carries the agents its agent needs, and registers them first', 
 
 Deno.test('an agent tool takes what the agent it runs takes', () => {
   const inputOf = (helper: StudioDraft) => {
-    const result = compileWorkspace(conciergeCallingHelper(helper));
+    const result = compileWorkspace(conciergeCallingHelper(helper), ON_OWN_KEYS);
     assert(result.ok, JSON.stringify(result));
     const tools = result.agents.flatMap((agent) => agent.customTools);
     const tool = must(tools.find((each) => each.name === 'ask_helper'));
@@ -212,7 +214,7 @@ Deno.test('compaction can name another text agent, which registers first', () =>
         },
       ],
     });
-  const result = compileWorkspace(compacting(must(summariser)));
+  const result = compileWorkspace(compacting(must(summariser)), ON_OWN_KEYS);
   assert(result.ok, JSON.stringify(!result.ok && result.issues));
   assertEquals(
     result.agents.map((agent) => agent.agentId),
@@ -313,7 +315,7 @@ Deno.test("agents are checked against the workspace's own providers, a project's
     providers: [{ id: 'house', adapter: 'house-adapter', keySlot: 'house' }],
     modelBindings: draft.modelBindings.map((binding) => ({ ...binding, provider: 'house' })),
   };
-  const result = compileWorkspace(workspaceFromDraft(onHouse), 'byok');
+  const result = compileWorkspace(workspaceFromDraft(onHouse), ON_OWN_KEYS);
   assert(result.ok, JSON.stringify(result));
 });
 
@@ -342,14 +344,14 @@ Deno.test('an agent whose reply follows a schema compiles, with the schema besid
         schemaJson:
           '{"type":"object","properties":{"reply":{"type":"string"}},"required":["reply"]}',
       },
-    }),
+    }), ON_OWN_KEYS,
   );
   assert(result.ok, result.ok ? '' : must(result.issues[0]).message);
   assertEquals(must(result.agents[0]).structured?.id, 'helper.reply');
 });
 
 Deno.test('a single draft names no other agent', () => {
-  const result = compileStudio({ ...helperDraft(), toolSpecs: [agentTool('')] });
+  const result = compileStudio({ ...helperDraft(), toolSpecs: [agentTool('')] }, ON_OWN_KEYS);
   assert(!result.ok);
   assertEquals(must(result.issues[0]).message, 'Pick the agent this tool runs.');
 });
@@ -376,12 +378,12 @@ Deno.test('removing an agent leaves nothing pointing at it', () => {
   const removed = removeAgent(workspace, must(helper));
   assert(!removed.toolSpecs.some((tool) => tool.toolName === 'ask_helper'));
   assertEquals(must(removed.agents[0]).modelBindings[0]?.compactWith, undefined);
-  const result = compileWorkspace(removed);
+  const result = compileWorkspace(removed, ON_OWN_KEYS);
   assert(result.ok, JSON.stringify(!result.ok && result.issues));
 });
 
 Deno.test('a workspace exports as tools.ts, a module per agent, and theorem.ts in registration order', () => {
-  const result = compileWorkspace(conciergeCallingHelper());
+  const result = compileWorkspace(conciergeCallingHelper(), ON_OWN_KEYS);
   assert(result.ok);
   const files = workspaceSource(result);
   assertEquals(
@@ -404,7 +406,7 @@ Deno.test('a workspace exports as tools.ts, a module per agent, and theorem.ts i
 });
 
 Deno.test('an exported workspace type-checks and registers when theorem.ts runs', async () => {
-  const result = compileWorkspace(conciergeCallingHelper());
+  const result = compileWorkspace(conciergeCallingHelper(), ON_OWN_KEYS);
   assert(result.ok);
   const root = new URL('../../', import.meta.url);
   const dir = await Deno.makeTempDir();

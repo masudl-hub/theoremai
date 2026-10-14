@@ -98,23 +98,8 @@ import {
   INLINE_LABELS,
   takesContinueInstruction,
 } from './draft.ts';
-import {
-  decisionQuestionViolation,
-  GEMINI_STUDIO_LIVE_INPUT_TOKENS,
-  isGoogleRoute,
-  isOpenRouterRoute,
-  isProviderBuiltinId,
-  modelBindingViolation,
-  STUDIO_DECISION_MAX_CRITERIA,
-  STUDIO_DECISION_MAX_CRITERION_CHARS,
-  STUDIO_DECISION_MAX_ID_CHARS,
-  STUDIO_DECISION_MAX_INSTRUCTIONS_CHARS,
-  STUDIO_DECISION_MAX_NAME_CHARS,
-  STUDIO_DECISION_MAX_QUESTIONS,
-  STUDIO_DECISION_MAX_STATE_BYTES,
-  STUDIO_DECISION_TIMEOUT_MS,
-  type StudioConnectionMode,
-} from './policy.ts';
+import type { LentKeys, StudioRunsOn } from './lent-keys.ts';
+import { isGoogleRoute, isOpenRouterRoute, isProviderBuiltinId, modelBindingViolation } from './policy.ts';
 import {
   LOCAL_PROVIDER_ID,
   type ModelRoute,
@@ -1555,7 +1540,7 @@ function compileResumed(live: LiveDraft, report: Report): ProfileLiveSpec['resum
 function compileLive(
   live: LiveDraft,
   report: Report,
-  mode: StudioConnectionMode,
+  on: StudioRunsOn,
 ): ProfileLiveSpec {
   if (!live.ingressAudio && !live.ingressVideo && !live.ingressText) {
     report('live', 'Turn on at least one ingress channel.');
@@ -1577,7 +1562,7 @@ function compileLive(
     0,
   );
 
-  if (live.contextCompression) checkCompression(live, report, mode);
+  if (live.contextCompression) checkCompression(live, report, on.mode === 'demo' ? on.keys.liveInputTokens : undefined);
   const resumed = compileResumed(live, report);
 
   const channels = {
@@ -1613,8 +1598,8 @@ function compileLive(
   };
 }
 
-/** Whole numbers, within the free key's input, and the target below the trigger. */
-function checkCompression(live: LiveDraft, report: Report, mode: StudioConnectionMode): void {
+/** Whole numbers, the target below the trigger, and on lent keys both within the session they hold. */
+function checkCompression(live: LiveDraft, report: Report, held: number | undefined): void {
   checkWhole(
     report,
     'live',
@@ -1633,24 +1618,23 @@ function checkCompression(live: LiveDraft, report: Report, mode: StudioConnectio
   );
   const trigger = live.compressionTriggerTokens;
   const target = live.compressionTargetTokens;
-  const cap = GEMINI_STUDIO_LIVE_INPUT_TOKENS.toLocaleString('en-US');
-  if (mode === 'demo' && trigger !== null && trigger > GEMINI_STUDIO_LIVE_INPUT_TOKENS) {
+  const cap = held?.toLocaleString('en-US');
+  if (held !== undefined && trigger !== null && trigger > held) {
     report(
       'live',
-      `Compression trigger can't exceed the free key's ${cap} input tokens.`,
+      `Compression trigger can't exceed the ${cap} input tokens a session holds on these keys.`,
       'compressionTriggerTokens',
     );
   }
   if (
     target !== null &&
-    ((trigger !== null && target >= trigger) ||
-      (mode === 'demo' && trigger === null && target >= GEMINI_STUDIO_LIVE_INPUT_TOKENS))
+    ((trigger !== null && target >= trigger) || (held !== undefined && trigger === null && target >= held))
   ) {
     report(
       'live',
       trigger !== null
         ? 'Compression target must be below the trigger.'
-        : `Compression target must be below the free key's ${cap} input tokens.`,
+        : `Compression target must be below the ${cap} input tokens a session holds on these keys.`,
       'compressionTargetTokens',
     );
   }
@@ -1697,40 +1681,19 @@ function compileQuestions(
   if (!decision.questions.length) {
     report('decision', 'Add at least one question.', 'questions');
   }
-  if (decision.questions.length > STUDIO_DECISION_MAX_QUESTIONS) {
-    report(
-      'decision',
-      `The studio asks at most ${STUDIO_DECISION_MAX_QUESTIONS} questions.`,
-      'questions',
-    );
-  }
   decision.questions.forEach((question, index) => {
     const fail = (message: string) => report('decision', message, 'questions', index);
     const id = question.id.trim();
     const instructions = question.instructions.trim();
     if (!id) fail('Each question needs an id.');
-    else if (id.length > STUDIO_DECISION_MAX_NAME_CHARS) {
-      fail(`Question ids are limited to ${STUDIO_DECISION_MAX_NAME_CHARS} characters.`);
-    } else if (Object.hasOwn(questions, id)) {
+    else if (Object.hasOwn(questions, id)) {
       fail(`Question id '${id}' is used twice.`);
     }
-    if (!instructions) {
-      fail(`Question '${id || index + 1}' needs instructions.`);
-    } else if (instructions.length > STUDIO_DECISION_MAX_INSTRUCTIONS_CHARS) {
-      fail(`Instructions are limited to ${STUDIO_DECISION_MAX_INSTRUCTIONS_CHARS} characters.`);
-    }
+    if (!instructions) fail(`Question '${id || index + 1}' needs instructions.`);
     const rows = question.criteria.map((row) => ({
       label: row.label.trim(),
       text: row.text.trim(),
     }));
-    if (rows.length > STUDIO_DECISION_MAX_CRITERIA) {
-      fail(`A question has at most ${STUDIO_DECISION_MAX_CRITERIA} options or levels.`);
-    }
-    if (rows.some((row) => row.text.length > STUDIO_DECISION_MAX_CRITERION_CHARS)) {
-      fail(
-        `Each option or level is limited to ${STUDIO_DECISION_MAX_CRITERION_CHARS} characters.`,
-      );
-    }
     if (!id || !instructions) return;
     if (question.type === 'score') {
       if (rows.length < 2 || rows.some((row) => !row.text)) {
@@ -1745,9 +1708,6 @@ function compileQuestions(
     }
     const labelled: Record<string, DecisionEntry> = Object.create(null);
     for (const row of rows) {
-      if (row.label.length > STUDIO_DECISION_MAX_NAME_CHARS) {
-        fail(`Option labels are limited to ${STUDIO_DECISION_MAX_NAME_CHARS} characters.`);
-      }
       if (!row.label) fail(`Every option of '${id}' needs a label.`);
       else if (Object.hasOwn(labelled, row.label)) {
         fail(`Option '${row.label}' of '${id}' is used twice.`);
@@ -1787,34 +1747,75 @@ function checkDecisionIdentity(draft: StudioDraft, report: Report): string {
   const { decision } = draft;
   const contract = decision.contract.trim();
   if (!contract) report('decision', 'Contract is required.', 'contract');
-  else if (contract.length > STUDIO_DECISION_MAX_ID_CHARS) {
-    report(
-      'decision',
-      `Contract is limited to ${STUDIO_DECISION_MAX_ID_CHARS} characters.`,
-      'contract',
-    );
-  }
-  if (draft.identity.agentId.trim().length > STUDIO_DECISION_MAX_ID_CHARS) {
-    report(
-      'identity',
-      `Profile id is limited to ${STUDIO_DECISION_MAX_ID_CHARS} characters.`,
-      'agentId',
-    );
-  }
-  if (draft.identity.handle.trim().length > STUDIO_DECISION_MAX_NAME_CHARS) {
-    report(
-      'identity',
-      `Handle is limited to ${STUDIO_DECISION_MAX_NAME_CHARS} characters.`,
-      'handle',
-    );
-  }
-
   return contract;
+}
+
+/** What a decision may hold on lent keys, each limit reported on the field it bounds. */
+function checkLentDecision(
+  draft: StudioDraft,
+  questions: Record<string, DecisionQuestion>,
+  keys: LentKeys,
+  report: Report,
+): void {
+  const limits = keys.decision;
+  const { decision, identity } = draft;
+  const over = (text: string, most: number) => text.trim().length > most;
+  if (over(decision.contract, limits.idChars)) {
+    report('decision', `Contract is limited to ${limits.idChars} characters on these keys.`, 'contract');
+  }
+  if (over(identity.agentId, limits.idChars)) {
+    report('identity', `Profile id is limited to ${limits.idChars} characters on these keys.`, 'agentId');
+  }
+  if (over(identity.handle, limits.nameChars)) {
+    report('identity', `Handle is limited to ${limits.nameChars} characters on these keys.`, 'handle');
+  }
+  const binding = draft.modelBindings[0];
+  if (binding) {
+    const nodeId = modelBindingNodeId(binding.key);
+    if (binding.timeoutMs !== null && binding.timeoutMs > limits.timeoutMs) {
+      report(nodeId, `Timeout is limited to ${limits.timeoutMs} ms on these keys.`, 'timeoutMs');
+    }
+    if (over(binding.modelId, limits.nameChars)) {
+      report(nodeId, `Model id is limited to ${limits.nameChars} characters on these keys.`, 'modelId');
+    }
+    if (over(binding.apiId, limits.idChars)) {
+      report(nodeId, `API model is limited to ${limits.idChars} characters on these keys.`, 'apiId');
+    }
+  }
+  if (decision.maxStateBytes !== null && decision.maxStateBytes > limits.stateBytes) {
+    report('decision', `These keys take at most ${limits.stateBytes} bytes of state.`, 'maxStateBytes');
+  }
+  if (decision.questions.length > limits.questions) {
+    report('decision', `These keys ask at most ${limits.questions} questions.`, 'questions');
+  }
+  decision.questions.forEach((question, index) => {
+    const fail = (message: string) => report('decision', message, 'questions', index);
+    if (over(question.id, limits.nameChars)) {
+      fail(`Question ids are limited to ${limits.nameChars} characters on these keys.`);
+    }
+    if (over(question.instructions, limits.instructionsChars)) {
+      fail(`Instructions are limited to ${limits.instructionsChars} characters on these keys.`);
+    }
+    if (question.criteria.length > limits.criteria) {
+      fail(`A question has at most ${limits.criteria} options or levels on these keys.`);
+    }
+    if (question.criteria.some((row) => over(row.text, limits.criterionChars))) {
+      fail(`Each option or level is limited to ${limits.criterionChars} characters on these keys.`);
+    }
+    if (question.criteria.some((row) => over(row.label, limits.nameChars))) {
+      fail(`Option labels are limited to ${limits.nameChars} characters on these keys.`);
+    }
+    const compiled = questions[question.id.trim()];
+    const violation = binding && compiled &&
+      keys.questionViolation(modelRoute(draft.providers, 'decision', binding), compiled);
+    if (violation) fail(violation);
+  });
 }
 
 function compileDecision(
   draft: StudioDraft,
   report: Report,
+  on: StudioRunsOn,
 ): Omit<CompiledStudio, 'agentId' | 'providers'> {
   const { decision } = draft;
   const facets = new Set<string>(draftFacets(draft));
@@ -1830,41 +1831,10 @@ function compileDecision(
       report(nodeId, 'Model id is required.', 'modelId');
     }
     checkWhole(report, nodeId, 'timeoutMs', 'Timeout', binding.timeoutMs, 1);
-    if ((binding.timeoutMs ?? 0) > STUDIO_DECISION_TIMEOUT_MS) {
-      report(nodeId, `Timeout is limited to ${STUDIO_DECISION_TIMEOUT_MS} ms.`, 'timeoutMs');
-    }
-    if (binding.modelId.trim().length > STUDIO_DECISION_MAX_NAME_CHARS) {
-      report(
-        nodeId,
-        `Model id is limited to ${STUDIO_DECISION_MAX_NAME_CHARS} characters.`,
-        'modelId',
-      );
-    }
-    if (binding.apiId.trim().length > STUDIO_DECISION_MAX_ID_CHARS) {
-      report(
-        nodeId,
-        `API model is limited to ${STUDIO_DECISION_MAX_ID_CHARS} characters.`,
-        'apiId',
-      );
-    }
   }
   checkWhole(report, 'decision', 'maxStateBytes', 'Max state', decision.maxStateBytes, 1);
-  if ((decision.maxStateBytes ?? 0) > STUDIO_DECISION_MAX_STATE_BYTES) {
-    report(
-      'decision',
-      `The studio sends at most ${STUDIO_DECISION_MAX_STATE_BYTES} bytes of state.`,
-      'maxStateBytes',
-    );
-  }
   const questions = compileQuestions(decision, report);
-  if (binding) {
-    decision.questions.forEach((question, index) => {
-      const compiled = questions[question.id.trim()];
-      const violation =
-        compiled && decisionQuestionViolation(modelRoute(draft.providers, 'decision', binding), compiled);
-      if (violation) report('decision', violation, 'questions', index);
-    });
-  }
+  if (on.mode === 'demo') checkLentDecision(draft, questions, on.keys, report);
   if (keySlotRequired(draft) && !draft.models.key) {
     report('models', 'Choose a key slot.', 'key');
   }
@@ -1881,13 +1851,13 @@ function compileDecision(
               ? { keySlot: binding.keySlot || draft.models.key }
               : {}),
             ...(binding.fallbackKeySlot ? { fallbackKeySlot: binding.fallbackKeySlot } : {}),
-            timeoutMs: binding.timeoutMs ?? STUDIO_DECISION_TIMEOUT_MS,
+            ...(binding.timeoutMs !== null ? { timeoutMs: binding.timeoutMs } : {}),
           },
         }
       : {},
     inputs: {
       state: 'json',
-      maxStateBytes: decision.maxStateBytes ?? STUDIO_DECISION_MAX_STATE_BYTES,
+      ...(decision.maxStateBytes !== null ? { maxStateBytes: decision.maxStateBytes } : {}),
     },
     decision: { contract },
     ...compileProfileOptions(draft, facets, report),
@@ -1924,7 +1894,7 @@ function assemble(
   draft: StudioDraft,
   type: StudioTurnProfileType,
   report: Report,
-  mode: StudioConnectionMode,
+  on: StudioRunsOn,
   agentIdOf: AgentIdOf,
   agentInputOf: AgentToolInputOf,
 ): Omit<CompiledStudio, 'agentId' | 'providers'> {
@@ -1964,7 +1934,7 @@ function assemble(
     ...modelFields,
     ...(facets.has('image') ? { image: compileImage(draft.image, report) } : {}),
     ...(facets.has('speech') ? { speech: compileSpeech(draft.speech, draft, report) } : {}),
-    ...(facets.has('live') ? { live: compileLive(draft.live, report, mode) } : {}),
+    ...(facets.has('live') ? { live: compileLive(draft.live, report, on) } : {}),
     ...(tools ? { tools } : {}),
     ...(!facets.has('inputs')
       ? {}
@@ -1985,7 +1955,7 @@ function assemble(
  */
 export function compileStudio(
   draft: StudioDraft,
-  mode: StudioConnectionMode = 'demo',
+  on: StudioRunsOn,
   agentIdOf: AgentIdOf = NO_AGENTS,
   agentInputOf: AgentToolInputOf = NO_AGENT_INPUTS,
 ): StudioCompileResult {
@@ -2018,7 +1988,7 @@ export function compileStudio(
       if (!binding.apiId.trim()) continue;
       const violation = modelBindingViolation(
         { ...modelRoute(draft.providers, draft.identity.profileType, binding), builtInTools: binding.builtInTools },
-        mode,
+        on,
       );
       if (violation) {
         report(modelBindingNodeId(binding.key), violation.message, violation.field);
@@ -2032,10 +2002,10 @@ export function compileStudio(
   }
   const compiled =
     type === 'decision'
-      ? compileDecision(draft, report)
+      ? compileDecision(draft, report, on)
       : type === 'host'
         ? compileHost(draft, report, agentIdOf, agentInputOf)
-        : assemble(draft, type, report, mode, agentIdOf, agentInputOf);
+        : assemble(draft, type, report, on, agentIdOf, agentInputOf);
   if (issues.length) return { ok: false, issues };
 
   try {

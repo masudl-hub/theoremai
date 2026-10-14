@@ -16,10 +16,12 @@ import {
 } from '../mod.ts';
 import { exportFiles, exportText, llmBrief } from '../ui/lib/export-agent.ts';
 import { zipFiles } from '../ui/lib/zip.ts';
+import { ON_OWN_KEYS } from '../lent-keys.ts';
+import { TEST_KEYS } from '../../tests/fixtures/lent-keys.ts';
 
 /** The concierge, calling a helper through an agent tool. */
 function conciergeAndHelper(): StudioWorkspace {
-  const blank = setProfileType(createBlankDraft(), 'text');
+  const blank = setProfileType(createBlankDraft(), 'text', TEST_KEYS);
   const helper = {
     ...blank,
     identity: { ...blank.identity, agentId: 'travel.helper', handle: 'helper' },
@@ -42,7 +44,7 @@ function conciergeAndHelper(): StudioWorkspace {
 }
 
 function compiled(workspace: StudioWorkspace): CompiledWorkspace {
-  const result = compileWorkspace(workspace);
+  const result = compileWorkspace(workspace, ON_OWN_KEYS);
   assert(result.ok, JSON.stringify(!result.ok && result.issues));
   return result;
 }
@@ -101,7 +103,7 @@ Deno.test('the zip holds every file', () => {
 });
 
 Deno.test('an exported chat passes a value per slot and its context, and the route its server context', () => {
-  const blank = setProfileType(createBlankDraft(), 'text');
+  const blank = setProfileType(createBlankDraft(), 'text', TEST_KEYS);
   const draft = {
     ...blank,
     identity: { ...blank.identity, agentId: 'travel.guide', handle: 'guide' },
@@ -126,12 +128,12 @@ Deno.test('an exported chat passes a value per slot and its context, and the rou
 });
 
 Deno.test('a local export configures the registered adapter URL and keeps host options to the vault', () => {
-  const draft = setProfileType(createBlankDraft(), 'text');
+  const draft = setProfileType(createBlankDraft(), 'text', TEST_KEYS);
   draft.identity.agentId = 'local.test';
   draft.identity.handle = 'Local';
   draft.modelBindings[0].provider = 'local';
   draft.modelBindings[0].apiId = 'local-model';
-  const workspace = compileWorkspace(workspaceFromDraft(draft), 'local');
+  const workspace = compileWorkspace(workspaceFromDraft(draft), { mode: 'local' });
   assert(workspace.ok, JSON.stringify(!workspace.ok && workspace.issues));
   const files = exportFiles(workspace, workspace.agents[0]);
   const registration = files.find((file) => file.path === 'theorem.ts')?.code ?? '';

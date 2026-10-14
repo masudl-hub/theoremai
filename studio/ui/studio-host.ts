@@ -3,7 +3,13 @@
  * than to the screen.
  */
 import { createContext, useContext } from 'react';
-import type { StudioSourceError, StudioSourceSpan, StudioWorkspace } from '../mod.ts';
+import type {
+	LentKeys,
+	StudioSourceError,
+	StudioSourceSpan,
+	StudioToolHandlers,
+	StudioWorkspace,
+} from '../mod.ts';
 import type { studioSurface } from '../surface.ts';
 import type { ProjectSession } from './lib/studio-project.ts';
 import type { RestoredStudio } from './lib/studio-session.ts';
@@ -67,7 +73,20 @@ export interface StudioHost {
 	 * shows Settings when asked, and Keys are there and not in the editor's header.
 	 */
 	hasSettings?: boolean;
+	/**
+	 * Keys the page lends to whoever opens the studio, and what runs on them. Without them the
+	 * studio runs only on the builder's own keys or machine.
+	 */
+	lentKeys?: LentKeys;
+	/**
+	 * Handlers for the page's own function tools, by name, as its examples use them. A tool with
+	 * none answers with its sample reply or a stub.
+	 */
+	toolHandlers?: StudioToolHandlers;
 }
+
+/** What a page gives every studio it opens, the run tab's too. */
+export type StudioSupplies = Pick<StudioHost, 'lentKeys' | 'toolHandlers'>;
 
 export const StudioHostContext = createContext<StudioHost | null>(null);
 

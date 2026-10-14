@@ -11,6 +11,7 @@
 import { z } from 'zod';
 import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
+import { ON_OWN_KEYS } from '../lent-keys.ts';
 import type { CompiledStudio } from '../compile.ts';
 import { unheldConnection, unheldProblem } from '../held-credentials.ts';
 import { withoutStudioFills } from '../policy.ts';
@@ -56,7 +57,7 @@ export function providerSettings(provider: StudioProvider): Omit<StudioProvider,
 
 function compiled(workspace: StudioWorkspace): Compiled | string[] {
   // As the project's own: which models the studio's keys may call is a rule for a run, not for a file.
-  const result = compileWorkspace(workspace, 'byok');
+  const result = compileWorkspace(workspace, ON_OWN_KEYS);
   if (!result.ok) return result.issues.map((issue) => issue.message);
   const tools = new Map<string, ToolRegistration>();
   for (const agent of result.agents) for (const tool of agent.customTools) tools.set(tool.name, tool);

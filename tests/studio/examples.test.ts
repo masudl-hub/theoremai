@@ -25,9 +25,10 @@ import {
   withLibraryDraft,
   workspaceFromDraft,
 } from '../../studio/mod.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 function compiled(workspace: StudioWorkspace) {
-  const result = compileWorkspace(workspace);
+  const result = compileWorkspace(workspace, ON_OWN_KEYS);
   assert(result.ok, JSON.stringify(!result.ok && result.issues));
   return result;
 }
@@ -282,11 +283,11 @@ Deno.test('resetting a tool puts back its start and keeps who allows it', () => 
 
 Deno.test("the narrator's style and a speed reach its profile as written", () => {
   const narrator = createNarratorExampleDraft();
-  const result = compileStudio(narrator);
+  const result = compileStudio(narrator, ON_OWN_KEYS);
   assert(result.ok && result.profile.type === 'speech');
   assertEquals(result.profile.speech, { style: narrator.speech.style });
 
-  const fast = compileStudio({ ...narrator, speech: { ...narrator.speech, speed: 1.2 } });
+  const fast = compileStudio({ ...narrator, speech: { ...narrator.speech, speed: 1.2 } }, ON_OWN_KEYS);
   assert(fast.ok && fast.profile.type === 'speech');
   assertEquals(fast.profile.speech.speed, 1.2);
 });

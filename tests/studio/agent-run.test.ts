@@ -8,13 +8,14 @@ import {
   createBlankDraft,
   createExampleDraft,
   defaultToolSpec,
-  OPENROUTER_STUDIO_API_ID,
   setProfileType,
   withAgentDraft,
   workspaceFromDraft,
   workspaceRunAgent,
 } from '../../studio/mod.ts';
 import { type StudioRuntime, streamStudioTurn } from '../../studio/runtime.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
+import { TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 function must<T>(value: T | undefined): T {
   assert(value !== undefined);
@@ -22,14 +23,14 @@ function must<T>(value: T | undefined): T {
 }
 /** The concierge, with a tool that asks a helper agent on another provider. */
 function conciergeRun() {
-  const blank = setProfileType(createBlankDraft(), 'text');
+  const blank = setProfileType(createBlankDraft(), 'text', TEST_KEYS);
   const helper = {
     ...blank,
     identity: { ...blank.identity, agentId: 'travel.helper', handle: 'helper' },
     modelBindings: blank.modelBindings.map((binding) => ({
       ...binding,
       provider: 'openrouter' as const,
-      apiId: OPENROUTER_STUDIO_API_ID,
+      apiId: 'openrouter/free',
     })),
   };
   const workspace = addAgent(workspaceFromDraft(createExampleDraft()), helper);
@@ -46,6 +47,7 @@ function conciergeRun() {
       ...draft,
       toolSpecs: [...draft.toolSpecs, tool],
     }),
+    ON_OWN_KEYS,
   );
   assert(compiled.ok, JSON.stringify(!compiled.ok && compiled.issues));
   return must(workspaceRunAgent(compiled, 'travel.concierge'));

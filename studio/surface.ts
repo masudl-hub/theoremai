@@ -44,7 +44,8 @@ import {
   createLiveExampleDraft,
   createNarratorExampleDraft,
 } from './example.ts';
-import { type StudioConnectionMode, modelBindingViolation } from './policy.ts';
+import type { StudioRunsOn } from './lent-keys.ts';
+import { modelBindingViolation } from './policy.ts';
 import { modelRoute } from './providers.ts';
 import { bindingSlots } from './requirements.ts';
 import { studioNodeRef, studioTree, type StudioTreeNode } from './tree.ts';
@@ -62,7 +63,8 @@ export interface StudioDraftChange {
 export interface StudioSurfaceHost {
   getDraft(): StudioDraft;
   getRevision(): number;
-  getMode(): StudioConnectionMode;
+  /** What the page runs on, and on lent keys the keys it is held to. */
+  getRunsOn(): StudioRunsOn;
   /**
    * Replaces the draft as the agent's edit: the revision moves, and the person's undo stays.
    * Returns what the person is being asked when the edit waits for their answer: it is not made.
@@ -299,10 +301,15 @@ const exampleInput = z.enum(Object.keys(EXAMPLE_DRAFTS) as [keyof typeof EXAMPLE
 /** The studio's surface, over a host the page (or a test) provides. */
 export function studioSurface(host: StudioSurfaceHost): Surface {
   const draft = () => host.getDraft();
+  /** The lent keys the page runs on, if any. */
+  const lent = () => {
+    const on = host.getRunsOn();
+    return on.mode === 'demo' ? on.keys : undefined;
+  };
   const revision = () => host.getRevision();
 
   const compileIssues = () => {
-    const compiled = compileStudio(draft(), host.getMode());
+    const compiled = compileStudio(draft(), host.getRunsOn());
     return compiled.ok ? [] : compiled.issues;
   };
 
@@ -357,7 +364,7 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
       }),
       run: ({ type, example }) => {
         const blank = createBlankDraft();
-        const next = example ? EXAMPLE_DRAFTS[example]() : withNewSections(blank, setProfileType(blank, type));
+        const next = example ? EXAMPLE_DRAFTS[example]() : withNewSections(blank, setProfileType(blank, type, lent()));
         host.replaceDraft(next, 'th30 started a new agent.');
         return { node: 'identity' };
       },
@@ -368,7 +375,7 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
       input: z.object({ type: typeInput }),
       run: ({ type }) => {
         const before = draft();
-        apply(withNewSections(before, setProfileType(before, type)), 'identity');
+        apply(withNewSections(before, setProfileType(before, type, lent())), 'identity');
         return { node: 'identity' };
       },
     }),
@@ -408,7 +415,7 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
         const current = draft();
         if (!current.identity.profileType) return refuse('type', 'act setType first');
         const binding = {
-          ...newModelBinding(current),
+          ...newModelBinding(current, lent()?.start),
           ...Object.fromEntries(Object.entries(input).filter(([, value]) => value)),
         } as ReturnType<typeof newModelBinding>;
         const node = `modelBinding:${binding.key}`;
@@ -420,7 +427,7 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
           },
           node,
         );
-        const violation = modelBindingViolation(routed(draft(), binding), host.getMode());
+        const violation = modelBindingViolation(routed(draft(), binding), host.getRunsOn());
         return {
           node,
           rejected: violation ? [{ field: violation.field, why: violation.message }] : [],
@@ -599,7 +606,7 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
         }
         if (facet === 'modelBinding') {
           const binding = draft().modelBindings.find((candidate) => id === `modelBinding:${candidate.key}`);
-          const violation = binding ? modelBindingViolation(routed(draft(), binding), host.getMode()) : null;
+          const violation = binding ? modelBindingViolation(routed(draft(), binding), host.getRunsOn()) : null;
           if (violation) rejected.push({ field: violation.field, why: violation.message });
         }
         return { rejected };

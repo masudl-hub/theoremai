@@ -77,39 +77,26 @@ export {
 export { type AcceptSection, acceptSections, expandAccept, nextAccept } from './media-accept.ts';
 export {
   type StudioConnectionMode,
-  allowedBuiltinsForGemini,
-  decisionQuestionViolation,
-  type DecisionRoute,
-  decisionStateViolation,
-  defaultBindingForProfileType,
-  GEMINI_STUDIO_DEFAULT_API_ID,
-  GEMINI_STUDIO_IMAGE_DEFAULT_API_ID,
-  GEMINI_STUDIO_LIVE_DEFAULT_API_ID,
-  GEMINI_STUDIO_LIVE_INPUT_TOKENS,
-  GEMINI_STUDIO_MODELS,
-  GEMINI_STUDIO_TTS_DEFAULT_API_ID,
-  type GeminiStudioModel,
-  geminiStudioModel,
   isGoogleRoute,
   isOpenRouterRoute,
   isProviderBuiltinId,
-  JEV_STUDIO_API_ID,
-  type ModelBindingViolation,
   modelBindingViolation,
-  OPENROUTER_DECISION_MODELS,
-  OPENROUTER_STUDIO_API_ID,
-  STUDIO_DECISION_MAX_CRITERIA,
-  STUDIO_DECISION_MAX_CRITERION_CHARS,
-  STUDIO_DECISION_MAX_ID_CHARS,
-  STUDIO_DECISION_MAX_INSTRUCTIONS_CHARS,
-  STUDIO_DECISION_MAX_NAME_CHARS,
-  STUDIO_DECISION_MAX_QUESTIONS,
-  STUDIO_DECISION_MAX_STATE_BYTES,
-  STUDIO_DECISION_TIMEOUT_MS,
+  startingBinding,
   STUDIO_TRACE_DESTINATION,
   studioRunsProvider,
-  servesOtherProfileType,
 } from './policy.ts';
+export {
+  type LentBinding,
+  type LentDecisionLimits,
+  type LentKeys,
+  type LentModel,
+  type ModelBindingViolation,
+  type ModelProfileType,
+  type ModelPicks,
+  type ModelStart,
+  ON_OWN_KEYS,
+  type StudioRunsOn,
+} from './lent-keys.ts';
 export {
   adapterFactory,
   adapterOf,
@@ -320,8 +307,6 @@ export {
   runGuardrailProbes,
 } from './guardrail-probe.ts';
 export { PROBE_BATTERY, type ProbeBatteryCase } from './probe-battery.ts';
-export type { StudioDemoHandler } from './demo-handlers.ts';
-export { studioDemoHandler } from './demo-handlers.ts';
 export { STUDIO_TAINT_NOTE, studioNetworkNote } from './runtime-scope.ts';
 export { sectionNote } from './section-notes.ts';
 export { sampleToolInput, stubOutputFromSchema } from './stub.ts';
@@ -353,7 +338,7 @@ export {
   saveStudioRunPayload,
   upsertStudioRunIndex,
 } from './run-payload.ts';
-export { registerStudioTools } from './tools.ts';
+export { registerStudioTools, type StudioToolHandler, type StudioToolHandlers } from './tools.ts';
 export type { StudioSteerLine, StudioTransportOptions } from './transport.ts';
 export {
   createStudioDecisionTransport,
@@ -364,4 +349,3 @@ export {
   studioRunDefines,
 } from './transport.ts';
 
-export { studioDecisionRequestSchema } from './decision-request.ts';

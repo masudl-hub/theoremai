@@ -24,7 +24,29 @@ import {
   type ToolSpecDraft,
 } from './draft.ts';
 import { addAgent, agentNodeId, markAgentStart, type StudioWorkspace, workspaceFromDraft } from './workspace.ts';
-import { GEMINI_STUDIO_DEFAULT_API_ID, OPENROUTER_DECISION_MODELS, OPENROUTER_STUDIO_API_ID } from './policy.ts';
+import type { ModelPicks } from './lent-keys.ts';
+
+/**
+ * Where each example's models start: the site's free models. The examples list no models, so a
+ * type switch keeps whatever the kernel says serves the new type.
+ */
+const EXAMPLE_PICKS: ModelPicks = {
+  models: () => [],
+  start: (type) => {
+    switch (type) {
+      case 'decision':
+        return { provider: 'typesafe', apiId: 'jev-latest' };
+      case 'live':
+        return { provider: 'google', apiId: 'gemini-3.1-flash-live-preview' };
+      case 'speech':
+        return { provider: 'google', apiId: 'gemini-3.1-flash-tts-preview' };
+      case 'image':
+        return { provider: 'google', apiId: 'gemini-3.1-flash-lite-image' };
+      case 'text':
+        return { provider: 'google', apiId: 'gemini-3.1-flash-lite' };
+    }
+  },
+};
 
 /**
  * A tool-call safety decision on TypeSafe's Jev: the draft a blank agent becomes when its type is
@@ -33,7 +55,7 @@ import { GEMINI_STUDIO_DEFAULT_API_ID, OPENROUTER_DECISION_MODELS, OPENROUTER_ST
 export function createDecisionExampleDraft(): StudioDraft {
   const blank = createBlankDraft();
   const had = new Set(includableFacets(blank));
-  const decision = setProfileType(blank, 'decision');
+  const decision = setProfileType(blank, 'decision', EXAMPLE_PICKS);
   const draft = includableFacets(decision)
     .filter((facet) => !had.has(facet))
     .reduce(includeFacet, decision);
@@ -45,14 +67,14 @@ export function createDecisionExampleDraft(): StudioDraft {
 
 /** A tool-call safety decision using the free Span model and its Number question shape. */
 export function createSpanExampleDraft(): StudioDraft {
-  const draft = setProfileType(createBlankDraft(), 'decision');
+  const draft = setProfileType(createBlankDraft(), 'decision', EXAMPLE_PICKS);
   return {
     ...draft,
     identity: { ...draft.identity, agentId: 'guardrails.tool_call.span', handle: 'span' },
     modelBindings: [{
       ...draft.modelBindings[0],
       provider: 'openrouter',
-      apiId: OPENROUTER_DECISION_MODELS[0].id,
+      apiId: 'respan/span-01-lite:free',
     }],
     decision: {
       ...draft.decision,
@@ -110,7 +132,7 @@ function exampleTextDraft(
       defaultModelBinding({
         modelId: 'fast',
         provider: 'google',
-        apiId: GEMINI_STUDIO_DEFAULT_API_ID,
+        apiId: 'gemini-3.1-flash-lite',
         efforts: [
           { alias: 'fast', level: 'minimal' },
           { alias: 'deep', level: 'high' },
@@ -134,7 +156,7 @@ function exampleTextDraft(
       defaultModelBinding({
         modelId: 'open',
         provider: 'openrouter',
-        apiId: OPENROUTER_STUDIO_API_ID,
+        apiId: 'openrouter/free',
         efforts: [{ alias: 'default', level: 'minimal' }],
         defaultEffort: 'default',
         // Its own slot: a slot two providers share can hold neither's key.
@@ -173,7 +195,7 @@ export function createExampleDraft(): StudioDraft {
 
 /** The travel concierge on a call: the same tools, a live model and an instruction for speech. */
 export function createLiveExampleDraft(): StudioDraft {
-  const draft = setProfileType(createExampleDraft(), 'live');
+  const draft = setProfileType(createExampleDraft(), 'live', EXAMPLE_PICKS);
   return {
     ...draft,
     identity: {
@@ -186,7 +208,7 @@ export function createLiveExampleDraft(): StudioDraft {
 
 /** A speech agent that reads a script aloud. */
 export function createNarratorExampleDraft(): StudioDraft {
-  const draft = setProfileType(createBlankDraft(), 'speech');
+  const draft = setProfileType(createBlankDraft(), 'speech', EXAMPLE_PICKS);
   return {
     ...draft,
     identity: { ...draft.identity, agentId: 'studio.narrator', handle: 'narrator' },

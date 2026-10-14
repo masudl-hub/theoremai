@@ -49,11 +49,8 @@ import {
   TOOL_LOAD_TIERS,
   TOOL_PERMISSION,
 } from '../src/kernel/schema.ts';
-import {
-  defaultBindingForProfileType,
-  STUDIO_TRACE_DESTINATION,
-  servesOtherProfileType,
-} from './policy.ts';
+import type { ModelPicks, ModelProfileType, ModelStart } from './lent-keys.ts';
+import { STUDIO_TRACE_DESTINATION, startingBinding } from './policy.ts';
 import { modelRoute, servesProfileType, STUDIO_PROVIDERS, type StudioProvider } from './providers.ts';
 import { keySlotRequired } from './requirements.ts';
 import { DEFAULT_TOOL_INPUT_SCHEMA, DEFAULT_TOOL_OUTPUT_SCHEMA } from './tool-schema.ts';
@@ -815,11 +812,12 @@ export function removeModelBinding(draft: StudioDraft, bindingKey: string): Stud
   };
 }
 
-export function newModelBinding(draft: StudioDraft): ModelBindingDraft {
+/** A new model for the draft's type, starting where `start` puts it, or on no model yet. */
+export function newModelBinding(draft: StudioDraft, start?: ModelStart): ModelBindingDraft {
   const chosen = draft.identity.profileType;
   const type = chosen && chosen !== 'host' ? chosen : 'text';
   const taken = draft.modelBindings.map((binding) => binding.modelId);
-  const seed = defaultBindingForProfileType(type);
+  const seed = startingBinding(type, start);
   const modelId = freeName(seed.modelId, taken, (n) => `${seed.modelId}${n}`);
   return defaultModelBinding({ ...seed, modelId });
 }
@@ -842,14 +840,15 @@ export function freeName(
 }
 
 /**
- * Bindings the new type can't use are dropped; if none remain, one studio default replaces
- * them. Model select turns off below two bindings. Other sections and
+ * Bindings whose model the kernel says can't serve the new type are dropped, and so are those
+ * `keys` list only for another type; if none remain, a new one starts where `keys` start one. Model select turns off below two bindings. Other sections and
  * `included` are kept, so a facet the type lacks comes back when switching back. A host runs no
  * model, so it keeps the bindings for the way back.
  */
 export function setProfileType(
   draft: StudioDraft,
   type: StudioProfileType,
+  keys?: ModelPicks,
 ): StudioDraft {
   if (type === 'host') {
     return { ...draft, identity: { ...draft.identity, profileType: type } };
@@ -857,7 +856,7 @@ export function setProfileType(
   const kept = draft.modelBindings.filter(
     (binding) => {
       const route = modelRoute(draft.providers, type, binding);
-      return servesProfileType(route.adapter, type, route.apiId) && !servesOtherProfileType(type, route);
+      return servesProfileType(route.adapter, type, route.apiId) && !listedForOthers(keys, type, route);
     },
   );
   const retyped: StudioDraft = {
@@ -865,7 +864,7 @@ export function setProfileType(
     identity: { ...draft.identity, profileType: type },
     modelBindings: kept,
   };
-  const modelBindings = kept.length ? kept : [newModelBinding(retyped)];
+  const modelBindings = kept.length ? kept : [newModelBinding(retyped, keys?.start)];
   const needsKey = !draft.models.key && keySlotRequired({ ...retyped, modelBindings });
   return {
     ...retyped,
@@ -877,6 +876,20 @@ export function setProfileType(
     },
     modelBindings,
   };
+}
+
+const MODEL_PROFILE_TYPES: readonly ModelProfileType[] = ['text', 'image', 'speech', 'live', 'decision'];
+
+/** Whether `keys` list the model for some other type, and not for `type`. */
+function listedForOthers(
+  keys: ModelPicks | undefined,
+  type: ModelProfileType,
+  route: { adapter: string | undefined; apiId: string },
+): boolean {
+  if (!keys) return false;
+  const listed = (each: ModelProfileType) =>
+    keys.models(each, route.adapter).some((model) => model.id === route.apiId.trim());
+  return !listed(type) && MODEL_PROFILE_TYPES.some((each) => each !== type && listed(each));
 }
 
 // The slot the studio's server fills; named slots in the editor replace this.

@@ -13,6 +13,7 @@ import {
 } from '../../studio/mod.ts';
 import { assertMalformed } from '../fixtures/malformed.ts';
 import { STUB_WRITE, stubRecord, stubSpan } from '../fixtures/trace-record.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 function recordFor(metadata: Record<string, unknown> | undefined): TraceRecord {
   return { ...stubRecord(), ...(metadata ? { metadata } : {}), spans: [stubSpan()] };
@@ -56,7 +57,7 @@ Deno.test('the trace feed keeps records in arrival order and tells its listeners
 });
 
 Deno.test('a studio run stream sends turn events to the turn and trace lines to the feed', async () => {
-  const compiled = compileStudio(createExampleDraft());
+  const compiled = compileStudio(createExampleDraft(), ON_OWN_KEYS);
   if (!compiled.ok) throw new Error(JSON.stringify(compiled.issues));
   const record = recordFor({ [STUDIO_RUN_METADATA_KEY]: 'run' });
   const text: TurnEvent = { type: 'text', text: 'hi' };

@@ -150,7 +150,7 @@ import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
 import { GuardrailTester, ProbedAgent } from './guardrail-tester.tsx';
 import './studio.css';
 import {
-	ConnectionMode,
+	RunsOn,
 	ISSUE_ROW_ATTRIBUTE,
 	LeavePage,
 	ListBadges,
@@ -1231,7 +1231,7 @@ function screenReport(
 
 /** What th30's surface reaches on the page beyond the store; read through a ref so it is always the latest. */
 type SurfacePage = {
-	mode: ReturnType<typeof useStudioConnection>['mode'];
+	on: ReturnType<typeof useStudioConnection>['on'];
 	connection: ReturnType<typeof useStudioConnection>;
 	replaceWorkspace: (next: StudioWorkspace, message: string, by?: 'th30' | 'visitor') => void;
 	copy: (text: string, what: string) => void;
@@ -1253,7 +1253,7 @@ function studioSurfaceHost(
 	return {
 		getDraft: store.getDraft,
 		getRevision: store.getRevision,
-		getMode: () => page.current.mode,
+		getRunsOn: () => page.current.on,
 		update: (next) => {
 			store.updateDraft(next, 'th30');
 			const reach = store.getPending();
@@ -1333,7 +1333,7 @@ function runMembers(
 	/** What the chatted agent runs, with the agents it names. */
 	const runNow = () => {
 		const workspace = store.getWorkspace();
-		const result = compileWorkspace(workspace, page.current.mode);
+		const result = compileWorkspace(workspace, page.current.on);
 		return result.ok
 			? workspaceRunAgent(result, agentIdOf(workspace, workspace.chatWith))
 			: undefined;
@@ -1350,7 +1350,7 @@ function runMembers(
 			openInNewTab(
 				{
 					...runPayload(result),
-					connectionMode: page.current.mode,
+					connectionMode: page.current.on.mode,
 					localBaseUrl: page.current.connection.local.baseUrl,
 				},
 				page.current.project,
@@ -1358,7 +1358,7 @@ function runMembers(
 		},
 		exportAgent: (format) => {
 			const workspace = store.getWorkspace();
-			const result = compileWorkspace(workspace, page.current.mode);
+			const result = compileWorkspace(workspace, page.current.on);
 			const agent = result.ok ? compiledAgent(result, workspace, workspace.chatWith) : undefined;
 			if (!result.ok || !agent) return Promise.resolve(false);
 			const code = projectCode(page.current.project, workspace);
@@ -1801,6 +1801,7 @@ function useOpenOrigin(project: ProjectSession | null) {
 /** Keys are the workspace's: every agent's slots, so a called agent's key is asked for too. */
 function useWorkspaceConnection(workspace: StudioWorkspace): StudioConnectionState {
 	const inProject = useProject() !== null;
+	const { lentKeys, toolHandlers } = useStudioHost();
 	const bindings = workspace.agents.flatMap((agent) =>
 		agent.modelBindings.map((binding) => ({
 			...modelRoute(workspace.providers, agent.identity.profileType, binding),
@@ -1818,7 +1819,7 @@ function useWorkspaceConnection(workspace: StudioWorkspace): StudioConnectionSta
 			}),
 		])
 		.filter((slot): slot is string => Boolean(slot));
-	return useStudioConnection(bindings, undefined, namedSlots);
+	return useStudioConnection(bindings, undefined, namedSlots, { lentKeys, toolHandlers });
 }
 
 /** The frame: the resizable panel on the left. */
@@ -1872,11 +1873,11 @@ function useWorkspaceCompile(
 	focus: string,
 	connection: StudioConnectionState,
 ) {
-	const { mode } = connection;
+	const { mode, on } = connection;
 	const settled = useDebounced(workspace, COMPILE_DEBOUNCE_MS);
 	const compile = useMemo(
-		() => ({ workspace: settled, result: compileWorkspace(settled, mode) }),
-		[settled, mode],
+		() => ({ workspace: settled, result: compileWorkspace(settled, on) }),
+		[settled, on],
 	);
 	const compiled = compile.result;
 	const lastGood = useLastGood(compile);
@@ -2681,7 +2682,7 @@ function EditorBody({
 	return (
 		<ScrollableArea key={selected} label="Editor" height="100%" ref={editorRef}>
 			<ListBadges value={listBadges}>
-				<ConnectionMode.Provider value={connection.mode}>
+				<RunsOn.Provider value={connection.on}>
 					<LocalConnection.Provider value={connection}>
 						<WorkspaceContext.Provider value={workspaceContext}>
 							{provider ? (
@@ -2711,7 +2712,7 @@ function EditorBody({
 							)}
 						</WorkspaceContext.Provider>
 					</LocalConnection.Provider>
-				</ConnectionMode.Provider>
+				</RunsOn.Provider>
 			</ListBadges>
 		</ScrollableArea>
 	);
@@ -3057,7 +3058,7 @@ function useStudioPage(opened: StudioOpened) {
 	const openKeys = useOpenKeys(view.setKeysOpen);
 	const chatRef = useStudioSurface(store, {
 		confirmWrite: asking.confirm,
-		mode: connection.mode,
+		on: connection.on,
 		connection,
 		replaceWorkspace,
 		copy,

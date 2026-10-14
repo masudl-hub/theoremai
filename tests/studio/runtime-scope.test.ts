@@ -10,6 +10,8 @@ import {
 } from '../../studio/runtime-scope.ts';
 import { PrototypeAdapter } from '../fixtures/prototype-adapter.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
+import { ON_TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 function afterRemoteRead(guardrails: object | undefined): unknown {
   return guardrails && 'taint' in guardrails
@@ -20,7 +22,7 @@ function afterRemoteRead(guardrails: object | undefined): unknown {
 async function runOn(runtime: StudioRuntime) {
   const draft = createExampleDraft();
   draft.guardrails.allowPrivateNetworks = true;
-  const compiled = compileStudio(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok, JSON.stringify(!compiled.ok && compiled.issues));
   const { profile } = await studioScope(
     compiled.profile,
@@ -32,7 +34,7 @@ async function runOn(runtime: StudioRuntime) {
 }
 
 Deno.test("the Network note says what the studio's runtime does with the rules", async () => {
-  const demo = await runOn({ mode: 'demo' });
+  const demo = await runOn(ON_TEST_KEYS);
   assertEquals(demo.guardrails?.network, undefined);
   assertEquals(demo.note, 'Studio server: public hosts only.');
 
@@ -51,33 +53,31 @@ Deno.test("the Network note says what the studio's runtime does with the rules",
 });
 
 Deno.test('the Taint note says studio runs refuse destructive calls after a remote read', async () => {
-  assertEquals(afterRemoteRead((await runOn({ mode: 'demo' })).guardrails), 'destructive');
+  assertEquals(afterRemoteRead((await runOn(ON_TEST_KEYS)).guardrails), 'destructive');
   assert(STUDIO_TAINT_NOTE.includes('refuse destructive calls'));
 
   const draft = createExampleDraft();
   draft.guardrails.taintAfterRemoteRead = 'write';
-  const compiled = compileStudio(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok);
   const { profile } = await studioScope(
     compiled.profile,
     compiled.customTools,
     compiled.structured,
-    {
-      mode: 'demo',
-    },
+    ON_TEST_KEYS,
   );
   assertEquals(afterRemoteRead(profile.guardrails), 'write');
   assert(STUDIO_TAINT_NOTE.includes('Stricter settings hold'));
 });
 
 Deno.test('Studio compiled profiles run through a class adapter in their isolated scope', async () => {
-  const compiled = compileStudio(createExampleDraft());
+  const compiled = compileStudio(createExampleDraft(), ON_OWN_KEYS);
   assert(compiled.ok);
   const { scope, profile } = await studioScope(
     compiled.profile,
     compiled.customTools,
     compiled.structured,
-    { mode: 'demo' },
+    ON_TEST_KEYS,
   );
   if (profile.type !== 'text') throw new Error('Expected a text profile');
   const options = fixtureHostOptions(
@@ -112,13 +112,13 @@ Deno.test('Studio compiled profiles run through a class adapter in their isolate
 });
 
 Deno.test('Studio runtime vault does not resolve inherited credentials', async () => {
-  const compiled = compileStudio(createExampleDraft());
+  const compiled = compileStudio(createExampleDraft(), ON_OWN_KEYS);
   assert(compiled.ok);
   const { scope, profile } = await studioScope(
     compiled.profile,
     compiled.customTools,
     compiled.structured,
-    { mode: 'demo' },
+    ON_TEST_KEYS,
   );
   if (profile.type !== 'text') throw new Error('Expected a text profile');
   let resolved = 0;

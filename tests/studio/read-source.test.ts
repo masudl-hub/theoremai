@@ -13,10 +13,12 @@ import {
   withAgentDraft,
   workspaceFromDraft,
 } from '../../studio/mod.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
+import { TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 /** The file the printer emits, read back, prints as the same file. */
 function roundTrip(draft: ReturnType<typeof createExampleDraft>): void {
-  const compiled = compileStudio(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok, compiled.ok ? '' : compiled.issues.map((issue) => issue.message).join('\n'));
   const source = studioSource(compiled);
   const read = readStudioSource(source, draft);
@@ -25,7 +27,7 @@ function roundTrip(draft: ReturnType<typeof createExampleDraft>): void {
       read.errors.map((error) => `${error.line}:${error.column} ${error.message}`).join('\n'),
     );
   }
-  const again = compileStudio(read.draft);
+  const again = compileStudio(read.draft, ON_OWN_KEYS);
   assert(again.ok, again.ok ? '' : again.issues.map((issue) => issue.message).join('\n'));
   const printed = studioSource(again);
   if (printed !== source) {
@@ -51,7 +53,7 @@ Deno.test('a list label reads back from the file as a line each', () => {
     ),
   };
   roundTrip(withList);
-  const compiled = compileStudio(withList);
+  const compiled = compileStudio(withList, ON_OWN_KEYS);
   assert(compiled.ok);
   const read = readStudioSource(studioSource(compiled), draft);
   assert(read.ok);
@@ -69,7 +71,7 @@ Deno.test('both taint settings in the file come back into the draft', () => {
   const draft = createExampleDraft();
   draft.guardrails.taintAfterRemoteRead = 'write';
   draft.guardrails.taintRemoteDestination = 'block';
-  const compiled = compileStudio(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok);
   const read = readStudioSource(studioSource(compiled), createExampleDraft());
   assert(read.ok);
@@ -79,7 +81,7 @@ Deno.test('both taint settings in the file come back into the draft', () => {
 
 Deno.test('an unknown tool type is marked and does not become the draft', () => {
   const draft = createExampleDraft();
-  const compiled = compileStudio(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok, compiled.ok ? '' : compiled.issues.map((issue) => issue.message).join('\n'));
   const source = studioSource(compiled);
   const broken = source.replace("type: 'http'", "type: 'mc'");
@@ -98,7 +100,7 @@ Deno.test('an unknown tool type is an issue, not a throw', () => {
   draft.toolSpecs = draft.toolSpecs.map((tool, index) =>
     index === 0 ? { ...tool, toolType: 'mc' as typeof tool.toolType } : tool,
   );
-  const compiled = compileStudio(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(!compiled.ok);
   assert(
     compiled.issues.some((issue) => issue.field === 'toolType' && issue.message.includes('mcp')),
@@ -107,7 +109,7 @@ Deno.test('an unknown tool type is an issue, not a throw', () => {
 
 function exampleFile(): { draft: ReturnType<typeof createExampleDraft>; source: string } {
   const draft = createExampleDraft();
-  const compiled = compileStudio(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok, compiled.ok ? '' : compiled.issues.map((issue) => issue.message).join('\n'));
   return { draft, source: studioSource(compiled) };
 }
@@ -149,7 +151,7 @@ Deno.test('removing the T2 loader from tools.allow clears the loader and still c
   const read = readStudioSource(source.slice(0, allowAt) + allow + source.slice(allowEnd), draft);
   if (!read.ok) throw new Error(read.errors.map((error) => error.message).join('\n'));
   assertEquals(read.draft.tools.t2Loader, '');
-  const again = compileStudio(read.draft);
+  const again = compileStudio(read.draft, ON_OWN_KEYS);
   assert(again.ok, again.ok ? '' : again.issues.map((issue) => issue.message).join('\n'));
 });
 
@@ -186,7 +188,7 @@ Deno.test('a structured output with streaming and repair settings reads back', (
     repairGuidance: 'Return the plan as JSON.',
   };
   roundTrip(draft);
-  const compiled = compileStudio(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok);
   const read = readStudioSource(studioSource(compiled), createExampleDraft());
   assert(read.ok);
@@ -200,7 +202,7 @@ Deno.test('a structured output with streaming and repair settings reads back', (
 });
 
 Deno.test('a continue list the file leaves out opens as the kernel reads it, not as none', () => {
-  const compiled = compileStudio(createExampleDraft());
+  const compiled = compileStudio(createExampleDraft(), ON_OWN_KEYS);
   assert(compiled.ok);
   const source = studioSource(compiled).replace(/\n\s*allowContinue: \[[^\]]*\],/, '');
   const read = readStudioSource(source, createExampleDraft());
@@ -214,7 +216,7 @@ Deno.test('a continue list the file leaves out opens as the kernel reads it, not
 });
 
 Deno.test('a live profile’s session settings read back', () => {
-  const draft = setProfileType(createExampleDraft(), 'live');
+  const draft = setProfileType(createExampleDraft(), 'live', TEST_KEYS);
   draft.live = {
     ...draft.live,
     ingressVideo: !draft.live.ingressVideo,
@@ -231,7 +233,7 @@ Deno.test('a live profile’s session settings read back', () => {
     vadSilenceDurationMs: 600,
   };
   roundTrip(draft);
-  const compiled = compileStudio(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok);
   const read = readStudioSource(studioSource(compiled), draft);
   assert(read.ok);
@@ -247,7 +249,7 @@ Deno.test('context and a tool the page answers read back', () => {
   draft.toolSpecs = draft.toolSpecs.map((tool, index) =>
     index === at ? { ...tool, answeredBy: 'page' as const, stubOutputJson: '{"ok":true}' } : tool,
   );
-  const compiled = compileStudio(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok);
   const source = studioSource(compiled);
   const read = readStudioSource(source, draft);
@@ -266,7 +268,7 @@ Deno.test('context and a tool the page answers read back', () => {
 Deno.test('saved-state mismatch policy survives a Studio source round trip', () => {
   const draft = createExampleDraft();
   draft.models.providerStateMismatch = 'error';
-  const compiled = compileStudio(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok);
   assert(compiled.profile.type === 'text');
   assertEquals(compiled.profile.providerContinuation, { onMismatch: 'error' });
@@ -279,7 +281,7 @@ Deno.test('saved-state mismatch policy survives a Studio source round trip', () 
 Deno.test('who holds the conversation survives a Studio source round trip', () => {
   const draft = createExampleDraft();
   draft.models.providerHistory = 'provider';
-  const compiled = compileStudio(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok);
   assert(compiled.profile.type === 'text');
   assertEquals(compiled.profile.providerContinuation, {
@@ -295,7 +297,7 @@ Deno.test('who holds the conversation survives a Studio source round trip', () =
 Deno.test('a stateless profile survives a Studio source round trip', () => {
   const draft = createExampleDraft();
   draft.models.providerHistory = 'stateless';
-  const compiled = compileStudio(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok);
   assert(compiled.profile.type === 'text');
   assertEquals(compiled.profile.providerContinuation, {

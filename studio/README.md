@@ -61,7 +61,7 @@ stays out of every npm/JSR artifact. Consumers link it directly, e.g.
 | `studioTree()`, `studioNodeRef()`, `modelBindingNodeId()`, `toolSpecNodeId()` | The draft as a tree; node ids that issues point at |
 | `compileStudio()` | Draft → profile definition, custom tools, structured schema; or issues keyed by node |
 | `studioSource()` | Compiled draft as a TypeScript module (`registerTool`, `defineProfile`, `registerProfile`) |
-| `modelBindingViolation()`, `GEMINI_STUDIO_MODELS`, … | Which models and built-in tools the public studio allows |
+| `LentKeys`, `StudioRunsOn`, `ON_OWN_KEYS`, `modelBindingViolation()` | What a studio runs on: a page's lent keys (which models, built-ins and decision sizes they allow), or the builder's own keys or machine |
 | `zodFromJsonSchema()`, `parseJsonSchema()` | Authored JSON Schema → Zod for registration |
 | run-payload helpers, `studioRunDefines()`, `clearStaleStudioRuns()` | Handoff of a compiled draft to the run tab, whether a kept run still defines on this package, and clearing the ones that do not |
 | `createStudioTransport()`, `studioInterface()` | The run tab's transport for a compiled draft; its `traces` feed receives the records each run writes |
@@ -71,7 +71,7 @@ stays out of every npm/JSR artifact. Consumers link it directly, e.g.
 | `demoToolSpecs()`, `demoInputsSpec()` | Every example tool seed, and the inputs facet seed |
 | `DEMO_CONCIERGE_SYSTEM`, `DEMO_ALLOWED_HOSTS` | Demo system prompt and egress allowlist |
 | `DEMO_HTTP_SAMPLE_INPUT`, `demoHttpSampleInput()` | Connection-test payloads for demo HTTP tools |
-| `studioDemoHandler()`, `StudioDemoHandler` | Local function-tool handlers (unit conversion, haversine, …) |
+| `registerStudioTools()`, `StudioToolHandlers` | Register a draft's tools; a function tool answers with its sample reply, else the handler the host gives for its name, else a stub from its output schema |
 | `stubOutputFromSchema()` | Generic stub object from a JSON Schema |
 | `StudioInputsSpec`, `StudioToolSeed`, `StudioToolSpecSeed` | Serializable seed shapes |
 

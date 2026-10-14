@@ -2,9 +2,10 @@ import type { InputStatus } from '@astryxdesign/core/Field';
 import {
 	type NodeOrigins,
 	rowOrigin,
-	type StudioConnectionMode,
+	ON_OWN_KEYS,
 	type StudioAsks,
 	type StudioIssue,
+	type StudioRunsOn,
 	type WriteAsk,
 } from '../mod.ts';
 import type { SettingOrigin } from '../server/save-wire.ts';
@@ -89,8 +90,8 @@ export const ISSUE_ROW_ATTRIBUTE = 'data-issue';
  */
 export const ListBadges = createContext(1);
 
-/** Execution policy selected by the studio; credentials stay outside editor state. */
-export const ConnectionMode = createContext<StudioConnectionMode>('demo');
+/** What the studio runs on: the page's lent keys, the builder's own, or their machine. */
+export const RunsOn = createContext<StudioRunsOn>(ON_OWN_KEYS);
 
 import type { StudioConnectionState } from './studio-connection.tsx';
 export const LocalConnection = createContext<Pick<

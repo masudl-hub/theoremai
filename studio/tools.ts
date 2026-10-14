@@ -1,14 +1,26 @@
-/** Function tools run the demo handler for their name, or return a stub shaped by their output schema. */
+/**
+ * Function tools answer with the builder's sample reply, else the handler the host gives for their
+ * name, else a stub shaped by their output schema.
+ */
 
 import type { ToolRegistry } from '../src/kernel/tools/registry.ts';
 import { GOOGLE_BUILTIN_TOOLS } from '../src/presets/google.ts';
-import { studioDemoHandler } from './demo-handlers.ts';
 import type { ToolRegistration } from './registrations.ts';
 import { stubOutputFromSchema } from './stub.ts';
 import { zodFromJsonSchema } from './tool-schema.ts';
 
+/** Answers a function tool's call, for a host that runs its own tools in the studio. */
+export type StudioToolHandler = (input: Record<string, unknown>) => Record<string, unknown>;
+
+/** The host's handlers, by tool name. */
+export type StudioToolHandlers = Readonly<Record<string, StudioToolHandler>>;
+
 /** Registers one studio tool, its schemas read as the file Save writes reads them. */
-export function registerCustomTool(tools: ToolRegistry, tool: ToolRegistration): void {
+export function registerCustomTool(
+  tools: ToolRegistry,
+  tool: ToolRegistration,
+  handlers: StudioToolHandlers = {},
+): void {
   const base = {
     name: tool.name,
     description: tool.description,
@@ -60,15 +72,15 @@ export function registerCustomTool(tools: ToolRegistry, tool: ToolRegistration):
     tools.register({ ...shared, type: 'function', answeredBy: 'page' });
     return;
   }
-  const demoHandler = studioDemoHandler(tool.name);
+  const handler = tool.stubResponse || !Object.hasOwn(handlers, tool.name) ? undefined : handlers[tool.name];
   const stub = tool.stubResponse ?? stubOutputFromSchema(tool.outputSchema);
   tools.register({
     ...shared,
     type: 'function',
-    handler: demoHandler
+    handler: handler
       ? (input) => {
           try {
-            return Promise.resolve(demoHandler(input as Record<string, unknown>));
+            return Promise.resolve(handler(input as Record<string, unknown>));
           } catch (err) {
             return Promise.reject(err instanceof Error ? err : new Error(String(err)));
           }
@@ -80,7 +92,8 @@ export function registerCustomTool(tools: ToolRegistry, tool: ToolRegistration):
 export function registerStudioTools(
   tools: ToolRegistry,
   customTools: readonly ToolRegistration[],
+  handlers?: StudioToolHandlers,
 ): void {
   tools.registerMany(GOOGLE_BUILTIN_TOOLS);
-  for (const tool of customTools) registerCustomTool(tools, tool);
+  for (const tool of customTools) registerCustomTool(tools, tool, handlers);
 }

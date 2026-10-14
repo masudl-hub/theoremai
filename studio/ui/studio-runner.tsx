@@ -14,6 +14,7 @@ import {
 } from '../../react/src/ui/index.ts';
 import {
 	compileWorkspace,
+	ON_OWN_KEYS,
 	createStudioHostTransport,
 	createStudioTransport,
 	type StudioConnectionMode,
@@ -259,7 +260,8 @@ function savedPayload(
 		})),
 		toolSpecs,
 	};
-	const compiled = compileWorkspace(files, payload.connectionMode);
+	// The files run in the project, on its own setup.
+	const compiled = compileWorkspace(files, ON_OWN_KEYS);
 	const run = compiled.ok ? workspaceRunAgent(compiled, start.identity.agentId.trim()) : undefined;
 	if (!run) return undefined;
 	const { agentId, profile, customTools, structured, questions, dependencies } = run;

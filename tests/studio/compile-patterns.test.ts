@@ -11,6 +11,8 @@ import {
   studioSource,
 } from '../../studio/mod.ts';
 import { studioScope } from '../../studio/runtime-scope.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
+import { ON_TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 type Guardrails = StudioDraft['guardrails'];
 
@@ -34,7 +36,7 @@ function compiled(change: (guardrails: Guardrails) => Partial<Guardrails>) {
   return compileStudio({
     ...createExampleDraft(),
     guardrails: { ...guardrails, ...change(guardrails) },
-  });
+  }, ON_OWN_KEYS);
 }
 
 function detectOf(change: (guardrails: Guardrails) => Partial<Guardrails>) {
@@ -164,9 +166,7 @@ Deno.test('exported code compiles the patterns as the host starts', () => {
 Deno.test('a run compiles the patterns where it runs, and refuses one that could hang', async () => {
   const result = compiled(ids({ theorem: false, hint: '', patterns: [ORDER] }));
   assert(result.ok, JSON.stringify(!result.ok && result.issues));
-  const { profile } = await studioScope(result.profile, result.customTools, result.structured, {
-    mode: 'demo',
-  });
+  const { profile } = await studioScope(result.profile, result.customTools, result.structured, ON_TEST_KEYS);
   const detect =
     profile.guardrails && 'detect' in profile.guardrails
       ? (profile.guardrails.detect as Record<string, { compiled?: { patterns: unknown } }>)
@@ -180,14 +180,14 @@ Deno.test('a run compiles the patterns where it runs, and refuses one that could
   );
   assert(slow.ok, JSON.stringify(!slow.ok && slow.issues));
   await assertRejects(
-    () => studioScope(slow.profile, slow.customTools, slow.structured, { mode: 'demo' }),
+    () => studioScope(slow.profile, slow.customTools, slow.structured, ON_TEST_KEYS),
     TheoremError,
     'slow',
   );
 });
 
 Deno.test("a run refuses a tool schema's pattern that could hang on what the model writes", async () => {
-  const run = compileStudio(createExampleDraft());
+  const run = compileStudio(createExampleDraft(), ON_OWN_KEYS);
   assert(run.ok, JSON.stringify(!run.ok && run.issues));
   const withPattern = (pattern: string) =>
     run.customTools.map((tool, at) =>
@@ -201,9 +201,9 @@ Deno.test("a run refuses a tool schema's pattern that could hang on what the mod
           }
         : tool,
     );
-  await studioScope(run.profile, withPattern('^ORD-\\d{6}$'), run.structured, { mode: 'demo' });
+  await studioScope(run.profile, withPattern('^ORD-\\d{6}$'), run.structured, ON_TEST_KEYS);
   await assertRejects(
-    () => studioScope(run.profile, withPattern('^(a+)+$'), run.structured, { mode: 'demo' }),
+    () => studioScope(run.profile, withPattern('^(a+)+$'), run.structured, ON_TEST_KEYS),
     TheoremError,
     'can hang',
   );

@@ -6,7 +6,6 @@ import {
   sampleFromJsonSchema,
   sampleToolInput,
   stubOutputFromSchema,
-  studioDemoHandler,
 } from '../../studio/mod.ts';
 
 Deno.test('demoToolSpecs includes http and function tools', () => {
@@ -25,15 +24,6 @@ Deno.test('demoToolSpecs includes http and function tools', () => {
 Deno.test('demoHttpSampleInput covers geocode_city', () => {
   const input = demoHttpSampleInput('geocode_city');
   assertEquals(input?.name, 'Paris');
-});
-
-Deno.test('studioDemoHandler convert_units', () => {
-  const handler = studioDemoHandler('convert_units');
-  if (!handler) {
-    throw new Error('missing convert_units handler');
-  }
-  const out = handler({ value: 32, from: 'f', to: 'c' });
-  assertEquals(typeof out.result, 'number');
 });
 
 Deno.test('stubOutputFromSchema maps properties', () => {

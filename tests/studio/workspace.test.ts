@@ -31,6 +31,7 @@ import {
   workspaceNodeRef,
   workspaceTree,
 } from '../../studio/mod.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 function must<T>(value: T | undefined): T {
   assert(value !== undefined);
@@ -109,7 +110,7 @@ Deno.test('an agent sees only the tools it allows, and compiles as a single draf
   const view = must(agentDraft(narrowed, key));
   assertEquals(view.toolSpecs, rest);
   assertEquals(narrowed.toolSpecs, workspace.toolSpecs);
-  const result = compileStudio(view);
+  const result = compileStudio(view, ON_OWN_KEYS);
   assert(result.ok, JSON.stringify(!result.ok && result.issues));
   assertEquals(allow(setToolAllowed(narrowed, key, tool, true), 0).at(-1), tool);
 });
@@ -219,7 +220,7 @@ Deno.test('an added agent gets a free id and shares the tools the library has by
   assertEquals(second.identity.agentId, `${first.identity.agentId}_2`);
   assertEquals(workspace.toolSpecs, example.toolSpecs);
   assertEquals(second.tools.allow, first.tools.allow);
-  assert(compileStudio(must(agentDraft(workspace, second.key))).ok);
+  assert(compileStudio(must(agentDraft(workspace, second.key)), ON_OWN_KEYS).ok);
 });
 
 Deno.test("picking an agent tool's agent fills a stub description, never one the builder wrote", () => {

@@ -975,14 +975,7 @@ function KeySlotRows({
 	);
 }
 
-/** Why a local model can't be picked yet, if it can't. */
-function localModelsPlaceholder(status: LocalConnectionValue['localModels']['status']) {
-	if (status === 'error') return "Can't reach the endpoint";
-	if (status === 'idle') return 'Enter the endpoint first';
-	return undefined;
-}
-
-/** A local model, picked from what the endpoint lists. */
+/** A local model, picked from what the endpoint lists, or typed while the endpoint lists nothing. */
 function LocalApiModelRow({
 	binding,
 	localConnection,
@@ -993,6 +986,26 @@ function LocalApiModelRow({
 	set: SetBinding;
 }) {
 	const { status } = localConnection.localModels;
+	const onChange = (apiId: string) => {
+		set({ apiId });
+	};
+	if (status === 'idle' || status === 'error')
+		return (
+			<TextRow
+				label="API model"
+				path="models.*.apiId"
+				field="apiId"
+				value={binding.apiId}
+				isRequired
+				placeholder="Local model id"
+				status={
+					status === 'error'
+						? { type: 'error', message: "Can't reach the endpoint. Start it to list its models, or type the id." }
+						: undefined
+				}
+				onChange={onChange}
+			/>
+		);
 	return (
 		<ChoiceRow
 			label="API model"
@@ -1000,15 +1013,11 @@ function LocalApiModelRow({
 			field="apiId"
 			value={binding.apiId}
 			options={localConnection.localModels.ids}
-			isDisabled={status === 'idle' || status === 'error'}
 			isLoading={status === 'loading'}
-			placeholder={localModelsPlaceholder(status)}
 			emptyText="This server has no models."
 			hasSearch
 			isRequired
-			onChange={(apiId) => {
-				set({ apiId });
-			}}
+			onChange={onChange}
 		/>
 	);
 }

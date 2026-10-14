@@ -26,28 +26,37 @@ function events(...chunks: unknown[]): Response {
   return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
 }
 
-export function scripted(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const url = new URL(input instanceof Request ? input.url : String(input));
-  const key = KEYS[url.hostname];
-  if (!key) return Promise.resolve(new Response('{"error":"not this host"}', { status: 404 }));
-  if (new Headers(init?.headers).get('authorization') !== `Bearer ${key}`) {
-    return Promise.resolve(new Response('{"error":{"message":"bad key"}}', { status: 401 }));
-  }
-  if (url.hostname === 'api.typesafe.ai') return Promise.resolve(new Response(JSON.stringify(DECIDED)));
-  const { messages } = JSON.parse(String(init?.body)) as { messages: { role: string; content?: unknown }[] };
+/** The model's turn: look the city up, then answer with what the lookup returned. */
+function chat(body: BodyInit | null | undefined): Response {
+  const { messages } = JSON.parse(String(body)) as { messages: { role: string; content?: unknown }[] };
   const result = messages.find((message) => message.role === 'tool');
   if (!result) {
-    return Promise.resolve(events({
+    return events({
       choices: [{
         delta: {
           tool_calls: [{ index: 0, id: 'call_1', function: { name: 'lookup_city', arguments: '{"city":"Lisbon"}' } }],
         },
         finish_reason: 'tool_calls',
       }],
-    }));
+    });
   }
-  return Promise.resolve(events(
+  return events(
     { choices: [{ delta: { content: `Found: ${JSON.stringify(result.content)}` }, finish_reason: 'stop' }] },
     { usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 }, choices: [] },
-  ));
+  );
+}
+
+/** Why a request is refused before the model reads it: another host, or not its provider's key. */
+function refused(url: URL, init?: RequestInit): Response | undefined {
+  const key = KEYS[url.hostname];
+  if (!key) return new Response('{"error":"not this host"}', { status: 404 });
+  if (new Headers(init?.headers).get('authorization') === `Bearer ${key}`) return undefined;
+  return new Response('{"error":{"message":"bad key"}}', { status: 401 });
+}
+
+export function scripted(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const url = new URL(input instanceof Request ? input.url : String(input));
+  const answer = refused(url, init) ??
+    (url.hostname === 'api.typesafe.ai' ? new Response(JSON.stringify(DECIDED)) : chat(init?.body));
+  return Promise.resolve(answer);
 }

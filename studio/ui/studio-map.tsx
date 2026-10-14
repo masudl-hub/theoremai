@@ -618,6 +618,7 @@ export function StudioMap({
 		actions,
 	);
 	const Node = expanded ? DetailNode : TokenNode;
+	const open = nodes.find((node) => isOpen(node, selected))?.id;
 
 	return (
 		<div
@@ -663,13 +664,14 @@ export function StudioMap({
 							height={layout.height}
 							aria-hidden="true"
 						>
-							{layout.lines.map(({ link, d }) => (
+							{layout.lines.map(({ link, from, to, d }) => (
 								<path
 									key={`${link.kind}:${link.from}:${link.to}`}
 									className="map-line"
 									d={d}
 									data-kind={link.kind}
 									data-on={onLines.has(link) ? '' : undefined}
+									data-open={from === open || to === open ? '' : undefined}
 								/>
 							))}
 						</svg>

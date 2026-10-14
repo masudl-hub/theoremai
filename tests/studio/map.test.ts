@@ -262,10 +262,16 @@ Deno.test('the map is laid out in columns, with a line from the side of each nod
     layout.lines.find(({ link }) => link.from === from && link.to === to)?.d;
   const tools = agentNodeId(workspace.agents[0]?.key ?? '', 'tools');
   // Left to right: out of the card's right side, level with its Tools section, into the tool's left,
-  // level with its name: the first row of it.
-  assertEquals(line(tools, toolSpecNodeId('find')), 'M 820 120 C 870 120, 870 60, 920 60');
+  // level with its name: the first row of it. Its lines run as one for half the way, then part.
+  assertEquals(
+    line(tools, toolSpecNodeId('find')),
+    'M 820 120 L 870 120 C 895 120, 895 60, 920 60',
+  );
   // Right to left: out of the tool's left side, into the card's right, level with its name.
-  assertEquals(line(toolSpecNodeId('ask_shop'), shop), 'M 920 130 C 870 130, 870 220, 820 220');
+  assertEquals(
+    line(toolSpecNodeId('ask_shop'), shop),
+    'M 920 130 L 870 130 C 845 130, 845 220, 820 220',
+  );
   // A tool's note runs to two lines. A node with no note is its name alone: one row.
   assertEquals(layout.nodes[map.columns[1]?.[0]?.nodes[0]?.id ?? '']?.height, 20);
   // Each line names the nodes it joins, whichever section it lands on.
@@ -306,7 +312,7 @@ Deno.test('a node that was moved goes where it was put, and its lines and the ma
   const left = mapLayout(map, SIZES, { ...DETAIL, moved: { [find]: { x: 320, y: 300 } } });
   assertEquals(left.nodes[find], { x: 320, y: 300, height: 60 });
   const line = left.lines.find(({ link }) => link.from === tools && link.to === find);
-  assertEquals(line?.d, 'M 620 120 C 570 120, 570 310, 520 310');
+  assertEquals(line?.d, 'M 620 120 L 570 120 C 545 120, 545 310, 520 310');
   // Everything else holds still.
   assertEquals(left.nodes[desk ?? ''], still.nodes[desk ?? '']);
   assertEquals(left.nodes[toolSpecNodeId('ask_shop')], still.nodes[toolSpecNodeId('ask_shop')]);
@@ -361,17 +367,21 @@ Deno.test('a line that would pass behind a node between its ends goes round it',
   const workspace = opened();
   const map = workspaceMap(workspace);
   const find = toolSpecNodeId('find');
-  const layout = mapLayout(map, SIZES, { ...DETAIL, moved: { [find]: { x: 20, y: 50 } } });
-  // The model stands between the tool and its profile, from 50 down to 70: the line goes under it.
+  const model = map.columns[1]?.[0]?.nodes[0]?.id ?? '';
+  const moved = { [find]: { x: 20, y: 50 }, [model]: { x: 320, y: 110 } };
+  const layout = mapLayout(map, SIZES, { ...DETAIL, moved });
+  // The model stands between the tool and its profile, from 110 down to 130: the line goes over it.
   assertEquals(
     layout.lines.find(({ link }) => link.to === find)?.d,
-    'M 620 120 C 570 120, 570 75, 520 75 L 320 75 C 270 75, 270 60, 220 60',
+    'M 620 120 C 570 120, 570 105, 520 105 L 320 105 C 270 105, 270 60, 220 60',
   );
   // A line with nothing in its way is left as it was.
   const price = toolSpecNodeId('price');
   assertEquals(
     layout.lines.find(({ link }) => link.to === price)?.d,
-    mapLayout(map, SIZES, DETAIL).lines.find(({ link }) => link.to === price)?.d,
+    mapLayout(map, SIZES, { ...DETAIL, moved: { [model]: { x: 320, y: 110 } } }).lines.find(
+      ({ link }) => link.to === price,
+    )?.d,
   );
 });
 
@@ -401,12 +411,12 @@ Deno.test('without detail every node is one token, and a line leaves the side of
   // From the profile's token, 80 wide, level with its middle, to the tool's left: each 5 short.
   const tools = agentNodeId(workspace.agents[0]?.key ?? '', 'tools');
   const line = layout.lines.find(({ link }) => link.from === tools && link.to === find);
-  assertEquals(line?.d, 'M 705 60 C 810 60, 810 60, 915 60');
+  assertEquals(line?.d, 'M 705 60 L 865 60 C 890 60, 890 60, 915 60');
   // A width past the slot is the slot's.
   const wide = mapLayout(map, sizes, { widths: { [desk ?? '']: 900 } });
   assertEquals(
     wide.lines.find(({ link }) => link.to === find)?.d,
-    'M 825 60 C 870 60, 870 60, 915 60',
+    'M 825 60 L 865 60 C 890 60, 890 60, 915 60',
   );
 });
 

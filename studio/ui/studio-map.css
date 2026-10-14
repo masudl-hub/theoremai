@@ -57,6 +57,7 @@
 }
 
 .studio-map-lines .map-line {
+	opacity: 0.6;
 	transition:
 		opacity var(--duration-fast) var(--ease-standard),
 		stroke var(--duration-fast) var(--ease-standard);
@@ -232,11 +233,17 @@
 }
 
 .studio-map[data-lit] .map-line:not([data-on]) {
-	opacity: 0.25;
+	opacity: 0.3;
+}
+
+.studio-map .map-line[data-open] {
+	stroke: var(--color-text-secondary);
+	opacity: 1;
 }
 
 .studio-map .map-line[data-on] {
 	stroke: var(--color-accent);
+	opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {

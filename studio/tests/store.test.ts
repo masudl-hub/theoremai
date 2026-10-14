@@ -14,7 +14,7 @@ import {
   saveConversation,
 } from '../ui/lib/studio-conversation.ts';
 import { restoreStudio } from '../ui/lib/studio-restore.ts';
-import { createStudioStore } from '../ui/lib/studio-store.ts';
+import { createStudioStore, keptWorkspace } from '../ui/lib/studio-store.ts';
 
 const KEY = 'theorem.studio.v2';
 const V1_KEY = 'theorem.studio.v1';
@@ -135,4 +135,23 @@ Deno.test('each agent keeps a conversation of its own', () => {
   assert(restoreConversation('b'));
   clearConversation();
   assertEquals(restoreConversation('b'), undefined);
+});
+
+Deno.test('headers that are not a JSON object yet are not kept; the headers as they started are', () => {
+  const example = createExampleDraft();
+  const started = '{"Accept":"application/json","X-Api-Key":"s3cr3t"}';
+  const workspace = workspaceFromDraft({
+    ...example,
+    toolSpecs: example.toolSpecs.map((tool, index) => (index === 0 ? { ...tool, headersJson: started } : tool)),
+  });
+  const [tool] = workspace.toolSpecs;
+  assert(tool);
+  const typing = '{"Accept":"application/json","X-Keyboard":"s3cr3';
+  const kept = keptWorkspace({
+    ...workspace,
+    toolSpecs: workspace.toolSpecs.map((each) => (each.key === tool.key ? { ...each, headersJson: typing } : each)),
+  });
+  const shown = '{"Accept":"application/json","X-Api-Key":"••••"}';
+  assertEquals(kept.toolSpecs[0]?.headersJson, shown);
+  assertEquals(kept.starts.tools[tool.key]?.headersJson, shown);
 });

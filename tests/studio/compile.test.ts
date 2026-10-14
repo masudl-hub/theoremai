@@ -882,7 +882,16 @@ Deno.test('a header that looks like a credential is refused; Auth holds secrets'
         tool.key === geocode.key ? { ...tool, headersJson: JSON.stringify(headers) } : tool,
       ),
     });
-  for (const name of ['Authorization', 'X-API-Key', 'Cookie', 'X-Access-Token', 'Mcp-Session-Id']) {
+  // The names the kernel's own masking treats as credentials, so a kept workspace never masks a header Save could write.
+  for (const name of [
+    'Authorization',
+    'X-API-Key',
+    'Cookie',
+    'X-Access-Token',
+    'Mcp-Session-Id',
+    'X-AppId',
+    'X-Pwd',
+  ]) {
     const result = withHeaders({ [name]: 'value' });
     assert(!result.ok, name);
     assertEquals(result.issues[0].field, 'headersJson');

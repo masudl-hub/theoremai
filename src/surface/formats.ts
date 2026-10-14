@@ -94,6 +94,11 @@ function decoded(name: string): string {
  * A URL with its credential query parameters and `user:pass@` masked. The rest stays as written:
  * a `{param}` in a tool's path is not encoded.
  */
+/** Whether a header or query parameter's name says it carries a credential: what `maskHeaders` masks. */
+export function isCredentialName(name: string): boolean {
+  return CREDENTIAL_NAME.test(name);
+}
+
 export function maskUrl(raw: string): string {
   const names = URL.canParse(raw) ? CREDENTIAL_NAME : QUERY_CREDENTIAL;
   return raw
@@ -165,7 +170,7 @@ export function maskHeaders(raw: unknown): unknown {
   const masked = Object.fromEntries(
     Object.entries(headers).map(([name, value]) => [
       name,
-      CREDENTIAL_NAME.test(name) ? MASK : value,
+      isCredentialName(name) ? MASK : value,
     ]),
   );
   return typeof raw === 'string' ? JSON.stringify(masked) : masked;

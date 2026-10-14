@@ -50,30 +50,37 @@ export interface DraftChange {
 	sections: string[];
 }
 
-const CREDENTIAL_TEXT = /auth|key|token|secret|passw|cookie|session|signature|credential/i;
+/** Headers that are a JSON object, else undefined: what can be masked with certainty. */
+function headersObject(raw: string): Record<string, unknown> | undefined {
+	try {
+		const parsed: unknown = JSON.parse(raw);
+		return isRecord(parsed) ? parsed : undefined;
+	} catch {
+		return undefined;
+	}
+}
 
 /**
  * Headers as kept: unchanged (formatting and all) when nothing in them is a credential, masked when
- * something is. Text that isn't JSON yet is kept unless it looks like it carries one.
+ * something is. Text that isn't a JSON object yet isn't kept: the headers as they started are, so
+ * nothing in it reaches storage unmasked.
  */
-function keptHeaders(raw: string): string {
-	let parsedHeaders: unknown;
-	try {
-		parsedHeaders = JSON.parse(raw);
-	} catch {
-		return CREDENTIAL_TEXT.test(raw) ? '' : raw;
-	}
-	const masked = maskHeaders(raw);
-	return typeof masked === 'string' && masked !== JSON.stringify(parsedHeaders) ? masked : raw;
+function keptHeaders(raw: string, started: string | undefined): string {
+	const headers = headersObject(raw);
+	if (!headers) return started && started !== raw ? keptHeaders(started, undefined) : '';
+	const masked = maskHeaders(headers);
+	return isRecord(masked) && Object.keys(headers).some((name) => masked[name] !== headers[name])
+		? JSON.stringify(masked)
+		: raw;
 }
 
-/** A tool as kept: its URLs and headers with their credentials masked. */
-export function keptTool(tool: ToolSpecDraft): ToolSpecDraft {
+/** A tool as kept: its URLs and headers with their credentials masked. `started` is its start. */
+export function keptTool(tool: ToolSpecDraft, started?: ToolSpecDraft): ToolSpecDraft {
 	return {
 		...tool,
 		...(tool.endpoint ? { endpoint: maskUrl(tool.endpoint) } : {}),
 		...(tool.serverUrl ? { serverUrl: maskUrl(tool.serverUrl) } : {}),
-		...(tool.headersJson ? { headersJson: keptHeaders(tool.headersJson) } : {}),
+		...(tool.headersJson ? { headersJson: keptHeaders(tool.headersJson, started?.headersJson) } : {}),
 	};
 }
 
@@ -84,7 +91,7 @@ export function keptTool(tool: ToolSpecDraft): ToolSpecDraft {
 export function keptWorkspace(workspace: StudioWorkspace): StudioWorkspace {
 	return {
 		...workspace,
-		toolSpecs: workspace.toolSpecs.map(keptTool),
+		toolSpecs: workspace.toolSpecs.map((tool) => keptTool(tool, workspace.starts.tools[tool.key])),
 		starts: {
 			...workspace.starts,
 			tools: Object.fromEntries(

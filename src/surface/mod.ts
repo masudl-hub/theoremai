@@ -8,6 +8,7 @@
 
 export type { SecretCard } from './formats.ts';
 export {
+  isCredentialName,
   knownSecrets,
   MASK,
   maskHeaders,

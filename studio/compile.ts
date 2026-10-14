@@ -66,7 +66,7 @@ import type {
   SystemPrompt,
 } from '../src/kernel/types.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
-import { MASK } from '../src/surface/mod.ts';
+import { isCredentialName, MASK } from '../src/surface/mod.ts';
 import { GOOGLE_SPEECH_FORMATS, GOOGLE_THINKING_LEVELS } from '../src/presets/google.ts';
 import { STUDIO_KEY_SLOT_CAP } from './browser-connection.ts';
 import type {
@@ -711,15 +711,13 @@ function toolLabels(
 }
 
 // Headers are saved in the draft, sent on every run and written into the export; a secret there outlives the call.
-const CREDENTIAL_HEADER = /auth|key|token|secret|passw|cookie|session|signature|credential/i;
-
 /** Why these headers can't be saved, when one of them looks like a credential. */
 export function credentialHeaderProblem(
   headers: Record<string, string> | undefined,
 ): string | undefined {
   // A masked one is the project's own: its value never came to the page, and the project fills it in.
   const name = Object.entries(headers ?? {}).find(
-    ([header, value]) => CREDENTIAL_HEADER.test(header) && value !== MASK,
+    ([header, value]) => isCredentialName(header) && value !== MASK,
   )?.[0];
   return name
     ? `${name} looks like a credential. Put it under Auth instead: Auth asks for it when a call runs and nothing saves it.` // labels-exempt: builder diagnostic
@@ -729,7 +727,10 @@ export function credentialHeaderProblem(
 function remoteToolFields(tool: ToolSpecDraft, fail: Fail) {
   const headers = parseHeaders(tool.headersJson);
   if (headers === null) {
-    fail('Headers must be a JSON object of strings.', 'headersJson');
+    fail(
+      'Headers must be a JSON object of strings. Until they are, a reload brings back the headers as they started.',
+      'headersJson',
+    );
   }
   const credential = credentialHeaderProblem(headers ?? undefined);
   if (credential) fail(credential, 'headersJson');

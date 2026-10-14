@@ -330,8 +330,8 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
 						</VStack>
 					)}
 					{differences.map((difference) => (
-						<VStack key={difference.profile} gap={1}>
-							<Text weight="semibold">{`The studio shows ${difference.profile} differently from your files.`}</Text>
+						<VStack key={`${difference.kind}:${difference.of}`} gap={1}>
+							<Text weight="semibold">{`The studio shows ${difference.of} differently from your files.`}</Text>
 							<Text type="supporting" color="secondary">
 								{`A run and Save still use your files for: ${difference.settings.join(', ')}.`}
 							</Text>

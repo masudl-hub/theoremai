@@ -19,13 +19,14 @@ import {
   getStructured,
   listProfiles,
   listProviders,
+  type RegisteredProvider,
   listTools,
   type Profile,
   type ProviderHostOptions,
   registerTool,
 } from '../../mod.ts';
 import { type StudioAsks, studioAsks } from '../asks.ts';
-import { adapterFactory, type StudioProvider } from '../providers.ts';
+import { adapterFactory, providerDefinition, type StudioProvider } from '../providers.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { shownConnection, withoutCredentials } from '../held-credentials.ts';
 import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
@@ -59,8 +60,8 @@ const STUDIO_SESSION = 'theorem-studio-local';
 /** A profile the page could not show or run, and why. */
 export type StudioProblem = { profile: string; message: string };
 
-/** A profile the studio shows differently from the project, and each setting it differs in, by path. */
-export type StudioDifference = { profile: string; settings: string[] };
+/** A profile or provider the studio shows differently from the project, and each setting it differs in, by path. */
+export type StudioDifference = { kind: 'profile' | 'provider'; of: string; settings: string[] };
 
 /** What the page opens. */
 export type StudioDescription = {
@@ -228,9 +229,38 @@ function disagreements(workspace: StudioWorkspace): { differences: StudioDiffere
     if (!profile) return [];
     const shown = plainSetting(defineProfile(withPatterns(agent.profile, compileDetect)));
     const settings = differingSettings(plainSetting(printableProfile(profile)), shown);
-    return settings.length ? [{ profile: agent.agentId, settings }] : [];
+    return settings.length ? [{ kind: 'profile', of: agent.agentId, settings }] : [];
   });
-  return { differences, unheld: [] };
+  return { differences: [...differences, ...providerDifferences(workspace)], unheld: [] };
+}
+
+/**
+ * Each opened provider that is not the one the project registered: the provider the kernel defines
+ * from what the studio holds, beside the registered one. What a project's own adapter connects
+ * with stays with the project, so only its adapter and its slots are compared.
+ */
+function providerDifferences(workspace: StudioWorkspace): StudioDifference[] {
+  const registered = new Map(listProviders().map((provider) => [provider.id, provider]));
+  const read = (provider: RegisteredProvider, connects: boolean) =>
+    plainSetting({
+      adapter: provider.adapter.id,
+      ...(connects ? { connection: provider.connection } : {}),
+      keySlot: provider.keySlot,
+      fallbackKeySlot: provider.fallbackKeySlot,
+    });
+  return workspace.providers.flatMap((provider): StudioDifference[] => {
+    const held = registered.get(provider.id);
+    if (!held) return [];
+    const connects = adapterFactory(provider.adapter) !== undefined;
+    let settings: string[];
+    try {
+      settings = differingSettings(read(held, connects), read(providerDefinition(provider), connects));
+    } catch {
+      // The kernel took a connection the studio cannot define again: all of it is shown differently.
+      settings = ['connection'];
+    }
+    return settings.length ? [{ kind: 'provider', of: provider.id, settings }] : [];
+  });
 }
 
 /** The agent that writes each model's summaries, by the model's name, where a profile names one. */

@@ -2,16 +2,21 @@ import { assertEquals } from '@std/assert';
 import { z } from 'zod';
 import {
   defineProfile,
+  defineProvider,
+  openRouterAdapter,
   PROFILE_FIELDS,
+  type ProviderAdapter,
   registerProfile,
   registerStructured,
   registerTool,
+  typesafeAdapter,
 } from '../../mod.ts';
 import { compileDetect } from '../../src/guardrails/compile-egress.ts';
 import { LABEL_KEYS, labelPlaceholders } from '../../src/guardrails/labels.ts';
 import { catalogPathFor } from '../../src/kernel/schema.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { STUDIO_POLICY_PATHS } from '../../studio/policy.ts';
+import { connectionFields, kernelAdapters } from '../../studio/providers.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 
@@ -22,6 +27,32 @@ import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
  */
 const HOST = '127.0.0.1:4983';
 registerFixtureProviders(defaultKernelScope);
+
+/** Providers that between them set everything a provider on a kernel adapter can hold. */
+function registerEveryProvider() {
+  defaultKernelScope.providers.register(
+    defineProvider({
+      id: 'every-router',
+      connection: {
+        decisionURL: 'https://decide.example/v1',
+        baseURL: 'https://router.example/v1',
+        siteUrl: 'https://garden.example',
+        siteName: 'Garden',
+      },
+      keySlot: 'slot_a',
+      fallbackKeySlot: 'slot_b',
+      adapter: openRouterAdapter(),
+    }),
+  );
+  defaultKernelScope.providers.register(
+    defineProvider({
+      id: 'every-typesafe',
+      connection: { baseURL: 'https://typesafe.example/v1' },
+      adapter: typesafeAdapter(),
+    }),
+  );
+}
+registerEveryProvider();
 
 type Json = Record<string, unknown>;
 const isRecord = (value: unknown): value is Json =>
@@ -361,4 +392,51 @@ Deno.test('every field opens in the studio as the project wrote it, but for what
   assertEquals(differences, undefined);
   // The policy list stays the only way to differ.
   assertEquals(STUDIO_POLICY_PATHS.length, 1);
+});
+
+async function described(): Promise<StudioDescription> {
+  const handler = createStudioHandler({ project: 'every', pageOrigins: [], listenHost: HOST });
+  const request = new Request(`http://${HOST}/api/studio`, { headers: { host: HOST } });
+  return (await handler(request)).json();
+}
+
+Deno.test('the providers here set everything a kernel adapter connects with', () => {
+  const registered = defaultKernelScope.providers.list();
+  const missing = kernelAdapters().flatMap((adapter) =>
+    (connectionFields(adapter) ?? [])
+      .filter(
+        (field) =>
+          !registered.some(
+            (provider) =>
+              provider.adapter.id === adapter &&
+              field.name in (provider.connection as Record<string, unknown>),
+          ),
+      )
+      .map((field) => `${adapter}.${field.name}`),
+  );
+  assertEquals(missing, []);
+});
+
+Deno.test('a provider the studio cannot hold whole is named with what it shows differently', async () => {
+  // A project's own adapter under a kernel adapter's id, connecting with what is not text.
+  defaultKernelScope.providers.register(
+    defineProvider({
+      id: 'wrapped',
+      connection: { retries: 3 },
+      adapter: {
+        ...typesafeAdapter(),
+        connectionSchema: z.strictObject({ retries: z.number() }),
+      } as unknown as ProviderAdapter<{ retries: number }, Record<string, never>, string>,
+    }),
+  );
+  try {
+    const { differences } = await described();
+    assertEquals(differences, [
+      { kind: 'provider', of: 'wrapped', settings: ['connection.retries'] },
+    ]);
+  } finally {
+    defaultKernelScope.providers.reset();
+    registerFixtureProviders(defaultKernelScope);
+    registerEveryProvider();
+  }
 });

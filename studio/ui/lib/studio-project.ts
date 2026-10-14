@@ -38,8 +38,8 @@ export interface ProjectSession {
 	providers: string[];
 	/** The profiles the page could not show or run, and why. */
 	problems: { profile: string; message: string }[];
-	/** The settings the studio holds differently from the files, by profile. None is the rule. */
-	differences: { profile: string; settings: string[] }[];
+	/** The settings the studio holds differently from the files, by profile and provider. None is the rule. */
+	differences: { kind: 'profile' | 'provider'; of: string; settings: string[] }[];
 	/** What the files hold that the studio cannot, which stops it comparing any profile. */
 	unheld: string[];
 	/** The settings several profiles share, as the project's files set them. */

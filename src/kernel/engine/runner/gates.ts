@@ -26,6 +26,7 @@ import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
 import type { BoundSystem } from '../../system-parts.ts';
 import type {
+  AttemptReason,
   ModelProvider,
   Profile,
   ProfileOutputsSpec,
@@ -43,6 +44,7 @@ import {
   formatValidationFailures,
   type ItemFailure,
   itemSchemaAt,
+  type ValidationFailure,
   valueAt,
   withListAt,
 } from './schema-validation.ts';
@@ -204,8 +206,10 @@ function evaluateEgressOutcome(args: {
   };
 }
 
-/** Out of retries, the last attempt goes out as it is, the same way a pass does. */
-type ValidationOutcome = { action: 'pass' } | { action: 'retry'; nextRequest: TurnRequest };
+/** Out of retries, the last attempt goes out as it is, carrying what still failed. */
+type ValidationOutcome =
+  | { action: 'pass'; failed?: ValidationFailure[] }
+  | { action: 'retry'; nextRequest: TurnRequest };
 
 async function evaluateValidationOutcome(args: {
   validation: NonNullable<ProfileOutputsSpec['validation']>;
@@ -231,9 +235,8 @@ async function evaluateValidationOutcome(args: {
     validation.fields,
     request.input?.slots,
   );
-  if (failures.length === 0 || !canRetry) {
-    return { action: 'pass' };
-  }
+  if (failures.length === 0) return { action: 'pass' };
+  if (!canRetry) return { action: 'pass', failed: failures };
   const nextRequest = buildRepairRequest(
     request,
     latestStructured,
@@ -268,8 +271,8 @@ function updateFlowForRetry(
   state: StepExecutionState,
   profile: Profile,
   nextReq: TurnRequest,
-  reason: 'egress' | 'validation',
-): void {
+  reason: AttemptReason,
+): TurnEventOf<'attempt'> {
   flow.currentAttempt++;
   state.trace.attempt = flow.currentAttempt;
   state.trace.root.event('theorem.attempt.retry', { attempt: flow.currentAttempt, reason });
@@ -283,12 +286,15 @@ function updateFlowForRetry(
       resolveInputParts(profile, { ...safe, input: { repair: safe.input?.repair } }),
     );
     for (const message of state.currentHistory.slice(before)) quotesOwnReply(state, message);
-    return;
+  } else {
+    // why: An image or speech call reads only its input: the repair replaces the prompt.
+    const input = resolveInputParts(profile, safe);
+    quotesOwnReply(state, input);
+    flow.currentGen = { ...flow.currentGen, input };
   }
-  // why: An image or speech call reads only its input: the repair replaces the prompt.
-  const input = resolveInputParts(profile, safe);
-  quotesOwnReply(state, input);
-  flow.currentGen = { ...flow.currentGen, input };
+  const event: TurnEventOf<'attempt'> = { type: 'attempt', attempt: flow.currentAttempt, reason };
+  state.allEmittedEvents.push(event);
+  return event;
 }
 
 /**
@@ -366,7 +372,7 @@ async function* handleEgressGate(
     return 'terminal';
   }
   if (outcome.action === 'retry') {
-    updateFlowForRetry(flow, state, profile, outcome.nextRequest, 'egress');
+    yield updateFlowForRetry(flow, state, profile, outcome.nextRequest, 'egress');
     return 'continue';
   }
   return 'pass';
@@ -461,13 +467,19 @@ function withoutItems(reply: unknown, refused: ItemFailure[]): unknown {
  *
  * why: The buffered text is the model's own JSON, which no longer matches; held text goes out as the reply that is kept, and streamed text is skipped at release as it always is.
  */
-function holdReply(state: StepExecutionState, reply: unknown, removed: ItemFailure[]): void {
+function holdReply(
+  state: StepExecutionState,
+  reply: unknown,
+  removed: ItemFailure[],
+  failed?: ValidationFailure[],
+): void {
   const event: TurnEventOf<'structured'> = {
     type: 'structured',
     structured: reply,
     ...(removed.length
       ? { removed: removed.map(({ path, reason, item }) => ({ path, reason, item })) }
       : {}),
+    ...(failed ? { failed } : {}),
   };
   state.attemptEvents = [
     ...state.attemptEvents.filter((held) => held.type !== 'structured' && held.type !== 'text'),
@@ -484,7 +496,7 @@ function startItemFix(args: {
   reply: unknown;
   refused: ItemFailure[];
   structured: NonNullable<ResolvedGeneration['structured']>;
-}): void {
+}): TurnEventOf<'attempt'> {
   const { flow, state, profile, reply, refused, structured } = args;
   const positions = new Map<string, number>();
   const rejection = refused
@@ -501,7 +513,7 @@ function startItemFix(args: {
     labelText('repair.items_guidance', {}, profile.labels),
   );
   flow.pendingItemFix = { reply, refused, structured };
-  updateFlowForRetry(flow, state, profile, nextRequest, 'validation');
+  const attempt = updateFlowForRetry(flow, state, profile, nextRequest, 'validation');
   flow.currentGen = {
     ...flow.currentGen,
     structured: {
@@ -512,6 +524,7 @@ function startItemFix(args: {
       ),
     },
   };
+  return attempt;
 }
 
 async function handleValidationGate(
@@ -520,7 +533,7 @@ async function handleValidationGate(
   state: StepExecutionState,
   profile: Profile,
   latestStructured: unknown,
-): Promise<'continue' | 'pass'> {
+): Promise<TurnEventOf<'attempt'> | 'pass'> {
   const canRetry = flow.currentAttempt < (validation.maxRetries ?? 0);
   const fix = flow.pendingItemFix;
   let reply = latestStructured;
@@ -540,10 +553,10 @@ async function handleValidationGate(
   });
 
   if (outcome.action === 'retry') {
-    updateFlowForRetry(flow, state, profile, outcome.nextRequest, 'validation');
-    return 'continue';
+    return updateFlowForRetry(flow, state, profile, outcome.nextRequest, 'validation');
   }
   if (reply === undefined) return 'pass';
+  if (outcome.failed) markFailed(state, outcome.failed);
   const slots = flow.currentReq.input?.slots;
   const refused = await collectItemFailures(reply, validation.items, {
     ...(slots ? { slots } : {}),
@@ -554,11 +567,16 @@ async function handleValidationGate(
   const structured = flow.currentGen.structured;
   // invariant: Refused items get one rewrite. Refused again, they are removed.
   if (fixable.length > 0 && canRetry && !fix && structured) {
-    startItemFix({ flow, state, profile, reply, refused: fixable, structured });
-    return 'continue';
+    return startItemFix({ flow, state, profile, reply, refused: fixable, structured });
   }
-  holdReply(state, withoutItems(reply, refused), refused);
+  holdReply(state, withoutItems(reply, refused), refused, outcome.failed);
   return 'pass';
+}
+
+/** Puts on the attempt's structured output the fields that still failed. */
+function markFailed(state: StepExecutionState, failed: ValidationFailure[]): void {
+  const held = findLast(state.attemptEvents, (event) => event.type === 'structured');
+  if (held) state.attemptEvents[state.attemptEvents.indexOf(held)] = { ...held, failed };
 }
 
 type AttemptStepAction =
@@ -662,7 +680,8 @@ async function* executeSingleAttemptCycle(args: {
 
   if (validation) {
     const status = await handleValidationGate(validation, flow, state, profile, latestStructured);
-    if (status === 'continue') {
+    if (status !== 'pass') {
+      yield status;
       return { status: 'continue' };
     }
   }

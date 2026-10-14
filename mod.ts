@@ -502,6 +502,7 @@ export {
   awaitingUserInputSchema,
   type GateReference,
   gateReferenceSchema,
+  keptReply,
   TURN_EVENT_SCHEMAS,
   toolGateSchema,
   turnDoneOf,

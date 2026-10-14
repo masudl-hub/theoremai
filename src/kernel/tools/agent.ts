@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import type { ToolOrigin } from '../../guardrails/types.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
-import { interactionPartSchema, sourceSchema } from '../turn-events.ts';
+import { interactionPartSchema, keptReply, sourceSchema } from '../turn-events.ts';
 import type {
   Profile,
   ProfileId,
@@ -251,7 +251,8 @@ function agentToolOrigin(profile: Profile | undefined): ToolOrigin {
  *
  * why: A structured reply's text is the same JSON as a string, so returning both would have the caller's model read the answer twice.
  */
-function agentToolOutputOf(events: readonly TurnEvent[]): AgentToolOutput {
+function agentToolOutputOf(turn: readonly TurnEvent[]): AgentToolOutput {
+  const events = keptReply(turn);
   const text = events.flatMap((e) => (e.type === 'text' ? [e.text] : [])).join('');
   const reply = findLast(events, (e): e is TurnEventOf<'structured'> => e.type === 'structured');
   const structured = reply?.structured;

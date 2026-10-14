@@ -5,7 +5,7 @@ import { TheoremError } from '../guardrails/error.ts';
 import { type LabelOverrides, labelText } from '../guardrails/labels.ts';
 import { mediaKindForMime } from '../kernel/registry/catalog.ts';
 import { formatToolFailureForModel, formatToolResult } from '../kernel/tools/model-text.ts';
-import type { ToolCallRequest } from '../kernel/turn-events.ts';
+import { keptReply, type ToolCallRequest } from '../kernel/turn-events.ts';
 import type { InteractionPart, TurnBlob, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
 import { applyToolEvent, toolCallRanWith } from './tool-calls.ts';
 import type { ToolCall, TranscriptBlock, UserTurnDraft } from './types.ts';
@@ -228,7 +228,7 @@ function foldAssistantEvents(
     step = undefined;
   };
 
-  for (const event of events) {
+  for (const event of keptReply(events)) {
     if (event.type === 'text') {
       flushStep();
       textBuf += event.text;
@@ -236,7 +236,8 @@ function foldAssistantEvents(
     }
     if (event.type === 'structured' && event.structured !== undefined) {
       flushStep();
-      flushText();
+      // why: The streamed text is this reply's JSON as the model wrote it; the structured output is the reply as kept.
+      textBuf = '';
       next = [...next, { role: 'assistant', content: JSON.stringify(event.structured) }];
       continue;
     }

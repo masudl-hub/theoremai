@@ -1048,6 +1048,7 @@ function hostContentOf(event: ProviderEvent): unknown[] {
       return [event.tool];
     case 'error':
       return [event.error, event.errorCopy];
+    case 'attempt':
     case 'media':
     case 'tokens':
     case 'guardrail':

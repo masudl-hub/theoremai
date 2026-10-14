@@ -35,7 +35,7 @@ import { type BoundSystem, bindSystem } from '../../system-parts.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
 import { cloneTurnToolSnapshot, expandT1Policy } from '../../tools/resolve.ts';
 import type { InvokeToolRequest } from '../../tools/types.ts';
-import { turnDoneOf } from '../../turn-events.ts';
+import { keptReply, turnDoneOf } from '../../turn-events.ts';
 import type {
   CompactHistoryRequest,
   CompactionResult,
@@ -224,13 +224,14 @@ async function runCompactor(args: {
       ...usage,
     };
   }
+  const reply = keptReply(events);
   const structured = findLast(
-    events,
+    reply,
     (e): e is TurnEventOf<'structured'> => e.type === 'structured',
   )?.structured;
   const summary =
     structured === undefined
-      ? events.flatMap((e) => (e.type === 'text' ? [e.text] : [])).join('')
+      ? reply.flatMap((e) => (e.type === 'text' ? [e.text] : [])).join('')
       : JSON.stringify(structured);
   if (!summary.trim()) {
     return { droppedMedia, failure: { stop, empty: true }, ...usage };

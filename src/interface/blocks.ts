@@ -1,3 +1,4 @@
+import { keptReply } from '../kernel/turn-events.ts';
 import type { Source, ToolCallEvent, TurnEvent, TurnEventOf } from '../kernel/types.ts';
 import { applyToolEvent } from './tool-calls.ts';
 import { collectPromotedMediaFromToolOutput } from './tool-media.ts';
@@ -179,7 +180,7 @@ function foldTurnEvents(
   const blocks: TranscriptBlock[] = [];
   const promotedMediaUrls = new Set<string>();
 
-  for (const event of events) {
+  for (const event of keptReply(events)) {
     switch (event.type) {
       case 'thought':
         if (showThoughts && event.text) {

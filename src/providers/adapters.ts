@@ -121,6 +121,7 @@ export function translateProviderEvent(event: ProviderEvent): ProviderModelEvent
   }
   if (
     event.type === 'stage' ||
+    event.type === 'attempt' ||
     event.type === 'guardrail' ||
     event.type === 'compaction' ||
     event.type === 'provider_warning' ||

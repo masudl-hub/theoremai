@@ -872,6 +872,16 @@ export interface RemovedItem {
   item: unknown;
 }
 
+/** A field of a structured reply that still failed its checks when the turn ran out of retries. */
+export interface InvalidField {
+  /** The dotted path of the field. */
+  path: string;
+  error: string;
+}
+
+/** Why a turn threw an attempt's reply away and asked again. */
+export type AttemptReason = 'validation' | 'egress';
+
 export type TurnEvent =
   | { type: 'provider_warning'; warning: ProviderWarning }
   | {
@@ -887,7 +897,15 @@ export type TurnEvent =
       structured: unknown;
       /** Items the profile's item rules removed from `structured`, each with why. */
       removed?: RemovedItem[];
+      /** The fields still invalid when `outputs.validation` ran out of retries; the reply goes out as it is. */
+      failed?: InvalidField[];
     }
+  /**
+   * The turn threw the reply so far away and asks again. Text, media and structured output since
+   * the turn began, or since the last `attempt`, are not the reply; {@linkcode keptReply} drops them.
+   * `attempt` counts the retries: 1 for the first, as the trace's `theorem.attempt.retry` does.
+   */
+  | { type: 'attempt'; attempt: number; reason: AttemptReason }
   | { type: 'media'; media: { mimeType: string; data: string } }
   | { type: 'grounding'; grounding: GroundingEvent }
   /** Sources a provider or a tool cited; `callId` names the tool call when a tool did. */
@@ -1038,6 +1056,12 @@ const TURN_EVENTS = {
     removed: z
       .array(z.object({ path: z.string(), reason: z.string(), item: z.unknown() }))
       .optional(),
+    failed: z.array(z.object({ path: z.string(), error: z.string() })).optional(),
+  }),
+  attempt: z.object({
+    type: z.literal('attempt'),
+    attempt: z.number().int().positive(),
+    reason: z.enum(['validation', 'egress']),
   }),
   media: z.object({
     type: z.literal('media'),
@@ -1118,6 +1142,7 @@ const turnEvent = z.union([
     TURN_EVENTS.text,
     TURN_EVENTS.thought,
     TURN_EVENTS.structured,
+    TURN_EVENTS.attempt,
     TURN_EVENTS.media,
     TURN_EVENTS.grounding,
     TURN_EVENTS.citation,
@@ -1139,3 +1164,27 @@ export const turnEventSchema: z.ZodType<TurnEvent> = turnEvent;
 /** Every `TurnEvent` kind and its schema: a wire parser tells a kind it doesn't know from a malformed one it does. */
 export const TURN_EVENT_SCHEMAS: { readonly [K in TurnEventType]: z.ZodType<TurnEventOf<K>> } =
   TURN_EVENTS;
+
+/** Events that make up a reply, and that an `attempt` throws away. */
+function isReply(event: TurnEvent): boolean {
+  return event.type === 'text' || event.type === 'media' || event.type === 'structured';
+}
+
+/**
+ * `events` without the replies a retry threw away: each `attempt` drops the text, media and
+ * structured output before it, back to the turn's start or its last `done`. Tool calls, thoughts
+ * and everything else stay, since they happened.
+ */
+export function keptReply(events: readonly TurnEvent[]): TurnEvent[] {
+  const kept: TurnEvent[] = [];
+  let turnStart = 0;
+  for (const event of events) {
+    if (event.type === 'attempt') {
+      const before = kept.splice(turnStart);
+      kept.push(...before.filter((each) => !isReply(each)));
+    }
+    kept.push(event);
+    if (event.type === 'done') turnStart = kept.length;
+  }
+  return kept;
+}

@@ -12,6 +12,7 @@ import {
   type ProviderDefinition,
   TheoremError,
 } from '../mod.ts';
+import type { DetectSpec } from '../src/guardrails/detectors.ts';
 import { listsPatterns } from '../src/guardrails/host-patterns.ts';
 import type { ResolveHost } from '../src/guardrails/network.ts';
 import type { TaintGate } from '../src/guardrails/types.ts';
@@ -269,12 +270,25 @@ function runtimeProfileDefinition(
  * hostile text. The compiler loads only for a draft that has patterns.
  */
 export async function withCompiledPatterns<D extends ProfileDefinition>(def: D): Promise<D> {
-  const { guardrails } = def;
-  if (!guardrails || !('detect' in guardrails)) return def;
-  const { detect } = guardrails;
-  if (typeof detect !== 'object' || !listsPatterns(detect)) return def;
+  if (!hasPatterns(def)) return def;
   const { compileDetect } = await import('../src/guardrails/compile-egress.ts');
-  return { ...def, guardrails: { ...guardrails, detect: compileDetect(detect) } };
+  return withPatterns(def, compileDetect);
+}
+
+/** Whether `def` has a detector that lists patterns to compile. */
+function hasPatterns(def: ProfileDefinition): boolean {
+  const detect = def.guardrails && 'detect' in def.guardrails ? def.guardrails.detect : undefined;
+  return typeof detect === 'object' && listsPatterns(detect);
+}
+
+/** `def` with its patterns compiled by `compile`, for a caller that already holds the compiler. */
+export function withPatterns<D extends ProfileDefinition>(
+  def: D,
+  compile: (detect: DetectSpec) => DetectSpec,
+): D {
+  if (!hasPatterns(def)) return def;
+  const guardrails = def.guardrails as { detect: DetectSpec };
+  return { ...def, guardrails: { ...guardrails, detect: compile(guardrails.detect) } };
 }
 
 /** Registers the draft's tools, schema, and profile into `scope`, as the runtime runs it. */

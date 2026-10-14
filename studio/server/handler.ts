@@ -32,10 +32,9 @@ import { withoutCredentials } from '../held-credentials.ts';
 import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
 import { differingSettings } from '../agreement.ts';
 import { compileDetect } from '../../src/guardrails/compile-egress.ts';
-import { listsPatterns } from '../../src/guardrails/host-patterns.ts';
-import type { StudioProfileDefinition } from '../compile.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
 import { readStudioSource } from '../read-source.ts';
+import { withPatterns } from '../runtime-scope.ts';
 import { STUDIO_READER } from '../reader.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import { studioSource } from '../source.ts';
@@ -224,15 +223,6 @@ function readProfile(
   }
 }
 
-/** `profile` with its detectors' patterns compiled, as a run compiles them before it registers. */
-function withPatterns<D extends StudioProfileDefinition>(profile: D): D {
-  const { guardrails } = profile;
-  if (!guardrails || !('detect' in guardrails)) return profile;
-  const { detect } = guardrails;
-  if (typeof detect !== 'object' || !listsPatterns(detect)) return profile;
-  return { ...profile, guardrails: { ...guardrails, detect: compileDetect(detect) } };
-}
-
 /**
  * Each opened profile that is not the one the project registered: what the workspace compiles to
  * for it, beside the registered profile. A workspace that does not compile holds something the
@@ -245,7 +235,7 @@ function disagreements(workspace: StudioWorkspace): { differences: StudioDiffere
   const differences = compiled.agents.flatMap((agent): StudioDifference[] => {
     const profile = registered.get(agent.agentId);
     if (!profile) return [];
-    const shown = plainSetting(defineProfile(withPatterns(agent.profile)));
+    const shown = plainSetting(defineProfile(withPatterns(agent.profile, compileDetect)));
     const settings = differingSettings(plainSetting(printableProfile(profile)), shown);
     return settings.length ? [{ profile: agent.agentId, settings }] : [];
   });

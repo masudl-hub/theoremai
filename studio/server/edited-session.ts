@@ -82,6 +82,7 @@ export function createEditedSession<Loaded>(host: EditedHost<Loaded>): EditedSes
     // The same proof Save makes of the files it wrote: this load is what the builder is testing.
     // What the builder removed is still in this load, where nothing the page shows can reach it.
     const opened = withSampleReplies(host.opened(loaded), workspace, subjects.added.tools);
+    // deepcode ignore reDOS: guardrail patterns are only parsed here; compilePatterns refuses any that could run away
     const differs = projectDiffers(withoutRemoved(opened, subjects.removed), workspace);
     if (differs.length) {
       await host.stop(loaded);

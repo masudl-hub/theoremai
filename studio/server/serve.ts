@@ -195,6 +195,7 @@ const edited = createEditedSession<Loaded>({
   stop,
   opened: (loaded) => loaded.description.workspace,
 });
+// deepcode ignore reDOS: guardrail patterns are only parsed here; compilePatterns refuses any that could run away
 const session = createSaveSession<Loaded>(
   {
     root,

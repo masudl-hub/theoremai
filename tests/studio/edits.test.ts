@@ -1,5 +1,6 @@
 import { assertEquals } from '@std/assert';
 import { defaultKernelScope, openAIChat } from '../../mod.ts';
+import { newConversationKey } from '../../studio/conversation-key.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
 import { providerDefinition } from '../../studio/providers.ts';
 import {
@@ -23,6 +24,7 @@ registerExample();
 /** The project as the page opens it now. */
 async function described(): Promise<StudioDescription> {
   const handler = createStudioHandler({
+    conversationKey: newConversationKey(),
     project: 'example',
     pageOrigins: ['http://localhost:5174'],
     listenHost: '127.0.0.1:4983',

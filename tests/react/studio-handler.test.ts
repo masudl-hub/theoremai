@@ -1,4 +1,5 @@
 import { assertEquals } from '@std/assert';
+import { newConversationKey } from '../../studio/conversation-key.ts';
 import registerExample from '../../studio/server/example.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 
@@ -7,6 +8,7 @@ registerExample();
 const LISTEN = '127.0.0.1:4983';
 const PAGE = 'http://localhost:5174';
 const handler = createStudioHandler({
+  conversationKey: newConversationKey(),
   project: 'garden',
   pageOrigins: [PAGE],
   listenHost: LISTEN,

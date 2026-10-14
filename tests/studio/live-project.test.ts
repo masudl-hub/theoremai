@@ -5,6 +5,7 @@ registerFixtureProviders(defaultKernelScope);
 
 import { assertEquals } from '@std/assert';
 import { registerProfile, registerTraceDestination } from '../../mod.ts';
+import { newConversationKey } from '../../studio/conversation-key.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 
@@ -42,6 +43,7 @@ function served(upgrade = true) {
   const page = new MockLiveWebSocket();
   const model = new MockLiveWebSocket();
   const handler = createStudioHandler({
+    conversationKey: newConversationKey(),
     project: 'garden',
     pageOrigins: [],
     listenHost: HOST,

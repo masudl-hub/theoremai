@@ -166,6 +166,7 @@ import { movePanel } from './lib/panel-motion.ts';
 import { recordsTraces } from './lib/project-traces.ts';
 import {
 	clearConversation,
+	type ChatSealer,
 	restoreConversation,
 	saveConversation,
 } from './lib/studio-conversation.ts';
@@ -1920,7 +1921,12 @@ function useWorkspaceCompile(
 type WorkspaceCompile = ReturnType<typeof useWorkspaceCompile>;
 
 /** The preview's conversation with the chatted agent: which runner holds it, and what it resumes. */
-function useConversationRun(mode: string, chatWith: string, question: string | undefined) {
+function useConversationRun(
+	mode: string,
+	sealer: ChatSealer,
+	chatWith: string,
+	question: string | undefined,
+) {
 	// Bumping this remounts the runner: a fresh transcript and trace feed, the same profile.
 	const [conversation, setConversation] = useState(0);
 	const runKey = `${mode}:${chatWith}:${String(conversation)}`;
@@ -1930,22 +1936,23 @@ function useConversationRun(mode: string, chatWith: string, question: string | u
 	if (!firstRuns.has(chatWith)) firstRuns.set(chatWith, runKey);
 	const isFirstRun = firstRuns.get(chatWith) === runKey;
 	const [seeded] = useState(chatWith);
-	const initialChat = useMemo(
-		() => (isFirstRun ? restoreConversation(chatWith) : undefined),
-		[isFirstRun, chatWith],
+	const conversation = useMemo(
+		() => (isFirstRun ? restoreConversation(chatWith, sealer) : undefined),
+		[isFirstRun, chatWith, sealer],
 	);
 	/** A docs seed's question waits in its agent's first composer, when that resumes nothing. */
-	const initialText = isFirstRun && chatWith === seeded && !initialChat ? question : undefined;
+	const initialText = isFirstRun && chatWith === seeded && !conversation ? question : undefined;
 	/**
 	 * The runner that last sent something; a new one (cleared, or another mode) has no history,
 	 * unless it resumed a kept conversation.
 	 */
 	const [usedRun, setUsedRun] = useState<string>();
-	const isUsed = usedRun === runKey || initialChat !== undefined;
+	const isUsed = usedRun === runKey || conversation !== undefined;
 	return useMemo(
 		() => ({
 			runKey,
-			initialChat,
+			sealer,
+			conversation,
 			initialText,
 			isUsed,
 			markUsed: () => {
@@ -1953,7 +1960,7 @@ function useConversationRun(mode: string, chatWith: string, question: string | u
 			},
 			setConversation,
 		}),
-		[runKey, initialChat, initialText, isUsed],
+		[runKey, sealer, conversation, initialText, isUsed],
 	);
 }
 
@@ -2937,10 +2944,10 @@ function PreviewBody({
 						runtime={connection.runtime}
 						trace={traced ? traceOpen : undefined}
 						onActivity={run.markUsed}
-						initialChat={run.initialChat}
+						conversation={run.conversation}
 						initialText={run.initialText}
-						onChatChange={(snapshot) => {
-							saveConversation(chatWith, snapshot);
+						onConversationChange={(ref) => {
+							saveConversation(chatWith, run.sealer, ref);
 						}}
 						chatRef={chatRef}
 						slots={sent.slots}
@@ -3051,7 +3058,13 @@ function useStudioPage(opened: StudioOpened) {
 	useEffect(() => {
 		if (settingsOpen) setSheet(null);
 	}, [settingsOpen]);
-	const run = useConversationRun(connection.mode, workspace.chatWith, opened.question);
+	const run = useConversationRun(
+		connection.mode,
+		// A run in the page seals with the tab's key; the hosted demo seals on its server.
+		connection.runtime ? 'page' : 'demo',
+		workspace.chatWith,
+		opened.question,
+	);
 	useArrivalToast(opened, store);
 	const { replaceWorkspace, copy } = usePageActions(store, view, run.setConversation);
 	const asking = useConfirmWrite();

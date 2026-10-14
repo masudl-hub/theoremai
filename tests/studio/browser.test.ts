@@ -1,8 +1,9 @@
 import { assert, assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { type ModelProvider, type ProviderEvent, TheoremError } from '../../mod.ts';
 import { withPageToolDispatch } from '../../react/src/client/page-dispatch.ts';
-import type { ClientTurnEvent } from '../../react/src/client/transport.ts';
+import type { ChatLine, ClientTurnEvent } from '../../react/src/client/transport.ts';
 import { issuedOperationId } from '../../react/src/client/turn-client.ts';
+import { createSealedConversationStore } from '../../react/src/server/conversation-store.ts';
 import { createMemorySteerInbox } from '../../react/src/server/steer-inbox.ts';
 import { TEST_GOOGLE_KEY, TEST_OPENROUTER_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import {
@@ -12,15 +13,20 @@ import {
   studioKeySlots,
   studioVault,
 } from '../../studio/browser.ts';
+import { newConversationKey } from '../../studio/conversation-key.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import { compileStudio, createExampleDraft, createStudioTransport } from '../../studio/mod.ts';
 import { streamStudioTurn } from '../../studio/runtime.ts';
 import { replyText } from '../fixtures/reply.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 function payload() {
   const result = compileStudio(createExampleDraft(), ON_OWN_KEYS);
   if (!result.ok) throw new Error(JSON.stringify(result.issues));
   return result;
+}
+/** The tab's key, as a page run takes it. */
+function sealing() {
+  return { conversationKey: newConversationKey() };
 }
 function provider(events: ProviderEvent[]): ModelProvider {
   return {
@@ -39,13 +45,21 @@ Deno.test('browser and HTTP studio transports preserve turn events and traces', 
         { type: 'tokens', tokens: { input: 10, output: 2, total: 12 } },
       ]),
   };
-  const browser = createBrowserStudioTransport(compiled, runtime);
+  const browser = createBrowserStudioTransport(compiled, runtime, sealing());
   const http = createStudioTransport(compiled, {
-    fetch: async () => {
+    fetch: async (_url, init) => {
       const lines = [];
       for await (const line of streamStudioTurn({
         ...compiled,
-        input: { text: 'Hello' },
+        request: JSON.parse(String(init?.body)),
+        conversations: {
+          sessionId: 'studio-http',
+          store: createSealedConversationStore({
+            keys: { 1: newConversationKey() },
+            keyVersion: 1,
+          }),
+        },
+        signal: new AbortController().signal,
         steer: createMemorySteerInbox(),
         runtime,
       }))
@@ -53,16 +67,28 @@ Deno.test('browser and HTTP studio transports preserve turn events and traces', 
       return new Response(`${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
     },
   });
-  const directEvents: ClientTurnEvent[] = [];
-  const httpEvents: ClientTurnEvent[] = [];
+  const directEvents: ChatLine[] = [];
+  const httpEvents: ChatLine[] = [];
   await browser.turn({ input: { text: 'Hello' } }, (event) => directEvents.push(event));
   await http.turn({ input: { text: 'Hello' } }, (event) => httpEvents.push(event));
-  const normalized = (events: ClientTurnEvent[]) =>
-    events.map((event) => (event.type === 'done' ? { ...event, traceparent: undefined } : event));
+  // Each side seals with its own key, so the refs differ; the lines around them must not.
+  const normalized = (events: ChatLine[]) =>
+    events.map((event) =>
+      event.type === 'done'
+        ? { ...event, traceparent: undefined }
+        : event.type === 'conversation'
+          ? { ...event, ref: 'sealed' }
+          : event,
+    );
   assertEquals(normalized(directEvents), normalized(httpEvents));
   assertEquals(
     replyText(
-      directEvents.filter((event) => event.type !== 'unsupported' && event.type !== 'malformed'),
+      directEvents.filter(
+        (event) =>
+          event.type !== 'conversation' &&
+          event.type !== 'unsupported' &&
+          event.type !== 'malformed',
+      ),
     ),
     'Hello.',
   );
@@ -81,8 +107,8 @@ Deno.test('browser failures reject with the same public error as HTTP', async ()
       },
     }),
   };
-  const browser = createBrowserStudioTransport(compiled, runtime);
-  const emitted: ClientTurnEvent[] = [];
+  const browser = createBrowserStudioTransport(compiled, runtime, sealing());
+  const emitted: ChatLine[] = [];
   const failure = await assertRejects(() =>
     browser.turn({ input: { text: 'Hello' } }, (event) => emitted.push(event)),
   );
@@ -167,18 +193,22 @@ Deno.test('local connections refuse remote URLs and redirects, and add no auth o
 Deno.test('browser cancellation reaches the provider without contacting a site endpoint', async () => {
   const controller = new AbortController();
   let providerSignal: AbortSignal | undefined;
-  const transport = createBrowserStudioTransport(payload(), {
-    mode: 'byok',
-    provider: () => ({
-      async *complete(request) {
-        providerSignal = request.signal;
-        controller.abort();
-        yield* [];
-        request.signal?.throwIfAborted();
-      },
-    }),
-  });
-  const events: ClientTurnEvent[] = [];
+  const transport = createBrowserStudioTransport(
+    payload(),
+    {
+      mode: 'byok',
+      provider: () => ({
+        async *complete(request) {
+          providerSignal = request.signal;
+          controller.abort();
+          yield* [];
+          request.signal?.throwIfAborted();
+        },
+      }),
+    },
+    sealing(),
+  );
+  const events: ChatLine[] = [];
   await transport.turn(
     { input: { text: 'Hello' } },
     (event) => events.push(event),
@@ -224,7 +254,7 @@ Deno.test('local browser runs block HTTP tools unless explicitly enabled', async
 Deno.test('browser host gates settle through the same replay path as HTTP', async () => {
   const { createBrowserStudioHostTransport } = await import('../../studio/browser.ts');
   const { createStudioHostTransport } = await import('../../studio/transport.ts');
-  const { streamStudioCall, streamStudioInvoke } = await import('../../studio/runtime.ts');
+  const { streamStudioCall, streamStudioHostInvoke } = await import('../../studio/runtime.ts');
   const compiled = {
     agentId: 'gated-host',
     profile: { id: 'gated-host', type: 'host' as const, tools: { allow: ['echo'] } },
@@ -249,7 +279,12 @@ Deno.test('browser host gates settle through the same replay path as HTTP', asyn
     fetch: async (url, init) => {
       const body = JSON.parse(String(init?.body));
       const source = String(url).endsWith('/invoke')
-        ? streamStudioInvoke({ ...compiled, answer: body, runtime })
+        ? streamStudioHostInvoke({
+            ...compiled,
+            answer: body,
+            runtime,
+            signal: new AbortController().signal,
+          })
         : streamStudioCall({ ...compiled, call: body, runtime });
       const lines = [];
       for await (const line of source) lines.push(line);
@@ -395,11 +430,18 @@ Deno.test('browser authority preserves runtime prototype methods and private rec
       return provider([{ type: 'text', text: this.#text }]);
     }
   }
-  const transport = createBrowserStudioTransport(payload(), new Runtime());
-  const events: ClientTurnEvent[] = [];
+  const transport = createBrowserStudioTransport(payload(), new Runtime(), sealing());
+  const events: ChatLine[] = [];
   await transport.turn({ input: { text: 'Hello' } }, (event) => events.push(event));
   assertEquals(
-    replyText(events.filter((event) => event.type !== 'unsupported' && event.type !== 'malformed')),
+    replyText(
+      events.filter(
+        (event) =>
+          event.type !== 'conversation' &&
+          event.type !== 'unsupported' &&
+          event.type !== 'malformed',
+      ),
+    ),
     'Class runtime works.',
   );
 });

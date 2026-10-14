@@ -26,7 +26,8 @@ import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } fro
 import { createEditedSession } from './edited-session.ts';
 import type { ProjectEdits } from './edits.ts';
 import { answerOpen, chosenEditor, defaultEditor, type EditorHost } from './open-editor.ts';
-import { PROJECT_READY } from './project.ts';
+import { PROJECT_READY, type ProjectLoad } from './project.ts';
+import { newConversationKey } from '../conversation-key.ts';
 import { isInside } from './project-source.ts';
 import { answerSave, createSaveSession, isSaveRequest } from './save-session.ts';
 import { RUNNING_PATH } from '../ports.mjs';
@@ -78,6 +79,9 @@ async function drain(stream: ReadableStream<Uint8Array>, each: (text: string) =>
   for await (const chunk of stream) each(decoder.decode(chunk, { stream: true }));
 }
 
+/** Seals this run's chats. Every load gets it, so a chat outlives a Save; quitting ends it. */
+const conversationKey = newConversationKey();
+
 /**
  * Loads the project from disk in a new process, with the builder's unsaved `edits` laid over it
  * when there are some. Throws what it printed when it does not start.
@@ -95,18 +99,16 @@ async function loadProject(edits?: ProjectEdits): Promise<Loaded> {
       String(childPort),
       '--page',
       pageOrigins.join(','),
-      ...(edits ? ['--edits'] : []),
     ],
     cwd: root,
-    stdin: edits ? 'piped' : 'null',
+    stdin: 'piped',
     stdout: 'piped',
     stderr: 'piped',
   }).spawn();
-  if (edits) {
-    const input = process.stdin.getWriter();
-    await input.write(new TextEncoder().encode(JSON.stringify(edits)));
-    await input.close();
-  }
+  const load: ProjectLoad = { conversationKey, ...(edits ? { edits } : {}) };
+  const input = process.stdin.getWriter();
+  await input.write(new TextEncoder().encode(JSON.stringify(load)));
+  await input.close();
   let printed = '';
   const errors = drain(process.stderr, (text) => {
     printed = (printed + text).slice(-4000);

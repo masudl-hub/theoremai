@@ -17,6 +17,7 @@ import {
   createDecisionTransport,
   failedDecisionTraces,
 } from '../../react/src/client/decision-transport.ts';
+import { newConversationKey } from '../../studio/conversation-key.ts';
 import {
   createStudioHandler,
   printableProfile,
@@ -89,6 +90,7 @@ registerProfile({
 });
 
 const handler = createStudioHandler({
+  conversationKey: newConversationKey(),
   project: 'bench',
   pageOrigins: [],
   listenHost: HOST,
@@ -151,13 +153,14 @@ Deno.test('two runs at once each get their own trace', async () => {
   }
 });
 
-Deno.test("a chat turn's trace reaches the page behind its events", async () => {
+Deno.test("a chat turn's trace reaches the page behind its events, ahead of the failure", async () => {
+  // The bench's provider refuses every request, so the reply ends in its failure.
   const sent = await lines('bench-chat/turn', {
     input: { messages: [{ role: 'user', parts: [{ type: 'text', text: 'hello' }] }] },
   });
   const types = sent.map((line) => line.type);
   assertEquals(types.filter((type) => type === 'trace').length, 1);
-  assertEquals(types.at(-1), 'trace');
+  assertEquals(types.slice(-3), ['conversation', 'trace', 'error']);
   assertEquals(stored, []);
 });
 

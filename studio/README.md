@@ -34,6 +34,7 @@ Live page callbacks wait for a claimed dispatch grant. Permission and sign-in de
 The grant carries final prepared arguments. The relay routes its correlated result to the session boundary.
 The local browser runtime supplies memory coordination and result delivery for its own authoring session.
 Text and host browser transports retain the same execution authority.
+A Studio chat keeps its conversation in a sealed store. A run in the page seals with a key that the tab keeps. A project run seals with one key that `serve.ts` makes for each Studio run and hands to every load, so a chat survives a Save or an edit. Quitting Studio ends the chats. The key is never written to disk.
 Its authority remains in that browser. It does not provide recovery after a browser restart.
 Text and live browser transports save checkpoint ownership before delivery and check it before resumption.
 Runtime methods retain their original receiver, including methods that read private class fields.

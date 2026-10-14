@@ -297,8 +297,8 @@ Deno.test('a message sent while gated walks away from every waiting call in its 
     { callId: 'a', operationId: 'a' },
     { callId: 'b', operationId: 'b' },
   ]);
-  assertEquals(Object.keys(walk?.replay?.abandon ?? {}), ['a', 'b']);
-  assertEquals(walk?.replay?.abandon?.b?.input, { q: 'b' });
+  // The host reads the calls from the reply it keeps; the browser replays none of them.
+  assertEquals(walk?.replay, { sessionPermissions: [] });
   assertEquals(walk?.input, { text: 'Never mind' });
   // The paused reply posts settled, then the message, once the host has it.
   assertEquals(posted.length, 1);

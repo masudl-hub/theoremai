@@ -12,6 +12,7 @@ import { createHostTransport } from '../../react/src/client/host-transport.ts';
 import type { TurnEventSink } from '../../react/src/client/transport.ts';
 import { issuedOperationId } from '../../react/src/client/turn-client.ts';
 import { studioAsks, writeAsk, writeAskLine } from '../../studio/asks.ts';
+import { newConversationKey } from '../../studio/conversation-key.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
@@ -51,7 +52,12 @@ registerProfile(
   }),
 );
 
-const handler = createStudioHandler({ project: 'asks', pageOrigins: [], listenHost: HOST });
+const handler = createStudioHandler({
+  conversationKey: newConversationKey(),
+  project: 'asks',
+  pageOrigins: [],
+  listenHost: HOST,
+});
 
 /** The studio's page: keeps the session cookie the handler issues. */
 function transport() {

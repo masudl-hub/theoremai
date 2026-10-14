@@ -27,9 +27,10 @@ import { z } from 'zod';
 import { defineProfile, registerProfile, registerStructured, registerTool } from '../../mod.ts';
 import { compileStudio } from '../../studio/compile.ts';
 import { compileWorkspace } from '../../studio/compile-workspace.ts';
+import { newConversationKey } from '../../studio/conversation-key.ts';
 import { createBlankDraft, setProfileType } from '../../studio/draft.ts';
-import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
+import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import { TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 const HOST = '127.0.0.1:4983';
@@ -100,7 +101,12 @@ const speaker = compileStudio(
 assert(speaker.ok);
 registerProfile(speaker.profile);
 
-const handler = createStudioHandler({ project: 'open', pageOrigins: [], listenHost: HOST });
+const handler = createStudioHandler({
+  conversationKey: newConversationKey(),
+  project: 'open',
+  pageOrigins: [],
+  listenHost: HOST,
+});
 
 Deno.test('a project opens with the schema its replies take and the agent each agent tool runs', async () => {
   const request = new Request(`http://${HOST}/api/studio`, { headers: { host: HOST } });

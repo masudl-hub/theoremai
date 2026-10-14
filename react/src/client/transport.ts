@@ -127,10 +127,8 @@ export type TheoremTurnRequest = {
   turnId?: string;
   /** invariant: Both issued IDs identify each paused action that this message abandons. */
   abandon?: GateReference[];
-  replay?: Pick<TheoremReplay, 'sessionPermissions'> & {
-    /** invariant: Replay entries use operation IDs when a local host has no session store. */
-    abandon?: Record<string, TheoremReplay>;
-  };
+  /** The tools the person allowed for the page, for a host without a session (the studio). */
+  replay?: Pick<TheoremReplay, 'sessionPermissions'>;
 };
 const theoremTurnRequest = z.object({
   input: theoremTurnInput,
@@ -139,10 +137,7 @@ const theoremTurnRequest = z.object({
   effort: z.string().optional(),
   turnId: clientId.optional(),
   abandon: z.array(gateReferenceSchema).min(1).optional(),
-  replay: theoremReplay
-    .pick({ sessionPermissions: true })
-    .extend({ abandon: z.record(z.string(), theoremReplay).optional() })
-    .optional(),
+  replay: theoremReplay.pick({ sessionPermissions: true }).optional(),
 });
 true satisfies Equals<z.infer<typeof theoremTurnRequest>, TheoremTurnRequest>;
 /** A `/turn` body as `createTheoremHandler` reads it. */
@@ -536,6 +531,35 @@ export async function fetchJson(
   return parseWireJson(await response.text());
 }
 
+/** POST a conversation's read to `url`, and check the view the host answers. */
+export async function fetchConversation(
+  url: string,
+  body: unknown,
+  options: HttpOptions & { signal?: AbortSignal } = {},
+): Promise<ConversationView> {
+  const { signal, ...http } = options;
+  // labels-exempt: internal diagnostic; the user reads error.bad_response
+  return checkWire(
+    conversationView,
+    await fetchJson(url, { body, signal }, http),
+    'the conversation',
+  );
+}
+
+/** POST a rewind to `url`, and check the rewound conversation the host answers. */
+export async function fetchRewound(
+  url: string,
+  body: unknown,
+  options: HttpOptions & { signal?: AbortSignal } = {},
+): Promise<TheoremRewound> {
+  const { signal, ...http } = options;
+  return checkWire(
+    theoremRewound,
+    await fetchJson(url, { body, signal }, http),
+    'the rewound conversation', // labels-exempt: internal diagnostic; the user reads error.bad_response
+  );
+}
+
 export type HttpTransportOptions = HttpOptions & {
   /** Base URL where `createTheoremHandler` is mounted. Default `/api/theorem`. */
   endpoint?: string;
@@ -569,20 +593,9 @@ export function createHttpTransport(options: HttpTransportOptions = {}): Theorem
       postNdjson(`${base}/turn`, body, CHAT_LINES, onEvent, { ...options, signal }),
     invoke: ({ replay: _replay, ...body }, onEvent, signal) =>
       postNdjson(`${base}/invoke`, body, CHAT_LINES, onEvent, { ...options, signal }),
-    // labels-exempt: internal diagnostic; the user reads error.bad_response
-    conversation: async (body, signal) =>
-      checkWire(
-        conversationView,
-        await fetchJson(`${base}/conversation`, { body, signal }, options),
-        'the conversation',
-      ),
-    // labels-exempt: internal diagnostic; the user reads error.bad_response
-    rewind: async (body, signal) =>
-      checkWire(
-        theoremRewound,
-        await fetchJson(`${base}/rewind`, { body, signal }, options),
-        'the rewound conversation', // labels-exempt: internal diagnostic; the user reads error.bad_response
-      ),
+    conversation: (body, signal) =>
+      fetchConversation(`${base}/conversation`, body, { ...options, signal }),
+    rewind: (body, signal) => fetchRewound(`${base}/rewind`, body, { ...options, signal }),
     pageResult: (body, signal) => postJson(`${base}/page-result`, body, { ...options, signal }),
     steer: (body) => postJson(`${base}/steer`, body, options),
   };

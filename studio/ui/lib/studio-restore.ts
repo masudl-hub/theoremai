@@ -92,18 +92,16 @@ function parsed(store: Storage, key: string): unknown {
 }
 
 /**
- * A one-agent draft from before workspaces, as a workspace holding it; its conversation becomes
- * that agent's. Either way the old keys go.
+ * A one-agent draft from before workspaces, as a workspace holding it. Its conversation was kept
+ * whole, before conversations were sealed, so nothing can resume it. Either way the old keys go.
  */
 function migrateV1(store: Storage): RestoredStudio | 'discarded' | undefined {
 	const kept = parsed(store, V1_DRAFT_KEY);
 	if (kept === undefined) return undefined;
-	const chat = store.getItem(V1_CHAT_KEY);
 	store.removeItem(V1_DRAFT_KEY);
 	store.removeItem(V1_CHAT_KEY);
 	if (!isV1Draft(kept)) return 'discarded';
 	const workspace = workspaceFromDraft(kept.draft, kept.selectedId);
-	if (chat) store.setItem(`${CHAT_PREFIX}${workspace.chatWith}`, chat);
 	return { workspace, revision: kept.revision };
 }
 

@@ -50,9 +50,11 @@ import {
   workspaceFromDraft,
 } from '../workspace.ts';
 import {
+  createSealedConversationStore,
   createTheoremDecisionHandler,
   createTheoremHandler,
   createTheoremHostHandler,
+  type TheoremConversationStore,
 } from '../../react/src/server/mod.ts';
 
 /** One builder on one machine: every request is the same session, so a gate's answer finds its call. */
@@ -109,6 +111,11 @@ export type StudioHandlerOptions = {
   upgrade?: StudioUpgrade;
   /** Where the handler is mounted. Default `/api/studio`. */
   base?: string;
+  /**
+   * The key the chats' conversations are sealed with. `serve.ts` makes one per
+   * studio run and hands it to every load, so a chat outlives a Save or an edit.
+   */
+  conversationKey: string;
 };
 
 /** A project's decision questions: for each decision profile's id, its questions by their ids. */
@@ -477,6 +484,13 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
     clientEvents: STUDIO_READER,
     ...(options.host ? { host: options.host } : {}),
   };
+  // One store for every chat profile: one key, one session, so any of them opens a ref.
+  let conversationStore: TheoremConversationStore | undefined;
+  const chatStore = () =>
+    (conversationStore ??= createSealedConversationStore({
+      keys: { 1: options.conversationKey },
+      keyVersion: 1,
+    }));
   /** A decision is asked the project's questions. The profile does not hold them, so the setup names them. */
   const decision = (profile: Profile & { type: 'decision' }): Serve | undefined => {
     const questions = options.questions?.[profile.id];
@@ -507,7 +521,15 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
         withRunTraces(
           profile.type === 'host'
             ? createTheoremHostHandler({ profile: tracedToPage(profile), ...shared })
-            : createTheoremHandler({ profile: tracedToPage(profile), provider: options.provider ?? {}, ...shared }),
+            : createTheoremHandler({
+                profile: tracedToPage(profile),
+                provider: options.provider ?? {},
+                // A stateless profile keeps no conversation, so it takes no store.
+                ...(profile.providerContinuation?.history === 'stateless'
+                  ? {}
+                  : { conversationStore: chatStore() }),
+                ...shared,
+              }),
         ),
       );
     } catch (error) {

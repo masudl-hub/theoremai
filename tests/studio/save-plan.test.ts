@@ -1,6 +1,7 @@
 import { assertEquals, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
+import { newConversationKey } from '../../studio/conversation-key.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
 import registerExample from '../../studio/server/example.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
@@ -408,6 +409,7 @@ Deno.test('the diff shows each run of changed lines with the lines around it', (
 registerExample();
 const opened: StudioDescription = await (
   await createStudioHandler({
+    conversationKey: newConversationKey(),
     project: 'garden',
     pageOrigins: ['http://localhost:5174'],
     listenHost: '127.0.0.1:4983',

@@ -4,10 +4,11 @@
  * starts it again after a Save, because a module that is loaded is not read
  * from disk a second time.
  *
- *   deno run -A studio/server/project.ts <setup-module> --port <port> --page <origins> [--edits]
+ *   deno run -A studio/server/project.ts <setup-module> --port <port> --page <origins>
  *
- * With `--edits` it reads the builder's unsaved edits from its input and lays them over what the
- * setup registered, before it serves: the load that answers as the project would after a Save.
+ * It reads a `ProjectLoad` from its input: the key its chats are sealed with, and the builder's
+ * unsaved edits when there are some. Edits are laid over what the setup registered, before it
+ * serves: the load that answers as the project would after a Save.
  *
  * @module
  */
@@ -26,6 +27,9 @@ type SetupModule = {
   questions?: ProjectQuestions;
 };
 
+/** What `serve.ts` hands each load on its input. The key never touches disk. */
+export type ProjectLoad = { conversationKey: string; edits?: ProjectEdits };
+
 /** The line this prints once it listens. `serve.ts` waits for it. */
 export const PROJECT_READY = 'theorem-studio-project-ready';
 
@@ -35,11 +39,11 @@ if (import.meta.main) {
   const port = Number(flag('port'));
   const setup: SetupModule = await import(pathToFileURL(resolve(setupPath)).href);
   await setup.default?.();
+  const load: ProjectLoad = await new Response(Deno.stdin.readable).json();
   let questions = setup.questions;
-  if (flags.includes('--edits')) {
-    const edits: ProjectEdits = await new Response(Deno.stdin.readable).json();
-    await registerEdits(defaultKernelScope, edits);
-    questions = editedQuestions(edits, questions);
+  if (load.edits) {
+    await registerEdits(defaultKernelScope, load.edits);
+    questions = editedQuestions(load.edits, questions);
   }
 
   const handler = createStudioHandler({
@@ -50,6 +54,7 @@ if (import.meta.main) {
     ...(setup.provider ? { provider: setup.provider } : {}),
     ...(questions ? { questions } : {}),
     upgrade: (request) => Deno.upgradeWebSocket(request),
+    conversationKey: load.conversationKey,
   });
   Deno.serve({ hostname: '127.0.0.1', port, onListen: () => console.log(PROJECT_READY) }, handler);
 }

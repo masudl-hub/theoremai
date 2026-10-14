@@ -23,6 +23,11 @@ import {
 import { hostInterface, type HostTransport } from '../react/src/client/host-transport.ts';
 import { createTraceFeed, type TraceFeed } from '../react/src/client/trace-feed.ts';
 import {
+  CHAT_LINES,
+  type ChatLine,
+  type ChatLineSink,
+  fetchConversation,
+  fetchRewound,
   type HttpOptions,
   postJson,
   postNdjson,
@@ -88,7 +93,7 @@ export function clearStaleStudioRuns(store?: Storage | null): void {
 /** The server picks the id, so a steer reaches only a run this browser started. */
 export type StudioSteerLine = { type: 'steer_inbox'; inbox: string };
 
-type StudioLine = TurnEvent | StudioTraceLine | StudioSteerLine;
+type StudioLine = ChatLine | StudioTraceLine | StudioSteerLine;
 
 /** A trace record's line on a run's stream, as the page reads it. */
 export const studioTraceLine = z.object({ type: z.literal('trace'), record: traceRecordSchema });
@@ -97,24 +102,45 @@ const studioSteerLine = z.object({ type: z.literal('steer_inbox'), inbox: z.stri
 true satisfies Equals<z.infer<typeof studioSteerLine>, StudioSteerLine>;
 
 const studioLines: WireLines<StudioLine> = {
-  ...TURN_EVENT_SCHEMAS,
+  ...CHAT_LINES,
   trace: studioTraceLine,
   steer_inbox: studioSteerLine,
 };
 
+/** A host draft's call keeps no conversation and takes no steers: its stream is turn events and traces. */
+const hostLines: WireLines<TurnEvent | StudioTraceLine> = {
+  ...TURN_EVENT_SCHEMAS,
+  trace: studioTraceLine,
+};
+
+/** A chat's lines go to the sink; a host draft's call streams turn events alone. */
 export function routeStudioLines(
-  onEvent: TurnEventSink,
+  onLine: ChatLineSink,
   traces: TraceFeed,
   onSteerInbox: (inbox: string) => void,
 ) {
   return (line: StudioLine | UnsupportedEvent | MalformedEvent) => {
     if (line.type === 'trace') traces.push(line.record);
     else if (line.type === 'steer_inbox') onSteerInbox(line.inbox);
-    else onEvent(line);
+    else onLine(line);
   };
 }
 
 function ignoreSteerInbox(): void {}
+
+/**
+ * A host draft's call as the chat router reads it. Its wire leaves conversation
+ * lines out, so one reaching the call is a fault in the studio, not a line to drop.
+ */
+export function hostCallLines(onEvent: TurnEventSink): ChatLineSink {
+  return (line) => {
+    if (line.type === 'conversation') {
+      // labels-exempt: internal diagnostic; the user reads error.internal
+      throw new TheoremError('internal', 'a host call streamed a conversation line');
+    }
+    onEvent(line);
+  };
+}
 
 /**
  * How a studio transport reaches the server. `traces` is the feed its trace records land in:
@@ -163,6 +189,10 @@ export function createStudioTransport(
         routeStudioLines(onEvent, traces, ignoreSteerInbox),
         { ...options, signal },
       ),
+    conversation: (request, signal) =>
+      fetchConversation('/api/studio/conversation', { ...compiled, ...request }, { ...options, signal }),
+    rewind: (request, signal) =>
+      fetchRewound('/api/studio/rewind', { ...compiled, ...request }, { ...options, signal }),
     async steer({ turnId, id, inject }) {
       const inbox = inboxes.get(turnId);
       if (!inbox) {
@@ -231,8 +261,8 @@ export function createStudioHostTransport(
       postNdjson(
         '/api/studio/call',
         { ...compiled, ...request, sessionPermissions },
-        studioLines,
-        routeStudioLines(onEvent, traces, ignoreSteerInbox),
+        hostLines,
+        routeStudioLines(hostCallLines(onEvent), traces, ignoreSteerInbox),
         { ...options, signal },
       ),
     invoke: (request, onEvent, signal) => {
@@ -241,8 +271,8 @@ export function createStudioHostTransport(
         '/api/studio/invoke',
         // `replay` carries the paused call.
         { ...compiled, ...request },
-        studioLines,
-        routeStudioLines(onEvent, traces, ignoreSteerInbox),
+        hostLines,
+        routeStudioLines(hostCallLines(onEvent), traces, ignoreSteerInbox),
         { ...options, signal },
       );
     },

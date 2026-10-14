@@ -58,9 +58,8 @@ The current session schema is version 3. Previous versions require an explicit h
 
 A new message can abandon calls that its reply waits for.
 The `/turn` request lists `{ callId, operationId }` references in `abandon`.
-The host's paused reply must wait on exactly those calls. Replay entries use operation IDs as keys.
+The host's paused reply must wait on exactly those calls.
 The host cancels them before it starts the new reply.
-Custom routes use `checkWalkAway` and `walkAway` for this operation.
 
 ## Read events
 

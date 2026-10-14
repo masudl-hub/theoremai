@@ -7,11 +7,14 @@ import {
 import { type HostTransport, hostInterface } from '../react/src/client/host-transport.ts';
 import { createTraceFeed, type TraceFeed } from '../react/src/client/trace-feed.ts';
 import {
+  type ChatLineSink,
   hostError,
   isTheoremStreamError,
   type TheoremTransport,
   type TurnEventSink,
 } from '../react/src/client/transport.ts';
+import { createSealedConversationStore } from '../react/src/server/conversation-store.ts';
+import type { ReplyLine } from '../react/src/server/conversation.ts';
 import { createMemorySteerInbox, steerUnitOf } from '../react/src/server/steer-inbox.ts';
 import { clientError, forClient } from '../src/host/mod.ts';
 import type { RunDecisionOptions } from '../src/kernel/engine/decision.ts';
@@ -19,18 +22,22 @@ import { STUDIO_READER } from './reader.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import {
   failedDecisionTraces,
+  rewindStudio,
   runStudioDecision,
-  withFailedTraces,
   streamStudioCall,
+  streamStudioHostInvoke,
   streamStudioInvoke,
   streamStudioTurn,
+  studioConversation,
+  withFailedTraces,
 } from './runtime.ts';
 import type { StudioRuntimeBase } from './runtime-scope.ts';
 import type { StudioTraceLine } from './traces.ts';
 import {
   type StudioSteerLine,
-  studioInterface,
+  hostCallLines,
   routeStudioLines,
+  studioInterface,
 } from './transport.ts';
 
 /** A run in the page: on the builder's own keys or machine, never on lent keys. */
@@ -41,13 +48,9 @@ export interface StudioBrowserRuntime extends StudioRuntimeBase {
   signal?: AbortSignal;
 }
 
-function runSignal(
-  runtime: StudioBrowserRuntime,
-  signal?: AbortSignal,
-): AbortSignal | undefined {
-  return runtime.signal && signal
-    ? AbortSignal.any([runtime.signal, signal])
-    : (runtime.signal ?? signal);
+/** The run's signal: the disconnect's and the request's, either of which aborts it. */
+function runSignal(runtime: StudioBrowserRuntime, signal?: AbortSignal): AbortSignal {
+  return AbortSignal.any([runtime.signal, signal].filter((each) => each !== undefined));
 }
 
 /** A failure of a run made in the page, as the studio's reader has it. */
@@ -57,29 +60,21 @@ function failed(error: unknown, payload: StudioRunPayload): Error {
 
 /** Direct streams use the same event and trace routing as the HTTP transport. */
 async function deliver(
-  source: AsyncIterable<TurnEvent | StudioTraceLine | StudioSteerLine>,
+  source: AsyncIterable<ReplyLine | StudioTraceLine | StudioSteerLine>,
   payload: StudioRunPayload,
   sink: ReturnType<typeof routeStudioLines>,
 ): Promise<void> {
   try {
     for await (const line of source) {
-      const read = line.type === 'trace' || line.type === 'steer_inbox' ? line : forClient(line, STUDIO_READER);
+      const read =
+        line.type === 'trace' || line.type === 'steer_inbox' || line.type === 'conversation'
+          ? line
+          : forClient(line, STUDIO_READER);
       if (read.type === 'error') throw hostError(read, 'internal');
       sink(read);
     }
   } catch (error) {
     throw isTheoremStreamError(error) ? error : failed(error, payload);
-  }
-}
-
-async function* recordLocalCheckpoints(
-  source: AsyncIterable<TurnEvent | StudioTraceLine | StudioSteerLine>,
-  local: ReturnType<typeof browserExecution> | undefined,
-): AsyncGenerator<TurnEvent | StudioTraceLine | StudioSteerLine> {
-  for await (const event of source) {
-    if (local && (event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState)
-      await (await local.boundary).recordCheckpoint(event.providerState);
-    yield event;
   }
 }
 
@@ -111,10 +106,17 @@ function withBrowserExecution(runtime: StudioBrowserRuntime) {
   return { runtime, local };
 }
 
+/** The one session a page's conversations open in: the tab holds the key, so only its refs open. */
+const PAGE_SESSION = 'studio-page';
+
+/**
+ * A chat run in the page. Its conversation is sealed with `conversationKey`,
+ * a key the tab keeps, so every transport of the tab opens the same refs.
+ */
 export function createBrowserStudioTransport(
   payload: StudioRunPayload,
   runtime: StudioBrowserRuntime,
-  options: { traces?: TraceFeed } = {},
+  options: { conversationKey: string; traces?: TraceFeed },
 ): TheoremTransport {
   const prepared = withBrowserExecution(runtime);
   runtime = prepared.runtime;
@@ -122,6 +124,10 @@ export function createBrowserStudioTransport(
   const traces = options.traces ?? createTraceFeed();
   const steer = createMemorySteerInbox();
   const inboxes = new Map<string, string>();
+  const conversations = {
+    sessionId: PAGE_SESSION,
+    store: createSealedConversationStore({ keys: { 1: options.conversationKey }, keyVersion: 1 }),
+  };
   const compiled = {
     profile: payload.profile,
     customTools: payload.customTools,
@@ -129,32 +135,29 @@ export function createBrowserStudioTransport(
     dependencies: payload.dependencies,
     runtime,
   };
-  const route = (onEvent: TurnEventSink, onInbox = (_inbox: string) => {}) =>
-    routeStudioLines(onEvent, traces, onInbox);
+  const route = (onLine: ChatLineSink, onInbox = (_inbox: string) => {}) =>
+    routeStudioLines(onLine, traces, onInbox);
+  /** A request the page answers at once: its failure as the studio's reader has it. */
+  const answered = async <T>(answer: () => Promise<T>): Promise<T> => {
+    try {
+      return await answer();
+    } catch (error) {
+      throw failed(error, payload);
+    }
+  };
   return {
     pageResult: localPageResult(local),
     describe: () => Promise.resolve(studioInterface(payload)),
     async turn(request, onEvent, signal) {
       try {
-        const providerState = local
-          ? await (await local.boundary).prepareProviderState(request.providerState, request.input.history)
-          : request.providerState;
-        const source = streamStudioTurn({
-          ...compiled,
-          ...request,
-          providerState,
-          signal: runSignal(runtime, signal),
-          steer,
-          abandon: request.abandon?.map(({ callId, operationId }) => {
-            const replay = request.replay?.abandon?.[operationId];
-            if (!replay) {
-              throw new TheoremError('request', 'No replay for abandoned call'); // labels-exempt: internal diagnostic
-            }
-            return { callId, operationId, replay };
-          }),
-        });
         await deliver(
-          recordLocalCheckpoints(source, local),
+          streamStudioTurn({
+            ...compiled,
+            request,
+            conversations,
+            signal: runSignal(runtime, signal),
+            steer,
+          }),
           payload,
           route(onEvent, (inbox) => {
             if (request.turnId) inboxes.set(request.turnId, inbox);
@@ -166,13 +169,20 @@ export function createBrowserStudioTransport(
     },
     invoke: (answer, onEvent, signal) =>
       deliver(
-        recordLocalCheckpoints(streamStudioInvoke({
+        streamStudioInvoke({
           ...compiled,
           answer,
+          conversations,
           signal: runSignal(runtime, signal),
-        }), local),
+        }),
         payload,
         route(onEvent),
+      ),
+    conversation: (request) =>
+      answered(() => studioConversation(compiled, conversations, request)),
+    rewind: (request, signal) =>
+      answered(() =>
+        rewindStudio(compiled, conversations, request, runSignal(runtime, signal)),
       ),
     async steer(request) {
       const inbox = inboxes.get(request.turnId);
@@ -202,7 +212,8 @@ export function createBrowserStudioHostTransport(
     dependencies: payload.dependencies,
     runtime,
   };
-  const route = (onEvent: TurnEventSink) => routeStudioLines(onEvent, traces, () => {});
+  const route = (onEvent: TurnEventSink) =>
+    routeStudioLines(hostCallLines(onEvent), traces, () => {});
   return {
     pageResult: localPageResult(local),
     describe: () =>
@@ -229,7 +240,7 @@ export function createBrowserStudioHostTransport(
     invoke(answer, onEvent, signal) {
       sessionPermissions = answer.replay?.sessionPermissions ?? sessionPermissions;
       return deliver(
-        streamStudioInvoke({
+        streamStudioHostInvoke({
           ...compiled,
           answer,
           signal: runSignal(runtime, signal),

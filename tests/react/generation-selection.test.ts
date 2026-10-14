@@ -1,6 +1,7 @@
 import { assertEquals } from '@std/assert';
 import { followGenerationDefaults } from '../../react/src/client/generation-selection.ts';
 import type { ComposerProfileInterface } from '../../src/interface/mod.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   compileStudio,
   createExampleDraft,
@@ -16,6 +17,7 @@ function iface(edit: (draft: StudioDraft) => StudioDraft = (draft) => draft) {
   const example = createExampleDraft();
   const result = compileStudio(
     edit({ ...example, models: { ...example.models, defaultModel: 'fast' } }),
+    ON_OWN_KEYS,
   );
   if (!result.ok) throw new Error(JSON.stringify(result.issues));
   const described = studioInterface(result);

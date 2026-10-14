@@ -6,7 +6,9 @@ registerFixtureProviders(defaultKernelScope);
 import { assertEquals } from '@std/assert';
 import { type DecisionQuestion, registerProfile } from '../../mod.ts';
 import { compileWorkspace } from '../../studio/compile-workspace.ts';
+import { newConversationKey } from '../../studio/conversation-key.ts';
 import { createDecisionExampleDraft } from '../../studio/example.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   createStudioHandler,
   noQuestions,
@@ -15,7 +17,6 @@ import {
 } from '../../studio/server/handler.ts';
 import { projectDiffers } from '../../studio/server/save.ts';
 import { workspaceFromDraft } from '../../studio/workspace.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 const HOST = '127.0.0.1:4983';
 const BASE = `http://${HOST}/api/studio`;
@@ -53,6 +54,7 @@ const jevReply = {
 const asked: unknown[] = [];
 
 const handler = createStudioHandler({
+  conversationKey: newConversationKey(),
   project: 'decisions',
   pageOrigins: [],
   listenHost: HOST,
@@ -106,6 +108,7 @@ Deno.test("a decision is asked the setup's questions about the state the page se
 
 Deno.test('a decision that fails tells the builder why, not the visitor wording', async () => {
   const keyless = createStudioHandler({
+    conversationKey: newConversationKey(),
     project: 'decisions',
     pageOrigins: [],
     listenHost: HOST,
@@ -167,6 +170,7 @@ Deno.test('a decision made in the studio loads from its files as what was tested
   registerProfile(made.profile);
   const saved = (asks: Record<string, DecisionQuestion>) =>
     createStudioHandler({
+      conversationKey: newConversationKey(),
       project: 'decisions',
       pageOrigins: [],
       listenHost: HOST,

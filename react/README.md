@@ -224,7 +224,7 @@ The chat shows each gate as a card in the transcript. When the person answers, t
 
 The server saves a typed key. The browser does not keep it. For OAuth and typed keys, see [Tool credentials](https://github.com/masudl-hub/theoremai/blob/main/react/docs/credentials.md). For the data that each answer sends, see [The wire](https://github.com/masudl-hub/theoremai/blob/main/react/docs/wire.md).
 
-If the person sends a new message while a gate is open, the server cancels the open calls. The reply to the new message follows in the same stream. See [Composer, queue and steer](https://github.com/masudl-hub/theoremai/blob/main/react/docs/composer.md).
+If the person sends a new message while a gate is open, the server cancels the open calls. The message names only the calls it cancels. The server reads each call from the reply it saved, not from the browser. The reply to the new message follows in the same stream. See [Composer, queue and steer](https://github.com/masudl-hub/theoremai/blob/main/react/docs/composer.md).
 
 ## Other profile types
 

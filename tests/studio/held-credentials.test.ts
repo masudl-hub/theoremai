@@ -2,8 +2,10 @@ import { assertEquals, assertStringIncludes } from '@std/assert';
 import { defaultKernelScope, registerTool, z } from '../../mod.ts';
 import { MASK } from '../../src/surface/mod.ts';
 import { compileWorkspace } from '../../studio/compile-workspace.ts';
+import { newConversationKey } from '../../studio/conversation-key.ts';
 import type { ToolSpecDraft } from '../../studio/draft.ts';
 import { shownConnection, unheld } from '../../studio/held-credentials.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import { type ProjectEdits, registerEdits } from '../../studio/server/edits.ts';
 import registerExample from '../../studio/server/example.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
@@ -11,7 +13,6 @@ import { readProjectSource } from '../../studio/server/project-source.ts';
 import { projectNames, providerSettings, saveSubjects } from '../../studio/server/save.ts';
 import { applyEdits, planSave } from '../../studio/server/save-plan.ts';
 import { type StudioWorkspace, setToolAllowed, withProvider } from '../../studio/workspace.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 
 const ENDPOINT = 'https://gardener:trowel@soil.example/v1/{bed}/read?api_key=soil-key-1&unit=ph';
 const HEADERS = { Authorization: 'Bearer soil-token-1', 'X-Tenant': 'garden' };
@@ -40,6 +41,7 @@ function register(): void {
 
 async function described(): Promise<StudioDescription> {
   const handler = createStudioHandler({
+    conversationKey: newConversationKey(),
     project: 'garden',
     pageOrigins: ['http://localhost:5174'],
     listenHost: '127.0.0.1:4983',

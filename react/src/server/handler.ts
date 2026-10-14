@@ -40,7 +40,6 @@ import {
  */
 
 import {
-  attachmentsRefused,
   authorizeToolReplay,
   compactHistory,
   defaultKernelScope,
@@ -74,16 +73,12 @@ import {
   clientProfileInterface,
   gatedToolsFromEvents,
   interfaceFromProfile,
-  type PendingAttachment,
-  prepareUserTurn,
   promotedToolIdsFromEvents,
-  streamThoughtsEnabled,
   toolSnapshotFromEvents,
 } from '@theoremjs/agents/interface';
 import {
   type AnsweredGate,
   answerGatedCall,
-  base64ToBytes,
   type GateAnswerRequest,
   resolveGateTtlMs,
   type ToolCredentialSource,
@@ -94,10 +89,8 @@ import {
   theoremHostCallRequestSchema,
 } from '../client/host-transport.ts';
 import {
-  type EncodedBlob,
   type TheoremInvokeRequest,
   type TheoremRewound,
-  type TheoremTurnInput,
   theoremConversationRequestSchema,
   theoremInvokeRequestSchema,
   theoremRewindRequestSchema,
@@ -111,14 +104,18 @@ import {
   type IssuedWalkAway,
   messageReply,
   openConversation,
-  type PostedMessage,
+  postedInput,
+  postedMessage,
   type ReplyLine,
   type ReplyRunner,
   type ReplyTurn,
+  readerConversationHost,
+  requiredOperationId,
   requireRewindPoint,
   requireWaitingOn,
   requireWalkAway,
   rewindConversation,
+  statelessRefusal,
   waitingCalls,
 } from './conversation.ts';
 import { type TheoremConversationStore, unknownConversation } from './conversation-store.ts';
@@ -147,7 +144,6 @@ import {
 } from './session-store.ts';
 import { createMemorySteerInbox, type SteerInbox, steerStage, steerUnitOf } from './steer-inbox.ts';
 import { sameAcceptedAnswer, sessionToolCoordinator } from './tool-operations.ts';
-import { kernelTurnInput } from './turn-input.ts';
 
 export type TheoremRequestContext = {
   request: Request;
@@ -421,11 +417,6 @@ type OutcomeContext = {
   model?: string;
   promoted?: string[];
 };
-
-function requiredOperationId(call: { operationId?: string }): string {
-  if (!call.operationId) throw new TheoremError('internal', labelText('error.internal'));
-  return call.operationId;
-}
 
 /** The exact paused calls the user may now approve, when the stream stopped on gates. */
 function pendingGatesFrom(
@@ -790,71 +781,12 @@ function chatRunner(
 function conversationHost(ctx: HandlerContext, session: Session): ConversationHost | undefined {
   const store = ctx.chat?.conversations;
   if (!ctx.chat || !store) return undefined;
-  const labels = ctx.profile.labels;
-  const { clientEvents } = ctx.options;
-  return {
+  return readerConversationHost({
     sessionId: session.id,
     store,
-    showThoughts: streamThoughtsEnabled(ctx.chat.profile.outputs),
-    forReader: (event) => forClient(event, clientEvents),
-    failureText(failure) {
-      const worded = forClient(withPublicLabels(failure, labels), clientEvents);
-      return worded.type === 'error' && worded.error
-        ? worded.error
-        : labelText(`error.${failure.errorKind}`, {}, labels);
-    },
-  };
-}
-
-/** A file off the wire as the profile's input limits read it. */
-function pendingOf(blob: EncodedBlob): PendingAttachment {
-  let sizeBytes: number;
-  try {
-    sizeBytes = base64ToBytes(blob.data).length;
-  } catch {
-    // invariant: A file that is not base64 is a malformed request; its bytes must not enter diagnostics.
-    throw new TheoremError('request', labelText('error.request'), {
-      cause: { code: 'request_file_encoding' },
-    });
-  }
-  return { name: blob.name, mimeType: blob.mimeType, sizeBytes, data: blob.data };
-}
-
-/** The person's message as the profile accepts it: refused when its files break the profile's limits. */
-function postedMessage(iface: ComposerProfileInterface, input: TheoremTurnInput): PostedMessage {
-  const prepared = prepareUserTurn(
-    iface.inputs,
-    {
-      ...(input.text !== undefined ? { text: input.text } : {}),
-      ...(input.attachments ? { attachments: input.attachments.map(pendingOf) } : {}),
-      ...(input.voice ? { voice: input.voice.map(pendingOf) } : {}),
-    },
-    iface.guardrails,
-  );
-  if (!prepared.ok) throw attachmentsRefused(prepared.issues);
-  return {
-    draft: prepared.draft,
-    blocks: prepared.blocks,
-    media: {
-      ...(input.attachments ? { attachments: input.attachments } : {}),
-      ...(input.voice ? { voice: input.voice } : {}),
-    },
-  };
-}
-
-/** The message as the kernel takes it, its text as the transcript shows it. */
-function kernelInput(input: TheoremTurnInput, message: PostedMessage, server: unknown): TurnInput {
-  const { text: _sent, ...rest } = input;
-  return kernelTurnInput(
-    message.draft.text === undefined ? rest : { ...rest, text: message.draft.text },
-    server,
-  );
-}
-
-/** Refuses what only a kept conversation answers, for a profile that keeps none. */
-function statelessRefusal(what: string): TheoremError {
-  // labels-exempt: internal diagnostic; the user reads error.request
-  return new TheoremError('request', `a stateless chat keeps no conversation to ${what}`);
+    profile: { outputs: ctx.chat.profile.outputs, labels: ctx.profile.labels },
+    clientEvents: ctx.options.clientEvents,
+  });
 }
 
 /** The person's message: a new reply, run against the conversation the host keeps. */
@@ -866,7 +798,7 @@ async function turn(
 ): Promise<Response> {
   const body = await readBody(request, theoremTurnRequestSchema, ctx.options.maxRequestBytes);
   const message = postedMessage(chatInterface(chat), body.input);
-  const input = kernelInput(body.input, message, await ctx.options.context?.(request));
+  const input = postedInput(body.input, message, await ctx.options.context?.(request));
   const runner = chatRunner(ctx, request, session, body);
   const host = conversationHost(ctx, session);
   if (!host) {

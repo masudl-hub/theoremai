@@ -139,9 +139,7 @@ async function streamPreparedTurn(
     },
     {
       ...args.scope,
-      ...(walking
-        ? { walkAway: { paused: args.session, calls: gatedToolsFromEvents(paused) } }
-        : {}),
+      ...(walking ? { walkAway: { calls: gatedToolsFromEvents(paused) } } : {}),
     },
   );
   // why: Walking away, the stream settles the paused reply first; once the message posts, the events are the new reply's.

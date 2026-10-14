@@ -79,33 +79,8 @@ function gateReplay(
   };
 }
 
-/**
- * The paused calls a message walks away from: their ids, and each call as a
- * host without a session replays it, from the session as it paused.
- */
-function abandonFields(
-  iface: ComposerProfileInterface,
-  walkAway: WalkAway,
-):
-  | { abandon: import('@theoremjs/agents').GateReference[]; replays: Record<string, TheoremReplay> }
-  | undefined {
-  if (!walkAway.calls.length) return undefined;
-  return {
-    abandon: walkAway.calls.map((call) => ({
-      callId: call.callId,
-      operationId: issuedOperationId(call),
-    })),
-    replays: Object.fromEntries(
-      walkAway.calls.map((call) => [
-        issuedOperationId(call),
-        gateReplay(iface, walkAway.paused, { name: call.name, input: call.arguments }),
-      ]),
-    ),
-  };
-}
-
-/** A paused session, and the calls it waits on that a message walks away from. */
-export type WalkAway = { paused: InterfaceTurnSession; calls: readonly GatedToolContext[] };
+/** The calls a paused reply waits on that a message walks away from. */
+export type WalkAway = { calls: readonly GatedToolContext[] };
 
 /** Where a request goes on from: the ref of the conversation the host keeps, and the run's id for steers. */
 export type RunScope = { conversation?: string; turnId?: string };
@@ -123,16 +98,16 @@ export function buildTurnRequest(
   input: TheoremTurnInput,
   options: RunScope & { walkAway?: WalkAway } = {},
 ): TheoremTurnRequest {
-  const walked = options.walkAway ? abandonFields(iface, options.walkAway) : undefined;
+  const abandon = (options.walkAway?.calls ?? []).map((call) => ({
+    callId: call.callId,
+    operationId: issuedOperationId(call),
+  }));
   return {
     ...scopeFields(options),
     ...generationFields(iface, session),
     input,
-    ...(walked ? { abandon: walked.abandon } : {}),
-    replay: {
-      sessionPermissions: session.sessionPermissions,
-      ...(walked ? { abandon: walked.replays } : {}),
-    },
+    ...(abandon.length ? { abandon } : {}),
+    replay: { sessionPermissions: session.sessionPermissions },
   };
 }
 

@@ -84,4 +84,3 @@ export {
 } from './steer-inbox.ts';
 export { sessionToolCoordinator } from './tool-operations.ts';
 export { kernelTurnInput, liveSessionOpen } from './turn-input.ts';
-export { checkWalkAway, type WalkedAwayCall, walkAway } from './walk-away.ts';

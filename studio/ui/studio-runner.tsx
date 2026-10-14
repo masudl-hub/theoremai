@@ -38,6 +38,7 @@ import { Token } from '@astryxdesign/core/Token';
 import { IconKey } from '@tabler/icons-react';
 import { type ComponentProps, useContext, useMemo, useRef, useState } from 'react';
 import { noting } from './lib/studio-activity.ts';
+import { pageConversationKey } from './lib/studio-conversation.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
 import {
 	editedProfileEndpoint,
@@ -71,11 +72,14 @@ export interface StudioRunnerProps {
 	columns?: boolean;
 	/** Called on each request the conversation sends: a turn, call, decision or live session. */
 	onActivity?: () => void;
-	/** A chat conversation to resume, as `onChatChange` reported it (text and image agents). */
-	initialChat?: ChatProps['initialChat'];
+	/**
+	 * The ref of a chat conversation to resume, as `onConversationChange` reported it (text and
+	 * image agents run in the page). A project's chat is not resumed: its key is the run's.
+	 */
+	conversation?: ChatProps['conversation'];
 	/** The text a chat's composer starts with. */
 	initialText?: ChatProps['initialText'];
-	onChatChange?: ChatProps['onChatChange'];
+	onConversationChange?: ChatProps['onConversationChange'];
 	chatRef?: ChatProps['chatRef'];
 	/** The value the page picked for each slot, for a chat's turns and a call's start. */
 	slots?: ChatProps['slots'];
@@ -103,9 +107,9 @@ export function StudioRunner({
 	flush,
 	columns,
 	onActivity,
-	initialChat,
+	conversation,
 	initialText,
-	onChatChange,
+	onConversationChange,
 	chatRef,
 	slots,
 	context,
@@ -175,9 +179,9 @@ export function StudioRunner({
 			trace={trace}
 			className={className}
 			note={note}
-			initialChat={initialChat}
+			conversation={conversation}
 			initialText={initialText}
-			onChatChange={onChatChange}
+			onConversationChange={onConversationChange}
 			chatRef={chatRef}
 			slots={slots}
 			context={context}
@@ -528,9 +532,9 @@ function TurnRun({
 	trace,
 	className,
 	note,
-	initialChat,
+	conversation,
 	initialText,
-	onChatChange,
+	onConversationChange,
 	chatRef,
 	slots,
 	context,
@@ -542,7 +546,10 @@ function TurnRun({
 		() =>
 			noting(
 				runtime
-					? createBrowserStudioTransport(payload, runtime, { traces })
+					? createBrowserStudioTransport(payload, runtime, {
+							conversationKey: pageConversationKey(),
+							traces,
+						})
 					: createStudioTransport(payload, { traces }),
 				note,
 			),
@@ -570,9 +577,9 @@ function TurnRun({
 			transport={transport}
 			trace={trace}
 			className={className}
-			initialChat={initialChat}
+			conversation={conversation}
 			initialText={initialText}
-			onChatChange={onChatChange}
+			onConversationChange={onConversationChange}
 			chatRef={chatRef}
 			slots={slots}
 			context={context}

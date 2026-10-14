@@ -22,7 +22,6 @@ import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from '@tab
 import { atStart, type StudioWorkspace } from '../mod.ts';
 import type { EditedAnswer, SaveRefusal } from '../server/save-wire.ts';
 import {
-	type ComponentProps,
 	type ReactNode,
 	type Ref,
 	useCallback,
@@ -44,8 +43,6 @@ import {
 } from './lib/studio-project.ts';
 import { RefusalDetail } from './refusal-detail.tsx';
 
-type ChatProps = ComponentProps<typeof TheoremChat>;
-type Snapshot = NonNullable<ChatProps['initialChat']>;
 type Side = 'saved' | 'edited';
 const SIDES: readonly Side[] = ['saved', 'edited'];
 
@@ -100,34 +97,18 @@ export function useEditedLoad(
  */
 function usePair() {
 	const chats = useRef<Record<Side, TheoremChatHandle | null>>({ saved: null, edited: null });
-	const turns = useRef<Record<Side, { settled: boolean; rested: boolean }>>({
-		saved: { settled: true, rested: true },
-		edited: { settled: true, rested: true },
-	});
 	const [busy, setBusy] = useState<readonly Side[]>([]);
 	const done = useCallback((side: Side) => {
 		setBusy((sides) => sides.filter((other) => other !== side));
 	}, []);
-	/** A side's conversation came to rest. */
-	const rested = useCallback(
-		(side: Side) => {
-			turns.current[side].rested = true;
-			if (turns.current[side].settled) done(side);
-		},
-		[done],
-	);
 	const send = useCallback(
 		async (text: string) => {
 			const sent = SIDES.filter((side) => chats.current[side]);
 			setBusy(sent);
 			const answers = sent.map(async (side) => {
-				const turn = turns.current[side];
-				turn.settled = false;
-				turn.rested = false;
+				// A side's send resolves once its reply is done, or at once when it could not take it.
 				const added = await chats.current[side]?.send(text).catch(() => null);
-				turn.settled = true;
-				// Nothing was added: the chat could not take it, or it failed before it was sent.
-				if (!added?.blocks.length || turn.rested) done(side);
+				done(side);
 				return [side, added ?? null] as const;
 			});
 			return new Map(await Promise.all(answers));
@@ -146,8 +127,8 @@ function usePair() {
 		},
 	}));
 	return useMemo(
-		() => ({ busy, send, stop, rested, refs, chats }),
-		[busy, send, stop, rested, refs],
+		() => ({ busy, send, stop, refs, chats }),
+		[busy, send, stop, refs],
 	);
 }
 
@@ -366,20 +347,20 @@ function whyNot(failed: boolean, isReady: boolean): string | undefined {
 }
 
 /**
- * Each side's conversation as it last came to rest, so the edited side starts from what was said
- * when its load is replaced.
+ * Each side's latest conversation ref, so a side that comes back, or the edited side when its load
+ * is replaced, starts from what was said. Every load seals with the studio run's one key, so the
+ * edited side opens the files' side's ref and goes on from there on its own.
  */
-function useSnapshots(isEditing: boolean, rested: (side: Side) => void) {
-	const snapshots = useRef<Partial<Record<Side, Snapshot>>>({});
-	if (!isEditing) snapshots.current.edited = undefined;
-	const [onRest] = useState(() => {
-		const rest = (side: Side) => (snapshot: Snapshot) => {
-			snapshots.current[side] = snapshot;
-			rested(side);
+function useConversations(isEditing: boolean) {
+	const conversations = useRef<Partial<Record<Side, string>>>({});
+	if (!isEditing) conversations.current.edited = undefined;
+	const [onChange] = useState(() => {
+		const change = (side: Side) => (ref: string) => {
+			conversations.current[side] = ref;
 		};
-		return { saved: rest('saved'), edited: rest('edited') };
+		return { saved: change('saved'), edited: change('edited') };
 	});
-	return { snapshots, onRest };
+	return { conversations, onChange };
 }
 
 /** Where each side sends: the files' profile, and the edited load's once there is one. */
@@ -486,7 +467,7 @@ function useComparison({ project, profileId, tested, note, traces }: ProjectChat
 	const chatsInFiles = !saved || !NOT_A_CHAT.has(saved.profileType);
 	const inFiles =
 		!isEditing || (chatsInFiles && (answer?.saved ?? project.profiles).includes(ids.saved));
-	const { snapshots, onRest } = useSnapshots(isEditing, pair.rested);
+	const { conversations, onChange } = useConversations(isEditing);
 	const stamp = answer?.ok ? answer.stamp : undefined;
 	const transports = useTransports(project, ids, stamp, { note, traces });
 	return {
@@ -496,8 +477,8 @@ function useComparison({ project, profileId, tested, note, traces }: ProjectChat
 		inFiles,
 		/** Both sides are there, so one message goes to both. */
 		isShared: isEditing && inFiles,
-		snapshots,
-		onRest,
+		conversations,
+		onChange,
 		stamp,
 		transports,
 		refused: answer && !answer.ok && !pending ? answer : undefined,
@@ -568,8 +549,8 @@ export function ProjectChat(props: ProjectChatProps) {
 									{...common}
 									transport={transports.saved}
 									// A side that comes back starts from what it had said.
-									initialChat={view.snapshots.current.saved}
-									onChatChange={view.onRest.saved}
+									conversation={view.conversations.current.saved}
+									onConversationChange={view.onChange.saved}
 									chatRef={pair.refs.saved}
 								/>
 							</SavedSide>
@@ -587,8 +568,10 @@ export function ProjectChat(props: ProjectChatProps) {
 										{...common}
 										key={view.stamp}
 										transport={transports.edited}
-										initialChat={view.snapshots.current.edited ?? view.snapshots.current.saved}
-										onChatChange={view.onRest.edited}
+										conversation={
+											view.conversations.current.edited ?? view.conversations.current.saved
+										}
+										onConversationChange={view.onChange.edited}
 										chatRef={pair.refs.edited}
 									/>
 								)}

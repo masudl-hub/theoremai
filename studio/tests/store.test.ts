@@ -10,6 +10,7 @@ import {
 } from '../mod.ts';
 import {
   clearConversation,
+  pageConversationKey,
   restoreConversation,
   saveConversation,
 } from '../ui/lib/studio-conversation.ts';
@@ -53,10 +54,10 @@ Deno.test('a workspace with an agent kept before the draft grew a section is set
   assert(first && second);
   const { allow: _dropped, ...olderGuardrails } = second.guardrails;
   keep({ ...workspace, agents: [first, { ...second, guardrails: olderGuardrails }] });
-  saveConversation(first.key, { blocks: [], session: {} } as never);
+  saveConversation(first.key, 'page', 'sealed-ref');
   assertEquals(restoreStudio().kind, 'discarded');
   assertEquals(sessionStorage.getItem(KEY), null);
-  assertEquals(restoreConversation(first.key), undefined);
+  assertEquals(restoreConversation(first.key, 'page'), undefined);
 });
 
 Deno.test('an agent kept with a field of another type is set aside', () => {
@@ -69,7 +70,7 @@ Deno.test('an agent kept with a field of another type is set aside', () => {
   sessionStorage.clear();
 });
 
-Deno.test('a draft kept by the one-agent studio opens as a workspace holding it', () => {
+Deno.test('a draft kept by the one-agent studio opens as a workspace holding it, without its conversation', () => {
   const draft = createExampleDraft();
   keepV1(draft);
   sessionStorage.setItem('theorem.studio.v1.chat', JSON.stringify({ blocks: [], session: {} }));
@@ -85,7 +86,9 @@ Deno.test('a draft kept by the one-agent studio opens as a workspace holding it'
     draft.toolSpecs.map((tool) => tool.key),
   );
   assertEquals(workspace.selected, agentNodeId(agent.key, 'models'));
-  assert(restoreConversation(agent.key));
+  // It was kept whole, before conversations were sealed: nothing can resume it.
+  assertEquals(restoreConversation(agent.key, 'page'), undefined);
+  assertEquals(sessionStorage.getItem('theorem.studio.v1.chat'), null);
   assertEquals(sessionStorage.getItem(V1_KEY), null);
   sessionStorage.clear();
 });
@@ -128,13 +131,36 @@ Deno.test('a library tool keeps the agent that was open', () => {
 });
 
 Deno.test('each agent keeps a conversation of its own', () => {
-  saveConversation('a', { blocks: [], session: { id: 'a' } } as never);
-  saveConversation('b', { blocks: [], session: { id: 'b' } } as never);
+  saveConversation('a', 'page', 'ref-a');
+  saveConversation('b', 'page', 'ref-b');
   clearConversation('a');
-  assertEquals(restoreConversation('a'), undefined);
-  assert(restoreConversation('b'));
+  assertEquals(restoreConversation('a', 'page'), undefined);
+  assertEquals(restoreConversation('b', 'page'), 'ref-b');
   clearConversation();
-  assertEquals(restoreConversation('b'), undefined);
+  assertEquals(restoreConversation('b', 'page'), undefined);
+});
+
+Deno.test('a kept conversation is offered only to runs its sealer opens', () => {
+  saveConversation('a', 'demo', 'ref-a');
+  assertEquals(restoreConversation('a', 'page'), undefined);
+  assertEquals(restoreConversation('a', 'demo'), 'ref-a');
+  sessionStorage.clear();
+});
+
+Deno.test('a conversation kept whole, before refs, is forgotten on restore', () => {
+  sessionStorage.setItem('theorem.studio.v2.chat:a', JSON.stringify({ blocks: [], session: {} }));
+  assertEquals(restoreConversation('a', 'page'), undefined);
+  assertEquals(sessionStorage.getItem('theorem.studio.v2.chat:a'), null);
+});
+
+Deno.test("a tab's new key forgets the refs its page runs sealed with the last one", () => {
+  saveConversation('a', 'page', 'ref-a');
+  saveConversation('b', 'demo', 'ref-b');
+  const key = pageConversationKey();
+  assertEquals(pageConversationKey(), key);
+  assertEquals(restoreConversation('a', 'page'), undefined);
+  assertEquals(restoreConversation('b', 'demo'), 'ref-b');
+  sessionStorage.clear();
 });
 
 Deno.test('headers that are not a JSON object yet are not kept; the headers as they started are', () => {

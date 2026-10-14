@@ -16,7 +16,9 @@
  */
 
 import {
+  attachmentsRefused,
   type GateReference,
+  type LabelOverrides,
   labelText,
   type ProviderCheckpoint,
   TheoremError,
@@ -25,21 +27,33 @@ import {
   type TurnInput,
   toErrorEvent,
 } from '@theoremjs/agents';
+import { withPublicLabels } from '@theoremjs/agents/guardrails';
+import { type ClientTurnOptions, forClient } from '@theoremjs/agents/host';
 import {
   appendAssistantEventsToHistory,
   appendUserDraftToHistory,
   applyTurnEventsToSession,
+  type ComposerProfileInterface,
   emptyInterfaceTurnSession,
   foldTurnEvents,
   gatedToolsFromEvents,
   historyFromTranscriptBlocks,
+  type PendingAttachment,
+  prepareUserTurn,
   settlesToolCall,
+  streamThoughtsEnabled,
   type TranscriptBlock,
   type UserTurnDraft,
   type UserTurnHistoryMedia,
 } from '@theoremjs/agents/interface';
+import { base64ToBytes } from '@theoremjs/agents/kernel';
 import { stampWorked } from '../client/run-commit.ts';
-import type { ConversationLine, ConversationView } from '../client/transport.ts';
+import type {
+  ConversationLine,
+  ConversationView,
+  EncodedBlob,
+  TheoremTurnInput,
+} from '../client/transport.ts';
 import {
   emptyConversation,
   type PausedReply,
@@ -47,7 +61,10 @@ import {
   type TheoremConversationStore,
   unknownConversation,
 } from './conversation-store.ts';
-import type { WalkedAwayCall } from './walk-away.ts';
+import { kernelTurnInput } from './turn-input.ts';
+
+/** One walked-away call: its id, and the run that settles it (`invokeTool` with the abandoned resume). */
+export type WalkedAwayCall = { callId: string; events: AsyncIterable<TurnEvent> };
 
 /** A walked-away call as the session issued it: the operation names the one call, since a model reuses call ids. */
 export type IssuedWalkAway = WalkedAwayCall & GateReference;
@@ -72,6 +89,31 @@ export type ConversationHost = {
   /** A failure as the host's reader reads it: the profile's wording, by `forClient`'s rule. */
   failureText(failure: ErrorEvent): string;
 };
+
+/**
+ * The conversation host for a profile as `forClient` shows it to `clientEvents`:
+ * its thoughts as its outputs allow, its failures in its own wording.
+ */
+export function readerConversationHost(args: {
+  sessionId: string;
+  store: TheoremConversationStore;
+  profile: { outputs?: Parameters<typeof streamThoughtsEnabled>[0]; labels?: LabelOverrides };
+  clientEvents: ClientTurnOptions | undefined;
+}): ConversationHost {
+  const { profile, clientEvents } = args;
+  return {
+    sessionId: args.sessionId,
+    store: args.store,
+    showThoughts: streamThoughtsEnabled(profile.outputs),
+    forReader: (event) => forClient(event, clientEvents),
+    failureText(failure) {
+      const worded = forClient(withPublicLabels(failure, profile.labels), clientEvents);
+      return worded.type === 'error' && worded.error
+        ? worded.error
+        : labelText(`error.${failure.errorKind}`, {}, profile.labels);
+    },
+  };
+}
 
 /** A conversation read for a request: its ref and revision, or neither for a new one. */
 export type OpenedConversation = {
@@ -379,6 +421,58 @@ export type PostedMessage = {
   media: UserTurnHistoryMedia;
 };
 
+/** A file off the wire as the profile's input limits read it. */
+function pendingOf(blob: EncodedBlob): PendingAttachment {
+  let sizeBytes: number;
+  try {
+    sizeBytes = base64ToBytes(blob.data).length;
+  } catch {
+    // invariant: A file that is not base64 is a malformed request; its bytes must not enter diagnostics.
+    throw new TheoremError('request', labelText('error.request'), {
+      cause: { code: 'request_file_encoding' },
+    });
+  }
+  return { name: blob.name, mimeType: blob.mimeType, sizeBytes, data: blob.data };
+}
+
+/** The person's message as the profile accepts it: refused when its files break the profile's limits. */
+export function postedMessage(
+  iface: ComposerProfileInterface,
+  input: TheoremTurnInput,
+): PostedMessage {
+  const prepared = prepareUserTurn(
+    iface.inputs,
+    {
+      ...(input.text !== undefined ? { text: input.text } : {}),
+      ...(input.attachments ? { attachments: input.attachments.map(pendingOf) } : {}),
+      ...(input.voice ? { voice: input.voice.map(pendingOf) } : {}),
+    },
+    iface.guardrails,
+  );
+  if (!prepared.ok) throw attachmentsRefused(prepared.issues);
+  return {
+    draft: prepared.draft,
+    blocks: prepared.blocks,
+    media: {
+      ...(input.attachments ? { attachments: input.attachments } : {}),
+      ...(input.voice ? { voice: input.voice } : {}),
+    },
+  };
+}
+
+/** The message as the kernel takes it, its text as the transcript shows it. */
+export function postedInput(
+  input: TheoremTurnInput,
+  message: PostedMessage,
+  server?: unknown,
+): TurnInput {
+  const { text: _sent, ...rest } = input;
+  return kernelTurnInput(
+    message.draft.text === undefined ? rest : { ...rest, text: message.draft.text },
+    server,
+  );
+}
+
 /**
  * Refuses a walk-away that does not name exactly the calls the paused reply
  * waits on, by call id and operation; a message to a paused reply must walk away.
@@ -619,7 +713,19 @@ export async function rewindConversation(args: {
   });
 }
 
+/** A paused call's operation: every call a session issued carries one. */
+export function requiredOperationId(call: { operationId?: string }): string {
+  if (!call.operationId) throw new TheoremError('internal', labelText('error.internal'));
+  return call.operationId;
+}
+
 /** The calls a paused reply waits on: the ones a message or a rewind walks away from. */
 export function waitingCalls(conversation: StoredConversation) {
   return gatedToolsFromEvents(conversation.paused?.events ?? []);
+}
+
+/** Refuses what only a kept conversation answers, for a profile that keeps none. */
+export function statelessRefusal(what: string): TheoremError {
+  // labels-exempt: internal diagnostic; the user reads error.request
+  return new TheoremError('request', `a stateless chat keeps no conversation to ${what}`);
 }

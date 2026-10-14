@@ -1,4 +1,5 @@
 import { assertEquals } from '@std/assert';
+import { newConversationKey } from '../../studio/conversation-key.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
 import { createEditedSession, type EditedHost } from '../../studio/server/edited-session.ts';
 import type { ProjectEdits } from '../../studio/server/edits.ts';
@@ -10,6 +11,7 @@ import { type StudioWorkspace, setToolAllowed } from '../../studio/workspace.ts'
 registerExample();
 const opened: StudioDescription = await (
   await createStudioHandler({
+    conversationKey: newConversationKey(),
     project: 'garden',
     pageOrigins: ['http://localhost:5174'],
     listenHost: '127.0.0.1:4983',

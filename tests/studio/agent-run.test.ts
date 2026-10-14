@@ -1,6 +1,9 @@
 import { assert, assertEquals } from '@std/assert';
 import type { ModelProvider, Profile, TurnEvent } from '../../mod.ts';
+import { createSealedConversationStore } from '../../react/src/server/conversation-store.ts';
 import { createMemorySteerInbox } from '../../react/src/server/steer-inbox.ts';
+import { newConversationKey } from '../../studio/conversation-key.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   addAgent,
   agentDraft,
@@ -14,7 +17,6 @@ import {
   workspaceRunAgent,
 } from '../../studio/mod.ts';
 import { type StudioRuntime, streamStudioTurn } from '../../studio/runtime.ts';
-import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import { TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 function must<T>(value: T | undefined): T {
@@ -83,11 +85,18 @@ async function run(runtime: StudioRuntime): Promise<TurnEvent[]> {
   const events: TurnEvent[] = [];
   for await (const line of streamStudioTurn({
     ...conciergeRun(),
-    input: { text: 'Hello' },
+    request: { input: { text: 'Hello' } },
+    conversations: {
+      sessionId: 'agent-run',
+      store: createSealedConversationStore({ keys: { 1: newConversationKey() }, keyVersion: 1 }),
+    },
+    signal: new AbortController().signal,
     steer: createMemorySteerInbox(),
     runtime,
   })) {
-    if (line.type !== 'trace' && line.type !== 'steer_inbox') events.push(line);
+    if (line.type !== 'trace' && line.type !== 'steer_inbox' && line.type !== 'conversation') {
+      events.push(line);
+    }
   }
   return events;
 }

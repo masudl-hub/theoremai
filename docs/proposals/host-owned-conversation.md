@@ -1,6 +1,6 @@
 # Host-owned conversation
 
-Status: built for chat; live calls and Studio are still open (section 5). Section 9 records the decisions.
+Status: built for chat and Studio; live calls are still open (section 5). Section 9 records the decisions.
 
 **Reader:** a Theorem maintainer, and Masud.
 **Job:** decide where a chat's conversation lives, and what changes if the host owns it.
@@ -37,7 +37,7 @@ The model treats a tool result as a fact from the system. A visitor can use this
 
 The handler checks history in two narrow places only:
 
-- A message that walks away from a paused call must leave exactly those calls open (`checkWalkAway`).
+- A message that walks away from a paused call must leave exactly those calls open (checkWalkAway, now deleted).
 - A `providerState` the browser sends must belong to this server session, and its tool results must match the settled calls (`requireOwnedCheckpoint` in `react/src/server/checkpoint-ownership.ts`).
 
 A plain turn with no `providerState` goes through neither check.
@@ -71,8 +71,8 @@ The intent was **host-owned**: the host decides where the conversation comes fro
 | Transcript | Browser (`useTheoremChat` state) | `react/src/hooks/use-theorem-chat-state.ts` |
 | History the model reads | Browser builds it after each turn | `react/src/client/run-commit.ts` |
 | History sent each turn | Browser, in `input.history` | `TheoremTurnInput` in `react/src/client/transport.ts` |
-| Saving between visits | The page, through `onChatChange` and `initialChat` | `react/src/ui/TheoremChat.tsx` |
-| Studio's saving | The tab's `sessionStorage`, trimmed to `CHAT_BUDGET` | `studio/ui/lib/studio-conversation.ts` |
+| Saving between visits | The page, through onChatChange and initialChat (deleted) | `react/src/ui/TheoremChat.tsx` |
+| Studio's saving | The tab's `sessionStorage`, trimmed to a size budget | `studio/ui/lib/studio-conversation.ts` |
 | Rewinding to an earlier message | Browser cuts its own history | `handleBranch`, `branchInterfaceTurnSession` |
 | Compaction size | Browser keeps `historyTokens` from each `done` | `src/interface/session.ts` |
 | Live call history | Browser keeps it from each `provider_checkpoint`, sends it when it reopens | `react/src/client/live-client.ts` |
@@ -134,14 +134,14 @@ The **ref** is an opaque string that the store issues. The browser keeps it and 
 | `TheoremTurnRequest.providerState` | Browser sends it; server checks ownership | Server keeps it in the conversation |
 | The handler's filter on browser history | Removes system messages, keeps the rest | Deleted: no browser history to filter |
 | `requireOwnedCheckpoint` portable-settlement branch | Matches browser tool results to settled calls | Chat no longer calls it. Live still does (open) |
-| `checkWalkAway` history match | Checks the browser's open calls | `requireWalkAway` reads the stored paused reply. `checkWalkAway` stays exported until Studio moves (open) |
+| checkWalkAway history match (deleted) | Checks the browser's open calls | `requireWalkAway` reads the stored paused reply |
 | `useTheoremChat` `initial` / `onChange` | The page saves and restores a snapshot | `conversation` / `onConversationChange`: a ref, and a read from the server |
-| `TheoremChat` `initialChat` / `onChatChange` | Same, on the component | Same change |
+| `TheoremChat` initialChat / onChatChange (deleted) | Same, on the component | Same change |
 | `run-commit.ts` history building | Browser builds the next history | Moves to the server |
 | `handleBranch` | Browser cuts its own history | `POST /rewind` cuts the stored conversation. A stateless chat still cuts its own |
 | Live `history` in the open message | Browser sends it when it reopens | Server reads it from the store (open) |
-| Studio `studio-conversation.ts` | `sessionStorage` copy of the snapshot | A sealed store in each tab (section 9, open) |
-| `TheoremReplay` (Studio's browser-held state) | For hosts whose profile runs in the browser | Stays for Studio (section 9) |
+| Studio `studio-conversation.ts` | `sessionStorage` copy of the snapshot | The tab keeps the sealed ref, and the sealer that opens it (section 9) |
+| `TheoremReplay` (Studio's browser-held state) | For hosts whose profile runs in the browser | A chat message carries only `sessionPermissions`. A gate answer in a stateless chat or a host profile still carries the whole replay |
 | Docs | `react/README.md`, `react/docs/wire.md`, `react/docs/composer.md` | Rewritten for the new owner |
 
 ## 6. What it makes possible
@@ -152,10 +152,10 @@ The **ref** is an opaque string that the store issues. The browser keeps it and 
 
 ## 7. Risks
 
-- **It breaks every page that uses `initialChat` or `onChatChange`.** No host outside this repo uses them. ml_deno has its own browser client and calls `runTurn` directly, so the handler change does not touch it. The release is not a major version.
+- **It breaks every page that uses initialChat or onChatChange.** No host outside this repo uses them. ml_deno has its own browser client and calls `runTurn` directly, so the handler change does not touch it. The release is not a major version.
 - **A host that keeps nothing now needs a store.** It uses the sealed store (section 8) and a secret key.
 - **More server writes.** Each turn writes the conversation once. A paused call already writes the session.
-- **Media.** The browser sends attachments as base64 today. A stored conversation must hold them, or hold a reference. Studio already drops media past `CHAT_BUDGET`.
+- **Media.** The browser sends attachments as base64 today. A stored conversation must hold them, or hold a reference. Studio's tab keeps the whole seal, media too; a seal too big for `sessionStorage` is not kept across a reload.
 
 ## 8. A host with no storage: the sealed store
 
@@ -193,7 +193,8 @@ The host chooses the store. There is one code path: the handler always reads fro
 | --- | --- | --- |
 | A host that names no conversation store | The handler refuses to start (`conversation_store_missing`). There is no default store. | "Explicit, not ambient" |
 | A host with no storage | It uses the sealed store (section 8). The plain browser-held mode goes away. | Masud, 14 Oct: ml_deno's apps need a browser-carried chat |
-| Studio | Studio stays browser-owned. A key that is not ours never reaches our server. A project's preview chat uses a sealed store in each tab. Not built yet. | "if the key isn't ours, it doesn't touch our server" (Masud, 14 Oct) |
+| Studio | Studio stays browser-owned. A key that is not ours never reaches our server. A project's preview chat uses a sealed store. Built. | "if the key isn't ours, it doesn't touch our server" (Masud, 14 Oct) |
+| Studio's sealing key | A project run seals with one key that Studio makes when it starts and hands to every load of the project. A Save or an edit starts a new load, so the chat survives both, and the edits side opens the files side's chat. Quitting Studio ends the chats. The key is never written to disk. A run in the page seals with a key kept in the tab. | Masud, 14 Oct |
 | A stateless profile | It keeps no conversation and takes no store. The handler refuses one. The transcript is kept only in the page. | "if stateless, then there's nothing to store" (Masud, 14 Oct) |
 | A message the server never saved | It leaves the transcript and goes back in the composer with the error. | "back in the box" (Masud, 14 Oct) |
 | Order | This is built first. Try again is built on top of it. | Masud, 14 Oct |

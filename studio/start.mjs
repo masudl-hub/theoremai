@@ -1,12 +1,16 @@
+#!/usr/bin/env node
 /**
  * Opens the studio on a project, with one command:
  *
- *   node studio/start.mjs [setup] [--editor <command>] [--deno-config <file>] [--no-watch]
+ *   theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch]
+ *
+ * That is the installed package's command (`npx theorem-studio`); in the repo it is
+ * `node studio/start.mjs`.
  *
  * `setup` is a setup's file or its name. A setup is a file named `studio.setup.ts`, named for its
  * folder, or `<name>.studio.setup.ts`. With no `setup` the project's one setup opens, and when the
  * project has several the command asks which. A project gives this a short name of its own:
- * `"studio": "node <path to>/studio/start.mjs"` in its scripts makes it `npm run studio`.
+ * `"studio": "theorem-studio"` in its scripts makes it `npm run studio`.
  *
  * It starts the project's local server (`server/serve.ts`, under Deno, with the project's own
  * permissions) and the studio's page, and stops both together. Only this machine reaches either.
@@ -21,7 +25,7 @@
  * project opens beside the first, on the next free pair of ports.
  * The studio is opt-in, so this checks for its install and never installs it.
  */
-import './installed.mjs';
+import { builtPage } from './installed.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
@@ -31,7 +35,7 @@ import { chooseSetup, findSetups, setupLines, setupsNamed } from './setups.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-const USAGE = 'usage: node studio/start.mjs [setup] [--editor <command>] [--deno-config <file>] [--no-watch]';
+const USAGE = `usage: ${builtPage ? 'theorem-studio' : 'node studio/start.mjs'} [setup] [--editor <command>] [--deno-config <file>] [--no-watch]`;
 /** The value after each flag that takes one. A flag with none, a second setup, or anything else, is a mistake. */
 const VALUED = ['--editor', '--deno-config'];
 const given = {};
@@ -111,7 +115,7 @@ const server = spawn(
 		'--config',
 		path.join(here, 'deno.json'),
 		'-A',
-		path.join(here, 'server/serve.ts'),
+		path.join(here, builtPage ? 'server/serve.js' : 'server/serve.ts'),
 		path.resolve(from, setup),
 		'--port',
 		String(place.pair.server),
@@ -124,21 +128,29 @@ const server = spawn(
 	],
 	{ cwd: from, stdio: ['ignore', 'ignore', 'inherit'] },
 );
-const page = spawn(
-	process.execPath,
-	[
-		path.join(here, 'node_modules/vite/bin/vite.js'),
-		'--config',
-		path.join(here, 'app/vite.config.ts'),
-		'--port',
-		String(place.pair.page),
-	],
-	{
-		cwd: here,
-		stdio: ['ignore', 'ignore', 'inherit'],
-		env: { ...process.env, THEOREM_STUDIO_PROJECT: `${serverAddress(place.pair)}/api/studio` },
-	},
-);
+const project = `${serverAddress(place.pair)}/api/studio`;
+// An installed studio serves the page it was built with; the repo's is Vite on the sources.
+const page = builtPage
+	? spawn(
+			process.execPath,
+			[path.join(here, 'serve-page.mjs'), '--port', String(place.pair.page), '--project', project],
+			{ stdio: ['ignore', 'ignore', 'inherit'] },
+		)
+	: spawn(
+			process.execPath,
+			[
+				path.join(here, 'node_modules/vite/bin/vite.js'),
+				'--config',
+				path.join(here, 'app/vite.config.ts'),
+				'--port',
+				String(place.pair.page),
+			],
+			{
+				cwd: here,
+				stdio: ['ignore', 'ignore', 'inherit'],
+				env: { ...process.env, THEOREM_STUDIO_PROJECT: project },
+			},
+		);
 
 console.log(`theorem studio: ${PAGE}/studio/`);
 

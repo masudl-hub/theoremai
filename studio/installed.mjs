@@ -8,10 +8,20 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BUILT_PAGE } from './page.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const NEEDED = ['react', 'react-dom', '@astryxdesign/core', 'zod', '@theoremjs/agents', '@theoremjs/react'];
+
+/** Whether this is the installed package, with its page built. The repo's page is built as it is served. */
+export const builtPage = existsSync(path.join(here, BUILT_PAGE, 'index.html'));
+/** What the project's server runs on, and in the repo what Vite builds the page from. */
+const NEEDED = [
+	'zod',
+	'@theoremjs/agents',
+	'@theoremjs/react',
+	...(builtPage ? [] : ['react', 'react-dom', '@astryxdesign/core', 'vite']),
+];
 
 /** Whether `name` is installed where Node would look for it from here; its exports need not list its manifest. */
 const installed = (name) =>

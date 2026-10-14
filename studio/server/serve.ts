@@ -93,7 +93,8 @@ async function loadProject(edits?: ProjectEdits): Promise<Loaded> {
       'run',
       ...configArgs,
       '-A',
-      import.meta.resolve('./project.ts'),
+      // why: The installed package runs this file built to JavaScript, beside a built `project.js`.
+      import.meta.resolve(import.meta.url.endsWith('.js') ? './project.js' : './project.ts'),
       setupFile,
       '--port',
       String(childPort),

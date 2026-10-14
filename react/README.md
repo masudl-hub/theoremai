@@ -269,6 +269,8 @@ import { TheoremDecision } from '@theoremjs/react/ui';
 
 Under the state, `TheoremDecision` shows the shortcut that asks for a decision, ⌘↵. When the profile sets `maxStateBytes` in its `inputs`, it shows the size of the state against that limit instead. Each text box is as tall as the lines of its text, within a limit.
 
+In one column, the state sits in the middle of the page until you ask for a decision. It then eases up to the top, and the answers appear under it. With `columns`, the state moves to the left instead and the answers fill the right.
+
 For your own UI, use `useTheoremDecision`.
 
 ### Live

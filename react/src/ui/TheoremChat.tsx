@@ -15,7 +15,6 @@ import {
   type Ref,
   type RefObject,
   useImperativeHandle,
-  useLayoutEffect,
   useMemo,
   useRef,
 } from 'react';
@@ -35,6 +34,7 @@ import {
 import { useTheoremInterface } from '../hooks/use-theorem-interface.ts';
 import { ChatComposerBar } from './ChatComposerBar.tsx';
 import { ChatTranscript } from './ChatTranscript.tsx';
+import { useGlide } from './glide.ts';
 import type { TheoremLabels } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { MarkdownPluginsProvider } from './markdown-plugins.tsx';
@@ -164,43 +164,6 @@ function ChatColumn({
   );
 }
 
-/** Reads an Astryx duration token ("410ms" / "0.4s") as milliseconds. */
-function tokenMs(value: string, fallback: number): number {
-  const n = Number.parseFloat(value);
-  if (Number.isNaN(n)) return fallback;
-  return value.trim().endsWith('ms') ? n : n * 1_000;
-}
-
-/**
- * The composer is centred until the first message, then lives in ChatLayout's
- * dock. Astryx has no layout-transition helper, so this eases the jump (FLIP)
- * with Astryx's `--duration-medium` / `--ease-standard` tokens and keeps focus.
- */
-function useComposerGlide(landing: boolean, inputRef: RefObject<ChatComposerInputHandle | null>) {
-  const columnRef = useRef<HTMLElement | null>(null);
-  const landingTop = useRef<number | null>(null);
-  useLayoutEffect(() => {
-    const el = columnRef.current;
-    if (!el) return;
-    if (landing) {
-      landingTop.current = el.getBoundingClientRect().top;
-      return;
-    }
-    const from = landingTop.current;
-    if (from === null) return;
-    landingTop.current = null;
-    inputRef.current?.focus();
-    const delta = from - el.getBoundingClientRect().top;
-    if (delta === 0 || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-    const tokens = getComputedStyle(el);
-    el.animate([{ transform: `translateY(${String(delta)}px)` }, { transform: 'none' }], {
-      duration: tokenMs(tokens.getPropertyValue('--duration-medium'), 410),
-      easing: tokens.getPropertyValue('--ease-standard').trim() || 'ease-out',
-    });
-  });
-  return columnRef;
-}
-
 type ChatBodyProps = Omit<
   TheoremChatProps,
   'endpoint' | 'http' | 'transport' | 'theme' | 'mode' | 'labels' | 'detectCodeLanguage'
@@ -321,7 +284,7 @@ function ChatBody({
   const handle = t('@theorem.agent.handle', { handle: iface.identity.handle });
   const landing = blocks.length === 0;
   const inputRef = useRef<ChatComposerInputHandle | null>(null);
-  const composerRef = useComposerGlide(landing, inputRef);
+  const composerRef = useGlide<HTMLElement>(landing, () => inputRef.current?.focus());
   const inspector = useTraceInspector(iface, transport.traces, trace);
   const header = <SidePanelHeader>{inspector.toggle}</SidePanelHeader>;
 

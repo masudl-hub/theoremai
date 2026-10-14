@@ -18,6 +18,7 @@ import {
   useRef,
   useSyncExternalStore,
 } from 'react';
+import { useGlide } from './glide.ts';
 import { useLabels } from './labels-provider.tsx';
 import { PanelBody, PanelScroll, RAISED, SidePanel, SidePanelHeader } from './SidePanel.tsx';
 import { textRows } from './StateFields.tsx';
@@ -80,18 +81,23 @@ function useNarrow() {
 /**
  * One column: the request, then the response under it, in the page's own card.
  * `wide` is a pair stacked on a narrow page, which takes the page's width.
+ * `alone` is a request with no response yet: it sits centred, and eases up to
+ * the top when the response arrives under it.
  */
 function ConsoleSingle({
   flush,
   wide,
+  alone,
   maxWidth,
   children,
 }: {
   flush: boolean;
   wide: boolean;
+  alone: boolean;
   maxWidth: string;
   children: ReactNode;
 }) {
+  const column = useGlide<HTMLElement>(alone);
   return (
     <VStack height="100%" paddingInline={3} style={flush ? FLUSH_CARD : undefined}>
       <Card
@@ -100,8 +106,14 @@ function ConsoleSingle({
         padding={0}
         style={flush ? { overflowY: 'auto' } : { ...RAISED, overflowY: 'auto' }}
       >
-        <Center axis="horizontal" width="100%">
-          <VStack width="100%" maxWidth={wide ? undefined : maxWidth} gap={3} padding={4}>
+        <Center axis={alone ? 'both' : 'horizontal'} width="100%" minHeight="100%">
+          <VStack
+            ref={column}
+            width="100%"
+            maxWidth={wide ? undefined : maxWidth}
+            gap={3}
+            padding={4}
+          >
             {children}
           </VStack>
         </Center>
@@ -127,7 +139,8 @@ export function ConsoleFrame({
   const narrow = useNarrow();
   const layoutRef = useRef<HTMLDivElement | null>(null);
   // why: Children.count counts a null slot; toArray drops it, which is the child that is actually drawn.
-  const paired = columns && Children.toArray(children).length > 1;
+  const drawn = Children.toArray(children).length;
+  const paired = columns && drawn > 1;
   return (
     <WithTrace inspector={inspector}>
       <Layout
@@ -148,7 +161,12 @@ export function ConsoleFrame({
                 {children}
               </ConsoleColumns>
             ) : (
-              <ConsoleSingle flush={flush} wide={paired} maxWidth={maxWidth}>
+              <ConsoleSingle
+                flush={flush}
+                wide={paired}
+                alone={!columns && drawn < 2}
+                maxWidth={maxWidth}
+              >
                 {children}
               </ConsoleSingle>
             )}

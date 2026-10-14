@@ -231,8 +231,8 @@ function decisionResponse(
   labels: { answers: string; deciding: string },
   answers: ReactNode,
 ): ReactNode {
-  if (!columns) return answers;
   if (phase === 'idle') return null;
+  if (!columns) return answers;
   const waiting = phase === 'waiting';
   return (
     <ResponseColumn label={labels.answers} fill={waiting}>

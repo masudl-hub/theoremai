@@ -21,8 +21,15 @@ export interface StudioProvider {
   id: string;
   /** The id of the adapter it is defined with: `google`, `openrouter`, `openai-chat`, `typesafe`, or a project's own. */
   adapter: string;
-  /** What it connects with, where the studio defines it: the address of the builder's own machine. */
+  /**
+   * What it connects with. Left out for an adapter that is the project's own: what that one
+   * connects with stays with the project.
+   */
   connection?: Record<string, string>;
+  /** The slot its models read their key from, unless a model names its own. */
+  keySlot?: string;
+  /** The slot they read when the first one's key is refused. */
+  fallbackKeySlot?: string;
 }
 
 /** The provider the studio reaches on the builder's own machine. */

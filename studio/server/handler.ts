@@ -26,9 +26,9 @@ import {
   registerTool,
 } from '../../mod.ts';
 import { type StudioAsks, studioAsks } from '../asks.ts';
-import type { StudioProvider } from '../providers.ts';
+import { adapterFactory, type StudioProvider } from '../providers.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
-import { withoutCredentials } from '../held-credentials.ts';
+import { shownConnection, withoutCredentials } from '../held-credentials.ts';
 import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
 import { differingSettings } from '../agreement.ts';
 import { compileDetect } from '../../src/guardrails/compile-egress.ts';
@@ -196,9 +196,22 @@ function replySchema(profile: Profile) {
   }
 }
 
-/** The project's providers, each with the adapter it is defined on. */
+/**
+ * The project's providers as the page gets them: the adapter each is defined on, its key slots,
+ * and what it connects with when its adapter is the kernel's. What a project's own adapter
+ * connects with is its own to say, so it stays here.
+ */
 function registeredProviders(): StudioProvider[] {
-  return listProviders().map((provider) => ({ id: provider.id, adapter: provider.adapter.id }));
+  return listProviders().map((provider) => {
+    const connection = adapterFactory(provider.adapter.id) ? shownConnection(provider.connection) : undefined;
+    return {
+      id: provider.id,
+      adapter: provider.adapter.id,
+      ...(connection ? { connection } : {}),
+      ...(provider.keySlot ? { keySlot: provider.keySlot } : {}),
+      ...(provider.fallbackKeySlot ? { fallbackKeySlot: provider.fallbackKeySlot } : {}),
+    };
+  });
 }
 
 /** One registered profile as the draft the editor shows, read from the source the studio prints for it. */

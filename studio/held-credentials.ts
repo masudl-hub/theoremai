@@ -28,6 +28,18 @@ export function withoutCredentials<T extends object>(tool: T): T {
   return shown as T;
 }
 
+/**
+ * What a provider connects with, as the page gets it: its addresses with any credential masked.
+ * Only what is text is told; a provider defined with nothing has nothing to tell.
+ */
+export function shownConnection(connection: unknown): Record<string, string> | undefined {
+  if (!isRecord(connection)) return undefined;
+  const shown = Object.entries(connection).flatMap(([key, value]) =>
+    typeof value === 'string' ? [[key, maskUrl(value)]] : []
+  );
+  return shown.length > 0 ? Object.fromEntries(shown) : undefined;
+}
+
 /** One setting of a tool the page sent, each mask in it filled in from `held`, the project's own. */
 export function heldSetting(key: string, shown: unknown, held: unknown): unknown {
   if (URLS.includes(key) && typeof shown === 'string') {

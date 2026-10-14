@@ -140,7 +140,7 @@ export function StudioRunScreen({ opened }: { opened: StudioRunOpened }) {
 			? []
 			: Object.values<ModelBinding>(profile.models).map(
 					(binding): ConnectionModel => ({
-						...modelRoute(STUDIO_PROVIDERS, profile.type, binding),
+						...modelRoute(payload.providers ?? STUDIO_PROVIDERS, profile.type, binding),
 						builtInTools: binding.builtInTools,
 					}),
 				),

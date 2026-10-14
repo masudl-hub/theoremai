@@ -114,6 +114,18 @@ Deno.test('a project opens with its own providers, each with the adapter it is d
   assertEquals(adapters.local, 'openai-chat');
 });
 
+Deno.test('a provider opens with its key slot and what it connects with', async () => {
+  const request = new Request(`http://${HOST}/api/studio`, { headers: { host: HOST } });
+  const { workspace }: StudioDescription = await (await handler(request)).json();
+  const held = (id: string) => workspace.providers.find((provider) => provider.id === id);
+  assertEquals(held('open-router'), {
+    id: 'open-router',
+    adapter: 'openrouter',
+    keySlot: 'slot_a',
+  });
+  assertEquals(held('local')?.connection, { baseURL: 'http://localhost:11434/v1' });
+});
+
 Deno.test('a profile with no tools opens allowing none, whatever the project registers', async () => {
   const request = new Request(`http://${HOST}/api/studio`, { headers: { host: HOST } });
   const { workspace }: StudioDescription = await (await handler(request)).json();

@@ -1,5 +1,6 @@
 import type { DecisionQuestion, ProfileDefinition } from '../mod.ts';
 import type { StudioConnectionMode } from './policy.ts';
+import type { StudioProvider } from './providers.ts';
 import type { StudioDependency } from './runtime-scope.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import {
@@ -47,6 +48,8 @@ export type StudioRunPayload = {
 	structured?: StructuredRegistration;
 	/** A decision profile's questions, by id. */
 	questions?: Record<string, DecisionQuestion>;
+	/** The providers its models name, each with its adapter. Left out, they are the studio's own. */
+	providers?: readonly StudioProvider[];
 	/** The agents this one names, each after the agents it names; registered before it. */
 	dependencies?: StudioDependency[];
 };

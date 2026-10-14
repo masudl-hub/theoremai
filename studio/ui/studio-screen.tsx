@@ -930,9 +930,10 @@ function runPayload({
 	customTools,
 	structured,
 	questions,
+	providers,
 	dependencies,
 }: NonNullable<ReturnType<typeof workspaceRunAgent>>): StudioRunPayload {
-	return { agentId, profile, customTools, structured, questions, dependencies };
+	return { agentId, profile, customTools, structured, questions, providers, dependencies };
 }
 
 /** An agent's id as the workspace names it, for finding its compile. */

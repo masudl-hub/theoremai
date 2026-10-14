@@ -174,8 +174,10 @@ Deno.test("a builder reads a tool call's failure as what failed, a visitor the p
     type: 'tool',
     tool: { name: 'nope', callId: 'call_1', at: 1, phase: 'error', failure },
   };
-  const read = (options?: { reader: 'builder' }) =>
-    firstOf([forClient(event, options)], 'tool')?.tool.failure?.error;
+  const read = (options?: { reader: 'builder' }) => {
+    const tool = firstOf([forClient(event, options)], 'tool')?.tool;
+    return tool && 'failure' in tool ? tool.failure?.error : undefined;
+  };
   assertEquals(read({ reader: 'builder' }), failure.message);
   assertEquals(read(), failure.error);
 });

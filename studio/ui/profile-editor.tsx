@@ -166,7 +166,6 @@ import {
 	draftAllows,
 	draftKey,
 	expandAccept,
-	GEMINI_STUDIO_DEFAULT_API_ID,
 	GEMINI_STUDIO_LIVE_INPUT_TOKENS,
 	GEMINI_STUDIO_MODELS,
 	type GuardrailsDraft,
@@ -215,7 +214,6 @@ import {
 	type StudioDraft,
 	type StudioIssue,
 	type StudioProfileType,
-	type StudioTurnProfileType,
 	sampleToolInput,
 	sectionNote,
 	setProfileType,
@@ -247,7 +245,7 @@ import {
 	toolCredential,
 } from './lib/tool-credentials.ts';
 import { type ProbeResult, runToolProbe } from './lib/tool-probe.ts';
-import { IconGemini, IconGoogle, IconOpenAi, IconOpenRouter } from './brand-icons.tsx';
+import { IconGoogle, IconOpenAi, IconOpenRouter } from './brand-icons.tsx';
 import { DetectorTester } from './guardrail-tester.tsx';
 import {
 	type Choice,

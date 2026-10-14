@@ -781,7 +781,6 @@ function bindingOf(
   spec: unknown,
   current: ModelBindingDraft | undefined,
   agentKeyOf: AgentKeyOf,
-  type: StudioProfileType | '',
 ): ModelBindingDraft {
   const base = current ?? defaultModelBinding({ modelId });
   if (!isRecord(spec)) return { ...base, modelId };
@@ -1252,7 +1251,7 @@ function draftFrom(
     included: includedOf(type, profile),
     models: modelsOf(profile),
     modelBindings: Object.entries(record(profile.models) ?? {}).map(([modelId, spec]) =>
-      bindingOf(modelId, spec, byModelId.get(modelId), agentKeyOf, type),
+      bindingOf(modelId, spec, byModelId.get(modelId), agentKeyOf),
     ),
     tools: { t2Loader: text(tools.t2Loader) },
     toolSpecs: [],

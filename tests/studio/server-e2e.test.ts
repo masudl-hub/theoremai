@@ -403,6 +403,13 @@ Deno.test(
             JSON.stringify(turn),
           );
           assert(replyOf(turn).startsWith('Found:'), JSON.stringify(turn));
+          // Two providers share one adapter and one key slot; the second agent reaches the script on it.
+          const concierge = await lines(
+            studio,
+            '/api/studio/profiles/concierge/turn',
+            ask('And Porto?'),
+          );
+          assert(replyOf(concierge).startsWith('Found:'), JSON.stringify(concierge));
           const call = await lines(studio, '/api/studio/profiles/gatekeeper/call', {
             name: 'lookup_city',
             input: { city: 'Porto' },

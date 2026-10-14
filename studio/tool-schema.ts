@@ -1,5 +1,5 @@
 import { z, type ZodType } from 'zod';
-import { type JsonSchema, sampleFromSchema } from '../react/src/client/schema-fields.ts';
+import { type JsonSchema, sampleFromSchema } from '@theoremjs/react/client';
 
 export const DEFAULT_TOOL_INPUT_SCHEMA = `{
   "type": "object",

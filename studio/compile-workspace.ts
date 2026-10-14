@@ -4,7 +4,7 @@
  * summarises for it. Issues land on the node of the agent or tool at fault.
  */
 
-import { createKernelScope, defineProfile, TheoremError, z } from '../mod.ts';
+import { createKernelScope, defineProfile, TheoremError, z } from '@theoremjs/agents';
 import {
   type AgentIdOf,
   type AgentToolInputOf,

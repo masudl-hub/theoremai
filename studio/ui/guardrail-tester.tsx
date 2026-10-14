@@ -34,13 +34,7 @@ import {
 	IconWorld,
 	IconX,
 } from '@tabler/icons-react';
-import {
-	PaneLayout,
-	PanePanel,
-	PaneState,
-	Prose,
-	TraceGuardrailsView,
-} from '../../react/src/ui/index.ts';
+import { PaneLayout, PanePanel, PaneState, Prose, TraceGuardrailsView } from '@theoremjs/react/ui';
 import {
 	type GuardrailProbeAnswer,
 	PROBE_BATTERY,

@@ -104,16 +104,12 @@ import {
   type IssuedWalkAway,
   messageReply,
   openConversation,
-  postedInput,
   postedMessage,
   type ReplyLine,
   type ReplyRunner,
   type ReplyTurn,
   readerConversationHost,
   requiredOperationId,
-  requireRewindPoint,
-  requireWaitingOn,
-  requireWalkAway,
   rewindConversation,
   statelessRefusal,
   waitingCalls,
@@ -797,8 +793,11 @@ async function turn(
   session: Session,
 ): Promise<Response> {
   const body = await readBody(request, theoremTurnRequestSchema, ctx.options.maxRequestBytes);
-  const message = postedMessage(chatInterface(chat), body.input);
-  const input = postedInput(body.input, message, await ctx.options.context?.(request));
+  const message = postedMessage(
+    chatInterface(chat),
+    body.input,
+    await ctx.options.context?.(request),
+  );
   const runner = chatRunner(ctx, request, session, body);
   const host = conversationHost(ctx, session);
   if (!host) {
@@ -806,17 +805,19 @@ async function turn(
     // labels-exempt: internal diagnostic; the user reads error.request
     if (body.abandon) throw statelessRefusal('walk away from');
     return eventStream(ctx, request, () =>
-      runner.run({ input, model: body.model, effort: body.effort }),
+      runner.run({ input: message.input, model: body.model, effort: body.effort }),
     );
   }
-  const opened = await openConversation(host, body.conversation);
-  requireWalkAway(opened.conversation, body.abandon);
+  const opened = await openConversation(host, body.conversation, {
+    kind: 'message',
+    ...(body.abandon ? { abandon: body.abandon } : {}),
+  });
   // why: Take the walked-away calls before streaming, so a stale one is a reply status, not a stream error.
   const walkAway = body.abandon
     ? await takeWalkedAway(ctx, request, session, body.abandon)
     : undefined;
   return eventStream(ctx, request, () =>
-    messageReply({ host, opened, message, input, ...(walkAway ? { walkAway } : {}), runner }),
+    messageReply({ host, opened, message, ...(walkAway ? { walkAway } : {}), runner }),
   );
 }
 
@@ -833,7 +834,7 @@ async function conversation(
   );
   const host = conversationHost(ctx, session);
   if (!host) throw statelessRefusal('read');
-  const opened = await openConversation(host, body.conversation);
+  const opened = await openConversation(host, body.conversation, { kind: 'read' });
   return jsonResponse(200, conversationView(host, opened.conversation));
 }
 
@@ -842,12 +843,8 @@ async function rewind(ctx: HandlerContext, request: Request, session: Session): 
   const body = await readBody(request, theoremRewindRequestSchema, ctx.options.maxRequestBytes);
   const host = conversationHost(ctx, session);
   if (!host) throw statelessRefusal('rewind');
-  const opened = await openConversation(host, body.conversation);
-  requireRewindPoint(opened.conversation, body.at);
-  const waiting = waitingCalls(opened.conversation).map((call) => ({
-    callId: call.callId,
-    operationId: requiredOperationId(call),
-  }));
+  const opened = await openConversation(host, body.conversation, { kind: 'rewind', at: body.at });
+  const waiting = waitingCalls(opened.conversation);
   const walkAway = waiting.length
     ? await takeWalkedAway(ctx, request, session, waiting)
     : undefined;
@@ -999,9 +996,8 @@ async function invoke(ctx: HandlerContext, request: Request, session: Session): 
     return eventStream(ctx, request, await settlingOf(ctx, request, session, body));
   }
   if (body.conversation === undefined) throw unknownConversation();
-  const opened = await openConversation(host, body.conversation);
   const call = { callId: body.gateId, operationId: body.operationId };
-  requireWaitingOn(opened.conversation, call);
+  const opened = await openConversation(host, body.conversation, { kind: 'answer', call });
   const settling = await settlingOf(ctx, request, session, body);
   const runner = chatRunner(ctx, request, session, body);
   return eventStream(ctx, request, () =>

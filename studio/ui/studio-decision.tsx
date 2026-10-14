@@ -1,5 +1,5 @@
-import type { TraceFeed } from '../../react/src/client/index.ts';
-import { TheoremDecision } from '../../react/src/ui/index.ts';
+import type { TraceFeed } from '@theoremjs/react/client';
+import { TheoremDecision } from '@theoremjs/react/ui';
 import {
 	createStudioDecisionTransport,
 	EXAMPLE_DECISION_STATE,

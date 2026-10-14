@@ -12,7 +12,7 @@ import {
 	IconPlus,
 	IconTrash,
 } from '@tabler/icons-react';
-import { isKeySlotName } from '../../mod.ts';
+import { isKeySlotName } from '@theoremjs/agents';
 import {
 	type LentKeys,
 	type ModelRoute,

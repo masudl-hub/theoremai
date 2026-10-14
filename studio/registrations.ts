@@ -1,11 +1,10 @@
 import type {
-	HttpMethod,
-	ToolAccess,
-	ToolLoadTier,
-	ToolPermission,
-} from '../src/kernel/schema.ts';
-import type { ToolAuthConfig, ToolLabels } from '../src/kernel/tools/types.ts';
-import type { StructuredSpec } from '../src/kernel/types.ts';
+  HttpMethod,
+  ToolAccess,
+  ToolLoadTier,
+  ToolPermission,
+} from '@theoremjs/agents/schema';
+import type { StructuredSpec, ToolAuthConfig, ToolLabels } from '@theoremjs/agents/kernel';
 
 /** The kernel's auth config; the host's OAuth endpoints are never set from the studio. */
 export type StudioToolAuth = Omit<ToolAuthConfig, 'preResolved'>;

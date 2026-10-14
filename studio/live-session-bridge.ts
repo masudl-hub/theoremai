@@ -1,15 +1,14 @@
-import type { PageToolResult } from '../react/src/server/page-dispatch.ts';
-import type { LabelOverrides, LiveSession, TurnEvent } from '../mod.ts';
-import { parseLiveClientMessage } from '../react/src/server/request-check.ts';
+import { type PageToolResult, parseLiveClientMessage } from '@theoremjs/react/server';
+import type { LabelOverrides, LiveSession, TurnEvent } from '@theoremjs/agents';
 import {
   type ClientError,
-  type ClientTurnOptions,
   clientError,
+  type ClientTurnOptions,
   forClient,
   forClientEvents,
-} from '../src/host/mod.ts';
-import { issuedOperationId as requiredOperationId } from '../react/src/client/turn-client.ts';
-import { bytesToBase64 } from '../src/kernel/mod.ts';
+} from '@theoremjs/agents/host';
+import { issuedOperationId as requiredOperationId } from '@theoremjs/react/client';
+import { bytesToBase64 } from '@theoremjs/agents/kernel';
 import type { StudioTraceRoute } from './traces.ts';
 
 export type StudioLiveSocket = Pick<WebSocket, 'send' | 'close' | 'addEventListener'>;

@@ -601,6 +601,76 @@ Use `pageToolBroker` to supply that broker. It carries results; the atomic sessi
 Lost result delivery does not permit another dispatch. The operation retains its claim or an uncertain outcome.
 The default result deadline is 20 seconds. An expired or interrupted result cannot reopen approval.
 
+## Build your own server
+
+`createTheoremHandler` runs each chat reply through a small loop that `@theoremjs/react/server` exports. Use the loop when your server is not a `fetch` handler, or when your routes differ from the handler's. The conversation store, the guardrails and the wire stay the same, so `TheoremChat` and the hooks work with your server unchanged.
+
+| Function | Use |
+| --- | --- |
+| `readerConversationHost({ sessionId, store, profile, clientEvents })` | The conversation of one session, and how its events reach the browser (`forClient`). |
+| `openConversation(host, ref, use)` | Reads the conversation under `ref`, or starts one when `ref` is `undefined`. It refuses a request that `use` does not allow, before anything runs. |
+| `postedMessage(iface, input, context?)` | Checks the person's message against the profile's inputs. `iface` is `interfaceFromProfile(profile, defaultKernelScope.tools)` from `@theoremjs/agents/interface`. |
+| `messageReply({ host, opened, message, walkAway?, runner })` | Posts the message, runs the reply and writes it back. Returns the lines to stream. |
+| `answerReply({ host, opened, call, settling, runner })` | Continues a reply after one of its calls was answered. `settling` is the call's events from the kernel's `invokeTool`. |
+| `rewindConversation({ host, opened, at, walkAway? })` | Cuts the conversation after transcript block `at`. `-1` empties it. |
+| `conversationView(host, conversation)` | The conversation as the chat draws it. |
+| `waitingCalls(conversation)` | The calls a paused reply waits on. A message or a rewind walks away from exactly these. |
+
+`use` says what the request opens the conversation for: `{ kind: 'read' }`, `{ kind: 'message', abandon? }`, `{ kind: 'answer', call }` or `{ kind: 'rewind', at }`.
+
+The runner is how your server runs the model for a reply. This server answers a message for `support`, the profile from the [Quick start](#quick-start):
+
+```ts
+import { compactHistory, defaultKernelScope, runTurn } from '@theoremjs/agents';
+import { interfaceFromProfile } from '@theoremjs/agents/interface';
+import {
+  createMemoryConversationStore,
+  messageReply,
+  openConversation,
+  postedMessage,
+  type ReplyRunner,
+  readerConversationHost,
+  theoremTurnRequestSchema,
+} from '@theoremjs/react/server';
+
+const provider = { vault: { main: process.env.GEMINI_API_KEY } };
+const conversations = createMemoryConversationStore();
+
+async function* send(sessionId: string, body: unknown, signal: AbortSignal) {
+  const request = theoremTurnRequestSchema.parse(body);
+  const host = readerConversationHost({ sessionId, store: conversations, profile: support, clientEvents: undefined });
+  const runner: ReplyRunner = {
+    run: (turn) => runTurn({ profile: support.id, ...turn, signal }, provider),
+    async compact(history, tokens, model) {
+      const compacted = await compactHistory({ profile: support.id, history, tokens, signal, ...(model ? { model } : {}) }, provider);
+      return compacted?.history;
+    },
+    signal,
+  };
+  const message = postedMessage(interfaceFromProfile(support, defaultKernelScope.tools), request.input);
+  const opened = await openConversation(host, request.conversation, { kind: 'message' });
+  yield* messageReply({ host, opened, message, runner });
+}
+```
+
+Write each line as one JSON line of an `application/x-ndjson` response. The reply's events come first, then a `conversation` line with the ref the store issued. When the run fails, its error line comes last.
+
+What the loop leaves to you:
+
+- The session. Every read and write names it, and the store refuses a ref from another session.
+- Gates. A profile whose tools wait for approval needs a session store that issues each gate and checks its answer. `createTheoremHandler` keeps one. With your own server, check the answer, run the call with `invokeTool`, and pass its events to `answerReply`.
+- Walking away. A message to a reply that waits on gates must name exactly `waitingCalls(conversation)` as `abandon`, and pass each call's cancelled run as `walkAway`.
+
+On the browser side, `@theoremjs/react/client` reads what your server sends:
+
+| Export | Use |
+| --- | --- |
+| `CHAT_LINES` | The schemas of a reply's lines: each turn event, and the `conversation` line. |
+| `ChatLine`, `ChatLineSink` | A checked line, and the callback that receives each one. |
+| `fetchConversation(url, body, options?)` | POSTs a conversation read, and checks the view your server answers. |
+| `fetchRewound(url, body, options?)` | POSTs a rewind, and checks the rewound conversation. |
+| `failedDecisionTraces(err)` | The trace records that a failed decision left, for the trace inspector. |
+
 ## Build your own UI
 
 The hooks give you the same state and actions that the ready-made components use. They draw nothing.

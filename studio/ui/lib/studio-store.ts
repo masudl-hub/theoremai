@@ -4,7 +4,7 @@
  * visitor's. Keys never come here: the vault stays in memory, and a tool's URLs and headers are kept
  * with their credentials masked.
  */
-import { maskHeaders, maskUrl } from '../../../src/surface/mod.ts';
+import { maskHeaders, maskUrl } from '@theoremjs/agents/surface';
 import {
 	agentNodeId,
 	createBlankDraft,

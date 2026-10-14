@@ -21,7 +21,7 @@ import { Tokenizer } from '@astryxdesign/core/Tokenizer';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconArrowBackUp, IconCheck, IconCode, IconCopy } from '@tabler/icons-react';
-import { fieldMeta } from '../../mod.ts';
+import { fieldMeta } from '@theoremjs/agents';
 import { originLabel, originPlace, originShortLabel, STUDIO_PROFILE_TYPES } from '../mod.ts';
 import type { SettingOrigin } from '../server/save-wire.ts';
 import { type ReactNode, useContext } from 'react';

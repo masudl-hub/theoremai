@@ -6,8 +6,8 @@
  * @module
  */
 
-import { type DetectSpec, resolveAllow, resolveDetect } from '../src/guardrails/detectors.ts';
-import { unsetValue } from '../src/kernel/profile-presence.ts';
+import { type DetectSpec, resolveAllow, resolveDetect } from '@theoremjs/agents/guardrails';
+import { unsetValue } from '@theoremjs/agents/kernel';
 import { STUDIO_POLICY_UNSET } from './policy.ts';
 
 function isRecord(value: unknown): value is Record<string, unknown> {

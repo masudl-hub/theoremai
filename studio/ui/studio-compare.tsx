@@ -6,18 +6,14 @@ import { IconButton } from '@astryxdesign/core/IconButton';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
+import { createHttpTransport, createTraceFeed, type TraceFeed } from '@theoremjs/react/client';
 import {
-	createHttpTransport,
-	createTraceFeed,
-	type TraceFeed,
-} from '../../react/src/client/index.ts';
-import {
-	ChatComposerBar,
-	PaneFailure,
-	PaneLoading,
-	TheoremChat,
-	type TheoremChatHandle,
-} from '../../react/src/ui/index.ts';
+  ChatComposerBar,
+  PaneFailure,
+  PaneLoading,
+  TheoremChat,
+  type TheoremChatHandle,
+} from '@theoremjs/react/ui';
 import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from '@tabler/icons-react';
 import { atStart, type StudioWorkspace } from '../mod.ts';
 import type { EditedAnswer, SaveRefusal } from '../server/save-wire.ts';

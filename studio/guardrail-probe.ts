@@ -7,28 +7,27 @@
  *
  * @module
  */
-import type {
-  ModelProvider,
-  Profile,
-  ProfileDefinition,
-  TraceRecord,
-  TurnEvent,
-  TurnInput,
-} from '../mod.ts';
-import { TheoremError } from '../mod.ts';
-import type { Boundary } from '../src/guardrails/boundaries.ts';
+import {
+  type ModelProvider,
+  type Profile,
+  type ProfileDefinition,
+  TheoremError,
+  type TraceRecord,
+  type TurnEvent,
+  type TurnInput,
+} from '@theoremjs/agents';
 import {
   actionAt,
+  type Boundary,
   DETECTORS,
   type DetectSpec,
+  type ErrorKind,
+  type GuardrailEvent,
   resolveDetect,
-} from '../src/guardrails/detectors.ts';
-import type { GuardrailEvent } from '../src/guardrails/event-schemas.ts';
-import { sanitizeTurnRequestWithEvents } from '../src/guardrails/sanitize.ts';
-import { TOOL_RULES } from '../src/guardrails/rules.ts';
-import type { ErrorKind } from '../src/guardrails/theorem-error.ts';
-import type { ProviderEvent } from '../src/kernel/turn-events.ts';
-import type { ProviderCompleteRequest } from '../src/kernel/types.ts';
+  sanitizeTurnRequestWithEvents,
+  TOOL_RULES,
+} from '@theoremjs/agents/guardrails';
+import type { ProviderCompleteRequest, ProviderEvent } from '@theoremjs/agents/kernel';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import { runtimeProvider, agentCallHook, type StudioDependency, writtenScope } from './runtime-scope.ts';
 

@@ -11,6 +11,7 @@ export {
   type DecisionReply,
   type DecisionTransport,
   decisionInterface,
+  failedDecisionTraces,
   postDecision,
   readDecisionReply,
   withFailedTraces,
@@ -30,6 +31,12 @@ export {
   hostInterface,
   type TheoremHostCallRequest,
 } from './host-transport.ts';
+export type {
+  LiveCallOptions,
+  PageTool,
+  PageToolAnswer,
+  PageTools,
+} from './live/live-page-tool.ts';
 export {
   type LiveConnectPhase,
   type LiveSessionStatus,
@@ -37,6 +44,7 @@ export {
   liveState,
 } from './live/live-state.ts';
 export type { LiveToolGatePrompt } from './live/live-tool.ts';
+export type { LiveConnection } from './live-client.ts';
 export { LiveSessionClient } from './live-client.ts';
 export type { LiveSocket } from './live-messages.ts';
 export { isOAuthComplete, notifyOAuthComplete } from './oauth-popup.ts';
@@ -77,9 +85,15 @@ export type {
 export { continueGatedToolInvocation } from './tool-resume.ts';
 export { createTraceFeed, type TraceFeed } from './trace-feed.ts';
 export {
+  CHAT_LINES,
+  type ChatLine,
+  type ChatLineSink,
   type ClientTurnEvent,
+  type ConversationLine,
   type ConversationView,
   createHttpTransport,
+  fetchConversation,
+  fetchRewound,
   type HostErrorBody,
   type HttpOptions,
   type HttpTransportOptions,

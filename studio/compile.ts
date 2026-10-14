@@ -1,14 +1,14 @@
-import { jsonObjectSchema } from '../mod.ts';
 import {
   type DecisionEntry,
   type DecisionQuestion,
   defineProfile,
   describeError,
   type ImageProfileDefinition,
+  jsonObjectSchema,
   type LabelKey,
   type LabelOverrides,
-  type LiveProfileDefinition,
   liveIngressChannelDefault,
+  type LiveProfileDefinition,
   type ProfileDefinitionBase,
   type ProfileGuardrailsSpec,
   type ProfileObservabilitySpec,
@@ -16,58 +16,61 @@ import {
   type SpeechProfileDefinition,
   type TextProfileDefinition,
   TheoremError,
-} from '../mod.ts';
-import { validateLabelOverrides } from '../src/guardrails/labels.ts';
-import { BOUNDARIES, type Boundary, TOOL_BOUNDARIES } from '../src/guardrails/boundaries.ts';
+} from '@theoremjs/agents';
 import {
+  BOUNDARIES,
+  type Boundary,
   DETECT_DEFAULTS,
-  DETECTOR_META,
-  DETECTORS,
   type Detector,
+  DETECTOR_META,
   type DetectorConfig,
   type DetectorRule,
-  type DetectSpec,
+  DETECTORS,
   detectProblem,
-  type HostDetectorConfig,
+  type DetectSpec,
   hintProblem,
+  type HostDetectorConfig,
+  type HostPattern,
   type NameAllow,
+  patternListProblem,
+  TOOL_BOUNDARIES,
   type UrlAllow,
   type UrlDetector,
-} from '../src/guardrails/detectors.ts';
-import { type HostPattern, patternListProblem } from '../src/guardrails/host-patterns.ts';
-import type {
-  DecisionProfileDefinition,
-  HostProfileDefinition,
-  ProfileDefinition,
-} from '../src/kernel/mod.ts';
-import { outOfScopeFields } from '../src/kernel/profile-scope.ts';
-import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
+  validateLabelOverrides,
+} from '@theoremjs/agents/guardrails';
+import {
+  activityLabelProblem,
+  agentToolInputFor,
+  agentToolOutput,
+  type CacheSpec,
+  type DecisionProfileDefinition,
+  type HostProfileDefinition,
+  jsonSchemaFromZod,
+  type LiveContextCompressionSpec,
+  type LiveInputsSpec,
+  mimeAllowed,
+  type ModelBinding,
+  outOfScopeFields,
+  type ProfileContextSpec,
+  type ProfileDefinition,
+  type ProfileImageSpec,
+  type ProfileInputsSpec,
+  type ProfileItemRule,
+  type ProfileLiveSpec,
+  type ProfileOutputsSpec,
+  type ProfileSpeechSpec,
+  type SystemPrompt,
+  systemPromptProblem,
+} from '@theoremjs/agents/kernel';
 import {
   HTTP_METHODS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
   PROFILE_HANDLE_MAX_CHARS,
   PROFILE_ID_MAX_CHARS,
-} from '../src/kernel/schema.ts';
-import { systemPromptProblem } from '../src/kernel/system-parts.ts';
-import { activityLabelProblem } from '../src/kernel/tools/activity-label.ts';
-import { agentToolInputFor, agentToolOutput } from '../src/kernel/tools/agent.ts';
-import { jsonSchemaFromZod } from '../src/kernel/tools/schema.ts';
-import type {
-  LiveContextCompressionSpec,
-  LiveInputsSpec,
-  ModelBinding,
-  ProfileContextSpec,
-  ProfileImageSpec,
-  ProfileInputsSpec,
-  ProfileLiveSpec,
-  ProfileItemRule,
-  ProfileOutputsSpec,
-  ProfileSpeechSpec,
-  SystemPrompt,
-} from '../src/kernel/types.ts';
-import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
-import { isCredentialName, MASK } from '../src/surface/mod.ts';
-import { GOOGLE_SPEECH_FORMATS, GOOGLE_THINKING_LEVELS } from '../src/presets/google.ts';
+} from '@theoremjs/agents/schema';
+import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
+import { isCredentialName, MASK } from '@theoremjs/agents/surface';
+import { GOOGLE_SPEECH_FORMATS, GOOGLE_THINKING_LEVELS } from '@theoremjs/agents/presets/google';
 import { STUDIO_KEY_SLOT_CAP } from './browser-connection.ts';
 import type {
   DecisionDraft,
@@ -352,7 +355,7 @@ function compileCache(
   route: ModelRoute,
   nodeId: string,
   report: Report,
-): import('../src/kernel/types.ts').CacheSpec | undefined {
+): CacheSpec | undefined {
   if (!binding.cacheMode) return undefined;
   // A provider on an adapter the studio does not hold is the project's to judge.
   if (route.adapter !== undefined && !isOpenRouterRoute(route)) {

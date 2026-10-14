@@ -6,8 +6,8 @@
  * @module
  */
 
-import type { TaintGate } from '../src/guardrails/types.ts';
-import type { DecisionQuestion } from '../src/kernel/types.ts';
+import type { TaintGate } from '@theoremjs/agents/guardrails';
+import type { DecisionQuestion } from '@theoremjs/agents/kernel';
 import type { ModelBindingDraft, StudioProfileType } from './draft.ts';
 import type { ModelRoute } from './providers.ts';
 

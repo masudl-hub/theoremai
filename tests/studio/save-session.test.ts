@@ -312,7 +312,7 @@ Deno.test('an agent added in the studio is a new file beside the others, registe
         'second-desk.ts',
         true,
         [
-          "import { defineProfile } from '../../mod.ts';",
+          "import { defineProfile } from '@theoremjs/agents';",
           '',
           'export const profile = defineProfile({',
           "  type: 'host',",
@@ -327,7 +327,7 @@ Deno.test('an agent added in the studio is a new file beside the others, registe
         'example.ts',
         undefined,
         [
-          "import * as secondDesk from './second-desk.ts';",
+          "import * as secondDesk from './second-desk';",
           '  registerProfile(secondDesk.profile);',
         ],
       ],
@@ -341,7 +341,7 @@ Deno.test('an agent added in the studio is a new file beside the others, registe
     written: ['second-desk.ts', 'example.ts'],
   });
   assertEquals(
-    files.get(SECOND)?.startsWith("import { defineProfile } from '../../mod.ts';\n"),
+    files.get(SECOND)?.startsWith("import { defineProfile } from '@theoremjs/agents';\n"),
     true,
   );
   assertEquals(text().includes('  registerProfile(secondDesk.profile);\n}'), true);
@@ -560,7 +560,7 @@ Deno.test('a file left with nothing of its own is taken away, and comes back on 
   const OWN = `${ROOT}/removal.ts`;
   const start = TEXT.indexOf("  registerTool({\n    type: 'function',\n    name: 'remove_plant'");
   const end = TEXT.indexOf('  registerProfile(');
-  const MOVED = `import { registerTool, z } from '../../mod.ts';\n\n${TEXT.slice(start, end).trim()}\n`;
+  const MOVED = `import { registerTool, z } from '@theoremjs/agents';\n\n${TEXT.slice(start, end).trim()}\n`;
   const SPLIT = `import './removal.ts';\n${TEXT.slice(0, start)}${TEXT.slice(end)}`;
   const checks = { ok: false };
   const { session, files, text, state } = project({

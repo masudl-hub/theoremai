@@ -5,7 +5,7 @@
  * @module
  */
 
-import { defineProfile, registerProfile, registerTool, z } from '../../mod.ts';
+import { defineProfile, registerProfile, registerTool, z } from '@theoremjs/agents';
 
 const PLANTS = [
   { id: 'fern', name: 'Boston fern', waterEveryDays: 3, light: 'shade' },

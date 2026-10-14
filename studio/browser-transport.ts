@@ -1,23 +1,30 @@
 import { browserExecution } from './browser-execution.ts';
-import { type DecisionProfile, defineProfile, TheoremError, type TurnEvent } from '../mod.ts';
 import {
-  type DecisionTransport,
-  decisionInterface,
-} from '../react/src/client/decision-transport.ts';
-import { type HostTransport, hostInterface } from '../react/src/client/host-transport.ts';
-import { createTraceFeed, type TraceFeed } from '../react/src/client/trace-feed.ts';
+  type DecisionProfile,
+  defineProfile,
+  TheoremError,
+} from '@theoremjs/agents';
 import {
   type ChatLineSink,
+  createTraceFeed,
+  decisionInterface,
+  type DecisionTransport,
   hostError,
+  hostInterface,
+  type HostTransport,
   isTheoremStreamError,
   type TheoremTransport,
+  type TraceFeed,
   type TurnEventSink,
-} from '../react/src/client/transport.ts';
-import { createSealedConversationStore } from '../react/src/server/conversation-store.ts';
-import type { ReplyLine } from '../react/src/server/conversation.ts';
-import { createMemorySteerInbox, steerUnitOf } from '../react/src/server/steer-inbox.ts';
-import { clientError, forClient } from '../src/host/mod.ts';
-import type { RunDecisionOptions } from '../src/kernel/engine/decision.ts';
+} from '@theoremjs/react/client';
+import {
+  createMemorySteerInbox,
+  createSealedConversationStore,
+  type ReplyLine,
+  steerUnitOf,
+} from '@theoremjs/react/server';
+import { clientError, forClient } from '@theoremjs/agents/host';
+import type { RunDecisionOptions } from '@theoremjs/agents/kernel';
 import { STUDIO_READER } from './reader.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import {
@@ -79,7 +86,7 @@ async function deliver(
 }
 
 function localPageResult(local: ReturnType<typeof browserExecution> | undefined) {
-  return local ? async (result: import('../react/src/client/page-dispatch.ts').PageDispatchResult) => {
+  return local ? async (result: import('@theoremjs/react/client').PageDispatchResult) => {
     await local.pageResult(result);
   } : undefined;
 }

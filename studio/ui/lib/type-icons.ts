@@ -15,7 +15,7 @@ import {
 	IconVolume,
 	IconWorld,
 } from '@tabler/icons-react';
-import type { CustomToolType } from '../../../mod.ts';
+import type { CustomToolType } from '@theoremjs/agents';
 import type { StudioProfileType } from '../../mod.ts';
 import { IconMcp } from '../mcp-icon.tsx';
 

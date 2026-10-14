@@ -19,19 +19,26 @@ import {
   getStructured,
   listProfiles,
   listProviders,
-  type RegisteredProvider,
   listTools,
   type Profile,
   type ProviderHostOptions,
+  type RegisteredProvider,
   registerTool,
-} from '../../mod.ts';
+} from '@theoremjs/agents';
+import { compileDetect } from '@theoremjs/agents/guardrails/compile';
+import {
+  createSealedConversationStore,
+  createTheoremDecisionHandler,
+  createTheoremHandler,
+  createTheoremHostHandler,
+  type TheoremConversationStore,
+} from '@theoremjs/react/server';
 import { type StudioAsks, studioAsks } from '../asks.ts';
 import { adapterFactory, providerDefinition, type StudioProvider } from '../providers.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { shownConnection, withoutCredentials } from '../held-credentials.ts';
 import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
 import { differingSettings } from '../agreement.ts';
-import { compileDetect } from '../../src/guardrails/compile-egress.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
 import { ON_OWN_KEYS } from '../lent-keys.ts';
 import { readStudioSource } from '../read-source.ts';
@@ -49,13 +56,6 @@ import {
   type StudioWorkspace,
   workspaceFromDraft,
 } from '../workspace.ts';
-import {
-  createSealedConversationStore,
-  createTheoremDecisionHandler,
-  createTheoremHandler,
-  createTheoremHostHandler,
-  type TheoremConversationStore,
-} from '../../react/src/server/mod.ts';
 
 /** One builder on one machine: every request is the same session, so a gate's answer finds its call. */
 const STUDIO_SESSION = 'theorem-studio-local';

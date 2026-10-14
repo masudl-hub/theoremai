@@ -9,26 +9,32 @@ import {
   liveIngressChannelDefault,
   profileAllowsInject,
   resolveGuardrailPolicy,
-} from '../mod.ts';
-import { BOUNDARIES, type Boundary, recordOf } from '../src/guardrails/boundaries.ts';
+} from '@theoremjs/agents';
 import {
+  type BlockedReplyOnBlock,
+  BOUNDARIES,
+  type Boundary,
+  type DestinationGate,
   type DetectAction,
-  DETECTORS,
   type Detector,
+  DETECTORS,
   detects,
   PATTERN_DETECTORS,
+  type TaintGate,
   type UrlDetector,
-} from '../src/guardrails/detectors.ts';
-import type { BlockedReplyOnBlock, DestinationGate, TaintGate } from '../src/guardrails/types.ts';
-import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
-import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
-import { profileTypesForField } from '../src/kernel/profile-scope.ts';
-import { CONTINUE_INSTRUCTION_TYPES } from '../src/kernel/stop.ts';
+} from '@theoremjs/agents/guardrails';
+import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
+import {
+  CONTINUE_INSTRUCTION_TYPES,
+  mimeAllowed,
+  type ProfileItemRule,
+  profileTypesForField,
+} from '@theoremjs/agents/kernel';
 import {
   type CacheMode,
+  type CacheTtl,
   type CompactionMeter,
   type CompactionTiming,
-  type CacheTtl,
   type ContextSender,
   type ContinueStopKind,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
@@ -48,14 +54,21 @@ import {
   TOOL_ACCESS,
   TOOL_LOAD_TIERS,
   TOOL_PERMISSION,
-} from '../src/kernel/schema.ts';
+} from '@theoremjs/agents/schema';
 import type { ModelPicks, ModelProfileType, ModelStart } from './lent-keys.ts';
 import { STUDIO_TRACE_DESTINATION, startingBinding } from './policy.ts';
 import { modelRoute, servesProfileType, STUDIO_PROVIDERS, type StudioProvider } from './providers.ts';
 import { keySlotRequired } from './requirements.ts';
 import { DEFAULT_TOOL_INPUT_SCHEMA, DEFAULT_TOOL_OUTPUT_SCHEMA } from './tool-schema.ts';
-import type { ProfileItemRule } from '../src/kernel/types.ts';
 import type { StudioToolSpecSeed } from './types.ts';
+
+/** One value for each of `keys`, by key. */
+export function recordOf<K extends string, V>(
+  keys: readonly K[],
+  value: (key: K) => V,
+): Record<K, V> {
+  return Object.fromEntries(keys.map((key) => [key, value(key)])) as Record<K, V>;
+}
 
 export type StudioProfileType = ProfileType;
 

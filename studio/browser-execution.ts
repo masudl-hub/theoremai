@@ -1,9 +1,13 @@
-import { createTheoremSessionBoundary } from '../react/src/server/session-boundary.ts';
-import { createMemorySessionStore, DEFAULT_OPERATION_RETENTION_MS } from '../react/src/server/session-store.ts';
-import { sessionStateStore } from '../react/src/server/session-authority.ts';
-import { resolveSessionLimits } from '../react/src/server/session-limits.ts';
-import { createMemoryPageToolBroker, sessionPageDispatch } from '../react/src/server/page-dispatch.ts';
-import { sessionToolCoordinator } from '../react/src/server/tool-operations.ts';
+import {
+  createMemoryPageToolBroker,
+  createMemorySessionStore,
+  createTheoremSessionBoundary,
+  DEFAULT_OPERATION_RETENTION_MS,
+  resolveSessionLimits,
+  sessionPageDispatch,
+  sessionStateStore,
+  sessionToolCoordinator,
+} from '@theoremjs/react/server';
 
 export function browserExecution() {
   const id = crypto.randomUUID();

@@ -3,7 +3,7 @@
  * `zodFromJsonSchema` would build.
  */
 
-import { listsPatterns } from '../src/guardrails/host-patterns.ts';
+import { listsPatterns } from '@theoremjs/agents/guardrails';
 import type { CompiledStudio } from './compile.ts';
 import type { CompiledWorkspace } from './compile-workspace.ts';
 import { withoutStudioFills } from './policy.ts';

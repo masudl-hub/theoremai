@@ -3,8 +3,8 @@ import { Icon } from '@astryxdesign/core/Icon';
 import { Popover } from '@astryxdesign/core/Popover';
 import { IconActivity, IconKey } from '@tabler/icons-react';
 import { useState, useSyncExternalStore } from 'react';
-import type { ModelBinding } from '../../mod.ts';
-import { TheoremThemeProvider, TracePlacement } from '../../react/src/ui/index.ts';
+import type { ModelBinding } from '@theoremjs/agents';
+import { TheoremThemeProvider, TracePlacement } from '@theoremjs/react/ui';
 import { studioKeySlots } from '../browser.ts';
 import {
 	modelRoute,

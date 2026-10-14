@@ -84,7 +84,7 @@ Owns every module under `src/guardrails/`.
 | `egress-automata.ts` | Generated (`scripts/gen-egress-automata.ts`): reversed injection patterns and each pattern's superset automaton |
 | `egress-stream.ts` | The detectors and a host's patterns read incrementally: where a match could still start, and its settled hits |
 | `host-patterns.ts` | A host's own patterns: `HostPattern`, its checks, the matchers it runs as and the shape of its compiled table |
-| `compile-egress.ts` | `@theoremjs/agents/guardrails/compile` entry: `compileDetect`, `compilePatterns`, `compileDetectTables`, `compiledDetectModule` |
+| `compile-egress.ts` | `@theoremjs/agents/guardrails/compile` entry: `compileDetect`, `compilePatterns`, `compileDetectTables`, `compiledDetectModule`, `slowPatternProblem` |
 | `egress-compiler.ts` | Compiler from regexes to hold automata (`compileDetect`, `agents detect-compile`, `scripts/gen-egress-automata.ts`) |
 | `corpus/` | Adversarial bank (live attacks, inbound fuzz, canary egress catalog) |
 | `testing.ts` | Test-only re-exports (`@theoremjs/agents/guardrails/testing`) |
@@ -891,7 +891,9 @@ detect: compileDetect({
 
   The message names the repeat to bound: `\d{1,64}x` and
   `\w{1,64}@\w{1,64}\.\w{2,24}` pass. The check is `scslre`'s, loaded with
-  the compiler and not by the kernel.
+  the compiler and not by the kernel. `slowPatternProblem(source, flags?)`
+  makes it alone, for a host that checks patterns it takes from elsewhere,
+  such as a tool schema's: what makes the pattern slow, or `undefined`.
 
 `ResolvedDetect.sources` holds, for each detector the profile changed it for,
 whether Theorem's patterns run and the host's patterns ready to run.
@@ -1365,7 +1367,8 @@ smoke-sized sample, not a benchmark.
 The confused-deputy case: the agent fetches attacker-influenceable bytes, those
 bytes ask for an action, and the agent performs it with authority the content
 never had. A turn accumulates `TurnTaint` as it reads, and each later tool call is
-judged against it. On a Live session the unit is the cycle, from the input that
+judged against it. A call made in the same step as a read is not later: the model
+chose it before the read came back, so the read cannot have shaped it. On a Live session the unit is the cycle, from the input that
 opens it to its `done`: taint starts empty each cycle, as it does each turn.
 
 Only remote origins taint. A local host tool returns bytes the host's own code
@@ -1710,7 +1713,7 @@ From `src/guardrails/compile-egress.ts` (build time only):
 
 | Group | Symbols |
 | --- | --- |
-| Host patterns | `compileDetect`, `compilePatterns`, `compileDetectTables`, `compiledDetectModule` |
+| Host patterns | `compileDetect`, `compilePatterns`, `compileDetectTables`, `compiledDetectModule`, `slowPatternProblem` |
 
 From `src/guardrails/testing.ts` (test / harness only):
 

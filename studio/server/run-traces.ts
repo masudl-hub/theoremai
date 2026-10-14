@@ -8,7 +8,12 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { type Profile, registerTraceDestination, resolveObservabilityPolicy, type TraceRecord } from '../../mod.ts';
+import {
+  type Profile,
+  registerTraceDestination,
+  resolveObservabilityPolicy,
+  type TraceRecord,
+} from '@theoremjs/agents';
 import { eachLine, NDJSON, type SendLine } from '../stream-lines.ts';
 import type { StudioTraceLine } from '../traces.ts';
 

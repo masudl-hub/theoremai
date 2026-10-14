@@ -15,7 +15,27 @@ export {
   theoremSteerRequestSchema,
   theoremTurnRequestSchema,
 } from '../client/transport.ts';
-export { startConversation } from './conversation.ts';
+export {
+  answerReply,
+  type ConversationHost,
+  type ConversationUse,
+  conversationView,
+  type IssuedWalkAway,
+  messageReply,
+  type OpenedConversation,
+  openConversation,
+  type PostedMessage,
+  postedMessage,
+  type ReplyLine,
+  type ReplyRunner,
+  type ReplyTurn,
+  readerConversationHost,
+  rewindConversation,
+  startConversation,
+  statelessRefusal,
+  type WalkedAwayCall,
+  waitingCalls,
+} from './conversation.ts';
 export {
   type ConversationSnapshot,
   type ConversationWriteResult,

@@ -3,8 +3,8 @@
  * name, else a stub shaped by their output schema.
  */
 
-import type { ToolRegistry } from '../src/kernel/tools/registry.ts';
-import { GOOGLE_BUILTIN_TOOLS } from '../src/presets/google.ts';
+import type { ToolRegistry } from '@theoremjs/agents/kernel';
+import { GOOGLE_BUILTIN_TOOLS } from '@theoremjs/agents/presets/google';
 import type { ToolRegistration } from './registrations.ts';
 import { stubOutputFromSchema } from './stub.ts';
 import { zodFromJsonSchema } from './tool-schema.ts';

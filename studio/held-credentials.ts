@@ -6,7 +6,7 @@
  * @module
  */
 
-import { MASK, maskHeaders, maskUrl, unmaskHeaders, unmaskUrl } from '../src/surface/mod.ts';
+import { MASK, maskHeaders, maskUrl, unmaskHeaders, unmaskUrl } from '@theoremjs/agents/surface';
 
 type Json = Record<string, unknown>;
 

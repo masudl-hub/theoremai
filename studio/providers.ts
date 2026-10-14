@@ -8,22 +8,22 @@
  */
 
 import { z } from 'zod';
-import { labelText } from '../src/guardrails/labels.ts';
+import { labelText } from '@theoremjs/agents/guardrails';
 import {
   defineProvider,
   keySlotSchema,
+  type ModelBinding,
   type ProviderAdapter,
   type ProviderCapabilities,
   type RegisteredProvider,
-} from '../src/kernel/provider-contract.ts';
-import { resolveKeySlot } from '../src/kernel/registry/vault.ts';
-import type { ModelBinding } from '../src/kernel/types.ts';
+  resolveKeySlot,
+} from '@theoremjs/agents/kernel';
 import {
   googleAdapter,
   openAIChat,
   openRouterAdapter,
   typesafeAdapter,
-} from '../src/providers/adapters.ts';
+} from '@theoremjs/agents/providers';
 
 /** One provider the workspace's models can name. */
 export interface StudioProvider {

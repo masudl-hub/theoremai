@@ -2,7 +2,7 @@
  * One real call to a draft tool, from the server, which reaches public hosts only: the editor's
  * Test and th30's `test` action both go through here.
  */
-import { HTTP_METHODS } from '../../../mod.ts';
+import { HTTP_METHODS } from '@theoremjs/agents';
 import {
 	credentialHeaderProblem,
 	credentialUrlProblem,

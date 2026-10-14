@@ -9,7 +9,7 @@ import {
   demoInputsSpec,
   demoToolSpecs,
 } from './concierge-demo.ts';
-import { DETECTOR_BOUNDARIES, DETECTORS } from '../src/guardrails/detectors.ts';
+import { DETECTOR_BOUNDARIES, DETECTORS } from '@theoremjs/agents/guardrails';
 import {
   createBlankDraft,
   defaultModelBinding,

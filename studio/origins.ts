@@ -6,7 +6,7 @@
  * @module
  */
 
-import { PROFILE_GRAPH } from '../src/kernel/schema.ts';
+import { PROFILE_GRAPH } from '@theoremjs/agents/schema';
 import { editorLabel } from './editors.ts';
 import type { OpenAnswer, ProjectOrigins, SettingOrigin } from './server/save-wire.ts';
 import { type StudioWorkspace, workspaceNodeRef } from './workspace.ts';

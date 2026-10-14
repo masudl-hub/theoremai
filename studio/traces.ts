@@ -4,8 +4,7 @@
  * policy: a record the policy does not write never reaches the router.
  */
 
-import type { TraceRecord } from '../src/observability/trace-record.ts';
-import type { TraceSink } from '../src/observability/trace-sink.ts';
+import type { TraceRecord, TraceSink } from '@theoremjs/agents/observability';
 
 export const STUDIO_RUN_METADATA_KEY = 'studioRun';
 

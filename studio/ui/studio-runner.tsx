@@ -1,17 +1,12 @@
 import {
-	createDecisionTransport,
-	createHostTransport,
-	createHttpTransport,
-	createTraceFeed,
-	type TraceFeed,
-} from '../../react/src/client/index.ts';
-import { LiveRunner } from '../../react/src/live.ts';
-import {
-	PaneState,
-	TheoremChat,
-	TheoremDecision,
-	TheoremHost,
-} from '../../react/src/ui/index.ts';
+  createDecisionTransport,
+  createHostTransport,
+  createHttpTransport,
+  createTraceFeed,
+  type TraceFeed,
+} from '@theoremjs/react/client';
+import { LiveRunner } from '@theoremjs/react/live';
+import { PaneState, TheoremChat, TheoremDecision, TheoremHost } from '@theoremjs/react/ui';
 import {
 	compileWorkspace,
 	ON_OWN_KEYS,

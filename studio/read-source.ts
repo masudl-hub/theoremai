@@ -6,17 +6,33 @@
  * error at that spot, and the draft is left alone.
  */
 
-import { DEFAULT_ALLOW_CONTINUE, DEFAULT_AUTO_CONTINUE, type LabelKey, liveIngressChannelDefault } from '../mod.ts';
-import { BOUNDARIES, type Boundary, recordOf } from '../src/guardrails/boundaries.ts';
-import { type DetectAction, DETECTORS, type Detector } from '../src/guardrails/detectors.ts';
-import { PROFILE_GRAPH } from '../src/kernel/profile-graph.ts';
-import { CONTEXT_SENDERS, type ContextSender, fieldMeta, type ProfileType } from '../src/kernel/schema.ts';
+import {
+  DEFAULT_ALLOW_CONTINUE,
+  DEFAULT_AUTO_CONTINUE,
+  type LabelKey,
+  liveIngressChannelDefault,
+} from '@theoremjs/agents';
+import {
+  BOUNDARIES,
+  type Boundary,
+  type DetectAction,
+  type Detector,
+  DETECTORS,
+} from '@theoremjs/agents/guardrails';
+import { PROFILE_GRAPH } from '@theoremjs/agents/kernel';
+import {
+  CONTEXT_SENDERS,
+  type ContextSender,
+  fieldMeta,
+  type ProfileType,
+} from '@theoremjs/agents/schema';
 import {
   createBlankDraft,
   defaultModelBinding,
   defaultToolSpec,
   draftKey,
   INLINE_LABELS,
+  recordOf,
   STUDIO_PROFILE_TYPES,
   type DecisionQuestionDraft,
   type GuardrailsDraft,

@@ -5,7 +5,7 @@
  * @module
  */
 
-import { PROFILE_GRAPH, type ProfileGraphFacetId } from '../src/kernel/schema.ts';
+import { PROFILE_GRAPH, type ProfileGraphFacetId } from '@theoremjs/agents/schema';
 import type { ProjectOrigins, SharedSetting, Unregistered } from './server/save-wire.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 import { type AgentDraft, agentNodeId, type StudioWorkspace, workspaceTree } from './workspace.ts';

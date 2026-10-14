@@ -9,7 +9,7 @@
  */
 
 import { z } from 'zod';
-import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
+import { jsonSchemaFromZod } from '@theoremjs/agents/kernel';
 import { compileWorkspace } from '../compile-workspace.ts';
 import { ON_OWN_KEYS } from '../lent-keys.ts';
 import type { CompiledStudio } from '../compile.ts';

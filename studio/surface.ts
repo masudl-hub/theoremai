@@ -3,11 +3,11 @@
  * key slots as secret nodes it can point at and test, and the page's own actions (a new agent,
  * a try in the preview, launch, export). The page supplies a host; the runtime does the rest.
  */
-import { fieldMeta, profileGraphFacet } from '../src/kernel/schema.ts';
-import type { TranscriptBlock } from '../src/interface/mod.ts';
-import { secretCard } from '../src/surface/formats.ts';
+import { fieldMeta, profileGraphFacet } from '@theoremjs/agents/schema';
+import type { TranscriptBlock } from '@theoremjs/agents/interface';
 import {
   defineAction,
+  secretCard,
   type Surface,
   type SurfaceAction,
   type SurfaceActionOutcome,
@@ -17,7 +17,7 @@ import {
   type SurfaceIssue,
   type SurfaceNode,
   type SurfaceRejection,
-} from '../src/surface/types.ts';
+} from '@theoremjs/agents/surface';
 import { z } from 'zod';
 import { compileStudio } from './compile.ts';
 import {

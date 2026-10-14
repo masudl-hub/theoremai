@@ -3,7 +3,7 @@
  * lent keys allow is the page's own (`LentKeys`); nothing here knows a hosted model list.
  */
 
-import { GOOGLE_BUILTIN_TOOLS } from '../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '@theoremjs/agents/presets/google';
 import type { ModelBindingDraft } from './draft.ts';
 import type { LentBinding, ModelBindingViolation, ModelProfileType, ModelStart, StudioRunsOn } from './lent-keys.ts';
 import { LOCAL_PROVIDER_ID, type ModelRoute, servesProfileType } from './providers.ts';

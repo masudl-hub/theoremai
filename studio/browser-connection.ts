@@ -1,5 +1,5 @@
-import { type KeyVault, TheoremError, z } from '../mod.ts';
-import { GEMINI_MODELS_URL } from '../src/providers/google/urls.ts';
+import { type KeyVault, TheoremError, z } from '@theoremjs/agents';
+import { GEMINI_MODELS_URL } from '@theoremjs/agents/presets/google';
 import type { StudioBrowserRuntime } from './browser-transport.ts';
 
 /** Browser-only host configuration. Never part of a compiled profile or persisted run payload. */

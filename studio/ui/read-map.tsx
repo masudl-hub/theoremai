@@ -7,7 +7,7 @@ import type { IconType } from '@astryxdesign/core/Icon';
 import { Text } from '@astryxdesign/core/Text';
 import { IconFileCode, IconFolder } from '@tabler/icons-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { EFFORT_ICON } from '../../react/src/ui/ChatComposerBar.tsx';
+import { EFFORT_ICON } from '@theoremjs/react/ui';
 import { mapCurve } from '../map-line.ts';
 import type { ReadStep } from '../read-steps.ts';
 import { type ReadNode, type ReadNodeKind, readMap } from './lib/read-map.ts';

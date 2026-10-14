@@ -12,7 +12,7 @@
  */
 
 import ts from 'typescript';
-import { MASK, unmaskUrl } from '../../src/surface/mod.ts';
+import { MASK, unmaskUrl } from '@theoremjs/agents/surface';
 import { AGENTS_PACKAGE, type SourceStyle, valueSource } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
 import { canonical } from '../canonical.ts';

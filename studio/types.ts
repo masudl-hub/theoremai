@@ -1,13 +1,13 @@
 import {
-  TOOL_TYPES,
   type AuthUnauthenticatedPolicy,
   type CustomToolType,
   type HttpMethod,
   type StudioAuthType,
+  TOOL_TYPES,
   type ToolAccess,
   type ToolLoadTier,
   type ToolPermission,
-} from '../src/kernel/schema.ts';
+} from '@theoremjs/agents/schema';
 
 /** The tool types a studio draft builds. */
 export type StudioToolType = CustomToolType;

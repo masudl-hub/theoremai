@@ -5,27 +5,32 @@
 import {
   createKernelScope,
   defineProfile,
-  type KernelScope,
-  type Profile,
-  type ProfileDefinition,
-  type ToolExecutionCoordinator,
-  type ProviderDefinition,
-  TheoremError,
-} from '../mod.ts';
-import type { DetectSpec } from '../src/guardrails/detectors.ts';
-import { listsPatterns } from '../src/guardrails/host-patterns.ts';
-import type { ResolveHost } from '../src/guardrails/network.ts';
-import { TAINT_GATES, type TaintGate } from '../src/guardrails/types.ts';
-import type { AgentCall, AgentCallHook, ModelProvider } from '../src/kernel/types.ts';
-import {
   defineProvider,
   googleAdapter,
-  openRouterAdapter,
+  type KernelScope,
   openAIChat,
+  openRouterAdapter,
+  type Profile,
+  type ProfileDefinition,
+  type ProviderDefinition,
+  type ResolveHost,
+  TheoremError,
+  type ToolExecutionCoordinator,
   typesafeAdapter,
-} from '../mod.ts';
-import type { ProviderHostOptions } from '../src/kernel/provider-contract.ts';
-import { translateProviderEvent } from '../src/providers/adapters.ts';
+} from '@theoremjs/agents';
+import {
+  type DetectSpec,
+  listsPatterns,
+  TAINT_GATES,
+  type TaintGate,
+} from '@theoremjs/agents/guardrails';
+import type {
+  AgentCall,
+  AgentCallHook,
+  ModelProvider,
+  ProviderHostOptions,
+} from '@theoremjs/agents/kernel';
+import { translateProviderEvent } from '@theoremjs/agents/providers';
 export interface StudioProviderOptions extends ProviderHostOptions {
   gemini?: {
     fetch?: typeof fetch;
@@ -45,7 +50,7 @@ import { registerStudioTools, type StudioToolHandlers } from './tools.ts';
 export interface StudioRuntimeBase {
   providerDefinitions?: readonly ProviderDefinition[];
   execution?: ToolExecutionCoordinator;
-  pageExecution?: import('../mod.ts').PageToolExecution;
+  pageExecution?: import('@theoremjs/agents').PageToolExecution;
   providers?: StudioProviderOptions;
   hostOptions?: (profile: Profile, model?: string) => ProviderHostOptions;
   provider?: (profile: Profile, model?: string) => ModelProvider;
@@ -93,7 +98,7 @@ export function runtimeProvider(
             ...EVERY_MEDIA_KIND,
             builtins: ['googleSearch', 'googleMaps', 'urlContext', 'codeExecution'],
           }),
-          create(): Promise<import('../src/kernel/provider-contract.ts').ProviderOperations> {
+          create(): Promise<import('@theoremjs/agents').ProviderOperations> {
             return Promise.resolve().then(() => {
               return {
                 async *complete(request) {
@@ -300,7 +305,7 @@ function withLentCompression<D extends ProfileDefinition>(def: D, runtime: Studi
  */
 export async function withCompiledPatterns<D extends ProfileDefinition>(def: D): Promise<D> {
   if (!hasPatterns(def)) return def;
-  const { compileDetect } = await import('../src/guardrails/compile-egress.ts');
+  const { compileDetect } = await import('@theoremjs/agents/guardrails/compile');
   return withPatterns(def, compileDetect);
 }
 
@@ -334,7 +339,7 @@ async function refuseSlowSchemaPatterns(tools: readonly ToolRegistration[]): Pro
     ),
   );
   if (!found.length) return;
-  const { slowPatternProblem } = await import('../src/guardrails/egress-compiler.ts');
+  const { slowPatternProblem } = await import('@theoremjs/agents/guardrails/compile');
   for (const { tool, side, source } of found) {
     const slow = slowPatternProblem(source);
     if (slow) {

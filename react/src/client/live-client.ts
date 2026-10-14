@@ -1,3 +1,5 @@
+// why: This is browser code; a Deno program that reaches it through `@theoremjs/react/client` checks it with the DOM.
+/// <reference lib="dom" />
 /**
  * Pure client-side SDK for THEOREM Gemini 3.1 Flash Live sessions over WebSocket relay.
  *

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { DecisionQuestion, ProfileDefinition } from '../mod.ts';
+import type { DecisionQuestion, ProfileDefinition } from '@theoremjs/agents';
 import type { StudioConnectionMode } from './policy.ts';
 import type { StudioProvider } from './providers.ts';
 import type { StudioDependency } from './runtime-scope.ts';

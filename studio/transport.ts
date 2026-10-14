@@ -14,31 +14,31 @@ import {
   traceRecordSchema,
   TURN_EVENT_SCHEMAS,
   type TurnEvent,
-} from '../mod.ts';
-import {
-  decisionInterface,
-  type DecisionTransport,
-  postDecision,
-} from '../react/src/client/decision-transport.ts';
-import { hostInterface, type HostTransport } from '../react/src/client/host-transport.ts';
-import { createTraceFeed, type TraceFeed } from '../react/src/client/trace-feed.ts';
+} from '@theoremjs/agents';
 import {
   CHAT_LINES,
   type ChatLineSink,
   type ConversationLine,
+  createTraceFeed,
+  decisionInterface,
+  type DecisionTransport,
   fetchConversation,
   fetchRewound,
+  hostInterface,
+  type HostTransport,
   type HttpOptions,
+  type MalformedEvent,
+  postDecision,
   postJson,
   postNdjson,
   type TheoremTransport,
-  type MalformedEvent,
+  type TraceFeed,
   type TurnEventSink,
   type UnsupportedEvent,
   type WireLines,
-} from '../react/src/client/transport.ts';
-import { interfaceFromProfile, type ProfileInterface } from '../src/interface/mod.ts';
-import { createToolRegistry } from '../src/kernel/tools/registry.ts';
+} from '@theoremjs/react/client';
+import { interfaceFromProfile, type ProfileInterface } from '@theoremjs/agents/interface';
+import { createToolRegistry, type Equals } from '@theoremjs/agents/kernel';
 import {
   clearStudioRunPayload,
   keptStudioRunIds,
@@ -47,7 +47,6 @@ import {
 } from './run-payload.ts';
 import { uncompiled } from './compile.ts';
 import { registerStudioTools } from './tools.ts';
-import type { Equals } from '../src/kernel/util/exact-type.ts';
 import type { StudioTraceLine } from './traces.ts';
 
 /**

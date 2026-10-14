@@ -1,6 +1,6 @@
 /** Node ids are what compile issues point at, so a tree, a graph, or a form can place an issue. */
 
-import { PROFILE_GRAPH, type ProfileGraphFacetId } from '../src/kernel/schema.ts';
+import { PROFILE_GRAPH, type ProfileGraphFacetId } from '@theoremjs/agents/schema';
 import { draftFacets, type StudioDraft } from './draft.ts';
 
 export function modelBindingNodeId(key: string): string {

@@ -1,4 +1,4 @@
-import type { SystemPart, SystemPrompt } from '../src/kernel/types.ts';
+import type { SystemPart, SystemPrompt } from '@theoremjs/agents/kernel';
 
 /**
  * The studio's way to write a system prompt with private sections: the

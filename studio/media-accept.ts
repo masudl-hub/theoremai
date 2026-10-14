@@ -4,7 +4,7 @@
  * its kind); a picker shows the expanded list, so every covered type reads as selected.
  */
 
-import { MEDIA_INPUT_KINDS, type MediaInputKind } from '../src/kernel/schema.ts';
+import { MEDIA_INPUT_KINDS, type MediaInputKind } from '@theoremjs/agents/schema';
 
 export interface AcceptSection {
   kind: MediaInputKind;

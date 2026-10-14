@@ -1,4 +1,4 @@
-import type { ClientTurnOptions } from '../src/host/client-turn.ts';
+import type { ClientTurnOptions } from '@theoremjs/agents/host';
 
 /**
  * Who reads what the studio runs: the builder, on their own machine and keys. A failure says what

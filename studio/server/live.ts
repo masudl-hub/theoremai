@@ -14,11 +14,16 @@ import {
   runSession,
   TheoremError,
   type TraceSink,
-} from '../../mod.ts';
-import { createMemorySessionStore, createTheoremSessionBoundary, type TheoremSessionBoundary, parseLiveOpenMessage } from '../../react/src/server/mod.ts';
+} from '@theoremjs/agents';
+import {
+  createMemorySessionStore,
+  createTheoremSessionBoundary,
+  parseLiveOpenMessage,
+  type TheoremSessionBoundary,
+} from '@theoremjs/react/server';
+import { clientError } from '@theoremjs/agents/host';
 import { attachStudioLiveSession } from '../live-session-bridge.ts';
 import { STUDIO_READER } from '../reader.ts';
-import { clientError } from '../../src/host/mod.ts';
 import type { StudioTraceLine } from '../traces.ts';
 
 /** The server's end of the page's socket, and the answer that completes the upgrade. */

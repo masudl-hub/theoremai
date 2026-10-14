@@ -1,14 +1,12 @@
 import { browserExecution } from './browser-execution.ts';
 import type { StudioLiveBridgeOptions } from './live-session-bridge.ts';
-import { TheoremError } from '../mod.ts';
-import { clientError } from '../src/host/mod.ts';
+import { type LabelOverrides, type LiveSession, TheoremError } from '@theoremjs/agents';
+import { clientError } from '@theoremjs/agents/host';
+import type { LiveConnection, LiveSocket } from '@theoremjs/react/client';
+import { liveSessionOpen, parseLiveOpenMessage } from '@theoremjs/react/server';
 import { STUDIO_READER } from './reader.ts';
-import type { LiveConnection, LiveSocket } from '../react/src/client/live-messages.ts';
-import type { LiveSession, LabelOverrides } from '../mod.ts';
 import type { StudioTraceRoute } from './traces.ts';
 import type { StudioBrowserRuntime } from './browser-transport.ts';
-import { parseLiveOpenMessage } from '../react/src/server/request-check.ts';
-import { liveSessionOpen } from '../react/src/server/turn-input.ts';
 import { attachStudioLiveSession } from './live-session-bridge.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import { studioTraces } from './runtime.ts';

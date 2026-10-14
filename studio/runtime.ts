@@ -1,65 +1,60 @@
-import type { ProfileDefinition, TraceRecord, TurnEvent } from '../mod.ts';
 import {
   labelText,
+  type ProfileDefinition,
   registerTraceDestination,
   resolveObservabilityPolicy,
   TheoremError,
+  type TraceRecord,
+  type TurnEvent,
   z,
-} from '../mod.ts';
+} from '@theoremjs/agents';
 import {
+  type ConversationView,
   type DecisionTransport,
+  type TheoremConversationRequest,
+  type TheoremHostCallRequest,
+  type TheoremInvokeRequest,
+  type TheoremReplay,
+  type TheoremRewindRequest,
+  type TheoremRewound,
+  type TheoremTurnRequest,
   withFailedTraces,
-} from '../react/src/client/decision-transport.ts';
-import type { TheoremHostCallRequest } from '../react/src/client/host-transport.ts';
-import type {
-  ConversationView,
-  TheoremConversationRequest,
-  TheoremInvokeRequest,
-  TheoremReplay,
-  TheoremRewindRequest,
-  TheoremRewound,
-  TheoremTurnRequest,
-} from '../react/src/client/transport.ts';
-import type { TheoremConversationStore } from '../react/src/server/conversation-store.ts';
+} from '@theoremjs/react/client';
 import {
   answerReply,
-  type ConversationHost,
+  checkRequest,
   conversationView,
   messageReply,
-  type OpenedConversation,
   openConversation,
-  postedInput,
+  type OpenedConversation,
   postedMessage,
+  readerConversationHost,
   type ReplyLine,
   type ReplyRunner,
-  readerConversationHost,
-  requiredOperationId,
-  requireRewindPoint,
-  requireWaitingOn,
-  requireWalkAway,
   rewindConversation,
   startConversation,
   statelessRefusal,
+  type SteerInbox,
+  steerStage,
+  type TheoremConversationStore,
   waitingCalls,
-} from '../react/src/server/conversation.ts';
-import { checkRequest } from '../react/src/server/request-check.ts';
-import { type SteerInbox, steerStage } from '../react/src/server/steer-inbox.ts';
+} from '@theoremjs/react/server';
 import {
-  type ComposerProfileInterface,
   gatedToolsFromEvents,
   interfaceFromProfile,
   promotedToolIdsFromEvents,
-  type TranscriptBlock,
   toolSnapshotFromEvents,
-} from '../src/interface/mod.ts';
-import type { RunDecisionOptions } from '../src/kernel/engine/decision.ts';
-import type { GateAnswerRequest, GateReference } from '../src/kernel/mod.ts';
+  type TranscriptBlock,
+} from '@theoremjs/agents/interface';
 import {
   answerGatedCall,
+  type GateAnswerRequest,
+  type GateReference,
   type HeldGatedCall,
   memoryCredentialSource,
   type RegisteredTool,
-} from '../src/kernel/mod.ts';
+  type RunDecisionOptions,
+} from '@theoremjs/agents/kernel';
 import { STUDIO_TRACE_DESTINATION } from './policy.ts';
 import { STUDIO_READER } from './reader.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
@@ -209,7 +204,6 @@ function answerPaused(
   sessionPermissions: string[] | undefined,
   runtime: StudioRuntime,
 ) {
-  requireWaitingOn(opened.conversation, request);
   const events = opened.conversation.paused?.events ?? [];
   const call = gatedToolsFromEvents(events).find(
     (gated) => gated.callId === request.callId && gated.operationId === request.operationId,
@@ -249,12 +243,15 @@ export async function* streamStudioTurn(
   const { request, runtime, signal } = args;
   const { scope, profile, iface, host } = await studioChat(args, args.conversations);
   const message = postedMessage(iface, request.input);
-  const input = postedInput(request.input, message);
   const sessionPermissions = request.replay?.sessionPermissions;
   if (!host && request.conversation !== undefined) throw statelessRefusal('continue');
   if (!host && request.abandon) throw statelessRefusal('walk away from');
-  const opened = host ? await openConversation(host, request.conversation) : undefined;
-  if (opened) requireWalkAway(opened.conversation, request.abandon);
+  const opened = host
+    ? await openConversation(host, request.conversation, {
+        kind: 'message',
+        ...(request.abandon ? { abandon: request.abandon } : {}),
+      })
+    : undefined;
   // Answered up front, so a refused call starts nothing.
   const walked = opened
     ? (request.abandon ?? []).map((reference) => ({
@@ -289,13 +286,13 @@ export async function* streamStudioTurn(
         onStage: steerStage(args.steer, inbox),
       });
       if (!host || !opened) {
-        return runner.run({ input, model: request.model, effort: request.effort });
+        return runner.run({ input: message.input, model: request.model, effort: request.effort });
       }
       const walkAway = walked.map(({ reference, invoke }) => ({
         ...reference,
         events: scope.invokeTool({ ...invoke, metadata, signal }),
       }));
-      return messageReply({ host, opened, message, input, walkAway, runner });
+      return messageReply({ host, opened, message, walkAway, runner });
     });
   } finally {
     await args.steer.close(inbox);
@@ -410,8 +407,10 @@ export async function* streamStudioInvoke(
     return;
   }
   if (answer.conversation === undefined) throw statelessRefusal('continue');
-  const opened = await openConversation(host, answer.conversation);
-  requireWaitingOn(opened.conversation, request);
+  const opened = await openConversation(host, answer.conversation, {
+    kind: 'answer',
+    call: { callId: request.callId, operationId: request.operationId },
+  });
   const invoke = answerPaused(scope, profile.id, opened, request, sessionPermissions, runtime);
   yield* withRunTraces((metadata) =>
     answerReply({
@@ -451,7 +450,7 @@ export async function studioConversation(
 ): Promise<ConversationView> {
   const { host } = await studioChat(draft, conversations);
   if (!host) throw statelessRefusal('read');
-  const opened = await openConversation(host, request.conversation);
+  const opened = await openConversation(host, request.conversation, { kind: 'read' });
   return conversationView(host, opened.conversation);
 }
 
@@ -464,10 +463,11 @@ export async function rewindStudio(
 ): Promise<TheoremRewound> {
   const { scope, profile, host } = await studioChat(draft, conversations);
   if (!host) throw statelessRefusal('rewind');
-  const opened = await openConversation(host, request.conversation);
-  requireRewindPoint(opened.conversation, request.at);
-  const walkAway = waitingCalls(opened.conversation).map((call) => {
-    const reference = { callId: call.callId, operationId: requiredOperationId(call) };
+  const opened = await openConversation(host, request.conversation, {
+    kind: 'rewind',
+    at: request.at,
+  });
+  const walkAway = waitingCalls(opened.conversation).map((reference) => {
     const invoke = answerPaused(
       scope,
       profile.id,
@@ -569,6 +569,6 @@ export async function runStudioDecision(
   }
 }
 
-export { failedDecisionTraces, withFailedTraces } from '../react/src/client/decision-transport.ts';
+export { failedDecisionTraces, withFailedTraces } from '@theoremjs/react/client';
 
 export { studioKeySlots } from './browser-connection.ts';

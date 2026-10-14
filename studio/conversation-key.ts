@@ -1,4 +1,4 @@
-import { toBase64Url } from '../src/kernel/auth/crypto.ts';
+import { toBase64Url } from '@theoremjs/agents/kernel';
 
 /** The least a sealing key holds: 256 bits. */
 const CONVERSATION_KEY_BYTES = 32;

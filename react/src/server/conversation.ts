@@ -123,8 +123,38 @@ export type OpenedConversation = {
   conversation: StoredConversation;
 };
 
-/** The conversation under `ref`, or a new one when the browser has none. */
+/**
+ * What a request opens a conversation for, checked as it opens, before the host starts any run:
+ * - `read`: to draw it (`conversationView`).
+ * - `message`: to post a message (`messageReply`). A reply that waits on gates must be walked
+ *   away from: `abandon` names exactly the calls it waits on.
+ * - `answer`: to answer `call`, one the reply waits on (`answerReply`).
+ * - `rewind`: to cut it after transcript block `at`, which it must hold; -1 empties it
+ *   (`rewindConversation`).
+ */
+export type ConversationUse =
+  | { kind: 'read' }
+  | { kind: 'message'; abandon?: readonly GateReference[] }
+  | { kind: 'answer'; call: GateReference }
+  | { kind: 'rewind'; at: number };
+
+/**
+ * The conversation under `ref`, or a new one when the browser has none, refused when it does not
+ * allow `use`.
+ */
 export async function openConversation(
+  host: ConversationHost,
+  ref: string | undefined,
+  use: ConversationUse,
+): Promise<OpenedConversation> {
+  const opened = await openedAt(host, ref);
+  if (use.kind === 'message') requireWalkAway(opened.conversation, use.abandon);
+  if (use.kind === 'answer') requireWaitingOn(opened.conversation, use.call);
+  if (use.kind === 'rewind') requireRewindPoint(opened.conversation, use.at);
+  return opened;
+}
+
+async function openedAt(
   host: ConversationHost,
   ref: string | undefined,
 ): Promise<OpenedConversation> {
@@ -447,12 +477,14 @@ async function compactedAfter(
   return save(host, opened, { ...opened.conversation, history });
 }
 
-/** The person's new message, as the host checked it: its blocks and its media. */
+/** The person's new message, as the host checked it: its blocks, its media, and the kernel's input. */
 export type PostedMessage = {
   draft: UserTurnDraft;
   /** The message's blocks (`prepareUserTurn`), with their media inline. */
   blocks: TranscriptBlock[];
   media: UserTurnHistoryMedia;
+  /** The kernel input without history: the message's text as the transcript shows it, its media, slots and context. */
+  input: TurnInput;
 };
 
 /** A file off the wire as the profile's input limits read it. */
@@ -469,10 +501,14 @@ function pendingOf(blob: EncodedBlob): PendingAttachment {
   return { name: blob.name, mimeType: blob.mimeType, sizeBytes, data: blob.data };
 }
 
-/** The person's message as the profile accepts it: refused when its files break the profile's limits. */
+/**
+ * The person's message as the profile accepts it: refused when its files break the profile's
+ * limits. `server` is the host's own context for the run (the handler's `context` option).
+ */
 export function postedMessage(
   iface: ComposerProfileInterface,
   input: TheoremTurnInput,
+  server?: unknown,
 ): PostedMessage {
   const prepared = prepareUserTurn(
     iface.inputs,
@@ -484,6 +520,8 @@ export function postedMessage(
     iface.guardrails,
   );
   if (!prepared.ok) throw attachmentsRefused(prepared.issues);
+  const { text: _sent, ...rest } = input;
+  const { text } = prepared.draft;
   return {
     draft: prepared.draft,
     blocks: prepared.blocks,
@@ -491,27 +529,15 @@ export function postedMessage(
       ...(input.attachments ? { attachments: input.attachments } : {}),
       ...(input.voice ? { voice: input.voice } : {}),
     },
+    input: kernelTurnInput(text === undefined ? rest : { ...rest, text }, server),
   };
-}
-
-/** The message as the kernel takes it, its text as the transcript shows it. */
-export function postedInput(
-  input: TheoremTurnInput,
-  message: PostedMessage,
-  server?: unknown,
-): TurnInput {
-  const { text: _sent, ...rest } = input;
-  return kernelTurnInput(
-    message.draft.text === undefined ? rest : { ...rest, text: message.draft.text },
-    server,
-  );
 }
 
 /**
  * Refuses a walk-away that does not name exactly the calls the paused reply
  * waits on, by call id and operation; a message to a paused reply must walk away.
  */
-export function requireWalkAway(
+function requireWalkAway(
   conversation: StoredConversation,
   abandon: readonly GateReference[] | undefined,
 ): void {
@@ -539,7 +565,7 @@ export function requireWalkAway(
 }
 
 /** Refuses an answer to a call the paused reply is not waiting on, by call id and operation. */
-export function requireWaitingOn(conversation: StoredConversation, reference: GateReference): void {
+function requireWaitingOn(conversation: StoredConversation, reference: GateReference): void {
   if (waitingOn(conversation, reference)) return;
   // labels-exempt: internal diagnostic; the user reads the copy key's wording
   throw new TheoremError('request', `the reply is not waiting on ${reference.callId}`, {
@@ -595,9 +621,7 @@ export async function* messageReply(args: {
   host: ConversationHost;
   opened: OpenedConversation;
   message: PostedMessage;
-  /** The kernel input without history: the message's text, media, slots and context. */
-  input: TurnInput;
-  /** The paused reply's calls, each with the run that settles it (`requireWalkAway` checks them). */
+  /** The paused reply's calls, each with the run that settles it: exactly the calls it waits on. */
   walkAway?: readonly IssuedWalkAway[];
   runner: ReplyRunner;
 }): AsyncGenerator<ReplyLine> {
@@ -642,7 +666,7 @@ export async function* messageReply(args: {
     reply,
     runner,
     {
-      ...args.input,
+      ...message.input,
       history: conversation.history,
       ...(conversation.inputTokens === undefined ? {} : { inputTokens: conversation.inputTokens }),
       ...(conversation.historyTokens === undefined
@@ -710,7 +734,7 @@ export async function* answerReply(args: {
 }
 
 /** Refuses a rewind to a block the transcript does not hold; -1 empties it. */
-export function requireRewindPoint(conversation: StoredConversation, at: number): void {
+function requireRewindPoint(conversation: StoredConversation, at: number): void {
   if (Number.isSafeInteger(at) && at >= -1 && at < conversation.transcript.length) return;
   // labels-exempt: internal diagnostic; the user reads error.request
   throw new TheoremError('request', `no transcript block ${at} to rewind to`);
@@ -754,8 +778,11 @@ export function requiredOperationId(call: { operationId?: string }): string {
 }
 
 /** The calls a paused reply waits on: the ones a message or a rewind walks away from. */
-export function waitingCalls(conversation: StoredConversation) {
-  return gatedToolsFromEvents(conversation.paused?.events ?? []);
+export function waitingCalls(conversation: StoredConversation): GateReference[] {
+  return gatedToolsFromEvents(conversation.paused?.events ?? []).map((call) => ({
+    callId: call.callId,
+    operationId: requiredOperationId(call),
+  }));
 }
 
 /** Refuses what only a kept conversation answers, for a profile that keeps none. */

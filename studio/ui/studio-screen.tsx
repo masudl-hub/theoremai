@@ -48,18 +48,15 @@ import {
 	IconTool,
 	IconX,
 } from '@tabler/icons-react';
+import { profileGraphFacet, type ProfileGraphFacetId } from '@theoremjs/agents';
 import {
-	type ProfileGraphFacetId,
-	profileGraphFacet,
-} from '../../mod.ts';
-import {
-	InPlace,
-	PaneFailure,
-	RaisedPane,
-	type TheoremChatHandle,
-	useDisclosureMotion,
-} from '../../react/src/ui/index.ts';
-import { EFFORT_ICON } from '../../react/src/ui/ChatComposerBar.tsx';
+  EFFORT_ICON,
+  InPlace,
+  PaneFailure,
+  RaisedPane,
+  type TheoremChatHandle,
+  useDisclosureMotion,
+} from '@theoremjs/react/ui';
 import {
 	adapterFactory,
 	addAgent,

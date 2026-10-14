@@ -8,6 +8,9 @@
  */
 /** labels-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 import {
+  INJ_IGNORE,
+  INJ_IGNORE_REVEAL,
+  injHexSpaced,
   TEST_AWS_KEY,
   TEST_GITHUB_PAT,
   TEST_GOOGLE_KEY,
@@ -15,8 +18,7 @@ import {
   TEST_PEM,
   TEST_SLACK,
   TEST_VISA,
-} from '../src/guardrails/corpus/secrets.ts';
-import { INJ_IGNORE, INJ_IGNORE_REVEAL, injHexSpaced } from '../src/guardrails/corpus/strings.ts';
+} from '@theoremjs/agents/guardrails/testing';
 import type { ProbeBoundary } from './guardrail-probe.ts';
 
 export interface ProbeBatteryCase {

@@ -1,4 +1,4 @@
-import type { TheoremLabels } from '../../../react/src/ui/index.ts';
+import type { TheoremLabels } from '@theoremjs/react/ui';
 
 /**
  * The studio's own lines: a credential typed at a sign-in gate serves one call and is never

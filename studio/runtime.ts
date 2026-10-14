@@ -114,6 +114,8 @@ type StudioDraftRun = {
   dependencies?: StudioDependency[];
 };
 
+export { newConversationKey } from './conversation-key.ts';
+
 /** Where a chat's conversation is kept: the store, and the session its refs open in. */
 export type StudioConversations = { sessionId: string; store: TheoremConversationStore };
 
@@ -131,6 +133,10 @@ async function studioChat(draft: StudioDraftRun, conversations: StudioConversati
   );
   assertNotLiveProfile(profile.type, 'turn runner — use runSession');
   const iface = interfaceFromProfile(profile, scope.tools);
+  if (iface.type === 'live') {
+    // labels-exempt: internal diagnostic; the user reads error.request
+    throw new TheoremError('request', 'A studio chat does not run a live profile.');
+  }
   const host =
     iface.providerContinuation?.history === 'stateless'
       ? undefined

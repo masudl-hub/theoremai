@@ -15,6 +15,7 @@ import {
   branchInterfaceTurnSession,
   buildUserTurnBlocks,
   type ComposerProfileInterface,
+  clientProfileInterface,
   collectPromotedMediaFromToolOutput,
   defaultInterfaceEffort,
   effortSelectEnabled,
@@ -110,6 +111,20 @@ Deno.test('interfaceFromProfile maps identity, inputs, model, and outputs', () =
     assertEquals(iface.allowSteering, true);
   }
 });
+Deno.test('clientProfileInterface is the interface without its system prompts', () => {
+  const profile = defineProfile({
+    ...ATTACHMENT_PROFILE,
+    id: 'interface.text.client',
+    identity: { handle: 'vision_bot', system: 'You see images.', systemByRole: { a: 'Role A.' } },
+    labels: { 'error.failed': 'That went wrong.' },
+  });
+  const full = interfaceFromProfile(profile, defaultKernelScope.tools);
+  const client = clientProfileInterface(profile, defaultKernelScope.tools);
+  assertEquals(client.identity, { handle: 'vision_bot' });
+  assertEquals({ ...client, identity: full.identity }, full);
+  assertEquals(client.labels, { 'error.failed': 'That went wrong.' });
+});
+
 Deno.test('interfaceFromProfile hides text input when inputs.text is false', () => {
   const iface = composerIface(NO_TEXT_PROFILE);
   assertFalse(iface.inputs.text);

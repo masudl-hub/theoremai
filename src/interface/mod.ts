@@ -25,7 +25,11 @@ export type {
 export { resolveComposerMenuActions, resolveComposerPrimary } from './composer-actions.ts';
 export type { PrepareUserTurnResult } from './draft.ts';
 export { prepareUserTurn, sanitizeUserDraft } from './draft.ts';
-export { interfaceFromProfile, interfaceFromProjected } from './from-profile.ts';
+export {
+  clientProfileInterface,
+  interfaceFromProfile,
+  interfaceFromProjected,
+} from './from-profile.ts';
 export type { UserTurnHistoryMedia } from './history.ts';
 export {
   answerOpenToolCalls,

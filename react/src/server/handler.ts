@@ -64,9 +64,8 @@ import {
   HTTP_METHOD,
 } from '@theoremjs/agents/host';
 import {
+  clientProfileInterface,
   gatedToolsFromEvents,
-  interfaceFromProfile,
-  type ProfileInterface,
   promotedToolIdsFromEvents,
   toolSnapshotFromEvents,
 } from '@theoremjs/agents/interface';
@@ -220,12 +219,6 @@ const NDJSON_HEADERS = {
 function withSessionCookie(response: Response, session: Session | undefined): Response {
   if (session?.setCookie) response.headers.append('set-cookie', session.setCookie);
   return response;
-}
-
-/** Strip server-only identity (system prompts) from the projected interface. */
-function clientInterface(profile: Profile): ProfileInterface {
-  const iface = interfaceFromProfile(profile, defaultKernelScope.tools);
-  return { ...iface, identity: { handle: iface.identity.handle } };
 }
 
 /** A JSON body checked against `schema`; a missing or malformed field is a `request` error (400). */
@@ -962,7 +955,9 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
     return hostRoute({ ...ctx, profile: ctx.profile }, request, session);
   const target = routeOf(request);
   if (request.method === 'GET' && target === '')
-    return jsonResponse(200, { interface: clientInterface(ctx.profile) });
+    return jsonResponse(200, {
+      interface: clientProfileInterface(ctx.profile, defaultKernelScope.tools),
+    });
   if (request.method !== 'POST' || target === '' || target === 'call') return refused(ctx);
   if (target === 'turn') {
     const body = await readBody(request, theoremTurnRequestSchema, ctx.options.maxRequestBytes);

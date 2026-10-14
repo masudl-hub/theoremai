@@ -210,4 +210,22 @@ function interfaceFromProjected(projected: ProjectedProfile): ProfileInterface {
   return enrich(projected);
 }
 
-export { interfaceFromProfile, interfaceFromProjected };
+/**
+ * The interface a browser may read: {@linkcode interfaceFromProfile} without `identity.system` and
+ * `systemByRole`, which stay on the server. Labels, turn behaviour, guardrails and observability are kept.
+ */
+function clientProfileInterface(input: LiveProfile, tools: ToolRegistry): LiveProfileInterface;
+/** The client-safe interface for a profile that is not live. */
+function clientProfileInterface(
+  input: Exclude<Profile, LiveProfile>,
+  tools: ToolRegistry,
+): ComposerProfileInterface;
+/** The client-safe interface for any profile. */
+function clientProfileInterface(input: Profile, tools: ToolRegistry): ProfileInterface;
+/** The client-safe interface for any profile. */
+function clientProfileInterface(input: Profile, tools: ToolRegistry): ProfileInterface {
+  const iface = interfaceFromProfile(input, tools);
+  return { ...iface, identity: { handle: iface.identity.handle } };
+}
+
+export { clientProfileInterface, interfaceFromProfile, interfaceFromProjected };

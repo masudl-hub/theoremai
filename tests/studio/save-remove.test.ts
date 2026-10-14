@@ -161,6 +161,35 @@ Deno.test('a profile in its own module goes with the module, its reply shape and
   });
 });
 
+Deno.test('a profile module with an export the setup never reads keeps the file, without the profile', () => {
+  const setup = lines(
+    "import { registerProfile } from '@theoremjs/agents';",
+    "import * as triage from './triage.ts';",
+    '',
+    'registerProfile(triage.profile);',
+  );
+  const module = lines(
+    "import { defineProfile } from '@theoremjs/agents';",
+    '',
+    "export const profile = defineProfile({ type: 'decision', id: 'triage' });",
+    'export function sample() {',
+    "  return 'a ticket';",
+    '}',
+  );
+  const plan = planned({ 'setup.ts': setup, 'triage.ts': module }, { profiles: ['triage'] });
+  assertEquals([plan.statuses, plan.gone], [[['triage', 'written']], []]);
+  assertEquals(
+    plan.written['triage.ts'],
+    lines(
+      "import { defineProfile } from '@theoremjs/agents';",
+      '',
+      'export function sample() {',
+      "  return 'a ticket';",
+      '}',
+    ),
+  );
+});
+
 Deno.test('a module that defines two profiles keeps the one that was not removed', () => {
   const setup = lines(
     "import { registerProfile } from '@theoremjs/agents';",

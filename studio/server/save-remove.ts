@@ -313,17 +313,34 @@ class Removal {
 
   /**
    * A file that defined what was removed and that the project no longer reads: nothing imports it
-   * now, and either something did before or nothing of its own is left in it.
+   * now, and all that is left in it are declarations. Each one it exports was read in the setup, and
+   * only by what is cut. An export the setup never reads, which a test or a server may import, or a
+   * statement that runs, keeps the file.
    */
   private isGone(source: ts.SourceFile): boolean {
     if (source.fileName === this.project.entry || !this.homes.has(source)) return false;
-    let imported = false;
-    for (const { statement } of importsOf(this.project, source)) {
-      if (!this.cut.has(statement)) return false;
-      imported = true;
-    }
+    for (const { statement } of importsOf(this.project, source)) if (!this.cut.has(statement)) return false;
     const own = source.statements.filter((statement) => !ts.isImportDeclaration(statement));
-    return imported || (own.length > 0 && own.every((statement) => this.cut.has(statement)));
+    const left = own.filter((statement) => !this.cut.has(statement));
+    return own.length > left.length &&
+      left.every((statement) => {
+        const names = declaredNames(statement);
+        if (!names) return false;
+        if (!isExported(statement)) return true;
+        return names.every((name) => this.readOnlyByCut({ name, source, statement }));
+      });
+  }
+
+  /** Whether the setup reads `named`, and only in what is cut. */
+  private readOnlyByCut(named: Named): boolean {
+    const readers = readersOf(this.project, named);
+    const reads = readers.flatMap((reader) => reader.reads);
+    return !readers.some((reader) => reader.passesOn) && reads.length > 0 && reads.every((read) => this.isCut(read));
+  }
+
+  private isCut(node: ts.Node): boolean {
+    for (let at: ts.Node | undefined = node; at; at = at.parent) if (this.cut.has(at as Part)) return true;
+    return false;
   }
 
   /** An import of a file only for what running it registers goes when the file registers nothing now. */
@@ -350,6 +367,22 @@ class Removal {
     );
     return { changes: this.changes, edits, gone: gone.map((source) => source.fileName) };
   }
+}
+
+/** The names a top-level declaration declares, or undefined for a statement that is not one. */
+function declaredNames(statement: ts.Statement): string[] | undefined {
+  if (ts.isVariableStatement(statement)) {
+    const names = statement.declarationList.declarations.map((each) => ts.isIdentifier(each.name) ? each.name.text : undefined);
+    return names.every((name) => name !== undefined) ? names : undefined;
+  }
+  const declares = ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) ||
+    ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement) || ts.isEnumDeclaration(statement);
+  return declares && statement.name ? [statement.name.text] : undefined;
+}
+
+function isExported(statement: ts.Statement): boolean {
+  return ts.canHaveModifiers(statement) &&
+    (ts.getModifiers(statement)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false);
 }
 
 const BLANK = /^[ \t]*$/;

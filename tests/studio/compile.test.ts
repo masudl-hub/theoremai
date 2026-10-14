@@ -644,12 +644,16 @@ Deno.test('studioSource writes a module that registers the profile', () => {
 });
 Deno.test('studioSource registers each provider by its adapter, and says which one is not its to write', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
-  const named = (provider: string, adapter: string) => {
+  const named = (
+    provider: string,
+    adapter: string,
+    slots: { keySlot?: string; fallbackKeySlot?: string } = {},
+  ) => {
     const result = compileStudio(
       {
         ...draft,
         identity: { ...draft.identity, agentId: 'desk', handle: 'Desk' },
-        providers: [{ id: provider, adapter }],
+        providers: [{ id: provider, adapter, ...slots }],
         modelBindings: draft.modelBindings.map((binding) => ({
           ...binding,
           provider,
@@ -664,6 +668,11 @@ Deno.test('studioSource registers each provider by its adapter, and says which o
   assertStringIncludes(
     named('mine', 'openrouter'),
     "registerProvider({ id: 'mine', connection: {}, adapter: openRouterAdapter() });",
+  );
+  // Its slots are part of what it runs with, so the code holds them.
+  assertStringIncludes(
+    named('mine', 'openrouter', { keySlot: 'team', fallbackKeySlot: 'spare' }),
+    "registerProvider({ id: 'mine', connection: {}, keySlot: 'team', fallbackKeySlot: 'spare', adapter: openRouterAdapter() });",
   );
   const own = named('theirs', 'acme');
   assertStringIncludes(own, "// Register the provider 'theirs' here, before the agents");

@@ -153,8 +153,11 @@ function providerRegistrations(
       ([key, value]) => `${keySource(key)}: ${quoteSource(value)}`,
     );
     const connection = held.length ? `{ ${held.join(', ')} }` : '{}';
+    const slots = (['keySlot', 'fallbackKeySlot'] as const).flatMap((slot) =>
+      provider[slot] === undefined ? [] : [` ${slot}: ${quoteSource(provider[slot])},`]
+    );
     code.push(
-      `registerProvider({ id: ${quoteSource(id)}, connection: ${connection}, adapter: ${factory}() });\n`,
+      `registerProvider({ id: ${quoteSource(id)}, connection: ${connection},${slots.join('')} adapter: ${factory}() });\n`,
     );
   }
   return { imports: [...imports], code };

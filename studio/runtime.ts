@@ -431,15 +431,16 @@ export async function* streamStudioInvoke(
   );
 }
 
-/** A conversation that opens on blocks the page wrote, read first by the draft's guardrails. Returns its ref. */
+/** A conversation that opens on blocks the page wrote, read first by the draft's guardrails: its ref and view. */
 export async function startStudioConversation(
   draft: StudioDraftRun,
   conversations: StudioConversations,
   blocks: readonly TranscriptBlock[],
-): Promise<string> {
+): Promise<{ conversation: string; view: ConversationView }> {
   const { profile, host } = await studioChat(draft, conversations);
   if (!host) throw statelessRefusal('start');
-  return (await startConversation(host, profile, blocks)).ref;
+  const { ref, view } = await startConversation(host, profile, blocks);
+  return { conversation: ref, view };
 }
 
 /** The conversation under a ref, as the page draws it. */

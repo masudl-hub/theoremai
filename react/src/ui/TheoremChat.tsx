@@ -21,6 +21,7 @@ import {
 import { parseAspectRatio } from '../client/image-output.ts';
 import type { PageTools } from '../client/live/live-page-tool.ts';
 import {
+  type ConversationView,
   createHttpTransport,
   type HttpTransportOptions,
   type TheoremTransport,
@@ -114,6 +115,12 @@ export type TheoremChatProps = {
    * the chat mounts: the chat draws the conversation as the host keeps it.
    */
   conversation?: string;
+  /**
+   * The conversation under `conversation` as the host showed it with the ref, as
+   * `startConversation` returns it. Read once, when the chat mounts: the chat draws it at once,
+   * and does not read it from the host again.
+   */
+  conversationView?: ConversationView;
   /** The text the composer starts with, for the user to send or change. Read once, when the chat mounts. */
   initialText?: string;
   /**
@@ -251,6 +258,7 @@ function ChatBody({
   className,
   style,
   conversation,
+  conversationView,
   initialText,
   onConversationChange,
   chatRef,
@@ -266,6 +274,7 @@ function ChatBody({
     transport,
     iface,
     conversation,
+    conversationView,
     initialText,
     onConversationChange,
     slots,

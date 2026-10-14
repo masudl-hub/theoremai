@@ -138,14 +138,14 @@ export async function openConversation(
  * Starts a conversation from blocks the host wrote, not ran: a chat that opens on an exchange
  * already under way. The model reads them as history on the next turn, read first by the
  * profile's guardrails at the `history` boundary, as every turn's history is. A match set to
- * `block` refuses them, and nothing is stored. Returns the new conversation's ref, and the
- * guardrail events for what matched.
+ * `block` refuses them, and nothing is stored. Returns the new conversation's ref, its view for
+ * the chat's `conversationView`, and the guardrail events for what matched.
  */
 export async function startConversation(
   host: Pick<ConversationHost, 'sessionId' | 'store'>,
   profile: Profile,
   blocks: readonly TranscriptBlock[],
-): Promise<{ ref: string; events: TurnEvent[] }> {
+): Promise<{ ref: string; view: ConversationView; events: TurnEvent[] }> {
   const { request, events, refusal } = sanitizeTurnRequestWithEvents(
     { profile: profile.id, input: { history: historyFromTranscriptBlocks(blocks) } },
     profile,
@@ -163,7 +163,8 @@ export async function startConversation(
       'the conversation store did not keep the new conversation',
     );
   }
-  return { ref: result.ref, events };
+  // why: A new conversation has no paused reply, so its view is the transcript alone.
+  return { ref: result.ref, view: { transcript: [...blocks] }, events };
 }
 
 function foldedFor(host: ConversationHost, events: readonly TurnEvent[]): TranscriptBlock[] {

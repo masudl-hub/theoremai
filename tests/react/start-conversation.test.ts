@@ -36,8 +36,9 @@ const store = () =>
 Deno.test('a conversation started from blocks opens on them, with the history the model reads', async () => {
   const conversations = { sessionId: 'session-a', store: store() };
   const blocks = exchange('Stay in Chiado.');
-  const { ref, events } = await startConversation(conversations, profile(), blocks);
+  const { ref, view, events } = await startConversation(conversations, profile(), blocks);
   assertEquals(events, []);
+  assertEquals(view, { transcript: blocks });
   const snapshot = await conversations.store.read('session-a', ref);
   assertEquals(snapshot?.conversation.transcript, blocks);
   assertEquals(snapshot?.conversation.history, [

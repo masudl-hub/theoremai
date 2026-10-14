@@ -171,7 +171,7 @@ The profile, the keys and the system prompt stay on the server. The browser rece
 | `placeholder`, `emptyState` | The composer placeholder, and the content above the composer before the first message. |
 | `density`, `maxWidth`, `className`, `style` | Layout. `maxWidth` is a CSS length. Default: half of the chat width, or the full width on a narrow screen. |
 | `trace` | Shows the trace instead of the chat. Use it when your own control switches the view. The profile must record traces. |
-| `conversation`, `onConversationChange` | Resume a conversation that the server keeps. See below. |
+| `conversation`, `conversationView`, `onConversationChange` | Resume a conversation that the server keeps, or open one you started. See below. |
 | `initialText` | The text that the composer starts with. The user can send it or change it. The component reads it once, when it mounts. |
 | `chatRef` | Sends a message from your code. See below. |
 | `composer` | `false` leaves the composer out. The chat is the transcript alone, and your own control sends through `chatRef`. Default: `true`. |
@@ -432,7 +432,7 @@ const transport = withPageToolDispatch(
 
 ### Start a conversation with content
 
-`startConversation` stores a conversation that opens on blocks you wrote, and returns its ref. Pass the ref as `conversation`. The model reads the blocks as history, so the user's next message is a follow-up.
+`startConversation` stores a conversation that opens on blocks you wrote, and returns its ref and its view. The model reads the blocks as history, so the user's next message is a follow-up.
 
 ```ts
 import { startConversation, theoremSession } from '@theoremjs/react/server';
@@ -443,7 +443,13 @@ const { ref } = await startConversation({ sessionId: session.id, store: conversa
   { id: 'reply', kind: 'text', text: 'Stay in Chiado.' },
   { id: 'done', kind: 'turn-done' },
 ]);
-// Send session.setCookie as Set-Cookie when it is set, and give the page the ref.
+// Send session.setCookie as Set-Cookie when it is set, and give the page the ref and view.
+```
+
+Pass the ref as `conversation` and the view as `conversationView`. The chat draws the view at once, and does not read the conversation from the server again.
+
+```tsx
+<TheoremChat endpoint="/api/theorem" conversation={ref} conversationView={view} />
 ```
 
 - The store is the one you pass to the handler as `conversationStore`, and the session is the one the chat's requests carry. `theoremSession(request)` is the handler's cookie session: its `id`, and a `setCookie` header when the request had none. With your own `session` resolver, pass the id it returns.

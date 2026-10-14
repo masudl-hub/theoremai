@@ -49,6 +49,12 @@ export type UseTheoremChatOptions = {
    * keeps no conversation, so it has no ref.
    */
   conversation?: string;
+  /**
+   * The conversation under `conversation` as the host showed it with the ref, as
+   * `startConversation` returns it. Read once, when the chat mounts: the chat draws it at once,
+   * and does not read it from the host again.
+   */
+  conversationView?: ConversationView;
   /** The text the composer starts with. Read once, when the chat mounts. */
   initialText?: string;
   /**
@@ -333,13 +339,19 @@ function useResumedConversation(
   transport: TheoremTransport,
   state: ChatState,
   conversation: ConversationRef,
+  shown: ConversationView | undefined,
 ): void {
   const loaded = useRef(false);
+  const shownRef = useRef(shown);
   useEffect(() => {
     if (!iface || loaded.current) return;
     loaded.current = true;
     const ref = conversation.ref.current;
     if (ref === undefined || !keepsConversation(iface)) return;
+    if (shownRef.current) {
+      drawConversation(state, shownRef.current, state.sessionRef.current, []);
+      return;
+    }
     void (async () => {
       const before = state.blocksRef.current;
       try {
@@ -566,6 +578,7 @@ export function useTheoremChat({
   transport,
   iface,
   conversation: initialConversation,
+  conversationView,
   initialText,
   onConversationChange,
   slots,
@@ -577,7 +590,7 @@ export function useTheoremChat({
   const slotState = useSlotChoices(iface, slots, onSlotsChange);
   const state = useTheoremChatState(initialText);
   const conversation = useConversationRef(initialConversation, onConversationChange);
-  useResumedConversation(iface, transport, state, conversation);
+  useResumedConversation(iface, transport, state, conversation, conversationView);
   useDefaultGeneration(iface, state.session, state.setSession);
 
   const gated = state.session.gatedTool !== null;

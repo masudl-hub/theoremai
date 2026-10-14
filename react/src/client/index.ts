@@ -78,6 +78,7 @@ export { continueGatedToolInvocation } from './tool-resume.ts';
 export { createTraceFeed, type TraceFeed } from './trace-feed.ts';
 export {
   type ClientTurnEvent,
+  type ConversationView,
   createHttpTransport,
   type HostErrorBody,
   type HttpOptions,
@@ -88,8 +89,11 @@ export {
   postJson,
   postNdjson,
   readNdjsonStream,
+  type TheoremConversationRequest,
   type TheoremInvokeRequest,
   type TheoremReplay,
+  type TheoremRewindRequest,
+  type TheoremRewound,
   type TheoremSteerRequest,
   TheoremStreamError,
   type TheoremTransport,

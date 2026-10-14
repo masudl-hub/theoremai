@@ -77,6 +77,8 @@ export interface StudioRunnerProps {
 	 * image agents run in the page). A project's chat is not resumed: its key is the run's.
 	 */
 	conversation?: ChatProps['conversation'];
+	/** The conversation under `conversation` as the server showed it, drawn at once. */
+	conversationView?: ChatProps['conversationView'];
 	/** The text a chat's composer starts with. */
 	initialText?: ChatProps['initialText'];
 	onConversationChange?: ChatProps['onConversationChange'];
@@ -108,6 +110,7 @@ export function StudioRunner({
 	columns,
 	onActivity,
 	conversation,
+	conversationView,
 	initialText,
 	onConversationChange,
 	chatRef,
@@ -180,6 +183,7 @@ export function StudioRunner({
 			className={className}
 			note={note}
 			conversation={conversation}
+			conversationView={conversationView}
 			initialText={initialText}
 			onConversationChange={onConversationChange}
 			chatRef={chatRef}
@@ -533,6 +537,7 @@ function TurnRun({
 	className,
 	note,
 	conversation,
+	conversationView,
 	initialText,
 	onConversationChange,
 	chatRef,
@@ -578,6 +583,7 @@ function TurnRun({
 			trace={trace}
 			className={className}
 			conversation={conversation}
+			conversationView={conversationView}
 			initialText={initialText}
 			onConversationChange={onConversationChange}
 			chatRef={chatRef}

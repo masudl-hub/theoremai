@@ -135,11 +135,72 @@ function specifiers(source: ts.SourceFile): string[] {
   return found;
 }
 
-/** What a call is named: `defineProfile(...)` and `theorem.defineProfile(...)` are both `defineProfile`. */
+/** The kernel's package, however a specifier names it: bare, `npm:` or `jsr:`, with a version, or a path in it. */
+const KERNEL_PACKAGE = /^(?:npm:|jsr:)?@theoremjs\/agents(?:@[^/]*)?(?:\/|$)/;
+
+/** Whether an import from `specifier` may bring in the kernel: its package, or a path, which may lead to it. Another package does not. */
+function mayBeKernel(specifier: string): boolean {
+  return KERNEL_PACKAGE.test(specifier) || /^(?:\.|\/|file:)/.test(specifier);
+}
+
+/** What a file's top-level name is: an import (the name it imports, `*` for the whole module), or its own declaration. */
+type NameSource = { module: string; imported: string | undefined } | 'own';
+
+const bound = new WeakMap<ts.SourceFile, Map<string, NameSource>>();
+
+function bindingsOf(source: ts.SourceFile): Map<string, NameSource> {
+  const held = bound.get(source);
+  if (held) return held;
+  const names = new Map<string, NameSource>();
+  for (const statement of source.statements) {
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier)) {
+      const module = statement.moduleSpecifier.text;
+      const clause = statement.importClause;
+      if (clause?.name) names.set(clause.name.text, { module, imported: undefined });
+      const bindings = clause?.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) names.set(bindings.name.text, { module, imported: '*' });
+      else if (bindings) {
+        for (const element of bindings.elements) {
+          names.set(element.name.text, { module, imported: (element.propertyName ?? element.name).text });
+        }
+      }
+    } else if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
+      names.set(statement.name.text, 'own');
+    } else if (ts.isVariableStatement(statement)) {
+      for (const { name } of statement.declarationList.declarations) if (ts.isIdentifier(name)) names.set(name.text, 'own');
+    }
+  }
+  bound.set(source, names);
+  return names;
+}
+
+/**
+ * The kernel function a call calls, by what its name is bound to: `defineProfile(...)`, `reg(...)`
+ * after `import { registerProfile as reg }`, `theorem.defineProfile(...)` after `import * as theorem`.
+ * A name another package exports, or the file declares itself, is not the kernel's.
+ */
 export function calleeName(call: ts.CallExpression): string | undefined {
   const callee = call.expression;
-  if (ts.isIdentifier(callee)) return callee.text;
-  if (ts.isPropertyAccessExpression(callee)) return callee.name.text;
+  const names = bindingsOf(call.getSourceFile());
+  if (ts.isIdentifier(callee)) {
+    const binding = names.get(callee.text);
+    if (binding === undefined) return callee.text;
+    if (binding === 'own' || !mayBeKernel(binding.module) || !binding.imported || binding.imported === '*') return undefined;
+    return binding.imported;
+  }
+  if (ts.isPropertyAccessExpression(callee)) {
+    const binding = ts.isIdentifier(callee.expression) ? names.get(callee.expression.text) : undefined;
+    if (binding && binding !== 'own' && !mayBeKernel(binding.module)) return undefined;
+    return callee.name.text;
+  }
+  return undefined;
+}
+
+/** Where `source` imports the kernel's `name` from, and the name it is called by there. */
+export function kernelImportOf(source: ts.SourceFile, name: string): { specifier: string; local: string } | undefined {
+  for (const [local, binding] of bindingsOf(source)) {
+    if (binding !== 'own' && binding.imported === name && mayBeKernel(binding.module)) return { specifier: binding.module, local };
+  }
   return undefined;
 }
 

@@ -574,3 +574,62 @@ Deno.test('a new provider whose id is a reserved word, a name its file imports o
     true,
   );
 });
+
+Deno.test('a setup that imports the kernel under other names is read by what it imports', () => {
+  const aliased = `import { defineProfile, registerProfile as reg, registerTool as tool, z } from '@theoremjs/agents';
+
+export default function register() {
+  ${LIST.replace('registerTool(', 'tool(')}
+  reg(${DESK});
+}
+`;
+  const { written, statuses } = planned(
+    { 'setup.ts': aliased },
+    {
+      agents: [host('desk', ['list']), host('second-desk', ['list'])],
+      profiles: ['second-desk'],
+      tools: [],
+    },
+  );
+  assertEquals(statuses, [['second-desk', 'written', 'second-desk.ts']]);
+  assertEquals(
+    written['setup.ts'],
+    `import { defineProfile, registerProfile as reg, registerTool as tool, z } from '@theoremjs/agents';
+import * as secondDesk from './second-desk';
+
+export default function register() {
+  ${LIST.replace('registerTool(', 'tool(')}
+  reg(${DESK});
+  reg(secondDesk.profile);
+}
+`,
+  );
+});
+
+Deno.test("another package's function of the same name is not the kernel's", () => {
+  const foreign = `import { defineProfile, registerTool, z } from '@theoremjs/agents';
+import { registerProfile } from 'some-package';
+
+export default function register() {
+  ${LIST}
+  registerProfile('desk');
+}
+`;
+  const { written } = planned(
+    { 'setup.ts': foreign },
+    { agents: [host('desk', ['list'])], profiles: ['desk'], tools: [] },
+  );
+  assertEquals(
+    written['setup.ts'],
+    `import { defineProfile, registerTool, z, registerProfile as theoremRegisterProfile } from '@theoremjs/agents';
+import { registerProfile } from 'some-package';
+import * as desk from './desk';
+
+export default function register() {
+  ${LIST}
+  theoremRegisterProfile(desk.profile);
+  registerProfile('desk');
+}
+`,
+  );
+});

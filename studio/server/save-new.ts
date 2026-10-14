@@ -18,7 +18,7 @@ import { keySource } from '../tool-schema.ts';
 import {
   calleeName,
   importExtension,
-  importOf,
+  kernelImportOf,
   isInside,
   namedValue,
   type ProjectSource,
@@ -93,12 +93,12 @@ function registeredId(project: ProjectSource, source: ts.SourceFile, call: ts.Ca
   return undefined;
 }
 
-/** Where a file imports one of `names` from, the first of the project's files that does. */
+/** Where a file imports one of the kernel's `names` from, under any name, the first of the project's files that does. */
 function importedFrom(project: ProjectSource, names: readonly string[]): { specifier: string; file: string } | undefined {
   for (const [file, source] of project.files) {
     for (const name of names) {
-      const found = importOf(source, name);
-      if (found?.name === name) return { specifier: found.specifier, file };
+      const found = kernelImportOf(source, name);
+      if (found) return { specifier: found.specifier, file };
     }
   }
   return undefined;
@@ -149,13 +149,18 @@ class Setup {
   private readonly edits: SourceEdit[] = [];
   private readonly found: Registration[];
   private readonly file: string;
-  private readonly imported = new Set<string>();
+  /** What this plan imports from the kernel, by its name there, as the name the setup reads. */
+  private readonly imported = new Map<string, string>();
   /** The lines that go after everything the setup registers, in order. */
   private readonly tail: string[] = [];
   /** The questions of each new decision, as the entries the setup's `questions` export gains. */
   private readonly asked: string[] = [];
 
-  constructor(private readonly project: ProjectSource, private readonly source: ts.SourceFile) {
+  constructor(
+    private readonly project: ProjectSource,
+    private readonly source: ts.SourceFile,
+    private readonly taken: Set<string>,
+  ) {
     this.found = registrations(source);
     this.file = source.fileName;
   }
@@ -228,18 +233,30 @@ class Setup {
     this.insert(start, lines.map((line) => `${line}\n${indent}`).join(''));
   }
 
-  /** Imports `name` from the kernel when the file does not yet: in the import that reads it, or a new one. */
-  needs(name: string, agents: string) {
-    if (this.imported.has(name) || importOf(this.source, name)) return;
-    this.imported.add(name);
+  /**
+   * The name the setup calls the kernel's `name` by. When the file does not import it yet, it is
+   * added to the import that reads the kernel, or a new one, under another name if the file
+   * already uses `name` for something else.
+   */
+  needs(name: string, agents: string): string {
+    const known = kernelImportOf(this.source, name)?.local ?? this.imported.get(name);
+    if (known) return known;
+    const local = this.taken.has(name) ? agentIdentifier(`theorem ${name}`, this.taken) : name;
+    if (local === name) this.taken.add(name);
+    this.imported.set(name, local);
+    const binding = local === name ? name : `${name} as ${local}`;
     for (const statement of this.source.statements) {
       if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
       const bindings = statement.importClause?.namedBindings;
       if (statement.moduleSpecifier.text !== agents || statement.importClause?.isTypeOnly) continue;
       const last = bindings && ts.isNamedImports(bindings) ? bindings.elements.at(-1) : undefined;
-      if (last) return this.insert(last.end, `, ${name}`);
+      if (last) {
+        this.insert(last.end, `, ${binding}`);
+        return local;
+      }
     }
-    this.import(`import { ${name} } from '${agents}';`);
+    this.import(`import { ${binding} } from '${agents}';`);
+    return local;
   }
 
   /** After the file's last import, or at its top. */
@@ -325,8 +342,8 @@ class NewPlan {
     const { project, source, agents } = ground;
     const folder = (targets: Map<string, { file: string }[]>) =>
       commonFolder([...targets.values()].flat().map((target) => target.file), dirname(project.entry));
-    this.setup = new Setup(project, source);
     this.taken = namesIn(source);
+    this.setup = new Setup(project, source, this.taken);
     this.extension = importExtension(project, agents.specifier);
     this.zod = importedFrom(project, ['z']) ?? { specifier: 'zod', file: project.entry };
     this.folders = {
@@ -400,8 +417,8 @@ class NewPlan {
       (specifier) => `import { ${name} } from '${specifier}';`,
     );
     if (!made) return;
-    this.setup.needs('registerProvider', carried(agents.specifier, agents.file, source.fileName));
-    this.setup.beforeProfiles(`registerProvider(${name});`);
+    const register = this.setup.needs('registerProvider', carried(agents.specifier, agents.file, source.fileName));
+    this.setup.beforeProfiles(`${register}(${name});`);
   }
 
   /** A tool's file, and the setup's call of the function in it that registers the tool. */
@@ -514,11 +531,11 @@ class NewPlan {
     const lines = waits.flatMap((registration) => this.tool(registration));
     if (agent.questions) this.setup.ask(agent.agentId, `${name}.questions`);
     if (agent.structured) {
-      this.setup.needs('registerStructured', kernel);
-      lines.push(`registerStructured(${name}.structured.id, ${name}.structured.spec);`);
+      const structured = this.setup.needs('registerStructured', kernel);
+      lines.push(`${structured}(${name}.structured.id, ${name}.structured.spec);`);
     }
-    this.setup.needs('registerProfile', kernel);
-    lines.push(`registerProfile(${name}.profile);`, ...follows.flatMap((registration) => this.tool(registration)));
+    const register = this.setup.needs('registerProfile', kernel);
+    lines.push(`${register}(${name}.profile);`, ...follows.flatMap((registration) => this.tool(registration)));
     if (before) this.setup.before(before, lines);
     else for (const line of lines) this.setup.last(line);
   }

@@ -488,3 +488,25 @@ Deno.test('a new decision is not written when the setup cannot name its question
   };
   assertEquals(planned(elsewhere, added), refused);
 });
+
+Deno.test('a new agent with an item rule is not written: its check is code the studio does not hold', () => {
+  const ruled: CompiledStudio = {
+    agentId: 'a',
+    providers: [],
+    profile: {
+      type: 'text',
+      id: 'a',
+      identity: { handle: 'a' },
+      models: { fast: { provider: 'google', apiId: 'gemini-3.1-flash-lite' } },
+      tools: { allow: [] },
+      inputs: {},
+      // The studio holds what a refused item does, and never the check.
+      outputs: { validation: { items: { stops: { onFail: 'fix' } as never } } },
+    },
+    customTools: [],
+  };
+  assertEquals(planned({ 'setup.ts': INLINE }, { agents: [ruled], profiles: ['a'], tools: [] }), {
+    written: {},
+    statuses: [['a', 'owed', undefined]],
+  });
+});

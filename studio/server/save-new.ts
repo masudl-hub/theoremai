@@ -434,6 +434,17 @@ class NewPlan {
 
   /** A new agent's file and the line that imports it. False when it cannot be written. */
   private profile(agent: CompiledStudio, name: string): boolean {
+    // An item rule runs a check the builder's code holds: a file with the rule alone would not load.
+    const [list] = Object.keys(('outputs' in agent.profile && agent.profile.outputs?.validation?.items) || {});
+    if (list !== undefined) {
+      this.plan.changes.push({
+        kind: 'profile',
+        of: agent.agentId,
+        setting: `outputs.validation.items.${list}.check`,
+        status: 'owed',
+      });
+      return false;
+    }
     // A decision is asked the questions the setup names, so one the setup cannot name is not written.
     if (agent.questions && !this.setup.asks) {
       this.refuse('profile', agent.agentId, 'setup', this.ground.project.entry);

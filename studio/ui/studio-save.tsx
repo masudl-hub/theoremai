@@ -119,6 +119,8 @@ function reason(change: SaveChange): string {
 			return 'No agent allows this tool yet. Allow it on an agent, or remove it.';
 		case 'taken':
 			return `A file is already at ${place(change)}. Rename the ${change.kind}, or move that file.`;
+		case 'owed':
+			return 'This agent checks each item of a list with code the studio does not hold. Add the agent in your code.';
 		case 'setup':
 			return `The studio cannot tell where ${place(change)} would register a new ${change.kind}. Add it in your code.`;
 		case 'removed':

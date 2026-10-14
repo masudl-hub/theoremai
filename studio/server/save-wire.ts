@@ -143,6 +143,7 @@ export type OpenAnswer =
  * - `unused`: a tool the studio added that no agent allows, so it was never run.
  * - `taken`: the file a new profile or tool would be written to is already there.
  * - `setup`: the studio cannot tell how the project's setup registers things, so it cannot add one.
+ * - `owed`: a new profile holds a rule whose check is code, which the studio does not have to write.
  * - `removed`: a profile or tool the studio took away, registered in a way the studio cannot follow.
  */
 export type SaveStatus =
@@ -154,6 +155,7 @@ export type SaveStatus =
   | 'unused'
   | 'taken'
   | 'setup'
+  | 'owed'
   | 'removed';
 
 export interface SaveChange {

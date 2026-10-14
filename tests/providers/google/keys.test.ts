@@ -185,14 +185,7 @@ Deno.test('fetchGemini retries on the fallback slot after 429 backoff, not befor
     'spare',
   );
   assertEquals(res.status, HTTP_OK);
-  assertEquals(used, [
-    'free-a-key',
-    'free-a-key',
-    'free-a-key',
-    'free-a-key',
-    'free-a-key',
-    'spare-key',
-  ]);
+  assertEquals(used, ['free-a-key', 'free-a-key', 'free-a-key', 'spare-key']);
 });
 
 Deno.test('fetchGemini without a fallback slot returns the quota refusal', async () => {
@@ -212,7 +205,7 @@ Deno.test('fetchGemini without a fallback slot returns the quota refusal', async
     },
   );
   assertEquals(res.status, HTTP_QUOTA);
-  assertEquals(used, ['free-a-key', 'free-a-key', 'free-a-key', 'free-a-key', 'free-a-key']);
+  assertEquals(used, ['free-a-key', 'free-a-key', 'free-a-key']);
 });
 
 Deno.test('a slot the vault lacks throws before any fetch', async () => {
@@ -265,13 +258,13 @@ Deno.test('fetchGemini tapes every try under the slot it was sent with', async (
   const requests = rows.filter((row) => row.eventType === 'http_request');
   assertEquals(
     requests.map((row) => row.keySlot),
-    ['slot_a', 'slot_a', 'slot_a', 'slot_a', 'slot_a', 'spare'],
+    ['slot_a', 'slot_a', 'slot_a', 'spare'],
   );
   assertEquals(requests[0]?.url, 'https://example.com/v1');
   assertEquals(requests[0]?.body, { model: 'm' });
   assertEquals(
     rows.filter((row) => row.eventType === 'http_response').map((row) => row.status),
-    [429, 429, 429, 429, 429, HTTP_OK],
+    [429, 429, 429, HTTP_OK],
   );
 });
 

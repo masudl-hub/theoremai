@@ -550,14 +550,7 @@ Deno.test("provider retries on the profile's fallback slot only after 429 backof
   const events = await Array.fromAsync(
     provider.complete({ ...fromChatProfile(), fallbackKeySlot: 'spare' }),
   );
-  assertEquals(used, [
-    'free-a-key',
-    'free-a-key',
-    'free-a-key',
-    'free-a-key',
-    'free-a-key',
-    'spare-key',
-  ]);
+  assertEquals(used, ['free-a-key', 'free-a-key', 'free-a-key', 'spare-key']);
   assertEquals(events[0], { type: 'text', text: 'hi' });
 });
 

@@ -31,14 +31,7 @@ Deno.test('openRouterFetch backs off on the primary key before the fallback slot
   );
   const res = await send('https://x.test', { headers: { Authorization: 'Bearer main-key' } });
   assertEquals(res.status, 200);
-  assertEquals(seen, [
-    'Bearer main-key',
-    'Bearer main-key',
-    'Bearer main-key',
-    'Bearer main-key',
-    'Bearer main-key',
-    'Bearer spare-key',
-  ]);
-  assertEquals(taped, ['main', 'main', 'main', 'main', 'main', 'spare']);
-  assertEquals(waits, [1000, 2000, 4000, 8000]);
+  assertEquals(seen, ['Bearer main-key', 'Bearer main-key', 'Bearer main-key', 'Bearer spare-key']);
+  assertEquals(taped, ['main', 'main', 'main', 'spare']);
+  assertEquals(waits, [1000, 2000]);
 });

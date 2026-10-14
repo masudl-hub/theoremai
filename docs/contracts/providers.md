@@ -583,9 +583,9 @@ The adapter receives resolved limits through `ProviderContext.limits`.
 | Pending client tool calls | 32 |
 
 The operation deadline includes creation and credential resolution. Retries retain the original deadline and consumption budget.
-Theorem sends a request up to five times when it fails with a network error or a 408, 429, 500, 502, 503 or 504 status.
-Between tries it waits the response's `Retry-After` when that is at most 60 seconds. Otherwise it waits 1, 2, 4, then 8 seconds.
-A timeout or an abort is not retried. A 429 moves to the fallback key slot only after the fifth try.
+Theorem sends a request again when it fails with a network error or a 408, 429, 500, 502, 503 or 504 status, while the waits between tries stay within five seconds in all.
+Each wait is the response's `Retry-After` when it gives one. Otherwise it is 1, 2, 4, then 8 seconds. A wait that would pass the five seconds is not taken, and the last answer goes back as it came.
+A timeout or an abort is not retried. A 429 moves to the fallback key slot only after the last try.
 Injected fetch counts decompressed bytes before forwarding each chunk. SSE records include incomplete records and comments.
 Injected WebSocket transport checks message bytes before adapter JSON parsing.
 Normalized accounting includes media, structured output, tool arguments, and native state. It measures UTF-8 JSON bytes.

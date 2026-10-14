@@ -3,10 +3,9 @@ import { isAbortError, isTimeoutError } from '../../guardrails/error.ts';
 /** How a retry waits; a host or test may pass its own. The signal ends the wait early. */
 export type Wait = (ms: number, signal?: AbortSignal | null) => Promise<void>;
 
-const ATTEMPTS = 5;
 const BACKOFF_MS = [1000, 2000, 4000, 8000];
-/** A longer `Retry-After` is not worth holding a turn for; the refusal goes back instead. */
-const RETRY_AFTER_CAP_MS = 60_000;
+/** All the waiting one call may do between tries; a wait that would pass it sends the last answer back. */
+const WAIT_BUDGET_MS = 5000;
 const MS_PER_SECOND = 1000;
 
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
@@ -50,7 +49,7 @@ export function backoffMs(attempt: number): number {
   return BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)] as number;
 }
 
-/** `retry-after-ms`, else `Retry-After` in seconds or as a date; undefined when absent or past the cap. */
+/** `retry-after-ms`, else `Retry-After` in seconds or as a date; undefined when absent or unreadable. */
 export function retryAfterMs(headers: Headers, now = Date.now()): number | undefined {
   const ms = headers.get('retry-after-ms');
   const after = headers.get('retry-after');
@@ -61,36 +60,42 @@ export function retryAfterMs(headers: Headers, now = Date.now()): number | undef
     const seconds = Number(after);
     delay = Number.isFinite(seconds) ? seconds * MS_PER_SECOND : Date.parse(after) - now;
   }
-  if (delay === undefined || Number.isNaN(delay) || delay < 0 || delay > RETRY_AFTER_CAP_MS) {
+  if (delay === undefined || Number.isNaN(delay) || delay < 0) {
     return undefined;
   }
   return delay;
 }
 
 /**
- * Sends up to five tries: a transient status (408, 429, 5xx gateway) or a network failure waits
- * the response's `Retry-After` when it gives one under a minute, else 1s, 2s, 4s then 8s. The last
- * answer or error goes back as it came; an abort ends the wait.
+ * Retries a transient status (408, 429, 5xx gateway) or a network failure while the waits stay
+ * within five seconds in all. Each wait is the response's `Retry-After` when it gives one, else
+ * 1s, 2s, 4s then 8s; a wait that would pass the five seconds is not taken, and the last answer or
+ * error goes back as it came. An abort ends the wait.
  */
 export function retryTransient(send: typeof fetch, wait: Wait = waitDefault): typeof fetch {
   return async (url, init) => {
+    let waited = 0;
     for (let attempt = 0; ; attempt++) {
-      const last = attempt === ATTEMPTS - 1;
+      const left = WAIT_BUDGET_MS - waited;
       let delay: number;
       try {
         const res = await send(url, init);
-        if (last || !isTransientHttp(res.status)) {
+        if (!isTransientHttp(res.status)) {
           return res;
         }
         delay = retryAfterMs(res.headers) ?? backoffMs(attempt);
+        if (delay > left) {
+          return res;
+        }
         await res.body?.cancel();
       } catch (err) {
-        if (last || !isTransientThrown(err)) {
+        delay = backoffMs(attempt);
+        if (!isTransientThrown(err) || delay > left) {
           throw err;
         }
-        delay = backoffMs(attempt);
       }
       await wait(delay, init?.signal);
+      waited += delay;
     }
   };
 }

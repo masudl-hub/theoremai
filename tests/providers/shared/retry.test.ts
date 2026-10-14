@@ -77,7 +77,7 @@ Deno.test('backoffMs doubles from 1s to 8s', () => {
   assertEquals(backoffMs(9), 8000);
 });
 
-Deno.test('retryAfterMs reads milliseconds, seconds or a date, up to a minute', () => {
+Deno.test('retryAfterMs reads milliseconds, seconds or a date', () => {
   const now = Date.parse('2026-10-03T12:00:00Z');
   const at = (init: Record<string, string>) => retryAfterMs(new Headers(init), now);
   assertEquals(at({}), undefined);
@@ -86,8 +86,7 @@ Deno.test('retryAfterMs reads milliseconds, seconds or a date, up to a minute', 
   assertEquals(at({ 'retry-after': '3' }), 3000);
   assertEquals(at({ 'retry-after': '0' }), 0);
   assertEquals(at({ 'retry-after': 'Sat, 03 Oct 2026 12:00:05 GMT' }), 5000);
-  assertEquals(at({ 'retry-after': '60' }), 60_000);
-  assertEquals(at({ 'retry-after': '61' }), undefined);
+  assertEquals(at({ 'retry-after': '120' }), 120_000);
   assertEquals(at({ 'retry-after': '-1' }), undefined);
   assertEquals(at({ 'retry-after': 'Sat, 03 Oct 2026 11:59:00 GMT' }), undefined);
   assertEquals(at({ 'retry-after': 'soon' }), undefined);
@@ -107,25 +106,43 @@ Deno.test('retryTransient retries a transient status with backoff until it answe
   assertEquals(waits, [1000, 2000]);
 });
 
-Deno.test('retryTransient waits what Retry-After asks, under a minute', async () => {
+Deno.test('retryTransient waits what Retry-After asks while it fits the five seconds', async () => {
   const { waits, wait } = recordWaits();
   const upstream = answering(
-    new Response('slow down', { status: 429, headers: { 'retry-after': '7' } }),
-    new Response('slow down', { status: 429, headers: { 'retry-after': '120' } }),
+    new Response('slow down', { status: 429, headers: { 'retry-after': '3' } }),
+    new Response('slow down', { status: 429, headers: { 'retry-after': '2' } }),
     new Response('ok'),
   );
-  await retryTransient(upstream.send, wait)('https://x.test');
-  assertEquals(waits, [7000, 2000]);
+  const res = await retryTransient(upstream.send, wait)('https://x.test');
+  assertEquals(res.status, 200);
+  assertEquals(waits, [3000, 2000]);
 });
 
-Deno.test('retryTransient returns the fifth transient answer as it came', async () => {
+Deno.test('retryTransient sends a refusal back at once when Retry-After asks for longer than is left', async () => {
+  const { waits, wait } = recordWaits();
+  const quota = answering(new Response('quota', { status: 429, headers: { 'retry-after': '30' } }));
+  const res = await retryTransient(quota.send, wait)('https://x.test');
+  assertEquals(res.status, 429);
+  assertEquals(await res.text(), 'quota');
+  assertEquals(quota.calls(), 1);
+
+  const second = answering(
+    new Response('slow down', { status: 429, headers: { 'retry-after': '3' } }),
+    new Response('slow down', { status: 429, headers: { 'retry-after': '3' } }),
+  );
+  assertEquals((await retryTransient(second.send, wait)('https://x.test')).status, 429);
+  assertEquals(second.calls(), 2);
+  assertEquals(waits, [3000]);
+});
+
+Deno.test('retryTransient stops backing off once the next wait would pass five seconds', async () => {
   const { waits, wait } = recordWaits();
   const upstream = answering(new Response('quota', { status: 429 }));
   const res = await retryTransient(upstream.send, wait)('https://x.test');
   assertEquals(res.status, 429);
   assertEquals(await res.text(), 'quota');
-  assertEquals(upstream.calls(), 5);
-  assertEquals(waits, [1000, 2000, 4000, 8000]);
+  assertEquals(upstream.calls(), 3);
+  assertEquals(waits, [1000, 2000]);
 });
 
 Deno.test('retryTransient sends a non-transient answer back at once', async () => {
@@ -151,8 +168,8 @@ Deno.test('retryTransient retries a network failure and rethrows the last one', 
     TypeError,
   );
   assertEquals(err.message, 'fetch failed');
-  assertEquals(down.calls(), 5);
-  assertEquals(waits, [1000, 1000, 2000, 4000, 8000]);
+  assertEquals(down.calls(), 3);
+  assertEquals(waits, [1000, 1000, 2000]);
 });
 
 Deno.test('retryTransient rethrows a non-transient error without retrying', async () => {
@@ -164,7 +181,7 @@ Deno.test('retryTransient rethrows a non-transient error without retrying', asyn
 Deno.test('retryTransient stops waiting when the call is aborted', async () => {
   const controller = new AbortController();
   const upstream = answering(
-    new Response('busy', { status: 503, headers: { 'retry-after': '30' } }),
+    new Response('busy', { status: 503, headers: { 'retry-after': '4' } }),
   );
   const pending = retryTransient(upstream.send)('https://x.test', { signal: controller.signal });
   queueMicrotask(() => controller.abort(new DOMException('stop', 'AbortError')));

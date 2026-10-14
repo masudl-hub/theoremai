@@ -234,6 +234,7 @@ export {
   sharedAt,
   sharedEntries,
   sharedNodeId,
+  sharedOpens,
 } from './shared-settings.ts';
 export {
   mapFamily,

@@ -104,6 +104,7 @@ import {
 	type StudioWorkspace,
 	sharedAt,
 	sharedEntries,
+	sharedOpens,
 	sharedNodeId,
 	sampleToolInput,
 	saveStudioRunPayload,
@@ -418,8 +419,11 @@ function declaredAt({ setting }: SharedEntry): string {
  * line. Hovering says the rest: its name in the code, the whole path, and whether the studio
  * edits it.
  */
-function SharedHead({ entry: { setting, facet } }: { entry: SharedEntry }) {
+function SharedHead({ entry }: { entry: SharedEntry }) {
+	const { setting } = entry;
 	const line = String(setting.line);
+	// A setting no loaded profile or tool shows has nowhere to open.
+	const opens = sharedOpens(entry) !== undefined;
 	return (
 		<Tooltip
 			placement="end"
@@ -428,7 +432,11 @@ function SharedHead({ entry: { setting, facet } }: { entry: SharedEntry }) {
 				<span className="studio-shared-head">
 					<span>{setting.name}</span>
 					<span>{`${setting.file}:${line}`}</span>
-					{!facet && <span>Changed in your code, not in the studio.</span>}
+					{!opens && (
+						<span>
+							{entry.idle.length ? 'Nothing that reads it is loaded.' : 'Changed in your code, not in the studio.'}
+						</span>
+					)}
 				</span>
 			}
 		>

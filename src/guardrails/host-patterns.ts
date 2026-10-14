@@ -158,6 +158,9 @@ function patternProblem(path: string, pattern: unknown): string | undefined {
   }
   let regex: RegExp;
   try {
+    // why: this only checks that the pattern parses and tests it on the empty text; a pattern that
+    // could run away on hostile text is refused when it is compiled (compilePatterns).
+    // deepcode ignore reDOS: run on '' only; compilePatterns refuses super-linear patterns
     regex = new RegExp(source, `${flags}g`);
   } catch (err) {
     return `${path} does not compile (${err instanceof Error ? err.message : String(err)})`;

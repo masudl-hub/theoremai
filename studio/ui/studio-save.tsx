@@ -67,6 +67,7 @@ const REFUSED: Record<SaveRefusal['reason'], string> = {
 	issues: 'Fix the issues in the editor first.',
 	stale: 'Your files changed after this review was made. Close it and review again.',
 	unwritable: 'Some changes cannot be written to your files.',
+	write: 'A file could not be written, so your files were put back.',
 	check: 'The project did not type-check with these changes, so your files were put back.',
 	load: 'The project did not start with these changes, so your files were put back.',
 	differs: 'The files did not load as what you tested, so they were put back.',

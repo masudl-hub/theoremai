@@ -96,6 +96,8 @@ export interface SaveSession<Loaded> {
  */
 type FileChange = { before: string; after: string; created: boolean; removed: boolean };
 type Files = Map<string, FileChange>;
+type Side = 'before' | 'after';
+const other = (side: Side): Side => (side === 'before' ? 'after' : 'before');
 
 /** Why nothing was done, with what to show for it. */
 export const refusal = (reason: SaveRefusal['reason'], detail: string[] = []): SaveRefusal => ({ ok: false, reason, detail });
@@ -248,7 +250,13 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
       const opened = source.files.get(file);
       const before = opened?.text ?? '';
       const removed = taken.gone.includes(file);
-      files.set(file, { before, after: applyEdits(before, held), created: !opened, removed });
+      let after: string;
+      try {
+        after = applyEdits(before, held);
+      } catch (error) {
+        return refusal('unwritable', [`${inRoot(file)}: ${message(error)}`]);
+      }
+      files.set(file, { before, after, created: !opened, removed });
       const marked = removed ? { removed: true as const } : opened ? {} : { created: true as const };
       view.push({ file: inRoot(file), hunks: diffHunks(before, held), ...marked });
     }
@@ -259,28 +267,67 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     return { files, view: { ok: true, changes, files: view, stamp: await stampOf([...files]), writable } };
   };
 
-  /** Writes each file as it was or as Save makes it. A file that is not there on that side is taken away, not emptied. */
-  const put = (files: Files, side: 'before' | 'after') => {
+  /** What a file holds on `side`: undefined where it is not there. */
+  const textOn = (change: FileChange, side: Side) =>
+    side === 'before' ? (change.created ? undefined : change.before) : change.removed ? undefined : change.after;
+
+  /** Writes a file as it was or as Save makes it. A file that is not there on that side is taken away, not emptied. */
+  const putFile = (file: string, change: FileChange, side: Side) => {
+    const text = textOn(change, side);
+    if (text === undefined) host.remove(file);
+    else host.write(file, text);
+  };
+
+  /**
+   * Writes each file to `side`. When one can't be written, the files already written, and that one,
+   * are put back to the other side, and the refusal says which file and why.
+   */
+  const put = (files: Files, side: Side): SaveRefusal | undefined => {
+    const done: Files = new Map();
     for (const [file, change] of files) {
-      if (side === 'before' ? change.created : change.removed) host.remove(file);
-      else host.write(file, change[side]);
+      try {
+        putFile(file, change, side);
+      } catch (error) {
+        const back = other(side);
+        const kept = putBack(done, back);
+        if (host.read(file) !== textOn(change, back)) {
+          try {
+            putFile(file, change, back);
+          } catch {
+            kept.push(inRoot(file));
+          }
+        }
+        const refused = refusal('write', [`${inRoot(file)}: ${message(error)}`]);
+        return kept.length ? { ...refused, kept } : refused;
+      }
+      done.set(file, change);
     }
+    return undefined;
   };
 
   /**
    * Puts `files` back to `side`, but for a file that no longer holds what the other side wrote:
-   * someone changed it meanwhile, so it is left as it is now. Answers with those it left.
+   * someone changed it meanwhile, so it is left as it is now. One that can't be written is left too.
+   * Answers with those it left.
    */
-  const putBack = (files: Files, side: 'before' | 'after'): string[] => {
-    const written = (change: FileChange) =>
-      side === 'before' ? (change.removed ? undefined : change.after) : change.created ? undefined : change.before;
-    const left = [...files].filter(([file, change]) => host.read(file) !== written(change));
-    put(new Map([...files].filter(([file]) => !left.some(([moved]) => moved === file))), side);
-    return left.map(([file]) => inRoot(file));
+  const putBack = (files: Files, side: Side): string[] => {
+    const left: string[] = [];
+    for (const [file, change] of files) {
+      if (host.read(file) !== textOn(change, other(side))) {
+        left.push(inRoot(file));
+        continue;
+      }
+      try {
+        putFile(file, change, side);
+      } catch {
+        left.push(inRoot(file));
+      }
+    }
+    return left;
   };
 
   /** A write taken back, with the files it left as they are now. */
-  const takenBack = (refused: SaveRefusal, files: Files, side: 'before' | 'after'): SaveRefusal => {
+  const takenBack = (refused: SaveRefusal, files: Files, side: Side): SaveRefusal => {
     const kept = putBack(files, side);
     return kept.length ? { ...refused, kept } : refused;
   };
@@ -365,7 +412,7 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
 
   /** Proves the files as written: the project type-checks, loads, and is what was tested. */
   const proven = async (tested: StudioWorkspace): Promise<SaveRefusal | undefined> => {
-    const check = await host.typeChecks();
+    const check = await host.typeChecks().catch((error) => ({ ok: false, output: message(error) }));
     if (!check.ok) return refusal('check', [check.output]);
     return reload((next) => projectDiffers(host.opened(next), tested));
   };
@@ -375,7 +422,8 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     if (!view.writable) return refusal('unwritable');
     const astray = [...files.keys()].filter((file) => !host.landsInside(file));
     if (astray.length) return refusal('unwritable', astray.map(inRoot));
-    put(files, 'after');
+    const failed = put(files, 'after');
+    if (failed) return failed;
     const refused = await proven(request.workspace);
     if (refused) return takenBack(refused, files, 'before');
     lastSave = files;
@@ -393,7 +441,8 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     const files = lastSave;
     const moved = [...files].filter(([file, change]) => host.read(file) !== (change.removed ? undefined : change.after));
     if (moved.length) return refusal('stale', moved.map(([file]) => inRoot(file)));
-    put(files, 'before');
+    const failed = put(files, 'before');
+    if (failed) return failed;
     const refused = await reload(() => []);
     if (refused) return takenBack(refused, files, 'after');
     lastSave = undefined;

@@ -233,6 +233,7 @@ export type EditedAnswer = ({ ok: true; stamp: string } | SaveRefusal) & { saved
  * - `issues`: the workspace does not compile.
  * - `stale`: the files changed after the review was read.
  * - `unwritable`: a change cannot be written.
+ * - `write`: a file could not be written or taken away, so those already written were put back.
  * - `check`: the project did not type-check with the change.
  * - `load`: the project did not load with the change.
  * - `differs`: the project loaded, but not as the builder tested it.
@@ -241,7 +242,7 @@ export type EditedAnswer = ({ ok: true; stamp: string } | SaveRefusal) & { saved
  */
 export interface SaveRefusal {
   ok: false;
-  reason: 'issues' | 'stale' | 'unwritable' | 'check' | 'load' | 'differs' | 'nothing' | 'unanswered';
+  reason: 'issues' | 'stale' | 'unwritable' | 'write' | 'check' | 'load' | 'differs' | 'nothing' | 'unanswered';
   detail: string[];
   /** Files a write taken back left as they are now: they changed while Save checked them. */
   kept?: string[];

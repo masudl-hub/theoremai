@@ -375,6 +375,40 @@ Deno.test('a new file that fails a proof is taken away again', async () => {
   assertEquals([text(), files.has(SECOND)], [TEXT, false]);
 });
 
+Deno.test('a file that cannot be written puts back the ones written before it, and says why', async () => {
+  let disk: Map<string, string> | undefined;
+  const { session, files, text } = project({
+    write: (path, written) => {
+      if (path === SETUP) throw new Error('The disk is full.');
+      disk?.set(path, written);
+    },
+  });
+  disk = files;
+  const workspace = withSecond(opened.workspace);
+  const { stamp } = await reviewed(session, workspace);
+  assertEquals(await session.save({ workspace, stamp }), {
+    ok: false,
+    reason: 'write',
+    detail: ['example.ts: The disk is full.'],
+  });
+  assertEquals([text(), files.has(SECOND)], [TEXT, false]);
+  assertEquals(await session.undo(), { ok: false, reason: 'nothing', detail: [] });
+});
+
+Deno.test('a type check that cannot run refuses the save and puts the files back', async () => {
+  const { session, text } = project({
+    typeChecks: () => Promise.reject(new Error('deno was not found.')),
+  });
+  const workspace = edited();
+  const { stamp } = await reviewed(session, workspace);
+  assertEquals(await session.save({ workspace, stamp }), {
+    ok: false,
+    reason: 'check',
+    detail: ['deno was not found.'],
+  });
+  assertEquals(text(), TEXT);
+});
+
 Deno.test('a change Save cannot write turns Save off, and a workspace it cannot read is refused', async () => {
   const { session, files, text } = project();
   const workspace = edited();

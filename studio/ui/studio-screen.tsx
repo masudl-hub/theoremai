@@ -32,6 +32,7 @@ import {
 	IconCopyPlus,
 	IconFile,
 	IconFileZip,
+	IconCloud,
 	IconKey,
 	IconMenu2,
 	IconPlayerPlay,
@@ -90,6 +91,11 @@ import {
 	resetAgent,
 	resetAll,
 	resetLibraryTool,
+	resetProvider,
+	providerIdOf,
+	providerNodeId,
+	withProvider,
+	modelBindingNodeId,
 	nodeOrigins,
 	openOutcome,
 	originLabel,
@@ -177,6 +183,7 @@ import { useConfirmWrite } from './confirm-write.tsx';
 import { runToolProbe } from './lib/tool-probe.ts';
 import { PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
 import { addToolSpec, ProfileEditor } from './profile-editor.tsx';
+import { ProviderEditor } from './provider-editor.tsx';
 import { SharedChange } from './shared-change.tsx';
 import {
 	type StudioConnectionState,
@@ -343,7 +350,7 @@ interface WorkspaceTreeState {
 	workspace: StudioWorkspace;
 	focus: string;
 	selectedId: string;
-	/** The list the sidebar shows: agents, tools, or the settings the project's profiles share. */
+	/** The list the sidebar shows: agents, tools, or what every agent shares. */
 	list: WorkspaceList;
 	shared: readonly SharedEntry[];
 	/** Shows where the files define a profile or tool the project did not register. */
@@ -454,10 +461,56 @@ function SharedHead({ entry }: { entry: SharedEntry }) {
 }
 
 /**
- * The settings the project's profiles share, each over the profiles and tools that use it. A row
- * opens the setting on that profile; one the studio does not edit says so, and opens the profile.
+ * The providers every agent's models pick from, each over the agents with a model on it. A
+ * provider's row opens its own settings; an agent's opens its first model there.
  */
-function sharedItems({ workspace, shared, selectedId, onSelect, openFile }: WorkspaceTreeState) {
+function providerItems({ workspace, selectedId, onSelect }: WorkspaceTreeState): TreeListItemData[] {
+	return workspace.providers.map((provider) => {
+		const id = providerNodeId(provider.id);
+		const users = workspace.agents.flatMap((agent): TreeListItemData[] => {
+			const binding = agent.modelBindings.find((each) => each.provider === provider.id);
+			if (!binding) return [];
+			return [
+				{
+					id: `${id}:${agent.key}`,
+					label: agent.identity.agentId || 'New agent',
+					startContent: (
+						<Icon
+							icon={PROFILE_TYPE_ICON[agent.identity.profileType || 'text']}
+							size="sm"
+							color="secondary"
+						/>
+					),
+					onClick: () => {
+						onSelect(agentNodeId(agent.key, modelBindingNodeId(binding.key)));
+					},
+				},
+			];
+		});
+		return {
+			id,
+			label: provider.id,
+			startContent: <Icon icon={IconCloud} size="sm" color="secondary" />,
+			isSelected: selectedId === id,
+			onClick: () => {
+				onSelect(id);
+			},
+			isExpanded: true,
+			children: users,
+		};
+	});
+}
+
+/**
+ * What every agent shares: the providers, then the settings the project's profiles share, each
+ * over the profiles and tools that use it. A setting's row opens it on that profile; one the
+ * studio does not edit says so, and opens the profile.
+ */
+function sharedItems(tree: WorkspaceTreeState): TreeListItemData[] {
+	return [...providerItems(tree), ...sharedSettingItems(tree)];
+}
+
+function sharedSettingItems({ workspace, shared, selectedId, onSelect, openFile }: WorkspaceTreeState) {
 	const open = sharedAt(shared, selectedId);
 	return shared.map((entry): TreeListItemData => {
 		const { setting, facet, agents } = entry;
@@ -556,24 +609,28 @@ function useWorkspaceList(selectedId: string, listRef: RefObject<HTMLDivElement 
 }
 
 /**
- * Which list shows: the tools library once a tool is open, and whatever the toggle last chose.
- * Following the selection, it switches when the open row changes between an agent and a tool.
+ * Which list shows: the tools library once a tool is open, what is shared once a provider is, and
+ * whatever the toggle last chose. Following the selection, it switches when the open row changes
+ * between an agent, a tool and a provider.
  */
 function useListShown(selectedId: string) {
 	const isTool = toolSpecKeyOf(selectedId) !== undefined;
-	const [list, setList] = useState<WorkspaceList>(isTool ? 'tools' : 'agents');
+	const isProvider = providerIdOf(selectedId) !== undefined;
+	const [list, setList] = useState<WorkspaceList>(isTool ? 'tools' : isProvider ? 'shared' : 'agents');
 	const [shownFor, setShownFor] = useState(selectedId);
 	if (shownFor !== selectedId) {
 		setShownFor(selectedId);
 		// The shared list opens its settings on an agent, so an agent's row keeps it shown.
-		setList((current) => (isTool ? 'tools' : current === 'tools' ? 'agents' : current));
+		setList((current) =>
+			isTool ? 'tools' : isProvider ? 'shared' : current === 'tools' ? 'agents' : current,
+		);
 	}
 	return { list, setList };
 }
 
 /**
- * The toggle between the agents and the tool library, each with its count. A project whose
- * profiles share settings has a third: those settings.
+ * The toggle between the agents, the tool library, and what every agent shares: the providers,
+ * and the settings a project's profiles share. Each with its count.
  */
 function WorkspaceListToggle({
 	workspace,
@@ -598,7 +655,7 @@ function WorkspaceListToggle({
 		>
 			<SegmentedControlItem value="agents" label={`Agents ${String(workspace.agents.length)}`} />
 			<SegmentedControlItem value="tools" label={`Tools ${String(workspace.toolSpecs.length)}`} />
-			{shared > 0 && <SegmentedControlItem value="shared" label={`Shared ${String(shared)}`} />}
+			<SegmentedControlItem value="shared" label={`Shared ${String(shared)}`} />
 		</SegmentedControl>
 	);
 }
@@ -764,7 +821,7 @@ function WorkspaceListBody({
 			{list === 'agents' ? (
 				<TreeList density="compact" aria-label="Agents" items={agentItems(tree)} />
 			) : list === 'shared' ? (
-				<TreeList density="compact" aria-label="Shared settings" items={sharedItems(tree)} />
+				<TreeList density="compact" aria-label="Shared" items={sharedItems(tree)} />
 			) : tools.length > 0 ? (
 				<TreeList density="compact" aria-label="Tools" items={tools} />
 			) : (
@@ -800,7 +857,7 @@ function WorkspaceTreeLists({
 		<VStack gap={2} height="100%">
 			<WorkspaceListToggle
 				workspace={tree.workspace}
-				shared={tree.shared.length}
+				shared={tree.workspace.providers.length + tree.shared.length}
 				list={list}
 				onChange={(next) => {
 					setList(next);
@@ -953,11 +1010,12 @@ function compiledAgent(
 }
 
 /**
- * The editor's node id for a workspace one: the open agent's own ids, a library tool's as it is.
+ * The editor's node id for a workspace one: the open agent's own ids, a library tool's or a
+ * provider's as it is.
  * `undefined` for another agent's.
  */
 function innerNodeId(id: string, focus: string): string | undefined {
-	if (toolSpecKeyOf(id) !== undefined) return id;
+	if (toolSpecKeyOf(id) !== undefined || providerIdOf(id) !== undefined) return id;
 	const root = agentNodeId(focus);
 	if (id === root) return 'identity';
 	return id.startsWith(`${root}/`) ? id.slice(root.length + 1) : undefined;
@@ -2221,7 +2279,7 @@ function ViewToggleButton({ view }: { view: EditorViewState }) {
 }
 
 /**
- * Reset for what is open: a library tool, or else the agent. It goes back to how it joined the
+ * Reset for what is open: a library tool, a provider, or else the agent. It goes back to how it joined the
  * workspace, and nothing else changes. `run` is absent while it is still as it started. `all` does
  * it for everything: every agent and tool back to its start, or on a project every unsaved edit
  * gone once the builder says yes. It is absent while there is nothing to put back.
@@ -2230,12 +2288,12 @@ function useReset({ workspace, focus, update }: StudioWorkspaceState) {
 	const toast = useToast();
 	const save = useProjectSave();
 	const toolKey = toolSpecKeyOf(workspace.selected);
-	const what = toolKey === undefined ? 'agent' : 'tool';
-	const next = useMemo(
-		() =>
-			toolKey === undefined ? resetAgent(workspace, focus) : resetLibraryTool(workspace, toolKey),
-		[workspace, focus, toolKey],
-	);
+	const provider = providerIdOf(workspace.selected);
+	const what = provider !== undefined ? 'provider' : toolKey === undefined ? 'agent' : 'tool';
+	const next = useMemo(() => {
+		if (provider !== undefined) return resetProvider(workspace, provider);
+		return toolKey === undefined ? resetAgent(workspace, focus) : resetLibraryTool(workspace, toolKey);
+	}, [workspace, focus, toolKey, provider]);
 	const everything = useMemo(() => resetAll(workspace), [workspace]);
 	const put = (to: StudioWorkspace, body: string) =>
 		to === workspace
@@ -2545,21 +2603,39 @@ function EditorBody({
 }) {
 	const { workspace, draft, focus, setDraft, update } = state;
 	const workspaceContext = useWorkspaceContext(workspace.agents, focus, update);
+	const project = useProject();
+	const provider = workspace.providers.find((each) => each.id === providerIdOf(editing));
 	return (
 		<ScrollableArea key={selected} label="Editor" height="100%" ref={editorRef}>
 			<ListBadges value={listBadges}>
 				<ConnectionMode.Provider value={connection.mode}>
 					<LocalConnection.Provider value={connection}>
 						<WorkspaceContext.Provider value={workspaceContext}>
-							<ProfileEditor
-								draft={draft}
-								setDraft={setDraft}
-								selectedId={editing}
-								onSelect={(id) => {
-									open(scopedNodeId(focus, id));
-								}}
-								issues={issues}
-							/>
+							{provider ? (
+								<ProviderEditor
+									workspace={workspace}
+									provider={provider}
+									issues={issues.filter((issue) => issue.nodeId === editing)}
+									// The studio's own providers are the same for everyone, so they only show.
+									onChange={
+										project
+											? (next) => {
+													update((current) => withProvider(current, next));
+												}
+											: undefined
+									}
+								/>
+							) : (
+								<ProfileEditor
+									draft={draft}
+									setDraft={setDraft}
+									selectedId={editing}
+									onSelect={(id) => {
+										open(scopedNodeId(focus, id));
+									}}
+									issues={issues}
+								/>
+							)}
 						</WorkspaceContext.Provider>
 					</LocalConnection.Provider>
 				</ConnectionMode.Provider>
@@ -2916,9 +2992,10 @@ function useStudioPage(opened: StudioOpened) {
 		project: opened.project ?? null,
 	});
 	const title =
-		toolSpecKeyOf(editing) === undefined
+		providerIdOf(editing) ??
+		(toolSpecKeyOf(editing) === undefined
 			? editorTitle(draft, editing)
-			: workspaceTree(state.workspace).tools.find((node) => node.id === editing)?.label;
+			: workspaceTree(state.workspace).tools.find((node) => node.id === editing)?.label);
 	useScreenReport(onReport, screenReport(draft, compile.compiled, title));
 	return {
 		state,

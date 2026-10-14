@@ -93,7 +93,7 @@ function started(workspace: StudioWorkspace, agentKey: string) {
 
 /**
  * The settings set in code for the node `nodeId` opens. Undefined when the project's files do not
- * hold the node's profile or tool: one added in the studio.
+ * hold the node's profile, tool or provider: one added in the studio.
  */
 export function nodeOrigins(
   workspace: StudioWorkspace,
@@ -106,6 +106,10 @@ export function nodeOrigins(
     const name = workspace.starts.tools[node.tool]?.toolName;
     const origins = name === undefined ? undefined : project.tools[name];
     return origins && withSection({ origins, stars: {}, tool: true }, []);
+  }
+  if ('provider' in node) {
+    const origins = project.providers[node.provider];
+    return origins && withSection({ origins, stars: {}, tool: false }, []);
   }
   const start = started(workspace, node.agent);
   const origins = start.id === undefined ? undefined : project.profiles[start.id];

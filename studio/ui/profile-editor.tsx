@@ -748,7 +748,7 @@ function DecisionModelEditor({
 }
 
 /** A key slot, chosen from the slots the keys panel holds; each says which service its key is for. */
-function SlotRow({
+export function SlotRow({
 	label,
 	path,
 	field,
@@ -6499,6 +6499,21 @@ function facetEditor(
 	}
 }
 
+/** A node's issues that name no field of it, over its rows. */
+export function IssueBanners({ issues }: { issues: readonly StudioIssue[] }) {
+	const banners = issues.filter((issue) => issue.field === undefined);
+	if (banners.length === 0) return null;
+	return (
+		<Section variant="transparent" padding={3}>
+			<VStack gap={2}>
+				{banners.map((issue) => (
+					<Banner key={issue.message} status="error" title={issue.message} />
+				))}
+			</VStack>
+		</Section>
+	);
+}
+
 /**
  * The editor for the tree node `selectedId`. The compile's issues for that node show on the rows
  * of the fields they name; the rest show above it.
@@ -6521,22 +6536,13 @@ export function ProfileEditor({
 	const ref = studioNodeRef(draft, selectedId);
 	if (!ref) return null;
 	const nodeIssues = issues.filter((issue) => issue.nodeId === selectedId);
-	const banners = nodeIssues.filter((issue) => issue.field === undefined);
 	// One place in the project's files sets the whole node: the page says so over it, and no row takes an edit.
 	const setInCode = useContext(RowOrigins)?.scope.section !== undefined;
 	const editor = facetEditor(ref, draft, setDraft, onSelect);
 	return (
 		<NodeIssues value={nodeIssues}>
 			<VStack>
-				{banners.length > 0 && (
-					<Section variant="transparent" padding={3}>
-						<VStack gap={2}>
-							{banners.map((issue) => (
-								<Banner key={issue.message} status="error" title={issue.message} />
-							))}
-						</VStack>
-					</Section>
-				)}
+				<IssueBanners issues={nodeIssues} />
 				{setInCode ? <SetInCode>{editor}</SetInCode> : editor}
 			</VStack>
 		</NodeIssues>

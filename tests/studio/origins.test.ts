@@ -14,7 +14,7 @@ import { sourceOrigins } from '../../studio/server/origins.ts';
 import { providerNamed, readProjectSource } from '../../studio/server/project-source.ts';
 import { planSave } from '../../studio/server/save-plan.ts';
 import type { SettingOrigin } from '../../studio/server/save-wire.ts';
-import { modelBindingNodeId, toolSpecNodeId } from '../../studio/tree.ts';
+import { modelBindingNodeId, providerNodeId, toolSpecNodeId } from '../../studio/tree.ts';
 import { addAgent, agentNodeId, workspaceFromDraft } from '../../studio/workspace.ts';
 
 const ROOT = '/project';
@@ -371,6 +371,22 @@ Deno.test('the open node reads the origins of the profile or tool it started as,
   assertEquals(yard && nodeOrigins(added, origins, agentNodeId(yard.key, 'inputs')), undefined);
   assertEquals(nodeOrigins(opened, origins, toolSpecNodeId('none')), undefined);
   assertEquals(rowOrigin(undefined, 'inputs.text'), undefined);
+});
+
+Deno.test('an open provider reads what code sets on its definition, and nothing when no file defines it', () => {
+  const opened = workspaceFromDraft(createExampleDraft());
+  const origins = {
+    profiles: {},
+    tools: {},
+    providers: { google: [origin('connection.baseURL'), origin('keySlot')] },
+  };
+  const google = nodeOrigins(opened, origins, providerNodeId('google'));
+  assertEquals([google?.tool, google?.section], [false, undefined]);
+  assertEquals(rowOrigin(google, 'connection.baseURL')?.path, ['connection', 'baseURL']);
+  assertEquals(rowOrigin(google, 'keySlot')?.path, ['keySlot']);
+  assertEquals(rowOrigin(google, 'fallbackKeySlot'), undefined);
+  assertEquals(nodeOrigins(opened, origins, providerNodeId('openrouter')), undefined);
+  assertEquals(nodeOrigins(opened, origins, providerNodeId('nowhere')), undefined);
 });
 
 Deno.test('a whole profile or tool the studio cannot write says so over every section', () => {

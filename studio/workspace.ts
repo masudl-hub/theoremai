@@ -16,6 +16,7 @@ import {
 import { canonical } from './canonical.ts';
 import type { StudioProvider } from './providers.ts';
 import {
+  providerIdOf,
   type StudioNodeRef,
   studioNodeRef,
   studioTree,
@@ -88,7 +89,8 @@ export function scopedNodeId(agentKey: string, id: string): string {
 
 export type WorkspaceNodeRef =
   | { agent: string; ref: StudioNodeRef }
-  | { tool: string };
+  | { tool: string }
+  | { provider: string };
 
 /** What a workspace node id names; `undefined` when it names nothing there. */
 export function workspaceNodeRef(
@@ -98,6 +100,10 @@ export function workspaceNodeRef(
   const tool = toolSpecKeyOf(id);
   if (tool !== undefined) {
     return workspace.toolSpecs.some((spec) => spec.key === tool) ? { tool } : undefined;
+  }
+  const provider = providerIdOf(id);
+  if (provider !== undefined) {
+    return workspace.providers.some((each) => each.id === provider) ? { provider } : undefined;
   }
   const parsed = parseAgentNodeId(id);
   const agent = parsed && workspace.agents.find((candidate) => candidate.key === parsed.key);

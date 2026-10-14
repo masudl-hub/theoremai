@@ -147,7 +147,7 @@ interface StoreState {
 	slot: string;
 	/** For a project's workspace: the print of the files its starts stand on. */
 	files: string | undefined;
-	view: { agents: unknown; toolSpecs: unknown; focus: string; draft: StudioDraft } | undefined;
+	view: { agents: unknown; toolSpecs: unknown; providers: unknown; focus: string; draft: StudioDraft } | undefined;
 }
 
 /** Writes the workspace, masked, to sessionStorage. */
@@ -192,11 +192,13 @@ function draftOf(state: StoreState): StudioDraft {
 	if (
 		view?.agents !== workspace.agents ||
 		view.toolSpecs !== workspace.toolSpecs ||
+		view.providers !== workspace.providers ||
 		view.focus !== key
 	) {
 		view = {
 			agents: workspace.agents,
 			toolSpecs: workspace.toolSpecs,
+			providers: workspace.providers,
 			focus: key,
 			draft: libraryDraft(workspace, key) ?? createBlankDraft(),
 		};

@@ -61,6 +61,7 @@ import {
 import {
 	addAgent,
 	addArchitectExample,
+	addProvider,
 	agentDraft,
 	agentNodeId,
 	type CompiledStudio,
@@ -87,6 +88,7 @@ import {
 	rebased,
 	removeAgent,
 	removeLibraryTool,
+	removeProvider,
 	reopened,
 	withFilesChosen,
 	resetAgent,
@@ -97,6 +99,7 @@ import {
 	localProviderAddress,
 	providerIdOf,
 	providerNodeId,
+	providerUse,
 	withProvider,
 	modelBindingNodeId,
 	nodeOrigins,
@@ -187,6 +190,7 @@ import { useConfirmWrite } from './confirm-write.tsx';
 import { runToolProbe } from './lib/tool-probe.ts';
 import { PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
 import { addToolSpec, ProfileEditor } from './profile-editor.tsx';
+import { AddProviderButton } from './add-provider.tsx';
 import { ProviderEditor } from './provider-editor.tsx';
 import { SharedChange } from './shared-change.tsx';
 import {
@@ -357,6 +361,8 @@ interface WorkspaceTreeState {
 	/** The list the sidebar shows: agents, tools, or what every agent shares. */
 	list: WorkspaceList;
 	shared: readonly SharedEntry[];
+	/** The providers are the project's own, so they can be added and removed. */
+	ownsProviders: boolean;
 	/** Shows where the files define a profile or tool the project did not register. */
 	openFile: (at: { file: string; line: number }) => void;
 	setList: (next: WorkspaceList) => void;
@@ -468,9 +474,12 @@ function SharedHead({ entry }: { entry: SharedEntry }) {
  * The providers every agent's models pick from, each over the agents with a model on it. A
  * provider's row opens its own settings; an agent's opens its first model there.
  */
-function providerItems({ workspace, selectedId, onSelect }: WorkspaceTreeState): TreeListItemData[] {
+function providerItems(tree: WorkspaceTreeState): TreeListItemData[] {
+	const { workspace, selectedId, onSelect, update, ownsProviders } = tree;
 	return workspace.providers.map((provider) => {
 		const id = providerNodeId(provider.id);
+		// One a model runs on stays: its row lists the agents to move first.
+		const isFree = ownsProviders && providerUse(workspace, provider.id).models === 0;
 		const users = workspace.agents.flatMap((agent): TreeListItemData[] => {
 			const binding = agent.modelBindings.find((each) => each.provider === provider.id);
 			if (!binding) return [];
@@ -495,6 +504,14 @@ function providerItems({ workspace, selectedId, onSelect }: WorkspaceTreeState):
 			id,
 			label: provider.id,
 			startContent: <Icon icon={IconCloud} size="sm" color="secondary" />,
+			endContent: isFree
+				? rowAction(`Remove ${provider.id}`, IconX, () => {
+						update((current) => removeProvider(current, provider.id));
+						const [first] = workspace.agents;
+						if (selectedId === id && first) onSelect(agentNodeId(first.key));
+					})
+				: undefined,
+			className: isFree ? 'studio-tree-row' : undefined,
 			isSelected: selectedId === id,
 			onClick: () => {
 				onSelect(id);
@@ -879,6 +896,15 @@ function WorkspaceTreeLists({
 				/>
 			)}
 			{list === 'tools' ? <AddToolButton tree={tree} draft={draft} /> : null}
+			{list === 'shared' && tree.ownsProviders ? (
+				<AddProviderButton
+					taken={tree.workspace.providers.map((provider) => provider.id)}
+					onAdd={(provider) => {
+						tree.update((current) => addProvider(current, provider));
+						tree.onSelect(providerNodeId(provider.id));
+					}}
+				/>
+			) : null}
 			<StackItem size="fill">
 				<WorkspaceListBody tree={tree} list={list} tools={tools} query={query} listRef={listRef} />
 			</StackItem>
@@ -3225,6 +3251,7 @@ function useWorkspaceTree(
 	const { open } = view;
 	const selectedId = view.keysOpen ? '' : selected;
 	const { list, setList } = useListShown(selectedId);
+	const ownsProviders = useProject() !== undefined;
 	return useMemo(
 		() => ({
 			workspace,
@@ -3232,6 +3259,7 @@ function useWorkspaceTree(
 			selectedId,
 			list,
 			shared,
+			ownsProviders,
 			openFile: (at) => {
 				openOrigin({ path: [], kind: 'code', ...at });
 			},
@@ -3243,7 +3271,7 @@ function useWorkspaceTree(
 			update,
 			setDraft,
 		}),
-		[workspace, focus, selectedId, list, shared, openOrigin, setList, open, setSheet, update, setDraft],
+		[workspace, focus, selectedId, list, shared, ownsProviders, openOrigin, setList, open, setSheet, update, setDraft],
 	);
 }
 

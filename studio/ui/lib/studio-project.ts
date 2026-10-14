@@ -34,6 +34,8 @@ export interface ProjectSession {
 	name: string;
 	/** The ids of the profiles the files held when the page opened them. */
 	profiles: string[];
+	/** The ids of the providers the files held when the page opened them. */
+	providers: string[];
 	/** The profiles the page could not show or run, and why. */
 	problems: { profile: string; message: string }[];
 	/** The settings the studio holds differently from the files, by profile. None is the rule. */
@@ -92,6 +94,7 @@ export function projectSession(name: string): ProjectSession {
 		endpoint: projectEndpoint(),
 		name,
 		profiles: [],
+		providers: [],
 		problems: [],
 		differences: [],
 		unheld: [],
@@ -218,6 +221,7 @@ async function describeSaying(said: (step: ReadStep) => void): Promise<Opened> {
 export type ProjectFiles = Pick<
 	ProjectSession,
 	| 'profiles'
+	| 'providers'
 	| 'problems'
 	| 'differences'
 	| 'unheld'
@@ -232,6 +236,7 @@ export type ProjectFiles = Pick<
 function filesOf(opened: Opened): ProjectFiles {
 	return {
 		profiles: opened.workspace.agents.map((agent) => agent.identity.agentId),
+		providers: opened.workspace.providers.map((provider) => provider.id),
 		problems: opened.problems,
 		differences: opened.differences ?? [],
 		unheld: opened.unheld ?? [],

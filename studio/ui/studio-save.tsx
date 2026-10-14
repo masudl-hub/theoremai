@@ -427,14 +427,16 @@ export function ProjectSave({
 	const [step, setStep] = useState<SaveStep>({ at: 'closed' });
 	const [view, setView] = useState<ReviewView>('all');
 	const [asking, setAsking] = useState(false);
-	// An agent added here is at its own start, and still one the files do not hold. One removed
-	// here has no start left, and is still one the files hold.
+	// An agent or provider added here is at its own start, and still one the files do not hold.
+	// One removed here has no start left, and is still one the files hold.
 	const clean = useMemo(
 		() =>
 			atStart(workspace) &&
 			workspace.agents.length === project.profiles.length &&
-			workspace.agents.every((agent) => project.profiles.includes(agent.identity.agentId)),
-		[workspace, project.profiles],
+			workspace.agents.every((agent) => project.profiles.includes(agent.identity.agentId)) &&
+			workspace.providers.length === project.providers.length &&
+			workspace.providers.every((provider) => project.providers.includes(provider.id)),
+		[workspace, project.profiles, project.providers],
 	);
 
 	// The review reads the workspace as it is when asked for, so a keystroke does not remake Save.

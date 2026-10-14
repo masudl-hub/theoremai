@@ -114,6 +114,7 @@ export {
   adapterOf,
   type ConnectionField,
   connectionFields,
+  kernelAdapters,
   modelSlots,
   LOCAL_PROVIDER_ID,
   localProviderAddress,

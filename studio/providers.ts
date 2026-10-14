@@ -236,6 +236,11 @@ export function providerProblems(provider: StudioProvider): ProviderProblem[] {
   return problems;
 }
 
+/** The ids of the kernel's own adapters: the ones a provider the studio adds can be defined with. */
+export function kernelAdapters(): string[] {
+  return Object.keys(ADAPTERS);
+}
+
 /** The kernel export that makes the adapter, for code the studio writes. Undefined for a project's own adapter. */
 export function adapterFactory(adapter: string): string | undefined {
   return ADAPTERS[adapter]?.factory;

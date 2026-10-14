@@ -51,10 +51,13 @@
 	}
 }
 
-/* The right click's own box holds the field, however far it runs. */
+/* The right click's own box holds the field, however far it runs, with a screen of room past it
+   on every side: the map pans as far as the pointer goes. */
 [data-map-field] {
 	width: max-content;
 	min-width: 100%;
+	padding: 100vh 100vw;
+	background-color: var(--color-background-surface);
 }
 
 .studio-map-lines {

@@ -59,6 +59,7 @@ import { type KeptMap, type MapPlaces, readKeptMap, writeKeptMap } from './lib/s
 import { useProject } from './lib/studio-project.ts';
 import { PROFILE_TYPE_ICON, profileTypeIcon, toolTypeIcon } from './lib/type-icons.ts';
 import { MapToken, useTokenWidths } from './map-token.tsx';
+import { drags, fieldStart, follow, scrollOnce, usePan } from './pan.ts';
 import './studio-map.css';
 
 /** With detail a node holds its icon, its name and two lines of its note; a card's head, one; a row, a section. */
@@ -116,43 +117,6 @@ const ARROWS: Record<string, MapPlace> = {
 	ArrowUp: { x: 0, y: -1 },
 	ArrowDown: { x: 0, y: 1 },
 };
-
-/** The box around `from` that scrolls, if one does. */
-function scrollerOf(from: HTMLElement): HTMLElement | undefined {
-	for (let each = from.parentElement; each; each = each.parentElement) {
-		const { overflowX, overflowY } = getComputedStyle(each);
-		if (/auto|scroll/.test(`${overflowX} ${overflowY}`)) return each;
-	}
-	return undefined;
-}
-
-/** A mouse or a pen drags; a finger scrolls the field as it always does. */
-const drags = (event: ReactPointerEvent) => event.button === 0 && event.pointerType !== 'touch';
-
-/**
- * Follow the pointer that pressed until it lifts, wherever it goes: `onMove` with how far it is
- * from where it pressed, then `onEnd`, with whether it lifted or the press was called off.
- */
-function follow(
-	press: ReactPointerEvent,
-	onMove: (x: number, y: number) => void,
-	onEnd: (lifted: boolean) => void,
-): void {
-	const { pointerId, clientX, clientY } = press;
-	const move = (event: PointerEvent) => {
-		if (event.pointerId === pointerId) onMove(event.clientX - clientX, event.clientY - clientY);
-	};
-	const end = (event: PointerEvent) => {
-		if (event.pointerId !== pointerId) return;
-		globalThis.removeEventListener('pointermove', move);
-		globalThis.removeEventListener('pointerup', end);
-		globalThis.removeEventListener('pointercancel', end);
-		onEnd(event.type === 'pointerup');
-	};
-	globalThis.addEventListener('pointermove', move);
-	globalThis.addEventListener('pointerup', end);
-	globalThis.addEventListener('pointercancel', end);
-}
 
 /** How the map was left, and what it shows for it: every node, or one node's family. */
 function useKept(whole: WorkspaceMap) {
@@ -244,28 +208,6 @@ function useDrag(layout: MapLayout, moved: MapPlaces, put: Put) {
 	return { dragging, draggable };
 }
 
-/** A drag that starts on the field, off every node, pans it. */
-function usePan() {
-	const [panning, setPanning] = useState(false);
-	const pan = (event: ReactPointerEvent<HTMLElement>) => {
-		if (!drags(event) || (event.target as Element).closest('[data-map-node]')) return;
-		const scroller = scrollerOf(event.currentTarget);
-		if (!scroller) return;
-		const { scrollLeft, scrollTop } = scroller;
-		setPanning(true);
-		follow(
-			event,
-			(x, y) => {
-				scroller.scrollTo({ left: scrollLeft - x, top: scrollTop - y, behavior: 'instant' });
-			},
-			() => {
-				setPanning(false);
-			},
-		);
-	};
-	return { panning, pan };
-}
-
 /** The node or section under the pointer or holding focus: its lines, and what they reach, stay lit. */
 function useLit(layout: MapLayout) {
 	const [lit, setLit] = useState<string>();
@@ -311,17 +253,20 @@ function useStart(
 	latest.current = open;
 	const { family, expanded } = view;
 	useEffect(() => {
-		const scroller = field.current && scrollerOf(field.current);
-		if (!scroller) return;
+		const node = field.current;
+		if (!node) return;
 		const { place, sizes } = latest.current;
 		const at = family === undefined ? place : undefined;
-		const hidden =
-			at !== undefined &&
-			(at.x + sizes.node.width > scroller.clientWidth || at.y + at.height > scroller.clientHeight);
-		scroller.scrollTo({
-			left: hidden ? at.x - sizes.padding : 0,
-			top: hidden ? at.y - sizes.padding - sizes.heading : 0,
-			behavior: 'instant',
+		// The field starts past the room around it.
+		return scrollOnce(node, (scroller) => {
+			const hidden =
+				at !== undefined &&
+				(at.x + sizes.node.width > scroller.clientWidth || at.y + at.height > scroller.clientHeight);
+			const { left, top } = fieldStart(node, scroller);
+			return {
+				left: left + (hidden ? at.x - sizes.padding : 0),
+				top: top + (hidden ? at.y - sizes.padding - sizes.heading : 0),
+			};
 		});
 	}, [field, family, expanded]);
 }
@@ -631,7 +576,7 @@ export function StudioMap({
 	const opened = nodes.find((node) => isOpen(node, selected))?.id;
 	useStart(field, { family, expanded }, { place: opened === undefined ? undefined : layout.nodes[opened], sizes });
 	const { dragging, draggable } = useDrag(layout, moved, put);
-	const { panning, pan } = usePan();
+	const { panning, pan } = usePan('[data-map-node]');
 	const { lit, on, onLines, lights } = useLit(layout);
 
 	const actions: MapActions = {

@@ -15,6 +15,7 @@ export {
   theoremSteerRequestSchema,
   theoremTurnRequestSchema,
 } from '../client/transport.ts';
+export { startConversation } from './conversation.ts';
 export {
   type ConversationSnapshot,
   type ConversationWriteResult,
@@ -44,6 +45,7 @@ export {
   type TheoremHandlerOptions,
   type TheoremHostHandlerOptions,
   type TheoremRequestContext,
+  theoremSession,
   theoremSessionId,
 } from './handler.ts';
 export {

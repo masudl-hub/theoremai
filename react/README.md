@@ -430,6 +430,26 @@ const transport = withPageToolDispatch(
 | `clientEvents` | Options for `forClient` and `clientError`, which prepare each event and each caught failure for the browser. `reader: 'builder'` sends the raw reason in place of the wording of the profile. Use it only in a development tool on your own machine. |
 | `onError` | Receives each error that the handler catches. A visitor sees the wording of the profile for that kind of error, never the error. |
 
+### Start a conversation with content
+
+`startConversation` stores a conversation that opens on blocks you wrote, and returns its ref. Pass the ref as `conversation`. The model reads the blocks as history, so the user's next message is a follow-up.
+
+```ts
+import { startConversation, theoremSession } from '@theoremjs/react/server';
+
+const session = theoremSession(request);
+const { ref } = await startConversation({ sessionId: session.id, store: conversationStore }, profile, [
+  { id: 'ask', kind: 'user-text', text: 'Two days in Lisbon. Where should I stay?' },
+  { id: 'reply', kind: 'text', text: 'Stay in Chiado.' },
+  { id: 'done', kind: 'turn-done' },
+]);
+// Send session.setCookie as Set-Cookie when it is set, and give the page the ref.
+```
+
+- The store is the one you pass to the handler as `conversationStore`, and the session is the one the chat's requests carry. `theoremSession(request)` is the handler's cookie session: its `id`, and a `setCookie` header when the request had none. With your own `session` resolver, pass the id it returns.
+- The profile's guardrails read the history first, at the `history` boundary, as they read every turn's history. A detector set to `redact` changes what the model reads; the transcript keeps your text. A detector set to `block` throws `detect.blocked`, and nothing is stored.
+- The result's `events` are the guardrail events for what matched.
+
 ### Keep the conversation
 
 The conversation store keeps the transcript, the history that the model reads, the provider's native state, and a reply that waits for a gate.

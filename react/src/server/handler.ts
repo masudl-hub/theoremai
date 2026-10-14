@@ -125,9 +125,9 @@ import {
   type TheoremCredentials,
 } from './credential-store.ts';
 import { type MutableStore, sessionStateStore } from './session-authority.ts';
-import { cookieSession, type Session } from './session-identity.ts';
+import { type Session, theoremSession } from './session-identity.ts';
 
-export { theoremSessionId } from './session-identity.ts';
+export { theoremSession, theoremSessionId } from './session-identity.ts';
 
 import { jsonResponse } from './json-response.ts';
 import { boundedRequestJson, requestByteLimit } from './request-body.ts';
@@ -347,7 +347,7 @@ type HandlerContext = {
 };
 
 async function sessionOf(ctx: HandlerContext, request: Request): Promise<Session> {
-  if (!ctx.options.session) return cookieSession(request);
+  if (!ctx.options.session) return theoremSession(request);
   const id = (await ctx.options.session(request))?.trim();
   if (!id) {
     // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording

@@ -20,6 +20,7 @@ import {
   type GateReference,
   type LabelOverrides,
   labelText,
+  type Profile,
   type ProviderCheckpoint,
   TheoremError,
   type TurnEvent,
@@ -27,7 +28,7 @@ import {
   type TurnInput,
   toErrorEvent,
 } from '@theoremjs/agents';
-import { withPublicLabels } from '@theoremjs/agents/guardrails';
+import { sanitizeTurnRequestWithEvents, withPublicLabels } from '@theoremjs/agents/guardrails';
 import { type ClientTurnOptions, forClient } from '@theoremjs/agents/host';
 import {
   appendAssistantEventsToHistory,
@@ -131,6 +132,38 @@ export async function openConversation(
   const snapshot = await host.store.read(host.sessionId, ref);
   if (!snapshot) throw unknownConversation();
   return { ref, revision: snapshot.revision, conversation: snapshot.conversation };
+}
+
+/**
+ * Starts a conversation from blocks the host wrote, not ran: a chat that opens on an exchange
+ * already under way. The model reads them as history on the next turn, read first by the
+ * profile's guardrails at the `history` boundary, as every turn's history is. A match set to
+ * `block` refuses them, and nothing is stored. Returns the new conversation's ref, and the
+ * guardrail events for what matched.
+ */
+export async function startConversation(
+  host: Pick<ConversationHost, 'sessionId' | 'store'>,
+  profile: Profile,
+  blocks: readonly TranscriptBlock[],
+): Promise<{ ref: string; events: TurnEvent[] }> {
+  const { request, events, refusal } = sanitizeTurnRequestWithEvents(
+    { profile: profile.id, input: { history: historyFromTranscriptBlocks(blocks) } },
+    profile,
+  );
+  if (refusal) throw refusal;
+  const result = await host.store.write(host.sessionId, null, null, {
+    ...emptyConversation(),
+    transcript: [...blocks],
+    history: request.input?.history ?? [],
+  });
+  if (!result.written) {
+    // labels-exempt: internal diagnostic; the user reads error.unavailable
+    throw new TheoremError(
+      'unavailable',
+      'the conversation store did not keep the new conversation',
+    );
+  }
+  return { ref: result.ref, events };
 }
 
 function foldedFor(host: ConversationHost, events: readonly TurnEvent[]): TranscriptBlock[] {

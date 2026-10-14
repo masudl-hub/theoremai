@@ -38,6 +38,7 @@ import {
   requireWaitingOn,
   requireWalkAway,
   rewindConversation,
+  startConversation,
   statelessRefusal,
   waitingCalls,
 } from '../react/src/server/conversation.ts';
@@ -48,6 +49,7 @@ import {
   gatedToolsFromEvents,
   interfaceFromProfile,
   promotedToolIdsFromEvents,
+  type TranscriptBlock,
   toolSnapshotFromEvents,
 } from '../src/interface/mod.ts';
 import type { RunDecisionOptions } from '../src/kernel/engine/decision.ts';
@@ -427,6 +429,17 @@ export async function* streamStudioInvoke(
       }),
     }),
   );
+}
+
+/** A conversation that opens on blocks the page wrote, read first by the draft's guardrails. Returns its ref. */
+export async function startStudioConversation(
+  draft: StudioDraftRun,
+  conversations: StudioConversations,
+  blocks: readonly TranscriptBlock[],
+): Promise<string> {
+  const { profile, host } = await studioChat(draft, conversations);
+  if (!host) throw statelessRefusal('start');
+  return (await startConversation(host, profile, blocks)).ref;
 }
 
 /** The conversation under a ref, as the page draws it. */

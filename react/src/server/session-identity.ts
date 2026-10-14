@@ -24,7 +24,12 @@ export function theoremSessionId(request: Request): string | undefined {
   return existing && SESSION_ID_PATTERN.test(existing) ? existing : undefined;
 }
 
-export function cookieSession(request: Request): Session {
+/**
+ * The handler's cookie session for `request`: its id, and the `Set-Cookie` header to send when
+ * the request had none. A page that starts a conversation before the chat's first request uses
+ * it, so the chat and the conversation share one session.
+ */
+export function theoremSession(request: Request): Session {
   const existing = theoremSessionId(request);
   if (existing) return { id: existing };
   const id = newSessionId();

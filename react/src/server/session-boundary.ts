@@ -23,7 +23,7 @@ import {
 } from './page-dispatch.ts';
 import { checkRequest } from './request-check.ts';
 import { sessionStateStore } from './session-authority.ts';
-import { cookieSession } from './session-identity.ts';
+import { theoremSession } from './session-identity.ts';
 import { resolveSessionLimits, type TheoremSessionLimits } from './session-limits.ts';
 import { DEFAULT_OPERATION_RETENTION_MS, type TheoremSessionStore } from './session-store.ts';
 import { sessionToolCoordinator } from './tool-operations.ts';
@@ -61,7 +61,7 @@ export interface TheoremSessionBoundary {
 export async function createTheoremSessionBoundary(
   options: SessionBoundaryOptions,
 ): Promise<TheoremSessionBoundary> {
-  const cookie = options.session ? undefined : cookieSession(options.request);
+  const cookie = options.session ? undefined : theoremSession(options.request);
   const id = options.session ? (await options.session(options.request))?.trim() : cookie?.id;
   if (!id)
     throw new TheoremError('auth', labelText('session.sign_in'), {

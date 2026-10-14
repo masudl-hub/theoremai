@@ -237,9 +237,12 @@ export type EditedAnswer = ({ ok: true; stamp: string } | SaveRefusal) & { saved
  * - `load`: the project did not load with the change.
  * - `differs`: the project loaded, but not as the builder tested it.
  * - `nothing`: there is no Save to undo.
+ * - `unanswered`: the page's own: the studio's server did not answer, so what the files hold is not known.
  */
 export interface SaveRefusal {
   ok: false;
-  reason: 'issues' | 'stale' | 'unwritable' | 'check' | 'load' | 'differs' | 'nothing';
+  reason: 'issues' | 'stale' | 'unwritable' | 'check' | 'load' | 'differs' | 'nothing' | 'unanswered';
   detail: string[];
+  /** Files a write taken back left as they are now: they changed while Save checked them. */
+  kept?: string[];
 }

@@ -267,6 +267,24 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     }
   };
 
+  /**
+   * Puts `files` back to `side`, but for a file that no longer holds what the other side wrote:
+   * someone changed it meanwhile, so it is left as it is now. Answers with those it left.
+   */
+  const putBack = (files: Files, side: 'before' | 'after'): string[] => {
+    const written = (change: FileChange) =>
+      side === 'before' ? (change.removed ? undefined : change.after) : change.created ? undefined : change.before;
+    const left = [...files].filter(([file, change]) => host.read(file) !== written(change));
+    put(new Map([...files].filter(([file]) => !left.some(([moved]) => moved === file))), side);
+    return left.map(([file]) => inRoot(file));
+  };
+
+  /** A write taken back, with the files it left as they are now. */
+  const takenBack = (refused: SaveRefusal, files: Files, side: 'before' | 'after'): SaveRefusal => {
+    const kept = putBack(files, side);
+    return kept.length ? { ...refused, kept } : refused;
+  };
+
   /** Loads the project from disk and answers with it from now on. */
   const reload = async (keep: (next: Loaded) => string[], from = held()): Promise<SaveRefusal | undefined> => {
     let next: Loaded;
@@ -359,10 +377,7 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     if (astray.length) return refusal('unwritable', astray.map(inRoot));
     put(files, 'after');
     const refused = await proven(request.workspace);
-    if (refused) {
-      put(files, 'before');
-      return refused;
-    }
+    if (refused) return takenBack(refused, files, 'before');
     lastSave = files;
     return { ok: true, written: [...files.keys()].map(inRoot) };
   };
@@ -380,10 +395,7 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     if (moved.length) return refusal('stale', moved.map(([file]) => inRoot(file)));
     put(files, 'before');
     const refused = await reload(() => []);
-    if (refused) {
-      put(files, 'after');
-      return refused;
-    }
+    if (refused) return takenBack(refused, files, 'after');
     lastSave = undefined;
     return { ok: true, written: [...files.keys()].map(inRoot) };
   };

@@ -153,6 +153,22 @@ Deno.test('a save that fails a proof puts the files back and keeps the old load'
   }
 });
 
+Deno.test('a save that fails a proof leaves a file the editor changed meanwhile, and names it', async () => {
+  const workspace = edited();
+  const mine = `${TEXT}\n// typed while Save checked\n`;
+  const held = project({
+    typeChecks: () => {
+      held.files.set(SETUP, mine);
+      return Promise.resolve({ ok: false, output: 'TS2322' });
+    },
+  });
+  const { stamp } = await reviewed(held.session, workspace);
+  const answer = (await held.session.save({ workspace, stamp })) as SaveRefusal;
+  assertEquals(answer.reason, 'check');
+  assertEquals(answer.kept?.length, 1);
+  assertEquals(held.text(), mine);
+});
+
 Deno.test('files the editor changed are loaded again, and ones that do not load leave the last load', async () => {
   let loads = 0;
   const failing = { fails: false };

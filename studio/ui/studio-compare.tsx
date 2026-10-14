@@ -54,13 +54,14 @@ const NOT_RUNNING: Partial<Record<SaveRefusal['reason'], string>> = {
 	issues: 'Fix the issues in the editor to run your edits.',
 	load: 'The project did not start with your edits.',
 	differs: 'The studio cannot run these edits before they are saved.',
+	unanswered: 'The studio did not answer.',
 };
 
 /** A server that did not answer, as a refusal the pane can show. */
 function unreachable(saved: string[]) {
 	return (error: unknown): EditedAnswer => ({
 		ok: false,
-		reason: 'load',
+		reason: 'unanswered',
 		detail: [error instanceof Error ? error.message : String(error)],
 		saved,
 	});

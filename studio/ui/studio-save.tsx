@@ -71,13 +71,14 @@ const REFUSED: Record<SaveRefusal['reason'], string> = {
 	load: 'The project did not start with these changes, so your files were put back.',
 	differs: 'The files did not load as what you tested, so they were put back.',
 	nothing: 'There is no save to undo.',
+	unanswered: 'The studio did not answer, so it is not known whether your files changed. Check them in your editor.',
 };
 
 /** A server that did not answer, as a refusal the dialog can show. */
 function unreachable(error: unknown): SaveRefusal {
 	return {
 		ok: false,
-		reason: 'load',
+		reason: 'unanswered',
 		detail: [error instanceof Error ? error.message : String(error)],
 	};
 }
@@ -267,6 +268,12 @@ function RefusalBody({ refusal }: { refusal: SaveRefusal }) {
 	return (
 		<VStack gap={3}>
 			<Banner status="error" title={REFUSED[refusal.reason]} />
+			{refusal.kept?.length ? (
+				<Banner
+					status="warning"
+					title={`Left as they are now, because they changed while Save checked them: ${refusal.kept.join(', ')}`}
+				/>
+			) : null}
 			<RefusalDetail refusal={refusal} />
 		</VStack>
 	);

@@ -32,7 +32,7 @@ export interface RemovalPlan extends SavePlan {
 }
 
 /** The calls that register what a profile's or a provider's module holds. */
-const REGISTERS = new Set(['registerProfile', 'registerStructured', 'registerProvider']);
+const REGISTERS = new Set(['registerProfile', 'registerStructured', 'registerProvider', 'registerTool']);
 
 /** Something a file writes that can be taken out whole. */
 type Part = ts.Statement | ts.ObjectLiteralElementLike | ts.ImportSpecifier;
@@ -297,11 +297,16 @@ class Removal {
     const at = { node: target.options, source: target.source };
     if (targets.length > 1) return this.note('tool', name, 'removed', at);
     const statement = statementOf(wrapped(target.options).parent);
-    if (!statement) return this.note('tool', name, 'removed', at);
-    // A function that only registers this tool goes with its calls. One nothing here calls is the
-    // setup's own, and keeps its name.
-    const register = wholeBodyOf(statement, target.source);
-    if (!register || !this.named(register)) this.cut.set(statement, target.source);
+    if (statement) {
+      // A function that only registers this tool goes with its calls. One nothing here calls is the
+      // setup's own, and keeps its name.
+      const register = wholeBodyOf(statement, target.source);
+      if (!register || !this.named(register)) this.cut.set(statement, target.source);
+    } else {
+      // Written as a constant: it goes with each statement that registers it.
+      const named = declared(target.options, target.source);
+      if (!named || !this.named(named)) return this.note('tool', name, 'removed', at);
+    }
     this.homes.add(target.source);
     this.note('tool', name, 'written', at);
   }

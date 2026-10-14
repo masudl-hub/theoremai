@@ -314,3 +314,24 @@ Deno.test('what the function writes is changed when each of its profiles changes
   assertEquals(argument.changes, ['dev tools.allow.0: written']);
   assertEquals(argument.text['setup.ts'], FACTORY.replace("['debug']", "['trace']"));
 });
+
+Deno.test('a tool registered from a constant is written where the constant is', () => {
+  const files = {
+    'setup.ts': `import { registerTool } from '@theoremjs/agents';
+import { wipe } from './wipe.ts';
+
+registerTool(wipe);
+`,
+    'wipe.ts': `export const wipe = { type: 'function' as const, name: 'wipe', description: 'Clears the desk.' };
+`,
+  };
+  const tool = (description: string) => ({ type: 'function', name: 'wipe', description });
+  const plan = saved(files, [
+    { kind: 'tool', of: 'wipe', before: tool('Clears the desk.'), after: tool('Clears it all.') },
+  ]);
+  assertEquals(plan.changes, ['wipe description: written']);
+  assertEquals(
+    plan.text['wipe.ts'],
+    files['wipe.ts'].replace('Clears the desk.', 'Clears it all.'),
+  );
+});

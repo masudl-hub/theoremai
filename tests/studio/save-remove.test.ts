@@ -288,6 +288,42 @@ Deno.test('a tool goes where it is registered: in the setup, in a function of it
   assertEquals(every.written['setup.ts']?.includes('count.ts'), false);
 });
 
+Deno.test('a tool written as a constant goes with its registration, and stays when other code reads it', () => {
+  const setup = (extra: string[]) =>
+    lines(
+      "import { registerTool } from '@theoremjs/agents';",
+      "import { wipe } from './wipe.ts';",
+      '',
+      'export default function register(): void {',
+      '  registerTool(wipe);',
+      '}',
+      ...extra,
+    );
+  const wipe = lines(
+    "import * as Theorem from '@theoremjs/agents';",
+    '',
+    "export const wipe = { type: 'function' as const, name: 'wipe', handler: () => ({}) };",
+  );
+  const plan = planned({ 'setup.ts': setup([]), 'wipe.ts': wipe }, { tools: ['wipe'] });
+  assertEquals([plan.statuses, plan.gone], [[['wipe', 'written']], ['wipe.ts']]);
+  assertEquals(
+    plan.written['setup.ts'],
+    lines(
+      "import { registerTool } from '@theoremjs/agents';",
+      '',
+      'export default function register(): void {',
+      '}',
+    ),
+  );
+  const read = planned(
+    { 'setup.ts': setup(['export const tools = [wipe];']), 'wipe.ts': wipe },
+    { tools: ['wipe'] },
+  );
+  assertEquals(read.gone, []);
+  assertEquals(read.written['setup.ts']?.includes("import { wipe } from './wipe.ts';"), true);
+  assertEquals(read.written['setup.ts']?.includes('registerTool(wipe)'), false);
+});
+
 Deno.test('what the studio cannot follow is named with its place, and nothing is planned for it', () => {
   const setup = lines(
     "import { defineProfile, registerProfile, registerTool } from '@theoremjs/agents';",

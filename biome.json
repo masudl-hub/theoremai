@@ -16,7 +16,8 @@
       "!package-lock.json",
       "!coverage",
       "!!.stryker-tmp*",
-      "!.stryker-cache"
+      "!.stryker-cache",
+      "!tests/fixtures/studio-project"
     ]
   },
   "formatter": {

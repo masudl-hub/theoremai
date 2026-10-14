@@ -981,13 +981,17 @@ export function readProjectSource(entry: string, root: string, read: ReadFile): 
 export function projectOf(files: Map<string, ts.SourceFile>, entry: string, root: string): ProjectSource {
   const project: ProjectSource = { root, entry: resolve(entry), files, profiles: new Map(), tools: new Map(), providers: new Map() };
   const calls: Array<{ into: Map<string, SourceTarget[]>; key: string; target: SourceTarget }> = [];
-  for (const [file, source] of project.files) {
+  for (const source of project.files.values()) {
     const visit = (node: ts.Node) => {
       if (ts.isCallExpression(node) && node.arguments[0]) {
         const name = calleeName(node);
-        const options = unwrapped(node.arguments[0]);
-        if (ts.isObjectLiteralExpression(options)) {
-          const target = { file, source, options };
+        // A tool has no define call of its own, so one written as a constant is followed to it.
+        const written = name === 'registerTool'
+          ? followed(project, { node: node.arguments[0], source })
+          : { node: unwrapped(node.arguments[0]), source };
+        const options = written.node;
+        if (ts.isObjectLiteralExpression(options) && !written.env) {
+          const target = { file: written.source.fileName, source: written.source, options };
           if (takesProfile(node)) calls.push({ into: project.profiles, key: 'id', target });
           if (name === 'registerTool') calls.push({ into: project.tools, key: 'name', target });
           if (name && PROVIDER_CALLS.has(name)) calls.push({ into: project.providers, key: 'id', target });

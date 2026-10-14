@@ -1615,7 +1615,6 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 	}, []);
 	const reread = useCallback(
 		(isOurs: boolean, changed: readonly string[] = []) => {
-			// A server that does not answer leaves the last reading.
 			if (!project) return;
 			if (isOurs) ours.current += 1;
 			readFiles()
@@ -1652,7 +1651,17 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
 					keepReading(projectKey(project.name), read.print, workspace);
 					keep(read);
 				})
-				.catch(() => undefined)
+				.catch((err: unknown) => {
+					// What shows still stands on the last reading, which may be older than the files now.
+					toast({
+						type: 'error',
+						body:
+							// A fetch that reaches no server fails with a TypeError.
+							err instanceof TypeError
+								? "The studio's server didn't answer, so your files show as it last read them."
+								: `Couldn't read your files again (${err instanceof Error ? err.message : String(err)}), so they show as last read.`,
+					});
+				})
 				.finally(() => {
 					if (isOurs) ours.current -= 1;
 				});

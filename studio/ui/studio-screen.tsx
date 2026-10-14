@@ -2652,7 +2652,7 @@ function EditorBody({
 	const { workspace, draft, focus, setDraft, update } = state;
 	const workspaceContext = useWorkspaceContext(workspace.agents, focus, update);
 	const project = useProject();
-	const provider = shownProvider(workspace, editing, project !== undefined, connection);
+	const provider = shownProvider(workspace, editing, project !== null, connection);
 	return (
 		<ScrollableArea key={selected} label="Editor" height="100%" ref={editorRef}>
 			<ListBadges value={listBadges}>
@@ -3249,7 +3249,7 @@ function useWorkspaceTree(
 	const { open } = view;
 	const selectedId = view.keysOpen ? '' : selected;
 	const { list, setList } = useListShown(selectedId);
-	const ownsProviders = useProject() !== undefined;
+	const ownsProviders = useProject() !== null;
 	return useMemo(
 		() => ({
 			workspace,
@@ -3578,7 +3578,7 @@ function EditorColumnBody({
 	editorRef: RefObject<HTMLDivElement | null>;
 }) {
 	const project = useProject();
-	const provider = shownProvider(state.workspace, editing, project !== undefined, connection);
+	const provider = shownProvider(state.workspace, editing, project !== null, connection);
 	if (view.keysOpen) return <KeysBody connection={connection} state={state} />;
 	if (view.editorView === 'code') {
 		if (provider) {
@@ -3587,7 +3587,7 @@ function EditorColumnBody({
 					provider={provider}
 					issues={rowIssues.filter((issue) => issue.nodeId === editing)}
 					state={state}
-					isEditable={project !== undefined}
+					isEditable={project !== null}
 				/>
 			);
 		}

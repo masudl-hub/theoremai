@@ -231,6 +231,13 @@ guardrails default on, and Interactions streaming defaults to SSE
 `projectProfile` / `resolveTurn` project a registered profile + `TurnRequest`
 into a `ProjectedProfile` / `ResolvedGeneration` the runner and providers consume.
 
+`turnShortfalls(id)` checks each model of a turn-based profile (text, image,
+speech) against its provider the way a turn would, without running one: one
+line of text at the model's default effort, with the profile's tools. It returns
+a `TurnShortfall` (`{ model, message }`) for each model whose provider would
+refuse that turn as `unsupported`, and `[]` for any other profile. An effort a
+turn selects is checked when that turn runs.
+
 ## Turn lifecycle
 
 `runTurn(request, hostOptions?, sink?)` is the single deterministic execution path
@@ -1503,7 +1510,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Utilities | `base64ToBytes`, `bytesToBase64`, `isRecord`, `Equals` (compile-time type equality, for exact-shape checks) |
 | Scope | `KernelScope`, `createKernelScope`, `defaultKernelScope`, `KernelRegistry`, `createKernelRegistry` |
 | Profile editing | `unsetValue` (what leaving a field out stands for), `outOfScopeFields`, `profileTypesForField`, `systemPromptProblem`, `activityLabelProblem`, `CONTINUE_INSTRUCTION_TYPES`, `resolveKeySlot`, `jsonSchemaFromZod`, `agentToolInputFor`, `agentToolOutput`, `ToolAuthConfig`, `ToolLabels` |
-| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn` |
+| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn`, `turnShortfalls`, `TurnShortfall` |
 | Tools | `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `GATE_DECISIONS`, `GateDecision`, `answerGatedCall`, `GateAnswerRequest`, `HeldGatedCall`, `AnsweredGate`, `ToolGateAuth`, `gateExpired`, `resolveGateTtlMs`, `sessionPermissionsAfterApproval`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery` |
 | Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `tokenAudienceCovers`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload`, `sealSecret`, `openSecret`, `SealSecretInput`, `OpenSecretInput`, `ToolCredentialSource`, `memoryCredentialSource` |
 | Structured | `SchemaRegistry`, `createSchemaRegistry`, `getStructured`, `registerStructured` |

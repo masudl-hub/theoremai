@@ -103,7 +103,7 @@ export function blockNaming(term: string): DetectSpec {
 export async function replyGate(
   context: GuardrailContext,
   detectors: readonly Detector[] = REPLY_DETECTORS,
-): ProgressiveYieldGate {
+): Promise<ProgressiveYieldGate> {
   const matrix = resolveDetect(blockingAtReply(detectors));
   return await createProgressiveYieldGate({
     context,

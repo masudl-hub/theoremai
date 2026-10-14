@@ -653,9 +653,40 @@ Deno.test("a provider's adapter is the other kernel factory, called and imported
   // Nothing else reads the old factory, so the new one takes its place in the import.
   assertEquals(changed.text, PROVIDERS.replaceAll('openAIChat', 'openRouterAdapter'));
 
+  // What the new adapter does not take goes with the old one.
+  const google = savedProvider(before, { adapter: 'google', connection: {}, keySlot: 'team' });
+  assertEquals(google.statuses.toSorted(), ['adapter: written', 'connection.baseURL: written']);
+  assertEquals(
+    google.text,
+    PROVIDERS.replaceAll('openAIChat', 'googleAdapter').replace(
+      "{ baseURL: 'https://one.example/v1' }",
+      '{}',
+    ),
+  );
+
   const unknown = savedProvider(before, { ...before, adapter: 'house-made' });
   assertEquals(unknown.statuses, ['adapter: code']);
   assertEquals(unknown.text, PROVIDERS);
+});
+
+Deno.test("a provider's adapter made from another module's factory is code's to change", () => {
+  const source = PROVIDERS.replace("from '@theoremjs/agents'", "from './wrappers.ts'");
+  const files = {
+    'setup.ts': "import { house } from './providers.ts';\nregisterProviders([house]);\n",
+    'providers.ts': source,
+  };
+  const before = {
+    adapter: 'openai-chat',
+    connection: { baseURL: 'https://one.example/v1' },
+    keySlot: 'team',
+  };
+  const plan = planSave(project(files), [
+    { kind: 'provider', of: 'house', before, after: { ...before, adapter: 'openrouter' } },
+  ]);
+  assertEquals(
+    plan.changes.map((change) => `${change.setting}: ${change.status}`),
+    ['adapter: code'],
+  );
 });
 
 Deno.test("a provider's new adapter is imported beside the old one when the file still reads it", () => {

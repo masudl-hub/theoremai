@@ -13,7 +13,7 @@
 
 import ts from 'typescript';
 import { MASK, unmaskUrl } from '../../src/surface/mod.ts';
-import { type SourceStyle, valueSource } from '../source.ts';
+import { AGENTS_PACKAGE, type SourceStyle, valueSource } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
 import { canonical } from '../canonical.ts';
 import { adapterFactory } from '../providers.ts';
@@ -641,8 +641,9 @@ class Planner {
 
   /**
    * A provider's adapter, changed by calling the other kernel factory where its definition calls
-   * this one. The new factory is imported beside the old, in place of it when nothing else in the
-   * file reads the old one. An adapter made any other way is code's to change.
+   * this one, imported from the kernel package. The new factory is imported beside the old, in
+   * place of it when nothing else in the file reads the old one. An adapter made any other way is
+   * code's to change.
    */
   private readapt(at: Located | undefined, { before, after, here }: KeyChange, place: Place) {
     const from = typeof before === 'string' ? adapterFactory(before) : undefined;
@@ -716,6 +717,7 @@ class Planner {
       this.edit(own.source, start, own.node.end, valueSource(Object.fromEntries(inserts), this.style(own.source, start)));
       return;
     }
+    if (this.emptied(own.node, own.source, removed, inserts)) return;
     for (const held of removed) this.remove(held, own.source);
     if (inserts.length) this.insert(own.node, own.source, inserts, path);
   }
@@ -937,6 +939,7 @@ class Planner {
         this.edit(source, start, node.end, objectSource(inserts, this.style(source, start)));
         return;
       }
+      if (this.emptied(node, source, removed, inserts)) return;
       for (const property of removed) this.remove(property, source);
       if (inserts.length) this.insert(node, source, inserts, inFields);
     });
@@ -961,6 +964,25 @@ class Planner {
   }
 
   /** Takes a property out, with its comma. */
+  /**
+   * An object every property leaves and none comes to, written `{}`. Not when it holds a comment,
+   * which would go with it.
+   */
+  private emptied(
+    node: ts.ObjectLiteralExpression,
+    source: ts.SourceFile,
+    removed: readonly ts.ObjectLiteralElementLike[],
+    inserts: readonly unknown[],
+  ): boolean {
+    if (inserts.length || removed.length !== node.properties.length) return false;
+    const start = node.getStart(source);
+    let rest = source.text.slice(start + 1, node.end - 1);
+    for (const property of node.properties) rest = rest.replace(property.getText(source), '');
+    if (!/^[\s,]*$/.test(rest)) return false;
+    this.edit(source, start, node.end, '{}');
+    return true;
+  }
+
   private remove(property: ts.ObjectLiteralElementLike, source: ts.SourceFile) {
     const { text } = source;
     let start = property.getFullStart();
@@ -1112,10 +1134,12 @@ export function diffHunks(text: string, edits: readonly SourceEdit[]): DiffHunk[
   });
 }
 
-/** Each name the file imports by name, as values. */
+/** Each name the file imports by name from the kernel package, as values. */
 function namedImports(source: ts.SourceFile): ts.ImportSpecifier[] {
   return source.statements.flatMap((statement) => {
     if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) return [];
+    const from = statement.moduleSpecifier;
+    if (!ts.isStringLiteralLike(from) || from.text !== AGENTS_PACKAGE) return [];
     const bindings = statement.importClause?.namedBindings;
     return bindings && ts.isNamedImports(bindings) ? bindings.elements.filter((element) => !element.isTypeOnly) : [];
   });

@@ -912,8 +912,12 @@ function ProviderRow({
 	);
 }
 
-/** A local model's endpoint, with help when the page's origin can't reach it. */
-function LocalEndpointRows({ set }: { set: SetBinding }) {
+/**
+ * A local model's endpoint, with help when the page's origin can't reach it. It is the tab's
+ * connection, so changing it leaves the profile's model as it is: a model the new endpoint does
+ * not list shows as not in the list.
+ */
+function LocalEndpointRows() {
 	const localConnection = useContext(LocalConnection);
 	if (!localConnection) return null;
 	const failed = localConnection.localModels.status === 'error';
@@ -929,7 +933,6 @@ function LocalEndpointRows({ set }: { set: SetBinding }) {
 				}
 				onChange={(baseUrl) => {
 					localConnection.setLocal((current) => ({ ...current, baseUrl }));
-					set({ apiId: '' });
 				}}
 			/>
 			{failed && !isLocalPage() && <LocalOriginHelp />}
@@ -1159,7 +1162,7 @@ function ModelSection({
 				}}
 			/>
 			<ProviderRow providers={draft.providers} binding={binding} type={type} set={set} />
-			{local ? <LocalEndpointRows set={set} /> : <KeySlotRows providers={draft.providers} binding={binding} set={set} />}
+			{local ? <LocalEndpointRows /> : <KeySlotRows providers={draft.providers} binding={binding} set={set} />}
 			<ApiModelRow draft={draft} binding={binding} type={type} google={google} set={set} />
 
 			{local && <LocalServerRows binding={binding} set={set} />}

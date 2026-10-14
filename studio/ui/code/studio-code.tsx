@@ -35,14 +35,16 @@ function paintMarkers({ editor, monaco, spans, errors }: Session, issues: readon
 }
 
 /**
- * The open agent's file. `text` is the latest print. While the visitor is
+ * The open agent's or provider's file. `text` is the latest print. While the visitor is
  * typing, the model keeps their text. `hold` means there is no new print,
- * so the text they have stays.
+ * so the text they have stays. `isReadOnly` takes no edit.
  */
-export function StudioCode({ text, hold, issues, onApply }: StudioCodeProps) {
+export function StudioCode({ text, hold, isReadOnly = false, issues, onApply }: StudioCodeProps) {
 	const node = useRef<HTMLDivElement>(null);
 	const apply = useRef(onApply);
 	const printed = useRef(text);
+	const readOnly = useRef(isReadOnly);
+	readOnly.current = isReadOnly;
 	const issuesRef = useRef(issues);
 	const session = useRef<Session>({ spans: [], errors: [], setting: false, dirty: false });
 	apply.current = onApply;
@@ -103,6 +105,7 @@ export function StudioCode({ text, hold, issues, onApply }: StudioCodeProps) {
 			const model = monaco.editor.createModel(printed.current, 'typescript', uri);
 			const editor = monaco.editor.create(host, {
 				model,
+				readOnly: readOnly.current,
 				language: 'typescript',
 				theme: dark ? 'vs-dark' : 'vs',
 				minimap: { enabled: false },
@@ -227,6 +230,10 @@ export function StudioCode({ text, hold, issues, onApply }: StudioCodeProps) {
 		session.current.setting = false;
 		session.current.dirty = false;
 	}, [text, hold]);
+
+	useEffect(() => {
+		session.current.editor?.updateOptions({ readOnly: isReadOnly });
+	}, [isReadOnly]);
 
 	useEffect(() => {
 		paintMarkers(session.current, issues);

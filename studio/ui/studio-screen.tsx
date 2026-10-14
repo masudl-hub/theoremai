@@ -59,6 +59,7 @@ import {
 	useDisclosureMotion,
 } from '../../react/src/ui/index.ts';
 import {
+	adapterFactory,
 	addAgent,
 	addArchitectExample,
 	addProvider,
@@ -84,6 +85,7 @@ import {
 	editedSince,
 	type FilesMerge,
 	mergedWithFiles,
+	readProviderSource,
 	readStudioSource,
 	rebased,
 	removeAgent,
@@ -109,6 +111,7 @@ import {
 	originWay,
 	type StudioDraft,
 	type StudioIssue,
+	type StudioProvider,
 	type StudioNodeRef,
 	type StudioRunPayload,
 	type StudioTreeNode,
@@ -123,6 +126,7 @@ import {
 	scopedNodeId,
 	setToolAllowed,
 	studioNodeRef,
+	providerSource,
 	studioSource,
 	studioTree,
 	toolSpecKeyOf,
@@ -2649,12 +2653,7 @@ function EditorBody({
 	const { workspace, draft, focus, setDraft, update } = state;
 	const workspaceContext = useWorkspaceContext(workspace.agents, focus, update);
 	const project = useProject();
-	const held = workspace.providers.find((each) => each.id === providerIdOf(editing));
-	// The studio's own local provider is reached where the local connection says, as a run reaches it.
-	const provider =
-		held && !project && held.id === LOCAL_PROVIDER_ID
-			? { ...held, connection: { baseURL: localProviderAddress(connection.local.baseUrl) } }
-			: held;
+	const provider = shownProvider(workspace, editing, project !== undefined, connection);
 	return (
 		<ScrollableArea key={selected} label="Editor" height="100%" ref={editorRef}>
 			<ListBadges value={listBadges}>
@@ -3500,6 +3499,62 @@ function EditorColumn({
 	);
 }
 
+/** The provider open at `editing`, as the editor and the code view show it. */
+function shownProvider(
+	workspace: StudioWorkspace,
+	editing: string,
+	inProject: boolean,
+	connection: StudioConnectionState,
+): StudioProvider | undefined {
+	const held = workspace.providers.find((each) => each.id === providerIdOf(editing));
+	// The studio's own local provider is reached where the local connection says, as a run reaches it.
+	return held && !inProject && held.id === LOCAL_PROVIDER_ID
+		? { ...held, connection: { baseURL: localProviderAddress(connection.local.baseUrl) } }
+		: held;
+}
+
+/**
+ * An open provider's definition. On a project it is edited here as in its editor; the studio's own,
+ * and one on an adapter the project made, only show.
+ */
+function ProviderCode({
+	provider,
+	issues,
+	state,
+	isEditable,
+}: {
+	provider: StudioProvider;
+	issues: StudioIssue[];
+	state: StudioWorkspaceState;
+	isEditable: boolean;
+}) {
+	const apply = useCallback(
+		(text: string): CodeApply => {
+			const current = state.workspace.providers.find((each) => each.id === provider.id);
+			if (!current) {
+				return { errors: [{ message: 'No provider is open.', line: 1, column: 1 }], spans: [] };
+			}
+			const read = readProviderSource(text, current);
+			if (!read.ok) return { errors: read.errors, spans: [] };
+			state.update((workspace) => withProvider(workspace, read.provider));
+			return { errors: [], spans: read.spans };
+		},
+		[state, provider.id],
+	);
+	return (
+		<div className="studio-fill">
+			<StudioCode
+				key={provider.id}
+				text={providerSource(provider)}
+				hold={false}
+				isReadOnly={!isEditable || adapterFactory(provider.adapter) === undefined}
+				issues={issues}
+				onApply={apply}
+			/>
+		</div>
+	);
+}
+
 /** Under the editor's header: the Keys panel, the open node's editor, or its code. */
 function EditorColumnBody({
 	state,
@@ -3523,8 +3578,20 @@ function EditorColumnBody({
 	frame: ReturnType<typeof useStudioFrame>;
 	editorRef: RefObject<HTMLDivElement | null>;
 }) {
+	const project = useProject();
+	const provider = shownProvider(state.workspace, editing, project !== undefined, connection);
 	if (view.keysOpen) return <KeysBody connection={connection} state={state} />;
 	if (view.editorView === 'code') {
+		if (provider) {
+			return (
+				<ProviderCode
+					provider={provider}
+					issues={rowIssues.filter((issue) => issue.nodeId === editing)}
+					state={state}
+					isEditable={project !== undefined}
+				/>
+			);
+		}
 		return (
 			<CodeBody
 				source={compile.source}

@@ -36,11 +36,13 @@ export interface CodeIssue {
 
 /**
  * The code view. `text` is the latest print; while the visitor is typing the view keeps their
- * text. `hold` means there is no new print, so the text they have stays.
+ * text. `hold` means there is no new print, so the text they have stays. `isReadOnly` shows the
+ * text and takes no edit.
  */
 export interface StudioCodeProps {
 	text: string;
 	hold: boolean;
+	isReadOnly?: boolean;
 	issues: readonly CodeIssue[];
 	onApply: (text: string) => CodeApply;
 }

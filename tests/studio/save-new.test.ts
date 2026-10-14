@@ -528,7 +528,12 @@ Deno.test('a new provider is a file, registered before every agent', () => {
   assertEquals(written, {
     'house.ts': `import { defineProvider, openRouterAdapter } from '@theoremjs/agents';
 
-export const house = defineProvider({ id: 'house', connection: {}, keySlot: 'HOUSE_KEY', adapter: openRouterAdapter() });
+export const house = defineProvider({
+  id: 'house',
+  connection: {},
+  keySlot: 'HOUSE_KEY',
+  adapter: openRouterAdapter(),
+});
 `,
     'setup.ts': `import { defineProfile, registerProfile, registerTool, z, registerProvider } from '@theoremjs/agents';
 import { house } from './house';

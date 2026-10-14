@@ -28,6 +28,7 @@ import {
   type ToolSpecDraft,
 } from './draft.ts';
 import { canonical } from './canonical.ts';
+import { adapterOfFactory, type StudioProvider } from './providers.ts';
 import { STUDIO_DECISION_MAX_STATE_BYTES, STUDIO_DECISION_TIMEOUT_MS } from './policy.ts';
 import { stubOutputFromSchema } from './stub.ts';
 import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
@@ -56,6 +57,10 @@ export type StudioSourceRead =
     }
   | { ok: false; errors: StudioSourceError[] };
 
+export type ProviderSourceRead =
+  | { ok: true; provider: StudioProvider; spans: StudioSourceSpan[] }
+  | { ok: false; errors: StudioSourceError[] };
+
 /** `agentId` is the id an agent tool or a compactor names; the workspace knows its key. */
 export type AgentKeyOf = (agentId: string) => string | undefined;
 
@@ -76,7 +81,11 @@ class Src {
   private line = 1;
   private column = 1;
 
-  constructor(private readonly text: string) {}
+  /** A provider's file holds its definition and nothing else; an agent's file holds no provider. */
+  constructor(
+    private readonly text: string,
+    readonly of: 'profile' | 'provider' = 'profile',
+  ) {}
 
   get done(): boolean {
     return this.i >= this.text.length;
@@ -178,6 +187,7 @@ interface ParsedModule {
   tools: Record<string, unknown>[];
   structured?: { id: string; spec: Record<string, unknown> };
   profile?: Record<string, unknown>;
+  provider?: Record<string, unknown>;
   questions?: Record<string, unknown>;
   spans: StudioSourceSpan[];
 }
@@ -368,6 +378,12 @@ function namedCall(
   src: Src,
   spans: readonly StudioSourceSpan[],
 ): unknown {
+  const adapter = adapterOfFactory(callee);
+  if (adapter && args.length === 0) return { kind: 'adapter', id: adapter };
+  if (src.of === 'provider') {
+    if (callee !== 'defineProvider') return src.fail(`'${callee}' isn't part of a provider's file.`);
+    return { kind: 'provider', spec: objectArg(args, src, 'defineProvider() needs the provider object.') };
+  }
   if (callee === 'compileDetect') {
     return objectArg(args, src, 'compileDetect() needs the detect object.');
   }
@@ -377,11 +393,6 @@ function namedCall(
   if (callee === 'registerTool') return registerToolCall(args, src, spans);
   if (callee === 'registerStructured') return { kind: 'registerStructured', args };
   if (callee === 'registerProfile' || callee === 'registerProvider') return { kind: callee };
-  if (
-    ['googleAdapter', 'openRouterAdapter', 'typesafeAdapter', 'openAIChat'].includes(callee) &&
-    args.length === 0
-  )
-    return { kind: 'adapter', id: callee };
   return src.fail(`'${callee}' isn't part of this file.`);
 }
 
@@ -488,7 +499,12 @@ function readConst(src: Src, parsed: ParsedModule): void {
   const value = parseExpr(src, '', parsed.spans);
   if (src.eat('satisfies') || src.eat('as')) skipTypeClause(src);
   src.eat(';');
-  if (name === 'profile') {
+  if (isRecord(value) && value.kind === 'provider' && isRecord(value.spec)) {
+    if (parsed.provider) src.fail('This file defines two providers.');
+    parsed.provider = value.spec;
+  } else if (src.of === 'provider') {
+    src.fail("A provider's file holds only its defineProvider().");
+  } else if (name === 'profile') {
     if (!isRecord(value)) src.fail('profile has to be the defineProfile() object.');
     if (parsed.profile) src.fail('This file defines two profiles.');
     parsed.profile = value;
@@ -516,8 +532,8 @@ function readCall(src: Src, parsed: ParsedModule): void {
   }
 }
 
-function parseModule(text: string): ParsedModule {
-  const src = new Src(text);
+function parseModule(text: string, of: Src['of'] = 'profile'): ParsedModule {
+  const src = new Src(text, of);
   const parsed: ParsedModule = { tools: [], spans: [] };
   for (src.skip(); !src.done; src.skip()) {
     if (src.peekIdent() === 'import') {
@@ -529,7 +545,9 @@ function parseModule(text: string): ParsedModule {
     if (src.peekIdent() === 'const') readConst(src, parsed);
     else readCall(src, parsed);
   }
-  if (!parsed.profile) src.fail('This file needs defineProfile().');
+  if (of === 'provider') {
+    if (!parsed.provider) src.fail('This file needs defineProvider().');
+  } else if (!parsed.profile) src.fail('This file needs defineProfile().');
   return parsed;
 }
 
@@ -1258,6 +1276,49 @@ export function readStudioSource(
         ok: false,
         errors: [{ message: error.message, line: error.line, column: error.column }],
       };
+    }
+    throw error;
+  }
+}
+
+/** Fails at where `path` was written, or at the file's start. */
+function failAt(spans: readonly StudioSourceSpan[], path: string, message: string): never {
+  const at = spans.findLast((span) => span.path === path) ?? { line: 1, column: 1 };
+  throw new ReadFail(message, at.line, at.column);
+}
+
+function providerFrom(spec: Record<string, unknown>, current: StudioProvider, spans: readonly StudioSourceSpan[]): StudioProvider {
+  const held = new Set(['id', 'connection', 'keySlot', 'fallbackKeySlot', 'adapter']);
+  for (const key of Object.keys(spec)) {
+    if (!held.has(key)) failAt(spans, key, `'${key}' isn't a provider setting the studio holds.`);
+  }
+  if (spec.id !== current.id) {
+    failAt(spans, 'id', `The id stays '${current.id}': models and code name the provider by it.`);
+  }
+  const adapter = isRecord(spec.adapter) && spec.adapter.kind === 'adapter' ? spec.adapter.id : undefined;
+  if (typeof adapter !== 'string') failAt(spans, 'adapter', 'adapter is one of the kernel adapters, called with nothing.');
+  const connection = spec.connection;
+  if (!isRecord(connection) || Object.values(connection).some((value) => typeof value !== 'string')) {
+    failAt(spans, 'connection', 'connection holds text settings here.');
+  }
+  const provider: StudioProvider = { id: current.id, adapter, connection: connection as Record<string, string> };
+  for (const slot of ['keySlot', 'fallbackKeySlot'] as const) {
+    const value = spec[slot];
+    if (value === undefined) continue;
+    if (typeof value !== 'string') failAt(spans, slot, `${slot} names a key slot.`);
+    provider[slot] = value;
+  }
+  return provider;
+}
+
+/** A provider's file, as the provider it defines. Its id has to stay `current`'s. */
+export function readProviderSource(source: string, current: StudioProvider): ProviderSourceRead {
+  try {
+    const parsed = parseModule(source, 'provider');
+    return { ok: true, provider: providerFrom(parsed.provider ?? {}, current, parsed.spans), spans: parsed.spans };
+  } catch (error) {
+    if (error instanceof ReadFail) {
+      return { ok: false, errors: [{ message: error.message, line: error.line, column: error.column }] };
     }
     throw error;
   }

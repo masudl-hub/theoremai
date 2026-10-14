@@ -167,9 +167,9 @@ function providerOptions(provider: StudioProvider, factory: string): string {
   );
   const connection = held.length ? `{ ${held.join(', ')} }` : '{}';
   const slots = (['keySlot', 'fallbackKeySlot'] as const).flatMap((slot) =>
-    provider[slot] === undefined ? [] : [` ${slot}: ${quoteSource(provider[slot])},`]
+    provider[slot] === undefined ? [] : [`  ${slot}: ${quoteSource(provider[slot])},\n`]
   );
-  return `{ id: ${quoteSource(provider.id)}, connection: ${connection},${slots.join('')} adapter: ${factory}() }`;
+  return `{\n  id: ${quoteSource(provider.id)},\n  connection: ${connection},\n${slots.join('')}  adapter: ${factory}(),\n}`;
 }
 
 /**
@@ -183,6 +183,12 @@ export function providerModule(provider: StudioProvider, name: string, from = AG
     `import { defineProvider, ${factory} } from ${quoteSource(from)};\n`,
     `export const ${name} = defineProvider(${providerOptions(provider, factory)});\n`,
   ].join('\n');
+}
+
+/** A provider as the code view shows it: its definition, or why the studio writes none. */
+export function providerSource(provider: StudioProvider): string {
+  return providerModule(provider, agentIdentifier(provider.id, new Set())) ??
+    `// The provider ${quoteSource(provider.id)} is defined on your own adapter ${quoteSource(provider.adapter)}, so its definition stays in your code.\n`;
 }
 
 /**

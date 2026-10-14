@@ -111,6 +111,7 @@ export {
   servesOtherProfileType,
 } from './policy.ts';
 export {
+  adapterFactory,
   adapterOf,
   type ConnectionField,
   connectionFields,
@@ -139,12 +140,15 @@ export {
   type StudioSourceError,
   type StudioSourceRead,
   type StudioSourceSpan,
+  type ProviderSourceRead,
+  readProviderSource,
   readStudioSource,
 } from './read-source.ts';
 export {
   agentModulePath,
   importSpecifier,
   type ProjectCode,
+  providerSource,
   studioSource,
   type SourceFile,
   workspaceSource,

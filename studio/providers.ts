@@ -241,6 +241,11 @@ export function kernelAdapters(): string[] {
   return Object.keys(ADAPTERS);
 }
 
+/** The kernel adapter the export `factory` makes. Undefined for any other name. */
+export function adapterOfFactory(factory: string): string | undefined {
+  return Object.keys(ADAPTERS).find((adapter) => ADAPTERS[adapter]?.factory === factory);
+}
+
 /** The kernel export that makes the adapter, for code the studio writes. Undefined for a project's own adapter. */
 export function adapterFactory(adapter: string): string | undefined {
   return ADAPTERS[adapter]?.factory;

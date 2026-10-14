@@ -667,12 +667,12 @@ Deno.test('studioSource registers each provider by its adapter, and says which o
   };
   assertStringIncludes(
     named('mine', 'openrouter'),
-    "registerProvider({ id: 'mine', connection: {}, adapter: openRouterAdapter() });",
+    "registerProvider({\n  id: 'mine',\n  connection: {},\n  adapter: openRouterAdapter(),\n});",
   );
   // Its slots are part of what it runs with, so the code holds them.
   assertStringIncludes(
     named('mine', 'openrouter', { keySlot: 'team', fallbackKeySlot: 'spare' }),
-    "registerProvider({ id: 'mine', connection: {}, keySlot: 'team', fallbackKeySlot: 'spare', adapter: openRouterAdapter() });",
+    "registerProvider({\n  id: 'mine',\n  connection: {},\n  keySlot: 'team',\n  fallbackKeySlot: 'spare',\n  adapter: openRouterAdapter(),\n});",
   );
   const own = named('theirs', 'acme');
   assertStringIncludes(own, "// Register the provider 'theirs' here, before the agents");

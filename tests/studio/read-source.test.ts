@@ -4,6 +4,8 @@ import {
   compileStudio,
   createDecisionExampleDraft,
   createExampleDraft,
+  providerSource,
+  readProviderSource,
   readStudioSource,
   setProfileType,
   studioPageTools,
@@ -304,4 +306,52 @@ Deno.test('a stateless profile survives a Studio source round trip', () => {
   assert(read.ok);
   assertEquals(read.draft.models.providerHistory, 'stateless');
   roundTrip(draft);
+});
+
+Deno.test("a provider's file reads back as the provider, and an edit to it is what the provider becomes", () => {
+  const house = {
+    id: 'house',
+    adapter: 'openai-chat',
+    connection: { baseURL: 'https://one.example/v1' },
+    keySlot: 'team',
+  };
+  const source = providerSource(house);
+  const read = readProviderSource(source, house);
+  assert(read.ok);
+  assertEquals(read.provider, house);
+
+  const moved = readProviderSource(
+    source.replaceAll('openAIChat', 'openRouterAdapter').replace("  keySlot: 'team',\n", ''),
+    house,
+  );
+  assert(moved.ok);
+  assertEquals(moved.provider, {
+    id: 'house',
+    adapter: 'openrouter',
+    connection: house.connection,
+  });
+});
+
+Deno.test("a provider's file keeps its id, a kernel adapter and only what a provider holds", () => {
+  const house = { id: 'house', adapter: 'openrouter', connection: {} };
+  const source = providerSource(house);
+  const errors = (text: string) => {
+    const read = readProviderSource(text, house);
+    return read.ok ? [] : read.errors.map((error) => `${String(error.line)}: ${error.message}`);
+  };
+  assertEquals(errors(source.replace("id: 'house'", "id: 'home'")), [
+    "4: The id stays 'house': models and code name the provider by it.",
+  ]);
+  assertEquals(errors(source.replace('openRouterAdapter()', 'houseAdapter()')), [
+    "6: 'houseAdapter' isn't part of a provider's file.",
+  ]);
+  assertEquals(errors(source.replace('connection: {}', "connection: {}, model: 'x'")), [
+    "5: 'model' isn't a provider setting the studio holds.",
+  ]);
+  assertEquals(errors(`${source}registerProvider(house);\n`), [
+    "8: 'registerProvider' isn't part of a provider's file.",
+  ]);
+  // An agent's file still names no provider of its own.
+  const draft = createExampleDraft();
+  assertEquals(readStudioSource(source, draft).ok, false);
 });

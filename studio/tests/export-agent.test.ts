@@ -165,12 +165,12 @@ Deno.test('on a project, an export imports the providers its files export and na
   const imported = setup({ providers: [{ ...place, exported: true }], origins: {} });
   assertMatch(imported, /import \{ houseProvider \} from '\.\/server\/providers';/);
   assertMatch(imported, /registerProvider\(houseProvider\);/);
-  assert(!imported.includes(`registerProvider({ id: '${id}'`));
+  assert(!imported.includes(`registerProvider({\n  id: '${id}'`));
   const named = setup({ providers: [place], origins: {} });
   assertMatch(named, /\/\/ Register the provider '[^']+' here, before the agents: server\/providers\.ts:12 defines it/);
   assertNotMatch(named, /houseProvider/);
   // A provider the builder changed has no place: the code writes it as the studio holds it.
-  assert(setup({ providers: [], origins: {} }).includes(`registerProvider({ id: '${id}'`));
+  assert(setup({ providers: [], origins: {} }).includes(`registerProvider({\n  id: '${id}'`));
 });
 
 Deno.test('an export writes the check of an item rule as the files write it, and says so when it has none', () => {

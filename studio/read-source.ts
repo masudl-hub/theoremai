@@ -1288,9 +1288,9 @@ function failAt(spans: readonly StudioSourceSpan[], path: string, message: strin
 }
 
 function providerFrom(spec: Record<string, unknown>, current: StudioProvider, spans: readonly StudioSourceSpan[]): StudioProvider {
-  const held = new Set(['id', 'connection', 'keySlot', 'fallbackKeySlot', 'adapter']);
+  const settings = new Set(['id', 'connection', 'keySlot', 'fallbackKeySlot', 'adapter']);
   for (const key of Object.keys(spec)) {
-    if (!held.has(key)) failAt(spans, key, `'${key}' isn't a provider setting the studio holds.`);
+    if (!settings.has(key)) failAt(spans, key, `'${key}' isn't a provider setting the studio holds.`);
   }
   if (spec.id !== current.id) {
     failAt(spans, 'id', `The id stays '${current.id}': models and code name the provider by it.`);
@@ -1301,7 +1301,10 @@ function providerFrom(spec: Record<string, unknown>, current: StudioProvider, sp
   if (!isRecord(connection) || Object.values(connection).some((value) => typeof value !== 'string')) {
     failAt(spans, 'connection', 'connection holds text settings here.');
   }
-  const provider: StudioProvider = { id: current.id, adapter, connection: connection as Record<string, string> };
+  const held = connection as Record<string, string>;
+  // An empty connection is what the file has to say for one that opened with none.
+  const empty = Object.keys(held).length === 0 && current.connection === undefined;
+  const provider: StudioProvider = { id: current.id, adapter, ...(empty ? {} : { connection: held }) };
   for (const slot of ['keySlot', 'fallbackKeySlot'] as const) {
     const value = spec[slot];
     if (value === undefined) continue;

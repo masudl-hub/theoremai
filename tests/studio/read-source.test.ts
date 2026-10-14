@@ -330,6 +330,12 @@ Deno.test("a provider's file reads back as the provider, and an edit to it is wh
     adapter: 'openrouter',
     connection: house.connection,
   });
+
+  // One that opened with no connection reads back with none.
+  const bare = { id: 'bare', adapter: 'google', keySlot: 'gemini' };
+  const again = readProviderSource(providerSource(bare), bare);
+  assert(again.ok);
+  assertEquals(again.provider, bare);
 });
 
 Deno.test("a provider's file keeps its id, a kernel adapter and only what a provider holds", () => {

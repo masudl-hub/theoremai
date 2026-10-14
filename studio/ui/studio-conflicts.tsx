@@ -48,6 +48,11 @@ function valueText(conflict: FileConflict, side: Side): string {
 	return JSON.stringify(value, (field, inner: unknown) => (field === 'key' ? undefined : inner), 2);
 }
 
+/** One conflict's setting, the same however the list around it changes. */
+function conflictId(conflict: FileConflict): string {
+	return `${conflict.kind}:${conflict.key}:${conflict.path.join('.')}`;
+}
+
 /**
  * The settings the studio and the source code both changed, each as a diff from the source code's
  * value to the studio edit, and a choice of which stands. Resolving puts the chosen values in the
@@ -67,9 +72,10 @@ export function FileConflicts({
 	onApply: (theirs: number[]) => void;
 	onClose: () => void;
 }) {
-	const [picks, setPicks] = useState<Record<number, Side>>({});
+	// Picks go by setting, not by place: the files can change while this is open, and the list with them.
+	const [picks, setPicks] = useState<Record<string, Side>>({});
 	const all = (side: Side) => {
-		setPicks(Object.fromEntries(conflicts.map((_, index) => [index, side])));
+		setPicks(Object.fromEntries(conflicts.map((conflict) => [conflictId(conflict), side])));
 	};
 	const one = conflicts.length === 1;
 	// With no one file to name, the side's own name says it.
@@ -96,11 +102,12 @@ export function FileConflicts({
 					<LayoutContent isScrollable={false} padding={0}>
 						<ScrollableArea label="Conflicts" height="100%" paddingInline={4}>
 							<VStack gap={5}>
-								{conflicts.map((conflict, index) => {
-									const pick = picks[index] ?? 'studio';
+								{conflicts.map((conflict) => {
+									const id = conflictId(conflict);
+									const pick = picks[id] ?? 'studio';
 									const name = settingName(conflict);
 									return (
-										<VStack key={`${conflict.kind}:${conflict.key}:${conflict.path.join('.')}`} gap={2}>
+										<VStack key={id} gap={2}>
 											<HStack gap={3} vAlign="center" justify="between">
 												<StackItem size="fill">
 													<Text weight="semibold">{name}</Text>
@@ -112,7 +119,7 @@ export function FileConflicts({
 													onChange={(next) => {
 														// Pressing the kept one again leaves it kept: one always stands.
 														if (next === 'studio' || next === 'source')
-															setPicks((held) => ({ ...held, [index]: next }));
+															setPicks((held) => ({ ...held, [id]: next }));
 													}}
 												>
 													<ToggleButton value="source" label="Keep source code" />
@@ -163,7 +170,9 @@ export function FileConflicts({
 								label={one ? 'Resolve conflict' : `Resolve ${String(conflicts.length)} conflicts`}
 								variant="primary"
 								onClick={() => {
-									onApply(conflicts.flatMap((_, index) => (picks[index] === 'source' ? [index] : [])));
+									onApply(
+										conflicts.flatMap((conflict, index) => (picks[conflictId(conflict)] === 'source' ? [index] : [])),
+									);
 								}}
 							/>
 						</HStack>

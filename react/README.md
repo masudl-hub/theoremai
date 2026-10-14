@@ -64,6 +64,8 @@ To build your own theme from the Theorem theme (`/ui/theme`), also install `@ast
 
 Use the versions that this package lists in `peerDependencies`. The Astryx and StyleX peers are optional. The hooks, the client and the server handler work without them.
 
+When a chat turn, a call, a host request or a decision fails, the ready-made UI shows the error in a banner that screen readers announce at once. The end of a live call is announced when the reader is next idle.
+
 Requirements:
 
 - TypeScript 5.7 or later, for the type declarations.

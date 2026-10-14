@@ -27,6 +27,7 @@ import {
   IconPlayerStopFilled,
   IconSearch,
   IconTool,
+  IconUpload,
   IconX,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
@@ -61,6 +62,7 @@ const TABLER_BY_NAME: Record<IconName, TablerIcon> = {
   wrench: IconTool,
   stop: IconPlayerStopFilled,
   microphone: IconMicrophone,
+  upload: IconUpload,
 };
 
 /** Astryx semantic icon registry drawn from Tabler (replaces neutral's lucide set). */

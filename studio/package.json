@@ -25,12 +25,12 @@
     "zod": "^4.6.5"
   },
   "peerDependencies": {
-    "@astryxdesign/core": "0.6.5",
+    "@astryxdesign/core": "0.7.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@astryxdesign/core": "0.6.5",
+    "@astryxdesign/core": "0.7.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "react": "^19.0.0",

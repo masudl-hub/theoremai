@@ -238,7 +238,12 @@ function CallSettled({ call, activity }: { call: TheoremHostCall; activity: Reac
       <VStack gap={3}>
         {failure ? (
           <Arrive>
-            <Banner status="error" title={failure.title} description={failure.description} />
+            <Banner
+              status="error"
+              role="alert"
+              title={failure.title}
+              description={failure.description}
+            />
           </Arrive>
         ) : null}
         {state?.phase === 'complete' ? (

@@ -363,7 +363,7 @@ export function JsonRequest({
       rows={textRows(text, 8, 24)}
       hasSpellCheck={false}
       status={isInvalid ? { type: 'error' } : undefined}
-      style={CODE_FONT}
+      controlStyle={CODE_FONT}
     />
   );
 }

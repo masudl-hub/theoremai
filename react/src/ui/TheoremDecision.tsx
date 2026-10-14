@@ -205,7 +205,9 @@ function DecisionAnswered({ iface, decision }: { iface: DecisionInterface; decis
   const deciding = decision.status === 'deciding';
   return (
     <>
-      {decision.failure ? <Banner status="error" title={decision.failure.error} /> : null}
+      {decision.failure ? (
+        <Banner status="error" role="alert" title={decision.failure.error} />
+      ) : null}
       {deciding && !decision.result ? (
         <PaneLoading label={t('@theorem.decision.deciding')} />
       ) : null}

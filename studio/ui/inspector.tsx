@@ -858,7 +858,7 @@ export function ListRow({
 					hasSearch
 					triggerDisplay="badges"
 					maxBadges={maxBadges}
-					className="inspector-list"
+					controlClassName="inspector-list"
 					onChange={onChange}
 				/>
 			</StackItem>

@@ -29,7 +29,7 @@ export {
   type InkWaveLevels,
 } from '../components/InkWaveform.tsx';
 export { useLiveRunnerModel } from '../components/live/use-live-runner-model.ts';
-export { tablerIcons, theoremTheme } from './built/theorem.js';
+export { theoremTheme } from './built/theorem.js';
 export {
   ChatComposerBar,
   type ChatComposerBarProps,
@@ -38,6 +38,7 @@ export {
 export { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';
 export { TheoremDecisionAnswers, type TheoremDecisionAnswersProps } from './DecisionAnswers.tsx';
 export { useDisclosureMotion } from './disclosure-motion.ts';
+export { tablerIcons } from './icons.ts';
 export { LiveCaptionsPanel, type LiveCaptionsPanelProps } from './LiveCaptionsPanel.tsx';
 export {
   composerDrawerLabel,

@@ -68,7 +68,7 @@ function JsonField({ field, value, onChange }: Edit & { field: SchemaField }) {
       value={text}
       hasSpellCheck={false}
       status={isValid ? undefined : { type: 'error', message: t('@theorem.decision.invalid_json') }}
-      style={CODE_FONT}
+      controlStyle={CODE_FONT}
       onChange={(next) => {
         setText(next);
         if (next.trim() === '') {

@@ -292,7 +292,7 @@ function ChatBody({
   const composer = hasComposer ? (
     <ChatComposerForChat chat={chat} iface={iface} placeholder={placeholder} inputRef={inputRef} />
   ) : (
-    chat.failure && <Banner status="error" title={chat.failure.error} />
+    chat.failure && <Banner status="error" role="alert" title={chat.failure.error} />
   );
 
   // why: paddingInline={3} matches the dock's inset so the

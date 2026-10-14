@@ -247,8 +247,10 @@ function LiveStage({ model, captionsToggle }: { model: LiveModel; captionsToggle
             {liveStateLabel(t, model.liveState, model.activeTool)}
           </Text>
         </VStack>
-        {model.failure ? <Banner status="error" title={model.failure.error} /> : null}
-        {model.sessionEnded ? <Banner status="info" title={model.sessionEnded} /> : null}
+        {model.failure ? <Banner status="error" role="alert" title={model.failure.error} /> : null}
+        {model.sessionEnded ? (
+          <Banner status="info" role="status" title={model.sessionEnded} />
+        ) : null}
         <StackItem size="fill">
           <VStack height="100%" vAlign="end">
             {/* why: Bars stand on the stage floor, in the icon colour (no Stack colour prop). */}

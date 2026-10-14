@@ -97,12 +97,14 @@ export function SettingsRailButton() {
 	);
 }
 
-/** One group of settings: what it is about on the left, its controls on the right. */
+/** One group of settings: what it is about on the left, its controls on the right. Titled as the editor titles a section. */
 function Group({ title, about, children }: { title: string; about: string; children: ReactNode }) {
 	return (
 		<Grid columns={{ minWidth: 320 }} gap={10}>
 			<VStack gap={1}>
-				<Heading level={3}>{title}</Heading>
+				<Text type="label" weight="semibold">
+					{title}
+				</Text>
 				<Text type="supporting" color="secondary">
 					{about}
 				</Text>
@@ -138,6 +140,7 @@ function EditorChoice({ automatic }: { automatic: string | undefined }) {
 		<Field label="Open files in" description={automaticNote(automatic)} inputID={id} isGroupLabel>
 			<SegmentedControl
 				label="Open files in"
+				size="sm"
 				value={editor || AUTOMATIC}
 				onChange={(next) => {
 					setPref('editor', next === AUTOMATIC ? '' : next);
@@ -424,26 +427,13 @@ export function StudioSettings(props: StudioSettingsProps) {
 					)
 				}
 				content={
-					<LayoutContent padding={4}>
-						<VStack gap={4}>
-							{isNarrow && <SettingsNavHead project={props.project} version={props.version} />}
-							{isNarrow && (
-								<VStack hAlign="center">
-									<TabList
-										value={section}
-										onChange={(next) => {
-											if (isSection(next)) showSettingsSection(next);
-										}}
-									>
-										{SETTINGS_SECTIONS.map((each) => (
-											<Tab key={each} value={each} label={SECTION_LABELS[each]} />
-										))}
-									</TabList>
-								</VStack>
-							)}
+					<LayoutContent padding={0}>
+						<Section variant="transparent" padding={3} dividers={['bottom']}>
 							<HStack gap={2} vAlign="center">
 								<StackItem size="fill">
-									<Heading level={1}>{SECTION_LABELS[section]}</Heading>
+									<Heading level={4} maxLines={1}>
+										{SECTION_LABELS[section]}
+									</Heading>
 								</StackItem>
 								<IconButton
 									label="Close settings"
@@ -453,8 +443,27 @@ export function StudioSettings(props: StudioSettingsProps) {
 									onClick={closeSettings}
 								/>
 							</HStack>
-							<SectionBody section={section} {...props} />
-						</VStack>
+						</Section>
+						<Section variant="transparent" padding={3}>
+							<VStack gap={4}>
+								{isNarrow && <SettingsNavHead project={props.project} version={props.version} />}
+								{isNarrow && (
+									<VStack hAlign="center">
+										<TabList
+											value={section}
+											onChange={(next) => {
+												if (isSection(next)) showSettingsSection(next);
+											}}
+										>
+											{SETTINGS_SECTIONS.map((each) => (
+												<Tab key={each} value={each} label={SECTION_LABELS[each]} />
+											))}
+										</TabList>
+									</VStack>
+								)}
+								<SectionBody section={section} {...props} />
+							</VStack>
+						</Section>
 					</LayoutContent>
 				}
 			/>

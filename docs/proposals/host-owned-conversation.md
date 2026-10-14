@@ -1,6 +1,6 @@
 # Host-owned conversation
 
-Status: approved, not yet built. Section 9 records the decisions.
+Status: built for chat; live calls and Studio are still open (section 5). Section 9 records the decisions.
 
 **Reader:** a Theorem maintainer, and Masud.
 **Job:** decide where a chat's conversation lives, and what changes if the host owns it.
@@ -14,7 +14,7 @@ Today the browser owns both. The server handler says so in its own header (`reac
 
 This has three results:
 
-1. **The browser decides what the model reads.** The browser sends the whole history with every message. The handler removes system messages, then passes user, assistant and tool messages to the model unchanged (`conversationOnly` in `react/src/server/handler.ts`).
+1. **The browser decides what the model reads.** The browser sends the whole history with every message. The handler removes system messages, then passed user, assistant and tool messages to the model unchanged (a filter in `react/src/server/handler.ts`, now deleted).
 2. **A host cannot choose where the conversation lives.** The handler takes a `sessionStore` for tool approvals and paused calls. It takes nothing for the conversation.
 3. **A server-owned action on a past message has nothing to act on.** "Try again" on a failed turn is the first case. The server does not know the message, so the browser must send it again.
 
@@ -90,7 +90,7 @@ The host owns the conversation. The browser sends the new message and draws what
 ```
  Browser                                          Server
  ──────────────────────                           ─────────────────────────────────────
- draws the transcript ◄── GET conversation ────── conversation store  ◄── the host chooses:
+ draws the transcript ◄── POST /conversation ──── conversation store  ◄── the host chooses:
                                                     transcript            memory, a database,
  POST /turn { input: { text, attachments } } ──►    history               a file, …
                                                     the turn's state
@@ -103,13 +103,18 @@ The host owns the conversation. The browser sends the new message and draws what
 4. The browser reads the transcript from the server when it mounts, and after each turn.
 5. `input.history` leaves the browser's request. The server never reads history from the browser.
 
-A sketch of the store. These names do not exist yet.
+The store, as built (`react/src/server/conversation-store.ts`). Every read and write names the session, so a ref from another session opens nothing.
 
 ```ts
-type TheoremConversationStore = {
-  read(ref: string): Promise<{ conversation: StoredConversation; revision: string } | null>;
-  write(ref: string | null, expectedRevision: string | null, next: StoredConversation): Promise<{ ref: string } | 'conflict'>;
-};
+interface TheoremConversationStore {
+  read(sessionId: string, ref: string): Promise<ConversationSnapshot | undefined>;
+  write(
+    sessionId: string,
+    ref: string | null,
+    expectedRevision: string | null,
+    next: StoredConversation,
+  ): Promise<ConversationWriteResult>;
+}
 ```
 
 The **ref** is an opaque string that the store issues. The browser keeps it and sends it with each request. The handler never reads it. So a database store and the sealed store fit one interface, and the handler has no branch for the kind of store:
@@ -123,21 +128,21 @@ The **ref** is an opaque string that the store issues. The browser keeps it and 
 
 ## 5. What changes
 
-| Part | Today | After |
+| Part | Before | After (built unless marked open) |
 | --- | --- | --- |
 | `TheoremTurnInput.history`, `historyTokens`, `inputTokens` | Browser sends them | Removed from the browser's request |
 | `TheoremTurnRequest.providerState` | Browser sends it; server checks ownership | Server keeps it in the conversation |
-| `conversationOnly` | Filters browser history | Deleted: no browser history to filter |
-| `requireOwnedCheckpoint` portable-settlement branch | Matches browser tool results to settled calls | Deleted: the server wrote those results |
-| `checkWalkAway` history match | Checks the browser's open calls | Reads the stored turn instead |
-| `useTheoremChat` `initial` / `onChange` | The page saves and restores a snapshot | Replaced by a read from the server |
+| The handler's filter on browser history | Removes system messages, keeps the rest | Deleted: no browser history to filter |
+| `requireOwnedCheckpoint` portable-settlement branch | Matches browser tool results to settled calls | Chat no longer calls it. Live still does (open) |
+| `checkWalkAway` history match | Checks the browser's open calls | `requireWalkAway` reads the stored paused reply. `checkWalkAway` stays exported until Studio moves (open) |
+| `useTheoremChat` `initial` / `onChange` | The page saves and restores a snapshot | `conversation` / `onConversationChange`: a ref, and a read from the server |
 | `TheoremChat` `initialChat` / `onChatChange` | Same, on the component | Same change |
 | `run-commit.ts` history building | Browser builds the next history | Moves to the server |
-| `handleBranch` | Browser cuts its own history | A request: rewind to message N |
-| Live `history` in the open message | Browser sends it when it reopens | Server reads it from the store |
-| Studio `studio-conversation.ts` | `sessionStorage` copy of the snapshot | Studio's server holds it (section 9) |
-| `TheoremReplay` (Studio's browser-held state) | For hosts whose profile runs in the browser | Studio's server holds it (section 9) |
-| Contracts | `docs/contracts/host.md`, `surface.md` | Rewritten for the new owner |
+| `handleBranch` | Browser cuts its own history | `POST /rewind` cuts the stored conversation. A stateless chat still cuts its own |
+| Live `history` in the open message | Browser sends it when it reopens | Server reads it from the store (open) |
+| Studio `studio-conversation.ts` | `sessionStorage` copy of the snapshot | A sealed store in each tab (section 9, open) |
+| `TheoremReplay` (Studio's browser-held state) | For hosts whose profile runs in the browser | Stays for Studio (section 9) |
+| Docs | `react/README.md`, `react/docs/wire.md`, `react/docs/composer.md` | Rewritten for the new owner |
 
 ## 6. What it makes possible
 
@@ -161,7 +166,7 @@ The browser can carry it without owning it. The **sealed store** is one kind of 
 1. After each turn, the server encrypts the conversation and signs it with the host's secret key. The result is the **seal**.
 2. The server sends the seal to the browser. The browser keeps it and cannot read or change it.
 3. With the next message, the browser sends the seal back.
-4. The server checks the signature. If the seal changed, the server refuses the turn. Then it decrypts the conversation and runs the turn.
+4. The server checks the signature. If the seal changed, the server refuses the turn with `session.conversation_unknown`. Then it decrypts the conversation and runs the turn.
 
 ```
  Browser                          Server (sealed store, host's secret key)
@@ -177,6 +182,8 @@ What the sealed store cannot do:
 
 - **Stop an older seal.** The server keeps nothing, so it cannot know which seal is the newest. A browser can send an older seal back. This is the same as a rewind: it can only return a conversation the server wrote.
 - **Show the chat on a second device.** Only the browser that has the seal has the conversation.
+- **Keep a reply that the user stopped, or that the browser stopped reading.** The server saves it under a new seal that the browser never receives. The browser keeps the seal from when its message posted.
+- **Grow without limit.** The seal holds the attachments' bytes, and every request sends it, so the conversation must stay under `maxRequestBytes`.
 
 The host chooses the store. There is one code path: the handler always reads from a store and writes to a store. The sealed store and a database store are two implementations of the same interface.
 
@@ -184,9 +191,11 @@ The host chooses the store. There is one code path: the handler always reads fro
 
 | Question | Decision | From |
 | --- | --- | --- |
-| A host that names no conversation store | The handler refuses to start. There is no default store. | "Explicit, not ambient" |
+| A host that names no conversation store | The handler refuses to start (`conversation_store_missing`). There is no default store. | "Explicit, not ambient" |
 | A host with no storage | It uses the sealed store (section 8). The plain browser-held mode goes away. | Masud, 14 Oct: ml_deno's apps need a browser-carried chat |
-| Studio | Studio's server holds each preview conversation. | "The UI never holds or controls state" (Masud, 14 Oct) |
+| Studio | Studio stays browser-owned. A key that is not ours never reaches our server. A project's preview chat uses a sealed store in each tab. Not built yet. | "if the key isn't ours, it doesn't touch our server" (Masud, 14 Oct) |
+| A stateless profile | It keeps no conversation and takes no store. The handler refuses one. The transcript is kept only in the page. | "if stateless, then there's nothing to store" (Masud, 14 Oct) |
+| A message the server never saved | It leaves the transcript and goes back in the composer with the error. | "back in the box" (Masud, 14 Oct) |
 | Order | This is built first. Try again is built on top of it. | Masud, 14 Oct |
 | Go-ahead | Approved. | Masud, 14 Oct |
 | Version | Not a major version. No host outside this repo uses the chat's snapshot props. | Masud, 14 Oct; ml_deno's shape from its maintainer, 14 Oct |
@@ -194,5 +203,7 @@ The host chooses the store. There is one code path: the handler always reads fro
 | A host that calls `runTurn` directly | The sealed store is exported on its own, so such a host can seal and open its conversation without the handler. | ml_deno's case |
 
 Found on 14 Oct: the chat ignores the history in a `compaction` event. `appendAssistantEventsToHistory` in `react/src/client/run-commit.ts` appends to the old history, and `applyTurnEventsToSession` keeps only the token count. So the browser keeps sending the uncompacted history. When the server owns the history, the server writes the compacted history, and this bug goes away.
+
+Found while building, 14 Oct: an answer or a walk-away matched its gate by the provider's call id alone. A provider can reuse a call id, so an old answer could settle a new gate. Both now match the call id and the kernel's operation id.
 
 Open, not part of this build: ml_deno asks Theorem to count `input.context` in the compaction meter. That is a separate change.

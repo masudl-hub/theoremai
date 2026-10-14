@@ -26,7 +26,6 @@ import {
   type TheoremTransport,
 } from '../client/transport.ts';
 import {
-  type ChatSnapshot,
   type SentTurn,
   type UseTheoremChatOptions,
   useTheoremChat,
@@ -110,15 +109,18 @@ export type TheoremChatProps = {
   usage?: boolean;
   className?: string;
   style?: React.CSSProperties;
-  /** A conversation to resume, as `onChatChange` reported it. Read once, when the chat mounts. */
-  initialChat?: ChatSnapshot;
+  /**
+   * The ref of a conversation to resume, as `onConversationChange` reported it. Read once, when
+   * the chat mounts: the chat draws the conversation as the host keeps it.
+   */
+  conversation?: string;
   /** The text the composer starts with, for the user to send or change. Read once, when the chat mounts. */
   initialText?: string;
   /**
-   * Called with the conversation each time it comes to rest: a turn finished, or a message was
-   * added or removed; never while a reply streams. Keep it to resume the chat later.
+   * Called with each new ref the host issues for the conversation: once the message posts, and
+   * again as the reply's runs are saved. Keep the latest to resume the chat later.
    */
-  onChatChange?: (snapshot: ChatSnapshot) => void;
+  onConversationChange?: (ref: string) => void;
   /** Lets the host send a message as the composer would; see {@link TheoremChatHandle}. */
   chatRef?: Ref<TheoremChatHandle>;
   /**
@@ -248,9 +250,9 @@ function ChatBody({
   usage,
   className,
   style,
-  initialChat,
+  conversation,
   initialText,
-  onChatChange,
+  onConversationChange,
   chatRef,
   composer: hasComposer = true,
   slots,
@@ -263,9 +265,9 @@ function ChatBody({
   const chat = useTheoremChat({
     transport,
     iface,
-    initial: initialChat,
+    conversation,
     initialText,
-    onChange: onChatChange,
+    onConversationChange,
     slots,
     onSlotsChange,
     context,

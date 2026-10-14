@@ -21,9 +21,6 @@ export type { SetSession };
  */
 export type MessageDelivery = 'sending' | 'sent' | 'delivered' | 'read';
 
-/** A conversation at rest: what the transcript shows and what the next turn is sent with. */
-export type ChatSnapshot = { blocks: TranscriptBlock[]; session: InterfaceTurnSession };
-
 /** Coalesces streamed partial blocks to one state update per animation frame. */
 function useStreamFrames(setStreamBlocks: (blocks: TranscriptBlock[]) => void) {
   const streamRafRef = useRef<number | null>(null);
@@ -55,8 +52,8 @@ function useStreamFrames(setStreamBlocks: (blocks: TranscriptBlock[]) => void) {
 }
 
 /** Composer / transcript / session state behind {@link useTheoremChat}. */
-export function useTheoremChatState(initial?: ChatSnapshot, initialText = '') {
-  const [blocks, setBlocksState] = useState<TranscriptBlock[]>(initial?.blocks ?? []);
+export function useTheoremChatState(initialText = '') {
+  const [blocks, setBlocksState] = useState<TranscriptBlock[]>([]);
   const [streamBlocks, setStreamBlocks] = useState<TranscriptBlock[]>([]);
   const [draftText, setDraftText] = useState(initialText);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -66,11 +63,9 @@ export function useTheoremChatState(initial?: ChatSnapshot, initialText = '') {
   const [failure, setFailure] = useState<ClientFailure | null>(null);
   const [answering, setAnswering] = useState<AnsweringGate | null>(null);
   const [busy, setBusy] = useState(false);
-  const [chatStarted, setChatStarted] = useState((initial?.blocks.length ?? 0) > 0);
+  const [chatStarted, setChatStarted] = useState(false);
   const [streaming, setStreaming] = useState(false);
-  const [session, setSession] = useState<InterfaceTurnSession>(
-    initial?.session ?? emptyInterfaceTurnSession(),
-  );
+  const [session, setSession] = useState<InterfaceTurnSession>(emptyInterfaceTurnSession);
   // why: One object per posted message, so a run can tell whether it posted one.
   const [delivery, setDeliveryState] = useState<{ status: MessageDelivery } | null>(null);
 
@@ -96,6 +91,9 @@ export function useTheoremChatState(initial?: ChatSnapshot, initialText = '') {
   const allowQueueDrainRef = useRef(false);
   const runPromiseRef = useRef<Promise<void> | null>(null);
   const deliveryRef = useRef(delivery);
+  // why: A run's end reads the composer as it is then, not as it was when the run began.
+  const composerRef = useRef({ draftText, pendingFiles, pendingVoice });
+  composerRef.current = { draftText, pendingFiles, pendingVoice };
 
   const setDelivery = useCallback((next: { status: MessageDelivery } | null) => {
     deliveryRef.current = next;
@@ -141,6 +139,7 @@ export function useTheoremChatState(initial?: ChatSnapshot, initialText = '') {
     delivery,
     setDelivery,
     deliveryRef,
+    composerRef,
     blocksRef,
     busyRef,
     abortRef,

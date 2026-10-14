@@ -39,7 +39,8 @@ export { LiveSessionClient } from './live-client.ts';
 export { isOAuthComplete, notifyOAuthComplete } from './oauth-popup.ts';
 export { type PageDispatchResult, withPageToolDispatch } from './page-dispatch.ts';
 export {
-  applyTurnResultToTranscript,
+  keepsConversation,
+  type RunOutcome,
   resumeInterfaceTool,
   type StreamView,
   streamInterfaceDraftTurn,
@@ -97,6 +98,6 @@ export {
 export {
   buildInvokeRequest,
   buildTurnRequest,
-  turnInputFromSession,
+  type RunScope,
   type WalkAway,
 } from './turn-client.ts';

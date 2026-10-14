@@ -6,6 +6,7 @@ import {
   type ComposerProfileInterface,
   emptyInterfaceTurnSession,
   interfaceFromProfile,
+  type TranscriptBlock,
 } from '../../src/interface/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
@@ -29,49 +30,73 @@ function textInterface(): ComposerProfileInterface {
   if (iface.type !== 'text') throw new Error('expected a text interface');
   return iface;
 }
-/** Streams the start of a reply, then fails the way a provider does mid-stream. */
-function failingTransport(error: TheoremError): TheoremTransport {
+/** A host that keeps the conversation: `turn` streams what the test gives it. */
+function hostTransport(turn: TheoremTransport['turn']): TheoremTransport {
   return {
-    turn: (_request, onEvent) => {
-      onEvent({ type: 'text', text: 'The first half' });
-      return Promise.reject(error);
-    },
+    turn,
     invoke: () => Promise.reject(new Error('unused')),
     steer: () => Promise.reject(new Error('unused')),
     describe: () => Promise.reject(new Error('unused')),
+    conversation: () => Promise.reject(new Error('unused')),
+    rewind: () => Promise.reject(new Error('unused')),
   };
 }
-Deno.test('a turn that fails partway keeps the message and what the reply got through', async () => {
-  const result = await streamInterfaceTurn({
+/** Posts the message, streams the start of a reply, then fails the way a provider does mid-stream. */
+function failingTransport(error: TheoremError): TheoremTransport {
+  return hostTransport((_request, onLine) => {
+    onLine({ type: 'conversation', ref: 'ref-1', posted: true });
+    onLine({ type: 'text', text: 'The first half' });
+    return Promise.reject(error);
+  });
+}
+/** A run of `transport`, with the blocks the page was told the message posted. */
+async function run(transport: TheoremTransport, view = unskippedView) {
+  const posted: TranscriptBlock[][] = [];
+  const outcome = await streamInterfaceTurn({
     iface: textInterface(),
-    transport: failingTransport(new TheoremError('rate_limit', 'quota')),
+    transport,
     session: emptyInterfaceTurnSession(),
-    view: unskippedView,
+    scope: {},
+    view,
+    onUserBlocks: (blocks) => posted.push(blocks),
     text: 'Tell me a story',
     pendingFiles: [],
     pendingVoice: [],
   });
-  if (result.ok) throw new Error('expected a failure');
-  assertEquals(result.errorKind, 'rate_limit');
-  assertEquals(result.session?.history, [
-    { role: 'user', content: 'Tell me a story' },
-    { role: 'assistant', content: 'The first half' },
-  ]);
-  assertEquals(result.session?.pendingUserDraft, null);
+  return { outcome, posted };
+}
+Deno.test('a turn that fails partway keeps the posted message and what the reply got through', async () => {
+  const { outcome } = await run(failingTransport(new TheoremError('rate_limit', 'quota')));
+  assertEquals(outcome.failure?.errorKind, 'rate_limit');
+  assertEquals(outcome.posted, true);
+  assertEquals(outcome.events, [{ type: 'text', text: 'The first half' }]);
 });
-Deno.test('a stopped turn keeps the message but not the reply it dropped', async () => {
-  const result = await streamInterfaceTurn({
-    iface: textInterface(),
-    transport: failingTransport(new TheoremError('cancelled', 'stopped')),
-    session: emptyInterfaceTurnSession(),
-    view: unskippedView,
-    text: 'Tell me a story',
-    pendingFiles: [],
-    pendingVoice: [],
-  });
-  if (result.ok) throw new Error('expected a failure');
-  assertEquals(result.aborted, true);
-  assertEquals(result.session?.history, [{ role: 'user', content: 'Tell me a story' }]);
+Deno.test("a stopped turn is the user's stop, and its message stays posted", async () => {
+  const { outcome } = await run(failingTransport(new TheoremError('cancelled', 'stopped')));
+  assertEquals(outcome.failure?.aborted, true);
+  assertEquals(outcome.posted, true);
+});
+Deno.test('a turn that fails before the host posts its message leaves nothing posted', async () => {
+  const { outcome, posted } = await run(
+    hostTransport(() => Promise.reject(new TheoremError('unavailable', 'down'))),
+  );
+  assertEquals(outcome.failure?.errorKind, 'unavailable');
+  assertEquals(outcome.posted, false);
+  assertEquals(outcome.events, []);
+  // The page drew the message as it went out; the run says it never posted.
+  assertEquals(posted.length, 1);
+});
+Deno.test("a reply that ends without its message posting is the host's failure", async () => {
+  const { outcome } = await run(
+    hostTransport((_request, onLine) => {
+      onLine({ type: 'conversation', ref: 'ref-1' });
+      onLine({ type: 'text', text: 'orphan' });
+      return Promise.resolve();
+    }),
+  );
+  assertEquals(outcome.failure?.errorKind, 'internal');
+  assertEquals(outcome.posted, false);
+  assertEquals(outcome.events, []);
 });
 Deno.test('a line the stream left out is named, and the reply goes on without it', async () => {
   const skipped: TheoremError[] = [];
@@ -82,29 +107,20 @@ Deno.test('a line the stream left out is named, and the reply goes on without it
       copy: { key: 'session.part_skipped' },
     },
   );
-  const result = await streamInterfaceTurn({
-    iface: textInterface(),
-    transport: {
-      turn: (_request, onEvent) => {
-        onEvent({ type: 'text', text: 'The first half' });
-        onEvent({ type: 'malformed', error: left });
-        onEvent({ type: 'text', text: ', and the rest.' });
-        return Promise.resolve();
-      },
-      invoke: () => Promise.reject(new Error('unused')),
-      steer: () => Promise.reject(new Error('unused')),
-      describe: () => Promise.reject(new Error('unused')),
-    },
-    session: emptyInterfaceTurnSession(),
-    view: { blocks: () => {}, skipped: (error) => skipped.push(error) },
-    text: 'Tell me a story',
-    pendingFiles: [],
-    pendingVoice: [],
-  });
-  if (!result.ok) throw new Error('expected the reply to commit');
+  const { outcome } = await run(
+    hostTransport((_request, onLine) => {
+      onLine({ type: 'conversation', ref: 'ref-1', posted: true });
+      onLine({ type: 'text', text: 'The first half' });
+      onLine({ type: 'malformed', error: left });
+      onLine({ type: 'text', text: ', and the rest.' });
+      return Promise.resolve();
+    }),
+    { blocks: () => {}, skipped: (error) => skipped.push(error) },
+  );
+  assertEquals(outcome.failure, undefined);
   assertEquals(skipped, [left]);
-  assertEquals(result.session.history, [
-    { role: 'user', content: 'Tell me a story' },
-    { role: 'assistant', content: 'The first half, and the rest.' },
+  assertEquals(outcome.events, [
+    { type: 'text', text: 'The first half' },
+    { type: 'text', text: ', and the rest.' },
   ]);
 });

@@ -10,7 +10,7 @@ The interface contains tool IDs, model choices, input declarations, and client w
 It excludes tool definitions and host functions.
 The browser rejects an invalid description with `bad_response`.
 
-## Send a turn or tool decision
+## Send a turn, a tool decision or a conversation read
 
 `createTheoremHandler` validates each request before it calls the kernel.
 
@@ -20,9 +20,19 @@ The browser rejects an invalid description with `bad_response`.
 | `/invoke` | `theoremInvokeRequestSchema` | Answer a paused tool call |
 | `/page-result` | `pageToolResultSchema` | Return an active dispatch result |
 | `/steer` | `theoremSteerRequestSchema` | Send a steer to a running turn |
+| `/conversation` | `theoremConversationRequestSchema` | Read the conversation that a ref names |
+| `/rewind` | `theoremRewindRequestSchema` | Cut the conversation after one transcript block |
 
 A missing or malformed field produces a `request` error with HTTP status 400.
 For custom routes, use `checkRequest(schema, body, what)`.
+
+The host keeps the conversation. A request carries the message and the `conversation` ref that the store issued, never the history or native provider state.
+A `/turn` request without a ref starts a conversation. An `/invoke` request needs the ref of the conversation whose reply waits.
+A ref that the store cannot open fails with `session.conversation_unknown`.
+The `/turn` and `/invoke` streams carry `{ "type": "conversation", "ref": "…" }` lines. A line with `"posted": true` means the message reached the conversation.
+Each later line carries the ref of a later save. The client sends the last ref that it received.
+`/conversation` returns the transcript and a reply that waits for a gate. `/rewind` returns the new ref and the same view.
+A profile whose `providerContinuation.history` is `'stateless'` keeps no conversation. Its streams carry no ref lines, and its host refuses a ref, `/conversation` and `/rewind`.
 
 An `/invoke` request carries `gateId` and `operationId`.
 The gate ID is the provider call ID. The operation ID identifies the action that the kernel issued.
@@ -48,7 +58,7 @@ The current session schema is version 3. Previous versions require an explicit h
 
 A new message can abandon calls that its reply waits for.
 The `/turn` request lists `{ callId, operationId }` references in `abandon`.
-Its history must leave exactly those calls open. Browser replay entries use operation IDs as keys.
+The host's paused reply must wait on exactly those calls. Replay entries use operation IDs as keys.
 The host cancels them before it starts the new reply.
 Custom routes use `checkWalkAway` and `walkAway` for this operation.
 

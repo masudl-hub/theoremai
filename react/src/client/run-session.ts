@@ -1,27 +1,18 @@
 import { attachmentsRefused, TheoremError, type TurnEvent } from '@theoremjs/agents';
 import {
   type AttachmentValidationIssue,
-  applyTurnEventsToSession,
   type ComposerProfileInterface,
-  gatedToolFromEvents,
+  gatedToolsFromEvents,
   type InterfaceTurnSession,
+  settlesToolCall,
   type TranscriptBlock,
   type UserTurnDraft,
 } from '@theoremjs/agents/interface';
 import { attachPreviewData, encodeFiles } from './encode-files.ts';
 import { type TurnFailure, turnFailure } from './failure.ts';
-import {
-  continueAfterTool,
-  failGateAnswer,
-  failTurnStream,
-  finalizeTurnStream,
-  type StreamView,
-  stampWorked,
-  streamFoldedTurn,
-  toTurnMedia,
-} from './run-commit.ts';
+import { type StreamView, streamFoldedTurn } from './run-commit.ts';
 import { continueGatedToolInvocation, type ToolGateResolution } from './tool-resume.ts';
-import type { EncodedBlob, TheoremTransport } from './transport.ts';
+import type { ConversationLine, EncodedBlob, TheoremTransport } from './transport.ts';
 import {
   buildInvokeRequest,
   buildTurnRequest,
@@ -29,12 +20,19 @@ import {
   issuedOperationId,
   prepareComposerTurn,
   projectUserTurn,
-  turnInputFromSession,
+  type RunScope,
 } from './turn-client.ts';
-import { type WalkingAway, walkAwayFrom } from './walk-away.ts';
 
 export type { TurnFailure } from './failure.ts';
 export type { StreamView } from './run-commit.ts';
+
+/**
+ * Whether the host keeps this chat's conversation. A stateless profile keeps
+ * none: the page holds its transcript, and nothing goes on from a ref.
+ */
+export function keepsConversation(iface: ComposerProfileInterface): boolean {
+  return iface.providerContinuation?.history !== 'stateless';
+}
 
 /**
  * A session state the user can't act from (no gate waiting, a gate without a
@@ -50,133 +48,46 @@ function sessionFailure(
   );
 }
 
-function sessionHasGatedTool(session: InterfaceTurnSession): boolean {
-  return session.gatedTool !== null;
-}
-
-export type StreamTurnSuccess = {
-  ok: true;
+/**
+ * What one run left. A host that keeps the conversation is the truth for the
+ * rest: the page draws it again from the last ref the stream carried. A
+ * stateless chat keeps the reply as the run streamed it.
+ */
+export type RunOutcome = {
+  /** The session the run went out from, with any permission the answer granted. */
   session: InterfaceTurnSession;
-  userBlocks: TranscriptBlock[];
-  assistantBlocks: TranscriptBlock[];
+  /** The reply's events: a gate's answer starts from the paused reply's. */
+  events: TurnEvent[];
+  /** The message reached the conversation: the host's when it keeps one (the ref marked `posted`), else the page's. */
+  posted: boolean;
+  failure?: TurnFailure;
 };
 
 type PreparedUserTurn = {
-  ok: true;
   draft: UserTurnDraft;
   blocks: TranscriptBlock[];
 };
-
-async function streamPreparedInterfaceTurn(args: {
-  iface: ComposerProfileInterface;
-  transport: TheoremTransport;
-  session: InterfaceTurnSession;
-  prepared: PreparedUserTurn;
-  encodedAttachments?: Awaited<ReturnType<typeof encodeFiles>>;
-  encodedVoice?: Awaited<ReturnType<typeof encodeFiles>>;
-  view: StreamView;
-  onUserBlocks?: (blocks: TranscriptBlock[]) => void;
-  signal?: AbortSignal;
-  turnId?: string;
-  walking?: WalkingAway;
-}): Promise<StreamTurnSuccess | TurnFailure> {
-  const media = toTurnMedia(args.encodedAttachments, args.encodedVoice);
-  const userBlocks = attachPreviewData(
-    args.prepared.blocks,
-    args.encodedAttachments,
-    args.encodedVoice,
-  );
-  const { walking } = args;
-  const sent = walking ? { ...args.session, history: walking.history } : args.session;
-  const input = turnInputFromSession(sent, {
-    ...(args.prepared.draft.text ? { text: args.prepared.draft.text } : {}),
-    ...(args.encodedAttachments?.length ? { attachments: args.encodedAttachments } : {}),
-    ...(args.encodedVoice?.length ? { voice: args.encodedVoice } : {}),
-  });
-  const request = buildTurnRequest(args.iface, args.session, input, {
-    turnId: args.turnId,
-    ...(walking ? { walkAway: walking.request } : {}),
-  });
-
-  // why: The message's reply starts from the conversation as it stands when the message posts.
-  const posted = (base: InterfaceTurnSession): InterfaceTurnSession => ({
-    ...base,
-    pendingUserDraft: args.prepared.draft,
-    assistantEvents: [],
-  });
-  let session = posted(args.session);
-  // why: Walking away, the message posts once the paused reply has settled, after it.
-  let posts = walking ? [] : userBlocks;
-  if (!walking) args.onUserBlocks?.(userBlocks);
-
-  const events: TurnEvent[] = [];
-  try {
-    await streamFoldedTurn({
-      iface: args.iface,
-      view: args.view,
-      events,
-      stream: (onEvent) =>
-        args.transport.turn(
-          request,
-          walking
-            ? walking.sink(onEvent, (walked) => {
-                session = posted(walked.session);
-                posts = [...walked.blocks, ...userBlocks];
-                args.onUserBlocks?.(posts);
-              })
-            : onEvent,
-          args.signal,
-        ),
-    });
-  } catch (err) {
-    const failure = turnFailure(err, args.iface.labels, args.signal);
-    // why: A message that never posted leaves the paused reply waiting as it was.
-    if (walking && !walking.settled()) return failure;
-    return failTurnStream({ session, events, media, failure });
-  }
-
-  session = finalizeTurnStream({ session, events, media });
-
-  return {
-    ok: true,
-    session,
-    userBlocks: posts,
-    assistantBlocks: foldAssistantTurn(args.iface, events),
-  };
-}
-
-function extractInlineEncodedAttachments(
-  attachments?: readonly { name: string; mimeType: string; data?: unknown }[],
-): Array<{ name: string; mimeType: string; data: string }> | undefined {
-  const filtered = attachments
-    ?.filter(
-      (a): a is { name: string; mimeType: string; data: string } => typeof a.data === 'string',
-    )
-    .map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data }));
-  return filtered && filtered.length > 0 ? filtered : undefined;
-}
 
 export type StreamInterfaceTurnBaseArgs = {
   iface: ComposerProfileInterface;
   transport: TheoremTransport;
   session: InterfaceTurnSession;
+  scope: RunScope;
   view: StreamView;
   /**
-   * Fires once the message posts, before its reply streams, with the blocks
-   * the transcript gains: a walked-away reply's settled blocks, then the
-   * message's own (with media preview data).
+   * Fires once the message posts, with the blocks the transcript gains: a
+   * walked-away reply's settled blocks, then the message's own (with media
+   * preview data). Walking away, it posts once the host has it.
    */
-  onUserBlocks?: (blocks: TranscriptBlock[]) => void;
+  onUserBlocks: (blocks: TranscriptBlock[]) => void;
   signal?: AbortSignal;
-  turnId?: string;
   /**
    * Send while the reply waits on gates: the message walks away from every
    * waiting call in its own request, and the host settles each one cancelled
-   * ahead of the reply. `workedMs` is the paused reply's work so far, which
-   * its settled blocks keep. Without it, a waiting session refuses the send
-   * (`session.gate_pending`).
+   * ahead of the reply. Without it, or in a chat the host keeps no
+   * conversation for, a waiting session refuses the send (`session.gate_pending`).
    */
-  walkAway?: { workedMs: number };
+  walkAway?: boolean;
 };
 
 export type StreamInterfaceTurnArgs = StreamInterfaceTurnBaseArgs & {
@@ -198,47 +109,123 @@ type PreparedTurnOutcome =
       encodedVoice?: EncodedBlob[];
     };
 
+/** A run that never went out: nothing streamed, and the message did not post. */
+function unsent(session: InterfaceTurnSession, failure: TurnFailure): RunOutcome {
+  return { session, events: [], posted: false, failure };
+}
+
+async function streamPreparedTurn(
+  args: StreamInterfaceTurnBaseArgs & {
+    prepared: PreparedUserTurn;
+    encodedAttachments?: EncodedBlob[];
+    encodedVoice?: EncodedBlob[];
+  },
+): Promise<RunOutcome> {
+  const keeps = keepsConversation(args.iface);
+  const userBlocks = attachPreviewData(
+    args.prepared.blocks,
+    args.encodedAttachments,
+    args.encodedVoice,
+  );
+  const paused = args.session.assistantEvents;
+  const walking = args.session.gatedTool !== null;
+  const request = buildTurnRequest(
+    args.iface,
+    args.session,
+    {
+      ...(args.prepared.draft.text ? { text: args.prepared.draft.text } : {}),
+      ...(args.encodedAttachments?.length ? { attachments: args.encodedAttachments } : {}),
+      ...(args.encodedVoice?.length ? { voice: args.encodedVoice } : {}),
+    },
+    {
+      ...args.scope,
+      ...(walking
+        ? { walkAway: { paused: args.session, calls: gatedToolsFromEvents(paused) } }
+        : {}),
+    },
+  );
+  // why: Walking away, the stream settles the paused reply first; once the message posts, the events are the new reply's.
+  const events: TurnEvent[] = walking ? [...paused] : [];
+  let posted = !keeps;
+  if (!walking) args.onUserBlocks(userBlocks);
+  const onConversation = (line: ConversationLine) => {
+    if (!line.posted) return;
+    posted = true;
+    if (walking) {
+      args.onUserBlocks([...foldAssistantTurn(args.iface, events), ...userBlocks]);
+      events.length = 0;
+    }
+  };
+  try {
+    await streamFoldedTurn({
+      iface: args.iface,
+      view: args.view,
+      events,
+      onConversation,
+      stream: (onLine) => args.transport.turn(request, onLine, args.signal),
+    });
+  } catch (err) {
+    return {
+      session: args.session,
+      // why: A walk that failed before the message posted leaves no reply of its own; the host's view is the truth.
+      events: posted ? events : [],
+      posted,
+      failure: turnFailure(err, args.iface.labels, args.signal),
+    };
+  }
+  if (!posted) {
+    // why: A host that keeps the conversation posts the message or fails; a stream that ends without either is the host's fault.
+    return unsent(
+      args.session,
+      turnFailure(
+        // labels-exempt: internal diagnostic; the user reads error.internal
+        new TheoremError('internal', 'the reply ended without posting the message'),
+        args.iface.labels,
+      ),
+    );
+  }
+  return { session: args.session, events, posted };
+}
+
+function extractInlineEncodedAttachments(
+  attachments?: readonly { name: string; mimeType: string; data?: unknown }[],
+): Array<{ name: string; mimeType: string; data: string }> | undefined {
+  const filtered = attachments
+    ?.filter(
+      (a): a is { name: string; mimeType: string; data: string } => typeof a.data === 'string',
+    )
+    .map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data }));
+  return filtered && filtered.length > 0 ? filtered : undefined;
+}
+
 async function runPreparedTurnStream(
   args: StreamInterfaceTurnBaseArgs & {
     prepare: () => PreparedTurnOutcome | Promise<PreparedTurnOutcome>;
   },
-): Promise<StreamTurnSuccess | TurnFailure> {
-  const gated = sessionHasGatedTool(args.session);
-  if (gated && !args.walkAway) return sessionFailure('session.gate_pending', args.iface);
-  const walking =
-    gated && args.walkAway
-      ? walkAwayFrom(args.iface, args.session, args.walkAway.workedMs)
-      : undefined;
-
+): Promise<RunOutcome> {
+  if (args.session.gatedTool !== null && (!args.walkAway || !keepsConversation(args.iface))) {
+    return unsent(args.session, sessionFailure('session.gate_pending', args.iface));
+  }
   try {
     const outcome = await args.prepare();
     if (!outcome.ok) {
-      return {
+      return unsent(args.session, {
         ...turnFailure(attachmentsRefused(outcome.issues), args.iface.labels),
         issues: outcome.issues,
-      };
+      });
     }
-    return await streamPreparedInterfaceTurn({
-      iface: args.iface,
-      transport: args.transport,
-      session: args.session,
+    return await streamPreparedTurn({
+      ...args,
       prepared: outcome.prepared,
-      encodedAttachments: outcome.encodedAttachments,
-      encodedVoice: outcome.encodedVoice,
-      view: args.view,
-      onUserBlocks: args.onUserBlocks,
-      signal: args.signal,
-      turnId: args.turnId,
-      ...(walking ? { walking } : {}),
+      ...(outcome.encodedAttachments ? { encodedAttachments: outcome.encodedAttachments } : {}),
+      ...(outcome.encodedVoice ? { encodedVoice: outcome.encodedVoice } : {}),
     });
   } catch (err) {
-    return turnFailure(err, args.iface.labels, args.signal);
+    return unsent(args.session, turnFailure(err, args.iface.labels, args.signal));
   }
 }
 
-export async function streamInterfaceTurn(
-  args: StreamInterfaceTurnArgs,
-): Promise<StreamTurnSuccess | TurnFailure> {
+export async function streamInterfaceTurn(args: StreamInterfaceTurnArgs): Promise<RunOutcome> {
   return await runPreparedTurnStream({
     ...args,
     prepare: async () => {
@@ -264,7 +251,7 @@ export async function streamInterfaceTurn(
 /** Send a turn from an already-encoded pending draft (queue drain / send now). */
 export async function streamInterfaceDraftTurn(
   args: StreamInterfaceDraftTurnArgs,
-): Promise<StreamTurnSuccess | TurnFailure> {
+): Promise<RunOutcome> {
   return await runPreparedTurnStream({
     ...args,
     prepare: () => {
@@ -281,50 +268,33 @@ export async function streamInterfaceDraftTurn(
 }
 
 /**
- * After one gate settles: wait on the step's next gate if one is left, else
- * send the whole step back to the model.
- */
-async function continueOnceSettled(args: {
-  iface: ComposerProfileInterface;
-  transport: TheoremTransport;
-  session: InterfaceTurnSession;
-  view: StreamView;
-  events: TurnEvent[];
-}): Promise<
-  { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] } | TurnFailure
-> {
-  const gatedTool = gatedToolFromEvents(args.events);
-  const session = { ...args.session, gatedTool, assistantEvents: args.events };
-  if (gatedTool) {
-    return { ok: true, session, assistantBlocks: foldAssistantTurn(args.iface, args.events) };
-  }
-  return await continueAfterTool({ ...args, session, seedEvents: args.events });
-}
-
-/**
  * Send the user's answer to the gate the session waits on. The host settles
- * the call either way (an approval runs it; a refusal records it declined),
- * so the model and the trace read what the user chose.
+ * the call either way (an approval runs it; a refusal records it declined), so
+ * the model and the trace read what the user chose. A host that keeps the
+ * conversation goes on with the reply in the same stream once no call waits.
  */
 export async function resumeInterfaceTool(args: {
   iface: ComposerProfileInterface;
   transport: TheoremTransport;
   session: InterfaceTurnSession;
+  scope: RunScope;
   resolution: ToolGateResolution;
   view: StreamView;
-}): Promise<
-  { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] } | TurnFailure
-> {
+}): Promise<RunOutcome> {
   const gated = args.session.gatedTool;
-  if (!gated?.callId) return sessionFailure('session.gate_expired', args.iface);
+  if (!gated?.callId)
+    return unsent(args.session, sessionFailure('session.gate_expired', args.iface));
   const reply = continueGatedToolInvocation({
     toolName: gated.name,
     gate: gated,
     sessionPermissions: args.session.sessionPermissions,
     resolution: args.resolution,
   });
-  const sessionPermissions =
-    reply.decision === 'approve' ? reply.sessionPermissions : args.session.sessionPermissions;
+  const session = {
+    ...args.session,
+    sessionPermissions:
+      reply.decision === 'approve' ? reply.sessionPermissions : args.session.sessionPermissions,
+  };
   // why: Seeded with the paused reply, and filled as the answer streams, so a failed answer keeps what it delivered.
   const events = [...args.session.assistantEvents];
   try {
@@ -332,59 +302,38 @@ export async function resumeInterfaceTool(args: {
       iface: args.iface,
       view: args.view,
       events,
-      stream: (onEvent) =>
+      stream: (onLine) =>
         args.transport.invoke(
-          buildInvokeRequest(args.iface, args.session, {
-            gateId: gated.callId,
-            operationId: issuedOperationId(gated),
-            decision: reply.decision,
-            name: gated.name,
-            input: gated.arguments,
-            sessionPermissions,
-            ...(reply.decision === 'approve' && reply.secret !== undefined
-              ? { secret: reply.secret }
-              : {}),
-            ...(reply.decision === 'approve' && reply.page ? { page: reply.page } : {}),
-          }),
-          onEvent,
+          buildInvokeRequest(
+            args.iface,
+            args.session,
+            {
+              gateId: gated.callId,
+              operationId: issuedOperationId(gated),
+              decision: reply.decision,
+              name: gated.name,
+              input: gated.arguments,
+              sessionPermissions: session.sessionPermissions,
+              ...(reply.decision === 'approve' && reply.secret !== undefined
+                ? { secret: reply.secret }
+                : {}),
+              ...(reply.decision === 'approve' && reply.page ? { page: reply.page } : {}),
+            },
+            args.scope,
+          ),
+          onLine,
         ),
     });
-    const session = { ...applyTurnEventsToSession(args.session, events), sessionPermissions };
-    return await continueOnceSettled({ ...args, session, events });
   } catch (err) {
-    return failGateAnswer({
-      session: { ...args.session, sessionPermissions },
-      callId: gated.callId,
-      events,
-      failure: turnFailure(err, args.iface.labels),
-    });
-  }
-}
-
-export function applyTurnResultToTranscript(args: {
-  blocks: TranscriptBlock[];
-  streamBlocks: TranscriptBlock[];
-  session: InterfaceTurnSession;
-  userBlocks?: TranscriptBlock[];
-  assistantBlocks: TranscriptBlock[];
-  /** The reply's work so far, stamped on its latest `turn-done` so the time stays with the blocks. */
-  worked?: { workedMs: number; endedAt: number };
-}): { blocks: TranscriptBlock[]; streamBlocks: TranscriptBlock[]; session: InterfaceTurnSession } {
-  const session = args.session;
-  const prefix = args.userBlocks?.length ? [...args.blocks, ...args.userBlocks] : args.blocks;
-  const assistantBlocks = args.worked
-    ? stampWorked(args.assistantBlocks, args.worked)
-    : args.assistantBlocks;
-  if (sessionHasGatedTool(session)) {
+    // why: An answer that failed before its call settled leaves the reply waiting as it was; the answer can go again.
+    const answered = events.slice(args.session.assistantEvents.length);
+    const settled = answered.some((event) => settlesToolCall(event, gated.callId));
     return {
-      blocks: prefix,
-      streamBlocks: assistantBlocks,
       session,
+      events: settled ? events : [...args.session.assistantEvents],
+      posted: true,
+      failure: turnFailure(err, args.iface.labels),
     };
   }
-  return {
-    blocks: [...prefix, ...assistantBlocks],
-    streamBlocks: [],
-    session,
-  };
+  return { session, events, posted: true };
 }

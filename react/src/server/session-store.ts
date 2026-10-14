@@ -315,7 +315,7 @@ export type MemorySessionStoreOptions = {
   maxSessions?: number;
 };
 
-function memoryStoreLimits(options: MemorySessionStoreOptions) {
+export function memoryStoreLimits(options: MemorySessionStoreOptions) {
   const ttlMs = options.ttlMs ?? 24 * 60 * 60 * 1000;
   const maxSessions = options.maxSessions ?? 10_000;
   if (

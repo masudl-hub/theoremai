@@ -13,8 +13,9 @@ Enter matches the primary action. No keyboard shortcuts for stash/steer.
 
 Send now while gated walks away from every waiting gate in the message's own request
 (`walkAway` on `streamInterfaceDraftTurn`): the host settles each call cancelled, the
-paused reply commits, and the message's reply follows in the same stream. The message
-leaves the composer only once it posts; if the request fails first, the reply still waits.
+paused reply commits, and the message's reply follows in the same stream. A message the
+host never saved leaves the transcript and goes back in the composer with the failure, and
+the chat draws the conversation as the host keeps it.
 An answer at a gate that fails before its call settles leaves the gate to answer again,
 the failure in the composer; one that fails after keeps the call's result. The gate cards
 show the answer on its way from their owner (`useTheoremChat().answering`, passed as
@@ -23,10 +24,11 @@ show the answer on its way from their owner (`useTheoremChat().answering`, passe
 on Cloudflare (process Map locally) so mid-turn injects work across isolates.
 Live sessions key the same inbox by `sessionId` from relay `ready`.
 
-A chat can be kept and resumed: `onChatChange` (or `useTheoremChat`'s `onChange`) reports the
-`{ blocks, session }` each time the conversation comes to rest (a turn finished, a message
-added or removed; never while a reply streams or waits on a gate), and `initialChat` (`initial`)
-resumes from one, the session carrying what the next turn is sent with. `chatRef` (`sendText`
+A chat can be resumed: `onConversationChange` (the same option on `useTheoremChat`) reports
+each ref the host issues for the conversation (once the message posts, and again as the reply
+is saved), and `conversation` resumes from one, read once when the chat mounts: the chat draws
+the conversation as the host keeps it. A stateless profile keeps no conversation, so it has no
+ref, and its transcript is kept only in the page. `chatRef` (`sendText`
 on the hook) sends a message as the composer would and resolves with the blocks the turn added
 once its reply is done, or `null` while a reply streams or waits on a gate.
 

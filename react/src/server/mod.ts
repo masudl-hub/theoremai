@@ -8,11 +8,26 @@
 export { theoremHostCallRequestSchema } from '../client/host-transport.ts';
 export type { LiveClientMessage, LiveOpenMessage } from '../client/live-messages.ts';
 export {
+  theoremConversationRequestSchema,
   theoremInvokeRequestSchema,
   theoremReplaySchema,
+  theoremRewindRequestSchema,
   theoremSteerRequestSchema,
   theoremTurnRequestSchema,
 } from '../client/transport.ts';
+export {
+  type ConversationSnapshot,
+  type ConversationWriteResult,
+  createMemoryConversationStore,
+  createSealedConversationStore,
+  emptyConversation,
+  type PausedReply,
+  type SealedConversationStoreOptions,
+  type StoredConversation,
+  storedConversationSchema,
+  type TheoremConversationStore,
+  unknownConversation,
+} from './conversation-store.ts';
 export {
   createMemoryCredentialStore,
   type TheoremCredentialStore,

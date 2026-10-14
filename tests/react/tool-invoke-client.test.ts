@@ -5,11 +5,7 @@ import {
   theoremInvokeRequestSchema,
   theoremTurnRequestSchema,
 } from '../../react/src/client/transport.ts';
-import {
-  buildInvokeRequest,
-  buildTurnRequest,
-  turnInputFromSession,
-} from '../../react/src/client/turn-client.ts';
+import { buildInvokeRequest, buildTurnRequest } from '../../react/src/client/turn-client.ts';
 import {
   type ComposerProfileInterface,
   emptyInterfaceTurnSession,
@@ -153,25 +149,20 @@ Deno.test('continueGatedToolInvocation approves with the permissions the host wi
     );
   }
 });
-Deno.test('turnInputFromSession carries history and token counters', () => {
-  const history = [{ role: 'user', content: 'hi' }] as InterfaceTurnSession['history'];
-  assertEquals(
-    turnInputFromSession(session({ history, inputTokens: 3, historyTokens: 12 }), {
-      text: 'next',
-    }),
-    { text: 'next', history, inputTokens: 3, historyTokens: 12 },
-  );
-  assertEquals(turnInputFromSession(session()), { history: [] });
-});
-Deno.test('buildTurnRequest sends session permissions and the interaction id', () => {
+Deno.test('buildTurnRequest sends the message, its scope and session permissions, never the conversation', () => {
   const iface = textInterface('react.invoke.turn', { fast });
   const body = buildTurnRequest(
     iface,
-    session({ providerState: checkpointFixture, sessionPermissions: ['search'] }),
+    session({
+      history: [{ role: 'user', content: 'earlier' }],
+      providerState: checkpointFixture,
+      sessionPermissions: ['search'],
+    }),
     { text: 'hello' },
-    { turnId: 't1' },
+    { conversation: 'ref-1', turnId: 't1' },
   );
-  assertEquals(body.providerState, checkpointFixture);
+  assertEquals('providerState' in body, false);
+  assertEquals(body.conversation, 'ref-1');
   assertEquals(body.turnId, 't1');
   assertEquals(body.replay, { sessionPermissions: ['search'] });
   assertEquals(body.input, { text: 'hello' });
@@ -251,7 +242,8 @@ Deno.test('buildInvokeRequest replays the snapshot, promoted tools and selected 
   assertEquals(body.replay?.promoted, ['search', 'book']);
   assertEquals(body.replay?.model, 'smart');
   assertEquals(body.replay?.sessionPermissions, ['search']);
-  assertEquals(body.replay?.turnInput, { history: [], inputTokens: 5 });
+  // The host keeps the conversation: the history and its meters never ride along.
+  assertEquals('turnInput' in (body.replay ?? {}), false);
 });
 Deno.test('buildInvokeRequest prefers explicit permissions and omits empty replay fields', () => {
   const iface = textInterface('react.invoke.explicit', { fast });

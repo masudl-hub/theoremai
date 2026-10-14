@@ -47,8 +47,8 @@ ASD-STE100 (Simplified Technical English) is a controlled language for maintenan
 - After: "Mount the handler on one route. The chat works when the route answers."
 
 **Feature without a use case**
-- Before: "`onChatChange` is called when the chat changes."
-- After: "Use `onChatChange` to save the chat. The component calls it after every change and passes the whole chat."
+- Before: "`onConversationChange` is called when the conversation changes."
+- After: "Use `onConversationChange` to resume the chat later. The component passes each new ref; keep the latest."
 
 **Soft claim**
 - Before: "The kernel typically retries transient failures."

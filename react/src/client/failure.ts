@@ -13,7 +13,7 @@ import {
   labelText,
   publicError,
 } from '@theoremjs/agents';
-import type { AttachmentValidationIssue, InterfaceTurnSession } from '@theoremjs/agents/interface';
+import type { AttachmentValidationIssue } from '@theoremjs/agents/interface';
 import { isTheoremStreamError } from './transport.ts';
 
 export type ClientFailure = {
@@ -47,13 +47,10 @@ export function clientFailure(err: unknown, labels?: LabelOverrides): ClientFail
 
 /** A turn that did not run or did not finish. */
 export type TurnFailure = ClientFailure & {
-  ok: false;
   /** The files the profile refused, one entry per reason (the kernel's check). */
   issues?: AttachmentValidationIssue[];
   /** The user stopped it; nothing to show. */
   aborted?: boolean;
-  /** The conversation with what the turn got through before it stopped; the next turn resumes from it. */
-  session?: InterfaceTurnSession;
 };
 
 /** A caught value as a turn failure; an aborted `signal` marks it the user's stop. */
@@ -64,5 +61,5 @@ export function turnFailure(
 ): TurnFailure {
   const failure = clientFailure(err, labels);
   const aborted = failure.errorKind === 'cancelled' || signal?.aborted === true;
-  return { ok: false, ...failure, ...(aborted ? { aborted: true } : {}) };
+  return { ...failure, ...(aborted ? { aborted: true } : {}) };
 }

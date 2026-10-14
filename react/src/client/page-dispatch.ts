@@ -1,7 +1,7 @@
 import { errorKind, publicError } from '@theoremjs/agents';
 import type { HostTransport } from './host-transport.ts';
 import type { PageTools } from './live/live-page-tool.ts';
-import type { TheoremTransport, TurnEventSink } from './transport.ts';
+import type { ChatLineSink, TheoremTransport, TurnEventSink } from './transport.ts';
 
 export type PageDispatchResult = {
   callId: string;
@@ -51,25 +51,30 @@ export function withPageToolDispatch(
         });
     };
   };
-  const shared = {
-    ...transport,
-    describe: transport.describe.bind(transport),
-    invoke: (
-      request: Parameters<HostTransport['invoke']>[0],
-      onEvent: TurnEventSink,
-      signal?: AbortSignal,
-    ) => transport.invoke(request, sink(onEvent, signal), signal),
+  // why: A chat's stream also carries the conversation's ref, which no page tool reads.
+  const chatSink = (onLine: ChatLineSink, signal?: AbortSignal): ChatLineSink => {
+    const events = sink(onLine, signal);
+    return (line) => (line.type === 'conversation' ? onLine(line) : events(line));
   };
-  if ('call' in transport)
-    return {
-      ...shared,
+  if ('call' in transport) {
+    const host: HostTransport = {
+      ...transport,
       describe: transport.describe.bind(transport),
+      invoke: (request, onEvent, signal) =>
+        transport.invoke(request, sink(onEvent, signal), signal),
       call: (request, onEvent, signal) => transport.call(request, sink(onEvent, signal), signal),
     };
-  return {
-    ...shared,
+    return host;
+  }
+  const chat: TheoremTransport = {
+    ...transport,
     describe: transport.describe.bind(transport),
-    turn: (request, onEvent, signal) => transport.turn(request, sink(onEvent, signal), signal),
+    invoke: (request, onLine, signal) =>
+      transport.invoke(request, chatSink(onLine, signal), signal),
+    turn: (request, onLine, signal) => transport.turn(request, chatSink(onLine, signal), signal),
     steer: transport.steer.bind(transport),
+    conversation: transport.conversation.bind(transport),
+    rewind: transport.rewind.bind(transport),
   };
+  return chat;
 }

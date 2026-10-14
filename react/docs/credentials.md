@@ -21,12 +21,14 @@ and every resumed call.
 
 ```ts
 const credentialStore = createMemoryCredentialStore();
+const conversationStore = createMemoryConversationStore();
 const secret = secrets.oauthStateSecret;
 const redirectUri = 'https://app.example/oauth/callback';
 
 export const theorem = createTheoremHandler({
   profile,
   provider,
+  conversationStore,
   credentialStore,
   authorizationUrl: async (challenge, { sessionId }) =>
     (

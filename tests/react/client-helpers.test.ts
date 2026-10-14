@@ -29,7 +29,7 @@ import {
   shouldForwardMicFrame,
 } from '../../react/src/client/live/live-mic-forward.ts';
 import { liveState } from '../../react/src/client/live/live-state.ts';
-import { applyTurnResultToTranscript } from '../../react/src/client/run-session.ts';
+import { stampWorked } from '../../react/src/client/run-commit.ts';
 import { citationsFromBlock } from '../../react/src/client/source-citations.ts';
 import {
   assistantTurnTiming,
@@ -51,11 +51,7 @@ import {
   workStatusLabel,
 } from '../../react/src/ui/labels.ts';
 import { transcriptBlockCopyText } from '../../react/src/ui/transcript-copy-text.ts';
-import {
-  emptyInterfaceTurnSession,
-  interfaceFromProfile,
-  type TranscriptBlock,
-} from '../../src/interface/mod.ts';
+import { interfaceFromProfile, type TranscriptBlock } from '../../src/interface/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { toolCallRequestEvent, toolEvent } from '../../src/kernel/tools/events.ts';
@@ -786,21 +782,15 @@ Deno.test('a committed reply carries its work on its latest turn-done, and its g
     { id: 'turn-3', kind: 'text', text: 'done' },
     { id: 'turn-4', kind: 'turn-done' },
   ];
-  const merged = applyTurnResultToTranscript({
-    blocks: [prompt],
-    streamBlocks: [],
-    session: emptyInterfaceTurnSession(),
-    assistantBlocks: reply,
-    worked: { workedMs: 4200, endedAt: 99 },
-  });
-  assertEquals(merged.blocks.at(-1), {
+  const blocks = [prompt, ...stampWorked(reply, { workedMs: 4200, endedAt: 99 })];
+  assertEquals(blocks.at(-1), {
     id: 'turn-4',
     kind: 'turn-done',
     workedMs: 4200,
     endedAt: 99,
   });
-  assertEquals(merged.blocks.at(-3), { id: 'turn-2', kind: 'turn-done' });
-  const reread = groupTranscriptBlocks(merged.blocks).at(-1);
+  assertEquals(blocks.at(-3), { id: 'turn-2', kind: 'turn-done' });
+  const reread = groupTranscriptBlocks(blocks).at(-1);
   assertEquals(
     reread?.kind === 'assistant' ? [reread.workedMs, reread.endedAt] : undefined,
     [4200, 99],

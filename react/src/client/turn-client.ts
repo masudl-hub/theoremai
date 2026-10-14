@@ -25,18 +25,6 @@ export function issuedOperationId(call: { operationId?: string }): string {
   return call.operationId;
 }
 
-export function turnInputFromSession(
-  session: InterfaceTurnSession,
-  overrides: TheoremTurnInput = {},
-): TheoremTurnInput {
-  return {
-    ...overrides,
-    history: session.history,
-    ...(session.inputTokens !== undefined ? { inputTokens: session.inputTokens } : {}),
-    ...(session.historyTokens !== undefined ? { historyTokens: session.historyTokens } : {}),
-  };
-}
-
 function resolveModelId(
   iface: ComposerProfileInterface,
   session: InterfaceTurnSession,
@@ -85,7 +73,6 @@ function gateReplay(
     input: call.input,
     ...(call.gateKind ? { gateKind: call.gateKind } : {}),
     sessionPermissions: call.sessionPermissions ?? session.sessionPermissions,
-    turnInput: turnInputFromSession(session),
     ...(session.toolSnapshot ? { snapshot: session.toolSnapshot } : {}),
     ...(session.promotedToolIds.length ? { promoted: [...session.promotedToolIds] } : {}),
     ...generationFields(iface, session),
@@ -120,16 +107,25 @@ function abandonFields(
 /** A paused session, and the calls it waits on that a message walks away from. */
 export type WalkAway = { paused: InterfaceTurnSession; calls: readonly GatedToolContext[] };
 
+/** Where a request goes on from: the ref of the conversation the host keeps, and the run's id for steers. */
+export type RunScope = { conversation?: string; turnId?: string };
+
+function scopeFields(scope: RunScope): RunScope {
+  return {
+    ...(scope.conversation ? { conversation: scope.conversation } : {}),
+    ...(scope.turnId ? { turnId: scope.turnId } : {}),
+  };
+}
+
 export function buildTurnRequest(
   iface: ComposerProfileInterface,
   session: InterfaceTurnSession,
   input: TheoremTurnInput,
-  options: { turnId?: string; walkAway?: WalkAway } = {},
+  options: RunScope & { walkAway?: WalkAway } = {},
 ): TheoremTurnRequest {
   const walked = options.walkAway ? abandonFields(iface, options.walkAway) : undefined;
   return {
-    providerState: session.providerState,
-    ...(options.turnId ? { turnId: options.turnId } : {}),
+    ...scopeFields(options),
     ...generationFields(iface, session),
     input,
     ...(walked ? { abandon: walked.abandon } : {}),
@@ -150,8 +146,10 @@ export function buildInvokeRequest(
     secret?: string;
     page?: PagePart;
   },
+  scope: RunScope = {},
 ): TheoremInvokeRequest {
   return {
+    ...scopeFields(scope),
     gateId: args.gateId,
     operationId: args.operationId,
     decision: args.decision,

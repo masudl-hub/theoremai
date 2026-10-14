@@ -136,6 +136,7 @@ export const LABEL_KEYS = [
   'sign_in.out_of_scope',
   'session.gate_expired',
   'session.provider_state_unowned',
+  'session.conversation_unknown',
   'session.turn_ended',
   'session.gate_pending',
   'session.part_skipped',
@@ -435,6 +436,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
     "{service} needs access that this tool isn't set up for, so it can't do that.",
   'session.provider_state_unowned':
     'Saved model state cannot be used in this conversation. Continue from your saved history.',
+  'session.conversation_unknown': 'Sorry, this conversation is no longer available. Start a new one.',
   'session.gate_expired': 'Sorry, that step is no longer waiting for approval.',
   'session.turn_ended': 'Sorry, that reply has already finished.',
   'session.gate_pending':
@@ -698,6 +700,8 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'sign_in.out_of_scope':
     'Told to the model when a service asks for more access than the tool declares, so no sign-in is offered. Takes {service}.',
   'session.provider_state_unowned': 'Unowned or unavailable provider checkpoint.',
+  'session.conversation_unknown':
+    "Shown to the user whose conversation the host no longer has, or whose saved conversation does not open in this session.",
   'session.gate_expired':
     'Shown to the user who answers a step that is no longer waiting for approval.',
   'session.turn_ended': 'Shown to the user who tries to steer a reply that has already finished.',

@@ -16,6 +16,8 @@ import {
  *                            waits on gates walks away from them first (`abandon`)
  * - `POST <base>/invoke`  → NDJSON events for the user's answer to a paused tool call
  * - `POST <base>/steer`   → inject messages into a running turn
+ * - `POST <base>/conversation` → the transcript and the paused reply, to draw
+ * - `POST <base>/rewind`  → `{ conversation, view }` the conversation cut after one block, and its new ref
  *
  * `createTheoremHostHandler` serves a host profile the same way, with no model:
  *
@@ -24,10 +26,13 @@ import {
  * - `POST <base>/invoke`  → NDJSON events for the user's answer to a paused call
  * - `POST <base>/page-result` → grant-correlated browser result receipt
  *
- * Trust boundary: the browser owns the conversation text; the server owns every
- * decision that grants authority. Tool permissions, which paused calls may run
- * (and with what input), and which provider interactions may be continued are
- * kept in a server-side session — request bodies can't grant any of them.
+ * Trust boundary: the host owns the conversation and every decision that grants
+ * authority. Two stores keep them. The `conversationStore` owns the transcript,
+ * the history the model reads and the paused reply; the browser sends only what
+ * the person did now, with the opaque ref the store issued. The session store
+ * owns which paused calls may run (and with what input) and the tool
+ * permissions — request bodies can't grant any of them. A profile whose `providerContinuation.history` is
+ * `'stateless'` keeps no conversation, and takes no store.
  * Tool credentials are held on the server too: a key the user types at a gate
  * is sent once and saved, and no credential is ever sent back to the browser.
  *
@@ -35,7 +40,9 @@ import {
  */
 
 import {
+  attachmentsRefused,
   authorizeToolReplay,
+  compactHistory,
   defaultKernelScope,
   defineProfile,
   type GateReference,
@@ -50,7 +57,6 @@ import {
   TheoremError,
   type ToolGate,
   type TurnEvent,
-  type TurnHistoryMessage,
   type TurnInput,
   toolInvocationHash,
   type z,
@@ -64,14 +70,20 @@ import {
   HTTP_METHOD,
 } from '@theoremjs/agents/host';
 import {
+  type ComposerProfileInterface,
   clientProfileInterface,
   gatedToolsFromEvents,
+  interfaceFromProfile,
+  type PendingAttachment,
+  prepareUserTurn,
   promotedToolIdsFromEvents,
+  streamThoughtsEnabled,
   toolSnapshotFromEvents,
 } from '@theoremjs/agents/interface';
 import {
   type AnsweredGate,
   answerGatedCall,
+  base64ToBytes,
   type GateAnswerRequest,
   resolveGateTtlMs,
   type ToolCredentialSource,
@@ -82,13 +94,34 @@ import {
   theoremHostCallRequestSchema,
 } from '../client/host-transport.ts';
 import {
+  type EncodedBlob,
   type TheoremInvokeRequest,
+  type TheoremRewound,
   type TheoremTurnInput,
-  type TheoremTurnRequest,
+  theoremConversationRequestSchema,
   theoremInvokeRequestSchema,
+  theoremRewindRequestSchema,
   theoremSteerRequestSchema,
   theoremTurnRequestSchema,
 } from '../client/transport.ts';
+import {
+  answerReply,
+  type ConversationHost,
+  conversationView,
+  type IssuedWalkAway,
+  messageReply,
+  openConversation,
+  type PostedMessage,
+  type ReplyLine,
+  type ReplyRunner,
+  type ReplyTurn,
+  requireRewindPoint,
+  requireWaitingOn,
+  requireWalkAway,
+  rewindConversation,
+  waitingCalls,
+} from './conversation.ts';
+import { type TheoremConversationStore, unknownConversation } from './conversation-store.ts';
 import {
   createMemoryCredentialStore,
   type TheoremCredentialStore,
@@ -99,12 +132,6 @@ import { cookieSession, type Session } from './session-identity.ts';
 
 export { theoremSessionId } from './session-identity.ts';
 
-import {
-  checkpointIdentity,
-  checkpointOwnershipKey,
-  requireOwnedCheckpoint,
-  retainedCheckpointIdentities,
-} from './checkpoint-ownership.ts';
 import { jsonResponse } from './json-response.ts';
 import { boundedRequestJson, requestByteLimit } from './request-body.ts';
 import { checkRequest } from './request-check.ts';
@@ -120,8 +147,7 @@ import {
 } from './session-store.ts';
 import { createMemorySteerInbox, type SteerInbox, steerStage, steerUnitOf } from './steer-inbox.ts';
 import { sameAcceptedAnswer, sessionToolCoordinator } from './tool-operations.ts';
-import { turnContext } from './turn-input.ts';
-import { checkWalkAway, walkAway } from './walk-away.ts';
+import { kernelTurnInput } from './turn-input.ts';
 
 export type TheoremRequestContext = {
   request: Request;
@@ -155,6 +181,15 @@ export type TheoremHandlerOptions = {
   session?: (request: Request) => string | undefined | Promise<string | undefined>;
   /** Default: in-process memory. Use a shared store when requests can reach different instances. */
   sessionStore?: TheoremSessionStore;
+  /**
+   * Where the chat's conversation lives: the transcript, the history the model
+   * reads and a reply paused on gates. Required unless the profile's
+   * `providerContinuation.history` is `'stateless'`, which keeps none and takes
+   * no store. `createMemoryConversationStore` for one instance,
+   * `createSealedConversationStore` to keep nothing on the server, or your
+   * own database.
+   */
+  conversationStore?: TheoremConversationStore;
   /**
    * How long a gate (permission, confirmation, sign-in) waits for its answer, in
    * milliseconds. An answer after that is refused with `session.gate_expired`.
@@ -205,7 +240,7 @@ export type TheoremHandlerOptions = {
 /** A host profile runs no model, and takes no turns to steer. */
 export type TheoremHostHandlerOptions = Omit<
   TheoremHandlerOptions,
-  'profile' | 'provider' | 'steerInbox'
+  'profile' | 'provider' | 'steerInbox' | 'conversationStore'
 > & {
   /** Host profile to serve. Registered with the kernel when the handler is created. */
   profile: Extract<Profile, { type: 'host' }> | Extract<ProfileDefinition, { type: 'host' }>;
@@ -246,38 +281,15 @@ export async function readBody<T>(
   return checkRequest(schema, raw, 'request body');
 }
 
-/** Conversation messages a browser may supply — never system instructions. */
-function conversationOnly(messages: readonly TurnHistoryMessage[]): TurnHistoryMessage[] {
-  return messages.filter(
-    (message) => message.role === 'user' || message.role === 'assistant' || message.role === 'tool',
-  );
-}
-
-/**
- * Keep the user-authored parts of a turn input. Drops fields that would let a
- * client speak as the host: system-role history, `role`, `repair` guidance,
- * token-meter overrides, and live resumption handles. The page's context goes
- * in as `client`; `server` is the host's own (`options.context`).
- */
-function userTurnInput(input: TheoremTurnInput, server: unknown): TurnInput {
-  const context = turnContext(input.context, server);
-  return {
-    ...(input.slots ? { slots: input.slots } : {}),
-    ...(context ? { context } : {}),
-    ...(input.text !== undefined ? { text: input.text } : {}),
-    ...(input.attachments ? { attachments: input.attachments } : {}),
-    ...(input.voice ? { voice: input.voice } : {}),
-    ...(input.history ? { history: conversationOnly(input.history) } : {}),
-  };
-}
-
-/** Last path segment after the mount point: '', 'turn', 'invoke', 'steer', or a host's 'call'. */
+/** Last path segment after the mount point: '', a chat's route, or a host's 'call'. */
 function routeOf(request: Request): string {
   const segments = new URL(request.url).pathname.split('/').filter(Boolean);
   const last = segments.at(-1) ?? '';
   return last === 'turn' ||
     last === 'invoke' ||
     last === 'steer' ||
+    last === 'conversation' ||
+    last === 'rewind' ||
     last === 'call' ||
     last === 'page-result'
     ? last
@@ -309,12 +321,29 @@ function lockedStore<T>(
   };
 }
 
+/** A profile that takes messages. */
+type ChatProfile = Exclude<Profile, { type: 'live' | 'decision' | 'host' }>;
+
+/** What a chat's requests read beside the handler's own. */
+type ChatContext = {
+  profile: ChatProfile;
+  /** Undefined when the profile keeps no conversation (`'stateless'`). */
+  conversations?: TheoremConversationStore;
+};
+
+/** The profile as the server reads a message against it, its tools as registered now. */
+function chatInterface(chat: ChatContext): ComposerProfileInterface {
+  return interfaceFromProfile(chat.profile, defaultKernelScope.tools);
+}
+
 /** Everything a request needs from the handler that serves it. */
 type HandlerContext = {
   /** A host's handler has no provider: it runs no model. */
   options: Omit<TheoremHandlerOptions, 'profile' | 'provider'> &
     Partial<Pick<TheoremHandlerOptions, 'provider'>>;
   profile: Profile;
+  /** A chat's: none for a host profile, which takes no messages. */
+  chat?: ChatContext;
   inbox: SteerInbox;
   sessions: MutableStore<TheoremSessionState>;
   pageToolBroker: PageToolBroker;
@@ -342,22 +371,28 @@ function caughtError(ctx: HandlerContext, err: unknown, request: Request): Clien
 function eventStream(
   ctx: HandlerContext,
   request: Request,
-  source: () => AsyncIterable<TurnEvent>,
+  source: () => AsyncIterable<ReplyLine>,
 ): Response {
   const encoder = new TextEncoder();
   const line = (value: unknown) => encoder.encode(`${JSON.stringify(value)}\n`);
+  // invariant: The source runs to its end after the browser goes, so a stopped reply still reaches its save.
+  let cancelled = false;
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      const send = (value: unknown) => {
+        if (!cancelled) controller.enqueue(line(value));
+      };
       try {
         for await (const event of source()) {
-          controller.enqueue(line(forClient(event, ctx.options.clientEvents)));
+          send(event.type === 'conversation' ? event : forClient(event, ctx.options.clientEvents));
         }
       } catch (err) {
-        if (!request.signal.aborted) {
-          controller.enqueue(line({ type: 'error', ...caughtError(ctx, err, request) }));
-        }
+        if (!request.signal.aborted) send({ type: 'error', ...caughtError(ctx, err, request) });
       }
-      controller.close();
+      if (!cancelled) controller.close();
+    },
+    cancel() {
+      cancelled = true;
     },
   });
   return new Response(stream, { headers: NDJSON_HEADERS });
@@ -419,32 +454,16 @@ function pendingGatesFrom(
   }));
 }
 
-/**
- * Record what the stream established: interaction ids for continuation and,
- * when it paused on gates, the exact calls the user may now approve.
- */
+/** When the stream paused on gates, record the exact calls the user may now approve. */
 async function recordOutcome(
-  sessions: MutableStore<TheoremSessionState> & { checkpointLimit?: number },
+  sessions: MutableStore<TheoremSessionState>,
   sessionId: string,
   events: TurnEvent[],
   context: OutcomeContext,
 ): Promise<void> {
-  const checkpoints = events.flatMap((event) =>
-    (event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState
-      ? [event.providerState]
-      : [],
-  );
-  const identities = await Promise.all(checkpoints.map(checkpointIdentity));
   const pending = pendingGatesFrom(events, context);
-  if (!identities.length && !pending.length) return;
-  await sessions.mutate(sessionId, async (state) => {
-    state.providerCheckpoints = retainedCheckpointIdentities(
-      state.providerCheckpoints ?? [],
-      await Promise.all(
-        identities.map((identity) => checkpointOwnershipKey(identity, state.operations)),
-      ),
-      sessions.checkpointLimit ?? resolveSessionLimits().maxCheckpoints,
-    );
+  if (!pending.length) return;
+  await sessions.mutate(sessionId, (state) => {
     for (const { gate } of pending) {
       const operation = state.operations[gate.operationId];
       if (operation && operation.status !== 'ready')
@@ -623,24 +642,30 @@ function walkedCallOf(
 }
 
 /**
- * Take the calls a message walks away from out of the session, answered
- * `abandon`: every one of them, or none when one is neither waiting nor
- * settled. The message's history must leave exactly those calls open.
+ * Take the calls a message or a rewind walks away from out of the session,
+ * answered `abandon`: every one of them, or none when one is neither waiting
+ * nor settled. Each comes back with the run that settles it.
  */
-function takeWalkedAway(
+async function takeWalkedAway(
   ctx: HandlerContext,
+  request: Request,
   session: Session,
-  input: TurnInput,
   abandon: readonly GateReference[],
-): Promise<WalkedCall[]> {
-  checkWalkAway(
-    input,
-    abandon.map((reference) => reference.callId),
-  );
+): Promise<IssuedWalkAway[]> {
   // why: A throw leaves the session unsaved, so no call is taken unless all are.
-  return ctx.sessions.mutate(session.id, (state) =>
-    abandon.map((reference) => walkedCallOf(state, reference, ctx.profile.id)),
+  const calls = await ctx.sessions.mutate(session.id, (state) =>
+    abandon.map((reference) => ({
+      reference,
+      call: walkedCallOf(state, reference, ctx.profile.id),
+    })),
   );
+  return calls.map(({ reference, call }) => ({
+    ...reference,
+    events:
+      'settled' in call
+        ? replayOperation(ctx, request, call.settled)
+        : settleAnswered(ctx, request, session, call),
+  }));
 }
 
 async function* settleAnswered(
@@ -682,51 +707,22 @@ function invokeAnswered(
   });
 }
 
-/** Settles each walked-away call, and returns the input with their answers. */
-async function* walkAwayFrom(
-  ctx: HandlerContext,
-  request: Request,
-  session: Session,
-  walked: { input: TurnInput; calls: readonly WalkedCall[] },
-): AsyncGenerator<TurnEvent, TurnInput | undefined> {
-  return yield* walkAway(
-    walked.input,
-    walked.calls.map((call) => ({
-      callId: call.callId,
-      events:
-        'settled' in call
-          ? replayOperation(ctx, request, call.settled)
-          : settleAnswered(ctx, request, session, call),
-    })),
-  );
-}
-
 /** A settled call's answer, streamed again. */
 async function* once(event: TurnEvent, labels?: Profile['labels']): AsyncGenerator<TurnEvent> {
   yield withPublicLabels(event, labels);
 }
 
-async function* turnEvents(
+/** One model run of a chat's reply, its gates recorded in the session as they pause. */
+async function* chatTurn(
   ctx: HandlerContext,
   request: Request,
   session: Session,
-  body: TheoremTurnRequest,
-  walked: { input: TurnInput; calls: WalkedCall[] },
+  turn: ReplyTurn,
+  turnId: string | undefined,
 ): AsyncGenerator<TurnEvent> {
-  const input = walked.calls.length
-    ? yield* walkAwayFrom(ctx, request, session, walked)
-    : walked.input;
-  if (!input) return;
   const state = await ctx.sessions.read(session.id);
-  const provider = await providerFor(ctx, request, body.model);
-  // why: A browser cannot resume native state owned by another server session.
-  const providerState = await requireOwnedCheckpoint(
-    state.providerCheckpoints,
-    body.providerState,
-    state.operations,
-    input.history,
-  );
-  const key = body.turnId ? inboxKey(session.id, body.turnId) : undefined;
+  const provider = await providerFor(ctx, request, turn.model);
+  const key = turnId ? inboxKey(session.id, turnId) : undefined;
   if (key) await ctx.inbox.open(key);
   try {
     const events = runTurn(
@@ -734,14 +730,14 @@ async function* turnEvents(
         profile: ctx.profile.id,
         execution: sessionToolCoordinator(ctx.sessions, session.id),
         pageExecution: sessionPageDispatch(ctx.sessions, session.id, ctx.pageToolBroker).execution,
-        input,
-        providerState,
+        input: turn.input,
+        ...(turn.providerState ? { providerState: turn.providerState } : {}),
         sessionPermissions: state.permissions,
         credentials: sessionCredentials(ctx, session.id),
         signal: request.signal,
         host: ctx.options.host?.(request),
-        ...(body.model ? { model: body.model } : {}),
-        ...(body.effort ? { effort: body.effort } : {}),
+        ...(turn.model ? { model: turn.model } : {}),
+        ...(turn.effort ? { effort: turn.effort } : {}),
         ...(key ? { onStage: steerStage(ctx.inbox, key) } : {}),
       },
       provider,
@@ -752,13 +748,189 @@ async function* turnEvents(
       withAuthorizationUrls(ctx, request, session.id, events),
       {
         profileId: ctx.profile.id,
-        turnInput: input,
-        model: body.model,
+        turnInput: turn.input,
+        model: turn.model,
       },
     );
   } finally {
     if (key) await ctx.inbox.close(key);
   }
+}
+
+/** How this request runs the model for a reply: its generation, and the request's abort. */
+function chatRunner(
+  ctx: HandlerContext,
+  request: Request,
+  session: Session,
+  generation: { model?: string; effort?: string; turnId?: string },
+): ReplyRunner {
+  return {
+    run: (turn) => chatTurn(ctx, request, session, turn, generation.turnId),
+    async compact(history, tokens, model) {
+      const provider = await providerFor(ctx, request, model);
+      const compacted = await compactHistory(
+        {
+          profile: ctx.profile.id,
+          history,
+          tokens,
+          signal: request.signal,
+          ...(model ? { model } : {}),
+        },
+        provider,
+      );
+      return compacted?.history;
+    },
+    ...(generation.model ? { model: generation.model } : {}),
+    ...(generation.effort ? { effort: generation.effort } : {}),
+    signal: request.signal,
+  };
+}
+
+/** The chat's conversation as this session's runs read and write it; undefined when the profile keeps none. */
+function conversationHost(ctx: HandlerContext, session: Session): ConversationHost | undefined {
+  const store = ctx.chat?.conversations;
+  if (!ctx.chat || !store) return undefined;
+  const labels = ctx.profile.labels;
+  const { clientEvents } = ctx.options;
+  return {
+    sessionId: session.id,
+    store,
+    showThoughts: streamThoughtsEnabled(ctx.chat.profile.outputs),
+    forReader: (event) => forClient(event, clientEvents),
+    failureText(failure) {
+      const worded = forClient(withPublicLabels(failure, labels), clientEvents);
+      return worded.type === 'error' && worded.error
+        ? worded.error
+        : labelText(`error.${failure.errorKind}`, {}, labels);
+    },
+  };
+}
+
+/** A file off the wire as the profile's input limits read it. */
+function pendingOf(blob: EncodedBlob): PendingAttachment {
+  let sizeBytes: number;
+  try {
+    sizeBytes = base64ToBytes(blob.data).length;
+  } catch {
+    // invariant: A file that is not base64 is a malformed request; its bytes must not enter diagnostics.
+    throw new TheoremError('request', labelText('error.request'), {
+      cause: { code: 'request_file_encoding' },
+    });
+  }
+  return { name: blob.name, mimeType: blob.mimeType, sizeBytes, data: blob.data };
+}
+
+/** The person's message as the profile accepts it: refused when its files break the profile's limits. */
+function postedMessage(iface: ComposerProfileInterface, input: TheoremTurnInput): PostedMessage {
+  const prepared = prepareUserTurn(
+    iface.inputs,
+    {
+      ...(input.text !== undefined ? { text: input.text } : {}),
+      ...(input.attachments ? { attachments: input.attachments.map(pendingOf) } : {}),
+      ...(input.voice ? { voice: input.voice.map(pendingOf) } : {}),
+    },
+    iface.guardrails,
+  );
+  if (!prepared.ok) throw attachmentsRefused(prepared.issues);
+  return {
+    draft: prepared.draft,
+    blocks: prepared.blocks,
+    media: {
+      ...(input.attachments ? { attachments: input.attachments } : {}),
+      ...(input.voice ? { voice: input.voice } : {}),
+    },
+  };
+}
+
+/** The message as the kernel takes it, its text as the transcript shows it. */
+function kernelInput(input: TheoremTurnInput, message: PostedMessage, server: unknown): TurnInput {
+  const { text: _sent, ...rest } = input;
+  return kernelTurnInput(
+    message.draft.text === undefined ? rest : { ...rest, text: message.draft.text },
+    server,
+  );
+}
+
+/** Refuses what only a kept conversation answers, for a profile that keeps none. */
+function statelessRefusal(what: string): TheoremError {
+  // labels-exempt: internal diagnostic; the user reads error.request
+  return new TheoremError('request', `a stateless chat keeps no conversation to ${what}`);
+}
+
+/** The person's message: a new reply, run against the conversation the host keeps. */
+async function turn(
+  ctx: HandlerContext,
+  chat: ChatContext,
+  request: Request,
+  session: Session,
+): Promise<Response> {
+  const body = await readBody(request, theoremTurnRequestSchema, ctx.options.maxRequestBytes);
+  const message = postedMessage(chatInterface(chat), body.input);
+  const input = kernelInput(body.input, message, await ctx.options.context?.(request));
+  const runner = chatRunner(ctx, request, session, body);
+  const host = conversationHost(ctx, session);
+  if (!host) {
+    if (body.conversation !== undefined) throw statelessRefusal('continue');
+    // labels-exempt: internal diagnostic; the user reads error.request
+    if (body.abandon) throw statelessRefusal('walk away from');
+    return eventStream(ctx, request, () =>
+      runner.run({ input, model: body.model, effort: body.effort }),
+    );
+  }
+  const opened = await openConversation(host, body.conversation);
+  requireWalkAway(opened.conversation, body.abandon);
+  // why: Take the walked-away calls before streaming, so a stale one is a reply status, not a stream error.
+  const walkAway = body.abandon
+    ? await takeWalkedAway(ctx, request, session, body.abandon)
+    : undefined;
+  return eventStream(ctx, request, () =>
+    messageReply({ host, opened, message, input, ...(walkAway ? { walkAway } : {}), runner }),
+  );
+}
+
+/** The conversation as the browser draws it. */
+async function conversation(
+  ctx: HandlerContext,
+  request: Request,
+  session: Session,
+): Promise<Response> {
+  const body = await readBody(
+    request,
+    theoremConversationRequestSchema,
+    ctx.options.maxRequestBytes,
+  );
+  const host = conversationHost(ctx, session);
+  if (!host) throw statelessRefusal('read');
+  const opened = await openConversation(host, body.conversation);
+  return jsonResponse(200, conversationView(host, opened.conversation));
+}
+
+/** The conversation cut after one block; a reply that waits on gates is walked away from first. */
+async function rewind(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
+  const body = await readBody(request, theoremRewindRequestSchema, ctx.options.maxRequestBytes);
+  const host = conversationHost(ctx, session);
+  if (!host) throw statelessRefusal('rewind');
+  const opened = await openConversation(host, body.conversation);
+  requireRewindPoint(opened.conversation, body.at);
+  const waiting = waitingCalls(opened.conversation).map((call) => ({
+    callId: call.callId,
+    operationId: requiredOperationId(call),
+  }));
+  const walkAway = waiting.length
+    ? await takeWalkedAway(ctx, request, session, waiting)
+    : undefined;
+  const next = await rewindConversation({
+    host,
+    opened,
+    at: body.at,
+    ...(walkAway ? { walkAway } : {}),
+  });
+  if (next.ref === null) throw new TheoremError('internal', labelText('error.internal'));
+  const rewound: TheoremRewound = {
+    conversation: next.ref,
+    view: conversationView(host, next.conversation),
+  };
+  return jsonResponse(200, rewound);
 }
 
 async function* invokeEvents(
@@ -881,11 +1053,37 @@ async function* replayOperation(
   yield* once(operation.outcome.event, ctx.profile.labels);
 }
 
-/** The user's answer to a paused call. */
+/**
+ * The user's answer to a paused call. In a kept conversation the reply goes on
+ * in the same stream once no call waits; otherwise the stream is the call's.
+ */
 async function invoke(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
   const body = await readBody(request, theoremInvokeRequestSchema, ctx.options.maxRequestBytes);
   if (body.page && 'output' in body.page)
     throw new TheoremError('request', labelText('error.request'));
+  const host = conversationHost(ctx, session);
+  if (!host) {
+    if (body.conversation !== undefined) throw statelessRefusal('continue');
+    return eventStream(ctx, request, await settlingOf(ctx, request, session, body));
+  }
+  if (body.conversation === undefined) throw unknownConversation();
+  const opened = await openConversation(host, body.conversation);
+  const call = { callId: body.gateId, operationId: body.operationId };
+  requireWaitingOn(opened.conversation, call);
+  const settling = await settlingOf(ctx, request, session, body);
+  const runner = chatRunner(ctx, request, session, body);
+  return eventStream(ctx, request, () =>
+    answerReply({ host, opened, call, settling: settling(), runner }),
+  );
+}
+
+/** The answered call's events: its saved outcome again, or the call run as answered. */
+async function settlingOf(
+  ctx: HandlerContext,
+  request: Request,
+  session: Session,
+  body: TheoremInvokeRequest,
+): Promise<() => AsyncIterable<TurnEvent>> {
   const saved = await ctx.sessions.read(session.id);
   const operation = Object.hasOwn(saved.operations, body.operationId)
     ? saved.operations[body.operationId]
@@ -915,13 +1113,13 @@ async function invoke(ctx: HandlerContext, request: Request, session: Session): 
       throw new TheoremError('request', labelText('error.request'), {
         copy: { key: 'error.request' },
       });
-    return eventStream(ctx, request, () => replayOperation(ctx, request, operation));
+    return () => replayOperation(ctx, request, operation);
   }
   // why: Take the answered call before streaming, so a stale answer is a reply status, not a stream error.
   const answered = await ctx.sessions.mutate(session.id, (state) =>
     answerPendingGate(state, answerRequest(body), ctx.profile.id),
   );
-  return eventStream(ctx, request, () => invokeEvents(ctx, request, session, answered));
+  return () => invokeEvents(ctx, request, session, answered);
 }
 
 async function hostRoute(
@@ -953,22 +1151,18 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
   }
   if (ctx.profile.type === 'host')
     return hostRoute({ ...ctx, profile: ctx.profile }, request, session);
+  const { chat } = ctx;
   const target = routeOf(request);
+  if (!chat) return refused(ctx);
   if (request.method === 'GET' && target === '')
     return jsonResponse(200, {
-      interface: clientProfileInterface(ctx.profile, defaultKernelScope.tools),
+      interface: clientProfileInterface(chat.profile, defaultKernelScope.tools),
     });
   if (request.method !== 'POST' || target === '' || target === 'call') return refused(ctx);
-  if (target === 'turn') {
-    const body = await readBody(request, theoremTurnRequestSchema, ctx.options.maxRequestBytes);
-    const input = userTurnInput(body.input, await ctx.options.context?.(request));
-    // why: Take the walked-away calls before streaming, so a stale one is a reply status, not a stream error.
-    const calls = body.abandon ? await takeWalkedAway(ctx, session, input, body.abandon) : [];
-    return eventStream(ctx, request, () =>
-      turnEvents(ctx, request, session, body, { input, calls }),
-    );
-  }
+  if (target === 'turn') return turn(ctx, chat, request, session);
   if (target === 'invoke') return invoke(ctx, request, session);
+  if (target === 'conversation') return conversation(ctx, request, session);
+  if (target === 'rewind') return rewind(ctx, request, session);
   return steer(ctx, request, session);
 }
 
@@ -992,7 +1186,22 @@ export function createTheoremHandler(
     // labels-exempt: builder config error at setup; no user sees it
     throw new Error(`createTheoremHandler serves turn-based profiles; got type '${profile.type}'.`);
   }
-  return serve('createTheoremHandler', profile, options, options.steerInbox);
+  const stateless = profile.providerContinuation?.history === 'stateless';
+  if (stateless === (options.conversationStore !== undefined)) {
+    throw new TheoremError('config', labelText('error.config'), {
+      cause: {
+        code: stateless ? 'conversation_store_stateless' : 'conversation_store_missing',
+        profile: profile.id,
+      },
+    });
+  }
+  return serve('createTheoremHandler', profile, options, {
+    steerInbox: options.steerInbox,
+    chat: {
+      profile,
+      ...(options.conversationStore ? { conversations: options.conversationStore } : {}),
+    },
+  });
 }
 
 /**
@@ -1014,7 +1223,7 @@ function serve(
   name: string,
   profile: Profile,
   options: HandlerContext['options'],
-  steerInbox?: SteerInbox,
+  chatOptions: { steerInbox?: SteerInbox; chat?: ChatContext } = {},
 ): (request: Request) => Promise<Response> {
   const gateTtlMs = resolveGateTtlMs(name, options.gateTtlMs);
   const operationRetentionMs = options.operationRetentionMs ?? DEFAULT_OPERATION_RETENTION_MS;
@@ -1030,7 +1239,8 @@ function serve(
     options,
     pageToolBroker: options.pageToolBroker ?? createMemoryPageToolBroker(),
     profile,
-    inbox: steerInbox ?? createMemorySteerInbox(),
+    ...(chatOptions.chat ? { chat: chatOptions.chat } : {}),
+    inbox: chatOptions.steerInbox ?? createMemorySteerInbox(),
     sessions: sessionStateStore(
       options.sessionStore ?? createMemorySessionStore({ sessionLimits: limits }),
       gateTtlMs,

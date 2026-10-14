@@ -18,7 +18,7 @@ In Theorem, you write an agent as a **profile** (see [`@theoremjs/agents`](https
 
 This package uses the same profile on both sides.
 
-- **Server.** `createTheoremHandler` runs the profile. It enforces the guardrails and the tool gates.
+- **Server.** `createTheoremHandler` runs the profile. It enforces the guardrails and the tool gates, and it keeps the conversation.
 - **Browser.** The UI asks the server to describe the profile. It then shows what the profile allows. It shows no attachment button if the profile does not accept files. It shows a model picker if the profile lets the user choose the model.
 
 ```text
@@ -86,7 +86,7 @@ The server preserves method receivers. Replacing the registration affects later 
 
 ```ts
 import { defineProfile, defineProvider, googleAdapter, registerProvider } from '@theoremjs/agents';
-import { createTheoremHandler } from '@theoremjs/react/server';
+import { createMemoryConversationStore, createTheoremHandler } from '@theoremjs/react/server';
 
 const google = defineProvider({
   id: 'company-google',
@@ -111,8 +111,11 @@ const support = defineProfile({
 export const theorem = createTheoremHandler({
   profile: support,
   provider: { vault: { main: process.env.GEMINI_API_KEY } },
+  conversationStore: createMemoryConversationStore(),
 });
 ```
+
+The memory store keeps each conversation in process memory. For other stores, see [Keep the conversation](#keep-the-conversation).
 
 ### 2. Mount the handler
 
@@ -168,32 +171,34 @@ The profile, the keys and the system prompt stay on the server. The browser rece
 | `placeholder`, `emptyState` | The composer placeholder, and the content above the composer before the first message. |
 | `density`, `maxWidth`, `className`, `style` | Layout. `maxWidth` is a CSS length. Default: half of the chat width, or the full width on a narrow screen. |
 | `trace` | Shows the trace instead of the chat. Use it when your own control switches the view. The profile must record traces. |
-| `initialChat`, `onChatChange` | Save and restore a conversation. See below. |
+| `conversation`, `onConversationChange` | Resume a conversation that the server keeps. See below. |
 | `initialText` | The text that the composer starts with. The user can send it or change it. The component reads it once, when it mounts. |
 | `chatRef` | Sends a message from your code. See below. |
 | `composer` | `false` leaves the composer out. The chat is the transcript alone, and your own control sends through `chatRef`. Default: `true`. |
 
-### Save and restore a conversation
+### Resume a conversation
 
-`onChatChange` gives you the conversation as `{ blocks, session }`. It runs when the conversation is at rest:
+The server keeps the conversation in its `conversationStore`. The browser never sends the history. It holds only a ref that the store issued.
 
-- a turn ended
-- a message was added
-- a message was removed
+`onConversationChange` gives you each new ref. It runs:
 
-It does not run while a reply streams or waits for a gate.
+- when the message reaches the server
+- each time the server saves the reply, while the reply runs and when it ends
 
-Save the complete snapshot, including `session`. The session contains native provider state separately from displayed transcript blocks.
-To restore the conversation, pass the saved value as `initialChat`. The component reads this value once, when it mounts.
-The kernel validates native state against portable history. On a mismatch, it rebuilds history or applies the profile's error policy.
+Keep the latest ref. To resume the conversation, pass it as `conversation`. The component reads this value once, when it mounts. It then draws the conversation as the server keeps it, including a reply that waits for a gate.
 
 ```tsx
 <TheoremChat
   endpoint="/api/theorem"
-  initialChat={saved}
-  onChatChange={(snapshot) => save(snapshot)}
+  conversation={savedRef}
+  onConversationChange={(ref) => saveRef(ref)}
 />
 ```
+
+If the server does not save the message, the message leaves the transcript. It goes back in the composer with the error, and the user can send it again.
+If the browser loses the response to a gate answer, the chat reads the conversation again from the server. The same answer sent again fails with `session.gate_expired`.
+
+A profile whose `providerContinuation.history` is `'stateless'` keeps no conversation. The server stores nothing and issues no ref. The transcript is kept only in the page, and a reload clears it.
 
 ### Send a message from your code
 
@@ -417,12 +422,59 @@ const transport = withPageToolDispatch(
 | `session` | Returns the session id of the caller, for example `${userId}:${conversationId}`. Return `undefined` to refuse the request with a 401. Default: a random id in an HttpOnly, SameSite=Lax cookie. |
 | `host` | App data for the tool handlers (`ctx.host`), such as the signed-in user. |
 | `pageToolBroker` | Delivers results to active page dispatches. Default: bounded process memory. |
+| `conversationStore` | Where the conversation is kept. Required, except for a stateless profile, which must not have one. See [Keep the conversation](#keep-the-conversation). |
 | `sessionStore`, `steerInbox` | Where open gates and queued steers are kept. Default: process memory. |
 | `credentialStore` | Where tool credentials are kept, by session. Default: process memory. |
 | `authorizationUrl` | Returns the sign-in URL for an OAuth gate. Without it, an OAuth gate has no URL. |
 | `gateTtlMs` | How long a gate waits for an answer. Default: 30 minutes. A later answer fails with `session.gate_expired`. |
 | `clientEvents` | Options for `forClient` and `clientError`, which prepare each event and each caught failure for the browser. `reader: 'builder'` sends the raw reason in place of the wording of the profile. Use it only in a development tool on your own machine. |
 | `onError` | Receives each error that the handler catches. A visitor sees the wording of the profile for that kind of error, never the error. |
+
+### Keep the conversation
+
+The conversation store keeps the transcript, the history that the model reads, the provider's native state, and a reply that waits for a gate.
+The session store keeps gates, permissions and operations. The two stores are separate.
+
+| Store | Where the conversation is kept |
+| --- | --- |
+| `createMemoryConversationStore()` | Process memory, for one server instance. A conversation that is not saved for 24 hours expires. At most 10,000 conversations are kept; the one saved longest ago goes first. Set `ttlMs` and `maxSessions` to change these limits. |
+| `createSealedConversationStore({ keys, keyVersion })` | Nowhere on the server. The ref is the conversation itself, encrypted and signed with your key, and bound to the session. The browser cannot read it or change it. |
+| Your own `TheoremConversationStore` | Your database. |
+
+A ref that the store cannot open fails with `session.conversation_unknown`. This includes a ref from another session.
+
+The sealed store:
+
+- Each key is at least 32 bytes. Keep the keys on the server.
+- `keyVersion` names the key that seals new writes. Keep an older key in `keys` while its refs must still open.
+- Each save issues a new ref. An older ref of the same conversation still opens, as a rewind does.
+- If the user stops a reply, or the browser leaves while a reply runs, the server saves the result under a new ref that the browser never receives. The browser keeps the ref from when its message reached the server. The reply, and any tool call it settled, is lost to the browser. With the memory store or your own store, the ref does not change, and the chat shows what the server saved.
+- The ref holds the whole conversation, including the bytes of each attachment. Every request sends it, so the conversation must stay under `maxRequestBytes`.
+
+To keep conversations in your own database, implement these two methods:
+
+```ts
+import type {
+  ConversationSnapshot,
+  ConversationWriteResult,
+  StoredConversation,
+} from '@theoremjs/react/server';
+
+interface ConversationDatabase {
+  read(sessionId: string, ref: string): Promise<ConversationSnapshot | undefined>;
+  write(
+    sessionId: string,
+    ref: string | null,
+    expectedRevision: string | null,
+    next: StoredConversation,
+  ): Promise<ConversationWriteResult>;
+}
+```
+
+- Every read and write names the session. For a ref that this session did not write, `read` returns `undefined` and `write` returns `{ written: false }`.
+- A null `ref` creates a conversation. Return a new opaque `ref` and `revision`.
+- Otherwise, write only while the stored revision is still `expectedRevision`, as one atomic operation. Return `{ written: false }` on a conflict.
+- Check what you read back with `storedConversationSchema`.
 
 ### Share session authority
 

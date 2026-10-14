@@ -18,7 +18,7 @@ import {
   userDraftToSteerInject,
 } from '@theoremjs/agents/interface';
 import { type MutableRefObject, useCallback } from 'react';
-import { type ClientFailure, clientFailure, type TurnFailure } from '../client/failure.ts';
+import { type ClientFailure, clientFailure } from '../client/failure.ts';
 import {
   type AnsweringGate,
   composerFieldsFromDraft,
@@ -30,8 +30,9 @@ import {
   type ToolDecisionAction,
   type ToolGateResolution,
 } from '../client/index.ts';
+import type { RunOutcome } from '../client/run-session.ts';
 import type { TheoremTransport } from '../client/transport.ts';
-import { issuedOperationId } from '../client/turn-client.ts';
+import { issuedOperationId, type RunScope } from '../client/turn-client.ts';
 import type { MessageDelivery } from './use-theorem-chat-state.ts';
 
 function composerFieldsPayload(
@@ -59,23 +60,10 @@ function newTurnId(): string {
 }
 
 export type RunTurnStream = (
-  run: (
-    view: StreamView,
-    /** The work so far of the reply the session waits on (none when it waits on nothing). */
-    paused: { workedMs: number },
-  ) => Promise<
-    | {
-        ok: true;
-        session: InterfaceTurnSession;
-        userBlocks?: TranscriptBlock[];
-        assistantBlocks: TranscriptBlock[];
-      }
-    | TurnFailure
-  >,
+  run: (view: StreamView) => Promise<RunOutcome>,
   options?: {
-    userBlocksAlreadyApplied?: boolean;
-    /** The run's message walks away from the gates the reply waits on, ending that reply. */
-    walksAway?: boolean;
+    /** The run sends a message: one that never posts goes back in the composer with its failure. */
+    message?: { restore(): Promise<void> };
   },
 ) => Promise<void>;
 
@@ -108,6 +96,10 @@ export type TheoremChatActionArgs = {
   draftText: string;
   pendingFiles: File[];
   pendingVoice: File[];
+  /** The composer as it is now, for a run that ends after it changed. */
+  composerRef: MutableRefObject<{ draftText: string; pendingFiles: File[]; pendingVoice: File[] }>;
+  /** The ref of the conversation the chat continues; none before its first message posts. */
+  conversationRef: MutableRefObject<string | undefined>;
   clearComposer: () => void;
   runTurnStream: RunTurnStream;
   sessionRef: MutableRefObject<InterfaceTurnSession>;
@@ -137,10 +129,42 @@ export type TheoremChatActionArgs = {
   pendingRef: MutableRefObject<ComposerPendingMessage[]>;
 };
 
+/** The run's scope: the conversation the chat continues, and the run's own turn. */
+function scopeOf(args: TheoremChatActionArgs, turnId?: string): RunScope {
+  return { conversation: args.conversationRef.current, turnId };
+}
+
+type ComposerFields = { text: string; files: File[]; voice: File[] };
+
+/**
+ * Puts a message back in the composer. What the composer holds now is
+ * stashed first, so nothing the user typed is lost.
+ */
+function useRestoreToComposer(args: TheoremChatActionArgs) {
+  return useCallback(
+    async (fields: ComposerFields) => {
+      const { draftText, pendingFiles, pendingVoice } = args.composerRef.current;
+      if (userDraftHasPayload(composerFieldsPayload(draftText, pendingFiles, pendingVoice))) {
+        const draft = await encodeComposerDraft({ text: draftText, pendingFiles, pendingVoice });
+        const stash = createComposerPendingMessage({ kind: 'stash', draft });
+        args.setPendingMessages((prev) => orderComposerPendingMessages([...prev, stash]));
+      }
+      args.setDraftText(fields.text);
+      args.setPendingFiles(fields.files);
+      args.setPendingVoice(fields.voice);
+      args.setIssues([]);
+    },
+    [args],
+  );
+}
+
 /** Starts a turn from the composer's fields, or from an encoded draft (queued or send-now). */
-function useTurnStarters(args: TheoremChatActionArgs) {
+function useTurnStarters(
+  args: TheoremChatActionArgs,
+  restoreToComposer: (fields: ComposerFields) => Promise<void>,
+) {
   const startTurnFromFields = useCallback(
-    async (fields: { text: string; files: File[]; voice: File[] }) => {
+    async (fields: ComposerFields) => {
       const started = beginAbortableTurn(args);
       if (!started) return;
 
@@ -154,7 +178,7 @@ function useTurnStarters(args: TheoremChatActionArgs) {
             pendingFiles: fields.files,
             pendingVoice: fields.voice,
             signal: started.signal,
-            turnId: started.turnId,
+            scope: scopeOf(args, started.turnId),
             view,
             onUserBlocks: (userBlocks) => {
               args.setBlocks((prev) => [...prev, ...userBlocks]);
@@ -164,10 +188,10 @@ function useTurnStarters(args: TheoremChatActionArgs) {
               args.clearComposer();
             },
           }),
-        { userBlocksAlreadyApplied: true },
+        { message: { restore: () => restoreToComposer(fields) } },
       );
     },
-    [args],
+    [args, restoreToComposer],
   );
 
   const startTurnFromDraft = useCallback(
@@ -184,16 +208,16 @@ function useTurnStarters(args: TheoremChatActionArgs) {
       if (!started) return;
 
       await args.runTurnStream(
-        (view, paused) =>
+        (view) =>
           streamInterfaceDraftTurn({
             iface: started.composer,
             transport: args.transport,
             session: args.sessionRef.current,
             draft,
             signal: started.signal,
-            turnId: started.turnId,
+            scope: scopeOf(args, started.turnId),
             view,
-            ...(options.walkAway ? { walkAway: paused } : {}),
+            walkAway: options.walkAway === true,
             onUserBlocks: (posted) => {
               args.setBlocks((prev) => [...prev, ...posted]);
               args.setStreamBlocks([]);
@@ -203,10 +227,10 @@ function useTurnStarters(args: TheoremChatActionArgs) {
               options.onPosted?.();
             },
           }),
-        { userBlocksAlreadyApplied: true, walksAway: options.walkAway === true },
+        { message: { restore: () => restoreToComposer(composerFieldsFromDraft(draft)) } },
       );
     },
-    [args],
+    [args, restoreToComposer],
   );
 
   return { startTurnFromFields, startTurnFromDraft };
@@ -229,7 +253,10 @@ function steerAfterTurnEnded(args: TheoremChatActionArgs, messageId: string): vo
 }
 
 /** Queue / steer / stash the composer draft, and restore a pending message into the composer. */
-function usePendingActions(args: TheoremChatActionArgs) {
+function usePendingActions(
+  args: TheoremChatActionArgs,
+  restoreToComposer: (fields: ComposerFields) => Promise<void>,
+) {
   const enqueuePending = useCallback(
     async (kind: 'queue' | 'steer' | 'stash') => {
       if (
@@ -270,33 +297,14 @@ function usePendingActions(args: TheoremChatActionArgs) {
     async (id: string) => {
       const message = args.pendingRef.current.find((m) => m.id === id);
       if (!message) return;
-      const currentDraft = composerFieldsPayload(
-        args.draftText,
-        args.pendingFiles,
-        args.pendingVoice,
-      );
       try {
-        let nextPending = removeComposerPendingMessage(args.pendingRef.current, id);
-        if (userDraftHasPayload(currentDraft)) {
-          const stashDraft = await encodeComposerDraft({
-            text: args.draftText,
-            pendingFiles: args.pendingFiles,
-            pendingVoice: args.pendingVoice,
-          });
-          const stash = createComposerPendingMessage({ kind: 'stash', draft: stashDraft });
-          nextPending = orderComposerPendingMessages([...nextPending, stash]);
-        }
-        const restored = composerFieldsFromDraft(message.draft);
-        args.setPendingMessages(nextPending);
-        args.setDraftText(restored.text);
-        args.setPendingFiles(restored.files);
-        args.setPendingVoice(restored.voice);
-        args.setIssues([]);
+        await restoreToComposer(composerFieldsFromDraft(message.draft));
+        args.setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
       } catch (err) {
         args.setFailure(clientFailure(err, args.iface?.labels));
       }
     },
-    [args],
+    [args, restoreToComposer],
   );
 
   return { enqueuePending, handlePendingRestore };
@@ -325,6 +333,7 @@ function useGateActions(args: TheoremChatActionArgs) {
             iface: composer,
             transport: args.transport,
             session,
+            scope: scopeOf(args),
             resolution,
             view,
           });
@@ -354,8 +363,9 @@ function useGateActions(args: TheoremChatActionArgs) {
 }
 
 export function useTheoremChatActions(args: TheoremChatActionArgs) {
-  const { startTurnFromFields, startTurnFromDraft } = useTurnStarters(args);
-  const { enqueuePending, handlePendingRestore } = usePendingActions(args);
+  const restoreToComposer = useRestoreToComposer(args);
+  const { startTurnFromFields, startTurnFromDraft } = useTurnStarters(args, restoreToComposer);
+  const { enqueuePending, handlePendingRestore } = usePendingActions(args, restoreToComposer);
   const { handleToolDecision, handleAuthenticated, resumeGatedTool } = useGateActions(args);
 
   const handleStop = useCallback(() => {

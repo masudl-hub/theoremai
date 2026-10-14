@@ -1,8 +1,6 @@
 import {
   type GateReference,
   gateReferenceSchema,
-  type ProviderCheckpoint,
-  providerCheckpointSchema,
   TOOL_GATE_KINDS,
   type ToolGate,
 } from '@theoremjs/agents';
@@ -30,15 +28,21 @@ import {
   type TurnHistoryMessage,
   type TurnToolSnapshot,
   throwIfAborted,
+  turnEventSchema,
   turnHistoryMessageSchema,
   turnToolSnapshotSchema,
   z,
 } from '@theoremjs/agents';
 import { kindOfHttpStatus } from '@theoremjs/agents/guardrails';
-import { type ProfileInterface, profileInterfaceSchema } from '@theoremjs/agents/interface';
+import {
+  type ProfileInterface,
+  profileInterfaceSchema,
+  type TranscriptBlock,
+} from '@theoremjs/agents/interface';
 import type { Equals } from '@theoremjs/agents/kernel';
 import type { PagePart } from './tool-resume.ts';
 import type { TraceFeed } from './trace-feed.ts';
+import { transcriptBlockSchema } from './transcript-schema.ts';
 import {
   checkWire,
   type MalformedEvent,
@@ -59,9 +63,6 @@ export type TheoremTurnInput = {
   text?: string;
   attachments?: EncodedBlob[];
   voice?: EncodedBlob[];
-  history?: TurnHistoryMessage[];
-  historyTokens?: number;
-  inputTokens?: number;
   /** The value chosen for each of the profile's `inputs.slots`. */
   slots?: Record<string, string>;
   /** What the page wants the agent to know: any JSON. The host reads it as untrusted. */
@@ -73,9 +74,6 @@ const theoremTurnInput = z.object({
   text: z.string().optional(),
   attachments: z.array(encodedBlob).optional(),
   voice: z.array(encodedBlob).optional(),
-  history: z.array(turnHistoryMessageSchema).optional(),
-  historyTokens: z.number().optional(),
-  inputTokens: z.number().optional(),
 });
 true satisfies Equals<z.infer<typeof theoremTurnInput>, TheoremTurnInput>;
 
@@ -89,24 +87,20 @@ export type TheoremReplay = {
   sessionPermissions?: string[];
   name?: string;
   input?: unknown;
-  turnInput?: TheoremTurnInput;
   snapshot?: TurnToolSnapshot;
   promoted?: string[];
   model?: string;
   effort?: string;
-  path?: string;
 };
 const theoremReplay = z.object({
   gateKind: z.enum(TOOL_GATE_KINDS).optional(),
   sessionPermissions: z.array(z.string()).optional(),
   name: z.string().optional(),
   input: z.unknown().optional(),
-  turnInput: theoremTurnInput.optional(),
   snapshot: turnToolSnapshotSchema.optional(),
   promoted: z.array(z.string()).optional(),
   model: z.string().optional(),
   effort: z.string().optional(),
-  path: z.string().optional(),
 });
 true satisfies Equals<z.infer<typeof theoremReplay>, TheoremReplay>;
 /** For a host that reads the studio's client-held state. */
@@ -116,16 +110,17 @@ export const theoremReplaySchema: z.ZodType<TheoremReplay> = theoremReplay;
 const clientId = z.string().trim().min(1);
 
 /**
- * One text turn. The host resolves the profile; the client sends the conversation.
+ * One message. The host resolves the profile and owns the conversation: the
+ * client sends only the message and the ref of the conversation it continues.
  *
  * A message sent while the reply waits on gates walks away from them: `abandon`
- * names the waiting calls, and `input.history` ends on their step with those
- * calls open. The host settles each one cancelled, streams those events first,
- * and gives the model each call's answer before the message.
+ * names the waiting calls. The host settles each one cancelled, streams those
+ * events first, and gives the model each call's answer before the message.
  */
 export type TheoremTurnRequest = {
   input: TheoremTurnInput;
-  providerState?: ProviderCheckpoint;
+  /** The ref of the conversation this message continues; none starts one. */
+  conversation?: string;
   model?: string;
   effort?: string;
   /** Client-generated id so mid-turn steers can find this turn's inbox. */
@@ -139,7 +134,7 @@ export type TheoremTurnRequest = {
 };
 const theoremTurnRequest = z.object({
   input: theoremTurnInput,
-  providerState: providerCheckpointSchema.optional(),
+  conversation: z.string().min(1).optional(),
   model: z.string().optional(),
   effort: z.string().optional(),
   turnId: clientId.optional(),
@@ -178,6 +173,10 @@ export type TheoremInvokeRequest = {
   secret?: string;
   /** The page's answer to a `page` gate, only with `approve`: the tool's output schema checks it. */
   page?: PagePart;
+  /** The ref of the conversation whose reply waits on the gate. */
+  conversation?: string;
+  /** Client-generated id so steers sent while the reply goes on find its inbox. */
+  turnId?: string;
   replay?: TheoremReplay;
 };
 const pagePart = z.union([
@@ -194,6 +193,8 @@ const theoremInvokeRequest = z.object({
   input: z.unknown().optional(),
   secret: z.string().optional(),
   page: pagePart.optional(),
+  conversation: z.string().min(1).optional(),
+  turnId: clientId.optional(),
   replay: theoremReplay.optional(),
 });
 true satisfies Equals<z.infer<typeof theoremInvokeRequest>, TheoremInvokeRequest>;
@@ -216,21 +217,91 @@ true satisfies Equals<z.infer<typeof theoremSteerRequest>, TheoremSteerRequest>;
 /** A `/steer` body as `createTheoremHandler` reads it. */
 export const theoremSteerRequestSchema: z.ZodType<TheoremSteerRequest> = theoremSteerRequest;
 
+/**
+ * The ref the store issued for the conversation a run wrote: the client sends
+ * it with its next request. It comes before the run's error, which ends the stream.
+ * `posted` marks the write that holds the person's new message: a run that
+ * fails before it leaves the message unsent.
+ */
+export type ConversationLine = { type: 'conversation'; ref: string; posted?: true };
+const conversationLine = z.object({
+  type: z.literal('conversation'),
+  ref: z.string().min(1),
+  posted: z.literal(true).optional(),
+});
+true satisfies Equals<z.infer<typeof conversationLine>, ConversationLine>;
+
+/** The lines a chat's reply streams: turn events, and the conversation's ref. */
+export const CHAT_LINES: WireLines<TurnEvent | ConversationLine> = {
+  ...TURN_EVENT_SCHEMAS,
+  conversation: conversationLine,
+};
+
+/** What the browser draws: the transcript, and the reply that waits on gates. */
+export type ConversationView = {
+  transcript: TranscriptBlock[];
+  /** The reply that waits on gates: its events, and its blocks as the transcript will keep them. */
+  paused?: { events: TurnEvent[]; blocks: TranscriptBlock[] };
+};
+const conversationView = z.object({
+  transcript: z.array(transcriptBlockSchema),
+  paused: z
+    .object({ events: z.array(turnEventSchema), blocks: z.array(transcriptBlockSchema) })
+    .optional(),
+});
+true satisfies Equals<z.infer<typeof conversationView>, ConversationView>;
+/** A conversation as the host shows it. */
+export const conversationViewSchema: z.ZodType<ConversationView> = conversationView;
+
+/** Read a conversation: a `/conversation` body. */
+export type TheoremConversationRequest = { conversation: string };
+const theoremConversationRequest = z.object({ conversation: z.string().min(1) });
+true satisfies Equals<z.infer<typeof theoremConversationRequest>, TheoremConversationRequest>;
+/** A `/conversation` body as `createTheoremHandler` reads it. */
+export const theoremConversationRequestSchema: z.ZodType<TheoremConversationRequest> =
+  theoremConversationRequest;
+
+/**
+ * Cut the conversation after transcript block `at` (-1 empties it): a
+ * `/rewind` body. A reply waiting on gates is walked away from first.
+ */
+export type TheoremRewindRequest = { conversation: string; at: number };
+const theoremRewindRequest = z.object({
+  conversation: z.string().min(1),
+  at: z.number().int().min(-1),
+});
+true satisfies Equals<z.infer<typeof theoremRewindRequest>, TheoremRewindRequest>;
+/** A `/rewind` body as `createTheoremHandler` reads it. */
+export const theoremRewindRequestSchema: z.ZodType<TheoremRewindRequest> = theoremRewindRequest;
+
+/** A rewound conversation: its new ref, and what the browser draws. */
+export type TheoremRewound = { conversation: string; view: ConversationView };
+const theoremRewound = z.object({ conversation: z.string().min(1), view: conversationView });
+true satisfies Equals<z.infer<typeof theoremRewound>, TheoremRewound>;
+
 /** A turn event, one of a kind this client does not know (`unsupported`), or one that failed its check (`malformed`). */
 export type ClientTurnEvent = TurnEvent | UnsupportedEvent | MalformedEvent;
 
 export type TurnEventSink = (event: ClientTurnEvent) => void;
 
+/** A line of a chat's reply: a turn event, or the ref of the conversation it wrote. */
+export type ChatLine = ClientTurnEvent | ConversationLine;
+
+export type ChatLineSink = (line: ChatLine) => void;
+
 export interface TheoremTransport {
   /** Client-safe interface for the host's profile (inputs, models, guardrail view). */
   describe(signal?: AbortSignal): Promise<ProfileInterface>;
-  turn(request: TheoremTurnRequest, onEvent: TurnEventSink, signal?: AbortSignal): Promise<void>;
-  invoke(
-    request: TheoremInvokeRequest,
-    onEvent: TurnEventSink,
-    signal?: AbortSignal,
-  ): Promise<void>;
+  turn(request: TheoremTurnRequest, onLine: ChatLineSink, signal?: AbortSignal): Promise<void>;
+  invoke(request: TheoremInvokeRequest, onLine: ChatLineSink, signal?: AbortSignal): Promise<void>;
   steer(request: TheoremSteerRequest): Promise<void>;
+  /** The conversation under `ref`, as the host shows it. */
+  conversation(
+    request: TheoremConversationRequest,
+    signal?: AbortSignal,
+  ): Promise<ConversationView>;
+  /** The conversation cut after a transcript block, under the ref the host issued for it. */
+  rewind(request: TheoremRewindRequest, signal?: AbortSignal): Promise<TheoremRewound>;
   pageResult?(result: PageDispatchResult, signal?: AbortSignal): Promise<void>;
   /** Trace records the host sends back, when it delivers them (the studio does). */
   traces?: TraceFeed;
@@ -495,9 +566,23 @@ export function createHttpTransport(options: HttpTransportOptions = {}): Theorem
       ).interface;
     },
     turn: ({ replay: _replay, ...body }, onEvent, signal) =>
-      postNdjson(`${base}/turn`, body, TURN_EVENT_SCHEMAS, onEvent, { ...options, signal }),
+      postNdjson(`${base}/turn`, body, CHAT_LINES, onEvent, { ...options, signal }),
     invoke: ({ replay: _replay, ...body }, onEvent, signal) =>
-      postNdjson(`${base}/invoke`, body, TURN_EVENT_SCHEMAS, onEvent, { ...options, signal }),
+      postNdjson(`${base}/invoke`, body, CHAT_LINES, onEvent, { ...options, signal }),
+    // labels-exempt: internal diagnostic; the user reads error.bad_response
+    conversation: async (body, signal) =>
+      checkWire(
+        conversationView,
+        await fetchJson(`${base}/conversation`, { body, signal }, options),
+        'the conversation',
+      ),
+    // labels-exempt: internal diagnostic; the user reads error.bad_response
+    rewind: async (body, signal) =>
+      checkWire(
+        theoremRewound,
+        await fetchJson(`${base}/rewind`, { body, signal }, options),
+        'the rewound conversation', // labels-exempt: internal diagnostic; the user reads error.bad_response
+      ),
     pageResult: (body, signal) => postJson(`${base}/page-result`, body, { ...options, signal }),
     steer: (body) => postJson(`${base}/steer`, body, options),
   };

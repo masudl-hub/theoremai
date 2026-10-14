@@ -17,7 +17,7 @@ export function sessionStateStore(
   gateTtlMs: number,
   operationRetentionMs: number,
   limits: TheoremSessionLimits,
-): MutableStore<TheoremSessionState> & { checkpointLimit: number } {
+): MutableStore<TheoremSessionState> {
   if (typeof store.compareAndSwap !== 'function') {
     throw new TheoremError('config', labelText('error.config'), {
       cause: { code: 'session_store_contract', required: 'compareAndSwap' },
@@ -57,7 +57,6 @@ export function sessionStateStore(
     return { revision: snapshot?.revision ?? null, state };
   };
   return {
-    checkpointLimit: limits.maxCheckpoints,
     async read(sessionId) {
       return (await load(sessionId, Date.now())).state;
     },

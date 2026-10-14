@@ -357,6 +357,24 @@ Deno.test("a provider's file keeps its id, a kernel adapter and only what a prov
   assertEquals(errors(`${source}registerProvider(house);\n`), [
     "8: 'registerProvider' isn't part of a provider's file.",
   ]);
+  // What the file would run with is what it reads as: a name is not its own text, a key is set
+  // once, and `__proto__` is no setting. `undefined` is none, and a byte-order mark is no text.
+  const slotted = source.replace('connection: {}', "connection: {},\n  keySlot: 'k'");
+  assertEquals(errors(slotted.replace("keySlot: 'k'", 'keySlot: SLOT')), [
+    "6: 'SLOT' is set somewhere else. Write its value here.",
+  ]);
+  assertEquals(errors(slotted.replace("keySlot: 'k'", "keySlot: 'k', keySlot: 'j'")), [
+    "6: 'keySlot' is set twice.",
+  ]);
+  assertEquals(errors(source.replace('connection: {}', "connection: { __proto__: 'x' }")), [
+    "5: '__proto__' sets what an object inherits, not a setting.",
+  ]);
+  const unset = readProviderSource(
+    `\ufeff${slotted.replace("keySlot: 'k'", 'fallbackKeySlot: undefined')}`,
+    house,
+  );
+  assert(unset.ok);
+  assertEquals(unset.provider, house);
   // An agent's file still names no provider of its own.
   const draft = createExampleDraft();
   assertEquals(readStudioSource(source, draft).ok, false);

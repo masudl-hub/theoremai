@@ -118,7 +118,7 @@ class Src {
   skip(): void {
     for (;;) {
       const ch = this.peek();
-      if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+      if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\ufeff') {
         this.bump();
         continue;
       }
@@ -290,10 +290,15 @@ function parseObject(
     let key: string;
     if (src.peek() === "'" || src.peek() === '"') key = parseString(src);
     else key = src.expectIdent();
+    // JavaScript sets an object's prototype from `__proto__`, and TypeScript refuses a key set twice.
+    if (key === '__proto__') {
+      throw new ReadFail("'__proto__' sets what an object inherits, not a setting.", at.line, at.column);
+    }
+    if (Object.hasOwn(out, key)) throw new ReadFail(`'${key}' is set twice.`, at.line, at.column);
     const next = path ? `${path}.${key}` : key;
     spans.push({ path: next, line: at.line, column: at.column });
     src.expect(':');
-    out[key] = parseExpr(src, next, spans);
+    out[key] = parseValue(src, next, spans);
     src.eat(',');
     if (src.done) src.fail('This object never closes.');
   }
@@ -310,7 +315,7 @@ function parseArray(src: Src, path: string, spans: StudioSourceSpan[]): unknown[
     const at = src.pos();
     const itemPath = path ? `${path}.${String(index)}` : String(index);
     spans.push({ path: itemPath, line: at.line, column: at.column });
-    out.push(parseExpr(src, itemPath, spans));
+    out.push(parseValue(src, itemPath, spans));
     index += 1;
     src.eat(',');
     if (src.done) src.fail('This array never closes.');
@@ -461,6 +466,20 @@ function parseAtom(src: Src, path: string, spans: StudioSourceSpan[]): unknown {
   if (name === 'null') return null;
   if (name === undefined) src.fail('Expected a value.');
   return name;
+}
+
+/**
+ * A setting's value, as written in an object or a list. A name standing alone there is a value
+ * written somewhere else, which this file does not show; `undefined` is no value.
+ */
+function parseValue(src: Src, path: string, spans: StudioSourceSpan[]): unknown {
+  src.skip();
+  const at = src.pos();
+  const named = src.peekIdent();
+  const value = parseExpr(src, path, spans);
+  if (named === undefined || value !== named) return value;
+  if (named === 'undefined') return undefined;
+  throw new ReadFail(`'${named}' is set somewhere else. Write its value here.`, at.line, at.column);
 }
 
 function parsePostfix(

@@ -404,7 +404,7 @@ export function StudioSettings(props: StudioSettingsProps) {
 		<Section variant="transparent" height="100%" padding={0}>
 			<Layout
 				height="fill"
-				contentWidth={1440}
+				contentWidth="min(100%, 72rem)"
 				start={
 					isNarrow ? undefined : (
 						<Section variant="transparent" width={NAV_WIDTH} height="100%" padding={4} dividers={['end']}>

@@ -23,6 +23,7 @@ import { VStack } from '@astryxdesign/core/VStack';
 import {
 	IconActivity,
 	IconAdjustmentsHorizontal,
+	IconAffiliate,
 	IconArrowBarToDown,
 	IconArrowLeft,
 	IconBrowserShare,
@@ -39,6 +40,7 @@ import {
 	IconPlaylistX,
 	IconPlus,
 	IconRestore,
+	IconRobot,
 	IconRotateClockwise,
 	IconSearch,
 	IconShieldSearch,
@@ -677,12 +679,24 @@ function WorkspaceListToggle({
 				onChange(next === 'tools' || next === 'shared' ? next : 'agents');
 			}}
 		>
-			<SegmentedControlItem value="agents" label={`Agents ${String(workspace.agents.length)}`} />
-			<SegmentedControlItem value="tools" label={`Tools ${String(workspace.toolSpecs.length)}`} />
-			<SegmentedControlItem value="shared" label={`Shared ${String(shared)}`} />
+			{WORKSPACE_LISTS.map(({ value, name, icon }) => {
+				const count = String({ agents: workspace.agents.length, tools: workspace.toolSpecs.length, shared }[value]);
+				return (
+					<Tooltip key={value} content={`${name} · ${count}`}>
+						<SegmentedControlItem value={value} label={`${name}, ${count}`} isLabelHidden icon={<Icon icon={icon} size="sm" />} />
+					</Tooltip>
+				);
+			})}
 		</SegmentedControl>
 	);
 }
+
+/** The sidebar's lists, as icons: a name and its count would not fit the nav's width. */
+const WORKSPACE_LISTS: readonly { value: WorkspaceList; name: string; icon: IconType }[] = [
+	{ value: 'agents', name: 'Agents', icon: IconRobot },
+	{ value: 'tools', name: 'Tools', icon: IconTool },
+	{ value: 'shared', name: 'Shared', icon: IconAffiliate },
+];
 
 interface ExampleEntry {
 	id: string;
@@ -2838,7 +2852,7 @@ function PreviewHeader({
 							}}
 						/>
 						{compile.traced && !testing.open ? (
-							<Button
+							<IconButton
 								label={traceLabel}
 								variant="ghost"
 								tooltip={

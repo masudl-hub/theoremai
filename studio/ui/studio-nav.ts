@@ -2,7 +2,7 @@
 export const THEOREM_SITE = 'https://theorem.masudlewis.com';
 
 /** The width of the studio's side nav: the tree's, and Settings' sections. */
-export const NAV_WIDTH = 224;
+export const NAV_WIDTH = 256;
 
 /** The website's pages, in the rail's order. */
 export const SITE_PAGES = [

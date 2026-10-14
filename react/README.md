@@ -267,6 +267,8 @@ import { TheoremDecision } from '@theoremjs/react/ui';
 - `vault` holds the keys of the profile, by slot.
 - `metadata` is optional. It adds data, such as the signed-in user, to the trace record of each decision.
 
+Under the state, `TheoremDecision` shows the shortcut that asks for a decision, ⌘↵. When the profile sets `maxStateBytes` in its `inputs`, it shows the size of the state against that limit instead.
+
 For your own UI, use `useTheoremDecision`.
 
 ### Live

@@ -430,6 +430,11 @@ export const THEOREM_UI_CATALOG = {
     description: "The state's size against the profile's limit, under the field.",
     params: ['size', 'limit'],
   },
+  '@theorem.decision.shortcut': {
+    defaultMessage: '⌘↵ to decide',
+    description:
+      'The keyboard shortcut that asks for a decision, under the field, when the profile sets no size limit.',
+  },
   '@theorem.decision.view': {
     defaultMessage: 'Edit as',
     description: 'Switch between the state as fields and as JSON.',

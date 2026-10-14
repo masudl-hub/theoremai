@@ -113,7 +113,7 @@ function stateNote(
     );
   }
   return maxBytes === undefined
-    ? bytes(check.bytes)
+    ? t('@theorem.decision.shortcut')
     : t('@theorem.decision.state_size', { size: bytes(check.bytes), limit: bytes(maxBytes) });
 }
 

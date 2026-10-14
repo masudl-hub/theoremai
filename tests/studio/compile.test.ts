@@ -943,7 +943,7 @@ Deno.test('a tool compiles its activity labels, each placeholder checked against
       '{output.results.0.latitude}, {output.results.0.longitude} or {output.results.0.country_code}.',
   );
   assert(withLabels('Finding {{name}}', 'Found {results.length}, first {results.-1.name|none}').ok);
-  assertEquals(issue(`Finding ${'x'.repeat(121)}`, 'Found it').field, 'activity');
+  assert(withLabels(`Finding ${'x'.repeat(200)}`, 'Found it').ok);
 });
 Deno.test('a label box with a line each compiles to a list label, checked as one', () => {
   const draft = createExampleDraft();
@@ -976,11 +976,21 @@ Deno.test('a label box with a line each compiles to a list label, checked as one
     issue('Finding a place\nFinding {name}').message,
     'Line 1 always fits, so the lines below it are never read. Move it to the end.',
   );
-  assertEquals(
-    issue(`Finding {name}\nFinding ${'x'.repeat(121)}`).message,
-    'Each line of an activity label is limited to 120 characters.',
-  );
+  // The kernel caps no label line, so the studio doesn't either.
+  assert(withActivity(`when name is Paris: Finding ${'x'.repeat(200)}\nFinding a place`).ok);
   assert(withActivity(`Finding {name}\n+ Finding {name} ${'x'.repeat(100)}\nFinding a place`).ok);
+});
+Deno.test('a tool name the kernel accepts compiles', () => {
+  const draft = createExampleDraft();
+  for (const name of ['search-docs', '_internal']) {
+    const result = compileStudio({
+      ...draft,
+      toolSpecs: draft.toolSpecs.map((tool) =>
+        tool.toolName === 'geocode_city' ? { ...tool, toolName: name } : tool,
+      ),
+    });
+    assert(result.ok, JSON.stringify(!result.ok && result.issues));
+  }
 });
 Deno.test('a tool request label reads only the call input', () => {
   const draft = createExampleDraft();

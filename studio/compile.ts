@@ -612,12 +612,7 @@ type Fail = (message: string, field: keyof ToolSpecDraft) => void;
 
 function checkToolName(name: string, fail: Fail): void {
   if (!name) fail('Tool name is required.', 'toolName');
-  else if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) {
-    fail(
-      `Tool name '${name}' must be letters, digits, and underscores, starting with a letter.`,
-      'toolName',
-    );
-  } else if (isProviderBuiltinId(name)) {
+  else if (isProviderBuiltinId(name)) {
     fail(
       `${name} is a provider builtin — turn it on under the model's built-in tools.`,
       'toolName',
@@ -680,8 +675,6 @@ export function agentToolInputSchema(draft: StudioDraft): Record<string, unknown
 
 type ToolCommon = ReturnType<typeof toolCommon>;
 
-const MAX_ACTIVITY_LABEL_CHARS = 120;
-
 /** The lines of a label as its box holds them: one line of wording, or a list with a line each. */
 function labelLines(label: string | undefined): string[] {
   return (label ?? '')
@@ -706,13 +699,6 @@ function toolLabels(
     const lines = labelLines(tool[field]);
     const [only] = lines;
     if (only === undefined) continue;
-    if (lines.some((line) => line.length > MAX_ACTIVITY_LABEL_CHARS)) {
-      fail(
-        `Each line of an activity label is limited to ${MAX_ACTIVITY_LABEL_CHARS} characters.`,
-        field,
-      );
-      continue;
-    }
     const label = lines.length === 1 ? only : lines;
     const problem = activityLabelProblem(label, schemas[field]);
     if (problem) {

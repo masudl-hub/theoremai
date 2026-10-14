@@ -122,7 +122,7 @@ function nonToolSteps(msg: TurnHistoryMessage): Record<string, unknown>[] {
  * History as input steps. A file a `function_result` cannot hold follows its run
  * of tool results in a `user_input` step (`withCarriedToolFiles`).
  */
-export function historyStepsOf(messages: readonly TurnHistoryMessage[]): Record<string, unknown>[] {
+function historyStepsOf(messages: readonly TurnHistoryMessage[]): Record<string, unknown>[] {
   return withCarriedToolFiles(messages, FUNCTION_RESULT_PART_TYPES).flatMap((msg) =>
     msg.role === 'tool' ? [functionResultStep(msg)] : nonToolSteps(msg),
   );

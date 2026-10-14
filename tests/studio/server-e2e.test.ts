@@ -364,6 +364,13 @@ Deno.test(
           ['wipe_desk', 'function'],
         ]);
         assertEquals([opened.problems, opened.unregistered], [[], []]);
+        assertEquals(opened.modelProblems, [
+          {
+            profile: 'desk',
+            model: 'fifth',
+            message: "Provider 'own' has no verified 'clientTools' support",
+          },
+        ]);
         assertEquals(
           opened.shared?.map((setting) => [setting.name, setting.tools]),
           [['READ', ['lookup_city', 'fetch_rates']]],

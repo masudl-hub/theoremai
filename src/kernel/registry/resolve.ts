@@ -250,9 +250,11 @@ function resolveBuiltInArgs(
   return resolved;
 }
 
+/** `model` names the binding to resolve, past the profile's own selection rule: the turn check reads each. */
 function resolveTurnInRegistry(
   registry: KernelRegistry,
   req: TurnRequest,
+  model?: ModelId,
 ): {
   profile: ModelProfile;
   generation: ResolvedGeneration;
@@ -263,25 +265,25 @@ function resolveTurnInRegistry(
   const safe = sanitizeTurnRequest(req, profile);
   const input = safe.input ?? {};
   assertTurnResumption(profile, safe);
-  const model = pickModel(profile, safe.model);
-  const binding = requireModelBinding(profile, model);
-  const toolSnapshot = resolveTurnTools(registry.tools, profile, safe, model);
+  const picked = model ?? pickModel(profile, safe.model);
+  const binding = requireModelBinding(profile, picked);
+  const toolSnapshot = resolveTurnTools(registry.tools, profile, safe, picked);
   const builtins = toolSnapshot.builtins;
   const structuredId = resolveStructured(profile, input.slots);
   assertOutputMode(profile, structuredId);
   assertSpeechRole(profile, safe);
   const provider = registry.providers.require(binding.provider);
-  const builtInArgs = resolveBuiltInArgs(profile, model, binding, provider, safe.builtInArgs);
+  const builtInArgs = resolveBuiltInArgs(profile, picked, binding, provider, safe.builtInArgs);
   const keys = resolveKeySlot(provider, binding);
   const transport = resolveTransport(profile, binding);
   return {
     profile,
     generation: {
-      model,
+      model: picked,
       apiId: binding.apiId,
       transport,
       stream: resolveStreamFlag(profile),
-      thinking: resolveEffort(profile, binding, model, safe.effort),
+      thinking: resolveEffort(profile, binding, picked, safe.effort),
       summaries: resolveSummaries(binding),
       maxOutputTokens: binding.maxOutputTokens,
       temperature: binding.temperature,

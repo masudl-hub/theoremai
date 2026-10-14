@@ -285,9 +285,10 @@ function RefusalBody({ refusal }: { refusal: SaveRefusal }) {
  * that it cannot run. A count that shows each one's reason on hover. Nothing while there are none.
  */
 function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloaded?: string }) {
-	const { problems, differences, unheld, unregistered } = project;
+	const { problems, modelProblems, differences, unheld, unregistered } = project;
 	const count =
 		problems.length +
+		modelProblems.length +
 		differences.length +
 		(unheld.length ? 1 : 0) +
 		(unregistered.length ? 1 : 0) +
@@ -316,6 +317,14 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
 					{problems.map((problem) => (
 						<VStack key={problem.profile} gap={1}>
 							<Text weight="semibold">{`The studio cannot run ${problem.profile}.`}</Text>
+							<Text type="supporting" color="secondary">
+								{problem.message}
+							</Text>
+						</VStack>
+					))}
+					{modelProblems.map((problem) => (
+						<VStack key={`${problem.profile}:${problem.model}`} gap={1}>
+							<Text weight="semibold">{`As your files set it, ${problem.profile}'s model '${problem.model}' cannot run.`}</Text>
 							<Text type="supporting" color="secondary">
 								{problem.message}
 							</Text>

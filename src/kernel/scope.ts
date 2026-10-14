@@ -6,6 +6,7 @@ import type { ProviderHostOptions } from './provider-contract.ts';
 import { resolveRegisteredTurnProvider } from './provider-dispatch.ts';
 import { createKernelRegistry, type KernelRegistry } from './registry/kernel-registry.ts';
 import { projectProfileInRegistry, resolveTurnInRegistry } from './registry/resolve.ts';
+import { type TurnShortfall, turnShortfallsInRegistry } from './registry/turn-check.ts';
 import { invokeTool } from './tools/invoke.ts';
 import type { InvokeToolRequest } from './tools/types.ts';
 import type {
@@ -39,6 +40,8 @@ interface KernelScope extends KernelRegistry {
   ): Promise<CompactionResult | undefined>;
   invokeTool(request: InvokeToolRequest, sinkOverride?: TraceSink): AsyncGenerator<TurnEvent>;
   resolveTurn(req: TurnRequest): ReturnType<typeof resolveTurnInRegistry>;
+  /** Each model of profile `id` that cannot run a plain turn on its provider, and why. */
+  turnShortfalls(id: string): TurnShortfall[];
   projectProfile(id: string): ProjectedProfile;
   runDecision(request: DecisionRequest, options: RunDecisionOptions): Promise<DecisionResult>;
 }
@@ -80,6 +83,7 @@ function createKernelScope(): KernelScope {
       ),
     invokeTool: (request, sinkOverride) => invokeTool(registry, request, sinkOverride),
     resolveTurn: (req) => resolveTurnInRegistry(registry, req),
+    turnShortfalls: (id) => turnShortfallsInRegistry(registry, id),
     projectProfile: (id) => projectProfileInRegistry(registry, id),
     runDecision: (request, options) => runDecisionInRegistry(registry, request, options),
   };

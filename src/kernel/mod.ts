@@ -35,6 +35,7 @@ export {
   runDecision,
   runSession,
   runTurn,
+  turnShortfalls,
 } from './default-scope.ts';
 export type { CompactionSplit, CompactionTokens } from './engine/compaction.ts';
 export {
@@ -162,6 +163,7 @@ export { createProfileRegistry, defineProfile } from './registry/profiles.ts';
 export { projectProfileObject, requireModelProfile } from './registry/resolve.ts';
 export type { SchemaRegistry } from './registry/schemas.ts';
 export { createSchemaRegistry } from './registry/schemas.ts';
+export type { TurnShortfall } from './registry/turn-check.ts';
 export { resolveKeySlot } from './registry/vault.ts';
 export type {
   AuthUnauthenticatedPolicy,

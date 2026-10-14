@@ -38,6 +38,8 @@ export interface ProjectSession {
 	providers: string[];
 	/** The profiles the page could not show or run, and why. */
 	problems: { profile: string; message: string }[];
+	/** The models that cannot run as the files set them, and why. Their agents still run. */
+	modelProblems: { profile: string; model: string; message: string }[];
 	/** The settings the studio holds differently from the files, by profile and provider. None is the rule. */
 	differences: { kind: 'profile' | 'provider'; of: string; settings: string[] }[];
 	/** What the files hold that the studio cannot, which stops it comparing any profile. */
@@ -96,6 +98,7 @@ export function projectSession(name: string): ProjectSession {
 		profiles: [],
 		providers: [],
 		problems: [],
+		modelProblems: [],
 		differences: [],
 		unheld: [],
 		shared: [],
@@ -171,6 +174,7 @@ interface Opened {
 	project: string;
 	workspace: StudioWorkspace;
 	problems: ProjectSession['problems'];
+	modelProblems?: ProjectSession['modelProblems'];
 	differences?: ProjectSession['differences'];
 	unheld?: string[];
 	shared?: SharedSetting[];
@@ -223,6 +227,7 @@ export type ProjectFiles = Pick<
 	| 'profiles'
 	| 'providers'
 	| 'problems'
+	| 'modelProblems'
 	| 'differences'
 	| 'unheld'
 	| 'origins'
@@ -238,6 +243,7 @@ function filesOf(opened: Opened): ProjectFiles {
 		profiles: opened.workspace.agents.map((agent) => agent.identity.agentId),
 		providers: opened.workspace.providers.map((provider) => provider.id),
 		problems: opened.problems,
+		modelProblems: opened.modelProblems ?? [],
 		differences: opened.differences ?? [],
 		unheld: opened.unheld ?? [],
 		origins: opened.origins ?? NO_ORIGINS,

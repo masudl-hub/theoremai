@@ -7,6 +7,7 @@ import type {
   RegisteredProvider,
 } from './provider-contract.ts';
 import type { ProfileDefinition } from './registry/profiles.ts';
+import type { TurnShortfall } from './registry/turn-check.ts';
 import { defaultKernelScope as scope } from './scope.ts';
 import type { InvokeToolRequest, RegisteredTool, ToolDefinitionInput } from './tools/types.ts';
 import type {
@@ -138,6 +139,11 @@ function resolveTurn(req: TurnRequest): ReturnType<typeof scope.resolveTurn> {
   return scope.resolveTurn(req);
 }
 
+/** Each model of profile `id` in the default scope that cannot run a plain turn on its provider, and why. */
+function turnShortfalls(id: string): TurnShortfall[] {
+  return scope.turnShortfalls(id);
+}
+
 /** The profile `id` projected for a client, with server-only fields removed. */
 function projectProfile(id: string): ProjectedProfile {
   return scope.projectProfile(id);
@@ -174,6 +180,7 @@ export {
   runDecision,
   runSession,
   runTurn,
+  turnShortfalls,
 };
 
 export function registerProvider<C, O, K, S>(

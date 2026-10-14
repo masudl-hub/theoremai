@@ -24,6 +24,7 @@ import {
   type ProviderHostOptions,
   type RegisteredProvider,
   registerTool,
+  turnShortfalls,
 } from '@theoremjs/agents';
 import { compileDetect } from '@theoremjs/agents/guardrails/compile';
 import {
@@ -63,6 +64,9 @@ const STUDIO_SESSION = 'theorem-studio-local';
 /** A profile the page could not show or run, and why. */
 export type StudioProblem = { profile: string; message: string };
 
+/** A model that cannot run as the project's files set it, and why. Its agent still opens and runs. */
+export type StudioModelProblem = { profile: string; model: string; message: string };
+
 /** A profile or provider the studio shows differently from the project, and each setting it differs in, by path. */
 export type StudioDifference = { kind: 'profile' | 'provider'; of: string; settings: string[] };
 
@@ -72,6 +76,8 @@ export type StudioDescription = {
   /** The project as the studio holds one: an agent per profile, and the tools they share. */
   workspace: StudioWorkspace;
   problems: StudioProblem[];
+  /** The models that cannot run as the files set them. None when every one can. */
+  modelProblems?: StudioModelProblem[];
   /** Where what the studio shows is not what the project registered. None when they agree. */
   differences?: StudioDifference[];
   /** Why the project does not compile as the studio opened it, when it does not. */
@@ -291,6 +297,7 @@ function unlisted(workspace: StudioWorkspace, registered: ToolSpecDraft[]): Tool
 function describeStudio(project: string, questions: ProjectQuestions): StudioDescription {
   const tools = registeredTools();
   const problems: StudioProblem[] = [];
+  const modelProblems: StudioModelProblem[] = [];
   let workspace: StudioWorkspace | undefined;
   let library: ToolSpecDraft[] = [];
   for (const profile of listProfiles()) {
@@ -331,9 +338,10 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
       const key = opened.agents.find((each) => each.identity.agentId === id)?.key;
       // A blank writer is the agent itself, so a writer this project does not open is said, not dropped.
       if (!key) {
-        problems.push({
+        modelProblems.push({
           profile: agent.identity.agentId,
-          message: `Model '${binding.modelId}' has '${id}' write its summaries, and this project registers no agent '${id}'.`,
+          model: binding.modelId,
+          message: `It has '${id}' write its summaries, and this project registers no agent '${id}'.`,
         });
         return binding;
       }
@@ -343,6 +351,12 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
       ? { ...agent, modelBindings }
       : agent;
   });
+  // The kernel's own check as a turn starts, made now: a model its provider cannot run is said at open.
+  for (const agent of agents) {
+    for (const { model, message } of turnShortfalls(agent.identity.agentId)) {
+      modelProblems.push({ profile: agent.identity.agentId, model, message });
+    }
+  }
   // The project's own providers are the ones a model here can name.
   const registered = registeredProviders();
   const providers = registered.length > 0 ? registered : opened.providers;
@@ -365,6 +379,7 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
     project,
     workspace: whole,
     problems,
+    ...(modelProblems.length ? { modelProblems } : {}),
     ...(differences.length ? { differences } : {}),
     ...(unheld.length ? { unheld } : {}),
     asks: { asked: [], inside: [] },

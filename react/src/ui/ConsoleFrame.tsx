@@ -20,6 +20,7 @@ import {
 } from 'react';
 import { useLabels } from './labels-provider.tsx';
 import { PanelBody, PanelScroll, RAISED, SidePanel, SidePanelHeader } from './SidePanel.tsx';
+import { textRows } from './StateFields.tsx';
 import { type TraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
 
 export type ConsoleFrameProps = {
@@ -341,7 +342,7 @@ export function JsonRequest({
       isLabelHidden
       value={text}
       onChange={onChange}
-      rows={8}
+      rows={textRows(text, 8, 24)}
       hasSpellCheck={false}
       status={isInvalid ? { type: 'error' } : undefined}
       style={CODE_FONT}

@@ -25,6 +25,11 @@ const NO_SUGGESTIONS = { search: () => [], bootstrap: () => [] };
 /** Text this long, or on several lines, gets a text area. */
 const LONG_TEXT = 48;
 
+/** A text area's height: one row per line of its text, within `min` and `max`. Wrapped lines do not count. */
+export function textRows(text: string, min: number, max: number): number {
+  return Math.min(Math.max(text.split('\n').length, min), max);
+}
+
 /** A string, number, true/false, or null, as its input. */
 function PlainField({ value, onChange, label, isLabelHidden }: FieldProps) {
   // why: Decided once, so the field doesn't swap inputs (and lose focus) as the text grows.
@@ -62,7 +67,7 @@ function PlainField({ value, onChange, label, isLabelHidden }: FieldProps) {
       label={label}
       isLabelHidden={isLabelHidden}
       size="sm"
-      rows={2}
+      rows={textRows(text, 2, 12)}
       value={text}
       onChange={onChange}
     />

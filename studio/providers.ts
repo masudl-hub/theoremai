@@ -8,6 +8,8 @@
  */
 
 import type { ProviderAdapter, ProviderCapabilities } from '../src/kernel/provider-contract.ts';
+import { resolveKeySlot } from '../src/kernel/registry/vault.ts';
+import type { ModelBinding } from '../src/kernel/types.ts';
 import {
   googleAdapter,
   openAIChat,
@@ -73,6 +75,23 @@ export function adapterFactory(adapter: string): string | undefined {
 /** The adapter the provider `id` is defined with, among `providers`. */
 export function adapterOf(providers: readonly StudioProvider[], id: string): string | undefined {
   return providers.find((provider) => provider.id === id)?.adapter;
+}
+
+/**
+ * The key slots a model reads, as the kernel resolves them: the ones it names, else the ones its
+ * provider among `providers` was defined with. A slot left blank is one not named.
+ */
+export function modelSlots(
+  providers: readonly StudioProvider[],
+  binding: { provider: string; keySlot?: string; fallbackKeySlot?: string },
+): { keySlot?: string; fallbackKeySlot?: string } {
+  const provider = providers.find((held) => held.id === binding.provider) ?? {};
+  // invariant: the resolution reads a model's two slots and nothing else of it.
+  const named = {
+    ...(binding.keySlot ? { keySlot: binding.keySlot } : {}),
+    ...(binding.fallbackKeySlot ? { fallbackKeySlot: binding.fallbackKeySlot } : {}),
+  } as ModelBinding;
+  return resolveKeySlot(provider, named);
 }
 
 /**

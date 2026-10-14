@@ -1,14 +1,40 @@
 /** Shared by the compiler and the editor so both agree; mirrors the kernel's `PROFILE_FIELD_PRESENCE`. */
 
 import type { InputsDraft, ModelBindingDraft, StudioDraft } from './draft.ts';
+import { modelSlots } from './providers.ts';
 
 export function defaultModelRequired(draft: StudioDraft): boolean {
   return draft.modelBindings.length > 1;
 }
 
-/** Every model but a local one reads a vault slot: its own, or the profile's. */
+/** Every model but a local one reads a vault slot: its own, its provider's, or the profile's. */
 export function keySlotRequired(draft: StudioDraft): boolean {
-  return draft.modelBindings.some((binding) => !binding.keySlot && binding.provider !== 'local');
+  return draft.modelBindings.some(
+    (binding) => binding.provider !== 'local' && !modelSlots(draft.providers, binding).keySlot,
+  );
+}
+
+/**
+ * The key slots a model of `draft` reads: its own, the profile's, or its provider's. Each says
+ * whether it is the provider's, which the profile does not write.
+ */
+export function bindingSlots(
+  draft: StudioDraft,
+  binding: ModelBindingDraft,
+): { keySlot?: string; fallbackKeySlot?: string; given: { keySlot: boolean; fallbackKeySlot: boolean } } {
+  const written = {
+    provider: binding.provider,
+    keySlot: binding.keySlot || draft.models.key,
+    fallbackKeySlot: binding.fallbackKeySlot || draft.models.fallbackKey,
+  };
+  const read = modelSlots(draft.providers, written);
+  return {
+    ...read,
+    given: {
+      keySlot: Boolean(read.keySlot) && !written.keySlot,
+      fallbackKeySlot: Boolean(read.fallbackKeySlot) && !written.fallbackKeySlot,
+    },
+  };
 }
 
 export function defaultEffortRequired(binding: ModelBindingDraft): boolean {

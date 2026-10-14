@@ -1,8 +1,9 @@
 import { assertEquals, assertStringIncludes } from '@std/assert';
 import { defaultKernelScope, registerTool, z } from '../../mod.ts';
+import { MASK } from '../../src/surface/mod.ts';
 import { compileWorkspace } from '../../studio/compile-workspace.ts';
 import type { ToolSpecDraft } from '../../studio/draft.ts';
-import { unheld } from '../../studio/held-credentials.ts';
+import { shownConnection, unheld } from '../../studio/held-credentials.ts';
 import { type ProjectEdits, registerEdits } from '../../studio/server/edits.ts';
 import registerExample from '../../studio/server/example.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
@@ -206,4 +207,18 @@ Deno.test("Save writes an edit beside a masked credential with the file's own va
   const text = applyEdits(FILE, plan.edits);
   assertEquals(text, FILE.replace('/read', '/probe').replace("'garden'", "'orchard'"));
   assertEquals(text.includes('••••'), false);
+});
+
+Deno.test('a provider connection is told with its credentials masked, and only what is text', () => {
+  assertEquals(
+    shownConnection({ baseURL: 'https://user:secret@models.example/v1?api_key=abc', retries: 3 }),
+    { baseURL: `https://${MASK}:${MASK}@models.example/v1?api_key=${MASK}` },
+  );
+  assertEquals(shownConnection({ siteName: 'Desk' }), { siteName: 'Desk' });
+});
+
+Deno.test('a provider defined with nothing has no connection to tell', () => {
+  assertEquals(shownConnection({}), undefined);
+  assertEquals(shownConnection(undefined), undefined);
+  assertEquals(shownConnection('https://models.example'), undefined);
 });

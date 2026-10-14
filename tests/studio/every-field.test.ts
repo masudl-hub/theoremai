@@ -360,5 +360,5 @@ Deno.test('every field opens in the studio as the project wrote it, but for what
   assertEquals(unheld, undefined);
   assertEquals(differences, undefined);
   // The policy list stays the only way to differ.
-  assertEquals(STUDIO_POLICY_PATHS.length, 3);
+  assertEquals(STUDIO_POLICY_PATHS.length, 1);
 });

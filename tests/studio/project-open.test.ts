@@ -1,6 +1,6 @@
 import { defineProvider } from '../../src/kernel/provider-contract.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
-import { openRouterAdapter } from '../../src/providers/adapters.ts';
+import { openAIChat, openRouterAdapter } from '../../src/providers/adapters.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 
 registerFixtureProviders(defaultKernelScope);
@@ -11,6 +11,14 @@ defaultKernelScope.providers.register(
     connection: {},
     keySlot: 'slot_a',
     adapter: openRouterAdapter(),
+  }),
+);
+// A provider on an adapter of the project's own.
+defaultKernelScope.providers.register(
+  defineProvider({
+    id: 'house',
+    connection: { baseURL: 'https://house.example/v1' },
+    adapter: { ...openAIChat(), id: 'house-chat' },
   }),
 );
 
@@ -124,6 +132,8 @@ Deno.test('a provider opens with its key slot and what it connects with', async 
     keySlot: 'slot_a',
   });
   assertEquals(held('local')?.connection, { baseURL: 'http://localhost:11434/v1' });
+  // What a project's own adapter connects with stays with the project.
+  assertEquals(held('house'), { id: 'house', adapter: 'house-chat' });
 });
 
 Deno.test('a profile with no tools opens allowing none, whatever the project registers', async () => {

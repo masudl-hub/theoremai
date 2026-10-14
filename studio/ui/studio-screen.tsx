@@ -117,6 +117,7 @@ import {
 	sharedAsk,
 	toolSpecNodeId,
 	modelRoute,
+	modelSlots,
 	type WorkspaceCompileResult,
 	type WriteAsk,
 	withAgentDraft,
@@ -1680,7 +1681,10 @@ function useWorkspaceConnection(workspace: StudioWorkspace): StudioConnectionSta
 		.flatMap((agent) => [
 			agent.models.key,
 			agent.models.fallbackKey,
-			...agent.modelBindings.flatMap((binding) => [binding.keySlot, binding.fallbackKeySlot]),
+			...agent.modelBindings.flatMap((binding) => {
+				const { keySlot, fallbackKeySlot } = modelSlots(workspace.providers, binding);
+				return [keySlot, fallbackKeySlot];
+			}),
 		])
 		.filter((slot): slot is string => Boolean(slot));
 	return useStudioConnection(bindings, undefined, namedSlots);

@@ -125,6 +125,7 @@ import type {
   ToolRegistration,
 } from './registrations.ts';
 import {
+  bindingSlots,
   defaultEffortRequired,
   defaultModelRequired,
   inputLimitsRequired,
@@ -2011,7 +2012,10 @@ export function compileStudio(
     [
       draft.models.key,
       draft.models.fallbackKey,
-      ...draft.modelBindings.flatMap((binding) => [binding.keySlot, binding.fallbackKeySlot]),
+      ...draft.modelBindings.flatMap((binding) => {
+        const { keySlot, fallbackKeySlot } = bindingSlots(draft, binding);
+        return [keySlot, fallbackKeySlot];
+      }),
     ].filter(Boolean),
   );
   if (keySlots.size > STUDIO_KEY_SLOT_CAP) {

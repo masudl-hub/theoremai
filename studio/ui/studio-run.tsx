@@ -6,7 +6,7 @@ import { useState, useSyncExternalStore } from 'react';
 import type { ModelBinding } from '../../mod.ts';
 import { TheoremThemeProvider, TracePlacement } from '../../react/src/ui/index.ts';
 import { studioKeySlots } from '../browser.ts';
-import { modelRoute, STUDIO_PROVIDERS, type StudioRunPayload } from '../mod.ts';
+import { modelRoute, modelSlots, STUDIO_PROVIDERS, type StudioRunPayload } from '../mod.ts';
 import { recordsTraces } from './lib/project-traces.ts';
 import { ProjectContext } from './lib/studio-project.ts';
 import type { StudioRunOpened } from './lib/studio-run-open.ts';
@@ -69,7 +69,12 @@ function withRenamedSlot(current: StudioRunPayload, from: string, to: string): S
 	};
 }
 
-/** `payload` with `slot` as its agent's key, unless it is a host or has a key already. */
+/** The providers a run's models name: the ones its agent compiled with, else the studio's own. */
+function providersOf(payload: StudioRunPayload) {
+	return payload.providers ?? STUDIO_PROVIDERS;
+}
+
+/** `payload` with `slot` as the key of each model that reads none, unless it is a host. */
 function withAddedSlot(current: StudioRunPayload, slot: string): StudioRunPayload {
 	if (current.profile.type === 'host') return current;
 	return {
@@ -79,7 +84,7 @@ function withAddedSlot(current: StudioRunPayload, slot: string): StudioRunPayloa
 			models: Object.fromEntries(
 				Object.entries<ModelBinding>(current.profile.models).map(([id, binding]) => [
 					id,
-					binding.keySlot ? binding : { ...binding, keySlot: slot },
+					modelSlots(providersOf(current), binding).keySlot ? binding : { ...binding, keySlot: slot },
 				]),
 			),
 		},
@@ -140,7 +145,7 @@ export function StudioRunScreen({ opened }: { opened: StudioRunOpened }) {
 			? []
 			: Object.values<ModelBinding>(profile.models).map(
 					(binding): ConnectionModel => ({
-						...modelRoute(payload.providers ?? STUDIO_PROVIDERS, profile.type, binding),
+						...modelRoute(providersOf(payload), profile.type, binding),
 						builtInTools: binding.builtInTools,
 					}),
 				),
@@ -148,7 +153,16 @@ export function StudioRunScreen({ opened }: { opened: StudioRunOpened }) {
 	const connection = useStudioConnection(
 		models,
 		payload.localBaseUrl,
-		profiles.flatMap((profile) => studioKeySlots(profile)),
+		[
+			...profiles.flatMap((profile) => studioKeySlots(profile)),
+			...profiles.flatMap((profile) =>
+				profile.type === 'host'
+					? []
+					: Object.values<ModelBinding>(profile.models).flatMap((binding) =>
+							Object.values(modelSlots(providersOf(payload), binding)),
+						),
+			),
+		],
 	);
 	const [keysOpen, setKeysOpen] = useState(payload.connectionMode === 'byok');
 	const traced = recordsTraces(payload);

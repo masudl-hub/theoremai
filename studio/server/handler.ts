@@ -16,7 +16,6 @@
 import {
   type DecisionQuestion,
   defineProfile,
-  getProvider,
   getStructured,
   listProfiles,
   listProviders,
@@ -131,31 +130,6 @@ type ProfileRead =
   | { ok: true; draft: StudioDraft; registered: ToolSpecDraft[] }
   | { ok: false; message: string };
 
-/** The key slots a provider or a model names. */
-type ProviderSlots = { keySlot?: string; fallbackKeySlot?: string };
-
-/**
- * A profile with the key slots the kernel runs its models with: a model that names no slot uses
- * the one its provider was registered with.
- */
-export function withProviderSlots<P extends object>(
-  profile: P,
-  providerOf: (
-    id: string,
-  ) => Pick<NonNullable<ReturnType<typeof getProvider>>, 'keySlot' | 'fallbackKeySlot'> | undefined = getProvider,
-): P {
-  const held = (profile as { models?: Record<string, ProviderSlots & { provider?: string }> }).models;
-  if (!held || typeof held !== 'object') return profile;
-  const models = Object.entries(held)
-    .map(([name, model]) => {
-      const provider = model.provider ? providerOf(model.provider) : undefined;
-      const keySlot = model.keySlot ?? provider?.keySlot;
-      const fallbackKeySlot = model.fallbackKeySlot ?? provider?.fallbackKeySlot;
-      return [name, { ...model, ...(keySlot ? { keySlot } : {}), ...(fallbackKeySlot ? { fallbackKeySlot } : {}) }];
-    });
-  return { ...profile, models: Object.fromEntries(models) };
-}
-
 /** A setting with what only code can say taken out, or nothing when it is code itself. */
 function plainSetting(value: unknown): unknown {
   if (typeof value === 'function') return undefined;
@@ -225,7 +199,7 @@ function readProfile(
     const source = studioSource({
       ...(questions ? { questions } : {}),
       agentId: profile.id,
-      profile: withProviderSlots(printableProfile(profile)) as Parameters<typeof studioSource>[0]['profile'],
+      profile: printableProfile(profile) as Parameters<typeof studioSource>[0]['profile'],
       customTools: [...tools],
       providers: registeredProviders(),
       ...(structured ? { structured } : {}),

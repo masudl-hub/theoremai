@@ -181,9 +181,11 @@ import {
 	LOCAL_PROVIDER_ID,
 	modelRoute,
 	servesProfileType,
+	bindingSlots,
 	type StudioProvider,
 	JEV_STUDIO_API_ID,
 	keySlotRequired,
+	modelSlots,
 	type ModelBindingDraft,
 	modelBindingNodeId,
 	newCriteria,
@@ -752,6 +754,7 @@ function SlotRow({
 	field,
 	value,
 	isRequired,
+	given,
 	onChange,
 }: {
 	label: string;
@@ -759,9 +762,12 @@ function SlotRow({
 	field?: string;
 	value: string;
 	isRequired?: boolean;
+	/** The slot the model reads while this is blank: its provider's. */
+	given?: string;
 	onChange: (slot: string) => void;
 }) {
 	const connection = useContext(LocalConnection);
+	const hint = given ? `${given}, from its provider` : undefined;
 	if (!connection)
 		return (
 			<TextRow
@@ -770,6 +776,7 @@ function SlotRow({
 				field={field}
 				value={value}
 				isRequired={isRequired}
+				hint={hint}
 				onChange={onChange}
 			/>
 		);
@@ -789,6 +796,7 @@ function SlotRow({
 				description: slotDescription(connection.vault[slot]),
 			}))}
 			emptyText="Add a key under Keys first."
+			placeholder={hint}
 			onChange={onChange}
 		/>
 	);
@@ -934,14 +942,24 @@ function LocalEndpointRows({ set }: { set: SetBinding }) {
 	);
 }
 
-/** A hosted model's key slot and fallback slot. */
-function KeySlotRows({ binding, set }: { binding: ModelBindingDraft; set: SetBinding }) {
+/** A hosted model's key slot and fallback slot; left blank, each is the one its provider gives. */
+function KeySlotRows({
+	providers,
+	binding,
+	set,
+}: {
+	providers: readonly StudioProvider[];
+	binding: ModelBindingDraft;
+	set: SetBinding;
+}) {
+	const given = modelSlots(providers, { provider: binding.provider });
 	return (
 		<>
 			<SlotRow
 				label="Key slot"
 				path="models.*.keySlot"
 				field="keySlot"
+				given={given.keySlot}
 				value={binding.keySlot ?? ''}
 				onChange={(keySlot) => {
 					set({ keySlot });
@@ -951,6 +969,7 @@ function KeySlotRows({ binding, set }: { binding: ModelBindingDraft; set: SetBin
 				label="Fallback slot"
 				path="models.*.fallbackKeySlot"
 				field="fallbackKeySlot"
+				given={given.fallbackKeySlot}
 				value={binding.fallbackKeySlot ?? ''}
 				onChange={(fallbackKeySlot) => {
 					set({ fallbackKeySlot });
@@ -1059,7 +1078,7 @@ function ApiModelRow({
 		<ProviderModelRow
 			provider={binding.provider}
 			type={type}
-			slot={binding.keySlot || draft.models.key}
+			slot={bindingSlots(draft, binding).keySlot ?? ''}
 			value={binding.apiId}
 			onChange={(apiId) => {
 				set({ apiId });
@@ -1145,7 +1164,7 @@ function ModelSection({
 				}}
 			/>
 			<ProviderRow providers={draft.providers} binding={binding} type={type} set={set} />
-			{local ? <LocalEndpointRows set={set} /> : <KeySlotRows binding={binding} set={set} />}
+			{local ? <LocalEndpointRows set={set} /> : <KeySlotRows providers={draft.providers} binding={binding} set={set} />}
 			<ApiModelRow draft={draft} binding={binding} type={type} google={google} set={set} />
 
 			{local && <LocalServerRows binding={binding} set={set} />}

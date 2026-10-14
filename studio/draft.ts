@@ -55,6 +55,7 @@ import {
   servesOtherProfileType,
 } from './policy.ts';
 import { modelRoute, servesProfileType, STUDIO_PROVIDERS, type StudioProvider } from './providers.ts';
+import { keySlotRequired } from './requirements.ts';
 import { DEFAULT_TOOL_INPUT_SCHEMA, DEFAULT_TOOL_OUTPUT_SCHEMA } from './tool-schema.ts';
 import type { ProfileItemRule } from '../src/kernel/types.ts';
 import type { StudioToolSpecSeed } from './types.ts';
@@ -865,9 +866,7 @@ export function setProfileType(
     modelBindings: kept,
   };
   const modelBindings = kept.length ? kept : [newModelBinding(retyped)];
-  const needsKey =
-    !draft.models.key &&
-    modelBindings.some((binding) => !binding.keySlot && binding.provider !== 'local');
+  const needsKey = !draft.models.key && keySlotRequired({ ...retyped, modelBindings });
   return {
     ...retyped,
     inputs: type === 'image' ? imageInputs(draft.inputs) : draft.inputs,

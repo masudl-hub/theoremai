@@ -13,14 +13,10 @@ export type StudioConnectionMode = 'demo' | 'byok' | 'local';
 
 /**
  * The settings the studio sets for itself on a profile it opens, by path (`*` is any one key): a
- * model shows the key slot its provider gives it, and a decision takes the studio's state limit.
- * A profile in the studio differs from the project's in these and in nothing else.
+ * decision takes the studio's state limit. A profile in the studio differs from the project's in
+ * these and in nothing else.
  */
-export const STUDIO_POLICY_PATHS: readonly string[] = [
-  'models.*.keySlot',
-  'models.*.fallbackKeySlot',
-  'inputs.maxStateBytes',
-];
+export const STUDIO_POLICY_PATHS: readonly string[] = ['inputs.maxStateBytes'];
 
 /** The only OpenRouter model the studio key may call. */
 export const OPENROUTER_STUDIO_API_ID = 'openrouter/free';

@@ -10,7 +10,7 @@ Deno.test('a profile differs in each setting that is not the same value, but for
     observability: { sampleRate: 0.5 },
   };
   const studio = {
-    // The provider's slot on the model, and the studio's state limit, are policy.
+    // The studio's state limit is policy. A key slot the project's model does not name is not.
     models: { main: { apiId: 'a', keySlot: 'slot', compaction: {} } },
     tools: { allow: ['two', 'one'] },
     // Left out is the kernel's default: text accepted, no built-in tools.
@@ -20,6 +20,7 @@ Deno.test('a profile differs in each setting that is not the same value, but for
   };
   assertEquals(differingSettings(project, studio), [
     'models.main.compaction.profile',
+    'models.main.keySlot',
     'tools.allow',
     'turnBehaviour.resumption.allowContinue',
     'observability',

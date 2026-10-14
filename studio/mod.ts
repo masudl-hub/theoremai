@@ -112,6 +112,7 @@ export {
 } from './policy.ts';
 export {
   adapterOf,
+  modelSlots,
   LOCAL_PROVIDER_ID,
   type ModelRoute,
   modelCapabilities,
@@ -121,6 +122,7 @@ export {
   type StudioProvider,
 } from './providers.ts';
 export {
+  bindingSlots,
   defaultEffortRequired,
   defaultModelRequired,
   inputLimitsRequired,

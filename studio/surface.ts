@@ -46,6 +46,7 @@ import {
 } from './example.ts';
 import { type StudioConnectionMode, modelBindingViolation } from './policy.ts';
 import { modelRoute } from './providers.ts';
+import { bindingSlots } from './requirements.ts';
 import { studioNodeRef, studioTree, type StudioTreeNode } from './tree.ts';
 
 export type StudioExportFormat = 'zip' | 'copy' | 'llm';
@@ -274,6 +275,9 @@ function keySlots(draft: StudioDraft): Map<string, string[]> {
     const name = binding.modelId || 'a model';
     use(binding.keySlot, `model ${name}`);
     use(binding.fallbackKeySlot, `model ${name}, as fallback`);
+    const { keySlot, fallbackKeySlot, given } = bindingSlots(draft, binding);
+    if (given.keySlot) use(keySlot, `model ${name}, from its provider`);
+    if (given.fallbackKeySlot) use(fallbackKeySlot, `model ${name}, from its provider as fallback`);
   }
   for (const tool of draft.toolSpecs) use(tool.authSlot, `tool ${tool.toolName || 'unnamed'}`);
   return slots;

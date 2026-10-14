@@ -202,13 +202,19 @@ Deno.test('tools mutation helpers project and format model results exactly', () 
 });
 Deno.test('tools mutation helpers validate loaded ids and sanitize nested input', async () => {
   const { labelText } = await import('../../src/guardrails/labels.ts');
+  const loading = asValue<Profile>({ type: 'text', tools: { allow: [], t2Loader: 'load_more' } });
+  const noLoader = asValue<Profile>({ type: 'text', tools: { allow: [] } });
   assertEquals(
-    notLoadedMessage(asValue<FunctionToolDef>({ name: 'probe', loadTier: 'T0' })),
+    notLoadedMessage(asValue<FunctionToolDef>({ name: 'probe', loadTier: 'T0' }), loading),
     labelText('tool.not_visible', { tool: 'probe' }),
   );
   assertEquals(
-    notLoadedMessage(asValue<FunctionToolDef>({ name: 'two', loadTier: 'T2' })),
-    labelText('tool.not_loaded_t2', { tool: 'two' }),
+    notLoadedMessage(asValue<FunctionToolDef>({ name: 'two', loadTier: 'T2' }), loading),
+    labelText('tool.not_loaded_t2', { tool: 'two', loader: 'load_more' }),
+  );
+  assertEquals(
+    notLoadedMessage(asValue<FunctionToolDef>({ name: 'two', loadTier: 'T2' }), noLoader),
+    labelText('tool.not_visible', { tool: 'two' }),
   );
   assertEquals(extractLoadedIds(null), undefined);
   assertEquals(extractLoadedIds([]), undefined);

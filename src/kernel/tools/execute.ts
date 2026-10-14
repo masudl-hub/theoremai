@@ -875,14 +875,16 @@ export async function* executeFunction(
   });
 }
 
+/** Names the profile's loader when it can load the tool, so the model knows which call comes first. */
 export function notLoadedMessage(
   tool: { name: string; loadTier?: string },
-  labels?: LabelOverrides,
+  profile: Profile,
 ): string {
-  if (tool.loadTier === 'T2') {
-    return labelText('tool.not_loaded_t2', { tool: tool.name }, labels);
+  const loader = profileToolsSpec(profile)?.t2Loader;
+  if (tool.loadTier === 'T2' && loader) {
+    return labelText('tool.not_loaded_t2', { tool: tool.name, loader }, profile.labels);
   }
-  return labelText('tool.not_visible', { tool: tool.name }, labels);
+  return labelText('tool.not_visible', { tool: tool.name }, profile.labels);
 }
 
 function earlyFailure(failure: ToolFailure): ToolExecuteSettlement {
@@ -945,7 +947,7 @@ function registeredEligibilityFailure(args: {
       return {
         code: 'not_loaded',
         kind: 'request',
-        message: notLoadedMessage(tool, profile.labels),
+        message: notLoadedMessage(tool, profile),
       };
     }
   }

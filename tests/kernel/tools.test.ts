@@ -3,6 +3,7 @@ import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { labelText } from '../../src/guardrails/labels.ts';
 import {
   getProfile,
   invokeTool,
@@ -611,7 +612,7 @@ Deno.test('profile.tools.t1Policy wires T2 function tools via prepareTurnToolSna
   );
   assertEquals(snapshot.visible, ['contextual_lookup']);
 });
-Deno.test('a T2 tool nothing loaded says to run the loader', async () => {
+Deno.test('a T2 tool on a profile with no loader is not visible', async () => {
   registerTool({
     type: 'function',
     name: 't2_not_loaded_probe',
@@ -646,7 +647,10 @@ Deno.test('a T2 tool nothing loaded says to run the loader', async () => {
   assertEquals(toolEv?.phase, 'error');
   assertEquals(failureOf(toolEv)?.code, 'not_loaded');
   assertEquals(failureOf(toolEv)?.kind, 'request');
-  assertEquals(failureOf(toolEv)?.message?.includes('t2Loader'), true);
+  assertEquals(
+    failureOf(toolEv)?.message,
+    labelText('tool.not_visible', { tool: 't2_not_loaded_probe' }),
+  );
 });
 Deno.test('invokeTool resume cannot bypass T2 not_loaded without promoted', async () => {
   registerProfile(
@@ -1935,7 +1939,7 @@ Deno.test('a step runs its calls side by side and records their results in the o
       handler,
     });
   tool('waits_for_beside', async () => {
-    let timer = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const alone = new Promise<string>((resolve) => {
       timer = setTimeout(() => resolve('alone'), 1000);
     });

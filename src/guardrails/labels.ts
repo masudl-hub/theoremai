@@ -473,7 +473,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'tool.page_no_answer': "Tool '{tool}' runs in the page, and the page sent no result",
   'tool.page_timed_out': "The page didn't answer",
   'tool.output_invalid': 'Tool output validation failed',
-  'tool.not_loaded_t2': "Tool '{tool}' is not loaded — run profile.tools.t2Loader first",
+  'tool.not_loaded_t2': "Tool '{tool}' is not loaded — call {loader} to load it first",
   'tool.not_visible': "Tool '{tool}' is not visible this turn",
   'tool.builtin_not_enabled': "Builtin '{tool}' is not enabled this turn",
   'tool.provider_native':
@@ -749,7 +749,7 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'tool.page_timed_out': 'Told to the model when the page does not answer a tool call in time.',
   'tool.output_invalid': "Told to the model when a tool's output fails the tool's output schema.",
   'tool.not_loaded_t2':
-    'Told to the model when it calls a T2 tool the T2 loader has not loaded yet. Takes {tool}.',
+    'Told to the model when it calls a T2 tool the T2 loader has not loaded yet. Takes {tool} and {loader}, the loader tool.',
   'tool.not_visible':
     'Told to the model when it calls a tool it cannot see this turn. Takes {tool}.',
   'tool.builtin_not_enabled':
@@ -817,7 +817,7 @@ const LABEL_PLACEHOLDERS: Partial<Record<LabelKey, readonly string[]>> = {
   'tool.t2_loader_needs_snapshot': TOOL,
   'tool.t2_loader_shape': TOOL,
   'tool.page_no_answer': TOOL,
-  'tool.not_loaded_t2': TOOL,
+  'tool.not_loaded_t2': ['tool', 'loader'],
   'tool.not_visible': TOOL,
   'tool.builtin_not_enabled': TOOL,
   'tool.provider_native': TOOL,

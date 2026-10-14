@@ -99,7 +99,7 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
   }
   const deferredTool = lastTool(deferredEvents, 'record_lookup');
   assertEquals(deferredTool?.phase, 'error');
-  assertStringIncludes(failureOf(deferredTool)?.message ?? '', 'not loaded');
+  assertStringIncludes(failureOf(deferredTool)?.message ?? '', 'not visible');
   const noHandlerReq: TurnRequest = {
     profile: 'dynamic_runner_bot',
     input: { text: 'run stub' },

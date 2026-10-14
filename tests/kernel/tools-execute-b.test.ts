@@ -32,7 +32,7 @@ import { toolEventsOf } from '../fixtures/events.ts';
 const RESOLVE = () => Promise.resolve(['93.184.216.34']);
 const TOKEN = 'xb-token-sentinel';
 const allowed: string[] = [];
-function makeProfile(): Profile {
+function makeProfile(t2Loader?: string): Profile {
   return {
     id: 'xb-profile',
     type: 'text',
@@ -47,7 +47,7 @@ function makeProfile(): Profile {
       },
     },
     defaultModel: 'test-model',
-    tools: { allow: [...allowed] },
+    tools: { allow: [...allowed], ...(t2Loader ? { t2Loader } : {}) },
     inputs: { text: true },
     outputs: {},
   };
@@ -868,6 +868,7 @@ Deno.test('a resumed T0 call needs no load, while any other unloaded tool is ref
   );
   registerFn('xb_t2_resume', { loadTier: 'T2' });
   const t2 = await drain('xb_t2_resume', {
+    profile: makeProfile('xb_loader'),
     snapshot: snapshot('xb_t2_resume'),
     ctx: { resume: { granted: true } },
   });
@@ -877,7 +878,7 @@ Deno.test('a resumed T0 call needs no load, while any other unloaded tool is ref
       failure: {
         code: 'not_loaded',
         kind: 'request',
-        message: labelText('tool.not_loaded_t2', { tool: 'xb_t2_resume' }),
+        message: labelText('tool.not_loaded_t2', { tool: 'xb_t2_resume', loader: 'xb_loader' }),
       },
       callNotStarted: true,
     },

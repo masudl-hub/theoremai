@@ -131,10 +131,6 @@ async function studioChat(draft: StudioDraftRun, conversations: StudioConversati
   );
   assertNotLiveProfile(profile.type, 'turn runner — use runSession');
   const iface = interfaceFromProfile(profile, scope.tools);
-  if (iface.type === 'live' || iface.type === 'host' || iface.type === 'decision') {
-    // labels-exempt: internal diagnostic; the user reads error.request
-    throw new TheoremError('request', 'Studio chats run text and image profiles only.');
-  }
   const host =
     iface.providerContinuation?.history === 'stateless'
       ? undefined

@@ -24,8 +24,8 @@ import { hostInterface, type HostTransport } from '../react/src/client/host-tran
 import { createTraceFeed, type TraceFeed } from '../react/src/client/trace-feed.ts';
 import {
   CHAT_LINES,
-  type ChatLine,
   type ChatLineSink,
+  type ConversationLine,
   fetchConversation,
   fetchRewound,
   type HttpOptions,
@@ -93,7 +93,7 @@ export function clearStaleStudioRuns(store?: Storage | null): void {
 /** The server picks the id, so a steer reaches only a run this browser started. */
 export type StudioSteerLine = { type: 'steer_inbox'; inbox: string };
 
-type StudioLine = ChatLine | StudioTraceLine | StudioSteerLine;
+type StudioLine = TurnEvent | ConversationLine | StudioTraceLine | StudioSteerLine;
 
 /** A trace record's line on a run's stream, as the page reads it. */
 export const studioTraceLine = z.object({ type: z.literal('trace'), record: traceRecordSchema });

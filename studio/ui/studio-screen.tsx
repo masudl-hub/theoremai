@@ -1928,8 +1928,8 @@ function useConversationRun(
 	question: string | undefined,
 ) {
 	// Bumping this remounts the runner: a fresh transcript and trace feed, the same profile.
-	const [conversation, setConversation] = useState(0);
-	const runKey = `${mode}:${chatWith}:${String(conversation)}`;
+	const [restarts, setConversation] = useState(0);
+	const runKey = `${mode}:${chatWith}:${String(restarts)}`;
 	// Each agent's kept conversation resumes in the first runner it has here; a cleared or remade
 	// one starts empty.
 	const [firstRuns] = useState(() => new Map<string, string>());

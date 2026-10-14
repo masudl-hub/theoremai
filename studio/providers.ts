@@ -7,7 +7,15 @@
  * @module
  */
 
-import type { ProviderAdapter, ProviderCapabilities } from '../src/kernel/provider-contract.ts';
+import { z } from 'zod';
+import { labelText } from '../src/guardrails/labels.ts';
+import {
+  defineProvider,
+  keySlotSchema,
+  type ProviderAdapter,
+  type ProviderCapabilities,
+  type RegisteredProvider,
+} from '../src/kernel/provider-contract.ts';
 import { resolveKeySlot } from '../src/kernel/registry/vault.ts';
 import type { ModelBinding } from '../src/kernel/types.ts';
 import {
@@ -59,13 +67,169 @@ function asked<C, O, K, S>(adapter: ProviderAdapter<C, O, K, S>): Asked {
   return (apiId) => adapter.capabilities({ apiId, connection: {} as C, providerOptions: {} as O });
 }
 
+/** A provider's two slots, as its definition takes them. */
+function slotsOf(provider: StudioProvider): Pick<StudioProvider, 'keySlot' | 'fallbackKeySlot'> {
+  return {
+    ...(provider.keySlot === undefined ? {} : { keySlot: provider.keySlot }),
+    ...(provider.fallbackKeySlot === undefined ? {} : { fallbackKeySlot: provider.fallbackKeySlot }),
+  };
+}
+
+/** One kernel adapter as the studio holds it. */
+interface HeldAdapter {
+  asked: Asked;
+  /** The kernel export that makes it. */
+  factory: string;
+  /** The kernel's own check of what a provider on it connects with. */
+  connection: z.ZodType;
+  /** The provider as the kernel defines it; throws what the kernel refuses. */
+  define: (provider: StudioProvider) => RegisteredProvider;
+}
+
+function held<C, O, K, S>(adapter: ProviderAdapter<C, O, K, S>, factory: string): HeldAdapter {
+  return {
+    asked: asked(adapter),
+    factory,
+    connection: adapter.connectionSchema,
+    define: (provider) =>
+      defineProvider({
+        id: provider.id,
+        connection: (provider.connection ?? {}) as C,
+        adapter,
+        ...slotsOf(provider),
+      }) as RegisteredProvider,
+  };
+}
+
 // why: an adapter is made once; each answer is its own.
-const ADAPTERS: Record<string, { asked: Asked; factory: string }> = {
-  google: { asked: asked(googleAdapter()), factory: 'googleAdapter' },
-  openrouter: { asked: asked(openRouterAdapter()), factory: 'openRouterAdapter' },
-  'openai-chat': { asked: asked(openAIChat()), factory: 'openAIChat' },
-  typesafe: { asked: asked(typesafeAdapter()), factory: 'typesafeAdapter' },
+const ADAPTERS: Record<string, HeldAdapter> = {
+  google: held(googleAdapter(), 'googleAdapter'),
+  openrouter: held(openRouterAdapter(), 'openRouterAdapter'),
+  'openai-chat': held(openAIChat(), 'openAIChat'),
+  typesafe: held(typesafeAdapter(), 'typesafeAdapter'),
 };
+
+/** Every kind of content a model can take and give, for an adapter that stands in for another. */
+export const EVERY_MEDIA_KIND: Pick<ProviderCapabilities, 'inputKinds' | 'outputKinds'> = {
+  inputKinds: ['text', 'image', 'audio', 'video', 'document'],
+  outputKinds: ['text', 'image', 'audio'],
+};
+
+/**
+ * An adapter the studio stands in for another with: a project's own, or a script's. It connects
+ * with nothing, takes any options and serves every kind of agent, since the studio judges nothing
+ * about its models. As it is, it runs nothing.
+ */
+export function standInAdapter(id: string): ProviderAdapter<Record<string, never>, Record<string, unknown>, string> {
+  return {
+    apiVersion: 1,
+    id,
+    connectionSchema: z.strictObject({}),
+    optionsSchema: z.record(z.string(), z.json()),
+    credentialSchema: z.string(),
+    capabilities: () => ({
+      profileTypes: ['text', 'image', 'speech', 'live', 'decision'],
+      features: {
+        streaming: 'unknown',
+        clientTools: 'unknown',
+        parallelTools: 'unknown',
+        structuredOutput: 'unknown',
+        thinking: 'unknown',
+        summaries: 'unknown',
+        storedContinuation: 'unknown',
+      },
+      ...EVERY_MEDIA_KIND,
+      builtins: [],
+    }),
+    validateRequest() {},
+    create: () => Promise.reject(new Error('A stand-in adapter runs nothing.')),
+  };
+}
+
+/**
+ * The provider as the kernel defines it, for a scope that checks the workspace's agents against
+ * it. Throws what the kernel refuses. One on a project's own adapter is defined on a stand-in,
+ * with its slots and nothing it connects with.
+ */
+export function providerDefinition(provider: StudioProvider): RegisteredProvider {
+  const adapter = ADAPTERS[provider.adapter];
+  if (adapter) return adapter.define(provider);
+  return defineProvider({
+    id: provider.id,
+    connection: {},
+    adapter: standInAdapter(provider.adapter),
+    ...slotsOf(provider),
+  }) as RegisteredProvider;
+}
+
+/** One setting an adapter's connection takes. */
+export interface ConnectionField {
+  name: string;
+  required: boolean;
+  /** The setting is an address. */
+  url: boolean;
+}
+
+/**
+ * What a provider on the adapter connects with, read from the kernel's own check. Undefined for a
+ * project's own adapter: what that one connects with stays with the project.
+ */
+export function connectionFields(adapter: string): ConnectionField[] | undefined {
+  const schema = ADAPTERS[adapter]?.connection;
+  if (!schema) return undefined;
+  const shape = z.toJSONSchema(schema, { io: 'input' }) as {
+    properties?: Record<string, { format?: string }>;
+    required?: string[];
+  };
+  return Object.entries(shape.properties ?? {}).map(([name, property]) => ({
+    name,
+    required: shape.required?.includes(name) ?? false,
+    url: property.format === 'uri',
+  }));
+}
+
+/** One thing the kernel refuses about a provider, at the setting it is about. */
+export interface ProviderProblem {
+  message: string;
+  /** `id`, `keySlot`, `fallbackKeySlot`, or `connection.<name>`. */
+  field?: string;
+}
+
+/**
+ * Everything the kernel refuses about the provider, each at its setting: its id, what it connects
+ * with by its adapter's own check, and its two slots.
+ */
+export function providerProblems(provider: StudioProvider): ProviderProblem[] {
+  const problems: ProviderProblem[] = [];
+  if (!provider.id.trim()) problems.push({ field: 'id', message: 'Provider id is required.' });
+  const connection = provider.connection ?? {};
+  const parsed = ADAPTERS[provider.adapter]?.connection.safeParse(connection);
+  for (const issue of parsed?.error?.issues ?? []) {
+    if (issue.code === 'unrecognized_keys') {
+      for (const key of issue.keys) {
+        problems.push({ field: `connection.${key}`, message: `This adapter takes no '${key}'.` });
+      }
+      continue;
+    }
+    const name = issue.path[0];
+    if (typeof name !== 'string') {
+      problems.push({ message: issue.message });
+      continue;
+    }
+    const message = name in connection ? issue.message : `${name} is required.`;
+    problems.push({ field: `connection.${name}`, message });
+  }
+  for (const field of ['keySlot', 'fallbackKeySlot'] as const) {
+    const slot = provider[field];
+    if (slot !== undefined && !keySlotSchema.safeParse(slot).success) {
+      problems.push({ field, message: 'A key slot is 1 to 32 letters, digits, hyphens or underscores.' });
+    }
+  }
+  if (provider.keySlot && provider.keySlot === provider.fallbackKeySlot) {
+    problems.push({ field: 'fallbackKeySlot', message: labelText('provider.fallback_slot') });
+  }
+  return problems;
+}
 
 /** The kernel export that makes the adapter, for code the studio writes. Undefined for a project's own adapter. */
 export function adapterFactory(adapter: string): string | undefined {

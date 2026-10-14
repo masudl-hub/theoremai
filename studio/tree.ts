@@ -18,6 +18,18 @@ export function toolSpecKeyOf(id: string): string | undefined {
   return id.startsWith(TOOL_SPEC_PREFIX) ? id.slice(TOOL_SPEC_PREFIX.length) : undefined;
 }
 
+const PROVIDER_PREFIX = 'provider:';
+
+/** The node a provider's own settings open at. */
+export function providerNodeId(id: string): string {
+  return `${PROVIDER_PREFIX}${id}`;
+}
+
+/** The inverse of `providerNodeId`; `undefined` for any other id. */
+export function providerIdOf(id: string): string | undefined {
+  return id.startsWith(PROVIDER_PREFIX) ? id.slice(PROVIDER_PREFIX.length) : undefined;
+}
+
 export type StudioNodeRef =
   | { facet: 'modelBinding'; key: string }
   | { facet: 'toolSpec'; key: string }

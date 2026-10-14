@@ -31,6 +31,8 @@ const endpointSchema: z.ZodString = z
   .string()
   .url()
   .refine((value) => {
+    // why: what is not a URL is refused by the check above, in its own words.
+    if (!URL.canParse(value)) return true;
     const url = new URL(value);
     return (
       ['http:', 'https:'].includes(url.protocol) &&

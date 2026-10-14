@@ -246,13 +246,14 @@ Deno.test('a provider the builder changed is a Save subject over what its defini
   const masked = saveSubjects(
     withProvider(workspace, {
       ...provider,
-      connection: { baseURL: `https://${MASK}@house.example/v1` },
+      adapter: 'openrouter',
+      connection: { siteUrl: `https://${MASK}@house.example` },
     }),
     names,
   );
   if (masked.ok) throw new Error('A mask in a provider was let through.');
   assertStringIncludes(
     masked.issues.join('\n'),
-    `${provider.id}: the studio has no value for baseURL`,
+    `${provider.id}: the studio has no value for siteUrl`,
   );
 });

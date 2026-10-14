@@ -112,11 +112,15 @@ export {
 } from './policy.ts';
 export {
   adapterOf,
+  type ConnectionField,
+  connectionFields,
   modelSlots,
   LOCAL_PROVIDER_ID,
   type ModelRoute,
   modelCapabilities,
   modelRoute,
+  type ProviderProblem,
+  providerProblems,
   servesProfileType,
   STUDIO_PROVIDERS,
   type StudioProvider,
@@ -158,6 +162,8 @@ export {
 } from './tool-schema.ts';
 export {
   modelBindingNodeId,
+  providerIdOf,
+  providerNodeId,
   type StudioNodeRef,
   studioNodeRef,
   studioTree,
@@ -242,6 +248,7 @@ export {
 } from './shared-settings.ts';
 export {
   mapFamily,
+  mapFound,
   type MapGroup,
   type MapLayout,
   mapLayout,

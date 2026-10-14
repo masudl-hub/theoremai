@@ -34,6 +34,19 @@ Deno.test('compatible endpoints require declarations for unverified tools', () =
     'unknown',
   );
 });
+Deno.test('an endpoint that is not a URL is refused as one, and one that is not HTTP in its own words', () => {
+  const messages = (baseURL: string) =>
+    openAIChat()
+      .connectionSchema.safeParse({ baseURL })
+      .error?.issues.map((issue) => issue.message);
+  assertEquals(messages('nowhere'), ['Invalid URL']);
+  assertEquals(messages('ftp://files.test'), ['Endpoints must use HTTP and exclude credentials']);
+  assertEquals(messages('https://user:secret@gateway.test/v1'), [
+    'Endpoints must use HTTP and exclude credentials',
+  ]);
+  assertEquals(messages('https://gateway.test/v1'), undefined);
+});
+
 Deno.test('profiles require registration and reject unavailable profile operations', () => {
   const scope = createKernelScope();
   const provider = defineProvider({

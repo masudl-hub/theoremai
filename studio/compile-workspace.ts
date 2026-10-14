@@ -4,7 +4,7 @@
  * summarises for it. Issues land on the node of the agent or tool at fault.
  */
 
-import { createKernelScope, defineProfile, TheoremError } from '../mod.ts';
+import { createKernelScope, defineProfile, TheoremError, z } from '../mod.ts';
 import {
   type AgentIdOf,
   type AgentToolInputOf,
@@ -15,8 +15,9 @@ import {
   uncompiled,
 } from './compile.ts';
 import type { StudioConnectionMode } from './policy.ts';
-import { type StudioDependency, registerDefined, registerRuntimeProviders } from './runtime-scope.ts';
-import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
+import { providerDefinition, providerProblems } from './providers.ts';
+import { type StudioDependency, registerDefined } from './runtime-scope.ts';
+import { modelBindingNodeId, providerNodeId, toolSpecNodeId } from './tree.ts';
 import {
   type AgentDraft,
   agentDraft,
@@ -163,6 +164,17 @@ function reportDuplicates(workspace: StudioWorkspace, report: Report): void {
     }
     names.add(name);
   }
+  const providers = new Set<string>();
+  for (const provider of workspace.providers) {
+    if (provider.id && providers.has(provider.id)) {
+      report({
+        nodeId: providerNodeId(provider.id),
+        message: `Another provider has the id '${provider.id}'.`,
+        field: 'id',
+      });
+    }
+    providers.add(provider.id);
+  }
 }
 
 /** Why the agent a reference names can't do its job; undefined when it can, or isn't set up. */
@@ -209,14 +221,24 @@ function compileAgents(
 }
 
 /**
- * The kernel's own rules across agents, such as an agent tool's agent that can stop on a gate:
- * the first agent a scope refuses, as an issue on that agent.
+ * The kernel's own rules across the workspace, such as an agent tool's agent that can stop on a
+ * gate: the first provider or agent a scope refuses, as an issue on it. The scope holds the
+ * workspace's providers as they are now, so an agent is checked against what it would run on.
  */
 function kernelIssue(
+  workspace: StudioWorkspace,
   compiled: readonly { key: string; agent: CompiledStudio }[],
 ): StudioIssue | undefined {
   const scope = createKernelScope();
-  registerRuntimeProviders(scope);
+  for (const provider of workspace.providers) {
+    try {
+      scope.providers.register(providerDefinition(provider));
+    } catch (err) {
+      const message = err instanceof z.ZodError ? err.issues[0]?.message : err instanceof TheoremError ? err.message : undefined;
+      if (message === undefined) throw err;
+      return { nodeId: providerNodeId(provider.id), message };
+    }
+  }
   for (const { key, agent } of compiled) {
     try {
       registerDefined(
@@ -246,6 +268,11 @@ export function compileWorkspace(
   const agentIdOf: AgentIdOf = (key) => byKey.get(key)?.identity.agentId.trim();
 
   reportDuplicates(workspace, report);
+  for (const provider of workspace.providers) {
+    for (const problem of providerProblems(provider)) {
+      report({ nodeId: providerNodeId(provider.id), ...problem });
+    }
+  }
   const refs = references(workspace);
   for (const ref of refs) {
     const message = wrongTypeMessage(ref, byKey.get(ref.to));
@@ -261,7 +288,7 @@ export function compileWorkspace(
 
   const compiled = compileAgents(workspace, [...ordered, ...looped], mode, agentIdOf, report);
   if (issues.size) return { ok: false, issues: [...issues.values()] };
-  const refused = kernelIssue(compiled);
+  const refused = kernelIssue(workspace, compiled);
   if (refused) return { ok: false, issues: [refused] };
   return { ok: true, agents: compiled.map(({ agent }) => agent) };
 }

@@ -18,7 +18,6 @@ import type { ResolveHost } from '../src/guardrails/network.ts';
 import type { TaintGate } from '../src/guardrails/types.ts';
 import type { AgentCall, AgentCallHook, ModelProvider } from '../src/kernel/types.ts';
 import {
-  z,
   defineProvider,
   googleAdapter,
   openRouterAdapter,
@@ -37,6 +36,7 @@ export interface StudioProviderOptions extends ProviderHostOptions {
 }
 import { STUDIO_KEY_SLOT_CAP, studioKeySlots } from './browser-connection.ts';
 import { modelBindingViolation } from './policy.ts';
+import { EVERY_MEDIA_KIND, standInAdapter } from './providers.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import { registerStudioTools } from './tools.ts';
 
@@ -72,11 +72,7 @@ export function runtimeProvider(
         id,
         connection: {},
         adapter: {
-          apiVersion: 1,
-          id: 'studio-script',
-          connectionSchema: z.strictObject({}),
-          optionsSchema: z.record(z.string(), z.json()),
-          credentialSchema: z.string(),
+          ...standInAdapter('studio-script'),
           capabilities: () => ({
             profileTypes: ['text', 'image', 'speech'],
             features: {
@@ -88,11 +84,9 @@ export function runtimeProvider(
               summaries: 'supported',
               storedContinuation: 'unsupported',
             },
-            inputKinds: ['text', 'image', 'audio', 'video', 'document'],
-            outputKinds: ['text', 'image', 'audio'],
+            ...EVERY_MEDIA_KIND,
             builtins: ['googleSearch', 'googleMaps', 'urlContext', 'codeExecution'],
           }),
-          validateRequest() {},
           create(): Promise<import('../src/kernel/provider-contract.ts').ProviderOperations> {
             return Promise.resolve().then(() => {
               return {
@@ -132,7 +126,7 @@ export function runtimeProvider(
     wait: host.wait ?? options.wait ?? options.gemini?.wait,
   };
 }
-export function registerRuntimeProviders(scope: KernelScope, runtime?: StudioRuntime) {
+function registerRuntimeProviders(scope: KernelScope, runtime?: StudioRuntime) {
   const options = runtime?.providers;
   scope.providers.register(
     defineProvider({ id: 'google', connection: {}, adapter: googleAdapter() }),

@@ -5,12 +5,14 @@ import {
   agentNodeId,
   compileStudio,
   compileWorkspace,
+  connectionFields,
   createBlankDraft,
   createExampleDraft,
   createSpanExampleDraft,
   defaultToolSpec,
   includeFacet,
   modelBindingNodeId,
+  providerNodeId,
   removeAgent,
   type StudioDraft,
   type StudioIssue,
@@ -20,6 +22,7 @@ import {
   type ToolSpecDraft,
   toolSpecNodeId,
   withAgentDraft,
+  withProvider,
   workspaceFromDraft,
   workspaceRunAgent,
   workspaceSource,
@@ -235,6 +238,83 @@ Deno.test('agent ids and library tool names are unique across the workspace', ()
   );
   assert(issues.some((issue) => issue.message === "Another agent has the id 'travel.helper'."));
   assert(issues.some((issue) => issue.message === "Tool name 'my_tool' is used twice."));
+});
+
+Deno.test("a provider's settings answer with the kernel's own rules, each at its field", () => {
+  const start = workspaceFromDraft(helperDraft());
+  const issues = issuesOf(
+    withProvider(start, {
+      id: 'local',
+      adapter: 'openai-chat',
+      connection: { baseURL: 'nowhere', region: 'eu' },
+      keySlot: 'has space',
+      fallbackKeySlot: 'has space',
+    }),
+  );
+  assertEquals(
+    issues.map(({ nodeId, field, message }) => [nodeId, field, message]),
+    [
+      [providerNodeId('local'), 'connection.baseURL', 'Invalid URL'],
+      [providerNodeId('local'), 'connection.region', "This adapter takes no 'region'."],
+      [
+        providerNodeId('local'),
+        'keySlot',
+        'A key slot is 1 to 32 letters, digits, hyphens or underscores.',
+      ],
+      [
+        providerNodeId('local'),
+        'fallbackKeySlot',
+        'A key slot is 1 to 32 letters, digits, hyphens or underscores.',
+      ],
+      [
+        providerNodeId('local'),
+        'fallbackKeySlot',
+        'Provider fallback slot must differ from its primary slot',
+      ],
+    ],
+  );
+  assertEquals(
+    issuesOf(withProvider(start, { id: 'local', adapter: 'openai-chat', connection: {} })).map(
+      ({ field, message }) => [field, message],
+    ),
+    [['connection.baseURL', 'baseURL is required.']],
+  );
+  assertEquals(
+    issuesOf(
+      withProvider(start, {
+        id: 'local',
+        adapter: 'openai-chat',
+        connection: { baseURL: 'ftp://files.test' },
+      }),
+    ).map(({ message }) => message),
+    ['Endpoints must use HTTP and exclude credentials'],
+  );
+});
+
+Deno.test('a connection form is read from the adapter the kernel holds', () => {
+  assertEquals(connectionFields('openai-chat'), [{ name: 'baseURL', required: true, url: true }]);
+  assertEquals(connectionFields('google'), []);
+  assertEquals(
+    must(connectionFields('openrouter')).map((field) => [field.name, field.required, field.url]),
+    [
+      ['decisionURL', false, true],
+      ['baseURL', false, true],
+      ['siteUrl', false, false],
+      ['siteName', false, false],
+    ],
+  );
+  assertEquals(connectionFields('house'), undefined);
+});
+
+Deno.test("agents are checked against the workspace's own providers, a project's adapter included", () => {
+  const draft = helperDraft();
+  const onHouse: StudioDraft = {
+    ...draft,
+    providers: [{ id: 'house', adapter: 'house-adapter', keySlot: 'house' }],
+    modelBindings: draft.modelBindings.map((binding) => ({ ...binding, provider: 'house' })),
+  };
+  const result = compileWorkspace(workspaceFromDraft(onHouse), 'byok');
+  assert(result.ok, JSON.stringify(result));
 });
 
 Deno.test("the kernel's rule shows on the calling agent: the agent it runs can't gate", () => {

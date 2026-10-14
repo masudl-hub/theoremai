@@ -4,7 +4,7 @@
  * line joins each to the section it feeds. It is read from the workspace and changes nothing; each
  * node and section names the workspace node that opens it.
  */
-import { type MapPlace, mapCurve, mapRail, mapTrunk } from './map-line.ts';
+import { type MapPlace, mapCurve, mapRail } from './map-line.ts';
 import { type SharedEntry, sharedOpens } from './shared-settings.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 import { type AgentDraft, agentNodeId, type StudioWorkspace, workspaceTree } from './workspace.ts';
@@ -254,15 +254,28 @@ export function mapNeighbours(map: WorkspaceMap, id: string): Set<string> {
   return new Set([id, ...mapLinkEnds(map).flatMap(({ from, to }) => (from === id ? [to] : to === id ? [from] : []))]);
 }
 
+/** The nodes whose name or note holds `query`, whatever its case: their ids. None for an empty query. */
+export function mapFound(map: WorkspaceMap, query: string): string[] {
+  const asked = query.trim().toLowerCase();
+  if (asked === '') return [];
+  return map.columns
+    .flat()
+    .flatMap((group) => group.nodes)
+    .filter((node) => [node.label, node.long ?? '', node.note].some((text) => text.toLowerCase().includes(asked)))
+    .map((node) => node.id);
+}
+
 /**
  * `id`'s family: the node, everything that feeds it and everything it feeds, however many links
- * away, with the links between them. Empty when the map has no such node.
+ * away, with the links between them. Empty when the map has no such node. Several ids give their
+ * families together.
  */
-export function mapFamily(map: WorkspaceMap, id: string): WorkspaceMap {
+export function mapFamily(map: WorkspaceMap, id: string | readonly string[]): WorkspaceMap {
+  const ids = typeof id === 'string' ? [id] : id;
   const ends = mapLinkEnds(map);
   const reached = (near: 'from' | 'to', far: 'from' | 'to') => {
-    const seen = new Set([id]);
-    const queue = [id];
+    const seen = new Set(ids);
+    const queue = [...ids];
     for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
       for (const end of ends) {
         if (end[near] !== next || seen.has(end[far])) continue;
@@ -365,17 +378,15 @@ export function mapNoteLines(node: MapNode): 1 | 2 {
 /** How finely a line is walked to see what it crosses, and how far apart lines going round keep. */
 const CURVE_STEPS = 24;
 const LANE_GAP = 8;
-/** How far apart two ends' lines turn, where both turn between the same two columns. */
+/** How far a rail keeps from the column it is beside, and from the next rail. */
 const TURN_GAP = 2 * LANE_GAP;
 
-/** A line between two columns: which way it runs, and the end more lines share, which keeps the trunk. */
+/** A line between two columns: which way it runs, and the end more lines share, which keeps the rail. */
 interface MapSpan {
   link: MapLink;
   way: 1 | -1;
   leaves: boolean;
   hub: string;
-  /** More than one line keeps the hub's trunk, so its lines part on a rail of their own. */
-  fanned: boolean;
 }
 
 /** Each link whose ends stand `apart` or more from each other by `at`, as its span. */
@@ -389,15 +400,11 @@ function mapSpans(map: WorkspaceMap, at: (id: string) => number | undefined, apa
     for (const key of [fan(link.from, way), fan(link.to, -way)]) fans.set(key, (fans.get(key) ?? 0) + 1);
     return [{ link, way } as const];
   });
-  const kept = new Map<string, number>();
-  const spans = across.map(({ link, way }) => {
+  return across.map(({ link, way }) => {
     const [out, into] = [fan(link.from, way), fan(link.to, -way)];
     const leaves = (fans.get(out) ?? 0) >= (fans.get(into) ?? 0);
-    const hub = leaves ? out : into;
-    kept.set(hub, (kept.get(hub) ?? 0) + 1);
-    return { link, way, leaves, hub };
+    return { link, way, leaves, hub: leaves ? out : into };
   });
-  return spans.map((span) => ({ ...span, fanned: (kept.get(span.hub) ?? 0) > 1 }));
 }
 
 interface Box extends MapPlace {
@@ -406,41 +413,40 @@ interface Box extends MapPlace {
   height: number;
 }
 
+interface Port {
+  left: number;
+  right: number;
+  y: number;
+}
+
 /**
  * Where everything on the map goes: the columns side by side from the top, each group under its
  * heading, except a node in `moved`, which goes where it was put. A line leaves the side of a node
  * that faces the other; between two nodes one above the other it bows out to the right, past what
  * stands between them. Between two columns the lines that share an end run as one, and part beside
- * the end fewer lines share, each end's lines on a rail of their own: the room between two columns grows
- * by a rail for each end past the first. A line that would pass behind a node or a heading goes over or under only
+ * the end fewer lines share, each end's lines along a rail of their own: two columns stand far enough
+ * apart for the rails between them. A line that would pass behind a node or a heading goes over or under only
  * what is in its way, whichever is nearer. The map is large enough for every line.
  */
 export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}): MapLayout {
   const { node, card, columnGap, rowGap, heading, groupGap, padding, lineGap } = sizes;
   const { moved = {}, widths = {}, detail = false } = view;
-  const nodes: MapLayout['nodes'] = {};
-  const headings: MapLayout['headings'] = [];
-  const boxes: Box[] = [];
-  /** Where a line meets each node or section: the node's two sides and the height it joins at. */
-  const ports = new Map<string, { left: number; right: number; y: number }>();
-  let right = 0;
-  let bottom = 0;
+  /** The column each node and section stands in, unless it was moved out of it. */
   const columnOf = new Map<string, number>();
   map.columns.forEach((column, index) => {
     for (const group of column)
       for (const each of group.nodes)
-        for (const id of [each.id, ...(each.rows ?? []).map((row) => row.id)]) columnOf.set(id, index);
+        if (!Object.hasOwn(moved, each.id))
+          for (const id of [each.id, ...(each.rows ?? []).map((row) => row.id)]) columnOf.set(id, index);
   });
-  /** The ends whose lines turn in the room after each column. */
-  const turning = map.columns.map(() => new Set<string>());
-  for (const { link, way, leaves, hub, fanned } of mapSpans(map, (id) => columnOf.get(id), 1)) {
-    const beside = columnOf.get(leaves ? link.to : link.from) ?? 0;
-    if (fanned) turning[leaves === way > 0 ? beside - 1 : beside]?.add(hub);
-  }
-  const rooms = turning.map((ends) => columnGap + Math.max(ends.size - 1, 0) * TURN_GAP);
-  const lefts = map.columns.map((_, index) =>
-    rooms.slice(0, index).reduce((sum, room) => sum + node.width + room, padding),
-  );
+  const put = (lefts: number[]) => {
+  const nodes: MapLayout['nodes'] = {};
+  const headings: MapLayout['headings'] = [];
+  const boxes: Box[] = [];
+  /** Where a line meets each node or section: the node's two sides and the height it joins at. */
+  const ports = new Map<string, Port>();
+  let right = 0;
+  let bottom = 0;
   map.columns.forEach((column, index) => {
     const x = lefts[index] ?? padding;
     let y = padding;
@@ -474,6 +480,78 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
       y -= rowGap;
     });
   });
+  return { nodes, headings, boxes, ports, right, bottom };
+  };
+
+  /** Where a line between two columns starts and ends, and the side its rails are counted from, and which way. */
+  const reach = (span: MapSpan, a: Port, b: Port) => {
+    const { way, leaves } = span;
+    const start = { x: way > 0 ? a.right + lineGap : a.left - lineGap, y: a.y };
+    const end = { x: way > 0 ? b.left - lineGap : b.right + lineGap, y: b.y };
+    const fromSide = way > 0 ? Math.max(a.left + node.width, a.right) + lineGap : start.x;
+    const toSide = way > 0 ? end.x : Math.max(b.left + node.width, b.right) + lineGap;
+    const side = leaves ? toSide : fromSide;
+    const into = leaves ? -way : way;
+    return { start, end, side, into, room: Math.abs(toSide - fromSide), strip: `${String(side)}:${String(into)}` };
+  };
+  /**
+   * The rail each end's lines part on, counted from the side of the column they part beside, and how
+   * many rails each side holds. Two ends share a rail where neither's lines reach the other's.
+   */
+  const railed = (ports: Map<string, Port>) => {
+    const spans = new Map(mapSpans(map, (id) => ports.get(id)?.left, node.width).map((span) => [span.link, span]));
+    const strips = new Map<string, Map<string, { y: number; joins: number[]; beside: string }>>();
+    for (const span of spans.values()) {
+      const a = ports.get(span.link.from);
+      const b = ports.get(span.link.to);
+      if (!a || !b || a.y === b.y) continue;
+      const { strip } = reach(span, a, b);
+      const ends = strips.get(strip) ?? new Map<string, { y: number; joins: number[]; beside: string }>();
+      const beside = span.leaves ? span.link.to : span.link.from;
+      const end = ends.get(span.hub) ?? { y: span.leaves ? a.y : b.y, joins: [], beside };
+      end.joins.push(span.leaves ? b.y : a.y);
+      strips.set(strip, ends.set(span.hub, end));
+    }
+    const rails = new Map<string, number>();
+    const held = new Map<string, { count: number; beside: string; into: number }>();
+    for (const [strip, ends] of strips) {
+      const mean = (all: number[]) => all.reduce((sum, y) => sum + y, 0) / all.length;
+      const all = [...ends.values()];
+      const down = mean(all.flatMap((end) => end.joins)) >= mean(all.map((end) => end.y));
+      const taken: { low: number; high: number }[][] = [];
+      // The end nearest what the strip joins takes the first rail, so its trunk crosses the fewest.
+      for (const [hub, end] of [...ends].sort(([, one], [, other]) => (down ? one.y - other.y : other.y - one.y))) {
+        const low = Math.min(end.y, ...end.joins) - LANE_GAP;
+        const high = Math.max(end.y, ...end.joins) + LANE_GAP;
+        const free = taken.findIndex((spansOf) => spansOf.every((each) => high < each.low || low > each.high));
+        const rail = free < 0 ? taken.length : free;
+        taken[rail] = [...(taken[rail] ?? []), { low, high }];
+        rails.set(`${strip}:${hub}`, rail);
+      }
+      const [first] = all;
+      if (first) held.set(strip, { count: taken.length, beside: first.beside, into: Number(strip.split(':')[1]) });
+    }
+    return { spans, rails, held };
+  };
+
+  // Heights do not turn on where the columns stand: lay them out once to count each side's rails, then
+  // give each pair of columns the room for both sides' rails.
+  const even = map.columns.map((_, index) => padding + index * (node.width + columnGap));
+  const rooms = map.columns.map(() => 0);
+  for (const { count, beside, into } of railed(put(even).ports).held.values()) {
+    const column = columnOf.get(beside);
+    if (column === undefined) continue;
+    const after = into > 0 ? column : column - 1;
+    if (after >= 0 && after < rooms.length) rooms[after] = (rooms[after] ?? 0) + count + 1;
+  }
+  const lefts = rooms.reduce<number[]>(
+    (all, held, index) => [...all, (all[index] ?? padding) + node.width + Math.max(columnGap, held * TURN_GAP)],
+    [padding],
+  );
+  const laidOut = put(lefts);
+  const { nodes, headings, boxes, ports } = laidOut;
+  let { right, bottom } = laidOut;
+  const { spans, rails } = railed(ports);
 
   const gap = columnGap / 2;
   /** How far a line going round keeps from what it goes round. */
@@ -482,38 +560,7 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
   const laid: Box[] = [];
   /** The lane the lines of one end take round a column: they go round as one. */
   const lanes = new Map<string, number>();
-  const spans = new Map(mapSpans(map, (id) => ports.get(id)?.left, node.width).map((span) => [span.link, span]));
-  /** Where a line between two columns starts and ends, and the sides of the two columns' slots it runs between. */
-  const reach = (span: MapSpan, a: { left: number; right: number; y: number }, b: typeof a) => {
-    const { way } = span;
-    const start = { x: way > 0 ? a.right + lineGap : a.left - lineGap, y: a.y };
-    const end = { x: way > 0 ? b.left - lineGap : b.right + lineGap, y: b.y };
-    const fromSide = way > 0 ? Math.max(a.left + node.width, a.right) + lineGap : start.x;
-    const toSide = way > 0 ? end.x : Math.max(b.left + node.width, b.right) + lineGap;
-    return { start, end, fromSide, toSide, strip: `${String(way)}:${String(span.leaves ? toSide : fromSide)}` };
-  };
-  /** The ends whose lines turn in one strip, each with its height and the heights it joins. */
-  const strips = new Map<string, Map<string, { y: number; joins: number[] }>>();
-  for (const span of spans.values()) {
-    const a = ports.get(span.link.from);
-    const b = ports.get(span.link.to);
-    if (!a || !b || !span.fanned) continue;
-    const { strip } = reach(span, a, b);
-    const ends = strips.get(strip) ?? new Map<string, { y: number; joins: number[] }>();
-    const end = ends.get(span.hub) ?? { y: span.leaves ? a.y : b.y, joins: [] };
-    end.joins.push(span.leaves ? b.y : a.y);
-    strips.set(strip, ends.set(span.hub, end));
-  }
-  /** Which turn of its strip each end takes, from the column its lines part towards. The end nearest what the strip joins turns last, so its trunk crosses the fewest. */
-  const turns = new Map<string, number>();
-  for (const [strip, ends] of strips) {
-    const mean = (all: number[]) => all.reduce((sum, y) => sum + y, 0) / all.length;
-    const down = mean([...ends.values()].flatMap((end) => end.joins)) >= mean([...ends.values()].map((end) => end.y));
-    [...ends]
-      .sort(([, one], [, other]) => (down ? one.y - other.y : other.y - one.y))
-      .forEach(([hub], turn) => turns.set(`${strip}:${hub}`, turn));
-  }
-  const widest = Math.max(columnGap, ...rooms);
+  const widest = Math.max(columnGap, ...rooms.map((held) => held * TURN_GAP));
 
   const lines = mapLinkEnds(map).flatMap(({ link, from, to }): MapLine[] => {
     const a = ports.get(link.from);
@@ -539,17 +586,11 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
     const span = spans.get(link);
     if (!span) return [];
     const { way, leaves, hub } = span;
-    const { start, end, fromSide, toSide, strip } = reach(span, a, b);
-    // One line turns over half the room two columns keep. The lines of one end turn on a rail beside
-    // the end fewer lines share, each end's rail a step on from the last.
-    const room = Math.abs(toSide - fromSide) - (span.fanned ? 2 * TURN_GAP : gap);
-    const step = Math.min((turns.get(`${strip}:${hub}`) ?? 0) * TURN_GAP, Math.max(room, 0));
-    const turn = leaves
-      ? { from: toSide - way * (gap + step), to: toSide - way * step }
-      : { from: fromSide + way * step, to: fromSide + way * (gap + step) };
-    const rail = leaves ? toSide - way * (TURN_GAP + step) : fromSide + way * (TURN_GAP + step);
-    const drawn = span.fanned ? mapRail(start, end, rail, LANE_GAP) : mapTrunk(start, end, turn);
-    const curve = room < 0 ? mapCurve(start, end) : drawn;
+    const { start, end, side, into, room, strip } = reach(span, a, b);
+    // The lines of one end part on a rail beside the end fewer lines share.
+    const step = Math.min((1 + (rails.get(`${strip}:${hub}`) ?? 0)) * TURN_GAP, Math.max(room - TURN_GAP, 0));
+    const rail = side + into * step;
+    const curve = room < 2 * TURN_GAP ? mapCurve(start, end) : mapRail(start, end, rail, LANE_GAP);
     const near = (box: Box, y: number) => y > box.y - clear && y < box.y + box.height + clear;
     const crossed =
       Math.abs(end.x - start.x) < widest + columnGap
@@ -578,7 +619,7 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
       }
     };
     const far = (y: number) => Math.abs(a.y - y) + Math.abs(b.y - y);
-    const shared = `${hub}:${String(leaves ? toSide : fromSide)}`;
+    const shared = `${hub}:${strip}`;
     const pick = () => {
       const [over, under] = [lane(-1), lane(1)];
       const y = over >= 0 && far(over) <= far(under) ? over : under;
@@ -597,7 +638,7 @@ export function mapLayout(map: WorkspaceMap, sizes: MapSizes, view: MapView = {}
   });
 
   return {
-    width: Math.max((lefts.at(-1) ?? padding) + node.width, right) + padding,
+    width: Math.max((lefts[Math.max(map.columns.length - 1, 0)] ?? padding) + node.width, right) + padding,
     height: Math.max(bottom, padding) + padding,
     nodes,
     headings,

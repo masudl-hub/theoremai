@@ -24,6 +24,13 @@
 	gap: var(--spacing-2);
 }
 
+/* A search that finds nothing says so over the bare field. */
+.studio-map-nothing {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
 .studio-map {
 	position: relative;
 	width: var(--map-width);
@@ -194,6 +201,11 @@
 
 .studio-map-row[aria-current] {
 	background: var(--color-background-card);
+}
+
+/* What a search found, among the family it brought along. */
+.studio-map :is(.map-token, .studio-map-node, .studio-map-card)[data-found] {
+	outline: 1.5px solid var(--color-accent);
 }
 
 /* The node being dragged rides over the rest, under the pointer and without easing. */

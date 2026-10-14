@@ -7,6 +7,7 @@ import {
 } from '../../studio/draft.ts';
 import {
   mapFamily,
+  mapFound,
   mapLayout,
   mapLinkWords,
   mapNeighbours,
@@ -271,7 +272,7 @@ Deno.test('the map is laid out in columns, with a line from the side of each nod
   // Right to left: out of the tool's left side, into the card's right, level with its name.
   assertEquals(
     line(toolSpecNodeId('ask_shop'), shop),
-    'M 920 130 L 870 130 C 845 130, 845 220, 820 220',
+    'M 920 130 L 844 130 Q 836 130, 836 138 L 836 212 Q 836 220, 828 220 L 820 220',
   );
   // A tool's note runs to two lines. A node with no note is its name alone: one row.
   assertEquals(layout.nodes[map.columns[1]?.[0]?.nodes[0]?.id ?? '']?.height, 20);
@@ -313,7 +314,10 @@ Deno.test('a node that was moved goes where it was put, and its lines and the ma
   const left = mapLayout(map, SIZES, { ...DETAIL, moved: { [find]: { x: 320, y: 300 } } });
   assertEquals(left.nodes[find], { x: 320, y: 300, height: 60 });
   const line = left.lines.find(({ link }) => link.from === tools && link.to === find);
-  assertEquals(line?.d, 'M 620 120 L 570 120 C 545 120, 545 310, 520 310');
+  assertEquals(
+    line?.d,
+    'M 620 120 L 544 120 Q 536 120, 536 128 L 536 302 Q 536 310, 528 310 L 520 310',
+  );
   // Everything else holds still.
   assertEquals(left.nodes[desk ?? ''], still.nodes[desk ?? '']);
   assertEquals(left.nodes[toolSpecNodeId('ask_shop')], still.nodes[toolSpecNodeId('ask_shop')]);
@@ -451,6 +455,33 @@ Deno.test("a node's family is what feeds it and what it feeds, however far, and 
   assertEquals(mapFamily(map, 'no such node').columns, []);
 });
 
+Deno.test('a search finds nodes by name or note, whatever the case, and shows the family of each', () => {
+  const map = workspaceMap(opened());
+  assertEquals(mapFound(map, ' PRICE '), [toolSpecNodeId('price')]);
+  assertEquals(mapFound(map, ''), []);
+  assertEquals(mapFound(map, 'no such thing'), []);
+  const ids = (shown: typeof map) =>
+    shown.columns.flat().flatMap((group) => group.nodes.map((node) => node.id));
+  // Two tools of two profiles: both families, and a tool no profile allows is in neither.
+  const found = mapFound(map, 'i');
+  assertEquals(
+    found.includes(toolSpecNodeId('find')) && found.includes(toolSpecNodeId('price')),
+    true,
+  );
+  const both = ids(mapFamily(map, [toolSpecNodeId('find'), toolSpecNodeId('price')]));
+  assertEquals(
+    both.toSorted(),
+    [
+      ...new Set([
+        ...ids(mapFamily(map, toolSpecNodeId('find'))),
+        ...ids(mapFamily(map, toolSpecNodeId('price'))),
+      ]),
+    ].toSorted(),
+  );
+  assertEquals(both.includes(toolSpecNodeId('spare')), false);
+  assertEquals(ids(mapFamily(map, [])), []);
+});
+
 Deno.test('a model two profiles run stands for the model of each', () => {
   const workspace = opened();
   const [desk, shop] = workspace.agents;
@@ -497,25 +528,38 @@ Deno.test('the lines of one end go round a column as one', () => {
   assertEquals(lanes, ['105', '105']);
 });
 
-Deno.test('two ends whose lines part between the same two columns each have a rail, in room made for both', () => {
+Deno.test('two ends between the same two columns keep a rail each, unless neither reaches the other', () => {
   const start = opened();
   const [desk, shop] = start.agents;
   if (!desk || !shop) throw new Error('two agents');
-  const workspace = {
-    ...start,
-    agents: [desk, { ...shop, tools: { ...shop.tools, allow: ['price', 'spare'] } }],
+  const rails = (allow: string[], sizes = SIZES) => {
+    const workspace = { ...start, agents: [desk, { ...shop, tools: { ...shop.tools, allow } }] };
+    const layout = mapLayout(workspaceMap(workspace), sizes, DETAIL);
+    const of = (agent: typeof desk) =>
+      layout.lines
+        .filter(({ link }) => link.from === agentNodeId(agent.key, 'tools'))
+        .map(({ d }) => /Q (\d+) /.exec(d)?.[1]);
+    return { desk: of(desk), shop: of(shop), width: layout.width };
   };
-  const layout = mapLayout(workspaceMap(workspace), SIZES, DETAIL);
-  const turns = (agent: typeof desk) =>
-    layout.lines
-      .filter(({ link }) => link.from === agentNodeId(agent.key, 'tools'))
-      .map(({ d }) => /Q (\d+) /.exec(d)?.[1]);
 
-  assertEquals(layout.width, 20 + 4 * 200 + 3 * 100 + 16 + 20);
-  assertEquals(layout.headings.at(-1), { label: 'Tools', x: 936, y: 20 });
-  // What they join is higher than they are, so the lower one's rail is nearest the tools: 16 short, the other 16 before.
-  assertEquals(turns(desk), ['904', '904']);
-  assertEquals(turns(shop), ['920', '920']);
+  // The first profile's tools are all above the second's: one rail, 16 short of the tools at 920.
+  assertEquals(rails(['price', 'spare']), {
+    desk: ['904', '904'],
+    shop: ['904', '904'],
+    width: 1140,
+  });
+  // Both reach the first tool: a rail each, 16 apart.
+  assertEquals(rails(['find', 'price']), {
+    desk: ['888', '888'],
+    shop: ['904', '904'],
+    width: 1140,
+  });
+  // Columns too close for their rails stand further apart: 16 for each of the three rails between the
+  // profiles and the tools, and 16 beside each column.
+  assertEquals(
+    rails(['find', 'price'], { ...SIZES, columnGap: 40 }).width,
+    20 + 4 * 200 + 40 + 40 + 5 * 16 + 20,
+  );
 });
 
 Deno.test('two models with one label each say what tells them apart', () => {

@@ -3,15 +3,19 @@
  * line from each to what it feeds. It changes nothing; a node opens what it stands for. `Expand`
  * shows each profile as a card of its sections and each tool with its description. A node can be
  * dragged to where it reads best, and the field dragged to pan it; `Tidy` puts every node back. A
- * right click on a node shows its family alone: what feeds it and what it feeds.
+ * right click on a node shows its family alone: what feeds it and what it feeds. A search shows the
+ * family of every node it finds.
  */
 
 import { Button } from '@astryxdesign/core/Button';
+import { Center } from '@astryxdesign/core/Center';
 import { ContextMenu, type ContextMenuOption } from '@astryxdesign/core/ContextMenu';
+import { EmptyState } from '@astryxdesign/core/EmptyState';
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
 import { Text } from '@astryxdesign/core/Text';
+import { TextInput } from '@astryxdesign/core/TextInput';
 import {
 	IconArrowsMaximize,
 	IconArrowsMinimize,
@@ -21,6 +25,7 @@ import {
 	IconEye,
 	IconFocus2,
 	IconLayoutGrid,
+	IconSearch,
 	IconX,
 } from '@tabler/icons-react';
 import {
@@ -40,6 +45,7 @@ import {
 	type MapPlace,
 	type MapSizes,
 	mapFamily,
+	mapFound,
 	mapLayout,
 	mapLinkWords,
 	mapNoteLines,
@@ -372,15 +378,36 @@ function menuOf(onNode: MapNode | undefined, onOpen: (node: string) => void, act
 	];
 }
 
-/** Over the field's corner: what the right click offers, and Close. */
-function MapTools({ actions, onClose }: { actions: MapActions; onClose: () => void }) {
+/** Over the field's corner: the search, what the right click offers, and Close. */
+function MapTools({
+	actions,
+	query,
+	onQuery,
+	onClose,
+}: {
+	actions: MapActions;
+	query: string;
+	onQuery: (query: string) => void;
+	onClose: () => void;
+}) {
 	const { family, expanded, isMoved, showFamily, expand, tidy } = actions;
 	return (
 		<div className="studio-map-tools">
+			<TextInput
+				label="Search the map"
+				isLabelHidden
+				size="sm"
+				width={200}
+				placeholder="Search"
+				startIcon={IconSearch}
+				hasClear
+				value={query}
+				onChange={onQuery}
+			/>
 			{family !== undefined && (
 				<Button
 					label="Show everything"
-					variant="secondary"
+					variant="ghost"
 					size="sm"
 					icon={<Icon icon={IconEye} size="sm" />}
 					onClick={() => {
@@ -391,7 +418,7 @@ function MapTools({ actions, onClose }: { actions: MapActions; onClose: () => vo
 			{isMoved && (
 				<Button
 					label="Tidy"
-					variant="secondary"
+					variant="ghost"
 					size="sm"
 					icon={<Icon icon={IconLayoutGrid} size="sm" />}
 					onClick={tidy}
@@ -399,7 +426,7 @@ function MapTools({ actions, onClose }: { actions: MapActions; onClose: () => vo
 			)}
 			<IconButton
 				label={expanded ? 'Collapse' : 'Expand'}
-				variant="secondary"
+				variant="ghost"
 				size="sm"
 				icon={<Icon icon={expanded ? IconArrowsMinimize : IconArrowsMaximize} size="sm" />}
 				tooltip={expanded ? 'Show each node as a token' : 'Show sections and descriptions'}
@@ -407,7 +434,7 @@ function MapTools({ actions, onClose }: { actions: MapActions; onClose: () => vo
 			/>
 			<IconButton
 				label="Close map"
-				variant="secondary"
+				variant="ghost"
 				size="sm"
 				icon={<Icon icon={IconX} size="sm" />}
 				tooltip="Close the map"
@@ -424,6 +451,8 @@ interface NodeProps {
 	joins: string;
 	selected: string;
 	on: ReadonlySet<string>;
+	/** A search found it. */
+	isFound: boolean;
 	isDragging: boolean;
 	onOpen: (node: string) => void;
 	lights: ReturnType<typeof useLit>['lights'];
@@ -431,11 +460,12 @@ interface NodeProps {
 }
 
 /** What marks a node on the field, whichever way it is drawn. */
-function marks({ node, on, isDragging }: NodeProps) {
+function marks({ node, on, isFound, isDragging }: NodeProps) {
 	const isLit = on.has(node.id) || (node.rows ?? []).some((row) => on.has(row.id));
 	return {
 		'data-map-node': node.id,
 		'data-on': isLit ? '' : undefined,
+		'data-found': isFound ? '' : undefined,
 		'data-dragging': isDragging ? '' : undefined,
 	};
 }
@@ -584,7 +614,11 @@ export function StudioMap({
 	onClose: () => void;
 }) {
 	const whole = useMemo(() => workspaceMap(workspace, shared), [workspace, shared]);
-	const { expanded, family, map, moved, put, showFamily, expand } = useKept(whole);
+	const { expanded, family, map: kept, moved, put, showFamily, expand } = useKept(whole);
+	const [query, setQuery] = useState('');
+	const found = useMemo(() => mapFound(kept, query), [kept, query]);
+	const map = useMemo(() => (query.trim() === '' ? kept : mapFamily(kept, found)), [kept, query, found]);
+	const isNothing = query.trim() !== '' && found.length === 0;
 	const field = useRef<HTMLDivElement>(null);
 	const sizes = expanded ? DETAIL_SIZES : TOKEN_SIZES;
 	const drawn = useMemo(() => ({ map, expanded }), [map, expanded]);
@@ -697,6 +731,7 @@ export function StudioMap({
 										joins={mapLinkWords(map, node.id)}
 										selected={selected}
 										on={on}
+										isFound={found.includes(node.id)}
 										isDragging={dragging === node.id}
 										onOpen={onOpen}
 										lights={lights}
@@ -708,7 +743,12 @@ export function StudioMap({
 					</div>
 				</ContextMenu>
 			</ScrollableArea>
-			<MapTools actions={actions} onClose={onClose} />
+			{isNothing && (
+				<Center className="studio-map-nothing">
+					<EmptyState headingLevel={2} icon={<Icon icon={IconSearch} size="lg" />} title="Nothing matches" />
+				</Center>
+			)}
+			<MapTools actions={actions} query={query} onQuery={setQuery} onClose={onClose} />
 		</div>
 	);
 }

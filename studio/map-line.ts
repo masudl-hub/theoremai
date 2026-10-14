@@ -27,26 +27,6 @@ export function mapCurve(from: MapPlace, to: MapPlace, via = (from.x + to.x) / 2
 }
 
 /**
- * A line that runs level from `from` to `turn.from`, turns between there and `turn.to`, and runs
- * level to `to`. Lines that share an end and a turn run as one until they part.
- */
-export function mapTrunk(from: MapPlace, to: MapPlace, turn: { from: number; to: number }): MapCurve {
-  const bend = mapCurve({ x: turn.from, y: from.y }, { x: turn.to, y: to.y });
-  const lead = Math.abs(turn.from - from.x);
-  const tail = Math.abs(to.x - turn.to);
-  const length = lead + Math.abs(turn.to - turn.from) + tail;
-  return {
-    d: `M ${from.x} ${from.y}${lead > 0 ? ` L ${turn.from} ${from.y}` : ''}${bend.d.slice(bend.d.indexOf(' C'))}${tail > 0 ? ` L ${to.x} ${to.y}` : ''}`,
-    at(t) {
-      const run = t * length;
-      if (run < lead) return { x: from.x + Math.sign(turn.from - from.x) * run, y: from.y };
-      if (run > length - tail) return { x: to.x - Math.sign(to.x - turn.to) * (length - run), y: to.y };
-      return bend.at((run - lead) / (length - lead - tail));
-    },
-  };
-}
-
-/**
  * A line that runs level from `from` to `rail`, straight up or down it, and level to `to`, its two
  * corners rounded by `radius`. Lines that share an end and a rail are one line along both.
  */

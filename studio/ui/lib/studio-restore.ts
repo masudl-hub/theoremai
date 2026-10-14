@@ -44,8 +44,9 @@ function isWorkspace(value: unknown): value is StudioWorkspace {
 	if (!Array.isArray(agents) || agents.length === 0 || !Array.isArray(toolSpecs)) return false;
 	if (!Array.isArray(value.providers)) return false;
 	if (typeof selected !== 'string' || typeof chatWith !== 'string') return false;
-	if (!isRecord(value.starts) || !isRecord(value.starts.agents) || !isRecord(value.starts.tools))
-		return false;
+	const { starts } = value;
+	if (!isRecord(starts) || !isRecord(starts.agents) || !isRecord(starts.tools)) return false;
+	if (!isRecord(starts.providers)) return false;
 	const blank = createBlankDraft();
 	const workspace = value as unknown as StudioWorkspace;
 	return agents.every(

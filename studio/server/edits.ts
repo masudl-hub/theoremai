@@ -144,10 +144,34 @@ async function registerAgent(scope: KernelScope, agent: CompiledStudio, subject:
 }
 
 /**
- * Registers the edits over the project `scope` holds. Tools an agent runs go before it, and an
- * agent before the tool that calls it: the order the kernel checks them in.
+ * A provider with the builder's edits over the one the project registered. What the page was not
+ * shown stays as registered: the adapter, and anything it connects with that is not text.
+ */
+function registerProvider(scope: KernelScope, subject: SaveSubject): void {
+  const { model: _model, ...registered } = scope.providers.require(subject.of);
+  const [before, after] = [subject.before as Json, subject.after as Json];
+  const [shown, edited] = [isRecord(before.connection) ? before.connection : {}, isRecord(after.connection) ? after.connection : {}];
+  const connection: Json = { ...(isRecord(registered.connection) ? registered.connection : {}) };
+  for (const key of new Set([...Object.keys(shown), ...Object.keys(edited)])) {
+    if (key in edited) connection[key] = edited[key];
+    else delete connection[key];
+  }
+  const { keySlot: _keySlot, fallbackKeySlot: _fallbackKeySlot, ...rest } = registered;
+  scope.providers.register({
+    ...rest,
+    connection,
+    ...(typeof after.keySlot === 'string' ? { keySlot: after.keySlot } : {}),
+    ...(typeof after.fallbackKeySlot === 'string' ? { fallbackKeySlot: after.fallbackKeySlot } : {}),
+  });
+}
+
+/**
+ * Registers the edits over the project `scope` holds. A provider goes before the agents whose
+ * models name it, tools an agent runs before it, and an agent before the tool that calls it: the
+ * order the kernel checks them in.
  */
 export async function registerEdits(scope: KernelScope, edits: ProjectEdits): Promise<void> {
+  for (const held of edits.subjects) if (held.kind === 'provider') registerProvider(scope, held);
   const subject = (kind: SaveSubject['kind'], named: (after: Json) => unknown, name: string) =>
     edits.subjects.find((held) => held.kind === kind && named(held.after as Json) === name);
   const fresh = new Set(edits.added.tools.map((tool) => tool.name));

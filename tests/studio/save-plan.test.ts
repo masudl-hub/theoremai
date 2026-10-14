@@ -499,8 +499,8 @@ Deno.test('a profile the studio added is one to write, and one it removed is one
   const [agent] = workspace.agents;
   if (!agent) throw new Error('The example changed.');
   const subjects = saveSubjects(workspace, {
+    ...projectNames(workspace),
     profiles: ['other'],
-    tools: projectNames(workspace).tools,
   });
   assertEquals(subjects.ok && [subjects.added.profiles, subjects.removed, subjects.changes], [
     ['garden-desk'],
@@ -577,4 +577,53 @@ Deno.test('an object whose every entry is replaced is written whole, and one tha
     id: 'desk',
     models: { main: { apiId: 'live' }, fast: { apiId: 'lite' } },
   });
+});
+
+const PROVIDERS = `import { defineProvider, openAIChat } from '@theoremjs/agents';
+
+export const house = defineProvider({
+  id: 'house',
+  connection: { baseURL: 'https://one.example/v1' },
+  keySlot: 'team',
+  adapter: openAIChat(),
+});
+`;
+
+/** Plans one provider's change and returns its file as Save would write it. */
+function savedProvider(before: unknown, after: unknown) {
+  const files = {
+    'setup.ts': "import { house } from './providers.ts';\nregisterProviders([house]);\n",
+    'providers.ts': PROVIDERS,
+  };
+  const plan = planSave(project(files), [{ kind: 'provider', of: 'house', before, after }]);
+  return {
+    text: applyEdits(PROVIDERS, plan.edits),
+    statuses: plan.changes.map((change) => `${change.setting}: ${change.status}`),
+    kinds: [...new Set(plan.changes.map((change) => change.kind))],
+  };
+}
+
+Deno.test("a provider's address and key slots are rewritten in its definition, and its adapter stays", () => {
+  const before = { connection: { baseURL: 'https://one.example/v1' }, keySlot: 'team' };
+  const changed = savedProvider(before, {
+    connection: { baseURL: 'https://two.example/v1' },
+    keySlot: 'shared',
+    fallbackKeySlot: 'spare',
+  });
+  assertEquals(changed.kinds, ['provider']);
+  assertEquals(changed.statuses, [
+    'connection.baseURL: written',
+    'keySlot: written',
+    'fallbackKeySlot: written',
+  ]);
+  assertEquals(
+    changed.text,
+    PROVIDERS.replace('one.example', 'two.example')
+      .replace("keySlot: 'team'", "keySlot: 'shared'")
+      .replace('openAIChat(),\n', "openAIChat(),\n  fallbackKeySlot: 'spare',\n"),
+  );
+
+  const without = savedProvider(before, { connection: before.connection });
+  assertEquals(without.statuses, ['keySlot: written']);
+  assertEquals(without.text, PROVIDERS.replace("  keySlot: 'team',\n", ''));
 });

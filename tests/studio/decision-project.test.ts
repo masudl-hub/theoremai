@@ -174,8 +174,12 @@ Deno.test('a decision made in the studio loads from its files as what was tested
       (response) => response.json() as Promise<StudioDescription>,
     );
   const others = ['triage-desk', 'unasked-desk'];
-  const differs = async (asks: Record<string, DecisionQuestion>) =>
-    projectDiffers((await saved(asks)).workspace, tested).filter((id) => !others.includes(id));
+  // The providers are the project's own, as the page that tested it held them.
+  const differs = async (asks: Record<string, DecisionQuestion>) => {
+    const { workspace } = await saved(asks);
+    const page = { ...tested, providers: workspace.providers };
+    return projectDiffers(workspace, page).filter((id) => !others.includes(id));
+  };
 
   assertEquals(await differs(made.questions ?? {}), []);
   // Files that ask something else are not what was tested.

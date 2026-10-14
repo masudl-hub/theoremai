@@ -2,7 +2,8 @@
  * What the builder changed in the studio, as Save needs it: each profile and
  * tool as it compiled when the project opened and as it compiles now. Both
  * sides go through the studio's own compiler, so a default the project never
- * wrote is the same on both and is not a change.
+ * wrote is the same on both and is not a change. A provider is not compiled:
+ * it is what it opened as and what it holds now.
  *
  * @module
  */
@@ -11,7 +12,8 @@ import { z } from 'zod';
 import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
 import type { CompiledStudio } from '../compile.ts';
-import { unheldProblem } from '../held-credentials.ts';
+import { unheldConnection, unheldProblem } from '../held-credentials.ts';
+import type { StudioProvider } from '../providers.ts';
 import type { NewSubjects } from './save-new.ts';
 import type { Removed } from './save-remove.ts';
 import type { ToolRegistration } from '../registrations.ts';
@@ -38,6 +40,16 @@ interface Compiled {
   /** What each decision profile is asked, by profile id. */
   asked: Map<string, CompiledStudio['questions']>;
   tools: Map<string, ToolRegistration>;
+  providers: Map<string, StudioProvider>;
+}
+
+/**
+ * What Save writes of a provider: what it connects with and its key slots, as the fields its
+ * definition holds them in. Its id and its adapter are not the studio's to change here.
+ */
+export function providerSettings(provider: StudioProvider): Omit<StudioProvider, 'id' | 'adapter'> {
+  const { id: _id, adapter: _adapter, ...settings } = provider;
+  return settings;
 }
 
 function compiled(workspace: StudioWorkspace): Compiled | string[] {
@@ -48,7 +60,8 @@ function compiled(workspace: StudioWorkspace): Compiled | string[] {
   for (const agent of result.agents) for (const tool of agent.customTools) tools.set(tool.name, tool);
   const profiles = new Map(result.agents.map((agent) => [agent.agentId, agent.profile]));
   const asked = new Map(result.agents.map((agent) => [agent.agentId, agent.questions]));
-  return { agents: result.agents, profiles, asked, tools };
+  const providers = new Map(workspace.providers.map((provider) => [provider.id, provider]));
+  return { agents: result.agents, profiles, asked, tools, providers };
 }
 
 /** The names of the project's profiles and tools, from the workspace it opened as. */
@@ -60,17 +73,18 @@ export function projectNames(opened: StudioWorkspace): ProjectNames {
   };
 }
 
-/** The workspace as the project opened it: each agent and tool the project has, at its start. */
+/** The workspace as the project opened it: each agent, tool and provider the project has, at its start. */
 function atStart(workspace: StudioWorkspace, names: ProjectNames): StudioWorkspace {
   const { starts } = workspace;
   const agents = Object.values(starts.agents).filter((agent) => names.profiles.includes(agent.identity.agentId));
   const toolSpecs = Object.values(starts.tools).filter((tool) => names.tools.includes(tool.toolName));
-  return { ...workspace, agents, toolSpecs };
+  const providers = workspace.providers.map((provider) => starts.providers[provider.id] ?? provider);
+  return { ...workspace, agents, toolSpecs, providers };
 }
 
 /**
- * The profiles and tools that changed, each before and after, the ones the studio added, and the
- * ones it removed. `changes` holds what Save cannot write at all: a tool the studio added that no
+ * The profiles, tools and providers that changed, each before and after, the ones the studio added,
+ * and the ones it removed. `changes` holds what Save cannot write at all: a tool the studio added that no
  * agent allows, and an edit to a tool no agent allows.
  */
 export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): SaveSubjects {
@@ -119,8 +133,26 @@ export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): S
     const start = workspace.starts.tools[tool.key];
     add('tool', start?.toolName, tool.toolName, names.tools, canonical(start) !== canonical(tool));
   }
+  for (const provider of workspace.providers) {
+    const start = before.providers.get(provider.id);
+    // One the project does not register has no definition for Save to write.
+    if (!start || !names.providers.includes(provider.id)) {
+      if (canonical(start) !== canonical(provider)) {
+        changes.push({ kind: 'provider', of: provider.id, setting: '', status: 'unfound' });
+      }
+      continue;
+    }
+    if (canonical(start) === canonical(provider)) continue;
+    subjects.push({
+      kind: 'provider',
+      of: provider.id,
+      before: providerSettings(start),
+      after: providerSettings(provider),
+    });
+  }
   // A mask the page sends that it was not given has no value to run or to save with.
   const unheld = [
+    ...workspace.providers.map((provider) => unheldConnection(provider.id, provider.connection)),
     ...subjects.filter((subject) => subject.kind === 'tool').map((subject) =>
       unheldProblem(subject.of, subject.after as ToolRegistration, subject.before as ToolRegistration)
     ),
@@ -185,6 +217,9 @@ export function projectDiffers(loaded: StudioWorkspace, tested: StudioWorkspace)
     }
     const read = asKernelReads(tool);
     if (!same(loads, read) && !same(asKernelReads(loads), read)) differs.push(name);
+  }
+  for (const id of new Set([...now.providers.keys(), ...wanted.providers.keys()])) {
+    if (!same(now.providers.get(id), wanted.providers.get(id))) differs.push(id);
   }
   return differs;
 }

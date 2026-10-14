@@ -27,7 +27,12 @@ function planned(files: Record<string, string>, added: NewSubjects, entry = 'set
 }
 
 function host(id: string, allow: string[], customTools: ToolRegistration[] = []): CompiledStudio {
-  return { agentId: id, profile: { type: 'host', id, tools: { allow } }, customTools };
+  return {
+    agentId: id,
+    providers: [],
+    profile: { type: 'host', id, tools: { allow } },
+    customTools,
+  };
 }
 
 const COMMON = {
@@ -410,6 +415,7 @@ Deno.test('what has no safe place is named and nothing is planned for it', () =>
 function decision(id: string): CompiledStudio {
   return {
     agentId: id,
+    providers: [],
     profile: {
       type: 'decision',
       id,

@@ -296,10 +296,11 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
       : agent;
   });
   // The project's own providers are the ones a model here can name.
-  const providers = registeredProviders();
+  const registered = registeredProviders();
+  const providers = registered.length > 0 ? registered : opened.providers;
   const whole: StudioWorkspace = {
     ...opened,
-    ...(providers.length > 0 ? { providers } : {}),
+    providers,
     agents,
     toolSpecs,
     // What opened is what the files hold: nothing here is a change yet.
@@ -307,6 +308,7 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
       ...opened.starts,
       agents: Object.fromEntries(agents.map((agent) => [agent.key, agent])),
       tools: Object.fromEntries(toolSpecs.map((tool) => [tool.key, tool])),
+      providers: Object.fromEntries(providers.map((provider) => [provider.id, provider])),
     },
     ...(first ? { selected: agentNodeId(first.key), chatWith: first.key } : {}),
   };

@@ -40,6 +40,17 @@ export function shownConnection(connection: unknown): Record<string, string> | u
   return shown.length > 0 ? Object.fromEntries(shown) : undefined;
 }
 
+/**
+ * Why a provider cannot run or be saved, when what it connects with shows a mask. A provider's
+ * credential is its key slot's, so a mask here stands for nothing the project holds.
+ */
+export function unheldConnection(id: string, connection: Record<string, string> | undefined): string | undefined {
+  const names = Object.entries(connection ?? {}).flatMap(([name, value]) => (value.includes(MASK) ? [name] : []));
+  return names.length
+    ? `${id}: the studio has no value for ${names.join(', ')}. A provider's key comes from its key slot. Write the address without one.` // labels-exempt: builder diagnostic
+    : undefined;
+}
+
 /** One setting of a tool the page sent, each mask in it filled in from `held`, the project's own. */
 export function heldSetting(key: string, shown: unknown, held: unknown): unknown {
   if (URLS.includes(key) && typeof shown === 'string') {

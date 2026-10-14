@@ -8,9 +8,9 @@ import { type ProjectEdits, registerEdits } from '../../studio/server/edits.ts';
 import registerExample from '../../studio/server/example.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import { readProjectSource } from '../../studio/server/project-source.ts';
-import { projectNames, saveSubjects } from '../../studio/server/save.ts';
+import { projectNames, providerSettings, saveSubjects } from '../../studio/server/save.ts';
 import { applyEdits, planSave } from '../../studio/server/save-plan.ts';
-import { type StudioWorkspace, setToolAllowed } from '../../studio/workspace.ts';
+import { type StudioWorkspace, setToolAllowed, withProvider } from '../../studio/workspace.ts';
 
 const ENDPOINT = 'https://gardener:trowel@soil.example/v1/{bed}/read?api_key=soil-key-1&unit=ph';
 const HEADERS = { Authorization: 'Bearer soil-token-1', 'X-Tenant': 'garden' };
@@ -221,4 +221,38 @@ Deno.test('a provider defined with nothing has no connection to tell', () => {
   assertEquals(shownConnection({}), undefined);
   assertEquals(shownConnection(undefined), undefined);
   assertEquals(shownConnection('https://models.example'), undefined);
+});
+
+Deno.test('a provider the builder changed is a Save subject over what its definition holds, and a mask is refused', () => {
+  const { workspace } = opened;
+  const [provider] = workspace.providers;
+  if (!provider) throw new Error('The example changed.');
+  const names = projectNames(workspace);
+  const untouched = saveSubjects(workspace, names);
+  assertEquals(untouched.ok && untouched.subjects.filter((each) => each.kind === 'provider'), []);
+
+  const changed = saveSubjects(withProvider(workspace, { ...provider, keySlot: 'team' }), names);
+  const settings = providerSettings(provider);
+  assertEquals(changed.ok && changed.subjects.filter((each) => each.kind === 'provider'), [
+    {
+      kind: 'provider',
+      of: provider.id,
+      before: settings,
+      after: { ...settings, keySlot: 'team' },
+    },
+  ]);
+  assertEquals('id' in settings || 'adapter' in settings, false);
+
+  const masked = saveSubjects(
+    withProvider(workspace, {
+      ...provider,
+      connection: { baseURL: `https://${MASK}@house.example/v1` },
+    }),
+    names,
+  );
+  if (masked.ok) throw new Error('A mask in a provider was let through.');
+  assertStringIncludes(
+    masked.issues.join('\n'),
+    `${provider.id}: the studio has no value for baseURL`,
+  );
 });

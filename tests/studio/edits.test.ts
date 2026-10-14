@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import { defaultKernelScope } from '../../mod.ts';
+import { defaultKernelScope, openAIChat } from '../../mod.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
 import {
   changedSettings,
@@ -9,8 +9,13 @@ import {
 } from '../../studio/server/edits.ts';
 import registerExample from '../../studio/server/example.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
-import { projectDiffers, projectNames, saveSubjects } from '../../studio/server/save.ts';
-import { type StudioWorkspace, setToolAllowed } from '../../studio/workspace.ts';
+import {
+  projectDiffers,
+  projectNames,
+  providerSettings,
+  saveSubjects,
+} from '../../studio/server/save.ts';
+import { type StudioWorkspace, setToolAllowed, withProvider } from '../../studio/workspace.ts';
 
 registerExample();
 
@@ -125,3 +130,49 @@ Deno.test("a decision the setup does not name is asked the page's questions; the
     'watering-check': { soil: page },
   });
 });
+
+Deno.test('a provider the builder changed runs as edited, with everything else as the project registered it', async () => {
+  const registered = defaultKernelScope.providers.register({
+    id: 'house',
+    connection: { baseURL: 'https://house.example/v1' },
+    keySlot: 'team',
+    adapter: openAIChat(),
+  });
+  try {
+    const { workspace } = await described();
+    const provider = workspace.providers.find((each) => each.id === 'house');
+    if (!provider) throw new Error('The provider did not open.');
+    const edited = withProvider(workspace, {
+      ...provider,
+      connection: { baseURL: 'https://other.example/v1' },
+      keySlot: undefined,
+      fallbackKeySlot: 'spare',
+    });
+    // The example's models name providers this project does not register: only the provider is read.
+    const subjects = {
+      subjects: [
+        {
+          kind: 'provider' as const,
+          of: 'house',
+          before: providerSettings(provider),
+          after: providerSettings(providerOf(edited)),
+        },
+      ],
+      added: { agents: [], profiles: [], tools: [] },
+    };
+    await registerEdits(defaultKernelScope, subjects);
+    const now = defaultKernelScope.providers.require('house');
+    assertEquals([now.keySlot, now.fallbackKeySlot], [undefined, 'spare']);
+    assertEquals(now.adapter, registered.adapter);
+    assertEquals(now.connection, { baseURL: 'https://other.example/v1' });
+    assertEquals(providerOf((await described()).workspace), providerOf(edited));
+  } finally {
+    defaultKernelScope.providers.reset();
+  }
+});
+
+const providerOf = (workspace: StudioWorkspace) => {
+  const held = workspace.providers.find((each) => each.id === 'house');
+  if (!held) throw new Error('The provider did not open.');
+  return JSON.parse(JSON.stringify(held));
+};

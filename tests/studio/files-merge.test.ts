@@ -3,15 +3,19 @@ import {
   atStart,
   createArchitectWorkspace,
   duplicateAgent,
+  filesPrint,
   libraryDraft,
   mergedWithFiles,
+  rebased,
   removeAgent,
   removeLibraryTool,
+  resetProvider,
   type StudioDraft,
   type StudioWorkspace,
   startedHere,
   withFilesChosen,
   withLibraryDraft,
+  withProvider,
 } from '../../studio/mod.ts';
 
 /** One agent's draft changed, as the editor form changes it. */
@@ -427,4 +431,60 @@ Deno.test("an agent the files rename keeps its key and the builder's edits", () 
     [agent.key, agent.identity.agentId, agent.identity.system],
     [key, 'renamed-desk', 'Mine.'],
   );
+});
+
+const provider = (workspace: StudioWorkspace) => {
+  const [held] = workspace.providers;
+  assert(held);
+  return held;
+};
+const providerNow = (workspace: StudioWorkspace, id: string) =>
+  workspace.providers.find((each) => each.id === id);
+
+Deno.test("a provider's setting the files changed is the files', beside the builder's edit to another", () => {
+  const old = createArchitectWorkspace();
+  const was = provider(old);
+  const connection = { baseURL: 'https://files.example/v1' };
+  const edits = withProvider(old, { ...was, keySlot: 'mine' });
+  assert(!atStart(edits));
+  assert(filesPrint(edits) !== filesPrint(old));
+  const files = filesAfter((opened) => withProvider(opened, { ...was, connection }));
+
+  const merge = mergedWithFiles(edits, files, old);
+  assertEquals(merge.conflicts, []);
+  assertEquals(
+    merge.updated.map((each) => [each.kind, each.key, each.path.join('.')]),
+    [['provider', was.id, 'connection']],
+  );
+  assertEquals(providerNow(merge.workspace, was.id), { ...was, keySlot: 'mine', connection });
+  // The files' value is the start, so only the builder's edit is left to save or to reset.
+  assertEquals(merge.workspace.starts.providers[was.id], { ...was, connection });
+  assertEquals(providerNow(resetProvider(merge.workspace, was.id), was.id), { ...was, connection });
+
+  const moved = rebased(edits, files);
+  assertEquals(providerNow(moved, was.id), { ...was, keySlot: 'mine' });
+  assertEquals(moved.starts.providers[was.id], { ...was, connection });
+  assertEquals(providerNow(rebased(old, files), was.id), { ...was, connection });
+});
+
+Deno.test("a provider's setting both changed is a conflict the builder settles", () => {
+  const old = createArchitectWorkspace();
+  const was = provider(old);
+  const edits = withProvider(old, { ...was, keySlot: 'mine' });
+  const files = filesAfter((opened) => withProvider(opened, { ...was, keySlot: 'theirs' }));
+  const merge = mergedWithFiles(edits, files, old);
+  assertEquals(
+    merge.conflicts.map((each) => [
+      each.kind,
+      each.key,
+      each.path.join('.'),
+      each.mine,
+      each.theirs,
+    ]),
+    [['provider', was.id, 'keySlot', 'mine', 'theirs']],
+  );
+  assertEquals(providerNow(merge.workspace, was.id)?.keySlot, 'mine');
+  const taken = withFilesChosen(merge, [0]);
+  assertEquals(providerNow(taken, was.id)?.keySlot, 'theirs');
+  assert(atStart(taken));
 });

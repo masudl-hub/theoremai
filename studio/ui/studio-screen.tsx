@@ -34,7 +34,6 @@ import {
 	IconFileZip,
 	IconCloud,
 	IconKey,
-	IconLibrary,
 	IconMenu2,
 	IconPlayerPlay,
 	IconPlaylistX,
@@ -118,8 +117,6 @@ import {
 	type StudioWorkspace,
 	sharedAt,
 	sharedEntries,
-	sharedOpens,
-	sharedNodeId,
 	sampleToolInput,
 	saveStudioRunPayload,
 	scopedNodeId,
@@ -130,7 +127,6 @@ import {
 	studioTree,
 	toolSpecKeyOf,
 	sharedAsk,
-	toolSpecNodeId,
 	modelRoute,
 	modelSlots,
 	type WorkspaceCompileResult,
@@ -361,13 +357,10 @@ interface WorkspaceTreeState {
 	workspace: StudioWorkspace;
 	focus: string;
 	selectedId: string;
-	/** The list the sidebar shows: agents, tools, or what every agent shares. */
+	/** The list the sidebar shows: agents, tools, or providers. */
 	list: WorkspaceList;
-	shared: readonly SharedEntry[];
 	/** The providers are the project's own, so they can be added and removed. */
 	ownsProviders: boolean;
-	/** Shows where the files define a profile or tool the project did not register. */
-	openFile: (at: { file: string; line: number }) => void;
 	setList: (next: WorkspaceList) => void;
 	onSelect: (id: string) => void;
 	update: (change: (workspace: StudioWorkspace) => StudioWorkspace) => void;
@@ -436,44 +429,6 @@ function declaredAt({ setting }: SharedEntry): string {
 }
 
 /**
- * A shared setting's row: its name, and under it the file and line that declare it, each on one
- * line. Hovering says the rest: its name in the code, the whole path, and whether the studio
- * edits it.
- */
-function SharedHead({ entry }: { entry: SharedEntry }) {
-	const { setting } = entry;
-	const line = String(setting.line);
-	// A setting no loaded profile or tool shows has nowhere to open.
-	const opens = sharedOpens(entry) !== undefined;
-	return (
-		<Tooltip
-			placement="end"
-			content={
-				// Plain lines, so each takes the tooltip's own colour.
-				<span className="studio-shared-head">
-					<span>{setting.name}</span>
-					<span>{`${setting.file}:${line}`}</span>
-					{!opens && (
-						<span>
-							{entry.idle.length ? 'Nothing that reads it is loaded.' : 'Changed in your code, not in the studio.'}
-						</span>
-					)}
-				</span>
-			}
-		>
-			<span className="studio-shared-head">
-				<Text maxLines={1} hasTruncateTooltip={false}>
-					{setting.label}
-				</Text>
-				<Text type="supporting" color="secondary" maxLines={1} hasTruncateTooltip={false}>
-					{`${setting.file.split('/').at(-1) ?? setting.file}:${line}`}
-				</Text>
-			</span>
-		</Tooltip>
-	);
-}
-
-/**
  * The providers every agent's models pick from, each over the agents with a model on it. A
  * provider's row opens its own settings; an agent's opens its first model there.
  */
@@ -525,91 +480,8 @@ function providerItems(tree: WorkspaceTreeState): TreeListItemData[] {
 	});
 }
 
-/**
- * What every agent shares: the providers, then the settings the project's profiles share, each
- * over the profiles and tools that use it. A setting's row opens it on that profile; one the
- * studio does not edit says so, and opens the profile.
- */
-function sharedItems(tree: WorkspaceTreeState): TreeListItemData[] {
-	return [...providerItems(tree), ...sharedSettingItems(tree)];
-}
-
-function sharedSettingItems({ workspace, shared, selectedId, onSelect, openFile }: WorkspaceTreeState) {
-	const open = sharedAt(shared, selectedId);
-	return shared.map((entry): TreeListItemData => {
-		const { setting, facet, agents } = entry;
-		const id = `shared:${setting.file}:${setting.name}`;
-		const users = agents.flatMap((key): TreeListItemData[] => {
-			const agent = workspace.agents.find((each) => each.key === key);
-			if (!agent) return [];
-			const node = sharedNodeId(entry, key);
-			const isUnder = selectedId === node || selectedId.startsWith(`${agentNodeId(key)}/`);
-			return [
-				{
-					id: `${id}:${key}`,
-					label: agent.identity.agentId || 'New agent',
-					startContent: (
-						<Icon
-							icon={PROFILE_TYPE_ICON[agent.identity.profileType || 'text']}
-							size="sm"
-							color="secondary"
-						/>
-					),
-					isSelected: open === entry && isUnder,
-					onClick: () => {
-						onSelect(node);
-					},
-				},
-			];
-		});
-		const tools = setting.tools.flatMap((name): TreeListItemData[] => {
-			const tool = workspace.toolSpecs.find((spec) => spec.toolName === name);
-			if (!tool) return [];
-			return [
-				{
-					id: `${id}:tool:${tool.key}`,
-					label: name,
-					startContent: <Icon icon={toolTypeIcon(tool.toolType)} size="sm" color="secondary" />,
-					onClick: () => {
-						onSelect(toolSpecNodeId(tool.key));
-					},
-				},
-			];
-		});
-		// One the project did not register opens nowhere in the studio: its row says so and shows the file.
-		const idle = entry.idle.map(
-			(each): TreeListItemData => ({
-				id: `${id}:idle:${each.kind}:${each.name}`,
-				label: each.name,
-				startContent: <Icon icon={IconCode} size="sm" color="secondary" />,
-				endContent: (
-					<Text type="supporting" color="secondary">
-						Not loaded
-					</Text>
-				),
-				onClick: () => {
-					openFile(each);
-				},
-			}),
-		);
-		return {
-			id,
-			label: <SharedHead entry={entry} />,
-			startContent: (
-				<Icon
-					icon={facet ? FACET_ICON[facet as keyof typeof FACET_ICON] : IconCode}
-					size="sm"
-					color="secondary"
-				/>
-			),
-			isExpanded: true,
-			children: [...users, ...tools, ...idle],
-		};
-	});
-}
-
 /** Which of the workspace's lists the sidebar shows. */
-type WorkspaceList = 'agents' | 'tools' | 'shared';
+type WorkspaceList = 'agents' | 'tools' | 'providers';
 
 /**
  * Which list shows, following the selection, and the tool search. The open row stays in view: a
@@ -633,37 +505,32 @@ function useWorkspaceList(selectedId: string, listRef: RefObject<HTMLDivElement 
 }
 
 /**
- * Which list shows: the tools library once a tool is open, what is shared once a provider is, and
+ * Which list shows: the tools library once a tool is open, the providers once a provider is, and
  * whatever the toggle last chose. Following the selection, it switches when the open row changes
  * between an agent, a tool and a provider.
  */
 function useListShown(selectedId: string) {
 	const isTool = toolSpecKeyOf(selectedId) !== undefined;
 	const isProvider = providerIdOf(selectedId) !== undefined;
-	const [list, setList] = useState<WorkspaceList>(isTool ? 'tools' : isProvider ? 'shared' : 'agents');
+	const [list, setList] = useState<WorkspaceList>(isTool ? 'tools' : isProvider ? 'providers' : 'agents');
 	const [shownFor, setShownFor] = useState(selectedId);
 	if (shownFor !== selectedId) {
 		setShownFor(selectedId);
-		// The shared list opens its settings on an agent, so an agent's row keeps it shown.
+		// A provider's rows open the models on it, so an agent's row keeps the providers shown.
 		setList((current) =>
-			isTool ? 'tools' : isProvider ? 'shared' : current === 'tools' ? 'agents' : current,
+			isTool ? 'tools' : isProvider ? 'providers' : current === 'tools' ? 'agents' : current,
 		);
 	}
 	return { list, setList };
 }
 
-/**
- * The toggle between the agents, the tool library, and what every agent shares: the providers,
- * and the settings a project's profiles share. Each with its count.
- */
+/** The toggle between the agents, the tool library, and the providers, each with its count. */
 function WorkspaceListToggle({
 	workspace,
-	shared,
 	list,
 	onChange,
 }: {
 	workspace: StudioWorkspace;
-	shared: number;
 	list: WorkspaceList;
 	onChange: (next: WorkspaceList) => void;
 }) {
@@ -674,11 +541,13 @@ function WorkspaceListToggle({
 			layout="fill"
 			value={list}
 			onChange={(next) => {
-				onChange(next === 'tools' || next === 'shared' ? next : 'agents');
+				onChange(next === 'tools' || next === 'providers' ? next : 'agents');
 			}}
 		>
 			{WORKSPACE_LISTS.map(({ value, name, icon }) => {
-				const count = String({ agents: workspace.agents.length, tools: workspace.toolSpecs.length, shared }[value]);
+				const count = String(
+					{ agents: workspace.agents.length, tools: workspace.toolSpecs.length, providers: workspace.providers.length }[value],
+				);
 				return (
 					<Tooltip key={value} content={`${name} · ${count}`}>
 						<SegmentedControlItem value={value} label={`${name}, ${count}`} isLabelHidden icon={<Icon icon={icon} size="sm" />} />
@@ -693,7 +562,7 @@ function WorkspaceListToggle({
 const WORKSPACE_LISTS: readonly { value: WorkspaceList; name: string; icon: IconType }[] = [
 	{ value: 'agents', name: 'Agents', icon: EFFORT_ICON },
 	{ value: 'tools', name: 'Tools', icon: IconTool },
-	{ value: 'shared', name: 'Shared', icon: IconLibrary },
+	{ value: 'providers', name: 'Providers', icon: IconCloud },
 ];
 
 interface ExampleEntry {
@@ -856,8 +725,8 @@ function WorkspaceListBody({
 		<ScrollableArea ref={listRef} label="Workspace" height="100%">
 			{list === 'agents' ? (
 				<TreeList density="compact" aria-label="Agents" items={agentItems(tree)} />
-			) : list === 'shared' ? (
-				<TreeList density="compact" aria-label="Shared" items={sharedItems(tree)} />
+			) : list === 'providers' ? (
+				<TreeList density="compact" aria-label="Providers" items={providerItems(tree)} />
 			) : tools.length > 0 ? (
 				<TreeList density="compact" aria-label="Tools" items={tools} />
 			) : (
@@ -870,8 +739,8 @@ function WorkspaceListBody({
 }
 
 /**
- * The workspace's two lists, one at a time: its agents, and the tool library they share. The
- * toggle follows the selection, so opening a tool from elsewhere (an issue, a new tool) shows it.
+ * The workspace's lists, one at a time: its agents, the tool library they share, and the providers.
+ * The toggle follows the selection, so opening a tool from elsewhere (an issue, a new tool) shows it.
  */
 function WorkspaceTreeLists({
 	tree,
@@ -893,7 +762,6 @@ function WorkspaceTreeLists({
 		<VStack gap={2} height="100%">
 			<WorkspaceListToggle
 				workspace={tree.workspace}
-				shared={tree.workspace.providers.length + tree.shared.length}
 				list={list}
 				onChange={(next) => {
 					setList(next);
@@ -911,7 +779,7 @@ function WorkspaceTreeLists({
 				/>
 			)}
 			{list === 'tools' ? <AddToolButton tree={tree} draft={draft} /> : null}
-			{list === 'shared' && tree.ownsProviders ? (
+			{list === 'providers' && tree.ownsProviders ? (
 				<AddProviderButton
 					taken={tree.workspace.providers.map((provider) => provider.id)}
 					onAdd={(provider) => {
@@ -1011,13 +879,7 @@ function editorTitle(draft: StudioDraft, id: string): string | undefined {
 }
 
 /** The editor's heading: Tools with the tools list and no tool open; else the open node's title. */
-function headingOf(
-	list: WorkspaceList,
-	editing: string,
-	title: string | undefined,
-	shared: SharedEntry | undefined,
-) {
-	if (list === 'shared' && shared) return shared.setting.label;
+function headingOf(list: WorkspaceList, editing: string, title: string | undefined) {
 	return list === 'tools' && toolSpecKeyOf(editing) === undefined
 		? profileGraphFacet('tools')?.label
 		: title;
@@ -3111,14 +2973,9 @@ function Studio({ opened }: { opened: StudioOpened }) {
 	const { state, connection, view, frame, selected, editing, issueReveal, compile } = page;
 	const { sheet, setSheet, run, copy, chatRef, title, asking } = page;
 	const { store, draft } = state;
-	const openOrigin = useOpenOrigin(opened.project ?? null);
-	const tree = useWorkspaceTree(state, view, selected, setSheet, openOrigin);
+	const tree = useWorkspaceTree(state, view, selected, setSheet);
 	const chatAgents = useChatAgents(state.workspace.agents);
 	const addAgentFrom = useAddAgent(store, state.update, view.open);
-	const { setList } = tree;
-	const showShared = useCallback(() => {
-		setList('shared');
-	}, [setList]);
 	const { setMapOpen } = view;
 	const closeMap = useCallback(() => {
 		setMapOpen(false);
@@ -3175,10 +3032,9 @@ function Studio({ opened }: { opened: StudioOpened }) {
 									heading={
 										view.keysOpen
 											? 'Keys'
-											: headingOf(tree.list, editing, title, sharedAt(state.shared, selected))
+											: headingOf(tree.list, editing, title)
 									}
-									sharedList={tree.list === 'shared' ? undefined : showShared}
-									state={state}
+										state={state}
 									connection={connection}
 									view={view}
 									compile={compile}
@@ -3279,9 +3135,8 @@ function useWorkspaceTree(
 	view: EditorViewState,
 	selected: string,
 	setSheet: (sheet: Sheet) => void,
-	openOrigin: (origin: SettingOrigin) => void,
 ): WorkspaceTreeState {
-	const { workspace, focus, update, setDraft, shared } = state;
+	const { workspace, focus, update, setDraft } = state;
 	const { open } = view;
 	const selectedId = view.keysOpen ? '' : selected;
 	const { list, setList } = useListShown(selectedId);
@@ -3292,11 +3147,7 @@ function useWorkspaceTree(
 			focus,
 			selectedId,
 			list,
-			shared,
 			ownsProviders,
-			openFile: (at) => {
-				openOrigin({ path: [], kind: 'code', ...at });
-			},
 			setList,
 			onSelect: (id) => {
 				open(id);
@@ -3305,7 +3156,7 @@ function useWorkspaceTree(
 			update,
 			setDraft,
 		}),
-		[workspace, focus, selectedId, list, shared, ownsProviders, openOrigin, setList, open, setSheet, update, setDraft],
+		[workspace, focus, selectedId, list, ownsProviders, setList, open, setSheet, update, setDraft],
 	);
 }
 
@@ -3390,14 +3241,30 @@ function SidePanel({
  * Over a section that is a shared setting: its name, where the project declares it, and how many
  * other profiles change with it.
  */
-function SharedLine({ entry, onOpen }: { entry: SharedEntry; onOpen: (() => void) | undefined }) {
-	const others = entry.agents.length - 1;
+function SharedLine({
+	entry,
+	workspace,
+	selected,
+	onOpen,
+}: {
+	entry: SharedEntry;
+	workspace: StudioWorkspace;
+	/** The open node, whose agent is not one of the others. */
+	selected: string;
+	/** Opens where the setting is written. */
+	onOpen: (() => void) | undefined;
+}) {
+	const others = entry.agents.flatMap((key) => {
+		const agent = workspace.agents.find((each) => each.key === key);
+		return agent && !selected.startsWith(`${agentNodeId(key)}/`) ? [agent.identity.agentId || 'New agent'] : [];
+	});
+	const count = others.length;
 	return (
 		<Section variant="transparent" padding={3}>
 			<Banner
 				status="info"
-				title={`${entry.setting.label} · used by ${String(others)} other ${others === 1 ? 'profile' : 'profiles'}`}
-				description={`${declaredAt(entry)}. A change here changes every profile that uses it.`}
+				title={`${entry.setting.label} · used by ${String(count)} other ${count === 1 ? 'profile' : 'profiles'}`}
+				description={`${declaredAt(entry)}. A change here changes ${others.join(', ')} too.`}
 				endContent={onOpen && <Button label="Open" variant="ghost" size="sm" onClick={onOpen} />}
 			/>
 		</Section>
@@ -3434,7 +3301,6 @@ function OriginBanner({
 /** The editor column: its toolbar over the Keys panel, the open node's editor, or its code. */
 function EditorColumn({
 	heading,
-	sharedList,
 	state,
 	connection,
 	view,
@@ -3446,8 +3312,6 @@ function EditorColumn({
 	setSheet,
 }: {
 	heading: string | undefined;
-	/** Shows the list of shared settings; unset while it shows. */
-	sharedList: (() => void) | undefined;
 	state: StudioWorkspaceState;
 	connection: StudioConnectionState;
 	view: EditorViewState;
@@ -3503,7 +3367,20 @@ function EditorColumn({
 				}
 				setSheet={setSheet}
 			/>
-			{shared && <SharedLine entry={shared} onOpen={sharedList} />}
+			{shared && (
+				<SharedLine
+					entry={shared}
+					workspace={state.workspace}
+					selected={selected}
+					onOpen={
+						project
+							? () => {
+									openOrigin({ path: [], kind: 'code', file: shared.setting.file, line: shared.setting.line });
+								}
+							: undefined
+					}
+				/>
+			)}
 			{said && (
 				<OriginBanner
 					origin={said}

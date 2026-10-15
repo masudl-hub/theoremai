@@ -179,6 +179,7 @@ import {
 	modelRoute,
 	onStudioLocal,
 	servesProfileType,
+	kernelAdapters,
 	bindingSlots,
 	type StudioProvider,
 	modelSlots,
@@ -273,6 +274,7 @@ import {
 	WorkspaceContext,
 } from './inspector-context.ts';
 import { PROFILE_TYPE_ICON, TOOL_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
+import { AddProviderButton } from './add-provider.tsx';
 import { useProject } from './lib/studio-project.ts';
 import { slotDescription, useProviderModels } from './studio-connection.tsx';
 import { IconTheorem } from './theorem-mark.tsx';
@@ -890,6 +892,7 @@ function ProviderRow({
 	const on = useContext(RunsOn);
 	const keys = on.mode === 'demo' ? on.keys : undefined;
 	const inProject = useProject() !== null;
+	const add = useContext(WorkspaceContext)?.addProvider;
 	const serving = providers.filter(
 		(provider) => provider.id === binding.provider || servesProfileType(provider.adapter, type),
 	);
@@ -904,6 +907,20 @@ function ProviderRow({
 				const provider = providers.find((each) => each.id === id);
 				if (provider) set(reprovide(binding, type, provider, keys));
 			}}
+			trailing={
+				add && (
+					<AddProviderButton
+						isCompact
+						taken={providers.map((provider) => provider.id)}
+						adapters={kernelAdapters().filter((adapter) => servesProfileType(adapter, type))}
+						// The model moves to it, and its editor opens for what it connects with.
+						onAdd={(provider) => {
+							set(reprovide(binding, type, provider, keys));
+							add(provider);
+						}}
+					/>
+				)
+			}
 		/>
 	);
 }

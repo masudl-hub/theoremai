@@ -11,7 +11,7 @@ import type { StudioStore } from './lib/studio-store.ts';
 const DIALOG_WIDTH = 520;
 
 /**
- * The stop before a change to a value the project's files write once, or th30's change to a tool
+ * The stop before a change to a value the project's files write once, or a change to a tool
  * other profiles allow: who else it changes and what other code reads it, and Cancel or Change for all. Closing the dialog is
  * Cancel, and no profile has the change.
  */

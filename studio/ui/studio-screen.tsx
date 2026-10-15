@@ -1406,7 +1406,7 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
 	const [shared] = useState(() =>
 		sharedEntries(start.workspace, project?.shared ?? [], project?.origins.sites, project?.unregistered),
 	);
-	// th30's tools read the store synchronously. The editor works on the open agent's draft, with the
+	// The page's tools read the store synchronously. The editor works on the open agent's draft, with the
 	// whole tool library.
 	const [store] = useState(() =>
 		createStudioStore(start, project?.origins.sites?.profiles, project?.origins.sites?.tools),
@@ -2047,6 +2047,7 @@ function useWorkspaceContext(
 	agents: StudioWorkspace['agents'],
 	focus: string,
 	update: (change: (current: StudioWorkspace) => StudioWorkspace) => void,
+	ownsProviders: boolean,
 ) {
 	return useMemo(() => {
 		const self = agents.find((agent) => agent.key === focus);
@@ -2061,8 +2062,13 @@ function useWorkspaceContext(
 			setAllowed: (toolKey: string, allowed: boolean) => {
 				update((current) => setToolAllowed(current, focus, toolKey, allowed));
 			},
+			addProvider: ownsProviders
+				? (provider: StudioProvider) => {
+						update((current) => addProvider(current, provider));
+					}
+				: undefined,
 		};
-	}, [agents, focus, update]);
+	}, [agents, focus, update, ownsProviders]);
 }
 
 type StudioWorkspaceState = ReturnType<typeof useStudioWorkspace>;
@@ -2542,8 +2548,8 @@ function EditorBody({
 	open: (id: string) => void;
 }) {
 	const { workspace, draft, focus, setDraft, update } = state;
-	const workspaceContext = useWorkspaceContext(workspace.agents, focus, update);
 	const project = useProject();
+	const workspaceContext = useWorkspaceContext(workspace.agents, focus, update, project !== null);
 	const provider = shownProvider(workspace, editing, project !== null, connection);
 	return (
 		<ScrollableArea key={selected} label="Editor" height="100%" ref={editorRef}>

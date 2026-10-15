@@ -5,6 +5,7 @@ import {
 	ON_OWN_KEYS,
 	type StudioAsks,
 	type StudioIssue,
+	type StudioProvider,
 	type StudioRunsOn,
 	type WriteAsk,
 } from '../mod.ts';
@@ -114,12 +115,14 @@ export interface WorkspaceAgent {
 }
 
 /**
- * The workspace around the agent the editor shows: the agents it can name, and which of the
- * library's tools it allows. `null` when the editor shows a single draft.
+ * The workspace around the agent the editor shows: the agents it can name, which of the library's
+ * tools it allows, and, on a project, a way to add a provider and open it. `null` when the editor
+ * shows a single draft.
  */
 export const WorkspaceContext = createContext<{
 	agents: readonly WorkspaceAgent[];
 	self: string;
 	allowed: readonly string[];
 	setAllowed: (toolKey: string, allowed: boolean) => void;
+	addProvider: ((provider: StudioProvider) => void) | undefined;
 } | null>(null);

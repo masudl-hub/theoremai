@@ -100,6 +100,7 @@ import {
 	providerIdOf,
 	providerNodeId,
 	providerUse,
+	modelSharers,
 	withProvider,
 	modelBindingNodeId,
 	nodeOrigins,
@@ -2072,14 +2073,8 @@ function useWorkspaceContext(
 						update((current) => withProvider(current, provider));
 					}
 				: undefined,
-			sharing: (id: string, apiId: string) =>
-				agents
-					.filter(
-						(agent) =>
-							agent.key !== focus &&
-							agent.modelBindings.some((binding) => binding.provider === id && binding.apiId.trim() === apiId),
-					)
-					.map((agent) => agent.identity.agentId.trim() || 'New agent'),
+			sharing: (bindingKey: string, id: string, apiId: string) =>
+				modelSharers({ agents }, focus, bindingKey, id, apiId),
 		};
 	}, [agents, focus, update, ownsProviders]);
 }

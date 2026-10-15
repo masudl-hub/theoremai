@@ -14,6 +14,7 @@ import {
 	declarableFeatures,
 	declaresSupport,
 	type ModelBindingDraft,
+	modelSupport,
 	providerSupport,
 	type StudioProvider,
 	withSupport,
@@ -72,7 +73,7 @@ export function SupportSection({
 		<InspectorSection
 			title="Supports"
 			note={`What its models take. A model runs a turn only when what the turn uses is marked Supported.${
-				apart.length ? ` Told apart in its own editor: ${apart.join(', ')}.` : ''
+				apart.length ? ` Told apart: ${apart.join(', ')}.` : ''
 			}`}
 		>
 			{declarableFeatures(provider.adapter).map((feature) => (
@@ -107,12 +108,13 @@ export function ModelSupportSection({
 }) {
 	const workspace = useContext(WorkspaceContext);
 	const provider = providers.find((each) => each.id === binding.provider);
-	const apiId = binding.apiId.trim();
-	const base = provider && providerSupport(provider);
-	if (!provider || !base || !apiId || !declaresSupport(provider.adapter)) return null;
-	const told = provider.support?.models?.[apiId] ?? {};
 	const update = workspace?.updateProvider;
-	const others = workspace?.sharing(provider.id, apiId) ?? [];
+	const apiId = binding.apiId.trim();
+	const rows = provider && modelSupport(provider, apiId, update !== undefined);
+	if (!provider || !rows) return null;
+	const { base, told } = rows;
+	const sharers = workspace?.sharing(binding.key, provider.id, apiId) ?? { models: [], agents: [] };
+	const others = [...sharers.models.map((model) => `its ${model} model`), ...sharers.agents];
 	const shared = others.length ? ` A change here changes ${others.join(', ')} too.` : '';
 	return (
 		<InspectorSection

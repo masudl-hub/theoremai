@@ -336,6 +336,22 @@ export function providerSupport(provider: StudioProvider, apiId = ''): ProviderC
 }
 
 /**
+ * The model `apiId`'s own rows on `provider`: what it is told apart from the provider's other
+ * models, and what those take. None for an adapter that is not told, or for a model that is told
+ * nothing where the builder cannot change it: rows of the provider's would say more than it does.
+ */
+export function modelSupport(
+  provider: StudioProvider,
+  apiId: string,
+  editable: boolean,
+): { base: ProviderCapabilities; told: ModelSupport } | undefined {
+  const base = providerSupport(provider);
+  const told = provider.support?.models?.[apiId.trim()] ?? {};
+  if (!base || !apiId.trim() || !declaresSupport(provider.adapter)) return undefined;
+  return editable || Object.keys(told).length ? { base, told } : undefined;
+}
+
+/**
  * What a provider on `adapter` is told its models take, holding nothing that is the adapter's
  * defaults: capabilities that are them, and a model told nothing, are the same as left out.
  */

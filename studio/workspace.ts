@@ -1072,6 +1072,28 @@ export function providerUse(workspace: StudioWorkspace, id: string): { models: n
   return { models: counts.reduce((sum, count) => sum + count, 0), agents: counts.filter((count) => count > 0).length };
 }
 
+/**
+ * Who else calls the model `apiId` on the provider `id`, besides the model `bindingKey` of the
+ * agent `agentKey`: that agent's other models, by id, and the other agents, by name. What the
+ * provider says the model takes is the same for each of them.
+ */
+export function modelSharers(
+  workspace: Pick<StudioWorkspace, 'agents'>,
+  agentKey: string,
+  bindingKey: string,
+  id: string,
+  apiId: string,
+): { models: string[]; agents: string[] } {
+  const calls = (binding: { provider: string; apiId: string }) => binding.provider === id && binding.apiId.trim() === apiId.trim();
+  const own = workspace.agents.find((agent) => agent.key === agentKey)?.modelBindings ?? [];
+  return {
+    models: own.filter((binding) => binding.key !== bindingKey && calls(binding)).map((binding) => binding.modelId.trim() || 'new'),
+    agents: workspace.agents
+      .filter((agent) => agent.key !== agentKey && agent.modelBindings.some(calls))
+      .map((agent) => agent.identity.agentId.trim() || 'New agent'),
+  };
+}
+
 /** Adds a provider for every agent's models to pick, and opens it. One whose id is taken changes nothing. */
 export function addProvider(workspace: StudioWorkspace, provider: StudioProvider): StudioWorkspace {
   if (workspace.providers.some((each) => each.id === provider.id)) return workspace;

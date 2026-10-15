@@ -127,6 +127,6 @@ export const WorkspaceContext = createContext<{
 	addProvider: ((provider: StudioProvider) => void) | undefined;
 	/** Puts a changed provider in the workspace; left out where the providers are not the builder's. */
 	updateProvider: ((provider: StudioProvider) => void) | undefined;
-	/** The other agents with a model that calls `apiId` on the provider `id`, by name. */
-	sharing: (id: string, apiId: string) => string[];
+	/** Who else calls `apiId` on the provider `id` besides the open agent's model `bindingKey` (`modelSharers`). */
+	sharing: (bindingKey: string, id: string, apiId: string) => { models: string[]; agents: string[] };
 } | null>(null);

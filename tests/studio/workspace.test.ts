@@ -14,6 +14,8 @@ import {
   duplicateAgent,
   libraryDraft,
   modelBindingNodeId,
+  modelSharers,
+  modelSupport,
   newToolSpec,
   providerNodeId,
   providerUse,
@@ -289,4 +291,44 @@ Deno.test('an agent put back to its start brings back the provider its models st
     );
     assertEquals(must(reset.agents[0]).modelBindings, must(agent).modelBindings);
   }
+});
+
+Deno.test("a model's own support names everyone it changes, and shows only where it says something", () => {
+  const start = workspaceFromDraft(createExampleDraft());
+  const [agent] = start.agents;
+  const [first] = must(agent).modelBindings;
+  const on = { ...must(first), provider: 'house', apiId: 'house/one' };
+  const sibling = { ...on, key: 'sibling', modelId: 'thinking' };
+  const other = {
+    ...must(agent),
+    key: 'other',
+    identity: { ...must(agent).identity, agentId: 'Team' },
+  };
+  const workspace = {
+    agents: [
+      { ...must(agent), modelBindings: [on, sibling] },
+      { ...other, modelBindings: [{ ...on, apiId: ' house/one ' }] },
+      { ...other, key: 'elsewhere', modelBindings: [{ ...on, apiId: 'house/two' }] },
+    ],
+  };
+  assertEquals(modelSharers(workspace, must(agent).key, on.key, 'house', 'house/one'), {
+    models: ['thinking'],
+    agents: ['Team'],
+  });
+
+  const house = {
+    id: 'house',
+    adapter: 'openai-chat',
+    connection: { baseURL: 'https://h.example/v1' },
+  };
+  // Told nothing where the builder cannot change it, the model has no rows.
+  assertEquals(modelSupport(house, 'house/one', false), undefined);
+  assertEquals(modelSupport(house, 'house/one', true)?.told, {});
+  const told = {
+    ...house,
+    support: { models: { 'house/one': { clientTools: 'unsupported' as const } } },
+  };
+  assertEquals(modelSupport(told, 'house/one', false)?.told, { clientTools: 'unsupported' });
+  // An adapter that knows each model's own takes no rows.
+  assertEquals(modelSupport({ id: 'g', adapter: 'google' }, 'gemini', true), undefined);
 });

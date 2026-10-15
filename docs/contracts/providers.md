@@ -261,7 +261,21 @@ const gateway = defineProvider({
   id: 'gateway',
   connection: { baseURL: 'https://gateway.example/v1' },
   adapter: openAIChat({
-    capabilities: { ...verified },
+    capabilities: {
+      profileTypes: ['text'],
+      inputKinds: ['text'],
+      outputKinds: ['text'],
+      builtins: [],
+      features: {
+        streaming: 'supported',
+        clientTools: 'supported',
+        parallelTools: 'unknown',
+        structuredOutput: 'unknown',
+        thinking: 'unknown',
+        summaries: 'unknown',
+        storedContinuation: 'unsupported',
+      },
+    },
     models: { 'small/model': { clientTools: 'unsupported' } },
   }),
 });

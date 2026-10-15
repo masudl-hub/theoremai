@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TheoremError } from '../guardrails/error.ts';
 import { labelText } from '../guardrails/labels.ts';
 import type {
+  DeclaredSupport,
   JsonObject,
   ProviderAdapter,
   ProviderCapabilities,
@@ -10,7 +11,12 @@ import type {
   ProviderOperations,
   ProviderTurnRequest,
 } from '../kernel/provider-contract.ts';
-import { jsonObjectSchema, jsonValueSchema } from '../kernel/provider-contract.ts';
+import {
+  DECLARABLE_FEATURES,
+  declaredSupportSchema,
+  jsonObjectSchema,
+  jsonValueSchema,
+} from '../kernel/provider-contract.ts';
 import type { ProviderCompleteRequest, ProviderEvent } from '../kernel/types.ts';
 import {
   GOOGLE_FREE_TIER_GROUNDING,
@@ -299,9 +305,13 @@ export function openRouterAdapter(): ProviderAdapter<
 }
 
 export function openAIChat(
-  options: { capabilities?: ProviderCapabilities } = {},
+  options: DeclaredSupport = {},
 ): ProviderAdapter<z.infer<typeof localConnection>, z.infer<typeof localOptions>, string, unknown> {
-  const cap = options.capabilities ?? {
+  const told = declaredSupportSchema.safeParse(options);
+  if (!told.success)
+    throw new TheoremError('config', `Compatible chat support: ${told.error.issues[0]?.message}`);
+  const given = told.data;
+  const cap = given.capabilities ?? {
     ...capability(['text']),
     inputKinds: ['text'] as const,
     outputKinds: ['text'] as const,
@@ -331,7 +341,11 @@ export function openAIChat(
     connectionSchema: localConnection,
     optionsSchema: localOptions,
     credentialSchema,
-    capabilities: () => cap,
+    capabilities: ({ apiId }) => {
+      const model = given.models?.[apiId];
+      return model ? { ...cap, features: { ...cap.features, ...model } } : cap;
+    },
+    declared: { features: DECLARABLE_FEATURES, given },
     validateRequest() {},
     create(context) {
       const operations: ProviderOperations = {

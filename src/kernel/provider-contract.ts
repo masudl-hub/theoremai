@@ -191,6 +191,35 @@ export const providerCapabilitiesSchema: z.ZodType<ProviderCapabilities> = z.str
   outputKinds: z.array(z.enum(['text', 'image', 'audio'])),
   builtins: z.array(z.string().min(1)),
 });
+/** The features a builder can tell an adapter its models take; the rest are the adapter's own to know. */
+export const DECLARABLE_FEATURES = [
+  'clientTools',
+  'parallelTools',
+  'structuredOutput',
+  'thinking',
+  'summaries',
+] as const;
+export type DeclarableFeature = (typeof DECLARABLE_FEATURES)[number];
+/** What one model takes, over what its provider's models take. */
+export type ModelSupport = Partial<Record<DeclarableFeature, CapabilitySupport>>;
+/** What a builder tells an adapter that cannot know: its models', and each named model's own. */
+export interface DeclaredSupport {
+  capabilities?: ProviderCapabilities;
+  models?: Readonly<Record<string, ModelSupport>>;
+}
+export const declaredSupportSchema: z.ZodType<DeclaredSupport> = z.strictObject({
+  capabilities: providerCapabilitiesSchema.optional(),
+  models: z
+    .record(
+      z.string().min(1),
+      z.strictObject(
+        Object.fromEntries(
+          DECLARABLE_FEATURES.map((feature) => [feature, capabilitySupportSchema.optional()]),
+        ) as Record<DeclarableFeature, z.ZodOptional<typeof capabilitySupportSchema>>,
+      ),
+    )
+    .optional(),
+});
 export interface ResolvedProviderModel<C = unknown, O = unknown> {
   apiId: string;
   connection: C;
@@ -344,6 +373,11 @@ export interface ProviderAdapter<C = unknown, O = unknown, K = unknown, S = unkn
   optionsSchema: z.ZodType<O>;
   credentialSchema: z.ZodType<K>;
   capabilities(model: ResolvedProviderModel<C, O>): ProviderCapabilities;
+  /**
+   * Present when what the models take is the builder's to tell: which features can be told,
+   * and what this adapter was told. `capabilities` already answers with it.
+   */
+  declared?: { features: readonly DeclarableFeature[]; given: DeclaredSupport };
   validateRequest(request: ProviderRequest, model: ResolvedProviderModel<C, O>): void;
   continuation?: {
     version: number;

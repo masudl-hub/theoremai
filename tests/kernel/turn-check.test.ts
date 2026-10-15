@@ -1,7 +1,14 @@
-import { assertEquals } from '@std/assert';
-import { createKernelScope, defineProfile, defineProvider, openAIChat, z } from '../../mod.ts';
+import { assertEquals, assertThrows } from '@std/assert';
+import {
+  createKernelScope,
+  type DeclaredSupport,
+  defineProfile,
+  defineProvider,
+  openAIChat,
+  z,
+} from '../../mod.ts';
 
-function scoped(clientTools: 'supported' | 'unknown') {
+function scoped(clientTools: 'supported' | 'unknown', models?: DeclaredSupport['models']) {
   const scope = createKernelScope();
   scope.providers.register(
     defineProvider({
@@ -23,6 +30,7 @@ function scoped(clientTools: 'supported' | 'unknown') {
             storedContinuation: 'unsupported',
           },
         },
+        models,
       }),
     }),
   );
@@ -132,5 +140,43 @@ Deno.test('an image agent that takes no text is still checked', () => {
   assertEquals(
     scope.turnShortfalls('studio').map((shortfall) => shortfall.model),
     ['paint'],
+  );
+});
+
+Deno.test('a model told apart from its provider is checked by what it was told', () => {
+  assertEquals(
+    scoped('unknown', { 'plain/model': { clientTools: 'supported' } })
+      .turnShortfalls('desk')
+      .map((shortfall) => shortfall.model),
+    ['thinking'],
+  );
+  assertEquals(
+    scoped('supported', { 'plain/other': { clientTools: 'unsupported' } })
+      .turnShortfalls('desk')
+      .map((shortfall) => shortfall.model),
+    ['thinking'],
+  );
+  assertEquals(
+    scoped('supported', { 'plain/model': { clientTools: 'unsupported' } })
+      .turnShortfalls('desk')
+      .map((shortfall) => shortfall.model),
+    ['bare', 'thinking'],
+  );
+});
+
+Deno.test('the chat adapter says what it was told, and refuses what is not support', () => {
+  const told = { models: { 'plain/model': { thinking: 'supported' as const } } };
+  assertEquals(openAIChat(told).declared?.given, told);
+  assertEquals(
+    openAIChat(told).capabilities({
+      apiId: 'plain/model',
+      connection: { baseURL: 'https://plain.example/v1' },
+      providerOptions: {},
+    }).features.thinking,
+    'supported',
+  );
+  assertThrows(() => openAIChat({ models: { 'plain/model': { thinking: 'yes' as 'supported' } } }));
+  assertThrows(() =>
+    openAIChat({ models: { 'plain/model': { streaming: 'supported' } as never } }),
   );
 });

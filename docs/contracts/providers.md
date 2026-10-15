@@ -135,6 +135,7 @@ An endpoint address alone does not establish compatibility.
 | `optionsSchema` | Validates model options; output must be a JSON object |
 | `credentialSchema` | Validates a resolved credential |
 | `capabilities` | Declares profile types, content kinds, builtins, and feature support |
+| `declared` | Optional. The features a builder can tell this adapter, and what it was told |
 | `validateRequest` | Checks restrictions beyond shared capability checks |
 | `create` | Asynchronously returns supported operations |
 | `continuation` | Optional version, state schema, and compatibility key |
@@ -251,6 +252,24 @@ const local = defineProvider({
 
 The default declaration verifies text input, text output, and streaming.
 Tools, structured output, and reasoning remain unknown until the builder declares verified deployment capabilities.
+
+A compatible endpoint often serves models that differ, for example a gateway with a model that calls tools and one that does not.
+Tell the adapter what its models take in `capabilities`, and what one model takes apart from them in `models`, keyed by the model's `apiId`:
+
+```ts
+const gateway = defineProvider({
+  id: 'gateway',
+  connection: { baseURL: 'https://gateway.example/v1' },
+  adapter: openAIChat({
+    capabilities: { ...verified },
+    models: { 'small/model': { clientTools: 'unsupported' } },
+  }),
+});
+```
+
+A model's entry names only the features in `DECLARABLE_FEATURES`: `clientTools`, `parallelTools`, `structuredOutput`, `thinking` and `summaries`.
+`declaredSupportSchema` validates the whole argument; the adapter refuses anything else with a `config` error.
+The adapter's `declared` member holds what it was told, so a tool such as the studio can show and change it.
 The kernel rejects unverified requirements before transport opens.
 The codec assembles fragmented tool IDs, names, and arguments before it releases a call.
 
@@ -371,11 +390,11 @@ and `OpenLiveWebSocket`.
 | Group | Symbols |
 | --- | --- |
 | Provider definitions | `ProviderAdapter`, `ProviderBuiltinSpec`, `ProviderDefinition`, `DefinedProvider`, `RegisteredProvider`, `ProviderRegistry`, `defineProvider`, `createProviderRegistry` |
-| Provider data | `JsonValue`, `JsonObject`, `CapabilitySupport`, `ProviderCapabilities`, `ResolvedProviderModel`, `ProviderModelSettings` |
+| Provider data | `JsonValue`, `JsonObject`, `CapabilitySupport`, `ProviderCapabilities`, `DeclarableFeature`, `DeclaredSupport`, `ModelSupport`, `ResolvedProviderModel`, `ProviderModelSettings` |
 | Provider vault | `ProviderCredential`, `CredentialContext`, `CredentialResolver`, `ProviderVault`, `ProviderWait`, `OpenProviderWebSocket` |
 | Provider operations | `ProviderHostOptions`, `ProviderLimits`, `providerLimitsSchema`, `resolveProviderLimits`, `ProviderContext`, `ProviderOperations`, `ProviderRequest`, `ProviderTurnRequest`, `ProviderSessionRequest`, `ProviderDecisionRequest`, `ProviderLiveConnection`, `ProviderToolResult` |
 | Provider output | `ProviderContentEvent`, `ProviderModelEvent`, `ProviderCheckpoint`, `ProviderWarning`, `ProviderContinuationPolicy` |
-| Provider schemas | `jsonValueSchema`, `jsonObjectSchema`, `keySlotSchema`, `commonModelSettingsSchema`, `modelBindingSchema`, `decisionModelBindingSchema`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema`, `providerCapabilitiesSchema` |
+| Provider schemas | `jsonValueSchema`, `jsonObjectSchema`, `keySlotSchema`, `commonModelSettingsSchema`, `modelBindingSchema`, `decisionModelBindingSchema`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema`, `providerCapabilitiesSchema`, `declaredSupportSchema`, `DECLARABLE_FEATURES` |
 | Provider limits | `ProviderLimits`, `providerLimitsSchema`, `resolveProviderLimits` |
 
 ```theorem-evidence

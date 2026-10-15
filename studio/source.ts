@@ -170,7 +170,9 @@ function providerOptions(provider: StudioProvider, factory: string): string {
   const slots = (['keySlot', 'fallbackKeySlot'] as const).flatMap((slot) =>
     provider[slot] === undefined ? [] : [`  ${slot}: ${quoteSource(provider[slot])},\n`]
   );
-  return `{\n  id: ${quoteSource(provider.id)},\n  connection: ${connection},\n${slots.join('')}  adapter: ${factory}(),\n}`;
+  // An adapter the provider tells what its models support is called with it.
+  const told = provider.capabilities ? literal({ capabilities: provider.capabilities }, 1) : '';
+  return `{\n  id: ${quoteSource(provider.id)},\n  connection: ${connection},\n${slots.join('')}  adapter: ${factory}(${told}),\n}`;
 }
 
 /**

@@ -143,7 +143,8 @@ async function registerAgent(scope: KernelScope, agent: CompiledStudio, subject:
 
 /**
  * A provider with the builder's edits over the one the project registered. What the page was not
- * shown stays as registered: anything it connects with that is not text. Moved to another kernel
+ * shown stays as registered: anything it connects with that is not text. Told something else
+ * about what its models support, its adapter is made again with that. Moved to another kernel
  * adapter, it is that adapter with what the page holds.
  */
 function registerProvider(scope: KernelScope, subject: SaveSubject): void {
@@ -161,8 +162,19 @@ function registerProvider(scope: KernelScope, subject: SaveSubject): void {
     else delete connection[key];
   }
   const { keySlot: _keySlot, fallbackKeySlot: _fallbackKeySlot, ...rest } = registered;
+  // Told something else about its models, the adapter is made again with what the page holds.
+  const told = canonical(before.capabilities) === canonical(after.capabilities) ? {} : {
+    adapter: providerDefinition({
+      id: subject.of,
+      adapter: String(after.adapter),
+      // As registered, with the edits: the adapter's own schema reads it.
+      connection: connection as Record<string, string>,
+      capabilities: after.capabilities as StudioProvider['capabilities'],
+    }).adapter,
+  };
   scope.providers.register({
     ...rest,
+    ...told,
     connection,
     ...(typeof after.keySlot === 'string' ? { keySlot: after.keySlot } : {}),
     ...(typeof after.fallbackKeySlot === 'string' ? { fallbackKeySlot: after.fallbackKeySlot } : {}),

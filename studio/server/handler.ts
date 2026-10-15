@@ -35,7 +35,7 @@ import {
   type TheoremConversationStore,
 } from '@theoremjs/react/server';
 import { type StudioAsks, studioAsks } from '../asks.ts';
-import { adapterFactory, providerDefinition, type StudioProvider } from '../providers.ts';
+import { adapterFactory, providerDefinition, type StudioProvider, toldSupport } from '../providers.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { shownConnection, withoutCredentials } from '../held-credentials.ts';
 import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
@@ -187,10 +187,17 @@ function replySchema(profile: Profile) {
   }
 }
 
+/** What a provider's models are told they support, as the kernel runs it: none when it is the adapter's defaults. */
+function toldTo(provider: RegisteredProvider): Pick<StudioProvider, 'capabilities'> {
+  const asked = provider.adapter.capabilities({ apiId: '', connection: provider.connection, providerOptions: {} });
+  const capabilities = toldSupport(provider.adapter.id, asked);
+  return capabilities ? { capabilities } : {};
+}
+
 /**
  * The project's providers as the page gets them: the adapter each is defined on, its key slots,
- * and what it connects with when its adapter is the kernel's. What a project's own adapter
- * connects with is its own to say, so it stays here.
+ * what it connects with when its adapter is the kernel's, and what its models support when its
+ * adapter is told. What a project's own adapter connects with is its own to say, so it stays here.
  */
 function registeredProviders(): StudioProvider[] {
   return listProviders().map((provider) => {
@@ -201,6 +208,7 @@ function registeredProviders(): StudioProvider[] {
       ...(connection ? { connection } : {}),
       ...(provider.keySlot ? { keySlot: provider.keySlot } : {}),
       ...(provider.fallbackKeySlot ? { fallbackKeySlot: provider.fallbackKeySlot } : {}),
+      ...toldTo(provider),
     };
   });
 }
@@ -261,6 +269,7 @@ function providerDifferences(workspace: StudioWorkspace): StudioDifference[] {
       ...(connects ? { connection: provider.connection } : {}),
       keySlot: provider.keySlot,
       fallbackKeySlot: provider.fallbackKeySlot,
+      ...toldTo(provider),
     });
   return workspace.providers.flatMap((provider): StudioDifference[] => {
     const held = registered.get(provider.id);

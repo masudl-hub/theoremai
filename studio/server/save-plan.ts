@@ -16,7 +16,7 @@ import { MASK, unmaskUrl } from '@theoremjs/agents/surface';
 import { AGENTS_PACKAGE, type SourceStyle, valueSource } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
 import { canonical } from '../canonical.ts';
-import { adapterFactory } from '../providers.ts';
+import { adapterFactory, declaresSupport } from '../providers.ts';
 import {
   declares,
   definedAs,
@@ -418,10 +418,12 @@ class Planner {
     }
     const users = usersOf(this.project, holder);
     const everyone = [...users.profiles].map((id) => subjectId('profile', id))
-      .concat([...users.tools].map((tool) => subjectId('tool', tool)));
+      .concat([...users.tools].map((tool) => subjectId('tool', tool)))
+      .concat([...users.providers].map((provider) => subjectId('provider', provider)));
     const { kind, of } = this.subject;
     const sharedWith = [...users.profiles].filter((id) => kind !== 'profile' || id !== of)
-      .concat([...users.tools].filter((tool) => kind !== 'tool' || tool !== of));
+      .concat([...users.tools].filter((tool) => kind !== 'tool' || tool !== of))
+      .concat([...users.providers].filter((provider) => kind !== 'provider' || provider !== of));
     const refused = this.change('constant', path, origin, holder.name, {
       ...(sharedWith.length ? { sharedWith } : {}),
       ...(users.code ? { readByCode: true } : {}),
@@ -570,7 +572,9 @@ class Planner {
       const change: KeyChange = { key, before: before[key], after: after[key], here: [...path, key] };
       const schema = this.subject.kind === 'tool' && path.length === 0 ? TOOL_SCHEMAS[key] : undefined;
       const entry = shape.entries.get(key);
-      if (schema) this.toolSchema(shape, at, schema, change);
+      if (this.subject.kind === 'provider' && key === 'capabilities' && at.node === unwrapped(this.target.options)) {
+        this.told(shape, at, change);
+      } else if (schema) this.toolSchema(shape, at, schema, change);
       else if (!entry) {
         if (this.isAdded(shape, at, change)) inserts.push([key, change.after]);
       } else {
@@ -649,8 +653,10 @@ class Planner {
     const from = typeof before === 'string' ? adapterFactory(before) : undefined;
     const to = typeof after === 'string' ? adapterFactory(after) : undefined;
     const call = at && unwrapped(at.node);
+    // What a told adapter was told goes with it (`told`): nothing else in the call may.
+    const most = typeof before === 'string' && declaresSupport(before) ? 1 : 0;
     if (
-      !at || !from || !to || !call || !ts.isCallExpression(call) || call.arguments.length > 0 ||
+      !at || !from || !to || !call || !ts.isCallExpression(call) || call.arguments.length > most ||
       !ts.isIdentifier(call.expression)
     ) return this.note('code', here, place);
     const { source } = at;
@@ -673,6 +679,50 @@ class Planner {
     }
     this.edit(source, callee.getStart(source), callee.end, name);
     this.note('written', here, place);
+  }
+
+  /**
+   * What a provider's models support, told to its adapter: changed in the call that makes the
+   * adapter, wherever that call is written. A call with nothing in it is given the whole; one
+   * already told has each part that changed written where it stands. An adapter that is not told,
+   * or one made any other way, is code's to change.
+   */
+  private told(shape: ObjectShape, at: Located, change: KeyChange) {
+    const { after, here } = change;
+    const entry = shape.entries.get('adapter');
+    const adapter = (this.subject.after as Json).adapter;
+    const place = this.placeIn(shape, at, 'adapter');
+    if (!entry?.value || typeof adapter !== 'string' || (after !== undefined && !declaresSupport(adapter))) {
+      return this.note('code', here, place);
+    }
+    const origin = followed(this.project, entry.value);
+    const call = unwrapped(origin.node);
+    if (!ts.isCallExpression(call) || call.arguments.length > 1) return this.note('code', here, place);
+    const located: Located = { ...origin, node: call };
+    if (call === unwrapped(entry.value.node) && origin.source === entry.value.source) this.toldIn(located, change);
+    else this.within(located, here, () => this.toldIn(located, change));
+  }
+
+  private toldIn(at: Located, { before, after, here }: KeyChange) {
+    const call = at.node as ts.CallExpression;
+    const { source } = at;
+    const [told] = call.arguments;
+    if (!told) {
+      if (after === undefined) return;
+      const start = call.arguments.pos;
+      this.edit(source, start, call.arguments.end, valueSource({ capabilities: after }, this.style(source, call.getStart(source))));
+      return this.note('written', here, { source, node: call });
+    }
+    const object = unwrapped(told);
+    if (after === undefined) {
+      // Moved to an adapter that is not told: what the old one was told goes with it.
+      const only = ts.isObjectLiteralExpression(object) && object.properties.length === 1 &&
+        propertyName(object.properties[0]) === 'capabilities';
+      if (!only) return this.note('code', here, { source, node: told });
+      this.edit(source, call.arguments.pos, call.arguments.end, '');
+      return this.note('written', here, { source, node: told });
+    }
+    this.walk({ ...at, node: told }, { capabilities: before }, { capabilities: after }, here.slice(0, -1));
   }
 
   /** The name `source` reads the provider `to` by, importing it when the file does not yet. Undefined when it cannot. */

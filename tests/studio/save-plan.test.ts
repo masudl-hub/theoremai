@@ -714,6 +714,110 @@ Deno.test("a provider's adapter made from another module's factory is code's to 
   );
 });
 
+const SUPPORT = {
+  profileTypes: ['text'],
+  features: { clientTools: 'unknown', thinking: 'unknown' },
+};
+const TOOLS = { ...SUPPORT, features: { ...SUPPORT.features, clientTools: 'supported' } };
+const HOUSE = {
+  adapter: 'openai-chat',
+  connection: { baseURL: 'https://one.example/v1' },
+  keySlot: 'team',
+};
+
+Deno.test("what a provider's models support is told to its adapter where the adapter is made", () => {
+  // An adapter called with nothing is given the whole.
+  const bare = savedProvider(HOUSE, { ...HOUSE, capabilities: TOOLS });
+  assertEquals(bare.statuses, ['capabilities: written']);
+  assertEquals(
+    bare.text,
+    PROVIDERS.replace(
+      'openAIChat(),',
+      `openAIChat({
+    capabilities: {
+      profileTypes: ['text'],
+      features: {
+        clientTools: 'supported',
+        thinking: 'unknown',
+      },
+    },
+  }),`,
+    ),
+  );
+
+  // One already told has only what changed written.
+  const told = PROVIDERS.replace(
+    'openAIChat()',
+    "openAIChat({ capabilities: { profileTypes: ['text'], features: { clientTools: 'unknown', thinking: 'unknown' } } })",
+  );
+  const files = {
+    'setup.ts': "import { house } from './providers.ts';\nregisterProviders([house]);\n",
+    'providers.ts': told,
+  };
+  const plan = planSave(project(files), [
+    {
+      kind: 'provider',
+      of: 'house',
+      before: { ...HOUSE, capabilities: SUPPORT },
+      after: { ...HOUSE, capabilities: TOOLS },
+    },
+  ]);
+  assertEquals(
+    plan.changes.map((change) => `${change.setting}: ${change.status}`),
+    ['capabilities.features.clientTools: written'],
+  );
+  assertEquals(
+    applyEdits(told, plan.edits),
+    told.replace("clientTools: 'unknown'", "clientTools: 'supported'"),
+  );
+
+  // Moved to an adapter that is not told, what the old one was told goes with it.
+  const moved = planSave(project(files), [
+    {
+      kind: 'provider',
+      of: 'house',
+      before: { ...HOUSE, capabilities: SUPPORT },
+      after: { ...HOUSE, adapter: 'google' },
+    },
+  ]);
+  assertEquals(
+    moved.changes.map((change) => change.status),
+    ['written', 'written'],
+  );
+  assertEquals(
+    applyEdits(told, moved.edits),
+    PROVIDERS.replace('openAIChat }', 'googleAdapter }').replace('openAIChat()', 'googleAdapter()'),
+  );
+});
+
+Deno.test('an adapter other providers are made with too is not told for one of them', () => {
+  const source = `import { defineProvider, openAIChat } from '@theoremjs/agents';
+
+const shared = openAIChat({ capabilities: { profileTypes: ['text'], features: { clientTools: 'unknown', thinking: 'unknown' } } });
+
+export const house = defineProvider({ id: 'house', adapter: shared });
+export const other = defineProvider({ id: 'other', adapter: shared });
+`;
+  const files = {
+    'setup.ts':
+      "import { house, other } from './providers.ts';\nregisterProviders([house, other]);\n",
+    'providers.ts': source,
+  };
+  const plan = planSave(project(files), [
+    {
+      kind: 'provider',
+      of: 'house',
+      before: { adapter: 'openai-chat', capabilities: SUPPORT },
+      after: { adapter: 'openai-chat', capabilities: TOOLS },
+    },
+  ]);
+  assertEquals(plan.edits, []);
+  assertEquals(
+    plan.changes.map(({ setting, status, sharedWith }) => ({ setting, status, sharedWith })),
+    [{ setting: 'capabilities', status: 'constant', sharedWith: ['other'] }],
+  );
+});
+
 Deno.test("a provider's new adapter is imported beside the old one when the file still reads it", () => {
   const source = `${PROVIDERS}export const spare = openAIChat();\n`;
   const files = {

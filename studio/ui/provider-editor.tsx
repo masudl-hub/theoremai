@@ -1,16 +1,29 @@
 import { Section } from '@astryxdesign/core/Section';
+import { IconCheck, IconQuestionMark, IconX } from '@tabler/icons-react';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
 	connectionFields,
+	declaresSupport,
 	kernelAdapters,
+	providerSupport,
 	providerUse,
 	type StudioIssue,
 	type StudioProvider,
 	type StudioWorkspace,
+	type SupportFeatures,
+	withSupport,
 } from '../mod.ts';
 import { NodeIssues } from './inspector-context.ts';
-import { ChoiceRow, InspectorRow, InspectorSection, SetInCode, TextRow } from './inspector.tsx';
+import {
+	ChoiceRow,
+	InspectorRow,
+	InspectorSection,
+	type Segment,
+	SegmentedRow,
+	SetInCode,
+	TextRow,
+} from './inspector.tsx';
 import { IssueBanners, SlotRow } from './profile-editor.tsx';
 
 /** A connection setting's name as a row labels it: `baseURL` is Base URL. */
@@ -40,16 +53,87 @@ function withConnection(provider: StudioProvider, name: string, value: string): 
 	return { ...provider, connection: value ? { ...rest, [name]: value } : rest };
 }
 
-/** `provider` on the kernel adapter `adapter`, keeping what it connects with that the adapter also takes. */
+/**
+ * `provider` on the kernel adapter `adapter`, keeping what it connects with that the adapter also
+ * takes. What the old adapter was told its models take goes with it.
+ */
 function withAdapter(provider: StudioProvider, adapter: string): StudioProvider {
 	const takes = new Set(connectionFields(adapter)?.map((field) => field.name));
 	const kept = Object.entries(provider.connection ?? {}).filter(([name]) => takes.has(name));
-	return { ...provider, adapter, connection: Object.fromEntries(kept) };
+	const { capabilities: _told, ...rest } = provider;
+	return { ...rest, adapter, connection: Object.fromEntries(kept) };
+}
+
+type Support = SupportFeatures[keyof SupportFeatures];
+
+/** What a model can be said to take, in the order a turn asks for it. */
+const FEATURES: ReadonlyArray<[keyof SupportFeatures, string]> = [
+	['clientTools', 'Tools'],
+	['parallelTools', 'Parallel tools'],
+	['structuredOutput', 'Structured output'],
+	['thinking', 'Thinking'],
+	['summaries', 'Summaries'],
+];
+
+const SUPPORT: readonly Segment<Support>[] = [
+	{ value: 'supported', label: 'Supported', icon: IconCheck },
+	{ value: 'unknown', label: 'Unknown', icon: IconQuestionMark },
+	{ value: 'unsupported', label: 'Unsupported', icon: IconX },
+];
+
+/**
+ * What the provider's models take. An adapter that is told shows a row for each, set where the
+ * adapter is made; one that knows each model's own support, or the project's own, says so.
+ */
+function SupportSection({
+	provider,
+	onChange,
+}: {
+	provider: StudioProvider;
+	onChange: (next: StudioProvider) => void;
+}) {
+	const support = providerSupport(provider);
+	if (!connectionFields(provider.adapter)) {
+		return (
+			<InspectorSection
+				title="Supports"
+				note="Its adapter is the project's own, so what its models take is the adapter's to say."
+			>
+				{null}
+			</InspectorSection>
+		);
+	}
+	if (!declaresSupport(provider.adapter) || !support) {
+		return (
+			<InspectorSection title="Supports" note="Its adapter knows what each model takes.">
+				{null}
+			</InspectorSection>
+		);
+	}
+	return (
+		<InspectorSection
+			title="Supports"
+			note="What its models take. A model runs a turn only when what the turn uses is marked Supported."
+		>
+			{FEATURES.map(([feature, label]) => (
+				<SegmentedRow
+					key={feature}
+					label={label}
+					path={`capabilities.features.${feature}`}
+					value={support.features[feature]}
+					segments={SUPPORT}
+					onChange={(next) => {
+						onChange(withSupport(provider, { [feature]: next }));
+					}}
+				/>
+			))}
+		</InspectorSection>
+	);
 }
 
 /**
- * The editor for one provider: its adapter, what it connects with, as its adapter takes it, and
- * the key slots its models read. Its id is what code and models name it by, so it takes no edit,
+ * The editor for one provider: its adapter, what it connects with, as its adapter takes it, the
+ * key slots its models read, and what its models take. Its id is what code and models name it by, so it takes no edit,
  * and an adapter the project made itself stays its code's. `onChange` is left out where the
  * providers are the studio's own: every row then shows its value and takes no edit.
  */
@@ -121,6 +205,7 @@ export function ProviderEditor({
 					))}
 				</InspectorSection>
 			)}
+			<SupportSection provider={provider} onChange={set} />
 		</>
 	);
 	return (

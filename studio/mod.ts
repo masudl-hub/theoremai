@@ -111,13 +111,17 @@ export {
   localProviderAddress,
   onStudioLocal,
   type ModelRoute,
+  declaresSupport,
   modelCapabilities,
   modelRoute,
   type ProviderProblem,
   providerProblems,
+  providerSupport,
   servesProfileType,
   STUDIO_PROVIDERS,
   type StudioProvider,
+  type SupportFeatures,
+  withSupport,
 } from './providers.ts';
 export {
   bindingSlots,

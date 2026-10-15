@@ -8,6 +8,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assert, assertEquals, assertNotEquals } from '@std/assert';
+import { withSupport } from '../../studio/providers.ts';
 import type { StudioDescription } from '../../studio/server/handler.ts';
 import type { SaveDone, SaveRefusal, SaveReview } from '../../studio/server/save-wire.ts';
 import { removeLibraryTool, type StudioWorkspace, setToolAllowed } from '../../studio/workspace.ts';
@@ -614,8 +615,11 @@ Deno.test(
       await step(
         'a save to a file with carriage returns and tabs keeps them, and undo is byte for byte',
         async () => {
+          // The gateway is said to take no tools after all: desk's model on it can no longer run.
           const workspace = withProvider(opened.workspace, 'house', (provider) => ({
-            ...atBase('https://changed.example/v1')(provider),
+            ...withSupport(atBase('https://changed.example/v1')(provider), {
+              clientTools: 'unsupported',
+            }),
             keySlot: 'changed_key',
           }));
           const review = await studio.post<SaveReview>(SAVE, { workspace });
@@ -630,15 +634,25 @@ Deno.test(
           assert(!/[^\r]\n/.test(written), 'a line lost its carriage return');
           assert(written.includes('\t\tbaseURL: "https://changed.example/v1",\r\n'), written);
           assert(written.includes('\tkeySlot: "changed_key",\r\n'), written);
+          assert(written.includes('\t\t\t\tclientTools: "unsupported",\r\n'), written);
           const reopened = await open(studio);
+          const house = reopened.workspace.providers.find((provider) => provider.id === 'house');
+          assertEquals(house?.capabilities?.features.clientTools, 'unsupported');
           assertEquals(
-            reopened.workspace.providers.find((provider) => provider.id === 'house'),
+            { ...house, capabilities: undefined },
             {
               id: 'house',
               adapter: 'openai-chat',
               connection: { baseURL: 'https://changed.example/v1' },
               keySlot: 'changed_key',
+              capabilities: undefined,
             },
+          );
+          assertEquals(
+            reopened.modelProblems?.find(
+              (problem) => problem.profile === 'desk' && problem.model === 'primary',
+            )?.message,
+            "Provider 'house' has no verified 'clientTools' support",
           );
           assertEquals((await studio.post(`${SAVE}/undo`, {})).body, {
             ok: true,

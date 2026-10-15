@@ -19,7 +19,7 @@ import {
   type Detector,
   DETECTORS,
 } from '@theoremjs/agents/guardrails';
-import { PROFILE_GRAPH } from '@theoremjs/agents/kernel';
+import { PROFILE_GRAPH, providerCapabilitiesSchema } from '@theoremjs/agents/kernel';
 import {
   CONTEXT_SENDERS,
   type ContextSender,
@@ -44,7 +44,7 @@ import {
   type ToolSpecDraft,
 } from './draft.ts';
 import { canonical } from './canonical.ts';
-import { adapterOfFactory, type StudioProvider } from './providers.ts';
+import { adapterOfFactory, declaresSupport, type StudioProvider, toldSupport } from './providers.ts';
 import { stubOutputFromSchema } from './stub.ts';
 import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
 
@@ -399,6 +399,11 @@ function namedCall(
 ): unknown {
   const adapter = adapterOfFactory(callee);
   if (adapter && args.length === 0) return { kind: 'adapter', id: adapter };
+  // An adapter told what its models support takes that and nothing else.
+  const [told] = args;
+  if (adapter && args.length === 1 && isRecord(told) && Object.keys(told).join() === 'capabilities' && isRecord(told.capabilities)) {
+    return { kind: 'adapter', id: adapter, capabilities: told.capabilities };
+  }
   if (src.of === 'provider') {
     if (callee !== 'defineProvider') return src.fail(`'${callee}' isn't part of a provider's file.`);
     return { kind: 'provider', spec: objectArg(args, src, 'defineProvider() needs the provider object.') };
@@ -1370,7 +1375,19 @@ function providerFrom(spec: Record<string, unknown>, current: StudioProvider, sp
     failAt(spans, 'id', `The id stays '${current.id}': models and code name the provider by it.`);
   }
   const adapter = isRecord(spec.adapter) && spec.adapter.kind === 'adapter' ? spec.adapter.id : undefined;
-  if (typeof adapter !== 'string') failAt(spans, 'adapter', 'adapter is one of the kernel adapters, called with nothing.');
+  if (typeof adapter !== 'string') {
+    failAt(spans, 'adapter', 'adapter is one of the kernel adapters, called with nothing or with its capabilities.');
+  }
+  const given = isRecord(spec.adapter) ? spec.adapter.capabilities : undefined;
+  if (given !== undefined && !declaresSupport(adapter)) {
+    failAt(spans, 'adapter', `The ${adapter} adapter knows what each model supports: it takes no capabilities.`);
+  }
+  const parsed = given === undefined ? undefined : providerCapabilitiesSchema.safeParse(given);
+  if (parsed && !parsed.success) {
+    const [issue] = parsed.error.issues;
+    failAt(spans, 'adapter', `capabilities.${issue?.path.join('.') ?? ''}: ${issue?.message ?? 'not what an adapter is told.'}`);
+  }
+  const told = toldSupport(adapter, parsed?.data);
   const connection = spec.connection;
   if (!isRecord(connection) || Object.values(connection).some((value) => typeof value !== 'string')) {
     failAt(spans, 'connection', 'connection holds text settings here.');
@@ -1378,7 +1395,12 @@ function providerFrom(spec: Record<string, unknown>, current: StudioProvider, sp
   const held = connection as Record<string, string>;
   // An empty connection is what the file has to say for one that opened with none.
   const empty = Object.keys(held).length === 0 && current.connection === undefined;
-  const provider: StudioProvider = { id: current.id, adapter, ...(empty ? {} : { connection: held }) };
+  const provider: StudioProvider = {
+    id: current.id,
+    adapter,
+    ...(empty ? {} : { connection: held }),
+    ...(told ? { capabilities: told } : {}),
+  };
   for (const slot of ['keySlot', 'fallbackKeySlot'] as const) {
     const value = spec[slot];
     if (value === undefined) continue;

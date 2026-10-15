@@ -2,7 +2,7 @@ import { assertEquals } from '@std/assert';
 import { defaultKernelScope, openAIChat } from '../../mod.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
-import { providerDefinition } from '../../studio/providers.ts';
+import { providerDefinition, withSupport } from '../../studio/providers.ts';
 import {
   changedSettings,
   editedQuestions,
@@ -218,6 +218,45 @@ Deno.test('a provider the builder moved to another adapter runs on it', async ()
     });
     const now = defaultKernelScope.providers.require('moved');
     assertEquals([now.adapter.id, now.connection, now.keySlot], ['openrouter', {}, 'team']);
+  } finally {
+    defaultKernelScope.providers.reset();
+  }
+});
+
+Deno.test('a provider told its models take tools runs on an adapter told so', async () => {
+  defaultKernelScope.providers.register(
+    providerDefinition({
+      id: 'told',
+      adapter: 'openai-chat',
+      connection: { baseURL: 'https://one.example/v1' },
+    }),
+  );
+  try {
+    const { workspace } = await described();
+    const provider = workspace.providers.find((each) => each.id === 'told');
+    if (!provider) throw new Error('The provider did not open.');
+    // Told nothing, it opens with nothing: its adapter's defaults.
+    assertEquals(provider.capabilities, undefined);
+    const after = withSupport(provider, { clientTools: 'supported' });
+    await registerEdits(defaultKernelScope, {
+      subjects: [
+        {
+          kind: 'provider',
+          of: 'told',
+          before: providerSettings(provider),
+          after: providerSettings(after),
+        },
+      ],
+      added: { agents: [], profiles: [], tools: [], providers: [] },
+    });
+    const now = defaultKernelScope.providers.require('told');
+    const support = now.adapter.capabilities({
+      apiId: 'any',
+      connection: now.connection,
+      providerOptions: {},
+    });
+    assertEquals(support.features.clientTools, 'supported');
+    assertEquals(now.connection, { baseURL: 'https://one.example/v1' });
   } finally {
     defaultKernelScope.providers.reset();
   }

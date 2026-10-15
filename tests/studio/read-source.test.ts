@@ -14,6 +14,7 @@ import {
   withAgentDraft,
   workspaceFromDraft,
 } from '../../studio/mod.ts';
+import { modelCapabilities, withSupport } from '../../studio/providers.ts';
 import { TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 /** The file the printer emits, read back, prints as the same file. */
@@ -338,6 +339,37 @@ Deno.test("a provider's file reads back as the provider, and an edit to it is wh
   const again = readProviderSource(providerSource(bare), bare);
   assert(again.ok);
   assertEquals(again.provider, bare);
+});
+
+Deno.test("a provider's file reads back what its adapter is told its models support", () => {
+  const capabilities = modelCapabilities('openai-chat', '');
+  if (!capabilities) throw new Error('The adapter has no capabilities.');
+  const told = {
+    id: 'house',
+    adapter: 'openai-chat',
+    connection: { baseURL: 'https://one.example/v1' },
+    capabilities: {
+      ...capabilities,
+      features: { ...capabilities.features, clientTools: 'supported' as const },
+    },
+  };
+  const read = readProviderSource(providerSource(told), told);
+  assert(read.ok);
+  assertEquals(read.provider, told);
+
+  // Set back to its adapter's defaults, it is told nothing, and the file says nothing.
+  const back = withSupport(read.provider, { clientTools: 'unknown' });
+  assertEquals(back.capabilities, undefined);
+  assertEquals(providerSource(back).includes('capabilities'), false);
+
+  // An adapter that knows each model's support is told nothing.
+  const google = providerSource({ ...told, adapter: 'google', connection: {} });
+  const refused = readProviderSource(google, told);
+  assert(!refused.ok);
+  assertEquals(
+    refused.errors.map((error) => error.message),
+    ['The google adapter knows what each model supports: it takes no capabilities.'],
+  );
 });
 
 Deno.test("a provider's file keeps its id, a kernel adapter and only what a provider holds", () => {

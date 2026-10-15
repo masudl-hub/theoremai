@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod';
+import { canonical } from './canonical.ts';
 import { labelText } from '@theoremjs/agents/guardrails';
 import {
   defineProvider,
@@ -40,6 +41,12 @@ export interface StudioProvider {
   keySlot?: string;
   /** The slot they read when the first one's key is refused. */
   fallbackKeySlot?: string;
+  /**
+   * What its models support, for an adapter that is told (`declaresSupport`): as the project
+   * registered it, or as the builder set it. Left out, it is the adapter's defaults, and it is
+   * left out whenever it is them (`toldSupport`).
+   */
+  capabilities?: ProviderCapabilities;
 }
 
 /** The provider the studio reaches on the builder's own machine. */
@@ -97,9 +104,15 @@ interface HeldAdapter {
   connection: z.ZodType;
   /** The provider as the kernel defines it; throws what the kernel refuses. */
   define: (provider: StudioProvider) => RegisteredProvider;
+  /** Whether it is called with what its models support. */
+  declares: boolean;
 }
 
-function held<C, O, K, S>(adapter: ProviderAdapter<C, O, K, S>, factory: string): HeldAdapter {
+function held<C, O, K, S>(
+  adapter: ProviderAdapter<C, O, K, S>,
+  factory: string,
+  declared?: (capabilities: ProviderCapabilities) => ProviderAdapter<C, O, K, S>,
+): HeldAdapter {
   return {
     asked: asked(adapter),
     factory,
@@ -108,9 +121,10 @@ function held<C, O, K, S>(adapter: ProviderAdapter<C, O, K, S>, factory: string)
       defineProvider({
         id: provider.id,
         connection: (provider.connection ?? {}) as C,
-        adapter,
+        adapter: declared && provider.capabilities ? declared(provider.capabilities) : adapter,
         ...slotsOf(provider),
       }) as RegisteredProvider,
+    declares: declared !== undefined,
   };
 }
 
@@ -118,7 +132,7 @@ function held<C, O, K, S>(adapter: ProviderAdapter<C, O, K, S>, factory: string)
 const ADAPTERS: Record<string, HeldAdapter> = {
   google: held(googleAdapter(), 'googleAdapter'),
   openrouter: held(openRouterAdapter(), 'openRouterAdapter'),
-  'openai-chat': held(openAIChat(), 'openAIChat'),
+  'openai-chat': held(openAIChat(), 'openAIChat', (capabilities) => openAIChat({ capabilities })),
   typesafe: held(typesafeAdapter(), 'typesafeAdapter'),
 };
 
@@ -287,6 +301,43 @@ export function modelSlots(
  */
 export function modelCapabilities(adapter: string | undefined, apiId: string): ProviderCapabilities | undefined {
   return adapter === undefined ? undefined : ADAPTERS[adapter]?.asked(apiId.trim());
+}
+
+/**
+ * Whether a provider on the adapter is told what its models support. The kernel's other adapters
+ * know it for each model; a project's own adapter says it in the project's code.
+ */
+export function declaresSupport(adapter: string): boolean {
+  return ADAPTERS[adapter]?.declares ?? false;
+}
+
+/** What the provider's models support: what it declares, else its adapter's defaults. */
+export function providerSupport(provider: StudioProvider): ProviderCapabilities | undefined {
+  return provider.capabilities ?? modelCapabilities(provider.adapter, '');
+}
+
+/**
+ * What a provider on `adapter` is told its models support, when that is not the adapter's
+ * defaults. The defaults are the same as being told nothing, so they are never held.
+ */
+export function toldSupport(adapter: string, capabilities: ProviderCapabilities | undefined): ProviderCapabilities | undefined {
+  if (!capabilities || !declaresSupport(adapter)) return undefined;
+  return canonical(capabilities) === canonical(modelCapabilities(adapter, '')) ? undefined : capabilities;
+}
+
+/** The features a provider declares, as the editor sets them. */
+export type SupportFeatures = Omit<ProviderCapabilities['features'], 'streaming' | 'storedContinuation'>;
+
+/**
+ * The provider declaring `features`, over what it declares or its adapter's defaults. Set back to
+ * the defaults, it declares nothing.
+ */
+export function withSupport(provider: StudioProvider, features: Partial<SupportFeatures>): StudioProvider {
+  const base = providerSupport(provider);
+  if (!base || !declaresSupport(provider.adapter)) return provider;
+  const { capabilities: _was, ...rest } = provider;
+  const told = toldSupport(provider.adapter, { ...base, features: { ...base.features, ...features } });
+  return told ? { ...rest, capabilities: told } : rest;
 }
 
 /**

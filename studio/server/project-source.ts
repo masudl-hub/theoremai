@@ -612,7 +612,8 @@ function readsOf(project: ProjectSource, binding: Binding): Located[] {
 export interface ConstantUsers {
   profiles: Set<string>;
   tools: Set<string>;
-  /** Code that is not a profile, a tool or another constant reads it. */
+  providers: Set<string>;
+  /** Code that is not a profile, a tool, a provider or another constant reads it. */
   code: boolean;
   /** Each place that code reads it. None for a function nothing the studio reads calls. */
   readBy: Located[];
@@ -780,7 +781,7 @@ function targetsOf(project: ProjectSource, targets: Map<string, SourceTarget[]>,
 const USERS = new WeakMap<ProjectSource, Map<ts.Expression, ConstantUsers>>();
 
 /**
- * Follows a constant to everything it sets: a profile or tool that reads it, and through a
+ * Follows a constant to everything it sets: a profile, tool or provider that reads it, and through a
  * constant that reads it, whatever reads that one. The answer is the project's: do not change it.
  */
 export function usersOf(project: ProjectSource, binding: Binding): ConstantUsers {
@@ -788,7 +789,7 @@ export function usersOf(project: ProjectSource, binding: Binding): ConstantUsers
   USERS.set(project, known);
   const cached = known.get(binding.initializer);
   if (cached) return cached;
-  const users: ConstantUsers = { profiles: new Set(), tools: new Set(), code: false, readBy: [] };
+  const users: ConstantUsers = { profiles: new Set(), tools: new Set(), providers: new Set(), code: false, readBy: [] };
   const seen = new Set<ts.Expression>();
   const follow = (each: Binding) => {
     if (seen.has(each.initializer)) return;
@@ -799,12 +800,15 @@ export function usersOf(project: ProjectSource, binding: Binding): ConstantUsers
     for (const read of reads) {
       const profiles = targetsOf(project, project.profiles, read);
       const tools = profiles.length ? [] : targetsOf(project, project.tools, read);
-      const held = profiles.length || tools.length ? undefined : holderOf(read);
+      const providers = profiles.length || tools.length ? [] : targetsOf(project, project.providers, read);
+      const target = profiles.length || tools.length || providers.length;
+      const held = target ? undefined : holderOf(read);
       const holder = held && isWrittenIn(project, read.node, held.initializer) ? held : undefined;
       for (const profile of profiles) users.profiles.add(profile);
       for (const tool of tools) users.tools.add(tool);
+      for (const provider of providers) users.providers.add(provider);
       if (holder) follow(holder);
-      else if (!profiles.length && !tools.length) {
+      else if (!target) {
         users.code = true;
         users.readBy.push(read);
       }

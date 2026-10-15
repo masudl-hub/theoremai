@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
+import { modelCapabilities } from '../../studio/providers.ts';
 import registerExample from '../../studio/server/example.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import {
@@ -787,6 +788,56 @@ Deno.test("what a provider's models support is told to its adapter where the ada
   assertEquals(
     applyEdits(told, moved.edits),
     PROVIDERS.replace('openAIChat }', 'googleAdapter }').replace('openAIChat()', 'googleAdapter()'),
+  );
+});
+
+Deno.test("a file that writes its adapter's defaults out is changed from them", () => {
+  const defaults = modelCapabilities('openai-chat', '');
+  if (!defaults) throw new Error('The adapter has no defaults.');
+  const source = PROVIDERS.replace(
+    'openAIChat()',
+    `openAIChat({ capabilities: ${JSON.stringify(defaults)} })`,
+  );
+  const files = {
+    'setup.ts': "import { house } from './providers.ts';\nregisterProviders([house]);\n",
+    'providers.ts': source,
+  };
+  // The defaults read as told nothing, so the page holds none before the change.
+  const after = { ...defaults, features: { ...defaults.features, clientTools: 'supported' } };
+  const plan = planSave(project(files), [
+    { kind: 'provider', of: 'house', before: HOUSE, after: { ...HOUSE, capabilities: after } },
+  ]);
+  assertEquals(
+    plan.changes.map((change) => `${change.setting}: ${change.status}`),
+    ['capabilities.features.clientTools: written'],
+  );
+  assertEquals(
+    applyEdits(source, plan.edits),
+    source.replace('"clientTools":"unknown"', '"clientTools":"supported"'),
+  );
+});
+
+Deno.test('an adapter called with more than what it is told keeps its factory', () => {
+  const source = PROVIDERS.replace(
+    'openAIChat()',
+    "openAIChat({ capabilities: { profileTypes: ['text'] }, extra: 1 })",
+  );
+  const files = {
+    'setup.ts': "import { house } from './providers.ts';\nregisterProviders([house]);\n",
+    'providers.ts': source,
+  };
+  const plan = planSave(project(files), [
+    {
+      kind: 'provider',
+      of: 'house',
+      before: { ...HOUSE, capabilities: SUPPORT },
+      after: { ...HOUSE, adapter: 'google' },
+    },
+  ]);
+  assertEquals(plan.edits, []);
+  assertEquals(
+    plan.changes.map((change) => change.status),
+    ['code', 'code'],
   );
 });
 

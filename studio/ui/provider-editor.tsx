@@ -205,7 +205,8 @@ export function ProviderEditor({
 					))}
 				</InspectorSection>
 			)}
-			<SupportSection provider={provider} onChange={set} />
+			{/* The studio's own say only what they are told: rows of defaults would say more than the studio knows. */}
+			{(onChange || provider.capabilities) && <SupportSection provider={provider} onChange={set} />}
 		</>
 	);
 	return (

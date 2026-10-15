@@ -16,7 +16,7 @@ import { MASK, unmaskUrl } from '@theoremjs/agents/surface';
 import { AGENTS_PACKAGE, type SourceStyle, valueSource } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
 import { canonical } from '../canonical.ts';
-import { adapterFactory, declaresSupport } from '../providers.ts';
+import { adapterFactory, declaresSupport, modelCapabilities } from '../providers.ts';
 import {
   declares,
   definedAs,
@@ -654,11 +654,12 @@ class Planner {
     const to = typeof after === 'string' ? adapterFactory(after) : undefined;
     const call = at && unwrapped(at.node);
     // What a told adapter was told goes with it (`told`): nothing else in the call may.
-    const most = typeof before === 'string' && declaresSupport(before) ? 1 : 0;
-    if (
-      !at || !from || !to || !call || !ts.isCallExpression(call) || call.arguments.length > most ||
-      !ts.isIdentifier(call.expression)
-    ) return this.note('code', here, place);
+    const [told, ...more] = call && ts.isCallExpression(call) ? call.arguments : [];
+    const onlyTold = told === undefined ||
+      (typeof before === 'string' && declaresSupport(before) && !more.length && isOnlyTold(told));
+    if (!at || !from || !to || !call || !ts.isCallExpression(call) || !onlyTold || !ts.isIdentifier(call.expression)) {
+      return this.note('code', here, place);
+    }
     const { source } = at;
     const imported = namedImports(source);
     const callee = call.expression;
@@ -713,16 +714,15 @@ class Planner {
       this.edit(source, start, call.arguments.end, valueSource({ capabilities: after }, this.style(source, call.getStart(source))));
       return this.note('written', here, { source, node: call });
     }
-    const object = unwrapped(told);
     if (after === undefined) {
-      // Moved to an adapter that is not told: what the old one was told goes with it.
-      const only = ts.isObjectLiteralExpression(object) && object.properties.length === 1 &&
-        propertyName(object.properties[0]) === 'capabilities';
-      if (!only) return this.note('code', here, { source, node: told });
+      // Told nothing now, on another adapter or back to its defaults: the call says nothing.
+      if (!isOnlyTold(told)) return this.note('code', here, { source, node: told });
       this.edit(source, call.arguments.pos, call.arguments.end, '');
       return this.note('written', here, { source, node: told });
     }
-    this.walk({ ...at, node: told }, { capabilities: before }, { capabilities: after }, here.slice(0, -1));
+    // A file that writes the defaults out reads as told nothing: what it writes is the defaults.
+    const was = before ?? modelCapabilities(String((this.subject.after as Json).adapter), '');
+    this.walk({ ...at, node: told }, { capabilities: was }, { capabilities: after }, here.slice(0, -1));
   }
 
   /** The name `source` reads the provider `to` by, importing it when the file does not yet. Undefined when it cannot. */
@@ -1182,6 +1182,14 @@ export function diffHunks(text: string, edits: readonly SourceEdit[]): DiffHunk[
       trail: lines.slice(after, after + CONTEXT_LINES),
     }];
   });
+}
+
+/** Whether an adapter's argument is `{ capabilities }` and nothing else. */
+function isOnlyTold(argument: ts.Expression): boolean {
+  const object = unwrapped(argument);
+  const [only] = ts.isObjectLiteralExpression(object) ? object.properties : [];
+  return ts.isObjectLiteralExpression(object) && object.properties.length === 1 && only !== undefined &&
+    propertyName(only) === 'capabilities';
 }
 
 /** Each name the file imports by name from the kernel package, as values. */

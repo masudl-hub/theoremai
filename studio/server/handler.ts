@@ -35,7 +35,7 @@ import {
   type TheoremConversationStore,
 } from '@theoremjs/react/server';
 import { type StudioAsks, studioAsks } from '../asks.ts';
-import { adapterFactory, providerDefinition, type StudioProvider, toldSupport } from '../providers.ts';
+import { adapterFactory, declaresSupport, providerDefinition, type StudioProvider, toldSupport } from '../providers.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { shownConnection, withoutCredentials } from '../held-credentials.ts';
 import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
@@ -189,6 +189,8 @@ function replySchema(profile: Profile) {
 
 /** What a provider's models are told they support, as the kernel runs it: none when it is the adapter's defaults. */
 function toldTo(provider: RegisteredProvider): Pick<StudioProvider, 'capabilities'> {
+  // A project's own adapter is not asked: what it says is its code's.
+  if (!declaresSupport(provider.adapter.id)) return {};
   const asked = provider.adapter.capabilities({ apiId: '', connection: provider.connection, providerOptions: {} });
   const capabilities = toldSupport(provider.adapter.id, asked);
   return capabilities ? { capabilities } : {};

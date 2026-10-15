@@ -87,7 +87,7 @@ function hostProfile(
  * withholds it: what the batch let out, checked for `leak`, then the verdict.
  */
 async function withheldAtEnd(
-  s: ReturnType<typeof session>,
+  s: Awaited<ReturnType<typeof session>>,
   batch: Awaited<ReturnType<typeof processLiveOutboundBatch>>,
   leak: string,
 ) {

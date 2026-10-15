@@ -10,7 +10,14 @@ import { BUILT_PAGE, PROJECT_PLACEHOLDER } from '../studio/page.mjs';
 const studioDir = './studio';
 const outDir = `${studioDir}/npm`;
 /** The command and what it loads: the launcher, its checks and the page's server. */
-const launchers = ['start.mjs', 'installed.mjs', 'ports.mjs', 'setups.mjs', 'page.mjs', 'serve-page.mjs'];
+const launchers = [
+  'start.mjs',
+  'installed.mjs',
+  'ports.mjs',
+  'setups.mjs',
+  'page.mjs',
+  'serve-page.mjs',
+];
 
 type StudioManifest = {
   name: string;
@@ -57,7 +64,7 @@ const pkg = {
   name: manifest.name,
   version,
   description:
-    'Theorem Studio: open a project\'s agents in a local studio, edit and run them, and save back to its files. Runs on Deno.',
+    "Theorem Studio: open a project's agents in a local studio, edit and run them, and save back to its files. Runs on Deno.",
   license: 'MIT',
   type: manifest.type,
   engines,

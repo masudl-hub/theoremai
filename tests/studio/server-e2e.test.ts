@@ -617,9 +617,13 @@ Deno.test(
         async () => {
           // The gateway is said to take no tools after all: desk's model on it can no longer run.
           const workspace = withProvider(opened.workspace, 'house', (provider) => ({
-            ...withSupport(atBase('https://changed.example/v1')(provider), {
-              clientTools: 'unsupported',
-            }),
+            ...withSupport(
+              withSupport(atBase('https://changed.example/v1')(provider), {
+                clientTools: 'unsupported',
+              }),
+              { thinking: 'unsupported' },
+              'house/model-2',
+            ),
             keySlot: 'changed_key',
           }));
           const review = await studio.post<SaveReview>(SAVE, { workspace });
@@ -627,25 +631,29 @@ Deno.test(
           const done = await studio.post<SaveDone>(SAVE, { workspace, stamp: review.body.stamp });
           assertEquals(done.body, { ok: true, written: ['providers/house.ts'] });
           const written = Deno.readTextFileSync(join(studio.root, 'providers/house.ts'));
-          assertEquals(
-            written.split('\r\n').length,
-            (original.get('providers/house.ts')?.filter((byte) => byte === 10).length ?? 0) + 1,
-          );
           assert(!/[^\r]\n/.test(written), 'a line lost its carriage return');
+          // A block the file did not hold is written in its tabs, quotes and line endings.
+          assert(
+            written.includes(
+              '\t\tmodels: {\r\n\t\t\t"house/model-2": {\r\n\t\t\t\tthinking: "unsupported",\r\n',
+            ),
+            written,
+          );
           assert(written.includes('\t\tbaseURL: "https://changed.example/v1",\r\n'), written);
           assert(written.includes('\tkeySlot: "changed_key",\r\n'), written);
           assert(written.includes('\t\t\t\tclientTools: "unsupported",\r\n'), written);
           const reopened = await open(studio);
           const house = reopened.workspace.providers.find((provider) => provider.id === 'house');
-          assertEquals(house?.capabilities?.features.clientTools, 'unsupported');
+          assertEquals(house?.support?.capabilities?.features.clientTools, 'unsupported');
+          assertEquals(house?.support?.models, { 'house/model-2': { thinking: 'unsupported' } });
           assertEquals(
-            { ...house, capabilities: undefined },
+            { ...house, support: undefined },
             {
               id: 'house',
               adapter: 'openai-chat',
               connection: { baseURL: 'https://changed.example/v1' },
               keySlot: 'changed_key',
-              capabilities: undefined,
+              support: undefined,
             },
           );
           assertEquals(

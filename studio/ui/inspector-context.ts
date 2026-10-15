@@ -116,7 +116,7 @@ export interface WorkspaceAgent {
 
 /**
  * The workspace around the agent the editor shows: the agents it can name, which of the library's
- * tools it allows, and, on a project, a way to add a provider and open it. `null` when the editor
+ * tools it allows, and, on a project, a way to add or change a provider. `null` when the editor
  * shows a single draft.
  */
 export const WorkspaceContext = createContext<{
@@ -125,4 +125,8 @@ export const WorkspaceContext = createContext<{
 	allowed: readonly string[];
 	setAllowed: (toolKey: string, allowed: boolean) => void;
 	addProvider: ((provider: StudioProvider) => void) | undefined;
+	/** Puts a changed provider in the workspace; left out where the providers are not the builder's. */
+	updateProvider: ((provider: StudioProvider) => void) | undefined;
+	/** The other agents with a model that calls `apiId` on the provider `id`, by name. */
+	sharing: (id: string, apiId: string) => string[];
 } | null>(null);

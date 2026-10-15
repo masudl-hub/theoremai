@@ -273,6 +273,7 @@ import {
 	type WorkspaceAgent,
 	WorkspaceContext,
 } from './inspector-context.ts';
+import { ModelSupportSection } from './support-rows.tsx';
 import { PROFILE_TYPE_ICON, TOOL_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
 import { AddProviderButton } from './add-provider.tsx';
 import { useProject } from './lib/studio-project.ts';
@@ -1408,6 +1409,7 @@ function ModelBindingEditor({
 	return (
 		<>
 			<ModelSection draft={draft} binding={binding} type={type} set={set} />
+			<ModelSupportSection providers={draft.providers} binding={binding} />
 			<GenerationSection binding={binding} set={set} />
 			{isGoogleRoute(route) && draft.identity.profileType !== 'live' && (
 				<ConversationStateSection binding={binding} set={set} />

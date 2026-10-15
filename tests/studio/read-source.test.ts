@@ -348,9 +348,12 @@ Deno.test("a provider's file reads back what its adapter is told its models supp
     id: 'house',
     adapter: 'openai-chat',
     connection: { baseURL: 'https://one.example/v1' },
-    capabilities: {
-      ...capabilities,
-      features: { ...capabilities.features, clientTools: 'supported' as const },
+    support: {
+      capabilities: {
+        ...capabilities,
+        features: { ...capabilities.features, clientTools: 'supported' as const },
+      },
+      models: { 'house/small': { clientTools: 'unsupported' as const } },
     },
   };
   const read = readProviderSource(providerSource(told), told);
@@ -358,9 +361,11 @@ Deno.test("a provider's file reads back what its adapter is told its models supp
   assertEquals(read.provider, told);
 
   // Set back to its adapter's defaults, it is told nothing, and the file says nothing.
-  const back = withSupport(read.provider, { clientTools: 'unknown' });
-  assertEquals(back.capabilities, undefined);
-  assertEquals(providerSource(back).includes('capabilities'), false);
+  const defaults = withSupport(read.provider, { clientTools: 'unknown' });
+  assertEquals(defaults.support, { models: told.support.models });
+  const back = withSupport(defaults, { clientTools: undefined }, 'house/small');
+  assertEquals(back.support, undefined);
+  assertEquals(providerSource(back).includes('openAIChat()'), true);
 
   // An adapter that knows each model's support is told nothing.
   const google = providerSource({ ...told, adapter: 'google', connection: {} });
@@ -368,7 +373,7 @@ Deno.test("a provider's file reads back what its adapter is told its models supp
   assert(!refused.ok);
   assertEquals(
     refused.errors.map((error) => error.message),
-    ['The google adapter knows what each model supports: it takes no capabilities.'],
+    ['The google adapter knows what each model takes: it is called with nothing.'],
   );
 });
 

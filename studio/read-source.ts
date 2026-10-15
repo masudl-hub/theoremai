@@ -19,7 +19,7 @@ import {
   type Detector,
   DETECTORS,
 } from '@theoremjs/agents/guardrails';
-import { PROFILE_GRAPH, providerCapabilitiesSchema } from '@theoremjs/agents/kernel';
+import { declaredSupportSchema, PROFILE_GRAPH } from '@theoremjs/agents/kernel';
 import {
   CONTEXT_SENDERS,
   type ContextSender,
@@ -44,7 +44,7 @@ import {
   type ToolSpecDraft,
 } from './draft.ts';
 import { canonical } from './canonical.ts';
-import { adapterOfFactory, declaresSupport, type StudioProvider, toldSupport } from './providers.ts';
+import { adapterOfFactory, declaresSupport, type StudioProvider, SUPPORT_KEYS, toldSupport } from './providers.ts';
 import { stubOutputFromSchema } from './stub.ts';
 import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
 
@@ -399,10 +399,10 @@ function namedCall(
 ): unknown {
   const adapter = adapterOfFactory(callee);
   if (adapter && args.length === 0) return { kind: 'adapter', id: adapter };
-  // An adapter told what its models support takes that and nothing else.
+  // An adapter told what its models take is called with that and nothing else.
   const [told] = args;
-  if (adapter && args.length === 1 && isRecord(told) && Object.keys(told).join() === 'capabilities' && isRecord(told.capabilities)) {
-    return { kind: 'adapter', id: adapter, capabilities: told.capabilities };
+  if (adapter && args.length === 1 && isRecord(told) && Object.keys(told).every((key) => SUPPORT_KEYS.has(key))) {
+    return { kind: 'adapter', id: adapter, support: told };
   }
   if (src.of === 'provider') {
     if (callee !== 'defineProvider') return src.fail(`'${callee}' isn't part of a provider's file.`);
@@ -1376,16 +1376,16 @@ function providerFrom(spec: Record<string, unknown>, current: StudioProvider, sp
   }
   const adapter = isRecord(spec.adapter) && spec.adapter.kind === 'adapter' ? spec.adapter.id : undefined;
   if (typeof adapter !== 'string') {
-    failAt(spans, 'adapter', 'adapter is one of the kernel adapters, called with nothing or with its capabilities.');
+    failAt(spans, 'adapter', 'adapter is one of the kernel adapters, called with nothing or with what its models take.');
   }
-  const given = isRecord(spec.adapter) ? spec.adapter.capabilities : undefined;
+  const given = isRecord(spec.adapter) ? spec.adapter.support : undefined;
   if (given !== undefined && !declaresSupport(adapter)) {
-    failAt(spans, 'adapter', `The ${adapter} adapter knows what each model supports: it takes no capabilities.`);
+    failAt(spans, 'adapter', `The ${adapter} adapter knows what each model takes: it is called with nothing.`);
   }
-  const parsed = given === undefined ? undefined : providerCapabilitiesSchema.safeParse(given);
+  const parsed = given === undefined ? undefined : declaredSupportSchema.safeParse(given);
   if (parsed && !parsed.success) {
     const [issue] = parsed.error.issues;
-    failAt(spans, 'adapter', `capabilities.${issue?.path.join('.') ?? ''}: ${issue?.message ?? 'not what an adapter is told.'}`);
+    failAt(spans, 'adapter', `${issue?.path.join('.') ?? ''}: ${issue?.message ?? 'not what an adapter is told.'}`);
   }
   const told = toldSupport(adapter, parsed?.data);
   const connection = spec.connection;
@@ -1399,7 +1399,7 @@ function providerFrom(spec: Record<string, unknown>, current: StudioProvider, sp
     id: current.id,
     adapter,
     ...(empty ? {} : { connection: held }),
-    ...(told ? { capabilities: told } : {}),
+    ...(told ? { support: told } : {}),
   };
   for (const slot of ['keySlot', 'fallbackKeySlot'] as const) {
     const value = spec[slot];

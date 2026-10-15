@@ -163,13 +163,13 @@ function registerProvider(scope: KernelScope, subject: SaveSubject): void {
   }
   const { keySlot: _keySlot, fallbackKeySlot: _fallbackKeySlot, ...rest } = registered;
   // Told something else about its models, the adapter is made again with what the page holds.
-  const told = canonical(before.capabilities) === canonical(after.capabilities) ? {} : {
+  const told = canonical(before.support) === canonical(after.support) ? {} : {
     adapter: providerDefinition({
       id: subject.of,
       adapter: String(after.adapter),
       // As registered, with the edits: the adapter's own schema reads it.
       connection: connection as Record<string, string>,
-      capabilities: after.capabilities as StudioProvider['capabilities'],
+      support: after.support as StudioProvider['support'],
     }).adapter,
   };
   scope.providers.register({

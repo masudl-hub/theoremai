@@ -50,8 +50,8 @@ export function quoteSource(text: string): string {
 }
 
 /** Bare when the key is an identifier. */
-export function keySource(key: string): string {
-  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : quoteSource(key);
+export function keySource(key: string, quote: (text: string) => string = quoteSource): string {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : quote(key);
 }
 
 /** `label` names the schema in the error. */

@@ -187,13 +187,12 @@ function replySchema(profile: Profile) {
   }
 }
 
-/** What a provider's models are told they support, as the kernel runs it: none when it is the adapter's defaults. */
-function toldTo(provider: RegisteredProvider): Pick<StudioProvider, 'capabilities'> {
-  // A project's own adapter is not asked: what it says is its code's.
+/** What a provider's models are told they take, as the kernel runs it: none when it is the adapter's defaults. */
+function toldTo(provider: RegisteredProvider): Pick<StudioProvider, 'support'> {
+  // A project's own adapter is not read: what it says is its code's.
   if (!declaresSupport(provider.adapter.id)) return {};
-  const asked = provider.adapter.capabilities({ apiId: '', connection: provider.connection, providerOptions: {} });
-  const capabilities = toldSupport(provider.adapter.id, asked);
-  return capabilities ? { capabilities } : {};
+  const support = toldSupport(provider.adapter.id, provider.adapter.declared?.given);
+  return support ? { support } : {};
 }
 
 /**

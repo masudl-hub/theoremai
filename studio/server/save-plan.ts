@@ -16,7 +16,7 @@ import { MASK, unmaskUrl } from '@theoremjs/agents/surface';
 import { AGENTS_PACKAGE, type SourceStyle, valueSource } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
 import { canonical } from '../canonical.ts';
-import { adapterFactory, declaresSupport, modelCapabilities } from '../providers.ts';
+import { adapterFactory, declaresSupport, modelCapabilities, SUPPORT_KEYS } from '../providers.ts';
 import {
   declares,
   definedAs,
@@ -192,7 +192,7 @@ function written(value: unknown, style: SourceStyle): string {
 /** An object's fields written out, one to a line, for an object that held none. */
 function objectSource(entries: ReadonlyArray<[string, unknown]>, style: SourceStyle): string {
   const inner = { ...style, base: style.base + style.unit };
-  const lines = entries.map(([key, value]) => `${inner.base}${keySource(key)}: ${written(value, inner)},`);
+  const lines = entries.map(([key, value]) => `${inner.base}${keySource(key, style.quote)}: ${written(value, inner)},`);
   return `{\n${lines.join('\n')}\n${style.base}}`;
 }
 
@@ -467,7 +467,9 @@ class Planner {
     else this.enter(origin, name, before, after, path);
   }
 
-  private edit(source: ts.SourceFile, start: number, end: number, text: string) {
+  private edit(source: ts.SourceFile, start: number, end: number, written: string) {
+    // New lines end as the file's do. A template literal reads a carriage return as nothing.
+    const text = source.text.includes('\r\n') ? written.replace(/\r?\n/g, '\r\n') : written;
     const edit = { file: source.fileName, start, end, text };
     const held = this.frame.edits.some((other) => canonical(other) === canonical(edit));
     if (!held) this.frame.edits.push(edit);
@@ -572,7 +574,7 @@ class Planner {
       const change: KeyChange = { key, before: before[key], after: after[key], here: [...path, key] };
       const schema = this.subject.kind === 'tool' && path.length === 0 ? TOOL_SCHEMAS[key] : undefined;
       const entry = shape.entries.get(key);
-      if (this.subject.kind === 'provider' && key === 'capabilities' && at.node === unwrapped(this.target.options)) {
+      if (this.subject.kind === 'provider' && key === 'support' && at.node === unwrapped(this.target.options)) {
         this.told(shape, at, change);
       } else if (schema) this.toolSchema(shape, at, schema, change);
       else if (!entry) {
@@ -683,7 +685,7 @@ class Planner {
   }
 
   /**
-   * What a provider's models support, told to its adapter: changed in the call that makes the
+   * What a provider's models take, told to its adapter: changed in the call that makes the
    * adapter, wherever that call is written. A call with nothing in it is given the whole; one
    * already told has each part that changed written where it stands. An adapter that is not told,
    * or one made any other way, is code's to change.
@@ -711,7 +713,7 @@ class Planner {
     if (!told) {
       if (after === undefined) return;
       const start = call.arguments.pos;
-      this.edit(source, start, call.arguments.end, valueSource({ capabilities: after }, this.style(source, call.getStart(source))));
+      this.edit(source, start, call.arguments.end, valueSource(after, this.style(source, call.getStart(source))));
       return this.note('written', here, { source, node: call });
     }
     if (after === undefined) {
@@ -721,8 +723,8 @@ class Planner {
       return this.note('written', here, { source, node: told });
     }
     // A file that writes the defaults out reads as told nothing: what it writes is the defaults.
-    const was = before ?? modelCapabilities(String((this.subject.after as Json).adapter), '');
-    this.walk({ ...at, node: told }, { capabilities: was }, { capabilities: after }, here.slice(0, -1));
+    const was = before ?? { capabilities: modelCapabilities(String((this.subject.after as Json).adapter), '') };
+    this.walk({ ...at, node: told }, was, after, here);
   }
 
   /** The name `source` reads the provider `to` by, importing it when the file does not yet. Undefined when it cannot. */
@@ -1060,14 +1062,14 @@ class Planner {
       // On lines of their own, before the closing brace, so a comment after the last one stays with it.
       const base = indentAt(source, last.getStart(source));
       const style = { ...this.style(source, start), base };
-      const lines = entries.map(([key, value]) => `${base}${keySource(key)}: ${written(value, style)},\n`);
+      const lines = entries.map(([key, value]) => `${base}${keySource(key, style.quote)}: ${written(value, style)},\n`);
       if (!trailing) this.edit(source, last.end, last.end, ',');
       const at = source.getPositionOfLineAndCharacter(braceLine, 0);
       this.edit(source, at, at, lines.join(''));
       return;
     }
     const style = this.style(source, start);
-    const fields = entries.map(([key, value]) => `${keySource(key)}: ${written(value, style)}`).join(', ');
+    const fields = entries.map(([key, value]) => `${keySource(key, style.quote)}: ${written(value, style)}`).join(', ');
     if (trailing) this.edit(source, node.properties.end, node.properties.end, ` ${fields},`);
     else this.edit(source, last.end, last.end, `, ${fields}`);
   }
@@ -1184,12 +1186,11 @@ export function diffHunks(text: string, edits: readonly SourceEdit[]): DiffHunk[
   });
 }
 
-/** Whether an adapter's argument is `{ capabilities }` and nothing else. */
+/** Whether an adapter's argument holds what its models take (`SUPPORT_KEYS`) and nothing else. */
 function isOnlyTold(argument: ts.Expression): boolean {
   const object = unwrapped(argument);
-  const [only] = ts.isObjectLiteralExpression(object) ? object.properties : [];
-  return ts.isObjectLiteralExpression(object) && object.properties.length === 1 && only !== undefined &&
-    propertyName(only) === 'capabilities';
+  return ts.isObjectLiteralExpression(object) &&
+    object.properties.every((property) => SUPPORT_KEYS.has(propertyName(property) ?? ''));
 }
 
 /** Each name the file imports by name from the kernel package, as values. */

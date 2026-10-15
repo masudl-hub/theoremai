@@ -236,8 +236,8 @@ Deno.test('a provider told its models take tools runs on an adapter told so', as
     const provider = workspace.providers.find((each) => each.id === 'told');
     if (!provider) throw new Error('The provider did not open.');
     // Told nothing, it opens with nothing: its adapter's defaults.
-    assertEquals(provider.capabilities, undefined);
-    const after = withSupport(provider, { clientTools: 'supported' });
+    assertEquals(provider.support, undefined);
+    const after = withSupport(provider, { clientTools: 'supported' }, 'told/tools');
     await registerEdits(defaultKernelScope, {
       subjects: [
         {
@@ -250,12 +250,11 @@ Deno.test('a provider told its models take tools runs on an adapter told so', as
       added: { agents: [], profiles: [], tools: [], providers: [] },
     });
     const now = defaultKernelScope.providers.require('told');
-    const support = now.adapter.capabilities({
-      apiId: 'any',
-      connection: now.connection,
-      providerOptions: {},
-    });
-    assertEquals(support.features.clientTools, 'supported');
+    const support = (apiId: string) =>
+      now.adapter.capabilities({ apiId, connection: now.connection, providerOptions: {} }).features
+        .clientTools;
+    assertEquals(support('told/tools'), 'supported');
+    assertEquals(support('told/other'), 'unknown');
     assertEquals(now.connection, { baseURL: 'https://one.example/v1' });
   } finally {
     defaultKernelScope.providers.reset();

@@ -111,6 +111,7 @@ export {
   localProviderAddress,
   onStudioLocal,
   type ModelRoute,
+  declarableFeatures,
   declaresSupport,
   modelCapabilities,
   modelRoute,
@@ -120,7 +121,6 @@ export {
   servesProfileType,
   STUDIO_PROVIDERS,
   type StudioProvider,
-  type SupportFeatures,
   withSupport,
 } from './providers.ts';
 export {

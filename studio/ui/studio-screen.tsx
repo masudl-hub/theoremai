@@ -2067,6 +2067,19 @@ function useWorkspaceContext(
 						update((current) => addProvider(current, provider));
 					}
 				: undefined,
+			updateProvider: ownsProviders
+				? (provider: StudioProvider) => {
+						update((current) => withProvider(current, provider));
+					}
+				: undefined,
+			sharing: (id: string, apiId: string) =>
+				agents
+					.filter(
+						(agent) =>
+							agent.key !== focus &&
+							agent.modelBindings.some((binding) => binding.provider === id && binding.apiId.trim() === apiId),
+					)
+					.map((agent) => agent.identity.agentId.trim() || 'New agent'),
 		};
 	}, [agents, focus, update, ownsProviders]);
 }

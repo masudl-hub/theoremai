@@ -11,8 +11,11 @@ import { z } from 'zod';
 import { canonical } from './canonical.ts';
 import { labelText } from '@theoremjs/agents/guardrails';
 import {
+  type DeclarableFeature,
+  type DeclaredSupport,
   defineProvider,
   keySlotSchema,
+  type ModelSupport,
   type ModelBinding,
   type ProviderAdapter,
   type ProviderCapabilities,
@@ -42,11 +45,11 @@ export interface StudioProvider {
   /** The slot they read when the first one's key is refused. */
   fallbackKeySlot?: string;
   /**
-   * What its models support, for an adapter that is told (`declaresSupport`): as the project
-   * registered it, or as the builder set it. Left out, it is the adapter's defaults, and it is
-   * left out whenever it is them (`toldSupport`).
+   * What its models take, for an adapter that is told (`declaresSupport`): its models', and each
+   * named model's own, as the project registered it or as the builder set it. Left out, it is the
+   * adapter's defaults, and it holds nothing that is them (`toldSupport`).
    */
-  capabilities?: ProviderCapabilities;
+  support?: DeclaredSupport;
 }
 
 /** The provider the studio reaches on the builder's own machine. */
@@ -104,15 +107,18 @@ interface HeldAdapter {
   connection: z.ZodType;
   /** The provider as the kernel defines it; throws what the kernel refuses. */
   define: (provider: StudioProvider) => RegisteredProvider;
-  /** Whether it is called with what its models support. */
-  declares: boolean;
+  /** For an adapter called with what its models take: the features it can be told, and it made again told `support`. */
+  told?: { features: readonly DeclarableFeature[]; make: (support: DeclaredSupport) => ProviderAdapter };
 }
 
 function held<C, O, K, S>(
   adapter: ProviderAdapter<C, O, K, S>,
   factory: string,
-  declared?: (capabilities: ProviderCapabilities) => ProviderAdapter<C, O, K, S>,
+  make?: (support: DeclaredSupport) => ProviderAdapter<C, O, K, S>,
 ): HeldAdapter {
+  const told = make && adapter.declared
+    ? { features: adapter.declared.features, make: (support: DeclaredSupport) => make(support) as unknown as ProviderAdapter }
+    : undefined;
   return {
     asked: asked(adapter),
     factory,
@@ -121,10 +127,10 @@ function held<C, O, K, S>(
       defineProvider({
         id: provider.id,
         connection: (provider.connection ?? {}) as C,
-        adapter: declared && provider.capabilities ? declared(provider.capabilities) : adapter,
+        adapter: make && provider.support ? make(provider.support) : adapter,
         ...slotsOf(provider),
       }) as RegisteredProvider,
-    declares: declared !== undefined,
+    ...(told ? { told } : {}),
   };
 }
 
@@ -132,7 +138,7 @@ function held<C, O, K, S>(
 const ADAPTERS: Record<string, HeldAdapter> = {
   google: held(googleAdapter(), 'googleAdapter'),
   openrouter: held(openRouterAdapter(), 'openRouterAdapter'),
-  'openai-chat': held(openAIChat(), 'openAIChat', (capabilities) => openAIChat({ capabilities })),
+  'openai-chat': held(openAIChat(), 'openAIChat', openAIChat),
   typesafe: held(typesafeAdapter(), 'typesafeAdapter'),
 };
 
@@ -304,40 +310,66 @@ export function modelCapabilities(adapter: string | undefined, apiId: string): P
 }
 
 /**
- * Whether a provider on the adapter is told what its models support. The kernel's other adapters
+ * Whether a provider on the adapter is told what its models take. The kernel's other adapters
  * know it for each model; a project's own adapter says it in the project's code.
  */
 export function declaresSupport(adapter: string): boolean {
-  return ADAPTERS[adapter]?.declares ?? false;
+  return ADAPTERS[adapter]?.told !== undefined;
 }
 
-/** What the provider's models support: what it declares, else its adapter's defaults. */
-export function providerSupport(provider: StudioProvider): ProviderCapabilities | undefined {
-  return provider.capabilities ?? modelCapabilities(provider.adapter, '');
+/** What an adapter's one argument holds when it is told what its models take, and nothing else. */
+export const SUPPORT_KEYS: ReadonlySet<string> = new Set(['capabilities', 'models'] satisfies (keyof DeclaredSupport)[]);
+
+/** The features a provider on the adapter can be told its models take, as the kernel lists them. */
+export function declarableFeatures(adapter: string): readonly DeclarableFeature[] {
+  return ADAPTERS[adapter]?.told?.features ?? [];
 }
 
 /**
- * What a provider on `adapter` is told its models support, when that is not the adapter's
- * defaults. The defaults are the same as being told nothing, so they are never held.
+ * What the provider's models take, or the model `apiId`'s when it is named: as its adapter answers
+ * told what the provider holds.
  */
-export function toldSupport(adapter: string, capabilities: ProviderCapabilities | undefined): ProviderCapabilities | undefined {
-  if (!capabilities || !declaresSupport(adapter)) return undefined;
-  return canonical(capabilities) === canonical(modelCapabilities(adapter, '')) ? undefined : capabilities;
+export function providerSupport(provider: StudioProvider, apiId = ''): ProviderCapabilities | undefined {
+  const told = ADAPTERS[provider.adapter]?.told;
+  if (!told || !provider.support) return modelCapabilities(provider.adapter, apiId);
+  return told.make(provider.support).capabilities({ apiId: apiId.trim(), connection: {}, providerOptions: {} });
 }
 
-/** The features a provider declares, as the editor sets them. */
-export type SupportFeatures = Omit<ProviderCapabilities['features'], 'streaming' | 'storedContinuation'>;
+/**
+ * What a provider on `adapter` is told its models take, holding nothing that is the adapter's
+ * defaults: capabilities that are them, and a model told nothing, are the same as left out.
+ */
+export function toldSupport(adapter: string, support: DeclaredSupport | undefined): DeclaredSupport | undefined {
+  if (!support || !declaresSupport(adapter)) return undefined;
+  const { capabilities } = support;
+  const models = Object.entries(support.models ?? {}).flatMap(([apiId, model]) => {
+    const said = Object.entries(model).filter(([, value]) => value !== undefined);
+    return said.length ? [[apiId, Object.fromEntries(said) as ModelSupport] as const] : [];
+  });
+  const told: DeclaredSupport = {
+    ...(capabilities && canonical(capabilities) !== canonical(modelCapabilities(adapter, '')) ? { capabilities } : {}),
+    ...(models.length ? { models: Object.fromEntries(models) } : {}),
+  };
+  return Object.keys(told).length ? told : undefined;
+}
 
 /**
- * The provider declaring `features`, over what it declares or its adapter's defaults. Set back to
- * the defaults, it declares nothing.
+ * The provider told `features` of its models, or of the model `apiId` when it is named. A model's
+ * feature set to undefined takes the provider's again; set back to the defaults, it is told nothing.
  */
-export function withSupport(provider: StudioProvider, features: Partial<SupportFeatures>): StudioProvider {
-  const base = providerSupport(provider);
-  if (!base || !declaresSupport(provider.adapter)) return provider;
-  const { capabilities: _was, ...rest } = provider;
-  const told = toldSupport(provider.adapter, { ...base, features: { ...base.features, ...features } });
-  return told ? { ...rest, capabilities: told } : rest;
+export function withSupport(provider: StudioProvider, features: ModelSupport, apiId?: string): StudioProvider {
+  if (!declaresSupport(provider.adapter)) return provider;
+  const { support: was = {}, ...rest } = provider;
+  let next: DeclaredSupport;
+  if (apiId === undefined) {
+    const base = was.capabilities ?? modelCapabilities(provider.adapter, '');
+    if (!base) return provider;
+    next = { ...was, capabilities: { ...base, features: { ...base.features, ...features } } };
+  } else {
+    next = { ...was, models: { ...was.models, [apiId]: { ...was.models?.[apiId], ...features } } };
+  }
+  const support = toldSupport(provider.adapter, next);
+  return support ? { ...rest, support } : rest;
 }
 
 /**

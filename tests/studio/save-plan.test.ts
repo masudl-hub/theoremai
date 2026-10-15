@@ -728,8 +728,8 @@ const HOUSE = {
 
 Deno.test("what a provider's models support is told to its adapter where the adapter is made", () => {
   // An adapter called with nothing is given the whole.
-  const bare = savedProvider(HOUSE, { ...HOUSE, capabilities: TOOLS });
-  assertEquals(bare.statuses, ['capabilities: written']);
+  const bare = savedProvider(HOUSE, { ...HOUSE, support: { capabilities: TOOLS } });
+  assertEquals(bare.statuses, ['support: written']);
   assertEquals(
     bare.text,
     PROVIDERS.replace(
@@ -759,13 +759,13 @@ Deno.test("what a provider's models support is told to its adapter where the ada
     {
       kind: 'provider',
       of: 'house',
-      before: { ...HOUSE, capabilities: SUPPORT },
-      after: { ...HOUSE, capabilities: TOOLS },
+      before: { ...HOUSE, support: { capabilities: SUPPORT } },
+      after: { ...HOUSE, support: { capabilities: TOOLS } },
     },
   ]);
   assertEquals(
     plan.changes.map((change) => `${change.setting}: ${change.status}`),
-    ['capabilities.features.clientTools: written'],
+    ['support.capabilities.features.clientTools: written'],
   );
   assertEquals(
     applyEdits(told, plan.edits),
@@ -777,7 +777,7 @@ Deno.test("what a provider's models support is told to its adapter where the ada
     {
       kind: 'provider',
       of: 'house',
-      before: { ...HOUSE, capabilities: SUPPORT },
+      before: { ...HOUSE, support: { capabilities: SUPPORT } },
       after: { ...HOUSE, adapter: 'google' },
     },
   ]);
@@ -789,6 +789,48 @@ Deno.test("what a provider's models support is told to its adapter where the ada
     applyEdits(told, moved.edits),
     PROVIDERS.replace('openAIChat }', 'googleAdapter }').replace('openAIChat()', 'googleAdapter()'),
   );
+});
+
+Deno.test("a model told apart from its provider is written under the model's id", () => {
+  const told = PROVIDERS.replace(
+    'openAIChat()',
+    "openAIChat({ capabilities: { profileTypes: ['text'], features: { clientTools: 'unknown', thinking: 'unknown' } } })",
+  );
+  const files = {
+    'setup.ts': "import { house } from './providers.ts';\nregisterProviders([house]);\n",
+    'providers.ts': told,
+  };
+  const before = { ...HOUSE, support: { capabilities: SUPPORT } };
+  const added = {
+    ...HOUSE,
+    support: {
+      capabilities: SUPPORT,
+      models: { 'qwen/qwen3-coder': { clientTools: 'unsupported' } },
+    },
+  };
+  const plan = planSave(project(files), [{ kind: 'provider', of: 'house', before, after: added }]);
+  assertEquals(
+    plan.changes.map((change) => `${change.setting}: ${change.status}`),
+    ['support.models: written'],
+  );
+  const written = applyEdits(told, plan.edits);
+  assertEquals(
+    written,
+    told.replace(
+      "thinking: 'unknown' } } })",
+      `thinking: 'unknown' } }, models: {
+    'qwen/qwen3-coder': {
+      clientTools: 'unsupported',
+    },
+  } })`,
+    ),
+  );
+
+  // Taken back to the provider's, the model is told nothing again.
+  const back = planSave(project({ ...files, 'providers.ts': written }), [
+    { kind: 'provider', of: 'house', before: added, after: before },
+  ]);
+  assertEquals(applyEdits(written, back.edits), told);
 });
 
 Deno.test("a file that writes its adapter's defaults out is changed from them", () => {
@@ -805,11 +847,16 @@ Deno.test("a file that writes its adapter's defaults out is changed from them", 
   // The defaults read as told nothing, so the page holds none before the change.
   const after = { ...defaults, features: { ...defaults.features, clientTools: 'supported' } };
   const plan = planSave(project(files), [
-    { kind: 'provider', of: 'house', before: HOUSE, after: { ...HOUSE, capabilities: after } },
+    {
+      kind: 'provider',
+      of: 'house',
+      before: HOUSE,
+      after: { ...HOUSE, support: { capabilities: after } },
+    },
   ]);
   assertEquals(
     plan.changes.map((change) => `${change.setting}: ${change.status}`),
-    ['capabilities.features.clientTools: written'],
+    ['support.capabilities.features.clientTools: written'],
   );
   assertEquals(
     applyEdits(source, plan.edits),
@@ -830,7 +877,7 @@ Deno.test('an adapter called with more than what it is told keeps its factory', 
     {
       kind: 'provider',
       of: 'house',
-      before: { ...HOUSE, capabilities: SUPPORT },
+      before: { ...HOUSE, support: { capabilities: SUPPORT } },
       after: { ...HOUSE, adapter: 'google' },
     },
   ]);
@@ -858,14 +905,14 @@ export const other = defineProvider({ id: 'other', adapter: shared });
     {
       kind: 'provider',
       of: 'house',
-      before: { adapter: 'openai-chat', capabilities: SUPPORT },
-      after: { adapter: 'openai-chat', capabilities: TOOLS },
+      before: { adapter: 'openai-chat', support: { capabilities: SUPPORT } },
+      after: { adapter: 'openai-chat', support: { capabilities: TOOLS } },
     },
   ]);
   assertEquals(plan.edits, []);
   assertEquals(
     plan.changes.map(({ setting, status, sharedWith }) => ({ setting, status, sharedWith })),
-    [{ setting: 'capabilities', status: 'constant', sharedWith: ['other'] }],
+    [{ setting: 'support', status: 'constant', sharedWith: ['other'] }],
   );
 });
 

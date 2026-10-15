@@ -68,7 +68,7 @@ function literal(value: unknown, depth: number, style: SourceStyle = STUDIO_STYL
     const entries = Object.entries(value).filter(([, item]) => item !== undefined);
     if (!entries.length) return '{}';
     const lines = entries.map(
-      ([key, item]) => `${pad}${keySource(key)}: ${literal(item, depth + 1, style)},`,
+      ([key, item]) => `${pad}${keySource(key, style.quote)}: ${literal(item, depth + 1, style)},`,
     );
     return `{\n${lines.join('\n')}\n${close}}`;
   }
@@ -170,8 +170,8 @@ function providerOptions(provider: StudioProvider, factory: string): string {
   const slots = (['keySlot', 'fallbackKeySlot'] as const).flatMap((slot) =>
     provider[slot] === undefined ? [] : [`  ${slot}: ${quoteSource(provider[slot])},\n`]
   );
-  // An adapter the provider tells what its models support is called with it.
-  const told = provider.capabilities ? literal({ capabilities: provider.capabilities }, 1) : '';
+  // An adapter the provider tells what its models take is called with it.
+  const told = provider.support ? literal(provider.support, 1) : '';
   return `{\n  id: ${quoteSource(provider.id)},\n  connection: ${connection},\n${slots.join('')}  adapter: ${factory}(${told}),\n}`;
 }
 

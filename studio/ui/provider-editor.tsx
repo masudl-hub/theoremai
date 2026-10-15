@@ -1,30 +1,24 @@
 import { Section } from '@astryxdesign/core/Section';
-import { IconCheck, IconQuestionMark, IconX } from '@tabler/icons-react';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
 	connectionFields,
-	declaresSupport,
 	kernelAdapters,
-	providerSupport,
 	providerUse,
 	type StudioIssue,
 	type StudioProvider,
 	type StudioWorkspace,
-	type SupportFeatures,
-	withSupport,
 } from '../mod.ts';
 import { NodeIssues } from './inspector-context.ts';
 import {
 	ChoiceRow,
 	InspectorRow,
 	InspectorSection,
-	type Segment,
-	SegmentedRow,
 	SetInCode,
 	TextRow,
 } from './inspector.tsx';
 import { IssueBanners, SlotRow } from './profile-editor.tsx';
+import { SupportSection } from './support-rows.tsx';
 
 /** A connection setting's name as a row labels it: `baseURL` is Base URL. */
 function settingLabel(name: string): string {
@@ -60,75 +54,8 @@ function withConnection(provider: StudioProvider, name: string, value: string): 
 function withAdapter(provider: StudioProvider, adapter: string): StudioProvider {
 	const takes = new Set(connectionFields(adapter)?.map((field) => field.name));
 	const kept = Object.entries(provider.connection ?? {}).filter(([name]) => takes.has(name));
-	const { capabilities: _told, ...rest } = provider;
+	const { support: _told, ...rest } = provider;
 	return { ...rest, adapter, connection: Object.fromEntries(kept) };
-}
-
-type Support = SupportFeatures[keyof SupportFeatures];
-
-/** What a model can be said to take, in the order a turn asks for it. */
-const FEATURES: ReadonlyArray<[keyof SupportFeatures, string]> = [
-	['clientTools', 'Tools'],
-	['parallelTools', 'Parallel tools'],
-	['structuredOutput', 'Structured output'],
-	['thinking', 'Thinking'],
-	['summaries', 'Summaries'],
-];
-
-const SUPPORT: readonly Segment<Support>[] = [
-	{ value: 'supported', label: 'Supported', icon: IconCheck },
-	{ value: 'unknown', label: 'Unknown', icon: IconQuestionMark },
-	{ value: 'unsupported', label: 'Unsupported', icon: IconX },
-];
-
-/**
- * What the provider's models take. An adapter that is told shows a row for each, set where the
- * adapter is made; one that knows each model's own support, or the project's own, says so.
- */
-function SupportSection({
-	provider,
-	onChange,
-}: {
-	provider: StudioProvider;
-	onChange: (next: StudioProvider) => void;
-}) {
-	const support = providerSupport(provider);
-	if (!connectionFields(provider.adapter)) {
-		return (
-			<InspectorSection
-				title="Supports"
-				note="Its adapter is the project's own, so what its models take is the adapter's to say."
-			>
-				{null}
-			</InspectorSection>
-		);
-	}
-	if (!declaresSupport(provider.adapter) || !support) {
-		return (
-			<InspectorSection title="Supports" note="Its adapter knows what each model takes.">
-				{null}
-			</InspectorSection>
-		);
-	}
-	return (
-		<InspectorSection
-			title="Supports"
-			note="What its models take. A model runs a turn only when what the turn uses is marked Supported."
-		>
-			{FEATURES.map(([feature, label]) => (
-				<SegmentedRow
-					key={feature}
-					label={label}
-					path={`capabilities.features.${feature}`}
-					value={support.features[feature]}
-					segments={SUPPORT}
-					onChange={(next) => {
-						onChange(withSupport(provider, { [feature]: next }));
-					}}
-				/>
-			))}
-		</InspectorSection>
-	);
 }
 
 /**
@@ -206,7 +133,7 @@ export function ProviderEditor({
 				</InspectorSection>
 			)}
 			{/* The studio's own say only what they are told: rows of defaults would say more than the studio knows. */}
-			{(onChange || provider.capabilities) && <SupportSection provider={provider} onChange={set} />}
+			{(onChange || provider.support) && <SupportSection provider={provider} onChange={set} />}
 		</>
 	);
 	return (

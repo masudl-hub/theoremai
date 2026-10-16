@@ -16,8 +16,11 @@ const TOOL_KINDS = ['function', 'http', 'mcp', 'agent'] as const;
 /** One of {@linkcode TOOL_KINDS}. */
 type ToolKind = (typeof TOOL_KINDS)[number];
 
-/** The three places a tool's text crosses: what the model sends, what comes back, and its error text. */
-const TOOL_CROSSINGS = ['tool_arguments', 'tool_output', 'tool_failure'] as const;
+/**
+ * The places a tool's text crosses: what the model sends, what comes back to it, its error text,
+ * and what the call shows the person (its output, error, artifacts and trace on the turn's events).
+ */
+const TOOL_CROSSINGS = ['tool_arguments', 'tool_output', 'tool_failure', 'tool_shown'] as const;
 /** One of {@linkcode TOOL_CROSSINGS}. */
 type ToolCrossing = (typeof TOOL_CROSSINGS)[number];
 
@@ -89,6 +92,10 @@ const TOOL_CROSSING_META: Readonly<Record<ToolCrossing, (kind: string) => Bounda
   tool_failure: (kind) => ({
     label: `Errors from ${kind} tools`,
     doc: `The error text of a tool of type ${kind} that failed.`,
+  }),
+  tool_shown: (kind) => ({
+    label: `Shown from ${kind} tools`,
+    doc: `What a call to a tool of type ${kind} shows the person: its output, error, artifacts and trace.`,
   }),
 };
 

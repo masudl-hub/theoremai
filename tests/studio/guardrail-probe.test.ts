@@ -76,7 +76,8 @@ Deno.test('history and the host system text are guarded at their own stages', as
 
 Deno.test('a local tool result is redacted; a remote one is fenced and read for directives', async () => {
   const local = await probe('tool_result_local', KEY);
-  assertEquals(rules(local), ['tool_result/detect.credentials']);
+  // why: Once for what the model reads back, once for what the person is shown.
+  assertEquals(rules(local), ['tool_result/detect.credentials', 'tool_result/detect.credentials']);
   assertEquals(local.passed?.includes(TEST_OPENAI_KEY), false);
   assertEquals((await probe('tool_result_local', STEER)).status, 'passed');
 

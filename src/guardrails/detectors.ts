@@ -248,13 +248,18 @@ interface DetectorDeclaration extends DetectMeta {
 }
 
 const TOOL_ARGUMENT_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_arguments', kind));
+const TOOL_SHOWN_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_shown', kind));
 
-/** Text on its way to the model is redacted, a tool call takes `toTool`, and what the model writes is not read. */
+/**
+ * Text on its way to the model is redacted, a tool call takes `toTool`, and what the model writes
+ * or a tool shows the person is not read.
+ */
 function everywhere(toTool: DetectAction): BoundaryActions {
   return {
     ...recordOf(INBOUND_BOUNDARIES, () => 'redact' as const),
     ...recordOf(TOOL_BOUNDARIES, () => 'redact' as const),
     ...recordOf(TOOL_ARGUMENT_BOUNDARIES, () => toTool),
+    ...recordOf(TOOL_SHOWN_BOUNDARIES, () => 'ignore' as const),
     ...recordOf(OUTBOUND_BOUNDARIES, () => 'ignore' as const),
   };
 }
@@ -316,9 +321,14 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
     doc: 'API keys, tokens, passwords and private keys.',
     group: 'data',
     // why: A key the model was handed (in its instructions or a tool's output) is a key the person
-    // reading the reply should not get; the reply keeps the rest. A thought and a Live reply stay
-    // unread, so neither holds its stream nor turns transcription on for every turn.
-    defaults: { ...everywhere('flag'), reply: 'redact', reply_structured: 'redact' },
+    // reading the reply should not get, nor one a tool returned; the rest still shows. A thought and
+    // a Live reply stay unread, so neither holds its stream nor turns transcription on for every turn.
+    defaults: {
+      ...everywhere('flag'),
+      ...recordOf(TOOL_SHOWN_BOUNDARIES, () => 'redact' as const),
+      reply: 'redact',
+      reply_structured: 'redact',
+    },
     patterns: true,
   },
   injection: {

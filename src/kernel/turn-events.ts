@@ -663,8 +663,9 @@ export interface ToolCallEdit {
  * - `draft` — the next piece of what the tool is writing, for a preview, each piece read at
  *   `tool_output_<kind>` first (an agent tool's: its agent's reply). Sent only under
  *   `outputs.streaming.mode` `sse`. The model never reads it: it reads `complete`'s output.
- * - `complete` — `output`; `awaiting` when it asked the user something; `parts` for the
- *   media it returned beside its output (images, audio);
+ * - `complete` — `output`, as the person is shown it (read at `tool_shown_<kind>`); `awaiting`
+ *   when it asked the user something; `parts` for the media it returned beside its output
+ *   (images, audio);
  *   `readBack` is the text the model reads back, after guardrails;
  *   `activityPast` is the tool's past activity label filled from its input and output, or its
  *   failed label when a `post_tool` handler asked for it (`labelFailed`).

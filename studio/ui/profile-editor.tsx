@@ -3321,6 +3321,7 @@ const TOOL_CROSSINGS: { title: string; boundary: (kind: ToolKind) => Boundary }[
 	{ title: 'Tool arguments', boundary: (kind) => `tool_arguments_${kind}` },
 	{ title: 'Tool output', boundary: (kind) => `tool_output_${kind}` },
 	{ title: 'Tool errors', boundary: (kind) => `tool_failure_${kind}` },
+	{ title: 'Shown from tools', boundary: (kind) => `tool_shown_${kind}` },
 ];
 const TOOL_BOUNDARY_SET: ReadonlySet<Boundary> = new Set(TOOL_BOUNDARIES);
 

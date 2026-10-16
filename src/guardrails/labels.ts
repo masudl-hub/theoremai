@@ -101,6 +101,7 @@ export const LABEL_KEYS = [
   'detect.blocked',
   'detect.call_blocked',
   'detect.output_blocked',
+  'detect.shown_blocked',
   'detect.hint.ids',
   'detect.hint.financial',
   'detect.hint.network',
@@ -462,6 +463,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
     'This call was not made: its arguments held content this agent may not send to a tool.',
   'detect.output_blocked':
     "The tool's output was withheld: it held content this agent may not read.",
+  'detect.shown_blocked': 'This result is not shown: it held content this agent may not show.',
   'egress.refusal': "Sorry, that reply couldn't be shared.",
   'egress.refusal_cut': "—sorry, this reply couldn't be continued.",
   'egress.rejection': 'The reply was stopped for what it held.\n{found}',
@@ -712,6 +714,8 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     'Told to the model in place of a tool call a detector set to block stopped at its arguments.',
   'detect.output_blocked':
     "Told to the model in place of a tool's output or error text that a detector set to block matched.",
+  'detect.shown_blocked':
+    "Shown to the person in place of a tool's output, error, artifact or trace that a detector set to block matched at its `tool_shown` boundary.",
   'egress.default_repair_guidance':
     'Sent to the model, under the rejection, when a detector blocks a reply and the model is asked to write it again.',
   'detect.hint.ids':

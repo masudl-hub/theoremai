@@ -772,7 +772,7 @@ looks, and what it does: a detector, a boundary, an action.
 | --- | --- |
 | `DETECTORS` | `ids`, `financial`, `network`, `credentials` (the `SENSITIVE_GROUPS`), `injection`, `tool_instructions`, and what is the profile's own on its way out: `canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`, `ungiven_links`, `tool_leak`; `DETECTOR_META` is each one's `DetectorDeclaration`: label, what it finds, its group (`DETECTOR_GROUPS`) and its default action at each boundary it applies at (`DETECTOR_BOUNDARIES`) |
 | `BOUNDARIES` | Every place the kernel reads text as it crosses; `BOUNDARY_META` labels each |
-| `TOOL_BOUNDARIES` | The tool boundaries: `toolBoundary(crossing, kind)` for `tool_arguments`, `tool_output` and `tool_failure`, for each of `TOOL_KINDS` |
+| `TOOL_BOUNDARIES` | The tool boundaries: `toolBoundary(crossing, kind)` for `tool_arguments`, `tool_output`, `tool_failure` and `tool_shown`, for each of `TOOL_KINDS` |
 | `recordOf` | One value for each of a list of keys, by key: `recordOf(BOUNDARIES, () => 'ignore')` |
 | `DETECT_ACTIONS` | `ignore`, `flag`, `redact`, `block`; `DETECT_ACTION_META` labels each |
 | `DETECT_DEFAULTS` | The action of every detector at every boundary when the profile sets none |
@@ -795,6 +795,7 @@ looks, and what it does: a detector, a boundary, an action.
 | `tool_arguments_<kind>` | What the model sends to a tool of that type |
 | `tool_output_<kind>` | What a tool of that type returns, and each `progress` and `draft` its handler sends before that (an HTTP tool's body, piece by piece, as drafts) |
 | `tool_failure_<kind>` | The error text of a tool of that type that failed |
+| `tool_shown_<kind>` | What a call to a tool of that type shows the person on the turn's events: the `complete` event's `output` and `activityPast`, the `error` event's message, and each `artifact` and `trace` |
 | `reply` | The text the model says to the person |
 | `reply_structured` | The structured output the model returns |
 | `live_reply` | What the model says in a Live session |
@@ -966,6 +967,7 @@ profile lists them. `interfaceFromProfile` reports them as `guardrails.host`:
 | `tool_output_function`, `tool_failure_function` | `redact` | `redact` | `ignore` |
 | `tool_output_*`, `tool_failure_*` of `http`, `mcp`, `agent` | `redact` | `redact` | `flag` |
 | `tool_arguments_*` | `flag` | `ignore` | — |
+| `tool_shown_*` | `ignore`; `credentials` `redact` | `ignore` | — |
 | `reply`, `reply_structured` | `ignore`; `credentials` `redact` | `ignore` | — |
 | `live_reply`, `thought` | `ignore` | `ignore` | — |
 
@@ -1000,6 +1002,7 @@ detectors match one text, the strongest action is the one taken: `block`, then
 | `tool_arguments_<kind>` | The tool is not called; the model is told so (`arguments_blocked`, labels `detect.call_blocked`) |
 | `tool_output_<kind>` | The model does not read the output; the call settles as failed (`output_blocked`, labels `detect.output_blocked`) |
 | `tool_failure_<kind>` | The model reads labels `detect.output_blocked` in place of the tool's message |
+| `tool_shown_<kind>` | The person is shown labels `detect.shown_blocked` in place of the output or error message; an `artifact` or `trace` is not sent. What the model reads is unchanged |
 
 | `reply` | The reply stops before the match. It then goes the way `blockedReply` sets: the model is asked again, the person reads the refusal, or the turn ends withheld |
 | `reply_structured` | The structured output is not sent on; the reply goes the same way |
@@ -1240,6 +1243,17 @@ any other: a `tool_result`-stage event naming the boundary, timed on the tool's
 span as the `tool_failure` check. Rebuilding a failure the model already read
 (history, a live replay) has no profile in hand, so every detector's matches
 are replaced, without reporting it twice.
+
+**What the person is shown.** A call's `complete` and `error` events, and its
+`artifact` and `trace` events, reach the host apart from what the model reads
+back, and a host's server forwards them to the browser as they are. Each is read
+at `tool_shown_<kind>` (`guardShownValue`): a JSON value has each match replaced
+in the string it sits in, and a match in a key or across values blocks it.
+`readBack` is settled at `tool_output_<kind>` before and is never changed by
+`tool_shown_<kind>`, so a host tightening what the person sees never changes what
+the model read or what history replays. The settlement handed to the host's own
+code (`outputRaw`) is the handler's output, unread. `progress` and `draft` are
+still read at `tool_output_<kind>`, and a call's media `parts` are not read.
 
 **Arguments.** Arguments are model-authored, so the risk is exfiltration — a
 credential lifted from context and posted outward as a parameter.

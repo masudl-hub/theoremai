@@ -40,32 +40,26 @@ interface ReplyRead {
 
 type Found = Pick<Detection, 'action' | 'hits'>;
 
-/** The structured output with each match in a string replaced, or what stops it crossing. */
-function readStructured(
-  structured: unknown,
+/** A JSON value read at `boundary`, with each match in a string replaced, or what stops it crossing. */
+function readValue(
+  value: unknown,
+  boundary: Boundary,
   detect: ResolvedDetect,
-  scope: DetectScope,
+  scope: DetectScope = {},
 ): Found & { value?: unknown } {
-  if (!detectReads(['reply_structured'], detect)) {
-    return { action: 'allow', hits: [], value: structured };
-  }
-  const scan = textForScan(structured);
+  if (!detectReads([boundary], detect)) return { action: 'allow', hits: [], value };
+  const scan = textForScan(value);
   if (scan.unscannable) {
     // why: Cannot inspect it, so cannot vouch for it. Fail closed.
     return { action: 'block', hits: [{ rule: EGRESS_RULES.unscannable, severity: 'high' }] };
   }
-  const found = detectAt(scan.text, 'reply_structured', detect, scope);
-  if (found.action !== 'redact') {
-    return { action: found.action, hits: found.hits, value: structured };
-  }
-  const value = mapStrings(
-    structured,
-    (leaf) => detectAt(leaf, 'reply_structured', detect, scope).text ?? '',
-  );
-  const left = detectAt(textForScan(value).text, 'reply_structured', detect, scope).action;
+  const found = detectAt(scan.text, boundary, detect, scope);
+  if (found.action !== 'redact') return { action: found.action, hits: found.hits, value };
+  const redacted = mapStrings(value, (leaf) => detectAt(leaf, boundary, detect, scope).text ?? '');
+  const left = detectAt(textForScan(redacted).text, boundary, detect, scope).action;
   // why: A match in a key, or one that runs across values, has no string to replace: it does not cross.
   if (left === 'redact' || left === 'block') return { action: 'block', hits: found.hits };
-  return { action: 'redact', hits: found.hits, value };
+  return { action: 'redact', hits: found.hits, value: redacted };
 }
 
 /**
@@ -88,7 +82,7 @@ function readReply(
   const structured =
     written.structured === undefined
       ? undefined
-      : readStructured(written.structured, detect, scope);
+      : readValue(written.structured, 'reply_structured', detect, scope);
   const flagged =
     reportedTo >= written.text.length
       ? []
@@ -146,4 +140,4 @@ function refusalAfter(shown: string, labels?: LabelOverrides): string {
 }
 
 export type { ReplyRead };
-export { readReply, refusalAfter, replyAfter, standingBlock, TURN_REPLY };
+export { readReply, readValue, refusalAfter, replyAfter, standingBlock, TURN_REPLY };

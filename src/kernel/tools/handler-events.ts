@@ -4,7 +4,7 @@ import {
   DraftReader,
   type ProgressiveYieldGate,
 } from '../../guardrails/progressive-yield.ts';
-import { guardToolResult } from '../../guardrails/tool-result.ts';
+import { guardShownValue, guardToolResult } from '../../guardrails/tool-result.ts';
 import type { Provenance, ResolvedGuardrailPolicy } from '../../guardrails/types.ts';
 import type { TurnEvent } from '../types.ts';
 import { type ToolCallBase, toolEvent } from './events.ts';
@@ -35,6 +35,8 @@ export interface HandlerEventChecks {
   policy: ResolvedGuardrailPolicy;
   /** `tool_output_<kind>`. */
   boundary: ToolBoundary;
+  /** `tool_shown_<kind>`: what its artifacts and trace are read at. */
+  shown: ToolBoundary;
   callableTools: readonly string[];
   /** Whether the host sees the handler's drafts (`outputs.streaming.mode` `sse`). */
   drafts: boolean;
@@ -63,6 +65,22 @@ export class HandlerEvents {
       return;
     }
     if (event.kind === 'progress' && (yield* this.progressStops(event.data))) return;
+    if (event.kind === 'artifact') {
+      const artifact = yield* this.shown(event.artifact);
+      if (artifact.shown)
+        yield* yieldHandlerSideEvent(this.base, { ...event, artifact: artifact.value });
+      return;
+    }
+    if (event.kind === 'trace') {
+      const step = yield* this.shown(event.step);
+      if (step.shown) {
+        yield* yieldHandlerSideEvent(this.base, {
+          ...event,
+          step: step.value as typeof event.step,
+        });
+      }
+      return;
+    }
     yield* yieldHandlerSideEvent(this.base, event);
   }
 
@@ -75,6 +93,15 @@ export class HandlerEvents {
   private async *draft(piece: string): AsyncGenerator<TurnEvent> {
     const text = await this.drafts?.read(piece);
     if (text) yield toolEvent(this.base, { phase: 'draft', text });
+  }
+
+  /** `value` as the person is shown it, read at `tool_shown_<kind>`; one a match blocks is not sent. */
+  private *shown(value: unknown): Generator<TurnEvent, { shown: boolean; value?: unknown }> {
+    const { checks } = this;
+    if (!checks) return { shown: true, value };
+    const read = guardShownValue(value, checks.provenance, checks.policy, checks.shown);
+    if (read.event) yield { type: 'guardrail', guardrail: read.event };
+    return 'value' in read ? { shown: true, value: read.value } : { shown: false };
   }
 
   /** Whether a check at the output's boundary stops `data`; a flag lets it through unreported. */

@@ -7,6 +7,7 @@ import {
   detectEvent,
   detectReads,
 } from './detect-at.ts';
+import { readValue } from './detect-reply.ts';
 import type { ResolvedDetect } from './detectors.ts';
 import { type LabelOverrides, labelText } from './labels.ts';
 import { DETECT_RULES, EGRESS_RULES, TOOL_RULES } from './rules.ts';
@@ -214,6 +215,34 @@ function guardToolFailureText(
   };
 }
 
+/** What a call shows the person of one value, after it was read at `tool_shown_<kind>`. */
+export interface ShownToolValue {
+  /** The value to show: every match set to `redact` replaced. Absent when a match blocks it. */
+  value?: unknown;
+  event?: GuardrailEvent;
+}
+
+/**
+ * A call's output, error, artifacts and trace reach the person on the turn's events, apart from
+ * what the model read back: the host's server forwards them to the browser as they are. Each is
+ * read here at `tool_shown_<kind>`, so a key a tool returned is not shown. `readBack` is
+ * untouched: what the model read is settled at `tool_output_<kind>`.
+ */
+function guardShownValue(
+  value: unknown,
+  provenance: Provenance,
+  policy: ResolvedGuardrailPolicy,
+  boundary: ToolBoundary | undefined,
+): ShownToolValue {
+  if (!boundary || value === undefined) return { value };
+  const found = readValue(value, boundary, policy.detect);
+  const event = detectEvent(boundary, found, provenance);
+  return {
+    ...(found.action === 'block' ? {} : { value: found.value }),
+    ...(event ? { event } : {}),
+  };
+}
+
 /** A tool call's arguments after they were read at their boundary. */
 export interface InspectedToolArguments {
   /** The arguments to call the tool with. Absent when a match blocks: the tool is not called. */
@@ -363,6 +392,7 @@ function checkTaintGate(
 export {
   checkTaintGate,
   composeToolText,
+  guardShownValue,
   guardToolFailureText,
   guardToolResult,
   inspectToolArguments,

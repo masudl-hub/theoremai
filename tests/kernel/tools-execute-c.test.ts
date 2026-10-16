@@ -1404,7 +1404,8 @@ Deno.test('a failure message is redacted by default, and follows the profile whe
   check(leakedText.includes(TEST_OPENAI_KEY), false, 'key removed');
   check(
     eventsOf(leaked.events, 'guardrail').map((e) => e.guardrail.hits.map((h) => h.rule)),
-    [['detect.credentials']],
+    // why: Once for what the model reads back, once for what the person is shown.
+    [['detect.credentials'], ['detect.credentials']],
     'key event',
   );
   const ignored = await run({

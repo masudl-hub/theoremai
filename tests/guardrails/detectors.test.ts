@@ -52,12 +52,12 @@ function where(
   return BOUNDARIES.filter((boundary) => resolved[boundary] === action);
 }
 
-Deno.test('every boundary is named once, and each kind of tool has its three', () => {
+Deno.test('every boundary is named once, and each kind of tool has its four', () => {
   assertEquals(new Set(BOUNDARIES).size, BOUNDARIES.length);
-  assertEquals(BOUNDARIES.length, 26);
-  assertEquals(TOOL_BOUNDARIES.length, 12);
+  assertEquals(BOUNDARIES.length, 30);
+  assertEquals(TOOL_BOUNDARIES.length, 16);
   for (const kind of ['function', 'http', 'mcp', 'agent']) {
-    for (const crossing of ['tool_arguments', 'tool_output', 'tool_failure']) {
+    for (const crossing of ['tool_arguments', 'tool_output', 'tool_failure', 'tool_shown']) {
       ok(TOOL_BOUNDARIES.some((boundary) => boundary === `${crossing}_${kind}`));
     }
   }
@@ -114,7 +114,9 @@ Deno.test('a marker or an ungiven image stops the reply by default, and a link i
 });
 
 Deno.test('tool_instructions reads what a tool returns: flagged from a remote tool, not read from a function', () => {
-  const returned = TOOL_BOUNDARIES.filter((boundary) => !boundary.startsWith('tool_arguments_'));
+  const returned = TOOL_BOUNDARIES.filter(
+    (boundary) => boundary.startsWith('tool_output_') || boundary.startsWith('tool_failure_'),
+  );
   assertEquals(DETECTOR_BOUNDARIES.tool_instructions, returned);
   assertEquals(
     where(undefined, 'tool_instructions', 'flag'),
@@ -124,6 +126,9 @@ Deno.test('tool_instructions reads what a tool returns: flagged from a remote to
 });
 
 Deno.test('a credential is redacted from a reply by default, and not read in a thought or a Live reply', () => {
+  for (const boundary of TOOL_BOUNDARIES.filter((b) => b.startsWith('tool_shown_'))) {
+    assertEquals(DETECT_DEFAULTS.credentials[boundary], 'redact');
+  }
   assertEquals(where(undefined, 'credentials', 'redact').includes('reply'), true);
   assertEquals(where(undefined, 'credentials', 'redact').includes('reply_structured'), true);
   assertEquals(where(undefined, 'credentials', 'ignore').includes('thought'), true);

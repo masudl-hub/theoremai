@@ -513,6 +513,8 @@ for that call, after guardrails. History replays it (`appendToolExchangeToHistor
 so a continued turn sends the provider exactly what `runTurn` / `invokeTool` sent,
 and a live session sends Gemini the same text. Replaying a settled call without
 one throws.
+Its `output` (and an `error`'s message) is what the person is shown, read at
+`tool_shown_<kind>` apart from `readBack`; neither read changes the other.
 
 ### Kernel scope
 

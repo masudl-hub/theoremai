@@ -6,6 +6,7 @@ import { type LabelOverrides, labelText } from '../../guardrails/labels.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import {
   checkTaintGate,
+  guardShownValue,
   guardToolFailureText,
   guardToolResult,
   inspectToolArguments,
@@ -337,6 +338,8 @@ interface ResultGuard {
   failure: (failure: ToolFailure) => Generator<TurnEvent, GuardedResult>;
   /** What the handler's events are read against before its output; `drafts`: whether the host sees its drafts. */
   handlerEvents: (drafts: boolean) => HandlerEventChecks | undefined;
+  /** What the person is shown of a value the call settles with, apart from what the model reads. */
+  shown: (value: unknown) => Generator<TurnEvent, unknown>;
 }
 
 /** What the model reads back from a call. */
@@ -488,10 +491,14 @@ async function* settleToolCall(args: {
 
   if (!failure && sources) yield* sourceEvents(base, sources, outputRaw);
   yield failure
-    ? failureEvent(base, failure, formatToolResult(modelResult))
+    ? failureEvent(
+        base,
+        { ...failure, message: String(yield* guard.shown(failure.message)) },
+        formatToolResult(modelResult),
+      )
     : completeEvent(base, {
         input,
-        outputRaw,
+        outputRaw: yield* guard.shown(outputRaw),
         modelResult,
         labels: args.labels,
         ...(post?.labelFailed ? { labelFailed: true as const } : {}),
@@ -569,15 +576,18 @@ function resultGuard(
       provenance,
       policy,
       boundary: toolBoundary('tool_output', kind),
+      shown: toolBoundary('tool_shown', kind),
       callableTools,
       drafts,
     };
+  const shown = (value: unknown) => showValue(value, inputs);
   const service = isGateResumeGranted(ctx.resume) ? signInService(tool, ctx.resume) : undefined;
   if (!service) {
     return {
       result: (result) => guardResult(result, inputs),
       failure: (failure) => guardFailure(failure, inputs),
       handlerEvents,
+      shown,
     };
   }
   const note = labelText('sign_in.done', { service }, ctx.profile.labels);
@@ -585,6 +595,7 @@ function resultGuard(
     result: (result) => afterSignIn(note, guardResult(result, inputs)),
     failure: (failure) => afterSignIn(note, guardFailure(failure, inputs)),
     handlerEvents,
+    shown,
   };
 }
 
@@ -1700,6 +1711,14 @@ function* guardResult(
     message: labelText('detect.output_blocked', {}, guard.labels),
   };
   return { modelResult: yield* reportFailure(withheld, guard), withheld };
+}
+
+/** What the person is shown of `value`, read at `tool_shown_<kind>`; a blocked one is the labels' words. */
+function* showValue(value: unknown, guard: GuardInputs): Generator<TurnEvent, unknown> {
+  const boundary = guard.kind && toolBoundary('tool_shown', guard.kind);
+  const shown = guardShownValue(value, guard.provenance, guard.policy, boundary);
+  if (shown.event) yield { type: 'guardrail', guardrail: shown.event };
+  return 'value' in shown ? shown.value : labelText('detect.shown_blocked', {}, guard.labels);
 }
 
 /** What the model reads of `result`, or `undefined` when a match at `boundary` blocks it. */

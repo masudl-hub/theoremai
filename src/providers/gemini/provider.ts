@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { labelText } from '../../guardrails/labels.ts';
 import {
   defineProvider,
   endpointUrlSchema,
@@ -17,9 +18,15 @@ export const geminiProvider = defineProvider({
   traceName: 'gcp.gemini',
   connection: z
     .strictObject({
-      host: endpointUrlSchema.optional().describe(
-        'The API host, by default https://generativelanguage.googleapis.com. Live connects to the same host over wss.', // labels-exempt: builder field description, read by the studio and docs
-      ),
+      host: endpointUrlSchema
+        .refine((value) => {
+          const url = new URL(value);
+          return url.pathname === '/' && !url.search && !url.hash;
+        }, labelText('protocol.endpoint_host'))
+        .optional()
+        .describe(
+          'The API host, by default https://generativelanguage.googleapis.com. Live connects to the same host over wss.', // labels-exempt: builder field description, read by the studio and docs
+        ),
     })
     .default({}),
   key: z.string().trim().min(1),

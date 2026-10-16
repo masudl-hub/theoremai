@@ -218,4 +218,13 @@ Deno.test('Gemini signs Interactions with its key header and Live with the key i
     registry.require('proxied', 'm').serves.map((serve) => serve.baseUrl),
     ['https://gemini.gateway.test/v1beta', 'wss://gemini.gateway.test/ws'],
   );
+  assertThrows(
+    () =>
+      registry.register(geminiProvider, {
+        id: 'pathed',
+        connection: { host: 'https://gateway.test/gemini' },
+      }),
+    TheoremError,
+    'no path or query',
+  );
 });

@@ -198,6 +198,7 @@ export const LABEL_KEYS = [
   'protocol.no_key',
   'protocol.reply_shape',
   'protocol.endpoint_url',
+  'protocol.endpoint_host',
   'protocol.http',
   'protocol.no_operation',
   'protocol.definition',
@@ -314,6 +315,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'protocol.reply_shape': "Protocol '{protocol}' got a reply it cannot read: {issues}",
   'protocol.endpoint_url':
     'An endpoint must use HTTP and hold no credentials; keys go in the vault',
+  'protocol.endpoint_host': 'A host is a scheme and a name only, with no path or query',
   'protocol.http': "Provider '{provider}' answered with status {status}",
   'protocol.no_operation': "Protocol '{protocol}' has no '{operation}' operation",
   'protocol.definition': "Protocol or provider '{id}' is defined wrongly: {issues}",
@@ -564,6 +566,7 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'protocol.no_key': 'Protocol and provider check. Takes {provider}.',
   'protocol.reply_shape': 'Protocol and provider check. Takes {protocol}, {issues}.',
   'protocol.endpoint_url': 'Protocol and provider check, on a connection URL.',
+  'protocol.endpoint_host': 'Provider connection check, for a field that takes a host only.',
   'protocol.http': 'Protocol and provider check. Takes {provider}, {status}.',
   'protocol.no_operation': 'Protocol and provider check. Takes {protocol}, {operation}.',
   'protocol.definition': 'Protocol and provider check. Takes {id}, {issues}.',

@@ -3,7 +3,8 @@ import type { PriceTable } from '../../kernel/protocols/prices.ts';
 /* probed 2026-10-15: https://ai.google.dev/gemini-api/docs/pricing, paid tier, US dollars per
  * million tokens. The Gemini API reports no cost. gemini-3.8-flash rises to $1.50 input and $7.50
  * output on 2027-01-01. Cached input is one rate here, so gemini-3.1-flash-lite's cached audio
- * ($0.05) is billed at its cached text rate. Gemma models list no paid price.
+ * ($0.05) is billed at its cached text rate. Gemma, gemini-3.7-flash and gemini-3.5-flash list no paid price;
+ * gemini-2.5-flash-image's output is all image, $30 per million tokens.
  */
 
 const live = {
@@ -61,5 +62,6 @@ export const geminiPrices: PriceTable = {
       byModality: { input: { audio: 0.3 } },
     },
     'gemini-2.5-flash-preview-tts': { input: 0.5, output: 10 },
+    'gemini-2.5-flash-image': { input: 0.3, output: 30 },
   },
 };
